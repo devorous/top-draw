@@ -54,11 +54,12 @@ class Chat extends Component {
   //A: cuando recibimos un mensaje lo agregamos a la lista, y asi se redibuja la UI
   
   enviar() {
-    var apodo= this.apodo_el.value || 'anonimo';
-    var msj= this.mensaje_el.value;
+    var apodo= this.state.apodo || 'anonimo';
+    var msj= this.state.mensaje;
     if (!msj) { alert("Escribi un mensaje!") }
     else {
       ws.send(JSON.stringify({de: apodo, texto: msj}));
+      this.setState({ mensaje: '' });
     }
   }
 
@@ -66,12 +67,16 @@ class Chat extends Component {
     return h('div',{},
         h('div',{},
           h('span',{},"Apodo:"),
-          h('input',{ onInput: e => this.setState({ apodo: e.target.value }), value: this.state.apodo }),
+          h('input',{ onInput: e => { this.setState({ apodo: e.target.value })}, value: this.state.apodo }),
         ),
         h(Mensajes, {mensajes: state.mensajes}),
         h('div',{},
           h('span',{},"Mensaje:"),
-          h('input',{ref: e => (this.mensaje_el=e)}),
+          h('input',{
+            onInput: e => { this.setState({ mensaje: e.target.value })}, 
+            value: this.state.mensaje,
+            onKeyUp: e => { if (e.key=="Enter") { this.enviar() } } 
+          }),
         ),
         h('div',{},
           h('button',{onClick: e => this.enviar()}, "Enviar")
