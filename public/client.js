@@ -7,11 +7,19 @@ ws= new WebSocket(proto_ws+"://"+window.location.hostname);
 ws.onmessage= m => console.log("WS LLEGO",m) 
 
 ws.onopen= () => {
-ws.send(JSON.stringify({m: "anonimo", texto: "hola!"}));
+ws.send(JSON.stringify({de: "anonimo", texto: "hola!"}));
 console.log("WS listo, envia con ws.send('mi mensaje')");
 }
 
 function enviar(msg) {
+}
+
+//========================================================
+function inventarApodo() {
+  return Array(3).fill('_').map( x => (
+  String.fromCharCode("a".charCodeAt(0)+Math.floor(25*Math.random())) +
+  "aeiou"[Math.floor(Math.random()*5)]
+  )).join('');
 }
 
 //========================================================
@@ -21,7 +29,7 @@ Mensajes= (props,state) =>
   h('div', {},
         props.mensajes.map(m => 
           h('div', {},
-            h('span',{style: "display: inline-block; width: 15em"},m.de),
+            h('span',{style: "display: inline-block; width: 5em"},m.de),
             h(':'),
             h('span',{},m.texto)
           )
@@ -30,6 +38,7 @@ Mensajes= (props,state) =>
 
 class Chat extends Component {
   state= {
+    apodo: inventarApodo(),
     mensajes: [],
   }
   apodo_el= null; //U: el elemento donde esta el apodo
@@ -57,7 +66,7 @@ class Chat extends Component {
     return h('div',{},
         h('div',{},
           h('span',{},"Apodo:"),
-          h('input',{ ref: e => (this.apodo_el=e) }),
+          h('input',{ onInput: e => this.setState({ apodo: e.target.value }), value: this.state.apodo }),
         ),
         h(Mensajes, {mensajes: state.mensajes}),
         h('div',{},
