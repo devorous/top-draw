@@ -15,9 +15,14 @@ console.log("WS listo, envia con ws.send('mi mensaje')");
 const { Component, h, render } = window.preact;
 
 class Mensajes extends Component {
-	componentDidMount() {
-		this.setState({ mensajes: [] });
-	}
+  state= {
+    mensajes: []
+  }
+
+  actualizarMensajes(msg) {
+    this.setState({mensajes: msg});
+  }
+
 	render(props, state) {
 		return (
 			h('div', {},
@@ -32,12 +37,14 @@ class Mensajes extends Component {
 	}
 }
 
+var msg_cmp;
+
 render(h('div',{},
       h('div',{},
         h('span',{},"Apodo:"),
         h('input',{onChange: e => console.log("E",x=e) }),
       ),
-      
+      XX= h('Mensajes', { ref: cmp => (msg_cmp= cmp) }),
       h('div',{},
         h('span',{},"Mensaje:"),
         h('input',{onChange: e => console.log("E",x=e) }),
