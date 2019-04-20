@@ -4,6 +4,9 @@ proto_ws= window.location.protocol=="https:" ? "wss" : "ws";
 
 ws= new WebSocket(proto_ws+"://"+window.location.hostname);
 //A: nos conectamos al mismo servidor de donde bajo la página (asi nos lo da glitch)
+ws.onmessage= m => console.log("WS LLEGO",m) 
 
-ws.onmessage( m => console.log("WS LLEGO",m) );
+ws.onopen= () => {
 ws.send("Hola!")
+console.log("WS listo, envia con ws.send('mi mensaje')");
+}
