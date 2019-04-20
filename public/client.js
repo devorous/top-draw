@@ -11,45 +11,39 @@ ws.send("Hola!")
 console.log("WS listo, envia con ws.send('mi mensaje')");
 }
 
+function enviar(msg) {
+}
+
 //========================================================
 const { Component, h, render } = window.preact;
 
-class Mensajes extends Component {
-  state= {
-    mensajes: []
-  }
-
-  actualizarMensajes(msg) {
-    this.setState({mensajes: msg});
-  }
-
-	render(props, state) {
-		return (
-			h('div', {},
-        state.mensajes.map(m => 
+Mensajes= (props) =>
+  h('div', {},
+        props.mensajes.map(m => 
           h('div', {},
             h('span',{},m.de),
             h('span',{},m.texto)
           )
         )
-			)
-		);
-	}
+	);
+	
+class Chat extends Component {
+  render() {
+    return h('div',{},
+        h('div',{},
+          h('span',{},"Apodo:"),
+          h('input',{onChange: e => console.log("E",window.x=e) }),
+        ),
+//        h('Mensajes'),
+        h('div',{},
+          h('span',{},"Mensaje:"),
+          h('input',{onChange: e => console.log("E",window.x=e) }),
+        ),
+        h('div',{},
+          h('button',{onClick: e => enviar()}, "Enviar")
+        )
+    );
+  }
 }
 
-var msg_cmp;
-
-render(h('div',{},
-      h('div',{},
-        h('span',{},"Apodo:"),
-        h('input',{onChange: e => console.log("E",x=e) }),
-      ),
-      XX= h('Mensajes', { ref: cmp => (msg_cmp= cmp) }),
-      h('div',{},
-        h('span',{},"Mensaje:"),
-        h('input',{onChange: e => console.log("E",x=e) }),
-      ),
-      h('div',{},
-        h('button',{onClick: e => enviar()}, "Enviar")
-      )
-) , document.body);
+render(h('Chat'), document.body);
