@@ -17,12 +17,12 @@ app.get('/', function(request, response) {
 });
 
 // listen for requests :)
-const listener = app.listen(process.env.PORT, function() {
-  console.log('Your app is listening on port ' + listener.address().port);
+const server = app.listen(process.env.PORT, function() {
+  console.log('Your app is listening on port ' + server.address().port);
 });
 
 var WebSocket= require('ws');
-var wss= new WebSocket.Server({ port: PORT_WS });
+var wss= new WebSocket.Server({ server });
 wss.broadcast = function broadcast(data) { //U: Broadcast to all.
   console.log("MANDO A TODOS ...", data);
   wss.clients.forEach(function each(client) {
