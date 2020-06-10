@@ -3,13 +3,13 @@ var messages = [];
 // Match websocket protocol to page protocol (ws/http or wss/https):
 var wsProtocol= window.location.protocol=="https:" ? "wss" : "ws"; 
 
-var ws = new WebSocket(`${wsProtocol}://${window.location.hostname}`);
+var connection = new WebSocket(`${wsProtocol}://${window.location.hostname}`);
 
-ws.onopen = function() {
+connection.onopen = function() {
   console.log("Websocket connected!");
 }
 
-ws.onmessage = function(message) {
+connection.onmessage = function(message) {
   console.log("New Message:");
   console.log(message);
   messages.push(JSON.parse(message.data));
@@ -17,5 +17,5 @@ ws.onmessage = function(message) {
 }
 
 setTimeout(() => {
-  ws.send(JSON.stringify({de: "Example Name", texto: "test"}));
+  connection.send(JSON.stringify({de: "Example Name", texto: "test"}));
 }, 1000)
