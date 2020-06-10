@@ -1,3 +1,4 @@
+// HTTP Server:
 const express = require('express');
 const app = express();
 app.use(express.static('public'));
@@ -7,18 +8,19 @@ const server = app.listen(process.env.PORT, function() {
 });
 
 
+// Websocket Server:
 var WebSocket= require('ws');
-var wss= new WebSocket.Server({ server });
-wss.broadcast = function broadcast(data) { //U: Broadcast to all.
+var wsServer = new WebSocket.Server({ server });
+wsServer.broadcast = function broadcast(data) { //U: Broadcast to all.
   console.log("MANDO A TODOS ...", data);
-  wss.clients.forEach(function each(client) {
+  wsServer.clients.forEach(function each(client) {
     if (client.readyState === WebSocket.OPEN) { client.send(data); }
   });
 };
 
-wss.on('connection', function connection(ws) {
+wsServer.on('connection', function connection(ws) {
   ws.on('message', function incoming(data) { //U: Broadcast to everyone else.
     console.log("LLEGO ...", data);
-    wss.broadcast(data);
+    wsServer.broadcast(data);
   });
 });
