@@ -19,11 +19,3 @@ ws.onmessage = function(message) {
 setTimeout(() => {
   ws.send(JSON.stringify({de: "Example Name", texto: "test"}));
 }, 1000)
-
-
-
-var c = document.getElementById("myCanvas");
-var ctx = c.getContext("2d");
-ctx.beginPath();
-ctx.arc(10, 10, 10, 0, 2 * Math.PI);
-ctx.stroke();
