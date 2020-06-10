@@ -1,22 +1,18 @@
 var messages = [];
 
-console.log("desde client.js");
-var proto_ws= window.location.protocol=="https:" ? "wss" : "ws"; 
-//A: el proto de websocket tiene que ser seguro si el de la página es seguro
+// Match websocket protocol to page protocol (ws/http or wss/https):
+var wsProtocol= window.location.protocol=="https:" ? "wss" : "ws"; 
 
-var ws = new WebSocket(proto_ws+"://"+window.location.hostname);
-//A: nos conectamos al mismo servidor de donde bajo la página (asi nos lo da glitch)
-ws.onmessage= m => console.log("WS LLEGO",m) 
+var ws = new WebSocket(`${wsProtocol}://${window.location.hostname}`);
 
-ws.onopen= () => {
-ws.send(JSON.stringify({de: "anonimo", texto: "hola!"}));
-console.log("WS listo, envia con ws.send('mi mensaje')");
+ws.onopen = function() {
+  console.log("Websocket connected!");
 }
 
-ws.onmessage= m => {
-  console.log("WS LLEGO",m);
-  messages.push(JSON.parse(m.data));
-  console.log(messages);
+ws.onmessage = function(message) {
+  console.log("New Message:");
+  console.log(message);
+  messages.push(JSON.parse(message.data));
   document.getElementById("messages-list").innerHTML = messages.map(i => `<li>${i.de}: ${i.texto}</li>`).join("");
 }
 
