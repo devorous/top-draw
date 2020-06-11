@@ -28,7 +28,7 @@ gameLoop();
 document.addEventListener('keydown', logKey);
 
 function logKey(e) {
-  console.log(e.code);
+  const speed = 5;
   switch(e.code) {
     case "ArrowUp":
       y -= speed;
@@ -40,7 +40,7 @@ function logKey(e) {
       y += speed;
       break;
     case "ArrowRight":
-      x += 5;
+      x += speed;
       break;
   }
 }
