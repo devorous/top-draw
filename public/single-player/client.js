@@ -31,16 +31,16 @@ function logKey(e) {
   console.log(e.code);
   switch(e.code) {
     case "ArrowUp":
-      y -= 3;
+      y -= speed;
       break;
     case "ArrowLeft":
-      x += 3;
+      x -= speed;
       break;
     case "ArrowDown":
-      y += 3;
+      y += speed;
       break;
     case "ArrowRight":
-      x -= 3;
+      x += 5;
       break;
   }
 }
