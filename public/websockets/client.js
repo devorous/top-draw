@@ -11,21 +11,48 @@ var messages = [];
 connection.onmessage = function(message) {
   console.log("New Message:");
   console.log(message);
-  messages.push(JSON.parse(message.data));
-  document.getElementById("messages-list").innerHTML = messages.map(i => `<li>${i.de}: ${i.texto}</li>`).join("");
+  var parsedMessage = JSON.parse(message.data)
+  console.log("Parsed Message Data:");
+  console.log(parsedMessage);
+  
+  // Find player index in players array:
+  var playerIds = players.map(i => i.color);
+  var playerIndex = playerIds.indexOf(message.color);
+  
+  // If we haven't seen player before, add to players array:
+  if (playerIndex === -1) {
+    players.push(parsedMessage);
+  }
+  
+  // If 
+  
+  
+  //messages.push(JSON.parse(message.data));
+  //document.getElementById("messages-list").innerHTML = messages.map(i => `<li>${i.de}: ${i.texto}</li>`).join("");
 }
 
 setTimeout(() => {
-  connection.send(JSON.stringify({de: "Example Name", texto: "test"}));
+  connection.send(JSON.stringify({x: 100, y: 150, color: "#0000FF"}));
 }, 1000)
 
-// Simple game:
 
+
+/* - - - - - - - - - -
+   Simple game:
+- - - - - - - - - - */
+
+// Set up canvas
 var c = document.getElementById("myCanvas");
 var ctx = c.getContext("2d");
-var x = 10;
-var y = 10;
+
+// Generate random color for player color, also used for unique id
 const playerColor = randomColor();
+
+// Players location storage, add yourself to start:
+var players = [
+  {x: 10, y: 10, color: playerColor} 
+]
+
 document.getElementById("player-color").style.backgroundColor = playerColor;
 
 function randomColor() {
@@ -38,47 +65,52 @@ function randomColor() {
 }
 
 function gameLoop() {
+  // Clear canvas
   ctx.clearRect(0, 0, 200, 200);
-  ctx.beginPath();
-  ctx.arc(x, y, 10, 0, 2 * Math.PI);
-  ctx.fillStyle = playerColor;
-  ctx.fill();
-  ctx.stroke();
-  
-  // Detect player going past boundries
-  if (x > 190) {
-    x = 190;
-  }
-  if (x < 10) {
-    x = 10;
-  }
-  if (y > 190) {
-    y = 190;
-  }
-  if (y < 10) {
-    y = 10;
+  // Redraw each player based on updated position
+  for (var i in players) {
+    var player = players[i];
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, 10, 0, 2 * Math.PI);
+    ctx.fillStyle = player.color;
+    ctx.fill();
+    ctx.stroke();
+
+    // Detect player going past boundries
+    if (player.x > 190) {
+      player.x = 190;
+    }
+    if (player.x < 10) {
+      player.x = 10;
+    }
+    if (player.y > 190) {
+      player.y = 190;
+    }
+    if (player.y < 10) {
+      player.y = 10;
+    }
   }
 }
 
 // Start game loop, run 30 times per second
 setInterval(gameLoop, 1000/30);
 
-document.addEventListener('keydown', detectKeyPress);
+document.addEventListener('keydown', detectKeyPress.bind(this, players[0]));
 
-function detectKeyPress(e) {
+function detectKeyPress(player, e) {
   const speed = 5;
   switch(e.code) {
     case "ArrowUp":
-      y -= speed;
+      player.y -= speed;
       break;
     case "ArrowLeft":
-      x -= speed;
+      player.x -= speed;
       break;
     case "ArrowDown":
-      y += speed;
+      player.y += speed;
       break;
     case "ArrowRight":
-      x += speed;
+      player.x += speed;
       break;
   }
 }
