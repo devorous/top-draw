@@ -32,16 +32,24 @@ function broadcast(data) {
 // This outer function will run each time the Websocket
 // server connects to a new client:
 wsServer.on('connection', ws => {
-  var id = '';
+  
+  // We will store the id for this connection in the id property.
+  ws.id = '';
+  
   // This function will run every time the server recieves a message with that client.
   ws.on('message', data => {
     // Broadcast the received message back to all clients.
     console.log("Message Received:");
     console.log(data);
-    ws.id = data.color;
+    ws.id = JSON.parse(data).color;
+    console.log("from connection Id:", ws.id);
     broadcast(data);
   });
   
-  ws.on('close', );
+  ws.on('close', () => {
+    console.log("Disconnected:", ws.id);
+    // Here you could send a message to other clients that
+    // this client has disconnected.
+  });
   
 });
