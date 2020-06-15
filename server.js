@@ -1,11 +1,14 @@
 // HTTP Server:
 const express = require('express');
 const app = express();
+
+// This will serve the static files in the /public folder on our server
 app.use(express.static('public'));
 
 const server = app.listen(process.env.PORT, function() {
   console.log('Your app is listening on port ' + server.address().port);
 });
+
 
 
 // Websocket Server:

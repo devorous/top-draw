@@ -1,40 +1,43 @@
 // Match websocket protocol to page protocol (ws/http or wss/https):
 var wsProtocol= window.location.protocol=="https:" ? "wss" : "ws"; 
 
+// Set up new websocket connection to server
 var connection = new WebSocket(`${wsProtocol}://${window.location.hostname}`);
 
+// Log successful connection
 connection.onopen = function() {
   console.log("Websocket connected!");
 }
 
-var messages = [];
+// Set this function to run every time the websocket receives a message from the server:
+// Each message will have data that represents a player that has moved.
 connection.onmessage = function(message) {
   console.log("New Message:");
   console.log(message);
-  var parsedMessage = JSON.parse(message.data)
+  var parsedMessageData = JSON.parse(message.data)
   console.log("Parsed Message Data:");
-  console.log(parsedMessage);
+  console.log(parsedMessageData);
+  
+  // If player is us do nothing:
+  if (parsedMessageData.color === playerColor) {
+    return;
+  }
   
   // Find player index in players array:
   var playerIds = players.map(i => i.color);
-  var playerIndex = playerIds.indexOf(message.color);
+  var playerIndex = playerIds.indexOf(parsedMessageData.color);
   
   // If we haven't seen player before, add to players array:
   if (playerIndex === -1) {
-    players.push(parsedMessage);
+    players.push(parsedMessageData);
   }
   
-  // If 
-  
-  
-  //messages.push(JSON.parse(message.data));
-  //document.getElementById("messages-list").innerHTML = messages.map(i => `<li>${i.de}: ${i.texto}</li>`).join("");
+  // If player is already in players array, update position:
+  else {
+    players[playerIndex].x = parsedMessageData.x;
+    players[playerIndex].y = parsedMessageData.y;
+  }
 }
-
-setTimeout(() => {
-  connection.send(JSON.stringify({x: 100, y: 150, color: "#0000FF"}));
-}, 1000)
-
 
 
 /* - - - - - - - - - -
@@ -113,4 +116,6 @@ function detectKeyPress(player, e) {
       player.x += speed;
       break;
   }
+  // Send new position to server:
+  connection.send(JSON.stringify({x: player.x, y: player.y, color: player.color}));
 }
