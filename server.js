@@ -14,10 +14,16 @@ const server = app.listen(process.env.PORT, function() {
 // Websocket Server:
 var WebSocket= require('ws');
 var wsServer = new WebSocket.Server({ server });
-wsServer.broadcast = function broadcast(data) { //U: Broadcast to all.
-  console.log("MANDO A TODOS ...", data);
-  wsServer.clients.forEach(function each(client) {
-    if (client.readyState === WebSocket.OPEN) { client.send(data); }
+
+// This function will send a message to all clients connected to the websocket:
+wsServer.broadcast = function broadcast(data) {
+  
+  wsServer.clients.forEach(function (client) {
+    
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(data);
+    }
+    
   });
 };
 
