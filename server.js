@@ -5,6 +5,30 @@ const app = express();
 // This will serve the static files in the /public folder on our server
 app.use(express.static('public'));
 
+
+
+// Long polling endpoint:
+
+// Because using a long polling strategy we can't actively
+// send data to clients, we need to store the player data on the server:
+
+var players = [];
+
+app.get("/poll", (req, res) => {
+  
+  
+  
+  
+  
+  
+})
+
+
+
+
+
+
+
 const server = app.listen(process.env.PORT, function() {
   console.log('Your app is listening on port ' + server.address().port);
 });
