@@ -5,30 +5,6 @@ const app = express();
 // This will serve the static files in the /public folder on our server
 app.use(express.static('public'));
 
-
-
-// Long polling endpoint:
-
-// Because using a long polling strategy we can't actively
-// send data to clients, we need to store the player data on the server:
-
-var players = [];
-
-app.get("/poll", (req, res) => {
-  
-  
-  
-  
-  
-  
-})
-
-
-
-
-
-
-
 const server = app.listen(process.env.PORT, function() {
   console.log('Your app is listening on port ' + server.address().port);
 });
@@ -55,14 +31,17 @@ function broadcast(data) {
 
 // This outer function will run each time the Websocket
 // server connects to a new client:
-wsServer.on('connection', function connection(ws) {
-  
+wsServer.on('connection', ws => {
+  var id = '';
   // This function will run every time the server recieves a message with that client.
-  ws.on('message', function incoming(data) {
+  ws.on('message', data => {
     // Broadcast the received message back to all clients.
     console.log("Message Received:");
     console.log(data);
+    ws.id = data.color;
     broadcast(data);
   });
+  
+  ws.on('close', );
   
 });
