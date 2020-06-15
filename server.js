@@ -12,24 +12,33 @@ const server = app.listen(process.env.PORT, function() {
 
 
 // Websocket Server:
-var WebSocket= require('ws');
+// We are using the external library 'ws' to set up the websockets on the server
+// https://www.npmjs.com/package/ws
+// In our code this is stored in the variable WebSocket.
+var WebSocket = require('ws');
+
+// Connect our Websocket server to our server variable to serve requests on the same port:
 var wsServer = new WebSocket.Server({ server });
 
 // This function will send a message to all clients connected to the websocket:
-wsServer.broadcast = function broadcast(data) {
-  
-  wsServer.clients.forEach(function (client) {
-    
+function broadcast(data) {
+  wsServer.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(data);
     }
-    
   });
 };
 
+// This outer function will run each time the Websocket
+// server connects to a new client:
 wsServer.on('connection', function connection(ws) {
-  ws.on('message', function incoming(data) { //U: Broadcast to everyone else.
-    console.log("LLEGO ...", data);
-    wsServer.broadcast(data);
+  
+  // This function will run every time the server recieves a message with that client.
+  ws.on('message', function incoming(data) {
+    // Broadcast the received message back to all clients.
+    console.log("Message Received:");
+    console.log(data);
+    broadcast(data);
   });
+  
 });
