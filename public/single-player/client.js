@@ -30,10 +30,10 @@ document.getElementById("player-color").style.backgroundColor = playerColor;
 
 
 function gameLoop() {
+  ctx.clearRect(0, 0, 200, 200);
   // Redraw each player based on updated position
   for (var i in players) {
     var player = players[i];
-    ctx.clearRect(0, 0, 200, 200);
     ctx.beginPath();
     ctx.arc(player.x, player.y, 10, 0, 2 * Math.PI);
     ctx.fillStyle = playerColor;
