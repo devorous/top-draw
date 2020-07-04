@@ -10,8 +10,6 @@ const server = app.listen(process.env.PORT, function() {
 });
 
 
-
-
 // Websocket Server:
 // We are using the external library 'ws' to set up the websockets on the server
 // https://www.npmjs.com/package/ws
