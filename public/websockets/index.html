@@ -9,6 +9,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" href="https://cdn.glitch.com/a3249735-c5d2-4d20-b0ed-d820d8c15fc5%2FScreen%20Shot%202020-06-15%20at%201.56.07%20PM.png?v=1592243777392" type="image/png"/>
     <script src="/websockets/client.js" defer></script>
+    <style>
+      * { 
+        -webkit-user-select: none; /* Safari */        
+        -moz-user-select: none; /* Firefox */
+        -ms-user-select: none; /* IE10+/Edge */
+        user-select: none; /* Standard */
+      }
+      td {
+        font-size: 50px;
+        width: 60px;
+      }
+    </style>
   </head>
   <body>
     <p>
@@ -19,10 +31,23 @@
     </h3>
     <div id="player-color" style="height: 20px; width: 20px; margin-bottom: 10px;"></div>
     <p>
-      Move with arrow keys.
+      Move with arrow keys or buttons below on a touchscreen.
     </p>
     <canvas id="myCanvas" width="200" height="200" style="border:1px solid #000000;">
     </canvas>
+    
+    <!-- Controls for touchscreen -->
+    <table>
+      <tr>
+        <td></td><td id="ArrowUp">🔼</td><td></td>
+      </tr>
+      <tr>
+        <td id="ArrowLeft">◀️</td><td></td><td id="ArrowRight">▶️</td>
+      </tr>
+      <tr>
+        <td></td><td id="ArrowDown">🔽</td><td></td>
+      </tr>
+    </table>
     
     <div class="glitchButton" style="position:fixed;top:2em;right:20px;"></div>
     <script src="https://button.glitch.me/button.js" defer></script>

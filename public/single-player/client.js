@@ -86,7 +86,7 @@ const buttons = ["ArrowUp", "ArrowLeft", "ArrowRight", "ArrowDown"];
 buttons.forEach(i => {
   let el = document.getElementById(i)
   el.addEventListener("touchstart", detectKeyPress.bind(this, players[0], true, {code: i}));
-  el.addEventListener("touchstart", detectKeyPress.bind(this, players[0], true, {code: i}));
+  el.addEventListener("touchend", detectKeyPress.bind(this, players[0], false, {code: i}));
 })
 
 function detectKeyPress(player, setAs, e) {
