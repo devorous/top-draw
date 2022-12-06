@@ -21,8 +21,11 @@ var wsServer = new WebSocket.Server({ server });
 
 // This function will send a message to all clients connected to the websocket:
 function broadcast(data) {
+  
   wsServer.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
+      console.log("data ID: "+JSON.parse(data).id);
+      console.log("client ID: "+JSON.parse(JSON.stringify(client));
       client.send(data);
     }
   });
@@ -39,12 +42,14 @@ wsServer.on("connection", ws => {
     // Broadcast the received message back to all clients.
     switch(data.command){
       case 'connect':
-        
+        console.log("Message Received: ", data);
+        ws.id = JSON.parse(data).id;
+        console.log("from connection Id:", ws.id);
         break
+      case 'broadcast':
+        
     }
-    console.log("Message Received: ", data);
-    ws.id = JSON.parse(data).id;
-    console.log("from connection Id:", ws.id);
+
     broadcast(data);
   });
 
