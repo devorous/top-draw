@@ -10,7 +10,7 @@ var users = [];
 
 var userID = Math.floor(Math.random() * 999999);
 
-var board = $("#board")[0];
+    var board = $("#board")[0];
 var cursor = $("#myCursor")[0];
 var cursor_circle = cursor.children[0].children[0];
 var height = board.height;
@@ -71,7 +71,7 @@ board.addEventListener('mousemove', function(e){
   send({command:"broadcast",x:e.layerX,y:e.layerY,mousedown:mousedown,id:userID});
   if(mousedown){
     var pos = {x:e.layerX,y:e.layerY};
-    if(current_line.slice(-1)[0] !=pos){
+    if(current_line.slice(-1)[0] !=pos ){
       ctx.lineTo(e.layerX,e.layerY);
       ctx.stroke();
       current_line.push(pos);
