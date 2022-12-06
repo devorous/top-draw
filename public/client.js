@@ -43,13 +43,19 @@ var socket = new WebSocket(`${wsProtocol}://${window.location.hostname}:${window
 
 // Log successful connection
 socket.onopen = function() {
-  socket.send(JSON.stringify({id:userID}));
+  send({command:"connect",id:userID});
   console.log("Websocket connected!");
 };
+
 socket.onmessage = function(m){
   console.log("recieved message: ")
   console.log(m.data);
+};
+
+function send(data){
+  socket.send(JSON.stringify(data));
 }
+
 
 board.addEventListener('mousemove', function(e){
   //console.log(e);

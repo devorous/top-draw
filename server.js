@@ -37,6 +37,11 @@ wsServer.on("connection", ws => {
   // This function will run every time the server recieves a message with that client.
   ws.on("message", data => {
     // Broadcast the received message back to all clients.
+    switch(data.command){
+      case 'connect':
+        
+        break
+    }
     console.log("Message Received: ", data);
     ws.id = JSON.parse(data).id;
     console.log("from connection Id:", ws.id);
