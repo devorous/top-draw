@@ -24,9 +24,9 @@ function broadcast(data) {
   
   wsServer.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
-      console.log("data ID: "+JSON.parse(data).id);
-      console.log("client ID: "+JSON.parse(JSON.stringify(client));
-      client.send(data);
+      console.log("data ID: "+data.id);
+      console.log("client ID: "+client.id);
+      client.send(JSON.stringify(data));
     }
   });
 }
@@ -40,17 +40,20 @@ wsServer.on("connection", ws => {
   // This function will run every time the server recieves a message with that client.
   ws.on("message", data => {
     // Broadcast the received message back to all clients.
+    data = JSON.parse(data);
     switch(data.command){
       case 'connect':
         console.log("Message Received: ", data);
-        ws.id = JSON.parse(data).id;
+        ws.id = data.id;
         console.log("from connection Id:", ws.id);
+        broadcast(data);
         break
       case 'broadcast':
+        break
         
     }
 
-    broadcast(data);
+    
   });
 
   ws.on("close", () => {
