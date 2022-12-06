@@ -6,6 +6,12 @@ Game variable storage:
 // user location storage, add yourself to start:
 var users = [];
 
+var userID = Math.floor(Math.random() * 999999);
+
+var current_line = [];
+
+var mousedown = false;
+
 var self = {
   x: 0,
   y: 0,
@@ -28,7 +34,7 @@ var socket = new WebSocket(`${wsProtocol}://${window.location.hostname}:${window
 
 // Log successful connection
 socket.onopen = function() {
-  socket.send(JSON.stringify({id:Math.floor(Math.random() * 999999)}));
+  socket.send(JSON.stringify({id:userID}));
   console.log("Websocket connected!");
 };
 
@@ -36,13 +42,20 @@ var board = $("#board")[0];
 
 board.addEventListener('mousemove', function(e){
   //console.log(e);
+  if(mousedown){
+    current_line.push({x:e.layerX,y:e.layerY});
+  }
 })
 
 board.addEventListener('mousedown', function(e){
+  mousedown = true;
   console.log(e);
 });
 
 board.addEventListener('mouseup', function(e){
+  mousedown = false;
+  console.log("line to draw: ");
+  
   console.log(e);
 })
 board.addEventListener('wheel', function(e){
