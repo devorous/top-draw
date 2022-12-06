@@ -32,7 +32,19 @@ socket.onopen = function() {
   console.log("Websocket connected!");
 };
 
-var board = $("#board");
-board.onmousemove(
-)
+var board = $("#board")[0];
 
+board.addEventListener('mousemove', function(e){
+  //console.log(e);
+})
+
+board.addEventListener('mousedown', function(e){
+  console.log(e);
+});
+
+board.addEventListener('mouseup', function(e){
+  console.log(e);
+})
+board.addEventListener('wheel', function(e){
+  console.log(e);
+})
