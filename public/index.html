@@ -47,6 +47,9 @@
         top:1;
         left:1;
       }
+      canvas{
+        cursor:none;
+      }
     </style>
     
   </head>
@@ -54,9 +57,7 @@
     <div id="main">
       
     <div id="boardContainer">
-
-      <canvas id="board" width="400" height="400" style="border:1px solid #000000;">
-      </canvas>
+      <canvas id="board" width="400" height="400" style="border:1px solid #000000;"></canvas>
     </div>
       <div id="myCursor">
         <svg height="202" width="202">
@@ -69,6 +70,11 @@
             r="10" >  
           </circle>
         </svg>
+      </div>
+      <div class="btns">
+        <button onclick="clear()">
+          Clear Board
+        </button>
       </div>
     </div>
   </body>

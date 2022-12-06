@@ -100,10 +100,17 @@ board.addEventListener('mouseup', function(e){
 
 board.addEventListener('wheel', function(e){
   e.preventDefault();
+  var step=1;
+  if(size<5){
+    step=0.5;
+  }
+  else{
+    step=1;
+  }
   if(e.deltaY>0){
     console.log("scrolled down")
     if(size-1 > 0){
-      size=size-1;
+      size=size-step;
       cursor_circle.setAttribute("r",size);
       ctx.lineWidth=size*2;
     }
@@ -111,7 +118,7 @@ board.addEventListener('wheel', function(e){
   else{
     console.log("scrolled up");
     if(size <101 ){
-      size=size+1;
+      size=size+step;
       cursor_circle.setAttribute("r",size);
       ctx.lineWidth=size*2;
     }
