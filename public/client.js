@@ -4,9 +4,18 @@ Game variable storage:
 
 
 // user location storage, add yourself to start:
+
+
 var users = [];
 
 var userID = Math.floor(Math.random() * 999999);
+
+var board = $("#board")[0];
+
+var height = board.height;
+var width = board.width;
+
+var ctx = board.getContext("2d");
 
 var current_line = [];
 
@@ -37,14 +46,18 @@ socket.onopen = function() {
   socket.send(JSON.stringify({id:userID}));
   console.log("Websocket connected!");
 };
-
-var board = $("#board")[0];
+socket.onmessage = function(m){
+  console.log("recieved message: ")
+  console.log(m.data);
+}
 
 board.addEventListener('mousemove', function(e){
   //console.log(e);
   if(mousedown){
     var pos = {x:e.layerX,y:e.layerY};
     if(current_line.slice(-1)[0] !=pos){
+      ctx.lineTo(e.layerX,e.layerY);
+      ctx.stroke();
       current_line.push(pos);
     }
   }
@@ -52,13 +65,17 @@ board.addEventListener('mousemove', function(e){
 
 board.addEventListener('mousedown', function(e){
   mousedown = true;
+  ctx.beginPath();
+  ctx.moveTo(e.layerX,e.LayerY);
   console.log(e);
 });
 
 board.addEventListener('mouseup', function(e){
   mousedown = false;
-  console.log("line to draw: ");
+  
+  
   var line = {path:current_line,id:userID};
+  console.log("line to draw: ");
   console.log(line);   
   console.log(e);
 });
