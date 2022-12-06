@@ -40,8 +40,11 @@
         width:400px;
       }
       
-      button {
-        font-size: 40px;
+      #myCursor{
+        position:absolute;
+        top:0;
+        left:0;
+        transform:scale(1);
       }
     </style>
     
@@ -49,6 +52,18 @@
   <body>
     
     <div id="boardContainer">
+      <div id="myCursor">
+        <svg height="200" width="200">
+          <circle
+            stroke="grey"
+            stroke-width="1"
+            fill="none"
+            cx="100"
+            cy="100"
+            r="99" >  
+          </circle>
+        </svg>
+      </div>
       <canvas id="board" width="400" height="400" style="border:1px solid #000000;">
       </canvas>
     </div>

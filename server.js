@@ -23,9 +23,7 @@ var wsServer = new WebSocket.Server({ server });
 function broadcast(data) {
   
   wsServer.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      console.log("data ID: "+data.id);
-      console.log("client ID: "+client.id);
+    if (client.readyState === WebSocket.OPEN && data.id != client.id) {
       client.send(JSON.stringify(data));
     }
   });

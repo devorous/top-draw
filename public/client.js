@@ -11,7 +11,7 @@ var users = [];
 var userID = Math.floor(Math.random() * 999999);
 
 var board = $("#board")[0];
-
+var cursor = $("#myCursor")[0];
 var height = board.height;
 var width = board.width;
 
