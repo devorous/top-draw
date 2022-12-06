@@ -14,6 +14,8 @@ var board = $("#board")[0];
 var cursor = $("#myCursor")[0];
 var height = board.height;
 var width = board.width;
+var size = 5;
+
 
 var ctx = board.getContext("2d");
 
@@ -59,10 +61,8 @@ function send(data){
 
 board.addEventListener('mousemove', function(e){
   //console.log(e);
-  cursor.style.left=e.layerX-50+"px";
-  cursor.style.top=e.layerY-50+"px";
-  console.log(cursor.style);
-  console.log("updating cursor?");
+  cursor.style.left=e.layerX-100+"px";
+  cursor.style.top=e.layerY-100+"px";
   send({command:"broadcast",x:e.layerX,y:e.layerY,mousedown:mousedown,id:userID});
   if(mousedown){
     var pos = {x:e.layerX,y:e.layerY};
@@ -83,7 +83,6 @@ board.addEventListener('mousedown', function(e){
 
 board.addEventListener('mouseup', function(e){
   mousedown = false;
-  
   
   var line = {path:current_line,id:userID};
   if(line){

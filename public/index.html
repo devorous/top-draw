@@ -42,9 +42,11 @@
       
       #myCursor{
         position:absolute;
-        top:0;
-        left:0;
-        transform:scale(1);
+        padding:2px;
+        pointer-events:none;
+        top:1;
+        left:1;
+        transform:scale(0.2);
       }
     </style>
     
@@ -58,13 +60,13 @@
       </canvas>
     </div>
       <div id="myCursor">
-        <svg height="200" width="200">
+        <svg height="202" width="202">
           <circle
             stroke="grey"
             stroke-width="1"
             fill="none"
-            cx="100"
-            cy="100"
+            cx="101"
+            cy="101"
             r="100" >  
           </circle>
         </svg>
