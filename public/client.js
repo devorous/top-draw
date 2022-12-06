@@ -43,7 +43,10 @@ var board = $("#board")[0];
 board.addEventListener('mousemove', function(e){
   //console.log(e);
   if(mousedown){
-    current_line.push({x:e.layerX,y:e.layerY});
+    var pos = {x:e.layerX,y:e.layerY};
+    if(current_line.slice(-1)[0] !=pos){
+      current_line.push(pos);
+    }
   }
 })
 
@@ -55,9 +58,11 @@ board.addEventListener('mousedown', function(e){
 board.addEventListener('mouseup', function(e){
   mousedown = false;
   console.log("line to draw: ");
-  
+  var line = {path:current_line,id:userID};
+  console.log(line);   
   console.log(e);
-})
+});
+
 board.addEventListener('wheel', function(e){
   e.preventDefault();
   if(e.deltaY>0){
@@ -66,4 +71,4 @@ board.addEventListener('wheel', function(e){
   else{
     console.log("scrolled up");
   }
-})
+});
