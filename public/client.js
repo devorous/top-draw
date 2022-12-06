@@ -46,5 +46,11 @@ board.addEventListener('mouseup', function(e){
   console.log(e);
 })
 board.addEventListener('wheel', function(e){
-  console.log(e);
+  e.preventDefault();
+  if(e.deltaY>0){
+    console.log("scrolled down")
+  }
+  else{
+    console.log("scrolled up");
+  }
 })
