@@ -19,6 +19,10 @@ var size = 10;
 
 
 var ctx = board.getContext("2d");
+ctx.lineWidth=size;
+ctx.lineCap="round";
+ctx.translate(0.5, 0.5);
+ctx.imageSmoothingQuality ="high";
 
 var current_line = [];
 
@@ -27,6 +31,7 @@ var mousedown = false;
 var self = {
   x: 0,
   y: 0,
+  size:10,
   color: "black"
 };
 
@@ -97,9 +102,19 @@ board.addEventListener('wheel', function(e){
   e.preventDefault();
   if(e.deltaY>0){
     console.log("scrolled down")
+    if(size-1 > 0){
+      size=size-1;
+      cursor_circle.setAttribute("r",size);
+      ctx.lineWidth=size;
+    }
   }
   else{
     console.log("scrolled up");
+    if(size <101 ){
+      size=size+1;
+      cursor_circle.setAttribute("r",size);
+      ctx.lineWidth=size;
+    }
   }
 });
 
