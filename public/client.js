@@ -129,7 +129,9 @@ function drawLine(line){
   
 }
 
-function clear(){
+var btn = $("#clearBtn")[0];
+btn.addEventListener("click",function(){
+  console.log("clearing board");
   ctx.fillStyle="#FFF";
   ctx.fillRect(0,0,400,400)
-}
+});
