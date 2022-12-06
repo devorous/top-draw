@@ -19,8 +19,7 @@ var size = 10;
 
 
 var ctx = board.getContext("2d");
-ctx.lineWidth=size;
-ctx.lineCap="round";
+ctx.lineWidth=size*2;
 ctx.translate(0.5, 0.5);
 ctx.imageSmoothingQuality ="high";
 
@@ -83,6 +82,7 @@ board.addEventListener('mousemove', function(e){
 board.addEventListener('mousedown', function(e){
   mousedown = true;
   ctx.beginPath();
+  ctx.lineCap="round";
   ctx.moveTo(e.layerX,e.LayerY);
   console.log(e);
 });
@@ -105,7 +105,7 @@ board.addEventListener('wheel', function(e){
     if(size-1 > 0){
       size=size-1;
       cursor_circle.setAttribute("r",size);
-      ctx.lineWidth=size;
+      ctx.lineWidth=size*2;
     }
   }
   else{
@@ -113,11 +113,16 @@ board.addEventListener('wheel', function(e){
     if(size <101 ){
       size=size+1;
       cursor_circle.setAttribute("r",size);
-      ctx.lineWidth=size;
+      ctx.lineWidth=size*2;
     }
   }
 });
 
 function drawLine(line){
   
+}
+
+function clear(){
+  ctx.fillStyle="#FFF";
+  ctx.fillRect(0,0,400,400)
 }
