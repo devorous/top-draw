@@ -12,9 +12,10 @@ var userID = Math.floor(Math.random() * 999999);
 
 var board = $("#board")[0];
 var cursor = $("#myCursor")[0];
+var cursor_circle = cursor.children[0].children[0];
 var height = board.height;
 var width = board.width;
-var size = 5;
+var size = 10;
 
 
 var ctx = board.getContext("2d");
