@@ -59,6 +59,10 @@ function send(data){
 
 board.addEventListener('mousemove', function(e){
   //console.log(e);
+  cursor.style.left=e.layerX-50+"px";
+  cursor.style.top=e.layerY-50+"px";
+  console.log(cursor.style);
+  console.log("updating cursor?");
   send({command:"broadcast",x:e.layerX,y:e.layerY,mousedown:mousedown,id:userID});
   if(mousedown){
     var pos = {x:e.layerX,y:e.layerY};
