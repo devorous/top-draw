@@ -59,6 +59,7 @@ function send(data){
 
 board.addEventListener('mousemove', function(e){
   //console.log(e);
+  send({command:"broadcast",x:e.layerX,y:e.layerY,mousedown:mousedown,id:userID});
   if(mousedown){
     var pos = {x:e.layerX,y:e.layerY};
     if(current_line.slice(-1)[0] !=pos){
@@ -81,8 +82,10 @@ board.addEventListener('mouseup', function(e){
   
   
   var line = {path:current_line,id:userID};
-  console.log("line to draw: ");
-  console.log(line);   
+  if(line){
+    console.log("line to draw: ");
+    console.log(line);   
+  }
   console.log(e);
 });
 
@@ -95,3 +98,7 @@ board.addEventListener('wheel', function(e){
     console.log("scrolled up");
   }
 });
+
+function drawLine(line){
+  
+}
