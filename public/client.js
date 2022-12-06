@@ -28,12 +28,11 @@ var socket = new WebSocket(`${wsProtocol}://${window.location.hostname}:${window
 
 // Log successful connection
 socket.onopen = function() {
+  socket.send(JSON.stringify({id:Math.floor(Math.random() * 999999)}));
   console.log("Websocket connected!");
 };
 
 var board = $("#board");
-console.log(board);
-console.log("come on");
-
-
+board.onmousemove(
+)
 
