@@ -193,7 +193,10 @@ function updateUser(data,fields){
   console.log(data);
   for(var i=0;i<users.length;i++){
     if(users[i].id==data.id){
-      users[i]=data;
+      for(var j=0;j<fields.length;j++){
+        var val = fields[j];
+        users[i][val]=data[val];
+      }
     }
   }
   
