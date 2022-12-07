@@ -1,3 +1,3 @@
-# Multiplayer Websockets Example
+# Multiplayer Websockets Drawing
 
-A very simple game with multiplayer functionality implemented with websockets.
+Draw with people simultaneously using websockets.

@@ -1,16 +1,10 @@
-/* - - - - - - - - - -
-Game variable storage:
-  - - - - - - - - - - */
-
-
-// user location storage, add yourself to start:
 
 
 var users = [];
 
 var userID = Math.floor(Math.random() * 999999);
 
-    var board = $("#board")[0];
+var board = $("#board")[0];
 var cursor = $(".cursor.self")[0];
 var cursor_circle = cursor.children[0].children[0];
 var height = board.height;
@@ -57,6 +51,9 @@ socket.onopen = function() {
 socket.onmessage = function(m){
   console.log("recieved message: ")
   console.log(m.data);
+  switch(m.type){
+      
+  }
 };
 
 
@@ -70,7 +67,7 @@ board.addEventListener('mousemove', function(e){
   self.y = e.layerY-100
   cursor.style.left=self.x+"px";
   cursor.style.top=self.y+"px";
-  send({command:"broadcast",type:"Mm",data:self,id:userID});
+  send({command:"broadcast",type:"Mm",x:self.x,y:self.y,id:userID});
   if(self.mousedown){
     var pos = {x:e.layerX,y:e.layerY};
     if(current_line.slice(-1)[0] !=pos ){

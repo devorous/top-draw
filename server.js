@@ -47,6 +47,7 @@ wsServer.on("connection", ws => {
         broadcast(data);
         break
       case 'broadcast':
+        broadcast(data);
         break
         
     }
