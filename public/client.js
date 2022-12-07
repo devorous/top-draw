@@ -56,7 +56,7 @@ socket.onmessage = function(m){
       users.push(m.userdata);
       console.log("adding: "+m.userdata);
       break
-    case 'clear':
+    case 'broadcast':
       clearBoard();
   }
 };
@@ -65,6 +65,26 @@ socket.onmessage = function(m){
 function send(data){
   socket.send(JSON.stringify(data));
 }
+
+function broadcast(data){
+  switch(data.type){
+    case 'clear':
+      
+      break
+    case 'Mm':
+      
+      break
+    case 'Md':
+      
+      break
+    case 'Mu':
+      
+      break
+      
+  }
+}
+
+
 
 
 board.addEventListener('mousemove', function(e){
