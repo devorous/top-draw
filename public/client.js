@@ -95,6 +95,7 @@ board.addEventListener('mouseup', function(e){
     console.log("line to draw: ");
     console.log(line);   
   }
+  current_line=[];
   console.log(e);
 });
 
@@ -130,8 +131,10 @@ function drawLine(line){
 }
 
 var btn = $("#clearBtn")[0];
-btn.addEventListener("click",function(){
+btn.addEventListener("click",clearBoard);
+
+function clearBoard(){
   console.log("clearing board");
   ctx.fillStyle="#FFF";
   ctx.fillRect(0,0,400,400)
-});
+}
