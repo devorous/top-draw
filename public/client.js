@@ -55,7 +55,9 @@ socket.onmessage = function(m){
     case 'connect':
       users.push(m.userdata);
       console.log("adding: "+m.userdata);
-      
+      break
+    case 'clear':
+      clearBoard();
   }
 };
 
@@ -136,7 +138,10 @@ function drawLine(line){
 }
 
 var btn = $("#clearBtn")[0];
-btn.addEventListener("click",clearBoard);
+btn.addEventListener("click",function(){
+  clearBoard();
+  send({command:"broadcast",type:"clear",id:userID});
+});
 
 function clearBoard(){
   console.log("clearing board");
