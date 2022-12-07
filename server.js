@@ -19,6 +19,7 @@ var WebSocket = require("ws");
 // Connect our Websocket server to our server variable to serve requests on the same port:
 var wsServer = new WebSocket.Server({ server });
 
+var current_users = []; 
 // This function will send a message to all clients connected to the websocket:
 function broadcast(data) {
   
@@ -47,6 +48,7 @@ wsServer.on("connection", ws => {
         ws.id = data.id;
         console.log("from connection Id:", ws.id);
         broadcast(data);
+        current_users.push(data.userdata);
         break
       case 'broadcast':
         broadcast(data);
