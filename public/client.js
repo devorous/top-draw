@@ -206,7 +206,13 @@ function drawUser(userdata,id){
   var div = $('<div></div>')[0];
   div.setAttribute("class","cursor "+id.toString());
   var svg = $('<svg height="202" width="202"></svg>')[0];
-  var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>')[0];
+  //var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>')[0];
+  var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      (0, _setAttributes2.default)(circle, {
+        cx: a.cx,
+        cy: a.cy,
+        r: a.r
+        });
   var cursors = $(".cursors")[0];
   var text = $("<text>"+id.toString()+"</text>")[0];
   text.setAttribute("class","name "+id.toString());
