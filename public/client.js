@@ -56,7 +56,7 @@ socket.addEventListener("message", (m) => {
   switch(data.command){
     case 'connect':
       users.push(data.userdata);
-      drawUser(data.userdata);
+      drawUser(data);
       console.log("adding: "+data.userdata);
       break
     case 'broadcast':
@@ -184,10 +184,13 @@ function clearBoard(){
   ctx.fillRect(0,0,400,400)
 }
 
-function drawUser(use){
-  test=data;
-  console.log("this is the data: "+JSON.stringify(data));
-  var div = $('<div class=cursor '+data.id.toString()+'></div>')[0];
+function drawUser(user, id){
+  var data = user.userdata;
+  console.log("this is the data: "+JSON.stringify(user));
+  var div = $('<div></div>')[0];
+  div.setAttribute("class","cursor "+user.id.toString());
+  div.setAttribute("left","0px");
+  div.setAttribute("right","0px");
   var svg = $('<svg height="202" width="202"></svg>')[0];
   var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>')[0];
   var cursors = $(".cursors")[0];
