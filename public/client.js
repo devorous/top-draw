@@ -59,7 +59,8 @@ socket.addEventListener("message", (m) => {
   switch(data.command){
     case 'currentUsers':
         for(var i=0;i<data.users.length;i++){
-          if(data.id != userID){
+          console.log("checking IDs: dataID:"+data.users[i].id.toString()+" userID: "+userID.toString());
+          if(data.users[i].id != userID){
               users.push(data.users[i]);
               drawUser(data.users[i].userdata,data.users[i].id);
               console.log("adding: "+JSON.stringify(data.users[i].userdata));
@@ -178,10 +179,14 @@ board.addEventListener('wheel', function(e){
 
 
 function moveCursor(data){
-  console.log(data);
+  
   var id=data.id.toString();
   var x = data.x;
   var y = data.y;
+  
+  console.log("elements with id as class: ");
+  console.log(document.getElementsByClassName(id));
+  
   var cursor = document.getElementsByClassName(id)[0];
   cursor.style.left=x;
   cursor.style.top=y;
@@ -200,6 +205,8 @@ function clearBoard(){
 }
 
 function drawUser(userdata,id){
+  console.log("DRAWING USER:");
+  console.log(userdata, id);
   var data = userdata;
   var div = $('<div></div>')[0];
   div.setAttribute("class","cursor "+id.toString());
@@ -216,19 +223,3 @@ function drawUser(userdata,id){
   cursors.appendChild(div);
 
 }
-/*
-
-        <div class="cursor self">
-          <svg height="202" width="202">
-            <circle
-              stroke="grey"
-              stroke-width="1"
-              fill="none"
-              cx="100"
-              cy="100"
-              r="10" >  
-            </circle>
-          </svg>
-        </div>
-      
-      */
