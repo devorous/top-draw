@@ -61,7 +61,7 @@ socket.addEventListener("message", (m) => {
         for(var i=0;i<data.users.length;i++){
           console.log(data.users[i]);
           console.log("checking IDs: dataID:"+data.users[i].id.toString()+" userID: "+userID.toString());
-          if(users.indexOf(data.users[i])==-1){
+          if(users.indexOf(data.users[i]) == -1 && data.users[i].id != userID){
               users.push(data.users[i].userdata);
               drawUser(data.users[i].userdata,data.users[i].id);
               console.log("adding: "+JSON.stringify(data.users[i].userdata));
@@ -184,14 +184,9 @@ function moveCursor(data){
   var id=data.id.toString();
   var x = data.x;
   var y = data.y;
-  
-  console.log("elements with id as class: ");
-  console.log("ID: "+id);
-  console.log(document.getElementsByClassName(id));
-  
   var cursor = document.getElementsByClassName(id)[0];
-  cursor.style.left=x;
-  cursor.style.top=y;
+  cursor.style.left=x.toString()+'px';
+  cursor.style.top=y.toString()+'px';
 }
 
 var btn = $("#clearBtn")[0];

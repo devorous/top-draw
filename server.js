@@ -46,12 +46,11 @@ wsServer.on("connection", ws => {
         console.log("Message Received: ", data);
         ws.id = data.id;
         console.log("from connection Id:", ws.id);
-
         
-        broadcast({command:"currentUsers",users:current_users});
         var user = data;
         delete user.command
         current_users.push(user);
+        broadcast({command:"currentUsers",users:current_users});
         console.log("current users: "+current_users.length+" "+JSON.stringify(current_users));
         
         //save user to list of current users in room
