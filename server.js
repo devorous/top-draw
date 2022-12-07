@@ -48,7 +48,12 @@ wsServer.on("connection", ws => {
         ws.id = data.id;
         console.log("from connection Id:", ws.id);
         broadcast(data);
-        current_users.push(data.userdata);
+        var user = data;
+        delete user.command
+        current_users.push(user);
+        console.log(current_users);
+        //save user to list of current users in room
+        //when somebody joins, send them this list..
         break
       case 'broadcast':
         broadcast(data);
@@ -61,6 +66,10 @@ wsServer.on("connection", ws => {
 
   ws.on("close", () => {
     console.log("Disconnected:", ws.id);
+    var user_list_update = current_users.filter(userdata =>{
+      return userdata.id == ws.id;
+    })
+    var current_users 
     // Here you could send a message to other clients that
     // this client has disconnected.
   });
