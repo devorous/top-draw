@@ -27,6 +27,7 @@ var self = {
   size:10,
   color: "black",
   mousedown: false,
+  id:userID
 };
 
 // Add self player to beginning of players array:
@@ -75,7 +76,7 @@ function broadcast(data){
   switch(data.type){
     case 'users':
       for(var i=0;i<data.users.length;i++){
-        if(data.id != userId){
+        if(data.id != self.id){
           users.push(data.users[i]);
           drawUser(data.users[i]);
         }

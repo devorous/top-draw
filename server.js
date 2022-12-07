@@ -25,7 +25,6 @@ function broadcast(data) {
   
   wsServer.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN && data.id != client.id) {
-      console.log("sending this data: "+JSON.stringify(data));
       client.send(JSON.stringify(data));
       client.send(JSON.stringify(current_users));
     }
