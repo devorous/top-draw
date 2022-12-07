@@ -40,7 +40,7 @@
         width:400px;
       }
       
-      #myCursor{
+      .cursor{
         position:absolute;
         padding:2px;
         pointer-events:none;
@@ -59,17 +59,19 @@
     <div id="boardContainer">
       <canvas id="board" width="400" height="400" style="border:1px solid #000000;"></canvas>
     </div>
-      <div id="myCursor">
-        <svg height="202" width="202">
-          <circle
-            stroke="grey"
-            stroke-width="1"
-            fill="none"
-            cx="100"
-            cy="100"
-            r="10" >  
-          </circle>
-        </svg>
+      <div class="cursors">
+        <div class="cursor self">
+          <svg height="202" width="202">
+            <circle
+              stroke="grey"
+              stroke-width="1"
+              fill="none"
+              cx="100"
+              cy="100"
+              r="10" >  
+            </circle>
+          </svg>
+        </div>
       </div>
       <div class="btns">
         <button id="clearBtn">

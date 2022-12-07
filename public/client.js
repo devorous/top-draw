@@ -11,7 +11,7 @@ var users = [];
 var userID = Math.floor(Math.random() * 999999);
 
     var board = $("#board")[0];
-var cursor = $("#myCursor")[0];
+var cursor = $(".cursor.self")[0];
 var cursor_circle = cursor.children[0].children[0];
 var height = board.height;
 var width = board.width;
@@ -31,7 +31,9 @@ var self = {
   x: 0,
   y: 0,
   size:10,
-  color: "black"
+  color: "black",
+  mousedown: false,
+  id:userID
 };
 
 // Add self player to beginning of players array:
@@ -59,15 +61,17 @@ socket.onmessage = function(m){
   console.log(m.data);
 };
 
+
 function send(data){
   socket.send(JSON.stringify(data));
 }
 
 
 board.addEventListener('mousemove', function(e){
-  //console.log(e);
-  cursor.style.left=e.layerX-100+"px";
-  cursor.style.top=e.layerY-100+"px";
+  self.x = e.layerX-100
+  self.y = e.layerY-100
+  cursor.style.left=self.x+"px";
+  cursor.style.top=self.y+"px";
   send({command:"broadcast",x:e.layerX,y:e.layerY,mousedown:mousedown,id:userID});
   if(mousedown){
     var pos = {x:e.layerX,y:e.layerY};
