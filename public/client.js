@@ -169,9 +169,7 @@ board.addEventListener('wheel', function(e){
   }
 });
 
-function drawLine(line){
-  
-}
+
 
 function moveCursor(id, x, y){
   var c = $("."+id.toString())[0];
@@ -193,7 +191,7 @@ function drawUser(user, id){
   var data = user.userdata;
   console.log("this is the data: "+JSON.stringify(user));
   var div = $('<div></div>')[0];
-  div.setAttribute("class","cursor "+user.id.toString());
+  div.setAttribute("class","cursor "+id.toString());
   div.setAttribute("left","0px");
   div.setAttribute("right","0px");
   var svg = $('<svg height="202" width="202"></svg>')[0];
