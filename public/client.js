@@ -10,7 +10,6 @@ var cursor_circle = cursor.children[0].children[0];
 var height = board.height;
 var width = board.width;
 var size = 10;
-var mm = 0;
 
 var ctx = board.getContext("2d");
 ctx.lineWidth=size*2;
@@ -50,9 +49,7 @@ socket.onopen = function() {
 
 socket.addEventListener("message", (m) => {
   var data = JSON.parse(m.data);
-  console.log("recieved message: ");
-  console.log(data);
-  
+
   
   switch(data.command){
     case 'connect':
@@ -74,6 +71,9 @@ function broadcast(data){
   console.log("broadcasting :"+JSON.stringify(data));
   console.log("data");
   switch(data.type){
+    case 'users':
+      for(i=0;i<)
+      break
     case 'clear':
         clearBoard();
       break
