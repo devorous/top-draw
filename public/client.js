@@ -205,6 +205,7 @@ function drawUser(userdata,id){
   var text = $("<text>"+id.toString()+"</text>")[0];
   text.setAttribute("class","name "+id.toString());
   svg.appendChild(circle);
+  div.appendChild(text);
   div.appendChild(svg);
   cursors.appendChild(div);
 
