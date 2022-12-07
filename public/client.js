@@ -58,8 +58,8 @@ socket.addEventListener("message", (m) => {
   switch(data.command){
     case 'currentUsers':
         //updating list of users with new users
-        for(var i=0;i<data.users.length;i++){
-          if(users.indexOf(data.users[i]) == -1 && data.users[i].id != userID){
+
+          if(users.indexOf(data.users[i]) == -1 && !inList){
               users.push(data.users[i].userdata);
               drawUser(data.users[i].userdata,data.users[i].id);
               console.log("adding: "+JSON.stringify(data.users[i].userdata));
@@ -94,8 +94,9 @@ function recieve(data){
         clearBoard();
       break
     case 'Mm':
-      moveCursor(data);
       updateUser(data,['x','y']);
+      moveCursor(data);
+      
       break
     case 'Md':
       
@@ -179,7 +180,8 @@ board.addEventListener('wheel', function(e){
 
 
 function moveCursor(data){
-  
+  console.log("the move cursor data: ");
+  console.log(data);
   var id=data.id.toString();
   var x = data.x;
   var y = data.y;
