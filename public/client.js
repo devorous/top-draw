@@ -69,6 +69,9 @@ socket.addEventListener("message", (m) => {
     case 'connect':
       break
     case 'userLeft':
+      users = users.filter(userdata =>{
+      return userdata.id != data.id;
+    });
       var div = $("."+data.id.toString())[0];
       if(div){
         div.remove();
