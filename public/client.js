@@ -205,8 +205,6 @@ function drawUser(userdata,id){
   var data = userdata;
   var div = $('<div></div>')[0];
   div.setAttribute("class","cursor "+id.toString());
-  div.setAttribute("left","0px");
-  div.setAttribute("right","0px");
   var svg = $('<svg height="202" width="202"></svg>')[0];
   var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>')[0];
   var cursors = $(".cursors")[0];
