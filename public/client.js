@@ -61,13 +61,18 @@ socket.addEventListener("message", (m) => {
         for(var i=0;i<data.users.length;i++){
           console.log("checking IDs: dataID:"+data.users[i].id.toString()+" userID: "+userID.toString());
           if(data.users[i].id != userID){
-              users.push(data.users[i]);
+              users.push(data.users[i].userdata);
               drawUser(data.users[i].userdata,data.users[i].id);
               console.log("adding: "+JSON.stringify(data.users[i].userdata));
           }
         }
     case 'connect':
-
+      break
+    case 'userLeft':
+      var div = $("."+data.id.toString())[0];
+      if(div){
+        div.remove();
+      }
       break
     case 'broadcast':
       recieve(data);
@@ -185,6 +190,7 @@ function moveCursor(data){
   var y = data.y;
   
   console.log("elements with id as class: ");
+  console.log("ID: "+id);
   console.log(document.getElementsByClassName(id));
   
   var cursor = document.getElementsByClassName(id)[0];
@@ -205,8 +211,6 @@ function clearBoard(){
 }
 
 function drawUser(userdata,id){
-  console.log("DRAWING USER:");
-  console.log(userdata, id);
   var data = userdata;
   var div = $('<div></div>')[0];
   div.setAttribute("class","cursor "+id.toString());
