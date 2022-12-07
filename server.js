@@ -26,7 +26,6 @@ function broadcast(data) {
   wsServer.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN && data.id != client.id) {
       client.send(JSON.stringify(data));
-      client.send(JSON.stringify(current_users));
     }
   });
 }
@@ -36,13 +35,15 @@ function broadcast(data) {
 wsServer.on("connection", ws => {
   // We will store the id for this connection in the id property.
   ws.id = "";
-
   // This function will run every time the server recieves a message with that client.
   ws.on("message", data => {
     // Broadcast the received message back to all clients.
     data = JSON.parse(data);
     
     switch(data.command){
+      case 'getusers':
+        
+        break
       case 'connect':
         console.log("Message Received: ", data);
         ws.id = data.id;

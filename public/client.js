@@ -47,6 +47,7 @@ var socket = new WebSocket(`${wsProtocol}://${window.location.hostname}:${window
 // Log successful connection
 socket.onopen = function() {
   send({command:"connect",userdata:self,id:userID});
+  send({command:"getusers", id:userID});
   console.log("Websocket connected!");
 };
 
