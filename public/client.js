@@ -55,18 +55,17 @@ socket.onopen = function() {
 socket.addEventListener("message", (m) => {
   var data = JSON.parse(m.data);
 
-  
   switch(data.command){
     case 'currentUsers':
+        //updating list of users with new users
         for(var i=0;i<data.users.length;i++){
-          console.log(data.users[i]);
-          console.log("checking IDs: dataID:"+data.users[i].id.toString()+" userID: "+userID.toString());
           if(users.indexOf(data.users[i]) == -1 && data.users[i].id != userID){
               users.push(data.users[i].userdata);
               drawUser(data.users[i].userdata,data.users[i].id);
               console.log("adding: "+JSON.stringify(data.users[i].userdata));
           }
         }
+        break
     case 'connect':
       break
     case 'userLeft':
@@ -78,6 +77,7 @@ socket.addEventListener("message", (m) => {
         div.remove();
       }
       break
+      
     case 'broadcast':
       recieve(data);
   }
@@ -89,14 +89,13 @@ function send(data){
 }
 
 function recieve(data){
-  console.log("recieving :"+JSON.stringify(data));
-  console.log("data");
   switch(data.type){
     case 'clear':
         clearBoard();
       break
     case 'Mm':
       moveCursor(data);
+      updateUser(data,['x','y']);
       break
     case 'Md':
       
@@ -188,6 +187,18 @@ function moveCursor(data){
   cursor.style.left=x.toString()+'px';
   cursor.style.top=y.toString()+'px';
 }
+
+function updateUser(data,fields){
+  console.log("update user data: ");
+  console.log(data);
+  for(var i=0;i<users.length;i++){
+    if(users[i].id==data.id){
+      users[i]=data;
+    }
+  }
+  
+}
+
 
 var btn = $("#clearBtn")[0];
 btn.addEventListener("click",function(){
