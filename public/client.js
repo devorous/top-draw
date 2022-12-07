@@ -44,14 +44,17 @@ var socket = new WebSocket(`${wsProtocol}://${window.location.hostname}:${window
 
 // Log successful connection
 socket.onopen = function() {
-  send({command:"connect",id:userID});
+  send({command:"connect",userdata:self,id:userID});
   console.log("Websocket connected!");
 };
 
 socket.onmessage = function(m){
   console.log("recieved message: ")
   console.log(m.data);
-  switch(m.type){
+  switch(m.command){
+    case 'connect':
+      users.push(m.userdata);
+      console.log("adding: "+m.userdata);
       
   }
 };
@@ -80,7 +83,7 @@ board.addEventListener('mousemove', function(e){
 
 board.addEventListener('mousedown', function(e){
   self.mousedown = true;
-  send({command:"broadcast",type:"Md",data:self,id:userID})
+  send({command:"broadcast",type:"Md", id:userID})
   ctx.beginPath();
   ctx.lineCap="round";
   ctx.moveTo(e.layerX,e.LayerY);
@@ -89,7 +92,7 @@ board.addEventListener('mousedown', function(e){
 
 board.addEventListener('mouseup', function(e){
   self.mousedown = false;
-  send({command:"broadcast", type:"Mu",data:self,id:userID})
+  send({command:"broadcast", type:"Mu",id:userID})
   var line = {path:current_line,id:userID};
   if(line){
     console.log("line to draw: ");
