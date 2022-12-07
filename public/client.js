@@ -50,7 +50,7 @@ socket.onopen = function() {
 
 socket.onmessage = function(m){
   console.log("recieved message: ")
-  console.log(m.data);
+  console.log(JSON.stringify(m));
   switch(m.command){
     case 'connect':
       users.push(m.userdata);
@@ -58,7 +58,7 @@ socket.onmessage = function(m){
       console.log("adding: "+m.userdata);
       break
     case 'broadcast':
-      console.log("SENDING M to broadcast");
+      
       broadcast(m);
   }
 };
