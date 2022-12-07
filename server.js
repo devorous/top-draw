@@ -27,6 +27,7 @@ function broadcast(data) {
     if (client.readyState === WebSocket.OPEN && data.id != client.id) {
       console.log("sending this data: "+JSON.stringify(data));
       client.send(JSON.stringify(data));
+      client.send(JSON.stringify(current_users));
     }
   });
 }
@@ -51,7 +52,7 @@ wsServer.on("connection", ws => {
         var user = data;
         delete user.command
         current_users.push(user);
-        console.log(current_users);
+        console.log("current users: "+current_users.length+JSON.stringify(current_users));
         //save user to list of current users in room
         //when somebody joins, send them this list..
         break
@@ -66,11 +67,11 @@ wsServer.on("connection", ws => {
 
   ws.on("close", () => {
     console.log("Disconnected:", ws.id);
-    var user_list_update = current_users.filter(userdata =>{
-      return userdata.id == ws.id;
-    })
-    var current_users 
-    // Here you could send a message to other clients that
-    // this client has disconnected.
+    current_users = current_users.filter(userdata =>{
+      return userdata.id != ws.id;
+    });
+    console.log("current users: "+current_users);
+    
+    
   });
 });
