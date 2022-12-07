@@ -56,11 +56,15 @@ socket.addEventListener("message", (m) => {
   
   switch(data.command){
     case 'currentUsers':
-      
+        for(var i=0;i<data.users.length;i++){
+          if(data.id != userID){
+              users.push(data.users[i]);
+              drawUser(data.users[i].userdata,data.users[i].id);
+              console.log("adding: "+JSON.stringify(data.users[i].userdata));
+          }
+        }
     case 'connect':
-      users.push(data.userdata);
-      drawUser(data);
-      console.log("adding: "+data.userdata);
+
       break
     case 'broadcast':
       broadcast(data);
@@ -187,17 +191,16 @@ function clearBoard(){
   ctx.fillRect(0,0,400,400)
 }
 
-function drawUser(user, id){
-  var data = user.userdata;
-  console.log("this is the data: "+JSON.stringify(user));
+function drawUser(userdata,id){
+  var data = userdata;
   var div = $('<div></div>')[0];
   div.setAttribute("class","cursor "+id.toString());
   div.setAttribute("left","0px");
   div.setAttribute("right","0px");
   var svg = $('<svg height="202" width="202"></svg>')[0];
-  var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>');
+  var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>')[0];
   var cursors = $(".cursors");
-  svg.append(circle);
+  svg.appendChild(circle);
   div.appendChild(svg);
   cursors.append(div);
 
