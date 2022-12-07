@@ -58,7 +58,8 @@ socket.onmessage = function(m){
       console.log("adding: "+m.userdata);
       break
     case 'broadcast':
-      clearBoard();
+      console.log("SENDING M to broadcast");
+      broadcast(m);
   }
 };
 
@@ -68,9 +69,11 @@ function send(data){
 }
 
 function broadcast(data){
+  console.log(data.type);
+  var data = JSON.parse(data);
   switch(data.type){
     case 'clear':
-      
+        clearBoard();
       break
     case 'Mm':
       moveCursor(data.id,data.x,data.y);

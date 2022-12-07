@@ -39,6 +39,7 @@ wsServer.on("connection", ws => {
   ws.on("message", data => {
     // Broadcast the received message back to all clients.
     data = JSON.parse(data);
+    
     switch(data.command){
       case 'connect':
         console.log("Message Received: ", data);
