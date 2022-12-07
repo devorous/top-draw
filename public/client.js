@@ -73,7 +73,7 @@ function broadcast(data){
       
       break
     case 'Mm':
-      
+      moveCursor(data.id,data.x,data.y);
       break
     case 'Md':
       
@@ -158,6 +158,10 @@ function drawLine(line){
   
 }
 
+function moveCursor(id, x, y){
+  var c = $("."+id.toString())[0];
+}
+
 var btn = $("#clearBtn")[0];
 btn.addEventListener("click",function(){
   clearBoard();
@@ -172,12 +176,12 @@ function clearBoard(){
 
 function drawUser(data){
   var div = $('<div class=cursor '+data.id.toString()+'></div>')[0];
-  var svg = $('<svg></svg>')[0];
-  svg.height="202";
-  svg.width ="202";
+  var svg = $('<svg height="202" width="202"></svg>')[0];
   var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>')[0];
-  svg
-  
+  var cursors = $(".cursors")[0];
+  svg.appendChild(circle);
+  div.appendChild(svg);
+  cursors.appendChild(div);
 }
 /*
 
