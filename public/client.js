@@ -205,14 +205,17 @@ function drawUser(userdata,id){
   var data = userdata;
   var div = $('<div></div>')[0];
   div.setAttribute("class","cursor "+id.toString());
-  var svg = $('<svg height="202" width="202"></svg>')[0];
+  var svg = document.createElementNS('http://www.ww3.org/2000/svg', 'svg');
+  svg.setAttribute("height","202px");
+  svg.setAttribute("width","202px");
   //var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>')[0];
   var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      (0, _setAttributes2.default)(circle, {
-        cx: a.cx,
-        cy: a.cy,
-        r: a.r
-        });
+  circle.setAttribute("stroke","grey");
+  circle.setAttribute("stroke-width","1");
+  circle.setAttribute("fill","none");
+  circle.setAttribute("cx","100");
+  circle.setAttribute("cy","100");
+  circle.setAttribute("r","10");
   var cursors = $(".cursors")[0];
   var text = $("<text>"+id.toString()+"</text>")[0];
   text.setAttribute("class","name "+id.toString());
