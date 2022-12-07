@@ -34,6 +34,7 @@ function broadcast(data) {
 // server connects to a new client:
 wsServer.on("connection", ws => {
   // We will store the id for this connection in the id property.
+  broadcast({command:"currentUsers",users:current_users});
   ws.id = "";
   // This function will run every time the server recieves a message with that client.
   ws.on("message", data => {
@@ -41,9 +42,7 @@ wsServer.on("connection", ws => {
     data = JSON.parse(data);
     
     switch(data.command){
-      case 'getusers':
         
-        break
       case 'connect':
         console.log("Message Received: ", data);
         ws.id = data.id;
