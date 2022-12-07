@@ -68,6 +68,7 @@ wsServer.on("connection", ws => {
 
   ws.on("close", () => {
     console.log("Disconnected:", ws.id);
+    broadcast({command:"userLeft",id:ws.id});
     current_users = current_users.filter(userdata =>{
       return userdata.id != ws.id;
     });

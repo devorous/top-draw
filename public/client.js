@@ -69,7 +69,7 @@ socket.addEventListener("message", (m) => {
 
       break
     case 'broadcast':
-      broadcast(data);
+      recieve(data);
   }
 });
 
@@ -78,8 +78,8 @@ function send(data){
   socket.send(JSON.stringify(data));
 }
 
-function broadcast(data){
-  console.log("broadcasting :"+JSON.stringify(data));
+function recieve(data){
+  console.log("recieving :"+JSON.stringify(data));
   console.log("data");
   switch(data.type){
     case 'users':
@@ -94,7 +94,7 @@ function broadcast(data){
         clearBoard();
       break
     case 'Mm':
-      moveCursor(data.id,data.x,data.y);
+      moveCursor(data);
       break
     case 'Md':
       
@@ -177,8 +177,14 @@ board.addEventListener('wheel', function(e){
 
 
 
-function moveCursor(id, x, y){
-  var c = $("."+id.toString())[0];
+function moveCursor(data){
+  console.log(data);
+  var id=data.id.toString();
+  var x = data.x;
+  var y = data.y;
+  var cursor = document.getElementsByClassName(id)[0];
+  cursor.style.left=x;
+  cursor.style.top=y;
 }
 
 var btn = $("#clearBtn")[0];
