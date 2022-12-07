@@ -19,6 +19,8 @@ ctx.imageSmoothingQuality ="high";
 var current_line = [];
 
 
+var test = "test";
+
 var self = {
   x: 0,
   y: 0,
@@ -72,7 +74,10 @@ function broadcast(data){
   console.log("data");
   switch(data.type){
     case 'users':
-      for(i=0;i<)
+      for(var i=0;i<data.users.length;i++){
+        users.push(data.users[i]);
+        drawUser(data.users[i]);
+      }
       break
     case 'clear':
         clearBoard();
@@ -179,8 +184,9 @@ function clearBoard(){
   ctx.fillRect(0,0,400,400)
 }
 
-function drawUser(data){
-  /*
+function drawUser(use){
+  test=data;
+  console.log("this is the data: "+JSON.stringify(data));
   var div = $('<div class=cursor '+data.id.toString()+'></div>')[0];
   var svg = $('<svg height="202" width="202"></svg>')[0];
   var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>')[0];
@@ -188,7 +194,7 @@ function drawUser(data){
   svg.appendChild(circle);
   div.appendChild(svg);
   cursors.appendChild(div);
-  */
+
 }
 /*
 

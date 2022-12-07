@@ -49,7 +49,7 @@ wsServer.on("connection", ws => {
         ws.id = data.id;
         console.log("from connection Id:", ws.id);
         if(current_users.length>0){
-          broadcast({command:"broadcast",type:"users",users:current_users});
+          broadcast({command:"broadcast",type:"users",users:current_users,id:ws.id});
         }
         broadcast(data);
         var user = data;
