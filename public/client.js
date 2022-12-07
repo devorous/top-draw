@@ -10,7 +10,7 @@ var cursor_circle = cursor.children[0].children[0];
 var height = board.height;
 var width = board.width;
 var size = 10;
-
+var mm = 0;
 
 var ctx = board.getContext("2d");
 ctx.lineWidth=size*2;
@@ -48,20 +48,22 @@ socket.onopen = function() {
   console.log("Websocket connected!");
 };
 
-socket.onmessage = function(m){
-  console.log("recieved message: ")
-  console.log("this is m :"+m);
-  switch(m.command){
+socket.addEventListener("message", (m) => {
+  var data = JSON.parse(m.data);
+  console.log("recieved message: ");
+  console.log(data);
+  
+  
+  switch(data.command){
     case 'connect':
-      users.push(m.userdata);
-      drawUser(m.userdata);
-      console.log("adding: "+m.userdata);
+      users.push(data.userdata);
+      drawUser(data.userdata);
+      console.log("adding: "+data.userdata);
       break
     case 'broadcast':
-      
-      broadcast(m);
+      broadcast(data);
   }
-};
+});
 
 
 function send(data){
@@ -69,8 +71,8 @@ function send(data){
 }
 
 function broadcast(data){
-  console.log(data.type);
-  var data = JSON.parse(data);
+  console.log("broadcasting :"+JSON.stringify(data));
+  console.log("data");
   switch(data.type){
     case 'clear':
         clearBoard();
@@ -178,6 +180,7 @@ function clearBoard(){
 }
 
 function drawUser(data){
+  /*
   var div = $('<div class=cursor '+data.id.toString()+'></div>')[0];
   var svg = $('<svg height="202" width="202"></svg>')[0];
   var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>')[0];
@@ -185,6 +188,7 @@ function drawUser(data){
   svg.appendChild(circle);
   div.appendChild(svg);
   cursors.appendChild(div);
+  */
 }
 /*
 
