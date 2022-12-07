@@ -50,7 +50,7 @@ socket.onopen = function() {
 
 socket.onmessage = function(m){
   console.log("recieved message: ")
-  console.log(JSON.stringify(m));
+  console.log("this is m :"+m);
   switch(m.command){
     case 'connect':
       users.push(m.userdata);
