@@ -75,8 +75,10 @@ function broadcast(data){
   switch(data.type){
     case 'users':
       for(var i=0;i<data.users.length;i++){
-        users.push(data.users[i]);
-        drawUser(data.users[i]);
+        if(data.id != userId){
+          users.push(data.users[i]);
+          drawUser(data.users[i]);
+        }
       }
       break
     case 'clear':
@@ -192,11 +194,11 @@ function drawUser(user, id){
   div.setAttribute("left","0px");
   div.setAttribute("right","0px");
   var svg = $('<svg height="202" width="202"></svg>')[0];
-  var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>')[0];
-  var cursors = $(".cursors")[0];
-  svg.appendChild(circle);
+  var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>');
+  var cursors = $(".cursors");
+  svg.append(circle);
   div.appendChild(svg);
-  cursors.appendChild(div);
+  cursors.append(div);
 
 }
 /*

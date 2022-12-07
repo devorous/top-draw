@@ -48,13 +48,15 @@ wsServer.on("connection", ws => {
         console.log("Message Received: ", data);
         ws.id = data.id;
         console.log("from connection Id:", ws.id);
+
+        var user = data;
+        delete user.command
+        current_users.push(user);
         if(current_users.length>0){
           broadcast({command:"broadcast",type:"users",users:current_users,id:ws.id});
         }
         broadcast(data);
-        var user = data;
-        delete user.command
-        current_users.push(user);
+        
         console.log("current users: "+current_users.length+" "+JSON.stringify(current_users));
         //save user to list of current users in room
         //when somebody joins, send them this list..
