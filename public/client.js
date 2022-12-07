@@ -54,6 +54,7 @@ socket.onmessage = function(m){
   switch(m.command){
     case 'connect':
       users.push(m.userdata);
+      drawUser(m.userdata);
       console.log("adding: "+m.userdata);
       break
     case 'broadcast':
@@ -168,3 +169,29 @@ function clearBoard(){
   ctx.fillStyle="#FFF";
   ctx.fillRect(0,0,400,400)
 }
+
+function drawUser(data){
+  var div = $('<div class=cursor '+data.id.toString()+'></div>')[0];
+  var svg = $('<svg></svg>')[0];
+  svg.height="202";
+  svg.width ="202";
+  var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>')[0];
+  svg
+  
+}
+/*
+
+        <div class="cursor self">
+          <svg height="202" width="202">
+            <circle
+              stroke="grey"
+              stroke-width="1"
+              fill="none"
+              cx="100"
+              cy="100"
+              r="10" >  
+            </circle>
+          </svg>
+        </div>
+      
+      */
