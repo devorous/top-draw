@@ -205,10 +205,10 @@ function drawUser(userdata,id){
   var data = userdata;
   var div = $('<div></div>')[0];
   div.setAttribute("class","cursor "+id.toString());
+
   var svg = document.createElementNS('http://www.ww3.org/2000/svg', 'svg');
   svg.setAttribute("height","202px");
   svg.setAttribute("width","202px");
-  //var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>')[0];
   var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
   circle.setAttribute("stroke","grey");
   circle.setAttribute("stroke-width","1");
@@ -216,12 +216,14 @@ function drawUser(userdata,id){
   circle.setAttribute("cx","100");
   circle.setAttribute("cy","100");
   circle.setAttribute("r","10");
+  circle.setAttribute("width","auto");
+  circle.setAttribute("height","auto");
   var cursors = $(".cursors")[0];
   var text = $("<text>"+id.toString()+"</text>")[0];
   text.setAttribute("class","name "+id.toString());
   svg.appendChild(circle);
-  div.appendChild(text);
   div.appendChild(svg);
+  div.appendChild(text);
   cursors.appendChild(div);
 
 }
