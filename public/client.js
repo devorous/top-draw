@@ -25,7 +25,6 @@ ctx.imageSmoothingQuality ="high";
 
 var current_line = [];
 
-var mousedown = false;
 
 var self = {
   x: 0,
@@ -33,7 +32,6 @@ var self = {
   size:10,
   color: "black",
   mousedown: false,
-  id:userID
 };
 
 // Add self player to beginning of players array:
@@ -72,8 +70,8 @@ board.addEventListener('mousemove', function(e){
   self.y = e.layerY-100
   cursor.style.left=self.x+"px";
   cursor.style.top=self.y+"px";
-  send({command:"broadcast",x:e.layerX,y:e.layerY,mousedown:mousedown,id:userID});
-  if(mousedown){
+  send({command:"broadcast",typedata:self,id:userID});
+  if(self.mousedown){
     var pos = {x:e.layerX,y:e.layerY};
     if(current_line.slice(-1)[0] !=pos ){
       ctx.lineTo(e.layerX,e.layerY);
@@ -84,7 +82,8 @@ board.addEventListener('mousemove', function(e){
 })
 
 board.addEventListener('mousedown', function(e){
-  mousedown = true;
+  self.mousedown = true;
+  send({command:"broadcast",type:"Md",data:self,id:userID})
   ctx.beginPath();
   ctx.lineCap="round";
   ctx.moveTo(e.layerX,e.LayerY);
@@ -92,8 +91,8 @@ board.addEventListener('mousedown', function(e){
 });
 
 board.addEventListener('mouseup', function(e){
-  mousedown = false;
-  
+  self.mousedown = false;
+  send({command:"broadcast", type:"Mu",data:self,id:userID})
   var line = {path:current_line,id:userID};
   if(line){
     console.log("line to draw: ");
@@ -118,6 +117,7 @@ board.addEventListener('wheel', function(e){
       size=size-step;
       cursor_circle.setAttribute("r",size);
       ctx.lineWidth=size*2;
+      self.size=size;
     }
   }
   else{
@@ -126,6 +126,7 @@ board.addEventListener('wheel', function(e){
       size=size+step;
       cursor_circle.setAttribute("r",size);
       ctx.lineWidth=size*2;
+      self.size=size;
     }
   }
 });
