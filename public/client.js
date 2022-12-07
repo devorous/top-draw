@@ -33,7 +33,7 @@ var self = {
 };
 
 // Add self player to beginning of players array:
-users.unshift(self);
+users.push(self);
 
 
 /* - - - - - - - - - -
@@ -61,7 +61,7 @@ socket.addEventListener("message", (m) => {
         for(var i=0;i<data.users.length;i++){
           console.log(data.users[i]);
           console.log("checking IDs: dataID:"+data.users[i].id.toString()+" userID: "+userID.toString());
-          if(data.users[i].id != userID){
+          if(users.indexOf(data.users[i])==-1){
               users.push(data.users[i].userdata);
               drawUser(data.users[i].userdata,data.users[i].id);
               console.log("adding: "+JSON.stringify(data.users[i].userdata));
@@ -92,14 +92,6 @@ function recieve(data){
   console.log("recieving :"+JSON.stringify(data));
   console.log("data");
   switch(data.type){
-    case 'users':
-      for(var i=0;i<data.users.length;i++){
-        if(data.id != self.id){
-          users.push(data.users[i]);
-          drawUser(data.users[i]);
-        }
-      }
-      break
     case 'clear':
         clearBoard();
       break
