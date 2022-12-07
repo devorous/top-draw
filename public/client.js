@@ -59,6 +59,7 @@ socket.addEventListener("message", (m) => {
   switch(data.command){
     case 'currentUsers':
         for(var i=0;i<data.users.length;i++){
+          console.log(data.users[i]);
           console.log("checking IDs: dataID:"+data.users[i].id.toString()+" userID: "+userID.toString());
           if(data.users[i].id != userID){
               users.push(data.users[i].userdata);
@@ -70,8 +71,8 @@ socket.addEventListener("message", (m) => {
       break
     case 'userLeft':
       users = users.filter(userdata =>{
-      return userdata.id != data.id;
-    });
+        return userdata.id != data.id;
+      });
       var div = $("."+data.id.toString())[0];
       if(div){
         div.remove();
