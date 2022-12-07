@@ -70,7 +70,7 @@ board.addEventListener('mousemove', function(e){
   self.y = e.layerY-100
   cursor.style.left=self.x+"px";
   cursor.style.top=self.y+"px";
-  send({command:"broadcast",typedata:self,id:userID});
+  send({command:"broadcast",type:"Mm",data:self,id:userID});
   if(self.mousedown){
     var pos = {x:e.layerX,y:e.layerY};
     if(current_line.slice(-1)[0] !=pos ){
