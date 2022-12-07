@@ -34,7 +34,6 @@ function broadcast(data) {
 // server connects to a new client:
 wsServer.on("connection", ws => {
   // We will store the id for this connection in the id property.
-  broadcast({command:"currentUsers",users:current_users});
   ws.id = "";
   // This function will run every time the server recieves a message with that client.
   ws.on("message", data => {
@@ -48,12 +47,13 @@ wsServer.on("connection", ws => {
         ws.id = data.id;
         console.log("from connection Id:", ws.id);
 
+        
+        broadcast({command:"currentUsers",users:current_users});
         var user = data;
         delete user.command
         current_users.push(user);
-        broadcast({command:"connect",data:data});
-        
         console.log("current users: "+current_users.length+" "+JSON.stringify(current_users));
+        
         //save user to list of current users in room
         //when somebody joins, send them this list..
         break
