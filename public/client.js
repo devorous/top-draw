@@ -7,6 +7,8 @@ var userID = Math.floor(Math.random() * 999999);
 var board = $("#board")[0];
 var cursor = $(".cursor.self")[0];
 var cursor_circle = cursor.children[0].children[0];
+var text = $(".name.self")[0];
+text.innerHTML = userID.toString();
 var height = board.height;
 var width = board.width;
 var size = 10;
@@ -199,10 +201,12 @@ function drawUser(userdata,id){
   div.setAttribute("right","0px");
   var svg = $('<svg height="202" width="202"></svg>')[0];
   var circle = $('<circle stroke="grey" stroke-width="1" fill="none" cx="100" cy="100" r="10"></circle>')[0];
-  var cursors = $(".cursors");
+  var cursors = $(".cursors")[0];
+  var text = $("<text>"+id.toString()+"</text>")[0];
+  text.setAttribute("class","name "+id.toString());
   svg.appendChild(circle);
   div.appendChild(svg);
-  cursors.append(div);
+  cursors.appendChild(div);
 
 }
 /*
