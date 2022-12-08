@@ -118,6 +118,7 @@ function recieve(data){
       break
       
     case 'ChS':
+      //will need to update size of brush too
       updateUser(data,['size']);
       break
       
