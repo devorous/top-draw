@@ -110,11 +110,12 @@ function recieve(data){
       break
       
     case 'Md':
+      updateUser(data,['mousedown']);
       
       break
       
     case 'Mu':
-      
+      updateUser(data,['mouseup']);
       break
       
     case 'ChS':
@@ -125,7 +126,12 @@ function recieve(data){
   }
 }
 
-
+function getUser(id){
+  var user = users.filter( a =>{
+    return a.id==id;
+  })[0];
+  return user
+}
 
 
 board.addEventListener('mousemove', function(e){
