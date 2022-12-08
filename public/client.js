@@ -26,6 +26,8 @@ var test = "test";
 var self = {
   x: 0,
   y: 0,
+  lastx:0,
+  lasty:0,
   size:10,
   color: "black",
   mousedown: false,
@@ -98,6 +100,7 @@ function send(data){
 
 function recieve(data){
   //process broadcast events
+  var user = getUser(data.id);
   switch(data.type){
       
     case 'clear':
@@ -106,21 +109,24 @@ function recieve(data){
       
     case 'Mm':
       moveCursor(data);
-      updateUser(data,['x','y']);
+      updateUser(user, data,['x','y']);
+      if(user.mousedown){
+        drawLine(data.x,data.y,user.lastx,user.lasty);
+      }
       break
       
     case 'Md':
-      updateUser(data,['mousedown']);
+      updateUser(user, data,['mousedown']);
       
       break
       
     case 'Mu':
-      updateUser(data,['mouseup']);
+      updateUser(user, data,['mouseup']);
       break
       
     case 'ChS':
       //will need to update size of brush too
-      updateUser(data,['size']);
+      updateUser(user, data,['size']);
       break
       
   }
@@ -204,6 +210,12 @@ board.addEventListener('wheel', function(e){
 
 
 
+function drawLine(x,y){
+  
+}
+
+
+
 function moveCursor(data){
   
   var id=data.id.toString();
@@ -214,17 +226,14 @@ function moveCursor(data){
   cursor.style.top=y.toString()+'px';
 }
 
-function updateUser(data,fields){
+function updateUser(user,data,fields){
   console.log("update user data: ");
   console.log(data);
-  for(var i=0;i<users.length;i++){
-    if(users[i].id==data.id){
-      for(var j=0;j<fields.length;j++){
-        var val = fields[j];
-        users[i][val]=data[val];
-      }
+
+    for(var i=0;i<fields.length;i++){
+      var val = fields[i];
+      user[val] = data[val];
     }
-  }
   
 }
 
