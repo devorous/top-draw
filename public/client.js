@@ -109,7 +109,7 @@ function recieve(data){
       
     case 'Mm':
       moveCursor(data);
-      if(!user.lastx){
+      if(user.lastx==null){
         user.lastx = data.x;
         user.lasty = data.y;
       }
@@ -121,11 +121,13 @@ function recieve(data){
       break
       
     case 'Md':
+      ctx.beginPath();
       updateUser(user, data,['mousedown']);
       
       break
       
     case 'Mu':
+      ctx.stroke();
       updateUser(user, data,['mouseup']);
       break
       
@@ -227,9 +229,11 @@ board.addEventListener('wheel', function(e){
 
 
 function drawLine(x,y,lastx,lasty){
-  ctx.beginPath();
+  console.log("drawing line..")
   ctx.lineCap="round";
-  ctx.moveTo(lastx,lasty)
+  ctx.moveTo(lastx,lasty);
+  ctx.lineTo(x,y);
+  ctx.stroke();
 }
 
 
