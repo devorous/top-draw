@@ -58,8 +58,15 @@ socket.addEventListener("message", (m) => {
   switch(data.command){
     case 'currentUsers':
         //updating list of users with new users
+        var current_ids = [];
+        for(var i=0;i<users.length;i++){
+          if(current_ids.indexOf(users[i].id)==-1){
+            current_ids.push(users[i].id);
+          }
+        }
+        //getting all the current ids to check for duplicates
         for(var i=0;i<data.users.length;i++){
-          if(users.indexOf(data.users[i]) == -1 && data.users[i].id != userID){
+          if(current_ids.indexOf(data.users[i].id) == -1 && data.users[i].id != userID){
               users.push(data.users[i].userdata);
               drawUser(data.users[i].userdata,data.users[i].id);
               console.log("adding: "+JSON.stringify(data.users[i].userdata));
