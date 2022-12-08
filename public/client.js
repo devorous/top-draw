@@ -26,8 +26,8 @@ var test = "test";
 var self = {
   x: 0,
   y: 0,
-  lastx:0,
-  lasty:0,
+  lastx:null,
+  lasty:null,
   size:10,
   color: "black",
   mousedown: false,
@@ -110,6 +110,8 @@ function recieve(data){
     case 'Mm':
       moveCursor(data);
       updateUser(user, data,['x','y']);
+      if(user.lastx==0)
+      
       if(user.mousedown){
         drawLine(data.x,data.y,user.lastx,user.lasty);
       }
@@ -148,6 +150,10 @@ board.addEventListener('mousemove', function(e){
   send({command:"broadcast",type:"Mm",x:self.x,y:self.y,id:userID});
   if(self.mousedown){
     var pos = {x:e.layerX,y:e.layerY};
+    if(current_line.slice(-1)[0]){
+      self.lastx = current_line.slice(-1)[0].x
+      self.lasty = current_line.slice(-1)[0].y
+    }
     if(current_line.slice(-1)[0] !=pos ){
       ctx.lineTo(e.layerX,e.layerY);
       ctx.stroke();
@@ -162,11 +168,18 @@ board.addEventListener('mousedown', function(e){
   ctx.beginPath();
   ctx.lineCap="round";
   ctx.moveTo(e.layerX,e.LayerY);
+  if(self.lastx){
+    ctx.lineTo(self.lastx,self.lasty);
+  }
+  else{
+    ctx.lineTo(e.layerX,e.LayerY);
+  }
   console.log(e);
 });
 
 board.addEventListener('mouseup', function(e){
   self.mousedown = false;
+  ctx.stroke();
   send({command:"broadcast", type:"Mu",id:userID})
   var line = {path:current_line,id:userID};
   if(line){
