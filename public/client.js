@@ -99,18 +99,26 @@ function send(data){
 function recieve(data){
   //process broadcast events
   switch(data.type){
+      
     case 'clear':
         clearBoard();
       break
+      
     case 'Mm':
       moveCursor(data);
       updateUser(data,['x','y']);
       break
+      
     case 'Md':
       
       break
+      
     case 'Mu':
       
+      break
+      
+    case 'ChS':
+      updateUser(data,['size']);
       break
       
   }
@@ -172,6 +180,7 @@ board.addEventListener('wheel', function(e){
       cursor_circle.setAttribute("r",size);
       ctx.lineWidth=size*2;
       self.size=size;
+      send({command:"broadcast",type:"ChS",size:size,id:userID});
     }
   }
   else{
@@ -181,6 +190,7 @@ board.addEventListener('wheel', function(e){
       cursor_circle.setAttribute("r",size);
       ctx.lineWidth=size*2;
       self.size=size;
+      send({command:"broadcast",type:"ChS",size:size,id:userID});
     }
   }
 });
@@ -225,7 +235,7 @@ function clearBoard(){
 }
 
 function drawUser(data,id){
-
+  
   var div = $('<div></div>')[0];
   div.setAttribute("class","cursor "+id.toString());
 
@@ -233,13 +243,13 @@ function drawUser(data,id){
   svg.setAttribute("height","202px");
   svg.setAttribute("width","202px");
   var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  circle.setAttribute("class",id.toString());
   circle.setAttribute("stroke","grey");
   circle.setAttribute("stroke-width","1");
   circle.setAttribute("fill","none");
   circle.setAttribute("cx","100");
   circle.setAttribute("cy","100");
   circle.setAttribute("r","10");
-  circle.setAttribute("width","auto");
   circle.setAttribute("height","auto");
   var cursors = $(".cursors")[0];
   var text = $("<text>"+id.toString()+"</text>")[0];
