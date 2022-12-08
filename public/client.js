@@ -76,6 +76,7 @@ socket.addEventListener("message", (m) => {
     case 'connect':
       break
     case 'userLeft':
+      //when a user leaves, update the user list and remove the cursor by ID class
       users = users.filter(userdata =>{
         return userdata.id != data.id;
       });
@@ -96,6 +97,7 @@ function send(data){
 }
 
 function recieve(data){
+  //process broadcast events
   switch(data.type){
     case 'clear':
         clearBoard();
@@ -157,7 +159,7 @@ board.addEventListener('mouseup', function(e){
 board.addEventListener('wheel', function(e){
   e.preventDefault();
   var step=1;
-  if(size<5){
+  if(size<=5){
     step=0.5;
   }
   else{
@@ -222,8 +224,8 @@ function clearBoard(){
   ctx.fillRect(0,0,400,400)
 }
 
-function drawUser(userdata,id){
-  var data = userdata;
+function drawUser(data,id){
+
   var div = $('<div></div>')[0];
   div.setAttribute("class","cursor "+id.toString());
 
