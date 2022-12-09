@@ -138,9 +138,9 @@ function recieve(data){
       
     case 'ChS':
       //change the size
-      updateUser(user, data,['size'])[0];
-      var userText = $("."+user.id.toString()+" text")[0];
-      userText.style.fontSize=size;
+      updateUser(user, data,['size']);
+      var userText = $("."+user.id.toString()+" .text")[0];
+      userText.style.fontSize=(data.size+5).toString()+"px";
       break
       
     case 'ChT':
@@ -385,6 +385,7 @@ function drawUser(data,id){
   name.setAttribute("class","name "+id.toString());
   var text = $("<text></text>")[0];
   text.setAttribute("class","text "+id.toString());
+  text.setAttribute("width","400px");
   var line = $("<text>|</text>")[0];
   var textinput = $("<text></text>")[0];
   textinput.setAttribute("class","textInput "+id.toString());
