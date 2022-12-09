@@ -14,8 +14,6 @@ var width = board.width;
 var size = 10;
 
 var ctx = board.getContext("2d");
-ctx.lineWidth=size*2;
-ctx.translate(0.5, 0.5);
 ctx.imageSmoothingQuality ="high";
 
 var current_line = [];
@@ -122,8 +120,11 @@ function recieve(data){
       break
       
     case 'Md':
+      ctx.lineCap="round";
       user.lastx=user.x;
       user.lasty=user.y;
+      var pos = {x:user.x,y:user.y};
+      drawLine(pos,pos,user);
       user.mousedown=true;
       break
       
@@ -183,12 +184,7 @@ board.addEventListener('mouseup', function(e){
   ctx.stroke();
   send({command:"broadcast", type:"Mu",id:userID})
   var line = {path:current_line,id:userID};
-  if(line){
-    console.log("line to draw: ");
-    console.log(line);   
-  }
   current_line=[];
-  console.log(e);
 });
 
 board.addEventListener('wheel', function(e){
@@ -225,7 +221,10 @@ board.addEventListener('wheel', function(e){
 
 
 function drawLine(pos,lastpos,user){
+  ctx.lineWidth=user.size*2;
+  //ctx.translate(0.5, 0.5);
   console.log("drawing line for user: "+user.id);
+  ctx.beginPath();
   ctx.moveTo(user.lastx+100,user.lasty+100);
   ctx.lineTo(user.x+100,user.y+100);
   ctx.stroke();
