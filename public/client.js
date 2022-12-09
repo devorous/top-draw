@@ -114,17 +114,21 @@ function recieve(data){
         user.lasty = data.y;
       }
       updateUser(user, data,['x','y']);
-
+      var pos = {x:user.x,y:user.y};
+      var lastpos = {x:user.lastx,y:user.lasty};
       if(user.mousedown){
-        drawLine(data.x,data.y,user.lastx,user.lasty);
+        drawLine(pos,lastpos,user);
       }
       break
       
     case 'Md':
+      user.lastx=user.x;
+      user.lasty=user.y;
       user.mousedown=true;
       break
       
     case 'Mu':
+      ctx.stroke();
       user.mousedown=false;
       break
       
@@ -157,13 +161,15 @@ board.addEventListener('mousemove', function(e){
   if(lastpos.x==null){
     lastpos=pos;
   }
-
-  drawLine(pos,lastpos,user);
-
-  //drawLine(pos,lastpos);
+  if(user.mousedown){
+    drawLine(pos,lastpos,user);
+  }
 })
 
 board.addEventListener('mousedown', function(e){
+  var user = getUser(userID);
+  user.lastx=user.x;
+  user.lasty=user.y;
   self.mousedown = true;
   send({command:"broadcast",type:"Md", id:userID})
   ctx.beginPath();
@@ -219,18 +225,14 @@ board.addEventListener('wheel', function(e){
 
 
 function drawLine(pos,lastpos,user){
-  
-  if(user.mousedown){
-    console.log("drawing this line: ")
-    console.log(pos,lastpos)
-    ctx.moveTo(user.lastx+100,user.lasty+100);
-    ctx.lineTo(user.x+100,user.y+100);
-    ctx.stroke();
-    current_line.push(pos);
-
-  }
+  console.log("drawing line for user: "+user.id);
+  ctx.moveTo(user.lastx+100,user.lasty+100);
+  ctx.lineTo(user.x+100,user.y+100);
+  ctx.stroke();
+  current_line.push(pos);
   user.lastx=pos.x;
   user.lasty=pos.y
+  
 }
 
 
@@ -246,14 +248,9 @@ function moveCursor(data){
 }
 
 function updateUser(user,data,fields){
-  console.log("update user data: ");
-  console.log(data);
 
     for(var i=0;i<fields.length;i++){
-      
       var val = fields[i];
-      console.log("updating users "+val+" to:");
-      console.log(data[val]);
       user[val] = data[val];
     }
   
