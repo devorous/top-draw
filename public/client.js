@@ -28,6 +28,7 @@ var self = {
   lasty:null,
   size:10,
   color: "black",
+  tool:"br",
   mousedown: false,
   id:userID
 };
@@ -107,6 +108,7 @@ function recieve(data){
       
     case 'Mm':
       moveCursor(data);
+      //if user has no lastpos, make it the current pos
       if(user.lastx==null){
         user.lastx = data.x;
         user.lasty = data.y;
@@ -153,9 +155,10 @@ board.addEventListener('mousemove', function(e){
   var user = getUser(userID);
   user.x = e.layerX-100
   user.y = e.layerY-100
-  
-  cursor.style.left=user.x+"px";
-  cursor.style.top=user.y+"px";
+  if(cursor){
+    cursor.style.left=user.x+"px";
+    cursor.style.top=user.y+"px";
+  }
   send({command:"broadcast",type:"Mm",x:user.x,y:user.y,id:userID});
   var lastpos = {x:user.lastx,y:user.lasty};
   var pos = {x:self.x,y:self.y};
@@ -200,7 +203,7 @@ board.addEventListener('wheel', function(e){
     step=1;
   }
   if(e.deltaY>0){
-    console.log("scrolled down")
+    //scrolling down
     if(size-1 > 0){
       size=size-step;
       cursor_circle.setAttribute("r",size);
@@ -210,7 +213,7 @@ board.addEventListener('wheel', function(e){
     }
   }
   else{
-    console.log("scrolled up");
+    //scrolling up
     if(size <101 ){
       size=size+step;
       cursor_circle.setAttribute("r",size);
@@ -226,7 +229,6 @@ board.addEventListener('wheel', function(e){
 function drawLine(pos,lastpos,user){
   ctx.lineWidth=user.size*2;
   //ctx.translate(0.5, 0.5);
-  console.log("drawing line for user: "+user.id);
   ctx.beginPath();
   ctx.moveTo(user.lastx+100,user.lasty+100);
   ctx.lineTo(user.x+100,user.y+100);
