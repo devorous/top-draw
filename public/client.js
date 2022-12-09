@@ -68,6 +68,7 @@ socket.addEventListener("message", (m) => {
         }
         //getting all the current ids to check for duplicates
         for(var i=0;i<data.users.length;i++){
+          var user = data.users[i]
           if(current_ids.indexOf(data.users[i].id) == -1 && data.users[i].id != userID){
               users.push(data.users[i].userdata);
               drawUser(data.users[i].userdata,data.users[i].id);
