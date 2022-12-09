@@ -139,6 +139,8 @@ function recieve(data){
     case 'ChS':
       //change the size
       updateUser(user, data,['size']);
+      var userText = $("."+user.id.toString()+" text")[0];
+      userText.style.fontSize=size;
       break
       
     case 'ChT':
@@ -221,8 +223,11 @@ board.addEventListener('wheel', function(e){
   else if(size<=5){
     step=0.5;
   }
-  else{
+  else if(size<30){
     step=1;
+  }
+  else{
+    step=2;
   }
   if(e.deltaY>0){
     //scrolling down
