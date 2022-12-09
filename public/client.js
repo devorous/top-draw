@@ -155,10 +155,11 @@ board.addEventListener('mousemove', function(e){
   var user = getUser(userID);
   user.x = e.layerX-100
   user.y = e.layerY-100
-  if(cursor){
-    cursor.style.left=user.x+"px";
-    cursor.style.top=user.y+"px";
-  }
+  
+  //set your cursor pos
+  cursor.style.left=user.x+"px";
+  cursor.style.top=user.y+"px";
+
   send({command:"broadcast",type:"Mm",x:user.x,y:user.y,id:userID});
   var lastpos = {x:user.lastx,y:user.lasty};
   var pos = {x:self.x,y:self.y};

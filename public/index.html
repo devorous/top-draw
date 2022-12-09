@@ -68,6 +68,31 @@
       canvas{
         cursor:none;
       }
+      #main{
+        display:flex;
+        width:100vw;
+      }
+      .tools{
+        display:flex;
+        flex-direction:column;
+        width:50px;
+        height:400px;
+
+        
+      }
+      a{
+        background-color:grey;
+        padding:5px;
+        transition:0.2s;
+      }
+      a:hover{
+        background-color:lightgrey;
+      }
+      .tool{
+        height:50px;
+        width:50px;
+        border:1px solid black;
+      }
     </style>
     
   </head>
@@ -76,6 +101,11 @@
       
     <div id="boardContainer">
       <canvas id="board" width="400" height="400" style="border:1px solid #000000;"></canvas>
+      <div class="btns">
+        <a id="clearBtn">
+          Clear Board
+        </a>
+      </div>
     </div>
       <div class="cursors">
         <div class="cursor self">
@@ -92,11 +122,12 @@
           <text class="name self"></text>
         </div>
       </div>
-      <div class="btns">
-        <button id="clearBtn">
-          Clear Board
-        </button>
+      <div class="tools">
+        <a class="tool" id="brushBtn"></a>
+        <a class="tool" id="textBtn"></a>
+        
       </div>
+
     </div>
   </body>
 </html>
