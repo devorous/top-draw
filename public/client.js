@@ -229,7 +229,7 @@ board.addEventListener('wheel', function(e){
 
 
 function drawLine(x,y,lastx,lasty){
-  console.log("drawing line..")
+  console.log("drawing line.." )
   ctx.lineCap="round";
   ctx.moveTo(lastx,lasty);
   ctx.lineTo(x,y);
