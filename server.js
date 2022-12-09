@@ -19,7 +19,9 @@ var WebSocket = require("ws");
 // Connect our Websocket server to our server variable to serve requests on the same port:
 var wsServer = new WebSocket.Server({ server });
 
+//keep track of the current users
 var current_users = []; 
+
 // This function will send a message to all clients connected to the websocket:
 function broadcast(data) {
   
