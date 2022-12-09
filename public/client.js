@@ -28,7 +28,7 @@ var self = {
   lasty:null,
   size:10,
   color: "black",
-  tool:"br",
+  tool:"brush",
   mousedown: false,
   id:userID
 };
@@ -136,10 +136,13 @@ function recieve(data){
       break
       
     case 'ChS':
-      //will need to update size of brush too
+      //change the size
       updateUser(user, data,['size']);
       break
       
+    case 'ChT':
+      //change the tool
+      updateUser(user,data,['tool']);
   }
 }
 
@@ -277,13 +280,17 @@ var brushBtn = $("#brushBtn")[0];
 var textBtn = $("#textBtn")[0];
 
 brushBtn.addEventListener("click", function(){
-  updateUser(getUser(self.id),{tool:"brush"},"tool")
-  send({command:"broadcast",type:"ChT"})
+  self.tool="brush";
+  send({command:"broadcast",type:"ChT",tool:"brush",id:self.id});
+  $(".text.self")[0].style.display="none";
+  $(".circle.self")[0].style.display="block";
 });
 
 textBtn.addEventListener("click",function(){
-  updateUser(getUser(self.id),{tool:"text"},"tool")
-  
+  self.tool="text";
+  send({command:"broadcast",type:"ChT",tool:"text",id:self.id});
+  $(".text.self")[0].style.display="block";
+  $(".circle.self")[0].style.display="none";
 });
 
 

@@ -56,6 +56,14 @@
         top:82px;
         left:110px;
       }
+      .text{
+        position:absolute;
+        top:95px;
+        left:105px;
+      }
+      .text.self{
+        display:none;
+      }
       svg{
         position:absolute;
         height:202px;
@@ -113,7 +121,7 @@
       <div class="cursors">
         <div class="cursor self">
           <svg height="202" width="202">
-            <circle
+            <circle class="circle self"
               stroke="grey"
               stroke-width="1"
               fill="none"
@@ -122,6 +130,7 @@
               r="10" >  
             </circle>
           </svg>
+          <text class="text self">this is text</text>
           <text class="name self"></text>
         </div>
       </div>
