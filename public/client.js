@@ -267,11 +267,25 @@ function updateUser(user,data,fields){
 }
 
 
-var btn = $("#clearBtn")[0];
-btn.addEventListener("click",function(){
+var clearBtn = $("#clearBtn")[0];
+clearBtn.addEventListener("click",function(){
   clearBoard();
   send({command:"broadcast",type:"clear",id:userID});
 });
+
+var brushBtn = $("#brushBtn")[0];
+var textBtn = $("#textBtn")[0];
+
+brushBtn.addEventListener("click", function(){
+  updateUser(getUser(self.id),{tool:"brush"},"tool")
+  send({command:"broadcast",type:"ChT"})
+});
+
+textBtn.addEventListener("click",function(){
+  updateUser(getUser(self.id),{tool:"text"},"tool")
+  
+});
+
 
 function clearBoard(){
   console.log("clearing board");
