@@ -158,7 +158,7 @@ function recieve(data){
     case 'kp':
       //keypress
       if(user.tool=="text"){
-        
+        updateText(data.key,user);
       }
   }
 }
@@ -282,8 +282,24 @@ function drawLine(pos,lastpos,user){
 }
 
 function updateText(key,user){
-  var textInput = $(".textinput "+user.id.toString());
-  
+  var input = $(".textinput "+user.id.toString());
+  if(key.length==1){
+    input.innerHTML=input.innerHTML+key;
+  }
+  switch(key){
+      
+    case "Enter":
+      input.innerHTML="";
+      break
+      
+    case "Backspace":
+      if(input.innerHTML){
+        input.innerHTML = input.innerHTML.slice(0,-1);
+      }
+      break
+      
+      
+  }
 }
 
 function moveCursor(data){
