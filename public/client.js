@@ -318,11 +318,22 @@ function drawUser(data,id){
   circle.setAttribute("r","10");
   circle.setAttribute("height","auto");
   var cursors = $(".cursors")[0];
-  var text = $("<text>"+id.toString()+"</text>")[0];
-  text.setAttribute("class","name "+id.toString());
+  var name = $("<text>"+id.toString()+"</text>")[0];
+  name.setAttribute("class","name "+id.toString());
+  var text = $("<text></text>")[0];
+  text.setAttribute("class","text "+id.toString());
+  var line = $("<text>|</text>")[0];
+  var textinput = $("<text></text>")[0];
+  textinput.setAttribute("class","textinput "+id.toString());
+  text.appendChild(line);
+  text.appendChild(textinput);
+  
   svg.appendChild(circle);
   div.appendChild(svg);
-  div.appendChild(text);
+  div.appendChild(name);
+  div.append(text);
+  
   cursors.appendChild(div);
-
+  
+//<text class="text self"><text>|</text><text class="textinput self">this is text</text></text>
 }
