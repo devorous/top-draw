@@ -148,32 +148,30 @@ function getUser(id){
 
 
 board.addEventListener('mousemove', function(e){
-  self.x = e.layerX-100
-  self.y = e.layerY-100
+  var user = getUser(userID);
+  user.x = e.layerX-100
+  user.y = e.layerY-100
   
-  console.log(self);
-  cursor.style.left=self.x+"px";
-  cursor.style.top=self.y+"px";
-  send({command:"broadcast",type:"Mm",x:self.x,y:self.y,id:userID});
+  cursor.style.left=user.x+"px";
+  cursor.style.top=user.y+"px";
+  send({command:"broadcast",type:"Mm",x:user.x,y:user.y,id:userID});
   var lastpos = current_line.slice(-1)[0];
   var pos = {x:self.x,y:self.y};
-  if(current_line.slice(-1)[0]){
-    self.lastx = current_line.slice(-1)[0].x
-    self.lasty = current_line.slice(-1)[0].y
+  
+  //drawLine(pos,lastpos);
+  if(lastpos){
+    user.lastx = lastpos.x
+    user.lasty = lastpos.y
     }
   else{
-      self.lastx=pos.x
-      self.lasty=pos.y
+      user.lastx=pos.x
+      user.lasty=pos.y
       }
-  if(self.mousedown){
-    
-    console.log("current line slice: ");
-    console.log(current_line.slice(-1)[0]);
-  
+  if(user.mousedown){
 
-    if(current_line.slice(-1) !=pos ){
-      ctx.moveTo(self.lastx,self.lasty);
-      ctx.lineTo(self.x,self.y);
+    if(lastpos !=pos ){
+      ctx.moveTo(user.lastx+100,user.lasty+100);
+      ctx.lineTo(user.x+100,user.y+100);
       ctx.stroke();
       current_line.push(pos);
     }
