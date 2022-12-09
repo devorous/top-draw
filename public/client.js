@@ -144,8 +144,8 @@ function recieve(data){
     case 'ChT':
       //change the tool
       updateUser(user,data,['tool']);
-      var userText = $(".text."+user.id.toString())[0];
-      var userCircle = $(".circle."+user.id.toString())[0];
+      var userText = $("."+user.id.toString()+" text")[0];
+      var userCircle = $("."+user.id.toString()+" circle")[0];
       if(data.tool=="brush"){
         userText.style.display="none";
         userCircle.style.display="block";
@@ -249,7 +249,7 @@ document.addEventListener("keydown", function(e){
   send({command:"broadcast",type:"kp",key:e.key,id:self.id});
   if(self.tool=="text"){
     
-    var input = $(".textinput.self")[0];
+    var input = $(".textInput.self")[0];
     
     if(e.key.length==1){
       input.innerHTML=input.innerHTML+e.key;
@@ -282,7 +282,8 @@ function drawLine(pos,lastpos,user){
 }
 
 function updateText(key,user){
-  var input = $(".textinput "+user.id.toString());
+  console.log(user)
+  var input = $("."+user.id.toString()+" textInput")[0];
   if(key.length==1){
     input.innerHTML=input.innerHTML+key;
   }
@@ -376,7 +377,7 @@ function drawUser(data,id){
   text.setAttribute("class","text "+id.toString());
   var line = $("<text>|</text>")[0];
   var textinput = $("<text></text>")[0];
-  textinput.setAttribute("class","textinput "+id.toString());
+  textinput.setAttribute("class","textInput "+id.toString());
   text.appendChild(line);
   text.appendChild(textinput);
   
