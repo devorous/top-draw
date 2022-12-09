@@ -283,7 +283,7 @@ function drawLine(pos,lastpos,user){
 
 function updateText(key,user){
   console.log(user)
-  var input = $("."+user.id.toString()+" textInput")[0];
+  var input = $("."+user.id.toString()+" .textInput")[0];
   if(key.length==1){
     input.innerHTML=input.innerHTML+key;
   }
@@ -378,9 +378,9 @@ function drawUser(data,id){
   var line = $("<text>|</text>")[0];
   var textinput = $("<text></text>")[0];
   textinput.setAttribute("class","textInput "+id.toString());
-  text.appendChild(line);
   text.appendChild(textinput);
-  
+  text.appendChild(line);
+  text.style.display='none';
   svg.appendChild(circle);
   div.appendChild(svg);
   div.appendChild(name);
@@ -388,5 +388,4 @@ function drawUser(data,id){
   
   cursors.appendChild(div);
   
-//<text class="text self"><text>|</text><text class="textinput self">this is text</text></text>
 }
