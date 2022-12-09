@@ -157,25 +157,13 @@ board.addEventListener('mousemove', function(e){
   send({command:"broadcast",type:"Mm",x:user.x,y:user.y,id:userID});
   var lastpos = current_line.slice(-1)[0];
   var pos = {x:self.x,y:self.y};
-  
-  //drawLine(pos,lastpos);
-  if(lastpos){
-    user.lastx = lastpos.x
-    user.lasty = lastpos.y
-    }
-  else{
-      user.lastx=pos.x
-      user.lasty=pos.y
-      }
-  if(user.mousedown){
-
-    if(lastpos !=pos ){
-      ctx.moveTo(user.lastx+100,user.lasty+100);
-      ctx.lineTo(user.x+100,user.y+100);
-      ctx.stroke();
-      current_line.push(pos);
-    }
+  if(!lastpos){
+    lastpos=pos;
   }
+
+  drawLine(pos,lastpos,user);
+
+  //drawLine(pos,lastpos);
 })
 
 board.addEventListener('mousedown', function(e){
@@ -184,7 +172,7 @@ board.addEventListener('mousedown', function(e){
   ctx.beginPath();
   ctx.lineCap="round";
   ctx.moveTo(e.layerX,e.layerY);
-  ctx.lineTo(e.layerX,e.layerY)
+  ctx.lineTo(e.layerX,e.layerY);
 });
 
 board.addEventListener('mouseup', function(e){
@@ -233,12 +221,17 @@ board.addEventListener('wheel', function(e){
 
 
 
-function drawLine(x,y,lastx,lasty){
-  console.log("drawing line.." )
-  ctx.lineCap="round";
-  ctx.moveTo(lastx,lasty);
-  ctx.lineTo(x,y);
-  ctx.stroke();
+function drawLine(pos,lastpos,user){
+
+  if(user.mousedown){
+
+    ctx.moveTo(user.lastx+100,user.lasty+100);
+    ctx.lineTo(user.x+100,user.y+100);
+    ctx.stroke();
+    current_line.push(pos);
+
+  }
+  user.lastpos=pos;
 }
 
 
