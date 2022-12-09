@@ -190,7 +190,10 @@ board.addEventListener('mouseup', function(e){
 board.addEventListener('wheel', function(e){
   e.preventDefault();
   var step=1;
-  if(size<=5){
+  if(size<=1){
+    step=0.1;
+  }
+  else if(size<=5){
     step=0.5;
   }
   else{
@@ -201,7 +204,7 @@ board.addEventListener('wheel', function(e){
     if(size-1 > 0){
       size=size-step;
       cursor_circle.setAttribute("r",size);
-      ctx.lineWidth=size*2;
+      ctx.lineWidth=size;
       self.size=size;
       send({command:"broadcast",type:"ChS",size:size,id:userID});
     }
@@ -211,7 +214,7 @@ board.addEventListener('wheel', function(e){
     if(size <101 ){
       size=size+step;
       cursor_circle.setAttribute("r",size);
-      ctx.lineWidth=size*2;
+      ctx.lineWidth=size;
       self.size=size;
       send({command:"broadcast",type:"ChS",size:size,id:userID});
     }
