@@ -29,6 +29,7 @@ var self = {
   size:10,
   color: "black",
   tool:"brush",
+  text:"",
   mousedown: false,
   id:userID
 };
@@ -143,6 +144,22 @@ function recieve(data){
     case 'ChT':
       //change the tool
       updateUser(user,data,['tool']);
+      var userText = $(".text."+user.id.toString())[0];
+      var userCircle = $(".circle."+user.id.toString())[0];
+      if(data.tool=="brush"){
+        userText.style.display="none";
+        userCircle.style.display="block";
+      }
+      if(data.tool=="text"){
+        userText.style.display="block";
+        userCircle.style.display="none";
+      }
+      break
+    case 'kp':
+      //keypress
+      if(user.tool=="text"){
+        
+      }
   }
 }
 
@@ -229,18 +246,17 @@ board.addEventListener('wheel', function(e){
 });
 
 document.addEventListener("keydown", function(e){
+  send({command:"broadcast",type:"kp",key:e.key,id:self.id});
   if(self.tool=="text"){
     
     var input = $(".textinput.self")[0];
     
     if(e.key.length==1){
-      send({command:"broadcast",type:"kp",key:e.key,id:self.id});
       input.innerHTML=input.innerHTML+e.key;
     }
     
     switch(e.key){
       case "Enter":
-        
         input.innerHTML="";
         break
       case "Backspace":
@@ -263,10 +279,12 @@ function drawLine(pos,lastpos,user){
   current_line.push(pos);
   user.lastx=pos.x;
   user.lasty=pos.y
-  
 }
 
-
+function updateText(key,user){
+  var textInput = $(".textinput "+user.id.toString());
+  
+}
 
 function moveCursor(data){
   
