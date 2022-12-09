@@ -230,18 +230,23 @@ board.addEventListener('wheel', function(e){
 
 document.addEventListener("keydown", function(e){
   if(self.tool=="text"){
+    
     var input = $(".textinput.self")[0];
     
     if(e.key.length==1){
+      send({command:"broadcast",type:"kp",key:e.key,id:self.id});
       input.innerHTML=input.innerHTML+e.key;
     }
     
     switch(e.key){
       case "Enter":
+        
         input.innerHTML="";
         break
       case "Backspace":
-        input.innerHTML = input.innerHTML.slice(0,-1);
+        if(input.innerHTML){
+          input.innerHTML = input.innerHTML.slice(0,-1);
+        }
     }
     
   }
