@@ -229,17 +229,22 @@ board.addEventListener('wheel', function(e){
 });
 
 document.addEventListener("keydown", function(e){
-  console.log(e);
   if(self.tool=="text"){
     var input = $(".textinput.self")[0];
-    if(e.key=="Enter"){
-      input.innerHTML="";
+    
+    if(e.key.length==1){
+      input.innerHTML=input.innerHTML+e.key;
     }
-    else if(e.key ="Backspace"){
-      input.innerHTML = input.innerHTML.slice(0, -1);
+    
+    switch(e.key){
+      case "Enter":
+        input.innerHTML="";
+        break
+      case "Backspace":
+        input.innerHTML = input.innerHTML.slice(0,-1);
     }
-    else input.innerHTML=input.innerHTML+e.key;
-    }
+    
+  }
 });
 
 
