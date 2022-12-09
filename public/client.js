@@ -138,13 +138,15 @@ function recieve(data){
       
     case 'ChS':
       //change the size
-      updateUser(user, data,['size']);
+      updateUser(user, data,['size'])[0];
       var userText = $("."+user.id.toString()+" text")[0];
       userText.style.fontSize=size;
       break
       
     case 'ChT':
       //change the tool
+      console.log("changing tool: ");
+      console.log(data);
       updateUser(user,data,['tool']);
       var userText = $("."+user.id.toString()+" text")[0];
       var userCircle = $("."+user.id.toString()+" circle")[0];
@@ -388,7 +390,6 @@ function drawUser(data,id){
   textinput.setAttribute("class","textInput "+id.toString());
   text.appendChild(textinput);
   text.appendChild(line);
-  text.style.display='none';
   svg.appendChild(circle);
   div.appendChild(svg);
   div.appendChild(name);
