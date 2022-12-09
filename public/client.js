@@ -212,6 +212,7 @@ board.addEventListener('mouseup', function(e){
 });
 
 board.addEventListener('wheel', function(e){
+  var text = $(".text.self")[0];
   e.preventDefault();
   var step=1;
   if(size<=1){
@@ -228,6 +229,7 @@ board.addEventListener('wheel', function(e){
     if(size-1 > 0){
       size=size-step;
       cursor_circle.setAttribute("r",size);
+      text.style.fontSize=(size+5).toString()+"px";
       ctx.lineWidth=size;
       self.size=size;
       send({command:"broadcast",type:"ChS",size:size,id:userID});
@@ -238,6 +240,7 @@ board.addEventListener('wheel', function(e){
     if(size <101 ){
       size=size+step;
       cursor_circle.setAttribute("r",size);
+      text.style.fontSize=(size+5).toString()+"px";
       ctx.lineWidth=size;
       self.size=size;
       send({command:"broadcast",type:"ChS",size:size,id:userID});
