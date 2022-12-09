@@ -225,6 +225,11 @@ board.addEventListener('wheel', function(e){
   }
 });
 
+board.addEventListener("keypress", function(e){
+  if(self.tool=="text"){
+    
+  }
+})
 
 
 function drawLine(pos,lastpos,user){
