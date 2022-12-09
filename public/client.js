@@ -121,14 +121,11 @@ function recieve(data){
       break
       
     case 'Md':
-      ctx.beginPath();
-      updateUser(user, data,['mousedown']);
-      
+      user.mousedown=true;
       break
       
     case 'Mu':
-      ctx.stroke();
-      updateUser(user, data,['mouseup']);
+      user.mousedown=false;
       break
       
     case 'ChS':
@@ -155,9 +152,9 @@ board.addEventListener('mousemove', function(e){
   cursor.style.left=user.x+"px";
   cursor.style.top=user.y+"px";
   send({command:"broadcast",type:"Mm",x:user.x,y:user.y,id:userID});
-  var lastpos = current_line.slice(-1)[0];
+  var lastpos = {x:user.lastx,y:user.lasty};
   var pos = {x:self.x,y:self.y};
-  if(!lastpos){
+  if(lastpos.x==null){
     lastpos=pos;
   }
 
@@ -222,16 +219,18 @@ board.addEventListener('wheel', function(e){
 
 
 function drawLine(pos,lastpos,user){
-
+  
   if(user.mousedown){
-
+    console.log("drawing this line: ")
+    console.log(pos,lastpos)
     ctx.moveTo(user.lastx+100,user.lasty+100);
     ctx.lineTo(user.x+100,user.y+100);
     ctx.stroke();
     current_line.push(pos);
 
   }
-  user.lastpos=pos;
+  user.lastx=pos.x;
+  user.lasty=pos.y
 }
 
 
@@ -251,7 +250,10 @@ function updateUser(user,data,fields){
   console.log(data);
 
     for(var i=0;i<fields.length;i++){
+      
       var val = fields[i];
+      console.log("updating users "+val+" to:");
+      console.log(data[val]);
       user[val] = data[val];
     }
   
