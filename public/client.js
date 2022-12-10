@@ -321,8 +321,10 @@ function drawLine(pos,lastpos,user){
 
 function drawText(user){
   console.log("stroking text: ")
-  ctx.font=user.size.toString()+"px";
+  ctx.beginPath();
+  ctx.font=(user.size+5).toString()+"px sans-serif";
   ctx.strokeText(user.text,user.x+100,user.y+100)
+  ctx.stroke();
 }
 
 function updateText(key,user){
