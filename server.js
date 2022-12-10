@@ -24,7 +24,7 @@ var current_users = [];
 
 // This function will send a message to all clients connected to the websocket:
 function broadcast(data) {
-  
+  updateUser(data);
   wsServer.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN && data.id != client.id) {
       client.send(JSON.stringify(data));
@@ -53,10 +53,9 @@ wsServer.on("connection", ws => {
         delete user.command
         current_users.push(user);
         broadcast({command:"currentUsers",users:current_users});
-        console.log("current users: "+current_users.length+" "+JSON.stringify(current_users));
-        
         //save user to list of current users in room
-        //when somebody joins, send them this list..
+        //when somebody joins, send them this list of users
+        
         break
       case 'broadcast':
         broadcast(data);
@@ -87,6 +86,25 @@ function getUser(id){
 }
 
 function updateUser(data){
-  
-  
+  var user = getUser(data.id);
+  console.log(user);
+  switch(data.type){
+    case 'Mm':
+      user.x=data.x;
+      user.y=data.y;
+      break
+    case 'Md':
+      user.mousedown=true;
+      break
+    case 'Mu':
+      user.mousedown=false;
+      break
+    case 'ChS':
+      user.size=data.size;
+      break
+    case 'ChT':
+      user.tool=data.tool;
+  }
+  console.log("changing this users data: "+data.id);
+  console.log(data);
 }
