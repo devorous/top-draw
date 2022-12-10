@@ -5,7 +5,6 @@
   user-select: none; /* Standard */
     }
 body {
-  max-width: 400px;
   margin:0;
   padding:0;
   font-family: sans-serif;
@@ -16,6 +15,7 @@ h1 {
 }
 
 .boardContainer{
+  display:flex;
   position:absolute;
   top:0;
   left:0;
@@ -71,7 +71,7 @@ canvas{
 .tools{
   display:flex;
   flex-direction:column;
-  width:30px;
+  width:42px;
   height:400px;
 
 }
@@ -92,8 +92,11 @@ a:hover{
   border:1px solid black;
   font-size:10px;
 }
+#toolOptions{
+  display:flex;
+  flex-direction:column;
+}
 #colorPicker{
-  display:block;
   height:200px;
   width:200px;
   background-color:lightgrey;
