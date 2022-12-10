@@ -1,95 +1,98 @@
- * { 
-        -webkit-user-select: none; /* Safari */        
-        -moz-user-select: none; /* Firefox */
-        -ms-user-select: none; /* IE10+/Edge */
-        user-select: none; /* Standard */
-      }
-      
-      body {
-        max-width: 400px;
-        margin:0;
-        padding:0;
-        font-family: sans-serif;
-      }
-      
-      h1 {
-        font-size: 24px;
-      }
-      
-      .boardContainer{
-        position:absolute;
-        top:0;
-        left:0;
-        height:400px;
-        width:400px;
-      }
-      .cursor{
-        position:absolute;
-        padding:2px;
-        pointer-events:none;
-        height:200px;
-        width:200px;
-        top:1;
-        left:1;
-      }
-      .name{
-        position:absolute;
-        pointer-events:none;
-        font-size:10px;
-        color:gray;
-        top:82px;
-        left:110px;
-      }
-      .text{
-        position:absolute;
-        top:95px;
-        left:105px;
-      }
-      .text.self{
-        display:none;
-        width:400px;
-        
-      }
-      .input{
-        font-size:15px;
-      }
-      svg{
-        position:absolute;
-        height:202px;
-        width:202px;
-      }
-      circle{
-        height:202px;
-        width:202px;
-      }
-      canvas{
-        cursor:none;
-      }
-      #main{
-        display:flex;
-        width:100vw;
-      }
-      .tools{
-        display:flex;
-        flex-direction:column;
-        width:30px;
-        height:400px;
-        
-      }
-      a{
-        background-color:grey;
-        padding:5px;
-        transition:0.2s;
-      }
-      a:hover{
-        background-color:lightgrey;
-      }
-      .tool{
-        display:flex;
-        justify-content:center;
-        align-content:center;
-        height:30px;
-        width:30px;
-        border:1px solid black;
-        font-size:10px;
-      }
+* { 
+  -webkit-user-select: none; /* Safari */        
+  -moz-user-select: none; /* Firefox */
+  -ms-user-select: none; /* IE10+/Edge */
+  user-select: none; /* Standard */
+    }
+body {
+  max-width: 400px;
+  margin:0;
+  padding:0;
+  font-family: sans-serif;
+}
+
+h1 {
+  font-size: 24px;
+}
+
+.boardContainer{
+  position:absolute;
+  top:0;
+  left:0;
+  height:400px;
+  width:400px;
+}
+.cursor{
+  position:absolute;
+  padding:2px;
+  pointer-events:none;
+  height:200px;
+  width:200px;
+  top:1;
+  left:1;
+}
+.name{
+  position:absolute;
+  pointer-events:none;
+  font-size:10px;
+  color:gray;
+  top:82px;
+  left:110px;
+}
+.text{
+  position:absolute;
+  top:95px;
+  left:105px;
+}
+.text.self{
+  display:none;
+  width:400px;
+
+}
+.input{
+  font-size:15px;
+}
+svg{
+  position:absolute;
+  height:202px;
+  width:202px;
+}
+circle{
+  height:202px;
+  width:202px;
+}
+canvas{
+  cursor:none;
+}
+#main{
+  display:flex;
+  width:100vw;
+}
+.tools{
+  display:flex;
+  flex-direction:column;
+  width:30px;
+  height:400px;
+
+}
+a{
+  background-color:grey;
+  padding:5px;
+  transition:0.2s;
+}
+a:hover{
+  background-color:lightgrey;
+}
+.tool{
+  display:flex;
+  justify-content:center;
+  align-content:center;
+  height:30px;
+  width:30px;
+  border:1px solid black;
+  font-size:10px;
+}
+#colorPicker{
+  height:200px;
+  width:200px;
+}
