@@ -141,6 +141,7 @@ function recieve(data){
       //change the size
       updateUser(user, data,['size']);
       var userText = $("."+user.id.toString()+" .text")[0];
+  
       userText.style.fontSize=(data.size+5).toString()+"px";
       break
       
@@ -237,7 +238,10 @@ board.addEventListener('wheel', function(e){
     if(size-1 > 0){
       size=size-step;
       cursor_circle.setAttribute("r",size);
+      
+
       text.style.fontSize=(size+5).toString()+"px";
+      
       ctx.lineWidth=size;
       self.size=size;
       send({command:"broadcast",type:"ChS",size:size,id:userID});
@@ -248,7 +252,9 @@ board.addEventListener('wheel', function(e){
     if(size <101 ){
       size=size+step;
       cursor_circle.setAttribute("r",size);
+      
       text.style.fontSize=(size+5).toString()+"px";
+      
       ctx.lineWidth=size;
       self.size=size;
       send({command:"broadcast",type:"ChS",size:size,id:userID});
