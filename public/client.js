@@ -324,7 +324,7 @@ function drawText(user){
   console.log("stroking text: ")
   ctx.beginPath();
   ctx.font=(user.size+5).toString()+"px sans-serif";
-  ctx.strokeText(user.text,user.x+100,user.y+100)
+  ctx.strokeText(user.text,user.x+105,user.y+92+user.size+5)
   ctx.stroke();
 }
 
