@@ -28,7 +28,7 @@ var self = {
   lasty:null,
   size:10,
   color: "black",
-  tool:"text",
+  tool:"brush",
   text:"",
   mousedown: false,
   id:userID
@@ -212,13 +212,16 @@ board.addEventListener('mousedown', function(e){
   user.lasty=user.y;
   self.mousedown = true;
   send({command:"broadcast",type:"Md", id:userID})
+
   if(user.tool=="brush"){
-    console.log(user)
     ctx.beginPath();
     ctx.lineCap="round";
+    ctx.lineWidth=user.size*2;
     ctx.moveTo(e.layerX,e.layerY);
     ctx.lineTo(e.layerX,e.layerY);
+    ctx.stroke();
   }
+
   console.log(user.tool,user.text);
   if(user.tool=="text" && user.text!=""){
     drawText(user);
@@ -310,11 +313,12 @@ document.addEventListener("keydown", function(e){
 
 
 function drawLine(pos,lastpos,user){
+  
     ctx.lineWidth=user.size*2;
     //ctx.translate(0.5, 0.5);
     ctx.beginPath();
-    ctx.moveTo(user.lastx+100,user.lasty+100);
-    ctx.lineTo(user.x+100,user.y+100);
+    ctx.moveTo(lastpos.x+100,lastpos.y+100);
+    ctx.lineTo(pos.x+100,pos.y+100);
     ctx.stroke();
     current_line.push(pos);
     user.lastx=pos.x;
