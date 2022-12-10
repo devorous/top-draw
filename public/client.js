@@ -370,11 +370,14 @@ function clearBoard(){
 }
 
 function drawUser(data,id){
+  //draw each user with its current data from the server
   console.log("drawing user: ");
   console.log(data);
-  var div = $('<div></div>')[0];
-  div.setAttribute("class","cursor "+id.toString());
-
+  var cursor = $('<div></div>')[0];
+  cursor.setAttribute("class","cursor "+id.toString());
+  cursor.style.left=(data.x.toString()+"px");
+  cursor.style.top=(data.y.toString()+"px");
+  
   var svg = document.createElementNS('http://www.ww3.org/2000/svg', 'svg');
   svg.setAttribute("height","202px");
   svg.setAttribute("width","202px");
@@ -392,17 +395,19 @@ function drawUser(data,id){
   name.setAttribute("class","name "+id.toString());
   var text = $("<text></text>")[0];
   text.setAttribute("class","text "+id.toString());
-  text.setAttribute("width","400px");
+  text.style.width="400px";
+  text.style.fontSize=(data.size+5).toString()+"px";
   var line = $("<text>|</text>")[0];
   var textinput = $("<text></text>")[0];
   textinput.setAttribute("class","textInput "+id.toString());
+  textinput.innerHTML=data.text;
   text.appendChild(textinput);
   text.appendChild(line);
   svg.appendChild(circle);
-  div.appendChild(svg);
-  div.appendChild(name);
-  div.append(text);
+  cursor.appendChild(svg);
+  cursor.appendChild(name);
+  cursor.append(text);
   
-  cursors.appendChild(div);
+  cursors.appendChild(cursor);
   
 }
