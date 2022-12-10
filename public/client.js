@@ -133,6 +133,7 @@ function recieve(data){
       }
       if(user.tool=="text" && user.text != ""){
         drawText(user)
+        user.text="";
       }
       user.mousedown=true;
       break
@@ -206,8 +207,6 @@ board.addEventListener('mousemove', function(e){
 
 board.addEventListener('mousedown', function(e){
   var user = getUser(userID);
-  console.log(user);
-  console.log(users[0]);
   user.lastx=user.x;
   user.lasty=user.y;
   self.mousedown = true;
@@ -222,7 +221,6 @@ board.addEventListener('mousedown', function(e){
     ctx.stroke();
   }
 
-  console.log(user.tool,user.text);
   if(user.tool=="text" && user.text!=""){
     drawText(user);
     user.text="";
@@ -233,7 +231,6 @@ board.addEventListener('mousedown', function(e){
 
 board.addEventListener('mouseup', function(e){
   self.mousedown = false;
-  ctx.stroke();
   send({command:"broadcast", type:"Mu",id:userID})
   var line = {path:current_line,id:userID};
   current_line=[];
@@ -264,7 +261,7 @@ board.addEventListener('wheel', function(e){
 
       text.style.fontSize=(size+5).toString()+"px";
       
-      ctx.lineWidth=size;
+      ctx.lineWidth=size*2;
       self.size=size;
       send({command:"broadcast",type:"ChS",size:size,id:userID});
     }
@@ -277,7 +274,7 @@ board.addEventListener('wheel', function(e){
       
       text.style.fontSize=(size+5).toString()+"px";
       
-      ctx.lineWidth=size;
+      ctx.lineWidth=size*2;
       self.size=size;
       send({command:"broadcast",type:"ChS",size:size,id:userID});
     }
@@ -313,7 +310,6 @@ document.addEventListener("keydown", function(e){
 
 
 function drawLine(pos,lastpos,user){
-  
     ctx.lineWidth=user.size*2;
     //ctx.translate(0.5, 0.5);
     ctx.beginPath();
@@ -326,10 +322,12 @@ function drawLine(pos,lastpos,user){
 }
 
 function drawText(user){
+
   var size = (user.size+5).toString();
   ctx.fillStyle="#000";
   ctx.font = size+"px sans-serif"
   ctx.fillText(user.text,user.x+105,user.y+92+user.size+5)
+
 }
 
 function updateText(key,user){
