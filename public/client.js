@@ -16,6 +16,18 @@ ctx.imageSmoothingQuality = "high";
 
 var current_line = [];
 
+var pickerParent = $("#colorPicker")[0];
+var picker =         new Picker({
+            parent: pickerParent,
+            popup: false,
+            alpha: true,
+            editor: true,
+            color: '#000',
+            onChange: function(color) {
+                console.log("new color: ")
+            },
+        });
+
 
 var self = {
   x: 0,
