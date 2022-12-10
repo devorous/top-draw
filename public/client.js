@@ -16,22 +16,7 @@ ctx.imageSmoothingQuality = "high";
 
 var current_line = [];
 
-var pickerParent = $("#colorPicker")[0];
-var picker = new Picker({
-            parent: pickerParent,
-            popup: false,
-            alpha: true,
-            editor: true,
-            color: '#000',
-            onChange: function(color) {
-              console.log(color.rgba);
-              var rgba = color.rgba;
-              var tcolor = new tinycolor("rgba, "+rgba.toString());
-              var hex = tcolor.toHex();
-              console.log(tcolor,hex)
-              ctx.fillStyle=hex;
-              },
-          });
+
 
 
 var self = {
@@ -40,7 +25,7 @@ var self = {
   lastx: null,
   lasty: null,
   size: 10,
-  color: "black",
+  color: "#000",
   tool: "brush",
   text: "",
   mousedown: false,
@@ -49,6 +34,12 @@ var self = {
 
 // Add self player to beginning of players array:
 users.push(self);
+
+
+
+
+
+
 
 /* - - - - - - - - - -
    Setup Websocket:
@@ -185,6 +176,8 @@ function recieve(data) {
         userCircle.style.display = "none";
       }
       break;
+    case "ChC":
+      updateUser()
     case "kp":
       //keypress
       if (user.tool == "text") {
@@ -228,6 +221,7 @@ board.addEventListener("mousedown", function (e) {
   send({ command: "broadcast", type: "Md", id: userID });
 
   if (user.tool == "brush") {
+    ctx.fillStyle=user.color;
     ctx.beginPath();
     ctx.lineCap = "round";
     ctx.lineWidth = user.size * 2;
@@ -320,6 +314,7 @@ function drawLine(pos, lastpos, user) {
   ctx.lineWidth = user.size * 2;
   //ctx.translate(0.5, 0.5);
   ctx.beginPath();
+  ctx.fillStyle=user.color;
   ctx.moveTo(lastpos.x + 100, lastpos.y + 100);
   ctx.lineTo(pos.x + 100, pos.y + 100);
   ctx.stroke();
@@ -356,6 +351,11 @@ function updateText(key, user) {
       }
       break;
   }
+}
+
+function updateColor(hex,id){
+  var user = getUser(id);
+  updateUser(user,{color:hex},['color']);
 }
 
 function moveCursor(data) {
@@ -448,3 +448,23 @@ function drawUser(data, id) {
 
   cursors.appendChild(cursor);
 }
+
+//setup color picker
+var pickerParent = $("#colorPicker")[0];
+var picker = new Picker({
+            parent: pickerParent,
+            popup: false,
+            alpha: true,
+            editor: true,
+            color: '#000',
+            onChange: function(color) {
+              console.log(color.rgba);
+              var rgba = color.rgba;
+              var tcolor = new tinycolor("rgba, "+rgba.toString());
+              var hex = tcolor.toHex();
+              console.log(tcolor,hex)
+              self.color=hex;
+              getUser(userID).color=hex;
+              send({command:"broadcast",type:"ChC",color:hex,id:userID});
+              },
+          });
