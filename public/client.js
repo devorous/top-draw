@@ -17,16 +17,18 @@ ctx.imageSmoothingQuality = "high";
 var current_line = [];
 
 var pickerParent = $("#colorPicker")[0];
-var picker =         new Picker({
+var picker = new Picker({
             parent: pickerParent,
             popup: false,
             alpha: true,
             editor: true,
             color: '#000',
             onChange: function(color) {
-                console.log("new color: ")
-            },
-        });
+                console.log("new color: ");
+                console.log(color);
+                var tcolor = new tinycolor("rgba",color._r,color._g,color._b,color._a);
+                },
+            });
 
 
 var self = {
