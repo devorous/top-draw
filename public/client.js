@@ -24,11 +24,14 @@ var picker = new Picker({
             editor: true,
             color: '#000',
             onChange: function(color) {
-                console.log("new color: ");
-                console.log(color);
-                var tcolor = new tinycolor("rgba",color._r,color._g,color._b,color._a);
-                },
-            });
+              console.log(color.rgba);
+              var rgba = color.rgba;
+              var tcolor = new tinycolor("rgba, "+rgba.toString());
+              var hex = tcolor.toHex();
+              console.log(tcolor,hex)
+              ctx.fillStyle=hex;
+              },
+          });
 
 
 var self = {
