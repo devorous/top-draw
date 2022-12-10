@@ -213,6 +213,7 @@ board.addEventListener('mousedown', function(e){
   self.mousedown = true;
   send({command:"broadcast",type:"Md", id:userID})
   if(user.tool=="brush"){
+    console.log(user)
     ctx.beginPath();
     ctx.lineCap="round";
     ctx.moveTo(e.layerX,e.layerY);
@@ -321,9 +322,8 @@ function drawLine(pos,lastpos,user){
 }
 
 function drawText(user){
-  console.log("stroking text: ");
-  console.log(user);
   var size = (user.size+5).toString();
+  ctx.fillStyle="#000";
   ctx.font = size+"px sans-serif"
   ctx.fillText(user.text,user.x+105,user.y+92+user.size+5)
 }
