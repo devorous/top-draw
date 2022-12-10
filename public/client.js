@@ -204,14 +204,18 @@ board.addEventListener('mousemove', function(e){
 
 board.addEventListener('mousedown', function(e){
   var user = getUser(userID);
+  console.log(user);
+  console.log(users[0]);
   user.lastx=user.x;
   user.lasty=user.y;
   self.mousedown = true;
   send({command:"broadcast",type:"Md", id:userID})
-  ctx.beginPath();
-  ctx.lineCap="round";
-  ctx.moveTo(e.layerX,e.layerY);
-  ctx.lineTo(e.layerX,e.layerY);
+  if(user.tool="brush"){
+    ctx.beginPath();
+    ctx.lineCap="round";
+    ctx.moveTo(e.layerX,e.layerY);
+    ctx.lineTo(e.layerX,e.layerY);
+  }
 });
 
 board.addEventListener('mouseup', function(e){
@@ -292,15 +296,15 @@ document.addEventListener("keydown", function(e){
 
 
 function drawLine(pos,lastpos,user){
-  ctx.lineWidth=user.size*2;
-  //ctx.translate(0.5, 0.5);
-  ctx.beginPath();
-  ctx.moveTo(user.lastx+100,user.lasty+100);
-  ctx.lineTo(user.x+100,user.y+100);
-  ctx.stroke();
-  current_line.push(pos);
-  user.lastx=pos.x;
-  user.lasty=pos.y
+    ctx.lineWidth=user.size*2;
+    //ctx.translate(0.5, 0.5);
+    ctx.beginPath();
+    ctx.moveTo(user.lastx+100,user.lasty+100);
+    ctx.lineTo(user.x+100,user.y+100);
+    ctx.stroke();
+    current_line.push(pos);
+    user.lastx=pos.x;
+    user.lasty=pos.y
 }
 
 function updateText(key,user){
@@ -355,14 +359,18 @@ var brushBtn = $("#brushBtn")[0];
 var textBtn = $("#textBtn")[0];
 
 brushBtn.addEventListener("click", function(){
-  self.tool="brush";
+  var user = getUser(userID);
+  var index = users.indexOf(user);
+  users[index].tool="brush"
   send({command:"broadcast",type:"ChT",tool:"brush",id:self.id});
   $(".text.self")[0].style.display="none";
   $(".circle.self")[0].style.display="block";
 });
 
 textBtn.addEventListener("click",function(){
-  self.tool="text";
+  var user = getUser(userID);
+  var index = users.indexOf(user);
+  users[index].tool="text";
   send({command:"broadcast",type:"ChT",tool:"text",id:self.id});
   $(".text.self")[0].style.display="block";
   $(".circle.self")[0].style.display="none";
