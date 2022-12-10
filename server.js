@@ -87,24 +87,28 @@ function getUser(id){
 
 function updateUser(data){
   var user = getUser(data.id);
-  console.log(user);
-  switch(data.type){
-    case 'Mm':
-      user.x=data.x;
-      user.y=data.y;
-      break
-    case 'Md':
-      user.mousedown=true;
-      break
-    case 'Mu':
-      user.mousedown=false;
-      break
-    case 'ChS':
-      user.size=data.size;
-      break
-    case 'ChT':
-      user.tool=data.tool;
+  if(user){
+    var userdata = user.userdata;
+  
+    switch(data.type){
+      case 'Mm':
+        userdata.x=data.x;
+        userdata.y=data.y;
+        break
+      case 'Md':
+        userdata.mousedown=true;
+        break
+      case 'Mu':
+        userdata.mousedown=false;
+        break
+      case 'ChS':
+        userdata.size=data.size;
+        break
+      case 'ChT':
+        userdata.tool=data.tool;
+        break
+      case 'kp':
+        
+    }
   }
-  console.log("changing this users data: "+data.id);
-  console.log(data);
 }
