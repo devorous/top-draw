@@ -1,3 +1,4 @@
+window.onload =(e) =>{
 var users = [];
 
 var userID = Math.floor(Math.random() * 999999);
@@ -468,3 +469,5 @@ var picker = new Picker({
               send({command:"broadcast",type:"ChC",color:hex,id:userID});
               },
           });
+  
+}
