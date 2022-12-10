@@ -78,3 +78,15 @@ wsServer.on("connection", ws => {
     
   });
 });
+
+function getUser(id){
+  var user = current_users.filter( a =>{
+    return a.id==id;
+  })[0];
+  return user
+}
+
+function updateUser(data){
+  
+  
+}

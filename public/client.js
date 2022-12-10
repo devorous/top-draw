@@ -150,7 +150,7 @@ function recieve(data){
       console.log("changing tool: ");
       console.log(data);
       updateUser(user,data,['tool']);
-      var userText = $("."+user.id.toString()+" text")[0];
+      var userText = $("."+user.id.toString()+" .text")[0];
       var userCircle = $("."+user.id.toString()+" circle")[0];
       if(data.tool=="brush"){
         userText.style.display="none";
