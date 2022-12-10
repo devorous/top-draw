@@ -179,6 +179,8 @@ function recieve(data) {
       }
       break;
     case "ChC":
+      var input = $("." + user.id.toString() + " .textInput")[0];
+      input.style.color='rgba('+user.color.toString()+')';
       updateColor(data.color,user.id);
     case "kp":
       //keypress
@@ -461,10 +463,12 @@ var picker = new Picker({
             editor: true,
             color: '#000',
             onChange: function(color) {
-              console.log(color.rgba);
+              var input = $(".text.self")[0];
+              var user = getUser(userID);
+              input.style.color='rgba('+user.color.toString()+')';
               var rgba = color.rgba;
               self.color=rgba;
-              getUser(userID).color=rgba;
+              user.color=rgba;
               if(connected==true){
                 send({command:"broadcast",type:"ChC",color:rgba,id:userID});
               }
