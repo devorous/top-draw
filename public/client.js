@@ -28,7 +28,7 @@ var self = {
   lasty:null,
   size:10,
   color: "black",
-  tool:"brush",
+  tool:"text",
   text:"",
   mousedown: false,
   id:userID
@@ -210,7 +210,7 @@ board.addEventListener('mousedown', function(e){
   user.lasty=user.y;
   self.mousedown = true;
   send({command:"broadcast",type:"Md", id:userID})
-  if(user.tool="brush"){
+  if(user.tool=="brush"){
     ctx.beginPath();
     ctx.lineCap="round";
     ctx.moveTo(e.layerX,e.layerY);
@@ -358,6 +358,8 @@ clearBtn.addEventListener("click",function(){
 var brushBtn = $("#brushBtn")[0];
 var textBtn = $("#textBtn")[0];
 
+
+
 brushBtn.addEventListener("click", function(){
   var user = getUser(userID);
   var index = users.indexOf(user);
@@ -366,6 +368,7 @@ brushBtn.addEventListener("click", function(){
   $(".text.self")[0].style.display="none";
   $(".circle.self")[0].style.display="block";
 });
+
 
 textBtn.addEventListener("click",function(){
   var user = getUser(userID);
