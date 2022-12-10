@@ -439,6 +439,7 @@ function drawUser(data, id) {
   var text = $("<text></text>")[0];
   text.setAttribute("class", "text " + id.toString());
   text.style.width = "400px";
+  text.style.color='rgba('+data.color.toString()+')';
   text.style.fontSize = (data.size + 5).toString() + "px";
   var line = $("<text>|</text>")[0];
   var textinput = $("<text></text>")[0];
