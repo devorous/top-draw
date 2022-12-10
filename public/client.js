@@ -222,7 +222,8 @@ board.addEventListener('mousedown', function(e){
   if(user.tool=="text" && user.text!=""){
     drawText(user);
     user.text="";
-    
+    var input = $(".textInput.self")[0];
+    input.innerHTML="";
   }
 });
 
