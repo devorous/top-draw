@@ -131,7 +131,9 @@ function recieve(data){
         ctx.lineCap="round";
         drawLine(pos,pos,user);
       }
-      if(user.tool=)
+      if(user.tool=="text" && user.text != ""){
+        drawText(user)
+      }
       user.mousedown=true;
       break
       
@@ -216,6 +218,12 @@ board.addEventListener('mousedown', function(e){
     ctx.moveTo(e.layerX,e.layerY);
     ctx.lineTo(e.layerX,e.layerY);
   }
+  console.log(user.tool,user.text);
+  if(user.tool=="text" && user.text!=""){
+    drawText(user);
+    user.text="";
+    
+  }
 });
 
 board.addEventListener('mouseup', function(e){
@@ -273,21 +281,25 @@ board.addEventListener('wheel', function(e){
 
 document.addEventListener("keydown", function(e){
   send({command:"broadcast",type:"kp",key:e.key,id:self.id});
+  var user = getUser(self.id);
   if(self.tool=="text"){
     
     var input = $(".textInput.self")[0];
     
     if(e.key.length==1){
       input.innerHTML=input.innerHTML+e.key;
+      user.text=user.text+e.key;
     }
     
     switch(e.key){
       case "Enter":
         input.innerHTML="";
+        user.text="";
         break
       case "Backspace":
         if(input.innerHTML){
           input.innerHTML = input.innerHTML.slice(0,-1);
+          user.text = user.text.slice(0,-1);
         }
     }
     
@@ -307,8 +319,10 @@ function drawLine(pos,lastpos,user){
     user.lasty=pos.y
 }
 
-function drawText(pos,textuser){
-  
+function drawText(user){
+  console.log("stroking text: ")
+  ctx.font=user.size.toString()+"px";
+  ctx.strokeText(user.text,user.x+100,user.y+100)
 }
 
 function updateText(key,user){
@@ -316,16 +330,19 @@ function updateText(key,user){
   var input = $("."+user.id.toString()+" .textInput")[0];
   if(key.length==1){
     input.innerHTML=input.innerHTML+key;
+    user.text=user.text+key;
   }
   switch(key){
       
     case "Enter":
       input.innerHTML="";
+      user.text="";
       break
       
     case "Backspace":
       if(input.innerHTML){
         input.innerHTML = input.innerHTML.slice(0,-1);
+        user.text=user.text.innerHTML.slice(0,-1);
       }
       break
       
