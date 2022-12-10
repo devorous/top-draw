@@ -131,7 +131,7 @@ function recieve(data){
         ctx.lineCap="round";
         drawLine(pos,pos,user);
       }
-      
+      if(user.tool=)
       user.mousedown=true;
       break
       
@@ -305,6 +305,10 @@ function drawLine(pos,lastpos,user){
     current_line.push(pos);
     user.lastx=pos.x;
     user.lasty=pos.y
+}
+
+function drawText(pos,textuser){
+  
 }
 
 function updateText(key,user){
