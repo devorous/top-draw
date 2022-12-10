@@ -134,6 +134,8 @@ function recieve(data){
       if(user.tool=="text" && user.text != ""){
         drawText(user)
         user.text="";
+        var input = $("."+user.id.toString()+" .textInput")[0];
+        input.innerHTML="";
       }
       user.mousedown=true;
       break
@@ -346,8 +348,9 @@ function updateText(key,user){
       
     case "Backspace":
       if(input.innerHTML){
-        input.innerHTML = input.innerHTML.slice(0,-1);
-        user.text=user.text.innerHTML.slice(0,-1);
+        var newtext = input.innerHTML.slice(0,-1);
+        input.innerHTML = newtext;
+        user.text = newtext;
       }
       break
       
