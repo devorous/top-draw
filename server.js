@@ -94,6 +94,8 @@ function updateUser(data){
       case 'Mm':
         userdata.x=data.x;
         userdata.y=data.y;
+        userdata.lastx=data.lastx;
+        userdata.lasty=data.lasty;
         break
       case 'Md':
         userdata.mousedown=true;
@@ -108,7 +110,24 @@ function updateUser(data){
         userdata.tool=data.tool;
         break
       case 'kp':
-        
+        var key=data.key;
+        if(key.length==1){
+          userdata.text=userdata.text+key;
+        }
+        switch(key){
+
+          case "Enter":
+            userdata.text="";
+            break
+
+          case "Backspace":
+            if(userdata.text){
+              userdata.text = userdata.text.slice(0,-1);
+            }
+            break
+
+        }
+        break
     }
   }
 }

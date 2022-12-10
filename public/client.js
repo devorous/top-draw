@@ -72,7 +72,6 @@ socket.addEventListener("message", (m) => {
           if(current_ids.indexOf(data.users[i].id) == -1 && data.users[i].id != userID){
               users.push(data.users[i].userdata);
               drawUser(data.users[i].userdata,data.users[i].id);
-              console.log("adding: "+JSON.stringify(data.users[i].userdata));
           }
         }
         break
@@ -371,7 +370,8 @@ function clearBoard(){
 }
 
 function drawUser(data,id){
-  
+  console.log("drawing user: ");
+  console.log(data);
   var div = $('<div></div>')[0];
   div.setAttribute("class","cursor "+id.toString());
 
