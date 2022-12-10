@@ -17,7 +17,7 @@ ctx.imageSmoothingQuality = "high";
 
 var current_line = [];
 
-
+var connected=false;
 
 
 var self = {
@@ -58,6 +58,7 @@ var socket = new WebSocket(
 socket.onopen = function () {
   send({ command: "connect", userdata: self, id: userID });
   console.log("Websocket connected!");
+  connected = true;
 };
 
 socket.addEventListener("message", (m) => {
@@ -315,6 +316,7 @@ function drawLine(pos, lastpos, user) {
   ctx.lineWidth = user.size * 2;
   //ctx.translate(0.5, 0.5);
   ctx.beginPath();
+  console.log(user);
   ctx.fillStyle=user.color;
   ctx.moveTo(lastpos.x + 100, lastpos.y + 100);
   ctx.lineTo(pos.x + 100, pos.y + 100);
@@ -461,13 +463,12 @@ var picker = new Picker({
             onChange: function(color) {
               console.log(color.rgba);
               var rgba = color.rgba;
-              var tcolor = new tinycolor("rgba, "+rgba.toString());
-              var hex = tcolor.toHex();
-              console.log(tcolor,hex)
-              self.color=hex;
-              getUser(userID).color=hex;
-              send({command:"broadcast",type:"ChC",color:hex,id:userID});
-              },
+              self.color=rgba;
+              getUser(userID).color=rgba;
+              if(connected==true){
+                send({command:"broadcast",type:"ChC",color:rgba,id:userID});
+              }
+            },
           });
   
 }
