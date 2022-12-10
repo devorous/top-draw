@@ -117,22 +117,28 @@ function recieve(data){
       updateUser(user, data,['x','y']);
       var pos = {x:user.x,y:user.y};
       var lastpos = {x:user.lastx,y:user.lasty};
-      if(user.mousedown){
+      if(user.mousedown && user.tool=="brush"){
         drawLine(pos,lastpos,user);
       }
       break
       
     case 'Md':
-      ctx.lineCap="round";
+      
       user.lastx=user.x;
       user.lasty=user.y;
       var pos = {x:user.x,y:user.y};
-      drawLine(pos,pos,user);
+      if(user.tool=="brush"){
+        ctx.lineCap="round";
+        drawLine(pos,pos,user);
+      }
+      
       user.mousedown=true;
       break
       
     case 'Mu':
-      ctx.stroke();
+      if(user.tool=="brush"){
+        ctx.stroke();
+      }
       user.mousedown=false;
       break
       
@@ -191,7 +197,7 @@ board.addEventListener('mousemove', function(e){
   if(lastpos.x==null){
     lastpos=pos;
   }
-  if(user.mousedown){
+  if(user.mousedown && user.tool=="brush"){
     drawLine(pos,lastpos,user);
   }
 })
