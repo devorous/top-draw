@@ -179,7 +179,7 @@ function recieve(data) {
       }
       break;
     case "ChC":
-      updateUser()
+      updateColor(data.color,user.id);
     case "kp":
       //keypress
       if (user.tool == "text") {
@@ -315,9 +315,9 @@ document.addEventListener("keydown", function (e) {
 function drawLine(pos, lastpos, user) {
   ctx.lineWidth = user.size * 2;
   //ctx.translate(0.5, 0.5);
+  ctx.fillStyle='rgba('+user.color.toString()+')';
+  ctx.strokeStyle='rgba('+user.color.toString()+')';
   ctx.beginPath();
-  console.log(user);
-  ctx.fillStyle=user.color;
   ctx.moveTo(lastpos.x + 100, lastpos.y + 100);
   ctx.lineTo(pos.x + 100, pos.y + 100);
   ctx.stroke();
@@ -328,7 +328,7 @@ function drawLine(pos, lastpos, user) {
 
 function drawText(user) {
   var size = (user.size + 5).toString();
-  ctx.fillStyle = "#000";
+  ctx.fillStyle='rgba('+user.color.toString()+')';
   ctx.font = size + "px sans-serif";
   ctx.fillText(user.text, user.x + 105, user.y + 92 + user.size + 5);
 }
@@ -356,9 +356,9 @@ function updateText(key, user) {
   }
 }
 
-function updateColor(hex,id){
+function updateColor(color,id){
   var user = getUser(id);
-  updateUser(user,{color:hex},['color']);
+  updateUser(user,{color:color},['color']);
 }
 
 function moveCursor(data) {
