@@ -72,8 +72,8 @@ canvas{
   display:flex;
   flex-direction:column;
   width:42px;
-  height:400px;
-
+  height:750px;
+  background-color:grey;
 }
 a{
   background-color:grey;
@@ -94,15 +94,17 @@ a:hover{
 }
 #toolOptions{
   display:flex;
-  width:200px;
-  justify-content:center;
-  align-content:center;
   flex-direction:column;
+  width:250px;
+  height:750px;
+  
+
+  
   background-color:lightgrey;
 }
 #colorPicker{
   margin:auto;
-  width:50px !important;
-  height:50px !important;
+  justify-content:center;
+  
   background-color:lightgrey;
 }
