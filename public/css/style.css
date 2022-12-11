@@ -95,10 +95,14 @@ a:hover{
 #toolOptions{
   display:flex;
   width:200px;
+  justify-content:center;
+  align-content:center;
   flex-direction:column;
   background-color:lightgrey;
 }
 #colorPicker{
-  transform:scale(0.75);
+  margin:auto;
+  width:50px !important;
+  height:50px !important;
   background-color:lightgrey;
 }
