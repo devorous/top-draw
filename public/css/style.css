@@ -13,11 +13,11 @@ body {
 h1 {
   font-size: 24px;
 }
-
 #boardContainer{
-  transform:scale(1);
+  background-color:white;
 }
-#board{
+
+#board, #topBoard{
   border:1px solid #000000;
 }
 .userBoard{
@@ -80,7 +80,7 @@ canvas{
   height:750px;
   background-color:grey;
 }
-.btn{
+a.btn{
   background-color:grey;
   padding:5px;
   transition:0.2s;
