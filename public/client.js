@@ -411,7 +411,7 @@ function moveCursor(data) {
   var id = data.id.toString();
   var x = data.x;
   var y = data.y;
-  var cursor = document.getElementsByClassName(id)[0];
+  var cursor = $(".cursor"+"."+id)[0];
   cursor.style.left = x.toString() + "px";
   cursor.style.top = y.toString() + "px";
 }

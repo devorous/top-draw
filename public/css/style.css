@@ -28,8 +28,8 @@ h1 {
 .userBoard{
   pointer-events:none;
   position:absolute;
-  top:1;
-  left:1;
+  top:0;
+  left:0;
   border:1px solid #000000;
 }
 .cursor{
