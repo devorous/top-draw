@@ -221,22 +221,22 @@ board.addEventListener("mousemove", function (e) {
 
 board.addEventListener("mousedown", function (e) {
   var user = getUser(userID);
-  ctx.beginPath()
   user.lastx = user.x;
   user.lasty = user.y;
   self.mousedown = true;
   send({ command: "broadcast", type: "Md", id: userID });
 
   if (user.tool == "brush") {
-    ctx.fillStyle=user.color;
+    ctx.beginPath()
+    ctx.strokeStyle='rgba('+user.color.toString()+')';
     ctx.lineCap = "round";
     ctx.lineWidth = user.size * 2;
     ctx.moveTo(e.layerX, e.layerY);
     ctx.lineTo(e.layerX, e.layerY);
+    
     var noAlpha = [user.color[0],user.color[1],user.color[2]];
     var alpha = user.color[3];
     topBoard.style.opacity=alpha;
-    console.log(user.color,noAlpha)
     ctx2.strokeStyle='rgb('+noAlpha.toString()+')';
     ctx2.lineCap="round";
     ctx2.lineWidth=user.size*2;
@@ -264,6 +264,9 @@ board.addEventListener("mouseup", function (e) {
 });
 
 board.addEventListener("wheel", function (e) {
+  var user = getUser(userID);
+
+  
   var text = $(".text.self")[0];
   e.preventDefault();
   var step = 1;
@@ -276,31 +279,33 @@ board.addEventListener("wheel", function (e) {
   } else {
     step = 2;
   }
-  if (e.deltaY > 0) {
-    //scrolling down
-    if (size - 1 > 0) {
-      size = size - step;
-      cursor_circle.setAttribute("r", size);
+  if(!user.mousedown){
+    if (e.deltaY > 0) {
+      //scrolling down
+      if (size - 1 > 0) {
+        size = size - step;
+        cursor_circle.setAttribute("r", size);
 
-      text.style.fontSize = (size + 5).toString() + "px";
+        text.style.fontSize = (size + 5).toString() + "px";
 
-      ctx.lineWidth = size * 2;
-      self.size = size;
-      send({ command: "broadcast", type: "ChS", size: size, id: userID });
+        ctx.lineWidth = size * 2;
+        self.size = size;
+        send({ command: "broadcast", type: "ChS", size: size, id: userID });
+      }
+    } else {
+      //scrolling up
+      if (size < 101) {
+        size = size + step;
+        cursor_circle.setAttribute("r", size);
+
+        text.style.fontSize = (size + 5).toString() + "px";
+
+        ctx.lineWidth = size * 2;
+        self.size = size;
+        send({ command: "broadcast", type: "ChS", size: size, id: userID });
+      }
     }
-  } else {
-    //scrolling up
-    if (size < 101) {
-      size = size + step;
-      cursor_circle.setAttribute("r", size);
-
-      text.style.fontSize = (size + 5).toString() + "px";
-
-      ctx.lineWidth = size * 2;
-      self.size = size;
-      send({ command: "broadcast", type: "ChS", size: size, id: userID });
     }
-  }
 });
 
 document.addEventListener("keydown", function (e) {
