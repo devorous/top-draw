@@ -14,13 +14,8 @@ h1 {
   font-size: 24px;
 }
 
-.boardContainer{
-  display:flex;
-  position:absolute;
-  top:0;
-  left:0;
-  height:400px;
-  width:400px;
+#boardContainer{
+  transform:scale(1);
 }
 #board{
   border:1px solid #000000;

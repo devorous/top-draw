@@ -92,14 +92,18 @@ socket.addEventListener("message", (m) => {
     case "connect":
       break;
     case "userLeft":
-      //when a user leaves, update the user list and remove the cursor by ID class
+      //when a user leaves, update the user list and remove the users DOM objects
+      
+      var objs = $("." + data.id.toString());
+      for(var i=0;i<objs.length;i++){
+        if(objs[i]){
+          objs[i].remove();
+        }
+      }
+
       users = users.filter((userdata) => {
         return userdata.id != data.id;
       });
-      var div = $("." + data.id.toString())[0];
-      if (div) {
-        div.remove();
-      }
       break;
 
     case "broadcast":
