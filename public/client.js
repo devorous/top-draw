@@ -220,6 +220,7 @@ board.addEventListener("mousemove", function (e) {
 
 board.addEventListener("mousedown", function (e) {
   var user = getUser(userID);
+  ctx.beginPath()
   user.lastx = user.x;
   user.lasty = user.y;
   self.mousedown = true;
@@ -227,12 +228,10 @@ board.addEventListener("mousedown", function (e) {
 
   if (user.tool == "brush") {
     ctx.fillStyle=user.color;
-    ctx.beginPath();
     ctx.lineCap = "round";
     ctx.lineWidth = user.size * 2;
     ctx.moveTo(e.layerX, e.layerY);
     ctx.lineTo(e.layerX, e.layerY);
-    ctx.stroke();
   }
 
   if (user.tool == "text" && user.text != "") {
@@ -245,6 +244,7 @@ board.addEventListener("mousedown", function (e) {
 
 board.addEventListener("mouseup", function (e) {
   self.mousedown = false;
+  ctx.stroke();
   send({ command: "broadcast", type: "Mu", id: userID });
   var line = { path: current_line, id: userID };
   current_line = [];
@@ -320,10 +320,8 @@ function drawLine(pos, lastpos, user) {
   //ctx.translate(0.5, 0.5);
   ctx.fillStyle='rgba('+user.color.toString()+')';
   ctx.strokeStyle='rgba('+user.color.toString()+')';
-  ctx.beginPath();
   ctx.moveTo(lastpos.x + 100, lastpos.y + 100);
   ctx.lineTo(pos.x + 100, pos.y + 100);
-  ctx.stroke();
   current_line.push(pos);
   user.lastx = pos.x;
   user.lasty = pos.y;
