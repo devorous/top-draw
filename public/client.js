@@ -30,6 +30,7 @@ var self = {
   tool: "brush",
   text: "",
   mousedown: false,
+  username:"",
   id: userID,
 };
 
@@ -409,7 +410,7 @@ textBtn.addEventListener("click", function () {
 function clearBoard() {
   console.log("clearing board");
   ctx.fillStyle = "#FFF";
-  ctx.fillRect(0, 0, 400, 400);
+  ctx.fillRect(0, 0, width, height);
 }
 
 function drawUser(data, id) {
