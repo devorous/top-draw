@@ -14,8 +14,10 @@ var width = board.width;
 var size = 10;
 
 var ctx = board.getContext("2d");
-ctx.imageSmoothingQuality = "high";
 var ctx2 = topBoard.getContext("2d");
+
+ctx.imageSmoothingQuality = "high";
+ctx2.imageSmoothingQuality = "high";
 
 var current_line = [];
 
@@ -234,7 +236,8 @@ board.addEventListener("mousedown", function (e) {
     var noAlpha = [user.color[0],user.color[1],user.color[2]];
     var alpha = user.color[3];
     topBoard.style.opacity=alpha;
-    ctx2.fillStyle=noAlpha;
+    console.log(user.color,noAlpha)
+    ctx2.strokeStyle='rgb('+noAlpha.toString()+')';
     ctx2.lineCap="round";
     ctx2.lineWidth=user.size*2;
     ctx2.beginPath();
@@ -326,26 +329,27 @@ document.addEventListener("keydown", function (e) {
 });
 
 function drawLine(pos, lastpos, user) {
-  ctx.lineWidth = user.size * 2;
-  //ctx.translate(0.5, 0.5);
-  ctx.fillStyle='rgba('+user.color.toString()+')';
-  ctx.strokeStyle='rgba('+user.color.toString()+')';
-  ctx.moveTo(lastpos.x + 100, lastpos.y + 100);
-  ctx.lineTo(pos.x + 100, pos.y + 100);
-  current_line.push(pos);
-  var noAlpha = [user.color[0],user.color[1],user.color[2]];
+
   var alpha = user.color[3];
+  var noAlpha = [user.color[0],user.color[1],user.color[2]];
+  
   topBoard.style.opacity=alpha;
-  ctx2.fillStyle='rgb('+noAlpha.toString()+')';
-  console.log(ctx2.fillStyle);
+
   ctx2.lineCap="round";
   ctx2.lineWidth=user.size*2;
+  ctx2.strokeStyle='rgb('+noAlpha.toString()+')';
   ctx2.beginPath();
+  
   ctx2.moveTo(lastpos.x+100,lastpos.y+100);
   ctx2.lineTo(pos.x+100,pos.y+100);
   ctx2.stroke();
   
-  
+  ctx.lineWidth = user.size * 2;
+  //ctx.translate(0.5, 0.5);
+  ctx.strokeStyle='rgba('+user.color.toString()+')';
+  ctx.moveTo(lastpos.x + 100, lastpos.y + 100);
+  ctx.lineTo(pos.x + 100, pos.y + 100);
+  current_line.push(pos);
   
   user.lastx = pos.x;
   user.lasty = pos.y;
