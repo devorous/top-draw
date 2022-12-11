@@ -137,7 +137,9 @@ function recieve(data) {
       user.lasty = user.y;
       var pos = { x: user.x, y: user.y };
       if (user.tool == "brush") {
+        
         ctx.lineCap = "round";
+        ctx.beginPath();
         drawLine(pos, pos, user);
       }
       if (user.tool == "text" && user.text != "") {
@@ -152,6 +154,8 @@ function recieve(data) {
     case "Mu":
       if (user.tool == "brush") {
         ctx.stroke();
+        ctx2.stroke();
+        ctx2.clearRect(0,0,width,height);
       }
       user.mousedown = false;
       break;
@@ -255,9 +259,13 @@ board.addEventListener("mousedown", function (e) {
 });
 
 board.addEventListener("mouseup", function (e) {
+  var user = getUser(userID);
   self.mousedown = false;
-  ctx.stroke();
-  ctx2.clearRect(0,0,width,height);
+  if(user.tool=="brush"){
+    ctx.stroke();
+    ctx2.clearRect(0,0,width,height);
+  }
+  
   send({ command: "broadcast", type: "Mu", id: userID });
   var line = { path: current_line, id: userID };
   current_line = [];
@@ -266,7 +274,6 @@ board.addEventListener("mouseup", function (e) {
 board.addEventListener("wheel", function (e) {
   var user = getUser(userID);
 
-  
   var text = $(".text.self")[0];
   e.preventDefault();
   var step = 1;
@@ -362,9 +369,11 @@ function drawLine(pos, lastpos, user) {
 
 function drawText(user) {
   var size = (user.size + 5).toString();
+  ctx.beginPath();
   ctx.fillStyle='rgba('+user.color.toString()+')';
   ctx.font = size + "px sans-serif";
   ctx.fillText(user.text, user.x + 105, user.y + 92 + user.size + 5);
+  user.text="";
 }
 
 function updateText(key, user) {

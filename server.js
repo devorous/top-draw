@@ -95,12 +95,16 @@ function updateUser(data) {
         break
       case "Mu":
         userdata.mousedown = false;
+        if(user.tool=="text"){
+          userdata.text="";
+        }
         break
       case "ChS":
         userdata.size = data.size;
         break
       case "ChT":
         userdata.tool = data.tool;
+        userdata.text="";
         break
       case "ChC":
         userdata.color = data.color;
