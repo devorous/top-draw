@@ -231,7 +231,16 @@ board.addEventListener("mousedown", function (e) {
     ctx.lineWidth = user.size * 2;
     ctx.moveTo(e.layerX, e.layerY);
     ctx.lineTo(e.layerX, e.layerY);
-    ctx2.fillStyle=user.co
+    var noAlpha = [user.color[0],user.color[1],user.color[2]];
+    var alpha = user.color[3];
+    topBoard.style.opacity=alpha;
+    ctx2.fillStyle=noAlpha;
+    ctx2.lineCap="round";
+    ctx2.lineWidth=user.size*2;
+    ctx2.beginPath();
+    ctx2.moveTo(e.layerX,e.layerY);
+    ctx2.lineTo(e.LayerX,e.layerY);
+    ctx2.stroke();
   }
 
   if (user.tool == "text" && user.text != "") {
@@ -245,6 +254,7 @@ board.addEventListener("mousedown", function (e) {
 board.addEventListener("mouseup", function (e) {
   self.mousedown = false;
   ctx.stroke();
+  ctx2.clearRect(0,0,width,height);
   send({ command: "broadcast", type: "Mu", id: userID });
   var line = { path: current_line, id: userID };
   current_line = [];
@@ -323,6 +333,20 @@ function drawLine(pos, lastpos, user) {
   ctx.moveTo(lastpos.x + 100, lastpos.y + 100);
   ctx.lineTo(pos.x + 100, pos.y + 100);
   current_line.push(pos);
+  var noAlpha = [user.color[0],user.color[1],user.color[2]];
+  var alpha = user.color[3];
+  topBoard.style.opacity=alpha;
+  ctx2.fillStyle='rgb('+noAlpha.toString()+')';
+  console.log(ctx2.fillStyle);
+  ctx2.lineCap="round";
+  ctx2.lineWidth=user.size*2;
+  ctx2.beginPath();
+  ctx2.moveTo(lastpos.x+100,lastpos.y+100);
+  ctx2.lineTo(pos.x+100,pos.y+100);
+  ctx2.stroke();
+  
+  
+  
   user.lastx = pos.x;
   user.lasty = pos.y;
 }
