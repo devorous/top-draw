@@ -28,7 +28,7 @@
     <div id="boardContainer">
       <canvas id="board" width="400" height="750" style="border:1px solid #000000;"></canvas>
       <div class="btns">
-        <a id="clearBtn">
+        <a class="btn" id="clearBtn">
           Clear Board
         </a>
       </div>
@@ -51,12 +51,19 @@
         </div>
       </div>
       <div class="tools">
-        <a class="tool" id="brushBtn">BRUSH</a>
-        <a class="tool" id="textBtn">TEXT</a>
+        <a class="tool btn" id="brushBtn">BRUSH</a>
+        <a class="tool btn" id="textBtn">TEXT</a>
         
       </div>
     <div id="toolOptions">
-      <div id="userList"></div>
+      <div id="userList">
+        <div class="user template">
+          <a class="brush">BR</a>
+          <text class="listUser">Username</text>
+        </div>
+      </div>
+      <div id="options"></div>
+      <div id="savedColors"></div>
       <div id="colorPicker"></div>
     </div>
     </div>

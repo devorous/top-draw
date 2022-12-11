@@ -75,12 +75,12 @@ canvas{
   height:750px;
   background-color:grey;
 }
-a{
+.btn{
   background-color:grey;
   padding:5px;
   transition:0.2s;
 }
-a:hover{
+.btn:hover{
   background-color:lightgrey;
 }
 .tool{
@@ -107,4 +107,8 @@ a:hover{
   justify-content:center;
   
   background-color:lightgrey;
+}
+#userList{
+  padding:8px;
+  
 }
