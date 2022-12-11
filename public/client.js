@@ -19,6 +19,7 @@ var ctx2 = topBoard.getContext("2d");
 ctx.imageSmoothingQuality = "high";
 ctx2.imageSmoothingQuality = "high";
 
+var userContexts= [];
 var current_line = [];
 
 var connected=false;
@@ -35,6 +36,7 @@ var self = {
   text: "",
   mousedown: false,
   username:"",
+  context:ctx2,
   id: userID,
 };
 
@@ -454,6 +456,7 @@ function clearBoard() {
 }
 
 function drawUser(data, id) {
+  var user = getUser(id);
   //draw each user with its current data from the server
   console.log("drawing user: ");
   console.log(data);
@@ -494,6 +497,15 @@ function drawUser(data, id) {
   cursor.append(text);
 
   cursors.appendChild(cursor);
+  var userBoards = $("#userBoards")[0];
+  
+  var userBoard = $("<canvas></canvas>")[0];
+  userBoard.setAttribute("height",height);
+  userBoard.setAttribute("width",width);
+  userBoard.setAttribute("class","userBoard "+id.toString());
+  userBoards.appendChild(userBoard);
+  var context = [userBoard.getContext("2d"),id];
+  user.context=context;
 }
 
 //setup color picker
