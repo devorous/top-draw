@@ -227,6 +227,7 @@ board.addEventListener("mousemove", function (e) {
 
 board.addEventListener("mousedown", function (e) {
   var user = getUser(userID);
+  var userCtx = user.context;
   user.lastx = user.x;
   user.lasty = user.y;
   self.mousedown = true;
@@ -243,13 +244,13 @@ board.addEventListener("mousedown", function (e) {
     var noAlpha = [user.color[0],user.color[1],user.color[2]];
     var alpha = user.color[3];
     topBoard.style.opacity=alpha;
-    ctx2.strokeStyle='rgb('+noAlpha.toString()+')';
-    ctx2.lineCap="round";
-    ctx2.lineWidth=user.size*2;
-    ctx2.beginPath();
-    ctx2.moveTo(e.layerX,e.layerY);
-    ctx2.lineTo(e.LayerX,e.layerY);
-    ctx2.stroke();
+    userCtx.strokeStyle='rgb('+noAlpha.toString()+')';
+    userCtx.lineCap="round";
+    userCtx.lineWidth=user.size*2;
+    userCtx.beginPath();
+    userCtx.moveTo(e.layerX,e.layerY);
+    userCtx.lineTo(e.LayerX,e.layerY);
+    userCtx.stroke();
   }
 
   if (user.tool == "text" && user.text != "") {
@@ -497,8 +498,11 @@ function drawUser(data, id) {
   cursor.append(text);
 
   cursors.appendChild(cursor);
+  
+  
   var userBoards = $("#userBoards")[0];
   
+  //set up the temp board for creating lines per user
   var userBoard = $("<canvas></canvas>")[0];
   userBoard.setAttribute("height",height);
   userBoard.setAttribute("width",width);

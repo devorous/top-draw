@@ -25,9 +25,11 @@ h1 {
 #board{
   border:1px solid #000000;
 }
-#topBoard{
+.userBoard{
   pointer-events:none;
   position:absolute;
+  top:1;
+  left:1;
   border:1px solid #000000;
 }
 .cursor{
