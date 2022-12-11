@@ -95,7 +95,7 @@ function updateUser(data) {
         break
       case "Mu":
         userdata.mousedown = false;
-        if(user.tool=="text"){
+        if(userdata.tool=="text"){
           userdata.text="";
         }
         break
