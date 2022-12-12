@@ -136,27 +136,17 @@ function recieve(data) {
       if (user.mousedown && user.tool == "brush") {
         drawLine(pos, lastpos, user);
       }
-      if(user.mouusedown && user.tool=="erase"){
-        ctx.strokeStyle=""
-      }
       break;
 
     case "Md":
       user.lastx = user.x;
       user.lasty = user.y;
       var pos = { x: user.x, y: user.y };
-      
       if (user.tool == "brush") {
         
         ctx.lineCap = "round";
         ctx.beginPath();
         drawLine(pos, pos, user);
-      }
-      if(user.tool = "erase"){
-        ctx.lineCap="round";
-        ctx.fillStyle="#000000";
-        ctx.beginPath();
-        drawLine(pos,pos,user);
       }
       if (user.tool == "text" && user.text != "") {
         drawText(user);
@@ -242,12 +232,18 @@ board.addEventListener("mousemove", function (e) {
 board.addEventListener("mousedown", function (e) {
   var user = getUser(userID);
   var userCtx = user.context;
+  var pos = {x:e.layerX,y:e.layerY};
+  
+  send({ command: "broadcast", type: "Md", id: userID });
   user.lastx = user.x;
   user.lasty = user.y;
   self.mousedown = true;
-  send({ command: "broadcast", type: "Md", id: userID });
+  
 
   if (user.tool == "brush") {
+    drawDot(pos,ctx,user);
+    drawDot(pos,userCtx,user);
+    /*
     ctx.beginPath()
     ctx.strokeStyle='rgba('+user.color.toString()+')';
     ctx.lineCap = "round";
@@ -265,6 +261,7 @@ board.addEventListener("mousedown", function (e) {
     userCtx.moveTo(e.layerX,e.layerY);
     userCtx.lineTo(e.LayerX,e.layerY);
     userCtx.stroke();
+    */
   }
 
   if (user.tool == "text" && user.text != "") {
@@ -356,6 +353,29 @@ document.addEventListener("keydown", function (e) {
     }
   }
 });
+
+function drawDot(pos, ctx, user){
+
+  if (user.tool == "brush") {
+    ctx.beginPath()
+    ctx.strokeStyle='rgba('+user.color.toString()+')';
+    ctx.lineCap = "round";
+    ctx.lineWidth = user.size * 2;
+    ctx.moveTo(pos.x,pos.y);
+    ctx.lineTo(pos.x,pos.y);
+    
+    var noAlpha = [user.color[0],user.color[1],user.color[2]];
+    var alpha = user.color[3];
+    topBoard.style.opacity=alpha;
+    userCtx.strokeStyle='rgb('+noAlpha.toString()+')';
+    userCtx.lineCap="round";
+    userCtx.lineWidth=user.size*2;
+    userCtx.beginPath();
+    userCtx.moveTo(pos.x,pos.y);
+    userCtx.lineTo(pos.x,pos.y);
+    userCtx.stroke();
+  }
+}
 
 function drawLine(pos, lastpos, user) {
 
