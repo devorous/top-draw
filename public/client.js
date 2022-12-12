@@ -243,25 +243,6 @@ board.addEventListener("mousedown", function (e) {
   if (user.tool == "brush") {
     drawDot(pos,ctx,user);
     drawDot(pos,userCtx,user);
-    /*
-    ctx.beginPath()
-    ctx.strokeStyle='rgba('+user.color.toString()+')';
-    ctx.lineCap = "round";
-    ctx.lineWidth = user.size * 2;
-    ctx.moveTo(e.layerX, e.layerY);
-    ctx.lineTo(e.layerX, e.layerY);
-    
-    var noAlpha = [user.color[0],user.color[1],user.color[2]];
-    var alpha = user.color[3];
-    topBoard.style.opacity=alpha;
-    userCtx.strokeStyle='rgb('+noAlpha.toString()+')';
-    userCtx.lineCap="round";
-    userCtx.lineWidth=user.size*2;
-    userCtx.beginPath();
-    userCtx.moveTo(e.layerX,e.layerY);
-    userCtx.lineTo(e.LayerX,e.layerY);
-    userCtx.stroke();
-    */
   }
 
   if (user.tool == "text" && user.text != "") {
@@ -334,10 +315,13 @@ document.addEventListener("keydown", function (e) {
   var user = getUser(self.id);
   if (self.tool == "text") {
     var input = $(".textInput.self")[0];
-
+    var key = e.key
     if (e.key.length == 1) {
-      input.innerHTML = input.innerHTML + e.key;
-      user.text = user.text + e.key;
+      if(key==" "){
+        key="&nbsp;";
+      }
+      input.innerHTML = input.innerHTML + key;
+      user.text = user.text + key;
     }
 
     switch (e.key) {
@@ -355,7 +339,7 @@ document.addEventListener("keydown", function (e) {
 });
 
 function drawDot(pos, ctx, user){
-
+  var userCtx = user.context;
   if (user.tool == "brush") {
     ctx.beginPath()
     ctx.strokeStyle='rgba('+user.color.toString()+')';
@@ -406,10 +390,11 @@ function drawLine(pos, lastpos, user) {
 
 function drawText(user) {
   var size = (user.size + 5).toString();
+  var text = user.text.replaceAll("&nbsp;"," ");
   ctx.beginPath();
   ctx.fillStyle='rgba('+user.color.toString()+')';
   ctx.font = size + "px sans-serif";
-  ctx.fillText(user.text, user.x + 105, user.y + 92 + user.size + 5);
+  ctx.fillText(text, user.x + 105, user.y + 92 + user.size + 5);
   user.text="";
 }
 

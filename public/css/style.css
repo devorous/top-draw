@@ -20,10 +20,9 @@ h1 {
 }
 .cursor{
   position:absolute;
-  padding:2px;
   pointer-events:none;
-  height:200px;
-  width:200px;
+  height:204px;
+  width:204px;
   top:1;
   left:1;
 }
