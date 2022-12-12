@@ -284,11 +284,11 @@ board.addEventListener("wheel", function (e) {
   var text = $(".text.self")[0];
   e.preventDefault();
   var step = 1;
-  if (size <= 1) {
+  if (size <= 1.5) {
     step = 0.1;
   } else if (size <= 5) {
     step = 0.5;
-  } else if (size < 30) {
+  } else if (size <= 30) {
     step = 1;
   } else {
     step = 2;
