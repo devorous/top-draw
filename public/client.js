@@ -136,17 +136,27 @@ function recieve(data) {
       if (user.mousedown && user.tool == "brush") {
         drawLine(pos, lastpos, user);
       }
+      if(user.mouusedown && user.tool=="erase"){
+        ctx.strokeStyle=""
+      }
       break;
 
     case "Md":
       user.lastx = user.x;
       user.lasty = user.y;
       var pos = { x: user.x, y: user.y };
+      
       if (user.tool == "brush") {
         
         ctx.lineCap = "round";
         ctx.beginPath();
         drawLine(pos, pos, user);
+      }
+      if(user.tool = "erase"){
+        ctx.lineCap="round";
+        ctx.fillStyle="#000000";
+        ctx.beginPath();
+        drawLine(pos,pos,user);
       }
       if (user.tool == "text" && user.text != "") {
         drawText(user);
@@ -435,6 +445,7 @@ clearBtn.addEventListener("click", function () {
 
 var brushBtn = $("#brushBtn")[0];
 var textBtn = $("#textBtn")[0];
+var eraseBtn = $("#eraseBtn")[0];
 
 brushBtn.addEventListener("click", function () {
   var user = getUser(userID);
@@ -453,6 +464,17 @@ textBtn.addEventListener("click", function () {
   $(".text.self")[0].style.display = "block";
   $(".circle.self")[0].style.display = "none";
 });
+
+eraseBtn.addEventListener("click", function () {
+  var user = getUser(userID);
+  var index = users.indexOf(user);
+  users[index].tool = "erase";
+  send({ command: "broadcast", type: "ChT", tool: "erase", id: self.id });
+  $(".text.self")[0].style.display = "none";
+  $(".circle.self")[0].style.display = "block";
+});
+
+
 
 function clearBoard() {
   console.log("clearing board");
