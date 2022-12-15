@@ -58,33 +58,36 @@
           <text class="name self"></text>
         </div>
       </div>
-      <div class="tools">
-        <a class="tool btn" id="brushBtn">BRUSH</a>
-        <a class="tool btn" id="textBtn">TEXT</a>
-        <a class="tool btn" id="eraseBtn">ERASE</a>
-      </div>
-    <div id="toolOptions">
-      <div id="userList">
-        <div class="user template">
-          <a class="listBrush ID">BR</a>
-          <a class="listColor ID">COL</a>
-          <text class="listUser">Username</text>
-          <a class="listActive ID">A</a>
+      <div id="sideMenu">
+        
+      
+        <div class="tools">
+          <a class="tool btn" id="brushBtn">BRUSH</a>
+          <a class="tool btn" id="textBtn">TEXT</a>
+          <a class="tool btn" id="eraseBtn">ERASE</a>
         </div>
-      </div>
-      <div id="options">
-        <div class="sliderContainer">
-           <label>Size</label>
-           <input autocomplete="off" type="range" min="1" max="100" value="10" class="slider size">
+      <div id="toolOptions">
+        <div id="userList">
+          <div class="user template">
+            <a class="listBrush ID">BR</a>
+            <a class="listColor ID">COL</a>
+            <text class="listUser">Username</text>
+            <a class="listActive ID">A</a>
+          </div>
         </div>
-        <div class="sliderContainer">
-           <label>Opacity</label>
-           <input autocomplete="off" type="range" min="1" max="100" value="100" class="slider size">
+        <div id="options">
+          <div class="sliderContainer">
+             <label>Size</label>
+             <input autocomplete="off" type="range" min="1" max="100" value="10" class="slider size">
+          </div>
+          <div class="sliderContainer">
+             <label>Opacity</label>
+             <input autocomplete="off" type="range" min="1" max="100" value="100" class="slider size">
+          </div>
         </div>
+        <div id="savedColors"></div>
+        <div id="colorPicker"></div>
       </div>
-      <div id="savedColors"></div>
-      <div id="colorPicker"></div>
-    </div>
     </div>
   </body>
 </html>
