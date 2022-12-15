@@ -281,26 +281,38 @@ board.addEventListener("wheel", function (e) {
   } else {
     step = 2;
   }
-  if(!user.mousedown){
+  //if !user.mousedown // can remove this all if I fix the scroll stroke
+  if(true){
     if (e.deltaY > 0) {
       //scrolling down
       if (size - 0.4 > 0) {
         size = size - step;
         cursor_circle.setAttribute("r", size);
         size = Math.round(size * 100) / 100;
-        console.log(size)
+        if(user.mousedown){
+          ctx.beginPath();
+          current_line=[];
+        }
+        
+        
         text.style.fontSize = (size + 5).toString() + "px";
-
+        
         ctx.lineWidth = size * 2;
         self.size = size;
         send({ command: "broadcast", type: "ChS", size: size, id: userID });
+
       }
     } else {
       //scrolling up
       if (size+2 < 100) {
         size = size + step;
         size = Math.round(size * 100) / 100;
-        console.log(size)
+        if(user.mousedown){
+          ctx.stroke();
+          ctx.beginPath();
+        }
+        
+        current_line=[];
         cursor_circle.setAttribute("r", size);
 
         text.style.fontSize = (size + 5).toString() + "px";
