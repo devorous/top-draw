@@ -289,16 +289,23 @@ board.addEventListener("wheel", function (e) {
         size = size - step;
         cursor_circle.setAttribute("r", size);
         size = Math.round(size * 100) / 100;
-        if(user.mousedown){
-          ctx.beginPath();
-          current_line=[];
-        }
+
         
         
         text.style.fontSize = (size + 5).toString() + "px";
         
         ctx.lineWidth = size * 2;
         self.size = size;
+        if(user.mousedown){
+          ctx.stroke();
+          ctx.beginPath();
+          ctx2.clearRect(0,0,width,height);
+          ctx2.stroke();
+          ctx2.beginPath();
+          
+          current_line=[];
+        }
+        
         send({ command: "broadcast", type: "ChS", size: size, id: userID });
 
       }
@@ -307,18 +314,26 @@ board.addEventListener("wheel", function (e) {
       if (size+2 < 100) {
         size = size + step;
         size = Math.round(size * 100) / 100;
-        if(user.mousedown){
-          ctx.stroke();
-          ctx.beginPath();
-        }
         
-        current_line=[];
+        
+        
         cursor_circle.setAttribute("r", size);
 
         text.style.fontSize = (size + 5).toString() + "px";
 
         ctx.lineWidth = size * 2;
         self.size = size;
+        
+        if(user.mousedown){
+          ctx.stroke();
+          ctx.beginPath();
+          ctx2.clearRect(0,0,width,height);
+          ctx2.stroke();
+          ctx2.beginPath();
+          current_line=[];
+        }
+        
+        
         send({ command: "broadcast", type: "ChS", size: size, id: userID });
       }
     }
