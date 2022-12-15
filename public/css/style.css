@@ -11,7 +11,10 @@ h1 {
   background-color:white;
 }
 
-
+#sideMenu{
+  display:flex;
+  flex-direction:row;
+}
 .userBoard{
   pointer-events:none;
   position:absolute;
@@ -61,6 +64,7 @@ canvas{
 }
 #main{
   display:flex;
+  justify-content:space-between;
   width:100vw;
 }
 .tools{
