@@ -272,10 +272,10 @@ board.addEventListener("wheel", function (e) {
   var text = $(".text.self")[0];
   e.preventDefault();
   var step = 1;
-  if (size <= 1.5) {
-    step = 0.1;
-  } else if (size <= 5) {
-    step = 0.5;
+  if (size <= 2) {
+    step = 0.2;
+  } else if (size < 4) {
+    step = 0.6;
   } else if (size <= 30) {
     step = 1;
   } else {
@@ -284,10 +284,11 @@ board.addEventListener("wheel", function (e) {
   if(!user.mousedown){
     if (e.deltaY > 0) {
       //scrolling down
-      if (size - 1 > 0) {
+      if (size - 0.4 > 0) {
         size = size - step;
         cursor_circle.setAttribute("r", size);
-
+        size = Math.round(size * 100) / 100;
+        console.log(size)
         text.style.fontSize = (size + 5).toString() + "px";
 
         ctx.lineWidth = size * 2;
@@ -296,8 +297,10 @@ board.addEventListener("wheel", function (e) {
       }
     } else {
       //scrolling up
-      if (size < 101) {
+      if (size+2 < 100) {
         size = size + step;
+        size = Math.round(size * 100) / 100;
+        console.log(size)
         cursor_circle.setAttribute("r", size);
 
         text.style.fontSize = (size + 5).toString() + "px";
