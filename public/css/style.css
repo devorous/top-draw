@@ -8,7 +8,7 @@ body {
 
 
 #boardContainer{
-  width:80%;
+  width:100%;
   display:flex;
   flex-direction:column;
   justify-content:space-between;
@@ -29,6 +29,9 @@ body {
   position:absolute;
   top:0;
   left:0;
+}
+.cursors{
+  position:absolute;
 }
 .cursor{
   position:absolute;
@@ -82,6 +85,7 @@ canvas{
 
 .boardBtns{
   height:30px;
+  width:100%;
   display:flex;
   background-color:lightgrey;
 }
@@ -140,12 +144,15 @@ canvas{
   transform-origin: 0 0;
   transform:scale(0.6);
   display:flex;
-  
+  position: absolute; 
+  bottom: 0;
 }
 #colorPicker{
   
   justify-content:center;
   background-color:lightgrey;
+  
+
 }
 .picker_sample{
   display:block;
