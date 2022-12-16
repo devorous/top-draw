@@ -16,6 +16,8 @@ var size = 10;
 var ctx = board.getContext("2d");
 var ctx2 = topBoard.getContext("2d");
 
+
+ctx.globalCompositeOperation="source-over";
 ctx.imageSmoothingQuality = "high";
 ctx2.imageSmoothingQuality = "high";
 ctx.lineCap = "round";
@@ -471,7 +473,6 @@ function updateText(key, user) {
 
 function erase(x1, y1, x2, y2,size) {
   ctx.lineWidth = size;
-  
   ctx.beginPath();
   ctx.moveTo(x1, y1);
   ctx.lineTo(x2, y2);
@@ -512,6 +513,7 @@ var textBtn = $("#textBtn")[0];
 var eraseBtn = $("#eraseBtn")[0];
 
 brushBtn.addEventListener("click", function () {
+  ctx.globalCompositeOperation="source-over";
   var user = getUser(userID);
   var index = users.indexOf(user);
   users[index].tool = "brush";
@@ -522,7 +524,7 @@ brushBtn.addEventListener("click", function () {
 
 textBtn.addEventListener("click", function () {
   
-  ctx.globalCompositeOperation="stroke-in";
+  ctx.globalCompositeOperation="source-over";
   var user = getUser(userID);
   var index = users.indexOf(user);
   users[index].tool = "text";
@@ -534,7 +536,7 @@ textBtn.addEventListener("click", function () {
 eraseBtn.addEventListener("click", function () {
   
   ctx.globalCompositeOperation="destination-out";
-  
+  topBoard.style.opacity=1;
   var user = getUser(userID);
   var index = users.indexOf(user);
   users[index].tool = "erase";
