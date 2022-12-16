@@ -9,6 +9,9 @@ const server = app.listen(process.env.PORT, function () {
   console.log("Your app is listening on port " + server.address().port);
 });
 
+
+
+
 // Websocket Server:
 // We are using the external library 'ws' to set up the websockets on the server
 // https://www.npmjs.com/package/ws
@@ -38,15 +41,13 @@ wsServer.on("connection", (ws) => {
   ws.id = "";
   // This function will run every time the server recieves a message with that client.
   ws.on("message", (data) => {
-    // Broadcast the received message back to all clients.
+    
     data = JSON.parse(data);
 
     switch (data.command) {
       case "connect":
-        console.log("Message Received: ", data);
-        ws.id = data.id;
-        console.log("from connection Id:", ws.id);
 
+        ws.id = data.id;
         var user = data;
         delete user.command;
         current_users.push(user);
@@ -57,12 +58,13 @@ wsServer.on("connection", (ws) => {
         break;
       case "broadcast":
         broadcast(data);
+        // Broadcast the received message back to all clients.
         break;
     }
   });
 
   ws.on("close", () => {
-    console.log("Disconnected:", ws.id);
+    console.log("Disconnected: ", ws.id);
     broadcast({ command: "userLeft", id: ws.id });
     current_users = current_users.filter((userdata) => {
       return userdata.id != ws.id;
