@@ -9,6 +9,7 @@ h1 {
 }
 #boardContainer{
   background-color:white;
+  user-select:none;
 }
 
 
@@ -83,9 +84,11 @@ canvas{
   background-color:lightgrey;
 }
 #sideMenu{
+  user-select:none;
   display:flex;
   flex-direction:row;
   height:100vh;
+  
 }
 .tools{
   display:flex;
@@ -109,14 +112,16 @@ canvas{
   width:150px;
   
   background-color:lightgrey;
+  justify-content:space-between;
 }
 #pickerContainer{
+  transform-origin: 0 0;
   transform:scale(0.6);
   display:flex;
-  margin:auto;
+  
 }
 #colorPicker{
-  margin:auto;
+  
   justify-content:center;
   background-color:lightgrey;
 }
