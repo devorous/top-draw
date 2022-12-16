@@ -384,7 +384,7 @@ board.addEventListener("wheel", function (e) {
 });
 
 document.addEventListener("keydown", function (e) {
-  e.preventDefault();
+  console.log(e.target)
   send({ command: "broadcast", type: "kp", key: e.key, id: self.id });
   var user = getUser(self.id);
   if (self.tool == "text") {
@@ -392,6 +392,7 @@ document.addEventListener("keydown", function (e) {
     var key = e.key
     if (e.key.length == 1) {
       if(key==" "){
+        
         key="&nbsp;";
       }
       input.innerHTML = input.innerHTML + key;
