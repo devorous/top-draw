@@ -221,7 +221,6 @@ board.addEventListener("mousemove", function (e) {
   var user = getUser(userID);
   user.x = e.layerX - 100;
   user.y = e.layerY - 100;
-
   //set your cursor pos
   cursor.style.left = user.x + "px";
   cursor.style.top = user.y + "px";
@@ -236,8 +235,10 @@ board.addEventListener("mousemove", function (e) {
     drawLine(pos, lastpos, user);
   }
   if (user.mousedown && user.tool == "erase"){
-    erase(pos.x+100,pos.y+100,user.size);
+    erase(pos.x+100,pos.y+100,lastpos.x+100,lastpos.y+100,user.size*2);
   }
+  user.lastx = user.x;
+  user.lasty = user.y;
 });
 
 board.addEventListener("mousedown", function (e) {
@@ -263,7 +264,7 @@ board.addEventListener("mousedown", function (e) {
     input.innerHTML = "";
   }
   if (user.tool == "erase"){
-    erase(pos.x,pos.y,user.size);
+    erase(pos.x,pos.y,user.lastx,user.lasty,user.size*2);
   }
 });
 
@@ -468,11 +469,13 @@ function updateText(key, user) {
   }
 }
 
-function erase(x, y, radius) {
-  console.log("erasing at: "+x,y,radius)
+function erase(x1, y1, x2, y2,size) {
   ctx.save();
+  ctx.lineWidth = size;
   ctx.beginPath();
-  ctx.arc(x, y, radius, 0, 2 * Math.PI);
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
   ctx.clip();
   ctx.clearRect(0, 0, board.width, board.height);
   ctx.restore();
