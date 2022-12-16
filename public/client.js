@@ -10,8 +10,12 @@ var cursor_circle = cursor.children[0].children[0];
 var text = $(".name.self")[0];
 text.innerHTML = userID.toString();
 
-var height = board.height;
-var width = board.width;
+var boardHeight = board.height;
+var boardWidth  = board.width;
+
+var height = document.body.scrollHeight;
+var width  = document.body.scrollWidth;
+
 var size = 10;
 
 var ctx = board.getContext("2d");
@@ -552,7 +556,7 @@ eraseBtn.addEventListener("click", function () {
 function clearBoard() {
   console.log("clearing board");
   ctx.fillStyle = "#FFF";
-  ctx.fillRect(0, 0, width, height);
+  ctx.fillRect(0, 0, boardWidth, boardHeight);
 }
 
 function drawUser(data, id) {
@@ -603,8 +607,8 @@ function drawUser(data, id) {
   
   //set up the temp board for creating lines per user
   var userBoard = $("<canvas></canvas>")[0];
-  userBoard.setAttribute("height",height);
-  userBoard.setAttribute("width",width);
+  userBoard.setAttribute("height",boardHeight);
+  userBoard.setAttribute("width",boardWidth);
   userBoard.setAttribute("class","userBoard "+id.toString());
   userBoards.appendChild(userBoard);
   var context = [userBoard.getContext("2d"),id];

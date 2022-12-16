@@ -6,9 +6,7 @@ body {
   height:100vw;
 }
 
-h1 {
-  font-size: 24px;
-}
+
 #boardContainer{
   background-color:white;
   user-select:none;
@@ -77,13 +75,19 @@ canvas{
 }
 .btn{
   background-color:grey;
-  transition:0.2s
+  transition:0.2s;
+  border:2px solid #555;
+  display: flex;
+  align-items: center;
+
 }
 .tool.btn{
-  padding:5px;
+  padding:4px;
+  
 }
 .btn:hover{
   background-color:lightgrey;
+  border:2px solid orange;
 }
 #sideMenu{
   user-select:none;
@@ -105,7 +109,7 @@ canvas{
   align-content:center;
   height:30px;
   width:30px;
-  border:1px solid black;
+  
   font-size:10px;
 }
 #toolOptions{
@@ -159,7 +163,10 @@ canvas{
   display:block;
   font-size:0.75em;
   text-align:center;
+  display: flex;
+  align-items: center;
 }
 .slider{
   width:100px;
+  
 }
