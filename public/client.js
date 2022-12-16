@@ -18,7 +18,7 @@ var ctx2 = topBoard.getContext("2d");
 
 ctx.imageSmoothingQuality = "high";
 ctx2.imageSmoothingQuality = "high";
-
+ctx.lineCap = "round";
 var current_line = [];
 
 var connected=false;
@@ -264,7 +264,7 @@ board.addEventListener("mousedown", function (e) {
     input.innerHTML = "";
   }
   if (user.tool == "erase"){
-    erase(pos.x,pos.y,user.lastx,user.lasty,user.size*2);
+    erase(pos.x,pos.y,user.lastx+100,user.lasty+100,user.size*2);
   }
 });
 
@@ -391,7 +391,6 @@ function drawDot(pos, ctx, user){
   if (user.tool == "brush") {
     ctx.beginPath()
     ctx.strokeStyle='rgba('+user.color.toString()+')';
-    ctx.lineCap = "round";
     ctx.lineWidth = user.size * 2;
     ctx.moveTo(pos.x,pos.y);
     ctx.lineTo(pos.x,pos.y);
@@ -437,6 +436,7 @@ function drawLine(pos, lastpos, user) {
 }
 
 function drawText(user) {
+  ctx.globalCompositeOperation="source-over";
   var size = (user.size + 5).toString();
   var text = user.text.replaceAll("&nbsp;"," ");
   ctx.beginPath();
@@ -470,15 +470,13 @@ function updateText(key, user) {
 }
 
 function erase(x1, y1, x2, y2,size) {
-  ctx.save();
   ctx.lineWidth = size;
+  
   ctx.beginPath();
   ctx.moveTo(x1, y1);
   ctx.lineTo(x2, y2);
   ctx.stroke();
-  ctx.clip();
-  ctx.clearRect(0, 0, board.width, board.height);
-  ctx.restore();
+
 }
 
 
@@ -523,6 +521,8 @@ brushBtn.addEventListener("click", function () {
 });
 
 textBtn.addEventListener("click", function () {
+  
+  ctx.globalCompositeOperation="stroke-in";
   var user = getUser(userID);
   var index = users.indexOf(user);
   users[index].tool = "text";
@@ -532,6 +532,9 @@ textBtn.addEventListener("click", function () {
 });
 
 eraseBtn.addEventListener("click", function () {
+  
+  ctx.globalCompositeOperation="destination-out";
+  
   var user = getUser(userID);
   var index = users.indexOf(user);
   users[index].tool = "erase";
