@@ -564,6 +564,7 @@ eraseBtn.addEventListener("click", function () {
 function clearBoard() {
   console.log("clearing board");
   ctx.fillStyle = "#FFF";
+  ctx.beginPath();
   ctx.fillRect(0, 0, boardDim[0], boardDim[1]);
 }
 
