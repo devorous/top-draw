@@ -47,15 +47,15 @@ body {
   left:110px;
 }
 .text{
-  overflow:hidden;
   position:absolute;
   top:95px;
   left:105px;
 }
 .text.self{
   display:none;
-  width:400px;
-
+}
+.textInput{
+  overflow:hidden;
 }
 .input{
   font-size:15px;
