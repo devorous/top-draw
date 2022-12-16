@@ -3,16 +3,24 @@ body {
   padding:0;
   font-family: sans-serif;
   height:100vh;
-  height:100vw;
+  width:100vw;
 }
 
 
 #boardContainer{
-  background-color:white;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  background-color:#556666;
   user-select:none;
   height:100%;
 }
-
+#boards{
+  background-color:white;
+  /* TODO: change the board top to not be 0,0, but relative to the margin/position of the board
+  margin:10px;  
+  */
+}
 
 .userBoard{
   pointer-events:none;
