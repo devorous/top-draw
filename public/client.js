@@ -151,6 +151,11 @@ function recieve(data) {
       if (user.mousedown && user.tool == "brush") {
         drawLine(pos, lastpos, user);
       }
+      if(user.mousedown && user.tool == "erase"){
+        erase(pos.x+100,pos.y+100,lastpos.x+100,lastpos.y+100,user.size*2);
+      }
+      user.lastx=data.x;
+      user.lasty=data.y;
       break;
 
     case "Md":
@@ -168,6 +173,9 @@ function recieve(data) {
         user.text = "";
         var input = $("." + user.id.toString() + " .textInput")[0];
         input.innerHTML = "";
+      }
+      if(user.tool == "erase"){
+        erase(pos.x+100,pos.y+100,pos.x+100,pos.y+100,user.size*2);
       }
       user.mousedown = true;
       break;
