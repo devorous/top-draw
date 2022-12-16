@@ -19,7 +19,6 @@ var ctx2 = topBoard.getContext("2d");
 ctx.imageSmoothingQuality = "high";
 ctx2.imageSmoothingQuality = "high";
 
-var userContexts= [];
 var current_line = [];
 
 var connected=false;
@@ -37,6 +36,7 @@ var self = {
   mousedown: false,
   username:"",
   context:ctx2,
+  board:board,
   id: userID,
 };
 
@@ -170,8 +170,15 @@ function recieve(data) {
       //change the size
       updateUser(user, data, ["size"]);
       var userText = $("." + user.id.toString() + " .text")[0];
-
       userText.style.fontSize = (data.size + 5).toString() + "px";
+      
+      var userCtx = user.context;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx2.clearRect(0,0,width,height);
+      ctx2.stroke();
+      ctx2.beginPath();
+          
       break;
 
     case "ChT":
@@ -191,6 +198,7 @@ function recieve(data) {
       }
       break;
     case "ChC":
+      //change color
       var input = $("." + user.id.toString() + " .textInput")[0];
       input.style.color='rgba('+user.color.toString()+')';
       updateColor(data.color,user.id);
@@ -573,6 +581,7 @@ function drawUser(data, id) {
   userBoard.setAttribute("class","userBoard "+id.toString());
   userBoards.appendChild(userBoard);
   var context = [userBoard.getContext("2d"),id];
+  user.board = userBoard;
   user.context=context;
 }
 
