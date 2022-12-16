@@ -235,6 +235,9 @@ board.addEventListener("mousemove", function (e) {
   if (user.mousedown && user.tool == "brush") {
     drawLine(pos, lastpos, user);
   }
+  if (user.mousedown && user.tool == "erase"){
+    erase(pos.x+100,pos.y+100,user.size);
+  }
 });
 
 board.addEventListener("mousedown", function (e) {
@@ -252,12 +255,15 @@ board.addEventListener("mousedown", function (e) {
     drawDot(pos,ctx,user);
     drawDot(pos,userCtx,user);
   }
-
+  
   if (user.tool == "text" && user.text != "") {
     drawText(user);
     user.text = "";
     var input = $(".textInput.self")[0];
     input.innerHTML = "";
+  }
+  if (user.tool == "erase"){
+    erase(pos.x,pos.y,user.size);
   }
 });
 
@@ -461,6 +467,17 @@ function updateText(key, user) {
       break;
   }
 }
+
+function erase(x, y, radius) {
+  console.log("erasing at: "+x,y,radius)
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, 2 * Math.PI);
+  ctx.clip();
+  ctx.clearRect(0, 0, board.width, board.height);
+  ctx.restore();
+}
+
 
 function updateColor(color,id){
   var user = getUser(id);
