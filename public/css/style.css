@@ -11,10 +11,7 @@ h1 {
   background-color:white;
 }
 
-#sideMenu{
-  display:flex;
-  flex-direction:row;
-}
+
 .userBoard{
   pointer-events:none;
   position:absolute;
@@ -66,14 +63,10 @@ canvas{
   display:flex;
   justify-content:space-between;
   width:100vw;
+  height:100vh;
+  background-color:#556666;
 }
-.tools{
-  display:flex;
-  flex-direction:column;
-  width:42px;
-  height:750px;
-  background-color:grey;
-}
+
 .btns{
   height:30px;
   display:flex;
@@ -89,6 +82,18 @@ canvas{
 .btn:hover{
   background-color:lightgrey;
 }
+#sideMenu{
+  display:flex;
+  flex-direction:row;
+  height:100vh;
+}
+.tools{
+  display:flex;
+  flex-direction:column;
+  width:42px;
+  height:100%;
+  background-color:grey;
+}
 .tool{
   display:flex;
   justify-content:center;
@@ -102,9 +107,6 @@ canvas{
   display:flex;
   flex-direction:column;
   width:250px;
-  height:750px;
-  
-
   
   background-color:lightgrey;
 }
