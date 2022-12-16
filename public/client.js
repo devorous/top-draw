@@ -20,6 +20,7 @@ var width  = document.body.scrollWidth;
 
 board.height=boardDim[0];
 board.width=boardDim[1];
+
 topBoard.height=boardDim[0];
 topBoard.width=boardDim[1];
 
@@ -329,7 +330,7 @@ board.addEventListener("wheel", function (e) {
         if(user.mousedown){
           ctx.stroke();
           ctx.beginPath();
-          ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
+          ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
           ctx2.stroke();
           ctx2.beginPath();
           
@@ -357,7 +358,7 @@ board.addEventListener("wheel", function (e) {
         if(user.mousedown){
           ctx.stroke();
           ctx.beginPath();
-          ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
+          ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
           ctx2.stroke();
           ctx2.beginPath();
           current_line=[];
