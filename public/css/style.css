@@ -10,6 +10,7 @@ body {
 #boardContainer{
   background-color:white;
   user-select:none;
+  height:100vh;
 }
 
 

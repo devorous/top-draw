@@ -10,11 +10,19 @@ var cursor_circle = cursor.children[0].children[0];
 var text = $(".name.self")[0];
 text.innerHTML = userID.toString();
 
-var boardHeight = board.height;
-var boardWidth  = board.width;
+var boardHeight = 480;
+var boardWidth  = 640;
+
+var boardDim=[480,640];
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
+
+board.height=boardDim[0];
+board.width=boardDim[1];
+topBoard.height=boardDim[0];
+topBoard.width=boardDim[1];
+
 
 var size = 10;
 
@@ -182,7 +190,7 @@ function recieve(data) {
       var userCtx = user.context;
       ctx.stroke();
       ctx.beginPath();
-      ctx2.clearRect(0,0,width,height);
+      ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
       ctx2.stroke();
       ctx2.beginPath();
           
@@ -280,7 +288,7 @@ board.addEventListener("mouseup", function (e) {
   self.mousedown = false;
   if(user.tool=="brush"){
     ctx.stroke();
-    ctx2.clearRect(0,0,width,height);
+    ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
   }
   
   send({ command: "broadcast", type: "Mu", id: userID });
@@ -311,7 +319,7 @@ board.addEventListener("wheel", function (e) {
         if(user.mousedown){
           ctx.stroke();
           ctx.beginPath();
-          ctx2.clearRect(0,0,width,height);
+          ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
           ctx2.stroke();
           ctx2.beginPath();
           
@@ -339,7 +347,7 @@ board.addEventListener("wheel", function (e) {
         if(user.mousedown){
           ctx.stroke();
           ctx.beginPath();
-          ctx2.clearRect(0,0,width,height);
+          ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
           ctx2.stroke();
           ctx2.beginPath();
           current_line=[];
@@ -556,7 +564,7 @@ eraseBtn.addEventListener("click", function () {
 function clearBoard() {
   console.log("clearing board");
   ctx.fillStyle = "#FFF";
-  ctx.fillRect(0, 0, boardWidth, boardHeight);
+  ctx.fillRect(0, 0, boardDim[0],boardDim[1]);
 }
 
 function drawUser(data, id) {
