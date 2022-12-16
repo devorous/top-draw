@@ -9,6 +9,7 @@ var cursor = $(".cursor.self")[0];
 var cursor_circle = cursor.children[0].children[0];
 var text = $(".name.self")[0];
 text.innerHTML = userID.toString();
+
 var height = board.height;
 var width = board.width;
 var size = 10;
@@ -631,4 +632,10 @@ var picker = new Picker({
               }
             },
           });
-  
+
+window.addEventListener("resize", (e) => {
+  var newHeight = document.body.scrollHeight;
+  var newWidth = document.body.clientWidth;
+  console.log("old height, width: ",height,width);
+  console.log("new height,width: ",newHeight,newWidth);
+})
