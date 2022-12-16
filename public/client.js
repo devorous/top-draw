@@ -257,6 +257,7 @@ board.addEventListener("mousemove", function (e) {
   if (lastpos.x == null) {
     lastpos = pos;
   }
+  
   if (user.mousedown && user.tool == "brush") {
     drawLine(pos, lastpos, user);
   }
@@ -289,6 +290,7 @@ board.addEventListener("mousedown", function (e) {
     var input = $(".textInput.self")[0];
     input.innerHTML = "";
   }
+  
   if (user.tool == "erase"){
     erase(pos.x,pos.y,user.lastx+100,user.lasty+100,user.size*2);
   }
