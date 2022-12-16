@@ -473,6 +473,7 @@ function updateText(key, user) {
 
 function erase(x1, y1, x2, y2,size) {
   ctx.lineWidth = size;
+  ctx.strokeStyle = 'rgba(255,255,255,1)';
   ctx.beginPath();
   ctx.moveTo(x1, y1);
   ctx.lineTo(x2, y2);
