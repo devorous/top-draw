@@ -106,16 +106,30 @@ canvas{
 #toolOptions{
   display:flex;
   flex-direction:column;
-  width:250px;
+  width:150px;
   
   background-color:lightgrey;
 }
-
+#pickerContainer{
+  transform:scale(0.6);
+  display:flex;
+  margin:auto;
+}
 #colorPicker{
   margin:auto;
   justify-content:center;
-  
   background-color:lightgrey;
+}
+.picker_sample{
+  display:block;
+  height:60px;
+  width:60px;
+}
+.picker_done{
+  display:none;
+}
+ .picker_editor {
+  display:none;
 }
 #userList{
   display:flex;
@@ -130,6 +144,15 @@ canvas{
   background-color:#666666;
 }
 .sliderContainer{
+  
   display:flex;
   justify-content:space-around;
+}
+.sliderContainer label{
+  display:block;
+  font-size:0.75em;
+  text-align:center;
+}
+.slider{
+  width:100px;
 }
