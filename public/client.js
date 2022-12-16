@@ -2,6 +2,7 @@
 var users = [];
 
 var userID = Math.floor(Math.random() * 999999);
+var boards = $("#boards")[0];
 
 var board = $("#board")[0];
 var topBoard = $("#topBoard")[0];
@@ -10,13 +11,14 @@ var cursor_circle = cursor.children[0].children[0];
 var text = $(".name.self")[0];
 text.innerHTML = userID.toString();
 
-var boardHeight = 480;
-var boardWidth  = 640;
 
 var boardDim=[480,640];
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
+
+boards.style.height=boardDim[0].toString()+"px";
+boards.style.width=boardDim[1].toString()+"px";
 
 board.height=boardDim[0];
 board.width=boardDim[1];
