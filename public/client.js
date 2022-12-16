@@ -176,7 +176,7 @@ function recieve(data) {
       if (user.tool == "brush") {
         ctx.stroke();
         ctx2.stroke();
-        ctx2.clearRect(0,0,width,height);
+        ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
       }
       user.mousedown = false;
       break;
@@ -564,7 +564,7 @@ eraseBtn.addEventListener("click", function () {
 function clearBoard() {
   console.log("clearing board");
   ctx.fillStyle = "#FFF";
-  ctx.fillRect(0, 0, boardDim[0],boardDim[1]);
+  ctx.fillRect(0, 0, boardDim[0], boardDim[1]);
 }
 
 function drawUser(data, id) {
@@ -615,8 +615,10 @@ function drawUser(data, id) {
   
   //set up the temp board for creating lines per user
   var userBoard = $("<canvas></canvas>")[0];
-  userBoard.setAttribute("height",boardHeight);
-  userBoard.setAttribute("width",boardWidth);
+  userBoard.setAttribute("height",boardDim[0]);
+  userBoard.setAttribute("width",boardDim[1]);
+  
+  
   userBoard.setAttribute("class","userBoard "+id.toString());
   userBoards.appendChild(userBoard);
   var context = [userBoard.getContext("2d"),id];
