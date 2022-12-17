@@ -2,6 +2,7 @@
 const express = require("express");
 const app = express();
 
+
 // This will serve the static files in the /public folder on our server
 app.use(express.static("public"));
 

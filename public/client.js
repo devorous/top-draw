@@ -773,7 +773,7 @@ var gimpOutput = null;
 
 
 
-
+//TODO: the "GIMP" does exist in the binary data, find what position and how to parse it
 
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
    // Get the first selected file
@@ -789,7 +789,7 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
 
     // Create a DataView for the ArrayBuffer
     const dataView = new DataView(arrayBuffer);
-    console.log(dataview)
+    console.log(dataView)
     // Read the first 4 bytes to get the file signature
     const signature = dataView.getUint32(0);
     if (signature !== 0x47494D50) { // "GIMP" in ASCII
