@@ -1,4 +1,4 @@
-function loadGimpBrush(){
+function loadGimpBrush(file){
 
   // Load the .gih file using the FileReader API
   var fileReader = new FileReader();
