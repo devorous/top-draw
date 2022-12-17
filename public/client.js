@@ -717,7 +717,6 @@ function parseGihFile(data) {
   // Extract the metadata from the file
   var magicNumber = view.getUint32(0); // Should be "GIMP"
   var numFrames = view.getUint32(4);
-  console.log("number of frames: ",numFrames)
   var width = view.getUint32(8);
   var height = view.getUint32(12);
 
@@ -751,6 +750,7 @@ function parseGbrFile(data) {
   // Extract the brush data and create an image object
   var brushData = data.slice(offset);
   var image = new Image();
+  console.log(brushData);
   image.src = 'data:image/x-gimp-brush;base64,' + btoa(String.fromCharCode.apply(null, brushData));
 
   return image;
@@ -758,19 +758,29 @@ function parseGbrFile(data) {
 
 
 
-var gimpFrames = [];
+var gimpOutput = null;
 
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
   // File selected by the user
    var file = event.target.files[0];
-    console.log(file.split(".")[1]);
-    var fileReader = new FileReader();
+   var fileType = file.name.split(".")[1];
+    
+  var fileReader = new FileReader();
+  
   fileReader.onload = function() {
     // File contents are stored in fileReader.result
     var data = fileReader.result;
     // You can now parse the .gih file using the parseGihFile() function from the previous example
-    var frames = parseGihFile(data);
-    gimpFrames=frames;
+    console.log(fileType);
+    if(fileType=="gbr"){
+      console.log("parsing gbr..")
+      var image = parseGbrFile(data)
+      console.log(image);
+    }
+    else if(fileType=="gih"){
+      var frames = parseGihFile(data);
+      gimpOutput = frames;
+    }
   };
   fileReader.readAsArrayBuffer(file);
 });
