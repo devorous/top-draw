@@ -789,10 +789,7 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
 
     // Create a DataView for the ArrayBuffer
     const dataView = new DataView(arrayBuffer);
-    for(var i=0;i<10;i++){
-      console.log("current pos: ",i*4);
-      console.log("current value: ",dataView.getUint32(i*4));
-    }
+    console.log(dataview)
     // Read the first 4 bytes to get the file signature
     const signature = dataView.getUint32(0);
     if (signature !== 0x47494D50) { // "GIMP" in ASCII
