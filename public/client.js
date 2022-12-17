@@ -53,8 +53,12 @@ var icons={
   text:$("<img src='/images/text-icon.svg' />")[0],
   erase:$("<img src='/images/eraser-icon.svg' />")[0]
 }
+
+//set default values for your user list entry
 userlistEntry.children[0].appendChild(icons.brush);
 userlistEntry.children[2].innerHTML=userID;
+
+
 var self = {
   x: 0,
   y: 0,
@@ -143,7 +147,7 @@ socket.addEventListener("message", (m) => {
 });
 
 function send(data) {
-  socket.send(JSON.stringify(data));
+  socket.send(JSON.stringify(data)); 
 }
 
 function recieve(data) {
@@ -570,6 +574,8 @@ brushBtn.addEventListener("click", function () {
   send({ command: "broadcast", type: "ChT", tool: "brush", id: self.id });
   $(".text.self")[0].style.display = "none";
   $(".circle.self")[0].style.display = "block";
+  userlistEntry.children[0].children[0].remove();
+  userlistEntry.children[0].appendChild(icons.brush);
 });
 
 textBtn.addEventListener("click", function () {
@@ -581,6 +587,9 @@ textBtn.addEventListener("click", function () {
   send({ command: "broadcast", type: "ChT", tool: "text", id: self.id });
   $(".text.self")[0].style.display = "block";
   $(".circle.self")[0].style.display = "none";
+  
+  userlistEntry.children[0].children[0].remove();
+  userlistEntry.children[0].appendChild(icons.text);
 });
 
 eraseBtn.addEventListener("click", function () {
@@ -593,6 +602,9 @@ eraseBtn.addEventListener("click", function () {
   send({ command: "broadcast", type: "ChT", tool: "erase", id: self.id });
   $(".text.self")[0].style.display = "none";
   $(".circle.self")[0].style.display = "block";
+  
+  userlistEntry.children[0].children[0].remove();
+  userlistEntry.children[0].appendChild(icons.erase);
 });
 
 

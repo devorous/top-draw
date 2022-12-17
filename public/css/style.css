@@ -195,14 +195,17 @@ canvas{
   background-color:#666666;
   border:0;
   border-radius:5px;
-  padding:2px;
+  padding:0px;
+  align-items: center;
 }
-.listBrush{
+.listTool{
   height:20px;
   width:20px;
   background-color:lightgrey;
   border:0;
   border-radius:5px;
+  padding:1px;
+  object-fit: fill
 }
 .listColor{
   height:20px;
@@ -213,9 +216,9 @@ canvas{
 .listActive{
   height:15px;
   width:15px;
-  background-color:red;
+  background-color:#666666;
   transition:5s;
-  border:1px solid darkgrey;
+  border:0;
   border-radius:50%;
-  margin-top:2px;
+
 }
