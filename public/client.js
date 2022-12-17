@@ -774,16 +774,42 @@ function parseGbrFile(data) {
 var gimpOutput = null;
 
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
-  // File selected by the user
+  // Create a FileReader object
   var file = event.target.files[0];
-  var fileType = file.name.split(".")[1];
-    
-  var fileReader = new FileReader();
-  
+  console.log(file);
+  const reader = new FileReader();
 
-  var arrayBuffer = fileReader.readAsArrayBuffer(file);
-  var data = new KaitaiStream(arrayBuffer);
-  console.log(data);
+  // Set the onload event handler
+  
+  reader.onload = function(event) {
+    const data = event.target.result;
+    console.log(data,data.slice(0,64));
+    // Extract the header information
+    const header = data.slice(0, 64);
+    const width = header.readUInt16LE(4);
+    const height = header.readUInt16LE(6);
+    const bytesPerPixel = header.readUInt16LE(8);
+    const magic = header.slice(10, 14).toString();
+
+    // Extract the brush tips
+    const brushTips = [];
+    let offset = 64;
+    while (offset < data.length) {
+      const brushTip = {};
+      brushTip.width = data.readUInt16LE(offset);
+      brushTip.height = data.readUInt16LE(offset + 2);
+      brushTip.bytesPerPixel = data.readUInt16LE(offset + 4);
+      brushTip.data = data.slice(offset + 6, offset + 6 + brushTip.width * brushTip.height * brushTip.bytesPerPixel);
+      brushTips.push(brushTip);
+      offset += 6 + brushTip.width * brushTip.height * brushTip.bytesPerPixel;
+  }
+
+  console.log(header);
+  console.log(brushTips);
+};
+
+// Read the file as binary data
+reader.readAsArrayBuffer(file);
 });
 
 
