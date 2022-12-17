@@ -1,4 +1,4 @@
-
+import { parseBrush } from 'gimp';
   
 
 var users = [];
@@ -784,42 +784,10 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
   // Create a FileReader object
 const reader = new FileReader();
 
-// Set the onload event handler
+  // Set the onload event handler
 reader.onload = function(event) {
-  const data = event.target.result;
-
-  function readUInt16LE(data, offset) {
-    if (offset < 0 || offset + 2 > data.length) {
-      throw new Error('Offset is out of bounds');
-    }
-    const view = new DataView(Uint8Array.from(data).slice(offset, offset + 2).buffer);
-    return view.getUint16(0, true);
+    
   }
-
-  // Extract the header information
-  const header = data.slice(0, 64);
-  const width = readUInt16LE(header, 4);
-  const height = readUInt16LE(header, 6);
-  const bytesPerPixel = readUInt16LE(header, 8);
-  const magic = header.slice(10, 14).toString();
-
-  // Extract the brush tips
-  const brushTips = [];
-  let offset = 64;
-  while (offset < data.length) {
-    const brushTip = {};
-    brushTip.width = readUInt16LE(data, offset);
-    brushTip.height = readUInt16LE(data, offset + 2);
-    brushTip.bytesPerPixel = readUInt16LE(data, offset + 4);
-    brushTip.data = data.slice(offset + 6, offset + 6 + brushTip.width * brushTip.height * brushTip.bytesPerPixel);
-    brushTips.push(brushTip);
-    offset += 6 + brushTip.width * brushTip.height * brushTip.bytesPerPixel;
-  }
-
-  console.log(header);
-  console.log(brushTips);
-};
-
 // Read the file as binary data
 reader.readAsArrayBuffer(file);
 });

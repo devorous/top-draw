@@ -7,8 +7,11 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "bufferutil": "^4.0.7",
     "express": "^4.18.2",
+    "gimp": "0.0.1-security",
     "kaitai-struct": "^0.10.0",
+    "utf-8-validate": "^5.0.10",
     "ws": "^7.5.9"
   },
   "engines": {
