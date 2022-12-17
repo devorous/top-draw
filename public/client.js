@@ -49,11 +49,11 @@ var connected=false;
 
 
 var icons={
-  brush:"<img src='/images/brush-icon.svg' />",
-  text:"<img src='/images/text-icon.svg' />",
-  erase:"<img src='/images/eraser-icon.svg' />"
+  brush:$("<img src='/images/brush-icon.svg' />")[0],
+  text:$("<img src='/images/text-icon.svg' />")[0],
+  erase:$("<img src='/images/eraser-icon.svg' />")[0]
 }
-
+userListEntry.children[0].appendChild(icons.brush);
 
 var self = {
   x: 0,
