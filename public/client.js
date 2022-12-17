@@ -53,8 +53,8 @@ var icons={
   text:$("<img src='/images/text-icon.svg' />")[0],
   erase:$("<img src='/images/eraser-icon.svg' />")[0]
 }
-userListEntry.children[0].appendChild(icons.brush);
-
+userlistEntry.children[0].appendChild(icons.brush);
+userlistEntry.children[2].innerHTML=userID;
 var self = {
   x: 0,
   y: 0,
@@ -684,6 +684,7 @@ var picker = new Picker({
               if(connected==true){
                 send({command:"broadcast",type:"ChC",color:rgba,id:userID});
               }
+              userlistEntry.children[1].style.backgroundColor='rgba('+user.color.toString()+')';
             },
           });
 

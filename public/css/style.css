@@ -165,18 +165,7 @@ canvas{
  .picker_editor {
   display:none;
 }
-#userList{
-  display:flex;
-  flex-direction:column;
-  padding:6px;
-  background-color:#444444;
-  height:100px;
-}
-.userEntry{
-  display:flex;
-  justify-content:space-around;
-  background-color:#666666;
-}
+
 .sliderContainer{
   
   display:flex;
@@ -193,15 +182,33 @@ canvas{
   width:100px;
   
 }
+#userList{
+  display:flex;
+  flex-direction:column;
+  padding:6px;
+  background-color:#444444;
+  height:100px;
+}
+.userEntry{
+  display:flex;
+  justify-content:space-around;
+  background-color:#666666;
+  border:0;
+  border-radius:5px;
+  padding:2px;
+}
 .listBrush{
   height:20px;
   width:20px;
-  background-color:orange;
+  background-color:lightgrey;
+  border:0;
+  border-radius:5px;
 }
 .listColor{
   height:20px;
   width:20px;
-  background-color:blue;
+  border:1px solid black;
+  border-radius:5px;
 }
 .listActive{
   height:15px;
