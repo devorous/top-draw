@@ -183,35 +183,50 @@ canvas{
   
 }
 #userList{
+  width:100%;
   display:flex;
   flex-direction:column;
-  padding:6px;
+  padding-top:2px;
+  padding-bottom:2px;
   background-color:#444444;
   height:100px;
+  
 }
 .userEntry{
+  font-size:0.8em;
   display:flex;
   justify-content:space-around;
   background-color:#666666;
   border:0;
-  border-radius:5px;
-  padding:0px;
+  border-radius:2px;
   align-items: center;
+  padding-bottom:1px;
+  padding-top:1px;
 }
+
 .listTool{
+  display:flex;
   height:20px;
   width:20px;
   background-color:lightgrey;
   border:0;
   border-radius:5px;
   padding:1px;
-  object-fit: fill
+  object-fit: fill;
+
 }
 .listColor{
   height:20px;
   width:20px;
   border:1px solid black;
   border-radius:5px;
+}
+.listUser{
+  color:white;
+}
+.listUser.self{
+  font-style:italic;
+  font-weight:bold;
 }
 .listActive{
   height:15px;
@@ -220,5 +235,4 @@ canvas{
   transition:5s;
   border:0;
   border-radius:50%;
-
 }
