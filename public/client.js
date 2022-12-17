@@ -12,7 +12,7 @@ var text = $(".name.self")[0];
 text.innerHTML = userID.toString();
 
 
-var boardDim=[480,640];
+var boardDim=[480,240];
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
@@ -163,7 +163,7 @@ function recieve(data) {
         drawLine(pos, lastpos, user);
       }
       if(user.mousedown && user.tool == "erase"){
-        erase(pos.x+100,pos.y+100,lastpos.x+100,lastpos.y+100,user.size*2);
+        erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
       }
       user.lastx=data.x;
       user.lasty=data.y;
@@ -186,7 +186,7 @@ function recieve(data) {
         input.innerHTML = "";
       }
       if(user.tool == "erase"){
-        erase(pos.x+100,pos.y+100,pos.x+100,pos.y+100,user.size*2);
+        erase(pos.x,pos.y,pos.x,pos.y,user.size*2);
       }
       user.mousedown = true;
       break;
@@ -252,12 +252,18 @@ function getUser(id) {
 }
 
 board.addEventListener("mousemove", function (e) {
+  
+  var rect = e.target.getBoundingClientRect();
+  var x = e.clientX - rect.left; //x position within the element.
+  var y = e.clientY - rect.top;  //y position within the element.
+  
+  
   var user = getUser(userID);
-  user.x = e.layerX - 100;
-  user.y = e.layerY - 100;
+  user.x = x;
+  user.y = y;
   //set your cursor pos
-  cursor.style.left = user.x + "px";
-  cursor.style.top = user.y + "px";
+  cursor.style.left = user.x-100 + "px";
+  cursor.style.top = user.y-100 + "px";
 
   send({ command: "broadcast", type: "Mm", x: user.x, y: user.y, id: userID });
   var lastpos = { x: user.lastx, y: user.lasty };
@@ -270,7 +276,7 @@ board.addEventListener("mousemove", function (e) {
     drawLine(pos, lastpos, user);
   }
   if (user.mousedown && user.tool == "erase"){
-    erase(pos.x+100,pos.y+100,lastpos.x+100,lastpos.y+100,user.size*2);
+    erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
   }
   user.lastx = user.x;
   user.lasty = user.y;
@@ -300,7 +306,7 @@ board.addEventListener("mousedown", function (e) {
   }
   
   if (user.tool == "erase"){
-    erase(pos.x,pos.y,user.lastx+100,user.lasty+100,user.size*2);
+    erase(pos.x,pos.y,user.lastx,user.lasty,user.size*2);
   }
 });
 
@@ -460,15 +466,15 @@ function drawLine(pos, lastpos, user) {
   ctx2.strokeStyle='rgb('+noAlpha.toString()+')';
   ctx2.beginPath();
   
-  ctx2.moveTo(lastpos.x+100,lastpos.y+100);
-  ctx2.lineTo(pos.x+100,pos.y+100);
+  ctx2.moveTo(lastpos.x,lastpos.y);
+  ctx2.lineTo(pos.x,pos.y);
   ctx2.stroke();
   
   ctx.lineWidth = user.size * 2;
   //ctx.translate(0.5, 0.5);
   ctx.strokeStyle='rgba('+user.color.toString()+')';
-  ctx.moveTo(lastpos.x + 100, lastpos.y + 100);
-  ctx.lineTo(pos.x + 100, pos.y + 100);
+  ctx.moveTo(lastpos.x, lastpos.y);
+  ctx.lineTo(pos.x, pos.y);
   current_line.push(pos);
   
   user.lastx = pos.x;
