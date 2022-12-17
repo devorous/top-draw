@@ -716,9 +716,13 @@ function parseGihFile(data) {
 
   // Extract the metadata from the file
   var magicNumber = view.getUint32(0); // Should be "GIMP"
+  console.log("magic Number: ",magicNumber);
   var numFrames = view.getUint32(4);
+  console.log("number of frames:",numFrames);
   var width = view.getUint32(8);
+  console.log("width: ",width);
   var height = view.getUint32(12);
+  console.log("height: ",height);
 
   // Extract the frame data and create image objects for each frame
   var frames = [];
@@ -739,7 +743,6 @@ function parseGbrFile(data) {
 
   // Extract the magic number from the file
   var magicNumber = view.getUint32(0); // Should be "GIMP"
-
   // Extract the metadata from the file
   var width = view.getUint32(4);
   var height = view.getUint32(8);
