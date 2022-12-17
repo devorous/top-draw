@@ -775,16 +775,15 @@ var gimpOutput = null;
 
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
   // File selected by the user
-   var file = event.target.files[0];
-   var fileType = file.name.split(".")[1];
+  var file = event.target.files[0];
+  var fileType = file.name.split(".")[1];
     
   var fileReader = new FileReader();
   
-  fileReader.onload = function() {
-    // File contents are stored in fileReader.result
-    var data = new GimpBrush(new KaitaiStream(arrayBuffer));
-  };
-  fileReader.readAsArrayBuffer(file);
+
+  var arrayBuffer = fileReader.readAsArrayBuffer(file);
+  var data = new KaitaiStream(arrayBuffer);
+  console.log(data);
 });
 
 
