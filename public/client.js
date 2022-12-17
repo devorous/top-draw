@@ -743,19 +743,28 @@ function parseGbrFile(data) {
 
   // Extract the magic number from the file
   var magicNumber = view.getUint32(0); // Should be "GIMP"
+  console.log("magic Number: ",magicNumber);
   // Extract the metadata from the file
-  var width = view.getUint32(4);
-  var height = view.getUint32(8);
+  var unknown = view.getUint32(4);
+  console.log("unknown: ",unknown);
+  var width = view.getUint32(8);
+  console.log("width: ",width);
   var colorDepth = view.getUint16(12);
-  var numColors = view.getUint16(14);
+  console.log("colorDepth: ",colorDepth);
+  var height = view.getUint16(14);
+  console.log("height: ",height);
   var offset = view.getUint32(16);
+  console.log("offset: ",offset);
 
   // Extract the brush data and create an image object
   var brushData = data.slice(offset);
   var image = new Image();
   console.log(brushData);
-  image.src = 'data:image/x-gimp-brush;base64,' + btoa(String.fromCharCode.apply(null, brushData));
-
+  
+  const uint8Array = new Uint8Array(brushData);
+  
+  image.src =  URL.createObjectURL(new Blob([uint8Array]));
+  console.log(image);
   return image;
 }
 
@@ -779,6 +788,7 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
       console.log("parsing gbr..")
       var image = parseGbrFile(data)
       console.log(image);
+      gimpOutput=image;
     }
     else if(fileType=="gih"){
       var frames = parseGihFile(data);
