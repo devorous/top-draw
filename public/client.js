@@ -757,7 +757,7 @@ function parseGbrFile(data) {
   console.log("offset: ",offset);
 
   // Extract the brush data and create an image object
-  var brushData = data.slice(offset);
+  var brushData = data.slice(unknown);
   var image = new Image();
   console.log(brushData);
   
@@ -765,6 +765,7 @@ function parseGbrFile(data) {
   
   image.src =  URL.createObjectURL(new Blob([uint8Array]));
   console.log(image);
+  ctx.drawImage(image,0,0);
   return image;
 }
 
@@ -781,19 +782,7 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
   
   fileReader.onload = function() {
     // File contents are stored in fileReader.result
-    var data = fileReader.result;
-    // You can now parse the .gih file using the parseGihFile() function from the previous example
-    console.log(fileType);
-    if(fileType=="gbr"){
-      console.log("parsing gbr..")
-      var image = parseGbrFile(data)
-      console.log(image);
-      gimpOutput=image;
-    }
-    else if(fileType=="gih"){
-      var frames = parseGihFile(data);
-      gimpOutput = frames;
-    }
+    var data = new GimpBrush(new KaitaiStream(arrayBuffer));
   };
   fileReader.readAsArrayBuffer(file);
 });
