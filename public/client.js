@@ -773,35 +773,47 @@ function parseGbrFile(data) {
 
 var gimpOutput = null;
 
+
+
+
+
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
   // Create a FileReader object
   var file = event.target.files[0];
   console.log(file);
-  const reader = new FileReader();
+  // Create a FileReader object
+const reader = new FileReader();
 
-  // Set the onload event handler
-  
-  reader.onload = function(event) {
-    const data = event.target.result;
-    console.log(data,data.slice(0,64));
-    // Extract the header information
-    const header = data.slice(0, 64);
-    const width = header.readUInt16LE(4);
-    const height = header.readUInt16LE(6);
-    const bytesPerPixel = header.readUInt16LE(8);
-    const magic = header.slice(10, 14).toString();
+// Set the onload event handler
+reader.onload = function(event) {
+  const data = event.target.result;
 
-    // Extract the brush tips
-    const brushTips = [];
-    let offset = 64;
-    while (offset < data.length) {
-      const brushTip = {};
-      brushTip.width = data.readUInt16LE(offset);
-      brushTip.height = data.readUInt16LE(offset + 2);
-      brushTip.bytesPerPixel = data.readUInt16LE(offset + 4);
-      brushTip.data = data.slice(offset + 6, offset + 6 + brushTip.width * brushTip.height * brushTip.bytesPerPixel);
-      brushTips.push(brushTip);
-      offset += 6 + brushTip.width * brushTip.height * brushTip.bytesPerPixel;
+  function readUInt16LE(data, offset) {
+    if (offset < 0 || offset + 2 > data.length) {
+      throw new Error('Offset is out of bounds');
+    }
+    const view = new DataView(Uint8Array.from(data).slice(offset, offset + 2).buffer);
+    return view.getUint16(0, true);
+  }
+
+  // Extract the header information
+  const header = data.slice(0, 64);
+  const width = readUInt16LE(header, 4);
+  const height = readUInt16LE(header, 6);
+  const bytesPerPixel = readUInt16LE(header, 8);
+  const magic = header.slice(10, 14).toString();
+
+  // Extract the brush tips
+  const brushTips = [];
+  let offset = 64;
+  while (offset < data.length) {
+    const brushTip = {};
+    brushTip.width = readUInt16LE(data, offset);
+    brushTip.height = readUInt16LE(data, offset + 2);
+    brushTip.bytesPerPixel = readUInt16LE(data, offset + 4);
+    brushTip.data = data.slice(offset + 6, offset + 6 + brushTip.width * brushTip.height * brushTip.bytesPerPixel);
+    brushTips.push(brushTip);
+    offset += 6 + brushTip.width * brushTip.height * brushTip.bytesPerPixel;
   }
 
   console.log(header);
@@ -811,6 +823,5 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
 // Read the file as binary data
 reader.readAsArrayBuffer(file);
 });
-
 
 
