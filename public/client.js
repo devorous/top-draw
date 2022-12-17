@@ -786,7 +786,7 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
   reader.onload = () => {
     // Get the ArrayBuffer from the FileReader
     const arrayBuffer = reader.result;
-
+    
     // Create a DataView for the ArrayBuffer
     const dataView = new DataView(arrayBuffer);
     console.log(dataView)
