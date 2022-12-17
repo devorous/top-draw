@@ -1,4 +1,6 @@
 
+  
+
 var users = [];
 
 var userID = Math.floor(Math.random() * 999999);
@@ -9,6 +11,9 @@ var topBoard = $("#topBoard")[0];
 var cursor = $(".cursor.self")[0];
 var cursor_circle = cursor.children[0].children[0];
 var text = $(".name.self")[0];
+
+var userlistEntry = $(".userEntry.self")[0];
+
 text.innerHTML = userID.toString();
 
 
@@ -688,3 +693,4 @@ window.addEventListener("resize", (e) => {
   console.log("old height, width: ",height,width);
   console.log("new height,width: ",newHeight,newWidth);
 })
+  
