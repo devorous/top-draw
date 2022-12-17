@@ -707,3 +707,12 @@ window.addEventListener("resize", (e) => {
   console.log("new height,width: ",newHeight,newWidth);
 })
   
+
+var file = null;
+document.getElementById('gimp-file-input').addEventListener('change', function(event) {
+  // File selected by the user
+   file = event.target.files[0];
+});
+
+
+
