@@ -37,9 +37,17 @@ ctx.globalCompositeOperation="source-over";
 ctx.imageSmoothingQuality = "high";
 ctx2.imageSmoothingQuality = "high";
 ctx.lineCap = "round";
+
 var current_line = [];
 
 var connected=false;
+
+
+var icons={
+  brush:"<img src='/images/brush-icon.svg' />",
+  text:"<img src='/images/text-icon.svg' />",
+  erase:"<img src='/images/eraser-icon.svg' />"
+}
 
 
 var self = {
@@ -58,7 +66,7 @@ var self = {
   id: userID,
 };
 
-// Add self player to beginning of players array:
+// Add self  to beginning of users array:
 users.push(self);
 
 
