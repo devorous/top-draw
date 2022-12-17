@@ -1,5 +1,3 @@
-import { parseBrush } from 'gimp';
-  
 
 var users = [];
 
@@ -778,18 +776,52 @@ var gimpOutput = null;
 
 
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
-  // Create a FileReader object
-  var file = event.target.files[0];
-  console.log(file);
-  // Create a FileReader object
-const reader = new FileReader();
+   // Get the first selected file
+  const file = event.target.files[0];
 
-  // Set the onload event handler
-reader.onload = function(event) {
-    
-  }
-// Read the file as binary data
-reader.readAsArrayBuffer(file);
+  // Create a FileReader
+  const reader = new FileReader();
+
+  // Set the onload handler to parse the file
+  reader.onload = () => {
+    // Get the ArrayBuffer from the FileReader
+    const arrayBuffer = reader.result;
+
+    // Create a DataView for the ArrayBuffer
+    const dataView = new DataView(arrayBuffer);
+    for(var i=0;i<10;i++){
+      console.log("current pos: ",i*4);
+      console.log("current value: ",dataView.getUint32(i*4));
+    }
+    // Read the first 4 bytes to get the file signature
+    const signature = dataView.getUint32(0);
+    if (signature !== 0x47494D50) { // "GIMP" in ASCII
+      throw new Error('Not a valid GIMP brush file');
+    }
+
+    // Read the next 4 bytes to get the version number
+    const version = dataView.getUint32(4);
+
+    // Read the next 4 bytes to get the width of the brush
+    const width = dataView.getUint32(8);
+
+    // Read the next 4 bytes to get the height of the brush
+    const height = dataView.getUint32(12);
+
+    // Read the next 4 bytes to get the brush spacing
+    const spacing = dataView.getUint32(16);
+
+    // Read the next 4 bytes to get the number of colors in the brush
+    const numColors = dataView.getUint32(20);
+
+    // Read the brush data
+    const brushData = new Uint8Array(arrayBuffer, 24);
+    console.log(version,width,height,spacing,numColors);
+    // Now you can use the width, height, spacing, and brush data to create a brush in your application
+  };
+
+  // Read the file as an ArrayBuffer
+  reader.readAsArrayBuffer(file);
 });
 
 
