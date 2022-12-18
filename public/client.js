@@ -707,7 +707,7 @@ window.addEventListener("resize", (e) => {
   console.log("new height,width: ",newHeight,newWidth);
 })
   
-
+var gimpImage = $("#gimpImage")[0];
 
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
    // Get the first selected file
@@ -722,7 +722,7 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
     // Get the ArrayBuffer from the FileReader
     const arrayBuffer = reader.result;
       if(fileType=="gbr"){
-        parseGbr(arrayBuffer);
+        parseGbr(arrayBuffer,gimpImage);
       }
       if(fileType=="gih"){
         //parseGih(arrayBuffer);
@@ -830,7 +830,8 @@ function parseGbr(arrayBuffer,image){
   
   //Now we set up variables to create a header for a bitmap image
   
-  //This should be colorDepth*8, but I am using a hack to change 
+  //This should be colorDepth*8, but I am using a hack to change 8bit greyscale images into 32bit rgba
+  
   var bpp = 32;  // bits per pixel
   
   
@@ -872,33 +873,22 @@ function parseGbr(arrayBuffer,image){
     0, 0, 0, 0  // number of important colors (not used)
   ]);
   
-
+  //for 8bit greyscale there should also be a colorTable below the headers containing 256 shades
   
   
-  const data = new Uint8Array(
-  fileHeader.length + infoHeader.length + imageData.length);
+  const data = new Uint8Array(fileHeader.length + infoHeader.length + imageData.length);
   
   data.set(fileHeader, 0);
   data.set(infoHeader, fileHeader.length);
-
-
   data.set(imageData, fileHeader.length + infoHeader.length);
 
   
   const blob = new Blob([data], {type: 'image/bmp'});
-  const image = new Image();
+  
+  image.width = width;
+  image.height = height;
   image.src = URL.createObjectURL(blob);
-  image.setAttribute("class","gimp")
   
-  
-  var link = document.createElement("a"); 
-  link.href = image.src;
-  link.download = brushObject.brushName+".bmp"
-  link.innerHTML = "Click here to download the file";
-  document.body.appendChild(link);
 
-  
-  document.body.appendChild(image);
-  return image
   
 }

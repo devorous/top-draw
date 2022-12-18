@@ -236,3 +236,9 @@ canvas{
   border:0;
   border-radius:50%;
 }
+#gimpImage{
+  display:flex;
+  object-fit: contain;
+  height:150px;
+  width:150px;
+}
