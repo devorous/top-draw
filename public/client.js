@@ -708,77 +708,12 @@ window.addEventListener("resize", (e) => {
 })
   
 
-function parseGihFile(data) {
-  // Use a DataView to read the binary data in the file
-  var view = new DataView(data);
-
-  // Extract the metadata from the file
-  var magicNumber = view.getUint32(0); // Should be "GIMP"
-  console.log("magic Number: ",magicNumber);
-  var numFrames = view.getUint32(4);
-  console.log("number of frames:",numFrames);
-  var width = view.getUint32(8);
-  console.log("width: ",width);
-  var height = view.getUint32(12);
-  console.log("height: ",height);
-
-  // Extract the frame data and create image objects for each frame
-  var frames = [];
-  for (var i = 0; i < numFrames; i++) {
-    var offset = view.getUint32(16 + i * 4);
-    var frameData = data.slice(offset);
-    var image = new Image();
-    image.src = 'data:image/x-gimp-brush;base64,' + btoa(String.fromCharCode.apply(null, frameData));
-    frames.push(image);
-  }
-
-  return frames;
-}
-
-function parseGbrFile(data) {
-  // Use a DataView to read the binary data in the file
-  var view = new DataView(data);
-
-  // Extract the magic number from the file
-  var magicNumber = view.getUint32(0); // Should be "GIMP"
-  console.log("magic Number: ",magicNumber);
-  // Extract the metadata from the file
-  var unknown = view.getUint32(4);
-  console.log("unknown: ",unknown);
-  var width = view.getUint32(8);
-  console.log("width: ",width);
-  var colorDepth = view.getUint16(12);
-  console.log("colorDepth: ",colorDepth);
-  var height = view.getUint16(14);
-  console.log("height: ",height);
-  var offset = view.getUint32(16);
-  console.log("offset: ",offset);
-
-  // Extract the brush data and create an image object
-  var brushData = data.slice(unknown);
-  var image = new Image();
-  console.log(brushData);
-  
-  const uint8Array = new Uint8Array(brushData);
-  
-  image.src =  URL.createObjectURL(new Blob([uint8Array]));
-  console.log(image);
-  ctx.drawImage(image,0,0);
-  return image;
-}
-
-
-
-var gimpOutput = null;
-
-
-
-//TODO: the "GIMP" does exist in the binary data, find what position and how to parse it
 
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
    // Get the first selected file
   const file = event.target.files[0];
-
+  
+  var fileType = (file.name.split(".")[1]);
   // Create a FileReader
   const reader = new FileReader();
 
@@ -786,39 +721,184 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
   reader.onload = () => {
     // Get the ArrayBuffer from the FileReader
     const arrayBuffer = reader.result;
-    
-    // Create a DataView for the ArrayBuffer
-    const dataView = new DataView(arrayBuffer);
-    console.log(dataView)
-    // Read the first 4 bytes to get the file signature
-    const signature = dataView.getUint32(0);
-    if (signature !== 0x47494D50) { // "GIMP" in ASCII
-      throw new Error('Not a valid GIMP brush file');
+      if(fileType=="gbr"){
+        parseGbr(arrayBuffer);
+      }
+      if(fileType=="gih"){
+        //parseGih(arrayBuffer);
+      }
     }
 
-    // Read the next 4 bytes to get the version number
-    const version = dataView.getUint32(4);
-
-    // Read the next 4 bytes to get the width of the brush
-    const width = dataView.getUint32(8);
-
-    // Read the next 4 bytes to get the height of the brush
-    const height = dataView.getUint32(12);
-
-    // Read the next 4 bytes to get the brush spacing
-    const spacing = dataView.getUint32(16);
-
-    // Read the next 4 bytes to get the number of colors in the brush
-    const numColors = dataView.getUint32(20);
-
-    // Read the brush data
-    const brushData = new Uint8Array(arrayBuffer, 24);
-    console.log(version,width,height,spacing,numColors);
-    // Now you can use the width, height, spacing, and brush data to create a brush in your application
-  };
-
-  // Read the file as an ArrayBuffer
   reader.readAsArrayBuffer(file);
-});
+});  
+
+//helper functions for parseGbr()
+function chunkToString(chunk){
+  var string="";
+  for(var i=0;i<chunk.length;i++){
+        var letter = String.fromCharCode(chunk[i.toString()]);
+        string+=letter;
+  }
+  return string
+}
+
+function concatChunk(chunk){
+  var hexString = ""
+  for(var i=0;i<chunk.length;i++){
+    var hex = chunk[i.toString()].toString(16);
+    if(hex.length==1){
+      hex="0"+hex;
+    }
+    hexString+=hex;
+  }
+  return hexString
+}
 
 
+function parseGbr(arrayBuffer,image){
+  
+  var view = new Uint8Array(arrayBuffer);
+  // Create an array to hold the chunks
+  var chunks = [];
+
+  // Iterate through the view and extract the chunks
+  var headerChunk = view.slice(0,4)
+  var headerLength = Number("0x"+concatChunk(headerChunk))
+
+  
+  var chunks = [];
+  for(var i=0;i<=27;i=i+4){
+    var chunk = view.slice(i,i+4);
+    var chunkHex = concatChunk(chunk);
+    chunks.push(chunkHex);
+  }
+  
+  var lastchunk = view.slice(28,headerLength-1);
+  var lastchunkHex = chunkToString(lastchunk);
+  chunks.push(lastchunkHex);
+  
+  //extract the values of the bits in each chunk
+  var headerSize = Number("0x"+chunks[0]);
+  var version = Number("0x"+chunks[1]);
+  var width = Number("0x"+chunks[2]);
+  var height = Number("0x"+chunks[3]);
+  var colorDepth = Number("0x"+chunks[4]);
+  var magicNumber = chunks[5];
+  var spacing = Number("0x"+chunks[6]);
+  var brushName = chunks[7];
+  
+  //Get the image data which is below all the header data
+  var imageData = view.slice(headerLength,view.length);
+  
+  
+  //Create an object that contains all the information about the brush
+  var brushObject = {};
+  brushObject.headerSize = headerSize;
+  brushObject.version = version;
+  brushObject.width = width;
+  brushObject.height = height;
+  brushObject.colorDepth = colorDepth;
+  brushObject.magicNumber = magicNumber;
+  brushObject.spacing = spacing;
+  brushObject.brushName = brushName;
+ 
+
+  
+  
+  
+  //A hack to convert greyscale image data to rgba data
+  //TODO: figure out why 8 bpp images won't load.. 
+  
+  if(colorDepth == 1){
+	var newImageData = new Uint8Array(imageData.length * 4);
+
+	  // Iterate through the original array
+	  for (let i = 0; i < imageData.length; i++) {
+		// Add the current value three times to the new array, with a 0 between each triplet pair
+		newImageData[i * 4] 	= 255-imageData[i];
+		newImageData[i * 4 + 1] = 255-imageData[i];
+		newImageData[i * 4 + 2] = 255-imageData[i];
+		newImageData[i * 4 + 3] = 0;
+	  }
+	imageData = newImageData;
+  }
+
+  
+   brushObject.imageData = imageData;
+  
+  
+  
+  //Now we set up variables to create a header for a bitmap image
+  
+  //This should be colorDepth*8, but I am using a hack to change 
+  var bpp = 32;  // bits per pixel
+  
+  
+  var paletteColors = 0;
+  
+
+  
+  // Calculate the size of the pixel data
+  var pixelDataSize = imageData.length;
+
+ 
+  // Calculate the size of the file
+  var fileSize = 54 + pixelDataSize;  // 54 bytes for the headers
+
+  
+
+  
+  
+  
+  const fileHeader = new Uint8Array([
+    0x42, 0x4D,  // magic number (BM)
+    fileSize, 0, 0, 0,  // size of the file
+    0, 0, 0, 0,  // reserved
+    54, 0, 0, 0  // offset to the pixel data
+  ]);
+
+  // Create the bitmap info header
+  const infoHeader = new Uint8Array([
+    40, 0, 0, 0,  // size of the header
+    width, 0, 0, 0,  // width of the image
+    height, 0, 0, 0,  // height of the image
+    1, 0,  // number of planes
+    bpp, 0,  // bits per pixel
+    0, 0, 0, 0,  // compression method
+    pixelDataSize, 0, 0, 0,  // size of the pixel data
+    0, 0, 0, 0,  // horizontal resolution
+    0, 0, 0, 0,  // vertical resolution
+    paletteColors, 0, 0, 0,  // number of colors in palette (used in greyscale)
+    0, 0, 0, 0  // number of important colors (not used)
+  ]);
+  
+
+  
+  
+  const data = new Uint8Array(
+  fileHeader.length + infoHeader.length + imageData.length);
+  
+  data.set(fileHeader, 0);
+  data.set(infoHeader, fileHeader.length);
+
+
+  data.set(imageData, fileHeader.length + infoHeader.length);
+
+  
+  const blob = new Blob([data], {type: 'image/bmp'});
+  const image = new Image();
+  image.src = URL.createObjectURL(blob);
+  image.setAttribute("class","gimp")
+  
+  
+  var link = document.createElement("a"); 
+  link.href = image.src;
+  link.download = brushObject.brushName+".bmp"
+  link.innerHTML = "Click here to download the file";
+  document.body.appendChild(link);
+
+  
+  document.body.appendChild(image);
+  return image
+  
+}
