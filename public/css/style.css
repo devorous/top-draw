@@ -241,4 +241,5 @@ canvas{
   object-fit: contain;
   height:150px;
   width:150px;
+  transform:scaleY(-1);
 }

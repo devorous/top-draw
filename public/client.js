@@ -51,7 +51,8 @@ var connected=false;
 var icons={
   brush:$("<img src='/images/brush-icon.svg' />")[0],
   text:$("<img src='/images/text-icon.svg' />")[0],
-  erase:$("<img src='/images/eraser-icon.svg' />")[0]
+  erase:$("<img src='/images/eraser-icon.svg' />")[0],
+  gimp:$("<img src='/images/bell-pepper.svg' />")[0]
 }
 
 //set default values for your user list entry
@@ -497,7 +498,7 @@ function drawText(user) {
   ctx.beginPath();
   ctx.fillStyle='rgba('+user.color.toString()+')';
   ctx.font = size + "px sans-serif";
-  ctx.fillText(text, user.x + 105, user.y + 92 + user.size + 5);
+  ctx.fillText(text, user.x + 5, user.y -6 + user.size + 5);
   user.text="";
 }
 
@@ -565,6 +566,7 @@ clearBtn.addEventListener("click", function () {
 var brushBtn = $("#brushBtn")[0];
 var textBtn = $("#textBtn")[0];
 var eraseBtn = $("#eraseBtn")[0];
+var gimpBtn = $("#gimpBtn")[0];
 
 brushBtn.addEventListener("click", function () {
   ctx.globalCompositeOperation="source-over";
@@ -605,6 +607,19 @@ eraseBtn.addEventListener("click", function () {
   
   userlistEntry.children[0].children[0].remove();
   userlistEntry.children[0].appendChild(icons.erase);
+});
+
+gimpBtn.addEventListener("click", function () {
+  
+  var user = getUser(userID);
+  var index = users.indexOf(user);
+  users[index].tool = "gimp";
+  send({ command: "broadcast", type: "ChT", tool: "gimp", id: self.id });
+  $(".text.self")[0].style.display = "none";
+  $(".circle.self")[0].style.display = "block";
+  
+  userlistEntry.children[0].children[0].remove();
+  userlistEntry.children[0].appendChild(icons.gimp);
 });
 
 
@@ -722,7 +737,7 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
     // Get the ArrayBuffer from the FileReader
     const arrayBuffer = reader.result;
       if(fileType=="gbr"){
-        parseGbr(arrayBuffer,gimpImage);
+        var imageSrc = parseGbr(arrayBuffer,gimpImage);
       }
       if(fileType=="gih"){
         //parseGih(arrayBuffer);
@@ -889,6 +904,5 @@ function parseGbr(arrayBuffer,image){
   image.height = height;
   image.src = URL.createObjectURL(blob);
   
-
-  
+  return image.src
 }
