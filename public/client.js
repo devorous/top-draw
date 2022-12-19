@@ -320,7 +320,7 @@ board.addEventListener("mousedown", function (e) {
     erase(pos.x,pos.y,user.lastx,user.lasty,user.size*2);
   }
   if(user.tool == "gimp"){
-    drawGimp(self.gbr,pos);
+    drawGimp(pos);
   }
 });
 
@@ -505,9 +505,11 @@ function drawText(user) {
   ctx.fillText(text, user.x + 5, user.y -6 + user.size + 5);
   user.text="";
 }
-function drawGimp(user){
-  var image = $("#gimpImage")[0].src;
-  ctx.drawImage(image,0,0);
+function drawGimp(pos){
+  var image = $("#gimpImage")[0]
+  var newpos = [pos.x+image.height/2,pos.y+image.width/2]
+  console.log("drawing gimp: ",image)
+  ctx.drawImage(image,pos.x,pos.y);
   
 }
 
@@ -749,9 +751,9 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
     // Get the ArrayBuffer from the FileReader
     const arrayBuffer = reader.result;
       if(fileType=="gbr"){
-        var gimpImage = parseGbr(arrayBuffer,gimpImage);
-        self.gbr=gimpImage;
-        user.gbr=gimpImage;
+        var gbrImage = parseGbr(arrayBuffer,gimpImage);
+        self.gbr=gbrImage;
+        user.gbr=gbrImage;
       }
       if(fileType=="gih"){
         //parseGih(arrayBuffer);
