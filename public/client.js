@@ -15,7 +15,7 @@ var userlistEntry = $(".userEntry.self")[0];
 text.innerHTML = userID.toString();
 
 
-var boardDim=[480,240];
+var boardDim=[480,720];
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
@@ -508,7 +508,9 @@ function drawText(user) {
 function drawGimp(pos){
   var image = $("#gimpImage")[0]
   var newpos = [pos.x+image.height/2,pos.y+image.width/2]
-  console.log("drawing gimp: ",image)
+  console.log("drawing gimp: ",image);
+  ctx.beginPath();
+  ctx.fillStyle='rgba('+self.color.toString()+')';
   ctx.drawImage(image,pos.x,pos.y);
   
 }
