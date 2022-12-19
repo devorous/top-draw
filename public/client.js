@@ -74,6 +74,7 @@ var self = {
   context:ctx2,
   board:board,
   id: userID,
+  gbr: null,
 };
 
 // Add self  to beginning of users array:
@@ -318,6 +319,9 @@ board.addEventListener("mousedown", function (e) {
   if (user.tool == "erase"){
     erase(pos.x,pos.y,user.lastx,user.lasty,user.size*2);
   }
+  if(user.tool == "gimp"){
+    drawGimp(self.gbr,pos);
+  }
 });
 
 board.addEventListener("mouseup", function (e) {
@@ -501,6 +505,12 @@ function drawText(user) {
   ctx.fillText(text, user.x + 5, user.y -6 + user.size + 5);
   user.text="";
 }
+function drawGimp(user){
+  var image = $("#gimpImage")[0].src;
+  ctx.drawImage(image,0,0);
+  
+}
+
 
 function updateText(key, user) {
   console.log(user);
@@ -725,6 +735,8 @@ window.addEventListener("resize", (e) => {
 var gimpImage = $("#gimpImage")[0];
 
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
+  
+  var user = getUser(userID);
    // Get the first selected file
   const file = event.target.files[0];
   
@@ -737,7 +749,9 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
     // Get the ArrayBuffer from the FileReader
     const arrayBuffer = reader.result;
       if(fileType=="gbr"){
-        var imageSrc = parseGbr(arrayBuffer,gimpImage);
+        var gimpImage = parseGbr(arrayBuffer,gimpImage);
+        self.gbr=gimpImage;
+        user.gbr=gimpImage;
       }
       if(fileType=="gih"){
         //parseGih(arrayBuffer);
@@ -904,5 +918,5 @@ function parseGbr(arrayBuffer,image){
   image.height = height;
   image.src = URL.createObjectURL(blob);
   
-  return image.src
+  return image
 }
