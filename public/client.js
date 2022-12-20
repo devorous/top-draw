@@ -511,7 +511,7 @@ function drawGimp(pos, size){
   console.log("drawing gimp: ",image);
   ctx.beginPath();
   ctx.fillStyle='rgba('+self.color.toString()+')';
-  ctx.drawImage(image,pos.x,pos.y,pos.x+size,pos.y+size);
+  ctx.drawImage(image,pos.x-size/2,pos.y-size/2,size*2,size*2);
   ctx.stroke();
 
 }
