@@ -52,7 +52,7 @@ var icons={
   brush:$("<img src='/images/brush-icon.svg' />")[0],
   text:$("<img src='/images/text-icon.svg' />")[0],
   erase:$("<img src='/images/eraser-icon.svg' />")[0],
-  gimp:$("<img src='/images/bell-pepper.svg' />")[0]
+  gimp:$("<img src='/images/pepper.png' />")[0]
 }
 
 //set default values for your user list entry
@@ -320,7 +320,7 @@ board.addEventListener("mousedown", function (e) {
     erase(pos.x,pos.y,user.lastx,user.lasty,user.size*2);
   }
   if(user.tool == "gimp"){
-    drawGimp(pos);
+    drawGimp(pos,user.size);
   }
 });
 
@@ -505,13 +505,13 @@ function drawText(user) {
   ctx.fillText(text, user.x + 5, user.y -6 + user.size + 5);
   user.text="";
 }
-function drawGimp(pos){
+function drawGimp(pos, size){
   var image = $("#gimpImage")[0]
   var newpos = [pos.x+image.height/2,pos.y+image.width/2]
   console.log("drawing gimp: ",image);
   ctx.beginPath();
   ctx.fillStyle='rgba('+self.color.toString()+')';
-  ctx.drawImage(image,pos.x,pos.y);
+  ctx.drawImage(image,pos.x,pos.y,pos.x+size,pos.y+size);
   ctx.stroke();
 
 }
