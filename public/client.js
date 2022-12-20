@@ -511,7 +511,7 @@ function drawGimp(pos, size){
   console.log("drawing gimp: ",image);
   ctx.beginPath();
   ctx.fillStyle='rgba('+self.color.toString()+')';
-  ctx.drawImage(image,pos.x-size/2,pos.y-size/2,size*2,size*2);
+  ctx.drawImage(image,pos.x-size,pos.y-size,size*2,size*2);
   ctx.stroke();
 
 }
@@ -756,9 +756,11 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
     // Get the ArrayBuffer from the FileReader
     const arrayBuffer = reader.result;
       if(fileType=="gbr"){
-        var gbrImage = parseGbr(arrayBuffer,gimpImage);
-        self.gbr=gbrImage;
-        user.gbr=gbrImage;
+        var gbrObject = parseGbr(arrayBuffer,gimpImage);
+ 
+        self.gbr = gbrObject;
+        user.gbr = gbrObject;
+        
       }
       if(fileType=="gih"){
         //parseGih(arrayBuffer);
@@ -924,6 +926,7 @@ function parseGbr(arrayBuffer,image){
   image.width = width;
   image.height = height;
   image.src = URL.createObjectURL(blob);
+  brushObject.image=image;
   
-  return image
+  return brushObject
 }
