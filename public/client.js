@@ -70,6 +70,7 @@ var self = {
   lastx: null,
   lasty: null,
   size: 10,
+  spacing: 100,
   color: "#000",
   tool: "brush",
   text: "",
@@ -79,6 +80,7 @@ var self = {
   board:board,
   id: userID,
   gbr: null,
+  
 };
 
 // Add self  to beginning of users array:
@@ -774,7 +776,8 @@ sizeSlider.addEventListener("mousemove",function(e){
   user.size=size;
   console.log("size: ",size)
   
-
+  text.style.fontSize = (size + 5).toString() + "px";
+  
 });
 
 

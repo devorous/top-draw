@@ -212,7 +212,9 @@ canvas{
   border-radius:5px;
   padding:1px;
   object-fit: fill;
-
+}
+.listTool > img{
+  margin:auto;
 }
 .listColor{
   height:20px;
