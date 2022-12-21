@@ -49,7 +49,8 @@ var connected=false;
 
 
 var sizeSlider = $(".slider.size")[0];
-
+sizeSlider.value=10;
+sizeSlider.step=1;
 
 var icons={
   brush:$("<img src='/images/brush-icon.svg' />")[0],
@@ -346,7 +347,7 @@ board.addEventListener("wheel", function (e) {
   
   var sizeSlider = $(".slider.size")[0];
   var size = Number(sizeSlider.value);
-
+  
   var user = getUser(userID);
 
   var text = $(".text.self")[0];
@@ -362,6 +363,7 @@ board.addEventListener("wheel", function (e) {
   } else {
     step = 2;
   }
+  sizeSlider.step=step;
   if (e.deltaY > 0) {
     //scrolling down
     if(size==2){
@@ -485,7 +487,8 @@ function drawLine(pos, lastpos, user) {
 
   var alpha = user.color[3];
   var noAlpha = [user.color[0],user.color[1],user.color[2]];
-  
+  var spacing = user.spacing;
+
   topBoard.style.opacity=alpha;
 
   ctx2.lineCap="round";
