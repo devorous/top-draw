@@ -340,15 +340,17 @@ board.addEventListener("mouseup", function (e) {
 });
 
 board.addEventListener("wheel", function (e) {
+  
+  var sizeSlider = $(".slider.size")[0];
   var user = getUser(userID);
 
   var text = $(".text.self")[0];
   e.preventDefault();
   var step = 1;
-  if (size <= 2) {
-    step = 0.2;
+  if (size < 2) {
+    step = 0.25;
   } else if (size < 4) {
-    step = 0.6;
+    step = 0.5;
   } else if (size <= 30) {
     step = 1;
   } else {
@@ -358,7 +360,10 @@ board.addEventListener("wheel", function (e) {
   if(true){
     if (e.deltaY > 0) {
       //scrolling down
-      if (size - 0.4 > 0) {
+      if(size==2){
+        step = 0.25;
+      }
+      if (size - 0.3 > 0) {
         if(user.mousedown){
           ctx.stroke();
           ctx.beginPath();
@@ -371,9 +376,11 @@ board.addEventListener("wheel", function (e) {
         }
         
         size = size - step;
-        cursor_circle.setAttribute("r", size);
+        
         size = Math.round(size * 100) / 100;
-
+        
+        cursor_circle.setAttribute("r", size);
+        
         console.log(size);
         
         text.style.fontSize = (size + 5).toString() + "px";
@@ -381,6 +388,7 @@ board.addEventListener("wheel", function (e) {
         ctx.lineWidth = size * 2;
         self.size = size;
         
+        sizeSlider.value=size;
         
         send({ command: "broadcast", type: "ChS", size: size, id: userID });
 
@@ -409,7 +417,7 @@ board.addEventListener("wheel", function (e) {
         self.size = size;
         
         console.log(size);
-        
+        sizeSlider.value=size;
         
         send({ command: "broadcast", type: "ChS", size: size, id: userID });
       }
