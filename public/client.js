@@ -997,7 +997,7 @@ function parseGbr(arrayBuffer,image){
 		newImageData[i * 4] 	= 255-imageData[i];
 		newImageData[i * 4 + 1] = 255-imageData[i];
 		newImageData[i * 4 + 2] = 255-imageData[i];
-		newImageData[i * 4 + 3] = imageData[i];
+		newImageData[i * 4 + 3] = 0;
 	  }
 	imageData = newImageData;
   }
