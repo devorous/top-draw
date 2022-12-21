@@ -345,12 +345,14 @@ board.addEventListener("mouseup", function (e) {
 board.addEventListener("wheel", function (e) {
   
   var sizeSlider = $(".slider.size")[0];
-  var size = sizeSlider.value;
+  var size = Number(sizeSlider.value);
+
   var user = getUser(userID);
 
   var text = $(".text.self")[0];
   e.preventDefault();
   var step = 1;
+
   if (size < 2) {
     step = 0.25;
   } else if (size < 4) {
@@ -360,71 +362,71 @@ board.addEventListener("wheel", function (e) {
   } else {
     step = 2;
   }
-  //if !user.mousedown // can remove this all if I fix the scroll stroke
-  if(true){
-    if (e.deltaY > 0) {
-      //scrolling down
-      if(size==2){
-        step = 0.25;
-      }
-      if (size - 0.3 > 0) {
-        if(user.mousedown){
-          ctx.stroke();
-          ctx.beginPath();
-          ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-          ctx2.stroke();
-          ctx2.beginPath();
-          
-          current_line=[];
-          
-        }
-        
-        size = size - step;
-        
-        //size = Math.round(size * 100) / 100;
-        console.log(size);
-        cursor_circle.setAttribute("r", size);
-        
-        
-        text.style.fontSize = (size + 5).toString() + "px";
-        
-        ctx.lineWidth = size * 2;
-        self.size = size;
-        
-        sizeSlider.value=size;
-        
-        send({ command: "broadcast", type: "ChS", size: size, id: userID });
-
-      }
-    } else {
-      //scrolling up
-      if (size+2 < 100) {
-        if(user.mousedown){
-          ctx.stroke();
-          ctx.beginPath();
-          ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-          ctx2.stroke();
-          ctx2.beginPath();
-          current_line=[];
-        }
-        size = size + step;
-        size = Math.round(size * 100) / 100;
-        
-        
-        cursor_circle.setAttribute("r", size);
-
-        text.style.fontSize = (size + 5).toString() + "px";
-
-        ctx.lineWidth = size * 2;
-        self.size = size;
-        
-        console.log(size);
-        sizeSlider.value=size;
-        
-        send({ command: "broadcast", type: "ChS", size: size, id: userID });
-      }
+  if (e.deltaY > 0) {
+    //scrolling down
+    if(size==2){
+      step = 0.25;
     }
+    if (size - 0.3 > 0) {
+      if(user.mousedown){
+        ctx.stroke();
+        ctx.beginPath();
+        ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+        ctx2.stroke();
+        ctx2.beginPath();
+
+        current_line=[];
+
+      }
+
+      size = size - step;
+
+      size = Math.round(size * 100) / 100;
+      console.log(size);
+      cursor_circle.setAttribute("r", size);
+
+
+      text.style.fontSize = (size + 5).toString() + "px";
+
+      ctx.lineWidth = size * 2;
+      self.size = size;
+
+      sizeSlider.value=size;
+
+      send({ command: "broadcast", type: "ChS", size: size, id: userID });
+
     }
+  } else {
+    //scrolling up
+    if (size+2 < 100) {
+      if(user.mousedown){
+        ctx.stroke();
+        ctx.beginPath();
+        ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+        ctx2.stroke();
+        ctx2.beginPath();
+        current_line=[];
+      }
+      size = size + step;
+      console.log(size);
+
+      size = Math.round(size * 100) / 100;
+
+
+      cursor_circle.setAttribute("r", size);
+
+      text.style.fontSize = (size + 5).toString() + "px";
+
+      ctx.lineWidth = size * 2;
+      self.size = size;
+
+      console.log(size);
+      sizeSlider.value=size;
+
+      send({ command: "broadcast", type: "ChS", size: size, id: userID });
+    }
+  }
+    
 });
 
 document.addEventListener("keydown", function (e) {
