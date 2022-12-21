@@ -213,8 +213,9 @@ canvas{
   padding:1px;
   object-fit: fill;
 }
-.listTool > img{
-  margin:auto;
+.toolIcon{
+  margin-left:auto;
+  margin-right:auto;
 }
 .listColor{
   height:20px;

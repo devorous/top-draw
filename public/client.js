@@ -53,10 +53,10 @@ sizeSlider.value=10;
 sizeSlider.step=1;
 
 var icons={
-  brush:$("<img src='/images/brush-icon.svg' />")[0],
-  text:$("<img src='/images/text-icon.svg' />")[0],
-  erase:$("<img src='/images/eraser-icon.svg' />")[0],
-  gimp:$("<img src='/images/pepper.png' />")[0]
+  brush:$("<img class='toolIcon' src='/images/brush-icon.svg' />")[0],
+  text:$("<img class='toolIcon' src='/images/text-icon.svg' />")[0],
+  erase:$("<img class='toolIcon' src='/images/eraser-icon.svg' />")[0],
+  gimp:$("<img class='toolIcon' src='/images/pepper.png' />")[0]
 }
 
 //set default values for your user list entry
