@@ -48,6 +48,9 @@ var current_line = [];
 var connected=false;
 
 
+var sizeSlider = $(".slider.size")[0];
+
+
 var icons={
   brush:$("<img src='/images/brush-icon.svg' />")[0],
   text:$("<img src='/images/text-icon.svg' />")[0],
@@ -342,6 +345,7 @@ board.addEventListener("mouseup", function (e) {
 board.addEventListener("wheel", function (e) {
   
   var sizeSlider = $(".slider.size")[0];
+  var size = sizeSlider.value;
   var user = getUser(userID);
 
   var text = $(".text.self")[0];
@@ -377,11 +381,10 @@ board.addEventListener("wheel", function (e) {
         
         size = size - step;
         
-        size = Math.round(size * 100) / 100;
-        
+        //size = Math.round(size * 100) / 100;
+        console.log(size);
         cursor_circle.setAttribute("r", size);
         
-        console.log(size);
         
         text.style.fontSize = (size + 5).toString() + "px";
         
@@ -406,7 +409,6 @@ board.addEventListener("wheel", function (e) {
         }
         size = size + step;
         size = Math.round(size * 100) / 100;
-        
         
         
         cursor_circle.setAttribute("r", size);
@@ -745,37 +747,30 @@ var picker = new Picker({
           });
 
 
-var sizeSlider = $(".slider.size")[0];
+
 sizeSlider.addEventListener("mousemove",function(e){
   
   
   var user = getUser(userID);
+  
+  
+  var text = $(".text.self")[0];
+  
   console.log(user.size);
-  console.log("mousedown? ",user.mousedown);
   var step = 1;
   
   var size = sizeSlider.value;
   
-    if (size < 2) {
-    step = 0.25;
-  } else if (size < 4) {
-    step = 0.5;
-  } else if (size <= 30) {
-    step = 1;
-  } else {
-    step = 2;
-  }
+  cursor_circle.setAttribute("r", size);
   
-  
-  
+  ctx.lineWidth = size * 2;
+  self.size = size;
+  sizeSlider.value=size;
+  user.size=size;
   console.log("size: ",size)
   
-  
-  
-  
-  
-  
-})
+
+});
 
 
 
