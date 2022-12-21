@@ -997,7 +997,7 @@ function parseGbr(arrayBuffer,image){
 		newImageData[i * 4] 	= 255-imageData[i];
 		newImageData[i * 4 + 1] = 255-imageData[i];
 		newImageData[i * 4 + 2] = 255-imageData[i];
-		newImageData[i * 4 + 3] = 0;
+		newImageData[i * 4 + 3] = imageData[i];
 	  }
 	imageData = newImageData;
   }
@@ -1024,8 +1024,6 @@ function parseGbr(arrayBuffer,image){
  
   // Calculate the size of the file
   var fileSize = 54 + pixelDataSize;  // 54 bytes for the headers
-
-  
 
   
   
