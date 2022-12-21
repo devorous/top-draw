@@ -570,8 +570,8 @@ function updateColor(color,id){
 
 function moveCursor(data) {
   var id = data.id.toString();
-  var x = data.x;
-  var y = data.y;
+  var x = data.x-100;
+  var y = data.y-100;
   var cursor = $(".cursor"+"."+id)[0];
   cursor.style.left = x.toString() + "px";
   cursor.style.top = y.toString() + "px";
@@ -745,6 +745,20 @@ var picker = new Picker({
           });
 
 
+var sizeSlider = $(".slider.size")[0];
+sizeSlider.addEventListener("mousemove",function(e){
+  var size = sizeSlider.value;
+  console.log("size: ",size)
+  
+  
+})
+
+
+
+
+
+
+
 function cubicSplineInterpSmooth(points){
   // Create a new array of smoothed points
   const smoothPoints = [];
@@ -797,8 +811,6 @@ function movingAverageSmooth(points,windowSize){
 }
 
 
-
-
 function drawBezierCurve(points){
   
 // Draw the smoothed curve on the canvas
@@ -827,6 +839,8 @@ ctx.stroke();
 
 
 
+
+
 window.addEventListener("resize", (e) => {
   var newHeight = document.body.scrollHeight;
   var newWidth = document.body.clientWidth;
@@ -834,6 +848,11 @@ window.addEventListener("resize", (e) => {
   console.log("new height,width: ",newHeight,newWidth);
 })
   
+
+
+
+
+
 var gimpImage = $("#gimpImage")[0];
 
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
