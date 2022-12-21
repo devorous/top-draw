@@ -747,8 +747,32 @@ var picker = new Picker({
 
 var sizeSlider = $(".slider.size")[0];
 sizeSlider.addEventListener("mousemove",function(e){
+  
+  
+  var user = getUser(userID);
+  console.log(user.size);
+  console.log("mousedown? ",user.mousedown);
+  var step = 1;
+  
   var size = sizeSlider.value;
+  
+    if (size < 2) {
+    step = 0.25;
+  } else if (size < 4) {
+    step = 0.5;
+  } else if (size <= 30) {
+    step = 1;
+  } else {
+    step = 2;
+  }
+  
+  
+  
   console.log("size: ",size)
+  
+  
+  
+  
   
   
 })
