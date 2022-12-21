@@ -8,7 +8,6 @@ body {
 
 
 #boardContainer{
-  width:100%;
   display:flex;
   flex-direction:column;
   justify-content:space-between;
@@ -242,4 +241,7 @@ canvas{
   height:150px;
   width:150px;
   transform:scaleY(-1);
+}
+#gimp-file-input{
+  width:100%;
 }

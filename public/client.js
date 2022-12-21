@@ -367,13 +367,14 @@ board.addEventListener("wheel", function (e) {
           ctx2.beginPath();
           
           current_line=[];
+          
         }
         
         size = size - step;
         cursor_circle.setAttribute("r", size);
         size = Math.round(size * 100) / 100;
 
-        
+        console.log(size);
         
         text.style.fontSize = (size + 5).toString() + "px";
         
@@ -407,7 +408,7 @@ board.addEventListener("wheel", function (e) {
         ctx.lineWidth = size * 2;
         self.size = size;
         
-        
+        console.log(size);
         
         
         send({ command: "broadcast", type: "ChS", size: size, id: userID });
@@ -505,6 +506,8 @@ function drawText(user) {
   ctx.fillText(text, user.x + 5, user.y -6 + user.size + 5);
   user.text="";
 }
+
+
 function drawGimp(pos, size){
   var image = $("#gimpImage")[0]
   var newpos = [pos.x+image.height/2,pos.y+image.width/2]
@@ -555,6 +558,7 @@ function updateColor(color,id){
   var user = getUser(id);
   updateUser(user,{color:color},['color']);
 }
+
 
 function moveCursor(data) {
   var id = data.id.toString();
