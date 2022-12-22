@@ -15,7 +15,7 @@ var userlistEntry = $(".userEntry.self")[0];
 text.innerHTML = userID.toString();
 
 
-var boardDim=[480,720];
+var boardDim=[360,240];
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
@@ -731,6 +731,8 @@ function drawUser(data, id) {
   user.context=context;
 }
 
+/*
+
 //setup color picker
 var pickerParent = $("#colorPicker")[0];
 var picker = new Picker({
@@ -753,7 +755,7 @@ var picker = new Picker({
             },
           });
 
-
+*/
 
 sizeSlider.addEventListener("mousemove",function(e){
   
@@ -969,6 +971,7 @@ function parseGbr(arrayBuffer,image){
   //Get the image data which is below all the header data
   var imageData = view.slice(headerLength,view.length);
   
+  imageData = imageData.reverse();
   
   //Create an object that contains all the information about the brush
   var brushObject = {};
