@@ -971,7 +971,7 @@ function parseGbr(arrayBuffer,image){
   //Get the image data which is below all the header data
   var imageData = view.slice(headerLength,view.length);
   
-  imageData = imageData.reverse();
+  //imageData = imageData.reverse();
   
   //Create an object that contains all the information about the brush
   var brushObject = {};
@@ -1053,8 +1053,13 @@ function parseGbr(arrayBuffer,image){
     0, 0, 0, 0,  // horizontal resolution
     0, 0, 0, 0,  // vertical resolution
     paletteColors, 0, 0, 0,  // number of colors in palette (used in greyscale)
-    0, 0, 0, 0  // number of important colors (not used)
-  ]);
+    0, 0, 0, 0,  // number of important colors (not used)
+    0x00FF0000, 0, 0, 0, // red mask
+    0x0000FF00, 0, 0, 0, // green mask
+    0x000000FF, 0, 0, 0, // blue mask
+    0xFF000000, 0, 0, 0, // alpha mask
+]);
+
   
   //for 8bit greyscale there should also be a colorTable below the headers containing 256 shades
   
