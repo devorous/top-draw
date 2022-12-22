@@ -998,8 +998,8 @@ function parseGbr(arrayBuffer,image){
 		newImageData[i * 4 + 1] = 255-imageData[i];
 		newImageData[i * 4 + 2] = 255-imageData[i];
 		newImageData[i * 4 + 3] = 0;
-    if(newImageData[i * 4 + 3]==255){
-      
+    if(newImageData[i]==255){
+      newImageData[i * 4 + 3] = 255;
     }
 	  }
 	imageData = newImageData;
