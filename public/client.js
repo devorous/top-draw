@@ -690,9 +690,8 @@ gimpBtn.addEventListener("click", function () {
 });
 
 
-
 function clearBoard() {
-  /*
+  
   console.log("clearing board");
   ctx.fillStyle = "#FFF";
   ctx.beginPath();
@@ -700,7 +699,7 @@ function clearBoard() {
   ctx2.fillStyle="#FFF";
   ctx2.beginPath();
   ctx2.fillRect(0,0,boardDim[1],boardDim[0]);
-  */
+
 }
 
 function drawUser(data, id) {
