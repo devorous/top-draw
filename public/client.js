@@ -711,6 +711,7 @@ function drawUser(data, id) {
   circle.setAttribute("cy", "100");
   circle.setAttribute("r", "10");
   circle.setAttribute("height", "auto");
+  
   var cursors = $(".cursors")[0];
   var name = $("<text>" + id.toString() + "</text>")[0];
   name.setAttribute("class", "name " + id.toString());
@@ -919,9 +920,13 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
     // Get the ArrayBuffer from the FileReader
     const arrayBuffer = reader.result;
       if(fileType=="gbr"){
-        var gbrObject = parseGbr(arrayBuffer,gimpImage);
+        var gbrObject = parseGbr(arrayBuffer);
         if(gbrObject){
           send({command:"broadcast",type:"gimp",gimpData:gbrObject,id:userID});
+          gimpImage.width = width;
+          gimpImage.height = height;
+          var url = gbrObject.gimpCanvas.toDataURL('image/png', 1.0);
+          gimpImage.src = url;
           self.gbr = gbrObject;
           user.gbr = gbrObject;
         }
@@ -1033,12 +1038,7 @@ function parseGbr(arrayBuffer,image){
   }
   gCtx.putImageData(gimpImageData, 0, 0);
   
-  var url = gimpCanvas.toDataURL('image/png', 1.0);
-  
-  image.width = width;
-  image.height = height;
-  image.src = url;
-  brushObject.image=image;
+  brushObject.imageCanvas=gimpCanvas;
   
   return brushObject
 }
