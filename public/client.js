@@ -528,10 +528,11 @@ function drawText(user) {
 function drawGimp(pos, size){
   var image = $("#gimpImage")[0]
   var newpos = [pos.x+image.height/2,pos.y+image.width/2]
+  var ratio = image.height/image.width;
   console.log("drawing gimp: ",image);
   ctx.beginPath();
   ctx.fillStyle='rgba('+self.color.toString()+')';
-  ctx.drawImage(image,pos.x-size,pos.y-size,size*2,size*2);
+  ctx.drawImage(image,pos.x-size,pos.y-size,size*2*ratio,size*2*ratio);
   ctx.stroke();
 
 }
@@ -944,21 +945,18 @@ function parseGbr(arrayBuffer,image){
 
   // Iterate through the view and extract the chunks
   var headerChunk = view.slice(0,4)
-  var headerLength = Number("0x"+concatChunk(headerChunk))
-
-  
+  var headerLength = Number("0x"+concatChunk(headerChunk));
   var chunks = [];
   for(var i=0;i<=27;i=i+4){
     var chunk = view.slice(i,i+4);
     var chunkHex = concatChunk(chunk);
     chunks.push(chunkHex);
   }
-  
   var lastchunk = view.slice(28,headerLength-1);
   var lastchunkHex = chunkToString(lastchunk);
   chunks.push(lastchunkHex);
   
-  //extract the values of the bits in each chunk
+  //extract the values of the bytes in each chunk
   var headerSize = Number("0x"+chunks[0]);
   var version = Number("0x"+chunks[1]);
   var width = Number("0x"+chunks[2]);
@@ -968,10 +966,8 @@ function parseGbr(arrayBuffer,image){
   var spacing = Number("0x"+chunks[6]);
   var brushName = chunks[7];
   
-  //Get the image data which is below all the header data
   var imageData = view.slice(headerLength,view.length);
   
-  //imageData = imageData.reverse();
   
   //Create an object that contains all the information about the brush
   var brushObject = {};
@@ -983,99 +979,45 @@ function parseGbr(arrayBuffer,image){
   brushObject.magicNumber = magicNumber;
   brushObject.spacing = spacing;
   brushObject.brushName = brushName;
- 
-
   
   
+  var gimpCanvas = document.createElement("canvas");
+  gimpCanvas.height=height;
+  gimpCanvas.width=width;
+  var gCtx = gimpCanvas.getContext("2d");
+  var gimpImageData = gCtx.createImageData(width, height);
+  const gData = gimpImageData.data;
   
-  //A hack to convert greyscale image data to rgba data
-  //TODO: figure out why 8 bpp images won't load.. 
-  
-  if(colorDepth == 1){
-	var newImageData = new Uint8Array(imageData.length * 4);
-
-	  // Iterate through the original array
-	  for (let i = 0; i < imageData.length; i++) {
-		// Add the current value three times to the new array, with a 0 between each triplet pair
-		newImageData[i * 4] 	= 255-imageData[i];
-		newImageData[i * 4 + 1] = 255-imageData[i];
-		newImageData[i * 4 + 2] = 255-imageData[i];
-		newImageData[i * 4 + 3] = 0;
-    if(newImageData[i]==255){
-      newImageData[i * 4 + 3] = 255;
+  //if the image is RGBA
+  if(colorDepth==4){
+    for (let i = 0; i < gData.length; i += 4) {
+      var r = imageData[i];
+      var b = imageData[i+2];
+      var g = imageData[i+1];
+      var a = imageData[i+3];
+      gData[i] = r;    // Red value
+      gData[i + 1] = g;  // Blue value
+      gData[i + 2] = b;  // Green value
+      gData[i + 3] = a;  // Alpha value
     }
-	  }
-	imageData = newImageData;
   }
-
+  //if the image is greyscale
+  if(colorDepth==1){
+    for(let i= 0; i < gData.length; i+=1){
+      var v = imageData[i];
+      gData[i*4] = 255-v;    // Red value
+      gData[i*4 + 1] = 255-v;  // Blue value
+      gData[i*4 + 2] = 255-v;  // Green value
+      gData[i*4 + 3] = 255;  // Alpha value
+    }
+  }
+  gCtx.putImageData(gimpImageData, 0, 0);
   
-   brushObject.imageData = imageData;
-  
-  
-  
-  //Now we set up variables to create a header for a bitmap image
-  
-  //This should be colorDepth*8, but I am using a hack to change 8bit greyscale images into 32bit rgba
-  
-  var bpp = 32;  // bits per pixel
-  
-  
-  var paletteColors = 0;
-  
-
-  
-  // Calculate the size of the pixel data
-  var pixelDataSize = imageData.length;
-
- 
-  // Calculate the size of the file
-  var fileSize = 54 + pixelDataSize;  // 54 bytes for the headers
-
-  
-  
-  
-  const fileHeader = new Uint8Array([
-    0x42, 0x4D,  // magic number (BM)
-    fileSize, 0, 0, 0,  // size of the file
-    0, 0, 0, 0,  // reserved
-    54, 0, 0, 0  // offset to the pixel data
-  ]);
-
-  // Create the bitmap info header
-  const infoHeader = new Uint8Array([
-    40, 0, 0, 0,  // size of the header
-    width, 0, 0, 0,  // width of the image
-    height, 0, 0, 0,  // height of the image
-    1, 0,  // number of planes
-    bpp, 0,  // bits per pixel
-    0, 0, 0, 0,  // compression method
-    pixelDataSize, 0, 0, 0,  // size of the pixel data
-    0, 0, 0, 0,  // horizontal resolution
-    0, 0, 0, 0,  // vertical resolution
-    paletteColors, 0, 0, 0,  // number of colors in palette (used in greyscale)
-    0, 0, 0, 0,  // number of important colors (not used)
-    0x00FF0000, 0, 0, 0, // red mask
-    0x0000FF00, 0, 0, 0, // green mask
-    0x000000FF, 0, 0, 0, // blue mask
-    0xFF000000, 0, 0, 0, // alpha mask
-]);
-
-  
-  //for 8bit greyscale there should also be a colorTable below the headers containing 256 shades
-  
-  
-  const data = new Uint8Array(fileHeader.length + infoHeader.length + imageData.length);
-  
-  data.set(fileHeader, 0);
-  data.set(infoHeader, fileHeader.length);
-  data.set(imageData, fileHeader.length + infoHeader.length);
-
-  
-  const blob = new Blob([data], {type: 'image/bmp'});
+  var url = gimpCanvas.toDataURL('image/png', 1.0);
   
   image.width = width;
   image.height = height;
-  image.src = URL.createObjectURL(blob);
+  image.src = url;
   brushObject.image=image;
   
   return brushObject
