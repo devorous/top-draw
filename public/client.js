@@ -893,6 +893,48 @@ window.addEventListener("resize", (e) => {
 
 var gimpImage = $("#gimpImage")[0];
 
+
+document.getElementById('gimp-file-selector').addEventListener('change', function(event) {
+  var user = getUser(userID);
+   // Get the selected file
+  
+  const file = event.target.value;
+  if(file){
+    var fileType = (file.name.split(".")[1]);
+    // Create a FileReader
+    const reader = new FileReader();
+
+    // Set the onload handler to parse the file
+    reader.onload = () => {
+      // Get the ArrayBuffer from the FileReader
+      const arrayBuffer = reader.result;
+        if(fileType=="gbr"){
+          var gbrObject = parseGbr(arrayBuffer,gimpImage);
+
+          self.gbr = gbrObject;
+          user.gbr = gbrObject;
+
+        }
+        if(fileType=="gih"){
+          //parseGih(arrayBuffer);
+        }
+      }
+
+    reader.readAsArrayBuffer(file);
+  }
+  else{
+    console.log("no file selected");
+  }
+});  
+
+
+
+
+
+
+
+
+
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
   
   var user = getUser(userID);
