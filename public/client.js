@@ -527,12 +527,12 @@ function drawText(user) {
 
 function drawGimp(pos, size){
   var image = $("#gimpImage")[0]
-  var newpos = [pos.x+image.height/2,pos.y+image.width/2]
-  var ratio = image.height/image.width;
-  console.log("drawing gimp: ",image);
+  var ratio = image.width/image.height;
+  console.log("height: ",image.height)
+  console.log("width: ",image.width);
   ctx.beginPath();
   ctx.fillStyle='rgba('+self.color.toString()+')';
-  ctx.drawImage(image,pos.x-size,pos.y-size,size*2*ratio,size*2*ratio);
+  ctx.drawImage(image,(pos.x-size),(pos.y-size),size*2,size*2);
   ctx.stroke();
 
 }
