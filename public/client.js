@@ -206,6 +206,9 @@ function recieve(data) {
       if(user.tool == "erase"){
         erase(pos.x,pos.y,pos.x,pos.y,user.size*2);
       }
+      if(user.tool =="gimp"){
+        drawGimp(user.gbr.image,pos,user.size,user.gbr.height,user.gbr.width);
+      }
       user.mousedown = true;
       break;
 
@@ -254,11 +257,16 @@ function recieve(data) {
       var input = $("." + user.id.toString() + " .textInput")[0];
       input.style.color='rgba('+user.color.toString()+')';
       updateColor(data.color,user.id);
+      break;
     case "kp":
       //keypress
       if (user.tool == "text") {
         updateText(data.key, user);
       }
+      break;
+    case "gimp":
+      //load gimp brush data
+      user.gbr=data.gimpData;
   }
 }
 
@@ -328,7 +336,7 @@ board.addEventListener("mousedown", function (e) {
   }
   if(user.tool == "gimp"){
     if(user.gbr){
-      drawGimp(user.gbr.image,pos,user.size,user.gbr.height,user.gbr.width);
+      drawGimp(user.gbr,pos,user.size);
     }
   }
 });
@@ -912,10 +920,11 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
     const arrayBuffer = reader.result;
       if(fileType=="gbr"){
         var gbrObject = parseGbr(arrayBuffer,gimpImage);
-        send({command:"broadcast",type:"gimp",data:gbrObject,id:userID});
-        self.gbr = gbrObject;
-        user.gbr = gbrObject;
-        
+        if(gbrObject){
+          send({command:"broadcast",type:"gimp",gimpData:gbrObject,id:userID});
+          self.gbr = gbrObject;
+          user.gbr = gbrObject;
+        }
       }
       if(fileType=="gih"){
         //parseGih(arrayBuffer);
