@@ -984,6 +984,9 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
   reader.readAsArrayBuffer(file);
 });  
 
+
+
+
 //helper functions for parseGbr()
 function chunkToString(chunk){
   var string="";
@@ -1007,7 +1010,7 @@ function concatChunk(chunk){
 }
 
 
-function parseGbr(arrayBuffer,image){
+function parseGbr(arrayBuffer){
   
   var view = new Uint8Array(arrayBuffer);
   // Create an array to hold the chunks
