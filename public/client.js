@@ -353,8 +353,9 @@ board.addEventListener("mousedown", function (e) {
 board.addEventListener("mouseup", function (e) {
   var user = getUser(userID);
   self.mousedown = false;
+  user.mousedown = false;
+  ctx.stroke();
   if(user.tool=="brush"){
-    ctx.stroke();
     ctx2.fillStyle="#FFF";
     ctx2.beginPath();
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
@@ -696,9 +697,10 @@ function clearBoard() {
   ctx.fillStyle = "#FFF";
   ctx.beginPath();
   ctx.fillRect(0, 0, boardDim[1], boardDim[0]);
-  ctx2.fillStyle="#FFF";
-  ctx2.beginPath();
-  ctx2.fillRect(0,0,boardDim[1],boardDim[0]);
+  
+  //ctx2.fillStyle="#FFF";
+  //ctx2.beginPath();
+  //ctx2.fillRect(0,0,boardDim[1],boardDim[0]);
 
 }
 
