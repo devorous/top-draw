@@ -326,7 +326,9 @@ board.addEventListener("mousedown", function (e) {
     erase(pos.x,pos.y,user.lastx,user.lasty,user.size*2);
   }
   if(user.tool == "gimp"){
-    drawGimp(pos,user.size);
+    if(user.gbr){
+      drawGimp(pos,user.size,user.gbr.height,user.gbr.width);
+    }
   }
 });
 
@@ -525,14 +527,20 @@ function drawText(user) {
 }
 
 
-function drawGimp(pos, size){
+function drawGimp(pos, size,width,height){
   var image = $("#gimpImage")[0]
-  var ratio = image.width/image.height;
-  console.log("height: ",image.height)
-  console.log("width: ",image.width);
+  
+  var ratioX = height/width;
+  var ratioY = width/height;
+  if(width>height){
+    ratioY=1;
+  }
+  if(height>width){
+    ratioX=1;
+  }
   ctx.beginPath();
   ctx.fillStyle='rgba('+self.color.toString()+')';
-  ctx.drawImage(image,(pos.x-size),(pos.y-size),size*2,size*2);
+  ctx.drawImage(image,(pos.x-size*ratioX),(pos.y-size*ratioY),size*2*ratioX,size*2*ratioY);
   ctx.stroke();
 
 }
