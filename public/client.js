@@ -912,7 +912,7 @@ window.addEventListener("resize", (e) => {
 
 
 
-var gimpImage = $("#gimpImage")[0];
+
 
 
 
@@ -936,6 +936,10 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
         if(gbrObject){
           send({command:"broadcast",type:"gimp",gimpData:gbrObject,id:userID});
          
+          
+          var gimpImagePreview = $("#gimpImage")[0];
+          gimpImagePreview.src= gbrObject.gimpUrl;
+          
           var gimpImage = new Image();
           gimpImage.src = gbrObject.gimpUrl;
           gimpImage.height = height;
