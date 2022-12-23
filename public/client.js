@@ -273,10 +273,9 @@ function recieve(data) {
       image.src = user.gbr.gimpUrl;
       image.height = height;
       image.width = width;
-      
-      user.gbr.image = gimpImage;
-      
-      console.log(user)
+      //updates the user gbr image for drawing
+      user.gbr.image = image;
+
   }
 }
 
@@ -938,12 +937,12 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
           send({command:"broadcast",type:"gimp",gimpData:gbrObject,id:userID});
          
           var gimpImage = new Image();
-          console.log("gbrobject: ",gbrObject)
-          gimpImage.src=gbrObject.url;
-          gimpImage.height=height;
-          gimpImage.width=width;
-          console.log("image: ",gimpImage);
-          gbrObject.image=gimpImage;
+          gimpImage.src = gbrObject.gimpUrl;
+          gimpImage.height = height;
+          gimpImage.width = width;
+          
+          gbrObject.image = gimpImage;
+          
           self.gbr = gbrObject;
           user.gbr = gbrObject;
           console.log(self)
