@@ -397,7 +397,6 @@ board.addEventListener("wheel", function (e) {
       size = size - step;
 
       size = Math.round(size * 100) / 100;
-      console.log(size);
       cursor_circle.setAttribute("r", size);
 
 
@@ -423,7 +422,6 @@ board.addEventListener("wheel", function (e) {
         current_line=[];
       }
       size = size + step;
-      console.log(size);
 
       size = Math.round(size * 100) / 100;
 
@@ -435,7 +433,6 @@ board.addEventListener("wheel", function (e) {
       ctx.lineWidth = size * 2;
       self.size = size;
 
-      console.log(size);
       sizeSlider.value=size;
 
       send({ command: "broadcast", type: "ChS", size: size, id: userID });
@@ -445,7 +442,6 @@ board.addEventListener("wheel", function (e) {
 });
 
 document.addEventListener("keydown", function (e) {
-  console.log(e.target)
   send({ command: "broadcast", type: "kp", key: e.key, id: self.id });
   var user = getUser(self.id);
   if (self.tool == "text") {
@@ -539,17 +535,22 @@ function drawText(user) {
 function drawGimp(user,pos){
   var size = user.size
   var gbr = user.gbr;
+  
   var height = gbr.height;
   var width = gbr.width;
-  var imageData = gbr.gimpData;
-  var ratioX = height/width;
-  var ratioY = width/height;
+  var image = gbr.image;
+  
+  var ratioX = width/height;
+  var ratioY = height/width;
+  
+  
   if(width>height){
-    ratioY=1;
-  }
-  if(height>width){
     ratioX=1;
   }
+  if(height>width){
+    ratioY=1;
+  }
+  
   ctx.beginPath();
   ctx.fillStyle='rgba('+self.color.toString()+')';
   ctx.drawImage(image,(pos.x-size*ratioX),(pos.y-size*ratioY),size*2*ratioX,size*2*ratioY);
@@ -559,7 +560,6 @@ function drawGimp(user,pos){
 
 
 function updateText(key, user) {
-  console.log(user);
   var input = $("." + user.id.toString() + " .textInput")[0];
   if (key.length == 1) {
     input.innerHTML = input.innerHTML + key;
@@ -787,7 +787,6 @@ sizeSlider.addEventListener("mousemove",function(e){
   
   var text = $(".text.self")[0];
   
-  console.log(user.size);
   var step = 1;
   
   var size = sizeSlider.value;
@@ -798,7 +797,6 @@ sizeSlider.addEventListener("mousemove",function(e){
   self.size = size;
   sizeSlider.value=size;
   user.size=size;
-  console.log("size: ",size)
   
   text.style.fontSize = (size + 5).toString() + "px";
   
@@ -895,8 +893,8 @@ ctx.stroke();
 window.addEventListener("resize", (e) => {
   var newHeight = document.body.scrollHeight;
   var newWidth = document.body.clientWidth;
-  console.log("old height, width: ",height,width);
-  console.log("new height,width: ",newHeight,newWidth);
+  //console.log("old height, width: ",height,width);
+  //console.log("new height,width: ",newHeight,newWidth);
 })
   
 
@@ -1040,6 +1038,7 @@ function parseGbr(arrayBuffer,image){
       gData[i*4 + 3] = 255;  // Alpha value
     }
   }
+  
   gCtx.putImageData(gimpImageData, 0, 0);
   var url = gimpCanvas.toDataURL('image/png', 1.0);
   var gimpImage = $("<img></img>")[0];
@@ -1047,7 +1046,7 @@ function parseGbr(arrayBuffer,image){
   gimpImage.height=height;
   gimpImage.width=width;
   
-  brushObject.imageCanvas=gimpCanvas;
+  brushObject.gimpCanvas=gimpCanvas;
   brushObject.image=gimpImage;
   
   return brushObject
