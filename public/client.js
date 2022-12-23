@@ -267,13 +267,15 @@ function recieve(data) {
     case "gimp":
       //load gimp brush data
       user.gbr=data.gimpData;
-      console.log(user)
-      var url = user.gbr.gimpCanvas.toDataURL('image/png', 1.0);
-      var gimpImage = $("<img></img>")[0];
-      gimpImage.src=url;
-      gimpImage.height=height;
-      gimpImage.width=width;
-      user.gimpImage=gimpImage;
+      
+      //create an image from the datastream url
+      var image = new Image();
+      image.src = user.gbr.gimpUrl;
+      image.height = height;
+      image.width = width;
+      
+      user.gbr.image = gimpImage;
+      
       console.log(user)
   }
 }
@@ -547,6 +549,7 @@ function drawGimp(user,pos){
   var height = gbr.height;
   var width = gbr.width;
   var image = gbr.image;
+  
   console.log(image);
   var ratioX = width/height;
   var ratioY = height/width;
@@ -934,8 +937,16 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
         if(gbrObject){
           send({command:"broadcast",type:"gimp",gimpData:gbrObject,id:userID});
          
+          var gimpImage = new Image();
+          console.log("gbrobject: ",gbrObject)
+          gimpImage.src=gbrObject.url;
+          gimpImage.height=height;
+          gimpImage.width=width;
+          console.log("image: ",gimpImage);
+          gbrObject.image=gimpImage;
           self.gbr = gbrObject;
           user.gbr = gbrObject;
+          console.log(self)
         }
       }
       if(fileType=="gih"){
@@ -1045,11 +1056,8 @@ function parseGbr(arrayBuffer,image){
   }
   
   gCtx.putImageData(gimpImageData, 0, 0);
+  
   var url = gimpCanvas.toDataURL('image/png', 1.0);
-  var gimpImage = $("<img></img>")[0];
-  gimpImage.src=url;
-  gimpImage.height=height;
-  gimpImage.width=width;
   
   brushObject.gimpUrl=url;
   
