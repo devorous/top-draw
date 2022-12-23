@@ -207,7 +207,7 @@ function recieve(data) {
         erase(pos.x,pos.y,pos.x,pos.y,user.size*2);
       }
       if(user.tool =="gimp"){
-        drawGimp(user.gbr.image,pos,user.size,user.gbr.height,user.gbr.width);
+        drawGimp(user,pos);
       }
       user.mousedown = true;
       break;
@@ -336,7 +336,7 @@ board.addEventListener("mousedown", function (e) {
   }
   if(user.tool == "gimp"){
     if(user.gbr){
-      drawGimp(user.gbr,pos,user.size);
+      drawGimp(user,pos);
     }
   }
 });
@@ -536,8 +536,12 @@ function drawText(user) {
 }
 
 
-function drawGimp(image,pos,size,width,height){
-  
+function drawGimp(user,pos){
+  var size = user.size
+  var gbr = user.gbr;
+  var height = gbr.height;
+  var width = gbr.width;
+  var imageData = gbr.gimpData;
   var ratioX = height/width;
   var ratioY = width/height;
   if(width>height){
@@ -1037,8 +1041,14 @@ function parseGbr(arrayBuffer,image){
     }
   }
   gCtx.putImageData(gimpImageData, 0, 0);
+  var url = gimpCanvas.toDataURL('image/png', 1.0);
+  var gimpImage = $("<img></img>")[0];
+  gimpImage.src=url;
+  gimpImage.height=height;
+  gimpImage.width=width;
   
   brushObject.imageCanvas=gimpCanvas;
+  brushObject.image=gimpImage;
   
   return brushObject
 }
