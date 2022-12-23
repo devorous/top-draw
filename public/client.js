@@ -636,7 +636,12 @@ var textBtn = $("#textBtn")[0];
 var eraseBtn = $("#eraseBtn")[0];
 var gimpBtn = $("#gimpBtn")[0];
 
+var toolBtns = [
+  brushBtn,
+  textBtn,
+]
 brushBtn.addEventListener("click", function () {
+  this.classList.add("selected");
   ctx.globalCompositeOperation="source-over";
   var user = getUser(userID);
   var index = users.indexOf(user);
@@ -649,7 +654,7 @@ brushBtn.addEventListener("click", function () {
 });
 
 textBtn.addEventListener("click", function () {
-  
+  this.classList.add("selected");
   ctx.globalCompositeOperation="source-over";
   var user = getUser(userID);
   var index = users.indexOf(user);
@@ -663,7 +668,7 @@ textBtn.addEventListener("click", function () {
 });
 
 eraseBtn.addEventListener("click", function () {
-  
+  this.classList.add("selected");
   ctx.globalCompositeOperation="destination-out";
   topBoard.style.opacity=1;
   var user = getUser(userID);
@@ -678,6 +683,7 @@ eraseBtn.addEventListener("click", function () {
 });
 
 gimpBtn.addEventListener("click", function () {
+  this.classList.add("selected");
   ctx.globalCompositeOperation="source-over";
   var user = getUser(userID);
   var index = users.indexOf(user);

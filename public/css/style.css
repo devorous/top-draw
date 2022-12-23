@@ -108,6 +108,9 @@ canvas{
   background-color:lightgrey;
   border:2px solid orange;
 }
+.btn.selected{
+  border:2px solid orange;
+}
 #sideMenu{
   user-select:none;
   display:flex;
