@@ -550,7 +550,6 @@ function drawGimp(user,pos){
   var width = gbr.width;
   var image = gbr.image;
   
-  console.log(image);
   var ratioX = width/height;
   var ratioY = height/width;
   
@@ -639,9 +638,15 @@ var gimpBtn = $("#gimpBtn")[0];
 var toolBtns = [
   brushBtn,
   textBtn,
+  eraseBtn,
+  gimpBtn
 ]
 brushBtn.addEventListener("click", function () {
-  this.classList.add("selected");
+  var selectedTool = $(".btn.selected")[0];
+  if(selectedTool != this){
+    selectedTool.classList.toggle("selected");
+  }
+  this.classList.toggle("selected");
   ctx.globalCompositeOperation="source-over";
   var user = getUser(userID);
   var index = users.indexOf(user);
@@ -654,6 +659,10 @@ brushBtn.addEventListener("click", function () {
 });
 
 textBtn.addEventListener("click", function () {
+  var selectedTool = $(".btn.selected")[0];
+  if(selectedTool != this){
+    selectedTool.classList.toggle("selected");
+  }
   this.classList.add("selected");
   ctx.globalCompositeOperation="source-over";
   var user = getUser(userID);
@@ -668,6 +677,10 @@ textBtn.addEventListener("click", function () {
 });
 
 eraseBtn.addEventListener("click", function () {
+  var selectedTool = $(".btn.selected")[0];
+  if(selectedTool != this){
+    selectedTool.classList.toggle("selected");
+  }
   this.classList.add("selected");
   ctx.globalCompositeOperation="destination-out";
   topBoard.style.opacity=1;
@@ -683,7 +696,11 @@ eraseBtn.addEventListener("click", function () {
 });
 
 gimpBtn.addEventListener("click", function () {
-  this.classList.add("selected");
+  var selectedTool = $(".btn.selected")[0];
+  if(selectedTool != this){
+    selectedTool.classList.toggle("selected");
+  }
+  this.classList.toggle("selected");
   ctx.globalCompositeOperation="source-over";
   var user = getUser(userID);
   var index = users.indexOf(user);
