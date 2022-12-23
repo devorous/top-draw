@@ -267,6 +267,14 @@ function recieve(data) {
     case "gimp":
       //load gimp brush data
       user.gbr=data.gimpData;
+      console.log(user)
+      var url = user.gbr.gimpCanvas.toDataURL('image/png', 1.0);
+      var gimpImage = $("<img></img>")[0];
+      gimpImage.src=url;
+      gimpImage.height=height;
+      gimpImage.width=width;
+      user.gimpImage=gimpImage;
+      console.log(user)
   }
 }
 
@@ -539,7 +547,7 @@ function drawGimp(user,pos){
   var height = gbr.height;
   var width = gbr.width;
   var image = gbr.image;
-  
+  console.log(image);
   var ratioX = width/height;
   var ratioY = height/width;
   
@@ -1048,6 +1056,7 @@ function parseGbr(arrayBuffer,image){
   
   brushObject.gimpCanvas=gimpCanvas;
   brushObject.image=gimpImage;
-  
+  console.log("brush object: ")
+  console.log(brushObject);
   return brushObject
 }
