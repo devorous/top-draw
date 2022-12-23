@@ -158,8 +158,9 @@ function send(data) {
   socket.send(JSON.stringify(data)); 
 }
 
+
 function recieve(data) {
-  //process broadcast events
+  //process recieved broadcast events
   var user = getUser(data.id);
   switch (data.type) {
     case "clear":
@@ -327,7 +328,7 @@ board.addEventListener("mousedown", function (e) {
   }
   if(user.tool == "gimp"){
     if(user.gbr){
-      drawGimp(pos,user.size,user.gbr.height,user.gbr.width);
+      drawGimp(user.gbr.image,pos,user.size,user.gbr.height,user.gbr.width);
     }
   }
 });
@@ -527,8 +528,7 @@ function drawText(user) {
 }
 
 
-function drawGimp(pos, size,width,height){
-  var image = $("#gimpImage")[0]
+function drawGimp(image,pos,size,width,height){
   
   var ratioX = height/width;
   var ratioY = width/height;
@@ -894,45 +894,6 @@ window.addEventListener("resize", (e) => {
 var gimpImage = $("#gimpImage")[0];
 
 
-document.getElementById('gimp-file-selector').addEventListener('change', function(event) {
-  var user = getUser(userID);
-   // Get the selected file
-  
-  const file = event.target.value;
-  if(file){
-    var fileType = (file.name.split(".")[1]);
-    // Create a FileReader
-    const reader = new FileReader();
-
-    // Set the onload handler to parse the file
-    reader.onload = () => {
-      // Get the ArrayBuffer from the FileReader
-      const arrayBuffer = reader.result;
-        if(fileType=="gbr"){
-          var gbrObject = parseGbr(arrayBuffer,gimpImage);
-
-          self.gbr = gbrObject;
-          user.gbr = gbrObject;
-
-        }
-        if(fileType=="gih"){
-          //parseGih(arrayBuffer);
-        }
-      }
-
-    reader.readAsArrayBuffer(file);
-  }
-  else{
-    console.log("no file selected");
-  }
-});  
-
-
-
-
-
-
-
 
 
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
@@ -951,7 +912,7 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
     const arrayBuffer = reader.result;
       if(fileType=="gbr"){
         var gbrObject = parseGbr(arrayBuffer,gimpImage);
- 
+        send({command:"broadcast",type:"gimp",data:gbrObject,id:userID});
         self.gbr = gbrObject;
         user.gbr = gbrObject;
         
