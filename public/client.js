@@ -933,10 +933,7 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
         var gbrObject = parseGbr(arrayBuffer);
         if(gbrObject){
           send({command:"broadcast",type:"gimp",gimpData:gbrObject,id:userID});
-          gimpImage.width = width;
-          gimpImage.height = height;
-          var url = gbrObject.gimpCanvas.toDataURL('image/png', 1.0);
-          gimpImage.src = url;
+         
           self.gbr = gbrObject;
           user.gbr = gbrObject;
         }
@@ -1054,9 +1051,7 @@ function parseGbr(arrayBuffer,image){
   gimpImage.height=height;
   gimpImage.width=width;
   
-  brushObject.gimpCanvas=gimpCanvas;
-  brushObject.image=gimpImage;
-  console.log("brush object: ")
-  console.log(brushObject);
+  brushObject.gimpUrl=url;
+  
   return brushObject
 }
