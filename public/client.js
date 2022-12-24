@@ -291,7 +291,7 @@ function getUser(id) {
   return user;
 }
 
-document.addEventListener("mousemove", function (e) {
+board.addEventListener("mousemove", function (e) {
   
   var rect = e.target.getBoundingClientRect();
   var x = e.clientX - rect.left; //x position within the element.
@@ -359,8 +359,8 @@ board.addEventListener("mouseup", function (e) {
   var user = getUser(userID);
   self.mousedown = false;
   user.mousedown = false;
-  ctx.stroke();
   if(user.tool=="brush"){
+    ctx.stroke();
     ctx2.fillStyle="#FFF";
     ctx2.beginPath();
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
