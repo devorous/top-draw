@@ -125,11 +125,18 @@ socket.addEventListener("message", (m) => {
       for (var i = 0; i < data.users.length; i++) {
         var user = data.users[i];
         if (
-          current_ids.indexOf(data.users[i].id) == -1 &&
-          data.users[i].id != userID
+          current_ids.indexOf(user.id) == -1 &&
+          user.id != userID
         ) {
-          users.push(data.users[i].userdata);
-          drawUser(data.users[i].userdata, data.users[i].id);
+          users.push(user.userdata);
+          drawUser(user.userdata, user.id);
+          var userTool = $("." + user.id.toString() + " .listTool")[0];
+          var userCol = $("." + user.id.toString() + " .listColor")[0];
+          console.log(userTool,userCol);
+          userCol.style.backgroundColor = user.color;
+          if(user.tool=="brush"){
+            userTool.appendChild(icons.brush);
+          }
         }
       }
       break;
@@ -820,8 +827,9 @@ function drawUser(data, id) {
   var ulistActive = $("<a></a>")[0];
   ulistActive.setAttribute("class","listActive "+id.toString());
   
-  userEntry.appendChild(ulistColor);
+  
   userEntry.appendChild(ulistTool);
+  userEntry.appendChild(ulistColor);
   userEntry.appendChild(ulistUser);
   userEntry.appendChild(ulistActive);
   
