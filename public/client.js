@@ -60,8 +60,17 @@ var icons={
   gimp:$("<img class='toolIcon' src='/images/pepper.png' />")[0]
 }
 
+
+var brushBtn = $("#brushBtn")[0];
+var textBtn = $("#textBtn")[0];
+var eraseBtn = $("#eraseBtn")[0];
+var gimpBtn = $("#gimpBtn")[0];
+
+var clearBtn = $("#clearBtn")[0];
+
+
 //set default values for your user list entry
-userlistEntry.children[0].appendChild(icons.brush);
+userlistEntry.children[0].appendChild(icons.brush.cloneNode());
 userlistEntry.children[2].innerHTML=userID;
 
 
@@ -680,7 +689,8 @@ function updateUser(user, data, fields) {
   }
 }
 
-var clearBtn = $("#clearBtn")[0];
+
+
 clearBtn.addEventListener("click", function () {
   clearBoard();
   send({ command: "broadcast", type: "clear", id: userID });
@@ -827,14 +837,10 @@ function drawUser(data, id) {
   user.board = userBoard;
   user.context = context;
   
-  
-  
-  
+
   
   //create a user object to append to the list
-  
-  
-  
+
   var userList = $("#userList")[0];
   
   var userEntry = $("<div></div>")[0];
@@ -910,22 +916,24 @@ sizeSlider.addEventListener("mousemove",function(e){
   
   var user = getUser(userID);
   
-  
-  var text = $(".text.self")[0];
-  
-  var step = 1;
-  
-  var size = sizeSlider.value;
-  
-  cursor_circle.setAttribute("r", size);
-  
-  ctx.lineWidth = size * 2;
-  self.size = size;
-  sizeSlider.value=size;
-  user.size=size;
-  
-  text.style.fontSize = (size + 5).toString() + "px";
-  
+  if(user.size != sizeSlider.value){
+    var text = $(".text.self")[0];
+
+    var step = 1;
+
+    var size = sizeSlider.value;
+
+    send({ command: "broadcast", type: "ChS", size: size, id: userID });
+    cursor_circle.setAttribute("r", size);
+
+    ctx.lineWidth = size * 2;
+    self.size = size;
+    sizeSlider.value=size;
+    user.size=size;
+
+    text.style.fontSize = (size + 5).toString() + "px";
+    
+  }
 });
 
 
