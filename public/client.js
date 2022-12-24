@@ -15,7 +15,7 @@ var userlistEntry = $(".userEntry.self")[0];
 text.innerHTML = userID.toString();
 
 
-var boardDim=[360,240];
+var boardDim=[480,720];
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
@@ -1043,7 +1043,16 @@ function parseGbr(arrayBuffer){
   
   
   //Create an object that contains all the information about the brush
-  var brushObject = {};
+  var brushObject = {
+    headerSize: headerSize,
+    version: version,
+    width: width,
+    height: height,
+    colorDepth: colorDepth,
+    magicNumber: magicNumber,
+    spacing: spacing,
+    brushName: brushName
+  };
   brushObject.headerSize = headerSize;
   brushObject.version = version;
   brushObject.width = width;
