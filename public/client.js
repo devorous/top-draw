@@ -686,12 +686,6 @@ clearBtn.addEventListener("click", function () {
   send({ command: "broadcast", type: "clear", id: userID });
 });
 
-var brushBtn = $("#brushBtn")[0];
-var textBtn = $("#textBtn")[0];
-var eraseBtn = $("#eraseBtn")[0];
-var gimpBtn = $("#gimpBtn")[0];
-
-
 brushBtn.addEventListener("click", function () {
   var selectedTool = $(".btn.selected")[0];
   if(selectedTool != this){
