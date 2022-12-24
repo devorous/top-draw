@@ -747,7 +747,7 @@ function clearBoard() {
 
 function drawUser(data, id) {
   var user = getUser(id);
-  //draw each user with its current data from the server
+  //create a cursor for each user with their current data from the server
   console.log("drawing user: ");
   console.log(data);
   var cursor = $("<div></div>")[0];
@@ -803,6 +803,36 @@ function drawUser(data, id) {
   var context = [userBoard.getContext("2d"),id];
   user.board = userBoard;
   user.context=context;
+  
+  var userList = $("#userList")[0];
+  
+  var userEntry = $("<div></div>")[0];
+  userEntry.setAttribute("class","userEntry "+id.toString());
+  var ulistColor = $("<a></a>")[0];
+  ulistColor.setAttribute("class","listColor "+id.toString());
+  var ulistTool = $("<a></a>")[0];
+  ulistTool.setAttribute("class","listTool "+id.toString());
+  var ulistUser = $("<text></text>")[0];
+  ulistUser.setAttribute("class","listUser "+id.toString());
+  var ulistActive = $("<a></a>")[0];
+  ulistActive.setAttribute("class","listActive "+id.toString());
+  
+  userEntry.appendChild(ulistColor);
+  userEntry.appendChild(ulistTool);
+  userEntry.appendChild(ulistUser);
+  userEntry.appendChild(ulistActive);
+  
+      userList.appendChild(userEntry);
+  
+  /*
+   <div class="userEntry self">
+    <a class="listTool self"></a>
+    <a class="listColor self"></a>
+    <text class="listUser self">Username</text>
+    <a class="listActive self"></a>
+  </div>
+            */
+  
 }
 
 
