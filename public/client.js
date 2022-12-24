@@ -44,6 +44,7 @@ ctx.lineCap = "round";
 var gimpData = null;
 
 var current_line = [];
+var line_length = 0;
 
 var connected=false;
 
@@ -137,10 +138,10 @@ socket.addEventListener("message", (m) => {
     case "userLeft":
       //when a user leaves, update the user list and remove the users DOM objects
       
-      var current_users = $("." + data.id.toString());
-      for(var i=0;i<current_users.length;i++){
-        if(current_users[i]){
-          current_users[i].remove();
+      var user_objs = $("." + data.id.toString());
+      for(var i=0;i<user_objs.length;i++){
+        if(user_objs[i]){
+          user_objs[i].remove();
         }
       }
 
@@ -315,6 +316,9 @@ board.addEventListener("mousemove", function (e) {
   if (user.mousedown && user.tool == "brush") {
     drawLine(pos, lastpos, user);
     current_line.push(pos);
+    //get distance between two points, rounded to two decimal places
+    line_length += Math.round(pointDistance(pos,lastpos)*100)/100;
+    console.log("line length: ",line_length);
   }
   if (user.mousedown && user.tool == "erase"){
     erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
@@ -373,6 +377,7 @@ board.addEventListener("mouseup", function (e) {
   send({ command: "broadcast", type: "Mu", id: userID });
   var line = { path: current_line, id: userID };
   current_line = [];
+  line_length = 0;
 });
 
 board.addEventListener("wheel", function (e) {
@@ -508,6 +513,15 @@ function drawDot(pos, ctx, user){
     userCtx.moveTo(pos.x,pos.y);
     userCtx.lineTo(pos.x,pos.y);
     userCtx.stroke();
+  }
+}
+
+function pointDistance(pos,lastpos){
+  if(pos!=lastpos){
+    var dx = pos.x-lastpos.x;
+    var dy = pos.y-lastpos.y;
+    var distance = Math.sqrt(Math.abs(dx*dx-dy*dy));
+    return distance
   }
 }
 
