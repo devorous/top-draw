@@ -15,7 +15,7 @@ var userlistEntry = $(".userEntry.self")[0];
 text.innerHTML = userID.toString();
 
 
-var boardDim=[480,720];
+var boardDim=[360,240];
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
@@ -317,6 +317,9 @@ board.addEventListener("mousemove", function (e) {
   }
   if (user.mousedown && user.tool == "erase"){
     erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
+  }
+  if(user.mousedown && user.tool == "gimp"){
+    drawGimp(user,pos);
   }
   user.lastx = user.x;
   user.lasty = user.y;
