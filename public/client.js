@@ -804,6 +804,8 @@ function drawUser(data, id) {
   user.board = userBoard;
   user.context=context;
   
+  
+  //create a user object to append to the list
   var userList = $("#userList")[0];
   
   var userEntry = $("<div></div>")[0];
@@ -814,6 +816,7 @@ function drawUser(data, id) {
   ulistTool.setAttribute("class","listTool "+id.toString());
   var ulistUser = $("<text></text>")[0];
   ulistUser.setAttribute("class","listUser "+id.toString());
+  ulistUser.innerHTML = id.toString();
   var ulistActive = $("<a></a>")[0];
   ulistActive.setAttribute("class","listActive "+id.toString());
   
@@ -822,16 +825,9 @@ function drawUser(data, id) {
   userEntry.appendChild(ulistUser);
   userEntry.appendChild(ulistActive);
   
-      userList.appendChild(userEntry);
+  userList.appendChild(userEntry);
   
-  /*
-   <div class="userEntry self">
-    <a class="listTool self"></a>
-    <a class="listColor self"></a>
-    <text class="listUser self">Username</text>
-    <a class="listActive self"></a>
-  </div>
-            */
+
   
 }
 
