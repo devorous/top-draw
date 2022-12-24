@@ -1074,6 +1074,7 @@ function parseGbr(arrayBuffer){
       gData[i + 3] = a;  // Alpha value
     }
   }
+  
   //if the image is greyscale
   if(colorDepth==1){
     for(let i= 0; i < gData.length; i+=1){
