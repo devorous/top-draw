@@ -209,6 +209,11 @@ function recieve(data) {
       if(user.tool =="gimp"){
         drawGimp(user,pos);
       }
+      
+      ctx2.fillStyle="#FFF";
+      ctx2.beginPath();
+      ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+      
       user.mousedown = true;
       break;
 
@@ -286,7 +291,7 @@ function getUser(id) {
   return user;
 }
 
-board.addEventListener("mousemove", function (e) {
+document.addEventListener("mousemove", function (e) {
   
   var rect = e.target.getBoundingClientRect();
   var x = e.clientX - rect.left; //x position within the element.
@@ -572,6 +577,11 @@ function drawGimp(user,pos){
 function updateText(key, user) {
   var input = $("." + user.id.toString() + " .textInput")[0];
   if (key.length == 1) {
+    if(key==" "){
+        
+        key="&nbsp;";
+      
+      }
     input.innerHTML = input.innerHTML + key;
     user.text = user.text + key;
   }
@@ -635,18 +645,14 @@ var textBtn = $("#textBtn")[0];
 var eraseBtn = $("#eraseBtn")[0];
 var gimpBtn = $("#gimpBtn")[0];
 
-var toolBtns = [
-  brushBtn,
-  textBtn,
-  eraseBtn,
-  gimpBtn
-]
+
 brushBtn.addEventListener("click", function () {
   var selectedTool = $(".btn.selected")[0];
   if(selectedTool != this){
     selectedTool.classList.toggle("selected");
+    this.classList.toggle("selected");
   }
-  this.classList.toggle("selected");
+  
   ctx.globalCompositeOperation="source-over";
   var user = getUser(userID);
   var index = users.indexOf(user);
@@ -716,14 +722,8 @@ gimpBtn.addEventListener("click", function () {
 
 function clearBoard() {
   
-  console.log("clearing board");
-  ctx.fillStyle = "#FFF";
-  ctx.beginPath();
-  ctx.fillRect(0, 0, boardDim[1], boardDim[0]);
-  
-  //ctx2.fillStyle="#FFF";
-  //ctx2.beginPath();
-  //ctx2.fillRect(0,0,boardDim[1],boardDim[0]);
+  ctx.clearRect(0, 0, boardDim[1], boardDim[0]);
+  ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
 
 }
 
