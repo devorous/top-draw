@@ -137,10 +137,10 @@ socket.addEventListener("message", (m) => {
     case "userLeft":
       //when a user leaves, update the user list and remove the users DOM objects
       
-      var objs = $("." + data.id.toString());
-      for(var i=0;i<objs.length;i++){
-        if(objs[i]){
-          objs[i].remove();
+      var current_users = $("." + data.id.toString());
+      for(var i=0;i<current_users.length;i++){
+        if(current_users[i]){
+          current_users[i].remove();
         }
       }
 
@@ -314,6 +314,7 @@ board.addEventListener("mousemove", function (e) {
   
   if (user.mousedown && user.tool == "brush") {
     drawLine(pos, lastpos, user);
+    current_line.push(pos);
   }
   if (user.mousedown && user.tool == "erase"){
     erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
@@ -532,7 +533,6 @@ function drawLine(pos, lastpos, user) {
   ctx.strokeStyle='rgba('+user.color.toString()+')';
   ctx.moveTo(lastpos.x, lastpos.y);
   ctx.lineTo(pos.x, pos.y);
-  current_line.push(pos);
   
   user.lastx = pos.x;
   user.lasty = pos.y;
