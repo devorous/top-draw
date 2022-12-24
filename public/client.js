@@ -1,4 +1,3 @@
-
 var users = [];
 
 var userID = Math.floor(Math.random() * 999999);
