@@ -316,14 +316,13 @@ board.addEventListener("mousemove", function (e) {
   if (user.mousedown && user.tool == "brush") {
     drawLine(pos, lastpos, user);
     current_line.push(pos);
-    //get distance between two points, rounded to two decimal places
+    //get distance between points, rounded to two decimal places
     line_length += Math.round(pointDistance(pos,lastpos)*100)/100;
-    console.log("line length: ",line_length);
   }
   if (user.mousedown && user.tool == "erase"){
     erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
   }
-  if(user.mousedown && user.tool == "gimp"){
+  if(user.mousedown && user.gbr && user.tool == "gimp"){
     drawGimp(user,pos);
   }
   user.lastx = user.x;
@@ -368,6 +367,7 @@ board.addEventListener("mouseup", function (e) {
   self.mousedown = false;
   user.mousedown = false;
   if(user.tool=="brush"){
+    console.log("line length: ",line_length);
     ctx.stroke();
     ctx2.fillStyle="#FFF";
     ctx2.beginPath();
