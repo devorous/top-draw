@@ -1053,14 +1053,7 @@ function parseGbr(arrayBuffer){
     spacing: spacing,
     brushName: brushName
   };
-  brushObject.headerSize = headerSize;
-  brushObject.version = version;
-  brushObject.width = width;
-  brushObject.height = height;
-  brushObject.colorDepth = colorDepth;
-  brushObject.magicNumber = magicNumber;
-  brushObject.spacing = spacing;
-  brushObject.brushName = brushName;
+
   
   
   var gimpCanvas = document.createElement("canvas");
