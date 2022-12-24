@@ -256,6 +256,7 @@ function recieve(data) {
       updateUser(user, data, ["tool"]);
       var userText = $("." + user.id.toString() + " .text")[0];
       var userCircle = $("." + user.id.toString() + " circle")[0];
+      
       if (data.tool == "brush") {
         userText.style.display = "none";
         userCircle.style.display = "block";
@@ -264,11 +265,32 @@ function recieve(data) {
         userText.style.display = "block";
         userCircle.style.display = "none";
       }
+      var listTool = $("." + user.id.toString() + " .listTool")[0];
+      var userIcon = null;
+      switch(data.tool){
+        case "brush":
+          userIcon=icons.brush;
+          break;
+        case "text":
+          userIcon=icons.text;
+          break;
+        case "erase":
+          userIcon=icons.erase;
+          break;
+        case "gimp":
+          userIcon=icons.gimp;
+          break;
+      }
+      listTool.children[0].remove();
+      listTool.append(userIcon.cloneNode());
       break;
     case "ChC":
       //change color
+      var color = 'rgba('+user.color.toString()+')';
       var input = $("." + user.id.toString() + " .textInput")[0];
-      input.style.color='rgba('+user.color.toString()+')';
+      var listColor = $("." + user.id.toString() + " .listColor")[0];
+      input.style.color = color;
+      listColor.style.backgroundColor = color;
       updateColor(data.color,user.id);
       break;
     case "kp":
@@ -840,7 +862,7 @@ function drawUser(data, id) {
   }
   
   ulistTool.setAttribute("class","listTool "+id.toString());
-  ulistTool.appendChild(userIcon);
+  ulistTool.appendChild(userIcon.cloneNode());
   
   var ulistColor = $("<a></a>")[0];
   ulistColor.setAttribute("class","listColor "+id.toString());
