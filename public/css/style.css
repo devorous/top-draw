@@ -141,9 +141,11 @@ canvas{
   display:flex;
   flex-direction:column;
   width:150px;
-  
   background-color:lightgrey;
-  justify-content:space-between;
+
+}
+#options{
+  height:90%;
 }
 #pickerContainer{
   transform-origin: 0 0;
@@ -194,7 +196,7 @@ canvas{
   padding-top:2px;
   padding-bottom:2px;
   background-color:#444444;
-  height:100px;
+
   
 }
 .userEntry{
