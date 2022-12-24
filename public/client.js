@@ -809,18 +809,43 @@ function drawUser(data, id) {
   userBoards.appendChild(userBoard);
   var context = [userBoard.getContext("2d"),id];
   user.board = userBoard;
-  user.context=context;
+  user.context = context;
+  
+  
+  
   
   
   //create a user object to append to the list
+  
+  
+  
   var userList = $("#userList")[0];
   
   var userEntry = $("<div></div>")[0];
   userEntry.setAttribute("class","userEntry "+id.toString());
+  var ulistTool = $("<a></a>")[0];
+  var userIcon = null;
+  switch(data.tool){
+    case "brush":
+      userIcon=icons.brush;
+      break;
+    case "text":
+      userIcon=icons.text;
+      break;
+    case "erase":
+      userIcon=icons.erase;
+      break;
+    case "gimp":
+      userIcon=icons.gimp;
+  }
+  
+  ulistTool.setAttribute("class","listTool "+id.toString());
+  ulistTool.appendChild(userIcon);
+  
   var ulistColor = $("<a></a>")[0];
   ulistColor.setAttribute("class","listColor "+id.toString());
-  var ulistTool = $("<a></a>")[0];
-  ulistTool.setAttribute("class","listTool "+id.toString());
+  ulistColor.style.backgroundColor='rgba('+data.color.toString()+')';
+
   var ulistUser = $("<text></text>")[0];
   ulistUser.setAttribute("class","listUser "+id.toString());
   ulistUser.innerHTML = id.toString();
@@ -838,7 +863,6 @@ function drawUser(data, id) {
 
   
 }
-
 
 
 //setup color picker
