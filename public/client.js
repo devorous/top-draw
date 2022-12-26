@@ -14,7 +14,7 @@ var userlistEntry = $(".userEntry.self")[0];
 text.innerHTML = userID.toString();
 
 
-var boardDim=[360,240];
+var boardDim=[480,720];
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
