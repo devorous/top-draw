@@ -276,6 +276,14 @@ function recieve(data) {
         userText.style.display = "block";
         userCircle.style.display = "none";
       }
+      if (data.tool == "erase") {
+        userText.style.display = "none";
+        userCircle.style.display = "block";
+      }
+      if (data.tool == "gimp") {
+        userText.style.display = "none";
+        userCircle.style.display = "block";
+      }
       var listTool = $("." + user.id.toString() + " .listTool")[0];
       var userIcon = null;
       switch(data.tool){
@@ -835,6 +843,7 @@ function drawUser(data, id) {
   text.style.width = "400px";
   text.style.color='rgba('+data.color.toString()+')';
   text.style.fontSize = (data.size + 5).toString() + "px";
+  text.style.display="none";
   var line = $("<text>|</text>")[0];
   var textinput = $("<text></text>")[0];
   textinput.setAttribute("class", "textInput " + id.toString());
