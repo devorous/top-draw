@@ -503,10 +503,22 @@ board.addEventListener("wheel", function (e) {
 });
 
 document.addEventListener("keydown", function (e) {
+  e.preventDefault();
+  
   send({ command: "broadcast", type: "kp", key: e.key, id: self.id });
   var user = getUser(self.id);
   if (self.tool == "text") {
+    
+    
+    
+    
     var input = $(".textInput.self")[0];
+    
+    console.log("slicing the last 6: ")
+    console.log(input.innerHTML.slice(-6));
+    
+    
+    
     var key = e.key
     if (e.key.length == 1) {
       if(key==" "){
@@ -524,8 +536,15 @@ document.addEventListener("keydown", function (e) {
         break;
       case "Backspace":
         if (input.innerHTML) {
-          input.innerHTML = input.innerHTML.slice(0, -1);
-          user.text = user.text.slice(0, -1);
+          
+          if(input.innerHTML.slice(0,-6)=='&nbsp;'){
+            input.innerHTML = input.innerHTML.slice(0, -6);
+            user.text = user.text.slice(0, -6);
+          }
+          else{
+            input.innerHTML = input.innerHTML.slice(0, -1);
+            user.text = user.text.slice(0, -1);
+          }
         }
     }
   }
