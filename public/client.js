@@ -404,7 +404,6 @@ board.addEventListener("mouseup", function (e) {
   self.mousedown = false;
   user.mousedown = false;
   if(user.tool=="brush"){
-    console.log("line length: ",line_length);
     ctx.stroke();
     ctx2.fillStyle="#FFF";
     ctx2.beginPath();
@@ -535,14 +534,14 @@ document.addEventListener("keydown", function (e) {
         break;
       case "Backspace":
         if (input.innerHTML) {
-          
-          if(input.innerHTML.slice(0,-6)=='&nbsp;'){
-            input.innerHTML = input.innerHTML.slice(0, -6);
-            user.text = user.text.slice(0, -6);
-          }
+          if(input.innerHTML.slice(-6)=='&nbsp;'){
+
+              input.innerHTML = input.innerHTML.slice(0, -6);
+              user.text = user.text.slice(0, -6);
+            }
           else{
             input.innerHTML = input.innerHTML.slice(0, -1);
-            user.text = user.text.slice(0, -1);
+            user.text = input.innerHTML.slice(0, -1);
           }
         }
     }
@@ -665,8 +664,9 @@ function updateText(key, user) {
       break;
 
     case "Backspace":
-      if (input.innerHTML) {
-        if(input.innerHTML.slice(0,-6)=='&nbsp;'){
+      if (input.innerHTML.length>0) {
+        if(input.innerHTML.slice(-6)=='&nbsp;'){
+
             input.innerHTML = input.innerHTML.slice(0, -6);
             user.text = user.text.slice(0, -6);
           }
@@ -1096,7 +1096,6 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
           
           self.gbr = gbrObject;
           user.gbr = gbrObject;
-          console.log(self)
         }
       }
       if(fileType=="gih"){
