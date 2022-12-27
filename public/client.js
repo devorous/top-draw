@@ -514,8 +514,7 @@ document.addEventListener("keydown", function (e) {
     
     var input = $(".textInput.self")[0];
     
-    console.log("slicing the last 6: ")
-    console.log(input.innerHTML.slice(-6));
+
     
     
     
@@ -658,6 +657,7 @@ function updateText(key, user) {
     input.innerHTML = input.innerHTML + key;
     user.text = user.text + key;
   }
+  
   switch (key) {
     case "Enter":
       input.innerHTML = "";
@@ -666,9 +666,14 @@ function updateText(key, user) {
 
     case "Backspace":
       if (input.innerHTML) {
-        var newtext = input.innerHTML.slice(0, -1);
-        input.innerHTML = newtext;
-        user.text = newtext;
+        if(input.innerHTML.slice(0,-6)=='&nbsp;'){
+            input.innerHTML = input.innerHTML.slice(0, -6);
+            user.text = user.text.slice(0, -6);
+          }
+        else{
+          input.innerHTML = input.innerHTML.slice(0, -1);
+          user.text = input.innerHTML.slice(0, -1);
+        }
       }
       break;
   }
