@@ -199,6 +199,9 @@ function recieve(data) {
       if(user.mousedown && user.tool == "erase"){
         erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
       }
+      if(user.mousedown && user.tool == "gimp" && user.gbr){
+        drawGimp(user,pos);
+      }
       user.lastx=data.x;
       user.lasty=data.y;
       break;
@@ -222,7 +225,7 @@ function recieve(data) {
       if(user.tool == "erase"){
         erase(pos.x,pos.y,pos.x,pos.y,user.size*2);
       }
-      if(user.tool =="gimp"){
+      if(user.tool =="gimp" && user.gbr){
         drawGimp(user,pos);
       }
       
