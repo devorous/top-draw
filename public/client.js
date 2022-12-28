@@ -554,15 +554,8 @@ document.addEventListener("keydown", function (e) {
   var user = getUser(self.id);
   if (self.tool == "text") {
     
-    
-    
-    
     var input = $(".textInput.self")[0];
-    
 
-    
-    
-    
     var key = e.key
     if (e.key.length == 1) {
       if(key==" "){
@@ -590,6 +583,21 @@ document.addEventListener("keydown", function (e) {
             user.text = input.innerHTML.slice(0, -1);
           }
         }
+    }
+  }
+  else{
+    switch(e.key){
+      case "b":
+        brushBtn.click();
+        break;
+      case "t":
+        textBtn.click();
+        break;
+      case "e":
+        eraseBtn.click();
+        break;
+      case "g":
+        gimpBtn.click();
     }
   }
 });
@@ -841,10 +849,10 @@ eraseBtn.addEventListener("click", function () {
 
 gimpBtn.addEventListener("click", function () {
   var selectedTool = $(".btn.selected")[0];
-  if(selectedTool != this){
+  if(selectedTool != this ){
     selectedTool.classList.toggle("selected");
   }
-  this.classList.toggle("selected");
+  this.classList.add("selected");
   ctx.globalCompositeOperation="source-over";
   var user = getUser(userID);
   var index = users.indexOf(user);
