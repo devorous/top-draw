@@ -70,13 +70,7 @@ var clearBtn = $("#clearBtn")[0];
 
 var blendMode = $("#blendMode")[0];
 
-var blendOptions = {
-		"none": "source-over",
-		"lighten": "lighten",
-		"darken": "darken",
-		"multiply": "multiply",
-		"difference": "difference"
-	}
+
 
 //set default values for your user list entry
 userlistEntry.children[0].appendChild(icons.brush.cloneNode());
@@ -100,7 +94,7 @@ var self = {
   board:board,
   id: userID,
   gBrush: null,
-  blendMode: "none",
+  blendMode: "source-over",
 };
 
 // Add self  to beginning of users array:
@@ -1078,8 +1072,13 @@ spacingSlider.addEventListener("mousemove",function(e){
 });
 
 blendMode.addEventListener("change",function(e){
-  
-  
+  var user = getUser(userID);
+  console.log("change! ",this.value)
+  var mode = this.value;
+  if(this.value=="none"){
+    mode="source-over"
+  }
+  ctx.globalCompositeOperation = mode;
   
 });
 
