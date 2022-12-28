@@ -88,7 +88,7 @@ var self = {
   context:ctx2,
   board:board,
   id: userID,
-  gbr: null,
+  gBrush: null,
   
 };
 
@@ -632,10 +632,19 @@ function drawText(user) {
 function drawGimp(user,pos){
   var size = user.size
   var gBrush = user.gBrush;
+  if(gBrush.type=="gbr"){
+    var height = gBrush.height;
+    var width = gBrush.width;
+    var image = gBrush.image;
+  }
+  if(gBrush.type=="gih"){
+    var height = gBrush.cellheight;
+    var width = gBrush.cellwidth;
+    var image = gBrush.images[gBrush.index];
+    gBrush.index=(gBrush.index+1)%gBrush.ncells;
+    console.log(gBrush.index);
+  }
   
-  var height = gBrush.height;
-  var width = gBrush.width;
-  var image = gBrush.image;
   
   var ratioX = width/height;
   var ratioY = height/width;
@@ -1107,8 +1116,19 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
       }
       if(fileType=="gih"){
         var gihObject = parseGih(arrayBuffer);
+        var images = [];
+        var gimpImage = new Image();
+        for(var i=0;i<gihObject.gBrushes.length;i++){
+          var current_brush = gihObject.gBrushes[i];
+          current_brush
+        }
+        
         gihObject.type = "gih";
-        console.log(gihObject)
+        gihObject.index = 0;
+        console.log(gihObject);
+        self.gBrush = gihObject;
+        user.gBrush = gihObject;
+        
       }
     }
 
@@ -1297,16 +1317,16 @@ function parseGih(arrayBuffer){
       acc+= cellSize;
     }
     indices.push(acc);
-    var images = [];
+    
+    var brushes = [];
     
     for(var i=0;i<gihObject.ncells;i++){
       var index = indices[i];
       var current_data = data.slice(index,index+indices[i+1]);
-      
-      var image = parseGbr(current_data) ;
-      images.push(image);
+      var current_brush = parseGbr(current_data) ;
+      brushes.push(current_brush);
     }
-    gihObject.images=images;
+    gihObject.gBrushes=brushes;
       return gihObject
   }
 }
