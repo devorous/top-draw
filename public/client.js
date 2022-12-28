@@ -628,7 +628,7 @@ function drawDot(pos, ctx, user){
   }
 }
 
-//used for getting line length, kind of laggy and bad
+//used for getting line length approx
 function manhattanDistance(pos,lastpos){
   if(pos!=lastpos){
     var distance = Math.abs(pos.x - lastpos.x) + Math.abs(pos.y - lastpos.y);
@@ -944,7 +944,7 @@ function drawUser(data, id) {
   userBoards.appendChild(userBoard);
   var context = [userBoard.getContext("2d"),id];
   user.board = userBoard;
-  user.context = context;
+  user.context = context[0];
   
 
   
