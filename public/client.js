@@ -222,7 +222,7 @@ function recieve(data) {
         ctx.lineCap = "round";
         //ctx.beginPath();
         drawLine(pos, pos, user);
-        drawDot(pos,ctx,user);
+        drawDot(pos,user.context,user);
       }
       if (user.tool == "text" && user.text != "") {
         drawText(user);
@@ -674,6 +674,7 @@ function drawLine(pos, lastpos, user) {
 function drawLineArray(points, user){
   //points come in as an array of numbers
   
+  
   console.log("drawing line from: ",points);
   ctx.lineWidth = user.size * 2;
   ctx.strokeStyle='rgba('+user.color.toString()+')';
@@ -681,7 +682,7 @@ function drawLineArray(points, user){
   ctx.moveTo(points[0], points[1]);
 
   // Iterate over the rest of the points and draw lines to them
-  for (let i = 2; i < points.length; i=i+2) {
+  for (let i = 2; i < points.length-1; i=i+2) {
     ctx.lineTo(points[i], points[i+1]);
   }
 
@@ -1140,7 +1141,7 @@ function movingAverageSmooth(points,windowSize){
     const avgY = sumY / count;
 
     // Add the average point to the smooth points array
-    smoothPoints.push({x: avgX, y: avgY});
+    smoothPoints.push(avgX,avgY);
   }
 
   return smoothPoints;
