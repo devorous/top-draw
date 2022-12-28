@@ -42,7 +42,7 @@ ctx.lineCap = "round";
 
 var gimpData = null;
 
-var current_line = [];
+
 var line_length = 0;
 
 var connected=false;
@@ -92,6 +92,7 @@ var self = {
   board:board,
   id: userID,
   gBrush: null,
+  currentLine: [],
   
 };
 
@@ -246,6 +247,7 @@ function recieve(data) {
         ctx.stroke();
         ctx2.stroke();
         ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
+        drawLineArray(user.currentLine,user)
       }
       user.mousedown = false;
       break;
@@ -398,7 +400,7 @@ board.addEventListener("mousemove", function (e) {
   
   if (user.mousedown && user.tool == "brush") {
     drawLine(pos, lastpos, user);
-    current_line.push(pos);
+    user.currentLine.push(pos.x,pos.y);
     //get distance between points, rounded to two decimal places
     line_length += manhattanDistance(pos,lastpos);
   }
@@ -455,12 +457,12 @@ board.addEventListener("mouseup", function (e) {
     ctx2.fillStyle="#FFF";
     ctx2.beginPath();
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-    drawLineArray(current_line, user);
+    drawLineArray(user.currentLine, user);
   }
   
   send({ command: "broadcast", type: "Mu", id: userID });
-  var line = { path: current_line, id: userID };
-  current_line = [];
+  var line = { path: user.currentLine, id: userID };
+  user.currentLine = [];
   console.log("approx line length: ",line_length);
   line_length = 0;
 });
@@ -499,7 +501,7 @@ board.addEventListener("wheel", function (e) {
         ctx2.stroke();
         ctx2.beginPath();
 
-        current_line=[];
+        user.currentLine=[];
 
       }
 
@@ -529,7 +531,7 @@ board.addEventListener("wheel", function (e) {
         ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
         ctx2.stroke();
         ctx2.beginPath();
-        current_line=[];
+        user.currentLine=[];
       }
       size = size + step;
 
@@ -666,15 +668,17 @@ function drawLine(pos, lastpos, user) {
 }
 
 function drawLineArray(points, user){
+  //points come in as an array of numbers
+  
   console.log("drawing line from: ",points);
   ctx.lineWidth = user.size * 2;
   ctx.strokeStyle='rgba('+user.color.toString()+')';
   
-  ctx.moveTo(points[0].x, points[0].y);
+  ctx.moveTo(points[0], points[1]);
 
   // Iterate over the rest of the points and draw lines to them
-  for (let i = 1; i < points.length; i++) {
-    ctx.lineTo(points[i].x, points[i].y);
+  for (let i = 2; i < points.length; i=i+2) {
+    ctx.lineTo(points[i], points[i+1]);
   }
 
   // Stroke the path to draw the line
