@@ -633,9 +633,9 @@ function drawDot(pos, user){
 }
 
 //used for getting line length, kind of laggy and bad
-function manhattanDistance(pos,lastpos){
-  if(pos!=lastpos){
-    var distance = Math.abs(pos.x - lastpos.x) + Math.abs(pos.y - lastpos.y);
+function manhattanDistance(x1,y1,x2,y2){
+  if(x1!=x2 && y1!=y2){
+    var distance = Math.abs(x1 - x2) + Math.abs(y1 - y2);
     return distance
   }
 }
@@ -670,7 +670,7 @@ function drawLine(pos, lastpos, user) {
 
 function drawLineArray(points, user){
   //points come in as an array of numbers
-  
+  points = resampleLine(points,20);
   
   console.log("drawing line from: ",points);
   ctx.lineWidth = user.size * 2;
@@ -1090,7 +1090,33 @@ spacingSlider.addEventListener("mousemove",function(e){
 });
 
 
+function resampleLine(points, numPoints) {
+  // Initialize the resampled array and the running total of distance traveled
+  let resampled = [];
+  let distance = 0;
 
+  // Iterate through the points in the input array
+  for (let i = 2; i < points.length; i += 2) {
+    // Calculate the distance between the current point and the previous point
+    let d = manhattanDistance(points[i-2], points[i-1], points[i], points[i+1]);
+    console.log(d);
+    // If the distance traveled equals or exceeds the desired distance between points on the resampled line, add a new point to the resampled array
+    if (distance + d >= numPoints) {
+      let qx = points[i-2] + ((numPoints - distance) / d) * (points[i] - points[i-2]);
+      let qy = points[i-1] + ((numPoints - distance) / d) * (points[i+1] - points[i-1]);
+      resampled.push(qx, qy);
+      points.splice(i, 0, qx, qy);
+      distance = 0;
+    } else {
+      distance += d;
+    }
+  }
+
+  // Add the final point to the resampled array
+  resampled.push(points[points.length - 2], points[points.length - 1]);
+
+  return resampled;
+}
 
 
 
