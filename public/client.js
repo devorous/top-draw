@@ -314,9 +314,9 @@ function recieve(data) {
     case "ChC":
       //change color
       var color = 'rgba('+user.color.toString()+')';
-      var input = $("." + user.id.toString() + " .textInput")[0];
+      var userText = $("." + user.id.toString() + " .text")[0];
       var listColor = $("." + user.id.toString() + " .listColor")[0];
-      input.style.color = color;
+      userText.style.color = color;
       listColor.style.backgroundColor = color;
       updateColor(data.color,user.id);
       break;
@@ -510,7 +510,8 @@ board.addEventListener("wheel", function (e) {
 
       ctx.lineWidth = size * 2;
       self.size = size;
-
+      user.size = size;
+      
       sizeSlider.value=size;
 
       send({ command: "broadcast", type: "ChSi", size: size, id: userID });
@@ -538,7 +539,8 @@ board.addEventListener("wheel", function (e) {
 
       ctx.lineWidth = size * 2;
       self.size = size;
-
+      user.size = size;
+      
       sizeSlider.value=size;
 
       send({ command: "broadcast", type: "ChSi", size: size, id: userID });
@@ -900,12 +902,17 @@ function drawUser(data, id) {
   var cursors = $(".cursors")[0];
   var name = $("<text>" + id.toString() + "</text>")[0];
   name.setAttribute("class", "name " + id.toString());
+  
   var text = $("<text></text>")[0];
   text.setAttribute("class", "text " + id.toString());
   text.style.width = "400px";
   text.style.color='rgba('+data.color.toString()+')';
   text.style.fontSize = (data.size + 5).toString() + "px";
-  text.style.display="none";
+  
+  if(user.tool !="text"){
+    text.style.display="none";
+  }
+  
   var line = $("<text>|</text>")[0];
   var textinput = $("<text></text>")[0];
   textinput.setAttribute("class", "textInput " + id.toString());
@@ -1024,8 +1031,9 @@ sizeSlider.addEventListener("mousemove",function(e){
     cursor_circle.setAttribute("r", size);
 
     ctx.lineWidth = size * 2;
-    self.size = size;
+    
     sizeSlider.value=size;
+    self.size = size;
     user.size=size;
 
     text.style.fontSize = (size + 5).toString() + "px";
