@@ -270,7 +270,9 @@ function recieve(data) {
     case "ChSp":
       updateUser(user,data,["spacing"]);
       break;
-      
+    case "ChBl":
+      updateUser(user,data,["blendMode"]);
+      break;
     case "ChT":
       //change the tool
       console.log("changing tool: ");
@@ -646,7 +648,7 @@ function drawLine(pos, lastpos, user) {
   //var spacing = user.spacing;
 
   topBoard.style.opacity=alpha;
-
+  
   ctx2.lineCap="round";
   ctx2.lineWidth=user.size*2;
   ctx2.strokeStyle='rgb('+noAlpha.toString()+')';
@@ -1075,11 +1077,9 @@ blendMode.addEventListener("change",function(e){
   var user = getUser(userID);
   console.log("change! ",this.value)
   var mode = this.value;
-  if(this.value=="none"){
-    mode="source-over"
-  }
+  user.blendMode = mode;
   ctx.globalCompositeOperation = mode;
-  
+  send({ command: "broadcast", type: "ChBl", blendMode: mode, id: userID });
 });
 
 
