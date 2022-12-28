@@ -198,6 +198,7 @@ function recieve(data) {
       var lastpos = { x: user.lastx, y: user.lasty };
       if (user.mousedown && user.tool == "brush") {
         drawLine(pos, lastpos, user);
+        user.currentLine.push(pos.x,pos.y);
       }
       if(user.mousedown && user.tool == "erase"){
         erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
@@ -219,8 +220,9 @@ function recieve(data) {
       if (user.tool == "brush") {
         
         ctx.lineCap = "round";
-        ctx.beginPath();
+        //ctx.beginPath();
         drawLine(pos, pos, user);
+        drawDot(pos,ctx,user);
       }
       if (user.tool == "text" && user.text != "") {
         drawText(user);
@@ -248,6 +250,7 @@ function recieve(data) {
         ctx2.stroke();
         ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
         drawLineArray(user.currentLine,user)
+        user.currentLine=[];
       }
       user.mousedown = false;
       break;
@@ -611,6 +614,7 @@ document.addEventListener("keydown", function (e) {
 
 function drawDot(pos, ctx, user){
   var userCtx = user.context;
+  console.log(userCtx)
   if (user.tool == "brush") {
     ctx.beginPath()
     ctx.strokeStyle='rgba('+user.color.toString()+')';
@@ -962,7 +966,7 @@ function drawUser(data, id) {
   userBoards.appendChild(userBoard);
   var context = [userBoard.getContext("2d"),id];
   user.board = userBoard;
-  user.context = context;
+  user.context = context[0];
   
 
   
