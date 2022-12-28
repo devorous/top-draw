@@ -399,7 +399,7 @@ board.addEventListener("mousemove", function (e) {
     drawLine(pos, lastpos, user);
     current_line.push(pos);
     //get distance between points, rounded to two decimal places
-    line_length += Math.round(pointDistance(pos,lastpos)*100)/100;
+    line_length += manhattanDistance(pos,lastpos);
   }
   if (user.mousedown && user.tool == "erase"){
     erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
@@ -454,11 +454,13 @@ board.addEventListener("mouseup", function (e) {
     ctx2.fillStyle="#FFF";
     ctx2.beginPath();
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+    
   }
   
   send({ command: "broadcast", type: "Mu", id: userID });
   var line = { path: current_line, id: userID };
   current_line = [];
+  console.log("approx line length: ",line_length);
   line_length = 0;
 });
 
@@ -625,12 +627,11 @@ function drawDot(pos, ctx, user){
     userCtx.stroke();
   }
 }
-//used for getting line length, kind of 
-function pointDistance(pos,lastpos){
+
+//used for getting line length, kind of laggy and bad
+function manhattanDistance(pos,lastpos){
   if(pos!=lastpos){
-    var dx = pos.x-lastpos.x;
-    var dy = pos.y-lastpos.y;
-    var distance = Math.sqrt(Math.abs(dx*dx-dy*dy));
+    var distance = Math.abs(pos.x - lastpos.x) + Math.abs(pos.y - lastpos.y);
     return distance
   }
 }
@@ -653,13 +654,17 @@ function drawLine(pos, lastpos, user) {
   ctx2.stroke();
   
   ctx.lineWidth = user.size * 2;
-  //ctx.translate(0.5, 0.5);
   ctx.strokeStyle='rgba('+user.color.toString()+')';
   ctx.moveTo(lastpos.x, lastpos.y);
   ctx.lineTo(pos.x, pos.y);
   
   user.lastx = pos.x;
   user.lasty = pos.y;
+}
+
+function drawLineArray(posArray, user){
+  var alpha = user.color[3];
+  
 }
 
 function drawText(user) {
