@@ -49,8 +49,9 @@ var connected=false;
 
 
 var sizeSlider = $(".slider.size")[0];
-sizeSlider.value=10;
-sizeSlider.step=1;
+var spacingSlider = $(".slider.spacing")[0];
+sizeSlider.value = size;
+sizeSlider.step = 1;
 
 var icons={
   brush:$("<img class='toolIcon' src='/images/brush-icon.svg' />")[0],
@@ -79,7 +80,8 @@ var self = {
   lastx: null,
   lasty: null,
   size: 10,
-  spacing: 100,
+  spacing: 0,
+  spaceIndex: 0,
   color: "#000",
   tool: "brush",
   text: "",
@@ -244,7 +246,7 @@ function recieve(data) {
       user.mousedown = false;
       break;
 
-    case "ChS":
+    case "ChSi":
       //change the size
       updateUser(user, data, ["size"]);
       var userText = $("." + user.id.toString() + " .text")[0];
@@ -258,7 +260,11 @@ function recieve(data) {
       ctx2.beginPath();
           
       break;
-
+      
+    case "ChSp":
+      updateUser(user,data,["spacing"]);
+      break;
+      
     case "ChT":
       //change the tool
       console.log("changing tool: ");
@@ -477,7 +483,7 @@ board.addEventListener("wheel", function (e) {
 
       sizeSlider.value=size;
 
-      send({ command: "broadcast", type: "ChS", size: size, id: userID });
+      send({ command: "broadcast", type: "ChSi", size: size, id: userID });
 
     }
   } else {
@@ -505,7 +511,7 @@ board.addEventListener("wheel", function (e) {
 
       sizeSlider.value=size;
 
-      send({ command: "broadcast", type: "ChS", size: size, id: userID });
+      send({ command: "broadcast", type: "ChSi", size: size, id: userID });
     }
   }
     
@@ -629,6 +635,9 @@ function drawText(user) {
 
 
 function drawGimp(user,pos){
+  
+  var spacing
+  
   var size = user.size
   var gBrush = user.gBrush;
   if(gBrush.type=="gbr"){
@@ -642,8 +651,7 @@ function drawGimp(user,pos){
     var image = gBrush.images[gBrush.index];
     gBrush.index=(gBrush.index+1)%gBrush.ncells;
   }
-  
-  
+
   var ratioX = width/height;
   var ratioY = height/width;
   
@@ -965,7 +973,7 @@ sizeSlider.addEventListener("mousemove",function(e){
 
     var size = sizeSlider.value;
 
-    send({ command: "broadcast", type: "ChS", size: size, id: userID });
+    send({ command: "broadcast", type: "ChSi", size: size, id: userID });
     cursor_circle.setAttribute("r", size);
 
     ctx.lineWidth = size * 2;
@@ -978,6 +986,27 @@ sizeSlider.addEventListener("mousemove",function(e){
   }
 });
 
+
+spacingSlider.addEventListener("mousemove",function(e){
+  
+  var user = getUser(userID);
+  
+  if(user.spacing != sizeSlider.value){
+   
+    var spacing = spacingSlider.value;
+
+    send({ command: "broadcast", type: "ChSp", spacing: spacing, id: userID });
+
+    self.spacing = spacing;
+    
+    user.spacing=spacing;
+    
+    spacingSlider.value=spacing;
+    console.log(spacing);
+
+    
+  }
+});
 
 
 
