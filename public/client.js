@@ -140,7 +140,6 @@ socket.addEventListener("message", (m) => {
           drawUser(user.userdata, user.id);
           var userTool = $("." + user.id.toString() + " .listTool")[0];
           var userCol = $("." + user.id.toString() + " .listColor")[0];
-          console.log(userTool,userCol);
           userCol.style.backgroundColor = user.color;
           if(user.tool=="brush"){
             userTool.appendChild(icons.brush);
