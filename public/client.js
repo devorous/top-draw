@@ -328,16 +328,42 @@ function recieve(data) {
       break;
     case "gimp":
       //load gimp brush data
-      user.gBrush=data.gimpData;
-      
-      //create an image from the datastream url
-      var image = new Image();
-      image.src = user.gBrush.gimpUrl;
-      image.height = height;
-      image.width = width;
-      //updates the user gbr image for drawing
-      user.gBrush.image = image;
+      console.log(data.gimpData);
+      if(data.gimpData.type=="gbr"){
+        user.gBrush=data.gimpData;
 
+        //create an image from the datastream url
+        var image = new Image();
+        image.src = user.gBrush.gimpUrl;
+        image.height = height;
+        image.width = width;
+        //updates the user gbr image for drawing
+        user.gBrush.image = image;
+      }
+      if(data.gimpData.type=="gih"){
+        var images = [];
+        
+        var gihObject = data.gimpData;
+        
+        for(var i=0;i<gihObject.gBrushes.length;i++){
+          
+          
+          var gbrObject = gihObject.gBrushes[i];
+          
+          var gimpImage = new Image();
+          gimpImage.src = gbrObject.gimpUrl;
+          gimpImage.height = height;
+          gimpImage.width = width;
+          images.push(gimpImage);
+          
+        }
+        
+        gihObject.type = "gih";
+        gihObject.index = 0;
+        gihObject.images = images;
+        console.log(gihObject);
+        user.gBrush = gihObject;
+      }
   }
 }
 
@@ -1134,6 +1160,9 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
       if(fileType=="gbr"){
         var gbrObject = parseGbr(arrayBuffer);
         if(gbrObject){
+          
+          
+          gbrObject.type = "gbr";
           send({command:"broadcast",type:"gimp",gimpData:gbrObject,id:userID});
          
           
@@ -1146,7 +1175,7 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
           gimpImage.width = width;
           
           gbrObject.image = gimpImage;
-          gbrObject.type = "gbr";
+          
           
           self.gBrush = gbrObject;
           user.gBrush = gbrObject;
@@ -1179,6 +1208,7 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
         self.gBrush = gihObject;
         user.gBrush = gihObject;
         
+        send({command:"broadcast",type:"gimp",gimpData:gihObject,id:userID});
       }
     }
 
