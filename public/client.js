@@ -1208,6 +1208,8 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
           images.push(gimpImage);
           
         }
+        var gimpImagePreview = $("#gimpImage")[0];
+        gimpImagePreview.src= gihObject.gBrushes[0].gimpUrl;
         
         gihObject.type = "gih";
         gihObject.index = 0;
