@@ -621,7 +621,8 @@ function drawDot(pos, ctx, user){
     ctx.lineWidth = user.size * 2;
     ctx.moveTo(pos.x,pos.y);
     ctx.lineTo(pos.x,pos.y);
-    
+    ctx.stroke();
+    /*
     var noAlpha = [user.color[0],user.color[1],user.color[2]];
     var alpha = user.color[3];
     topBoard.style.opacity=alpha;
@@ -632,6 +633,7 @@ function drawDot(pos, ctx, user){
     userCtx.moveTo(pos.x,pos.y);
     userCtx.lineTo(pos.x,pos.y);
     userCtx.stroke();
+    */
   }
 }
 
