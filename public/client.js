@@ -642,7 +642,6 @@ function drawGimp(user,pos){
     var width = gBrush.cellwidth;
     var image = gBrush.images[gBrush.index];
     gBrush.index=(gBrush.index+1)%gBrush.ncells;
-    console.log(gBrush.index);
   }
   
   
@@ -1071,8 +1070,6 @@ ctx.stroke();
 window.addEventListener("resize", (e) => {
   var newHeight = document.body.scrollHeight;
   var newWidth = document.body.clientWidth;
-  //console.log("old height, width: ",height,width);
-  //console.log("new height,width: ",newHeight,newWidth);
 })
   
 
@@ -1116,15 +1113,27 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
       }
       if(fileType=="gih"){
         var gihObject = parseGih(arrayBuffer);
+        
         var images = [];
-        var gimpImage = new Image();
+        
+        
+        
         for(var i=0;i<gihObject.gBrushes.length;i++){
-          var current_brush = gihObject.gBrushes[i];
-          current_brush
+          
+          
+          var gbrObject = gihObject.gBrushes[i];
+          
+          var gimpImage = new Image();
+          gimpImage.src = gbrObject.gimpUrl;
+          gimpImage.height = height;
+          gimpImage.width = width;
+          images.push(gimpImage);
+          
         }
         
         gihObject.type = "gih";
         gihObject.index = 0;
+        gihObject.images = images;
         console.log(gihObject);
         self.gBrush = gihObject;
         user.gBrush = gihObject;
