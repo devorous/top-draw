@@ -67,6 +67,7 @@ body {
 }
 .textInput{
   overflow:hidden;
+  font-family: 'Newsreader', serif;
 }
 .input{
   font-size:15px;

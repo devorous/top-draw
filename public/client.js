@@ -666,7 +666,7 @@ function drawText(user) {
   var text = user.text.replaceAll("&nbsp;"," ");
   ctx.beginPath();
   ctx.fillStyle='rgba('+user.color.toString()+')';
-  ctx.font = size + "px sans-serif";
+  ctx.font = size + "px Newsreader, serif";
   ctx.fillText(text, user.x + 5, user.y -6 + user.size + 5);
   user.text="";
 }
