@@ -222,7 +222,7 @@ function recieve(data) {
         ctx.lineCap = "round";
         //ctx.beginPath();
         drawLine(pos, pos, user);
-        drawDot(pos,user.context,user);
+        drawDot(pos,user);
       }
       if (user.tool == "text" && user.text != "") {
         drawText(user);
@@ -430,8 +430,7 @@ board.addEventListener("mousedown", function (e) {
   self.spaceIndex = 0;
 
   if (user.tool == "brush") {
-    drawDot(pos,ctx,user);
-    drawDot(pos,userCtx,user);
+    drawDot(pos,user);
   }
   
   if (user.tool == "text" && user.text != "") {
@@ -460,7 +459,7 @@ board.addEventListener("mouseup", function (e) {
     ctx2.fillStyle="#FFF";
     ctx2.beginPath();
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-    drawLineArray(user.currentLine, user);
+    //drawLineArray(user.currentLine, user);
   }
   
   send({ command: "broadcast", type: "Mu", id: userID });
@@ -612,7 +611,7 @@ document.addEventListener("keydown", function (e) {
   }
 });
 
-function drawDot(pos, ctx, user){
+function drawDot(pos, user){
   var userCtx = user.context;
   console.log(userCtx)
   if (user.tool == "brush") {
@@ -622,7 +621,7 @@ function drawDot(pos, ctx, user){
     ctx.moveTo(pos.x,pos.y);
     ctx.lineTo(pos.x,pos.y);
     ctx.stroke();
-    /*
+
     var noAlpha = [user.color[0],user.color[1],user.color[2]];
     var alpha = user.color[3];
     topBoard.style.opacity=alpha;
@@ -633,7 +632,7 @@ function drawDot(pos, ctx, user){
     userCtx.moveTo(pos.x,pos.y);
     userCtx.lineTo(pos.x,pos.y);
     userCtx.stroke();
-    */
+    
   }
 }
 
