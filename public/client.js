@@ -68,6 +68,15 @@ var gimpBtn = $("#gimpBtn")[0];
 
 var clearBtn = $("#clearBtn")[0];
 
+var blendMode = $("#blendMode")[0];
+
+var blendOptions = {
+		"none": "source-over",
+		"lighten": "lighten",
+		"darken": "darken",
+		"multiply": "multiply",
+		"difference": "difference"
+	}
 
 //set default values for your user list entry
 userlistEntry.children[0].appendChild(icons.brush.cloneNode());
