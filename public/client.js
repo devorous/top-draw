@@ -625,7 +625,7 @@ function drawDot(pos, ctx, user){
     userCtx.stroke();
   }
 }
-
+//used for getting line length, kind of 
 function pointDistance(pos,lastpos){
   if(pos!=lastpos){
     var dx = pos.x-lastpos.x;
@@ -1329,10 +1329,10 @@ function parseGbr(arrayBuffer){
   //if the image is greyscale
   if(colorDepth==1){
     for(let i= 0; i < gData.length; i+=1){
-      var v = imageData[i];
-      gData[i*4] = 255-v;    // Red value
-      gData[i*4 + 1] = 255-v;  // Blue value
-      gData[i*4 + 2] = 255-v;  // Green value
+      var v = imageData[i]; // greyscale value
+      gData[i*4] = 255-v;    
+      gData[i*4 + 1] = 255-v; 
+      gData[i*4 + 2] = 255-v;  
       gData[i*4 + 3] = 255;  // Alpha value
     }
   }
@@ -1379,7 +1379,7 @@ function parseGih(arrayBuffer){
     alert("Too big!!");
   }
   else{
-    //split the data into chunks by newline (10 in decimal)
+    //split off the two heading chunks by newline (10 in decimal)
     var chunks = splitUint8Array(view, 10);
     var name =  chunkToString(chunks[0]);
     var info = chunkToString(chunks[1]);
