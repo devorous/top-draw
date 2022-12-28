@@ -80,6 +80,7 @@ var self = {
   lastx: null,
   lasty: null,
   size: 10,
+  smoothing: "none",
   spacing: 0,
   spaceIndex: 0,
   color: "#000",
@@ -454,7 +455,7 @@ board.addEventListener("mouseup", function (e) {
     ctx2.fillStyle="#FFF";
     ctx2.beginPath();
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-    
+    drawLineArray(current_line, user);
   }
   
   send({ command: "broadcast", type: "Mu", id: userID });
@@ -653,18 +654,31 @@ function drawLine(pos, lastpos, user) {
   ctx2.lineTo(pos.x,pos.y);
   ctx2.stroke();
   
+  /*
   ctx.lineWidth = user.size * 2;
   ctx.strokeStyle='rgba('+user.color.toString()+')';
   ctx.moveTo(lastpos.x, lastpos.y);
   ctx.lineTo(pos.x, pos.y);
+  */
   
   user.lastx = pos.x;
   user.lasty = pos.y;
 }
 
-function drawLineArray(posArray, user){
-  var alpha = user.color[3];
+function drawLineArray(points, user){
+  console.log("drawing line from: ",points);
+  ctx.lineWidth = user.size * 2;
+  ctx.strokeStyle='rgba('+user.color.toString()+')';
   
+  ctx.moveTo(points[0].x, points[0].y);
+
+  // Iterate over the rest of the points and draw lines to them
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+
+  // Stroke the path to draw the line
+  ctx.stroke();
 }
 
 function drawText(user) {
