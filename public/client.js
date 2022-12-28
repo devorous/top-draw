@@ -91,7 +91,7 @@ var self = {
   board:board,
   id: userID,
   gBrush: null,
-  
+  blendMode: "none",
 };
 
 // Add self  to beginning of users array:
@@ -1068,88 +1068,11 @@ spacingSlider.addEventListener("mousemove",function(e){
   }
 });
 
-
-
-
-
-
-function cubicSplineInterpSmooth(points){
-  // Create a new array of smoothed points
-  const smoothPoints = [];
-
-  // Loop through the original points and add new points to the smooth points array
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i];
-    const p1 = points[i + 1];
-
-    // Calculate the control points for the cubic spline curve
-    const c0 = {
-      x: p0.x + (p1.x - p0.x) / 6,
-      y: p0.y + (p1.y - p0.y) / 6
-    };
-    const c1 = {
-      x: p1.x - (p1.x - p0.x) / 6,
-      y: p1.y - (p1.y - p0.y) / 6
-    };
-
-    // Add the control points and the end point to the smooth points array
-    smoothPoints.push(c0, c1, p1);
-  }
-
-  return smoothPoints;
-}
-
-function movingAverageSmooth(points,windowSize){
-  // Create a new array of smoothed points
-  const smoothPoints = [];
-
-  // Loop through the original points and add new points to the smooth points array
-  for (let i = 0; i < points.length; i++) {
-    // Calculate the average of the current point and the previous `windowSize` points
-    let sumX = 0;
-    let sumY = 0;
-    let count = 0;
-    for (let j = Math.max(0, i - windowSize); j <= i; j++) {
-      sumX += points[j].x;
-      sumY += points[j].y;
-      count++;
-    }
-    const avgX = sumX / count;
-    const avgY = sumY / count;
-
-    // Add the average point to the smooth points array
-    smoothPoints.push({x: avgX, y: avgY});
-  }
-
-  return smoothPoints;
-}
-
-
-function drawBezierCurve(points){
+blendMode.addEventListener("change",function(e){
   
-// Draw the smoothed curve on the canvas
-ctx.beginPath();
-ctx.moveTo(points[0].x, points[0].y);
-
-for (let i = 1; i < points.length - 2; i += 3) {
-  ctx.bezierCurveTo(
-    points[i].x, points[i].y,
-    points[i + 1].x, points[i + 1].y,
-    points[i + 2].x, points[i + 2].y
-  );
-}
-
-ctx.stroke();
-}
-
-
-
-
-
-
-
-
-
+  
+  
+});
 
 
 

@@ -160,7 +160,7 @@ canvas{
   
   justify-content:center;
   background-color:lightgrey;
-    position: absolute; 
+  position: absolute; 
   bottom: 0;
 
 }
@@ -257,4 +257,9 @@ canvas{
 }
 #gimp-file-input{
   width:100%;
+}
+.dropDown{
+  display:flex;
+  font-size:0.75em;
+  align-items: center;
 }
