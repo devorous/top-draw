@@ -1,6 +1,9 @@
 dependencies:
+  bufferutil: 4.0.7
   express: 4.18.2
-  md-color-picker: 0.2.6
+  gimp: 0.0.1-security
+  kaitai-struct: 0.10.0
+  utf-8-validate: 5.0.10
   ws: 7.5.9
 packages:
   /accepts/1.3.8:
@@ -36,6 +39,15 @@ packages:
       npm: 1.2.8000 || >= 1.4.16
     resolution:
       integrity: sha512-jWi7abTbYwajOytWCQc37VulmWiRae5RyTpaCyDcS5/lMdtwSz5lOpDE67srw/HYe35f1z3fDQw+3txg7gNtWw==
+  /bufferutil/4.0.7:
+    dependencies:
+      node-gyp-build: 4.5.0
+    dev: false
+    engines:
+      node: '>=6.14.2'
+    requiresBuild: true
+    resolution:
+      integrity: sha512-kukuqc39WOHtdxtw4UScxF/WVnMFVSQVKhtx3AjZJzhd0RGZZldcrfSEbVsWWe6KNH253574cq5F+wpv0G9pJw==
   /bytes/3.1.2:
     dev: false
     engines:
@@ -188,6 +200,10 @@ packages:
     dev: false
     resolution:
       integrity: sha512-QJVz1Tj7MS099PevUG5jvnt9tSkXN8K14dxQlikJuPt4uD9hHAHjLyLBiLR5zELelBdD9QNRAXZzsJx0WaDL9A==
+  /gimp/0.0.1-security:
+    dev: false
+    resolution:
+      integrity: sha512-5eB8/nPAS9GA2vm2wiNBJx7QPke8QkqiPSUrog0CrO5vJSuXZlTRwTuLRsB+hhm6VREaURzhhoU/PYH0yoDAdw==
   /has-symbols/1.0.3:
     dev: false
     engines:
@@ -232,12 +248,10 @@ packages:
       node: '>= 0.10'
     resolution:
       integrity: sha512-0KI/607xoxSToH7GjN1FfSbLoU0+btTicjsQSWQlh/hZykN8KpmMf7uYwPW3R+akZ6R/w18ZlXSHBYXiYUPO3g==
-  /md-color-picker/0.2.6:
-    dependencies:
-      tinycolor2: 1.4.2
+  /kaitai-struct/0.10.0:
     dev: false
     resolution:
-      integrity: sha512-pkEI4RUOM8PZvf+L/qHiAfBuPdyLGMMucnCoVcsjWQVVbCvmIoZuYx5OAeK4V1ZcBsPVkIXQnfuwFn1RLSxHLw==
+      integrity: sha512-81oxVi/OY+LrzgrONX7ciD1wtvq24nb2M9iYixRiQG+1hrDrDRqFVWuQzF1fUexh3Sg/ol6eMAz1MOVYFouzUg==
   /media-typer/0.3.0:
     dev: false
     engines:
@@ -289,6 +303,11 @@ packages:
       node: '>= 0.6'
     resolution:
       integrity: sha512-+EUsqGPLsM+j/zdChZjsnX51g4XrHFOIXwfnCVPGlQk/k5giakcKsuxCObBRu6DSm9opw/O6slWbJdghQM4bBg==
+  /node-gyp-build/4.5.0:
+    dev: false
+    hasBin: true
+    resolution:
+      integrity: sha512-2iGbaQBV+ITgCz76ZEjmhUKAKVf7xfY1sRl4UiKQspfZMH2h06SyhNsnSVy50cwkFQDGLyif6m/6uFXHkOZ6rg==
   /object-inspect/1.12.2:
     dev: false
     resolution:
@@ -402,10 +421,6 @@ packages:
       node: '>= 0.8'
     resolution:
       integrity: sha512-RwNA9Z/7PrK06rYLIzFMlaF+l73iwpzsqRIFgbMLbTcLD6cOao82TaWefPXQvB2fOC4AjuYSEndS7N/mTCbkdQ==
-  /tinycolor2/1.4.2:
-    dev: false
-    resolution:
-      integrity: sha512-vJhccZPs965sV/L2sU4oRQVAos0pQXwsvTLkWYdqJ+a8Q5kPFzJTuOFwy7UniPli44NKQGAglksjvOcpo95aZA==
   /toidentifier/1.0.1:
     dev: false
     engines:
@@ -427,6 +442,15 @@ packages:
       node: '>= 0.8'
     resolution:
       integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==
+  /utf-8-validate/5.0.10:
+    dependencies:
+      node-gyp-build: 4.5.0
+    dev: false
+    engines:
+      node: '>=6.14.2'
+    requiresBuild: true
+    resolution:
+      integrity: sha512-Z6czzLq4u8fPOyx7TU6X3dvUZVvoJmxSQ+IcrlmagKhilxlhZgxPK6C5Jqbkw1IDUmFTM+cz9QDnnLTwDz/2gQ==
   /utils-merge/1.0.1:
     dev: false
     engines:
@@ -452,6 +476,9 @@ registry: 'https://registry.npmjs.org/'
 shrinkwrapMinorVersion: 9
 shrinkwrapVersion: 3
 specifiers:
+  bufferutil: ^4.0.7
   express: ^4.18.2
-  md-color-picker: ^0.2.6
+  gimp: 0.0.1-security
+  kaitai-struct: ^0.10.0
+  utf-8-validate: ^5.0.10
   ws: ^7.5.9

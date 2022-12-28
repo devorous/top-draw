@@ -199,7 +199,7 @@ function recieve(data) {
       if(user.mousedown && user.tool == "erase"){
         erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
       }
-      if(user.mousedown && user.tool == "gimp" && user.gbr){
+      if(user.mousedown && user.tool == "gimp" && user.gBrush){
         drawGimp(user,pos);
       }
       user.lastx=data.x;
@@ -225,7 +225,7 @@ function recieve(data) {
       if(user.tool == "erase"){
         erase(pos.x,pos.y,pos.x,pos.y,user.size*2);
       }
-      if(user.tool =="gimp" && user.gbr){
+      if(user.tool =="gimp" && user.gBrush){
         drawGimp(user,pos);
       }
       
@@ -320,15 +320,15 @@ function recieve(data) {
       break;
     case "gimp":
       //load gimp brush data
-      user.gbr=data.gimpData;
+      user.gBrush=data.gimpData;
       
       //create an image from the datastream url
       var image = new Image();
-      image.src = user.gbr.gimpUrl;
+      image.src = user.gBrush.gimpUrl;
       image.height = height;
       image.width = width;
       //updates the user gbr image for drawing
-      user.gbr.image = image;
+      user.gBrush.image = image;
 
   }
 }
@@ -370,7 +370,7 @@ board.addEventListener("mousemove", function (e) {
   if (user.mousedown && user.tool == "erase"){
     erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
   }
-  if(user.mousedown && user.gbr && user.tool == "gimp"){
+  if(user.mousedown && user.gBrush && user.tool == "gimp"){
     drawGimp(user,pos);
   }
   user.lastx = user.x;
@@ -404,7 +404,7 @@ board.addEventListener("mousedown", function (e) {
     erase(pos.x,pos.y,user.lastx,user.lasty,user.size*2);
   }
   if(user.tool == "gimp"){
-    if(user.gbr){
+    if(user.gBrush){
       drawGimp(user,pos);
     }
   }
@@ -631,11 +631,11 @@ function drawText(user) {
 
 function drawGimp(user,pos){
   var size = user.size
-  var gbr = user.gbr;
+  var gBrush = user.gBrush;
   
-  var height = gbr.height;
-  var width = gbr.width;
-  var image = gbr.image;
+  var height = gBrush.height;
+  var width = gBrush.width;
+  var image = gBrush.image;
   
   var ratioX = width/height;
   var ratioY = height/width;
@@ -1070,12 +1070,6 @@ window.addEventListener("resize", (e) => {
 
 
 
-
-
-
-
-
-
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
   
   var user = getUser(userID);
@@ -1105,13 +1099,16 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
           gimpImage.width = width;
           
           gbrObject.image = gimpImage;
+          gbrObject.type = "gbr";
           
-          self.gbr = gbrObject;
-          user.gbr = gbrObject;
+          self.gBrush = gbrObject;
+          user.gBrush = gbrObject;
         }
       }
       if(fileType=="gih"){
-        //parseGih(arrayBuffer);
+        var gihObject = parseGih(arrayBuffer);
+        gihObject.type = "gih";
+        console.log(gihObject)
       }
     }
 
@@ -1229,4 +1226,87 @@ function parseGbr(arrayBuffer){
   brushObject.gimpUrl=url;
   
   return brushObject
+}
+
+
+//helper function for parseGih
+function splitUint8Array(array, delimiter) {
+  const chunks = [];
+  let chunk = [];
+  let i = 0;
+  for (const value of array) {
+    
+    if (value === delimiter) {
+      chunks.push(chunk);
+      chunk = [];
+      i+=1;
+      if(i==2){
+        break;
+      }
+    } else {
+      chunk.push(value);
+    }
+  }
+  if (chunk.length > 0) {
+    chunks.push(chunk);
+  }
+  return chunks;
+}
+
+
+function parseGih(arrayBuffer){
+  var view = new Uint8Array(arrayBuffer);
+  //Limit size of .gih brush bytes to avoid lag
+  if(view.length>1500000){
+    alert("Too big!!");
+  }
+  else{
+    //split the data into chunks by newline (10 in decimal)
+    var chunks = splitUint8Array(view, 10);
+    var name =  chunkToString(chunks[0]);
+    var info = chunkToString(chunks[1]);
+
+    var infoSplit = info.split(" ");
+    var gihObject = {};
+    for(var i=1; i<infoSplit.length; i++){
+      var splits = infoSplit[i].split(":");
+      var head = splits[0];
+      var value = splits[1];
+      if(Number(value)){
+        value = Number(value);
+      }
+      gihObject[head]=value;
+    }
+    
+    var data = view.slice(chunks[0].length+chunks[1].length+2);
+    var colorDepth = data[19];
+    var imageBytes = gihObject.cellheight*gihObject.cellwidth*colorDepth;
+    
+
+    var indices = [];
+    var cellSize = 0;
+    
+    //an accumulator to store the indices of each image location, for slicing
+    var acc = 0;
+    
+    for(var i=0;i<gihObject.ncells;i++){
+      indices.push(acc);
+      var headerChunk = data.slice(acc,acc+4);
+      var headerLength = Number("0x"+concatChunk(headerChunk));
+      var cellSize = imageBytes+headerLength;
+      acc+= cellSize;
+    }
+    indices.push(acc);
+    var images = [];
+    
+    for(var i=0;i<gihObject.ncells;i++){
+      var index = indices[i];
+      var current_data = data.slice(index,index+indices[i+1]);
+      
+      var image = parseGbr(current_data) ;
+      images.push(image);
+    }
+    gihObject.images=images;
+      return gihObject
+  }
 }
