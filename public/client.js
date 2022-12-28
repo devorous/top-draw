@@ -222,7 +222,7 @@ function recieve(data) {
         ctx.lineCap = "round";
         //ctx.beginPath();
         drawLine(pos, pos, user);
-        drawDot(pos,user);
+        //drawDot(pos,user);
       }
       if (user.tool == "text" && user.text != "") {
         drawText(user);
@@ -430,7 +430,7 @@ board.addEventListener("mousedown", function (e) {
   self.spaceIndex = 0;
 
   if (user.tool == "brush") {
-    drawDot(pos,user);
+    //drawDot(pos,user);
   }
   
   if (user.tool == "text" && user.text != "") {
@@ -455,11 +455,11 @@ board.addEventListener("mouseup", function (e) {
   self.mousedown = false;
   user.mousedown = false;
   if(user.tool=="brush"){
-    ctx.stroke();
     ctx2.fillStyle="#FFF";
     ctx2.beginPath();
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-    //drawLineArray(user.currentLine, user);
+
+    drawLineArray(user.currentLine, user);
   }
   
   send({ command: "broadcast", type: "Mu", id: userID });
@@ -497,12 +497,10 @@ board.addEventListener("wheel", function (e) {
     }
     if (size - 0.3 > 0) {
       if(user.mousedown){
-        ctx.stroke();
-        ctx.beginPath();
         ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
         ctx2.stroke();
         ctx2.beginPath();
-
+        drawLineArray(user.currentLine,user)
         user.currentLine=[];
 
       }
@@ -528,12 +526,10 @@ board.addEventListener("wheel", function (e) {
     //scrolling up
     if (size+2 < 100) {
       if(user.mousedown){
-        ctx.stroke();
-        ctx.beginPath();
         ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
         ctx2.stroke();
         ctx2.beginPath();
-        user.currentLine=[];
+        drawLineArray(user.currentLine,user)
       }
       size = size + step;
 
@@ -679,7 +675,7 @@ function drawLineArray(points, user){
   console.log("drawing line from: ",points);
   ctx.lineWidth = user.size * 2;
   ctx.strokeStyle='rgba('+user.color.toString()+')';
-  
+  ctx.beginPath();
   ctx.moveTo(points[0], points[1]);
 
   // Iterate over the rest of the points and draw lines to them
@@ -689,6 +685,7 @@ function drawLineArray(points, user){
 
   // Stroke the path to draw the line
   ctx.stroke();
+  user.currentLine=[];
 }
 
 function drawText(user) {
