@@ -210,6 +210,9 @@ function recieve(data) {
     case "Md":
       user.lastx = user.x;
       user.lasty = user.y;
+      
+      user.spaceIndex=0;
+      
       var pos = { x: user.x, y: user.y };
       if (user.tool == "brush") {
         
@@ -391,7 +394,8 @@ board.addEventListener("mousedown", function (e) {
   user.lastx = user.x;
   user.lasty = user.y;
   self.mousedown = true;
-  
+  user.spaceIndex = 0;
+  self.spaceIndex = 0;
 
   if (user.tool == "brush") {
     drawDot(pos,ctx,user);
@@ -635,39 +639,48 @@ function drawText(user) {
 
 
 function drawGimp(user,pos){
-  
-  var spacing
-  
-  var size = user.size
-  var gBrush = user.gBrush;
-  if(gBrush.type=="gbr"){
-    var height = gBrush.height;
-    var width = gBrush.width;
-    var image = gBrush.image;
+  var spacingTest = true;
+  if(user.spacing != 0){
+    if(user.spaceIndex != 0){
+      var spacingTest = false;
+    }
+    //increments spacing index to know when to draw
+    user.spaceIndex = (user.spaceIndex+1)%user.spacing;
   }
-  if(gBrush.type=="gih"){
-    var height = gBrush.cellheight;
-    var width = gBrush.cellwidth;
-    var image = gBrush.images[gBrush.index];
-    gBrush.index=(gBrush.index+1)%gBrush.ncells;
-  }
+  if(spacingTest){
+    
+    var size = user.size
+    var gBrush = user.gBrush;
+    if(gBrush.type=="gbr"){
+      var height = gBrush.height;
+      var width = gBrush.width;
+      var image = gBrush.image;
+    }
+    if(gBrush.type=="gih"){
+      var height = gBrush.cellheight;
+      var width = gBrush.cellwidth;
+      var image = gBrush.images[gBrush.index];
+      //increment the animated brush by one, looping
+      gBrush.index=(gBrush.index+1)%gBrush.ncells;
+    }
 
-  var ratioX = width/height;
-  var ratioY = height/width;
-  
-  
-  if(width>height){
-    ratioX=1;
-  }
-  if(height>width){
-    ratioY=1;
-  }
-  
-  ctx.beginPath();
-  ctx.fillStyle='rgba('+self.color.toString()+')';
-  ctx.drawImage(image,(pos.x-size*ratioX),(pos.y-size*ratioY),size*2*ratioX,size*2*ratioY);
-  ctx.stroke();
+    var ratioX = width/height;
+    var ratioY = height/width;
 
+
+    if(width>height){
+      ratioX=1;
+    }
+    if(height>width){
+      ratioY=1;
+    }
+
+    ctx.beginPath();
+    ctx.fillStyle='rgba('+self.color.toString()+')';
+    ctx.drawImage(image,(pos.x-size*ratioX),(pos.y-size*ratioY),size*2*ratioX,size*2*ratioY);
+    ctx.stroke();
+    
+  }
 }
 
 
