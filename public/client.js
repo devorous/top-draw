@@ -42,7 +42,7 @@ ctx.lineCap = "round";
 
 var gimpData = null;
 
-
+var current_line = [];
 var line_length = 0;
 
 var connected=false;
@@ -80,7 +80,6 @@ var self = {
   lastx: null,
   lasty: null,
   size: 10,
-  smoothing: "none",
   spacing: 0,
   spaceIndex: 0,
   color: "#000",
@@ -92,7 +91,6 @@ var self = {
   board:board,
   id: userID,
   gBrush: null,
-  currentLine: [],
   
 };
 
@@ -198,7 +196,6 @@ function recieve(data) {
       var lastpos = { x: user.lastx, y: user.lasty };
       if (user.mousedown && user.tool == "brush") {
         drawLine(pos, lastpos, user);
-        user.currentLine.push(pos.x,pos.y);
       }
       if(user.mousedown && user.tool == "erase"){
         erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
@@ -220,9 +217,8 @@ function recieve(data) {
       if (user.tool == "brush") {
         
         ctx.lineCap = "round";
-        //ctx.beginPath();
+        ctx.beginPath();
         drawLine(pos, pos, user);
-        //drawDot(pos,user);
       }
       if (user.tool == "text" && user.text != "") {
         drawText(user);
@@ -249,8 +245,6 @@ function recieve(data) {
         ctx.stroke();
         ctx2.stroke();
         ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
-        drawLineArray(user.currentLine,user)
-        user.currentLine=[];
       }
       user.mousedown = false;
       break;
@@ -403,7 +397,7 @@ board.addEventListener("mousemove", function (e) {
   
   if (user.mousedown && user.tool == "brush") {
     drawLine(pos, lastpos, user);
-    user.currentLine.push(pos.x,pos.y);
+    current_line.push(pos);
     //get distance between points, rounded to two decimal places
     line_length += manhattanDistance(pos,lastpos);
   }
@@ -430,7 +424,8 @@ board.addEventListener("mousedown", function (e) {
   self.spaceIndex = 0;
 
   if (user.tool == "brush") {
-    //drawDot(pos,user);
+    drawDot(pos,ctx,user);
+    drawDot(pos,userCtx,user);
   }
   
   if (user.tool == "text" && user.text != "") {
@@ -455,16 +450,16 @@ board.addEventListener("mouseup", function (e) {
   self.mousedown = false;
   user.mousedown = false;
   if(user.tool=="brush"){
+    ctx.stroke();
     ctx2.fillStyle="#FFF";
     ctx2.beginPath();
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-
-    drawLineArray(user.currentLine, user);
+    
   }
   
   send({ command: "broadcast", type: "Mu", id: userID });
-  var line = { path: user.currentLine, id: userID };
-  user.currentLine = [];
+  var line = { path: current_line, id: userID };
+  current_line = [];
   console.log("approx line length: ",line_length);
   line_length = 0;
 });
@@ -497,11 +492,13 @@ board.addEventListener("wheel", function (e) {
     }
     if (size - 0.3 > 0) {
       if(user.mousedown){
+        ctx.stroke();
+        ctx.beginPath();
         ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
         ctx2.stroke();
         ctx2.beginPath();
-        drawLineArray(user.currentLine,user)
-        user.currentLine=[];
+
+        current_line=[];
 
       }
 
@@ -526,10 +523,12 @@ board.addEventListener("wheel", function (e) {
     //scrolling up
     if (size+2 < 100) {
       if(user.mousedown){
+        ctx.stroke();
+        ctx.beginPath();
         ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
         ctx2.stroke();
         ctx2.beginPath();
-        drawLineArray(user.currentLine,user)
+        current_line=[];
       }
       size = size + step;
 
@@ -607,17 +606,15 @@ document.addEventListener("keydown", function (e) {
   }
 });
 
-function drawDot(pos, user){
+function drawDot(pos, ctx, user){
   var userCtx = user.context;
-  console.log(userCtx)
   if (user.tool == "brush") {
     ctx.beginPath()
     ctx.strokeStyle='rgba('+user.color.toString()+')';
     ctx.lineWidth = user.size * 2;
     ctx.moveTo(pos.x,pos.y);
     ctx.lineTo(pos.x,pos.y);
-    ctx.stroke();
-
+    
     var noAlpha = [user.color[0],user.color[1],user.color[2]];
     var alpha = user.color[3];
     topBoard.style.opacity=alpha;
@@ -628,14 +625,13 @@ function drawDot(pos, user){
     userCtx.moveTo(pos.x,pos.y);
     userCtx.lineTo(pos.x,pos.y);
     userCtx.stroke();
-    
   }
 }
 
 //used for getting line length, kind of laggy and bad
-function manhattanDistance(x1,y1,x2,y2){
-  if(x1!=x2 && y1!=y2){
-    var distance = Math.abs(x1 - x2) + Math.abs(y1 - y2);
+function manhattanDistance(pos,lastpos){
+  if(pos!=lastpos){
+    var distance = Math.abs(pos.x - lastpos.x) + Math.abs(pos.y - lastpos.y);
     return distance
   }
 }
@@ -657,35 +653,18 @@ function drawLine(pos, lastpos, user) {
   ctx2.lineTo(pos.x,pos.y);
   ctx2.stroke();
   
-  /*
   ctx.lineWidth = user.size * 2;
   ctx.strokeStyle='rgba('+user.color.toString()+')';
   ctx.moveTo(lastpos.x, lastpos.y);
   ctx.lineTo(pos.x, pos.y);
-  */
   
   user.lastx = pos.x;
   user.lasty = pos.y;
 }
 
-function drawLineArray(points, user){
-  //points come in as an array of numbers
-  points = resampleLine(points,20);
+function drawLineArray(posArray, user){
+  var alpha = user.color[3];
   
-  console.log("drawing line from: ",points);
-  ctx.lineWidth = user.size * 2;
-  ctx.strokeStyle='rgba('+user.color.toString()+')';
-  ctx.beginPath();
-  ctx.moveTo(points[0], points[1]);
-
-  // Iterate over the rest of the points and draw lines to them
-  for (let i = 2; i < points.length-1; i=i+2) {
-    ctx.lineTo(points[i], points[i+1]);
-  }
-
-  // Stroke the path to draw the line
-  ctx.stroke();
-  user.currentLine=[];
 }
 
 function drawText(user) {
@@ -965,7 +944,7 @@ function drawUser(data, id) {
   userBoards.appendChild(userBoard);
   var context = [userBoard.getContext("2d"),id];
   user.board = userBoard;
-  user.context = context[0];
+  user.context = context;
   
 
   
@@ -1090,33 +1069,7 @@ spacingSlider.addEventListener("mousemove",function(e){
 });
 
 
-function resampleLine(points, numPoints) {
-  // Initialize the resampled array and the running total of distance traveled
-  let resampled = [];
-  let distance = 0;
 
-  // Iterate through the points in the input array
-  for (let i = 2; i < points.length; i += 2) {
-    // Calculate the distance between the current point and the previous point
-    let d = manhattanDistance(points[i-2], points[i-1], points[i], points[i+1]);
-    console.log(d);
-    // If the distance traveled equals or exceeds the desired distance between points on the resampled line, add a new point to the resampled array
-    if (distance + d >= numPoints) {
-      let qx = points[i-2] + ((numPoints - distance) / d) * (points[i] - points[i-2]);
-      let qy = points[i-1] + ((numPoints - distance) / d) * (points[i+1] - points[i-1]);
-      resampled.push(qx, qy);
-      points.splice(i, 0, qx, qy);
-      distance = 0;
-    } else {
-      distance += d;
-    }
-  }
-
-  // Add the final point to the resampled array
-  resampled.push(points[points.length - 2], points[points.length - 1]);
-
-  return resampled;
-}
 
 
 
@@ -1165,7 +1118,7 @@ function movingAverageSmooth(points,windowSize){
     const avgY = sumY / count;
 
     // Add the average point to the smooth points array
-    smoothPoints.push(avgX,avgY);
+    smoothPoints.push({x: avgX, y: avgY});
   }
 
   return smoothPoints;
