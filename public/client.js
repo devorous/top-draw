@@ -675,9 +675,9 @@ function drawLine(pos, lastpos, user) {
 function drawLineArray(points,ctx, user){
   
   var tension = 0.5;
-  var numOfSegments = 20// Math.round(line_length/20);
-  console.log("segments: ",numOfSegments)
-  var interpolatedPoints = splineInterpolation(points, tension, numOfSegments);
+  var numOfSegments = 50// Math.round(line_length/20);
+  //var interpolatedPoints = splineInterpolation(points, tension, numOfSegments);
+  var interpolatedPoints = calcCatmullRomCurve(points, tension)
   ctx.globalCompositeOperation = user.blendMode;
   console.log("drawing points: ",points);
   
@@ -1495,3 +1495,41 @@ ctx.lineTo(point.x, point.y);
 ctx.stroke();
 }
 
+function calcCatmullRomCurve(points, tension) {
+  // Initialize the curve points array
+  const curvePoints = [];
+
+  // Add the first point to the curve points array
+  curvePoints.push(points[0]);
+
+  // Iterate over the points and generate the curve points
+  for (let i = 1; i < points.length - 2; i++) {
+    for (let t = 0; t < 1; t += 0.1) {
+      const t1 = t;
+      const t2 = t1 * t1;
+      const t3 = t2 * t1;
+
+      // Calculate the x and y values for the curve point
+      const x =
+        ((2 * points[i].x) +
+          (-points[i - 1].x + points[i + 1].x) * t1 +
+          (2 * points[i - 1].x - 5 * points[i].x + 4 * points[i + 1].x - points[i + 2].x) * t2 +
+          (-points[i - 1].x + 3 * points[i].x - 3 * points[i + 1].x + points[i + 2].x) * t3) *
+        tension;
+      const y =
+        ((2 * points[i].y) +
+          (-points[i - 1].y + points[i + 1].y) * t1 +
+          (2 * points[i - 1].y - 5 * points[i].y + 4 * points[i + 1].y - points[i + 2].y) * t2 +
+          (-points[i - 1].y + 3 * points[i].y - 3 * points[i + 1].y + points[i + 2].y) * t3) *
+        tension;
+
+      // Add the curve point to the array
+      curvePoints.push({ x, y });
+    }
+  }
+
+  // Add the last point to the curve points array
+  curvePoints.push(points[points.length - 1]);
+
+  return curvePoints;
+}
