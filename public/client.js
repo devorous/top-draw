@@ -649,8 +649,8 @@ function drawLine(pos, lastpos, user) {
   var alpha = user.color[3];
   var noAlpha = [user.color[0],user.color[1],user.color[2]];
   //var spacing = user.spacing;
-
-  topBoard.style.opacity=alpha;
+  
+  //topBoard.style.opacity=alpha;
   //this doesnt work unless I draw the whole line at once, stroke breaks it
   //ctx2.globalCompositeOperation=blendMode.value;
   /*
@@ -679,6 +679,7 @@ function drawLineArray(points,ctx, user){
   //var interpolatedPoints = splineInterpolation(points, tension, numOfSegments);
   var interpolatedPoints = calcCatmullRomCurve(points, tension)
   ctx.globalCompositeOperation = user.blendMode;
+  board.getContext("2d").globalCompositeOperation= user.blendMode;
   console.log("drawing points: ",points);
   
   var alpha = user.color[3];
