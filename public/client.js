@@ -14,7 +14,7 @@ var userlistEntry = $(".userEntry.self")[0];
 text.innerHTML = userID.toString();
 
 
-var boardDim=[480,720];
+var boardDim=[400,240];
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
@@ -236,7 +236,6 @@ function recieve(data) {
         drawGimp(user,pos);
       }
       
-      ctx2.fillStyle="#FFF";
       ctx2.beginPath();
       ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
       
@@ -429,6 +428,7 @@ board.addEventListener("mousedown", function (e) {
   self.spaceIndex = 0;
 
   if (user.tool == "brush") {
+    ctx2.beginPath();
     drawDot(pos,ctx,user);
     drawDot(pos,userCtx,user);
   }
@@ -456,7 +456,7 @@ board.addEventListener("mouseup", function (e) {
   user.mousedown = false;
   if(user.tool=="brush"){
     ctx.stroke();
-    ctx2.fillStyle="#FFF";
+    ctx2.stroke();
     ctx2.beginPath();
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
     
@@ -648,11 +648,12 @@ function drawLine(pos, lastpos, user) {
   //var spacing = user.spacing;
 
   topBoard.style.opacity=alpha;
+  ctx2.globalCompositeOperation=blendMode.value;
   
   ctx2.lineCap="round";
   ctx2.lineWidth=user.size*2;
   ctx2.strokeStyle='rgb('+noAlpha.toString()+')';
-  ctx2.beginPath();
+  
   
   ctx2.moveTo(lastpos.x,lastpos.y);
   ctx2.lineTo(pos.x,pos.y);
