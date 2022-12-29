@@ -401,6 +401,9 @@ board.addEventListener("mousemove", function (e) {
   
   if (user.mousedown && user.tool == "brush") {
     drawLine(pos, lastpos, user);
+    ctx2.beginPath();
+    ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+    //ctx2.drawLineArray(current_line,user);
     current_line.push(pos);
     //get distance between points, rounded to two decimal places
     line_length += manhattanDistance(pos,lastpos);
@@ -428,6 +431,7 @@ board.addEventListener("mousedown", function (e) {
   self.spaceIndex = 0;
 
   if (user.tool == "brush") {
+    current_line.push(pos);
     drawDot(pos,ctx,user);
     drawDot(pos,userCtx,user);
   }
@@ -455,7 +459,6 @@ board.addEventListener("mouseup", function (e) {
   user.mousedown = false;
   if(user.tool=="brush"){
     ctx.stroke();
-    ctx2.fillStyle="#FFF";
     ctx2.beginPath();
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
     
@@ -667,6 +670,9 @@ function drawLine(pos, lastpos, user) {
   user.lasty = pos.y;
 }
 
+function drawLineArray(points,user){
+  
+}
 
 
 function drawText(user) {
