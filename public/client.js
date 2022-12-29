@@ -428,7 +428,6 @@ board.addEventListener("mousedown", function (e) {
   self.spaceIndex = 0;
 
   if (user.tool == "brush") {
-    ctx2.beginPath();
     drawDot(pos,ctx,user);
     drawDot(pos,userCtx,user);
   }
@@ -456,7 +455,7 @@ board.addEventListener("mouseup", function (e) {
   user.mousedown = false;
   if(user.tool=="brush"){
     ctx.stroke();
-    ctx2.stroke();
+    ctx2.fillStyle="#FFF";
     ctx2.beginPath();
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
     
@@ -648,12 +647,12 @@ function drawLine(pos, lastpos, user) {
   //var spacing = user.spacing;
 
   topBoard.style.opacity=alpha;
-  ctx2.globalCompositeOperation=blendMode.value;
-  
+  //this doesnt work unless I draw the whole line at once, stroke breaks it
+  //ctx2.globalCompositeOperation=blendMode.value;
   ctx2.lineCap="round";
   ctx2.lineWidth=user.size*2;
   ctx2.strokeStyle='rgb('+noAlpha.toString()+')';
-  
+  ctx2.beginPath();
   
   ctx2.moveTo(lastpos.x,lastpos.y);
   ctx2.lineTo(pos.x,pos.y);
@@ -668,10 +667,7 @@ function drawLine(pos, lastpos, user) {
   user.lasty = pos.y;
 }
 
-function drawLineArray(posArray, user){
-  var alpha = user.color[3];
-  
-}
+
 
 function drawText(user) {
   ctx.globalCompositeOperation="source-over";
