@@ -401,10 +401,11 @@ board.addEventListener("mousemove", function (e) {
   
   if (user.mousedown && user.tool == "brush") {
     drawLine(pos, lastpos, user);
-    ctx2.beginPath();
-    ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-    //ctx2.drawLineArray(current_line,user);
     current_line.push(pos);
+    //ctx2.beginPath();
+    ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+    drawLineArray(current_line, ctx2, user);
+    
     //get distance between points, rounded to two decimal places
     line_length += manhattanDistance(pos,lastpos);
   }
@@ -652,6 +653,7 @@ function drawLine(pos, lastpos, user) {
   topBoard.style.opacity=alpha;
   //this doesnt work unless I draw the whole line at once, stroke breaks it
   //ctx2.globalCompositeOperation=blendMode.value;
+  /*
   ctx2.lineCap="round";
   ctx2.lineWidth=user.size*2;
   ctx2.strokeStyle='rgb('+noAlpha.toString()+')';
@@ -660,7 +662,7 @@ function drawLine(pos, lastpos, user) {
   ctx2.moveTo(lastpos.x,lastpos.y);
   ctx2.lineTo(pos.x,pos.y);
   ctx2.stroke();
-  
+  */
   ctx.lineWidth = user.size * 2;
   ctx.strokeStyle='rgba('+user.color.toString()+')';
   ctx.moveTo(lastpos.x, lastpos.y);
@@ -670,8 +672,24 @@ function drawLine(pos, lastpos, user) {
   user.lasty = pos.y;
 }
 
-function drawLineArray(points,user){
+function drawLineArray(points,ctx, user){
+  ctx.globalCompositeOperation = user.blendMode;
+  console.log("drawing points: ",points);
   
+  var alpha = user.color[3];
+  var noAlpha = [user.color[0],user.color[1],user.color[2]];
+  //var spacing = user.spacing;
+
+  topBoard.style.opacity=alpha;
+  ctx.strokeStyle='rgb('+noAlpha.toString()+')';
+  ctx.lineWidth=user.size*2;
+  
+  ctx.beginPath();
+  ctx.moveTo(points[0].x,points[0].y);
+  for(var i=1;i<points.length;i++){
+    ctx.lineTo(points[i].x,points[i].y);
+  }
+  ctx.stroke();
 }
 
 
