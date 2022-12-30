@@ -8,7 +8,6 @@ var topBoard = $("#topBoard")[0];
 var cursor = $(".cursor.self")[0];
 var cursor_circle = cursor.children[0].children[0];
 var text = $(".name.self")[0];
-
 cursor.style.display="none";
 
 var userlistEntry = $(".userEntry.self")[0];
@@ -75,12 +74,13 @@ var clearBtn = $("#clearBtn")[0];
 
 var blendMode = $("#blendMode")[0];
 
-
+/*
 //for user later on btn clicks, to hide and show these options
 var gimpPreview = $("#gimpImage")[0];
 var gimpInput = $("#gimp-file-input")[0];
 gimpPreview.style.display="none";
 gimpInput.style.display="none";
+*/
 
 //set default values for your user list entry
 userlistEntry.children[0].appendChild(icons.brush.cloneNode());
@@ -845,6 +845,7 @@ function updateUser(user, data, fields) {
 joinBtn.addEventListener("click", function(){
   console.log("clicked");
   $("#overlay")[0].style.display="none";
+  cursor.style.display="block";
 });
 
 clearBtn.addEventListener("click", function () {
@@ -915,8 +916,7 @@ gimpBtn.addEventListener("click", function () {
   this.classList.add("selected");
   
   
-  gimpImage.style.display="block";
-  gimpInput.style.display="block";
+ 
   
   
   ctx.globalCompositeOperation="source-over";
@@ -1182,7 +1182,7 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
           
           gbrObject.image = gimpImage;
           
-          
+          console.log("brush! ",gbrObject);
           self.gBrush = gbrObject;
           user.gBrush = gbrObject;
         }

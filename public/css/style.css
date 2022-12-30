@@ -20,7 +20,7 @@ body {
   position:absolute;
   height:100%;
   width:100%; 
-  background-color:rgba(0,0,0,0.5);
+  background-color:rgba(0,0,0,0.4);
 }
 #login{
   padding:8px;
@@ -48,9 +48,6 @@ body {
 #boards{
   background-color:white;
   display:block;
-  /* TODO: change the board top to not be 0,0, but relative to the margin/position of the board
-  margin:10px;  
-  */
 }
 
 .userBoard{
