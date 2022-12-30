@@ -92,26 +92,26 @@ function updateUser(data) {
         userdata.y = data.y;
         userdata.lastx = data.lastx;
         userdata.lasty = data.lasty;
-        break
+        break;
       case "Md":
         userdata.mousedown = true;
-        break
+        break;
       case "Mu":
         userdata.mousedown = false;
         if(userdata.tool=="text"){
           userdata.text="";
         }
-        break
-      case "ChS":
+        break;
+      case "ChSi":
         userdata.size = data.size;
-        break
+        break;
       case "ChT":
         userdata.tool = data.tool;
         userdata.text="";
-        break
+        break;
       case "ChC":
         userdata.color = data.color;
-        break
+        break;
       case "kp":
         var key = data.key;
         if (key.length == 1) {

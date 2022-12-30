@@ -15,6 +15,7 @@ var userlistEntry = $(".userEntry.self")[0];
 text.innerHTML = userID.toString();
 
 
+
 var boardDim=[480,720];
 
 var height = document.body.scrollHeight;
@@ -1127,6 +1128,7 @@ spacingSlider.addEventListener("mousemove",function(e){
   }
 });
 
+/*
 blendMode.addEventListener("change",function(e){
   var user = getUser(userID);
   console.log("change! ",this.value)
@@ -1136,21 +1138,19 @@ blendMode.addEventListener("change",function(e){
   send({ command: "broadcast", type: "ChBl", blendMode: mode, id: userID });
 });
 
-
-
+*/
 
 
 window.addEventListener("resize", (e) => {
   var newHeight = document.body.scrollHeight;
   var newWidth = document.body.clientWidth;
-})
+});
   
 
 
 
 
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
-  
   var user = getUser(userID);
    // Get the first selected file
   const file = event.target.files[0];
