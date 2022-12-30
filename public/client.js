@@ -106,6 +106,7 @@ var self = {
   id: userID,
   gBrush: null,
   blendMode: "source-over",
+  currentLine: [],
 };
 
 // Add self  to beginning of users array:
@@ -272,7 +273,9 @@ function recieve(data) {
       userText.style.fontSize = (data.size + 5).toString() + "px";
       
       var userCtx = user.context;
-      ctx.stroke();
+      if(user.mousedown){
+        ctx.stroke();
+      }
       ctx.beginPath();
       ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
       ctx2.stroke();
