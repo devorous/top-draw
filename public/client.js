@@ -9,6 +9,8 @@ var cursor = $(".cursor.self")[0];
 var cursor_circle = cursor.children[0].children[0];
 var text = $(".name.self")[0];
 
+cursor.style.display="none";
+
 var userlistEntry = $(".userEntry.self")[0];
 
 text.innerHTML = userID.toString();
@@ -840,6 +842,10 @@ function updateUser(user, data, fields) {
 }
 
 
+joinBtn.addEventListener("click", function(){
+  console.log("clicked");
+  $("#overlay")[0].style.display="none";
+});
 
 clearBtn.addEventListener("click", function () {
   clearBoard();
