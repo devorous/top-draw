@@ -14,7 +14,7 @@ var userlistEntry = $(".userEntry.self")[0];
 text.innerHTML = userID.toString();
 
 
-var boardDim=[400,240];
+var boardDim=[480,720];
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
@@ -71,6 +71,11 @@ var clearBtn = $("#clearBtn")[0];
 var blendMode = $("#blendMode")[0];
 
 
+//for user later on btn clicks, to hide and show these options
+var gimpPreview = $("#gimpImage")[0];
+var gimpInput = $("#gimp-file-input")[0];
+gimpPreview.style.display="none";
+gimpInput.style.display="none";
 
 //set default values for your user list entry
 userlistEntry.children[0].appendChild(icons.brush.cloneNode());
@@ -99,6 +104,9 @@ var self = {
 
 // Add self  to beginning of users array:
 users.push(self);
+
+
+
 
 
 
@@ -892,6 +900,12 @@ gimpBtn.addEventListener("click", function () {
     selectedTool.classList.toggle("selected");
   }
   this.classList.add("selected");
+  
+  
+  gimpImage.style.display="block";
+  gimpInput.style.display="block";
+  
+  
   ctx.globalCompositeOperation="source-over";
   var user = getUser(userID);
   var index = users.indexOf(user);

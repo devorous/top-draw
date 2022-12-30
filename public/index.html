@@ -27,7 +27,11 @@
           
       
     <div id="main">
-    
+    <div id="overlay">
+      <div id="login">
+        
+      </div>
+    </div>
       
       <div id="boardContainer">  
         <div id="boards">
@@ -83,9 +87,11 @@
                  <input autocomplete="off" type="range" min="0.25" max="100" value="10" class="slider size">   
               </div>
               <div class="sliderContainer">
-                <label>Spacing</label>
+                <label>Gimp Spacing</label>
                 <input autocomplete="off" type="range" min="0" max="20" value="0" class="slider spacing">
               </div>
+              
+              <!--
               <div class="dropDown">
                 <label for="blendMode">Blend Mode:</label>
                 <select autocomplete="off" name="blendMode" id="blendMode">
@@ -96,6 +102,8 @@
                   <option value="difference">Difference</option>
                 </select>
               </div>
+              -->
+              
               <input autocomplete="off" type="file" id="gimp-file-input" accept=".gih, .gbr">
               <image id="gimpImage"></image>
             </div>
