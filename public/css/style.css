@@ -15,12 +15,26 @@ body {
 }
 #overlay{
   display:flex;
+  justify-content:center;
+  align-items:center;
   position:absolute;
   height:100%;
   width:100%; 
+  background-color:rgba(0,0,0,255)
 }
 #login{
-  height:
+  padding:8px;
+  height:150px;
+  width:250px;
+  background-color:grey;
+  border:2px solid black;
+  align-content:center;
+}
+#joinBtn{
+  margin:20px;
+  text-align:center;
+  width:40%;
+  margin-left:30%;
 }
 #boardContainer{
   display:flex;
