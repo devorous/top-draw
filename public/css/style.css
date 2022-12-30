@@ -20,15 +20,16 @@ body {
   position:absolute;
   height:100%;
   width:100%; 
-  background-color:rgba(0,0,0,255)
+  background-color:rgba(0,0,0,0.5);
 }
 #login{
   padding:8px;
-  height:150px;
+  height:175px;
   width:250px;
-  background-color:grey;
+  background-color:#DDDDDD;
   border:2px solid black;
   align-content:center;
+  text-align:center;
 }
 #joinBtn{
   margin:20px;

@@ -60,6 +60,8 @@ var icons={
   gimp:$("<img class='toolIcon' src='/images/pepper.png' />")[0]
 }
 
+var joinBtn = $("#joinBtn")[0];
+
 
 var brushBtn = $("#brushBtn")[0];
 var textBtn = $("#textBtn")[0];
@@ -67,6 +69,7 @@ var eraseBtn = $("#eraseBtn")[0];
 var gimpBtn = $("#gimpBtn")[0];
 
 var clearBtn = $("#clearBtn")[0];
+
 
 var blendMode = $("#blendMode")[0];
 
@@ -568,7 +571,11 @@ board.addEventListener("wheel", function (e) {
 });
 
 document.addEventListener("keydown", function (e) {
-  e.preventDefault();
+  
+  //this preventDefault stops "quick search" from appearing when you press these keys
+  if(e.key=="/" || e.key=="'"){
+    e.preventDefault();
+  }
   
   send({ command: "broadcast", type: "kp", key: e.key, id: self.id });
   var user = getUser(self.id);
