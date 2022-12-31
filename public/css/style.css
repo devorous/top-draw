@@ -102,6 +102,7 @@ svg{
   position:absolute;
   height:202px;
   width:202px;
+  overflow:show;    
 }
 circle{
   height:202px;
