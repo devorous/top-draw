@@ -1,4 +1,4 @@
-//helper functions for parseGbr()
+  //helper functions for parseGbr()
 function chunkToString(chunk){
   var string="";
   for(var i=0;i<chunk.length;i++){
