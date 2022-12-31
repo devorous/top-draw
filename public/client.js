@@ -692,10 +692,10 @@ function moveBoard(x,y){
 }
 
 function zoomBoard(zoom){
+  var user = getUser(userID);
   var boards = $("#boards")[0];
   boards.style.scale = zoom;
-  var r = cursor_circle.attributes["r"].value;
-  var newRadius = Math.round(Number(r)*zoom  *1000)/1000;
+  cursor_circle.style.scale=zoom;  
 }
 function resetBoard(){
   zoom=1;
