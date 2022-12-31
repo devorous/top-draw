@@ -281,8 +281,10 @@ canvas{
 #gimpImage{
   display:flex;
   object-fit: contain;
-  height:150px;
-  width:150px;
+  height:100px;
+  width:100px;
+  margin-left:25px;
+  margin-top:2px;
 }
 #gimp-file-input{
   width:100%;
