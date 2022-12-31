@@ -486,7 +486,7 @@ board.addEventListener("mousedown", function (e) {
   if (user.tool == "erase" && !user.panning){
     erase(pos.x,pos.y,user.lastx,user.lasty,user.size*2);
   }
-  if(user.tool == "gimp" && !user.panning){
+  if(user.tool == "gimp" && !user.panning ){
     if(user.gBrush){
       drawGimp(user,pos);
     }
@@ -695,6 +695,7 @@ function moveBoard(x,y){
 function zoomBoard(zoom){
   var boards = $("#boards")[0];
   boards.style.scale = zoom;
+  cursor.style.scale=zoom;  
 }
 function resetBoard(){
   zoom=1;
