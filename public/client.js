@@ -16,7 +16,7 @@ text.innerHTML = userID.toString();
 
 
 
-var boardDim=[480,720];
+var boardDim=[240,360];
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
