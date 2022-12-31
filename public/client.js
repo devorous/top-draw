@@ -11,7 +11,7 @@ var cursor_circle = cursor.children[0].children[0];
 cursor.style.display="none";
 
 var userlistEntry = $(".userEntry.self")[0];
-
+var userlistName = $(".listUser.self")[0];
 
 
 
@@ -84,7 +84,7 @@ gimpInput.style.display="none";
 
 //set default values for your user list entry
 userlistEntry.children[0].appendChild(icons.brush.cloneNode());
-userlistEntry.children[2].innerHTML=userID;
+userlistName.innerHTML=userID;
 
 
 var self = {
@@ -656,7 +656,7 @@ function drawDot(pos, ctx, user){
   }
 }
 
-//used for getting line length approx
+//used for getting line length approximation
 function manhattanDistance(pos,lastpos){
   if(pos!=lastpos){
     var distance = Math.abs(pos.x - lastpos.x) + Math.abs(pos.y - lastpos.y);
@@ -853,7 +853,7 @@ joinBtn.addEventListener("click", function(){
   var boardName = $(".name.self")[0];
   var listName = $(".listUser.self")[0];
   boardName.innerHTML = value;
-  listName.innerHTL = value;
+  listName.innerHTML = value;
 });
 
 clearBtn.addEventListener("click", function () {
