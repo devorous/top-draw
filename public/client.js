@@ -396,17 +396,17 @@ function getUser(id) {
 
 board.addEventListener("mousemove", function (e) {
   
-  var rect = e.target.getBoundingClientRect();
-  var x = e.clientX - rect.left; //x position within the element.
-  var y = e.clientY - rect.top;  //y position within the element.
+
+  var x = e.offsetX; //x position within the element.
+  var y = e.offsetY;  //y position within the element.
   
   
   var user = getUser(userID);
   user.x = x;
   user.y = y;
   //set your cursor pos
-  cursor.style.left = user.x-100 + "px";
-  cursor.style.top = user.y-100 + "px";
+  cursor.style.left = e.clientX + "px";
+  cursor.style.top = e.clientY+100 + "px";
 
   send({ command: "broadcast", type: "Mm", x: user.x, y: user.y, id: userID });
   var lastpos = { x: user.lastx, y: user.lasty };
@@ -1236,6 +1236,6 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
 
 
 
-
+joinBtn.click();
 
 

@@ -49,6 +49,9 @@ body {
 #boards{
   background-color:white;
   display:block;
+  position:absolute;
+  top:60px;
+  left:50px;
 }
 
 .userBoard{
@@ -76,7 +79,7 @@ body {
   font-size:10px;
   color:gray;
   top:85px;
-  left:110px;
+  left:105px;
 }
 .text{
   position:absolute;
