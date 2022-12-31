@@ -100,13 +100,13 @@ body {
 }
 svg{
   position:absolute;
-  height:202px;
-  width:202px;
+  height:200px;
+  width:200px;
   overflow:show;    
 }
 circle{
-  height:202px;
-  width:202px;
+  height:200px;
+  width:200px;
 }
 canvas{
   cursor:none;
