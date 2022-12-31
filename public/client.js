@@ -703,10 +703,10 @@ function zoomBoard(zoom,boardPos){
   var user = getUser(userID);
   var boards = $("#boards")[0];
 
-  var x = boardPos.x+"px";
-  var y = boardPos.y+"px";
-  var tOrigin = x+" "+y;
-  boards.style.transformOrigin=x+" "+y; 
+    var x = boardPos.x+"px";
+    var y = boardPos.y+"px";
+    var tOrigin = x+" "+y;
+    boards.style.transformOrigin=x+" "+y; 
 
   
   boards.style.scale = zoom;
