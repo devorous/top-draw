@@ -421,6 +421,9 @@ board.addEventListener("mousemove", function (e) {
     lastpos = pos;
   }
   if(user.panning && user.mousedown){
+    panX = panX +e.movementX
+    panY = panY+e.movementY 
+    moveBoard(panX,panY);
     console.log("moved board this amount: ",pos.x-lastpos.x,pos.y-lastpos.y)
   }
   if(!user.panning){
@@ -657,8 +660,8 @@ document.addEventListener("keyup",function(e){
 
 function moveBoard(x,y){
   var boards = $("#boards")[0];
-  boards.style.top = y;
-  boards.style.left = x;
+  boards.style.top = y+"px";
+  boards.style.left = x+"px";
 }
 
 
