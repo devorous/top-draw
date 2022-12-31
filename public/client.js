@@ -75,14 +75,14 @@ var eraseBtn = $("#eraseBtn")[0];
 var gimpBtn = $("#gimpBtn")[0];
 
 var clearBtn = $("#clearBtn")[0];
-var resetBoardBtn = $("#resetBoardBtn")[0];
+var resetBtn = $("#resetBtn")[0];
 
 clearBtn.addEventListener("click", function () {
   clearBoard();
   send({ command: "broadcast", type: "clear", id: userID });
 });
 
-$("#resetBoardBtn")[0].addEventListner("click",function(){
+resetBtn.addEventListener("click",function(){
   resetBoard();
 })
 
@@ -483,10 +483,10 @@ board.addEventListener("mousedown", function (e) {
     input.innerHTML = "";
   }
   
-  if (user.tool == "erase"){
+  if (user.tool == "erase" && !user.panning){
     erase(pos.x,pos.y,user.lastx,user.lasty,user.size*2);
   }
-  if(user.tool == "gimp"){
+  if(user.tool == "gimp" && !user.panning){
     if(user.gBrush){
       drawGimp(user,pos);
     }
@@ -497,7 +497,7 @@ board.addEventListener("mouseup", function (e) {
   var user = getUser(userID);
   self.mousedown = false;
   user.mousedown = false;
-  if(user.tool=="brush"){
+  if(user.tool=="brush" && !user.panning ){
     ctx.stroke();
     ctx2.beginPath();
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
