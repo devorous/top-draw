@@ -405,8 +405,8 @@ board.addEventListener("mousemove", function (e) {
   user.x = x;
   user.y = y;
   //set your cursor pos
-  cursor.style.left = e.clientX + "px";
-  cursor.style.top = e.clientY+100 + "px";
+  cursor.style.left = e.pageX-100 + "px";
+  cursor.style.top = e.pageY-100 + "px";
 
   send({ command: "broadcast", type: "Mm", x: user.x, y: user.y, id: userID });
   var lastpos = { x: user.lastx, y: user.lasty };
