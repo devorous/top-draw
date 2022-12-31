@@ -18,10 +18,13 @@ var userlistName = $(".listUser.self")[0];
 var boardDim=[540,960];
 
 
-var defaultZoom = Math.round(boardDim[1]/$("#boardContainer").width()*100)/100 
+var containerWidth = $("#boardContainer").width()
+//set the default zoom to fit the board in the width of the container
+var defaultZoom = (Math.round((containerWidth*1.1)*100/boardDim[1])/100)
 
 var zoom = defaultZoom;
-var panX = 50;
+zoomBoard(zoom,{x:0,y:0});
+var panX = 0 ;
 var panY = 50;
 
 
@@ -695,13 +698,17 @@ function moveBoard(x,y){
 }
 
 function zoomBoard(zoom,boardPos){
+  console.log("zooming board this amount: ",zoom)
   //boardPos is the relative position of the cursor on the board {x,y}
   var user = getUser(userID);
   var boards = $("#boards")[0];
+
   var x = boardPos.x+"px";
   var y = boardPos.y+"px";
   var tOrigin = x+" "+y;
   boards.style.transformOrigin=x+" "+y; 
+
+  
   boards.style.scale = zoom;
   cursor_circle.style.transformOrigin="center";  
   cursor_circle.style.scale=zoom;  
