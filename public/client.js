@@ -519,7 +519,8 @@ board.addEventListener("wheel", function (e) {
     if(e.deltaY > 0){
       if(zoom-zoomStep > 0.2){
         zoom-=zoomStep
-        zoomBoard(zoom);
+        var zoomPos = {x:e.offsetX,y:e.offsetY};
+        zoomBoard(zoom,zoomPos);
       }
       //scrolling down
       
@@ -528,7 +529,8 @@ board.addEventListener("wheel", function (e) {
       //scrolling up
       if(zoom+zoomStep < 3)
       zoom+=zoomStep
-      zoomBoard(zoom);
+      var zoomPos = {x:e.offsetX,y:e.offsetY};
+      zoomBoard(zoom,zoomPos);
     }
   }
   if(!user.panning){
@@ -691,10 +693,18 @@ function moveBoard(x,y){
   boards.style.left = x+"px";
 }
 
-function zoomBoard(zoom){
+function zoomBoard(zoom,boardPos){
+  //boardPos is the relative position of the cursor on the board {x,y}
   var user = getUser(userID);
   var boards = $("#boards")[0];
+  var x = boardPos.x+"px";
+  var y = boardPos.y+"px";
+  var tOrigin = x+" "+y;
+  console.log(tOrigin);
+  boards.style.transformOrigin=x+" "+y; 
+  console.log("boards transform origin: ",boards.style.transformOrigin)
   boards.style.scale = zoom;
+  cursor_circle.style.transformOrigin="center";  
   cursor_circle.style.scale=zoom;  
 }
 function resetBoard(){
