@@ -15,9 +15,12 @@ var userlistName = $(".listUser.self")[0];
 
 
 
-var boardDim=[540,960  ];
+var boardDim=[540,960];
 
-var zoom = 1;
+
+var defaultZoom = Math.round(boardDim[1]/$("#boardContainer").width()*100)/100 
+
+var zoom = defaultZoom;
 var panX = 50;
 var panY = 50;
 
@@ -506,7 +509,6 @@ board.addEventListener("mouseup", function (e) {
   send({ command: "broadcast", type: "Mu", id: userID });
   var line = { path: current_line, id: userID };
   current_line = [];
-  console.log("approx line length: ",line_length);
   line_length = 0;
 });
 
@@ -625,7 +627,6 @@ document.addEventListener("keydown", function (e) {
     e.preventDefault();
   }
   if(e.key==" " && user.tool!="text" && !user.panning ){
-    console.log("panning")
     user.panning="true"
   }
   send({ command: "broadcast", type: "kp", key: e.key, id: self.id });
@@ -679,10 +680,10 @@ document.addEventListener("keydown", function (e) {
     }
   }
 });
+
 document.addEventListener("keyup",function(e){
   var user = getUser(userID);
   if(e.key==" " && user.tool!="text"){
-    console.log("not panning")
     user.panning=false;
   }
 });
@@ -705,12 +706,21 @@ function zoomBoard(zoom,boardPos){
   cursor_circle.style.transformOrigin="center";  
   cursor_circle.style.scale=zoom;  
 }
+
 function resetBoard(){
   zoom=1;
   panX=50;
   panY=50;
+  $("#boards")[0].style.scale=1;
   moveBoard(panX,panY);
-  zoomBoard(zoom);
+  
+}
+
+function clearBoard() {
+  ctx.beginPath();
+  ctx2.beginPath();
+  ctx.clearRect(0, 0, boardDim[1], boardDim[0]);
+  ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
 }
 
 function drawDot(pos, ctx, user){
@@ -1017,13 +1027,7 @@ gimpBtn.addEventListener("click", function () {
 });
 
 
-function clearBoard() {
-  ctx.beginPath();
-  ctx2.beginPath();
-  ctx.clearRect(0, 0, boardDim[1], boardDim[0]);
-  ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
 
-}
 
 function drawUser(data, id) {
   var user = getUser(id);
