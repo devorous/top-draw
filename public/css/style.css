@@ -51,8 +51,9 @@ body {
   background-color:white;
   display:block;
   position:absolute; 
-  top:0px;
-  left:0px;
+  top:50px;
+  left:50px;
+  transform:scale(1);
   
 }
 
