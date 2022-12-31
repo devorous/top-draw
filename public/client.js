@@ -15,7 +15,7 @@ var userlistName = $(".listUser.self")[0];
 
 
 
-var boardDim=[240,360];
+var boardDim=[540,960  ];
 
 var zoom = 1;
 var panX = 50;
@@ -434,7 +434,6 @@ board.addEventListener("mousemove", function (e) {
     panX = panX +e.movementX
     panY = panY+e.movementY 
     moveBoard(panX,panY);
-    console.log("moved board this amount: ",pos.x-lastpos.x,pos.y-lastpos.y)
   }
   if(!user.panning){
     if (user.mousedown && user.tool == "brush") {
@@ -695,7 +694,8 @@ function moveBoard(x,y){
 function zoomBoard(zoom){
   var boards = $("#boards")[0];
   boards.style.scale = zoom;
-  cursor.style.scale=zoom;  
+  var r = cursor_circle.attributes["r"].value;
+  var newRadius = Math.round(Number(r)*zoom  *1000)/1000;
 }
 function resetBoard(){
   zoom=1;
@@ -771,7 +771,6 @@ function drawLineArray(points,ctx, user){
   var interpolatedPoints = calcCatmullRomCurve(points, tension)
   ctx.globalCompositeOperation = user.blendMode;
   board.getContext("2d").globalCompositeOperation= user.blendMode;
-  console.log("drawing points: ",points);
   
   var alpha = user.color[3];
   var noAlpha = [user.color[0],user.color[1],user.color[2]];
@@ -917,7 +916,6 @@ function updateUser(user, data, fields) {
 
 
 joinBtn.addEventListener("click", function(){
-  console.log("clicked");
   $("#overlay")[0].style.display="none";
   cursor.style.display="block";
   var value = usernameInput.value;
@@ -1200,7 +1198,6 @@ spacingSlider.addEventListener("mousemove",function(e){
     user.spacing=spacing;
     
     spacingSlider.value=spacing;
-    console.log(spacing);
 
     
   }
@@ -1260,7 +1257,6 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
           
           gbrObject.image = gimpImage;
           
-          console.log("brush! ",gbrObject);
           self.gBrush = gbrObject;
           user.gBrush = gbrObject;
         }
@@ -1290,7 +1286,6 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
         gihObject.type = "gih";
         gihObject.index = 0;
         gihObject.images = images;
-        console.log(gihObject);
         self.gBrush = gihObject;
         user.gBrush = gihObject;
         
