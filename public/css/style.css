@@ -44,6 +44,8 @@ body {
   background-color:#556666;
   user-select:none;
   height:100%;
+  top:50px;
+  left:50px;
 }
 #boards{
   background-color:white;
