@@ -700,9 +700,7 @@ function zoomBoard(zoom,boardPos){
   var x = boardPos.x+"px";
   var y = boardPos.y+"px";
   var tOrigin = x+" "+y;
-  console.log(tOrigin);
   boards.style.transformOrigin=x+" "+y; 
-  console.log("boards transform origin: ",boards.style.transformOrigin)
   boards.style.scale = zoom;
   cursor_circle.style.transformOrigin="center";  
   cursor_circle.style.scale=zoom;  
