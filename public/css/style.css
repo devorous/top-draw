@@ -116,6 +116,7 @@ canvas{
   width:100%;
   display:flex;
   background-color:lightgrey;
+  z-index:2;
 }
 .btn{
   background-color:grey;
