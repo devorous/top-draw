@@ -7,12 +7,11 @@ var board = $("#board")[0];
 var topBoard = $("#topBoard")[0];
 var cursor = $(".cursor.self")[0];
 var cursor_circle = cursor.children[0].children[0];
-var text = $(".name.self")[0];
+
 cursor.style.display="none";
 
 var userlistEntry = $(".userEntry.self")[0];
 
-text.innerHTML = userID.toString();
 
 
 
@@ -63,7 +62,7 @@ var icons={
 }
 
 var joinBtn = $("#joinBtn")[0];
-
+var usernameInput = $("#usernameInput")[0];
 
 var brushBtn = $("#brushBtn")[0];
 var textBtn = $("#textBtn")[0];
@@ -850,6 +849,9 @@ joinBtn.addEventListener("click", function(){
   console.log("clicked");
   $("#overlay")[0].style.display="none";
   cursor.style.display="block";
+  var value = usernameInput.value;
+  var username = $(".name.self")[0];
+  username.innerHTML=value;
 });
 
 clearBtn.addEventListener("click", function () {
