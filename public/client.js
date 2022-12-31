@@ -18,8 +18,8 @@ var userlistName = $(".listUser.self")[0];
 var boardDim=[240,360];
 
 var zoom = 1;
-var panX = 0;
-var panY = 0;
+var panX = 50;
+var panY = 50;
 
 
 var height = document.body.scrollHeight;
@@ -420,22 +420,26 @@ board.addEventListener("mousemove", function (e) {
   if (lastpos.x == null) {
     lastpos = pos;
   }
-  
-  if (user.mousedown && user.tool == "brush") {
-    drawLine(pos, lastpos, user);
-    current_line.push(pos);
-    //ctx2.beginPath();
-    ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-    drawLineArray(current_line, ctx2, user);
-    
-    //get distance between points, rounded to two decimal places
-    line_length += manhattanDistance(pos,lastpos);
+  if(user.panning && user.mousedown){
+    console.log("moved board this amount: ",pos.x-lastpos.x,pos.y-lastpos.y)
   }
-  if (user.mousedown && user.tool == "erase"){
-    erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
-  }
-  if(user.mousedown && user.gBrush && user.tool == "gimp"){
-    drawGimp(user,pos);
+  if(!user.panning){
+    if (user.mousedown && user.tool == "brush") {
+      drawLine(pos, lastpos, user);
+      current_line.push(pos);
+      //ctx2.beginPath();
+      ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+      drawLineArray(current_line, ctx2, user);
+
+      //get distance between points, rounded to two decimal places
+      line_length += manhattanDistance(pos,lastpos);
+    }
+    if (user.mousedown && user.tool == "erase"){
+      erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
+    }
+    if(user.mousedown && user.gBrush && user.tool == "gimp"){
+      drawGimp(user,pos);
+    }
   }
   user.lastx = user.x;
   user.lasty = user.y;
@@ -453,7 +457,7 @@ board.addEventListener("mousedown", function (e) {
   user.spaceIndex = 0;
   self.spaceIndex = 0;
 
-  if (user.tool == "brush") {
+  if (user.tool == "brush" && !user.panning) {
     current_line.push(pos);
     drawDot(pos,ctx,user);
     drawDot(pos,userCtx,user);
@@ -588,7 +592,8 @@ document.addEventListener("keydown", function (e) {
   if(e.key=="/" || e.key=="'"){
     e.preventDefault();
   }
-  if(e.key==" " && user.tool!="text"){
+  if(e.key==" " && user.tool!="text" && !user.panning ){
+    console.log("panning")
     user.panning="true"
   }
   send({ command: "broadcast", type: "kp", key: e.key, id: self.id });
@@ -642,6 +647,20 @@ document.addEventListener("keydown", function (e) {
     }
   }
 });
+document.addEventListener("keyup",function(e){
+  var user = getUser(userID);
+  if(e.key==" " && user.tool!="text"){
+    console.log("not panning")
+    user.panning=false;
+  }
+});
+
+function moveBoard(x,y){
+  var boards = $("#boards")[0];
+  boards.style.top = y;
+  boards.style.left = x;
+}
+
 
 function drawDot(pos, ctx, user){
   var userCtx = user.context;
