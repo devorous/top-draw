@@ -850,8 +850,10 @@ joinBtn.addEventListener("click", function(){
   $("#overlay")[0].style.display="none";
   cursor.style.display="block";
   var value = usernameInput.value;
-  var username = $(".name.self")[0];
-  username.innerHTML=value;
+  var boardName = $(".name.self")[0];
+  var listName = $(".listUser.self")[0];
+  boardName.innerHTML = value;
+  listName.innerHTL = value;
 });
 
 clearBtn.addEventListener("click", function () {
