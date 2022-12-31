@@ -75,6 +75,16 @@ var eraseBtn = $("#eraseBtn")[0];
 var gimpBtn = $("#gimpBtn")[0];
 
 var clearBtn = $("#clearBtn")[0];
+var resetBoardBtn = $("#resetBoardBtn")[0];
+
+clearBtn.addEventListener("click", function () {
+  clearBoard();
+  send({ command: "broadcast", type: "clear", id: userID });
+});
+
+$("#resetBoardBtn")[0].addEventListner("click",function(){
+  resetBoard();
+})
 
 
 var blendMode = $("#blendMode")[0];
@@ -505,88 +515,104 @@ board.addEventListener("wheel", function (e) {
   e.preventDefault();
   var user = getUser(userID);
   
-  
+  if(user.panning){
+    var zoomStep = 0.1; 
+    if(e.deltaY > 0){
+      if(zoom-zoomStep > 0.2){
+        zoom-=zoomStep
+        zoomBoard(zoom);
+      }
+      //scrolling down
+      
+    }
+    if(e.deltaY < 0){
+      //scrolling up
+      if(zoom+zoomStep < 3)
+      zoom+=zoomStep
+      zoomBoard(zoom);
+    }
+  }
   if(!user.panning){
-  var sizeSlider = $(".slider.size")[0];
-  var size = Number(sizeSlider.value);
+    var sizeSlider = $(".slider.size")[0];
+    var size = Number(sizeSlider.value);
 
-  var text = $(".text.self")[0];
-  
-  var step = 1;
+    var text = $(".text.self")[0];
 
-  if (size < 2) {
-    step = 0.25;
-  } else if (size < 4) {
-    step = 0.5;
-  } else if (size <= 30) {
-    step = 1;
-  } else {
-    step = 2;
-  }
-  sizeSlider.step=step;
-  if (e.deltaY > 0) {
-    //scrolling down
-    if(size==2){
+    var step = 1;
+
+    if (size < 2) {
       step = 0.25;
+    } else if (size < 4) {
+      step = 0.5;
+    } else if (size <= 30) {
+      step = 1;
+    } else {
+      step = 2;
     }
-    if (size - 0.3 > 0) {
-      if(user.mousedown){
-        ctx.stroke();
-        ctx.beginPath();
-        ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-        ctx2.stroke();
-        ctx2.beginPath();
+    sizeSlider.step=step;
+    if (e.deltaY > 0) {
+      //scrolling down
+      if(size==2){
+        step = 0.25;
+      }
+      if (size - 0.3 > 0) {
+        if(user.mousedown){
+          ctx.stroke();
+          ctx.beginPath();
+          ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+          ctx2.stroke();
+          ctx2.beginPath();
 
-        current_line=[];
+          current_line=[];
+
+        }
+
+        size = size - step;
+
+        size = Math.round(size * 100) / 100;
+        cursor_circle.setAttribute("r", size);
+
+
+        text.style.fontSize = (size + 5).toString() + "px";
+
+        ctx.lineWidth = size * 2;
+        self.size = size;
+        user.size = size;
+
+        sizeSlider.value=size;
+
+        send({ command: "broadcast", type: "ChSi", size: size, id: userID });
 
       }
+    } else {
+      //scrolling up
+      if (size+2 < 100) {
+        if(user.mousedown){
+          ctx.stroke();
+          ctx.beginPath();
+          ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+          ctx2.stroke();
+          ctx2.beginPath();
+          current_line=[];
+        }
+        size = size + step;
 
-      size = size - step;
-
-      size = Math.round(size * 100) / 100;
-      cursor_circle.setAttribute("r", size);
+        size = Math.round(size * 100) / 100;
 
 
-      text.style.fontSize = (size + 5).toString() + "px";
+        cursor_circle.setAttribute("r", size);
 
-      ctx.lineWidth = size * 2;
-      self.size = size;
-      user.size = size;
-      
-      sizeSlider.value=size;
+        text.style.fontSize = (size + 5).toString() + "px";
 
-      send({ command: "broadcast", type: "ChSi", size: size, id: userID });
+        ctx.lineWidth = size * 2;
+        self.size = size;
+        user.size = size;
 
-    }
-  } else {
-    //scrolling up
-    if (size+2 < 100) {
-      if(user.mousedown){
-        ctx.stroke();
-        ctx.beginPath();
-        ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-        ctx2.stroke();
-        ctx2.beginPath();
-        current_line=[];
+        sizeSlider.value=size;
+
+        send({ command: "broadcast", type: "ChSi", size: size, id: userID });
       }
-      size = size + step;
-
-      size = Math.round(size * 100) / 100;
-
-
-      cursor_circle.setAttribute("r", size);
-
-      text.style.fontSize = (size + 5).toString() + "px";
-
-      ctx.lineWidth = size * 2;
-      self.size = size;
-      user.size = size;
-      
-      sizeSlider.value=size;
-
-      send({ command: "broadcast", type: "ChSi", size: size, id: userID });
     }
-  }
   }
 });
 
@@ -666,6 +692,17 @@ function moveBoard(x,y){
   boards.style.left = x+"px";
 }
 
+function zoomBoard(zoom){
+  var boards = $("#boards")[0];
+  boards.style.scale = zoom;
+}
+function resetBoard(){
+  zoom=1;
+  panX=50;
+  panY=50;
+  moveBoard(panX,panY);
+  zoomBoard(zoom);
+}
 
 function drawDot(pos, ctx, user){
   var userCtx = user.context;
@@ -892,10 +929,7 @@ joinBtn.addEventListener("click", function(){
   listName.innerHTML = value;
 });
 
-clearBtn.addEventListener("click", function () {
-  clearBoard();
-  send({ command: "broadcast", type: "clear", id: userID });
-});
+
 
 brushBtn.addEventListener("click", function () {
   var selectedTool = $(".btn.selected")[0];
