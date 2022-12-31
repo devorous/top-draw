@@ -502,14 +502,16 @@ board.addEventListener("mouseup", function (e) {
 });
 
 board.addEventListener("wheel", function (e) {
+  e.preventDefault();
+  var user = getUser(userID);
   
+  
+  if(!user.panning){
   var sizeSlider = $(".slider.size")[0];
   var size = Number(sizeSlider.value);
-  
-  var user = getUser(userID);
 
   var text = $(".text.self")[0];
-  e.preventDefault();
+  
   var step = 1;
 
   if (size < 2) {
@@ -585,7 +587,7 @@ board.addEventListener("wheel", function (e) {
       send({ command: "broadcast", type: "ChSi", size: size, id: userID });
     }
   }
-    
+  }
 });
 
 document.addEventListener("keydown", function (e) {
