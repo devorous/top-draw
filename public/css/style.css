@@ -50,9 +50,10 @@ body {
   background-color:white;
   display:block;
   position:absolute;
+  top:50px;
   left:50px;
-  top:20px;
-  transform:scale(1)
+  transform:scale(1);
+  
 }
 
 .userBoard{
@@ -149,6 +150,7 @@ canvas{
   display:flex;
   flex-direction:row;
   height:100%;
+  z-index:2;
   
 }
 .tools{

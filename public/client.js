@@ -17,6 +17,11 @@ var userlistName = $(".listUser.self")[0];
 
 var boardDim=[240,360];
 
+var zoom = 1;
+var panX = 0;
+var panY = 0;
+
+
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
 
@@ -99,6 +104,7 @@ var self = {
   tool: "brush",
   text: "",
   mousedown: false,
+  panning: false,
   username:"",
   context:ctx2,
   board:board,
@@ -576,14 +582,17 @@ board.addEventListener("wheel", function (e) {
 });
 
 document.addEventListener("keydown", function (e) {
+  var user = getUser(self.id);
   
   //this preventDefault stops "quick search" from appearing when you press these keys
   if(e.key=="/" || e.key=="'"){
     e.preventDefault();
   }
-  
+  if(e.key==" " && user.tool!="text"){
+    user.panning="true"
+  }
   send({ command: "broadcast", type: "kp", key: e.key, id: self.id });
-  var user = getUser(self.id);
+  
   if (self.tool == "text") {
     
     var input = $(".textInput.self")[0];
