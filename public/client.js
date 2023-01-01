@@ -18,12 +18,13 @@ var userlistName = $(".listUser.self")[0];
 var boardDim=[540,960];
 
 
-var defaultZoom = Math.round(boardDim[1]/$("#boardContainer").width()*100)/100 
+var defaultZoom = Math.round(0.5*$("#boardContainer").width()/boardDim[0]*100)/100 
 
 var zoom = defaultZoom;
-var panX = 50;
-var panY = 50;
-
+zoomBoard(zoom,0,0);
+var panX = 0.05*$("#boardContainer").width();
+var panY = 0.05*$("#boardContainer").width();
+moveBoard(panX,panY);
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
@@ -730,6 +731,7 @@ function moveBoard(x,y){
 
 function zoomBoard(zoom,boardPos){
   //boardPos is the relative position of the cursor on the board {x,y}
+  console.log("changing board size to: ",zoom);
   var user = getUser(userID);
   var boards = $("#boards")[0];
   var x = boardPos.x+"px";
@@ -742,10 +744,10 @@ function zoomBoard(zoom,boardPos){
 }
 
 function resetBoard(){
-  zoom=1;
-  panX=50;
-  panY=50;
-  $("#boards")[0].style.scale=1;
+  zoom = defaultZoom;
+  panX = 50;
+  panY = 50;
+  $("#boards")[0].style.scale=zoom;
   moveBoard(panX,panY);
   
 }
