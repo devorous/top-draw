@@ -219,7 +219,11 @@ function recieve(data) {
     case "clear":
       clearBoard();
       break;
-
+      
+    case "pan":
+      user.panning=data.value;
+      break;
+      
     case "Mm":
       moveCursor(data);
       //if user has no lastpos, make it the current pos
@@ -230,14 +234,8 @@ function recieve(data) {
       updateUser(user, data, ["x", "y"]);
       var pos = { x: user.x, y: user.y };
       var lastpos = { x: user.lastx, y: user.lasty };
-      if (user.mousedown && user.tool == "brush") {
-        drawLine(pos, lastpos, user);
-      }
-      if(user.mousedown && user.tool == "erase"){
-        erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
-      }
-      if(user.mousedown && user.tool == "gimp" && user.gBrush){
-        drawGimp(user,pos);
+      if(!user.panning){
+ 
       }
       user.lastx=data.x;
       user.lasty=data.y;
@@ -250,7 +248,7 @@ function recieve(data) {
       user.spaceIndex=0;
       
       var pos = { x: user.x, y: user.y };
-      if (user.tool == "brush") {
+      if (user.tool == "brush" && !user.panning) {
         
         ctx.lineCap = "round";
         ctx.beginPath();
@@ -262,10 +260,10 @@ function recieve(data) {
         var input = $("." + user.id.toString() + " .textInput")[0];
         input.innerHTML = "";
       }
-      if(user.tool == "erase"){
+      if(user.tool == "erase" && !user.panning){
         erase(pos.x,pos.y,pos.x,pos.y,user.size*2);
       }
-      if(user.tool =="gimp" && user.gBrush){
+      if(user.tool =="gimp" && user.gBrush && !user.panning){
         drawGimp(user,pos);
       }
       
@@ -507,6 +505,7 @@ board.addEventListener("mouseup", function (e) {
   }
   
   send({ command: "broadcast", type: "Mu", id: userID });
+  send({ command: "broadcast", type: "pan", value: false, id: self.id });
   var line = { path: current_line, id: userID };
   current_line = [];
   line_length = 0;
@@ -626,8 +625,9 @@ document.addEventListener("keydown", function (e) {
   if(e.key=="/" || e.key=="'"){
     e.preventDefault();
   }
-  if(e.key==" " && user.tool!="text" && !user.panning ){
+  if(e.key==" " && user.tool!="text" && !user.panning && !user.mousedown ){
     user.panning="true"
+    send({ command: "broadcast", type: "pan", value: true, id: self.id });
   }
   send({ command: "broadcast", type: "kp", key: e.key, id: self.id });
   
@@ -918,8 +918,8 @@ function updateColor(color,id){
 
 function moveCursor(data) {
   var id = data.id.toString();
-  var x = data.x;
-  var y = data.y;
+  var x = data.x+panX-100;
+  var y = data.y+panY-100;
   var cursor = $(".cursor"+"."+id)[0];
   cursor.style.left = x.toString() + "px";
   cursor.style.top = y.toString() + "px";
