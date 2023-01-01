@@ -55,15 +55,16 @@ body {
   left:0;
   transform:scale(1);
 }
-.cursorsSvg{
-  height:100%;
-  width:100%;
-}
+
 .userBoard{
   pointer-events:none;
   position:absolute;
   top:0;
   left:0;
+}
+.cursorsSvg{
+  height:100%;
+  width:100%;
 }
 .cursors{
   height:100%;
@@ -74,15 +75,15 @@ body {
 #cursorsSvg{
   height:100%;
   width:100%;
+  pointer-events:none;
 }
 .cursor{
   position:absolute;
   pointer-events:none;
   height:204px;
   width:204px;
-
-  
 }
+
 .name{
   position:absolute;
   pointer-events:none;

@@ -18,7 +18,8 @@ cursorsSvg.width=width;
 var cursor = $(".cursor.self")[0];
 var cursor_circle = $(".circle.self")[0];
 
-//cursor.style.display="none";
+cursor_circle.height=200+"px";
+cursor_circle.width=200+"px";
 
 var userlistEntry = $(".userEntry.self")[0];
 var userlistName = $(".listUser.self")[0];
