@@ -235,7 +235,15 @@ function recieve(data) {
       var pos = { x: user.x, y: user.y };
       var lastpos = { x: user.lastx, y: user.lasty };
       if(!user.panning){
- 
+        if (user.mousedown && user.tool == "brush") {
+          drawLine(pos, lastpos, user);
+        }
+        if(user.mousedown && user.tool == "erase"){
+          erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
+        }
+        if(user.mousedown && user.tool == "gimp" && user.gBrush){
+          drawGimp(user,pos);
+        }
       }
       user.lastx=data.x;
       user.lasty=data.y;
@@ -505,7 +513,6 @@ board.addEventListener("mouseup", function (e) {
   }
   
   send({ command: "broadcast", type: "Mu", id: userID });
-  send({ command: "broadcast", type: "pan", value: false, id: self.id });
   var line = { path: current_line, id: userID };
   current_line = [];
   line_length = 0;
@@ -685,6 +692,7 @@ document.addEventListener("keyup",function(e){
   var user = getUser(userID);
   if(e.key==" " && user.tool!="text"){
     user.panning=false;
+    send({ command: "broadcast", type: "pan", value: false, id: self.id }); 
   }
 });
 
