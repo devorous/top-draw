@@ -217,7 +217,6 @@ function recieve(data) {
   var user = getUser(data.id);
   switch (data.type) {
     case "clear":
-      user.context.clearRect(0,0,boardDim[0],boardDim[1]);
       clearBoard();
       break;
       
@@ -234,13 +233,10 @@ function recieve(data) {
       }
       updateUser(user, data, ["x", "y"]);
       var pos = { x: user.x, y: user.y };
-      
       var lastpos = { x: user.lastx, y: user.lasty };
       if(!user.panning){
         if (user.mousedown && user.tool == "brush") {
           drawLine(pos, lastpos, user);
-          user.currentLine.push(pos);
-          drawLineArray(user.currentLine,user.context,user);
         }
         if(user.mousedown && user.tool == "erase"){
           erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
@@ -261,7 +257,6 @@ function recieve(data) {
       
       var pos = { x: user.x, y: user.y };
       if (user.tool == "brush" && !user.panning) {
-        user.currentLine.push(pos);
         
         ctx.lineCap = "round";
         ctx.beginPath();
@@ -280,20 +275,18 @@ function recieve(data) {
         drawGimp(user,pos);
       }
       
-      //ctx2.beginPath();
-      //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+      ctx2.beginPath();
+      ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
       
       user.mousedown = true;
       break;
 
     case "Mu":
       if (user.tool == "brush") {
-        //ctx.stroke();
-        //ctx2.stroke();
-        //ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
-        user.context.clearRect(0,0,boardDim[0],boardDim[1]);
+        ctx.stroke();
+        ctx2.stroke();
+        ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
       }
-      user.currentLine = [];
       user.mousedown = false;
       break;
 
@@ -699,7 +692,7 @@ document.addEventListener("keyup",function(e){
   var user = getUser(userID);
   if(e.key==" " && user.tool!="text"){
     user.panning=false;
-    send({ command: "broadcast", type: "pan", value: false, id: self.id });    
+    send({ command: "broadcast", type: "pan", value: false, id: self.id }); 
   }
 });
 
