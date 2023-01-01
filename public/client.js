@@ -217,6 +217,7 @@ function recieve(data) {
   var user = getUser(data.id);
   switch (data.type) {
     case "clear":
+      user.context.clearRect(0,0,boardDim[0],boardDim[1]);
       clearBoard();
       break;
       
@@ -279,16 +280,16 @@ function recieve(data) {
         drawGimp(user,pos);
       }
       
-      ctx2.beginPath();
-      ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+      //ctx2.beginPath();
+      //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
       
       user.mousedown = true;
       break;
 
     case "Mu":
       if (user.tool == "brush") {
-        ctx.stroke();
-        ctx2.stroke();
+        //ctx.stroke();
+        //ctx2.stroke();
         //ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
         user.context.clearRect(0,0,boardDim[0],boardDim[1]);
       }
