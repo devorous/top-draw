@@ -6,7 +6,7 @@ var boards = $("#boards")[0];
 var board = $("#board")[0];
 var topBoard = $("#topBoard")[0];
 var cursor = $(".cursor.self")[0];
-var cursor_circle = cursor.children[0].children[0];
+var cursor_circle = $(".circle.self")[0];
 
 cursor.style.display="none";
 
