@@ -112,7 +112,6 @@ canvas{
   cursor:none;
 }
 
-
 .boardBtns{
   height:30px;
   width:100%;
@@ -120,6 +119,7 @@ canvas{
   background-color:lightgrey;
   z-index:2;
 }
+
 .btn{
   background-color:grey;
   transition:0.2s;
@@ -128,32 +128,38 @@ canvas{
   align-items: center;
 
 }
+
 .tool.btn{
   padding:4px;
 }
+
 .tool.btn img{
   width: 100%;
   height: 100%;
   object-fit: fill;
 }
+
 #gimpBtn img{
   object-fit: contain;
 }
+
 .btn:hover{
   background-color:lightgrey;
   border:2px solid orange;
 }
+
 .btn.selected{
   border:2px solid orange;
 }
+
 #sideMenu{
   user-select:none;
   display:flex;
   flex-direction:row;
   height:100%;
   z-index:2;
-  
 }
+
 .tools{
   display:flex;
   flex-direction:column;
