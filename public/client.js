@@ -746,6 +746,9 @@ function zoomBoard(zoom,boardPos){
   boards.style.scale = zoom;
   cursor_circle.style.transformOrigin="center";  
   cursor_circle.style.scale=zoom;  
+  $(".text.self")[0].style.transformOrigin="top left";
+  $(".text.self")[0].style.scale=zoom;
+  $(".text.self")[0].style
 }
 
 function resetBoard(){ 
