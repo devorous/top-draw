@@ -18,12 +18,12 @@ var userlistName = $(".listUser.self")[0];
 var boardDim=[540,960];
 
 
-var defaultZoom = Math.round(0.5*$("#boardContainer").width()/boardDim[0]*100)/100 
-
+var defaultZoom = Math.round($("#boardContainer").width()/boardDim[1]*100)/100 
+$("boardContainer")[0].style.left="50%";
 var zoom = defaultZoom;
 zoomBoard(zoom,0,0);
-var panX = 0.05*$("#boardContainer").width();
-var panY = 0.05*$("#boardContainer").width();
+var panX = 0;
+var panY = 0; 
 moveBoard(panX,panY);
 
 var height = document.body.scrollHeight;
@@ -447,8 +447,8 @@ board.addEventListener("mousemove", function (e) {
     lastpos = pos;
   }
   if(user.panning && user.mousedown){
-    panX = panX +e.movementX
-    panY = panY+e.movementY 
+    panX = panX + e.movementX
+    panY = panY + e.movementY 
     moveBoard(panX,panY);
   }
   if(!user.panning){
@@ -745,7 +745,7 @@ function zoomBoard(zoom,boardPos){
 
 function resetBoard(){
   zoom = defaultZoom;
-  panX = 50;
+  panX = 5;
   panY = 50;
   $("#boards")[0].style.scale=zoom;
   moveBoard(panX,panY);
