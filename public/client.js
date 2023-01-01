@@ -22,8 +22,11 @@ var defaultZoom = Math.round(0.95*$("#boardContainer").width()/boardDim[1]*100)/
 console.log("zoom: ",defaultZoom);
 var zoom = defaultZoom;
 zoomBoard(zoom,0,0);
-var panX = 0.25
-var panY = 0; 
+var defaultPanX = 25-50*(1-zoom)*10
+var defaultPanY = 50+50*(1-zoom)*10
+
+var panX = defaultPanX;
+var panY = defaultPanY;
 moveBoard(panX,panY);
 
 var height = document.body.scrollHeight;
@@ -744,11 +747,8 @@ function zoomBoard(zoom,boardPos){
 }
 
 function resetBoard(){
-  zoom = defaultZoom;
-  panX = 5;
-  panY = 50;
-  $("#boards")[0].style.scale=zoom;
-  moveBoard(panX,panY);
+  $("#boards")[0].style.scale=defaultZoom;
+  moveBoard(defaultPanX,defaultPanY);
   
 }
 
