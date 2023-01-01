@@ -237,6 +237,8 @@ function recieve(data) {
       if(!user.panning){
         if (user.mousedown && user.tool == "brush") {
           drawLine(pos, lastpos, user);
+          user.currentLine.push(pos);
+          drawLineArray(user.currentLine,user.context,user)
         }
         if(user.mousedown && user.tool == "erase"){
           erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
@@ -258,9 +260,11 @@ function recieve(data) {
       var pos = { x: user.x, y: user.y };
       if (user.tool == "brush" && !user.panning) {
         
-        ctx.lineCap = "round";
-        ctx.beginPath();
-        drawLine(pos, pos, user);
+        //ctx.lineCap = "round";
+        //ctx.beginPath();
+        
+        user.currentLine.push(pos);
+        //drawLine(pos, pos, user);
       }
       if (user.tool == "text" && user.text != "") {
         drawText(user);
@@ -285,8 +289,10 @@ function recieve(data) {
       if (user.tool == "brush") {
         ctx.stroke();
         ctx2.stroke();
-        ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
+        ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+        user.context.clearRect(0,0,boardDim[1],boardDim[0]);
       }
+      user.currentLine=[];
       user.mousedown = false;
       break;
 
@@ -301,7 +307,7 @@ function recieve(data) {
         ctx.stroke();
       }
       ctx.beginPath();
-      ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
+      ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
       ctx2.stroke();
       ctx2.beginPath();
           
@@ -516,6 +522,24 @@ board.addEventListener("mouseup", function (e) {
   var line = { path: current_line, id: userID };
   current_line = [];
   line_length = 0;
+});
+
+
+
+board.addEventListener("mouseout",function(e){
+  var user = getUser(userID);
+  if(user.tool=="brush" && !user.panning ){
+    ctx.stroke();
+    ctx2.beginPath();
+    ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+    
+  }
+  
+  send({ command: "broadcast", type: "Mu", id: userID });
+  var line = { path: current_line, id: userID };
+  current_line = [];
+  line_length = 0;
+  
 });
 
 board.addEventListener("wheel", function (e) {
@@ -1098,9 +1122,10 @@ function drawUser(data, id) {
   
   userBoard.setAttribute("class","userBoard "+id.toString());
   userBoards.appendChild(userBoard);
-  var context = [userBoard.getContext("2d"),id];
+  var context = userBoard.getContext("2d");
+  context.lineCap="round"
   user.board = userBoard;
-  user.context = context[0];
+  user.context = context;
   
 
   
