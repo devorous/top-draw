@@ -229,14 +229,14 @@ function recieve(data) {
       break;
       
     case "Mm":
-      moveCursor(data);
+      
+      
       //if user has no lastpos, make it the current pos
       if (user.lastx == null) {
         user.lastx = data.x;
         user.lasty = data.y;
       }
-      data.x = data.x*zoom+panX;
-      data.y = data.y*zoom+panY;
+      moveCursor(data);
       updateUser(user, data, ["x", "y"]);
       var pos = { x: user.x, y: user.y };
       var lastpos = { x: user.lastx, y: user.lasty };
@@ -444,7 +444,7 @@ board.addEventListener("mousemove", function (e) {
   //set your cursor pos
   cursor.style.left = e.pageX-100 + "px";
   cursor.style.top = e.pageY-100 + "px";
-
+  
   send({ command: "broadcast", type: "Mm", x: user.x, y: user.y, id: userID });
   var lastpos = { x: user.lastx, y: user.lasty };
   var pos = { x: self.x, y: self.y };
@@ -956,8 +956,9 @@ function updateColor(color,id){
 
 function moveCursor(data) {
   var id = data.id.toString();
-  var x = data.x+panX-100;
-  var y = data.y+panY-100;
+  var x = data.x+panX;
+  var y = data.y+panY;
+  console.log("moving cursor to: ",x,y);
   var cursor = $(".cursor"+"."+id)[0];
   cursor.style.left = x.toString() + "px";
   cursor.style.top = y.toString() + "px";
