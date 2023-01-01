@@ -18,12 +18,12 @@ var userlistName = $(".listUser.self")[0];
 var boardDim=[540,960];
 
 
-var defaultZoom = Math.round(0.95*$("#boardContainer").width()/boardDim[1]*100)/100 
+var defaultZoom = Math.round(0.9*$("#boardContainer").width()/boardDim[1]*100)/100 
 console.log("zoom: ",defaultZoom);
 var zoom = defaultZoom;
 zoomBoard(zoom,0,0);
 var defaultPanX = 25-50*(1-zoom)*10
-var defaultPanY = 120//50+50*(1-zoom)*10
+var defaultPanY = 50//50+50*(1-zoom)*10
 
 var panX = defaultPanX;
 var panY = defaultPanY;
@@ -235,6 +235,8 @@ function recieve(data) {
         user.lastx = data.x;
         user.lasty = data.y;
       }
+      data.x = data.x*zoom+panX;
+      data.y = data.y*zoom+panY;
       updateUser(user, data, ["x", "y"]);
       var pos = { x: user.x, y: user.y };
       var lastpos = { x: user.lastx, y: user.lasty };
