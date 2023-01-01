@@ -66,8 +66,14 @@ body {
   left:0;
 }
 .cursors{
+  height:100%;
+  width:100%;
+  pointer-events:none;
   position:absolute;
-
+}
+#cursorsSvg{
+  height:100%;
+  width:100%;
 }
 .cursor{
   position:absolute;
@@ -100,16 +106,8 @@ body {
 .input{
   font-size:15px;
 }
-svg{
-  position:absolute;
-  height:200px;
-  width:200px;
-  overflow:show;    
-}
-circle{
-  height:200px;
-  width:200px;
-}
+
+
 canvas{
   cursor:none;
 }

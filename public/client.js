@@ -1,3 +1,8 @@
+var height = document.body.scrollHeight;
+var width  = document.body.scrollWidth;
+var boardDim=[540,960];
+
+
 var users = [];
 
 var userID = Math.floor(Math.random() * 999999);
@@ -5,17 +10,22 @@ var boards = $("#boards")[0];
 
 var board = $("#board")[0];
 var topBoard = $("#topBoard")[0];
+
+var cursorsSvg=$("#cursorsSvg")[0];
+cursorsSvg.height=height;
+cursorsSvg.width=width;
+
 var cursor = $(".cursor.self")[0];
 var cursor_circle = $(".circle.self")[0];
 
-cursor.style.display="none";
+//cursor.style.display="none";
 
 var userlistEntry = $(".userEntry.self")[0];
 var userlistName = $(".listUser.self")[0];
 
 
 
-var boardDim=[540,960];
+
 
 
 var defaultZoom = Math.round(0.9*$("#boardContainer").width()/boardDim[1]*100)/100 
@@ -29,8 +39,7 @@ var panX = defaultPanX;
 var panY = defaultPanY;
 moveBoard(panX,panY);
 
-var height = document.body.scrollHeight;
-var width  = document.body.scrollWidth;
+
 
 boards.style.height=boardDim[0].toString()+"px";
 boards.style.width=boardDim[1].toString()+"px";
