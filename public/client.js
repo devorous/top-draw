@@ -237,9 +237,9 @@ function recieve(data) {
       var lastpos = { x: user.lastx, y: user.lasty };
       if(!user.panning){
         if (user.mousedown && user.tool == "brush") {
-          //drawLine(pos, lastpos, user);
+          drawLine(pos, lastpos, user);
           user.currentLine.push(pos);
-          drawLineArray(user.currentLine,ctx,user);
+          drawLineArray(user.currentLine,user.context,user);
         }
         if(user.mousedown && user.tool == "erase"){
           erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
@@ -289,9 +289,10 @@ function recieve(data) {
       if (user.tool == "brush") {
         ctx.stroke();
         ctx2.stroke();
-        ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
+        //ctx2.clearRect(0,0,boardDim[0],boardDim[1]);
+        user.context.clearRect(0,0,boardDim[0],boardDim[1]);
       }
-      user.currentLine=[];
+      user.currentLine = [];
       user.mousedown = false;
       break;
 
