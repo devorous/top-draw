@@ -236,7 +236,7 @@ function recieve(data) {
         user.lastx = data.x;
         user.lasty = data.y;
       }
-      moveCursor(data);
+      moveCursor(data,user);
       updateUser(user, data, ["x", "y"]);
       var pos = { x: user.x, y: user.y };
       var lastpos = { x: user.lastx, y: user.lasty };
@@ -954,10 +954,10 @@ function updateColor(color,id){
 }
 
 
-function moveCursor(data) {
+function moveCursor(data,user) {
   var id = data.id.toString();
-  var x = data.x+panX;
-  var y = data.y+panY;
+  var x = user.x+panX;
+  var y = user.y+panY;
   console.log("moving cursor to: ",x,y);
   var cursor = $(".cursor"+"."+id)[0];
   cursor.style.left = x.toString() + "px";
