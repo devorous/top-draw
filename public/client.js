@@ -918,8 +918,8 @@ function updateColor(color,id){
 
 function moveCursor(data) {
   var id = data.id.toString();
-  var x = data.x-100;
-  var y = data.y-100;
+  var x = data.x;
+  var y = data.y;
   var cursor = $(".cursor"+"."+id)[0];
   cursor.style.left = x.toString() + "px";
   cursor.style.top = y.toString() + "px";
