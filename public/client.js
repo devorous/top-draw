@@ -23,7 +23,7 @@ console.log("zoom: ",defaultZoom);
 var zoom = defaultZoom;
 zoomBoard(zoom,0,0);
 var defaultPanX = 25-50*(1-zoom)*10
-var defaultPanY = 50+50*(1-zoom)*10
+var defaultPanY = 120//50+50*(1-zoom)*10
 
 var panX = defaultPanX;
 var panY = defaultPanY;
@@ -557,7 +557,7 @@ board.addEventListener("wheel", function (e) {
     if(e.deltaY > 0){
       if(zoom-zoomStep > 0.2){
         zoom-=zoomStep
-        var zoomPos = {x:e.offsetX,y:e.offsetY};
+        var zoomPos = {x:user.x,y:user.y};
         zoomBoard(zoom,zoomPos);
       }
       //scrolling down
@@ -567,7 +567,7 @@ board.addEventListener("wheel", function (e) {
       //scrolling up
       if(zoom+zoomStep < 3)
       zoom+=zoomStep
-      var zoomPos = {x:e.offsetX,y:e.offsetY};
+      var zoomPos = {x:user.x,y:user.y}; 
       zoomBoard(zoom,zoomPos);
     }
   }
@@ -746,7 +746,7 @@ function zoomBoard(zoom,boardPos){
   cursor_circle.style.scale=zoom;  
 }
 
-function resetBoard(){
+function resetBoard(){ 
   $("#boards")[0].style.scale=defaultZoom;
   moveBoard(defaultPanX,defaultPanY);
   
