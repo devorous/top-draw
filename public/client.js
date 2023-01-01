@@ -18,11 +18,11 @@ var userlistName = $(".listUser.self")[0];
 var boardDim=[540,960];
 
 
-var defaultZoom = Math.round($("#boardContainer").width()/boardDim[1]*100)/100 
-$("boardContainer")[0].style.left="50%";
+var defaultZoom = Math.round(0.95*$("#boardContainer").width()/boardDim[1]*100)/100 
+console.log("zoom: ",defaultZoom);
 var zoom = defaultZoom;
 zoomBoard(zoom,0,0);
-var panX = 0;
+var panX = 0.25
 var panY = 0; 
 moveBoard(panX,panY);
 

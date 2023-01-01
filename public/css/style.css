@@ -40,8 +40,8 @@ body {
 }
 #boardContainer{
   display:flex;
-  flex-direction:column;
-  justify-content:space-between;
+  flex-direction:row;
+  justify-content:center;
   background-color:#556666;
   user-select:none;
   width:100%; 
@@ -51,7 +51,7 @@ body {
   background-color:white;
   display:block;
   position:absolute; 
-  top:50px;
+  top:0;
   left:0;
   transform:scale(1);
 }
