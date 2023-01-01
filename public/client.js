@@ -528,6 +528,8 @@ board.addEventListener("mouseup", function (e) {
 
 board.addEventListener("mouseout",function(e){
   var user = getUser(userID);
+  self.mousedown = false;
+  user.mousedown = false;
   if(user.tool=="brush" && !user.panning ){
     ctx.stroke();
     ctx2.beginPath();
