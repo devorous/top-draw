@@ -74,7 +74,7 @@ body {
   pointer-events:none;
 }
 .cursor{
-  position:absolute;
+  position:absolute; 
   pointer-events:none;
   height:204px;
   width:204px;

@@ -451,8 +451,10 @@ board.addEventListener("mousemove", function (e) {
   //set your cursor pos
   cursor.style.left = x-100 + "px";
   cursor.style.top = y-100 + "px";
-  cursor_circle.setAttribute("cx",x*zoom);
-  cursor_circle.setAttribute("cy",y*zoom);
+
+  cursor_circle.setAttribute("cx",x*(zoom));
+  cursor_circle.setAttribute("cy",y*(zoom));
+ 
   send({ command: "broadcast", type: "Mm", x: user.x, y: user.y, id: userID });
   var lastpos = { x: user.lastx, y: user.lasty };
   var pos = { x: self.x, y: self.y };
@@ -752,8 +754,7 @@ function zoomBoard(zoom,boardPos){
   var tOrigin = x+" "+y;
   boards.style.transformOrigin=x+" "+y; 
   boards.style.scale = zoom;
-  cursor_circle.style.transformOrigin="center";  
-  cursor_circle.style.scale=zoom;  
+
   $(".text.self")[0].style.transformOrigin="top left";
   $(".text.self")[0].style.scale=zoom;
   $(".text.self")[0].style
