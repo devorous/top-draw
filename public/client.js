@@ -301,9 +301,11 @@ function recieve(data) {
     case "Mu":
       if (user.tool == "brush") {
         ctx.stroke();
-        ctx2.stroke();
-        ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+        //ctx2.stroke();
+        
+        user.context.stroke();
         user.context.clearRect(0,0,boardDim[1],boardDim[0]);
+        
       }
       user.currentLine=[];
       user.mousedown = false;
@@ -549,6 +551,8 @@ board.addEventListener("mouseup", function (e) {
 
 board.addEventListener("mouseout",function(e){
   var user = getUser(userID);
+  
+  /*
   self.mousedown = false;
   user.mousedown = false;
   if(user.tool=="brush" && !user.panning ){
@@ -562,6 +566,9 @@ board.addEventListener("mouseout",function(e){
   var line = { path: current_line, id: userID };
   current_line = [];
   line_length = 0;
+  
+  
+  */
   
 });
 
