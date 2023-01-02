@@ -836,8 +836,10 @@ function drawLineArray(points,ctx, user){
   
   var tension = 0.5;
   var numOfSegments = 50// Math.round(line_length/20);
-  //var interpolatedPoints = splineInterpolation(points, tension, numOfSegments);
+  
+  //this function calcCatMullRomCurve is found in /js/drawingFunctions.js
   var interpolatedPoints = calcCatmullRomCurve(points, tension)
+  
   ctx.globalCompositeOperation = user.blendMode;
   board.getContext("2d").globalCompositeOperation= user.blendMode;
   
