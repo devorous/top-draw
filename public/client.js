@@ -12,14 +12,11 @@ var board = $("#board")[0];
 var topBoard = $("#topBoard")[0];
 
 var cursorsSvg=$("#cursorsSvg")[0];
-cursorsSvg.height=height;
-cursorsSvg.width=width;
 
 var cursor = $(".cursor.self")[0];
 var cursor_circle = $(".circle.self")[0];
 
-cursor_circle.height=200+"px";
-cursor_circle.width=200+"px";
+
 
 var userlistEntry = $(".userEntry.self")[0];
 var userlistName = $(".listUser.self")[0];
@@ -452,9 +449,10 @@ board.addEventListener("mousemove", function (e) {
   user.x = x;
   user.y = y;
   //set your cursor pos
-  cursor.style.left = e.pageX-100 + "px";
-  cursor.style.top = e.pageY-100 + "px";
-  
+  cursor.style.left = x-100 + "px";
+  cursor.style.top = y-100 + "px";
+  cursor_circle.setAttribute("cx",x*zoom);
+  cursor_circle.setAttribute("cy",y*zoom);
   send({ command: "broadcast", type: "Mm", x: user.x, y: user.y, id: userID });
   var lastpos = { x: user.lastx, y: user.lasty };
   var pos = { x: self.x, y: self.y };

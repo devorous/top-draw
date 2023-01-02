@@ -38,8 +38,34 @@
       </div>
     </div>
       
-      <div id="boardContainer">  
+      <div id="boardContainer"> 
+        
+        
+            
         <div id="boards">
+          
+          <div class="cursors">
+            <svg id="cursorsSvg">
+              <circle class="circle self"
+                  stroke="grey"
+                  stroke-width="1"
+                  fill="none"
+                  cx="100"
+                  cy="100"
+                  r="10" >  
+                </circle>
+              <div class="cursor self">
+
+                <text class="text self"><text class="textInput self"></text><text>|</text></text>
+                <text class="name self"></text>
+              </div>
+            </svg>
+          </div>
+          
+          
+          
+          
+          
           <canvas id="topBoard" class="userBoard self"></canvas>
           <canvas id="board"></canvas>
           <div id="userBoards"></div>
@@ -56,27 +82,7 @@
       </div>
       
       
-        <div class="cursors">
-          <div id="cursorsSvg">
-            <div class="cursor self">
-             <circle class="circle self"
-                stroke="grey"
-                stroke-width="1"
-                fill="none"
-                cx="100"
-                cy="100"
-                r="10" >  
-              </circle>
-              <text class="text self"><text class="textInput self"></text><text>|</text></text>
-              <text class="name self"></text>
-            </div>
-          </div>
 
-
-        </div>
-
-      
-      
         <div id="sideMenu">
           <div class="tools">
             <a class="tool btn selected" id="brushBtn"><img src="/images/brush-icon.svg" /></a>
