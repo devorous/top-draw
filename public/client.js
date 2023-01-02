@@ -975,8 +975,11 @@ function moveCursor(data,user) {
   var y = user.y+panY;
   console.log("moving cursor to: ",x,y);
   var cursor = $(".cursor"+"."+id)[0];
+  var circle = $(".circle"+"."+id)[0];
   cursor.style.left = x.toString() + "px";
   cursor.style.top = y.toString() + "px";
+  circle.setAttribute("cx",user.x);
+  circle.setAttribute("cy",user.y);
 }
 
 function updateUser(user, data, fields) {
@@ -1093,16 +1096,13 @@ function drawUser(data, id) {
   cursor.style.left = data.x.toString() + "px";
   cursor.style.top = data.y.toString() + "px";
 
-  var svg = document.createElementNS("http://www.ww3.org/2000/svg", "svg");
-  svg.setAttribute("height", "202px");
-  svg.setAttribute("width", "202px");
   var circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
   circle.setAttribute("class", id.toString());
   circle.setAttribute("stroke", "grey");
   circle.setAttribute("stroke-width", "1");
   circle.setAttribute("fill", "none");
-  circle.setAttribute("cx", "100");
-  circle.setAttribute("cy", "100");
+  circle.setAttribute("cx", "0");
+  circle.setAttribute("cy", "0");
   circle.setAttribute("r", "10");
   circle.setAttribute("height", "auto");
   
@@ -1126,8 +1126,8 @@ function drawUser(data, id) {
   textinput.innerHTML = data.text;
   text.appendChild(textinput);
   text.appendChild(line);
-  svg.appendChild(circle);
-  cursor.appendChild(svg);
+  var cursorsSvg = $("#cursorsSvg")[0];
+  cursorsSvg.appendChild(circle);
   cursor.appendChild(name);
   cursor.append(text);
 
