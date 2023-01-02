@@ -237,17 +237,17 @@ function recieve(data) {
       
     case "Mm":
       
-      
       //if user has no lastpos, make it the current pos
       if (user.lastx == null) {
         user.lastx = data.x;
         user.lasty = data.y;
       }
-      moveCursor(data,user);
+      
       updateUser(user, data, ["x", "y"]);
       var pos = { x: user.x, y: user.y };
       var lastpos = { x: user.lastx, y: user.lasty };
       if(!user.panning){
+        moveCursor(data,user);
         if (user.mousedown && user.tool == "brush") {
           drawLine(pos, lastpos, user);
           user.currentLine.push(pos);
@@ -972,15 +972,15 @@ function updateColor(color,id){
 
 function moveCursor(data,user) {
   var id = data.id.toString();
-  var x = user.x+panX;
-  var y = user.y+panY;
+  var x = user.x;
+  var y = user.y;
   console.log("moving cursor to: ",x,y);
   var cursor = $(".cursor"+"."+id)[0];
   var circle = $(".circle"+"."+id)[0];
-  cursor.style.left = x.toString() + "px";
-  cursor.style.top = y.toString() + "px";
-  circle.setAttribute("cx",user.x);
-  circle.setAttribute("cy",user.y);
+  cursor.style.left = (x-100).toString() + "px";
+  cursor.style.top = (y-100).toString() + "px";
+  circle.setAttribute("cx",x);
+  circle.setAttribute("cy",y);
 }
 
 function updateUser(user, data, fields) {
