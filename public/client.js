@@ -320,6 +320,7 @@ function recieve(data) {
         user.current_line=[];
         user.context.stroke();
         user.context.clearRect(0,0,boardDim[1],boardDim[0]);
+        
       }
 
       break;
@@ -615,7 +616,7 @@ board.addEventListener("wheel", function (e) {
           ctx2.beginPath();
 
           current_line=[];
-          current_line.push(user.pos);
+
         }
 
         size = size - step;
@@ -645,7 +646,6 @@ board.addEventListener("wheel", function (e) {
           ctx2.stroke();
           ctx2.beginPath();
           current_line=[];
-          current_line.push(user.pos)
         }
         size = size + step;
 
