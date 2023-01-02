@@ -318,6 +318,11 @@ function recieve(data) {
       var userCtx = user.context;
       if(user.mousedown){
         ctx.stroke();
+        ctx2.stroke();
+        ctx2.beginPath();
+        user.current_line=[];
+        user.context.stroke();
+        user.context.beginPath();
       }
       ctx.beginPath();
       ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
@@ -327,9 +332,11 @@ function recieve(data) {
       break;
       
     case "ChSp":
+      //change the spacing
       updateUser(user,data,["spacing"]);
       break;
     case "ChBl":
+      //change the blend mode
       updateUser(user,data,["blendMode"]);
       break;
     case "ChT":
@@ -452,8 +459,8 @@ board.addEventListener("mousemove", function (e) {
   cursor.style.left = x-100 + "px";
   cursor.style.top = y-100 + "px";
 
-  cursor_circle.setAttribute("cx",x*(zoom));
-  cursor_circle.setAttribute("cy",y*(zoom));
+  cursor_circle.setAttribute("cx",x);
+  cursor_circle.setAttribute("cy",y);
  
   send({ command: "broadcast", type: "Mm", x: user.x, y: user.y, id: userID });
   var lastpos = { x: user.lastx, y: user.lasty };
