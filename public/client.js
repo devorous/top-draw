@@ -314,7 +314,8 @@ function recieve(data) {
       updateUser(user, data, ["size"]);
       var userText = $("." + user.id.toString() + " .text")[0];
       userText.style.fontSize = (data.size + 5).toString() + "px";
-      
+      var userCircle = $("."+user.id.toString()+".circle")[0];
+      userCircle.setAttribute("r",user.size);
       var userCtx = user.context;
       if(user.mousedown){
         user.current_line=[];
@@ -1097,7 +1098,7 @@ function drawUser(data, id) {
   cursor.style.top = data.y.toString() + "px";
 
   var circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-  circle.setAttribute("class", id.toString());
+  circle.setAttribute("class", "circle "+id.toString());
   circle.setAttribute("stroke", "grey");
   circle.setAttribute("stroke-width", "1");
   circle.setAttribute("fill", "none");
