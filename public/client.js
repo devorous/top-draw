@@ -277,7 +277,7 @@ function recieve(data) {
         //ctx.beginPath();
         
         user.currentLine.push(pos);
-        //drawLine(pos, pos, user);
+        drawLine(pos, pos, user);
       }
       if (user.tool == "text" && user.text != "") {
         drawText(user);
@@ -318,10 +318,13 @@ function recieve(data) {
       userCircle.setAttribute("r",user.size);
       var userCtx = user.context;
       if(user.mousedown){
-        user.current_line=[];
+        
+        ctx2.stroke();
         user.context.stroke();
         user.context.clearRect(0,0,boardDim[1],boardDim[0]);
+        user.context.beginPath();
         
+        user.current_line=[];
       }
 
       break;
