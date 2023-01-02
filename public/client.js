@@ -858,9 +858,7 @@ function drawLineArray(points,ctx, user){
   var noAlpha = [user.color[0],user.color[1],user.color[2]];
   //var spacing = user.spacing;
   
-  var userBoard = $(".userBoard"+"."+user.id.toString());
-  userBoard.style.opacity=alpha;
-  
+
   topBoard.style.opacity=alpha;
   ctx.strokeStyle='rgb('+noAlpha.toString()+')';
   ctx.lineWidth=user.size*2;
