@@ -317,18 +317,11 @@ function recieve(data) {
       
       var userCtx = user.context;
       if(user.mousedown){
-        ctx.stroke();
-        ctx2.stroke();
-        ctx2.beginPath();
         user.current_line=[];
         user.context.stroke();
-        user.context.beginPath();
+        user.context.clearRect(0,0,boardDim[1],boardDim[0]);
       }
-      ctx.beginPath();
-      ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-      ctx2.stroke();
-      ctx2.beginPath();
-          
+
       break;
       
     case "ChSp":
@@ -622,7 +615,7 @@ board.addEventListener("wheel", function (e) {
           ctx2.beginPath();
 
           current_line=[];
-
+          current_line.push(user.pos);
         }
 
         size = size - step;
@@ -652,6 +645,7 @@ board.addEventListener("wheel", function (e) {
           ctx2.stroke();
           ctx2.beginPath();
           current_line=[];
+          current_line.push(user.pos)
         }
         size = size + step;
 
