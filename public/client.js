@@ -757,7 +757,7 @@ function zoomBoard(zoom,boardPos){
 
   $(".text.self")[0].style.transformOrigin="top left";
   $(".text.self")[0].style.scale=zoom;
-  $(".text.self")[0].style
+
 }
 
 function resetBoard(){ 
