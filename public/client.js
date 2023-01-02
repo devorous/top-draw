@@ -275,7 +275,7 @@ function recieve(data) {
         
         //ctx.lineCap = "round";
         //ctx.beginPath();
-        
+
         user.currentLine.push(pos);
         drawLine(pos, pos, user);
       }
@@ -857,7 +857,10 @@ function drawLineArray(points,ctx, user){
   var alpha = user.color[3];
   var noAlpha = [user.color[0],user.color[1],user.color[2]];
   //var spacing = user.spacing;
-
+  
+  var userBoard = $(".userBoard"+"."+user.id.toString());
+  userBoard.style.opacity=alpha;
+  
   topBoard.style.opacity=alpha;
   ctx.strokeStyle='rgb('+noAlpha.toString()+')';
   ctx.lineWidth=user.size*2;
