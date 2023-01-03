@@ -488,16 +488,13 @@ board.addEventListener("mousemove", function (e) {
   }
   if(!user.panning){
     if (user.mousedown && user.tool == "brush") {
-      drawLineArray(current_line,ctx,user);
+      drawLineArray(current_line,ctx2,user);
       current_line.push(pos);
       //ctx2.beginPath();
-      ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+      //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
       
       
-      var tension = 0.5;
-      //this function calcCatMullRomCurve is found in /js/drawingFunctions.js
-      var interpolatedPoints = calcCatmullRomCurve(current_line, tension);
-      drawLineArray(interpolatedPoints, ctx2, user);
+      
 
       //get distance between points, rounded to two decimal places
       line_length += manhattanDistance(pos,lastpos);
@@ -550,17 +547,27 @@ board.addEventListener("mousedown", function (e) {
 
 board.addEventListener("mouseup", function (e) {
   var user = getUser(userID);
-  self.mousedown = false;
-  user.mousedown = false;
+  
   if(user.tool=="brush" && !user.panning ){
+    var tension = 0.5;
+    //this function calcCatMullRomCurve is found in /js/drawingFunctions.js
+    var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
+    drawLineArray(interpolatedPoints, ctx, user);
+    
     ctx.stroke();
-    ctx2.beginPath();
+    //ctx2.beginPath();
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
     
+    
   }
-  
+  user.mousedown = false;
   send({ command: "broadcast", type: "Mu", id: userID });
   var line = { path: current_line, id: userID };
+  
+  
+  
+  
+  
   current_line = [];
   line_length = 0;
 });
@@ -645,7 +652,7 @@ board.addEventListener("wheel", function (e) {
           ctx2.beginPath();
 
           current_line=[];
-
+          current_line.push(user.pos);
         }
 
         size = size - step;
@@ -674,7 +681,9 @@ board.addEventListener("wheel", function (e) {
           ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
           ctx2.stroke();
           ctx2.beginPath();
+          
           current_line=[];
+          current_line.push(user.pos);
         }
         size = size + step;
 
@@ -856,17 +865,13 @@ function drawLineArray(points,ctx, user){
   
   
   
-  ctx.imageSmoothingQuality = "high";
   
-  ctx.globalCompositeOperation = user.blendMode;
-  board.getContext("2d").globalCompositeOperation= user.blendMode;
   
   var alpha = user.color[3];
   var noAlpha = [user.color[0],user.color[1],user.color[2]];
   //var spacing = user.spacing;
   
 
-  topBoard.style.opacity=alpha;
   ctx.strokeStyle='rgb('+noAlpha.toString()+')';
   ctx.lineWidth=user.size*2;
   
