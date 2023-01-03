@@ -249,9 +249,24 @@ function recieve(data) {
       if(!user.panning){
         moveCursor(data,user);
         if (user.mousedown && user.tool == "brush") {
-          drawLine(pos, lastpos, user);
+          
+          
+          
+          
           user.currentLine.push(pos);
-          drawLineArray(user.currentLine,user.context,user)
+          
+          
+          var tension = 0.5;
+          
+          //this function calcCatMullRomCurve is found in /js/drawingFunctions.js
+          var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
+          
+          
+          
+          drawLineArray(user.currentLine,user.context,user);
+          
+          drawLineArray(interpolatedPoints, ctx, user);
+          
         }
         if(user.mousedown && user.tool == "erase"){
           erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
@@ -473,11 +488,16 @@ board.addEventListener("mousemove", function (e) {
   }
   if(!user.panning){
     if (user.mousedown && user.tool == "brush") {
-      drawLine(pos, lastpos, user);
+      drawLineArray(current_line,ctx,user);
       current_line.push(pos);
       //ctx2.beginPath();
       ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-      drawLineArray(current_line, ctx2, user);
+      
+      
+      var tension = 0.5;
+      //this function calcCatMullRomCurve is found in /js/drawingFunctions.js
+      var interpolatedPoints = calcCatmullRomCurve(current_line, tension);
+      drawLineArray(interpolatedPoints, ctx2, user);
 
       //get distance between points, rounded to two decimal places
       line_length += manhattanDistance(pos,lastpos);
@@ -825,7 +845,6 @@ function drawLine(pos, lastpos, user) {
   
   ctx.lineWidth = user.size * 2;
   ctx.strokeStyle='rgba('+user.color.toString()+')';
-  console.log("strokestyle: ",ctx.strokeStyle);
   ctx.moveTo(lastpos.x, lastpos.y);
   ctx.lineTo(pos.x, pos.y);
   
@@ -835,11 +854,7 @@ function drawLine(pos, lastpos, user) {
 
 function drawLineArray(points,ctx, user){
   
-  var tension = 0.5;
-  var numOfSegments = 50// Math.round(line_length/20);
   
-  //this function calcCatMullRomCurve is found in /js/drawingFunctions.js
-  var interpolatedPoints = calcCatmullRomCurve(points, tension)
   
   ctx.imageSmoothingQuality = "high";
   
@@ -856,9 +871,9 @@ function drawLineArray(points,ctx, user){
   ctx.lineWidth=user.size*2;
   
   ctx.beginPath();
-  ctx.moveTo(interpolatedPoints[0].x,interpolatedPoints[0].y);
-  for(var i=1;i<interpolatedPoints.length;i++){
-    ctx.lineTo(interpolatedPoints[i].x,interpolatedPoints[i].y);
+  ctx.moveTo(points[0].x,points[0].y);
+  for(var i=1;i<points.length;i++){
+    ctx.lineTo(points[i].x,points[i].y);
   }
   ctx.stroke();
 }
