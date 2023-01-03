@@ -339,6 +339,8 @@ function recieve(data) {
         user.context.beginPath();
         
         user.currentLine=[];
+        pos = {x:user.x,y:user.y};
+        user.currentLine.push(pos);
       }
 
       break;
@@ -645,7 +647,13 @@ board.addEventListener("wheel", function (e) {
           ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
           ctx2.stroke();
           ctx2.beginPath();
-
+          
+          var tension = 0.5;
+          //this function calcCatMullRomCurve is found in /js/drawingFunctions.js\
+          var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
+          drawLineArray(interpolatedPoints, ctx, user);
+          
+          
           user.currentLine=[];
           var pos = {x:user.x,y:user.y};
           user.currentLine.push(pos);
@@ -677,6 +685,13 @@ board.addEventListener("wheel", function (e) {
           //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
           //ctx2.stroke();
           //ctx2.beginPath();
+          
+          var tension = 0.5;
+          //this function calcCatMullRomCurve is found in /js/drawingFunctions.js\
+          var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
+          drawLineArray(interpolatedPoints, ctx, user);
+          
+          
           
           user.currentLine=[];
           var pos = {x:user.x,y:user.y};
@@ -859,9 +874,6 @@ function drawLine(pos, lastpos, user) {
 }
 
 function drawLineArray(points,ctx, user){
-  
-  
-  
   
   
   var alpha = user.color[3];
