@@ -823,7 +823,6 @@ function drawLine(pos, lastpos, user) {
   //this doesnt work unless I draw the whole line at once, stroke breaks it
   //ctx2.globalCompositeOperation=blendMode.value;
   
-  console.log("drawing line: ",pos,lastpos,user);
   ctx.lineWidth = user.size * 2;
   ctx.strokeStyle='rgba('+user.color.toString()+')';
   console.log("strokestyle: ",ctx.strokeStyle);
