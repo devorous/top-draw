@@ -62,7 +62,6 @@ ctx.lineCap = "round";
 
 var gimpData = null;
 
-var current_line = [];
 var line_length = 0;
 
 var connected=false;
@@ -339,7 +338,7 @@ function recieve(data) {
         user.context.clearRect(0,0,boardDim[1],boardDim[0]);
         user.context.beginPath();
         
-        user.current_line=[];
+        user.currentLine=[];
       }
 
       break;
@@ -488,11 +487,10 @@ board.addEventListener("mousemove", function (e) {
   }
   if(!user.panning){
     if (user.mousedown && user.tool == "brush") {
-      drawLineArray(current_line,ctx2,user);
-      current_line.push(pos);
+      drawLineArray(user.currentLine,ctx2,user);
+      user.currentLine.push(pos);
       //ctx2.beginPath();
       //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-      
       
       
 
@@ -523,7 +521,7 @@ board.addEventListener("mousedown", function (e) {
   self.spaceIndex = 0;
 
   if (user.tool == "brush" && !user.panning) {
-    current_line.push(pos);
+    user.currentLine.push(pos);
     drawDot(pos,ctx,user);
     drawDot(pos,userCtx,user);
   }
@@ -550,7 +548,7 @@ board.addEventListener("mouseup", function (e) {
   
   if(user.tool=="brush" && !user.panning ){
     var tension = 0.5;
-    //this function calcCatMullRomCurve is found in /js/drawingFunctions.js
+    //this function calcCatMullRomCurve is found in /js/drawingFunctions.js\
     var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
     drawLineArray(interpolatedPoints, ctx, user);
     
@@ -562,13 +560,10 @@ board.addEventListener("mouseup", function (e) {
   }
   user.mousedown = false;
   send({ command: "broadcast", type: "Mu", id: userID });
-  var line = { path: current_line, id: userID };
+  var line = { path: user.currentLine, id: userID };
   
   
-  
-  
-  
-  current_line = [];
+  user.currentLine = [];
   line_length = 0;
 });
 
@@ -651,8 +646,9 @@ board.addEventListener("wheel", function (e) {
           ctx2.stroke();
           ctx2.beginPath();
 
-          current_line=[];
-          current_line.push(user.pos);
+          user.currentLine=[];
+          var pos = {x:user.x,y:user.y};
+          user.currentLine.push(pos);
         }
 
         size = size - step;
@@ -677,13 +673,14 @@ board.addEventListener("wheel", function (e) {
       if (size+2 < 100) {
         if(user.mousedown){
           ctx.stroke();
-          ctx.beginPath();
-          ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-          ctx2.stroke();
-          ctx2.beginPath();
+          //ctx.beginPath();
+          //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+          //ctx2.stroke();
+          //ctx2.beginPath();
           
-          current_line=[];
-          current_line.push(user.pos);
+          user.currentLine=[];
+          var pos = {x:user.x,y:user.y};
+          user.currentLine.push(pos);
         }
         size = size + step;
 
