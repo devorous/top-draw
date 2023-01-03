@@ -300,12 +300,10 @@ function recieve(data) {
 
     case "Mu":
       if (user.tool == "brush") {
-        ctx.stroke();
+        //ctx.stroke();
         //ctx2.stroke();
         
-        user.context.stroke();
         user.context.clearRect(0,0,boardDim[1],boardDim[0]);
-        
       }
       user.currentLine=[];
       user.mousedown = false;
@@ -824,16 +822,9 @@ function drawLine(pos, lastpos, user) {
   //topBoard.style.opacity=alpha;
   //this doesnt work unless I draw the whole line at once, stroke breaks it
   //ctx2.globalCompositeOperation=blendMode.value;
-  /*
-  ctx2.lineCap="round";
-  ctx2.lineWidth=user.size*2;
-  ctx2.strokeStyle='rgb('+noAlpha.toString()+')';
-  ctx2.beginPath();
   
-  ctx2.moveTo(lastpos.x,lastpos.y);
-  ctx2.lineTo(pos.x,pos.y);
-  ctx2.stroke();
-  */
+  console.log("drawing this line: ",pos,lastpos);
+
   ctx.lineWidth = user.size * 2;
   ctx.strokeStyle='rgba('+user.color.toString()+')';
   ctx.moveTo(lastpos.x, lastpos.y);
@@ -850,6 +841,8 @@ function drawLineArray(points,ctx, user){
   
   //this function calcCatMullRomCurve is found in /js/drawingFunctions.js
   var interpolatedPoints = calcCatmullRomCurve(points, tension)
+  
+  ctx.imageSmoothingQuality = "high";
   
   ctx.globalCompositeOperation = user.blendMode;
   board.getContext("2d").globalCompositeOperation= user.blendMode;
@@ -985,7 +978,6 @@ function moveCursor(data,user) {
   var id = data.id.toString();
   var x = user.x;
   var y = user.y;
-  console.log("moving cursor to: ",x,y);
   var cursor = $(".cursor"+"."+id)[0];
   var circle = $(".circle"+"."+id)[0];
   cursor.style.left = (x-100).toString() + "px";
