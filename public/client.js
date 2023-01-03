@@ -260,8 +260,8 @@ function recieve(data) {
           drawGimp(user,pos);
         }
       }
-      user.lastx=data.x;
-      user.lasty=data.y;
+      user.lastx = data.x;
+      user.lasty = data.y;
       break;
 
     case "Md":
@@ -462,7 +462,7 @@ board.addEventListener("mousemove", function (e) {
  
   send({ command: "broadcast", type: "Mm", x: user.x, y: user.y, id: userID });
   var lastpos = { x: user.lastx, y: user.lasty };
-  var pos = { x: self.x, y: self.y };
+  var pos = { x: user.x, y: user.y };
   if (lastpos.x == null) {
     lastpos = pos;
   }
@@ -814,7 +814,7 @@ function manhattanDistance(pos,lastpos){
 }
 
 function drawLine(pos, lastpos, user) {
-
+  
   var alpha = user.color[3];
   var noAlpha = [user.color[0],user.color[1],user.color[2]];
   //var spacing = user.spacing;
@@ -823,10 +823,10 @@ function drawLine(pos, lastpos, user) {
   //this doesnt work unless I draw the whole line at once, stroke breaks it
   //ctx2.globalCompositeOperation=blendMode.value;
   
-  console.log("drawing this line: ",pos,lastpos);
-
+  console.log("drawing line: ",pos,lastpos,user);
   ctx.lineWidth = user.size * 2;
   ctx.strokeStyle='rgba('+user.color.toString()+')';
+  console.log("strokestyle: ",ctx.strokeStyle);
   ctx.moveTo(lastpos.x, lastpos.y);
   ctx.lineTo(pos.x, pos.y);
   
