@@ -245,17 +245,16 @@ function recieve(data) {
       updateUser(user, data, ["x", "y"]);
       var pos = { x: user.x, y: user.y };
       var lastpos = { x: user.lastx, y: user.lasty };
-                          
-      if(!user.mousedown){
-        moveCursor(data,user);
-      }
       
+      
+
+      moveCursor(data,user);
       
       if(!user.panning){
         
         
         if (user.mousedown && user.tool == "brush") {
-          
+
           
           
           
@@ -376,7 +375,7 @@ function recieve(data) {
       console.log(data);
       updateUser(user, data, ["tool"]);
       var userText = $("." + user.id.toString() + " .text")[0];
-      var userCircle = $("."+user.id.toString()+".circle")[0];t
+      var userCircle = $("."+user.id.toString()+".circle")[0];
       
       if (data.tool == "brush") {
         userText.style.display = "none";
@@ -1416,8 +1415,5 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
 });  
 
 
-
-
-joinBtn.click();
 
 
