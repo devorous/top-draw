@@ -574,7 +574,10 @@ board.addEventListener("mouseup", function (e) {
   if(user.tool=="brush" && !user.panning ){
     var tension = 1;
     //this function calcCatMullRomCurve is found in /js/drawingFunctions.js\
-    var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
+    
+    var reducedPoints = reduceLineWithQuadtree(user.currentLine,50)
+    
+    var interpolatedPoints = calcCatmullRomCurve(reducedPoints, tension);
     
     ctx.lineCap="round";
     

@@ -1,3 +1,47 @@
+function reduceLineWithQuadtree(points, maxPoints) {
+  if (points.length <= maxPoints) {
+    // no need to simplify if there are already fewer points than the maximum
+    return points;
+  }
+
+  // create a quadtree to store the points
+  const quadtree = new Quadtree(points, 4);
+
+  // create a set to store the points that will be kept
+  const keptPoints = new Set();
+
+  // start by keeping the first and last points
+  keptPoints.add(points[0]);
+  keptPoints.add(points[points.length - 1]);
+
+  // create a priority queue to store the points that will be processed
+  const queue = new PriorityQueue((a, b) => b.priority - a.priority);
+
+  // add the points in the middle of the line to the queue
+  for (let i = 1; i < points.length - 1; i++) {
+    queue.add({ point: points[i], priority: quadtree.pointCount(points[i]) });
+  }
+
+  // while the queue is not empty and the number of kept points is less than the maximum
+  while (!queue.isEmpty() && keptPoints.size < maxPoints) {
+    // remove the point with the highest priority (i.e., the point with the most neighbors)
+    const { point } = queue.poll();
+
+    // if the point has not already been kept
+    if (!keptPoints.has(point)) {
+      // keep the point and add its neighbors to the queue
+      keptPoints.add(point);
+      quadtree.query(point).forEach(neighbor => queue.add({ point: neighbor, priority: quadtree.pointCount(neighbor) }));
+    }
+  }
+
+  // return the kept points as an array
+  return Array.from(keptPoints);
+}
+
+
+
+
 
 function calcCatmullRomCurve(points, tension) {
   if (points.length < 2) {
