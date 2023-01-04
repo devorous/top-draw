@@ -26,7 +26,8 @@ function parseGbr(arrayBuffer){
   var view = new Uint8Array(arrayBuffer);
   // Create an array to hold the chunks
   var chunks = [];
-
+  
+  //the chunks are predefined binary data for storing brush information
   // Iterate through the view and extract the chunks
   var headerChunk = view.slice(0,4)
   var headerLength = Number("0x"+concatChunk(headerChunk));
