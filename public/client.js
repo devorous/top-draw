@@ -245,8 +245,15 @@ function recieve(data) {
       updateUser(user, data, ["x", "y"]);
       var pos = { x: user.x, y: user.y };
       var lastpos = { x: user.lastx, y: user.lasty };
-      if(!user.panning){
+                          
+      if(!user.mousedown){
         moveCursor(data,user);
+      }
+      
+      
+      if(!user.panning){
+        
+        
         if (user.mousedown && user.tool == "brush") {
           
           
@@ -307,7 +314,7 @@ function recieve(data) {
       break;
 
     case "Mu":
-      if (user.tool == "brush") {
+      if (user.tool == "brush" && !user.panning) {
         //ctx.stroke();
         //ctx2.stroke();
         
@@ -369,7 +376,7 @@ function recieve(data) {
       console.log(data);
       updateUser(user, data, ["tool"]);
       var userText = $("." + user.id.toString() + " .text")[0];
-      var userCircle = $("." + user.id.toString() + " circle")[0];
+      var userCircle = $("."+user.id.toString()+".circle")[0];t
       
       if (data.tool == "brush") {
         userText.style.display = "none";
@@ -694,9 +701,9 @@ board.addEventListener("wheel", function (e) {
       if (size+2 < 100) {
         if(user.mousedown){
           //ctx.stroke();
-          ctx.beginPath();
+          //ctx.beginPath();
           ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-          ctx2.stroke();
+          //ctx2.stroke();
           ctx2.beginPath();
           
           var tension = 0.5;
