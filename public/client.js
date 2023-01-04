@@ -255,16 +255,12 @@ function recieve(data) {
           user.currentLine.push(pos);
           
           
-          var tension = 0.5;
-          
-          //this function calcCatMullRomCurve is found in /js/drawingFunctions.js
-          var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
           
           
-          
+          user.context.clearRect(0,0,boardDim[1],boardDim[0]);
           drawLineArray(user.currentLine,user.context,user);
           
-          drawLineArray(interpolatedPoints, ctx, user);
+          
           
         }
         if(user.mousedown && user.tool == "erase"){
@@ -306,9 +302,6 @@ function recieve(data) {
         drawGimp(user,pos);
       }
       
-      ctx2.beginPath();
-      ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-      
       user.mousedown = true;
       break;
 
@@ -316,6 +309,12 @@ function recieve(data) {
       if (user.tool == "brush") {
         //ctx.stroke();
         //ctx2.stroke();
+        
+        var tension = 0.5;
+        //this function calcCatMullRomCurve is found in /js/drawingFunctions.js
+        var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
+        drawLineArray(interpolatedPoints, ctx, user);
+        
         
         user.context.clearRect(0,0,boardDim[1],boardDim[0]);
       }
@@ -337,6 +336,13 @@ function recieve(data) {
         user.context.stroke();
         user.context.clearRect(0,0,boardDim[1],boardDim[0]);
         user.context.beginPath();
+        
+        
+        var tension = 0.5;
+          
+        //this function calcCatMullRomCurve is found in /js/drawingFunctions.js
+        var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
+        drawLineArray(interpolatedPoints, ctx, user);
         
         user.currentLine=[];
         pos = {x:user.x,y:user.y};
@@ -642,7 +648,7 @@ board.addEventListener("wheel", function (e) {
       }
       if (size - 0.3 > 0) {
         if(user.mousedown){
-          ctx.stroke();
+          //ctx.stroke();
           ctx.beginPath();
           ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
           ctx2.stroke();
@@ -680,7 +686,7 @@ board.addEventListener("wheel", function (e) {
       //scrolling up
       if (size+2 < 100) {
         if(user.mousedown){
-          ctx.stroke();
+          //ctx.stroke();
           //ctx.beginPath();
           //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
           //ctx2.stroke();
@@ -875,13 +881,12 @@ function drawLine(pos, lastpos, user) {
 
 function drawLineArray(points,ctx, user){
   
-  
   var alpha = user.color[3];
   var noAlpha = [user.color[0],user.color[1],user.color[2]];
   //var spacing = user.spacing;
   
 
-  ctx.strokeStyle='rgb('+noAlpha.toString()+')';
+  ctx.strokeStyle='rgba('+user.color.toString()+')';
   ctx.lineWidth=user.size*2;
   
   ctx.beginPath();
