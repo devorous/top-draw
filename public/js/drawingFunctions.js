@@ -118,7 +118,7 @@ function splineInterpolation(points, tension, numOfSegments) {
 
 
 // Define a function to draw a smooth curve through an array of points
-function drawSmoothCurve(ctx, points, tension, numOfSegments) {
+function drawSmoothCurve(points, tension, ctx,  numOfSegments) {
   // Interpolate the points using spline interpolation
   const interpolatedPoints = splineInterpolation(points, tension, numOfSegments);
 

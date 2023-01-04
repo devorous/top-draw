@@ -318,7 +318,7 @@ function recieve(data) {
 
     case "ChSi":
       //change the size
-
+      
       if(user.mousedown && user.tool=="brush"){
         
         ctx2.stroke();
@@ -335,9 +335,12 @@ function recieve(data) {
         
         
       }
-      user.currentLine=[];
-      pos = {x:user.x,y:user.y};
-      user.currentLine.push(pos);
+      
+      if(user.mousedown){
+        user.currentLine=[];
+        pos = {x:user.x,y:user.y};
+        user.currentLine.push(pos);
+      }
       
       updateUser(user, data, ["size"]);
       var userText = $("." + user.id.toString() + " .text")[0];
