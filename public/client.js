@@ -246,29 +246,16 @@ function recieve(data) {
       var pos = { x: user.x, y: user.y };
       var lastpos = { x: user.lastx, y: user.lasty };
       
-      
-
       moveCursor(data,user);
       
       if(!user.panning){
-        
-        
-        if (user.mousedown && user.tool == "brush") {
 
-          
-          
-          
+        if (user.mousedown && user.tool == "brush") {
           user.currentLine.push(pos);
-          
-          
-          
-          
           user.context.clearRect(0,0,boardDim[1],boardDim[0]);
-          
+        
           drawLineArray(user.currentLine,user.context,user);
-          
-          
-          
+
         }
         if(user.mousedown && user.tool == "erase"){
           erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
@@ -365,10 +352,21 @@ function recieve(data) {
       //change the spacing
       updateUser(user,data,["spacing"]);
       break;
+      
     case "ChBl":
       //change the blend mode
       updateUser(user,data,["blendMode"]);
       break;
+      
+      
+    case "ChNa":
+      var name = data.name;
+      user.username = name;
+      var nameText = $("."+user.id.toString()+" .name")[0];
+      nameText[0].innerHTML = name;
+      break;
+      
+      
     case "ChT":
       //change the tool
       console.log("changing tool: ");
@@ -825,9 +823,15 @@ function zoomBoard(zoom,boardPos){
   boards.style.transformOrigin=x+" "+y; 
   boards.style.scale = zoom;
 
-  //$(".text.self")[0].style.transformOrigin="top left";
-  //$(".text.self")[0].style.scale=zoom;
-
+  
+  
+  /*
+  for consistent boardname size.. but needs extra padding for small zoom
+  var names = $(".name");
+  for(var i=0;i<names.length;i++){
+    names[i].style.scale =  1/zoom;
+  }
+  */
 }
 
 function resetBoard(){ 
@@ -1044,14 +1048,16 @@ function updateUser(user, data, fields) {
 joinBtn.addEventListener("click", function(){
   $("#overlay")[0].style.display="none";
   cursor.style.display="block";
-  var value = usernameInput.value;
-  if(value==""){
-    value="Anon";
+  var name = usernameInput.value;
+  if(name==""){
+    name="Anon";
   }
   var boardName = $(".name.self")[0];
   var listName = $(".listUser.self")[0];
-  boardName.innerHTML = value;
-  listName.innerHTML = value;
+  boardName.innerHTML = name;
+  listName.innerHTML = name;
+  
+  send({ command: "broadcast", type: "ChNa", name:name, id: self.id });
 });
 
 
