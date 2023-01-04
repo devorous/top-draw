@@ -319,7 +319,7 @@ function recieve(data) {
     case "ChSi":
       //change the size
 
-      if(user.mousedown){
+      if(user.mousedown && user.tool=="brush"){
         
         ctx2.stroke();
         user.context.stroke();
@@ -333,11 +333,11 @@ function recieve(data) {
         var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
         drawLineArray(interpolatedPoints, ctx, user);
         
-        user.currentLine=[];
-        pos = {x:user.x,y:user.y};
-        user.currentLine.push(pos);
+        
       }
-      
+      user.currentLine=[];
+      pos = {x:user.x,y:user.y};
+      user.currentLine.push(pos);
       
       updateUser(user, data, ["size"]);
       var userText = $("." + user.id.toString() + " .text")[0];
@@ -661,7 +661,7 @@ board.addEventListener("wheel", function (e) {
         step = 0.25;
       }
       if (size - 0.3 > 0) {
-        if(user.mousedown){
+        if(user.mousedown && user.tool=="brush"){
           //ctx.stroke();
           //ctx.beginPath();
           ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
@@ -699,7 +699,7 @@ board.addEventListener("wheel", function (e) {
     } else {
       //scrolling up
       if (size+2 < 100) {
-        if(user.mousedown){
+        if(user.mousedown && user.tool=="brush"){
           //ctx.stroke();
           //ctx.beginPath();
           ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
