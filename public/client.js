@@ -479,6 +479,9 @@ function getUser(id) {
   return user;
 }
 
+
+
+
 board.addEventListener("mousemove", function (e) {
   
 
@@ -496,9 +499,15 @@ board.addEventListener("mousemove", function (e) {
   cursor_circle.setAttribute("cx",x);
   cursor_circle.setAttribute("cy",y);
  
-  send({ command: "broadcast", type: "Mm", x: user.x, y: user.y, id: userID });
   var lastpos = { x: user.lastx, y: user.lasty };
   var pos = { x: user.x, y: user.y };
+  
+  
+  
+  
+  
+  send({ command: "broadcast", type: "Mm", x: user.x, y: user.y, id: userID });
+  
   if (lastpos.x == null) {
     lastpos = pos;
   }
@@ -515,9 +524,6 @@ board.addEventListener("mousemove", function (e) {
       drawLineArray(user.currentLine,ctx2,user);
       user.currentLine.push(pos);
 
-      
-      
-      
 
       //get distance between points, rounded to two decimal places
       line_length += manhattanDistance(pos,lastpos);
@@ -575,9 +581,9 @@ board.addEventListener("mouseup", function (e) {
     var tension = 1;
     //this function calcCatMullRomCurve is found in /js/drawingFunctions.js\
     
-    var reducedPoints = reduceLineWithQuadtree(user.currentLine,50)
+    var resampledLine = resampleLine(user.currentLine,50);
     
-    var interpolatedPoints = calcCatmullRomCurve(reducedPoints, tension);
+    var interpolatedPoints = calcCatmullRomCurve(resampledLine, tension);
     
     ctx.lineCap="round";
     
