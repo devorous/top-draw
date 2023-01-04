@@ -500,7 +500,7 @@ board.addEventListener("mousemove", function (e) {
   if(!user.panning){
     if (user.mousedown && user.tool == "brush") {
       
-      ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+      //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
       ctx2.beginPath();
       drawLineArray(user.currentLine,ctx2,user);
       user.currentLine.push(pos);
@@ -656,9 +656,9 @@ board.addEventListener("wheel", function (e) {
       if (size - 0.3 > 0) {
         if(user.mousedown){
           //ctx.stroke();
-          ctx.beginPath();
+          //ctx.beginPath();
           ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-          ctx2.stroke();
+          //ctx2.stroke();
           ctx2.beginPath();
           
           var tension = 0.5;
@@ -694,10 +694,10 @@ board.addEventListener("wheel", function (e) {
       if (size+2 < 100) {
         if(user.mousedown){
           //ctx.stroke();
-          //ctx.beginPath();
-          //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-          //ctx2.stroke();
-          //ctx2.beginPath();
+          ctx.beginPath();
+          ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+          ctx2.stroke();
+          ctx2.beginPath();
           
           var tension = 0.5;
           //this function calcCatMullRomCurve is found in /js/drawingFunctions.js\
@@ -819,8 +819,8 @@ function zoomBoard(zoom,boardPos){
   boards.style.transformOrigin=x+" "+y; 
   boards.style.scale = zoom;
 
-  $(".text.self")[0].style.transformOrigin="top left";
-  $(".text.self")[0].style.scale=zoom;
+  //$(".text.self")[0].style.transformOrigin="top left";
+  //$(".text.self")[0].style.scale=zoom;
 
 }
 
@@ -909,6 +909,7 @@ function drawText(user) {
   ctx.globalCompositeOperation="source-over";
   var size = (user.size + 5).toString();
   var text = user.text.replaceAll("&nbsp;"," ");
+  text = user.text.replaceAll("&nbsp;"," ");
   ctx.beginPath();
   ctx.fillStyle='rgba('+user.color.toString()+')';
   ctx.font = size + "px Newsreader, serif";
