@@ -520,8 +520,14 @@ board.addEventListener("mousemove", function (e) {
     if (user.mousedown && user.tool == "brush") {
       
       //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+      
+      var numPoints = Math.round(line_length);
+      var resampledLine = resampleLine(user.currentLine,numPoints);
+
+      
+      
       ctx2.beginPath();
-      drawLineArray(user.currentLine,ctx2,user);
+      drawLineArray(resampledLine,ctx2,user);
       user.currentLine.push(pos);
 
 
@@ -581,13 +587,14 @@ board.addEventListener("mouseup", function (e) {
     var tension = 1;
     //this function calcCatMullRomCurve is found in /js/drawingFunctions.js\
     
-    var resampledLine = resampleLine(user.currentLine,50);
     
-    var interpolatedPoints = calcCatmullRomCurve(resampledLine, tension);
     
-    ctx.lineCap="round";
     
-    drawLineArray(interpolatedPoints, ctx, user);
+    var numPoints = Math.round(line_length/50);
+    var resampledLine = resampleLine(user.currentLine,numPoints);
+    drawLineArray(resampledLine, ctx, user);
+    
+    
     
     //ctx.stroke();
     //ctx2.beginPath();
@@ -1033,8 +1040,8 @@ function erase(x1, y1, x2, y2,size) {
   ctx.moveTo(x1, y1);
   ctx.lineTo(x2, y2);
   ctx.stroke();
-
 }
+
 
 
 function updateColor(color,id){
