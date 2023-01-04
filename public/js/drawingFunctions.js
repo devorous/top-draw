@@ -1,3 +1,173 @@
+// Quadtree class for storing points
+class Quadtree {
+  constructor(points, capacity) {
+    this.capacity = capacity;
+    this.points = points;
+    this.bounds = this.getBounds(points);
+    this.divided = false;
+
+    this.subtrees = [];
+    if (points.length > capacity) {
+      this.divide();
+    }
+  }
+// divide the quadtree into four subtrees
+  divide() {
+    const { x, y, w, h } = this.bounds;
+    const points = this.points;
+
+    const nePoints = [];
+    const nwPoints = [];
+    const sePoints = [];
+    const swPoints = [];
+
+    for (const point of points) {
+      const { x: px, y: py } = point;
+      if (px > x + w / 2) {
+        if (py > y + h / 2) {
+          sePoints.push(point);
+        } else {
+          nePoints.push(point);
+        }
+      } else {
+        if (py > y + h / 2) {
+          swPoints.push(point);
+        } else {
+          nwPoints.push(point);
+        }
+      }
+    }
+
+    this.subtrees[0] = new Quadtree(nwPoints, this.capacity);
+    this.subtrees[1] = new Quadtree(nePoints, this.capacity);
+    this.subtrees[2] = new Quadtree(sePoints, this.capacity);
+    this.subtrees[3] = new Quadtree(swPoints, this.capacity);
+    this.points = [];
+    this.divided = true;
+  }
+
+  // query the quadtree for points within a given bounds
+  query(bounds) {
+    const result = [];
+    if (!this.bounds.intersects(bounds)) {
+      return result;
+    }
+    if (!this.divided) {
+      return this.points.filter(point => bounds.contains(point));
+    }
+    for (const subtree of this.subtrees) {
+      result.push(...subtree.query(bounds));
+    }
+    return result;
+  }
+
+  // count the number of points within a given bounds
+  pointCount(bounds) {
+    if (!this.bounds.intersects(bounds)) {
+      return 0;
+    }
+    if (!this.divided) {
+      return this.points.filter(point => bounds.contains(point)).length;
+    }
+    return this.subtrees.reduce((count, subtree) => count + subtree.pointCount(bounds), 0);
+  }
+
+  // get the bounds of a set of points
+  getBounds(points) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const point of points) {
+      const { x, y } = point;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
+}
+
+class Bounds {
+  constructor(points) {
+    this.x = points.reduce((min, point) => Math.min(min, point.x), Infinity);
+    this.y = points.reduce((min, point) => Math.min(min, point.y), Infinity);
+    this.w = points.reduce((max, point) => Math.max(max, point.x), -Infinity) - this.x;
+    this.h = points.reduce((max, point) => Math.max(max, point.y), -Infinity) - this.y;
+  }
+
+  // check if the bounds intersect with another bounds
+  intersects(other) {
+    return !(other.x > this.x + this.w || other.x + other.w < this.x ||
+             other.y > this.y + this.h || other.y + other.h < this.y);
+  }
+}
+
+// PriorityQueue class for storing elements with a priority
+class PriorityQueue {
+  constructor(comparator = (a, b) => a - b) {
+    this.heap = [];
+    this.comparator = comparator;
+  }
+
+  // add an element to the queue
+  add(element) {
+    this.heap.push(element);
+    this.heapifyUp();
+  }
+
+  // remove and return the element with the highest priority
+  poll() {
+    const element = this.heap[0];
+    this.heap[0] = this.heap[this.heap.length - 1];
+    this.heap.pop();
+    this.heapifyDown();
+    return element;
+  }
+
+  // check if the queue is empty
+  isEmpty() {
+    return this.heap.length === 0;
+  }
+ // move an element up the heap
+  heapifyUp(index = this.heap.length - 1) {
+    let current = index;
+    while (current > 0) {
+      const parent = (current - 1) >>> 1;
+      if (this.comparator(this.heap[current], this.heap[parent]) < 0) {
+        [this.heap[current], this.heap[parent]] = [this.heap[parent], this.heap[current]];
+        current = parent;
+      } else {
+        break;
+      }
+    }
+  }
+
+    // move an element down the heap
+  heapifyDown(index = 0) {
+    let current = index;
+    while (true) {
+      const left = (current << 1) + 1;
+      const right = left + 1;
+      let minIndex = current;
+      if (left < this.heap.length && this.comparator(this.heap[left], this.heap[minIndex]) < 0) {
+        minIndex = left;
+      }
+      if (right < this.heap.length && this.comparator(this.heap[right], this.heap[minIndex]) < 0) {
+        minIndex = right;
+      }
+      if (minIndex !== current) {
+        [this.heap[current], this.heap[minIndex]] = [this.heap[minIndex], this.heap[current]];
+        current = minIndex;
+      } else {
+        break;
+      }
+    }
+  }
+}
+
+
 function reduceLineWithQuadtree(points, maxPoints) {
   if (points.length <= maxPoints) {
     // no need to simplify if there are already fewer points than the maximum
