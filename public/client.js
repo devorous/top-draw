@@ -258,6 +258,7 @@ function recieve(data) {
           
           
           user.context.clearRect(0,0,boardDim[1],boardDim[0]);
+          
           drawLineArray(user.currentLine,user.context,user);
           
           
@@ -324,12 +325,7 @@ function recieve(data) {
 
     case "ChSi":
       //change the size
-      updateUser(user, data, ["size"]);
-      var userText = $("." + user.id.toString() + " .text")[0];
-      userText.style.fontSize = (data.size + 5).toString() + "px";
-      var userCircle = $("."+user.id.toString()+".circle")[0];
-      userCircle.setAttribute("r",user.size);
-      var userCtx = user.context;
+
       if(user.mousedown){
         
         ctx2.stroke();
@@ -348,6 +344,14 @@ function recieve(data) {
         pos = {x:user.x,y:user.y};
         user.currentLine.push(pos);
       }
+      
+      
+      updateUser(user, data, ["size"]);
+      var userText = $("." + user.id.toString() + " .text")[0];
+      userText.style.fontSize = (data.size + 5).toString() + "px";
+      var userCircle = $("."+user.id.toString()+".circle")[0];
+      userCircle.setAttribute("r",user.size);
+      var userCtx = user.context;
 
       break;
       
@@ -495,10 +499,13 @@ board.addEventListener("mousemove", function (e) {
   }
   if(!user.panning){
     if (user.mousedown && user.tool == "brush") {
+      
+      ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+      ctx2.beginPath();
       drawLineArray(user.currentLine,ctx2,user);
       user.currentLine.push(pos);
-      //ctx2.beginPath();
-      //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+
+      
       
       
 
@@ -560,7 +567,7 @@ board.addEventListener("mouseup", function (e) {
     var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
     drawLineArray(interpolatedPoints, ctx, user);
     
-    ctx.stroke();
+    //ctx.stroke();
     //ctx2.beginPath();
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
     
