@@ -363,7 +363,9 @@ function recieve(data) {
       var name = data.name;
       user.username = name;
       var nameText = $("."+user.id.toString()+" .name")[0];
-      nameText[0].innerHTML = name;
+      var listName = $("."+user.id.toString()+" .listUser")[0];
+      nameText.innerHTML = name;
+      listName.innerHTML = name;
       break;
       
       
@@ -1165,7 +1167,7 @@ function drawUser(data, id) {
   
   var cursors = $(".cursors")[0];
   var name = $("<text>" + id.toString() + "</text>")[0];
-  name.setAttribute("class", "name " + id.toString());
+  name.setAttribute("class", "name " + data.name);
   
   var text = $("<text></text>")[0];
   text.setAttribute("class", "text " + id.toString());
@@ -1348,7 +1350,7 @@ window.addEventListener("resize", (e) => {
 
 
 
-
+//Both gimp functions are found in the folder /js/parseGimp.js
 document.getElementById('gimp-file-input').addEventListener('change', function(event) {
   var user = getUser(userID);
    // Get the first selected file
@@ -1389,12 +1391,9 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
         var gihObject = parseGih(arrayBuffer);
         
         var images = [];
-        
-        
-        
+
         for(var i=0;i<gihObject.gBrushes.length;i++){
-          
-          
+
           var gbrObject = gihObject.gBrushes[i];
           
           var gimpImage = new Image();

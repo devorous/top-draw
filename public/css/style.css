@@ -270,6 +270,7 @@ canvas{
 }
 .listUser{
   color:white;
+  width:50%;
 }
 .listUser.self{
   font-style:italic;
