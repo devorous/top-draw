@@ -105,6 +105,9 @@ function updateUser(data) {
       case "ChSi":
         userdata.size = data.size;
         break;
+      case "ChNa":
+        userdata.username = data.name;
+        break;
       case "ChT":
         userdata.tool = data.tool;
         userdata.text="";

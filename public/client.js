@@ -364,6 +364,7 @@ function recieve(data) {
       user.username = name;
       var nameText = $("."+user.id.toString()+" .name")[0];
       var listName = $("."+user.id.toString()+" .listUser")[0];
+      console.log("user list: ",$(".listUser"));
       nameText.innerHTML = name;
       listName.innerHTML = name;
       break;
@@ -1166,8 +1167,8 @@ function drawUser(data, id) {
   circle.setAttribute("height", "auto");
   
   var cursors = $(".cursors")[0];
-  var name = $("<text>" + id.toString() + "</text>")[0];
-  name.setAttribute("class", "name " + data.name);
+  var name = $("<text>" + data.username + "</text>")[0];
+  name.setAttribute("class", "name " + id.toString());
   
   var text = $("<text></text>")[0];
   text.setAttribute("class", "text " + id.toString());
