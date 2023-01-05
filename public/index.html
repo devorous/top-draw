@@ -30,18 +30,16 @@
       
     <div id="main">
       
-    <div id="overlay">
-      <div id="login">
-        <label>Username:</label>
-        <input id="usernameInput">
-        <a class="btn join" id="joinBtn">Join!!</a>
+      <div id="overlay">
+        <div id="login">
+          <label>Username:</label>
+          <input id="usernameInput">
+          <a class="btn join" id="joinBtn">Join!!</a>
+        </div>
       </div>
-    </div>
       
       <div id="boardContainer"> 
-        
-        
-            
+
         <div id="boards">
           
           <div class="cursors">
@@ -54,8 +52,18 @@
                   cy="0"
                   r="10" >  
                 </circle>
+              <rect class="square self"
+                    stroke="grey"
+                    stroke-width="1"
+                    fill="none"
+                    height="10"
+                    width="10"
+                    x="0"
+                    y="0"
+                    >
+              
+              </rect>
               <div class="cursor self">
-
                 <text class="text self"><text class="textInput self"></text><text>|</text></text>
                 <text class="name self"></text>
               </div>

@@ -26,7 +26,7 @@ var userlistName = $(".listUser.self")[0];
 
 
 
-var defaultZoom = Math.round(0.95*$("#boardContainer").width()/boardDim[1]*1000)/1000 
+var defaultZoom = Math.round(0.95 *$("#boardContainer").width()/boardDim[1]*1000)/1000 
 console.log("zoom: ",defaultZoom);
 var zoom = defaultZoom;
 zoomBoard(zoom,0,0);
