@@ -63,9 +63,6 @@ ctx2.lineJoin= "round";
 ctx.lineCap = "round";
 ctx.lineJoin= "round";
 
-var gimpData = null;
-
-var line_length = 0;
 
 var connected=false;
 
@@ -139,6 +136,7 @@ var self = {
   gBrush: null,
   blendMode: "source-over",
   currentLine: [],
+  lineLength:0,
 };
 
 // Add self  to beginning of users array:
@@ -526,7 +524,7 @@ board.addEventListener("mousemove", function (e) {
       
       //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
       
-      var numPoints = Math.round(line_length/10);
+      var numPoints = Math.round(user.lineLength/10);
 
       
       ctx2.beginPath();
@@ -535,7 +533,7 @@ board.addEventListener("mousemove", function (e) {
 
 
       //get distance between points, rounded to two decimal places
-      line_length += manhattanDistance(pos,lastpos);
+      user.lineLength += manhattanDistance(pos,lastpos);
     }
     if (user.mousedown && user.tool == "erase"){
       erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
@@ -562,8 +560,8 @@ board.addEventListener("mousedown", function (e) {
 
   if (user.tool == "brush" && !user.panning) {
     user.currentLine.push(pos);
-    drawDot(pos,ctx,user);
-    //drawDot(pos,userCtx,user);
+
+    drawDot(pos,userCtx,user);
   }
   
   if (user.tool == "text" && user.text != "") {
@@ -587,11 +585,12 @@ board.addEventListener("mouseup", function (e) {
   var user = getUser(userID);
   
   if(user.tool=="brush" && !user.panning ){
-    var tension = 1;
-    //this function calcCatMullRomCurve is found in /js/drawingFunctions.js\
-    
-    
-    console.log(line_length);
+
+    if(user.lineLength==0){
+      var pos = {x:user.x,y:user.y};
+      drawDot(pos,ctx,user);
+    }
+    console.log(user.lineLength);
     
 
     drawLineArray(user.currentLine, ctx, user);
@@ -611,7 +610,7 @@ board.addEventListener("mouseup", function (e) {
   
   
   user.currentLine = [];
-  line_length = 0;
+  user.lineLength = 0;
 });
 
 
@@ -632,7 +631,7 @@ board.addEventListener("mouseout",function(e){
   send({ command: "broadcast", type: "Mu", id: userID });
   var line = { path: current_line, id: userID };
   current_line = [];
-  line_length = 0;
+  user.lineLength = 0;
   
   
   */
@@ -883,6 +882,7 @@ function drawDot(pos, ctx, user){
     ctx.lineWidth = user.size * 2;
     ctx.moveTo(pos.x,pos.y);
     ctx.lineTo(pos.x,pos.y);
+    ctx.stroke();
     
     var noAlpha = [user.color[0],user.color[1],user.color[2]];
     var alpha = user.color[3];
@@ -1448,4 +1448,4 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
 
 
 
-
+joinBtn.click();
