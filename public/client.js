@@ -58,7 +58,10 @@ var ctx2 = topBoard.getContext("2d");
 ctx.globalCompositeOperation="source-over";
 ctx.imageSmoothingQuality = "high";
 ctx2.imageSmoothingQuality = "high";
+ctx2.lineCap= "round";
+ctx2.lineJoin= "round";
 ctx.lineCap = "round";
+ctx.lineJoin= "round";
 
 var gimpData = null;
 
@@ -560,7 +563,7 @@ board.addEventListener("mousedown", function (e) {
   if (user.tool == "brush" && !user.panning) {
     user.currentLine.push(pos);
     drawDot(pos,ctx,user);
-    drawDot(pos,userCtx,user);
+    //drawDot(pos,userCtx,user);
   }
   
   if (user.tool == "text" && user.text != "") {
@@ -886,6 +889,7 @@ function drawDot(pos, ctx, user){
     topBoard.style.opacity=alpha;
     userCtx.strokeStyle='rgb('+noAlpha.toString()+')';
     userCtx.lineCap="round";
+    userCtx.lineJoin="round";
     userCtx.lineWidth=user.size*2;
     userCtx.beginPath();
     userCtx.moveTo(pos.x,pos.y);
