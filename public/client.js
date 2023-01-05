@@ -521,7 +521,7 @@ board.addEventListener("mousemove", function (e) {
       
       //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
       
-      var numPoints = Math.round(line_length);
+      var numPoints = Math.round(line_length/10);
       var resampledLine = resampleLine(user.currentLine,numPoints);
 
       
@@ -588,9 +588,9 @@ board.addEventListener("mouseup", function (e) {
     //this function calcCatMullRomCurve is found in /js/drawingFunctions.js\
     
     
+    console.log(line_length);
     
-    
-    var numPoints = Math.round(line_length/50);
+    var numPoints = Math.round(line_length/10);
     var resampledLine = resampleLine(user.currentLine,numPoints);
     drawLineArray(resampledLine, ctx, user);
     
