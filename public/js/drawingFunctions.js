@@ -38,6 +38,33 @@ function resampleLine(points, numPoints) {
 }
 
 
+function movingAverage(points, windowSize) {
+  // Create a new array to hold the smoothed points
+  const smoothedPoints = [];
+  
+  // Loop through the points
+  for (let i = 0; i < points.length; i++) {
+    // Calculate the average of the current point and the previous "windowSize" points
+    let sumX = 0;
+    let sumY = 0;
+    for (let j = i - windowSize; j <= i; j++) {
+      if (j < 0) continue;
+      sumX += points[j].x;
+      sumY += points[j].y;
+    }
+    const avgX = sumX / (windowSize + 1);
+    const avgY = sumY / (windowSize + 1);
+    
+    // Add the new smoothed point to the array
+    smoothedPoints.push({ x: avgX, y: avgY });
+  }
+  
+  // Return the array of smoothed points
+  return smoothedPoints;
+}
+
+
+
 
 function calcCatmullRomCurve(points, tension) {
   if (points.length < 2) {

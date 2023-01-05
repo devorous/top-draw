@@ -122,6 +122,7 @@ var self = {
   lasty: null,
   size: 10,
   spacing: 0,
+  smoothing:2,
   spaceIndex: 0,
   color: "#000",
   tool: "brush",
@@ -590,9 +591,9 @@ board.addEventListener("mouseup", function (e) {
     
     console.log(line_length);
     
-    var numPoints = Math.round(line_length/10);
-    var resampledLine = resampleLine(user.currentLine,numPoints);
-    drawLineArray(resampledLine, ctx, user);
+    
+    var smoothLine = movingAverage(user.currentLine,user.smoothing);
+    drawLineArray(smoothLine, ctx, user);
     
     
     
