@@ -1,42 +1,55 @@
-function resampleLine(points, numPoints) {
-  // Ensure that the input is an array
-  if (!Array.isArray(points)) {
-    return [];
+function quadraticCurve(points) {
+  // Initialize an empty array to store the quadratic curve points
+  var quadraticPoints = [];
+  
+  // Loop through the points array and generate the quadratic curve points
+  for (var i = 0; i < points.length - 2; i++) {
+    // Get the current point and the next two points
+    var point1 = points[i];
+    var point2 = points[i + 1];
+    var point3 = points[i + 2];
+    
+    // Calculate the control point for the quadratic curve
+    var controlPointX = (point1.x + point2.x * 2 + point3.x) / 4;
+    var controlPointY = (point1.y + point2.y * 2 + point3.y) / 4;
+    var controlPoint = {x: controlPointX, y: controlPointY};
+    
+    // Add the quadratic curve point to the quadraticPoints array
+    quadraticPoints.push({
+      point1: point1,
+      point2: controlPoint,
+      point3: point2
+    });
   }
-  // Ensure that the array has at least two points
-  if (points.length < 2) {
-    return points;
-  }
-  // Ensure that numPoints is a positive integer
-  if (typeof numPoints !== 'number' || numPoints <= 0 || numPoints % 1 !== 0) {
-    return points;
-  }
-  // Ensure that numPoints is not greater than the number of points
-  if (numPoints > points.length) {
-    numPoints = points.length;
-  }
-
-  // Create an array to store the evenly spaced points
-  const evenlySpacedPoints = [];
-
-  // Add the first point to the array
-  evenlySpacedPoints.push(points[0]);
-
-  // Calculate the distance between each pair of points
-  const distanceBetweenPoints = (points.length - 1) / (numPoints - 1);
-
-  // Iterate through the points, adding evenly spaced points to the array
-  for (let i = 1; i < numPoints - 1; i++) {
-    const index = Math.round(i * distanceBetweenPoints);
-    evenlySpacedPoints.push(points[index]);
-  }
-
-  // Add the last point to the array
-  evenlySpacedPoints.push(points[points.length - 1]);
-
-  return evenlySpacedPoints;
+  
+  // Return the array of quadratic curve points
+  return quadraticPoints;
 }
 
+function drawQuadraticCurve(canvas, quadraticCurve) {
+  // Get the canvas context
+  var ctx = canvas.getContext('2d');
+  
+  // Set the stroke style for the curve
+  ctx.strokeStyle = 'black';
+  
+  // Begin a new path
+  ctx.beginPath();
+  
+  // Set the starting point of the curve to be the first point of the quadratic curve
+  ctx.moveTo(quadraticCurve.point1.x, quadraticCurve.point1.y);
+  
+  // Use the quadraticCurveTo() method to draw the curve
+  ctx.quadraticCurveTo(
+    quadraticCurve.point2.x,  // control point x
+    quadraticCurve.point2.y,  // control point y
+    quadraticCurve.point3.x,  // end point x
+    quadraticCurve.point3.y   // end point y
+  );
+  
+  // Stroke the curve
+  ctx.stroke();
+}
 
 function movingAverage(points, windowSize) {
   // Create a new array to hold the smoothed points
