@@ -26,12 +26,12 @@ var userlistName = $(".listUser.self")[0];
 
 
 
-var defaultZoom = Math.round(0.9*$("#boardContainer").width()/boardDim[1]*100)/100 
+var defaultZoom = Math.round(0.95*$("#boardContainer").width()/boardDim[1]*1000)/1000 
 console.log("zoom: ",defaultZoom);
 var zoom = defaultZoom;
 zoomBoard(zoom,0,0);
 var defaultPanX = 25-50*(1-zoom)*10
-var defaultPanY = 50//50+50*(1-zoom)*10
+var defaultPanY = 25-15*(1-zoom)*10
 
 var panX = defaultPanX;
 var panY = defaultPanY;
@@ -836,7 +836,8 @@ function zoomBoard(zoom,boardPos){
   var x = boardPos.x+"px";
   var y = boardPos.y+"px";
   var tOrigin = x+" "+y;
-  boards.style.transformOrigin=x+" "+y; 
+  
+  boards.style.transformOrigin = tOrigin;
   boards.style.scale = zoom;
 
   
