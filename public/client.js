@@ -523,7 +523,7 @@ board.addEventListener("mousemove", function (e) {
       //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
       
       var numPoints = Math.round(line_length/10);
-      var resampledLine = resampleLine(user.currentLine,numPoints);
+      var resampledLine = quadraticCurve(user.currentLine,numPoints);
 
       
       

@@ -15,37 +15,29 @@ function quadraticCurve(points) {
     var controlPoint = {x: controlPointX, y: controlPointY};
     
     // Add the quadratic curve point to the quadraticPoints array
-    quadraticPoints.push({
-      point1: point1,
-      point2: controlPoint,
-      point3: point2
-    });
+    quadraticPoints.push(point1,controlPoint,point2);
   }
   
   // Return the array of quadratic curve points
   return quadraticPoints;
 }
 
-function drawQuadraticCurve(canvas, quadraticCurve) {
+function drawQuadraticCurve(points,ctx) {
   // Get the canvas context
-  var ctx = canvas.getContext('2d');
   
-  // Set the stroke style for the curve
-  ctx.strokeStyle = 'black';
   
   // Begin a new path
   ctx.beginPath();
   
   // Set the starting point of the curve to be the first point of the quadratic curve
-  ctx.moveTo(quadraticCurve.point1.x, quadraticCurve.point1.y);
-  
+  ctx.moveTo(points[0].x, points[0].y);
+  for(var i=1;i<quadraticCurve.length/2;i++){
+    ctx.quadraticCurveTo(
+      
+    )
+  }
   // Use the quadraticCurveTo() method to draw the curve
-  ctx.quadraticCurveTo(
-    quadraticCurve.point2.x,  // control point x
-    quadraticCurve.point2.y,  // control point y
-    quadraticCurve.point3.x,  // end point x
-    quadraticCurve.point3.y   // end point y
-  );
+
   
   // Stroke the curve
   ctx.stroke();
