@@ -554,9 +554,8 @@ board.addEventListener("mousedown", function (e) {
   send({ command: "broadcast", type: "Md", id: userID });
   user.lastx = user.x;
   user.lasty = user.y;
-  self.mousedown = true;
+  user.mousedown = true;
   user.spaceIndex = 0;
-  self.spaceIndex = 0;
 
   if (user.tool == "brush" && !user.panning) {
     user.currentLine.push(pos);
@@ -619,7 +618,6 @@ board.addEventListener("mouseout",function(e){
   var user = getUser(userID);
   
   /*
-  self.mousedown = false;
   user.mousedown = false;
   if(user.tool=="brush" && !user.panning ){
     ctx.stroke();
@@ -686,19 +684,15 @@ board.addEventListener("wheel", function (e) {
       }
       if (size - 0.3 > 0) {
         if(user.mousedown && user.tool=="brush"){
-          //ctx.stroke();
-          //ctx.beginPath();
+
           ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-          //ctx2.stroke();
           ctx2.beginPath();
           
-          var tension = 0.5;
-          //this function calcCatMullRomCurve is found in /js/drawingFunctions.js\
-          var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
-          drawLineArray(interpolatedPoints, ctx, user);
-          
+          drawLineArray(user.currentLine, ctx, user);
           
           user.currentLine=[];
+          user.lineLength=0;
+          
           var pos = {x:user.x,y:user.y};
           user.currentLine.push(pos);
         }
@@ -712,7 +706,6 @@ board.addEventListener("wheel", function (e) {
         text.style.fontSize = (size + 5).toString() + "px";
 
         ctx.lineWidth = size * 2;
-        self.size = size;
         user.size = size;
 
         sizeSlider.value=size;
@@ -724,22 +717,19 @@ board.addEventListener("wheel", function (e) {
       //scrolling up
       if (size+2 < 100) {
         if(user.mousedown && user.tool=="brush"){
-          //ctx.stroke();
-          //ctx.beginPath();
+
           ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
-          //ctx2.stroke();
           ctx2.beginPath();
           
-          var tension = 0.5;
-          //this function calcCatMullRomCurve is found in /js/drawingFunctions.js\
-          var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
-          drawLineArray(interpolatedPoints, ctx, user);
-          
-          
+          drawLineArray(user.currentLine, ctx, user);
           
           user.currentLine=[];
+          user.lineLength=0;
+          
           var pos = {x:user.x,y:user.y};
           user.currentLine.push(pos);
+          
+          
         }
         size = size + step;
 
@@ -751,7 +741,6 @@ board.addEventListener("wheel", function (e) {
         text.style.fontSize = (size + 5).toString() + "px";
 
         ctx.lineWidth = size * 2;
-        self.size = size;
         user.size = size;
 
         sizeSlider.value=size;
@@ -763,7 +752,7 @@ board.addEventListener("wheel", function (e) {
 });
 
 document.addEventListener("keydown", function (e) {
-  var user = getUser(self.id);
+  var user = getUser(userID);
   
   //this preventDefault stops "quick search" from appearing when you press these keys
   if(e.key=="/" || e.key=="'"){
@@ -771,11 +760,11 @@ document.addEventListener("keydown", function (e) {
   }
   if(e.key==" " && user.tool!="text" && !user.panning && !user.mousedown ){
     user.panning="true"
-    send({ command: "broadcast", type: "pan", value: true, id: self.id });
+    send({ command: "broadcast", type: "pan", value: true, id: user.id });
   }
-  send({ command: "broadcast", type: "kp", key: e.key, id: self.id });
+  send({ command: "broadcast", type: "kp", key: e.key, id: user.id });
   
-  if (self.tool == "text") {
+  if (user.tool == "text") {
     
     var input = $(".textInput.self")[0];
 
@@ -829,7 +818,7 @@ document.addEventListener("keyup",function(e){
   var user = getUser(userID);
   if(e.key==" " && user.tool!="text"){
     user.panning=false;
-    send({ command: "broadcast", type: "pan", value: false, id: self.id }); 
+    send({ command: "broadcast", type: "pan", value: false, id: user.id }); 
   }
 });
 
@@ -995,7 +984,7 @@ function drawGimp(user,pos){
     }
 
     ctx.beginPath();
-    ctx.fillStyle='rgba('+self.color.toString()+')';
+    ctx.fillStyle='rgba('+user.color.toString()+')';
     ctx.drawImage(image,(pos.x-size*ratioX),(pos.y-size*ratioY),size*2*ratioX,size*2*ratioY);
     ctx.stroke();
     
@@ -1086,7 +1075,7 @@ joinBtn.addEventListener("click", function(){
   boardName.innerHTML = name;
   listName.innerHTML = name;
   
-  send({ command: "broadcast", type: "ChNa", name:name, id: self.id });
+  send({ command: "broadcast", type: "ChNa", name:name, id: userID });
 });
 
 
@@ -1102,7 +1091,7 @@ brushBtn.addEventListener("click", function () {
   var user = getUser(userID);
   var index = users.indexOf(user);
   users[index].tool = "brush";
-  send({ command: "broadcast", type: "ChT", tool: "brush", id: self.id });
+  send({ command: "broadcast", type: "ChT", tool: "brush", id: user.id });
   $(".text.self")[0].style.display = "none";
   $(".circle.self")[0].style.display = "block";
   userlistEntry.children[0].children[0].remove();
@@ -1119,7 +1108,7 @@ textBtn.addEventListener("click", function () {
   var user = getUser(userID);
   var index = users.indexOf(user);
   users[index].tool = "text";
-  send({ command: "broadcast", type: "ChT", tool: "text", id: self.id });
+  send({ command: "broadcast", type: "ChT", tool: "text", id: user.id });
   $(".text.self")[0].style.display = "block";
   $(".circle.self")[0].style.display = "none";
   
@@ -1138,7 +1127,7 @@ eraseBtn.addEventListener("click", function () {
   var user = getUser(userID);
   var index = users.indexOf(user);
   users[index].tool = "erase";
-  send({ command: "broadcast", type: "ChT", tool: "erase", id: self.id });
+  send({ command: "broadcast", type: "ChT", tool: "erase", id: user.id });
   $(".text.self")[0].style.display = "none";
   $(".circle.self")[0].style.display = "block";
   
@@ -1161,7 +1150,7 @@ gimpBtn.addEventListener("click", function () {
   var user = getUser(userID);
   var index = users.indexOf(user);
   users[index].tool = "gimp";
-  send({ command: "broadcast", type: "ChT", tool: "gimp", id: self.id });
+  send({ command: "broadcast", type: "ChT", tool: "gimp", id: user.id });
   $(".text.self")[0].style.display = "none";
   $(".circle.self")[0].style.display = "block";
   
@@ -1298,7 +1287,6 @@ var picker = new Picker({
               var user = getUser(userID);
               input.style.color='rgba('+user.color.toString()+')';
               var rgba = color.rgba;
-              self.color=rgba;
               user.color=rgba;
               if(connected==true){
                 send({command:"broadcast",type:"ChC",color:rgba,id:userID});
@@ -1327,7 +1315,6 @@ sizeSlider.addEventListener("mousemove",function(e){
     ctx.lineWidth = size * 2;
     
     sizeSlider.value=size;
-    self.size = size;
     user.size=size;
 
     text.style.fontSize = (size + 5).toString() + "px";
@@ -1346,9 +1333,8 @@ spacingSlider.addEventListener("mousemove",function(e){
 
     send({ command: "broadcast", type: "ChSp", spacing: spacing, id: userID });
 
-    self.spacing = spacing;
     
-    user.spacing=spacing;
+    user.spacing = spacing;
     
     spacingSlider.value=spacing;
 
@@ -1410,7 +1396,6 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
           
           gbrObject.image = gimpImage;
           
-          self.gBrush = gbrObject;
           user.gBrush = gbrObject;
         }
       }
@@ -1436,7 +1421,6 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
         gihObject.type = "gih";
         gihObject.index = 0;
         gihObject.images = images;
-        self.gBrush = gihObject;
         user.gBrush = gihObject;
         
         send({command:"broadcast",type:"gimp",gimpData:gihObject,id:userID});
