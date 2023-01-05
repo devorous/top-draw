@@ -23,17 +23,16 @@ function quadraticCurve(points) {
 }
 
 function drawQuadraticCurve(points,ctx) {
-  // Get the canvas context
-  
   
   // Begin a new path
   ctx.beginPath();
   
   // Set the starting point of the curve to be the first point of the quadratic curve
   ctx.moveTo(points[0].x, points[0].y);
-  for(var i=1;i<quadraticCurve.length/2;i++){
+  for(var i=1;i<quadraticCurve.length-2;i=i+2){
     ctx.quadraticCurveTo(
-      
+      points[i].x,points[i].y,
+      points[i+1].x,points[i+1].y
     )
   }
   // Use the quadraticCurveTo() method to draw the curve

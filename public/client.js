@@ -523,12 +523,12 @@ board.addEventListener("mousemove", function (e) {
       //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
       
       var numPoints = Math.round(line_length/10);
-      var resampledLine = quadraticCurve(user.currentLine,numPoints);
+      var resampledLine = (user.currentLine,numPoints);
 
       
       
       ctx2.beginPath();
-      drawLineArray(resampledLine,ctx2,user);
+      drawLineArray(user.currentLine,ctx2,user);
       user.currentLine.push(pos);
 
 
@@ -591,9 +591,10 @@ board.addEventListener("mouseup", function (e) {
     
     console.log(line_length);
     
-    
-    var smoothLine = movingAverage(user.currentLine,user.smoothing);
-    drawLineArray(smoothLine, ctx, user);
+    var quadLine = quadraticCurve(user.currentLine);
+    //var smoothLine = movingAverage(user.currentLine,user.smoothing);
+    //drawLineArray(smoothLine, ctx, user);
+    drawQuadraticCurve(quadLine,ctx)
     
     
     
