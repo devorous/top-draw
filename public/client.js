@@ -305,10 +305,11 @@ function recieve(data) {
         //ctx.stroke();
         //ctx2.stroke();
         
-        var tension = 0.5;
+        //var tension = 0.5;
         //this function calcCatMullRomCurve is found in /js/drawingFunctions.js
-        var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
-        drawLineArray(interpolatedPoints, ctx, user);
+        //var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
+        
+        drawLineArray(user.currentLine, ctx, user);
         
         
         user.context.clearRect(0,0,boardDim[1],boardDim[0]);
@@ -523,9 +524,7 @@ board.addEventListener("mousemove", function (e) {
       //ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
       
       var numPoints = Math.round(line_length/10);
-      var resampledLine = (user.currentLine,numPoints);
 
-      
       
       ctx2.beginPath();
       drawLineArray(user.currentLine,ctx2,user);
@@ -591,10 +590,9 @@ board.addEventListener("mouseup", function (e) {
     
     console.log(line_length);
     
-    var quadLine = quadraticCurve(user.currentLine);
-    //var smoothLine = movingAverage(user.currentLine,user.smoothing);
-    //drawLineArray(smoothLine, ctx, user);
-    drawQuadraticCurve(quadLine,ctx)
+
+    drawLineArray(user.currentLine, ctx, user);
+
     
     
     

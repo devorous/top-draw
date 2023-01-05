@@ -1,7 +1,7 @@
 function quadraticCurve(points) {
   // Initialize an empty array to store the quadratic curve points
   var quadraticPoints = [];
-  
+  console.log("old points: ",points);
   // Loop through the points array and generate the quadratic curve points
   for (var i = 0; i < points.length - 2; i++) {
     // Get the current point and the next two points
@@ -17,7 +17,7 @@ function quadraticCurve(points) {
     // Add the quadratic curve point to the quadraticPoints array
     quadraticPoints.push(point1,controlPoint,point2);
   }
-  
+  console.log("new points: ",quadraticPoints);
   // Return the array of quadratic curve points
   return quadraticPoints;
 }
