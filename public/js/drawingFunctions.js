@@ -40,24 +40,26 @@ function resampleLine(points, numPoints) {
 
 function movingAverage(points, windowSize) {
   // Create a new array to hold the smoothed points
-  const smoothedPoints = [];
+  const smoothedPoints = [points[0]]; // Add the first point to the array
   
-  // Loop through the points
-  for (let i = 0; i < points.length; i++) {
+  // Loop through the points, starting at the second point
+  for (let i = 1; i < points.length - 1; i++) {
     // Calculate the average of the current point and the previous "windowSize" points
     let sumX = 0;
     let sumY = 0;
-    for (let j = i - windowSize; j <= i; j++) {
-      if (j < 0) continue;
+    for (let j = i - windowSize; j <= i + windowSize; j++) {
       sumX += points[j].x;
       sumY += points[j].y;
     }
-    const avgX = sumX / (windowSize + 1);
-    const avgY = sumY / (windowSize + 1);
+    const avgX = sumX / (windowSize * 2 + 1);
+    const avgY = sumY / (windowSize * 2 + 1);
     
     // Add the new smoothed point to the array
     smoothedPoints.push({ x: avgX, y: avgY });
   }
+  
+  // Add the last point to the array
+  smoothedPoints.push(points[points.length - 1]);
   
   // Return the array of smoothed points
   return smoothedPoints;

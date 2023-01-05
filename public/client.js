@@ -122,7 +122,7 @@ var self = {
   lasty: null,
   size: 10,
   spacing: 0,
-  smoothing:2,
+  smoothing:3,
   spaceIndex: 0,
   color: "#000",
   tool: "brush",
