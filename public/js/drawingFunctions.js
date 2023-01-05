@@ -48,8 +48,11 @@ function movingAverage(points, windowSize) {
     let sumX = 0;
     let sumY = 0;
     for (let j = i - windowSize; j <= i + windowSize; j++) {
-      sumX += points[j].x;
-      sumY += points[j].y;
+      if (j >= 0 && j<points.length){
+        console.log(j,points[j]);
+        sumX += points[j].x;
+        sumY += points[j].y;
+      }
     }
     const avgX = sumX / (windowSize * 2 + 1);
     const avgY = sumY / (windowSize * 2 + 1);
