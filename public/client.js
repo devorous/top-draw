@@ -887,10 +887,10 @@ function drawDot(pos, ctx, user){
   }
 }
 
-//used for getting line length approximation
-function manhattanDistance(pos,lastpos){
-  if(pos!=lastpos){
-    var distance = Math.abs(pos.x - lastpos.x) + Math.abs(pos.y - lastpos.y);
+//used for getting line length approximation between two points
+function manhattanDistance(p1,p2){
+  if(p1!=p2){
+    var distance = Math.abs(p1.x - p2.x) + Math.abs(p1.y - p2.y);
     return distance
   }
 }
@@ -926,6 +926,7 @@ function drawLineArray(points,ctx, user){
   
   ctx.beginPath();
   ctx.moveTo(points[0].x,points[0].y);
+  
   for(var i=1;i<points.length;i++){
     ctx.lineTo(points[i].x,points[i].y);
   }
