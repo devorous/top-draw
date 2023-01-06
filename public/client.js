@@ -22,16 +22,12 @@ var userlistEntry = $(".userEntry.self")[0];
 var userlistName = $(".listUser.self")[0];
 
 
-
-
-
-
-var defaultZoom = Math.round(0.95 *$("#boardContainer").width()/boardDim[1]*1000)/1000 
+var defaultZoom = Math.round(0.92 *$("#boardContainer").width()/boardDim[1]*1000)/1000 
 console.log("zoom: ",defaultZoom);
 var zoom = defaultZoom;
 zoomBoard(zoom,0,0);
 var defaultPanX = 25-50*(1-defaultZoom)*10
-var defaultPanY = 25-15*(1-defaultZoom)*10
+var defaultPanY = 100-15*(1-defaultZoom)*10
 
 var panX = defaultPanX;
 var panY = defaultPanY;
