@@ -1209,7 +1209,16 @@ function drawUser(data, id) {
   circle.setAttribute("cy", "0");
   circle.setAttribute("r", "10");
   circle.setAttribute("height", "auto");
-  
+  var square = document.createElementNS("http://www.w3.org/2000/svg","rect");
+  square.setAttribute("class", "square "+id.toString());
+  square.setAttribute("stroke", "grey");
+  square.setAttribute("stroke-width", "1");
+  square.setAttribute("fill", "none");
+  square.setAttribute("x", user.x-user.size);
+  square.setAttribute("y", user.y-user.size);
+  square.setAttribute("r", user.size);
+  square.setAttribute("height", user.size);
+  square.setAttribute("width", user.size);
   var cursors = $(".cursors")[0];
   var name = $("<text>" + data.username + "</text>")[0];
   name.setAttribute("class", "name " + id.toString());
@@ -1232,6 +1241,7 @@ function drawUser(data, id) {
   text.appendChild(line);
   var cursorsSvg = $("#cursorsSvg")[0];
   cursorsSvg.appendChild(circle);
+  cursorsSvg.appendChild(square);
   cursor.appendChild(name);
   cursor.append(text);
 
