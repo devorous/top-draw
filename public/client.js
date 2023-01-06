@@ -1108,6 +1108,7 @@ brushBtn.addEventListener("click", function () {
   send({ command: "broadcast", type: "ChT", tool: "brush", id: user.id });
   $(".text.self")[0].style.display = "none";
   $(".circle.self")[0].style.display = "block";
+  $(".square.self")[0].style.display = "none";
   userlistEntry.children[0].children[0].remove();
   userlistEntry.children[0].appendChild(icons.brush);
 });
@@ -1125,7 +1126,7 @@ textBtn.addEventListener("click", function () {
   send({ command: "broadcast", type: "ChT", tool: "text", id: user.id });
   $(".text.self")[0].style.display = "block";
   $(".circle.self")[0].style.display = "none";
-  
+  $(".square.self")[0].style.display = "none";
   userlistEntry.children[0].children[0].remove();
   userlistEntry.children[0].appendChild(icons.text);
 });
@@ -1144,7 +1145,7 @@ eraseBtn.addEventListener("click", function () {
   send({ command: "broadcast", type: "ChT", tool: "erase", id: user.id });
   $(".text.self")[0].style.display = "none";
   $(".circle.self")[0].style.display = "block";
-  
+  $(".square.self")[0].style.display = "none";
   userlistEntry.children[0].children[0].remove();
   userlistEntry.children[0].appendChild(icons.erase);
 });
@@ -1166,8 +1167,8 @@ gimpBtn.addEventListener("click", function () {
   users[index].tool = "gimp";
   send({ command: "broadcast", type: "ChT", tool: "gimp", id: user.id });
   $(".text.self")[0].style.display = "none";
-  $(".circle.self")[0].style.display = "block";
-  
+  $(".circle.self")[0].style.display = "none";
+  $(".square.self")[0].style.display = "block";
   userlistEntry.children[0].children[0].remove();
   userlistEntry.children[0].appendChild(icons.gimp);
 });

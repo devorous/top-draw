@@ -81,7 +81,9 @@ body {
   height:204px;
   width:204px;
 }
-
+.self.square{
+  display:none;
+}
 .name{
   position:absolute;
   pointer-events:none;
