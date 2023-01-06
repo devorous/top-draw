@@ -15,7 +15,7 @@ var cursorsSvg=$("#cursorsSvg")[0];
 
 var cursor = $(".cursor.self")[0];
 var cursor_circle = $(".circle.self")[0];
-
+var cursor_square = $(".square.self")[0];
 
 
 var userlistEntry = $(".userEntry.self")[0];
@@ -497,7 +497,8 @@ board.addEventListener("mousemove", function (e) {
 
   cursor_circle.setAttribute("cx",x);
   cursor_circle.setAttribute("cy",y);
- 
+  cursor_square.setAttribute("x",x-user.size/2);
+  cursor_square.setAttribute("y",y-user.size/2);  
   var lastpos = { x: user.lastx, y: user.lasty };
   var pos = { x: user.x, y: user.y };
   
@@ -697,7 +698,7 @@ board.addEventListener("wheel", function (e) {
 
         size = Math.round(size * 100) / 100;
         cursor_circle.setAttribute("r", size);
-
+        
 
         text.style.fontSize = (size + 5).toString() + "px";
 
