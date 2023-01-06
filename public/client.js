@@ -497,8 +497,8 @@ board.addEventListener("mousemove", function (e) {
 
   cursor_circle.setAttribute("cx",x);
   cursor_circle.setAttribute("cy",y);
-  cursor_square.setAttribute("x",x-user.size/2);
-  cursor_square.setAttribute("y",y-user.size/2);  
+  cursor_square.setAttribute("x",x-user.size);
+  cursor_square.setAttribute("y",y-user.size);  
   var lastpos = { x: user.lastx, y: user.lasty };
   var pos = { x: user.x, y: user.y };
   
@@ -698,7 +698,10 @@ board.addEventListener("wheel", function (e) {
 
         size = Math.round(size * 100) / 100;
         cursor_circle.setAttribute("r", size);
-        
+        cursor_square.setAttribute("width",size*2);
+        cursor_square.setAttribute("height",size*2);
+        cursor_square.setAttribute("x",user.x-size);
+        cursor_square.setAttribute("y",user.y-size);
 
         text.style.fontSize = (size + 5).toString() + "px";
 
@@ -734,7 +737,11 @@ board.addEventListener("wheel", function (e) {
 
 
         cursor_circle.setAttribute("r", size);
-
+        cursor_square.setAttribute("width",size*2);
+        cursor_square.setAttribute("height",size*2);
+        cursor_square.setAttribute("x",user.x-size);
+        cursor_square.setAttribute("y",user.y-size);
+        
         text.style.fontSize = (size + 5).toString() + "px";
 
         ctx.lineWidth = size * 2;
