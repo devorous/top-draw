@@ -98,13 +98,13 @@ resetBtn.addEventListener("click",function(){
 
 var blendMode = $("#blendMode")[0];
 
-/*
+
 //for user later on btn clicks, to hide and show these options
 var gimpPreview = $("#gimpImage")[0];
 var gimpInput = $("#gimp-file-input")[0];
 gimpPreview.style.display="none";
 gimpInput.style.display="none";
-*/
+
 
 //set default values for your user list entry
 userlistEntry.children[0].appendChild(icons.brush.cloneNode());
@@ -229,7 +229,7 @@ function recieve(data) {
       break;
       
     case "pan":
-      user.panning=data.value;
+      user.panning = data.value;
       break;
       
     case "Mm":
@@ -858,7 +858,7 @@ function zoomBoard(zoom,boardPos){
 function resetBoard(){ 
   
   var boards = $("#boards")[0];
-  
+  boards.transformOrigin = tOrigin;
   boards.style.top = defaultPanY+"px";
   boards.style.left = defaultPanX+"px";
   boards.style.scale = defaultZoom
@@ -1109,6 +1109,9 @@ brushBtn.addEventListener("click", function () {
   $(".text.self")[0].style.display = "none";
   $(".circle.self")[0].style.display = "block";
   $(".square.self")[0].style.display = "none";
+  gimpPreview.style.display="none";
+  gimpInput.style.display="none";
+  
   userlistEntry.children[0].children[0].remove();
   userlistEntry.children[0].appendChild(icons.brush);
 });
@@ -1127,6 +1130,9 @@ textBtn.addEventListener("click", function () {
   $(".text.self")[0].style.display = "block";
   $(".circle.self")[0].style.display = "none";
   $(".square.self")[0].style.display = "none";
+  gimpPreview.style.display="none";
+  gimpInput.style.display="none";
+  
   userlistEntry.children[0].children[0].remove();
   userlistEntry.children[0].appendChild(icons.text);
 });
@@ -1146,6 +1152,10 @@ eraseBtn.addEventListener("click", function () {
   $(".text.self")[0].style.display = "none";
   $(".circle.self")[0].style.display = "block";
   $(".square.self")[0].style.display = "none";
+  
+  gimpPreview.style.display="none";
+  gimpInput.style.display="none";
+  
   userlistEntry.children[0].children[0].remove();
   userlistEntry.children[0].appendChild(icons.erase);
 });
@@ -1169,6 +1179,10 @@ gimpBtn.addEventListener("click", function () {
   $(".text.self")[0].style.display = "none";
   $(".circle.self")[0].style.display = "none";
   $(".square.self")[0].style.display = "block";
+  
+  gimpPreview.style.display="block";
+  gimpInput.style.display="block";
+    
   userlistEntry.children[0].children[0].remove();
   userlistEntry.children[0].appendChild(icons.gimp);
 });
