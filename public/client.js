@@ -190,6 +190,9 @@ socket.addEventListener("message", (m) => {
           if(user.tool=="brush"){
             userTool.appendChild(icons.brush);
           }
+          if(user.tool!="gimp"){
+            $("."+user.id.toString()+".square")[0].style.display="none";
+          }
         }
       }
       break;
