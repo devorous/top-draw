@@ -299,16 +299,8 @@ function recieve(data) {
 
     case "Mu":
       if (user.tool == "brush" && !user.panning) {
-        //ctx.stroke();
-        //ctx2.stroke();
-        
-        //var tension = 0.5;
-        //this function calcCatMullRomCurve is found in /js/drawingFunctions.js
-        //var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
-        
-        drawLineArray(user.currentLine, ctx, user);
-        
-        
+  
+        drawLineArray(user.currentLine, ctx, user);  
         user.context.clearRect(0,0,boardDim[1],boardDim[0]);
       }
       user.currentLine=[];
@@ -325,12 +317,8 @@ function recieve(data) {
         user.context.clearRect(0,0,boardDim[1],boardDim[0]);
         user.context.beginPath();
         
-        
-        var tension = 0.5;
-          
-        //this function calcCatMullRomCurve is found in /js/drawingFunctions.js
-        var interpolatedPoints = calcCatmullRomCurve(user.currentLine, tension);
-        drawLineArray(interpolatedPoints, ctx, user);
+                  
+        drawLineArray(user.currentLine, ctx, user);
         
         
       }
@@ -347,7 +335,9 @@ function recieve(data) {
       var userCircle = $("."+user.id.toString()+".circle")[0];
       userCircle.setAttribute("r",user.size);
       var userCtx = user.context;
-
+      var userSquare = $("."+user.id.toString()+".square")[0];
+      userSquare.setAttribute("height",user.size*2);
+      userSquare.setAttribute("width",user.size*2);
       break;
       
     case "ChSp":
@@ -379,22 +369,26 @@ function recieve(data) {
       updateUser(user, data, ["tool"]);
       var userText = $("." + user.id.toString() + " .text")[0];
       var userCircle = $("."+user.id.toString()+".circle")[0];
-      
+      var userSquare = $("."+user.id.toString()+".circle")[0];
       if (data.tool == "brush") {
         userText.style.display = "none";
         userCircle.style.display = "block";
+        userSquare.style.display="none";
       }
       if (data.tool == "text") {
         userText.style.display = "block";
         userCircle.style.display = "none";
+        userSquare.style.display="none";
       }
       if (data.tool == "erase") {
         userText.style.display = "none";
         userCircle.style.display = "block";
+        userSquare.style.display="none";
       }
       if (data.tool == "gimp") {
         userText.style.display = "none";
-        userCircle.style.display = "block";
+        userCircle.style.display = "none";
+        userSquare.style.display="block";
       }
       var listTool = $("." + user.id.toString() + " .listTool")[0];
       var userIcon = null;
@@ -1063,10 +1057,13 @@ function moveCursor(data,user) {
   var y = user.y;
   var cursor = $(".cursor"+"."+id)[0];
   var circle = $(".circle"+"."+id)[0];
+  var square = $(".square"+"."+id)[0];
   cursor.style.left = (x-100).toString() + "px";
   cursor.style.top = (y-100).toString() + "px";
   circle.setAttribute("cx",x);
   circle.setAttribute("cy",y);
+  square.setAttribute("x",x-user.size);
+  square.setAttribute("y",y-user.size);
 }
 
 function updateUser(user, data, fields) {
@@ -1217,8 +1214,8 @@ function drawUser(data, id) {
   square.setAttribute("x", user.x-user.size);
   square.setAttribute("y", user.y-user.size);
   square.setAttribute("r", user.size);
-  square.setAttribute("height", user.size);
-  square.setAttribute("width", user.size);
+  square.setAttribute("height", user.size*2);
+  square.setAttribute("width", user.size*2);
   var cursors = $(".cursors")[0];
   var name = $("<text>" + data.username + "</text>")[0];
   name.setAttribute("class", "name " + id.toString());
