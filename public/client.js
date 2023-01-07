@@ -1,6 +1,6 @@
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
-var boardDim=[540,960];
+var boardDim=[640,1280];
 
 var mirror = true;
 
@@ -257,13 +257,17 @@ function recieve(data) {
           user.context.clearRect(0,0,boardDim[1],boardDim[0]);
         
           drawLineArray(user.currentLine,user.context,user);
-
+          
+          if(mirror){
+            var nLine = mirrorLine(user.currentLine);
+            drawLineArray(nLine,user.context,user);
+          }
         }
         if(user.mousedown && user.tool == "erase"){
           erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
           if(mirror){
             var width=boardDim[1];
-            erase(width-pos.x,pos.y,)
+            erase(width-pos.x,pos.y,width-lastpos.x,lastpos.y,user.size*2);
           }
         }
         if(user.mousedown && user.tool == "gimp" && user.gBrush){
@@ -297,6 +301,7 @@ function recieve(data) {
       }
       if(user.tool == "erase" && !user.panning){
         erase(pos.x,pos.y,pos.x,pos.y,user.size*2);
+        
       }
       if(user.tool =="gimp" && user.gBrush && !user.panning){
         drawGimp(user,pos);
@@ -309,6 +314,11 @@ function recieve(data) {
       if (user.tool == "brush" && !user.panning) {
   
         drawLineArray(user.currentLine, ctx, user);  
+        if(mirror){
+          var nLine = mirrorLine(user.currentLine);
+          drawLineArray(nLine,ctx,user);
+        }
+        
         user.context.clearRect(0,0,boardDim[1],boardDim[0]);
       }
       user.currentLine=[];
@@ -327,7 +337,10 @@ function recieve(data) {
         
                   
         drawLineArray(user.currentLine, ctx, user);
-        
+        if(mirror){
+          var nLine = mirrorLine(user.currentLine);
+          drawLineArray(nLine,ctx,user);
+        }
         
       }
       
@@ -539,6 +552,10 @@ board.addEventListener("mousemove", function (e) {
     }
     if (user.mousedown && user.tool == "erase"){
       erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
+      if(mirror){
+            var width=boardDim[1];
+            erase(width-pos.x,pos.y,width-lastpos.x,lastpos.y,user.size*2);
+      }
     }
     if(user.mousedown && user.gBrush && user.tool == "gimp"){
       drawGimp(user,pos);
@@ -938,6 +955,19 @@ function drawDot(pos, ctx, user){
     userCtx.moveTo(pos.x,pos.y);
     userCtx.lineTo(pos.x,pos.y);
     userCtx.stroke();
+    
+    if(mirror){
+      ctx.moveTo(pos.x,pos.y);
+      ctx.lineTo(pos.x,pos.y);
+      ctx.stroke();
+      userCtx.moveTo(pos.x,pos.y);
+      userCtx.lineTo(boardDim[1]-pos.x,pos.y);
+      userCtx.stroke();
+    }
+    
+    
+    
+    
   }
 }
 
