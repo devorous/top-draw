@@ -1220,7 +1220,11 @@ function drawUser(data, id) {
   square.setAttribute("height", user.size*2);
   square.setAttribute("width", user.size*2);
   var cursors = $(".cursors")[0];
-  var name = $("<text>" + data.username + "</text>")[0];
+  var name = id.toString();
+  if(data.username){
+    name = data.username;
+  }
+  var name = $("<text>" + name + "</text>")[0];
   name.setAttribute("class", "name " + id.toString());
   
   var text = $("<text></text>")[0];
