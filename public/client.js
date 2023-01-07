@@ -2,7 +2,7 @@ var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
 var boardDim=[540,960];
 
-var mirror = false;
+var mirror = true;
 
 var users = [];
 
@@ -261,6 +261,10 @@ function recieve(data) {
         }
         if(user.mousedown && user.tool == "erase"){
           erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
+          if(mirror){
+            var width=boardDim[1];
+            erase(width-pos.x,pos.y,)
+          }
         }
         if(user.mousedown && user.tool == "gimp" && user.gBrush){
           drawGimp(user,pos);
@@ -525,7 +529,10 @@ board.addEventListener("mousemove", function (e) {
       ctx2.beginPath();
       drawLineArray(user.currentLine,ctx2,user);
       user.currentLine.push(pos);
-
+      if(mirror){
+        var nLine = mirrorLine(user.currentLine);
+        drawLineArray(nLine,ctx2,user);
+      }
 
       //get distance between points, rounded to two decimal places
       user.lineLength += manhattanDistance(pos,lastpos);
@@ -588,8 +595,11 @@ board.addEventListener("mouseup", function (e) {
     
 
     drawLineArray(user.currentLine, ctx, user);
-
     
+    if(mirror){
+        var nLine = mirrorLine(user.currentLine);
+        drawLineArray(nLine,ctx,user);
+    }
     
     
     //ctx.stroke();
@@ -685,6 +695,14 @@ board.addEventListener("wheel", function (e) {
           
           drawLineArray(user.currentLine, ctx, user);
           
+          if(mirror){
+            var nLine = mirrorLine(user.currentLine);
+            drawLineArray(nLine,ctx,user);
+          }
+          
+          
+          
+          
           user.currentLine=[];
           user.lineLength=0;
           
@@ -720,6 +738,13 @@ board.addEventListener("wheel", function (e) {
           ctx2.beginPath();
           
           drawLineArray(user.currentLine, ctx, user);
+          
+          if(mirror){
+            var nLine = mirrorLine(user.currentLine);
+            drawLineArray(nLine,ctx,user);
+          }
+          
+          
           
           user.currentLine=[];
           user.lineLength=0;
@@ -852,6 +877,24 @@ function zoomBoard(zoom,boardPos){
   }
   */
 }
+
+
+function mirrorLine(points){
+  var width = boardDim[1];
+  return points.map(point => {
+    return {
+      x: width - point.x,
+      y: point.y
+    };
+  });
+}
+
+
+
+
+
+
+
 
 function resetBoard(){ 
   
@@ -1317,16 +1360,7 @@ function drawUser(data, id) {
   
 }
 
-function mirrorLine(points){
-  var width = boardDim[0];
-  var mPoints = [];
-  for(var i=0;i<points.length;i++){
-    var point = points[i];
-    point.x = point.x-width/2;
-    
-  }
-  
-}
+
 
 
 //setup color picker
