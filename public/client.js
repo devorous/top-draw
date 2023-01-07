@@ -1166,7 +1166,7 @@ function updateUser(user, data, fields) {
 }
 
 
-joinBtn.addEventListener("click", function(){
+joinBtn.addEventListener("click", function(e){
   connected = true;
   $("#overlay")[0].style.display="none";
   cursor.style.display="block";
