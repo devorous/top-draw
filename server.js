@@ -70,7 +70,10 @@ wsServer.on("connection", (ws) => {
     current_users = current_users.filter((userdata) => {
       return userdata.id != ws.id;
     });
-    console.log("current users: " + current_users);
+    console.log("current users: ");
+    for(var i=0;i<current_users.length;i++){
+      console.log(current_users[i]);
+    }
   });
 });
 

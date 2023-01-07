@@ -3,6 +3,7 @@ var width  = document.body.scrollWidth;
 var boardDim=[640,1280];
 
 var mirror = true;
+var connected = false;
 
 var users = [];
 
@@ -850,18 +851,20 @@ document.addEventListener("keydown", function (e) {
     }
   }
   else{
-    switch(e.key){
-      case "b":
-        brushBtn.click();
-        break;
-      case "t":
-        textBtn.click();
-        break;
-      case "e":
-        eraseBtn.click();
-        break;
-      case "g":
-        gimpBtn.click();
+    if(connected==true){
+      switch(e.key){
+        case "b":
+          brushBtn.click();
+          break;
+        case "t":
+          textBtn.click();
+          break;
+        case "e":
+          eraseBtn.click();
+          break;
+        case "g":
+          gimpBtn.click();
+      }
     }
   }
 });
@@ -1164,6 +1167,7 @@ function updateUser(user, data, fields) {
 
 
 joinBtn.addEventListener("click", function(){
+  connected = true;
   $("#overlay")[0].style.display="none";
   cursor.style.display="block";
   var name = usernameInput.value;
@@ -1419,7 +1423,7 @@ var picker = new Picker({
               input.style.color='rgba('+user.color.toString()+')';
               var rgba = color.rgba;
               user.color=rgba;
-              if(connected==true){
+              if(connected){
                 send({command:"broadcast",type:"ChC",color:rgba,id:userID});
               }
               userlistEntry.children[1].style.backgroundColor='rgba('+user.color.toString()+')';
