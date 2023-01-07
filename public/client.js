@@ -27,7 +27,7 @@ var defaultZoom = Math.round(0.92 *$("#boardContainer").width()/boardDim[1]*1000
 console.log("zoom: ",defaultZoom);
 var zoom = defaultZoom;
 zoomBoard(zoom,0,0);
-var defaultPanX = 25-50*(1-defaultZoom)*10
+var defaultPanX = 25-63*(1-defaultZoom)*10
 var defaultPanY = 100-15*(1-defaultZoom)*10
 
 var panX = defaultPanX;
@@ -187,6 +187,14 @@ socket.addEventListener("message", (m) => {
           drawUser(user.userdata, user.id);
           var userTool = $("." + user.id.toString() + " .listTool")[0];
           var userCol = $("." + user.id.toString() + " .listColor")[0];
+          var listName = $("."+user.id.toString()+".listUser")[0];
+          var name = user.userdata.username;
+          if(name==""){
+            name = user.id;
+          }
+          listName.innerHTML = name;
+          console.log("user in room: ",user);
+          console.log("the username: ",user.userdata.username);
           userCol.style.backgroundColor = user.color;
           if(user.tool=="brush"){
             userTool.appendChild(icons.brush);
@@ -291,7 +299,7 @@ function recieve(data) {
         //ctx.beginPath();
 
         user.currentLine.push(pos);
-        drawLine(pos, pos, user);
+        drawDot(pos, ctx, user);
       }
       if (user.tool == "text" && user.text != "") {
         drawText(user);
@@ -957,10 +965,10 @@ function drawDot(pos, ctx, user){
     userCtx.stroke();
     
     if(mirror){
-      ctx.moveTo(pos.x,pos.y);
-      ctx.lineTo(pos.x,pos.y);
+      ctx.moveTo(boardDim[1]-pos.x,pos.y);
+      ctx.lineTo(boardDim[1]-pos.x,pos.y);
       ctx.stroke();
-      userCtx.moveTo(pos.x,pos.y);
+      userCtx.moveTo(boardDim[1]-pos.x,pos.y);
       userCtx.lineTo(boardDim[1]-pos.x,pos.y);
       userCtx.stroke();
     }
@@ -979,6 +987,8 @@ function manhattanDistance(p1,p2){
   }
 }
 
+//not currently in use
+/*
 function drawLine(pos, lastpos, user) {
   
   var alpha = user.color[3];
@@ -997,6 +1007,8 @@ function drawLine(pos, lastpos, user) {
   user.lastx = pos.x;
   user.lasty = pos.y;
 }
+*/
+
 
 function drawLineArray(points,ctx, user){
   
@@ -1550,5 +1562,3 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
 });  
 
 
-
-joinBtn.click();
