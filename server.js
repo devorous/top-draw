@@ -56,7 +56,7 @@ wsServer.on("connection", (ws) => {
         delete user.command;
         currentUsers.push(user);
         broadcast({ command: "currentUsers", users: currentUsers });
-        broadcast({command: "boardSettings",data: boardSettings})
+        broadcast({command: "boardSettings", settings: boardSettings});
         //save user to list of current users in room
         //when somebody joins, send them this list of users
 
@@ -139,6 +139,8 @@ function updateUser(data) {
             break;
         }
         break;
+      case "mirror":
+        boardSettings.mirror = !boardSettings.mirror;
     }
   }
 }

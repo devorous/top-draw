@@ -220,7 +220,13 @@ socket.addEventListener("message", (m) => {
       }
       break;
     case "boardSettings":
-      mirror = data.
+      mirror = data.settings.mirror;
+      if(mirror){
+        mirrorText.value = "ON";
+      }
+      else{
+        mirrorText.value= "OFF";
+      }
     case "connect":
       break;
     case "userLeft":
