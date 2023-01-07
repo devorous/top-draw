@@ -40,7 +40,8 @@ function broadcast(data) {
 
 // This outer function will run each time the Websocket
 // server connects to a new client:
-wsServer.on("connection", (ws) => {
+wsServer.on("connection", (ws,req) => {
+  console.log(req.socket);
   // We will store the id for this connection in the id property.
   ws.id = "";
   // This function will run every time the server recieves a message with that client.
@@ -50,7 +51,7 @@ wsServer.on("connection", (ws) => {
 
     switch (data.command) {
       case "connect":
-
+        
         ws.id = data.id;
         var user = data;
         delete user.command;
