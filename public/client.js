@@ -87,6 +87,8 @@ var gimpBtn = $("#gimpBtn")[0];
 
 var clearBtn = $("#clearBtn")[0];
 var resetBtn = $("#resetBtn")[0];
+var mirrorBtn = $("#mirrorBtn")[0];
+var mirrorText = $(".mirrorOption")[0];
 
 clearBtn.addEventListener("click", function () {
   clearBoard();
@@ -97,6 +99,16 @@ resetBtn.addEventListener("click",function(){
   resetBoard();
 })
 
+mirrorBtn.addEventListener("click",function(){
+  mirror = !mirror;
+  if(mirror){
+    mirrorText.innerHTML="ON";
+  }
+  else{
+    mirrorText.innerHTL="OFF";
+  }
+  send({command: "broadcast", type: "mirror", id: userID});
+})
 
 var blendMode = $("#blendMode")[0];
 
