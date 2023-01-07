@@ -23,7 +23,10 @@ var WebSocket = require("ws");
 var wsServer = new WebSocket.Server({ server });
 
 //keep track of the current users
-var current_users = [];
+var currentUsers = [];
+var boardSettings = {
+  mirror: false,
+}
 
 // This function will send a message to all clients connected to the websocket:
 function broadcast(data) {
@@ -51,8 +54,9 @@ wsServer.on("connection", (ws) => {
         ws.id = data.id;
         var user = data;
         delete user.command;
-        current_users.push(user);
-        broadcast({ command: "currentUsers", users: current_users });
+        currentUsers.push(user);
+        broadcast({ command: "currentUsers", users: currentUsers });
+        broadcast({command: "boardSettings",data: boardSettings})
         //save user to list of current users in room
         //when somebody joins, send them this list of users
 
@@ -67,18 +71,18 @@ wsServer.on("connection", (ws) => {
   ws.on("close", () => {
     console.log("Disconnected: ", ws.id);
     broadcast({ command: "userLeft", id: ws.id });
-    current_users = current_users.filter((userdata) => {
+    currentUsers = currentUsers.filter((userdata) => {
       return userdata.id != ws.id;
     });
     console.log("current users: ");
-    for(var i=0;i<current_users.length;i++){
-      console.log(current_users[i]);
+    for(var i=0;i<currentUsers.length;i++){
+      console.log(currentUsers[i]);
     }
   });
 });
 
 function getUser(id) {
-  var user = current_users.filter((a) => {
+  var user = currentUsers.filter((a) => {
     return a.id == id;
   })[0];
   return user;

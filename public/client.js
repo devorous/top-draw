@@ -219,6 +219,8 @@ socket.addEventListener("message", (m) => {
         }
       }
       break;
+    case "boardSettings":
+      mirror = data.
     case "connect":
       break;
     case "userLeft":
@@ -505,6 +507,16 @@ function recieve(data) {
         console.log(gihObject);
         user.gBrush = gihObject;
       }
+      break;
+      case "mirror":
+        mirror = !mirror;
+        if(mirror){
+          mirrorText.text="ON";
+        }
+        else{
+          mirrorText.text="OFF";
+        }
+      break;
   }
 }
 
