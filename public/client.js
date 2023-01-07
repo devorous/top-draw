@@ -372,7 +372,7 @@ function recieve(data) {
       updateUser(user, data, ["tool"]);
       var userText = $("." + user.id.toString() + " .text")[0];
       var userCircle = $("."+user.id.toString()+".circle")[0];
-      var userSquare = $("."+user.id.toString()+".circle")[0];
+      var userSquare = $("."+user.id.toString()+".square")[0];
       if (data.tool == "brush") {
         userText.style.display = "none";
         userCircle.style.display = "block";
