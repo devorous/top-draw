@@ -100,12 +100,13 @@ resetBtn.addEventListener("click",function(){
 })
 
 mirrorBtn.addEventListener("click",function(){
+  console.log("clicky");
   mirror = !mirror;
   if(mirror){
-    mirrorText.innerHTML="ON";
+    mirrorText.text="ON";
   }
   else{
-    mirrorText.innerHTL="OFF";
+    mirrorText.text="OFF";
   }
   send({command: "broadcast", type: "mirror", id: userID});
 })
