@@ -2,6 +2,7 @@ var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
 var boardDim=[540,960];
 
+var mirror = false;
 
 var users = [];
 
@@ -1313,6 +1314,17 @@ function drawUser(data, id) {
   userList.appendChild(userEntry);
   
 
+  
+}
+
+function mirrorLine(points){
+  var width = boardDim[0];
+  var mPoints = [];
+  for(var i=0;i<points.length;i++){
+    var point = points[i];
+    point.x = point.x-width/2;
+    
+  }
   
 }
 
