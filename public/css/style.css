@@ -116,11 +116,18 @@ canvas{
 .boardBtns{
   height:30px;
   width:100%;
+  font-size:0.7em;
+  text-align:center;
   display:flex;
   background-color:lightgrey;
   z-index:2;
 }
-
+.boardBtns a{
+  width:20%;
+}
+.mirrorOption{
+  
+}
 .btn{
   background-color:grey;
   transition:0.2s;
