@@ -2,7 +2,7 @@ var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
 var boardDim=[640,1280];
 
-var mirror = true;
+var mirror = false;
 var connected = false;
 
 var users = [];
