@@ -123,10 +123,13 @@ canvas{
   z-index:2;
 }
 .boardBtns a{
-  width:20%;
+  width:60px;
 }
 .mirrorOption{
-  
+  width:30px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
 }
 .btn{
   background-color:grey;
