@@ -28,9 +28,9 @@ var userlistEntry = $(".userEntry.self")[0];
 var userlistName = $(".listUser.self")[0];
 
 
-var currentWidth = $("boardContainer").width();
+var currentWidth = $("#boardContainer").width();
 
-var defaultZoom = Math.round( .9* currentWidth/boardDim[1]*1000)/1000 
+var defaultZoom = Math.round(currentWidth/boardDim[1]*1000)/1000 
 console.log("zoom: ",defaultZoom);
 var zoom = defaultZoom;
 
@@ -43,7 +43,8 @@ var defaultPanY = 100-15*(1-defaultZoom)*10
 
 var panX = defaultPanX;
 var panY = defaultPanY;
-moveBoard(0,0);
+boards.style.transformOrigin = "0 0"
+moveBoard(-currentWidth/2,0);
 
 
 
