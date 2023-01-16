@@ -28,16 +28,22 @@ var userlistEntry = $(".userEntry.self")[0];
 var userlistName = $(".listUser.self")[0];
 
 
-var defaultZoom = Math.round(0.92 *$("#boardContainer").width()/boardDim[1]*1000)/1000 
+var currentWidth = $("boardContainer").width();
+
+var defaultZoom = Math.round( .9* currentWidth/boardDim[1]*1000)/1000 
 console.log("zoom: ",defaultZoom);
 var zoom = defaultZoom;
-zoomBoard(zoom,0,0);
+
+boards.style.transformOrigin = "center";
+boards.style.scale = zoom;
+
+
 var defaultPanX = 25-63*(1-defaultZoom)*10
 var defaultPanY = 100-15*(1-defaultZoom)*10
 
 var panX = defaultPanX;
 var panY = defaultPanY;
-moveBoard(panX,panY);
+moveBoard(0,0);
 
 
 
@@ -962,7 +968,7 @@ function mirrorLine(points){
 function resetBoard(){ 
   
   var boards = $("#boards")[0];
-  boards.transformOrigin = tOrigin;
+  boards.transformOrigin = "center";
   boards.style.top = defaultPanY+"px";
   boards.style.left = defaultPanX+"px";
   boards.style.scale = defaultZoom
