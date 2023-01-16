@@ -1,3 +1,7 @@
+$("#overlay").hide()
+
+
+
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
 var boardDim=[640,1280];
