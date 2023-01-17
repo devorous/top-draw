@@ -43,12 +43,12 @@ var defaultPanX = currentWidth*0.05/2;
 var defaultPanY = currentHeight/2-boardDim[0]*defaultZoom/2+30;
 
 
-if(defaultZoom >1 && boardDim[0]> currentHeight){
+if(defaultZoom >1 && boardDim[0]>currentHeight){
   
   defaultZoom = Math.round(currentHeight/boardDim[0]*1000)/1000 
   
-  defaultPanX = currentWidth/2-boardDim[1]*(defaultZoom+30)/2;
-  defaultPanY = currentHeight*0.05/2+30 ;
+  defaultPanX = currentWidth/2-boardDim[1]*defaultZoom/2;
+  defaultPanY = currentHeight*0.05/2+30;
   
   
 }
