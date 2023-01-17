@@ -718,7 +718,8 @@ board.addEventListener("wheel", function (e) {
     if(e.deltaY > 0){
       if(zoom-zoomStep > 0.2){
         zoom-=zoomStep
-        var zoomPos = {x:user.x,y:user.y};
+        //the zoom pos is the relative position on the canvas
+        var zoomPos = {x:e.layerX,y:e.layerY};
         zoomBoard(zoom,zoomPos);
       }
       //scrolling down
@@ -728,8 +729,9 @@ board.addEventListener("wheel", function (e) {
       //scrolling up
       if(zoom+zoomStep < 3)
       zoom+=zoomStep
-      var zoomPos = {x:user.x,y:user.y}; 
-       (zoom,zoomPos);
+      //the zoom pos is the relative position on the canvas
+      var zoomPos = {x:e.layerX,y:e.layerY}; 
+          zoomBoard(zoom,zoomPos);
     }
   }
   if(!user.panning){
@@ -930,11 +932,16 @@ function zoomBoard(zoom,boardPos){
   console.log("changing board size to: ",zoom);
   var user = getUser(userID);
   var boards = $("#boards")[0];
-  var x = boardPos.x+"px";
-  var y = boardPos.y+"px";
+  var current_x = Number(boards.style.top.split("px")[0]);
+  var current_y = Number(boards.style.left.split("px")[0]);
+  
+  
+  var x = boardPos.x-current_x/2+"px";
+  var y = boardPos.y-current_y/2+"px";
   var tOrigin = x+" "+y;
   
   boards.style.transformOrigin = tOrigin;
+  boards.style.top = board
   boards.style.scale = zoom;
 
   
@@ -1541,6 +1548,9 @@ window.addEventListener("resize", (e) => {
   var currentWidth = $("#boardContainer").width()*0.95;
   var currentHeight = $("#boardContainer").height()*0.95-30; //30 is the height of the buttons bar
   defaultZoom = Math.round(currentWidth/boardDim[1]*1000)/1000 
+  defaultPanX = currentWidth*0.05/2;
+  defaultPanY = currentHeight/2-boardDim[0]*zoom/2+30;
+
 });
   
 
