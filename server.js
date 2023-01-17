@@ -80,6 +80,7 @@ wsServer.on("connection", (ws,req) => {
       console.log(currentUsers[i]);
     }
     if(currentUsers.length==0){
+      // reset board settings to default
       boardSettings.mirror=false;
     }
   });
