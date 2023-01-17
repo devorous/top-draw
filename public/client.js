@@ -29,8 +29,9 @@ var userlistName = $(".listUser.self")[0];
 
 
 var currentWidth = $("#boardContainer").width()*0.95;
-var currentHeight = $("#boardContainer").height();
+var currentHeight = $("#boardContainer").height()*0.95-30; //30 is the height of the buttons bar
 var defaultZoom = Math.round(currentWidth/boardDim[1]*1000)/1000 
+
 console.log("zoom: ",defaultZoom);
 var zoom = defaultZoom;
 
@@ -38,7 +39,7 @@ boards.style.transformOrigin = "top left";
 
 
 var defaultPanX = currentWidth*0.05/2;
-var defaultPanY = currentHeight/2-boardDim[0]*zoom/2;
+var defaultPanY = currentHeight/2-boardDim[0]*zoom/2+30;
 
 var panX = defaultPanX;
 var panY = defaultPanY;
@@ -1537,6 +1538,9 @@ blendMode.addEventListener("change",function(e){
 window.addEventListener("resize", (e) => {
   var newHeight = document.body.scrollHeight;
   var newWidth = document.body.clientWidth;
+  var currentWidth = $("#boardContainer").width()*0.95;
+  var currentHeight = $("#boardContainer").height()*0.95-30; //30 is the height of the buttons bar
+  defaultZoom = Math.round(currentWidth/boardDim[1]*1000)/1000 
 });
   
 
