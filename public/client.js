@@ -14,7 +14,7 @@ mLine.setAttribute("x1",boardDim[1]/2)
 mLine.setAttribute("y1",0)
 mLine.setAttribute("x2",boardDim[1]/2)
 mLine.setAttribute("y2",boardDim[0])
-
+mLine.style.display="none";
 
 var users = [];
 
@@ -43,7 +43,7 @@ var defaultPanX = currentWidth*0.05/2;
 var defaultPanY = currentHeight/2-boardDim[0]*defaultZoom/2+30;
 
 
-if(defaultZoom >1 && boardDim[0]>currentHeight){
+if(defaultZoom > Math.round(currentHeight/boardDim[0]*1000)/1000){
   
   defaultZoom = Math.round(currentHeight/boardDim[0]*1000)/1000 
   
