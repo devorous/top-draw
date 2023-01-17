@@ -4,7 +4,7 @@ $("#overlay").hide()
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
-var boardDim=[1280,640];
+var boardDim=[640,1280];
 
 var mirror = false;
 var connected = false;
@@ -32,21 +32,31 @@ var currentWidth = $("#boardContainer").width()*0.95;
 var currentHeight = $("#boardContainer").height()*0.95-30; //30 is the height of the buttons bar
 var defaultZoom = Math.round(currentWidth/boardDim[1]*1000)/1000 
 
+var defaultPanX = currentWidth*0.05/2;
+var defaultPanY = currentHeight/2-boardDim[0]*defaultZoom/2+30;
+
+
+if(defaultZoom >1 && boardDim[0]> currentHeight){
+  
+  defaultZoom = Math.round(currentHeight/boardDim[0]*1000)/1000 
+  
+  defaultPanX = currentWidth/2-boardDim[1]*defaultZoom/2;
+  defaultPanY = currentHeight*0.05/2+30 ;
+  
+  
+}
+
+var panX = defaultPanX;
+var panY = defaultPanY;
 console.log("zoom: ",defaultZoom);
 var zoom = defaultZoom;
 
 boards.style.transformOrigin = "top left";
 
 
-var defaultPanX = currentWidth*0.05/2;
-var defaultPanY = currentHeight/2-boardDim[0]*zoom/2+30;
 
-var panX = defaultPanX;
-var panY = defaultPanY;
 moveBoard(panX,panY);
 boards.style.scale = zoom;
-
-
 
 boards.style.height=boardDim[0].toString()+"px";
 boards.style.width=boardDim[1].toString()+"px";
