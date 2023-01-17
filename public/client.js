@@ -4,7 +4,7 @@ $("#overlay").hide()
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
-var boardDim=[640,1280];
+var boardDim=[1280,640];
 
 var mirror = false;
 var connected = false;
@@ -929,16 +929,16 @@ function moveBoard(x,y){
 
 function zoomBoard(zoom,boardPos){
   //boardPos is the relative position of the cursor on the board {x,y}
-  console.log("changing board size to: ",zoom);
   var user = getUser(userID);
   var boards = $("#boards")[0];
   var current_x = Number(boards.style.top.split("px")[0]);
   var current_y = Number(boards.style.left.split("px")[0]);
   
   
-  var x = boardPos.x-current_x/2+"px";
-  var y = boardPos.y-current_y/2+"px";
+  var x = boardPos.x+"px";
+  var y = boardPos.y+"px";
   var tOrigin = x+" "+y;
+  console.log("torigin: ",tOrigin);
   
   boards.style.transformOrigin = tOrigin;
   boards.style.top = board
