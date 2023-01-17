@@ -37,12 +37,11 @@ var zoom = defaultZoom;
 boards.style.transformOrigin = "top left";
 
 
-var defaultPanX = currentWidth*0.05/2
-var defaultPanY = currentHeight/2-boardDim[0]*zoom/2
+var defaultPanX = currentWidth*0.05/2;
+var defaultPanY = currentHeight/2-boardDim[0]*zoom/2;
 
 var panX = defaultPanX;
 var panY = defaultPanY;
-//boards.style.transformOrigin = "top left"
 moveBoard(panX,panY);
 boards.style.scale = zoom;
 
@@ -969,11 +968,14 @@ function mirrorLine(points){
 function resetBoard(){ 
   
   var boards = $("#boards")[0];
-  boards.transformOrigin = "center";
+  
+  boards.style.transformOrigin = "top left";
   boards.style.top = defaultPanY+"px";
   boards.style.left = defaultPanX+"px";
   boards.style.scale = defaultZoom
   
+ 
+
   zoom=defaultZoom;
   panX=defaultPanX;
   panY=defaultPanY; 
