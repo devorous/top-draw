@@ -126,7 +126,7 @@ resetBtn.addEventListener("click",function(){
 })
 
 mirrorBtn.addEventListener("click",function(){
-  console.log("clicky");
+  $(".mirrorLine").toggle();
   mirror = !mirror;
   if(mirror){
     mirrorText.text="ON";
@@ -541,6 +541,7 @@ function recieve(data) {
       }
       break;
       case "mirror":
+        $(".mirrorLine").toggle();
         mirror = !mirror;
         if(mirror){
           mirrorText.text="ON";
