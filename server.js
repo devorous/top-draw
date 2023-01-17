@@ -79,6 +79,9 @@ wsServer.on("connection", (ws,req) => {
     for(var i=0;i<currentUsers.length;i++){
       console.log(currentUsers[i]);
     }
+    if(currentUsers.length==0){
+      boardSettings.mirror=false;
+    }
   });
 });
 
