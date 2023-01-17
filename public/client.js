@@ -48,15 +48,14 @@ if(defaultZoom >1 && boardDim[0]> currentHeight){
 
 var panX = defaultPanX;
 var panY = defaultPanY;
-console.log("zoom: ",defaultZoom);
 var zoom = defaultZoom;
 
 boards.style.transformOrigin = "top left";
 
-
-
 moveBoard(panX,panY);
 boards.style.scale = zoom;
+
+
 
 boards.style.height=boardDim[0].toString()+"px";
 boards.style.width=boardDim[1].toString()+"px";
