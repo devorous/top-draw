@@ -9,9 +9,16 @@ var boardDim=[1280,1280];
 var mirror = false;
 var connected = false;
 
+var mLine = $(".mirrorLine")[0];
+mLine.setAttribute("x1",boardDim[1]/2)
+mLine.setAttribute("y1",0)
+mLine.setAttribute("x2",boardDim[1]/2)
+mLine.setAttribute("y2",boardDim[0])
+
+
 var users = [];
 
-var userID = Math.floor(Math.random() * 999999);
+var userID = Math.floor(Math.random() * 9999999);
 var boards = $("#boards")[0];
 
 var board = $("#board")[0];
@@ -40,7 +47,7 @@ if(defaultZoom >1 && boardDim[0]> currentHeight){
   
   defaultZoom = Math.round(currentHeight/boardDim[0]*1000)/1000 
   
-  defaultPanX = currentWidth/2-boardDim[1]*defaultZoom/2;
+  defaultPanX = currentWidth/2-boardDim[1]*(defaultZoom+30)/2;
   defaultPanY = currentHeight*0.05/2+30 ;
   
   
@@ -54,7 +61,6 @@ boards.style.transformOrigin = "top left";
 
 moveBoard(panX,panY);
 boards.style.scale = zoom;
-
 
 
 boards.style.height=boardDim[0].toString()+"px";
