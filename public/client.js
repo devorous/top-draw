@@ -728,7 +728,7 @@ board.addEventListener("wheel", function (e) {
       if(zoom+zoomStep < 3)
       zoom+=zoomStep
       var zoomPos = {x:user.x,y:user.y}; 
-      zoomBoard(zoom,zoomPos);
+       (zoom,zoomPos);
     }
   }
   if(!user.panning){
