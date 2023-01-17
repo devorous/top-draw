@@ -28,13 +28,13 @@ var userlistEntry = $(".userEntry.self")[0];
 var userlistName = $(".listUser.self")[0];
 
 
-var currentWidth = $("#boardContainer").width();
+var currentWidth = $("#boardContainer").width()*0.95;
 
 var defaultZoom = Math.round(currentWidth/boardDim[1]*1000)/1000 
 console.log("zoom: ",defaultZoom);
 var zoom = defaultZoom;
 
-boards.style.transformOrigin = "center";
+boards.style.transformOrigin = "top left";
 boards.style.scale = zoom;
 
 
@@ -43,8 +43,8 @@ var defaultPanY = 100-15*(1-defaultZoom)*10
 
 var panX = defaultPanX;
 var panY = defaultPanY;
-boards.style.transformOrigin = "0 0"
-moveBoard(-currentWidth/2,0);
+//boards.style.transformOrigin = "top left"
+moveBoard(currentWidth/2,0);
 
 
 
