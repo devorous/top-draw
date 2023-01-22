@@ -167,7 +167,7 @@ function parseGih(arrayBuffer){
     var indices = [];
     var cellSize = 0;
     
-    //an accumulator to store the indices of each image location, for slicing
+    //an accumulator to store the indices of each frame start location, for slicing
     var acc = 0;
     
     for(var i=0;i<gihObject.ncells;i++){

@@ -1,4 +1,4 @@
-$("#overlay").hide()
+//$("#overlay").hide()
 
 
 
@@ -61,6 +61,7 @@ boards.style.transformOrigin = "top left";
 
 moveBoard(panX,panY);
 boards.style.scale = zoom;
+
 
 
 boards.style.height=boardDim[0].toString()+"px";
@@ -736,7 +737,9 @@ board.addEventListener("wheel", function (e) {
         zoom-=zoomStep
         //the zoom pos is the relative position on the canvas
         var zoomPos = {x:e.layerX,y:e.layerY};
-        zoomBoard(zoom,zoomPos);
+        //boards.style.transformOrigin = "center";
+        boards.style.scale = zoom;
+        //zoomBoard(zoom,zoomPos);
       }
       //scrolling down
       
@@ -747,7 +750,8 @@ board.addEventListener("wheel", function (e) {
       zoom+=zoomStep
       //the zoom pos is the relative position on the canvas
       var zoomPos = {x:e.layerX,y:e.layerY}; 
-          zoomBoard(zoom,zoomPos);
+      //zoomBoard(zoom,zoomPos);
+      boards.style.scale = zoom;
     }
   }
   if(!user.panning){
