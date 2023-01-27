@@ -159,6 +159,8 @@ var self = {
   lastx: null,
   lasty: null,
   size: 10,
+  pressure: 1,
+  prevpressure: 1,
   spacing: 0,
   smoothing:3,
   spaceIndex: 0,
@@ -565,13 +567,40 @@ function getUser(id) {
 
 
 board.addEventListener("pointermove", function (e) {
+  var user = getUser(userID);
   
+  
+  var pressure = 1;
+  
+  if (event.pointerType === "pen") {
+    pressure = Math.round(e.pressure*100)/100;
+    user.pressure = pressure;
+    if(user.pressure != user.prevpressure ){
+      ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
+          ctx2.beginPath();
+          
+          drawLineArray(user.currentLine, ctx, user);
+          
+          if(mirror){
+            var nLine = mirrorLine(user.currentLine);
+            drawLineArray(nLine,ctx,user);
+          }
+          
+
+          user.currentLine=[];
+          user.lineLength=0;
+          
+          var pos = {x:user.x,y:user.y};
+          user.currentLine.push(pos);
+    }
+    user.prevpressure = pressure;
+  }
 
   var x = e.offsetX; //x position within the element.
   var y = e.offsetY;  //y position within the element.
   
   
-  var user = getUser(userID);
+  
   user.x = x;
   user.y = y;
   //set your cursor pos
@@ -633,15 +662,7 @@ board.addEventListener("pointermove", function (e) {
 
 
 
-board.addEventListener("mousedown", drawDown,false );
-board.addEventListener("pointerdown", drawDown, false);
-
-board.addEventListener("mouseup", drawUp, false);
-board.addEventListener("pointerup", drawUp, false);
-
-
-function drawDown(e){
-  
+board.addEventListener("pointerdown", function (e) {
   var user = getUser(userID);
   var userCtx = user.context;
   var pos = {x:e.layerX,y:e.layerY};
@@ -673,9 +694,13 @@ function drawDown(e){
       drawGimp(user,pos);
     }
   }
-}
+});
 
-function drawUp(e){
+
+
+
+
+board.addEventListener("pointerup", function (e) {
   var user = getUser(userID);
   
   if(user.tool=="brush" && !user.panning ){
@@ -708,7 +733,10 @@ function drawUp(e){
   
   user.currentLine = [];
   user.lineLength = 0;
-}
+});
+
+
+
 
 
 
@@ -1100,9 +1128,9 @@ function drawLineArray(points,ctx, user){
   var noAlpha = [user.color[0],user.color[1],user.color[2]];
   //var spacing = user.spacing;
   
-
+  
   ctx.strokeStyle='rgba('+user.color.toString()+')';
-  ctx.lineWidth=user.size*2;
+  ctx.lineWidth=user.pressure*user.size*2;
   
   ctx.beginPath();
   ctx.moveTo(points[0].x,points[0].y);
