@@ -34,6 +34,8 @@ var cursor_square = $(".square.self")[0];
 var userlistEntry = $(".userEntry.self")[0];
 var userlistName = $(".listUser.self")[0];
 
+var mirrorText = $(".mirrorOption")[0];
+
 
 var currentWidth = $("#boardContainer").width()*0.95;
 var currentHeight = $("#boardContainer").height()*0.95-30; //30 is the height of the buttons bar
@@ -115,7 +117,7 @@ var gimpBtn = $("#gimpBtn")[0];
 var clearBtn = $("#clearBtn")[0];
 var resetBtn = $("#resetBtn")[0];
 var mirrorBtn = $("#mirrorBtn")[0];
-var mirrorText = $(".mirrorOption")[0];
+
 
 clearBtn.addEventListener("click", function () {
   clearBoard();
@@ -249,13 +251,16 @@ socket.addEventListener("message", (m) => {
       }
       break;
     case "boardSettings":
-      mirror = data.settings.mirror;
+      console.log(data);
+      var mirror = data.settings.mirror;
+      console.log(mirror);
       if(mirror){
-        mirrorText.value = "ON";
+        mirrorText.text = "ON";
       }
       else{
-        mirrorText.value= "OFF";
+        mirrorText.text= "OFF";
       }
+
     case "connect":
       break;
     case "userLeft":
@@ -348,10 +353,10 @@ function recieve(data) {
           user.prevpressure = user.pressure;
         }
         if(user.mousedown && user.tool == "erase"){
-          erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
+          erase(pos.x,pos.y,lastpos.x,lastpos.y,user.pressure*user.size*2);
           if(mirror){
             var width=boardDim[1];
-            erase(width-pos.x,pos.y,width-lastpos.x,lastpos.y,user.size*2);
+            erase(width-pos.x,pos.y,width-lastpos.x,lastpos.y,user.pressure*user.size*2);
           }
         }
         if(user.mousedown && user.tool == "gimp" && user.gBrush){
@@ -384,7 +389,7 @@ function recieve(data) {
         input.innerHTML = "";
       }
       if(user.tool == "erase" && !user.panning){
-        erase(pos.x,pos.y,pos.x,pos.y,user.size*2);
+        erase(pos.x,pos.y,pos.x,pos.y,user.user.pressure*size*2);
         
       }
       if(user.tool =="gimp" && user.gBrush && !user.panning){
@@ -677,10 +682,10 @@ board.addEventListener("pointermove", function (e) {
       user.lineLength += manhattanDistance(pos,lastpos);
     }
     if (user.mousedown && user.tool == "erase"){
-      erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
+      erase(pos.x,pos.y,lastpos.x,lastpos.y,user.pressure*user.size*2);
       if(mirror){
             var width=boardDim[1];
-            erase(width-pos.x,pos.y,width-lastpos.x,lastpos.y,user.size*2);
+            erase(width-pos.x,pos.y,width-lastpos.x,lastpos.y,user.pressure*user.size*2);
       }
     }
     if(user.mousedown && user.gBrush && user.tool == "gimp"){
@@ -726,7 +731,7 @@ board.addEventListener("pointerdown", function (e) {
   }
   
   if (user.tool == "erase" && !user.panning){
-    erase(pos.x,pos.y,user.lastx,user.lasty,user.size*2);
+    erase(pos.x,pos.y,user.lastx,user.lasty,user.pressure*user.size*2);
   }
   if(user.tool == "gimp" && !user.panning ){
     if(user.gBrush){
