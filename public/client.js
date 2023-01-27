@@ -252,12 +252,14 @@ socket.addEventListener("message", (m) => {
       break;
     case "boardSettings":
       console.log(data);
-      var mirror = data.settings.mirror;
+      mirror = data.settings.mirror;
       console.log(mirror);
       if(mirror){
+        mLine.style.display="block";
         mirrorText.text = "ON";
       }
       else{
+        mLine.style.display="none";
         mirrorText.text= "OFF";
       }
 
@@ -785,7 +787,7 @@ board.addEventListener("pointerup", function (e) {
 
 
 
-board.addEventListener("mouseout",function(e){
+board.addEventListener("pointerout",function(e){
   var user = getUser(userID);
   
   /*
@@ -1585,7 +1587,7 @@ var picker = new Picker({
 
 
 
-sizeSlider.addEventListener("mousemove",function(e){
+sizeSlider.addEventListener("pointermove",function(e){
   
   
   var user = getUser(userID);
@@ -1611,7 +1613,7 @@ sizeSlider.addEventListener("mousemove",function(e){
 });
 
 
-spacingSlider.addEventListener("mousemove",function(e){
+spacingSlider.addEventListener("pointermove",function(e){
   
   var user = getUser(userID);
   
