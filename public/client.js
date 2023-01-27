@@ -391,7 +391,7 @@ function recieve(data) {
         input.innerHTML = "";
       }
       if(user.tool == "erase" && !user.panning){
-        erase(pos.x,pos.y,pos.x,pos.y,user.user.pressure*size*2);
+        erase(pos.x,pos.y,pos.x,pos.y,user.pressure*user.size*2);
         
       }
       if(user.tool =="gimp" && user.gBrush && !user.panning){
@@ -609,7 +609,7 @@ board.addEventListener("pointermove", function (e) {
   
   
   
-  if (event.pointerType === "pen") {
+  if (event.pointerType === "pen" && user.mousedown) {
     pressure = Math.round(e.pressure*100)/100;
     user.pressure = pressure;
     if(user.pressure != user.prevpressure && user.mousedown){
@@ -637,7 +637,7 @@ board.addEventListener("pointermove", function (e) {
 
   var x = e.offsetX; //x position within the element.
   var y = e.offsetY;  //y position within the element.
-  
+  console.log(x,y)
   
   
   user.x = x;
@@ -703,6 +703,9 @@ board.addEventListener("pointermove", function (e) {
 
 board.addEventListener("pointerdown", function (e) {
   var user = getUser(userID);
+  
+  
+  
   
   if(e.pointerType === "mouse"){
     user.pressure = 1;
