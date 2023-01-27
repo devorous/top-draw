@@ -312,6 +312,31 @@ function recieve(data) {
       if(!user.panning){
 
         if (user.mousedown && user.tool == "brush") {
+          
+          if(user.pressure != user.prevpressure){
+ 
+      
+          user.context.clearRect(0,0,boardDim[1],boardDim[0]);
+          user.context.beginPath();
+
+          drawLineArray(user.currentLine, ctx, user);
+
+          if(mirror){
+              var nLine = mirrorLine(user.currentLine);
+              drawLineArray(nLine,ctx,user);
+            }
+
+
+          user.currentLine=[];
+          user.lineLength=0;
+
+          var pos = {x:user.x,y:user.y};
+          user.currentLine.push(pos);
+          }
+          
+          user.prevpressure = user.pressure;
+          
+          
           user.currentLine.push(pos);
           user.context.clearRect(0,0,boardDim[1],boardDim[0]);
         
@@ -498,6 +523,9 @@ function recieve(data) {
       listColor.style.backgroundColor = color;
       updateColor(data.color,user.id);
       break;
+    case "ChP":
+      user.pressure = data.pressure;
+      break;
     case "kp":
       //keypress
       if (user.tool == "text") {
@@ -572,10 +600,14 @@ board.addEventListener("pointermove", function (e) {
   
   var pressure = 1;
   
+  
+  
   if (event.pointerType === "pen") {
     pressure = Math.round(e.pressure*100)/100;
     user.pressure = pressure;
-    if(user.pressure != user.prevpressure ){
+    if(user.pressure != user.prevpressure && user.mousedown){
+      send({ command: "broadcast", type: "ChP", pressure:pressure, id: userID });
+      
       ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
           ctx2.beginPath();
           
@@ -663,6 +695,12 @@ board.addEventListener("pointermove", function (e) {
 
 
 board.addEventListener("pointerdown", function (e) {
+  
+  if(e.pointerType === "mouse"){
+    user.pressure = 1;
+    user.prevpressure = 1;
+  }
+  
   var user = getUser(userID);
   var userCtx = user.context;
   var pos = {x:e.layerX,y:e.layerY};

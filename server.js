@@ -127,6 +127,10 @@ function updateUser(data) {
       case "ChC":
         userdata.color = data.color;
         break;
+      case "ChP":
+        userdata.pressure = data.pressure;
+        break;
+        
       case "kp":
         var key = data.key;
         if (key.length == 1) {
