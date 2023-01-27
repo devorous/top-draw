@@ -312,6 +312,7 @@ function recieve(data) {
       if(!user.panning){
 
         if (user.mousedown && user.tool == "brush") {
+          user.currentLine.push(pos);
           
           if(user.pressure != user.prevpressure){
  
@@ -319,9 +320,9 @@ function recieve(data) {
           user.context.clearRect(0,0,boardDim[1],boardDim[0]);
           user.context.beginPath();
 
-          drawLineArray(user.currentLine, ctx, user);
+          drawLineArray(user.currentLine,ctx,user);
 
-          if(mirror){
+            if(mirror){
               var nLine = mirrorLine(user.currentLine);
               drawLineArray(nLine,ctx,user);
             }
@@ -330,22 +331,21 @@ function recieve(data) {
           user.currentLine=[];
           user.lineLength=0;
 
-          var pos = {x:user.x,y:user.y};
           user.currentLine.push(pos);
+            
           }
-          
+          else{
+            
+            user.context.clearRect(0,0,boardDim[1],boardDim[0]);
+
+            drawLineArray(user.currentLine,user.context,user);
+
+            if(mirror){
+              var nLine = mirrorLine(user.currentLine);
+              drawLineArray(nLine,user.context,user);
+            }
+          }
           user.prevpressure = user.pressure;
-          
-          
-          user.currentLine.push(pos);
-          user.context.clearRect(0,0,boardDim[1],boardDim[0]);
-        
-          drawLineArray(user.currentLine,user.context,user);
-          
-          if(mirror){
-            var nLine = mirrorLine(user.currentLine);
-            drawLineArray(nLine,user.context,user);
-          }
         }
         if(user.mousedown && user.tool == "erase"){
           erase(pos.x,pos.y,lastpos.x,lastpos.y,user.size*2);
@@ -695,13 +695,14 @@ board.addEventListener("pointermove", function (e) {
 
 
 board.addEventListener("pointerdown", function (e) {
+  var user = getUser(userID);
   
   if(e.pointerType === "mouse"){
     user.pressure = 1;
     user.prevpressure = 1;
+    send({ command: "broadcast", type: "ChP", pressure:1, id: userID });
   }
-  
-  var user = getUser(userID);
+
   var userCtx = user.context;
   var pos = {x:e.layerX,y:e.layerY};
   
@@ -1097,7 +1098,7 @@ function drawDot(pos, ctx, user){
   if (user.tool == "brush") {
     ctx.beginPath()
     ctx.strokeStyle='rgba('+user.color.toString()+')';
-    ctx.lineWidth = user.size * 2;
+    ctx.lineWidth = user.pressure*user.size * 2;
     ctx.moveTo(pos.x,pos.y);
     ctx.lineTo(pos.x,pos.y);
     ctx.stroke();
@@ -1108,7 +1109,7 @@ function drawDot(pos, ctx, user){
     userCtx.strokeStyle='rgb('+noAlpha.toString()+')';
     userCtx.lineCap="round";
     userCtx.lineJoin="round";
-    userCtx.lineWidth=user.size*2;
+    userCtx.lineWidth=user.pressure*user.size*2;
     userCtx.beginPath();
     userCtx.moveTo(pos.x,pos.y);
     userCtx.lineTo(pos.x,pos.y);
