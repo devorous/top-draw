@@ -659,9 +659,10 @@ board.addEventListener("pointermove", function (e) {
     lastpos = pos;
   }
   if(user.panning && user.mousedown){
-    panX = panX + e.movementX
-    panY = panY + e.movementY 
-    console.log(e.movementX,e.movementY)
+    panX = panX + e.movementX;
+;   panY = panY + e.movementY;
+    console.log(user.x-user.lastx+panX,user.y-user.lasty+panY);
+    console.log(e.movementX,e.movementY);
     moveBoard(panX,panY);
   }
   if(!user.panning){
