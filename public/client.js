@@ -564,7 +564,7 @@ function getUser(id) {
 
 
 
-board.addEventListener("mousemove", function (e) {
+board.addEventListener("pointermove", function (e) {
   
 
   var x = e.offsetX; //x position within the element.
@@ -584,9 +584,6 @@ board.addEventListener("mousemove", function (e) {
   cursor_square.setAttribute("y",y-user.size);  
   var lastpos = { x: user.lastx, y: user.lasty };
   var pos = { x: user.x, y: user.y };
-  
-  
-  
   
   
   send({ command: "broadcast", type: "Mm", x: user.x, y: user.y, id: userID });
@@ -633,7 +630,18 @@ board.addEventListener("mousemove", function (e) {
   user.lasty = user.y;
 });
 
-board.addEventListener("mousedown", function (e) {
+
+
+
+board.addEventListener("mousedown", drawDown,false );
+board.addEventListener("pointerdown", drawDown, false);
+
+board.addEventListener("mouseup", drawUp, false);
+board.addEventListener("pointerup", drawUp, false);
+
+
+function drawDown(e){
+  
   var user = getUser(userID);
   var userCtx = user.context;
   var pos = {x:e.layerX,y:e.layerY};
@@ -665,9 +673,9 @@ board.addEventListener("mousedown", function (e) {
       drawGimp(user,pos);
     }
   }
-});
+}
 
-board.addEventListener("mouseup", function (e) {
+function drawUp(e){
   var user = getUser(userID);
   
   if(user.tool=="brush" && !user.panning ){
@@ -700,7 +708,8 @@ board.addEventListener("mouseup", function (e) {
   
   user.currentLine = [];
   user.lineLength = 0;
-});
+}
+
 
 
 
