@@ -609,10 +609,10 @@ board.addEventListener("pointermove", function (e) {
   
   
   
-  if (event.pointerType === "pen" && user.mousedown) {
+  if (event.pointerType === "pen" && !user.panning) {
     pressure = Math.round(e.pressure*100)/100;
     user.pressure = pressure;
-    if(user.pressure != user.prevpressure && user.mousedown){
+    if(user.pressure != user.prevpressure && user.mousedown && user.tool==="brush"){
       send({ command: "broadcast", type: "ChP", pressure:pressure, id: userID });
       
       ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
@@ -637,7 +637,6 @@ board.addEventListener("pointermove", function (e) {
 
   var x = e.offsetX; //x position within the element.
   var y = e.offsetY;  //y position within the element.
-  console.log(x,y)
   
   
   user.x = x;
@@ -662,6 +661,7 @@ board.addEventListener("pointermove", function (e) {
   if(user.panning && user.mousedown){
     panX = panX + e.movementX
     panY = panY + e.movementY 
+    console.log(e.movementX,e.movementY)
     moveBoard(panX,panY);
   }
   if(!user.panning){
