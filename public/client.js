@@ -604,7 +604,7 @@ function getUser(id) {
 board.addEventListener("pointermove", function (e) {
   var user = getUser(userID);
   
-  
+   
   var pressure = 1;
   
   
