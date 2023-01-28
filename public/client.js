@@ -81,7 +81,6 @@ var socket = new WebSocket(
 socket.onopen = function () {
   send({ command: "connect", userdata: self, id: userID });
   console.log("Websocket connected!");
-  connected = true;
   $("#login").show();
   $("#connecting").hide();
 };
@@ -304,7 +303,6 @@ socket.addEventListener("message", (m) => {
           }
           listName.innerHTML = name;
           console.log("user in room: ",user);
-          console.log("the username: ",user.userdata.username);
           userCol.style.backgroundColor = user.color;
           if(user.tool=="brush"){
             userTool.appendChild(icons.brush);
@@ -327,11 +325,10 @@ socket.addEventListener("message", (m) => {
         mLine.style.display="none";
         mirrorText.text= "OFF";
       }
+      break;
 
-    
     case "userLeft":
       //when a user leaves, update the user list and remove the users DOM objects
-      
       var user_objs = $("." + data.id.toString());
       for(var i=0;i<user_objs.length;i++){
         if(user_objs[i]){
@@ -456,9 +453,6 @@ board.addEventListener("pointermove", function (e) {
 board.addEventListener("pointerdown", function (e) {
   var user = getUser(userID);
   
-  
-  
-  
   if(e.pointerType === "mouse"){
     user.pressure = 1;
     user.prevpressure = 1;
@@ -510,8 +504,6 @@ board.addEventListener("pointerup", function (e) {
       var pos = {x:user.x,y:user.y};
       drawDot(pos,ctx,user);
     }
-    console.log(user.lineLength);
-    
 
     drawLineArray(user.currentLine, ctx, user);
     
@@ -520,9 +512,7 @@ board.addEventListener("pointerup", function (e) {
         drawLineArray(nLine,ctx,user);
     }
     
-    
-    //ctx.stroke();
-    //ctx2.beginPath();
+
     ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
     
     
@@ -793,7 +783,7 @@ joinBtn.addEventListener("click", function(e){
   var listName = $(".listUser.self")[0];
   boardName.innerHTML = name;
   listName.innerHTML = name;
-  
+  connected = true;
   send({ command: "broadcast", type: "ChNa", name:name, id: userID });
 });
 
