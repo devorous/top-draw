@@ -1,10 +1,10 @@
-//$("#overlay").hide()
+$("#overlay").hide()
 
-
+var height
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
-var boardDim=[1280,1280];
+var boardDim =[1280,1280];
 
 var mirror = false;
 var connected = false;
@@ -16,9 +16,7 @@ mLine.setAttribute("x2",boardDim[1]/2)
 mLine.setAttribute("y2",boardDim[0])
 mLine.style.display="none";
 
-var users = [];
 
-var userID = Math.floor(Math.random() * 9999999);
 var boards = $("#boards")[0];
 
 var board = $("#board")[0];
@@ -144,10 +142,8 @@ var blendMode = $("#blendMode")[0];
 
 
 //for user later on btn clicks, to hide and show these options
-var gimpPreview = $("#gimpImage")[0];
-var gimpInput = $("#gimp-file-input")[0];
-gimpPreview.style.display="none";
-gimpInput.style.display="none";
+$("#gimpImage")[0].style.display="none";
+$("#gimp-file-input")[0].style.display="none";
 
 
 //set default values for your user list entry
@@ -1358,8 +1354,8 @@ brushBtn.addEventListener("click", function () {
   $(".text.self")[0].style.display = "none";
   $(".circle.self")[0].style.display = "block";
   $(".square.self")[0].style.display = "none";
-  gimpPreview.style.display="none";
-  gimpInput.style.display="none";
+  $("#gimpImage")[0].style.display="none";
+  $("#gimp-file-input")[0].style.display="none";
   
   userlistEntry.children[0].children[0].remove();
   userlistEntry.children[0].appendChild(icons.brush);
@@ -1379,8 +1375,8 @@ textBtn.addEventListener("click", function () {
   $(".text.self")[0].style.display = "block";
   $(".circle.self")[0].style.display = "none";
   $(".square.self")[0].style.display = "none";
-  gimpPreview.style.display="none";
-  gimpInput.style.display="none";
+  $("#gimpImage")[0].style.display="none";
+  $("#gimp-file-input")[0].style.display="none";
   
   userlistEntry.children[0].children[0].remove();
   userlistEntry.children[0].appendChild(icons.text);
@@ -1402,8 +1398,8 @@ eraseBtn.addEventListener("click", function () {
   $(".circle.self")[0].style.display = "block";
   $(".square.self")[0].style.display = "none";
   
-  gimpPreview.style.display="none";
-  gimpInput.style.display="none";
+  $("#gimpImage")[0].style.display="none";
+  $("#gimp-file-input")[0].style.display="none";
   
   userlistEntry.children[0].children[0].remove();
   userlistEntry.children[0].appendChild(icons.erase);
@@ -1429,8 +1425,8 @@ gimpBtn.addEventListener("click", function () {
   $(".circle.self")[0].style.display = "none";
   $(".square.self")[0].style.display = "block";
   
-  gimpPreview.style.display="block";
-  gimpInput.style.display="block";
+  $("#gimpImage")[0].style.display="block";
+  $("#gimp-file-input")[0].style.display="block";
     
   userlistEntry.children[0].children[0].remove();
   userlistEntry.children[0].appendChild(icons.gimp);
