@@ -113,6 +113,15 @@ canvas{
   cursor:none;
 }
 
+#chat{
+  font-size:0.6em;
+  background-color:orange;
+  position:absolute;
+  
+}
+
+
+
 .boardBtns{
   height:30px;
   width:100%;
