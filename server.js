@@ -56,6 +56,7 @@ wsServer.on("connection", (ws,req) => {
         var user = data;
         delete user.command;
         currentUsers.push(user);
+        broadcast({command:"connected"})
         broadcast({ command: "currentUsers", users: currentUsers });
         broadcast({command: "boardSettings", settings: boardSettings});
         //save user to list of current users in room

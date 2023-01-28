@@ -24,7 +24,7 @@ body {
   background-color:rgba(0,0,0,0.4);
   z-index:99;
 }
-#login{
+.overlayWindow{
   padding:8px;
   height:175px;
   width:250px;

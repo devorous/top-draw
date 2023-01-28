@@ -1,4 +1,4 @@
-//$("#overlay").hide()
+$("#login").hide()
 
 
 var height = document.body.scrollHeight;
@@ -82,6 +82,8 @@ socket.onopen = function () {
   send({ command: "connect", userdata: self, id: userID });
   console.log("Websocket connected!");
   connected = true;
+  $("#login").show();
+  $("#connecting").hide();
 };
 
 
@@ -273,6 +275,9 @@ socket.addEventListener("message", (m) => {
   var data = JSON.parse(m.data);
 
   switch (data.command) {
+    case "connected":
+      break;
+      
     case "currentUsers":
       //updating list of users with new users
       var current_ids = [];
@@ -323,8 +328,7 @@ socket.addEventListener("message", (m) => {
         mirrorText.text= "OFF";
       }
 
-    case "connect":
-      break;
+    
     case "userLeft":
       //when a user leaves, update the user list and remove the users DOM objects
       
