@@ -90,7 +90,7 @@ socket.onopen = function () {
 
 $(document).ready(function(){
   
-});
+
 
 mLine = $(".mirrorLine")[0];
 mLine.setAttribute("x1",boardDim[1]/2)
@@ -1060,6 +1060,15 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
 
 
 
+});
+
+
+
+
+
+
+
+
 
 
 
@@ -1346,15 +1355,15 @@ function moveCursor(data,user) {
   var id = data.id.toString();
   var x = user.x;
   var y = user.y;
-  var cursor = $(".cursor"+"."+id)[0];
-  var circle = $(".circle"+"."+id)[0];
-  var square = $(".square"+"."+id)[0];
-  cursor.style.left = (x-100).toString() + "px";
-  cursor.style.top = (y-100).toString() + "px";
-  circle.setAttribute("cx",x);
-  circle.setAttribute("cy",y);
-  square.setAttribute("x",x-user.size);
-  square.setAttribute("y",y-user.size);
+  var Ucursor = $(".cursor"+"."+id)[0];
+  var Ucircle = $(".circle"+"."+id)[0];
+  var Usquare = $(".square"+"."+id)[0];
+  Ucursor.style.left = (x-100).toString() + "px";
+  Ucursor.style.top = (y-100).toString() + "px";
+  Ucircle.setAttribute("cx",x);
+  Ucircle.setAttribute("cy",y);
+  Usquare.setAttribute("x",x-user.size);
+  Usquare.setAttribute("y",y-user.size);
 }
 
 function updateUser(user, data, fields) {
