@@ -139,7 +139,9 @@ canvas{
   align-items: center;
 
 }
-
+.right{
+  margin-left:auto;
+}
 .tool.btn{
   padding:4px;
 }
