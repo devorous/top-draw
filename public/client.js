@@ -1,6 +1,5 @@
-$("#overlay").hide()
+//$("#overlay").hide()
 
-var height
 
 var height = document.body.scrollHeight;
 var width  = document.body.scrollWidth;
@@ -8,8 +7,49 @@ var boardDim =[1280,1280];
 
 var mirror = false;
 var connected = false;
+var users = [];
+var userID = Math.floor(Math.random() * 9999999);
+var size = 10;
 
-var mLine = $(".mirrorLine")[0];
+var icons={
+  brush:$("<img class='toolIcon' src='/images/brush-icon.svg' />")[0],
+  text:$("<img class='toolIcon' src='/images/text-icon.svg' />")[0],
+  erase:$("<img class='toolIcon' src='/images/eraser-icon.svg' />")[0],
+  gimp:$("<img class='toolIcon' src='/images/pepper.png' />")[0]
+}
+
+var mLine
+var boards,board,topBoard
+var cursorsSvg,cursor,cursor_circle,cursor_square
+var userlistEntry
+var userlistName
+
+var mirrorText
+
+var currentWidth
+var currentHeight
+var defaultZoom
+
+var defaultPanX
+var defaultPanY
+var panX
+var panY
+var zoom
+
+var ctx 
+var ctx2
+
+
+
+
+
+
+
+$(document).ready(function(){
+  
+});
+
+mLine = $(".mirrorLine")[0];
 mLine.setAttribute("x1",boardDim[1]/2)
 mLine.setAttribute("y1",0)
 mLine.setAttribute("x2",boardDim[1]/2)
@@ -17,30 +57,30 @@ mLine.setAttribute("y2",boardDim[0])
 mLine.style.display="none";
 
 
-var boards = $("#boards")[0];
+boards = $("#boards")[0];
 
-var board = $("#board")[0];
-var topBoard = $("#topBoard")[0];
+board = $("#board")[0];
+topBoard = $("#topBoard")[0];
 
-var cursorsSvg=$("#cursorsSvg")[0];
+cursorsSvg = $("#cursorsSvg")[0];
 
-var cursor = $(".cursor.self")[0];
-var cursor_circle = $(".circle.self")[0];
-var cursor_square = $(".square.self")[0];
-
-
-var userlistEntry = $(".userEntry.self")[0];
-var userlistName = $(".listUser.self")[0];
-
-var mirrorText = $(".mirrorOption")[0];
+cursor = $(".cursor.self")[0];
+cursor_circle = $(".circle.self")[0];
+cursor_square = $(".square.self")[0];
 
 
-var currentWidth = $("#boardContainer").width()*0.95;
-var currentHeight = $("#boardContainer").height()*0.95-30; //30 is the height of the buttons bar
-var defaultZoom = Math.round(currentWidth/boardDim[1]*1000)/1000 
+userlistEntry = $(".userEntry.self")[0];
+userlistName = $(".listUser.self")[0];
 
-var defaultPanX = currentWidth*0.05/2;
-var defaultPanY = currentHeight/2-boardDim[0]*defaultZoom/2+30;
+mirrorText = $(".mirrorOption")[0];
+
+
+currentWidth = $("#boardContainer").width()*0.95;
+currentHeight = $("#boardContainer").height()*0.95-30; //30 is the height of the buttons bar
+defaultZoom = Math.round(currentWidth/boardDim[1]*1000)/1000 
+
+defaultPanX = currentWidth*0.05/2;
+defaultPanY = currentHeight/2-boardDim[0]*defaultZoom/2+30;
 
 
 if(defaultZoom > Math.round(currentHeight/boardDim[0]*1000)/1000){
@@ -53,9 +93,9 @@ if(defaultZoom > Math.round(currentHeight/boardDim[0]*1000)/1000){
   
 }
 
-var panX = defaultPanX;
-var panY = defaultPanY;
-var zoom = defaultZoom;
+panX = defaultPanX;
+panY = defaultPanY;
+zoom = defaultZoom;
 
 boards.style.transformOrigin = "top left";
 
@@ -74,10 +114,10 @@ topBoard.height=boardDim[0];
 topBoard.width=boardDim[1];
 
 
-var size = 10;
 
-var ctx = board.getContext("2d");
-var ctx2 = topBoard.getContext("2d");
+
+ctx = board.getContext("2d");
+ctx2 = topBoard.getContext("2d");
 
 
 ctx.globalCompositeOperation="source-over";
@@ -89,20 +129,15 @@ ctx.lineCap = "round";
 ctx.lineJoin= "round";
 
 
-var connected=false;
 
 
 var sizeSlider = $(".slider.size")[0];
 var spacingSlider = $(".slider.spacing")[0];
+
 sizeSlider.value = size;
 sizeSlider.step = 1;
 
-var icons={
-  brush:$("<img class='toolIcon' src='/images/brush-icon.svg' />")[0],
-  text:$("<img class='toolIcon' src='/images/text-icon.svg' />")[0],
-  erase:$("<img class='toolIcon' src='/images/eraser-icon.svg' />")[0],
-  gimp:$("<img class='toolIcon' src='/images/pepper.png' />")[0]
-}
+
 
 var joinBtn = $("#joinBtn")[0];
 var usernameInput = $("#usernameInput")[0];
@@ -141,7 +176,6 @@ mirrorBtn.addEventListener("click",function(){
 var blendMode = $("#blendMode")[0];
 
 
-//for user later on btn clicks, to hide and show these options
 $("#gimpImage")[0].style.display="none";
 $("#gimp-file-input")[0].style.display="none";
 
