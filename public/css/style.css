@@ -121,9 +121,14 @@ canvas{
   position:absolute;
   right:192px;
   top:30px;
+  list-style
+}
+.chatMessages{
+  height:90%;
 }
 .chatBottom{
   display:flex;
+  height:10%;
 }
 
 
