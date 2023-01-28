@@ -114,39 +114,40 @@ canvas{
 }
 
 #chat{
+  user-select:auto;
   display:flex;
   flex-direction:column;
   max-height:50%;
   height:20%;
   opacity:75%;
   font-size:0.6em;
-  background-color:orange;
+  background-color:lightblue;
   position:absolute;
   right:192px;
   top:30px;
-  
+  width:200px;
 }
 
 #messageList{
   list-style-type:none;
-
   padding-left:4px;
 }
 
 #chatMessages{
-  height:70%;
+  height:100%;
   
   overflow-y:scroll;
 }
 
 .chatBottom{
-  height:15%;
+  height:20%;
   display:flex;
-  bottom:0px;
-  padding:3px;
+  padding:2px;
+  justify-content:center;
 }
 #chatInput{
-  font-size:0.9em;
+  width:150px;
+  margin-right:4px;
 }
 
 .boardBtns{
