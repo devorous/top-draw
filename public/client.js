@@ -39,7 +39,50 @@ var zoom
 var ctx 
 var ctx2
 
+var sizeSlider = $(".slider.size")[0];
+var spacingSlider = $(".slider.spacing")[0];
 
+sizeSlider.value = size;
+sizeSlider.step = 1;
+
+
+
+var joinBtn
+var usernameInput
+
+var brushBtn 
+var textBtn 
+var eraseBtn
+var gimpBtn  
+
+var clearBtn  
+var resetBtn  
+var mirrorBtn 
+
+var blendMode
+
+
+var self
+
+
+/* - - - - - - - - - -
+   Setup Websocket:
+  - - - - - - - - - - */
+
+// Match websocket protocol to page protocol (ws/http or wss/https):
+var wsProtocol = window.location.protocol == "https:" ? "wss" : "ws";
+
+// Set up new websocket connection to server
+var socket = new WebSocket(
+  `${wsProtocol}://${window.location.hostname}:${window.location.port}`
+);
+
+// Log successful connection
+socket.onopen = function () {
+  send({ command: "connect", userdata: self, id: userID });
+  console.log("Websocket connected!");
+  connected = true;
+};
 
 
 
@@ -131,25 +174,27 @@ ctx.lineJoin= "round";
 
 
 
-var sizeSlider = $(".slider.size")[0];
-var spacingSlider = $(".slider.spacing")[0];
+sizeSlider = $(".slider.size")[0];
+spacingSlider = $(".slider.spacing")[0];
 
 sizeSlider.value = size;
 sizeSlider.step = 1;
 
 
 
-var joinBtn = $("#joinBtn")[0];
-var usernameInput = $("#usernameInput")[0];
+joinBtn = $("#joinBtn")[0];
+usernameInput = $("#usernameInput")[0];
 
-var brushBtn = $("#brushBtn")[0];
-var textBtn = $("#textBtn")[0];
-var eraseBtn = $("#eraseBtn")[0];
-var gimpBtn = $("#gimpBtn")[0];
+brushBtn = $("#brushBtn")[0];
+textBtn = $("#textBtn")[0];
+eraseBtn = $("#eraseBtn")[0];
+gimpBtn = $("#gimpBtn")[0];
 
-var clearBtn = $("#clearBtn")[0];
-var resetBtn = $("#resetBtn")[0];
-var mirrorBtn = $("#mirrorBtn")[0];
+clearBtn = $("#clearBtn")[0];
+resetBtn = $("#resetBtn")[0];
+mirrorBtn = $("#mirrorBtn")[0];
+
+blendMode = $("#blendMode")[0];
 
 
 clearBtn.addEventListener("click", function () {
@@ -173,7 +218,6 @@ mirrorBtn.addEventListener("click",function(){
   send({command: "broadcast", type: "mirror", id: userID});
 })
 
-var blendMode = $("#blendMode")[0];
 
 
 $("#gimpImage")[0].style.display="none";
@@ -185,7 +229,7 @@ userlistEntry.children[0].appendChild(icons.brush.cloneNode());
 userlistName.innerHTML=userID;
 
 
-var self = {
+self = {
   x: 0,
   y: 0,
   lastx: null,
@@ -224,20 +268,6 @@ users.push(self);
    Setup Websocket:
   - - - - - - - - - - */
 
-// Match websocket protocol to page protocol (ws/http or wss/https):
-var wsProtocol = window.location.protocol == "https:" ? "wss" : "ws";
-
-// Set up new websocket connection to server
-var socket = new WebSocket(
-  `${wsProtocol}://${window.location.hostname}:${window.location.port}`
-);
-
-// Log successful connection
-socket.onopen = function () {
-  send({ command: "connect", userdata: self, id: userID });
-  console.log("Websocket connected!");
-  connected = true;
-};
 
 socket.addEventListener("message", (m) => {
   var data = JSON.parse(m.data);
@@ -314,319 +344,6 @@ socket.addEventListener("message", (m) => {
       recieve(data);
   }
 });
-
-function send(data) {
-  socket.send(JSON.stringify(data)); 
-}
-
-
-function recieve(data) {
-  //process recieved broadcast events
-  var user = getUser(data.id);
-  switch (data.type) {
-    case "clear":
-      clearBoard();
-      break;
-      
-    case "pan":
-      user.panning = data.value;
-      break;
-      
-    case "Mm":
-      
-      //if user has no lastpos, make it the current pos
-      if (user.lastx == null) {
-        user.lastx = data.x;
-        user.lasty = data.y;
-      }
-      
-      updateUser(user, data, ["x", "y"]);
-      var pos = { x: user.x, y: user.y };
-      var lastpos = { x: user.lastx, y: user.lasty };
-      
-      moveCursor(data,user);
-      
-      if(!user.panning){
-
-        if (user.mousedown && user.tool == "brush") {
-          user.currentLine.push(pos);
-          
-          if(user.pressure != user.prevpressure){
- 
-      
-          user.context.clearRect(0,0,boardDim[1],boardDim[0]);
-          user.context.beginPath();
-
-          drawLineArray(user.currentLine,ctx,user);
-
-            if(mirror){
-              var nLine = mirrorLine(user.currentLine);
-              drawLineArray(nLine,ctx,user);
-            }
-
-
-          user.currentLine=[];
-          user.lineLength=0;
-
-          user.currentLine.push(pos);
-            
-          }
-          else{
-            
-            user.context.clearRect(0,0,boardDim[1],boardDim[0]);
-
-            drawLineArray(user.currentLine,user.context,user);
-
-            if(mirror){
-              var nLine = mirrorLine(user.currentLine);
-              drawLineArray(nLine,user.context,user);
-            }
-          }
-          user.prevpressure = user.pressure;
-        }
-        if(user.mousedown && user.tool == "erase"){
-          erase(pos.x,pos.y,lastpos.x,lastpos.y,user.pressure*user.size*2);
-          if(mirror){
-            var width=boardDim[1];
-            erase(width-pos.x,pos.y,width-lastpos.x,lastpos.y,user.pressure*user.size*2);
-          }
-        }
-        if(user.mousedown && user.tool == "gimp" && user.gBrush){
-          drawGimp(user,pos);
-        }
-      }
-      user.lastx = data.x;
-      user.lasty = data.y;
-      break;
-
-    case "Md":
-      user.lastx = user.x;
-      user.lasty = user.y;
-      
-      user.spaceIndex=0;
-      
-      var pos = { x: user.x, y: user.y };
-      if (user.tool == "brush" && !user.panning) {
-        
-        //ctx.lineCap = "round";
-        //ctx.beginPath();
-
-        user.currentLine.push(pos);
-        drawDot(pos, ctx, user);
-      }
-      if (user.tool == "text" && user.text != "") {
-        drawText(user);
-        user.text = "";
-        var input = $("." + user.id.toString() + " .textInput")[0];
-        input.innerHTML = "";
-      }
-      if(user.tool == "erase" && !user.panning){
-        erase(pos.x,pos.y,pos.x,pos.y,user.pressure*user.size*2);
-        
-      }
-      if(user.tool =="gimp" && user.gBrush && !user.panning){
-        drawGimp(user,pos);
-      }
-      
-      user.mousedown = true;
-      break;
-
-    case "Mu":
-      if (user.tool == "brush" && !user.panning) {
-  
-        drawLineArray(user.currentLine, ctx, user);  
-        if(mirror){
-          var nLine = mirrorLine(user.currentLine);
-          drawLineArray(nLine,ctx,user);
-        }
-        
-        user.context.clearRect(0,0,boardDim[1],boardDim[0]);
-      }
-      user.currentLine=[];
-      user.mousedown = false;
-      break;
-
-    case "ChSi":
-      //change the size
-      
-      if(user.mousedown && user.tool=="brush"){
-        
-        ctx2.stroke();
-        user.context.stroke();
-        user.context.clearRect(0,0,boardDim[1],boardDim[0]);
-        user.context.beginPath();
-        
-                  
-        drawLineArray(user.currentLine, ctx, user);
-        if(mirror){
-          var nLine = mirrorLine(user.currentLine);
-          drawLineArray(nLine,ctx,user);
-        }
-        
-      }
-      
-      if(user.mousedown){
-        user.currentLine=[];
-        pos = {x:user.x,y:user.y};
-        user.currentLine.push(pos);
-      }
-      
-      updateUser(user, data, ["size"]);
-      var userText = $("." + user.id.toString() + " .text")[0];
-      userText.style.fontSize = (data.size + 5).toString() + "px";
-      var userCircle = $("."+user.id.toString()+".circle")[0];
-      userCircle.setAttribute("r",user.size);
-      var userCtx = user.context;
-      var userSquare = $("."+user.id.toString()+".square")[0];
-      userSquare.setAttribute("height",user.size*2);
-      userSquare.setAttribute("width",user.size*2);
-      break;
-      
-    case "ChSp":
-      //change the spacing
-      updateUser(user,data,["spacing"]);
-      break;
-      
-    case "ChBl":
-      //change the blend mode
-      updateUser(user,data,["blendMode"]);
-      break;
-      
-      
-    case "ChNa":
-      var name = data.name;
-      user.username = name;
-      var nameText = $("."+user.id.toString()+" .name")[0];
-      var listName = $("."+user.id.toString()+" .listUser")[0];
-      console.log("user list: ",$(".listUser"));
-      nameText.innerHTML = name;
-      listName.innerHTML = name;
-      break;
-      
-      
-    case "ChT":
-      //change the tool
-      console.log("changing tool: ");
-      console.log(data);
-      updateUser(user, data, ["tool"]);
-      var userText = $("." + user.id.toString() + " .text")[0];
-      var userCircle = $("."+user.id.toString()+".circle")[0];
-      var userSquare = $("."+user.id.toString()+".square")[0];
-      if (data.tool == "brush") {
-        userText.style.display = "none";
-        userCircle.style.display = "block";
-        userSquare.style.display="none";
-      }
-      if (data.tool == "text") {
-        userText.style.display = "block";
-        userCircle.style.display = "none";
-        userSquare.style.display="none";
-      }
-      if (data.tool == "erase") {
-        userText.style.display = "none";
-        userCircle.style.display = "block";
-        userSquare.style.display="none";
-      }
-      if (data.tool == "gimp") {
-        userText.style.display = "none";
-        userCircle.style.display = "none";
-        userSquare.style.display="block";
-      }
-      var listTool = $("." + user.id.toString() + " .listTool")[0];
-      var userIcon = null;
-      switch(data.tool){
-        case "brush":
-          userIcon=icons.brush;
-          break;
-        case "text":
-          userIcon=icons.text;
-          break;
-        case "erase":
-          userIcon=icons.erase;
-          break;
-        case "gimp":
-          userIcon=icons.gimp;
-          break;
-      }
-      listTool.children[0].remove();
-      listTool.append(userIcon.cloneNode());
-      break;
-    case "ChC":
-      //change color
-      var color = 'rgba('+user.color.toString()+')';
-      var userText = $("." + user.id.toString() + " .text")[0];
-      var listColor = $("." + user.id.toString() + " .listColor")[0];
-      userText.style.color = color;
-      listColor.style.backgroundColor = color;
-      updateColor(data.color,user.id);
-      break;
-    case "ChP":
-      user.pressure = data.pressure;
-      break;
-    case "kp":
-      //keypress
-      if (user.tool == "text") {
-        updateText(data.key, user);
-      }
-      break;
-    case "gimp":
-      //load gimp brush data
-      console.log(data.gimpData);
-      if(data.gimpData.type=="gbr"){
-        user.gBrush=data.gimpData;
-
-        //create an image from the datastream url
-        var image = new Image();
-        image.src = user.gBrush.gimpUrl;
-        image.height = height;
-        image.width = width;
-        //updates the user gbr image for drawing
-        user.gBrush.image = image;
-      }
-      if(data.gimpData.type=="gih"){
-        var images = [];
-        
-        var gihObject = data.gimpData;
-        
-        for(var i=0;i<gihObject.gBrushes.length;i++){
-          
-          
-          var gbrObject = gihObject.gBrushes[i];
-          
-          var gimpImage = new Image();
-          gimpImage.src = gbrObject.gimpUrl;
-          gimpImage.height = height;
-          gimpImage.width = width;
-          images.push(gimpImage);
-          
-        }
-        
-        gihObject.type = "gih";
-        gihObject.index = 0;
-        gihObject.images = images;
-        console.log(gihObject);
-        user.gBrush = gihObject;
-      }
-      break;
-      case "mirror":
-        $(".mirrorLine").toggle();
-        mirror = !mirror;
-        if(mirror){
-          mirrorText.text="ON";
-        }
-        else{
-          mirrorText.text="OFF";
-        }
-      break;
-  }
-}
-
-function getUser(id) {
-  var user = users.filter((a) => {
-    return a.id == id;
-  })[0];
-  return user;
-}
 
 
 
@@ -1058,6 +775,299 @@ document.addEventListener("keyup",function(e){
   }
 });
 
+
+
+joinBtn.addEventListener("click", function(e){
+  connected = true;
+  $("#overlay")[0].style.display="none";
+  cursor.style.display="block";
+  var name = usernameInput.value;
+  if(name==""){
+    name="Anon";
+  }
+  var boardName = $(".name.self")[0];
+  var listName = $(".listUser.self")[0];
+  boardName.innerHTML = name;
+  listName.innerHTML = name;
+  
+  send({ command: "broadcast", type: "ChNa", name:name, id: userID });
+});
+
+
+
+brushBtn.addEventListener("click", function () {
+  var selectedTool = $(".btn.selected")[0];
+  if(selectedTool != this){
+    selectedTool.classList.toggle("selected");
+    this.classList.toggle("selected");
+  }
+  
+  ctx.globalCompositeOperation="source-over";
+  var user = getUser(userID);
+  var index = users.indexOf(user);
+  users[index].tool = "brush";
+  send({ command: "broadcast", type: "ChT", tool: "brush", id: user.id });
+  $(".text.self")[0].style.display = "none";
+  $(".circle.self")[0].style.display = "block";
+  $(".square.self")[0].style.display = "none";
+  $("#gimpImage")[0].style.display="none";
+  $("#gimp-file-input")[0].style.display="none";
+  
+  userlistEntry.children[0].children[0].remove();
+  userlistEntry.children[0].appendChild(icons.brush);
+});
+
+textBtn.addEventListener("click", function () {
+  var selectedTool = $(".btn.selected")[0];
+  if(selectedTool != this){
+    selectedTool.classList.toggle("selected");
+  }
+  this.classList.add("selected");
+  ctx.globalCompositeOperation="source-over";
+  var user = getUser(userID);
+  var index = users.indexOf(user);
+  users[index].tool = "text";
+  send({ command: "broadcast", type: "ChT", tool: "text", id: user.id });
+  $(".text.self")[0].style.display = "block";
+  $(".circle.self")[0].style.display = "none";
+  $(".square.self")[0].style.display = "none";
+  $("#gimpImage")[0].style.display="none";
+  $("#gimp-file-input")[0].style.display="none";
+  
+  userlistEntry.children[0].children[0].remove();
+  userlistEntry.children[0].appendChild(icons.text);
+});
+
+eraseBtn.addEventListener("click", function () {
+  var selectedTool = $(".btn.selected")[0];
+  if(selectedTool != this){
+    selectedTool.classList.toggle("selected");
+  }
+  this.classList.add("selected");
+  ctx.globalCompositeOperation="destination-out";
+  topBoard.style.opacity=1;
+  var user = getUser(userID);
+  var index = users.indexOf(user);
+  users[index].tool = "erase";
+  send({ command: "broadcast", type: "ChT", tool: "erase", id: user.id });
+  $(".text.self")[0].style.display = "none";
+  $(".circle.self")[0].style.display = "block";
+  $(".square.self")[0].style.display = "none";
+  
+  $("#gimpImage")[0].style.display="none";
+  $("#gimp-file-input")[0].style.display="none";
+  
+  userlistEntry.children[0].children[0].remove();
+  userlistEntry.children[0].appendChild(icons.erase);
+});
+
+gimpBtn.addEventListener("click", function () {
+  var selectedTool = $(".btn.selected")[0];
+  if(selectedTool != this ){
+    selectedTool.classList.toggle("selected");
+  }
+  this.classList.add("selected");
+  
+  
+ 
+  
+  
+  ctx.globalCompositeOperation="source-over";
+  var user = getUser(userID);
+  var index = users.indexOf(user);
+  users[index].tool = "gimp";
+  send({ command: "broadcast", type: "ChT", tool: "gimp", id: user.id });
+  $(".text.self")[0].style.display = "none";
+  $(".circle.self")[0].style.display = "none";
+  $(".square.self")[0].style.display = "block";
+  
+  $("#gimpImage")[0].style.display="block";
+  $("#gimp-file-input")[0].style.display="block";
+    
+  userlistEntry.children[0].children[0].remove();
+  userlistEntry.children[0].appendChild(icons.gimp);
+});
+
+
+
+
+
+
+
+
+
+//setup color picker
+var pickerParent = $("#colorPicker")[0];
+var picker = new Picker({
+            parent: pickerParent,
+            popup: false,
+            alpha: true,
+            editor: true,
+            color: '#000',
+            onChange: function(color) {
+              var input = $(".text.self")[0];
+              var user = getUser(userID);
+              input.style.color='rgba('+user.color.toString()+')';
+              var rgba = color.rgba;
+              user.color=rgba;
+              if(connected){
+                send({command:"broadcast",type:"ChC",color:rgba,id:userID});
+              }
+              userlistEntry.children[1].style.backgroundColor='rgba('+user.color.toString()+')';
+            },
+          });
+
+
+
+sizeSlider.addEventListener("pointermove",function(e){
+  
+  
+  var user = getUser(userID);
+  
+  if(user.size != sizeSlider.value){
+    var text = $(".text.self")[0];
+
+    var step = 1;
+
+    var size = sizeSlider.value;
+
+    send({ command: "broadcast", type: "ChSi", size: size, id: userID });
+    cursor_circle.setAttribute("r", size);
+
+    ctx.lineWidth = size * 2;
+    
+    sizeSlider.value=size;
+    user.size=size;
+
+    text.style.fontSize = (size + 5).toString() + "px";
+    
+  }
+});
+
+
+spacingSlider.addEventListener("pointermove",function(e){
+  
+  var user = getUser(userID);
+  
+  if(user.spacing != sizeSlider.value){
+   
+    var spacing = spacingSlider.value;
+
+    send({ command: "broadcast", type: "ChSp", spacing: spacing, id: userID });
+
+    
+    user.spacing = spacing;
+    
+    spacingSlider.value=spacing;
+
+    
+  }
+});
+
+/*
+blendMode.addEventListener("change",function(e){
+  var user = getUser(userID);
+  console.log("change! ",this.value)
+  var mode = this.value;
+  user.blendMode = mode;
+  ctx.globalCompositeOperation = mode;
+  send({ command: "broadcast", type: "ChBl", blendMode: mode, id: userID });
+});
+
+*/
+
+
+window.addEventListener("resize", (e) => {
+  var newHeight = document.body.scrollHeight;
+  var newWidth = document.body.clientWidth;
+  var currentWidth = $("#boardContainer").width()*0.95;
+  var currentHeight = $("#boardContainer").height()*0.95-30; //30 is the height of the buttons bar
+  defaultZoom = Math.round(currentWidth/boardDim[1]*1000)/1000 
+  defaultPanX = currentWidth*0.05/2;
+  defaultPanY = currentHeight/2-boardDim[0]*zoom/2+30;
+
+});
+  
+
+
+
+//Both gimp functions are found in the folder /js/parseGimp.js
+document.getElementById('gimp-file-input').addEventListener('change', function(event) {
+  var user = getUser(userID);
+   // Get the first selected file
+  const file = event.target.files[0];
+  
+  var fileType = (file.name.split(".")[1]);
+  // Create a FileReader
+  const reader = new FileReader();
+
+  // Set the onload handler to parse the file
+  reader.onload = () => {
+    // Get the ArrayBuffer from the FileReader
+    const arrayBuffer = reader.result;
+      if(fileType=="gbr"){
+        var gbrObject = parseGbr(arrayBuffer);
+        if(gbrObject){
+          
+          
+          gbrObject.type = "gbr";
+          send({command:"broadcast",type:"gimp",gimpData:gbrObject,id:userID});
+         
+          
+          var gimpImagePreview = $("#gimpImage")[0];
+          gimpImagePreview.src= gbrObject.gimpUrl;
+          
+          var gimpImage = new Image();
+          gimpImage.src = gbrObject.gimpUrl;
+          gimpImage.height = height;
+          gimpImage.width = width;
+          
+          gbrObject.image = gimpImage;
+          
+          user.gBrush = gbrObject;
+        }
+      }
+      if(fileType=="gih"){
+        var gihObject = parseGih(arrayBuffer);
+        
+        var images = [];
+
+        for(var i=0;i<gihObject.gBrushes.length;i++){
+
+          var gbrObject = gihObject.gBrushes[i];
+          
+          var gimpImage = new Image();
+          gimpImage.src = gbrObject.gimpUrl;
+          gimpImage.height = height;
+          gimpImage.width = width;
+          images.push(gimpImage);
+          
+        }
+        var gimpImagePreview = $("#gimpImage")[0];
+        gimpImagePreview.src= gihObject.gBrushes[0].gimpUrl;
+        
+        gihObject.type = "gih";
+        gihObject.index = 0;
+        gihObject.images = images;
+        user.gBrush = gihObject;
+        
+        send({command:"broadcast",type:"gimp",gimpData:gihObject,id:userID});
+      }
+    }
+
+  reader.readAsArrayBuffer(file);
+});  
+
+
+
+
+
+
+
+
+
+
+
 function moveBoard(x,y){
   var boards = $("#boards")[0];
   boards.style.top = y+"px";
@@ -1355,119 +1365,6 @@ function updateUser(user, data, fields) {
 }
 
 
-joinBtn.addEventListener("click", function(e){
-  connected = true;
-  $("#overlay")[0].style.display="none";
-  cursor.style.display="block";
-  var name = usernameInput.value;
-  if(name==""){
-    name="Anon";
-  }
-  var boardName = $(".name.self")[0];
-  var listName = $(".listUser.self")[0];
-  boardName.innerHTML = name;
-  listName.innerHTML = name;
-  
-  send({ command: "broadcast", type: "ChNa", name:name, id: userID });
-});
-
-
-
-brushBtn.addEventListener("click", function () {
-  var selectedTool = $(".btn.selected")[0];
-  if(selectedTool != this){
-    selectedTool.classList.toggle("selected");
-    this.classList.toggle("selected");
-  }
-  
-  ctx.globalCompositeOperation="source-over";
-  var user = getUser(userID);
-  var index = users.indexOf(user);
-  users[index].tool = "brush";
-  send({ command: "broadcast", type: "ChT", tool: "brush", id: user.id });
-  $(".text.self")[0].style.display = "none";
-  $(".circle.self")[0].style.display = "block";
-  $(".square.self")[0].style.display = "none";
-  $("#gimpImage")[0].style.display="none";
-  $("#gimp-file-input")[0].style.display="none";
-  
-  userlistEntry.children[0].children[0].remove();
-  userlistEntry.children[0].appendChild(icons.brush);
-});
-
-textBtn.addEventListener("click", function () {
-  var selectedTool = $(".btn.selected")[0];
-  if(selectedTool != this){
-    selectedTool.classList.toggle("selected");
-  }
-  this.classList.add("selected");
-  ctx.globalCompositeOperation="source-over";
-  var user = getUser(userID);
-  var index = users.indexOf(user);
-  users[index].tool = "text";
-  send({ command: "broadcast", type: "ChT", tool: "text", id: user.id });
-  $(".text.self")[0].style.display = "block";
-  $(".circle.self")[0].style.display = "none";
-  $(".square.self")[0].style.display = "none";
-  $("#gimpImage")[0].style.display="none";
-  $("#gimp-file-input")[0].style.display="none";
-  
-  userlistEntry.children[0].children[0].remove();
-  userlistEntry.children[0].appendChild(icons.text);
-});
-
-eraseBtn.addEventListener("click", function () {
-  var selectedTool = $(".btn.selected")[0];
-  if(selectedTool != this){
-    selectedTool.classList.toggle("selected");
-  }
-  this.classList.add("selected");
-  ctx.globalCompositeOperation="destination-out";
-  topBoard.style.opacity=1;
-  var user = getUser(userID);
-  var index = users.indexOf(user);
-  users[index].tool = "erase";
-  send({ command: "broadcast", type: "ChT", tool: "erase", id: user.id });
-  $(".text.self")[0].style.display = "none";
-  $(".circle.self")[0].style.display = "block";
-  $(".square.self")[0].style.display = "none";
-  
-  $("#gimpImage")[0].style.display="none";
-  $("#gimp-file-input")[0].style.display="none";
-  
-  userlistEntry.children[0].children[0].remove();
-  userlistEntry.children[0].appendChild(icons.erase);
-});
-
-gimpBtn.addEventListener("click", function () {
-  var selectedTool = $(".btn.selected")[0];
-  if(selectedTool != this ){
-    selectedTool.classList.toggle("selected");
-  }
-  this.classList.add("selected");
-  
-  
- 
-  
-  
-  ctx.globalCompositeOperation="source-over";
-  var user = getUser(userID);
-  var index = users.indexOf(user);
-  users[index].tool = "gimp";
-  send({ command: "broadcast", type: "ChT", tool: "gimp", id: user.id });
-  $(".text.self")[0].style.display = "none";
-  $(".circle.self")[0].style.display = "none";
-  $(".square.self")[0].style.display = "block";
-  
-  $("#gimpImage")[0].style.display="block";
-  $("#gimp-file-input")[0].style.display="block";
-    
-  userlistEntry.children[0].children[0].remove();
-  userlistEntry.children[0].appendChild(icons.gimp);
-});
-
-
-
 
 function drawUser(data, id) {
   var user = getUser(id);
@@ -1598,144 +1495,282 @@ function drawUser(data, id) {
 
 
 
-//setup color picker
-var pickerParent = $("#colorPicker")[0];
-var picker = new Picker({
-            parent: pickerParent,
-            popup: false,
-            alpha: true,
-            editor: true,
-            color: '#000',
-            onChange: function(color) {
-              var input = $(".text.self")[0];
-              var user = getUser(userID);
-              input.style.color='rgba('+user.color.toString()+')';
-              var rgba = color.rgba;
-              user.color=rgba;
-              if(connected){
-                send({command:"broadcast",type:"ChC",color:rgba,id:userID});
-              }
-              userlistEntry.children[1].style.backgroundColor='rgba('+user.color.toString()+')';
-            },
-          });
+function send(data) {
+  socket.send(JSON.stringify(data)); 
+}
 
 
+function recieve(data) {
+  //process recieved broadcast events
+  var user = getUser(data.id);
+  switch (data.type) {
+    case "clear":
+      clearBoard();
+      break;
+      
+    case "pan":
+      user.panning = data.value;
+      break;
+      
+    case "Mm":
+      
+      //if user has no lastpos, make it the current pos
+      if (user.lastx == null) {
+        user.lastx = data.x;
+        user.lasty = data.y;
+      }
+      
+      updateUser(user, data, ["x", "y"]);
+      var pos = { x: user.x, y: user.y };
+      var lastpos = { x: user.lastx, y: user.lasty };
+      
+      moveCursor(data,user);
+      
+      if(!user.panning){
 
-sizeSlider.addEventListener("pointermove",function(e){
-  
-  
-  var user = getUser(userID);
-  
-  if(user.size != sizeSlider.value){
-    var text = $(".text.self")[0];
-
-    var step = 1;
-
-    var size = sizeSlider.value;
-
-    send({ command: "broadcast", type: "ChSi", size: size, id: userID });
-    cursor_circle.setAttribute("r", size);
-
-    ctx.lineWidth = size * 2;
-    
-    sizeSlider.value=size;
-    user.size=size;
-
-    text.style.fontSize = (size + 5).toString() + "px";
-    
-  }
-});
-
-
-spacingSlider.addEventListener("pointermove",function(e){
-  
-  var user = getUser(userID);
-  
-  if(user.spacing != sizeSlider.value){
-   
-    var spacing = spacingSlider.value;
-
-    send({ command: "broadcast", type: "ChSp", spacing: spacing, id: userID });
-
-    
-    user.spacing = spacing;
-    
-    spacingSlider.value=spacing;
-
-    
-  }
-});
-
-/*
-blendMode.addEventListener("change",function(e){
-  var user = getUser(userID);
-  console.log("change! ",this.value)
-  var mode = this.value;
-  user.blendMode = mode;
-  ctx.globalCompositeOperation = mode;
-  send({ command: "broadcast", type: "ChBl", blendMode: mode, id: userID });
-});
-
-*/
-
-
-window.addEventListener("resize", (e) => {
-  var newHeight = document.body.scrollHeight;
-  var newWidth = document.body.clientWidth;
-  var currentWidth = $("#boardContainer").width()*0.95;
-  var currentHeight = $("#boardContainer").height()*0.95-30; //30 is the height of the buttons bar
-  defaultZoom = Math.round(currentWidth/boardDim[1]*1000)/1000 
-  defaultPanX = currentWidth*0.05/2;
-  defaultPanY = currentHeight/2-boardDim[0]*zoom/2+30;
-
-});
-  
-
-
-
-//Both gimp functions are found in the folder /js/parseGimp.js
-document.getElementById('gimp-file-input').addEventListener('change', function(event) {
-  var user = getUser(userID);
-   // Get the first selected file
-  const file = event.target.files[0];
-  
-  var fileType = (file.name.split(".")[1]);
-  // Create a FileReader
-  const reader = new FileReader();
-
-  // Set the onload handler to parse the file
-  reader.onload = () => {
-    // Get the ArrayBuffer from the FileReader
-    const arrayBuffer = reader.result;
-      if(fileType=="gbr"){
-        var gbrObject = parseGbr(arrayBuffer);
-        if(gbrObject){
+        if (user.mousedown && user.tool == "brush") {
+          user.currentLine.push(pos);
           
-          
-          gbrObject.type = "gbr";
-          send({command:"broadcast",type:"gimp",gimpData:gbrObject,id:userID});
-         
-          
-          var gimpImagePreview = $("#gimpImage")[0];
-          gimpImagePreview.src= gbrObject.gimpUrl;
-          
-          var gimpImage = new Image();
-          gimpImage.src = gbrObject.gimpUrl;
-          gimpImage.height = height;
-          gimpImage.width = width;
-          
-          gbrObject.image = gimpImage;
-          
-          user.gBrush = gbrObject;
+          if(user.pressure != user.prevpressure){
+ 
+      
+          user.context.clearRect(0,0,boardDim[1],boardDim[0]);
+          user.context.beginPath();
+
+          drawLineArray(user.currentLine,ctx,user);
+
+            if(mirror){
+              var nLine = mirrorLine(user.currentLine);
+              drawLineArray(nLine,ctx,user);
+            }
+
+
+          user.currentLine=[];
+          user.lineLength=0;
+
+          user.currentLine.push(pos);
+            
+          }
+          else{
+            
+            user.context.clearRect(0,0,boardDim[1],boardDim[0]);
+
+            drawLineArray(user.currentLine,user.context,user);
+
+            if(mirror){
+              var nLine = mirrorLine(user.currentLine);
+              drawLineArray(nLine,user.context,user);
+            }
+          }
+          user.prevpressure = user.pressure;
+        }
+        if(user.mousedown && user.tool == "erase"){
+          erase(pos.x,pos.y,lastpos.x,lastpos.y,user.pressure*user.size*2);
+          if(mirror){
+            var width=boardDim[1];
+            erase(width-pos.x,pos.y,width-lastpos.x,lastpos.y,user.pressure*user.size*2);
+          }
+        }
+        if(user.mousedown && user.tool == "gimp" && user.gBrush){
+          drawGimp(user,pos);
         }
       }
-      if(fileType=="gih"){
-        var gihObject = parseGih(arrayBuffer);
+      user.lastx = data.x;
+      user.lasty = data.y;
+      break;
+
+    case "Md":
+      user.lastx = user.x;
+      user.lasty = user.y;
+      
+      user.spaceIndex=0;
+      
+      var pos = { x: user.x, y: user.y };
+      if (user.tool == "brush" && !user.panning) {
         
+        //ctx.lineCap = "round";
+        //ctx.beginPath();
+
+        user.currentLine.push(pos);
+        drawDot(pos, ctx, user);
+      }
+      if (user.tool == "text" && user.text != "") {
+        drawText(user);
+        user.text = "";
+        var input = $("." + user.id.toString() + " .textInput")[0];
+        input.innerHTML = "";
+      }
+      if(user.tool == "erase" && !user.panning){
+        erase(pos.x,pos.y,pos.x,pos.y,user.pressure*user.size*2);
+        
+      }
+      if(user.tool =="gimp" && user.gBrush && !user.panning){
+        drawGimp(user,pos);
+      }
+      
+      user.mousedown = true;
+      break;
+
+    case "Mu":
+      if (user.tool == "brush" && !user.panning) {
+  
+        drawLineArray(user.currentLine, ctx, user);  
+        if(mirror){
+          var nLine = mirrorLine(user.currentLine);
+          drawLineArray(nLine,ctx,user);
+        }
+        
+        user.context.clearRect(0,0,boardDim[1],boardDim[0]);
+      }
+      user.currentLine=[];
+      user.mousedown = false;
+      break;
+
+    case "ChSi":
+      //change the size
+      
+      if(user.mousedown && user.tool=="brush"){
+        
+        ctx2.stroke();
+        user.context.stroke();
+        user.context.clearRect(0,0,boardDim[1],boardDim[0]);
+        user.context.beginPath();
+        
+                  
+        drawLineArray(user.currentLine, ctx, user);
+        if(mirror){
+          var nLine = mirrorLine(user.currentLine);
+          drawLineArray(nLine,ctx,user);
+        }
+        
+      }
+      
+      if(user.mousedown){
+        user.currentLine=[];
+        pos = {x:user.x,y:user.y};
+        user.currentLine.push(pos);
+      }
+      
+      updateUser(user, data, ["size"]);
+      var userText = $("." + user.id.toString() + " .text")[0];
+      userText.style.fontSize = (data.size + 5).toString() + "px";
+      var userCircle = $("."+user.id.toString()+".circle")[0];
+      userCircle.setAttribute("r",user.size);
+      var userCtx = user.context;
+      var userSquare = $("."+user.id.toString()+".square")[0];
+      userSquare.setAttribute("height",user.size*2);
+      userSquare.setAttribute("width",user.size*2);
+      break;
+      
+    case "ChSp":
+      //change the spacing
+      updateUser(user,data,["spacing"]);
+      break;
+      
+    case "ChBl":
+      //change the blend mode
+      updateUser(user,data,["blendMode"]);
+      break;
+      
+      
+    case "ChNa":
+      var name = data.name;
+      user.username = name;
+      var nameText = $("."+user.id.toString()+" .name")[0];
+      var listName = $("."+user.id.toString()+" .listUser")[0];
+      console.log("user list: ",$(".listUser"));
+      nameText.innerHTML = name;
+      listName.innerHTML = name;
+      break;
+      
+      
+    case "ChT":
+      //change the tool
+      console.log("changing tool: ");
+      console.log(data);
+      updateUser(user, data, ["tool"]);
+      var userText = $("." + user.id.toString() + " .text")[0];
+      var userCircle = $("."+user.id.toString()+".circle")[0];
+      var userSquare = $("."+user.id.toString()+".square")[0];
+      if (data.tool == "brush") {
+        userText.style.display = "none";
+        userCircle.style.display = "block";
+        userSquare.style.display="none";
+      }
+      if (data.tool == "text") {
+        userText.style.display = "block";
+        userCircle.style.display = "none";
+        userSquare.style.display="none";
+      }
+      if (data.tool == "erase") {
+        userText.style.display = "none";
+        userCircle.style.display = "block";
+        userSquare.style.display="none";
+      }
+      if (data.tool == "gimp") {
+        userText.style.display = "none";
+        userCircle.style.display = "none";
+        userSquare.style.display="block";
+      }
+      var listTool = $("." + user.id.toString() + " .listTool")[0];
+      var userIcon = null;
+      switch(data.tool){
+        case "brush":
+          userIcon=icons.brush;
+          break;
+        case "text":
+          userIcon=icons.text;
+          break;
+        case "erase":
+          userIcon=icons.erase;
+          break;
+        case "gimp":
+          userIcon=icons.gimp;
+          break;
+      }
+      listTool.children[0].remove();
+      listTool.append(userIcon.cloneNode());
+      break;
+    case "ChC":
+      //change color
+      var color = 'rgba('+user.color.toString()+')';
+      var userText = $("." + user.id.toString() + " .text")[0];
+      var listColor = $("." + user.id.toString() + " .listColor")[0];
+      userText.style.color = color;
+      listColor.style.backgroundColor = color;
+      updateColor(data.color,user.id);
+      break;
+    case "ChP":
+      user.pressure = data.pressure;
+      break;
+    case "kp":
+      //keypress
+      if (user.tool == "text") {
+        updateText(data.key, user);
+      }
+      break;
+    case "gimp":
+      //load gimp brush data
+      console.log(data.gimpData);
+      if(data.gimpData.type=="gbr"){
+        user.gBrush=data.gimpData;
+
+        //create an image from the datastream url
+        var image = new Image();
+        image.src = user.gBrush.gimpUrl;
+        image.height = height;
+        image.width = width;
+        //updates the user gbr image for drawing
+        user.gBrush.image = image;
+      }
+      if(data.gimpData.type=="gih"){
         var images = [];
-
+        
+        var gihObject = data.gimpData;
+        
         for(var i=0;i<gihObject.gBrushes.length;i++){
-
+          
+          
           var gbrObject = gihObject.gBrushes[i];
           
           var gimpImage = new Image();
@@ -1745,19 +1780,31 @@ document.getElementById('gimp-file-input').addEventListener('change', function(e
           images.push(gimpImage);
           
         }
-        var gimpImagePreview = $("#gimpImage")[0];
-        gimpImagePreview.src= gihObject.gBrushes[0].gimpUrl;
         
         gihObject.type = "gih";
         gihObject.index = 0;
         gihObject.images = images;
+        console.log(gihObject);
         user.gBrush = gihObject;
-        
-        send({command:"broadcast",type:"gimp",gimpData:gihObject,id:userID});
       }
-    }
+      break;
+      case "mirror":
+        $(".mirrorLine").toggle();
+        mirror = !mirror;
+        if(mirror){
+          mirrorText.text="ON";
+        }
+        else{
+          mirrorText.text="OFF";
+        }
+      break;
+  }
+}
 
-  reader.readAsArrayBuffer(file);
-});  
-
+function getUser(id) {
+  var user = users.filter((a) => {
+    return a.id == id;
+  })[0];
+  return user;
+}
 
