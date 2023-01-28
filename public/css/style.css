@@ -121,7 +121,10 @@ canvas{
   position:absolute;
   right:192px;
   top:30px;
-  list-style
+  
+}
+#chat ul{
+  list-style-type:none;
 }
 .chatMessages{
   height:90%;

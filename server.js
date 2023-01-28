@@ -32,6 +32,9 @@ var boardSettings = {
 function broadcast(data) {
   updateUser(data);
   wsServer.clients.forEach((client) => {
+    if(data.id === client.id && data.command === "connected"){
+      client.send(JSON.stringify(data));
+    }
     if (client.readyState === WebSocket.OPEN && data.id != client.id) {
       client.send(JSON.stringify(data));
     }
@@ -56,11 +59,14 @@ wsServer.on("connection", (ws,req) => {
         var user = data;
         delete user.command;
         currentUsers.push(user);
-        broadcast({command:"connected"})
+        
         broadcast({ command: "currentUsers", users: currentUsers });
         broadcast({command: "boardSettings", settings: boardSettings});
         //save user to list of current users in room
-        //when somebody joins, send them this list of users
+        //when somebody joins, send them this list of users and board settings   
+        broadcast({command: "connected",id: data.id})
+        //tell the user they are connected so they can join
+
 
         break;
       case "broadcast":
