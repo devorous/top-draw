@@ -133,18 +133,21 @@ canvas{
   padding-left:4px;
 }
 
-.chatMessages{
+#chatMessages{
+  height:70%;
   
-  
-  overflow:scroll;
+  overflow-y:scroll;
 }
 
 .chatBottom{
-  position:relative;
+  height:15%;
   display:flex;
   bottom:0px;
+  padding:3px;
 }
-
+#chatInput{
+  font-size:0.9em;
+}
 
 .boardBtns{
   height:30px;
