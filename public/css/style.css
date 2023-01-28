@@ -114,6 +114,8 @@ canvas{
 }
 
 #chat{
+  display:flex;
+  flex-direction:column;
   max-height:50%;
   height:20%;
   opacity:75%;
@@ -124,14 +126,19 @@ canvas{
   top:30px;
   
 }
+
 #messageList{
   list-style-type:none;
 
   padding-left:4px;
 }
+
 .chatMessages{
-  height:90%;
+  
+  
+  overflow:scroll;
 }
+
 .chatBottom{
   position:relative;
   display:flex;
