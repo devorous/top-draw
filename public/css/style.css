@@ -114,12 +114,17 @@ canvas{
 }
 
 #chat{
+  height:50%;
+  opacity:75%;
   font-size:0.6em;
   background-color:orange;
   position:absolute;
-  
+  right:192px;
+  top:30px;
 }
-
+.chatBottom{
+  display:flex;
+}
 
 
 .boardBtns{
