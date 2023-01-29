@@ -334,7 +334,7 @@ socket.addEventListener("message", (m) => {
           var listName = $("."+user.id.toString()+".listUser")[0];
           var name = user.userdata.username;
           if(name==""){
-            name = user.id;
+            name = "Anon";
           }
           listName.innerHTML = name;
           console.log("user in room: ",user);

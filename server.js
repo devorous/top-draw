@@ -36,6 +36,7 @@ function broadcast(data) {
       client.send(JSON.stringify(data));
     }
     if (client.readyState === WebSocket.OPEN && data.id != client.id) {
+      //send broadcasts to all users except the sending user
       client.send(JSON.stringify(data));
     }
   });
@@ -63,7 +64,8 @@ wsServer.on("connection", (ws,req) => {
         broadcast({ command: "currentUsers", users: currentUsers });
         broadcast({command: "boardSettings", settings: boardSettings});
         //save user to list of current users in room
-        //when somebody joins, send them this list of users and board settings   
+        //when somebody joins, send them this list of users and board settings 
+        
         broadcast({command: "connected",id: data.id})
         //tell the user they are connected so they can join
 
