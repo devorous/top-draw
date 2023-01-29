@@ -242,7 +242,7 @@ sendMessageBtn.addEventListener("click",function(){
   if(message != ""){
     $("#chatInput")[0].value = "";
     sendChatMessage(message,user);
-    send({command:"chat",message:message,id:userID});
+    send({command:"broadcast",type:"chat",message:message,id:userID});
   }
 })
 
@@ -252,7 +252,7 @@ sendMessageBtn.addEventListener("click",function(){
     if(e.key === "Enter" && message != ""){
       $("#chatInput")[0].value = "";
       sendChatMessage(message,user)
-      send({command:"chat",message:message,id:userID});
+      send({command:"broadcast",type:"chat",message:message,id:userID});
     }
   })
   
@@ -1405,8 +1405,14 @@ function updateUser(user, data, fields) {
 }
 
 function sendChatMessage(message,user){
+  
   if(message != ""){
-    var li = $("<li class='message'> <span class='messageName'>"+user.username+": </span><span class='messageText'>"+message+"</span></li>")[0];     
+    if(user === "SYSTEM"){
+      var li = $("<li class='system message'><span class='messageText'>"+message+"</span></li>")[0];     
+    }
+    else{
+      var li = $("<li class='message'> <span class='messageName'>"+user.username+": </span><span class='messageText'>"+message+"</span></li>")[0];     
+    }
     var list = $("#messageList")[0];
     list.appendChild(li);
     var messages = $('#chatMessages')[0];
@@ -1832,6 +1838,7 @@ function recieve(data) {
         user.gBrush = gihObject;
       }
       break;
+      
       case "mirror":
         $(".mirrorLine").toggle();
         mirror = !mirror;
@@ -1841,6 +1848,10 @@ function recieve(data) {
         else{
           mirrorText.text="OFF";
         }
+      break;
+      
+    case "chat":
+      sendChatMessage(data.message,user);
       break;
   }
 }
