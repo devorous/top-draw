@@ -334,7 +334,7 @@ socket.addEventListener("message", (m) => {
           var listName = $("."+user.id.toString()+".listUser")[0];
           var name = user.userdata.username;
           if(name==""){
-            name = "Anon";
+            name = "";
           }
           listName.innerHTML = name;
           console.log("user in room: ",user);
@@ -1727,11 +1727,14 @@ function recieve(data) {
       
       
     case "ChNa":
+      //change the user's name, recieved when user presses join button
       var name = data.name;
       user.username = name;
       var nameText = $("."+user.id.toString()+" .name")[0];
       var listName = $("."+user.id.toString()+" .listUser")[0];
       console.log("user list: ",$(".listUser"));
+      var message = name +" joined the room"
+      sendChatMessage(message,"system");
       nameText.innerHTML = name;
       listName.innerHTML = name;
       break;

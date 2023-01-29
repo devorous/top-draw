@@ -117,7 +117,7 @@ canvas{
   user-select:auto;
   display:flex;
   flex-direction:column;
-  height:50%;
+  height:40%;
   opacity:75%;
   font-size:0.6em;
   background-color:lightblue;
