@@ -58,6 +58,7 @@ var gimpBtn
 var clearBtn  
 var resetBtn  
 var mirrorBtn 
+var chatBtn
 
 var blendMode
 
@@ -194,10 +195,13 @@ gimpBtn = $("#gimpBtn")[0];
 clearBtn = $("#clearBtn")[0];
 resetBtn = $("#resetBtn")[0];
 mirrorBtn = $("#mirrorBtn")[0];
-
+chatBtn = $("#chatBtn")[0];
+  
 blendMode = $("#blendMode")[0];
 
+$("#chat").resizable();
 
+  
 clearBtn.addEventListener("click", function () {
   clearBoard();
   send({ command: "broadcast", type: "clear", id: userID });
@@ -218,7 +222,10 @@ mirrorBtn.addEventListener("click",function(){
   }
   send({command: "broadcast", type: "mirror", id: userID});
 })
-
+  
+chatBtn.addEventListener("click",function(){
+  $("#chat").toggle();
+})
 
 
 $("#gimpImage")[0].style.display="none";
