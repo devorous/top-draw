@@ -363,7 +363,11 @@ socket.addEventListener("message", (m) => {
       break;
 
     case "userLeft":
+      var user = getUser(data.id);
       //when a user leaves, update the user list and remove the users DOM objects
+      var message = user.username+" has left the room"
+      sendChatMessage(message,"system");
+      
       var user_objs = $("." + data.id.toString());
       for(var i=0;i<user_objs.length;i++){
         if(user_objs[i]){
@@ -1405,9 +1409,8 @@ function updateUser(user, data, fields) {
 }
 
 function sendChatMessage(message,user){
-  
   if(message != ""){
-    if(user === "SYSTEM"){
+    if(user === "system"){
       var li = $("<li class='system message'><span class='messageText'>"+message+"</span></li>")[0];     
     }
     else{
@@ -1857,6 +1860,9 @@ function recieve(data) {
 }
 
 function getUser(id) {
+  if(id===-1){
+    return "system"
+  }
   var user = users.filter((a) => {
     return a.id == id;
   })[0];
