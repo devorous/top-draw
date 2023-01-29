@@ -237,9 +237,20 @@ chatBtn.addEventListener("click",function(){
 })
 
 sendMessageBtn.addEventListener("click",function(){
-  var message = $("#chatInput")[0].text;
+  var user = getUser(userID);
+  var message = $("#chatInput")[0].value;
+  $("#chatInput")[0].value = "";
+  sendChatMessage(message,user);
 })
 
+  $("#chatInput")[0].addEventListener("keydown",function(e){
+    var user = getUser(userID);
+    if(e.key === "Enter"){
+      var message = $("#chatInput")[0].value 
+      $("#chatInput")[0].value = "";
+      sendChatMessage(message,user)
+    }
+  })
   
 $("#gimpImage")[0].style.display="none";
 $("#gimp-file-input")[0].style.display="none";
@@ -792,6 +803,7 @@ document.addEventListener("keyup",function(e){
 
 
 joinBtn.addEventListener("click", function(e){
+  var user = getUser(userID);
   connected = true;
   $("#overlay")[0].style.display="none";
   cursor.style.display="block";
@@ -803,6 +815,7 @@ joinBtn.addEventListener("click", function(e){
   var listName = $(".listUser.self")[0];
   boardName.innerHTML = name;
   listName.innerHTML = name;
+  user.username = name;
   connected = true;
   send({ command: "broadcast", type: "ChNa", name:name, id: userID });
 });
@@ -1387,9 +1400,10 @@ function updateUser(user, data, fields) {
   }
 }
 
-function chatMessage(message,user){
+function sendChatMessage(message,user){
+  console.log("user: ",user)
   //<li class="message"> <span class="messageName">Anon: </span><span class="messageText">This is a test message...</span></li>
-  var li = $("<li class='message'> <span class='messageName'>"+user.username+":</span><span class='messageText'>"+message+"</span></li>")[0];     
+  var li = $("<li class='message'> <span class='messageName'>"+user.username+": </span><span class='messageText'>"+message+"</span></li>")[0];     
   var list = $("#messageList")[0];
   list.appendChild(li);
 }
