@@ -62,6 +62,8 @@ var mirrorBtn
 var chatBtn
 var chatResetBtn
 var chat 
+var sendMessageBtn
+
 
 var blendMode
 
@@ -203,7 +205,8 @@ chatBtn = $("#chatBtn")[0];
 blendMode = $("#blendMode")[0];
 
 chat = $("#chat")
-  
+sendMessageBtn = $("#sendMessageBtn")[0];
+
 chat.hide();
 chat.draggable();
 
@@ -233,7 +236,11 @@ chatBtn.addEventListener("click",function(){
   $("#chat").toggle();
 })
 
+sendMessageBtn.addEventListener("click",function(){
+  var message = $("#chatInput")[0].text;
+})
 
+  
 $("#gimpImage")[0].style.display="none";
 $("#gimp-file-input")[0].style.display="none";
 
@@ -1381,8 +1388,11 @@ function updateUser(user, data, fields) {
 }
 
 function chatMessage(message,user){
-                      
-                      }
+  //<li class="message"> <span class="messageName">Anon: </span><span class="messageText">This is a test message...</span></li>
+  var li = $("<li class='message'> <span class='messageName'>"+user.username+":</span><span class='messageText'>"+message+"</span></li>")[0];     
+  var list = $("#messageList")[0];
+  list.appendChild(li);
+}
 
 function drawUser(data, id) {
   var user = getUser(id);
