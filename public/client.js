@@ -239,16 +239,20 @@ chatBtn.addEventListener("click",function(){
 sendMessageBtn.addEventListener("click",function(){
   var user = getUser(userID);
   var message = $("#chatInput")[0].value;
-  $("#chatInput")[0].value = "";
-  sendChatMessage(message,user);
+  if(message != ""){
+    $("#chatInput")[0].value = "";
+    sendChatMessage(message,user);
+    send({command:"chat",message:message,id:userID});
+  }
 })
 
   $("#chatInput")[0].addEventListener("keydown",function(e){
     var user = getUser(userID);
-    if(e.key === "Enter"){
-      var message = $("#chatInput")[0].value 
+    var message = $("#chatInput")[0].value 
+    if(e.key === "Enter" && message != ""){
       $("#chatInput")[0].value = "";
       sendChatMessage(message,user)
+      send({command:"chat",message:message,id:userID});
     }
   })
   
@@ -1401,11 +1405,13 @@ function updateUser(user, data, fields) {
 }
 
 function sendChatMessage(message,user){
-  console.log("user: ",user)
-  //<li class="message"> <span class="messageName">Anon: </span><span class="messageText">This is a test message...</span></li>
-  var li = $("<li class='message'> <span class='messageName'>"+user.username+": </span><span class='messageText'>"+message+"</span></li>")[0];     
-  var list = $("#messageList")[0];
-  list.appendChild(li);
+  if(message != ""){
+    var li = $("<li class='message'> <span class='messageName'>"+user.username+": </span><span class='messageText'>"+message+"</span></li>")[0];     
+    var list = $("#messageList")[0];
+    list.appendChild(li);
+    var messages = $('#chatMessages')[0];
+    messages.scrollTop = messages.scrollHeight;
+  }
 }
 
 function drawUser(data, id) {
@@ -1530,11 +1536,7 @@ function drawUser(data, id) {
   
   userList.appendChild(userEntry);
   
-
-  
 }
-
-
 
 
 function send(data) {
