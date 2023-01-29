@@ -1380,7 +1380,9 @@ function updateUser(user, data, fields) {
   }
 }
 
-
+function chatMessage(message,user){
+                      
+                      }
 
 function drawUser(data, id) {
   var user = getUser(id);
