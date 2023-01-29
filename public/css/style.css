@@ -67,16 +67,19 @@ body {
   top:0;
   left:0;
 }
+
 .cursors{
+  position:relative;
   height:100%;
   width:100%;
   pointer-events:none;
   position:absolute;
+  pointer-events:none;
+  z-index:2;
 }
 #cursorsSvg{
   height:100%;
   width:100%;
-  pointer-events:none;
   z-index:3;
 }
 .cursor{
