@@ -1,4 +1,4 @@
-$("#login").hide()
+
 
 
 var height = document.body.scrollHeight;
@@ -92,7 +92,7 @@ socket.onopen = function () {
 
 $(document).ready(function(){
   
-
+$("#joinBtn").click();
 
 mLine = $(".mirrorLine")[0];
 mLine.setAttribute("x1",boardDim[1]/2)
@@ -199,7 +199,7 @@ chatBtn = $("#chatBtn")[0];
   
 blendMode = $("#blendMode")[0];
 
-$("#chat").resizable();
+$("#chat").draggable();
 
   
 clearBtn.addEventListener("click", function () {
