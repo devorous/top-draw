@@ -178,6 +178,7 @@ canvas{
 }
 .right{
   margin-left:auto;
+  display:flex;
 }
 .tool.btn{
   padding:4px;

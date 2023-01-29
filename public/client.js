@@ -58,7 +58,10 @@ var gimpBtn
 var clearBtn  
 var resetBtn  
 var mirrorBtn 
+
 var chatBtn
+var chatResetBtn
+var chat 
 
 var blendMode
 
@@ -92,7 +95,7 @@ socket.onopen = function () {
 
 $(document).ready(function(){
   
-$("#joinBtn").click();
+
 
 mLine = $(".mirrorLine")[0];
 mLine.setAttribute("x1",boardDim[1]/2)
@@ -199,7 +202,10 @@ chatBtn = $("#chatBtn")[0];
   
 blendMode = $("#blendMode")[0];
 
-$("#chat").draggable();
+chat = $("#chat")
+  
+chat.hide();
+chat.draggable();
 
   
 clearBtn.addEventListener("click", function () {
