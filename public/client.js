@@ -1,4 +1,4 @@
-
+$("#login").hide();
 
 
 var height = document.body.scrollHeight;
