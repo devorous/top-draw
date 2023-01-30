@@ -19,7 +19,7 @@ var icons={
 }
 
 var mLine
-var boards,board,topBoard
+var boards,boardsScale,board,topBoard
 var cursorsSvg,cursor,cursor_circle,cursor_square
 var userlistEntry
 var userlistName
@@ -108,7 +108,8 @@ mLine.style.display="none";
 
 
 boards = $("#boards")[0];
-
+boardsScale = $("#boardsScale")[0];
+  
 board = $("#board")[0];
 topBoard = $("#topBoard")[0];
 
@@ -150,7 +151,7 @@ zoom = defaultZoom;
 boards.style.transformOrigin = "top left";
 
 moveBoard(panX,panY);
-boards.style.scale = zoom;
+boardsScale.style.scale = zoom;
 
 
 
@@ -605,8 +606,8 @@ board.addEventListener("wheel", function (e) {
         //the zoom pos is the relative position on the canvas
         var zoomPos = {x:e.layerX,y:e.layerY};
         //boards.style.transformOrigin = "center";
-        boards.style.scale = zoom;
-        //zoomBoard(zoom,zoomPos);
+        
+        zoomBoard(zoom,zoomPos);
       }
       //scrolling down
       
@@ -617,8 +618,8 @@ board.addEventListener("wheel", function (e) {
       zoom+=zoomStep
       //the zoom pos is the relative position on the canvas
       var zoomPos = {x:e.layerX,y:e.layerY}; 
-      //zoomBoard(zoom,zoomPos);
-      boards.style.scale = zoom;
+      zoomBoard(zoom,zoomPos);
+
     }
   }
   if(!user.panning){
@@ -1131,9 +1132,9 @@ function zoomBoard(zoom,boardPos){
   var tOrigin = x+" "+y;
   console.log("torigin: ",tOrigin);
   
-  boards.style.transformOrigin = tOrigin;
-  boards.style.top = board
-  boards.style.scale = zoom;
+  boardsScale.style.transformOrigin = tOrigin;
+  //boards.style.top = board
+  boardsScale.style.scale = zoom;
 
   
   
@@ -1171,7 +1172,7 @@ function resetBoard(){
   boards.style.transformOrigin = "top left";
   boards.style.top = defaultPanY+"px";
   boards.style.left = defaultPanX+"px";
-  boards.style.scale = defaultZoom
+  boardsScale.style.scale = defaultZoom
   
  
 
