@@ -48,52 +48,51 @@
       
       <div id="boardContainer"> 
         
-        <div id="boardsScale">
-          
-          <div id="boards">
 
-            <div class="cursors">
-              <svg id="cursorsSvg">
-                <circle class="circle self"
+        <div id="boards">
+          
+          <div class="cursors">
+            <svg id="cursorsSvg">
+              <circle class="circle self"
+                  stroke="grey"
+                  stroke-width="1"
+                  fill="none"
+                  cx="0"
+                  cy="0"
+                  r="10" >  
+                </circle>
+              <rect class="square self"
                     stroke="grey"
                     stroke-width="1"
                     fill="none"
-                    cx="0"
-                    cy="0"
-                    r="10" >  
-                  </circle>
-                <rect class="square self"
-                      stroke="grey"
-                      stroke-width="1"
-                      fill="none"
-                      height="20"
-                      width="20"
-                      x="10"
-                      y="10"
-                      >
-                </rect>
-                <line class="mirrorLine"
-                      x1="0" 
-                      y1="0" 
-                      x2="200" 
-                      y2="200" 
-                      stroke="grey"
-                      stroke-width="1" />
-                <div class="cursor self">
-                  <text class="text self"><text class="textInput self"></text><text>|</text></text>
-                  <text class="name self"></text>
-                </div>
-              </svg>
-            </div>
-
-
-
-
-            <div id="userBoards"></div>
-            <canvas id="topBoard" class="userBoard self"></canvas>
-            <canvas id="board"></canvas>
+                    height="20"
+                    width="20"
+                    x="10"
+                    y="10"
+                    >
+              </rect>
+              <line class="mirrorLine"
+                    x1="0" 
+                    y1="0" 
+                    x2="200" 
+                    y2="200" 
+                    stroke="grey"
+                    stroke-width="1" />
+              <div class="cursor self">
+                <text class="text self"><text class="textInput self"></text><text>|</text></text>
+                <text class="name self"></text>
+              </div>
+            </svg>
           </div>
+          
+          
+          
+          
+          <div id="userBoards"></div>
+          <canvas id="topBoard" class="userBoard self"></canvas>
+          <canvas id="board"></canvas>
         </div>
+        
         
         
         <div class="boardBtns">
