@@ -258,7 +258,7 @@ $(document).ready(function () {
   saveBtn.addEventListener("click", function(){
     var dataURL = board.toDataURL();
     var link = document.createElement("a");
-    link.download = "image.png";
+    link.download = new Date().toString().slice(0,24)+".png";
     link.href = dataURL;
     // Trigger a click event on the link to download the image
     link.click();
