@@ -214,6 +214,9 @@ $(document).ready(function () {
 	mirrorBtn = $("#mirrorBtn")[0];
 	chatBtn = $("#chatBtn")[0];
 
+  
+  saveBtn = $("#saveBtn")[0];
+  
 	blendMode = $("#blendMode")[0];
 
 	chat = $("#chat")
@@ -250,11 +253,22 @@ $(document).ready(function () {
 			id: userID
 		});
 	})
-
+  
+  
+  saveBtn.addEventListener("click", function(){
+    var dataURL = board.toDataURL();
+    var link = document.createElement("a");
+    link.download = "image.png";
+    link.href = dataURL;
+    // Trigger a click event on the link to download the image
+    link.click();
+  })
+  
+  
 	chatBtn.addEventListener("click", function () {
 		$("#chat").toggle();
 	})
-
+  
 	sendMessageBtn.addEventListener("click", function () {
 		var user = getUser(userID);
 		var message = $("#chatInput")[0].value;
