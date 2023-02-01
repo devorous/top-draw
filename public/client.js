@@ -1,5 +1,8 @@
-//$("#overlay").hide();
+$("#overlay").hide();
 $("#timelineContainer").hide();
+
+
+
 var height = document.body.scrollHeight;
 var width = document.body.scrollWidth;
 var boardDim = [1280, 1280];
@@ -38,11 +41,11 @@ var zoom
 var ctx
 var ctx2
 
-var sizeSlider = $(".slider.size")[0];
-var spacingSlider = $(".slider.spacing")[0];
+var sizeSlider 
+var spacingSlider
+var pressureSlider
 
-sizeSlider.value = size;
-sizeSlider.step = 1;
+
 
 
 
@@ -177,7 +180,11 @@ $(document).ready(function () {
 
 
 
-
+  spacingSlider = $(".slider.spacing")[0];
+  sizeSlider = $(".slider.size")[0];
+  pressureSlider = $(".slider.pressure")[0];
+  sizeSlider.step = 1;
+  
 	ctx = board.getContext("2d");
 	ctx2 = topBoard.getContext("2d");
 
