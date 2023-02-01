@@ -162,7 +162,7 @@ $(document).ready(function () {
 	panY = defaultPanY;
 	zoom = defaultZoom;
 
-	boards.style.transformOrigin = "top left";
+	boards.style.transformOrigin = "center";
 
 	moveBoard(panX, panY);
 	boards.style.scale = zoom;
@@ -1299,16 +1299,10 @@ function zoomBoard(zoom, boardPos) {
 	//boardPos is the relative position of the cursor on the board {x,y}
 	var user = getUser(userID);
 	var boards = $("#boards")[0];
-	var current_x = Number(boards.style.top.split("px")[0]);
-	var current_y = Number(boards.style.left.split("px")[0]);
 
+	var x = boardPos.x
+	var y = boardPos.y
 
-	var x = boardPos.x + "px";
-	var y = boardPos.y + "px";
-	var tOrigin = x + " " + y;
-	console.log("torigin: ", tOrigin);
-
-	boards.style.transformOrigin = tOrigin;
 	boards.style.top = board
 	boards.style.scale = zoom;
 
@@ -1345,7 +1339,7 @@ function resetBoard() {
 
 	var boards = $("#boards")[0];
 
-	boards.style.transformOrigin = "top left";
+	boards.style.transformOrigin = "center";
 	boards.style.top = defaultPanY + "px";
 	boards.style.left = defaultPanX + "px";
 	boards.style.scale = defaultZoom
