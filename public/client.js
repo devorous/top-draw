@@ -1,5 +1,5 @@
-$("#overlay").hide();
-
+//$("#overlay").hide();
+$("#timelineContainer").hide();
 var height = document.body.scrollHeight;
 var width = document.body.scrollWidth;
 var boardDim = [1280, 1280];
