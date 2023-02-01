@@ -158,8 +158,8 @@ $(document).ready(function () {
 
 	}
 
-	panX = -currentWidth*defaultZoom 
-	panY = -currentHeight*defaultZoom
+	panX = (-currentWidth-boardDim[0]/2)*defaultZoom
+	panY = (-currentHeight-boardDim[1]/2)*defaultZoom
 	zoom = defaultZoom;
 
 	boards.style.transformOrigin = "center";
