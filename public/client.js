@@ -446,7 +446,8 @@ $(document).ready(function () {
 
 
 		if (event.pointerType === "pen" && !user.panning) {
-			pressure = Math.round(e.pressure * 100) / 100;
+      var max_pressure = pressureSlider.value;
+			pressure = Math.max(Math.round(e.pressure * 100) / 100, max_pressure);
 			user.pressure = pressure;
 			if (user.pressure != user.prevpressure && user.mousedown && user.tool === "brush") {
 				send({
