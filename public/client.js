@@ -141,7 +141,7 @@ $(document).ready(function () {
 
 
 	currentWidth = $("#boardContainer").width() * 0.95;
-	currentHeight = $("#boardContainer").height() * 0.95 - 30; //30 is the height of the buttons bar
+	currentHeight = $("#boardContainer").height() * 0.95 - 30;
 	defaultZoom = Math.round(currentWidth / boardDim[1] * 1000) / 1000
 
 	defaultPanX = currentWidth * 0.05 / 2;
@@ -158,8 +158,8 @@ $(document).ready(function () {
 
 	}
 
-	panX = defaultPanX;
-	panY = defaultPanY;
+	panX = -currentWidth*defaultZoom 
+	panY = -currentHeight*defaultZoom
 	zoom = defaultZoom;
 
 	boards.style.transformOrigin = "center";
