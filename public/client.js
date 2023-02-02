@@ -158,8 +158,8 @@ $(document).ready(function () {
 
 	}
 
-	panX = (-currentWidth-boardDim[0]/2)*defaultZoom
-	panY = (-currentHeight-boardDim[1]/2)*defaultZoom
+	panX = (-currentWidth-boardDim[0]/2)*defaultZoom/2
+	panY = (-currentHeight-boardDim[1]/2)*defaultZoom/2
 	zoom = defaultZoom;
 
 	boards.style.transformOrigin = "center";
@@ -1293,6 +1293,8 @@ function moveBoard(x, y) {
 	var boards = $("#boards")[0];
 	boards.style.top = y + "px";
 	boards.style.left = x + "px";
+  console.log("current position: ",boards.style.top,boards.style.left)
+  console.log("current zoom: ",zoom)
 }
 
 function zoomBoard(zoom, boardPos) {
