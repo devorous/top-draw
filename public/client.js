@@ -141,7 +141,7 @@ $(document).ready(function () {
 
 
 	currentWidth = $("#boardContainer").width() * 0.95;
-	currentHeight = $("#boardContainer").height() * 0.95 - 30;
+	currentHeight = $("#boardContainer").height() * 0.95 - 30; //30 is the height of the buttons bar
 	defaultZoom = Math.round(currentWidth / boardDim[1] * 1000) / 1000
 
 	defaultPanX = currentWidth * 0.05 / 2;
@@ -158,11 +158,11 @@ $(document).ready(function () {
 
 	}
 
-	panX = (-currentWidth-boardDim[0]/2)*defaultZoom/2
-	panY = (-currentHeight-boardDim[1]/2)*defaultZoom/2
+	panX = defaultPanX;
+	panY = defaultPanY;
 	zoom = defaultZoom;
 
-	boards.style.transformOrigin = "center";
+	boards.style.transformOrigin = "top left";
 
 	moveBoard(panX, panY);
 	boards.style.scale = zoom;
@@ -446,8 +446,7 @@ $(document).ready(function () {
 
 
 		if (event.pointerType === "pen" && !user.panning) {
-      var max_pressure = pressureSlider.value;
-			pressure = Math.max(Math.round(e.pressure * 100) / 100, max_pressure);
+			pressure = Math.round(e.pressure * 100) / 100;
 			user.pressure = pressure;
 			if (user.pressure != user.prevpressure && user.mousedown && user.tool === "brush") {
 				send({
@@ -1293,18 +1292,22 @@ function moveBoard(x, y) {
 	var boards = $("#boards")[0];
 	boards.style.top = y + "px";
 	boards.style.left = x + "px";
-  console.log("current position: ",boards.style.top,boards.style.left)
-  console.log("current zoom: ",zoom)
 }
 
 function zoomBoard(zoom, boardPos) {
 	//boardPos is the relative position of the cursor on the board {x,y}
 	var user = getUser(userID);
 	var boards = $("#boards")[0];
+	var current_x = Number(boards.style.top.split("px")[0]);
+	var current_y = Number(boards.style.left.split("px")[0]);
 
-	var x = boardPos.x
-	var y = boardPos.y
 
+	var x = boardPos.x + "px";
+	var y = boardPos.y + "px";
+	var tOrigin = x + " " + y;
+	console.log("torigin: ", tOrigin);
+
+	boards.style.transformOrigin = tOrigin;
 	boards.style.top = board
 	boards.style.scale = zoom;
 
@@ -1341,7 +1344,7 @@ function resetBoard() {
 
 	var boards = $("#boards")[0];
 
-	boards.style.transformOrigin = "center";
+	boards.style.transformOrigin = "top left";
 	boards.style.top = defaultPanY + "px";
 	boards.style.left = defaultPanX + "px";
 	boards.style.scale = defaultZoom
