@@ -26,7 +26,13 @@ var cursorsSvg, cursor, cursor_circle, cursor_square
 var userlistEntry
 var userlistName
 
+
+var zoomPercent
+var plusBtn
+var minusBtn
+
 var mirrorText
+
 
 var currentWidth
 var currentHeight
@@ -131,7 +137,11 @@ $(document).ready(function () {
 	userlistName = $(".listUser.self")[0];
 
 	mirrorText = $(".mirrorOption")[0];
-
+  zoomPercent = $(".zoomPercent")[0];
+  
+  plusBtn = $("#plusBtn")[0];
+  minusBtn = $("#minusBtn")[0];
+  
   timeline = $("#timeline")[0];
   timelineContainer = $("#timelineContainer")[0];
   
@@ -161,7 +171,7 @@ $(document).ready(function () {
 	panX = defaultPanX;
 	panY = defaultPanY;
 	zoom = defaultZoom;
-
+  zoomPercent.innerHTML=(zoom*100).toString()+"%";
 	boards.style.transformOrigin = "top left";
 
 	moveBoard(panX, panY);
@@ -245,7 +255,12 @@ $(document).ready(function () {
 	resetBtn.addEventListener("click", function () {
 		resetBoard();
 	})
-
+  plusBtn.addEventListener("click",function(){
+    zoomBoard(zoom+0.1,null);
+  })
+  minusBtn.addEventListener("click",function(){
+    zoomBoard(zoom-0.1,null);
+  })
 	mirrorBtn.addEventListener("click", function () {
 		$(".mirrorLine").toggle();
 		mirror = !mirror;
@@ -645,6 +660,7 @@ $(document).ready(function () {
 
 		}
 		user.mousedown = false;
+    user.currentLine = [];
 		send({
 			command: "broadcast",
 			type: "Mu",
@@ -655,9 +671,6 @@ $(document).ready(function () {
 			id: userID
 		};
 
-
-		user.currentLine = [];
-		user.lineLength = 0;
 	});
 
 
@@ -1302,18 +1315,23 @@ function zoomBoard(zoom, boardPos) {
 	//boardPos is the relative position of the cursor on the board {x,y}
 	var user = getUser(userID);
 	var boards = $("#boards")[0];
-	var current_x = Number(boards.style.top.split("px")[0]);
-	var current_y = Number(boards.style.left.split("px")[0]);
+  if(boardPos != null){
+    var current_x = Number(boards.style.top.split("px")[0]);
+    var current_y = Number(boards.style.left.split("px")[0]);
 
 
-	var x = boardPos.x + "px";
-	var y = boardPos.y + "px";
-	var tOrigin = x + " " + y;
-	console.log("torigin: ", tOrigin);
+    var x = boardPos.x + "px";
+    var y = boardPos.y + "px";
+    var tOrigin = x + " " + y;
+    console.log("torigin: ", tOrigin);
 
-	boards.style.transformOrigin = tOrigin;
+    boards.style.transformOrigin = tOrigin;
+  }
+
 	boards.style.top = board
 	boards.style.scale = zoom;
+  
+  zoomPercent.innerHTML=(zoom*100).toString()+"%";
 
 
 
