@@ -256,10 +256,13 @@ $(document).ready(function () {
 		resetBoard();
 	})
   plusBtn.addEventListener("click",function(){
-    zoomBoard(zoom+0.1,null);
+    zoom = Math.round((zoom+0.1)*10)/10
+    zoomBoard(zoom,null);
   })
   minusBtn.addEventListener("click",function(){
-    zoomBoard(zoom-0.1,null);
+    zoom = Math.max(Math.round((zoom-0.1)*10)/10,0.2)
+    zoomBoard(zoom,null);
+    
   })
 	mirrorBtn.addEventListener("click", function () {
 		$(".mirrorLine").toggle();
@@ -1331,7 +1334,7 @@ function zoomBoard(zoom, boardPos) {
 	boards.style.top = board
 	boards.style.scale = zoom;
   
-  zoomPercent.innerHTML=(zoom*100).toString()+"%";
+  zoomPercent.innerHTML=(zoom*100).toFixed(1)+"%";
 
 
 
@@ -1369,9 +1372,9 @@ function resetBoard() {
 	boards.style.transformOrigin = "top left";
 	boards.style.top = defaultPanY + "px";
 	boards.style.left = defaultPanX + "px";
-	boards.style.scale = defaultZoom
+	zoomBoard(defaultZoom,null);
 
-
+  
 
 	zoom = defaultZoom;
 	panX = defaultPanX;

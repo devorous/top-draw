@@ -208,7 +208,9 @@ canvas{
   height: 100%;
   object-fit: fill;
 }
-
+.zoomBtns{
+  width:10px;0
+}
 #gimpBtn img{
   object-fit: contain;
 }
