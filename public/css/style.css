@@ -365,9 +365,11 @@ canvas{
 #bottomBar{
   position:absolute;
   display:flex;
-  height:40px;
+  width:100%;
+  height:50px;
+  flex-direction:column;
   left:0;
-  background-color:orange;
+  
   z-index:3;
 }
 #bottomBar a{
@@ -375,6 +377,10 @@ canvas{
   height:15px;
   font-size:0.6em;
 
+}
+#timeline{
+  height:50px;
+  background-color:orange;
 }
 .bottomBarBtns{
   display:flex;

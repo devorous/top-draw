@@ -145,7 +145,7 @@ $(document).ready(function () {
   timeline = $("#timeline")[0];
   bottomBar = $("#bottomBar")[0];
   
-  bottomBar.style.top = $("#boardContainer").height()-40+"px";
+  bottomBar.style.top = $("#boardContainer").height()-20+"px";
   bottomBar.style.width = $("#boardContainer").width()+"px";
 
 
