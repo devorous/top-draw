@@ -1385,8 +1385,7 @@ function resetBoard() {
 function clearBoard() {
 	ctx.beginPath();
 	ctx2.beginPath();
-  ctx.fillStyle = "rgba(255,255,255,1)";
-	ctx.fillRect(0, 0, boardDim[1], boardDim[0]);
+	ctx.clearRect(0, 0, boardDim[1], boardDim[0]);
 	ctx2.clearRect(0, 0, boardDim[1], boardDim[0]);
 }
 
@@ -1573,6 +1572,9 @@ function updateText(key, user) {
 function erase(x1, y1, x2, y2, size) {
 	ctx.lineWidth = size;
 	ctx.strokeStyle = 'rgba(255,255,255,1)';
+  
+  console.log(ctx.strokeStyle);
+  console.log(ctx.lineWidth);
 	ctx.beginPath();
 	ctx.moveTo(x1, y1);
 	ctx.lineTo(x2, y2);
