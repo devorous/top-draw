@@ -574,10 +574,10 @@ $(document).ready(function () {
 
 		var userCtx = user.context;
 		var pos = {
-			x: e.layerX,
-			y: e.layerY
+			x: e.offsetX,
+			y: e.offsetY
 		};
-
+    
 		send({
 			command: "broadcast",
 			type: "Md",
@@ -609,6 +609,10 @@ $(document).ready(function () {
 				drawGimp(user, pos);
 			}
 		}
+    
+    console.log(pos);
+    console.log(user.currentLine);
+    
 	});
 
 
