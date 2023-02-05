@@ -1,5 +1,5 @@
 $("#overlay").hide();
-$("#timelineContainer").hide();
+//$("#bottomBar").hide();
 
 
 
@@ -76,7 +76,7 @@ var saveBtn
 
 var blendMode
 
-var timeline, timelineContainer
+var bottomBar, timeline
 
 var self
 
@@ -143,10 +143,10 @@ $(document).ready(function () {
   minusBtn = $("#minusBtn")[0];
   
   timeline = $("#timeline")[0];
-  timelineContainer = $("#timelineContainer")[0];
+  bottomBar = $("#bottomBar")[0];
   
-  timelineContainer.style.top = $("#boardContainer").height()-40+"px";
-  timelineContainer.style.width = $("#boardContainer").width()+"px";
+  bottomBar.style.top = $("#boardContainer").height()-40+"px";
+  bottomBar.style.width = $("#boardContainer").width()+"px";
 
 
 

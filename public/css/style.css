@@ -159,28 +159,16 @@ canvas{
 .boardBtns{
   height:30px;
   width:100%;
-  font-size:0.7em;
+  font-size:0.6em;
   text-align:center;
   display:flex;
   background-color:lightgrey;
   z-index:2;
 }
 .boardBtns a{
-  width:60px;
+  width:30px;
 }
-#timelineContainer{
-  position:absolute;
-  height:40px;
-  left:0;
-  background-color:orange;
-  z-index:3;
-}
-#timelineContainer a{
-  width:60px;
-  height:25px;
-  position:relative;
-  top:-30px;
-}
+
 .mirrorOption{
   width:30px;
   display:flex;
@@ -208,8 +196,8 @@ canvas{
   height: 100%;
   object-fit: fill;
 }
-.zoomBtns{
-  width:10px;0
+.zoomBtns a{
+  width:12px;
 }
 #gimpBtn img{
   object-fit: contain;
@@ -372,4 +360,23 @@ canvas{
   display:flex;
   font-size:0.75em;
   align-items: center;
+}
+
+#bottomBar{
+  position:absolute;
+  display:flex;
+  height:40px;
+  left:0;
+  background-color:orange;
+  z-index:3;
+}
+#bottomBar a{
+  width:30px;
+  height:15px;
+  font-size:0.6em;
+
+}
+.bottomBarBtns{
+  display:flex;
+  
 }
