@@ -1385,7 +1385,8 @@ function resetBoard() {
 function clearBoard() {
 	ctx.beginPath();
 	ctx2.beginPath();
-	ctx.clearRect(0, 0, boardDim[1], boardDim[0]);
+  ctx.fillStyle = "rgba(255,255,255,1)";
+	ctx.fillRect(0, 0, boardDim[1], boardDim[0]);
 	ctx2.clearRect(0, 0, boardDim[1], boardDim[0]);
 }
 
