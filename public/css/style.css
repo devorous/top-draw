@@ -169,8 +169,8 @@ canvas{
   width:30px;
 }
 
-.mirrorOption{
-  width:30px;
+.mirrorOption, .zoomPercent{
+  width:20px;
   display:flex;
   align-items:center;
   justify-content:center;

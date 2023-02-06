@@ -114,10 +114,10 @@ $(document).ready(function () {
 
 
 	mLine = $(".mirrorLine")[0];
-	mLine.setAttribute("x1", boardDim[1] / 2)
-	mLine.setAttribute("y1", 0)
-	mLine.setAttribute("x2", boardDim[1] / 2)
-	mLine.setAttribute("y2", boardDim[0])
+	mLine.setAttribute("x1", boardDim[1] / 2);
+	mLine.setAttribute("y1", 0);
+	mLine.setAttribute("x2", boardDim[1] / 2);
+	mLine.setAttribute("y2", boardDim[0]);
 	mLine.style.display = "none";
 
 
