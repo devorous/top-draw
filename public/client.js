@@ -230,7 +230,7 @@ $(document).ready(function () {
 	resetBtn = $("#resetBtn")[0];
 	mirrorBtn = $("#mirrorBtn")[0];
 	chatBtn = $("#chatBtn")[0];
-
+  chatResetBtn = $("#chatResetBtn")[0];
   
   saveBtn = $("#saveBtn")[0];
   
@@ -291,8 +291,13 @@ $(document).ready(function () {
   
   
 	chatBtn.addEventListener("click", function () {
-		$("#chat").toggle();
+		chat.toggle();
 	})
+  
+  chatResetBtn.addEventListener("click",function(){
+    chat[0].style.top = "30px";
+    chat[0].style.left = "192px";
+  })
   
 	sendMessageBtn.addEventListener("click", function () {
 		var user = getUser(userID);
