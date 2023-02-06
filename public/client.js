@@ -296,7 +296,7 @@ $(document).ready(function () {
   
   chatResetBtn.addEventListener("click",function(){
     chat[0].style.top = "30px";
-    chat[0].style.left = "192px";
+    chat[0].style.left = $("#boardContainer").width()-200+"px";
   })
   
 	sendMessageBtn.addEventListener("click", function () {
