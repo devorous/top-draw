@@ -1459,9 +1459,9 @@ function drawLine(pos, lastpos, user) {
 
 
 function drawLineArray(points, ctx, user) {
-  console.log("before: ", points.length);
-  points = calcCatmullRomCurve(points, tension);
-  console.log("after: ", points.length);
+
+  //points = calcCatmullRomCurve(points, tension);
+  
   
 	var alpha = user.color[3];
 	var noAlpha = [user.color[0], user.color[1], user.color[2]];
