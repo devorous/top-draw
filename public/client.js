@@ -424,7 +424,6 @@ $(document).ready(function () {
 		case "boardSettings":
 			console.log(data);
 			mirror = data.settings.mirror;
-			console.log(mirror);
 			if (mirror) {
 				mLine.style.display = "block";
 				mirrorText.text = "ON";
@@ -469,7 +468,7 @@ $(document).ready(function () {
 
 
 		if (event.pointerType === "pen" && !user.panning) {
-			pressure = Math.round(e.pressure * 100) / 100;
+			pressure = Math.min(Number(pressureSlider.value)/100,Math.round(e.pressure * 100) / 100);
 			user.pressure = pressure;
 			if (user.pressure != user.prevpressure && user.mousedown && user.tool === "brush") {
 				send({
@@ -540,8 +539,6 @@ $(document).ready(function () {
 		if (user.panning && user.mousedown) {
 			panX = panX + e.movementX;;
 			panY = panY + e.movementY;
-			console.log(user.x - user.lastx + panX, user.y - user.lasty + panY);
-			console.log(e.movementX, e.movementY);
 			moveBoard(panX, panY);
 		}
 		if (!user.panning) {
@@ -583,7 +580,6 @@ $(document).ready(function () {
 
 	board.addEventListener("pointerdown", function (e) {
 		var user = getUser(userID);
-    console.log(e);
 		if (e.pointerType === "mouse") {
 			user.pressure = 1;
 			user.prevpressure = 1;
@@ -633,8 +629,7 @@ $(document).ready(function () {
 			}
 		}
     
-    console.log(pos);
-    console.log(user.currentLine);
+
     
 	});
 
@@ -1331,7 +1326,6 @@ function zoomBoard(zoom, boardPos) {
     var x = boardPos.x + "px";
     var y = boardPos.y + "px";
     var tOrigin = x + " " + y;
-    console.log("torigin: ", tOrigin);
 
     boards.style.transformOrigin = tOrigin;
   }
@@ -1578,8 +1572,7 @@ function erase(x1, y1, x2, y2, size) {
 	ctx.lineWidth = size;
 	ctx.strokeStyle = 'rgba(255,255,255,1)';
   
-  console.log(ctx.strokeStyle);
-  console.log(ctx.lineWidth);
+
 	ctx.beginPath();
 	ctx.moveTo(x1, y1);
 	ctx.lineTo(x2, y2);
