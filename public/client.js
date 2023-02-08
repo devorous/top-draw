@@ -583,7 +583,7 @@ $(document).ready(function () {
 
 	board.addEventListener("pointerdown", function (e) {
 		var user = getUser(userID);
-
+    console.log(e);
 		if (e.pointerType === "mouse") {
 			user.pressure = 1;
 			user.prevpressure = 1;
