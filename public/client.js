@@ -12,6 +12,8 @@ var connected = false;
 var users = [];
 var userID = Math.floor(Math.random() * 9999999);
 var size = 10;
+var tension = 0.5;
+
 
 var icons = {
 	brush: $("<img class='toolIcon' src='/images/brush-icon.svg' />")[0],
@@ -1457,7 +1459,10 @@ function drawLine(pos, lastpos, user) {
 
 
 function drawLineArray(points, ctx, user) {
-
+  console.log("before: ", points.length);
+  points = calcCatmullRomCurve(points, tension);
+  console.log("after: ", points.length);
+  
 	var alpha = user.color[3];
 	var noAlpha = [user.color[0], user.color[1], user.color[2]];
 	//var spacing = user.spacing;
