@@ -1,4 +1,4 @@
-$("#overlay").hide();
+//$("#overlay").hide();
 //$("#bottomBar").hide();
 
 
