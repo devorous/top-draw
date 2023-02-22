@@ -227,7 +227,7 @@ $(document).ready(function () {
 	textBtn = $("#textBtn")[0];
 	eraseBtn = $("#eraseBtn")[0];
 	gimpBtn = $("#gimpBtn")[0];
-
+  $("#gimp-spacing")[0].style.display="none";
 	clearBtn = $("#clearBtn")[0];
 	resetBtn = $("#resetBtn")[0];
 	mirrorBtn = $("#mirrorBtn")[0];
@@ -722,8 +722,8 @@ $(document).ready(function () {
 						y: e.layerY
 					};
 					//boards.style.transformOrigin = "center";
-					boards.style.scale = zoom;
-					//zoomBoard(zoom,zoomPos);
+
+					zoomBoard(zoom,null);
 				}
 				//scrolling down
 
@@ -737,8 +737,7 @@ $(document).ready(function () {
 					x: e.layerX,
 					y: e.layerY
 				};
-				//zoomBoard(zoom,zoomPos);
-				boards.style.scale = zoom;
+				zoomBoard(zoom,null);
 			}
 		}
 		if (!user.panning) {
@@ -1060,7 +1059,8 @@ $(document).ready(function () {
 
 		$("#gimpImage")[0].style.display = "none";
 		$("#gimp-file-input")[0].style.display = "none";
-
+    $("#gimp-spacing")[0].style.display="none";
+    
 		userlistEntry.children[0].children[0].remove();
 		userlistEntry.children[0].appendChild(icons.erase);
 	});
@@ -1092,7 +1092,7 @@ $(document).ready(function () {
 
 		$("#gimpImage")[0].style.display = "block";
 		$("#gimp-file-input")[0].style.display = "block";
-
+    $("#gimp-spacing")[0].style.display="block";
 		userlistEntry.children[0].children[0].remove();
 		userlistEntry.children[0].appendChild(icons.gimp);
 	});
