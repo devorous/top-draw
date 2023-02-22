@@ -558,7 +558,9 @@ $(document).ready(function () {
 					drawLineArray(nLine, ctx2, user);
 				}
         
-        ctx2.stroke();
+        //This drawing of nothing fixes some minor issue with opacity
+        drawLineArray([],ctx,user)
+        
 				//get distance between points, rounded to two decimal places
 				user.lineLength += manhattanDistance(pos, lastpos);
 			}
@@ -612,7 +614,7 @@ $(document).ready(function () {
 		if (user.tool == "brush" && !user.panning) {
 			user.currentLine.push(pos);
       user.currentLine.push(pos);
-			drawDot(pos, userCtx, user);
+      drawLineArray(user.currentLine,ctx2,user)
 		}
 
 		if (user.tool == "text" && user.text != "") {
@@ -649,7 +651,6 @@ $(document).ready(function () {
 					x: user.x,
 					y: user.y
 				};
-				drawDot(pos, ctx, user);
 			}
 
 			drawLineArray(user.currentLine, ctx, user);
@@ -1390,42 +1391,7 @@ function clearBoard() {
 	ctx2.clearRect(0, 0, boardDim[1], boardDim[0]);
 }
 
-function drawDot(pos, ctx, user) {
-	var userCtx = user.context;
-	if (user.tool == "brush") {
-		ctx.beginPath()
-		ctx.strokeStyle = 'rgba(' + user.color.toString() + ')';
-		ctx.lineWidth = user.pressure * user.size * 2;
-		ctx.moveTo(pos.x, pos.y);
-		ctx.lineTo(pos.x, pos.y);
-		ctx.stroke();
 
-		var noAlpha = [user.color[0], user.color[1], user.color[2]];
-		var alpha = user.color[3];
-		topBoard.style.opacity = alpha;
-		userCtx.strokeStyle = 'rgb(' + noAlpha.toString() + ')';
-		userCtx.lineCap = "round";
-		userCtx.lineJoin = "round";
-		userCtx.lineWidth = user.pressure * user.size * 2;
-		userCtx.beginPath();
-		userCtx.moveTo(pos.x, pos.y);
-		userCtx.lineTo(pos.x, pos.y);
-		userCtx.stroke();
-
-		if (mirror) {
-			ctx.moveTo(boardDim[1] - pos.x, pos.y);
-			ctx.lineTo(boardDim[1] - pos.x, pos.y);
-			ctx.stroke();
-			userCtx.moveTo(boardDim[1] - pos.x, pos.y);
-			userCtx.lineTo(boardDim[1] - pos.x, pos.y);
-			userCtx.stroke();
-		}
-
-
-
-
-	}
-}
 
 //used for getting line length approximation between two points
 function manhattanDistance(p1, p2) {
@@ -1435,27 +1401,6 @@ function manhattanDistance(p1, p2) {
 	}
 }
 
-//not currently in use
-/*
-function drawLine(pos, lastpos, user) {
-  
-  var alpha = user.color[3];
-  var noAlpha = [user.color[0],user.color[1],user.color[2]];
-  //var spacing = user.spacing;
-  
-  //topBoard.style.opacity=alpha;
-  //this doesnt work unless I draw the whole line at once, stroke breaks it
-  //ctx2.globalCompositeOperation=blendMode.value;
-  
-  ctx.lineWidth = user.size * 2;
-  ctx.strokeStyle='rgba('+user.color.toString()+')';
-  ctx.moveTo(lastpos.x, lastpos.y);
-  ctx.lineTo(pos.x, pos.y);
-  
-  user.lastx = pos.x;
-  user.lasty = pos.y;
-}
-*/
 
 
 function drawLineArray(points, ctx, user) {
@@ -1860,7 +1805,6 @@ function recieve(data) {
 			//ctx.beginPath();
 
 			user.currentLine.push(pos);
-			drawDot(pos, ctx, user);
 		}
 		if (user.tool == "text" && user.text != "") {
 			drawText(user);
