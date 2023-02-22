@@ -482,7 +482,6 @@ $(document).ready(function () {
 
 				ctx2.clearRect(0, 0, boardDim[1], boardDim[0]);
 				ctx2.beginPath();
-
 				drawLineArray(user.currentLine, ctx, user);
 
 				if (mirror) {
@@ -546,19 +545,20 @@ $(document).ready(function () {
 		if (!user.panning) {
 			if (user.mousedown && user.tool == "brush") {
 
-				//ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
 
 				var numPoints = Math.round(user.lineLength / 10);
 
-
+        ctx2.clearRect(0,0,boardDim[1],boardDim[0]);
 				ctx2.beginPath();
+        user.currentLine.push(pos);
 				drawLineArray(user.currentLine, ctx2, user);
-				user.currentLine.push(pos);
+				
 				if (mirror) {
 					var nLine = mirrorLine(user.currentLine);
 					drawLineArray(nLine, ctx2, user);
 				}
-
+        
+        ctx2.stroke();
 				//get distance between points, rounded to two decimal places
 				user.lineLength += manhattanDistance(pos, lastpos);
 			}
