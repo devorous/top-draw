@@ -611,7 +611,7 @@ $(document).ready(function () {
 
 		if (user.tool == "brush" && !user.panning) {
 			user.currentLine.push(pos);
-
+      user.currentLine.push(pos);
 			drawDot(pos, userCtx, user);
 		}
 
