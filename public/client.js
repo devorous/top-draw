@@ -1,6 +1,6 @@
 //$("#overlay").hide();
 //$("#bottomBar").hide();
-
+ setInterval(function(){$("#joinBtn")[0].click()},800);
 
 
 var height = document.body.scrollHeight;
@@ -1352,7 +1352,7 @@ function zoomBoard(zoom, boardPos) {
 	}
 	*/
   
-  $("#joinBtn").click();
+ 
   //end of document.ready
 }
 
