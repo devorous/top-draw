@@ -1831,7 +1831,6 @@ function recieve(data) {
 
 	case "Mu":
 		if (user.tool == "brush" && !user.panning) {
-
 			drawLineArray(user.currentLine, ctx, user);
 			if (mirror) {
 				var nLine = mirrorLine(user.currentLine);

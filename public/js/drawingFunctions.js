@@ -1,24 +1,3 @@
-function simplifyLine(points, tolerance) {
-  let filteredPoints = [points[0]];
-
-  for (let i = 1; i < points.length - 1; i++) {
-    let p1 = points[i - 1];
-    let p2 = points[i];
-    let p3 = points[i + 1];
-
-    let slope1 = (p2.y - p1.y) / (p2.x - p1.x);
-    let slope2 = (p3.y - p2.y) / (p3.x - p2.x);
-
-    if (Math.abs(slope2 - slope1) > tolerance) {
-      filteredPoints.push(p2);
-    }
-  }
-
-  filteredPoints.push(points[points.length - 1]);
-
-  return filteredPoints;
-}
-
 
 
 function quadraticCurve(points) {
