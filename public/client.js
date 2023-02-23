@@ -112,8 +112,8 @@ socket.onopen = function () {
 
 
 $(document).ready(function () {
-
-
+  
+  
 
 	mLine = $(".mirrorLine")[0];
 	mLine.setAttribute("x1", boardDim[1] / 2);
@@ -511,7 +511,7 @@ $(document).ready(function () {
 		//set your cursor pos
 		cursor.style.left = x - 100 + "px";
 		cursor.style.top = y - 100 + "px";
-    // try implementing this line instead:
+    // try implementing this transform instead:
     //cursor.style.transform = `translate(${x - 100}px, ${y - 100}px)`;
     //because style left/top forces a layout change, which is expensive
     
@@ -985,7 +985,7 @@ $(document).ready(function () {
 		});
 	});
 
-
+  
 
 	brushBtn.addEventListener("click", function () {
 		var selectedTool = $(".btn.selected")[0];
@@ -1351,6 +1351,9 @@ function zoomBoard(zoom, boardPos) {
 	  names[i].style.scale =  1/zoom;
 	}
 	*/
+  
+  $("#joinBtn").click();
+  //end of document.ready
 }
 
 
