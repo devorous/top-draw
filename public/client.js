@@ -509,8 +509,13 @@ $(document).ready(function () {
 		user.x = x;
 		user.y = y;
 		//set your cursor pos
-		cursor.style.transform = `translate(${x - 100}px, ${y - 100}px)`;
-
+		cursor.style.left = x - 100 + "px";
+		cursor.style.top = y - 100 + "px";
+    // try implementing this line instead:
+    //cursor.style.transform = `translate(${x - 100}px, ${y - 100}px)`;
+    //because style left/top forces a layout change, which is expensive
+    
+    
 		cursor_circle.setAttribute("cx", x);
 		cursor_circle.setAttribute("cy", y);
 		cursor_square.setAttribute("x", x - user.size);
