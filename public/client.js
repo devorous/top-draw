@@ -1406,23 +1406,22 @@ function manhattanDistance(p1, p2) {
 function drawLineArray(points, ctx, user) {
 
   //points = calcCatmullRomCurve(points, tension);
-  
-  
-	var alpha = user.color[3];
-	var noAlpha = [user.color[0], user.color[1], user.color[2]];
-	//var spacing = user.spacing;
+  if(points.length>0){
+
+    //var spacing = user.spacing;
 
 
-	ctx.strokeStyle = 'rgba(' + user.color.toString() + ')';
-	ctx.lineWidth = user.pressure * user.size * 2;
+    ctx.strokeStyle = 'rgba(' + user.color.toString() + ')';
+    ctx.lineWidth = user.pressure * user.size * 2;
 
-	ctx.beginPath();
-	ctx.moveTo(points[0].x, points[0].y);
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
 
-	for (var i = 1; i < points.length; i++) {
-		ctx.lineTo(points[i].x, points[i].y);
-	}
-	ctx.stroke();
+    for (var i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.stroke();
+  }
 }
 
 
