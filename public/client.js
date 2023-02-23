@@ -509,8 +509,7 @@ $(document).ready(function () {
 		user.x = x;
 		user.y = y;
 		//set your cursor pos
-		cursor.style.left = x - 100 + "px";
-		cursor.style.top = y - 100 + "px";
+		cursor.style.transform = `translate(${x - 100}px, ${y - 100}px)`;
 
 		cursor_circle.setAttribute("cx", x);
 		cursor_circle.setAttribute("cy", y);
