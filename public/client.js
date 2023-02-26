@@ -1,11 +1,13 @@
 //$("#overlay").hide();
 //$("#bottomBar").hide();
- setInterval(function(){$("#joinBtn")[0].click()},800);
+$("#login").hide();
+
+//setInterval(function(){$("#joinBtn")[0].click()},800);
 
 
 var height = document.body.scrollHeight;
 var width = document.body.scrollWidth;
-var boardDim = [1280, 1280];
+var boardDim = [720, 1280];
 
 var mirror = false;
 var connected = false;
@@ -112,7 +114,6 @@ socket.onopen = function () {
 
 
 $(document).ready(function () {
-  
   
 
 	mLine = $(".mirrorLine")[0];
