@@ -6,14 +6,15 @@ body {
   width:100vw;
   overflow: hidden;
 }
+
 #main{
   display:flex;
   justify-content:space-between;
   width:100%;
   height:100%;
   background-color:#556666;
-  
 }
+
 #overlay{
   display:flex;
   justify-content:center;
@@ -24,6 +25,7 @@ body {
   background-color:rgba(0,0,0,0.4);
   z-index:99;
 }
+
 .overlayWindow{
   padding:8px;
   height:175px;
@@ -33,12 +35,14 @@ body {
   align-content:center;
   text-align:center;
 }
+
 #joinBtn{
   margin:20px;
   text-align:center;
   width:40%;
   margin-left:30%;
 }
+
 #boardContainer{
   display:flex;
   flex-direction:row;
