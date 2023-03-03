@@ -14,7 +14,7 @@ var connected = false;
 var users = [];
 var userID = Math.floor(Math.random() * 9999999);
 var size = 10;
-var tension = 0.5;
+
 
 
 var icons = {
@@ -258,15 +258,18 @@ $(document).ready(function () {
 	resetBtn.addEventListener("click", function () {
 		resetBoard();
 	})
+  
   plusBtn.addEventListener("click",function(){
     zoom = Math.round((zoom+0.1)*10)/10
     zoomBoard(zoom,null);
   })
+  
   minusBtn.addEventListener("click",function(){
     zoom = Math.max(Math.round((zoom-0.1)*10)/10,0.2)
     zoomBoard(zoom,null);
-    
   })
+  
+  
 	mirrorBtn.addEventListener("click", function () {
 		$(".mirrorLine").toggle();
 		mirror = !mirror;
