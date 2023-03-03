@@ -691,8 +691,6 @@ $(document).ready(function () {
 
 
 
-
-
 	board.addEventListener("pointerout", function (e) {
 		var user = getUser(userID);
 
