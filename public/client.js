@@ -688,7 +688,7 @@ $(document).ready(function () {
 	});
 
 
-
+ 
 
 
 	board.addEventListener("pointerout", function (e) {
