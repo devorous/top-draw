@@ -1,4 +1,7 @@
-  //helper functions for parseGbr()
+//This file parses .gbr and .gih gimp brush files
+//These are created using GIMP software to draw custom brush strokes
+//These functions parse the input brush files and outputs the image(s) that are stored in it
+//helper functions for parseGbr()
 function chunkToString(chunk){
   var string="";
   for(var i=0;i<chunk.length;i++){
