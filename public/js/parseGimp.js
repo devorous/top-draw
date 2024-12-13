@@ -3,18 +3,18 @@
 //These functions parse the input brush files and outputs the image(s) that are stored in it
 //helper functions for parseGbr()
 function chunkToString(chunk){
-  var string="";
+  let string="";
   for(var i=0;i<chunk.length;i++){
-        var letter = String.fromCharCode(chunk[i.toString()]);
+        let letter = String.fromCharCode(chunk[i.toString()]);
         string+=letter;
   }
   return string
 }
 
 function concatChunk(chunk){
-  var hexString = ""
+  let hexString = ""
   for(var i=0;i<chunk.length;i++){
-    var hex = chunk[i.toString()].toString(16);
+    let hex = chunk[i.toString()].toString(16);
     if(hex.length==1){
       hex="0"+hex;
     }
