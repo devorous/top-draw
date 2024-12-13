@@ -143,6 +143,7 @@ function parseGih(arrayBuffer){
   //Limit size of .gih brush bytes to avoid lag
   if(view.length>1500000){
     alert("Too big!!");
+    console.log("File too large!");
   }
   else{
     //split off the two heading chunks by newline (10 in decimal)
