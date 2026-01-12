@@ -1,0 +1,392 @@
+body {
+  margin:0;
+  padding:0;
+  font-family: sans-serif;
+  height:100vh;
+  width:100vw;
+  overflow: hidden;
+}
+
+#main{
+  display:flex;
+  justify-content:space-between;
+  width:100%;
+  height:100%;
+  background-color:#556666;
+}
+
+#overlay{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  position:absolute;
+  height:100%;
+  width:100%; 
+  background-color:rgba(0,0,0,0.4);
+  z-index:99;
+}
+
+.overlayWindow{
+  padding:8px;
+  height:175px;
+  width:250px;
+  background-color:#DDDDDD;
+  border:2px solid black;
+  align-content:center;
+  text-align:center;
+}
+
+#joinBtn{
+  margin:20px;
+  text-align:center;
+  width:40%;
+  margin-left:30%;
+}
+
+#boardContainer{
+  display:flex;
+  flex-direction:row;
+  justify-content:center;
+  background-color:#556666;
+  user-select:none;
+  width:100%; 
+  height:100%;
+  
+}
+#boards{
+  background-color:white;
+  display:block;
+  position:absolute; 
+  top:0;
+  left:0;
+  transform:scale(1);
+  
+}
+#topBoard{
+  z-index:1;
+}
+.userBoard{
+  pointer-events:none;
+  position:absolute;
+  top:0;
+  left:0;
+}
+
+.cursors{
+  position:relative;
+  height:100%;
+  width:100%;
+  pointer-events:none;
+  position:absolute;
+  pointer-events:none;
+  z-index:2;
+}
+#cursorsSvg{
+  height:100%;
+  width:100%;
+  z-index:3;
+}
+.cursor{
+  position:absolute; 
+  pointer-events:none;
+  height:204px;
+  width:204px;
+}
+.self.square{
+  display:none;
+}
+.name{
+  position:absolute;
+  pointer-events:none;
+  font-size:10px;
+  color:gray;
+  top:85px;
+  left:105px;
+}
+.text{
+  position:absolute;
+  top:95px;
+  left:105px;
+}
+.text.self{
+  display:none;
+}
+.textInput{
+  overflow:hidden;
+  font-family: 'Newsreader', serif;
+}
+.input{
+  font-size:15px;
+}
+
+
+canvas{
+  cursor:none;
+}
+
+#chat{
+  user-select:auto;
+  display:flex;
+  flex-direction:column;
+  height:40%;
+  opacity:75%;
+  font-size:0.6em;
+  background-color:lightblue;
+  position:absolute;
+  right:192px;
+  top:30px;
+  width:200px;
+}
+
+#messageList{
+  list-style-type:none;
+  padding-left:4px;
+}
+
+#chatMessages{
+  height:100%;
+  
+  overflow-y:scroll;
+}
+
+.chatBottom{
+  height:12%;
+  display:flex;
+  padding:2px;
+  justify-content:center;
+}
+#chatInput{
+  width:150px;
+  margin-right:4px;
+}
+
+.boardBtns{
+  height:30px;
+  width:100%;
+  font-size:0.6em;
+  text-align:center;
+  display:flex;
+  background-color:lightgrey;
+  z-index:2;
+}
+.boardBtns a{
+  width:30px;
+}
+
+.mirrorOption, .zoomPercent{
+  width:20px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.btn{
+  background-color:grey;
+  transition:0.2s;
+  border:2px solid #555555;
+  display: flex;
+  align-items: center;
+  justify-content:center;
+}
+.right{
+  margin-left:auto;
+  display:flex;
+}
+.tool.btn{
+  padding:4px;
+}
+
+.tool.btn img{
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+}
+.zoomBtns a{
+  width:12px;
+}
+#gimpBtn img{
+  object-fit: contain;
+}
+
+.btn:hover{
+  background-color:lightgrey;
+  border:2px solid orange;
+}
+
+.btn.selected{
+  border:2px solid orange;
+}
+
+#sideMenu{
+  user-select:none;
+  display:flex;
+  flex-direction:row;
+  height:100%;
+  z-index:2;
+}
+
+.tools{
+  display:flex;
+  flex-direction:column;
+  width:42px;
+  height:100%;
+  background-color:grey;
+}
+.tool{
+  display:flex;
+  justify-content:center;
+  align-content:center;
+  height:30px;
+  width:30px;
+  
+  font-size:10px;
+}
+#toolOptions{
+  display:flex;
+  flex-direction:column;
+  width:150px;
+  background-color:lightgrey;
+}
+#options{
+  height:90%;
+}
+#pickerContainer{
+  transform-origin: 0 0;
+  transform:scale(0.6);
+  display:flex;
+
+}
+#colorPicker{
+  
+  justify-content:center;
+  background-color:lightgrey;
+  position: absolute; 
+  bottom: 0;
+
+}
+.picker_sample{
+  display:block;
+  height:60px;
+  width:60px;
+}
+.picker_done{
+  display:none;
+}
+ .picker_editor {
+  display:none;
+}
+
+.sliderContainer{
+  
+  display:flex;
+  justify-content:space-around;
+}
+.sliderContainer label{
+  display:block;
+  font-size:0.75em;
+  text-align:center;
+  display: flex;
+  align-items: center;
+}
+.slider{
+  width:100px;
+  
+}
+#userList{
+  width:100%;
+  display:flex;
+  flex-direction:column;
+  padding-top:2px;
+  padding-bottom:2px;
+  background-color:#444444;
+
+  
+}
+.userEntry{
+  font-size:0.8em;
+  display:flex;
+  justify-content:space-around;
+  background-color:#666666;
+  border:0;
+  border-radius:2px;
+  align-items: center;
+  padding-bottom:1px;
+  padding-top:1px;
+}
+
+.listTool{
+  display:flex;
+  height:20px;
+  width:20px;
+  background-color:lightgrey;
+  border:0;
+  border-radius:5px;
+  padding:1px;
+  object-fit: fill;
+}
+.toolIcon{
+  margin-left:auto;
+  margin-right:auto;
+}
+.listColor{
+  height:20px;
+  width:20px;
+  border:1px solid black;
+  border-radius:5px;
+}
+.listUser{
+  color:white;
+  width:50%;
+}
+.listUser.self{
+  font-style:italic;
+  font-weight:bold;
+}
+.listActive{
+  height:15px;
+  width:15px;
+  background-color:#666666;
+  transition:5s;
+  border:0;
+  border-radius:50%;
+}
+#gimpImage{
+  display:flex;
+  object-fit: contain;
+  height:100px;
+  width:100px;
+  margin-left:25px;
+  margin-top:2px;
+}
+#gimp-file-input{
+  width:100%;
+}
+.dropDown{
+  display:flex;
+  font-size:0.75em;
+  align-items: center;
+}
+
+#bottomBar{
+  position:absolute;
+  display:flex;
+  width:100%;
+  height:50px;
+  flex-direction:column;
+  left:0;
+  
+  z-index:3;
+}
+#bottomBar a{
+  width:30px;
+  height:15px;
+  font-size:0.6em;
+
+}
+#timeline{
+  height:50px;
+  background-color:orange;
+}
+.bottomBarBtns{
+  display:flex;
+  
+}

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+
+# Node/shell artifacts
+.node-gyp
+.node_repl_history
+.bash_history
+.config/
+
+# Editor/IDE
+.claude/
+tmpclaude-*

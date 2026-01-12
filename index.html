@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Top-Draw - Collaborative Drawing</title>
+    <meta name="description" content="Real-time collaborative drawing application">
+    <link id="favicon" rel="icon" href="/images/pepper.ico">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- jQuery -->
+    <script
+      src="https://code.jquery.com/jquery-3.6.1.min.js"
+      integrity="sha256-o88AwQnZB+VDvE9tvIXrMQaPlFFSUTR+nldQm1LuPXQ="
+      crossorigin="anonymous">
+    </script>
+
+    <!-- jQuery UI for draggable -->
+    <script src="https://code.jquery.com/ui/1.13.1/jquery-ui.min.js"></script>
+
+    <!-- Color Picker -->
+    <script src="https://unpkg.com/vanilla-picker@2"></script>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz@6..72&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
+    <link rel="stylesheet" type="text/css" href="/css/style.css">
+  </head>
+  <body>
+    <div id="main">
+
+      <div id="overlay">
+        <div id="login" class="overlayWindow" style="display: none;">
+          <label>Username:</label>
+          <input autocomplete="off" id="usernameInput">
+          <a class="btn join" id="joinBtn">Join!!</a>
+        </div>
+        <div id="connecting" class="overlayWindow">
+          <label>Connecting...</label>
+        </div>
+      </div>
+
+      <div id="boardContainer">
+        <div id="boards">
+          <div class="cursors">
+            <svg id="cursorsSvg">
+              <circle class="circle self"
+                  stroke="grey"
+                  stroke-width="1"
+                  fill="none"
+                  cx="0"
+                  cy="0"
+                  r="10">
+              </circle>
+              <rect class="square self"
+                    stroke="grey"
+                    stroke-width="1"
+                    fill="none"
+                    height="20"
+                    width="20"
+                    x="10"
+                    y="10">
+              </rect>
+              <line class="mirrorLine"
+                    x1="0"
+                    y1="0"
+                    x2="200"
+                    y2="200"
+                    stroke="grey"
+                    stroke-width="1" />
+              <div class="cursor self">
+                <text class="text self"><text class="textInput self"></text><text>|</text></text>
+                <text class="name self"></text>
+              </div>
+            </svg>
+          </div>
+
+          <div id="userBoards"></div>
+          <canvas id="topBoard" class="userBoard self"></canvas>
+          <canvas id="board"></canvas>
+        </div>
+
+        <div class="boardBtns">
+          <a class="btn" id="clearBtn">Clear Board</a>
+          <a class="btn" id="resetBtn">Reset Board</a>
+          <div class="zoomBtns">
+            <a class="btn" id="plusBtn">+</a>
+            <a class="btn" id="minusBtn">-</a>
+          </div>
+          <a class="zoomPercent">100%</a>
+          <a class="btn" id="mirrorBtn">Toggle Mirror</a>
+          <a class="mirrorOption">OFF</a>
+          <div class="right">
+            <a class="btn" id="chatResetBtn">Reset Chat</a>
+            <a class="btn" id="chatBtn">Chat</a>
+          </div>
+        </div>
+
+        <div id="bottomBar">
+          <div class="bottomBarBtns">
+            <a class="btn" id="saveBtn">Save</a>
+            <a class="btn" id="undoBtn">Undo</a>
+            <a class="btn" id="showTimelineBtn">^</a>
+          </div>
+          <div id="timeline"></div>
+        </div>
+      </div>
+
+      <div id="sideMenu">
+        <div id="chat">
+          <div id="chatMessages">
+            <ul id="messageList"></ul>
+          </div>
+          <div class="chatBottom">
+            <input autocomplete="off" id="chatInput">
+            <a class="btn" id="sendMessageBtn">Send</a>
+          </div>
+        </div>
+
+        <div class="tools">
+          <a class="tool btn selected" id="brushBtn"><img src="/images/brush-icon.svg" /></a>
+          <a class="tool btn" id="textBtn"><img src="/images/text-icon.svg" /></a>
+          <a class="tool btn" id="eraseBtn"><img src="/images/eraser-icon.svg" /></a>
+          <a class="tool btn" id="gimpBtn"><img src="/images/pepper.png" /></a>
+        </div>
+
+        <div id="toolOptions">
+          <div id="userList">
+            <div class="userEntry self">
+              <a class="listTool self"></a>
+              <a class="listColor self"></a>
+              <text class="listUser self">Username</text>
+              <a class="listActive self"></a>
+            </div>
+          </div>
+
+          <div id="options">
+            <div class="sliders">
+              <div class="sliderContainer">
+                <label>Size</label>
+                <input autocomplete="off" type="range" min="0.25" max="100" value="10" class="slider size">
+              </div>
+
+              <div class="sliderContainer">
+                <label>Max Pressure</label>
+                <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider pressure">
+              </div>
+
+              <div class="sliderContainer" id="gimp-spacing" style="display: none;">
+                <label>Gimp Spacing</label>
+                <input autocomplete="off" type="range" min="0" max="20" value="0" class="slider spacing">
+              </div>
+
+              <input autocomplete="off" type="file" id="gimp-file-input" accept=".gih, .gbr" style="display: none;">
+              <img id="gimpImage" style="display: none;">
+            </div>
+          </div>
+
+          <div id="savedColors"></div>
+          <div id="pickerContainer">
+            <div id="colorPicker"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Vite Entry Point -->
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
