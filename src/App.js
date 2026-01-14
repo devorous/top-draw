@@ -83,6 +83,14 @@ export class DrawingApp {
   setupEventListeners() {
     const { elements } = this.ui;
 
+    // Track touch state for pinch-to-zoom
+    this.touchState = {
+      touches: [],
+      initialDistance: null,
+      initialZoom: null,
+      isPinching: false
+    };
+
     elements.joinBtn.addEventListener('click', () => this.handleJoin());
     elements.brushBtn.addEventListener('click', () => this.selectTool('brush'));
     elements.textBtn.addEventListener('click', () => this.selectTool('text'));
@@ -109,6 +117,17 @@ export class DrawingApp {
     elements.board.addEventListener('pointerenter', () => { this.isOnBoard = true; });
     elements.board.addEventListener('pointerleave', () => { this.isOnBoard = false; });
     elements.board.addEventListener('wheel', (e) => this.handleWheel(e));
+
+    // Touch events for pinch-to-zoom
+    elements.boards.addEventListener('touchstart', (e) => this.handleTouchStart(e), { passive: false });
+    elements.boards.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: false });
+    elements.boards.addEventListener('touchend', (e) => this.handleTouchEnd(e), { passive: false });
+
+    // Hidden input for touch keyboard (text tool)
+    if (elements.touchInput) {
+      elements.touchInput.addEventListener('input', (e) => this.handleTouchInput(e));
+      elements.touchInput.addEventListener('blur', () => this.handleTouchInputBlur());
+    }
 
     document.addEventListener('keydown', (e) => this.handleKeyDown(e));
     document.addEventListener('keyup', (e) => this.handleKeyUp(e));
@@ -524,6 +543,16 @@ export class DrawingApp {
       const tool = this.toolManager.getCurrentTool();
       if (tool) {
         tool.onPointerDown(this.self, pos, e);
+
+        // If text tool was used to commit text, update UI to clear the text display
+        if (this.self.tool === 'text') {
+          this.ui.updateSelfTextInput(this.self.text);
+
+          // Focus hidden input for touch keyboard support
+          if (e.pointerType === 'touch' && this.ui.elements.touchInput) {
+            this.ui.elements.touchInput.focus();
+          }
+        }
       }
     }
   }
@@ -634,5 +663,85 @@ export class DrawingApp {
 
   handleResize() {
     this.board.calculateDefaultView();
+  }
+
+  // Touch event handlers for pinch-to-zoom
+  handleTouchStart(e) {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      this.touchState.isPinching = true;
+      this.touchState.initialDistance = this.getTouchDistance(e.touches);
+      this.touchState.initialZoom = this.board.zoom;
+      this.touchState.centerPoint = this.getTouchCenter(e.touches);
+    }
+  }
+
+  handleTouchMove(e) {
+    if (this.touchState.isPinching && e.touches.length === 2) {
+      e.preventDefault();
+
+      const currentDistance = this.getTouchDistance(e.touches);
+      const scale = currentDistance / this.touchState.initialDistance;
+      const newZoom = this.touchState.initialZoom * scale;
+
+      // Get center point for zoom
+      const center = this.getTouchCenter(e.touches);
+      const boardRect = this.ui.elements.boards.getBoundingClientRect();
+
+      // Convert screen coordinates to canvas coordinates
+      const canvasX = (center.x - boardRect.left - this.board.panX) / this.board.zoom;
+      const canvasY = (center.y - boardRect.top - this.board.panY) / this.board.zoom;
+
+      this.board.setZoom(newZoom, { x: canvasX, y: canvasY });
+      this.ui.updateZoomDisplay(this.board.getZoomPercent());
+    }
+  }
+
+  handleTouchEnd(e) {
+    if (e.touches.length < 2) {
+      this.touchState.isPinching = false;
+      this.touchState.initialDistance = null;
+      this.touchState.initialZoom = null;
+      this.touchState.centerPoint = null;
+    }
+  }
+
+  getTouchDistance(touches) {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  getTouchCenter(touches) {
+    return {
+      x: (touches[0].clientX + touches[1].clientX) / 2,
+      y: (touches[0].clientY + touches[1].clientY) / 2
+    };
+  }
+
+  // Hidden input handlers for touch keyboard
+  handleTouchInput(e) {
+    if (this.self.tool !== 'text') return;
+
+    const inputValue = e.target.value;
+    const textTool = this.toolManager.getTool('text');
+
+    // Handle each character typed
+    if (e.inputType === 'insertText' && e.data) {
+      for (const char of e.data) {
+        textTool.onKeyPress(this.self, char);
+        this.wsClient.broadcastKeyPress(char);
+      }
+    } else if (e.inputType === 'deleteContentBackward') {
+      textTool.onKeyPress(this.self, 'Backspace');
+      this.wsClient.broadcastKeyPress('Backspace');
+    }
+
+    this.ui.updateSelfTextInput(this.self.text);
+    e.target.value = ''; // Clear input after processing
+  }
+
+  handleTouchInputBlur() {
+    // Optionally handle when keyboard is dismissed
   }
 }
