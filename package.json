@@ -1,24 +1,24 @@
 {
-  "name": "multiplayer-websockets-example",
-  "version": "1.0.0",
-  "description": "A very simple game with multiplayer functionality implemented with websockets.",
-  "main": "server.js",
+  "name": "multiplayer-draw",
+  "version": "2.0.0",
+  "description": "A multiplayer drawing application with WebSocket support",
+  "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "node server/index.js",
+    "start": "concurrently \"npm run server\" \"npm run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0",
+    "vite": "^5.0.0"
   },
   "dependencies": {
-    "bufferutil": "^4.0.7",
-    "express": "^4.18.2",
-    "gimp": "0.0.1-security",
-    "kaitai-struct": "^0.10.0",
-    "utf-8-validate": "^5.0.10",
-    "ws": "^7.5.9"
+    "ws": "^8.14.0"
   },
   "engines": {
-    "node": "12.x"
-  },
-  "repository": {
-    "url": "https://glitch.com/edit/#!/multiplayer-websockets-example"
+    "node": ">=18.0.0"
   },
   "license": "MIT"
 }
