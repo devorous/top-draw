@@ -2,8 +2,8 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main] # Runs every time you push to main
-  workflow_dispatch: # <--- ADD THIS LINE (no extra settings needed)
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -28,7 +28,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './dist' # Vite's output folder
+          path: './dist'
 
   deploy:
     needs: build_site
