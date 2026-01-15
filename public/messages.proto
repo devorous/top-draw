@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+// Optimized message format for minimal wire size
+// Field numbers 1-15 use 1-byte tags (most frequent fields go here)
+message Msg {
+  // Combined command + broadcast type enum
+  enum T {
+    // Commands (0-9)
+    CONNECT = 0;
+    USERS = 1;          // Current users list
+    SETTINGS = 2;       // Board settings
+    LEFT = 3;           // User left
+
+    // Broadcast types (10+) - ordered by frequency
+    MM = 10;            // Mouse move (highest frequency)
+    MD = 11;            // Mouse down
+    MU = 12;            // Mouse up
+    CP = 13;            // Change pressure
+    CS = 14;            // Change size
+    CT = 15;            // Change tool
+    CC = 16;            // Change color
+    CSP = 17;           // Change spacing
+    CN = 18;            // Change name
+    KP = 19;            // Key press
+    CLR = 20;           // Clear canvas
+    MIR = 21;           // Toggle mirror
+    MSG = 22;           // Chat message
+    GMP = 23;           // GIMP brush
+    AFK = 24;           // AFK status change
+    PAN = 25;           // Pan mode
+  }
+
+  // Tool enum
+  enum Tool {
+    BRUSH = 0;
+    TEXT = 1;
+    ERASE = 2;
+    GIMP = 3;
+  }
+
+  // === High-frequency fields (1-15 = 1-byte tags) ===
+  T t = 1;              // Message type
+  uint32 u = 2;         // User session index (0-255)
+  uint32 x = 3;         // X position
+  uint32 y = 4;         // Y position
+  sint32 dx = 5;        // Delta X (lastx = x - dx), zigzag encoded
+  sint32 dy = 6;        // Delta Y (lasty = y - dy), zigzag encoded
+  uint32 p = 7;         // Pressure * 100 (0-100)
+  uint32 s = 8;         // Size * 100 (allows 0.01 precision)
+  Tool l = 9;           // Tool (l for "tool", t was taken)
+  fixed32 c = 10;       // Color as packed RGBA (4 bytes fixed)
+  bool a = 11;          // AFK status / boolean flags
+  bool m = 12;          // Mirror status
+  string k = 13;        // Key pressed
+  string n = 14;        // Name
+  string g = 15;        // Chat message or GIMP data (JSON)
+
+  // === Lower-frequency fields (16+ = 2-byte tags) ===
+  uint32 sp = 16;       // Spacing * 100
+
+  // User list for USERS message
+  message U {
+    uint32 u = 1;       // User index
+    bool a = 2;         // AFK
+    uint32 x = 3;
+    uint32 y = 4;
+    Tool l = 5;         // Tool
+    fixed32 c = 6;      // Color packed
+    uint32 s = 7;       // Size * 100
+    uint32 sp = 8;      // Spacing * 100
+    uint32 p = 9;       // Pressure * 100
+    string n = 10;      // Name
+    string tx = 11;     // Current text
+  }
+  repeated U us = 17;   // Users array
+}

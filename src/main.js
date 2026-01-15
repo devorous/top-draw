@@ -1,7 +1,7 @@
 import { DrawingApp } from './App.js';
 
 // Wait for DOM to be ready
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   // Get WebSocket server URL from environment or use default
   const wsServerUrl = import.meta.env.VITE_WS_SERVER_URL || null;
 
@@ -10,7 +10,11 @@ document.addEventListener('DOMContentLoaded', () => {
     serverUrl: wsServerUrl
   });
 
-  app.init();
+  try {
+    await app.init();
+  } catch (err) {
+    console.error('Failed to initialize app:', err);
+  }
 
   // Expose app for debugging
   window.app = app;
