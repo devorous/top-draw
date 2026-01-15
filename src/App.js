@@ -513,7 +513,7 @@ export class DrawingApp {
 
     this.self.setPosition(x, y);
     this.ui.updateSelfCursor(x, y, this.self.size);
-    this.wsClient.broadcastMouseMove(x, y);
+    this.wsClient.broadcastMouseMove(x, y, this.self.lastx, this.self.lasty);
 
     if (this.self.panning && this.self.mousedown) {
       this.board.pan(e.movementX, e.movementY);

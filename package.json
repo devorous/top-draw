@@ -4,11 +4,11 @@
   "description": "A multiplayer drawing application with WebSocket support",
   "type": "module",
 "scripts": {
-  "dev": "vite",
+  "dev": "concurrently \"npm run server\" \"vite\"",
   "build": "vite build",
   "preview": "vite preview",
   "server": "node server/index.js",
-  "start": "node server/index.js" 
+  "start": "node server/index.js"
 },
   "devDependencies": {
     "concurrently": "^8.2.0",
