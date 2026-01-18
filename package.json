@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"vite\"",
-    "build": "vite build",
+    "build": "npm run brushes && vite build",
     "vite": "vite",
     "preview": "vite preview",
     "server": "node server/index.js",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "brushes": "node scripts/generate-brush-manifest.js"
   },
   "devDependencies": {
     "concurrently": "^8.2.0",

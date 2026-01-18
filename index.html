@@ -30,6 +30,7 @@
         </div>
         <div id="connecting" class="overlayWindow">
           <label>Connecting to server...</label>
+          <a class="btn offline" id="offlineBtn">Draw Offline</a>
         </div>
       </div>
 
@@ -77,6 +78,10 @@
                     x="10"
                     y="10">
               </rect>
+              <g class="crosshair self">
+                <line x1="-10" y1="0" x2="10" y2="0" stroke="grey" stroke-width="1"/>
+                <line x1="0" y1="-10" x2="0" y2="10" stroke="grey" stroke-width="1"/>
+              </g>
               <line class="mirrorLine"
                     x1="0"
                     y1="0"
@@ -121,8 +126,23 @@
 
         <!-- Tool Buttons -->
         <div class="tools">
+          <a class="tool btn" id="selectBtn" title="Select (S)">
+            <img src="/images/select-icon.svg" alt="Select">
+          </a>
           <a class="tool btn selected" id="brushBtn" title="Brush (B)">
             <img src="/images/brush-icon.svg" alt="Brush">
+          </a>
+          <a class="tool btn" id="penBtn" title="Pen (P)">
+            <img src="/images/pen-icon.svg" alt="Pen">
+          </a>
+          <a class="tool btn" id="lineBtn" title="Line (L)">
+            <img src="/images/line-icon.svg" alt="Line">
+          </a>
+          <a class="tool btn" id="rectangleBtn" title="Rectangle (R)">
+            <img src="/images/rectangle-icon.svg" alt="Rectangle">
+          </a>
+          <a class="tool btn" id="circleBtn" title="Circle (C)">
+            <img src="/images/circle-icon.svg" alt="Circle">
           </a>
           <a class="tool btn" id="textBtn" title="Text (T)">
             <img src="/images/text-icon.svg" alt="Text">
@@ -167,6 +187,11 @@
 
               <input autocomplete="off" type="file" id="gimp-file-input" accept=".gih,.gbr" style="display: none;">
               <img id="gimpImage" alt="Brush preview" style="display: none;">
+
+              <div id="brushGallery" style="display: none;">
+                <label>Brush Gallery</label>
+                <div id="brushList"></div>
+              </div>
             </div>
           </div>
 

@@ -1,4 +1,0 @@
-Only draw when left clicking
-Middle clicking should enable panning mode
-Strokes should cancel on right click
-Strokes should be set when swapping tools and when leaving the board and releasing left click

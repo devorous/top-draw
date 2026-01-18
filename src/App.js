@@ -4,6 +4,7 @@ import { ToolManager, BrushTool } from './Tools.js';
 import { WebSocketClient } from './WebSocketClient.js';
 import { Chat } from './Chat.js';
 import { UI } from './UI.js';
+import { BrushGallery } from './BrushGallery.js';
 import { manhattanDistance, mirrorLine } from './utils/drawing.js';
 
 /**
@@ -24,6 +25,9 @@ export class DrawingApp {
     this.chat = new Chat({
       onSend: (message) => this.handleChatSend(message)
     });
+    this.brushGallery = new BrushGallery({
+      onSelect: (brush) => this.handleBrushSelect(brush)
+    });
 
     this.wsClient = new WebSocketClient({
       serverUrl: options.serverUrl,
@@ -40,6 +44,7 @@ export class DrawingApp {
     this.ui.init();
     this.board.init('#boardContainer');
     this.chat.init();
+    this.brushGallery.init();
 
     this.createSelf();
     this.setupColorPicker();
@@ -93,7 +98,13 @@ export class DrawingApp {
     };
 
     elements.joinBtn.addEventListener('click', () => this.handleJoin());
+    elements.offlineBtn.addEventListener('click', () => this.startOfflineMode());
+    elements.selectBtn.addEventListener('click', () => this.selectTool('select'));
     elements.brushBtn.addEventListener('click', () => this.selectTool('brush'));
+    elements.penBtn.addEventListener('click', () => this.selectTool('pen'));
+    elements.lineBtn.addEventListener('click', () => this.selectTool('line'));
+    elements.rectangleBtn.addEventListener('click', () => this.selectTool('rectangle'));
+    elements.circleBtn.addEventListener('click', () => this.selectTool('circle'));
     elements.textBtn.addEventListener('click', () => this.selectTool('text'));
     elements.eraseBtn.addEventListener('click', () => this.selectTool('erase'));
     elements.gimpBtn.addEventListener('click', () => this.selectTool('gimp'));
@@ -116,8 +127,15 @@ export class DrawingApp {
     elements.board.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
     elements.board.addEventListener('pointerup', (e) => this.handlePointerUp(e));
     elements.board.addEventListener('pointerenter', () => { this.isOnBoard = true; });
-    elements.board.addEventListener('pointerleave', () => { this.isOnBoard = false; });
+    elements.board.addEventListener('pointerleave', (e) => this.handlePointerLeave(e));
     elements.board.addEventListener('wheel', (e) => this.handleWheel(e));
+    elements.board.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      this.cancelCurrentStroke();
+    });
+    elements.boardContainer.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+    });
 
     // Touch events for pinch-to-zoom
     elements.boards.addEventListener('touchstart', (e) => this.handleTouchStart(e), { passive: false });
@@ -488,11 +506,63 @@ export class DrawingApp {
     this.wsClient.broadcastNameChange(name);
   }
 
+  startOfflineMode() {
+    // Set up offline mode - no server connection needed
+    this.connected = true;
+    this.sessionIndex = 1;
+    this.self.id = 1;
+    this.self.setUsername('Offline');
+
+    this.ui.hideOverlay();
+    this.ui.showCursor();
+    this.ui.updateSelfName('Offline');
+
+    // Disconnect WebSocket if it was trying to connect
+    if (this.wsClient && this.wsClient.disconnect) {
+      this.wsClient.disconnect();
+    }
+  }
+
   selectTool(tool) {
+    // Commit any in-progress stroke before switching tools
+    if (this.self.mousedown) {
+      if (this.self.tool === 'brush' && this.self.currentLine.length > 0) {
+        const brushTool = this.toolManager.getTool('brush');
+        brushTool.onPointerUp(this.self, { x: this.self.x, y: this.self.y });
+      } else if (this.self.tool === 'pen' && this.self.penPoints && this.self.penPoints.length > 0) {
+        const penTool = this.toolManager.getTool('pen');
+        penTool.onPointerUp(this.self, { x: this.self.x, y: this.self.y });
+      }
+      this.self.mousedown = false;
+      this.wsClient.broadcastMouseUp();
+    }
+
     this.self.setTool(tool);
     this.toolManager.setTool(tool);
     this.ui.updateToolDisplay(tool);
     this.wsClient.broadcastToolChange(tool);
+
+    // Show/hide brush gallery for gimp tool
+    if (tool === 'gimp') {
+      this.brushGallery.show();
+    } else {
+      this.brushGallery.hide();
+    }
+  }
+
+  handleBrushSelect(brush) {
+    // Apply the selected brush to self
+    this.self.gBrush = brush;
+
+    // Update the preview image
+    if (brush.type === 'gih' && brush.gBrushes && brush.gBrushes.length > 0) {
+      this.ui.setGimpPreview(brush.gBrushes[0].gimpUrl);
+    } else {
+      this.ui.setGimpPreview(brush.gimpUrl);
+    }
+
+    // Broadcast brush to other users
+    this.wsClient.broadcastGimp(brush);
   }
 
   handleClear() {
@@ -587,6 +657,23 @@ export class DrawingApp {
   }
 
   handlePointerDown(e) {
+    // Middle-click enables panning mode
+    if (e.button === 1) {
+      e.preventDefault();
+      this.self.panning = true;
+      this.wsClient.broadcastPan(true);
+      return;
+    }
+
+    // Right-click cancels current stroke
+    if (e.button === 2) {
+      this.cancelCurrentStroke();
+      return;
+    }
+
+    // Only draw with left-click (button === 0)
+    if (e.button !== 0) return;
+
     if (e.pointerType === 'mouse') {
       this.self.setPressure(1);
       this.wsClient.broadcastPressureChange(1);
@@ -619,10 +706,20 @@ export class DrawingApp {
   }
 
   handlePointerUp(e) {
+    // Middle-click release disables panning mode
+    if (e.button === 1) {
+      this.self.panning = false;
+      this.wsClient.broadcastPan(false);
+      return;
+    }
+
+    // Only handle left-click release for drawing
+    if (e.button !== 0) return;
+
     if (!this.self.panning) {
       const tool = this.toolManager.getCurrentTool();
       if (tool) {
-        tool.onPointerUp(this.self, { x: e.offsetX, y: e.offsetY }, e);
+        tool.onPointerUp(this.self, { x: this.self.x, y: this.self.y }, e);
       }
     }
 
@@ -681,6 +778,44 @@ export class DrawingApp {
     brushTool.commitCurrentLine(this.self);
   }
 
+  cancelCurrentStroke() {
+    // Always clear the top canvas
+    this.board.clearTop();
+
+    // Clear brush stroke data
+    this.self.clearLine();
+
+    // Clear pen stroke data
+    this.self.penPoints = [];
+    const penTool = this.toolManager.getTool('pen');
+    if (penTool && penTool.clearStroke) {
+      penTool.clearStroke();
+    }
+
+    // Clear shape tool data
+    const lineTool = this.toolManager.getTool('line');
+    if (lineTool) lineTool.startPos = null;
+    const rectangleTool = this.toolManager.getTool('rectangle');
+    if (rectangleTool) rectangleTool.startPos = null;
+    const circleTool = this.toolManager.getTool('circle');
+    if (circleTool) circleTool.startPos = null;
+
+    // Clear select tool state
+    const selectTool = this.toolManager.getTool('select');
+    if (selectTool) {
+      selectTool.isSelecting = false;
+      selectTool.isDragging = false;
+      selectTool.startPos = null;
+    }
+
+    this.self.mousedown = false;
+    this.wsClient.broadcastMouseUp();
+  }
+
+  handlePointerLeave(e) {
+    this.isOnBoard = false;
+  }
+
   handleKeyDown(e) {
     if (e.key === '/' || e.key === "'") {
       e.preventDefault();
@@ -698,9 +833,79 @@ export class DrawingApp {
       const text = textTool.onKeyPress(this.self, e.key);
       this.ui.updateSelfTextInput(text);
     } else if (this.connected) {
+      // Handle selection tool shortcuts
+      const selectTool = this.toolManager.getTool('select');
+
+      if (e.ctrlKey || e.metaKey) {
+        switch (e.key.toLowerCase()) {
+          case 'c':
+            if (selectTool && selectTool.hasSelection()) {
+              e.preventDefault();
+              selectTool.copy();
+            }
+            return;
+          case 'x':
+            if (selectTool && selectTool.hasSelection()) {
+              e.preventDefault();
+              selectTool.cut();
+            }
+            return;
+          case 'v':
+            if (selectTool && selectTool.hasClipboard()) {
+              e.preventDefault();
+              this.selectTool('select');
+              selectTool.paste();
+            }
+            return;
+          case 'a':
+            e.preventDefault();
+            this.selectTool('select');
+            selectTool.selectAll();
+            return;
+          case 'd':
+            if (selectTool && selectTool.hasSelection()) {
+              e.preventDefault();
+              selectTool.deselect();
+            }
+            return;
+        }
+      }
+
+      // Delete/Backspace to delete selection
+      if ((e.key === 'Delete' || e.key === 'Backspace') && this.self.tool === 'select') {
+        if (selectTool && selectTool.hasSelection()) {
+          e.preventDefault();
+          selectTool.deleteSelection();
+        }
+        return;
+      }
+
+      // Escape to deselect
+      if (e.key === 'Escape' && this.self.tool === 'select') {
+        if (selectTool && selectTool.hasSelection()) {
+          selectTool.deselect();
+        }
+        return;
+      }
+
       switch (e.key) {
+        case 's':
+          this.selectTool('select');
+          break;
         case 'b':
           this.selectTool('brush');
+          break;
+        case 'p':
+          this.selectTool('pen');
+          break;
+        case 'l':
+          this.selectTool('line');
+          break;
+        case 'r':
+          this.selectTool('rectangle');
+          break;
+        case 'c':
+          this.selectTool('circle');
           break;
         case 't':
           this.selectTool('text');
