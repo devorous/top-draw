@@ -662,6 +662,14 @@ export class SelectTool extends Tool {
   }
 
   onPointerDown(user, pos) {
+    // Check if clicking a transform handle FIRST (higher priority than dragging)
+    this.updateHandles();
+    const handle = this.getHandleAtPoint(pos);
+    if (handle) {
+      this.activeHandle = handle;
+      return;
+    }
+
     // Check if clicking inside existing selection to drag it
     if (this.selection && this.isInsideSelection(pos)) {
       this.isDragging = true;
@@ -674,13 +682,6 @@ export class SelectTool extends Tool {
       if (!this.floatingCanvas) {
         this.liftSelection();
       }
-      return;
-    }
-
-    // Check if clicking a transform handle
-    const handle = this.getHandleAtPoint(pos);
-    if (handle) {
-      this.activeHandle = handle;
       return;
     }
 
@@ -717,6 +718,11 @@ export class SelectTool extends Tool {
         this.corners.bl.y += dy;
         this.corners.br.x += dx;
         this.corners.br.y += dy;
+
+        // Broadcast the move to other users
+        if (this.board.app && this.board.app.wsClient) {
+          this.board.app.wsClient.broadcastSelectionMove(this.corners);
+        }
       }
 
       this.board.clearTop();
@@ -735,6 +741,11 @@ export class SelectTool extends Tool {
       this.updateCornerFromHandle(this.activeHandle.id, pos);
       this.isTransforming = true;
 
+      // Broadcast the transform to other users
+      if (this.corners && this.board.app && this.board.app.wsClient) {
+        this.board.app.wsClient.broadcastSelectionMove(this.corners);
+      }
+
       // Redraw with transform preview
       this.board.clearTop();
       this.drawTransformPreview();
@@ -749,7 +760,7 @@ export class SelectTool extends Tool {
 
     // Update selection rectangle preview
     this.board.clearTop();
-    this.drawSelectionPreview(pos);
+    this.drawSelectionBox(this.board.topCtx, this.startPos, pos);
   }
 
   onPointerUp(user, pos) {
@@ -1113,19 +1124,21 @@ export class SelectTool extends Tool {
     }
   }
 
-  drawSelectionPreview(pos) {
-    const ctx = this.board.topCtx;
-    const x = Math.min(this.startPos.x, pos.x);
-    const y = Math.min(this.startPos.y, pos.y);
-    const width = Math.abs(pos.x - this.startPos.x);
-    const height = Math.abs(pos.y - this.startPos.y);
+  drawSelectionBox(ctx, startPos, endPos) {
+    const x = Math.min(startPos.x, endPos.x);
+    const y = Math.min(startPos.y, endPos.y);
+    const width = Math.abs(endPos.x - startPos.x);
+    const height = Math.abs(endPos.y - startPos.y);
 
-    ctx.strokeStyle = '#000';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
+
+    // Black dashes
+    ctx.strokeStyle = '#000';
     ctx.lineDashOffset = -this.marchingAntsOffset;
     ctx.strokeRect(x, y, width, height);
 
+    // White dashes (offset to create "marching ants" effect)
     ctx.strokeStyle = '#fff';
     ctx.lineDashOffset = -this.marchingAntsOffset + 4;
     ctx.strokeRect(x, y, width, height);
@@ -1144,16 +1157,43 @@ export class SelectTool extends Tool {
       this.drawFloatingSelection();
     }
 
-    // Draw marching ants border
-    ctx.strokeStyle = '#000';
+    // Draw marching ants border - use corners if available for transformed selections
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
-    ctx.lineDashOffset = -this.marchingAntsOffset;
-    ctx.strokeRect(s.x, s.y, s.width, s.height);
 
-    ctx.strokeStyle = '#fff';
-    ctx.lineDashOffset = -this.marchingAntsOffset + 4;
-    ctx.strokeRect(s.x, s.y, s.width, s.height);
+    if (this.corners) {
+      // Draw quadrilateral outline using corners
+      const c = this.corners;
+
+      ctx.strokeStyle = '#000';
+      ctx.lineDashOffset = -this.marchingAntsOffset;
+      ctx.beginPath();
+      ctx.moveTo(c.tl.x, c.tl.y);
+      ctx.lineTo(c.tr.x, c.tr.y);
+      ctx.lineTo(c.br.x, c.br.y);
+      ctx.lineTo(c.bl.x, c.bl.y);
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.strokeStyle = '#fff';
+      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+      ctx.beginPath();
+      ctx.moveTo(c.tl.x, c.tl.y);
+      ctx.lineTo(c.tr.x, c.tr.y);
+      ctx.lineTo(c.br.x, c.br.y);
+      ctx.lineTo(c.bl.x, c.bl.y);
+      ctx.closePath();
+      ctx.stroke();
+    } else {
+      // Fallback to rectangle
+      ctx.strokeStyle = '#000';
+      ctx.lineDashOffset = -this.marchingAntsOffset;
+      ctx.strokeRect(s.x, s.y, s.width, s.height);
+
+      ctx.strokeStyle = '#fff';
+      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+      ctx.strokeRect(s.x, s.y, s.width, s.height);
+    }
 
     ctx.setLineDash([]);
 
@@ -1182,6 +1222,46 @@ export class SelectTool extends Tool {
     if (!this.floatingCanvas || !this.selection) return;
 
     const ctx = this.board.topCtx;
+
+    // Check if corners have been transformed - if so, use homography
+    if (this.hasTransformedCorners() && this.corners && this.originalCorners) {
+      try {
+        const homography = new Homography('projective');
+
+        // Source points (original corners of the floating canvas)
+        const srcPoints = [
+          [this.originalCorners.tl.x, this.originalCorners.tl.y],
+          [this.originalCorners.tr.x, this.originalCorners.tr.y],
+          [this.originalCorners.bl.x, this.originalCorners.bl.y],
+          [this.originalCorners.br.x, this.originalCorners.br.y]
+        ];
+
+        // Destination points (current corner positions, relative to output)
+        const c = this.corners;
+        const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+        const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+
+        const dstPoints = [
+          [c.tl.x - minX, c.tl.y - minY],
+          [c.tr.x - minX, c.tr.y - minY],
+          [c.bl.x - minX, c.bl.y - minY],
+          [c.br.x - minX, c.br.y - minY]
+        ];
+
+        homography.setSourcePoints(srcPoints, this.floatingCanvas);
+        homography.setDestinyPoints(dstPoints);
+
+        const result = homography.warp();
+        if (result) {
+          ctx.putImageData(result, minX, minY);
+          return;
+        }
+      } catch (e) {
+        console.warn('Homography preview failed in drawFloatingSelection:', e);
+      }
+    }
+
+    // Fallback: simple draw at current position
     ctx.drawImage(
       this.floatingCanvas,
       this.selection.x,
@@ -1211,9 +1291,13 @@ export class SelectTool extends Tool {
     this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
 
     // Draw floating selection on top canvas
+    
     this.board.clearTop();
     this.drawFloatingSelection();
     this.drawSelectionUI();
+
+    //Send the data via the websocket client
+    this.board.app.wsClient.broadcastSelectionLift(this.selection)
   }
 
   commitSelection() {
@@ -1286,7 +1370,12 @@ export class SelectTool extends Tool {
         this.selection.height
       );
     }
+    
+    if (this.board.app && this.board.app.wsClient) {
+      this.board.app.wsClient.broadcastSelectionCommit();
+    }
 
+    //Cleanup local state
     this.floatingCanvas = null;
     this.floatingCtx = null;
     this.selectedImageData = null;
@@ -1470,13 +1559,13 @@ export class LineTool extends Tool {
 
   onPointerDown(user, pos) {
     this.startPos = { x: pos.x, y: pos.y };
-    this.drawPreview(user, pos);
+    user.startPos = this.startPos; // Store on user for remote sync
   }
 
   onPointerMove(user, pos) {
     if (!user.mousedown || user.panning || !this.startPos) return;
     this.board.clearTop();
-    this.drawPreview(user, pos);
+    this.drawPreview(this.board.topCtx, user, this.startPos, pos);
   }
 
   onPointerUp(user, pos) {
@@ -1495,14 +1584,14 @@ export class LineTool extends Tool {
     this.startPos = null;
   }
 
-  drawPreview(user, pos) {
-    this.drawLine(this.board.topCtx, user, this.startPos, pos);
+  drawPreview(ctx, user, start, end) {
+    this.drawLine(ctx, user, start, end);
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
-      const mirroredStart = { x: width - this.startPos.x, y: this.startPos.y };
-      const mirroredEnd = { x: width - pos.x, y: pos.y };
-      this.drawLine(this.board.topCtx, user, mirroredStart, mirroredEnd);
+      const mirroredStart = { x: width - start.x, y: start.y };
+      const mirroredEnd = { x: width - end.x, y: end.y };
+      this.drawLine(ctx, user, mirroredStart, mirroredEnd);
     }
   }
 

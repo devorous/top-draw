@@ -265,6 +265,28 @@ export class UI {
       square.style.display = 'none';
     }
 
+    // Crosshair cursor for select tool
+    const crosshair = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    crosshair.setAttribute('class', `crosshair ${id}`);
+    crosshair.style.display = userData.tool === 'select' ? 'block' : 'none';
+    const chSize = 10;
+    const hLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    hLine.setAttribute('x1', -chSize);
+    hLine.setAttribute('y1', '0');
+    hLine.setAttribute('x2', chSize);
+    hLine.setAttribute('y2', '0');
+    hLine.setAttribute('stroke', 'grey');
+    hLine.setAttribute('stroke-width', '1');
+    const vLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    vLine.setAttribute('x1', '0');
+    vLine.setAttribute('y1', -chSize);
+    vLine.setAttribute('x2', '0');
+    vLine.setAttribute('y2', chSize);
+    vLine.setAttribute('stroke', 'grey');
+    vLine.setAttribute('stroke-width', '1');
+    crosshair.appendChild(hLine);
+    crosshair.appendChild(vLine);
+
     const name = document.createElement('text');
     name.className = `name ${id}`;
     name.textContent = userData.username || userId;
@@ -291,6 +313,7 @@ export class UI {
 
     this.elements.cursorsSvg.appendChild(circle);
     this.elements.cursorsSvg.appendChild(square);
+    this.elements.cursorsSvg.appendChild(crosshair);
     cursor.appendChild(name);
     cursor.appendChild(text);
 
@@ -299,7 +322,7 @@ export class UI {
     this.createUserListEntry(userId, userData);
     this.createUserBoard(userId);
 
-    this.cursors.set(userId, { cursor, circle, square, text, textInput, name });
+    this.cursors.set(userId, { cursor, circle, square, crosshair, text, textInput, name });
   }
 
   createUserBoard(userId) {
@@ -350,6 +373,7 @@ export class UI {
     const cursor = document.querySelector(`.cursor.${id}`);
     const circle = document.querySelector(`.circle.${id}`);
     const square = document.querySelector(`.square.${id}`);
+    const crosshair = document.querySelector(`.crosshair.${id}`);
 
     if (cursor) {
       cursor.style.left = `${x - 100}px`;
@@ -363,22 +387,27 @@ export class UI {
       square.setAttribute('x', x - size);
       square.setAttribute('y', y - size);
     }
+    if (crosshair) {
+      crosshair.setAttribute('transform', `translate(${x}, ${y})`);
+    }
   }
 
   updateRemoteToolDisplay(userId, tool) {
     const id = `u${userId}`;
     const circle = document.querySelector(`.circle.${id}`);
     const square = document.querySelector(`.square.${id}`);
+    const crosshair = document.querySelector(`.crosshair.${id}`);
     const text = document.querySelector(`.text.${id}`);
     const toolEntry = document.querySelector(`.listTool.${id}`);
 
     if (circle) circle.style.display = 'none';
     if (square) square.style.display = 'none';
+    if (crosshair) crosshair.style.display = 'none';
     if (text) text.style.display = 'none';
 
     switch (tool) {
       case 'select':
-        // No cursor indicator for select tool
+        if (crosshair) crosshair.style.display = 'block';
         break;
       case 'brush':
       case 'pen':

@@ -18,13 +18,23 @@ const wss = new WebSocketServer({ server });
 const T = {
   CONNECT: 0, USERS: 1, SETTINGS: 2, LEFT: 3,
   MM: 10, MD: 11, MU: 12, CP: 13, CS: 14, CT: 15, CC: 16,
-  CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25
+  CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25, CANCEL: 26,
+  SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32
 };
 
 // Tool enum matching proto
-const Tool = { BRUSH: 0, TEXT: 1, ERASE: 2, GIMP: 3 };
-const ToolNames = ['brush', 'text', 'erase', 'gimp'];
-const ToolToEnum = { brush: 0, text: 1, erase: 2, gimp: 3 };
+const Tool = { 
+  BRUSH: 0, TEXT: 1, ERASE: 2, GIMP: 3, 
+  SELECT: 4, PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8 
+};
+const ToolNames = [
+  'brush', 'text', 'erase', 'gimp', 
+  'select', 'pen', 'line', 'rectangle', 'circle'
+];
+const ToolToEnum = { 
+  brush: 0, text: 1, erase: 2, gimp: 3, 
+  select: 4, pen: 5, line: 6, rectangle: 7, circle: 8 
+};
 
 // Session management
 const sessions = new Map();  // odlUserId -> sessionIndex
@@ -37,19 +47,22 @@ const boardSettings = { mirror: false };
 let Msg;
 
 // Helper: Pack RGBA array to fixed32
+// Note: RGB values are 0-255, but alpha is 0-1 (from color picker)
 function packColor(rgba) {
   if (!rgba || rgba.length < 4) return 0xFF000000;
+  const alpha = Math.round(rgba[3] * 255); // Convert 0-1 to 0-255
   return ((rgba[0] & 0xFF) << 24) | ((rgba[1] & 0xFF) << 16) |
-         ((rgba[2] & 0xFF) << 8) | (rgba[3] & 0xFF);
+         ((rgba[2] & 0xFF) << 8) | (alpha & 0xFF);
 }
 
 // Helper: Unpack fixed32 to RGBA array
+// Note: Returns alpha as 0-1 (app expects this format)
 function unpackColor(packed) {
   return [
     (packed >>> 24) & 0xFF,
     (packed >>> 16) & 0xFF,
     (packed >>> 8) & 0xFF,
-    packed & 0xFF
+    ((packed & 0xFF) / 255) // Convert 0-255 back to 0-1
   ];
 }
 
@@ -216,7 +229,7 @@ wss.on('connection', (ws, req) => {
             x: 0, y: 0, lastx: 0, lasty: 0,
             mousedown: false,
             tool: Tool.BRUSH,
-            color: packColor([0, 0, 0, 255]),
+            color: packColor([0, 0, 0, 1]),
             size: 1000,      // 10.00 * 100
             spacing: 10,     // 0.10 * 100
             pressure: 100,   // 1.00 * 100

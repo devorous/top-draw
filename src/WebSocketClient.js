@@ -7,28 +7,42 @@ import protobuf from 'protobufjs';
 const T = {
   CONNECT: 0, USERS: 1, SETTINGS: 2, LEFT: 3,
   MM: 10, MD: 11, MU: 12, CP: 13, CS: 14, CT: 15, CC: 16,
-  CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25
+  CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25, CANCEL: 26,
+  SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32
 };
 
 // Tool enum matching proto
-const Tool = { BRUSH: 0, TEXT: 1, ERASE: 2, GIMP: 3 };
-const ToolNames = ['brush', 'text', 'erase', 'gimp'];
-const ToolToEnum = { brush: 0, text: 1, erase: 2, gimp: 3 };
+const Tool = { 
+  BRUSH: 0, TEXT: 1, ERASE: 2, GIMP: 3,
+  SELECT: 4, PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8 
+};
+
+const ToolNames = [
+  'brush', 'text', 'erase', 'gimp',
+  'select', 'pen', 'line', 'rectangle', 'circle'
+];
+const ToolToEnum = { 
+  brush: 0, text: 1, erase: 2, gimp: 3,
+  select: 4, pen: 5, line: 6, rectangle: 7, circle: 8 
+};
 
 // Helper: Pack RGBA array to fixed32
+// Note: RGB values are 0-255, but alpha is 0-1 (from color picker)
 function packColor(rgba) {
   if (!rgba || rgba.length < 4) return 0xFF000000;
+  const alpha = Math.round(rgba[3] * 255); // Convert 0-1 to 0-255
   return ((rgba[0] & 0xFF) << 24) | ((rgba[1] & 0xFF) << 16) |
-         ((rgba[2] & 0xFF) << 8) | (rgba[3] & 0xFF);
+         ((rgba[2] & 0xFF) << 8) | (alpha & 0xFF);
 }
 
 // Helper: Unpack fixed32 to RGBA array
+// Note: Returns alpha as 0-1 (app expects this format)
 function unpackColor(packed) {
   return [
     (packed >>> 24) & 0xFF,
     (packed >>> 16) & 0xFF,
     (packed >>> 8) & 0xFF,
-    packed & 0xFF
+    ((packed & 0xFF) / 255) // Convert 0-255 back to 0-1
   ];
 }
 
@@ -218,6 +232,35 @@ export class WebSocketClient {
       case T.PAN:
         this.emit('pan', { sessionIndex: data.u, panning: data.a });
         break;
+
+      case T.CANCEL:
+        this.emit('cancel', { sessionIndex: data.u });
+        break;
+
+      case T.SEL_LIFT:
+        this.emit('sel_lift', {
+          sessionIndex: data.u,
+          selection: { x: data.sx, y: data.sy, width: data.sw, height: data.sh }
+        });
+        break;
+
+      case T.SEL_MOVE:
+        // cr is array: [tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y]
+        const cr = data.cr || [];
+        this.emit('sel_move', {
+          sessionIndex: data.u,
+          corners: {
+            tl: { x: cr[0], y: cr[1] },
+            tr: { x: cr[2], y: cr[3] },
+            br: { x: cr[4], y: cr[5] },
+            bl: { x: cr[6], y: cr[7] }
+          }
+        });
+        break;
+
+      case T.SEL_COMMIT:
+        this.emit('sel_commit', { sessionIndex: data.u });
+        break;
     }
   }
 
@@ -291,6 +334,10 @@ export class WebSocketClient {
     this.send({ t: T.PAN, a: value });
   }
 
+  broadcastCancel() {
+    this.send({ t: T.CANCEL });
+  }
+
   broadcastClear() {
     this.send({ t: T.CLR });
   }
@@ -306,6 +353,42 @@ export class WebSocketClient {
   broadcastGimp(gimpData) {
     this.send({ t: T.GMP, g: JSON.stringify(gimpData) });
   }
+
+/**
+ * Tells others to "lift" pixels from their local canvas.
+ */
+broadcastSelectionLift(rect) {
+  this.send({
+    t: T.SEL_LIFT,
+    sx: Math.round(rect.x),
+    sy: Math.round(rect.y),
+    sw: Math.round(rect.width),
+    sh: Math.round(rect.height)
+  });
+}
+
+/**
+ * Sends the 8 corner coordinates for movement/perspective.
+ * @param {Object} corners - { tl: {x,y}, tr: {x,y}, bl: {x,y}, br: {x,y} }
+ */
+broadcastSelectionMove(corners) {
+  this.send({
+    t: T.SEL_MOVE,
+    cr: [
+      corners.tl.x, corners.tl.y,
+      corners.tr.x, corners.tr.y,
+      corners.br.x, corners.br.y, 
+      corners.bl.x, corners.bl.y
+    ]
+  });
+}
+
+/*
+ Tells others to "bake" the floating layer onto their main canvas.
+ */
+broadcastSelectionCommit() {
+  this.send({ t: T.SEL_COMMIT });
+}
 
   disconnect() {
     if (this.socket) {

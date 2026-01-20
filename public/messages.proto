@@ -27,7 +27,11 @@ message Msg {
     MSG = 22;           // Chat message
     GMP = 23;           // GIMP brush
     AFK = 24;           // AFK status change
-       PAN = 25;           // Pan mode
+    PAN = 25;           // Pan mode
+    CANCEL = 26;        // Cancel current stroke
+    SEL_LIFT = 30;
+    SEL_MOVE = 31;
+    SEL_COMMIT = 32;
   }
 
   // Tool enum
@@ -36,6 +40,11 @@ message Msg {
     TEXT = 1;
     ERASE = 2;
     GIMP = 3;
+    SELECT = 4;
+    PEN = 5;
+    LINE = 6;
+    RECTANGLE = 7;
+    CIRCLE = 8;
   }
 
   // === High-frequency fields (1-15 = 1-byte tags) ===
@@ -73,4 +82,12 @@ message Msg {
     string tx = 11;     // Current text
   }
   repeated U us = 17;   // Users array
+
+// === Selection Fields (18-22) ===
+  int32 sx = 18; 
+  int32 sy = 19;
+  int32 sw = 20;
+  int32 sh = 21;
+  repeated float cr = 22;
+
 }
