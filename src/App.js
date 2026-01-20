@@ -11,8 +11,8 @@ import { manhattanDistance, mirrorLine } from './utils/drawing.js';
  */
 export class DrawingApp {
   constructor(options = {}) {
-    this.userId = Math.floor(Math.random() * 9999999);
-    this.users = new Map();
+    this.sessionIndex = null;  // Assigned by server on connect
+    this.users = new Map();    // sessionIndex -> User
     this.connected = false;
 
     this.board = new Board({
@@ -27,7 +27,7 @@ export class DrawingApp {
 
     this.wsClient = new WebSocketClient({
       serverUrl: options.serverUrl,
-      onConnect: () => this.handleWSConnect(),
+      onConnect: (sessionIndex) => this.handleWSConnect(sessionIndex),
       onDisconnect: () => this.handleWSDisconnect()
     });
 
@@ -36,7 +36,7 @@ export class DrawingApp {
     this.isOnBoard = false;
   }
 
-  init() {
+  async init() {
     this.ui.init();
     this.board.init('#boardContainer');
     this.chat.init();
@@ -49,15 +49,15 @@ export class DrawingApp {
     this.toolManager.setTool('brush');
     this.ui.updateToolDisplay('brush');
 
-    this.wsClient.connect(this.userId, this.self.toJSON());
+    await this.wsClient.connect(this.self.toJSON());
   }
 
   createSelf() {
-    this.self = new User(this.userId, {
+    // Create self with temporary ID, will be updated when server assigns sessionIndex
+    this.self = new User(0, {
       context: this.board.topCtx,
       board: this.board.mainCanvas
     });
-    this.users.set(this.userId, this.self);
   }
 
   setupColorPicker() {
@@ -79,6 +79,7 @@ export class DrawingApp {
       });
     }
   }
+
 
   setupEventListeners() {
     const { elements } = this.ui;
@@ -136,131 +137,185 @@ export class DrawingApp {
   }
 
   setupWebSocketHandlers() {
-    this.wsClient.on('connected', () => {});
-
-    this.wsClient.on('currentUsers', (data) => {
+    // Users list received
+    this.wsClient.on('users', (data) => {
       data.users.forEach(userData => {
-        if (userData.id !== this.userId && !this.users.has(userData.id)) {
-          const user = new User(userData.id, {
-            ...userData.userdata,
-            afk: userData.afk || false
-          });
-          this.users.set(userData.id, user);
+        if (userData.sessionIndex !== this.sessionIndex) {
+          let user = this.users.get(userData.sessionIndex);
 
-          const boardData = this.ui.createUserBoard(userData.id);
-          user.board = boardData.board;
-          user.context = boardData.context;
+          if (!user) {
+            // Create new remote user
+            user = new User(userData.sessionIndex, {
+              ...userData,
+              afk: userData.afk || false
+            });
+            this.users.set(userData.sessionIndex, user);
 
-          this.ui.createRemoteUser(userData.id, userData.userdata);
+            const boardData = this.ui.createUserBoard(userData.sessionIndex);
+            user.board = boardData.board;
+            user.context = boardData.context;
 
-          // Apply initial AFK status
+            this.ui.createRemoteUser(userData.sessionIndex, userData);
+          }
+
+          // Apply AFK status
           if (userData.afk) {
-            this.ui.setRemoteUserAfk(userData.id, true);
+            this.ui.setRemoteUserAfk(userData.sessionIndex, true);
           }
         }
       });
     });
 
-    this.wsClient.on('boardSettings', (data) => {
-      this.board.setMirror(data.settings.mirror);
-      this.ui.updateMirrorDisplay(data.settings.mirror);
+    // Board settings
+    this.wsClient.on('settings', (data) => {
+      this.board.setMirror(data.mirror);
+      this.ui.updateMirrorDisplay(data.mirror);
     });
 
-    this.wsClient.on('userLeft', (data) => {
-      const user = this.users.get(data.id);
+    // User left
+    this.wsClient.on('left', (data) => {
+      const user = this.users.get(data.sessionIndex);
       if (user) {
         this.chat.addSystemMessage(`${user.username || 'User'} has left the room`);
-        this.users.delete(data.id);
-        this.ui.removeRemoteUser(data.id);
+        this.users.delete(data.sessionIndex);
+        this.ui.removeRemoteUser(data.sessionIndex);
       }
     });
 
-    this.wsClient.on('broadcast', (data) => this.handleBroadcast(data));
-  }
+    // AFK status change
+    this.wsClient.on('afk', (data) => {
+      const user = this.users.get(data.sessionIndex);
+      if (user) {
+        user.setAfk(data.afk);
+        this.ui.setRemoteUserAfk(data.sessionIndex, data.afk);
+      }
+    });
 
-  handleBroadcast(data) {
-    const user = this.users.get(data.id);
-    if (!user) return;
-
-    switch (data.type) {
-      case 'clear':
-        this.board.clear();
-        break;
-
-      case 'pan':
-        user.panning = data.value;
-        break;
-
-      case 'Mm':
+    // Mouse move
+    this.wsClient.on('mm', (data) => {
+      const user = this.users.get(data.sessionIndex);
+      if (user) {
         this.handleRemoteMouseMove(user, data);
-        break;
+      }
+    });
 
-      case 'Md':
-        this.handleRemoteMouseDown(user, data);
-        break;
+    // Mouse down
+    this.wsClient.on('md', (data) => {
+      const user = this.users.get(data.sessionIndex);
+      if (user) {
+        this.handleRemoteMouseDown(user);
+      }
+    });
 
-      case 'Mu':
-        this.handleRemoteMouseUp(user, data);
-        break;
+    // Mouse up
+    this.wsClient.on('mu', (data) => {
+      const user = this.users.get(data.sessionIndex);
+      if (user) {
+        this.handleRemoteMouseUp(user);
+      }
+    });
 
-      case 'ChSi':
-        user.setSize(data.size);
-        this.ui.updateRemoteSize(data.id, data.size);
+    // Pressure change
+    this.wsClient.on('cp', (data) => {
+      const user = this.users.get(data.sessionIndex);
+      if (user) {
+        user.setPressure(data.pressure);
         if (user.mousedown && user.tool === 'brush') {
           this.commitRemoteLine(user);
         }
-        break;
+      }
+    });
 
-      case 'ChSp':
-        user.setSpacing(data.spacing);
-        break;
+    // Size change
+    this.wsClient.on('cs', (data) => {
+      const user = this.users.get(data.sessionIndex);
+      if (user) {
+        user.setSize(data.size);
+        this.ui.updateRemoteSize(data.sessionIndex, data.size);
+        if (user.mousedown && user.tool === 'brush') {
+          this.commitRemoteLine(user);
+        }
+      }
+    });
 
-      case 'ChT':
+    // Tool change
+    this.wsClient.on('ct', (data) => {
+      const user = this.users.get(data.sessionIndex);
+      if (user) {
         user.setTool(data.tool);
-        this.ui.updateRemoteToolDisplay(data.id, data.tool);
-        break;
+        this.ui.updateRemoteToolDisplay(data.sessionIndex, data.tool);
+      }
+    });
 
-      case 'ChC':
+    // Color change
+    this.wsClient.on('cc', (data) => {
+      const user = this.users.get(data.sessionIndex);
+      if (user) {
         user.setColor(data.color);
-        this.ui.updateRemoteColor(data.id, data.color);
-        break;
+        this.ui.updateRemoteColor(data.sessionIndex, data.color);
+      }
+    });
 
-      case 'ChP':
-        user.setPressure(data.pressure);
-        break;
+    // Spacing change
+    this.wsClient.on('csp', (data) => {
+      const user = this.users.get(data.sessionIndex);
+      if (user) {
+        user.setSpacing(data.spacing);
+      }
+    });
 
-      case 'ChNa':
+    // Name change
+    this.wsClient.on('cn', (data) => {
+      const user = this.users.get(data.sessionIndex);
+      if (user) {
         user.setUsername(data.name);
-        this.ui.updateRemoteName(data.id, data.name);
+        this.ui.updateRemoteName(data.sessionIndex, data.name);
         this.chat.addSystemMessage(`${data.name} joined the room`);
-        break;
+      }
+    });
 
-      case 'kp':
-        if (user.tool === 'text') {
-          this.handleRemoteKeyPress(user, data.key);
-        }
-        break;
+    // Key press
+    this.wsClient.on('kp', (data) => {
+      const user = this.users.get(data.sessionIndex);
+      if (user && user.tool === 'text') {
+        this.handleRemoteKeyPress(user, data.key);
+      }
+    });
 
-      case 'gimp':
-        this.handleRemoteGimpLoad(user, data.gimpData);
-        break;
+    // Clear canvas
+    this.wsClient.on('clr', () => {
+      this.board.clear();
+    });
 
-      case 'mirror':
-        const mirror = this.board.toggleMirror();
-        this.ui.updateMirrorDisplay(mirror);
-        break;
+    // Toggle mirror
+    this.wsClient.on('mir', () => {
+      const mirror = this.board.toggleMirror();
+      this.ui.updateMirrorDisplay(mirror);
+    });
 
-      case 'chat':
+    // Chat message
+    this.wsClient.on('msg', (data) => {
+      const user = this.users.get(data.sessionIndex);
+      if (user) {
         this.chat.addMessage(data.message, user);
-        break;
+      }
+    });
 
-      case 'afkStatus':
-        if (user) {
-          user.setAfk(data.afk);
-          this.ui.setRemoteUserAfk(data.id, data.afk);
-        }
-        break;
-    }
+    // GIMP brush
+    this.wsClient.on('gmp', (data) => {
+      const user = this.users.get(data.sessionIndex);
+      if (user) {
+        this.handleRemoteGimpLoad(user, data.gimpData);
+      }
+    });
+
+    // Pan mode
+    this.wsClient.on('pan', (data) => {
+      const user = this.users.get(data.sessionIndex);
+      if (user) {
+        user.panning = data.panning;
+      }
+    });
   }
 
   handleRemoteMouseMove(user, data) {
@@ -273,7 +328,7 @@ export class DrawingApp {
     user.setPosition(data.x, data.y);
     const pos = { x: user.x, y: user.y };
 
-    this.ui.updateRemoteCursor(data.id, user.x, user.y, user.size);
+    this.ui.updateRemoteCursor(user.id, user.x, user.y, user.size);
 
     if (!user.panning && user.mousedown) {
       if (user.tool === 'brush') {
@@ -361,7 +416,10 @@ export class DrawingApp {
     this.ui.updateRemoteText(user.id, user.text);
   }
 
-  handleRemoteGimpLoad(user, gimpData) {
+  handleRemoteGimpLoad(user, gimpDataStr) {
+    // Parse JSON string from protobuf transport
+    const gimpData = typeof gimpDataStr === 'string' ? JSON.parse(gimpDataStr) : gimpDataStr;
+
     if (gimpData.type === 'gbr') {
       const image = new Image();
       image.src = gimpData.gimpUrl;
@@ -407,7 +465,10 @@ export class DrawingApp {
     ctx.stroke();
   }
 
-  handleWSConnect() {
+  handleWSConnect(sessionIndex) {
+    this.sessionIndex = sessionIndex;
+    this.self.id = sessionIndex;
+    this.users.set(sessionIndex, this.self);
     this.ui.showLogin();
   }
 

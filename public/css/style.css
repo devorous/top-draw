@@ -217,7 +217,7 @@ canvas {
   font-size: 11px;
   font-weight: 500;
   color: var(--text-secondary);
-  top: 85px;
+  top: 80px;
   left: 105px;
 }
 
@@ -325,7 +325,8 @@ canvas {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 8px;
+  padding: 5px;
+  padding-top: 100px;
   background: var(--bg-secondary);
   border-left: 1px solid var(--border-subtle);
 }
@@ -333,7 +334,7 @@ canvas {
 .tool.btn {
   width: 40px;
   height: 40px;
-  padding: 8px;
+  padding: 2px;
   border-radius: var(--radius-md);
 }
 
@@ -351,7 +352,7 @@ canvas {
 }
 
 .tool.btn.selected img {
-  filter: brightness(0) saturate(100%) invert(76%) sepia(52%) saturate(1000%) hue-rotate(115deg) brightness(95%) contrast(101%);
+  filter: brightness(0) saturate(100%) invert(0) sepia(52%) saturate(1000%) hue-rotate(115deg) brightness(95%) contrast(101%);
 }
 
 #gimpBtn img {
@@ -549,13 +550,11 @@ canvas {
    ======================================== */
 
 #pickerContainer {
-  padding: 12px;
   border-top: 1px solid var(--border-subtle);
   overflow: hidden;
 }
 
 #colorPicker {
-  border-radius: var(--radius-md);
   overflow: hidden;
   width: 100%;
   max-width: 100%;
@@ -565,6 +564,7 @@ canvas {
   background: var(--bg-secondary) !important;
   width: 100% !important;
   max-width: 100% !important;
+  padding: 10px !important;
   box-sizing: border-box !important;
 }
 

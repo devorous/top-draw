@@ -77,10 +77,10 @@ export class UI {
 
   createIcons() {
     this.icons = {
-      brush: this.createIcon('/images/brush-icon.svg'),
-      text: this.createIcon('/images/text-icon.svg'),
-      erase: this.createIcon('/images/eraser-icon.svg'),
-      gimp: this.createIcon('/images/pepper.png')
+      brush: this.createIcon('images/brush-icon.svg'),
+      text: this.createIcon('images/text-icon.svg'),
+      erase: this.createIcon('images/eraser-icon.svg'),
+      gimp: this.createIcon('images/pepper.png')
     };
   }
 

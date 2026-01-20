@@ -3,18 +3,20 @@
   "version": "1.0.0",
   "description": "A multiplayer drawing application with WebSocket support",
   "type": "module",
-"scripts": {
-  "dev": "concurrently \"npm run server\" \"vite\"",
-  "build": "vite build",
-  "preview": "vite preview",
-  "server": "node server/index.js",
-  "start": "node server/index.js"
-},
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"vite\"",
+    "build": "vite build",
+    "vite": "vite",
+    "preview": "vite preview",
+    "server": "node server/index.js",
+    "start": "node server/index.js"
+  },
   "devDependencies": {
     "concurrently": "^8.2.0",
     "vite": "^5.0.0"
   },
   "dependencies": {
+    "protobufjs": "^8.0.0",
     "ws": "^8.14.0"
   },
   "engines": {
