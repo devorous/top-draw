@@ -27,7 +27,7 @@ message Msg {
     MSG = 22;           // Chat message
     GMP = 23;           // GIMP brush
     AFK = 24;           // AFK status change
-    PAN = 25;           // Pan mode
+       PAN = 25;           // Pan mode
   }
 
   // Tool enum

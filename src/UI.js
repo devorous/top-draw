@@ -19,6 +19,7 @@ export class UI {
       login: document.getElementById('login'),
       connecting: document.getElementById('connecting'),
       joinBtn: document.getElementById('joinBtn'),
+      offlineBtn: document.getElementById('offlineBtn'),
       usernameInput: document.getElementById('usernameInput'),
 
       boardContainer: document.getElementById('boardContainer'),
@@ -31,12 +32,18 @@ export class UI {
       selfCursor: document.querySelector('.cursor.self'),
       selfCircle: document.querySelector('.circle.self'),
       selfSquare: document.querySelector('.square.self'),
+      selfCrosshair: document.querySelector('.crosshair.self'),
       selfText: document.querySelector('.text.self'),
       selfTextInput: document.querySelector('.textInput.self'),
       selfName: document.querySelector('.name.self'),
       mirrorLine: document.querySelector('.mirrorLine'),
 
+      selectBtn: document.getElementById('selectBtn'),
       brushBtn: document.getElementById('brushBtn'),
+      penBtn: document.getElementById('penBtn'),
+      lineBtn: document.getElementById('lineBtn'),
+      rectangleBtn: document.getElementById('rectangleBtn'),
+      circleBtn: document.getElementById('circleBtn'),
       textBtn: document.getElementById('textBtn'),
       eraseBtn: document.getElementById('eraseBtn'),
       gimpBtn: document.getElementById('gimpBtn'),
@@ -77,7 +84,12 @@ export class UI {
 
   createIcons() {
     this.icons = {
+      select: this.createIcon('images/select-icon.svg'),
       brush: this.createIcon('images/brush-icon.svg'),
+      pen: this.createIcon('images/pen-icon.svg'),
+      line: this.createIcon('images/line-icon.svg'),
+      rectangle: this.createIcon('images/rectangle-icon.svg'),
+      circle: this.createIcon('images/circle-icon.svg'),
       text: this.createIcon('images/text-icon.svg'),
       erase: this.createIcon('images/eraser-icon.svg'),
       gimp: this.createIcon('images/pepper.png')
@@ -108,6 +120,7 @@ export class UI {
     const cursor = this.elements.selfCursor;
     const circle = this.elements.selfCircle;
     const square = this.elements.selfSquare;
+    const crosshair = this.elements.selfCrosshair;
 
     cursor.style.left = `${x - 100}px`;
     cursor.style.top = `${y - 100}px`;
@@ -115,6 +128,7 @@ export class UI {
     circle.setAttribute('cy', y);
     square.setAttribute('x', x - size);
     square.setAttribute('y', y - size);
+    crosshair.setAttribute('transform', `translate(${x}, ${y})`);
   }
 
   updateCursorSize(size) {
@@ -124,17 +138,25 @@ export class UI {
   }
 
   updateToolDisplay(tool) {
-    const { selfCircle, selfSquare, selfText, gimpImage, gimpFileInput, gimpSpacing } = this.elements;
+    const { selfCircle, selfSquare, selfCrosshair, selfText, gimpImage, gimpFileInput, gimpSpacing } = this.elements;
 
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
+    selfCrosshair.style.display = 'none';
     selfText.style.display = 'none';
     gimpImage.style.display = 'none';
     gimpFileInput.style.display = 'none';
     gimpSpacing.style.display = 'none';
 
     switch (tool) {
+      case 'select':
+        selfCrosshair.style.display = 'block';
+        break;
       case 'brush':
+      case 'pen':
+      case 'line':
+      case 'rectangle':
+      case 'circle':
         selfCircle.style.display = 'block';
         break;
       case 'text':
@@ -145,7 +167,7 @@ export class UI {
         break;
       case 'gimp':
         selfSquare.style.display = 'block';
-        gimpImage.style.display = 'block';
+        // gimpImage is shown only when a brush is selected (via setGimpPreview)
         gimpFileInput.style.display = 'block';
         gimpSpacing.style.display = 'block';
         break;
@@ -156,7 +178,12 @@ export class UI {
 
   updateToolButton(tool) {
     const buttons = {
+      select: this.elements.selectBtn,
       brush: this.elements.brushBtn,
+      pen: this.elements.penBtn,
+      line: this.elements.lineBtn,
+      rectangle: this.elements.rectangleBtn,
+      circle: this.elements.circleBtn,
       text: this.elements.textBtn,
       erase: this.elements.eraseBtn,
       gimp: this.elements.gimpBtn
@@ -205,6 +232,7 @@ export class UI {
 
   setGimpPreview(url) {
     this.elements.gimpImage.src = url;
+    this.elements.gimpImage.style.display = 'block';
   }
 
   createRemoteUser(userId, userData) {
@@ -349,7 +377,14 @@ export class UI {
     if (text) text.style.display = 'none';
 
     switch (tool) {
+      case 'select':
+        // No cursor indicator for select tool
+        break;
       case 'brush':
+      case 'pen':
+      case 'line':
+      case 'rectangle':
+      case 'circle':
       case 'erase':
         if (circle) circle.style.display = 'block';
         break;

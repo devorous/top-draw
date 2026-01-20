@@ -146,6 +146,21 @@ body {
   color: var(--text-secondary);
 }
 
+#offlineBtn {
+  margin-top: 20px;
+  padding: 10px 24px;
+  font-size: 12px;
+  background: transparent;
+  border: 1px dashed var(--text-muted);
+  color: var(--text-muted);
+}
+
+#offlineBtn:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  background: transparent;
+}
+
 /* ========================================
    Board Container
    ======================================== */
@@ -170,6 +185,7 @@ body {
 
 #topBoard {
   z-index: 1;
+  pointer-events: none;
 }
 
 .userBoard {
@@ -181,6 +197,14 @@ body {
 
 canvas {
   cursor: none;
+}
+
+/* Disable touch-action only on devices with precise pointers (pen/mouse) */
+@media (hover: hover) and (pointer: fine) {
+  canvas,
+  #boardContainer {
+    touch-action: none;
+  }
 }
 
 /* ========================================
@@ -208,6 +232,10 @@ canvas {
 }
 
 .self.square {
+  display: none;
+}
+
+.self.crosshair {
   display: none;
 }
 
@@ -543,6 +571,59 @@ canvas {
   border-radius: var(--radius-sm);
   background: var(--bg-elevated);
   padding: 8px;
+}
+
+/* Brush Gallery */
+#brushGallery {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+#brushGallery label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+
+#brushList {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.brushItem {
+  aspect-ratio: 1;
+  background: var(--bg-elevated);
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  overflow: hidden;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brushItem:hover {
+  border-color: var(--accent-primary);
+  transform: scale(1.05);
+}
+
+.brushItem.selected {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.brushItem img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 4px;
 }
 
 /* ========================================
