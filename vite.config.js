@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   root: '.',
+  base: '/top-draw/',
   publicDir: 'public',
   server: {
     port: 3000,
