@@ -208,13 +208,14 @@ export class UI {
   }
 
   createRemoteUser(userId, userData) {
+    const id = `u${userId}`;
     const cursor = document.createElement('div');
-    cursor.className = `cursor ${userId}`;
+    cursor.className = `cursor ${id}`;
     cursor.style.left = `${userData.x}px`;
     cursor.style.top = `${userData.y}px`;
 
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('class', `circle ${userId}`);
+    circle.setAttribute('class', `circle ${id}`);
     circle.setAttribute('stroke', 'grey');
     circle.setAttribute('stroke-width', '1');
     circle.setAttribute('fill', 'none');
@@ -223,7 +224,7 @@ export class UI {
     circle.setAttribute('r', '10');
 
     const square = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    square.setAttribute('class', `square ${userId}`);
+    square.setAttribute('class', `square ${id}`);
     square.setAttribute('stroke', 'grey');
     square.setAttribute('stroke-width', '1');
     square.setAttribute('fill', 'none');
@@ -237,11 +238,11 @@ export class UI {
     }
 
     const name = document.createElement('text');
-    name.className = `name ${userId}`;
+    name.className = `name ${id}`;
     name.textContent = userData.username || userId;
 
     const text = document.createElement('text');
-    text.className = `text ${userId}`;
+    text.className = `text ${id}`;
     text.style.width = '400px';
     text.style.color = `rgba(${userData.color.join(',')})`;
     text.style.fontSize = `${userData.size + 5}px`;
@@ -251,7 +252,7 @@ export class UI {
     }
 
     const textInput = document.createElement('text');
-    textInput.className = `textInput ${userId}`;
+    textInput.className = `textInput ${id}`;
     textInput.textContent = userData.text || '';
 
     const line = document.createElement('text');
@@ -274,10 +275,11 @@ export class UI {
   }
 
   createUserBoard(userId) {
+    const id = `u${userId}`;
     const board = document.createElement('canvas');
     board.setAttribute('height', this.elements.board.height);
     board.setAttribute('width', this.elements.board.width);
-    board.className = `userBoard ${userId}`;
+    board.className = `userBoard ${id}`;
     this.elements.userBoards.appendChild(board);
 
     const context = board.getContext('2d');
@@ -287,24 +289,25 @@ export class UI {
   }
 
   createUserListEntry(userId, userData) {
+    const id = `u${userId}`;
     const entry = document.createElement('div');
-    entry.className = `userEntry ${userId}`;
+    entry.className = `userEntry ${id}`;
 
     const toolEntry = document.createElement('a');
-    toolEntry.className = `listTool ${userId}`;
+    toolEntry.className = `listTool ${id}`;
     const icon = this.icons[userData.tool] || this.icons.brush;
     toolEntry.appendChild(icon.cloneNode(true));
 
     const colorEntry = document.createElement('a');
-    colorEntry.className = `listColor ${userId}`;
+    colorEntry.className = `listColor ${id}`;
     colorEntry.style.backgroundColor = `rgba(${userData.color.join(',')})`;
 
     const userEntry = document.createElement('span');
-    userEntry.className = `listUser ${userId}`;
+    userEntry.className = `listUser ${id}`;
     userEntry.textContent = userData.username || userId;
 
     const activeEntry = document.createElement('span');
-    activeEntry.className = `listActive ${userId}`;
+    activeEntry.className = `listActive ${id}`;
 
     entry.appendChild(toolEntry);
     entry.appendChild(colorEntry);
@@ -315,9 +318,10 @@ export class UI {
   }
 
   updateRemoteCursor(userId, x, y, size) {
-    const cursor = document.querySelector(`.cursor.${userId}`);
-    const circle = document.querySelector(`.circle.${userId}`);
-    const square = document.querySelector(`.square.${userId}`);
+    const id = `u${userId}`;
+    const cursor = document.querySelector(`.cursor.${id}`);
+    const circle = document.querySelector(`.circle.${id}`);
+    const square = document.querySelector(`.square.${id}`);
 
     if (cursor) {
       cursor.style.left = `${x - 100}px`;
@@ -334,10 +338,11 @@ export class UI {
   }
 
   updateRemoteToolDisplay(userId, tool) {
-    const circle = document.querySelector(`.circle.${userId}`);
-    const square = document.querySelector(`.square.${userId}`);
-    const text = document.querySelector(`.text.${userId}`);
-    const toolEntry = document.querySelector(`.listTool.${userId}`);
+    const id = `u${userId}`;
+    const circle = document.querySelector(`.circle.${id}`);
+    const square = document.querySelector(`.square.${id}`);
+    const text = document.querySelector(`.text.${id}`);
+    const toolEntry = document.querySelector(`.listTool.${id}`);
 
     if (circle) circle.style.display = 'none';
     if (square) square.style.display = 'none';
@@ -365,9 +370,10 @@ export class UI {
   }
 
   updateRemoteSize(userId, size) {
-    const circle = document.querySelector(`.circle.${userId}`);
-    const square = document.querySelector(`.square.${userId}`);
-    const text = document.querySelector(`.text.${userId}`);
+    const id = `u${userId}`;
+    const circle = document.querySelector(`.circle.${id}`);
+    const square = document.querySelector(`.square.${id}`);
+    const text = document.querySelector(`.text.${id}`);
 
     if (circle) circle.setAttribute('r', size);
     if (square) {
@@ -378,8 +384,9 @@ export class UI {
   }
 
   updateRemoteColor(userId, color) {
-    const text = document.querySelector(`.text.${userId}`);
-    const colorEntry = document.querySelector(`.listColor.${userId}`);
+    const id = `u${userId}`;
+    const text = document.querySelector(`.text.${id}`);
+    const colorEntry = document.querySelector(`.listColor.${id}`);
     const colorStr = `rgba(${color.join(',')})`;
 
     if (text) text.style.color = colorStr;
@@ -387,25 +394,28 @@ export class UI {
   }
 
   updateRemoteName(userId, name) {
-    const nameEl = document.querySelector(`.name.${userId}`);
-    const listUser = document.querySelector(`.listUser.${userId}`);
+    const id = `u${userId}`;
+    const nameEl = document.querySelector(`.name.${id}`);
+    const listUser = document.querySelector(`.listUser.${id}`);
 
     if (nameEl) nameEl.textContent = name;
     if (listUser) listUser.textContent = name;
   }
 
   updateRemoteText(userId, textContent) {
-    const textInput = document.querySelector(`.textInput.${userId}`);
+    const id = `u${userId}`;
+    const textInput = document.querySelector(`.textInput.${id}`);
     if (textInput) {
       textInput.innerHTML = textContent.replace(/ /g, '&nbsp;');
     }
   }
 
   setRemoteUserAfk(userId, afk) {
-    const cursor = document.querySelector(`.cursor.${userId}`);
-    const circle = document.querySelector(`.circle.${userId}`);
-    const square = document.querySelector(`.square.${userId}`);
-    const userEntry = document.querySelector(`.userEntry.${userId}`);
+    const id = `u${userId}`;
+    const cursor = document.querySelector(`.cursor.${id}`);
+    const circle = document.querySelector(`.circle.${id}`);
+    const square = document.querySelector(`.square.${id}`);
+    const userEntry = document.querySelector(`.userEntry.${id}`);
 
     if (cursor) {
       cursor.style.opacity = afk ? '0' : '1';
@@ -426,13 +436,15 @@ export class UI {
   }
 
   removeRemoteUser(userId) {
-    const elements = document.querySelectorAll(`.${userId}`);
+    const id = `u${userId}`;
+    const elements = document.querySelectorAll(`.${id}`);
     elements.forEach(el => el.remove());
     this.cursors.delete(userId);
   }
 
   getRemoteUserBoard(userId) {
-    const board = document.querySelector(`.userBoard.${userId}`);
+    const id = `u${userId}`;
+    const board = document.querySelector(`.userBoard.${id}`);
     if (board) {
       return { board, context: board.getContext('2d') };
     }

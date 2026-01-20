@@ -87,8 +87,8 @@ export class WebSocketClient {
     });
   }
 
-  broadcastMouseMove(x, y) {
-    this.broadcast('Mm', { x, y });
+  broadcastMouseMove(x, y, lastx, lasty) {
+    this.broadcast('Mm', { x, y, lastx, lasty });
   }
 
   broadcastMouseDown() {

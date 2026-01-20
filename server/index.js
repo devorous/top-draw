@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
 
-const PORT = process.env.WS_PORT || 3001;
+const PORT = process.env.PORT || 8000;
 const AFK_TIMEOUT = 2 * 60 * 1000; // 2 minutes in milliseconds
 const AFK_CHECK_INTERVAL = 30 * 1000; // Check every 30 seconds
 
@@ -197,6 +197,7 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-server.listen(PORT, () => {
+
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`WebSocket server running on port ${PORT}`);
 });
