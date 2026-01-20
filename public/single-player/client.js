@@ -54,10 +54,9 @@ function gameLoop() {
       player.y = 10;
     }
   }
+  requestAnimationFrame(gameLoop);
 }
 
-// Start game loop, run 30 times per second
-setInterval(gameLoop, 1000 / 30);
 
 document.addEventListener("keydown", detectKeyPress.bind(this, players[0]));
 
@@ -78,3 +77,5 @@ function detectKeyPress(player, e) {
       break;
   }
 }
+
+gameLoop();

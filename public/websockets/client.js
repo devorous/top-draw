@@ -24,7 +24,7 @@ players.unshift(self);
 var wsProtocol = window.location.protocol == "https:" ? "wss" : "ws";
 
 // Set up new websocket connection to server
-var connection = new WebSocket(`${wsProtocol}://${window.location.hostname}`);
+var connection = new WebSocket(`${wsProtocol}://${window.location.hostname}:${window.location.port}`);
 
 // Log successful connection
 connection.onopen = function() {
@@ -104,10 +104,10 @@ function startGame() {
         player.y = 10;
       }
     }
+
+    requestAnimationFrame(gameLoop);
   }
 
-  // Start game loop, run 30 times per second
-  setInterval(gameLoop, 1000 / 30);
 
   document.addEventListener("keydown", detectKeyPress.bind(this, players[0]));
 
@@ -133,6 +133,8 @@ function startGame() {
     );
   }
 }
+
+gameLoop();
 
 // Random color generator for player Ids
 function randomColor() {

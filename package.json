@@ -1,7 +1,7 @@
 {
-  "name": "hello-express",
-  "version": "0.0.1",
-  "description": "A simple Node app built on Express, instantly up and running.",
+  "name": "multiplayer-websockets-example",
+  "version": "1.0.0",
+  "description": "A very simple game with multiplayer functionality implemented with websockets.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -14,7 +14,7 @@
     "node": "12.x"
   },
   "repository": {
-    "url": "https://glitch.com/edit/#!/hello-express"
+    "url": "https://glitch.com/edit/#!/multiplayer-websockets-example"
   },
   "license": "MIT"
 }
