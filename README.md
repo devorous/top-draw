@@ -1,6 +1,6 @@
 # Top Draw
 
-A real-time multiplayer collaborative drawing application. Multiple users can draw together simultaneously on a shared canvas with live cursor tracking and chat.
+A real-time multiplayer collaborative drawing application. Multiple users can draw together simultaneously on a shared canvas with a simple chat.
 
 ![Vanilla JS](https://img.shields.io/badge/Vanilla-JavaScript-yellow)
 ![Vite](https://img.shields.io/badge/Vite-5.0-646CFF)
