@@ -216,13 +216,8 @@ export class GimpTool extends Tool {
   }
 
   draw(user, pos) {
-    if (user.spacing !== 0) {
-      if (user.spaceIndex !== 0) {
-        user.spaceIndex = (user.spaceIndex + 1) % user.spacing;
-        return;
-      }
-      user.spaceIndex = (user.spaceIndex + 1) % user.spacing;
-    }
+    
+    user.spaceIndex = (user.spaceIndex + 1) % user.spacing;
 
     const gBrush = user.gBrush;
     const size = user.size;
@@ -505,6 +500,8 @@ export class PenTool extends Tool {
       this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
     }
     this.lastStampPos = null;
+    // Clear the preview from the top canvas as well
+    this.board.clearTop();
   }
 }
 

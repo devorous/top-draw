@@ -146,7 +146,7 @@ export class WebSocketClient {
           tool: ToolNames[u.l] || 'brush',
           color: unpackColor(u.c),
           size: (u.s || 1000) / 100,
-          spacing: (u.sp || 10) / 100,
+          spacing: (u.sp ?? 0) / 100,
           pressure: (u.p || 100) / 100,
           name: u.n || '',
           text: u.tx || ''
@@ -202,7 +202,7 @@ export class WebSocketClient {
         break;
 
       case T.CSP:
-        this.emit('csp', { sessionIndex: data.u, spacing: (data.sp || 10) / 100 });
+        this.emit('csp', { sessionIndex: data.u, spacing: (data.sp ?? 0) / 100 });
         break;
 
       case T.CN:

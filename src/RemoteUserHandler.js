@@ -1,5 +1,6 @@
 import { mirrorLine } from './utils/drawing.js';
 import { Homography } from './utils/homography.js';
+import { SELECTION_MODES, getNextBrushIndex } from './utils/parseGimp.js';
 
 /**
  * Handles all remote user drawing synchronization
@@ -7,11 +8,65 @@ import { Homography } from './utils/homography.js';
 export class RemoteUserHandler {
   constructor(app) {
     this.app = app;
+    this.remoteSelectionAnimationId = null;
+    this.remoteSelectionOffset = 0;
   }
 
   get board() { return this.app.board; }
   get toolManager() { return this.app.toolManager; }
   get ui() { return this.app.ui; }
+  get users() { return this.app.users; }
+  get sessionIndex() { return this.app.sessionIndex; }
+
+  /**
+   * Start the animation loop for remote user selections
+   */
+  startRemoteSelectionAnimation() {
+    if (this.remoteSelectionAnimationId) return;
+
+    const animate = () => {
+      this.remoteSelectionOffset = (this.remoteSelectionOffset + 1) % 16;
+
+      // Check if any remote user has a selection that needs animating
+      let hasActiveSelection = false;
+      if (this.users) {
+        for (const [id, user] of this.users.entries()) {
+          // Skip local user
+          if (id === this.sessionIndex) continue;
+
+          if (user.floatingCanvas || user.pendingSelection) {
+            hasActiveSelection = true;
+            // Redraw this user's selection with updated offset
+            user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+            if (user.floatingCanvas && user.selection) {
+              this.drawFloatingSelection(user);
+            } else if (user.pendingSelection) {
+              this.drawPendingSelection(user);
+            }
+          }
+        }
+      }
+
+      // Only continue animation if there are active selections
+      if (hasActiveSelection) {
+        this.remoteSelectionAnimationId = requestAnimationFrame(animate);
+      } else {
+        this.remoteSelectionAnimationId = null;
+      }
+    };
+
+    this.remoteSelectionAnimationId = requestAnimationFrame(animate);
+  }
+
+  /**
+   * Stop the remote selection animation
+   */
+  stopRemoteSelectionAnimation() {
+    if (this.remoteSelectionAnimationId) {
+      cancelAnimationFrame(this.remoteSelectionAnimationId);
+      this.remoteSelectionAnimationId = null;
+    }
+  }
 
   handleMouseMove(user, data) {
     if (user.lastx === null) {
@@ -158,6 +213,10 @@ export class RemoteUserHandler {
 
       case 'gimp':
         if (user.gBrush && !user.panning) {
+          // Reset GIH brush dimensions on new stroke (like local GimpTool.onPointerDown)
+          if (user.gBrush.type === 'gih' && user.gBrush.reset) {
+            user.gBrush.reset();
+          }
           this.toolManager.getTool('gimp').draw(user, pos);
         }
         break;
@@ -258,6 +317,8 @@ export class RemoteUserHandler {
     // Draw pending selection rectangle if user just finished creating one
     else if (user.pendingSelection) {
       this.drawPendingSelection(user);
+      // Start the selection animation loop
+      this.startRemoteSelectionAnimation();
     }
   }
 
@@ -300,6 +361,32 @@ export class RemoteUserHandler {
         gimpData.cellwidth = gimpData.gBrushes[0].width || 32;
         gimpData.cellheight = gimpData.gBrushes[0].height || 32;
       }
+
+      // Recreate the getNextBrush and reset functions that were lost during JSON serialization
+      // These are needed for proper animation playback on remote clients
+      if (gimpData.dimensions && gimpData.dimensions.length > 0) {
+        // Reset dimension indices
+        for (const dim of gimpData.dimensions) {
+          dim.currentIndex = 0;
+        }
+
+        // Recreate getNextBrush function using the imported helper
+        gimpData.getNextBrush = function(context) {
+          const idx = getNextBrushIndex(this, context);
+          return {
+            brush: this.gBrushes[idx],
+            index: idx
+          };
+        };
+
+        // Recreate reset function
+        gimpData.reset = function() {
+          for (const dim of this.dimensions) {
+            dim.currentIndex = 0;
+          }
+        };
+      }
+
       user.gBrush = gimpData;
     }
   }
@@ -311,6 +398,13 @@ export class RemoteUserHandler {
     user.mousedown = false;
     user.startPos = null;
     user.pendingSelection = null;
+
+    // Clear pen stroke data (matching local cancelCurrentStroke behavior)
+    user.penPoints = [];
+    const penTool = this.toolManager.getTool('pen');
+    if (penTool && penTool.clearStroke) {
+      penTool.clearStroke();
+    }
   }
 
   // Selection handling
@@ -352,6 +446,9 @@ export class RemoteUserHandler {
 
     // Draw floating selection on user's preview layer
     this.drawFloatingSelection(user);
+
+    // Start the selection animation loop
+    this.startRemoteSelectionAnimation();
   }
 
   handleSelectionMove(user, corners) {
@@ -374,6 +471,9 @@ export class RemoteUserHandler {
     // Clear user's layer and redraw
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     this.drawFloatingSelection(user);
+
+    // Ensure animation is running
+    this.startRemoteSelectionAnimation();
   }
 
   handleSelectionCommit(user) {
@@ -504,11 +604,14 @@ export class RemoteUserHandler {
       ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
     }
 
-    // Draw marching ants border (simple static version for remote)
+    // Draw animated marching ants border
     if (c) {
-      ctx.strokeStyle = '#000';
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
+
+      // Black dashes
+      ctx.strokeStyle = '#000';
+      ctx.lineDashOffset = -this.remoteSelectionOffset;
       ctx.beginPath();
       ctx.moveTo(c.tl.x, c.tl.y);
       ctx.lineTo(c.tr.x, c.tr.y);
@@ -516,7 +619,20 @@ export class RemoteUserHandler {
       ctx.lineTo(c.bl.x, c.bl.y);
       ctx.closePath();
       ctx.stroke();
+
+      // White dashes (offset to create marching effect)
+      ctx.strokeStyle = '#fff';
+      ctx.lineDashOffset = -this.remoteSelectionOffset + 4;
+      ctx.beginPath();
+      ctx.moveTo(c.tl.x, c.tl.y);
+      ctx.lineTo(c.tr.x, c.tr.y);
+      ctx.lineTo(c.br.x, c.br.y);
+      ctx.lineTo(c.bl.x, c.bl.y);
+      ctx.closePath();
+      ctx.stroke();
+
       ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
     }
   }
 
@@ -529,11 +645,14 @@ export class RemoteUserHandler {
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
 
+    // Black dashes with animated offset
     ctx.strokeStyle = '#000';
+    ctx.lineDashOffset = -this.remoteSelectionOffset;
     ctx.strokeRect(s.x, s.y, s.width, s.height);
 
+    // White dashes offset to create marching effect
     ctx.strokeStyle = '#fff';
-    ctx.lineDashOffset = 4;
+    ctx.lineDashOffset = -this.remoteSelectionOffset + 4;
     ctx.strokeRect(s.x, s.y, s.width, s.height);
 
     ctx.setLineDash([]);

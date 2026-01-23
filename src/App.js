@@ -579,9 +579,6 @@ export class DrawingApp {
   }
 
   cancelCurrentStroke() {
-    // Always clear the top canvas
-    this.board.clearTop();
-
     // Clear brush stroke data
     this.self.clearLine();
 
@@ -609,6 +606,11 @@ export class DrawingApp {
     }
 
     this.self.mousedown = false;
+
+    // Clear the top canvas AFTER all tool state is reset
+    // This ensures no residual preview remains
+    this.board.clearTop();
+
     this.wsClient.broadcastCancel();
   }
 
