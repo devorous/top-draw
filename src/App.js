@@ -45,6 +45,22 @@ export class DrawingApp {
     // Handlers initialized in init()
     this.remoteUserHandler = null;
     this.touchHandler = null;
+
+    // Tick system for synchronized drawing (90 TPS = ~11ms)
+    this.tickRate = 90;
+    this.tickInterval = 1000 / this.tickRate; // ~11.11ms
+    this.tickTimer = null;
+    this.lastTickTime = 0;
+
+    // Input buffer - stores latest pointer state between ticks
+    this.inputBuffer = {
+      position: null,      // { x, y } - latest pointer position
+      lastPosition: null,  // { x, y } - previous position for interpolation
+      pressure: 1,
+      pointerType: 'mouse',
+      movement: { x: 0, y: 0 }, // accumulated movement for panning
+      dirty: false         // whether buffer has new data to process
+    };
   }
 
   async init() {
@@ -168,6 +184,7 @@ export class DrawingApp {
 
   handleWSDisconnect() {
     this.connected = false;
+    this.stopTickLoop();
   }
 
   handleJoin() {
@@ -180,6 +197,69 @@ export class DrawingApp {
     this.ui.updateSelfName(name);
 
     this.wsClient.broadcastNameChange(name);
+
+    // Start the tick loop
+    this.startTickLoop();
+  }
+
+  // Tick system methods
+
+  startTickLoop() {
+    if (this.tickTimer) return; // Already running
+
+    this.lastTickTime = performance.now();
+    this.tickTimer = setInterval(() => this.tick(), this.tickInterval);
+  }
+
+  stopTickLoop() {
+    if (this.tickTimer) {
+      clearInterval(this.tickTimer);
+      this.tickTimer = null;
+    }
+  }
+
+  tick() {
+    const now = performance.now();
+    this.lastTickTime = now;
+
+    // Only process if we have new input data
+    if (!this.inputBuffer.dirty) return;
+
+    const { position, lastPosition, pressure, movement } = this.inputBuffer;
+
+    // Handle panning movement
+    if (this.self.panning && this.self.mousedown && (movement.x !== 0 || movement.y !== 0)) {
+      this.board.pan(movement.x, movement.y);
+      this.inputBuffer.movement = { x: 0, y: 0 }; // Reset accumulated movement
+    }
+
+    // Process drawing if we have position data
+    if (position) {
+      const x = position.x;
+      const y = position.y;
+      const lastX = lastPosition ? lastPosition.x : x;
+      const lastY = lastPosition ? lastPosition.y : y;
+
+      // Update self position
+      this.self.setPosition(x, y);
+      this.ui.updateSelfCursor(x, y, this.self.size);
+
+      // Broadcast position
+      this.wsClient.broadcastMouseMove(x, y, lastX, lastY);
+
+      // Process tool input if drawing
+      if (this.self.mousedown && !this.self.panning) {
+        const tool = this.toolManager.getCurrentTool();
+        if (tool) {
+          tool.onPointerMove(this.self, { x, y }, { x: lastX, y: lastY });
+        }
+      }
+
+      // Update last position for next tick
+      this.inputBuffer.lastPosition = { x, y };
+    }
+
+    this.inputBuffer.dirty = false;
   }
 
   startOfflineMode() {
@@ -192,6 +272,9 @@ export class DrawingApp {
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName('Offline');
+
+    // Start the tick loop (same behavior as online)
+    this.startTickLoop();
 
     // Disconnect WebSocket if it was trying to connect
     if (this.wsClient && this.wsClient.disconnect) {
@@ -314,29 +397,36 @@ export class DrawingApp {
     const x = e.offsetX;
     const y = e.offsetY;
 
+    // Update cursor immediately for visual responsiveness
+    this.ui.updateSelfCursor(x, y, this.self.size);
+
+    // Handle pressure for pen input
     let pressure = 1;
     if (e.pointerType === 'pen' && !this.self.panning) {
       const maxPressure = Number(this.ui.elements.pressureSlider.value) / 100;
       pressure = Math.min(maxPressure, Math.round(e.pressure * 100) / 100);
-      this.self.setPressure(pressure);
 
-      if (this.self.pressure !== this.self.prevpressure && this.self.mousedown && this.self.tool === 'brush') {
-        this.wsClient.broadcastPressureChange(pressure);
-        this.commitSelfLine();
+      // Pressure changes need immediate handling for brush commits
+      if (pressure !== this.inputBuffer.pressure) {
+        this.self.setPressure(pressure);
+        this.inputBuffer.pressure = pressure;
+
+        if (this.self.pressure !== this.self.prevpressure && this.self.mousedown && this.self.tool === 'brush') {
+          this.wsClient.broadcastPressureChange(pressure);
+          this.commitSelfLine();
+        }
       }
     }
 
-    this.self.setPosition(x, y);
-    this.ui.updateSelfCursor(x, y, this.self.size);
-    this.wsClient.broadcastMouseMove(x, y, this.self.lastx, this.self.lasty);
+    // Buffer the input for tick processing
+    this.inputBuffer.position = { x, y };
+    this.inputBuffer.pointerType = e.pointerType;
+    this.inputBuffer.dirty = true;
 
+    // Accumulate movement for panning (since multiple events may occur between ticks)
     if (this.self.panning && this.self.mousedown) {
-      this.board.pan(e.movementX, e.movementY);
-    } else if (this.self.mousedown) {
-      const tool = this.toolManager.getCurrentTool();
-      if (tool) {
-        tool.onPointerMove(this.self, { x, y }, { x: this.self.lastx, y: this.self.lasty }, e);
-      }
+      this.inputBuffer.movement.x += e.movementX;
+      this.inputBuffer.movement.y += e.movementY;
     }
   }
 
@@ -360,10 +450,20 @@ export class DrawingApp {
 
     if (e.pointerType === 'mouse') {
       this.self.setPressure(1);
+      this.inputBuffer.pressure = 1;
       this.wsClient.broadcastPressureChange(1);
     }
 
     const pos = { x: e.offsetX, y: e.offsetY };
+
+    // Initialize input buffer for this stroke
+    this.inputBuffer.position = pos;
+    this.inputBuffer.lastPosition = pos;
+    this.inputBuffer.movement = { x: 0, y: 0 };
+    this.inputBuffer.pointerType = e.pointerType;
+
+    // Set self position immediately for pointerDown
+    this.self.setPosition(pos.x, pos.y);
     this.self.lastx = this.self.x;
     this.self.lasty = this.self.y;
     this.self.mousedown = true;
@@ -400,6 +500,11 @@ export class DrawingApp {
     // Only handle left-click release for drawing
     if (e.button !== 0) return;
 
+    // Process any remaining buffered input before ending stroke
+    if (this.inputBuffer.dirty) {
+      this.tick();
+    }
+
     if (!this.self.panning) {
       const tool = this.toolManager.getCurrentTool();
       if (tool) {
@@ -409,6 +514,9 @@ export class DrawingApp {
 
     this.self.mousedown = false;
     this.wsClient.broadcastMouseUp();
+
+    // Reset input buffer
+    this.inputBuffer.dirty = false;
   }
 
   handlePointerLeave(e) {

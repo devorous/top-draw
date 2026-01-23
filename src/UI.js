@@ -335,6 +335,7 @@ export class UI {
 
     const context = board.getContext('2d');
     context.lineCap = 'round';
+    context.lineJoin = 'round';
 
     return { board, context };
   }

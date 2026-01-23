@@ -285,14 +285,21 @@ export class RemoteUserHandler {
       image.src = gimpData.gimpUrl;
       gimpData.image = image;
       user.gBrush = gimpData;
-    } else if (gimpData.type === 'gih') {
+    } else if (gimpData.type === 'gih' && gimpData.gBrushes && gimpData.gBrushes.length > 0) {
       const images = gimpData.gBrushes.map(brush => {
         const img = new Image();
         img.src = brush.gimpUrl;
         return img;
       });
-      gimpData.index = 0;
       gimpData.images = images;
+      gimpData.index = 0;
+      // Ensure ncells matches the actual number of images
+      gimpData.ncells = images.length;
+      // Ensure cellwidth/cellheight are set (use first brush dimensions as fallback)
+      if (!gimpData.cellwidth && gimpData.gBrushes[0]) {
+        gimpData.cellwidth = gimpData.gBrushes[0].width || 32;
+        gimpData.cellheight = gimpData.gBrushes[0].height || 32;
+      }
       user.gBrush = gimpData;
     }
   }
