@@ -188,6 +188,15 @@ body {
   pointer-events: none;
 }
 
+#debugOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  pointer-events: none;
+  display: none;
+}
+
 .userBoard {
   pointer-events: none;
   position: absolute;
@@ -285,11 +294,20 @@ canvas {
 }
 
 .mirrorOption,
+.devOption,
 .zoomPercent {
   padding: 0 12px;
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
+}
+
+.devOption {
+  color: var(--text-muted);
+}
+
+.devOption.active {
+  color: var(--accent-primary);
 }
 
 .right {

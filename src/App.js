@@ -8,6 +8,7 @@ import { BrushGallery } from './BrushGallery.js';
 import { RemoteUserHandler } from './RemoteUserHandler.js';
 import { TouchHandler } from './TouchHandler.js';
 import { setupWebSocketHandlers } from './WebSocketHandlers.js';
+import { DebugOverlay } from './sync/index.js';
 
 /**
  * Main application class
@@ -45,6 +46,7 @@ export class DrawingApp {
     // Handlers initialized in init()
     this.remoteUserHandler = null;
     this.touchHandler = null;
+    this.debugOverlay = null;
 
     // Tick system for synchronized drawing (90 TPS = ~11ms)
     this.tickRate = 90;
@@ -75,6 +77,15 @@ export class DrawingApp {
     // Initialize handlers
     this.remoteUserHandler = new RemoteUserHandler(this);
     this.touchHandler = new TouchHandler(this);
+
+    // Initialize debug overlay for dev mode
+    this.debugOverlay = new DebugOverlay();
+    const debugCanvas = document.getElementById('debugOverlay');
+    console.log('[App] Debug overlay canvas element:', debugCanvas);
+    this.debugOverlay.init(debugCanvas, this.board.getWidth(), this.board.getHeight());
+
+    // Expose app globally for debugging
+    window.app = this;
 
     this.setupEventListeners();
     setupWebSocketHandlers(this);
@@ -131,6 +142,7 @@ export class DrawingApp {
     elements.clearBtn.addEventListener('click', () => this.handleClear());
     elements.resetBtn.addEventListener('click', () => this.handleResetBoard());
     elements.mirrorBtn.addEventListener('click', () => this.handleToggleMirror());
+    elements.devBtn.addEventListener('click', () => this.handleToggleDevMode());
     elements.plusBtn.addEventListener('click', () => this.handleZoomIn());
     elements.minusBtn.addEventListener('click', () => this.handleZoomOut());
     elements.saveBtn.addEventListener('click', () => this.board.saveAsImage());
@@ -344,6 +356,13 @@ export class DrawingApp {
     this.wsClient.broadcastMirror();
   }
 
+  handleToggleDevMode() {
+    console.log('[App] handleToggleDevMode called');
+    const enabled = this.debugOverlay.toggle();
+    this.ui.updateDevModeDisplay(enabled);
+    console.log('[App] Dev mode now:', enabled);
+  }
+
   handleZoomIn() {
     const cursorPos = this.isOnBoard ? { x: this.self.x, y: this.self.y } : null;
     this.board.zoomIn(0.1, cursorPos);
@@ -428,6 +447,11 @@ export class DrawingApp {
       this.inputBuffer.movement.x += e.movementX;
       this.inputBuffer.movement.y += e.movementY;
     }
+
+    // Track drawing for debug overlay (pass brush size and user info)
+    if (this.self.mousedown && !this.self.panning) {
+      this.debugOverlay.addDrawingPoint(x, y, this.self.size, this.self.id);
+    }
   }
 
   handlePointerDown(e) {
@@ -486,6 +510,9 @@ export class DrawingApp {
           }
         }
       }
+
+      // Start tracking for debug overlay (pass tool type, brush size, and user info)
+      this.debugOverlay.startDrawing(pos.x, pos.y, this.self.tool, this.self.size, this.self.id, this.self.username);
     }
   }
 
@@ -510,6 +537,9 @@ export class DrawingApp {
       if (tool) {
         tool.onPointerUp(this.self, { x: this.self.x, y: this.self.y }, e);
       }
+
+      // End tracking for debug overlay
+      this.debugOverlay.endDrawing(this.self.id);
     }
 
     this.self.mousedown = false;
@@ -610,6 +640,9 @@ export class DrawingApp {
     // Clear the top canvas AFTER all tool state is reset
     // This ensures no residual preview remains
     this.board.clearTop();
+
+    // Cancel debug overlay tracking
+    this.debugOverlay.cancelDrawing(this.self.id);
 
     this.wsClient.broadcastCancel();
   }

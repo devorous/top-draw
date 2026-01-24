@@ -56,6 +56,10 @@ export class UI {
       zoomPercent: document.querySelector('.zoomPercent'),
       mirrorText: document.querySelector('.mirrorOption'),
 
+      devBtn: document.getElementById('devBtn'),
+      devText: document.querySelector('.devOption'),
+      debugOverlay: document.getElementById('debugOverlay'),
+
       chatBtn: document.getElementById('chatBtn'),
       chatResetBtn: document.getElementById('chatResetBtn'),
       saveBtn: document.getElementById('saveBtn'),
@@ -210,6 +214,11 @@ export class UI {
 
   updateMirrorDisplay(enabled) {
     this.elements.mirrorText.textContent = enabled ? 'ON' : 'OFF';
+  }
+
+  updateDevModeDisplay(enabled) {
+    this.elements.devText.textContent = enabled ? 'ON' : 'OFF';
+    this.elements.devText.classList.toggle('active', enabled);
   }
 
   updateSelfColor(color) {

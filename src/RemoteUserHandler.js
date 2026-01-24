@@ -17,6 +17,7 @@ export class RemoteUserHandler {
   get ui() { return this.app.ui; }
   get users() { return this.app.users; }
   get sessionIndex() { return this.app.sessionIndex; }
+  get debugOverlay() { return this.app.debugOverlay; }
 
   /**
    * Start the animation loop for remote user selections
@@ -79,6 +80,11 @@ export class RemoteUserHandler {
     const pos = { x: user.x, y: user.y };
 
     this.ui.updateRemoteCursor(user.id, user.x, user.y, user.size);
+
+    // Track drawing point for debug overlay
+    if (!user.panning && user.mousedown && this.debugOverlay) {
+      this.debugOverlay.addDrawingPoint(pos.x, pos.y, user.size, user.id);
+    }
 
     if (!user.panning && user.mousedown) {
       // Clear the remote user's specific top/preview layer before drawing frame-based tools
@@ -182,6 +188,11 @@ export class RemoteUserHandler {
     const pos = { x: user.x, y: user.y };
     // Essential for all shape tools and selection
     user.startPos = pos;
+
+    // Track region for debug overlay (if not panning)
+    if (!user.panning && this.debugOverlay) {
+      this.debugOverlay.startDrawing(pos.x, pos.y, user.tool, user.size, user.id, user.username);
+    }
 
     switch (user.tool) {
       case 'brush':
@@ -304,6 +315,11 @@ export class RemoteUserHandler {
         break;
     }
 
+    // End drawing tracking for debug overlay
+    if (this.debugOverlay) {
+      this.debugOverlay.endDrawing(user.id);
+    }
+
     // Cleanup
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     user.clearLine();
@@ -392,6 +408,11 @@ export class RemoteUserHandler {
   }
 
   handleCancel(user) {
+    // Cancel debug overlay tracking
+    if (this.debugOverlay) {
+      this.debugOverlay.cancelDrawing(user.id);
+    }
+
     // Clear any in-progress drawing
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     user.clearLine();
