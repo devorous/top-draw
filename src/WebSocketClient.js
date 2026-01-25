@@ -13,16 +13,16 @@ const T = {
 
 // Tool enum matching proto
 const Tool = { 
-  BRUSH: 0, TEXT: 1, ERASE: 2, GIMP: 3,
+  BRUSH: 0, TEXT: 1, ERASE: 2, IMAGE_BRUSH: 3,
   SELECT: 4, PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8 
 };
 
 const ToolNames = [
-  'brush', 'text', 'erase', 'gimp',
+  'brush', 'text', 'erase', 'imageBrush',
   'select', 'pen', 'line', 'rectangle', 'circle'
 ];
 const ToolToEnum = { 
-  brush: 0, text: 1, erase: 2, gimp: 3,
+  brush: 0, text: 1, erase: 2, imageBrush: 3,
   select: 4, pen: 5, line: 6, rectangle: 7, circle: 8 
 };
 
@@ -223,7 +223,7 @@ export class WebSocketClient {
         break;
 
       case T.GMP:
-        this.emit('gmp', { sessionIndex: data.u, gimpData: data.g });
+        this.emit('gmp', { sessionIndex: data.u, brushData: data.g });
         break;
 
       case T.PAN:
@@ -355,8 +355,8 @@ export class WebSocketClient {
     this.send({ t: T.MSG, g: message });
   }
 
-  broadcastGimp(gimpData) {
-    this.send({ t: T.GMP, g: JSON.stringify(gimpData) });
+  broadcastBrush(brushData) {
+    this.send({ t: T.GMP, g: JSON.stringify(brushData) });
   }
 
 /**

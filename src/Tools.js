@@ -205,11 +205,11 @@ export class TextTool extends Tool {
 }
 
 /**
- * GIMP brush tool
+ * Image brush tool - supports GIMP brushes (.gbr/.gih) and standard images (.png/.jpg/.webp)
  */
-export class GimpTool extends Tool {
+export class ImageBrushTool extends Tool {
   constructor(board) {
-    super('gimp', board);
+    super('imageBrush', board);
     this.lastPos = null;
     this.lastTime = null;
   }
@@ -219,52 +219,57 @@ export class GimpTool extends Tool {
   }
 
   onPointerDown(user, pos) {
-    if (user.gBrush) {
+    if (user.imageBrush) {
       this.lastPos = { x: pos.x, y: pos.y };
       this.lastTime = performance.now();
       // Reset GIH brush dimensions on new stroke
-      if (user.gBrush.type === 'gih' && user.gBrush.reset) {
-        user.gBrush.reset();
+      if (user.imageBrush.type === 'gih' && user.imageBrush.reset) {
+        user.imageBrush.reset();
       }
       this.draw(user, pos);
     }
   }
 
   onPointerMove(user, pos) {
-    if (!user.mousedown || user.panning || !user.gBrush) return;
+    if (!user.mousedown || user.panning || !user.imageBrush) return;
     this.draw(user, pos);
   }
 
   draw(user, pos) {
-    
+
     user.spaceIndex = (user.spaceIndex + 1) % user.spacing;
 
-    const gBrush = user.gBrush;
+    const brush = user.imageBrush;
     const size = user.size;
     const ctx = this.board.mainCtx;
 
     let height, width, image;
 
-    if (gBrush.type === 'gbr') {
-      height = gBrush.height;
-      width = gBrush.width;
-      image = gBrush.image;
-    } else if (gBrush.type === 'gih') {
-      height = gBrush.cellheight;
-      width = gBrush.cellwidth;
+    if (brush.type === 'gbr') {
+      height = brush.height;
+      width = brush.width;
+      image = brush.image;
+    } else if (brush.type === 'gih') {
+      height = brush.cellheight;
+      width = brush.cellwidth;
 
       // Calculate context for selection modes
       const context = this.calculateContext(user, pos);
 
       // Use the new getNextBrush method if available
-      if (gBrush.getNextBrush) {
-        const result = gBrush.getNextBrush(context);
-        image = gBrush.images[result.index];
+      if (brush.getNextBrush) {
+        const result = brush.getNextBrush(context);
+        image = brush.images[result.index];
       } else {
         // Fallback to old incremental behavior
-        image = gBrush.images[gBrush.index];
-        gBrush.index = (gBrush.index + 1) % gBrush.ncells;
+        image = brush.images[brush.index];
+        brush.index = (brush.index + 1) % brush.ncells;
       }
+    } else if (brush.type === 'image') {
+      // Handle standard image formats (PNG, JPG, WebP)
+      height = brush.height;
+      width = brush.width;
+      image = brush.image;
     }
 
     // Update last position and time for next calculation
@@ -327,10 +332,41 @@ export class GimpTool extends Tool {
   }
 
   loadBrush(file, user) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const fileType = file.name.split('.').pop().toLowerCase();
-      const reader = new FileReader();
 
+      // Handle standard image formats (PNG, JPG, WebP)
+      if (['png', 'jpg', 'jpeg', 'webp'].includes(fileType)) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const imageUrl = reader.result;
+          const image = new Image();
+
+          image.onload = () => {
+            const brushObject = {
+              type: 'image',
+              fileName: file.name,
+              imageFormat: fileType,
+              brushName: file.name.replace(/\.[^/.]+$/, ''),
+              gimpUrl: imageUrl,
+              width: image.width,
+              height: image.height,
+              image: image
+            };
+            user.imageBrush = brushObject;
+            resolve(brushObject);
+          };
+
+          image.onerror = () => reject(new Error('Failed to load image'));
+          image.src = imageUrl;
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsDataURL(file);
+        return;
+      }
+
+      // Handle GIMP brush formats
+      const reader = new FileReader();
       reader.onload = () => {
         const arrayBuffer = reader.result;
 
@@ -341,7 +377,7 @@ export class GimpTool extends Tool {
             const image = new Image();
             image.src = gbrObject.gimpUrl;
             gbrObject.image = image;
-            user.gBrush = gbrObject;
+            user.imageBrush = gbrObject;
             resolve(gbrObject);
           }
         } else if (fileType === 'gih') {
@@ -354,12 +390,13 @@ export class GimpTool extends Tool {
             });
             gihObject.type = 'gih';
             gihObject.images = images;
-            user.gBrush = gihObject;
+            user.imageBrush = gihObject;
             resolve(gihObject);
           }
         }
       };
 
+      reader.onerror = () => reject(new Error('Failed to read file'));
       reader.readAsArrayBuffer(file);
     });
   }
@@ -1769,7 +1806,7 @@ export class ToolManager {
       circle: new CircleTool(board),
       erase: new EraserTool(board),
       text: new TextTool(board),
-      gimp: new GimpTool(board)
+      imageBrush: new ImageBrushTool(board)
     };
     this.currentTool = null;
   }

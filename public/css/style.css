@@ -401,13 +401,13 @@ canvas {
   filter: brightness(0) saturate(100%) invert(0) sepia(52%) saturate(1000%) hue-rotate(115deg) brightness(95%) contrast(101%);
 }
 
-#gimpBtn img {
+#imageBrushBtn img {
   filter: none;
   opacity: 0.7;
 }
 
-#gimpBtn:hover img,
-#gimpBtn.selected img {
+#imageBrushBtn:hover img,
+#imageBrushBtn.selected img {
   opacity: 1;
 }
 
@@ -563,10 +563,10 @@ canvas {
 }
 
 /* ========================================
-   GIMP Brush Options
+   Image Brush Options
    ======================================== */
 
-#gimp-file-input {
+#brush-file-input {
   padding: 8px;
   font-size: 12px;
   color: var(--text-secondary);
@@ -577,11 +577,11 @@ canvas {
   margin-top: 8px;
 }
 
-#gimp-file-input:hover {
+#brush-file-input:hover {
   border-color: var(--accent-primary);
 }
 
-#gimpImage {
+#brushImage {
   width: 100%;
   max-width: 120px;
   height: auto;

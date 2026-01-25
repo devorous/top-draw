@@ -178,11 +178,11 @@ export function setupWebSocketHandlers(app) {
     }
   });
 
-  // GIMP brush
+  // Image brush (GIMP brushes and standard images)
   wsClient.on('gmp', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.handleGimpLoad(user, data.gimpData);
+      remoteUserHandler.handleBrushLoad(user, data.brushData);
     }
   });
 

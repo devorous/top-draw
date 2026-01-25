@@ -46,7 +46,7 @@ export class UI {
       circleBtn: document.getElementById('circleBtn'),
       textBtn: document.getElementById('textBtn'),
       eraseBtn: document.getElementById('eraseBtn'),
-      gimpBtn: document.getElementById('gimpBtn'),
+      imageBrushBtn: document.getElementById('imageBrushBtn'),
 
       clearBtn: document.getElementById('clearBtn'),
       resetBtn: document.getElementById('resetBtn'),
@@ -68,9 +68,9 @@ export class UI {
       spacingSlider: document.querySelector('.slider.spacing'),
       pressureSlider: document.querySelector('.slider.pressure'),
 
-      gimpFileInput: document.getElementById('gimp-file-input'),
-      gimpImage: document.getElementById('gimpImage'),
-      gimpSpacing: document.getElementById('gimp-spacing'),
+      brushFileInput: document.getElementById('brush-file-input'),
+      brushImage: document.getElementById('brushImage'),
+      brushSpacing: document.getElementById('brush-spacing'),
 
       colorPicker: document.getElementById('colorPicker'),
 
@@ -96,7 +96,7 @@ export class UI {
       circle: this.createIcon('images/circle-icon.svg'),
       text: this.createIcon('images/text-icon.svg'),
       erase: this.createIcon('images/eraser-icon.svg'),
-      gimp: this.createIcon('images/pepper.png')
+      imageBrush: this.createIcon('images/pepper.png')
     };
   }
 
@@ -142,15 +142,15 @@ export class UI {
   }
 
   updateToolDisplay(tool) {
-    const { selfCircle, selfSquare, selfCrosshair, selfText, gimpImage, gimpFileInput, gimpSpacing } = this.elements;
+    const { selfCircle, selfSquare, selfCrosshair, selfText, brushImage, brushFileInput, brushSpacing } = this.elements;
 
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
     selfCrosshair.style.display = 'none';
     selfText.style.display = 'none';
-    gimpImage.style.display = 'none';
-    gimpFileInput.style.display = 'none';
-    gimpSpacing.style.display = 'none';
+    brushImage.style.display = 'none';
+    brushFileInput.style.display = 'none';
+    brushSpacing.style.display = 'none';
 
     switch (tool) {
       case 'select':
@@ -169,11 +169,11 @@ export class UI {
       case 'erase':
         selfCircle.style.display = 'block';
         break;
-      case 'gimp':
+      case 'imageBrush':
         selfSquare.style.display = 'block';
-        // gimpImage is shown only when a brush is selected (via setGimpPreview)
-        gimpFileInput.style.display = 'block';
-        gimpSpacing.style.display = 'block';
+        // brushImage is shown only when a brush is selected (via setBrushPreview)
+        brushFileInput.style.display = 'block';
+        brushSpacing.style.display = 'block';
         break;
     }
 
@@ -190,7 +190,7 @@ export class UI {
       circle: this.elements.circleBtn,
       text: this.elements.textBtn,
       erase: this.elements.eraseBtn,
-      gimp: this.elements.gimpBtn
+      imageBrush: this.elements.imageBrushBtn
     };
 
     Object.values(buttons).forEach(btn => btn.classList.remove('selected'));
@@ -239,9 +239,9 @@ export class UI {
     this.elements.selfText.style.color = `rgba(${color.join(',')})`;
   }
 
-  setGimpPreview(url) {
-    this.elements.gimpImage.src = url;
-    this.elements.gimpImage.style.display = 'block';
+  setBrushPreview(url) {
+    this.elements.brushImage.src = url;
+    this.elements.brushImage.style.display = 'block';
   }
 
   createRemoteUser(userId, userData) {
@@ -270,7 +270,7 @@ export class UI {
     square.setAttribute('height', userData.size * 2);
     square.setAttribute('width', userData.size * 2);
 
-    if (userData.tool !== 'gimp') {
+    if (userData.tool !== 'imageBrush') {
       square.style.display = 'none';
     }
 
@@ -430,7 +430,7 @@ export class UI {
       case 'text':
         if (text) text.style.display = 'block';
         break;
-      case 'gimp':
+      case 'imageBrush':
         if (square) square.style.display = 'block';
         break;
     }

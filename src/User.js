@@ -22,7 +22,7 @@ export class User {
     this.username = options.username || '';
     this.context = options.context || null;
     this.board = options.board || null;
-    this.gBrush = null;
+    this.imageBrush = null;
     this.blendMode = options.blendMode || 'source-over';
     this.currentLine = [];
     this.lineLength = 0;

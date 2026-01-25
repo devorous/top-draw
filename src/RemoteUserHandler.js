@@ -114,9 +114,9 @@ export class RemoteUserHandler {
             }
             break;
 
-          case 'gimp':
-            if (user.gBrush) {
-              this.toolManager.getTool('gimp').draw(user, pos);
+          case 'imageBrush':
+            if (user.imageBrush) {
+              this.toolManager.getTool('imageBrush').draw(user, pos);
             }
             break;
 
@@ -145,8 +145,8 @@ export class RemoteUserHandler {
     if (!user.panning && user.mousedown) {
       const pos = { x: finalX, y: finalY };
 
-      // Shape tools only need final position for preview
-      const needsClear = ['line', 'rectangle', 'circle', 'select'].includes(user.tool);
+      // Shape tools and eraser need their preview canvas cleared
+      const needsClear = ['line', 'rectangle', 'circle', 'select', 'erase'].includes(user.tool);
       if (needsClear) {
         user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
       }
@@ -253,13 +253,13 @@ export class RemoteUserHandler {
         }
         break;
 
-      case 'gimp':
-        if (user.gBrush && !user.panning) {
-          // Reset GIH brush dimensions on new stroke (like local GimpTool.onPointerDown)
-          if (user.gBrush.type === 'gih' && user.gBrush.reset) {
-            user.gBrush.reset();
+      case 'imageBrush':
+        if (user.imageBrush && !user.panning) {
+          // Reset GIH brush dimensions on new stroke (like local ImageBrushTool.onPointerDown)
+          if (user.imageBrush.type === 'gih' && user.imageBrush.reset) {
+            user.imageBrush.reset();
           }
-          this.toolManager.getTool('gimp').draw(user, pos);
+          this.toolManager.getTool('imageBrush').draw(user, pos);
         }
         break;
 
@@ -393,41 +393,41 @@ export class RemoteUserHandler {
     this.ui.updateRemoteText(user.id, user.text);
   }
 
-  handleGimpLoad(user, gimpDataStr) {
+  handleBrushLoad(user, brushDataStr) {
     // Parse JSON string from protobuf transport
-    const gimpData = typeof gimpDataStr === 'string' ? JSON.parse(gimpDataStr) : gimpDataStr;
+    const brushData = typeof brushDataStr === 'string' ? JSON.parse(brushDataStr) : brushDataStr;
 
-    if (gimpData.type === 'gbr') {
+    if (brushData.type === 'gbr' || brushData.type === 'image') {
       const image = new Image();
-      image.src = gimpData.gimpUrl;
-      gimpData.image = image;
-      user.gBrush = gimpData;
-    } else if (gimpData.type === 'gih' && gimpData.gBrushes && gimpData.gBrushes.length > 0) {
-      const images = gimpData.gBrushes.map(brush => {
+      image.src = brushData.gimpUrl;
+      brushData.image = image;
+      user.imageBrush = brushData;
+    } else if (brushData.type === 'gih' && brushData.gBrushes && brushData.gBrushes.length > 0) {
+      const images = brushData.gBrushes.map(brush => {
         const img = new Image();
         img.src = brush.gimpUrl;
         return img;
       });
-      gimpData.images = images;
-      gimpData.index = 0;
+      brushData.images = images;
+      brushData.index = 0;
       // Ensure ncells matches the actual number of images
-      gimpData.ncells = images.length;
+      brushData.ncells = images.length;
       // Ensure cellwidth/cellheight are set (use first brush dimensions as fallback)
-      if (!gimpData.cellwidth && gimpData.gBrushes[0]) {
-        gimpData.cellwidth = gimpData.gBrushes[0].width || 32;
-        gimpData.cellheight = gimpData.gBrushes[0].height || 32;
+      if (!brushData.cellwidth && brushData.gBrushes[0]) {
+        brushData.cellwidth = brushData.gBrushes[0].width || 32;
+        brushData.cellheight = brushData.gBrushes[0].height || 32;
       }
 
       // Recreate the getNextBrush and reset functions that were lost during JSON serialization
       // These are needed for proper animation playback on remote clients
-      if (gimpData.dimensions && gimpData.dimensions.length > 0) {
+      if (brushData.dimensions && brushData.dimensions.length > 0) {
         // Reset dimension indices
-        for (const dim of gimpData.dimensions) {
+        for (const dim of brushData.dimensions) {
           dim.currentIndex = 0;
         }
 
         // Recreate getNextBrush function using the imported helper
-        gimpData.getNextBrush = function(context) {
+        brushData.getNextBrush = function(context) {
           const idx = getNextBrushIndex(this, context);
           return {
             brush: this.gBrushes[idx],
@@ -436,14 +436,14 @@ export class RemoteUserHandler {
         };
 
         // Recreate reset function
-        gimpData.reset = function() {
+        brushData.reset = function() {
           for (const dim of this.dimensions) {
             dim.currentIndex = 0;
           }
         };
       }
 
-      user.gBrush = gimpData;
+      user.imageBrush = brushData;
     }
   }
 

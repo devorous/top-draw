@@ -23,7 +23,7 @@ const NEW_REGION_DISTANCE = 100;
 const POINT_SAMPLE_DISTANCE = 5;
 
 // Tools that create regions (brush-type tools)
-const REGION_TOOLS = ['brush', 'pen', 'gimp'];
+const REGION_TOOLS = ['brush', 'pen', 'imageBrush'];
 
 // Tools that will subtract from regions (future feature)
 const ERASER_TOOLS = ['erase'];

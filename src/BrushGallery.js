@@ -62,13 +62,13 @@ export class BrushGallery {
       throw new Error(`Failed to fetch ${filePath}`);
     }
 
-    const arrayBuffer = await response.arrayBuffer();
     const fileName = filePath.split('/').pop();
     const fileType = fileName.split('.').pop().toLowerCase();
 
     let brushData = null;
 
     if (fileType === 'gbr') {
+      const arrayBuffer = await response.arrayBuffer();
       brushData = parseGbr(arrayBuffer);
       if (brushData) {
         brushData.type = 'gbr';
@@ -79,6 +79,7 @@ export class BrushGallery {
         brushData.image = image;
       }
     } else if (fileType === 'gih') {
+      const arrayBuffer = await response.arrayBuffer();
       brushData = parseGih(arrayBuffer);
       if (brushData) {
         brushData.type = 'gih';
@@ -91,6 +92,35 @@ export class BrushGallery {
         });
         brushData.images = images;
       }
+    } else if (['png', 'jpg', 'jpeg', 'webp'].includes(fileType)) {
+      // Handle standard image formats
+      const blob = await response.blob();
+      const imageUrl = URL.createObjectURL(blob);
+
+      // Create a simple brush object compatible with the gimp tool
+      brushData = {
+        type: 'image',
+        fileName: fileName,
+        imageFormat: fileType,
+        // Use filename without extension as brush name
+        brushName: fileName.replace(/\.[^/.]+$/, ''),
+        gimpUrl: imageUrl,
+        width: 0, // Will be set after image loads
+        height: 0
+      };
+
+      // Load image to get dimensions
+      const image = new Image();
+      await new Promise((resolve, reject) => {
+        image.onload = () => {
+          brushData.width = image.width;
+          brushData.height = image.height;
+          resolve();
+        };
+        image.onerror = reject;
+        image.src = imageUrl;
+      });
+      brushData.image = image;
     }
 
     return brushData;
@@ -105,6 +135,8 @@ export class BrushGallery {
     // Use the first brush image as thumbnail
     if (brush.type === 'gih' && brush.gBrushes && brush.gBrushes.length > 0) {
       img.src = brush.gBrushes[0].gimpUrl;
+    } else if (brush.type === 'image' || brush.type === 'gbr') {
+      img.src = brush.gimpUrl;
     } else {
       img.src = brush.gimpUrl;
     }

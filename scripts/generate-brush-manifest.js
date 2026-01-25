@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Generates a manifest of all .gbr and .gih brush files in public/brushes
+ * Generates a manifest of all brush files in public/brushes
+ * Supports: .gbr, .gih (GIMP), .png, .jpg, .jpeg, .webp (standard images)
  * Run this script whenever you add or remove brushes from the folder.
  *
  * Usage: node scripts/generate-brush-manifest.js
@@ -24,11 +25,11 @@ function generateManifest() {
     process.exit(1);
   }
 
-  // Get all .gbr and .gih files
+  // Get all brush files (.gbr, .gih, and standard image formats)
   const files = fs.readdirSync(BRUSHES_DIR)
     .filter(file => {
       const ext = path.extname(file).toLowerCase();
-      return ext === '.gbr' || ext === '.gih';
+      return ext === '.gbr' || ext === '.gih' || ext === '.png' || ext === '.jpg' || ext === '.jpeg' || ext === '.webp';
     })
     .sort();
 

@@ -154,8 +154,8 @@
           <a class="tool btn" id="eraseBtn" title="Eraser (E)">
             <img src="/images/eraser-icon.svg" alt="Eraser">
           </a>
-          <a class="tool btn" id="gimpBtn" title="GIMP Brush (G)">
-            <img src="/images/pepper.png" alt="GIMP Brush">
+          <a class="tool btn" id="imageBrushBtn" title="Image Brush (G)">
+            <img src="/images/pepper.png" alt="Image Brush">
           </a>
         </div>
 
@@ -184,13 +184,13 @@
                 <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider pressure">
               </div>
 
-              <div class="sliderContainer" id="gimp-spacing" style="display: none;">
+              <div class="sliderContainer" id="brush-spacing" style="display: none;">
                 <label>Brush Spacing</label>
                 <input autocomplete="off" type="range" min="0" max="20" value="0" class="slider spacing">
               </div>
 
-              <input autocomplete="off" type="file" id="gimp-file-input" accept=".gih,.gbr" style="display: none;">
-              <img id="gimpImage" alt="Brush preview" style="display: none;">
+              <input autocomplete="off" type="file" id="brush-file-input" accept=".gih,.gbr,.png,.jpg,.jpeg,.webp" style="display: none;">
+              <img id="brushImage" alt="Brush preview" style="display: none;">
 
               <div id="brushGallery" style="display: none;">
                 <label>Brush Gallery</label>

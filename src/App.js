@@ -137,7 +137,7 @@ export class DrawingApp {
     elements.circleBtn.addEventListener('click', () => this.selectTool('circle'));
     elements.textBtn.addEventListener('click', () => this.selectTool('text'));
     elements.eraseBtn.addEventListener('click', () => this.selectTool('erase'));
-    elements.gimpBtn.addEventListener('click', () => this.selectTool('gimp'));
+    elements.imageBrushBtn.addEventListener('click', () => this.selectTool('imageBrush'));
 
     elements.clearBtn.addEventListener('click', () => this.handleClear());
     elements.resetBtn.addEventListener('click', () => this.handleResetBoard());
@@ -152,7 +152,7 @@ export class DrawingApp {
 
     elements.sizeSlider.addEventListener('input', (e) => this.handleSizeChange(e));
     elements.spacingSlider.addEventListener('input', (e) => this.handleSpacingChange(e));
-    elements.gimpFileInput.addEventListener('change', (e) => this.handleGimpFileLoad(e));
+    elements.brushFileInput.addEventListener('change', (e) => this.handleBrushFileLoad(e));
 
     elements.board.addEventListener('pointermove', (e) => this.handlePointerMove(e));
     elements.board.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
@@ -321,8 +321,8 @@ export class DrawingApp {
     this.ui.updateToolDisplay(tool);
     this.wsClient.broadcastToolChange(tool);
 
-    // Show/hide brush gallery for gimp tool
-    if (tool === 'gimp') {
+    // Show/hide brush gallery for imageBrush tool
+    if (tool === 'imageBrush') {
       this.brushGallery.show();
     } else {
       this.brushGallery.hide();
@@ -331,17 +331,17 @@ export class DrawingApp {
 
   handleBrushSelect(brush) {
     // Apply the selected brush to self
-    this.self.gBrush = brush;
+    this.self.imageBrush = brush;
 
     // Update the preview image
     if (brush.type === 'gih' && brush.gBrushes && brush.gBrushes.length > 0) {
-      this.ui.setGimpPreview(brush.gBrushes[0].gimpUrl);
+      this.ui.setBrushPreview(brush.gBrushes[0].gimpUrl);
     } else {
-      this.ui.setGimpPreview(brush.gimpUrl);
+      this.ui.setBrushPreview(brush.gimpUrl);
     }
 
     // Broadcast brush to other users
-    this.wsClient.broadcastGimp(brush);
+    this.wsClient.broadcastBrush(brush);
   }
 
   // Canvas controls
@@ -398,16 +398,16 @@ export class DrawingApp {
     this.wsClient.broadcastSpacingChange(spacing);
   }
 
-  async handleGimpFileLoad(e) {
+  async handleBrushFileLoad(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    const gimpTool = this.toolManager.getTool('gimp');
-    const gimpData = await gimpTool.loadBrush(file, this.self);
+    const brushTool = this.toolManager.getTool('imageBrush');
+    const brushData = await brushTool.loadBrush(file, this.self);
 
-    if (gimpData) {
-      this.ui.setGimpPreview(gimpData.gimpUrl || gimpData.gBrushes[0].gimpUrl);
-      this.wsClient.broadcastGimp(gimpData);
+    if (brushData) {
+      this.ui.setBrushPreview(brushData.gimpUrl || brushData.gBrushes[0].gimpUrl);
+      this.wsClient.broadcastBrush(brushData);
     }
   }
 
@@ -764,7 +764,7 @@ export class DrawingApp {
           this.selectTool('erase');
           break;
         case 'g':
-          this.selectTool('gimp');
+          this.selectTool('imageBrush');
           break;
       }
     }

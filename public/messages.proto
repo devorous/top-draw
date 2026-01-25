@@ -25,7 +25,7 @@ message Msg {
     CLR = 20;           // Clear canvas
     MIR = 21;           // Toggle mirror
     MSG = 22;           // Chat message
-    GMP = 23;           // GIMP brush
+    GMP = 23;           // Image brush (GIMP brushes and standard images)
     AFK = 24;           // AFK status change
     PAN = 25;           // Pan mode
     CANCEL = 26;        // Cancel current stroke
@@ -39,7 +39,7 @@ message Msg {
     BRUSH = 0;
     TEXT = 1;
     ERASE = 2;
-    GIMP = 3;
+    IMAGE_BRUSH = 3;
     SELECT = 4;
     PEN = 5;
     LINE = 6;
@@ -62,7 +62,7 @@ message Msg {
   bool m = 9;           // Mirror status
   string k = 10;        // Key pressed
   string n = 11;        // Name
-  string g = 12;        // Chat message or GIMP data (JSON)
+  string g = 12;        // Chat message or image brush data (JSON)
   
   // === Lower-frequency fields (16+ = 2-byte tags) ===
   uint32 sp = 16;       // Spacing * 100
