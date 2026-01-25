@@ -8,7 +8,8 @@ const T = {
   CONNECT: 0, USERS: 1, SETTINGS: 2, LEFT: 3,
   MM: 10, MD: 11, MU: 12, CP: 13, CS: 14, CT: 15, CC: 16,
   CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25, CANCEL: 26,
-  SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32
+  SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32,
+  SYNC_REQUEST: 40, SYNC_PROVIDE: 41, SYNC_CANVAS: 42, SYNC_COMPLETE: 43
 };
 
 // Tool enum matching proto
@@ -258,6 +259,25 @@ export class WebSocketClient {
       case T.SEL_COMMIT:
         this.emit('sel_commit', { sessionIndex: data.u });
         break;
+
+      case T.SYNC_PROVIDE:
+        // Server is asking us to provide our canvas for a new user
+        this.emit('sync_provide', {
+          targetUser: data.tu  // The user who needs the canvas
+        });
+        break;
+
+      case T.SYNC_CANVAS:
+        // Receiving canvas data (either from server forwarding, or direct)
+        this.emit('sync_canvas', {
+          sessionIndex: data.u,
+          imageData: data.img  // Uint8Array PNG data
+        });
+        break;
+
+      case T.SYNC_COMPLETE:
+        this.emit('sync_complete', {});
+        break;
     }
   }
 
@@ -393,6 +413,26 @@ broadcastSelectionMove(corners) {
  */
 broadcastSelectionCommit() {
   this.send({ t: T.SEL_COMMIT });
+}
+
+/**
+ * Request canvas sync (sent when joining)
+ */
+requestSync() {
+  this.send({ t: T.SYNC_REQUEST });
+}
+
+/**
+ * Send full canvas data to server (in response to SYNC_PROVIDE)
+ * @param {Uint8Array} imageData - PNG image data of full canvas
+ * @param {number} targetUser - The user who needs the canvas
+ */
+sendCanvasData(imageData, targetUser) {
+  this.send({
+    t: T.SYNC_CANVAS,
+    img: imageData,
+    tu: targetUser
+  });
 }
 
   disconnect() {

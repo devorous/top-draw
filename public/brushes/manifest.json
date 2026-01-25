@@ -3,11 +3,11 @@
   "count": 2,
   "brushes": [
     {
-      "file": "Dface.gbr",
+      "file": "pepper.gbr",
       "type": "gbr"
     },
     {
-      "file": "RainbowCircles.gih",
+      "file": "rainbowCircles.gih",
       "type": "gih"
     }
   ]

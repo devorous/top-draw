@@ -32,6 +32,12 @@ message Msg {
     SEL_LIFT = 30;
     SEL_MOVE = 31;
     SEL_COMMIT = 32;
+
+    // Sync types (40+)
+    SYNC_REQUEST = 40;   // New user requests canvas state
+    SYNC_PROVIDE = 41;   // Server asks existing user to provide canvas
+    SYNC_CANVAS = 42;    // Canvas data (PNG) being sent
+    SYNC_COMPLETE = 43;  // Sync complete
   }
 
   // Tool enum
@@ -89,4 +95,8 @@ message Msg {
   int32 sw = 20;        // Selection Width
   int32 sh = 21;        // Selection Height
   repeated float cr = 22; // Selection control region/points
+
+  // === Sync Fields ===
+  bytes img = 24;            // PNG image data (full canvas)
+  uint32 tu = 25;            // Target user for sync messages
 }

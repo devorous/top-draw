@@ -19,7 +19,8 @@ const T = {
   CONNECT: 0, USERS: 1, SETTINGS: 2, LEFT: 3,
   MM: 10, MD: 11, MU: 12, CP: 13, CS: 14, CT: 15, CC: 16,
   CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25, CANCEL: 26,
-  SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32
+  SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32,
+  SYNC_REQUEST: 40, SYNC_PROVIDE: 41, SYNC_CANVAS: 42, SYNC_COMPLETE: 43
 };
 
 // Tool enum matching proto
@@ -43,6 +44,9 @@ let nextSessionIndex = 0;
 const freedIndices = [];     // Reusable indices from disconnected users
 
 const boardSettings = { mirror: false };
+
+// Track pending sync requests: requestingUserIndex -> true
+const pendingSyncRequests = new Map();
 
 let Msg;
 
@@ -268,6 +272,67 @@ wss.on('connection', (ws, req) => {
           sendTo(ws, { t: T.SETTINGS, m: boardSettings.mirror });
           break;
 
+        case T.SYNC_REQUEST:
+          // New user wants canvas state - find an existing user to provide it
+          console.log(`[Sync] User ${ws.sessionIndex} requested sync`);
+
+          // Find another connected user to provide the canvas
+          let providerFound = false;
+          for (const [sessionIndex, userData] of users) {
+            if (sessionIndex !== ws.sessionIndex) {
+              // Found another user - ask them to provide canvas
+              console.log(`[Sync] Asking user ${sessionIndex} to provide canvas for user ${ws.sessionIndex}`);
+
+              // Track this pending request
+              pendingSyncRequests.set(ws.sessionIndex, true);
+
+              // Find the provider's WebSocket and send SYNC_PROVIDE
+              for (const client of wss.clients) {
+                if (client.sessionIndex === sessionIndex && client.readyState === WebSocket.OPEN) {
+                  sendTo(client, {
+                    t: T.SYNC_PROVIDE,
+                    tu: ws.sessionIndex  // Tell provider who needs the canvas
+                  });
+                  providerFound = true;
+                  break;
+                }
+              }
+              break;
+            }
+          }
+
+          if (!providerFound) {
+            // No other users - just send sync complete (empty canvas)
+            console.log(`[Sync] No other users, sending empty sync complete to user ${ws.sessionIndex}`);
+            sendTo(ws, { t: T.SYNC_COMPLETE });
+          }
+          break;
+
+        case T.SYNC_CANVAS:
+          // User is providing canvas data - forward to the target user
+          const targetUser = data.tu;
+          console.log(`[Sync] User ${ws.sessionIndex} providing canvas for user ${targetUser}`);
+
+          // Find the target user's WebSocket and forward the canvas
+          for (const client of wss.clients) {
+            if (client.sessionIndex === targetUser && client.readyState === WebSocket.OPEN) {
+              sendTo(client, {
+                t: T.SYNC_CANVAS,
+                u: ws.sessionIndex,
+                img: data.img
+              });
+
+              // Send sync complete to target
+              sendTo(client, { t: T.SYNC_COMPLETE });
+
+              // Clear pending request
+              pendingSyncRequests.delete(targetUser);
+              console.log(`[Sync] Canvas forwarded to user ${targetUser}, sync complete`);
+              break;
+            }
+          }
+          break;
+
         default:
           // All other messages are broadcasts
           if (ws.sessionIndex !== undefined) {
@@ -293,6 +358,7 @@ wss.on('connection', (ws, req) => {
 
       if (users.size === 0) {
         boardSettings.mirror = false;
+        pendingSyncRequests.clear();
       }
     }
   });

@@ -10,3 +10,5 @@ export {
 } from './ConvexHull.js';
 
 export { DebugOverlay } from './DebugOverlay.js';
+export { RegionTracker } from './RegionTracker.js';
+export { SyncClient } from './SyncClient.js';
