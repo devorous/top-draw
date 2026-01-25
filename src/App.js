@@ -56,7 +56,7 @@ export class DrawingApp {
 
     // Input buffer - stores latest pointer state between ticks
     this.inputBuffer = {
-      position: null,      // { x, y } - latest pointer position
+      points: [],      // Array of [x1, y1, x2, y2, ...]
       lastPosition: null,  // { x, y } - previous position for interpolation
       pressure: 1,
       pointerType: 'mouse',
@@ -237,7 +237,7 @@ export class DrawingApp {
     // Only process if we have new input data
     if (!this.inputBuffer.dirty) return;
 
-    const { position, lastPosition, pressure, movement } = this.inputBuffer;
+    const { points, movement } = this.inputBuffer;
 
     // Handle panning movement
     if (this.self.panning && this.self.mousedown && (movement.x !== 0 || movement.y !== 0)) {
@@ -246,33 +246,39 @@ export class DrawingApp {
     }
 
     // Process drawing if we have position data
-    if (position) {
-      const x = position.x;
-      const y = position.y;
-      const lastX = lastPosition ? lastPosition.x : x;
-      const lastY = lastPosition ? lastPosition.y : y;
+    if (points.length >= 2) {
+      // 1. Update self state with the LATEST point in the batch
+      const lastX = points[points.length - 2];
+      const lastY = points[points.length - 1];
+      this.self.setPosition(lastX, lastY);
 
-      // Update self position
-      this.self.setPosition(x, y);
-      this.ui.updateSelfCursor(x, y, this.self.size);
+      // 2. Broadcast the entire batch
+      this.wsClient.broadcastMove(points);
 
-      // Broadcast position
-      this.wsClient.broadcastMouseMove(x, y, lastX, lastY);
-
-      // Process tool input if drawing
+      // 3. Process locally for immediate feedback
       if (this.self.mousedown && !this.self.panning) {
         const tool = this.toolManager.getCurrentTool();
         if (tool) {
-          tool.onPointerMove(this.self, { x, y }, { x: lastX, y: lastY });
+          // We iterate through the batch locally so the drawer sees smooth lines
+          for (let i = 0; i < points.length; i += 2) {
+              const currentPos = { x: points[i], y: points[i+1] };
+              const prevPos = i === 0 ? (this.inputBuffer.lastPosition || currentPos) : { x: points[i-2], y: points[i-1] };
+              tool.onPointerMove(this.self, currentPos, prevPos);
+
+              // Debug: Track each point processed locally
+              this.debugOverlay.addStrokePoint(this.self.id, currentPos.x, currentPos.y, 'tick');
+          }
         }
       }
 
-      // Update last position for next tick
-      this.inputBuffer.lastPosition = { x, y };
+      this.inputBuffer.lastPosition = { x: lastX, y: lastY };
     }
 
+    // Clear points for next tick
+    this.inputBuffer.points = [];
     this.inputBuffer.dirty = false;
   }
+
 
   startOfflineMode() {
     // Set up offline mode - no server connection needed
@@ -437,8 +443,8 @@ export class DrawingApp {
       }
     }
 
-    // Buffer the input for tick processing
-    this.inputBuffer.position = { x, y };
+    // Buffer the input for processing
+    this.inputBuffer.points.push(x, y);
     this.inputBuffer.pointerType = e.pointerType;
     this.inputBuffer.dirty = true;
 
@@ -492,6 +498,7 @@ export class DrawingApp {
     this.self.lasty = this.self.y;
     this.self.mousedown = true;
     this.self.spaceIndex = 0;
+    this.self._mainCtxDrawCount = 0; // Reset draw counter for this stroke
 
     this.wsClient.broadcastMouseDown();
 
@@ -499,6 +506,10 @@ export class DrawingApp {
       const tool = this.toolManager.getCurrentTool();
       if (tool) {
         tool.onPointerDown(this.self, pos, e);
+
+        // Debug: Start tracking stroke points for local user
+        this.debugOverlay.startStrokeTracking(this.self.id, true);
+        this.debugOverlay.addStrokePoint(this.self.id, pos.x, pos.y, 'pointerDown');
 
         // If text tool was used to commit text, update UI to clear the text display
         if (this.self.tool === 'text') {
@@ -540,6 +551,12 @@ export class DrawingApp {
 
       // End tracking for debug overlay
       this.debugOverlay.endDrawing(this.self.id);
+
+      // Debug: End stroke tracking for local user
+      this.debugOverlay.endStrokeTracking(this.self.id);
+
+      // Debug: Log total mainCtx draws for this stroke
+      console.log(`[DrawDebug] LOCAL user=${this.self.id} STROKE END - total mainCtx draws: ${this.self._mainCtxDrawCount || 0}`);
     }
 
     this.self.mousedown = false;

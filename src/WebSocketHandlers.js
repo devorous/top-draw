@@ -67,9 +67,8 @@ export function setupWebSocketHandlers(app) {
   // Mouse move
   wsClient.on('mm', (data) => {
     const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.handleMouseMove(user, data);
-    }
+    if (!user || !data.ps || data.ps.length < 2) return;
+    remoteUserHandler.handleMouseMove(user, data);
   });
 
   // Mouse down

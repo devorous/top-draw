@@ -151,11 +151,14 @@ function handleBroadcast(data, sessionIndex) {
 
   switch (data.t) {
     case T.MM:
-      user.x = data.x;
-      user.y = data.y;
-      // Reconstruct last positions from deltas
-      user.lastx = data.x - (data.dx || 0);
-      user.lasty = data.y - (data.dy || 0);
+      if (data.ps && data.ps.length >= 2) {
+        // Update user state to the LAST point in the batch for continuity
+        const len = data.ps.length;
+        user.lastx = user.x; // Old position is now last
+        user.lasty = user.y;
+        user.x = data.ps[len - 2]; // Second to last element is X
+        user.y = data.ps[len - 1]; // Last element is Y
+      }
       updateUserActivity(sessionIndex);
       break;
     case T.MD:

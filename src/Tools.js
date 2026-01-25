@@ -55,6 +55,9 @@ export class BrushTool extends Tool {
   onPointerUp(user) {
     if (user.panning) return;
 
+    // Clear preview FIRST to prevent composite boldness
+    this.board.clearTop();
+
     this.drawLineArray(user.currentLine, this.board.mainCtx, user);
 
     if (this.board.mirror) {
@@ -62,7 +65,6 @@ export class BrushTool extends Tool {
       this.drawLineArray(mirrored, this.board.mainCtx, user);
     }
 
-    this.board.clearTop();
     user.clearLine();
   }
 
@@ -73,8 +75,21 @@ export class BrushTool extends Tool {
   drawLineArray(points, ctx, user) {
     if (points.length === 0) return;
 
+    // Debug: Track draws to mainCtx
+    const isMainCtx = ctx === this.board.mainCtx;
+    if (isMainCtx) {
+      user._mainCtxDrawCount = (user._mainCtxDrawCount || 0) + 1;
+      console.log(`[DrawDebug] LOCAL user=${user.id} draw #${user._mainCtxDrawCount} to mainCtx, ${points.length} points, lineWidth=${user.pressure * user.size * 2}`);
+    }
+
+    // Explicitly set ALL context properties to ensure consistency
+    ctx.globalAlpha = 1.0;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;
+
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
 
@@ -128,6 +143,11 @@ export class EraserTool extends Tool {
 
   erase(x1, y1, x2, y2, size) {
     const ctx = this.board.mainCtx;
+    // Explicitly set all properties (remote users bypass activate())
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.globalAlpha = 1.0;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.lineWidth = size;
     ctx.strokeStyle = 'rgba(255,255,255,1)';
     ctx.beginPath();
@@ -448,6 +468,9 @@ export class PenTool extends Tool {
   onPointerUp(user, pos, e) {
     if (user.panning || !this.offscreenCanvas) return;
 
+    // Clear preview FIRST to prevent composite boldness
+    this.board.clearTop();
+
     // Composite offscreen canvas to main canvas with user's alpha
     const ctx = this.board.mainCtx;
     ctx.globalAlpha = this.userAlpha;
@@ -464,7 +487,6 @@ export class PenTool extends Tool {
 
     ctx.globalAlpha = 1.0;
 
-    this.board.clearTop();
     this.clearStroke();
     user.penPoints = [];
   }

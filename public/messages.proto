@@ -12,7 +12,7 @@ message Msg {
     LEFT = 3;           // User left
 
     // Broadcast types (10+) - ordered by frequency
-    MM = 10;            // Mouse move (highest frequency)
+    MM = 10;            // Mouse move (Path-based batching)
     MD = 11;            // Mouse down
     MU = 12;            // Mouse up
     CP = 13;            // Change pressure
@@ -50,20 +50,20 @@ message Msg {
   // === High-frequency fields (1-15 = 1-byte tags) ===
   T t = 1;              // Message type
   uint32 u = 2;         // User session index (0-255)
-  uint32 x = 3;         // X position
-  uint32 y = 4;         // Y position
-  sint32 dx = 5;        // Delta X (lastx = x - dx), zigzag encoded
-  sint32 dy = 6;        // Delta Y (lasty = y - dy), zigzag encoded
-  uint32 p = 7;         // Pressure * 100 (0-100)
-  uint32 s = 8;         // Size * 100 (allows 0.01 precision)
-  Tool l = 9;           // Tool (l for "tool", t was taken)
-  fixed32 c = 10;       // Color as packed RGBA (4 bytes fixed)
-  bool a = 11;          // AFK status / boolean flags
-  bool m = 12;          // Mirror status
-  string k = 13;        // Key pressed
-  string n = 14;        // Name
-  string g = 15;        // Chat message or GIMP data (JSON)
+  
+  // Packed repeated field for processing multiple points per tick [x1, y1, x2, y2...]
+  repeated float ps = 3; 
 
+  uint32 p = 4;         // Pressure * 100 (0-100)
+  uint32 s = 5;         // Size * 100 (allows 0.01 precision)
+  Tool l = 6;           // Tool (l for "tool")
+  fixed32 c = 7;        // Color as packed RGBA (4 bytes fixed)
+  bool a = 8;           // AFK status / boolean flags
+  bool m = 9;           // Mirror status
+  string k = 10;        // Key pressed
+  string n = 11;        // Name
+  string g = 12;        // Chat message or GIMP data (JSON)
+  
   // === Lower-frequency fields (16+ = 2-byte tags) ===
   uint32 sp = 16;       // Spacing * 100
 
@@ -71,8 +71,8 @@ message Msg {
   message U {
     uint32 u = 1;       // User index
     bool a = 2;         // AFK
-    uint32 x = 3;
-    uint32 y = 4;
+    float x = 3;       // Last known X
+    float y = 4;       // Last known Y
     Tool l = 5;         // Tool
     fixed32 c = 6;      // Color packed
     uint32 s = 7;       // Size * 100
@@ -83,11 +83,10 @@ message Msg {
   }
   repeated U us = 17;   // Users array
 
-// === Selection Fields (18-22) ===
-  int32 sx = 18; 
-  int32 sy = 19;
-  int32 sw = 20;
-  int32 sh = 21;
-  repeated float cr = 22;
-
+  // === Selection Fields (18-22) ===
+  int32 sx = 18;        // Selection X
+  int32 sy = 19;        // Selection Y
+  int32 sw = 20;        // Selection Width
+  int32 sh = 21;        // Selection Height
+  repeated float cr = 22; // Selection control region/points
 }

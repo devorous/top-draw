@@ -170,10 +170,7 @@ export class WebSocketClient {
       case T.MM:
         this.emit('mm', {
           sessionIndex: data.u,
-          x: data.x,
-          y: data.y,
-          lastx: data.x - (data.dx || 0),
-          lasty: data.y - (data.dy || 0)
+          ps: data.ps || []
         });
         break;
 
@@ -284,6 +281,14 @@ export class WebSocketClient {
   }
 
   // Broadcast methods
+
+  broadcastMove(points) {
+  // 'ps' is the repeated uint32 field from protobuf
+  this.send({ 
+    t: T.MM, 
+    ps: points 
+  });
+}
   broadcastMouseMove(x, y, lastx, lasty) {
     this.send({
       t: T.MM,

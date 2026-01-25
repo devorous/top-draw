@@ -70,25 +70,82 @@ export class RemoteUserHandler {
   }
 
   handleMouseMove(user, data) {
-    if (user.lastx === null) {
-      user.lastx = data.x;
-      user.lasty = data.y;
+    const points = data.ps;
+    if (!points || points.length < 2) return;
+
+    // Process each point in the batch
+    for (let i = 0; i < points.length; i += 2) {
+      const x = points[i];
+      const y = points[i + 1];
+
+      if (user.lastx === null) {
+        user.lastx = x;
+        user.lasty = y;
+      }
+
+      const lastPos = { x: user.x, y: user.y };
+      user.setPosition(x, y);
+      const pos = { x: user.x, y: user.y };
+
+      // Track drawing point for debug overlay
+      if (!user.panning && user.mousedown && this.debugOverlay) {
+        this.debugOverlay.addDrawingPoint(pos.x, pos.y, user.size, user.id);
+
+        // Debug: Track each point received for remote user
+        this.debugOverlay.addStrokePoint(user.id, pos.x, pos.y, 'mouseMove');
+      }
+
+      if (!user.panning && user.mousedown) {
+        switch (user.tool) {
+          case 'brush':
+            user.addToLine(pos);
+            if (user.pressure !== user.prevpressure) {
+              this.commitLine(user);
+            }
+            user.prevpressure = user.pressure;
+            break;
+
+          case 'erase':
+            const eraserTool = this.toolManager.getTool('erase');
+            eraserTool.erase(pos.x, pos.y, lastPos.x, lastPos.y, user.pressure * user.size * 2);
+            if (this.board.mirror) {
+              const w = this.board.getWidth();
+              eraserTool.erase(w - pos.x, pos.y, w - lastPos.x, lastPos.y, user.pressure * user.size * 2);
+            }
+            break;
+
+          case 'gimp':
+            if (user.gBrush) {
+              this.toolManager.getTool('gimp').draw(user, pos);
+            }
+            break;
+
+          case 'pen':
+            this.toolManager.getTool('pen').onPointerMove(user, pos, lastPos);
+            break;
+
+          case 'line':
+          case 'rectangle':
+          case 'circle':
+          case 'select':
+            // Shape tools only need the final position, skip intermediate points
+            break;
+        }
+      }
+
+      user.lastx = x;
+      user.lasty = y;
     }
 
-    const lastPos = { x: user.x, y: user.y };
-    user.setPosition(data.x, data.y);
-    const pos = { x: user.x, y: user.y };
-
-    this.ui.updateRemoteCursor(user.id, user.x, user.y, user.size);
-
-    // Track drawing point for debug overlay
-    if (!user.panning && user.mousedown && this.debugOverlay) {
-      this.debugOverlay.addDrawingPoint(pos.x, pos.y, user.size, user.id);
-    }
+    // After processing all points, update cursor and handle shape tools with final position
+    const finalX = points[points.length - 2];
+    const finalY = points[points.length - 1];
+    this.ui.updateRemoteCursor(user.id, finalX, finalY, user.size);
 
     if (!user.panning && user.mousedown) {
-      // Clear the remote user's specific top/preview layer before drawing frame-based tools
-      // Brush and Erase often draw cumulatively, but Shapes and Select need a fresh frame.
+      const pos = { x: finalX, y: finalY };
+
+      // Shape tools only need final position for preview
       const needsClear = ['line', 'rectangle', 'circle', 'select'].includes(user.tool);
       if (needsClear) {
         user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
@@ -96,39 +153,13 @@ export class RemoteUserHandler {
 
       switch (user.tool) {
         case 'brush':
-          user.addToLine(pos);
-          if (user.pressure !== user.prevpressure) {
-            this.commitLine(user);
-          } else {
-            user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-            this.drawLineArray(user.currentLine, user.context, user);
-            if (this.board.mirror) {
-              const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-              this.drawLineArray(mirrored, user.context, user);
-            }
-          }
-          user.prevpressure = user.pressure;
-          break;
-
-        case 'erase':
-          const eraserTool = this.toolManager.getTool('erase');
-          eraserTool.erase(pos.x, pos.y, lastPos.x, lastPos.y, user.pressure * user.size * 2);
+          // Redraw the accumulated line on preview canvas
+          user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+          this.drawLineArray(user.currentLine, user.context, user);
           if (this.board.mirror) {
-            const w = this.board.getWidth();
-            eraserTool.erase(w - pos.x, pos.y, w - lastPos.x, lastPos.y, user.pressure * user.size * 2);
+            const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
+            this.drawLineArray(mirrored, user.context, user);
           }
-          break;
-
-        case 'gimp':
-          if (user.gBrush) {
-            this.toolManager.getTool('gimp').draw(user, pos);
-          }
-          break;
-
-        case 'pen':
-          // Pen tool typically uses an offscreen canvas for "stamping"
-          // to prevent opacity overlap before committing.
-          this.toolManager.getTool('pen').onPointerMove(user, pos, lastPos);
           break;
 
         case 'line':
@@ -165,8 +196,6 @@ export class RemoteUserHandler {
           break;
 
         case 'select':
-          // Only draw selection box if user is creating a NEW selection
-          // (not if they have an active floating selection being moved/transformed)
           if (!user.floatingCanvas && user.startPos) {
             const selectTool = this.toolManager.getTool('select');
             selectTool.drawSelectionBox(user.context, user.startPos, pos);
@@ -174,9 +203,6 @@ export class RemoteUserHandler {
           break;
       }
     }
-
-    user.lastx = data.x;
-    user.lasty = data.y;
   }
 
   handleMouseDown(user) {
@@ -184,6 +210,7 @@ export class RemoteUserHandler {
     user.lasty = user.y;
     user.spaceIndex = 0;
     user.mousedown = true;
+    user._mainCtxDrawCount = 0; // Reset draw counter for this stroke
 
     const pos = { x: user.x, y: user.y };
     // Essential for all shape tools and selection
@@ -192,6 +219,10 @@ export class RemoteUserHandler {
     // Track region for debug overlay (if not panning)
     if (!user.panning && this.debugOverlay) {
       this.debugOverlay.startDrawing(pos.x, pos.y, user.tool, user.size, user.id, user.username);
+
+      // Debug: Start tracking stroke points for remote user
+      this.debugOverlay.startStrokeTracking(user.id, false);
+      this.debugOverlay.addStrokePoint(user.id, pos.x, pos.y, 'mouseDown');
     }
 
     switch (user.tool) {
@@ -258,6 +289,10 @@ export class RemoteUserHandler {
     const pos = { x: user.x, y: user.y };
     const mainCtx = this.board.mainCtx;
 
+    // Clear preview canvas FIRST to prevent composite boldness
+    // (otherwise both preview and mainCtx briefly show the same line)
+    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+
     switch (user.tool) {
       case 'brush':
         if (!user.panning) {
@@ -318,10 +353,15 @@ export class RemoteUserHandler {
     // End drawing tracking for debug overlay
     if (this.debugOverlay) {
       this.debugOverlay.endDrawing(user.id);
+
+      // Debug: End stroke tracking for remote user
+      this.debugOverlay.endStrokeTracking(user.id);
     }
 
-    // Cleanup
-    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    // Debug: Log total mainCtx draws for this stroke
+    console.log(`[DrawDebug] REMOTE user=${user.id} STROKE END - total mainCtx draws: ${user._mainCtxDrawCount || 0}`);
+
+    // Cleanup (preview was already cleared at start of handleMouseUp)
     user.clearLine();
     user.mousedown = false;
     user.startPos = null;
@@ -699,8 +739,21 @@ export class RemoteUserHandler {
   drawLineArray(points, ctx, user) {
     if (points.length === 0) return;
 
+    // Debug: Track draws to mainCtx
+    const isMainCtx = ctx === this.board.mainCtx;
+    if (isMainCtx) {
+      user._mainCtxDrawCount = (user._mainCtxDrawCount || 0) + 1;
+      console.log(`[DrawDebug] REMOTE user=${user.id} draw #${user._mainCtxDrawCount} to mainCtx, ${points.length} points, lineWidth=${user.pressure * user.size * 2}`);
+    }
+
+    // Explicitly set ALL context properties to ensure consistency
+    ctx.globalAlpha = 1.0;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;
+
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
 

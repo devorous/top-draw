@@ -65,6 +65,11 @@ export class DebugOverlay {
 
     // Eraser history for troll detection (not visualized)
     this.eraserHistory = [];
+
+    // Point visualization for debugging stroke differences
+    this.strokePoints = new Map(); // userId -> { points: [], color: string, isLocal: boolean }
+    this.showStrokePoints = true; // Toggle with app.debugOverlay.showStrokePoints = false
+    this.logPoints = true; // Toggle with app.debugOverlay.logPoints = false
   }
 
   /**
@@ -267,22 +272,6 @@ export class DebugOverlay {
 
     if (this.enabled) {
       this.render();
-    }
-  }
-
-  /**
-   * Render all regions to the overlay canvas
-   */
-  render() {
-    if (!this.ctx || !this.enabled) {
-      return;
-    }
-
-    const { width, height } = this.canvas;
-    this.ctx.clearRect(0, 0, width, height);
-
-    for (const region of this.regions) {
-      this.drawRegion(region);
     }
   }
 
@@ -1284,5 +1273,166 @@ export class DebugOverlay {
       bounds1.y + bounds1.height < bounds2.y ||
       bounds2.y + bounds2.height < bounds1.y
     );
+  }
+
+  // ========================================
+  // Stroke Point Debugging
+  // ========================================
+
+  /**
+   * Start tracking stroke points for a user
+   * @param {string|number} userId
+   * @param {boolean} isLocal - true for local user, false for remote
+   */
+  startStrokeTracking(userId, isLocal = false) {
+    if (!this.enabled) return;
+
+    const key = String(userId);
+    const color = isLocal ? '#00ff00' : '#ff6600'; // Green for local, orange for remote
+
+    this.strokePoints.set(key, {
+      points: [],
+      color,
+      isLocal,
+      startTime: Date.now()
+    });
+
+    if (this.logPoints) {
+      console.log(`[StrokeDebug] START ${isLocal ? 'LOCAL' : 'REMOTE'} user=${userId}`);
+    }
+  }
+
+  /**
+   * Add a point to stroke tracking
+   * @param {string|number} userId
+   * @param {number} x
+   * @param {number} y
+   * @param {string} source - Where the point came from (e.g., 'tick', 'handleMouseMove')
+   */
+  addStrokePoint(userId, x, y, source = '') {
+    if (!this.enabled) return;
+
+    const key = String(userId);
+    const data = this.strokePoints.get(key);
+    if (!data) return;
+
+    data.points.push({ x, y, source, time: Date.now() - data.startTime });
+
+    if (this.logPoints) {
+      const label = data.isLocal ? 'LOCAL' : 'REMOTE';
+      console.log(`[StrokeDebug] ${label} user=${userId} point #${data.points.length}: (${x.toFixed(2)}, ${y.toFixed(2)}) src=${source}`);
+    }
+  }
+
+  /**
+   * End stroke tracking and show summary
+   * @param {string|number} userId
+   */
+  endStrokeTracking(userId) {
+    if (!this.enabled) return;
+
+    const key = String(userId);
+    const data = this.strokePoints.get(key);
+    if (!data) return;
+
+    if (this.logPoints) {
+      const label = data.isLocal ? 'LOCAL' : 'REMOTE';
+      console.log(`[StrokeDebug] END ${label} user=${userId} total points: ${data.points.length}`);
+
+      // Log point summary
+      if (data.points.length > 0) {
+        const xs = data.points.map(p => p.x);
+        const ys = data.points.map(p => p.y);
+        console.log(`[StrokeDebug] ${label} X range: ${Math.min(...xs).toFixed(2)} - ${Math.max(...xs).toFixed(2)}`);
+        console.log(`[StrokeDebug] ${label} Y range: ${Math.min(...ys).toFixed(2)} - ${Math.max(...ys).toFixed(2)}`);
+      }
+    }
+
+    // Keep points visible for a few seconds then clear
+    setTimeout(() => {
+      this.strokePoints.delete(key);
+    }, 5000);
+  }
+
+  /**
+   * Clear all stroke tracking data
+   */
+  clearStrokeTracking() {
+    this.strokePoints.clear();
+  }
+
+  /**
+   * Render stroke points on the debug overlay
+   */
+  renderStrokePoints() {
+    if (!this.ctx || !this.enabled || !this.showStrokePoints) return;
+
+    for (const [userId, data] of this.strokePoints) {
+      const { points, color, isLocal } = data;
+
+      // Draw points as small circles
+      this.ctx.fillStyle = color;
+      this.ctx.strokeStyle = isLocal ? '#004400' : '#442200';
+      this.ctx.lineWidth = 1;
+
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        const radius = isLocal ? 3 : 4; // Slightly larger for remote so we can see overlap
+
+        this.ctx.beginPath();
+        this.ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.stroke();
+
+        // Draw index number for first few and last few points
+        if (i < 3 || i >= points.length - 3) {
+          this.ctx.fillStyle = '#ffffff';
+          this.ctx.font = '10px monospace';
+          this.ctx.fillText(String(i), p.x + 5, p.y - 5);
+          this.ctx.fillStyle = color;
+        }
+      }
+
+      // Draw lines connecting points
+      if (points.length > 1) {
+        this.ctx.strokeStyle = color;
+        this.ctx.lineWidth = 1;
+        this.ctx.globalAlpha = 0.5;
+        this.ctx.beginPath();
+        this.ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+          this.ctx.lineTo(points[i].x, points[i].y);
+        }
+        this.ctx.stroke();
+        this.ctx.globalAlpha = 1;
+      }
+
+      // Draw label
+      if (points.length > 0) {
+        const lastPoint = points[points.length - 1];
+        this.ctx.fillStyle = color;
+        this.ctx.font = 'bold 12px monospace';
+        this.ctx.fillText(`${isLocal ? 'LOCAL' : 'REMOTE'} (${points.length} pts)`, lastPoint.x + 10, lastPoint.y);
+      }
+    }
+  }
+
+  /**
+   * Render all regions to the overlay canvas
+   */
+  render() {
+    if (!this.ctx || !this.enabled) {
+      return;
+    }
+
+    const { width, height } = this.canvas;
+    this.ctx.clearRect(0, 0, width, height);
+
+    for (const region of this.regions) {
+      this.drawRegion(region);
+    }
+
+    // Render stroke points on top
+    this.renderStrokePoints();
   }
 }
