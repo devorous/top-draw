@@ -202,6 +202,21 @@ export function setupWebSocketHandlers(app) {
     }
   });
 
+  // Hide cursor
+  wsClient.on('hide_cursor', (data) => {
+    ui.hideRemoteCursor(data.sessionIndex);
+  });
+
+  // Show cursor
+  wsClient.on('show_cursor', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      ui.showRemoteCursor(data.sessionIndex);
+      // Refresh tool display to show correct cursor shape
+      ui.updateRemoteToolDisplay(data.sessionIndex, user.tool);
+    }
+  });
+
   // Selection lift - remote user lifted a selection
   wsClient.on('sel_lift', (data) => {
     const user = users.get(data.sessionIndex);

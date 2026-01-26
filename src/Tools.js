@@ -236,8 +236,12 @@ export class ImageBrushTool extends Tool {
   }
 
   draw(user, pos) {
-
-    user.spaceIndex = (user.spaceIndex + 1) % user.spacing;
+    // Handle spacing - if spacing is 0 or 1, draw every time
+    if (user.spacing > 1) {
+      user.spaceIndex = (user.spaceIndex + 1) % user.spacing;
+      // Only draw when spacing counter reaches 0
+      if (user.spaceIndex !== 0) return;
+    }
 
     const brush = user.imageBrush;
     const size = user.size;

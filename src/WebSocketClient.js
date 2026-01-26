@@ -8,6 +8,7 @@ const T = {
   CONNECT: 0, USERS: 1, SETTINGS: 2, LEFT: 3,
   MM: 10, MD: 11, MU: 12, CP: 13, CS: 14, CT: 15, CC: 16,
   CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25, CANCEL: 26,
+  HIDE_CURSOR: 27, SHOW_CURSOR: 28,
   SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32,
   SYNC_REQUEST: 40, SYNC_PROVIDE: 41, SYNC_CANVAS: 42, SYNC_COMPLETE: 43
 };
@@ -235,6 +236,14 @@ export class WebSocketClient {
         this.emit('cancel', { sessionIndex: data.u });
         break;
 
+      case T.HIDE_CURSOR:
+        this.emit('hide_cursor', { sessionIndex: data.u });
+        break;
+
+      case T.SHOW_CURSOR:
+        this.emit('show_cursor', { sessionIndex: data.u });
+        break;
+
       case T.SEL_LIFT:
         this.emit('sel_lift', {
           sessionIndex: data.u,
@@ -361,6 +370,14 @@ export class WebSocketClient {
 
   broadcastCancel() {
     this.send({ t: T.CANCEL });
+  }
+
+  broadcastHideCursor() {
+    this.send({ t: T.HIDE_CURSOR });
+  }
+
+  broadcastShowCursor() {
+    this.send({ t: T.SHOW_CURSOR });
   }
 
   broadcastClear() {

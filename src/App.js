@@ -170,8 +170,26 @@ export class DrawingApp {
     elements.board.addEventListener('pointermove', (e) => this.handlePointerMove(e));
     elements.board.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
     elements.board.addEventListener('pointerup', (e) => this.handlePointerUp(e));
-    elements.board.addEventListener('pointerenter', () => { this.isOnBoard = true; });
+    elements.board.addEventListener('pointerenter', () => {
+      this.isOnBoard = true;
+      this.ui.showCursor();
+      // Refresh tool display to show correct cursor shape
+      this.ui.updateToolDisplay(this.self.tool);
+
+      // Broadcast cursor show to other users
+      if (this.connected) {
+        this.wsClient.broadcastShowCursor();
+      }
+    });
     elements.board.addEventListener('pointerleave', (e) => this.handlePointerLeave(e));
+
+    // Also listen for pointerup on document to catch releases outside the board
+    // This ensures eraser regions and other strokes finalize properly
+    document.addEventListener('pointerup', (e) => {
+      if (this.self.mousedown) {
+        this.handlePointerUp(e);
+      }
+    });
     elements.board.addEventListener('wheel', (e) => this.handleWheel(e));
     elements.board.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -591,6 +609,12 @@ export class DrawingApp {
 
   handlePointerLeave(e) {
     this.isOnBoard = false;
+    this.ui.hideCursor();
+
+    // Broadcast cursor hide to other users
+    if (this.connected) {
+      this.wsClient.broadcastHideCursor();
+    }
   }
 
   // Wheel/zoom handlers

@@ -117,7 +117,17 @@ export class UI {
   }
 
   showCursor() {
+    // Show name (cursor div) - cursor shapes managed by updateToolDisplay()
     this.elements.selfCursor.style.display = 'block';
+  }
+
+  hideCursor() {
+    // Hide everything: name and all cursor shapes
+    this.elements.selfCursor.style.display = 'none';
+    this.elements.selfCircle.style.display = 'none';
+    this.elements.selfSquare.style.display = 'none';
+    this.elements.selfCrosshair.style.display = 'none';
+    this.elements.selfText.style.display = 'none';
   }
 
   updateSelfCursor(x, y, size) {
@@ -242,6 +252,26 @@ export class UI {
   setBrushPreview(url) {
     this.elements.brushImage.src = url;
     this.elements.brushImage.style.display = 'block';
+  }
+
+  hideRemoteCursor(userId) {
+    const cursorElements = this.cursors.get(userId);
+    if (!cursorElements) return;
+
+    cursorElements.cursor.style.display = 'none';
+    cursorElements.circle.style.display = 'none';
+    cursorElements.square.style.display = 'none';
+    cursorElements.crosshair.style.display = 'none';
+    cursorElements.text.style.display = 'none';
+  }
+
+  showRemoteCursor(userId) {
+    const cursorElements = this.cursors.get(userId);
+    if (!cursorElements) return;
+
+    cursorElements.cursor.style.display = 'block';
+    // Note: circle, square, crosshair, text visibility is managed by updateRemoteToolDisplay()
+    // This will be called after showing to restore the correct cursor shape
   }
 
   createRemoteUser(userId, userData) {

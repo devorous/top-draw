@@ -29,6 +29,8 @@ message Msg {
     AFK = 24;           // AFK status change
     PAN = 25;           // Pan mode
     CANCEL = 26;        // Cancel current stroke
+    HIDE_CURSOR = 27;   // Hide user's cursor
+    SHOW_CURSOR = 28;   // Show user's cursor
     SEL_LIFT = 30;
     SEL_MOVE = 31;
     SEL_COMMIT = 32;
