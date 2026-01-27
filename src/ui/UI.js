@@ -67,6 +67,12 @@ export class UI {
       sizeSlider: document.querySelector('.slider.size'),
       spacingSlider: document.querySelector('.slider.spacing'),
       pressureSlider: document.querySelector('.slider.pressure'),
+      smoothingSlider: document.querySelector('.slider.smoothing'),
+
+      sizeValue: document.getElementById('sizeValue'),
+      pressureValue: document.getElementById('pressureValue'),
+      smoothingValue: document.getElementById('smoothingValue'),
+      spacingValue: document.getElementById('spacingValue'),
 
       brushFileInput: document.getElementById('brush-file-input'),
       brushImage: document.getElementById('brushImage'),
@@ -252,6 +258,30 @@ export class UI {
   setBrushPreview(url) {
     this.elements.brushImage.src = url;
     this.elements.brushImage.style.display = 'block';
+  }
+
+  updateSizeValue(size) {
+    if (this.elements.sizeValue) {
+      this.elements.sizeValue.textContent = size;
+    }
+  }
+
+  updatePressureValue(pressure) {
+    if (this.elements.pressureValue) {
+      this.elements.pressureValue.textContent = `${pressure}%`;
+    }
+  }
+
+  updateSmoothingValue(smoothing) {
+    if (this.elements.smoothingValue) {
+      this.elements.smoothingValue.textContent = `${smoothing}%`;
+    }
+  }
+
+  updateSpacingValue(spacing) {
+    if (this.elements.spacingValue) {
+      this.elements.spacingValue.textContent = spacing;
+    }
   }
 
   hideRemoteCursor(userId) {

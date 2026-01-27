@@ -24,22 +24,57 @@ class Tool {
 export class BrushTool extends Tool {
   constructor(board) {
     super('brush', board);
+    // Smoothing buffer for stroke stabilization
+    this.smoothBuffer = { x: 0, y: 0 };
+    this.isFirstPoint = true;
   }
 
   activate() {
     this.board.mainCtx.globalCompositeOperation = 'source-over';
   }
 
+  /**
+   * Apply exponential moving average smoothing to position
+   * @param {number} targetX - Target X position
+   * @param {number} targetY - Target Y position
+   * @param {number} smoothing - Smoothing factor (0-1, where 0 = no smoothing)
+   */
+  smoothPosition(targetX, targetY, smoothing) {
+    if (this.isFirstPoint || smoothing === 0) {
+      this.smoothBuffer.x = targetX;
+      this.smoothBuffer.y = targetY;
+      this.isFirstPoint = false;
+      return { x: targetX, y: targetY };
+    }
+
+    // Higher smoothing = more lag/stabilization (lerp factor becomes smaller)
+    const factor = 1 - smoothing * 0.9; // At max smoothing, factor is 0.1
+    this.smoothBuffer.x += (targetX - this.smoothBuffer.x) * factor;
+    this.smoothBuffer.y += (targetY - this.smoothBuffer.y) * factor;
+
+    return {
+      x: this.smoothBuffer.x,
+      y: this.smoothBuffer.y
+    };
+  }
+
   onPointerDown(user, pos) {
-    user.currentLine.push(pos);
-    user.currentLine.push(pos);
+    this.isFirstPoint = true;
+    const smoothing = user.smoothing || 0;
+    const smoothedPos = this.smoothPosition(pos.x, pos.y, smoothing);
+
+    user.currentLine.push(smoothedPos);
+    user.currentLine.push(smoothedPos);
     this.drawPreview(user);
   }
 
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
-    user.currentLine.push(pos);
+    const smoothing = user.smoothing || 0;
+    const smoothedPos = this.smoothPosition(pos.x, pos.y, smoothing);
+
+    user.currentLine.push(smoothedPos);
     this.board.clearTop();
     this.board.topCtx.beginPath();
     this.drawLineArray(user.currentLine, this.board.topCtx, user);
@@ -49,7 +84,7 @@ export class BrushTool extends Tool {
       this.drawLineArray(mirrored, this.board.topCtx, user);
     }
 
-    user.lineLength += manhattanDistance(pos, lastPos);
+    user.lineLength += manhattanDistance(smoothedPos, lastPos);
   }
 
   onPointerUp(user) {
@@ -82,8 +117,11 @@ export class BrushTool extends Tool {
       console.log(`[DrawDebug] LOCAL user=${user.id} draw #${user._mainCtxDrawCount} to mainCtx, ${points.length} points, lineWidth=${user.pressure * user.size * 2}`);
     }
 
+    // Apply user opacity (independent of color alpha)
+    const opacity = user.opacity !== undefined ? user.opacity : 1;
+
     // Explicitly set ALL context properties to ensure consistency
-    ctx.globalAlpha = 1.0;
+    ctx.globalAlpha = opacity;
     ctx.globalCompositeOperation = 'source-over';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -97,6 +135,9 @@ export class BrushTool extends Tool {
       ctx.lineTo(points[i].x, points[i].y);
     }
     ctx.stroke();
+
+    // Reset globalAlpha
+    ctx.globalAlpha = 1.0;
   }
 
   commitCurrentLine(user) {
@@ -194,6 +235,8 @@ export class TextTool extends Tool {
   drawText(user) {
     const ctx = this.board.mainCtx;
     ctx.globalCompositeOperation = 'source-over';
+    const opacity = user.opacity !== undefined ? user.opacity : 1;
+    ctx.globalAlpha = opacity;
     const size = (user.size + 5).toString();
     const text = user.text.replace(/&nbsp;/g, ' ');
 
@@ -201,6 +244,7 @@ export class TextTool extends Tool {
     ctx.fillStyle = user.getColorString();
     ctx.font = `${size}px Newsreader, serif`;
     ctx.fillText(text, user.x + 5, user.y - 6 + user.size + 5);
+    ctx.globalAlpha = 1.0;
   }
 }
 
@@ -286,6 +330,8 @@ export class ImageBrushTool extends Tool {
     if (width > height) ratioX = 1;
     if (height > width) ratioY = 1;
 
+    const opacity = user.opacity !== undefined ? user.opacity : 1;
+    ctx.globalAlpha = opacity;
     ctx.beginPath();
     ctx.fillStyle = user.getColorString();
     ctx.drawImage(
@@ -296,6 +342,7 @@ export class ImageBrushTool extends Tool {
       size * 2 * ratioY
     );
     ctx.stroke();
+    ctx.globalAlpha = 1.0;
   }
 
   /**
@@ -419,6 +466,30 @@ export class PenTool extends Tool {
     this.lastStampPos = null;
     this.userAlpha = 1.0;
     this.strokeColor = null;
+    // Smoothing buffer for stroke stabilization
+    this.smoothBuffer = { x: 0, y: 0 };
+    this.isFirstPoint = true;
+  }
+
+  /**
+   * Apply exponential moving average smoothing to position
+   */
+  smoothPosition(targetX, targetY, smoothing) {
+    if (this.isFirstPoint || smoothing === 0) {
+      this.smoothBuffer.x = targetX;
+      this.smoothBuffer.y = targetY;
+      this.isFirstPoint = false;
+      return { x: targetX, y: targetY };
+    }
+
+    const factor = 1 - smoothing * 0.9;
+    this.smoothBuffer.x += (targetX - this.smoothBuffer.x) * factor;
+    this.smoothBuffer.y += (targetY - this.smoothBuffer.y) * factor;
+
+    return {
+      x: this.smoothBuffer.x,
+      y: this.smoothBuffer.y
+    };
   }
 
   activate() {
@@ -452,6 +523,7 @@ export class PenTool extends Tool {
 
   onPointerDown(user, pos, e) {
     this.ensureOffscreenCanvas();
+    this.isFirstPoint = true;
 
     // Clear offscreen canvas
     this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
@@ -464,15 +536,21 @@ export class PenTool extends Tool {
     this.strokeColor = `rgb(${color.join(',')})`;
     this.offscreenCtx.fillStyle = this.strokeColor;
 
-    // Store user's alpha for compositing (alpha is already 0-1)
-    this.userAlpha = user.color[3];
+    // Store user's alpha for compositing (combine color alpha with opacity slider)
+    const colorAlpha = user.color[3];
+    const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
+    this.userAlpha = colorAlpha * opacitySlider;
+
+    // Apply smoothing
+    const smoothing = user.smoothing || 0;
+    const smoothedPos = this.smoothPosition(pos.x, pos.y, smoothing);
 
     // Stamp first circle
-    this.stampCircle(pos.x, pos.y, radius);
-    this.lastStampPos = { x: pos.x, y: pos.y, radius };
+    this.stampCircle(smoothedPos.x, smoothedPos.y, radius);
+    this.lastStampPos = { x: smoothedPos.x, y: smoothedPos.y, radius };
 
     // Store points for reference
-    user.penPoints = [{ x: pos.x, y: pos.y, radius }];
+    user.penPoints = [{ x: smoothedPos.x, y: smoothedPos.y, radius }];
 
     this.drawPreview(user);
   }
@@ -480,26 +558,30 @@ export class PenTool extends Tool {
   onPointerMove(user, pos, lastPos, e) {
     if (!user.mousedown || user.panning || !this.lastStampPos) return;
 
+    // Apply smoothing
+    const smoothing = user.smoothing || 0;
+    const smoothedPos = this.smoothPosition(pos.x, pos.y, smoothing);
+
     const pressure = this.quantizePressure(user.pressure);
     const radius = pressure * user.size;
 
     // Adaptive spacing: stamp when distance >= 20% of average radius
     const avgRadius = (this.lastStampPos.radius + radius) / 2;
     const spacing = Math.max(1, avgRadius * 0.2);
-    const distance = this.getDistance(this.lastStampPos, pos);
+    const distance = this.getDistance(this.lastStampPos, smoothedPos);
 
     if (distance >= spacing) {
       // Interpolate circles along the path for smooth coverage
       const steps = Math.ceil(distance / spacing);
       for (let i = 1; i <= steps; i++) {
         const t = i / steps;
-        const x = this.lastStampPos.x + (pos.x - this.lastStampPos.x) * t;
-        const y = this.lastStampPos.y + (pos.y - this.lastStampPos.y) * t;
+        const x = this.lastStampPos.x + (smoothedPos.x - this.lastStampPos.x) * t;
+        const y = this.lastStampPos.y + (smoothedPos.y - this.lastStampPos.y) * t;
         const r = this.lastStampPos.radius + (radius - this.lastStampPos.radius) * t;
         this.stampCircle(x, y, r);
       }
-      this.lastStampPos = { x: pos.x, y: pos.y, radius };
-      user.penPoints.push({ x: pos.x, y: pos.y, radius });
+      this.lastStampPos = { x: smoothedPos.x, y: smoothedPos.y, radius };
+      user.penPoints.push({ x: smoothedPos.x, y: smoothedPos.y, radius });
     }
 
     this.board.clearTop();
@@ -1397,8 +1479,18 @@ export class SelectTool extends Tool {
         const result = homography.warp();
 
         if (result) {
-          // Draw the warped result to the main canvas
-          this.board.mainCtx.putImageData(result, minX, minY);
+          // All this is required to prevent putImageData from overwriting the main context with transparent pixels
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = result.width;
+          tempCanvas.height = result.height;
+          const tempCtx = tempCanvas.getContext('2d');
+
+          // Load the warped pixel data into the buffer
+          tempCtx.putImageData(result, 0, 0);
+
+          // Draw to the main board using ONLY x and y
+          // Do NOT provide width/height arguments here, or it will stretch!
+          this.board.mainCtx.drawImage(tempCanvas, minX, minY);
         } else {
           // Fallback: draw without transform
           this.board.mainCtx.drawImage(
@@ -1656,12 +1748,15 @@ export class LineTool extends Tool {
   }
 
   drawLine(ctx, user, start, end) {
+    const opacity = user.opacity !== undefined ? user.opacity : 1;
+    ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
     ctx.lineTo(end.x, end.y);
     ctx.stroke();
+    ctx.globalAlpha = 1.0;
   }
 }
 
@@ -1722,11 +1817,14 @@ export class RectangleTool extends Tool {
     const w = Math.abs(end.x - start.x);
     const h = Math.abs(end.y - start.y);
 
+    const opacity = user.opacity !== undefined ? user.opacity : 1;
+    ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;
     ctx.beginPath();
     ctx.rect(x, y, w, h);
     ctx.stroke();
+    ctx.globalAlpha = 1.0;
   }
 }
 
@@ -1787,11 +1885,14 @@ export class CircleTool extends Tool {
     const rx = Math.abs(end.x - start.x) / 2;
     const ry = Math.abs(end.y - start.y) / 2;
 
+    const opacity = user.opacity !== undefined ? user.opacity : 1;
+    ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;
     ctx.beginPath();
     ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.globalAlpha = 1.0;
   }
 }
 
