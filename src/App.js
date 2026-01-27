@@ -3,7 +3,7 @@ import { Board } from './Board.js';
 import { ToolManager, BrushTool } from './Tools.js';
 import { WebSocketClient } from './WebSocketClient.js';
 import { Chat } from './Chat.js';
-import { UI } from './UI.js';
+import { UI, ColorPalette } from './ui/index.js';
 import { BrushGallery } from './BrushGallery.js';
 import { RemoteUserHandler } from './RemoteUserHandler.js';
 import { TouchHandler } from './TouchHandler.js';
@@ -32,6 +32,11 @@ export class DrawingApp {
     this.brushGallery = new BrushGallery({
       onSelect: (brush) => this.handleBrushSelect(brush)
     });
+    this.colorPalette = new ColorPalette({
+      onColorSelect: (colorOrCallback) => this.handlePaletteColorSelect(colorOrCallback)
+    });
+
+    this.colorPicker = null;
 
     this.wsClient = new WebSocketClient({
       serverUrl: options.serverUrl,
@@ -72,6 +77,7 @@ export class DrawingApp {
     this.board.init('#boardContainer');
     this.chat.init();
     this.brushGallery.init();
+    this.colorPalette.init();
 
     this.createSelf();
     this.setupColorPicker();
@@ -126,11 +132,14 @@ export class DrawingApp {
         editor: true,
         color: '#000',
         onChange: (color) => {
-          this.self.setColor(color.rgba);
-          this.ui.updateSelfColor(color.rgba);
-          this.ui.updateSelfTextStyle(this.self.size, color.rgba);
+          const rgba = color.rgba;
+          this.self.setColor(rgba);
+          this.self.setOpacity(rgba[3]); // Opacity comes from color alpha
+          this.ui.updateSelfColor(rgba);
+          this.ui.updateSelfTextStyle(this.self.size, rgba);
+
           if (this.connected) {
-            this.wsClient.broadcastColorChange(color.rgba);
+            this.wsClient.broadcastColorChange(rgba);
           }
         }
       });
@@ -165,6 +174,8 @@ export class DrawingApp {
 
     elements.sizeSlider.addEventListener('input', (e) => this.handleSizeChange(e));
     elements.spacingSlider.addEventListener('input', (e) => this.handleSpacingChange(e));
+    elements.pressureSlider.addEventListener('input', (e) => this.handlePressureSliderChange(e));
+    elements.smoothingSlider.addEventListener('input', (e) => this.handleSmoothingChange(e));
     elements.brushFileInput.addEventListener('change', (e) => this.handleBrushFileLoad(e));
 
     elements.board.addEventListener('pointermove', (e) => this.handlePointerMove(e));
@@ -422,6 +433,7 @@ export class DrawingApp {
     this.self.setSize(size);
     this.ui.updateCursorSize(size);
     this.ui.updateSelfTextStyle(size, this.self.color);
+    this.ui.updateSizeValue(size);
     this.board.mainCtx.lineWidth = size * 2;
     this.wsClient.broadcastSizeChange(size);
   }
@@ -429,7 +441,21 @@ export class DrawingApp {
   handleSpacingChange(e) {
     const spacing = Number(e.target.value);
     this.self.setSpacing(spacing);
+    this.ui.updateSpacingValue(spacing);
     this.wsClient.broadcastSpacingChange(spacing);
+  }
+
+  handlePressureSliderChange(e) {
+    const pressure = Number(e.target.value);
+    this.ui.updatePressureValue(pressure);
+    // Note: This sets max pressure for pen input, actual pressure comes from pointer events
+  }
+
+  handleSmoothingChange(e) {
+    const smoothing = Number(e.target.value);
+    this.self.setSmoothing(smoothing / 100); // Convert to 0-1 range
+    this.ui.updateSmoothingValue(smoothing);
+    // TODO: Broadcast smoothing change when protocol is updated
   }
 
   async handleBrushFileLoad(e) {
@@ -448,6 +474,30 @@ export class DrawingApp {
   handleChatSend(message) {
     this.chat.addMessage(message, this.self);
     this.wsClient.broadcastChat(message);
+  }
+
+  handlePaletteColorSelect(colorOrCallback) {
+    // If it's a callback (from the add button), pass the current color
+    if (typeof colorOrCallback === 'function') {
+      colorOrCallback(this.self.color);
+      return;
+    }
+
+    // Otherwise, select the color and update picker
+    const color = colorOrCallback;
+    this.self.setColor(color);
+    this.self.setOpacity(color[3]);
+    this.ui.updateSelfColor(color);
+    this.ui.updateSelfTextStyle(this.self.size, color);
+
+    // Update the color picker to match
+    if (this.colorPicker) {
+      this.colorPicker.setColor(color);
+    }
+
+    if (this.connected) {
+      this.wsClient.broadcastColorChange(color);
+    }
   }
 
   // Pointer event handlers
@@ -557,6 +607,11 @@ export class DrawingApp {
         }
       }
 
+      // Add current color to recent colors when starting to draw
+      if (this.self.tool !== 'erase' && this.self.tool !== 'select') {
+        this.colorPalette.addRecentColor(this.self.color);
+      }
+
       // Start tracking for debug overlay (pass tool type, brush size, and user info)
       this.debugOverlay.startDrawing(pos.x, pos.y, this.self.tool, this.self.size, this.self.id, this.self.username);
 
@@ -660,6 +715,7 @@ export class DrawingApp {
     this.self.setSize(size);
     this.ui.elements.sizeSlider.value = size;
     this.ui.updateCursorSize(size);
+    this.ui.updateSizeValue(size);
     this.ui.updateSelfTextStyle(size, this.self.color);
     this.board.mainCtx.lineWidth = size * 2;
     this.wsClient.broadcastSizeChange(size);

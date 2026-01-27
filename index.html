@@ -175,17 +175,22 @@
           <div id="options">
             <div class="sliders">
               <div class="sliderContainer">
-                <label>Brush Size</label>
+                <label>Size <span class="sliderValue" id="sizeValue">10</span></label>
                 <input autocomplete="off" type="range" min="0.25" max="100" value="10" step="0.25" class="slider size">
               </div>
 
               <div class="sliderContainer">
-                <label>Pressure Sensitivity</label>
+                <label>Max Pressure <span class="sliderValue" id="pressureValue">100%</span></label>
                 <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider pressure">
               </div>
 
+              <div class="sliderContainer">
+                <label>Smoothing <span class="sliderValue" id="smoothingValue">0%</span></label>
+                <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider smoothing">
+              </div>
+
               <div class="sliderContainer" id="brush-spacing" style="display: none;">
-                <label>Brush Spacing</label>
+                <label>Spacing <span class="sliderValue" id="spacingValue">0</span></label>
                 <input autocomplete="off" type="range" min="0" max="20" value="0" class="slider spacing">
               </div>
 
@@ -195,6 +200,24 @@
               <div id="brushGallery" style="display: none;">
                 <label>Brush Gallery</label>
                 <div id="brushList"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Color Palette -->
+          <div id="colorPalette">
+            <div class="paletteSection">
+              <label>Presets</label>
+              <div class="swatchGrid" id="presetSwatches"></div>
+            </div>
+            <div class="paletteSection">
+              <label>Recent</label>
+              <div class="swatchGrid" id="recentSwatches"></div>
+            </div>
+            <div class="paletteSection">
+              <label>Custom <span class="paletteHint">(click + to save)</span></label>
+              <div class="swatchGrid" id="customSwatches">
+                <button class="swatch addSwatch" id="addCustomSwatch" title="Save current color">+</button>
               </div>
             </div>
           </div>

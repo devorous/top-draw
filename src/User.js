@@ -12,7 +12,8 @@ export class User {
     this.pressure = options.pressure || 1;
     this.prevpressure = 1;
     this.spacing = options.spacing || 0;
-    this.smoothing = options.smoothing || 3;
+    this.smoothing = options.smoothing || 0;  // Stroke stabilization (0-1)
+    this.opacity = options.opacity || 1;       // Brush opacity (0-1)
     this.spaceIndex = 0;
     this.color = options.color || [0, 0, 0, 1];
     this.tool = options.tool || 'brush';
@@ -64,6 +65,14 @@ export class User {
     this.spacing = spacing;
   }
 
+  setSmoothing(smoothing) {
+    this.smoothing = smoothing;
+  }
+
+  setOpacity(opacity) {
+    this.opacity = opacity;
+  }
+
   setUsername(username) {
     this.username = username;
   }
@@ -94,6 +103,8 @@ export class User {
       size: this.size,
       pressure: this.pressure,
       spacing: this.spacing,
+      smoothing: this.smoothing,
+      opacity: this.opacity,
       color: this.color,
       tool: this.tool,
       text: this.text,
@@ -103,7 +114,7 @@ export class User {
   }
 
   updateFrom(data) {
-    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'color', 'tool', 'text', 'username', 'blendMode'];
+    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'color', 'tool', 'text', 'username', 'blendMode'];
     fields.forEach(field => {
       if (data[field] !== undefined) {
         this[field] = data[field];
