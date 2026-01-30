@@ -60,6 +60,19 @@
           </div>
         </div>
 
+        <!-- Toast Notification -->
+        <div id="toast" class="toast"></div>
+
+        <!-- Selection Context Menu -->
+        <div id="selectionMenu" class="selectionMenu" style="display: none;">
+          <button class="menuItem" id="selMenuClear" title="Clear selection contents">Clear</button>
+          <button class="menuItem" id="selMenuFill" title="Fill with current color">Fill</button>
+          <button class="menuItem" id="selMenuCopy" title="Copy selection">Copy</button>
+          <button class="menuItem" id="selMenuBrush" title="Use as image brush">Brush</button>
+          <button class="menuItem" id="selMenuStamp" title="Stamp to canvas">Stamp</button>
+          <button class="menuItem" id="selMenuCancel" title="Cancel and restore">Cancel</button>
+        </div>
+
         <!-- Canvas Area -->
         <div id="boards">
           <div class="cursors">
@@ -185,8 +198,8 @@
               </div>
 
               <div class="sliderContainer">
-                <label>Smoothing <span class="sliderValue" id="smoothingValue">0%</span></label>
-                <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider smoothing">
+                <label>Smoothing <span class="sliderValue" id="smoothingValue">30%</span></label>
+                <input autocomplete="off" type="range" min="0" max="100" value="30" class="slider smoothing">
               </div>
 
               <div class="sliderContainer" id="brush-spacing" style="display: none;">

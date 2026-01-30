@@ -504,6 +504,7 @@ export class RemoteUserHandler {
       bl: { x: 0, y: s.height },
       br: { x: s.width, y: s.height }
     };
+    user.originalSelectionPos = { x: s.x, y: s.y };
 
     // Draw floating selection on user's preview layer
     this.drawFloatingSelection(user);
@@ -573,7 +574,13 @@ export class RemoteUserHandler {
 
         const result = homography.warp();
         if (result) {
-          this.board.mainCtx.putImageData(result, minX, minY);
+          // Use tempCanvas to avoid putImageData overwriting transparent pixels
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = result.width;
+          tempCanvas.height = result.height;
+          const tempCtx = tempCanvas.getContext('2d');
+          tempCtx.putImageData(result, 0, 0);
+          this.board.mainCtx.drawImage(tempCanvas, minX, minY);
         } else {
           // Fallback
           this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
@@ -594,6 +601,180 @@ export class RemoteUserHandler {
     user.selection = null;
     user.selectionCorners = null;
     user.originalCorners = null;
+  }
+
+  handleSelectionDelete(user) {
+    // Use selection if available, otherwise fall back to pendingSelection
+    // (Fill/Delete can be called before sel_lift when selection hasn't been moved)
+    const s = user.selection || user.pendingSelection;
+    if (!s) return;
+
+    // If floating, just clear it; otherwise clear on main canvas
+    if (user.floatingCanvas) {
+      user.floatingCanvas = null;
+      user.floatingCtx = null;
+    } else {
+      this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
+    }
+
+    // Clear user selection state
+    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    user.selection = null;
+    user.pendingSelection = null;
+    user.selectionCorners = null;
+    user.originalCorners = null;
+  }
+
+  handleSelectionFill(user, color) {
+    // Use selection if available, otherwise fall back to pendingSelection
+    // (Fill can be called before sel_lift when selection hasn't been moved)
+    const s = user.selection || user.pendingSelection;
+    if (!s) return;
+    const colorString = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3]})`;
+
+    // If floating, fill the floating canvas
+    if (user.floatingCanvas && user.floatingCtx) {
+      user.floatingCtx.fillStyle = colorString;
+      user.floatingCtx.fillRect(0, 0, s.width, s.height);
+
+      // Redraw on user's layer
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+      user.context.drawImage(user.floatingCanvas, s.x, s.y);
+    } else {
+      // Fill directly on main canvas
+      this.board.mainCtx.fillStyle = colorString;
+      this.board.mainCtx.fillRect(s.x, s.y, s.width, s.height);
+    }
+  }
+
+  handleSelectionStamp(user) {
+    // Same as commit but don't clear floating canvas
+    if (!user.floatingCanvas || !user.selection) return;
+
+    const s = user.selection;
+    const c = user.selectionCorners;
+
+    // Check if transform was applied
+    const hasTransform = this.hasTransformedCorners(user);
+
+    if (hasTransform && user.originalCorners) {
+      try {
+        const homography = new Homography('projective');
+
+        const srcPoints = [
+          [user.originalCorners.tl.x, user.originalCorners.tl.y],
+          [user.originalCorners.tr.x, user.originalCorners.tr.y],
+          [user.originalCorners.bl.x, user.originalCorners.bl.y],
+          [user.originalCorners.br.x, user.originalCorners.br.y]
+        ];
+
+        const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+        const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+
+        const dstPoints = [
+          [c.tl.x - minX, c.tl.y - minY],
+          [c.tr.x - minX, c.tr.y - minY],
+          [c.bl.x - minX, c.bl.y - minY],
+          [c.br.x - minX, c.br.y - minY]
+        ];
+
+        homography.setSourcePoints(srcPoints, user.floatingCanvas);
+        homography.setDestinyPoints(dstPoints);
+
+        const result = homography.warp();
+        if (result) {
+          // Use tempCanvas to avoid putImageData overwriting transparent pixels
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = result.width;
+          tempCanvas.height = result.height;
+          const tempCtx = tempCanvas.getContext('2d');
+          tempCtx.putImageData(result, 0, 0);
+          this.board.mainCtx.drawImage(tempCanvas, minX, minY);
+        } else {
+          this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+        }
+      } catch (e) {
+        console.warn('Remote stamp homography failed:', e);
+        this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+      }
+    } else {
+      this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+    }
+
+    // Keep selection active (don't cleanup like commit does)
+    // Redraw floating selection on user's layer
+    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    user.context.drawImage(user.floatingCanvas, s.x, s.y);
+  }
+
+  handleSelectionCancel(user) {
+    if (!user.floatingCanvas || !user.selection || !user.originalSelectionPos) return;
+
+    // Restore selection to original position on main canvas
+    this.board.mainCtx.drawImage(
+      user.floatingCanvas,
+      user.originalSelectionPos.x,
+      user.originalSelectionPos.y
+    );
+
+    // Clear user selection state
+    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    user.floatingCanvas = null;
+    user.floatingCtx = null;
+    user.selection = null;
+    user.selectionCorners = null;
+    user.originalCorners = null;
+    user.originalSelectionPos = null;
+  }
+
+  handleSelectionToBrush(user, brushDataJson) {
+    // This is mostly informational - the brush data is being set on the remote user
+    // The actual brush will be loaded when they receive the GMP message
+    // This handler exists for consistency but may not need implementation
+    console.log(`User ${user.username} converted selection to brush`);
+  }
+
+  handleImagePaste(user, data) {
+    const { x, y, width, height, imageData } = data;
+
+    // Clear any existing selection state for this user
+    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    user.pendingSelection = null;
+
+    // Create floating canvas for the pasted image
+    user.floatingCanvas = document.createElement('canvas');
+    user.floatingCanvas.width = width;
+    user.floatingCanvas.height = height;
+    user.floatingCtx = user.floatingCanvas.getContext('2d');
+
+    // Load the image from data URL
+    const img = new Image();
+    img.onload = () => {
+      user.floatingCtx.drawImage(img, 0, 0);
+
+      // Set up selection state
+      user.selection = { x, y, width, height };
+      user.selectionCorners = {
+        tl: { x, y },
+        tr: { x: x + width, y },
+        bl: { x, y: y + height },
+        br: { x: x + width, y: y + height }
+      };
+      user.originalCorners = {
+        tl: { x: 0, y: 0 },
+        tr: { x: width, y: 0 },
+        bl: { x: 0, y: height },
+        br: { x: width, y: height }
+      };
+      user.originalSelectionPos = { x: -1, y: -1 }; // Pasted content is "moved"
+
+      // Draw the floating selection
+      this.drawFloatingSelection(user);
+
+      // Start selection animation
+      this.startRemoteSelectionAnimation();
+    };
+    img.src = imageData;
   }
 
   hasTransformedCorners(user) {

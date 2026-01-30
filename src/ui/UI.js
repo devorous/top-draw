@@ -88,7 +88,9 @@ export class UI {
       selfListTool: document.querySelector('.listTool.self'),
       selfListColor: document.querySelector('.listColor.self'),
       selfListUser: document.querySelector('.listUser.self'),
-      selfListActive: document.querySelector('.listActive.self')
+      selfListActive: document.querySelector('.listActive.self'),
+
+      toast: document.getElementById('toast')
     };
   }
 
@@ -583,5 +585,27 @@ export class UI {
       return { board, context: board.getContext('2d') };
     }
     return null;
+  }
+
+  /**
+   * Show a toast notification
+   * @param {string} message - The message to display
+   * @param {number} duration - How long to show the toast (ms), default 2000
+   */
+  showToast(message, duration = 2000) {
+    const toast = this.elements.toast;
+    if (!toast) return;
+
+    // Clear any existing timeout
+    if (this._toastTimeout) {
+      clearTimeout(this._toastTimeout);
+    }
+
+    toast.textContent = message;
+    toast.classList.add('show');
+
+    this._toastTimeout = setTimeout(() => {
+      toast.classList.remove('show');
+    }, duration);
   }
 }

@@ -282,3 +282,101 @@ export function drawTangentStroke(ctx, points, color) {
   ctx.closePath();
   ctx.fill();
 }
+
+/**
+ * Calculate perpendicular distance from point to line segment
+ * @param {Object} point - Point {x, y}
+ * @param {Object} lineStart - Line start {x, y}
+ * @param {Object} lineEnd - Line end {x, y}
+ * @returns {number} - Perpendicular distance
+ */
+function perpendicularDistance(point, lineStart, lineEnd) {
+  const dx = lineEnd.x - lineStart.x;
+  const dy = lineEnd.y - lineStart.y;
+
+  // Handle degenerate case where line segment is a point
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) {
+    const pdx = point.x - lineStart.x;
+    const pdy = point.y - lineStart.y;
+    return Math.sqrt(pdx * pdx + pdy * pdy);
+  }
+
+  // Calculate perpendicular distance using cross product
+  const numerator = Math.abs(dy * point.x - dx * point.y + lineEnd.x * lineStart.y - lineEnd.y * lineStart.x);
+  const denominator = Math.sqrt(lengthSquared);
+
+  return numerator / denominator;
+}
+
+/**
+ * Douglas-Peucker point reduction algorithm
+ * Recursively simplifies a polyline while preserving its shape
+ * @param {Array} points - Array of {x, y} points
+ * @param {number} epsilon - Tolerance (larger = more reduction)
+ * @returns {Array} - Simplified array of points
+ */
+export function douglasPeucker(points, epsilon) {
+  if (points.length <= 2) {
+    return points;
+  }
+
+  // Find the point with maximum distance from line between first and last
+  let maxDistance = 0;
+  let maxIndex = 0;
+  const start = points[0];
+  const end = points[points.length - 1];
+
+  for (let i = 1; i < points.length - 1; i++) {
+    const distance = perpendicularDistance(points[i], start, end);
+    if (distance > maxDistance) {
+      maxDistance = distance;
+      maxIndex = i;
+    }
+  }
+
+  // If max distance is greater than epsilon, recursively simplify
+  if (maxDistance > epsilon) {
+    // Recursive call on both segments
+    const left = douglasPeucker(points.slice(0, maxIndex + 1), epsilon);
+    const right = douglasPeucker(points.slice(maxIndex), epsilon);
+
+    // Combine results (remove duplicate middle point)
+    return left.slice(0, -1).concat(right);
+  } else {
+    // All points between start and end can be removed
+    return [start, end];
+  }
+}
+
+/**
+ * Distance-based point culling (simpler and faster than Douglas-Peucker)
+ * Removes points that are closer than threshold to previous kept point
+ * @param {Array} points - Array of {x, y} points
+ * @param {number} threshold - Minimum distance between points
+ * @returns {Array} - Simplified array of points
+ */
+export function distanceBasedCulling(points, threshold) {
+  if (points.length <= 2) {
+    return points;
+  }
+
+  const result = [points[0]]; // Always keep first point
+  let lastKept = points[0];
+
+  for (let i = 1; i < points.length - 1; i++) {
+    const dx = points[i].x - lastKept.x;
+    const dy = points[i].y - lastKept.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance >= threshold) {
+      result.push(points[i]);
+      lastKept = points[i];
+    }
+  }
+
+  // Always keep last point (important for shape tools)
+  result.push(points[points.length - 1]);
+
+  return result;
+}

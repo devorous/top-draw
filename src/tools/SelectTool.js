@@ -1,0 +1,1637 @@
+import { Homography } from '../utils/homography.js';
+
+/**
+ * Base tool class
+ */
+class Tool {
+  constructor(name, board) {
+    this.name = name;
+    this.board = board;
+  }
+
+  activate() {}
+  deactivate() {}
+  onPointerDown(user, pos, e) {}
+  onPointerMove(user, pos, lastPos, e) {}
+  onPointerUp(user, pos, e) {}
+}
+
+/**
+ * Selection tool for selecting, moving, and transforming regions
+ */
+export class SelectTool extends Tool {
+  constructor(board) {
+    super('select', board);
+    this.mode = 'rectangle'; // 'rectangle' or 'lasso'
+    this.isSelecting = false;
+    this.isDragging = false;
+    this.startPos = null;
+    this.selection = null; // { x, y, width, height }
+    this.selectedImageData = null;
+    this.floatingCanvas = null;
+    this.floatingCtx = null;
+    this.dragOffset = { x: 0, y: 0 };
+    this.marchingAntsOffset = 0;
+    this.animationId = null;
+
+    // Transform handles
+    this.handles = [];
+    this.activeHandle = null;
+    this.handleSize = 8;
+    this.handleHitArea = 20; // Larger hit area for easier clicking
+
+    // Corner positions for transform (can be moved independently for perspective)
+    this.corners = null; // { tl, tr, bl, br } - each is {x, y}
+    this.originalCorners = null; // Original corners before transform
+    this.originalSelectionPos = null; // Track original position to detect moves
+
+    // Rotation
+    this.rotation = 0; // Rotation angle in radians
+    this.rotationHandleDistance = 30; // Distance of rotation handle from top edge
+    this.isRotating = false;
+    this.rotationStartAngle = 0; // Angle when rotation started
+    this.cornersAtRotationStart = null; // Corners at the start of rotation
+
+    // Homography instance for transforms
+    this.homography = null;
+    this.isTransforming = false;
+
+    // Clipboard
+    this.clipboard = null;
+
+    // Context menu elements (cached after first use)
+    this.menuElements = null;
+  }
+
+  activate() {
+    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    this.startMarchingAnts();
+    this.setupMenuListeners();
+  }
+
+  deactivate() {
+    this.stopMarchingAnts();
+    this.commitSelection();
+    this.clearSelection();
+    this.hideContextMenu();
+    // Reset cursor
+    this.board.container.style.cursor = 'none';
+  }
+
+  setupMenuListeners() {
+    if (this.menuElements) return; // Already set up
+
+    this.menuElements = {
+      menu: document.getElementById('selectionMenu'),
+      clear: document.getElementById('selMenuClear'),
+      fill: document.getElementById('selMenuFill'),
+      copy: document.getElementById('selMenuCopy'),
+      brush: document.getElementById('selMenuBrush'),
+      stamp: document.getElementById('selMenuStamp'),
+      cancel: document.getElementById('selMenuCancel')
+    };
+
+    if (!this.menuElements.menu) return;
+
+    this.menuElements.clear.addEventListener('click', () => this.deleteSelection());
+    this.menuElements.fill.addEventListener('click', () => this.fillSelection());
+    this.menuElements.copy.addEventListener('click', () => this.copy());
+    this.menuElements.brush.addEventListener('click', () => this.toImageBrush());
+    this.menuElements.stamp.addEventListener('click', () => this.stamp());
+    this.menuElements.cancel.addEventListener('click', () => this.cancelMovement());
+  }
+
+  showContextMenu() {
+    if (!this.menuElements?.menu || !this.selection) return;
+
+    const menu = this.menuElements.menu;
+    const hasMoved = this.hasBeenMoved();
+
+    // Show/hide options based on state
+    this.menuElements.clear.classList.toggle('hidden', hasMoved);
+    this.menuElements.fill.classList.toggle('hidden', hasMoved);
+    this.menuElements.stamp.classList.toggle('hidden', !hasMoved);
+    this.menuElements.cancel.classList.toggle('hidden', !hasMoved);
+
+    // Position menu at bottom-right of the selection
+    const c = this.corners || {
+      tr: { x: this.selection.x + this.selection.width, y: this.selection.y },
+      br: { x: this.selection.x + this.selection.width, y: this.selection.y + this.selection.height }
+    };
+    // Find the rightmost x and bottommost y of the selection
+    const rightX = this.corners
+      ? Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x)
+      : this.selection.x + this.selection.width;
+    const bottomY = this.corners
+      ? Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y)
+      : this.selection.y + this.selection.height;
+
+    // Account for board position and zoom/pan transforms
+    const zoom = this.board.zoom || 1;
+    const panX = this.board.panX || 0;
+    const panY = this.board.panY || 0;
+
+    // Transform canvas coordinates to screen coordinates
+    const screenX = rightX * zoom + panX;
+    const screenY = bottomY * zoom + panY;
+
+    // Get the menu dimensions
+    menu.style.display = 'flex'; // Show first to measure
+    const menuWidth = menu.offsetWidth;
+
+    // Position relative to the board container, to the right and below selection
+    const containerRect = this.board.container.getBoundingClientRect();
+
+    let left = containerRect.left + screenX + 10;
+    let top = containerRect.top + screenY + 10;
+
+    // Keep menu on screen
+    left = Math.max(10, Math.min(left, window.innerWidth - menuWidth - 10));
+    top = Math.max(10, Math.min(top, window.innerHeight - menu.offsetHeight - 10));
+
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  }
+
+  hideContextMenu() {
+    if (this.menuElements?.menu) {
+      this.menuElements.menu.style.display = 'none';
+    }
+  }
+
+  hasBeenMoved() {
+    if (!this.originalSelectionPos || !this.selection) return false;
+    return (
+      Math.abs(this.selection.x - this.originalSelectionPos.x) > 1 ||
+      Math.abs(this.selection.y - this.originalSelectionPos.y) > 1 ||
+      this.hasTransformedCorners() ||
+      Math.abs(this.rotation) > 0.01
+    );
+  }
+
+  updateCursor(pos) {
+    if (!this.board.container) return;
+
+    // Check if over a handle first (highest priority)
+    this.updateHandles();
+    const handle = this.getHandleAtPoint(pos);
+    if (handle) {
+      // Set cursor based on handle position
+      if (handle.id === 'rotate') {
+        this.board.container.style.cursor = 'grab';
+        return;
+      }
+      const cursorMap = {
+        'tl': 'nwse-resize', 'br': 'nwse-resize',
+        'tr': 'nesw-resize', 'bl': 'nesw-resize',
+        'tm': 'ns-resize', 'bm': 'ns-resize',
+        'ml': 'ew-resize', 'mr': 'ew-resize'
+      };
+      this.board.container.style.cursor = cursorMap[handle.id] || 'move';
+      return;
+    }
+
+    // Check if over selection (for move)
+    if (this.selection && this.isInsideSelection(pos)) {
+      this.board.container.style.cursor = 'move';
+      return;
+    }
+
+    // Default crosshair for selection
+    this.board.container.style.cursor = 'crosshair';
+  }
+
+  startMarchingAnts() {
+    if (this.animationId) return;
+
+    const animate = () => {
+      this.marchingAntsOffset = (this.marchingAntsOffset + 1) % 16;
+      // Only redraw if we have a selection and aren't actively transforming
+      if (this.selection && !this.isDragging && !this.isTransforming && !this.isSelecting && !this.isRotating) {
+        this.board.clearTop();
+        // Draw floating selection or transform preview
+        if (this.floatingCanvas && (this.hasTransformedCorners() || this.rotation !== 0)) {
+          // Show transform preview if corners have been moved or rotated
+          this.drawTransformPreview();
+        } else if (this.floatingCanvas) {
+          this.drawFloatingSelection();
+          this.drawMarchingAntsOnly();
+        } else {
+          // Draw only the marching ants border and handles
+          this.drawMarchingAntsOnly();
+        }
+      }
+      this.animationId = requestAnimationFrame(animate);
+    };
+    this.animationId = requestAnimationFrame(animate);
+  }
+
+  drawMarchingAntsOnly() {
+    if (!this.selection) return;
+
+    const ctx = this.board.topCtx;
+
+    // Draw marching ants border using corners if available
+    if (this.corners) {
+      this.drawTransformOutline(ctx);
+      this.drawTransformHandles(ctx);
+    } else {
+      const s = this.selection;
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.lineDashOffset = -this.marchingAntsOffset;
+      ctx.strokeRect(s.x, s.y, s.width, s.height);
+
+      ctx.strokeStyle = '#fff';
+      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+      ctx.strokeRect(s.x, s.y, s.width, s.height);
+      ctx.setLineDash([]);
+
+      // Draw handles
+      this.updateHandles();
+      for (const handle of this.handles) {
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        ctx.fillRect(
+          handle.x - this.handleSize / 2,
+          handle.y - this.handleSize / 2,
+          this.handleSize,
+          this.handleSize
+        );
+        ctx.strokeRect(
+          handle.x - this.handleSize / 2,
+          handle.y - this.handleSize / 2,
+          this.handleSize,
+          this.handleSize
+        );
+      }
+    }
+  }
+
+  stopMarchingAnts() {
+    if (this.animationId) {
+      cancelAnimationFrame(this.animationId);
+      this.animationId = null;
+    }
+  }
+
+  onPointerDown(user, pos) {
+    // Hide menu when starting any interaction
+    this.hideContextMenu();
+
+    // Check if clicking a transform handle FIRST (higher priority than dragging)
+    this.updateHandles();
+    const handle = this.getHandleAtPoint(pos);
+    if (handle) {
+      // Special handling for rotation handle
+      if (handle.id === 'rotate') {
+        this.isRotating = true;
+        const center = this.getSelectionCenter();
+        this.rotationStartAngle = Math.atan2(pos.y - center.y, pos.x - center.x);
+
+        // Lift selection if not already lifted
+        if (!this.floatingCanvas) {
+          this.liftSelection();
+        }
+
+        // Store current corners at the start of rotation
+        if (this.corners) {
+          this.cornersAtRotationStart = {
+            tl: { ...this.corners.tl },
+            tr: { ...this.corners.tr },
+            bl: { ...this.corners.bl },
+            br: { ...this.corners.br }
+          };
+        }
+        return;
+      }
+
+      this.activeHandle = handle;
+      return;
+    }
+
+    // Check if clicking inside existing selection to drag it
+    if (this.selection && this.isInsideSelection(pos)) {
+      this.isDragging = true;
+      this.dragOffset = {
+        x: pos.x - this.selection.x,
+        y: pos.y - this.selection.y
+      };
+
+      // If we haven't lifted the selection yet, do it now
+      if (!this.floatingCanvas) {
+        this.liftSelection();
+      }
+      return;
+    }
+
+    // Commit any existing selection before starting a new one
+    if (this.selection) {
+      this.commitSelection();
+      this.clearSelection();
+    }
+
+    // Start new selection
+    this.isSelecting = true;
+    this.startPos = { x: pos.x, y: pos.y };
+  }
+
+  onPointerMove(user, pos) {
+    // Handle rotation
+    if (this.isRotating && this.selection && this.cornersAtRotationStart) {
+      // Calculate center from the corners at rotation start
+      const startCorners = this.cornersAtRotationStart;
+      const center = {
+        x: (startCorners.tl.x + startCorners.tr.x + startCorners.bl.x + startCorners.br.x) / 4,
+        y: (startCorners.tl.y + startCorners.tr.y + startCorners.bl.y + startCorners.br.y) / 4
+      };
+
+      const currentAngle = Math.atan2(pos.y - center.y, pos.x - center.x);
+      const deltaAngle = currentAngle - this.rotationStartAngle;
+
+      // Update corners based on rotation delta from start position
+      this.updateCornersFromRotation(deltaAngle);
+      // Update selection bounds from rotated corners
+      this.updateSelectionFromCorners();
+
+      // Broadcast the rotation to other users
+      if (this.corners && this.board.app && this.board.app.wsClient) {
+        this.board.app.wsClient.broadcastSelectionMove(this.corners);
+      }
+
+      this.board.clearTop();
+      // Use homography-based preview (corners are now rotated)
+      this.drawTransformPreview();
+      return;
+    }
+
+    if (this.isDragging && this.selection) {
+      // Calculate movement delta
+      const newX = pos.x - this.dragOffset.x;
+      const newY = pos.y - this.dragOffset.y;
+      const dx = newX - this.selection.x;
+      const dy = newY - this.selection.y;
+
+      // Move the selection
+      this.selection.x = newX;
+      this.selection.y = newY;
+
+      // Also move all corners
+      if (this.corners) {
+        this.corners.tl.x += dx;
+        this.corners.tl.y += dy;
+        this.corners.tr.x += dx;
+        this.corners.tr.y += dy;
+        this.corners.bl.x += dx;
+        this.corners.bl.y += dy;
+        this.corners.br.x += dx;
+        this.corners.br.y += dy;
+
+        // Broadcast the move to other users
+        if (this.board.app && this.board.app.wsClient) {
+          this.board.app.wsClient.broadcastSelectionMove(this.corners);
+        }
+      }
+
+      this.board.clearTop();
+      this.drawFloatingSelection();
+      this.drawSelectionUI();
+      return;
+    }
+
+    if (this.activeHandle && this.selection) {
+      // Lift selection if not already lifted
+      if (!this.floatingCanvas) {
+        this.liftSelection();
+      }
+
+      // Update corner position based on which handle is being dragged
+      this.updateCornerFromHandle(this.activeHandle.id, pos);
+      this.isTransforming = true;
+
+      // Broadcast the transform to other users
+      if (this.corners && this.board.app && this.board.app.wsClient) {
+        this.board.app.wsClient.broadcastSelectionMove(this.corners);
+      }
+
+      // Redraw with transform preview
+      this.board.clearTop();
+      this.drawTransformPreview();
+      return;
+    }
+
+    if (!this.isSelecting || !this.startPos) {
+      // Not doing anything - update cursor based on position
+      this.updateCursor(pos);
+      return;
+    }
+
+    // Update selection rectangle preview
+    this.board.clearTop();
+    this.drawSelectionBox(this.board.topCtx, this.startPos, pos);
+  }
+
+  onPointerUp(user, pos) {
+    if (this.isRotating) {
+      this.isRotating = false;
+      this.cornersAtRotationStart = null;
+      this.board.clearTop();
+      // Use homography-based preview (corners are rotated)
+      this.drawTransformPreview();
+      this.showContextMenu();
+      return;
+    }
+
+    if (this.isDragging) {
+      this.isDragging = false;
+      this.drawSelectionUI();
+      this.showContextMenu();
+      return;
+    }
+
+    if (this.activeHandle) {
+      // Don't apply transform yet - keep handles in place for layered transforms
+      // Transform will be applied when committing the selection
+      this.activeHandle = null;
+      this.isTransforming = false;
+      this.showContextMenu();
+      this.board.clearTop();
+      // Draw the transform preview (keeps showing warped result)
+      if (this.floatingCanvas && this.corners) {
+        this.drawTransformPreview();
+      } else {
+        this.drawSelectionUI();
+      }
+      return;
+    }
+
+    if (!this.isSelecting || !this.startPos) return;
+
+    this.isSelecting = false;
+
+    // Finalize selection rectangle
+    const x = Math.min(this.startPos.x, pos.x);
+    const y = Math.min(this.startPos.y, pos.y);
+    const width = Math.abs(pos.x - this.startPos.x);
+    const height = Math.abs(pos.y - this.startPos.y);
+
+    // Minimum selection size
+    if (width < 5 || height < 5) {
+      this.board.clearTop();
+      this.startPos = null;
+      return;
+    }
+
+    this.selection = { x, y, width, height };
+    this.startPos = null;
+
+    // Store original position to detect moves
+    this.originalSelectionPos = { x, y };
+
+    // Initialize corners for transform
+    this.initializeCorners();
+    this.updateHandles();
+
+    this.board.clearTop();
+    this.drawSelectionUI();
+    this.showContextMenu();
+  }
+
+  initializeCorners() {
+    if (!this.selection) return;
+
+    const s = this.selection;
+    this.corners = {
+      tl: { x: s.x, y: s.y },
+      tr: { x: s.x + s.width, y: s.y },
+      bl: { x: s.x, y: s.y + s.height },
+      br: { x: s.x + s.width, y: s.y + s.height }
+    };
+    // Store original corners (in image coordinates, relative to top-left of selection)
+    this.originalCorners = {
+      tl: { x: 0, y: 0 },
+      tr: { x: s.width, y: 0 },
+      bl: { x: 0, y: s.height },
+      br: { x: s.width, y: s.height }
+    };
+  }
+
+  updateCornerFromHandle(handleId, pos) {
+    if (!this.corners) return;
+
+    const c = this.corners;
+
+    switch (handleId) {
+      // Corner handles - free transform
+      case 'tl':
+        c.tl.x = pos.x;
+        c.tl.y = pos.y;
+        break;
+      case 'tr':
+        c.tr.x = pos.x;
+        c.tr.y = pos.y;
+        break;
+      case 'bl':
+        c.bl.x = pos.x;
+        c.bl.y = pos.y;
+        break;
+      case 'br':
+        c.br.x = pos.x;
+        c.br.y = pos.y;
+        break;
+
+      // Edge handles - constrained transform
+      case 'tm': // Top middle - move both top corners
+        const topDy = pos.y - (c.tl.y + c.tr.y) / 2;
+        c.tl.y += topDy;
+        c.tr.y += topDy;
+        break;
+      case 'bm': // Bottom middle
+        const botDy = pos.y - (c.bl.y + c.br.y) / 2;
+        c.bl.y += botDy;
+        c.br.y += botDy;
+        break;
+      case 'ml': // Middle left
+        const leftDx = pos.x - (c.tl.x + c.bl.x) / 2;
+        c.tl.x += leftDx;
+        c.bl.x += leftDx;
+        break;
+      case 'mr': // Middle right
+        const rightDx = pos.x - (c.tr.x + c.br.x) / 2;
+        c.tr.x += rightDx;
+        c.br.x += rightDx;
+        break;
+    }
+
+    // Update selection bounds based on corners
+    this.updateSelectionFromCorners();
+  }
+
+  updateSelectionFromCorners() {
+    if (!this.corners) return;
+
+    const c = this.corners;
+    const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+    const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+    const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+    const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+
+    this.selection.x = minX;
+    this.selection.y = minY;
+    this.selection.width = maxX - minX;
+    this.selection.height = maxY - minY;
+  }
+
+  drawTransformPreview() {
+    if (!this.floatingCanvas || !this.corners || !this.originalCorners) return;
+
+    const ctx = this.board.topCtx;
+
+    try {
+      // Create homography for projective transform
+      const homography = new Homography('projective');
+
+      // Source points (original corners of the floating canvas)
+      const srcPoints = [
+        [this.originalCorners.tl.x, this.originalCorners.tl.y],
+        [this.originalCorners.tr.x, this.originalCorners.tr.y],
+        [this.originalCorners.bl.x, this.originalCorners.bl.y],
+        [this.originalCorners.br.x, this.originalCorners.br.y]
+      ];
+
+      // Destination points (current corner positions, relative to output)
+      const c = this.corners;
+      const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+      const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+
+      const dstPoints = [
+        [c.tl.x - minX, c.tl.y - minY],
+        [c.tr.x - minX, c.tr.y - minY],
+        [c.bl.x - minX, c.bl.y - minY],
+        [c.br.x - minX, c.br.y - minY]
+      ];
+
+      // Set up homography
+      homography.setSourcePoints(srcPoints, this.floatingCanvas);
+      homography.setDestinyPoints(dstPoints);
+
+      // Warp the image
+      const result = homography.warp();
+
+      if (result) {
+        // Draw the warped result
+        ctx.putImageData(result, minX, minY);
+      }
+    } catch (e) {
+      // Fallback: just draw the original floating selection
+      console.warn('Homography transform failed:', e);
+      this.drawFloatingSelection();
+    }
+
+    // Draw the quadrilateral outline
+    this.drawTransformOutline(ctx);
+
+    // Draw handles at corners
+    this.drawTransformHandles(ctx);
+  }
+
+  drawTransformOutline(ctx) {
+    if (!this.corners) return;
+
+    const c = this.corners;
+
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.lineDashOffset = -this.marchingAntsOffset;
+
+    ctx.beginPath();
+    ctx.moveTo(c.tl.x, c.tl.y);
+    ctx.lineTo(c.tr.x, c.tr.y);
+    ctx.lineTo(c.br.x, c.br.y);
+    ctx.lineTo(c.bl.x, c.bl.y);
+    ctx.closePath();
+    ctx.stroke();
+
+    ctx.strokeStyle = '#fff';
+    ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+
+    ctx.beginPath();
+    ctx.moveTo(c.tl.x, c.tl.y);
+    ctx.lineTo(c.tr.x, c.tr.y);
+    ctx.lineTo(c.br.x, c.br.y);
+    ctx.lineTo(c.bl.x, c.bl.y);
+    ctx.closePath();
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+  }
+
+  drawTransformHandles(ctx) {
+    if (!this.corners) return;
+
+    const c = this.corners;
+    const tm = { x: (c.tl.x + c.tr.x) / 2, y: (c.tl.y + c.tr.y) / 2 };
+
+    const handlePositions = [
+      c.tl, c.tr, c.bl, c.br,
+      tm,
+      { x: (c.bl.x + c.br.x) / 2, y: (c.bl.y + c.br.y) / 2 }, // bm
+      { x: (c.tl.x + c.bl.x) / 2, y: (c.tl.y + c.bl.y) / 2 }, // ml
+      { x: (c.tr.x + c.br.x) / 2, y: (c.tr.y + c.br.y) / 2 }  // mr
+    ];
+
+    // Draw regular handles as squares
+    for (const pos of handlePositions) {
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1;
+      ctx.fillRect(
+        pos.x - this.handleSize / 2,
+        pos.y - this.handleSize / 2,
+        this.handleSize,
+        this.handleSize
+      );
+      ctx.strokeRect(
+        pos.x - this.handleSize / 2,
+        pos.y - this.handleSize / 2,
+        this.handleSize,
+        this.handleSize
+      );
+    }
+
+    // Draw rotation handle
+    const center = this.getSelectionCenter();
+    const rotHandle = this.getRotationHandlePosition(center, tm.x, tm.y);
+
+    // Draw connecting line from top-middle to rotation handle
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(tm.x, tm.y);
+    ctx.lineTo(rotHandle.x, rotHandle.y);
+    ctx.stroke();
+
+    // Draw rotation handle as a circle
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(rotHandle.x, rotHandle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  applyTransform() {
+    if (!this.floatingCanvas || !this.corners || !this.originalCorners) return;
+
+    try {
+      // Create homography for projective transform
+      const homography = new Homography('projective');
+
+      // Source points
+      const srcPoints = [
+        [this.originalCorners.tl.x, this.originalCorners.tl.y],
+        [this.originalCorners.tr.x, this.originalCorners.tr.y],
+        [this.originalCorners.bl.x, this.originalCorners.bl.y],
+        [this.originalCorners.br.x, this.originalCorners.br.y]
+      ];
+
+      // Destination points
+      const c = this.corners;
+      const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+      const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+
+      const dstPoints = [
+        [c.tl.x - minX, c.tl.y - minY],
+        [c.tr.x - minX, c.tr.y - minY],
+        [c.bl.x - minX, c.bl.y - minY],
+        [c.br.x - minX, c.br.y - minY]
+      ];
+
+      homography.setSourcePoints(srcPoints, this.floatingCanvas);
+      homography.setDestinyPoints(dstPoints);
+
+      const result = homography.warp();
+
+      if (result) {
+        // Create new floating canvas with transformed result
+        const newCanvas = document.createElement('canvas');
+        newCanvas.width = result.width;
+        newCanvas.height = result.height;
+        const newCtx = newCanvas.getContext('2d');
+        newCtx.putImageData(result, 0, 0);
+
+        this.floatingCanvas = newCanvas;
+        this.floatingCtx = newCtx;
+
+        // Update selection to match new bounds
+        this.selection.x = minX;
+        this.selection.y = minY;
+        this.selection.width = result.width;
+        this.selection.height = result.height;
+
+        // Reset corners to new selection bounds
+        this.initializeCorners();
+      }
+    } catch (e) {
+      console.warn('Failed to apply transform:', e);
+    }
+  }
+
+  isInsideSelection(pos) {
+    if (!this.selection) return false;
+    const s = this.selection;
+    return pos.x >= s.x && pos.x <= s.x + s.width &&
+           pos.y >= s.y && pos.y <= s.y + s.height;
+  }
+
+  getHandleAtPoint(pos) {
+    for (const handle of this.handles) {
+      const dx = pos.x - handle.x;
+      const dy = pos.y - handle.y;
+      // Use larger hit area for easier clicking
+      if (Math.abs(dx) <= this.handleHitArea && Math.abs(dy) <= this.handleHitArea) {
+        return handle;
+      }
+    }
+    return null;
+  }
+
+  updateHandles() {
+    if (!this.selection) {
+      this.handles = [];
+      return;
+    }
+
+    // Use corners if available (for perspective transform), otherwise use selection bounds
+    if (this.corners) {
+      const c = this.corners;
+      const tmX = (c.tl.x + c.tr.x) / 2;
+      const tmY = (c.tl.y + c.tr.y) / 2;
+
+      // Calculate rotation handle position (above top-middle, accounting for current rotation)
+      const center = this.getSelectionCenter();
+      const rotHandlePos = this.getRotationHandlePosition(center, tmX, tmY);
+
+      this.handles = [
+        { id: 'tl', x: c.tl.x, y: c.tl.y },
+        { id: 'tr', x: c.tr.x, y: c.tr.y },
+        { id: 'bl', x: c.bl.x, y: c.bl.y },
+        { id: 'br', x: c.br.x, y: c.br.y },
+        { id: 'tm', x: tmX, y: tmY },
+        { id: 'bm', x: (c.bl.x + c.br.x) / 2, y: (c.bl.y + c.br.y) / 2 },
+        { id: 'ml', x: (c.tl.x + c.bl.x) / 2, y: (c.tl.y + c.bl.y) / 2 },
+        { id: 'mr', x: (c.tr.x + c.br.x) / 2, y: (c.tr.y + c.br.y) / 2 },
+        { id: 'rotate', x: rotHandlePos.x, y: rotHandlePos.y, isRotation: true }
+      ];
+    } else {
+      const s = this.selection;
+      const tmX = s.x + s.width / 2;
+      const tmY = s.y;
+
+      // Calculate rotation handle position
+      const center = this.getSelectionCenter();
+      const rotHandlePos = this.getRotationHandlePosition(center, tmX, tmY);
+
+      this.handles = [
+        { id: 'tl', x: s.x, y: s.y },
+        { id: 'tr', x: s.x + s.width, y: s.y },
+        { id: 'bl', x: s.x, y: s.y + s.height },
+        { id: 'br', x: s.x + s.width, y: s.y + s.height },
+        { id: 'tm', x: tmX, y: tmY },
+        { id: 'bm', x: s.x + s.width / 2, y: s.y + s.height },
+        { id: 'ml', x: s.x, y: s.y + s.height / 2 },
+        { id: 'mr', x: s.x + s.width, y: s.y + s.height / 2 },
+        { id: 'rotate', x: rotHandlePos.x, y: rotHandlePos.y, isRotation: true }
+      ];
+    }
+  }
+
+  getSelectionCenter() {
+    if (!this.selection) return { x: 0, y: 0 };
+
+    if (this.corners) {
+      const c = this.corners;
+      return {
+        x: (c.tl.x + c.tr.x + c.bl.x + c.br.x) / 4,
+        y: (c.tl.y + c.tr.y + c.bl.y + c.br.y) / 4
+      };
+    }
+
+    return {
+      x: this.selection.x + this.selection.width / 2,
+      y: this.selection.y + this.selection.height / 2
+    };
+  }
+
+  getRotationHandlePosition(center, topMiddleX, topMiddleY) {
+    // Position the rotation handle above the top-middle, extended outward from center
+    const dx = topMiddleX - center.x;
+    const dy = topMiddleY - center.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist === 0) {
+      return { x: topMiddleX, y: topMiddleY - this.rotationHandleDistance };
+    }
+
+    // Extend the handle position outward from center
+    const extendDist = dist + this.rotationHandleDistance;
+    return {
+      x: center.x + (dx / dist) * extendDist,
+      y: center.y + (dy / dist) * extendDist
+    };
+  }
+
+  updateCornersFromRotation(deltaAngle) {
+    if (!this.cornersAtRotationStart) return;
+
+    // Calculate center from the corners at rotation start
+    const startCorners = this.cornersAtRotationStart;
+    const center = {
+      x: (startCorners.tl.x + startCorners.tr.x + startCorners.bl.x + startCorners.br.x) / 4,
+      y: (startCorners.tl.y + startCorners.tr.y + startCorners.bl.y + startCorners.br.y) / 4
+    };
+
+    const cos = Math.cos(deltaAngle);
+    const sin = Math.sin(deltaAngle);
+
+    // Rotate each corner around the center
+    const rotatePoint = (p) => {
+      const dx = p.x - center.x;
+      const dy = p.y - center.y;
+      return {
+        x: center.x + dx * cos - dy * sin,
+        y: center.y + dx * sin + dy * cos
+      };
+    };
+
+    this.corners = {
+      tl: rotatePoint(startCorners.tl),
+      tr: rotatePoint(startCorners.tr),
+      bl: rotatePoint(startCorners.bl),
+      br: rotatePoint(startCorners.br)
+    };
+  }
+
+  drawRotatedSelection() {
+    if (!this.floatingCanvas || !this.selection) return;
+
+    const ctx = this.board.topCtx;
+    const center = this.getSelectionCenter();
+
+    ctx.save();
+
+    // Translate to center, rotate, then draw
+    ctx.translate(center.x, center.y);
+    ctx.rotate(this.rotation);
+
+    // Draw the floating canvas centered
+    ctx.drawImage(
+      this.floatingCanvas,
+      -this.floatingCanvas.width / 2,
+      -this.floatingCanvas.height / 2
+    );
+
+    ctx.restore();
+  }
+
+  drawSelectionBox(ctx, startPos, endPos) {
+    const x = Math.min(startPos.x, endPos.x);
+    const y = Math.min(startPos.y, endPos.y);
+    const width = Math.abs(endPos.x - startPos.x);
+    const height = Math.abs(endPos.y - startPos.y);
+
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+
+    // Black dashes
+    ctx.strokeStyle = '#000';
+    ctx.lineDashOffset = -this.marchingAntsOffset;
+    ctx.strokeRect(x, y, width, height);
+
+    // White dashes (offset to create "marching ants" effect)
+    ctx.strokeStyle = '#fff';
+    ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+    ctx.strokeRect(x, y, width, height);
+
+    ctx.setLineDash([]);
+  }
+
+  drawSelectionUI() {
+    if (!this.selection) return;
+
+    const ctx = this.board.topCtx;
+    const s = this.selection;
+
+    // Draw floating selection if exists
+    if (this.floatingCanvas) {
+      this.drawFloatingSelection();
+    }
+
+    // Draw marching ants border - use corners if available for transformed selections
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+
+    if (this.corners) {
+      // Draw quadrilateral outline using corners
+      const c = this.corners;
+
+      ctx.strokeStyle = '#000';
+      ctx.lineDashOffset = -this.marchingAntsOffset;
+      ctx.beginPath();
+      ctx.moveTo(c.tl.x, c.tl.y);
+      ctx.lineTo(c.tr.x, c.tr.y);
+      ctx.lineTo(c.br.x, c.br.y);
+      ctx.lineTo(c.bl.x, c.bl.y);
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.strokeStyle = '#fff';
+      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+      ctx.beginPath();
+      ctx.moveTo(c.tl.x, c.tl.y);
+      ctx.lineTo(c.tr.x, c.tr.y);
+      ctx.lineTo(c.br.x, c.br.y);
+      ctx.lineTo(c.bl.x, c.bl.y);
+      ctx.closePath();
+      ctx.stroke();
+    } else {
+      // Fallback to rectangle
+      ctx.strokeStyle = '#000';
+      ctx.lineDashOffset = -this.marchingAntsOffset;
+      ctx.strokeRect(s.x, s.y, s.width, s.height);
+
+      ctx.strokeStyle = '#fff';
+      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+      ctx.strokeRect(s.x, s.y, s.width, s.height);
+    }
+
+    ctx.setLineDash([]);
+
+    // Draw transform handles
+    this.updateHandles();
+    for (const handle of this.handles) {
+      if (handle.isRotation) {
+        // Draw connecting line to rotation handle
+        const tm = this.handles.find(h => h.id === 'tm');
+        if (tm) {
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(tm.x, tm.y);
+          ctx.lineTo(handle.x, handle.y);
+          ctx.stroke();
+        }
+
+        // Draw rotation handle as a circle
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      } else {
+        // Draw regular handles as squares
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        ctx.fillRect(
+          handle.x - this.handleSize / 2,
+          handle.y - this.handleSize / 2,
+          this.handleSize,
+          this.handleSize
+        );
+        ctx.strokeRect(
+          handle.x - this.handleSize / 2,
+          handle.y - this.handleSize / 2,
+          this.handleSize,
+          this.handleSize
+        );
+      }
+    }
+  }
+
+  drawFloatingSelection() {
+    if (!this.floatingCanvas || !this.selection) return;
+
+    const ctx = this.board.topCtx;
+
+    // Check if corners have been transformed (including rotation) - if so, use homography
+    if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
+      try {
+        const homography = new Homography('projective');
+
+        // Source points (original corners of the floating canvas)
+        const srcPoints = [
+          [this.originalCorners.tl.x, this.originalCorners.tl.y],
+          [this.originalCorners.tr.x, this.originalCorners.tr.y],
+          [this.originalCorners.bl.x, this.originalCorners.bl.y],
+          [this.originalCorners.br.x, this.originalCorners.br.y]
+        ];
+
+        // Destination points (current corner positions, relative to output)
+        const c = this.corners;
+        const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+        const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+
+        const dstPoints = [
+          [c.tl.x - minX, c.tl.y - minY],
+          [c.tr.x - minX, c.tr.y - minY],
+          [c.bl.x - minX, c.bl.y - minY],
+          [c.br.x - minX, c.br.y - minY]
+        ];
+
+        homography.setSourcePoints(srcPoints, this.floatingCanvas);
+        homography.setDestinyPoints(dstPoints);
+
+        const result = homography.warp();
+        if (result) {
+          ctx.putImageData(result, minX, minY);
+          return;
+        }
+      } catch (e) {
+        console.warn('Homography preview failed in drawFloatingSelection:', e);
+      }
+    }
+
+    // Fallback: simple draw at current position
+    ctx.drawImage(
+      this.floatingCanvas,
+      this.selection.x,
+      this.selection.y,
+      this.selection.width,
+      this.selection.height
+    );
+  }
+
+  liftSelection() {
+    if (!this.selection) return;
+
+    const s = this.selection;
+
+    // Create floating canvas with selection content
+    this.floatingCanvas = document.createElement('canvas');
+    this.floatingCanvas.width = s.width;
+    this.floatingCanvas.height = s.height;
+    this.floatingCtx = this.floatingCanvas.getContext('2d');
+
+    // Copy selected region from main canvas
+    const imageData = this.board.mainCtx.getImageData(s.x, s.y, s.width, s.height);
+    this.floatingCtx.putImageData(imageData, 0, 0);
+    this.selectedImageData = imageData;
+
+    // Clear the region on main canvas
+    this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
+
+    // Store original position if not already set
+    if (!this.originalSelectionPos) {
+      this.originalSelectionPos = { x: s.x, y: s.y };
+    }
+
+    // Draw floating selection on top canvas
+    this.board.clearTop();
+    this.drawFloatingSelection();
+    this.drawSelectionUI();
+
+    // Send the data via the websocket client
+    if (this.board.app?.wsClient) {
+      this.board.app.wsClient.broadcastSelectionLift(this.selection);
+    }
+  }
+
+  commitSelection() {
+    if (!this.floatingCanvas || !this.selection) return;
+
+    // Check if we need to apply a homography transform (includes rotation via corners)
+    if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
+      try {
+        // Create homography for projective transform
+        const homography = new Homography('projective');
+
+        // Source points (original corners of the floating canvas)
+        const srcPoints = [
+          [this.originalCorners.tl.x, this.originalCorners.tl.y],
+          [this.originalCorners.tr.x, this.originalCorners.tr.y],
+          [this.originalCorners.bl.x, this.originalCorners.bl.y],
+          [this.originalCorners.br.x, this.originalCorners.br.y]
+        ];
+
+        // Destination points (current corner positions, relative to output)
+        const c = this.corners;
+        const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+        const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+
+        const dstPoints = [
+          [c.tl.x - minX, c.tl.y - minY],
+          [c.tr.x - minX, c.tr.y - minY],
+          [c.bl.x - minX, c.bl.y - minY],
+          [c.br.x - minX, c.br.y - minY]
+        ];
+
+        // Set up homography
+        homography.setSourcePoints(srcPoints, this.floatingCanvas);
+        homography.setDestinyPoints(dstPoints);
+
+        // Warp the image
+        const result = homography.warp();
+
+        if (result) {
+          // All this is required to prevent putImageData from overwriting the main context with transparent pixels
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = result.width;
+          tempCanvas.height = result.height;
+          const tempCtx = tempCanvas.getContext('2d');
+
+          // Load the warped pixel data into the buffer
+          tempCtx.putImageData(result, 0, 0);
+
+          // Draw to the main board using ONLY x and y
+          // Do NOT provide width/height arguments here, or it will stretch!
+          this.board.mainCtx.drawImage(tempCanvas, minX, minY);
+        } else {
+          // Fallback: draw without transform
+          this.board.mainCtx.drawImage(
+            this.floatingCanvas,
+            this.selection.x,
+            this.selection.y,
+            this.selection.width,
+            this.selection.height
+          );
+        }
+      } catch (e) {
+        console.warn('Failed to apply homography transform on commit:', e);
+        // Fallback: draw without transform
+        this.board.mainCtx.drawImage(
+          this.floatingCanvas,
+          this.selection.x,
+          this.selection.y,
+          this.selection.width,
+          this.selection.height
+        );
+      }
+    } else {
+      // No transform needed, just draw at current position
+      this.board.mainCtx.drawImage(
+        this.floatingCanvas,
+        this.selection.x,
+        this.selection.y,
+        this.selection.width,
+        this.selection.height
+      );
+    }
+
+    if (this.board.app && this.board.app.wsClient) {
+      this.board.app.wsClient.broadcastSelectionCommit();
+    }
+
+    //Cleanup local state
+    this.floatingCanvas = null;
+    this.floatingCtx = null;
+    this.selectedImageData = null;
+    this.board.clearTop();
+  }
+
+  clearSelection() {
+    this.selection = null;
+    this.handles = [];
+    this.corners = null;
+    this.originalCorners = null;
+    this.originalSelectionPos = null;
+    this.floatingCanvas = null;
+    this.floatingCtx = null;
+    this.selectedImageData = null;
+    this.isTransforming = false;
+    this.rotation = 0;
+    this.isRotating = false;
+    this.cornersAtRotationStart = null;
+    this.hideContextMenu();
+    this.board.clearTop();
+  }
+
+  // Copy selection to clipboard
+  copy() {
+    if (!this.selection) return false;
+
+    const s = this.selection;
+
+    // Get image data from floating canvas if lifted, otherwise from main canvas
+    if (this.floatingCanvas) {
+      this.clipboard = {
+        width: s.width,
+        height: s.height,
+        imageData: this.floatingCtx.getImageData(0, 0, s.width, s.height)
+      };
+    } else {
+      this.clipboard = {
+        width: s.width,
+        height: s.height,
+        imageData: this.board.mainCtx.getImageData(s.x, s.y, s.width, s.height)
+      };
+    }
+
+    // Show toast notification
+    if (this.board.app?.ui) {
+      this.board.app.ui.showToast('Copied to clipboard!');
+    }
+
+    return true;
+  }
+
+  // Cut selection (copy + delete)
+  cut() {
+    if (!this.selection) return false;
+
+    this.copy();
+    this.deleteSelection();
+    return true;
+  }
+
+  // Paste from clipboard
+  paste() {
+    if (!this.clipboard) return false;
+
+    // Commit any existing selection
+    this.commitSelection();
+    this.clearSelection();
+
+    // Create new selection at center of viewport (or offset from original)
+    const x = 50;
+    const y = 50;
+
+    this.selection = {
+      x,
+      y,
+      width: this.clipboard.width,
+      height: this.clipboard.height
+    };
+
+    // Create floating canvas with clipboard content
+    this.floatingCanvas = document.createElement('canvas');
+    this.floatingCanvas.width = this.clipboard.width;
+    this.floatingCanvas.height = this.clipboard.height;
+    this.floatingCtx = this.floatingCanvas.getContext('2d');
+    this.floatingCtx.putImageData(this.clipboard.imageData, 0, 0);
+
+    // Store original position - pasted content is considered "moved"
+    this.originalSelectionPos = { x: -1, y: -1 };
+
+    // Initialize corners for transform handles
+    this.initializeCorners();
+    this.updateHandles();
+    this.board.clearTop();
+    this.drawFloatingSelection();
+    this.drawSelectionUI();
+    this.showContextMenu();
+
+    // Broadcast paste to other users
+    if (this.board.app?.wsClient) {
+      // Convert floating canvas to data URL for transmission
+      const dataUrl = this.floatingCanvas.toDataURL('image/png');
+      this.board.app.wsClient.broadcastImagePaste(x, y, this.clipboard.width, this.clipboard.height, dataUrl);
+    }
+
+    return true;
+  }
+
+  // Delete/clear selection content
+  deleteSelection() {
+    if (!this.selection) return false;
+
+    const s = this.selection;
+
+    // If floating, just discard it
+    if (this.floatingCanvas) {
+      this.floatingCanvas = null;
+      this.floatingCtx = null;
+    } else {
+      // Clear region on main canvas
+      this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
+    }
+
+    // Broadcast delete to other users
+    if (this.board.app?.wsClient) {
+      this.board.app.wsClient.broadcastSelectionDelete();
+    }
+
+    this.hideContextMenu();
+    this.clearSelection();
+    return true;
+  }
+
+  // Select all
+  selectAll() {
+    this.commitSelection();
+    this.clearSelection();
+
+    this.selection = {
+      x: 0,
+      y: 0,
+      width: this.board.mainCanvas.width,
+      height: this.board.mainCanvas.height
+    };
+
+    // Initialize corners for transform handles
+    this.initializeCorners();
+    this.updateHandles();
+    this.board.clearTop();
+    this.drawSelectionUI();
+  }
+
+  // Deselect
+  deselect() {
+    this.commitSelection();
+    this.clearSelection();
+  }
+
+  hasSelection() {
+    return this.selection !== null;
+  }
+
+  hasClipboard() {
+    return this.clipboard !== null;
+  }
+
+  // Fill selection with current color
+  fillSelection() {
+    if (!this.selection) return false;
+
+    const s = this.selection;
+    const app = this.board.app;
+    if (!app) return false;
+
+    const color = app.self.getColorString();
+    const opacity = app.self.opacity !== undefined ? app.self.opacity : 1;
+
+    // If floating, fill the floating canvas
+    if (this.floatingCanvas) {
+      this.floatingCtx.globalAlpha = opacity;
+      this.floatingCtx.fillStyle = color;
+      this.floatingCtx.fillRect(0, 0, s.width, s.height);
+      this.floatingCtx.globalAlpha = 1;
+      this.board.clearTop();
+      this.drawFloatingSelection();
+      this.drawSelectionUI();
+    } else {
+      // Fill directly on main canvas
+      this.board.mainCtx.globalAlpha = opacity;
+      this.board.mainCtx.fillStyle = color;
+      this.board.mainCtx.fillRect(s.x, s.y, s.width, s.height);
+      this.board.mainCtx.globalAlpha = 1;
+    }
+
+    // Broadcast fill to other users
+    if (this.board.app?.wsClient) {
+      this.board.app.wsClient.broadcastSelectionFill(app.self.color);
+    }
+
+    // Keep selection active, update menu position
+    this.showContextMenu();
+
+    return true;
+  }
+
+  // Stamp current selection to canvas without clearing it (for repeated stamping)
+  stamp() {
+    if (!this.floatingCanvas || !this.selection) return false;
+
+    // Same logic as commitSelection but don't clear the floating canvas
+    if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
+      try {
+        const homography = new Homography('projective');
+
+        const srcPoints = [
+          [this.originalCorners.tl.x, this.originalCorners.tl.y],
+          [this.originalCorners.tr.x, this.originalCorners.tr.y],
+          [this.originalCorners.bl.x, this.originalCorners.bl.y],
+          [this.originalCorners.br.x, this.originalCorners.br.y]
+        ];
+
+        const c = this.corners;
+        const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+        const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+
+        const dstPoints = [
+          [c.tl.x - minX, c.tl.y - minY],
+          [c.tr.x - minX, c.tr.y - minY],
+          [c.bl.x - minX, c.bl.y - minY],
+          [c.br.x - minX, c.br.y - minY]
+        ];
+
+        homography.setSourcePoints(srcPoints, this.floatingCanvas);
+        homography.setDestinyPoints(dstPoints);
+
+        const result = homography.warp();
+
+        if (result) {
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = result.width;
+          tempCanvas.height = result.height;
+          const tempCtx = tempCanvas.getContext('2d');
+          tempCtx.putImageData(result, 0, 0);
+          this.board.mainCtx.drawImage(tempCanvas, minX, minY);
+        } else {
+          this.board.mainCtx.drawImage(
+            this.floatingCanvas,
+            this.selection.x,
+            this.selection.y,
+            this.selection.width,
+            this.selection.height
+          );
+        }
+      } catch (e) {
+        this.board.mainCtx.drawImage(
+          this.floatingCanvas,
+          this.selection.x,
+          this.selection.y,
+          this.selection.width,
+          this.selection.height
+        );
+      }
+    } else {
+      this.board.mainCtx.drawImage(
+        this.floatingCanvas,
+        this.selection.x,
+        this.selection.y,
+        this.selection.width,
+        this.selection.height
+      );
+    }
+
+    // Broadcast stamp but keep selection active
+    if (this.board.app?.wsClient) {
+      this.board.app.wsClient.broadcastSelectionStamp();
+    }
+
+    // Redraw the floating selection on top canvas
+    this.board.clearTop();
+    this.drawFloatingSelection();
+    this.drawSelectionUI();
+    this.showContextMenu();
+
+    return true;
+  }
+
+  // Convert selection to image brush
+  toImageBrush() {
+    if (!this.selection) return false;
+
+    const app = this.board.app;
+    if (!app) return false;
+
+    // Get the image data
+    let canvas;
+    if (this.floatingCanvas) {
+      canvas = this.floatingCanvas;
+    } else {
+      // Create a canvas with the selection content
+      const s = this.selection;
+      canvas = document.createElement('canvas');
+      canvas.width = s.width;
+      canvas.height = s.height;
+      const ctx = canvas.getContext('2d');
+      const imageData = this.board.mainCtx.getImageData(s.x, s.y, s.width, s.height);
+      ctx.putImageData(imageData, 0, 0);
+    }
+
+    // Create brush data structure similar to GIMP brush
+    const brushData = {
+      type: 'image',
+      width: canvas.width,
+      height: canvas.height,
+      gimpUrl: canvas.toDataURL(),
+      image: null // Will be set when loaded
+    };
+
+    // Create the image element
+    const img = new Image();
+    img.onload = () => {
+      brushData.image = img;
+
+      // Set as active brush and switch to imageBrush tool
+      app.self.imageBrush = brushData;
+      app.selectTool('imageBrush');
+      app.ui.setBrushPreview(brushData.gimpUrl);
+
+      // Broadcast brush to other users
+      app.wsClient.broadcastBrush(brushData);
+      app.wsClient.broadcastSelectionToBrush(brushData);
+    };
+    img.src = brushData.gimpUrl;
+
+    // Deselect after converting to brush
+    this.deselect();
+
+    return true;
+  }
+
+  // Check if corners have been transformed from their original positions
+  hasTransformedCorners() {
+    if (!this.corners || !this.originalCorners || !this.selection) return false;
+
+    // Compare current corner positions with what they would be if untransformed
+    const s = this.selection;
+    const untransformed = {
+      tl: { x: s.x, y: s.y },
+      tr: { x: s.x + s.width, y: s.y },
+      bl: { x: s.x, y: s.y + s.height },
+      br: { x: s.x + s.width, y: s.y + s.height }
+    };
+
+    const tolerance = 0.5;
+    const c = this.corners;
+
+    return (
+      Math.abs(c.tl.x - untransformed.tl.x) > tolerance ||
+      Math.abs(c.tl.y - untransformed.tl.y) > tolerance ||
+      Math.abs(c.tr.x - untransformed.tr.x) > tolerance ||
+      Math.abs(c.tr.y - untransformed.tr.y) > tolerance ||
+      Math.abs(c.bl.x - untransformed.bl.x) > tolerance ||
+      Math.abs(c.bl.y - untransformed.bl.y) > tolerance ||
+      Math.abs(c.br.x - untransformed.br.x) > tolerance ||
+      Math.abs(c.br.y - untransformed.br.y) > tolerance
+    );
+  }
+
+  // Cancel movement and restore selection to original position
+  cancelMovement() {
+    if (!this.floatingCanvas || !this.selection || !this.originalSelectionPos) return false;
+
+    // Restore selection to original position
+    this.selection.x = this.originalSelectionPos.x;
+    this.selection.y = this.originalSelectionPos.y;
+
+    // Reset rotation
+    this.rotation = 0;
+    this.cornersAtRotationStart = null;
+
+    // Reinitialize corners to original rectangle
+    this.initializeCorners();
+
+    // Draw the floating canvas back to its original position on main canvas
+    this.board.mainCtx.drawImage(
+      this.floatingCanvas,
+      this.originalSelectionPos.x,
+      this.originalSelectionPos.y
+    );
+
+    // Broadcast cancel to other users
+    if (this.board.app?.wsClient) {
+      this.board.app.wsClient.broadcastSelectionCancel();
+    }
+
+    // Clear floating state
+    this.floatingCanvas = null;
+    this.floatingCtx = null;
+    this.selectedImageData = null;
+
+    // Clear selection and UI
+    this.hideContextMenu();
+    this.clearSelection();
+    this.board.clearTop();
+
+    return true;
+  }
+}

@@ -12,7 +12,7 @@ export class User {
     this.pressure = options.pressure || 1;
     this.prevpressure = 1;
     this.spacing = options.spacing || 0;
-    this.smoothing = options.smoothing || 0;  // Stroke stabilization (0-1)
+    this.smoothing = options.smoothing !== undefined ? options.smoothing : 0.3;  // Stroke stabilization (0-1), default 30%
     this.opacity = options.opacity || 1;       // Brush opacity (0-1)
     this.spaceIndex = 0;
     this.color = options.color || [0, 0, 0, 1];
