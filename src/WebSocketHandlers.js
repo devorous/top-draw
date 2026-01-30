@@ -17,7 +17,8 @@ export function setupWebSocketHandlers(app) {
           const userOptions = {
             ...userData,
             username: userData.name || userData.username || '',
-            afk: userData.afk || false
+            afk: userData.afk || false,
+            opacity: userData.color ? userData.color[3] : 1 // Derive opacity from color alpha
           };
 
           // Create new remote user
@@ -129,6 +130,7 @@ export function setupWebSocketHandlers(app) {
     const user = users.get(data.sessionIndex);
     if (user) {
       user.setColor(data.color);
+      user.setOpacity(data.color[3]); // Sync opacity from color alpha (matches local behavior)
       ui.updateRemoteColor(data.sessionIndex, data.color);
     }
   });
