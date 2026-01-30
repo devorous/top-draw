@@ -31,9 +31,16 @@ message Msg {
     CANCEL = 26;        // Cancel current stroke
     HIDE_CURSOR = 27;   // Hide user's cursor
     SHOW_CURSOR = 28;   // Show user's cursor
+    CSM = 29;           // Change smoothing
     SEL_LIFT = 30;
     SEL_MOVE = 31;
     SEL_COMMIT = 32;
+    SEL_DELETE = 33;    // Delete selection
+    SEL_FILL = 34;      // Fill selection with color
+    SEL_STAMP = 35;     // Stamp selection
+    SEL_CANCEL = 36;    // Cancel selection movement
+    SEL_TO_BRUSH = 37;  // Convert selection to brush
+    IMG_PASTE = 38;     // Paste image data (selection paste, image upload)
 
     // Sync types (40+)
     SYNC_REQUEST = 40;   // New user requests canvas state
@@ -71,9 +78,10 @@ message Msg {
   string k = 10;        // Key pressed
   string n = 11;        // Name
   string g = 12;        // Chat message or image brush data (JSON)
-  
+
   // === Lower-frequency fields (16+ = 2-byte tags) ===
   uint32 sp = 16;       // Spacing * 100
+  uint32 sm = 23;       // Smoothing * 100 (0-10000 for 0-100%)
 
   // User list for USERS message
   message U {
@@ -88,6 +96,7 @@ message Msg {
     uint32 p = 9;       // Pressure * 100
     string n = 10;      // Name
     string tx = 11;     // Current text
+    uint32 sm = 12;     // Smoothing * 100
   }
   repeated U us = 17;   // Users array
 

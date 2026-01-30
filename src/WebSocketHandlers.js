@@ -141,6 +141,14 @@ export function setupWebSocketHandlers(app) {
     }
   });
 
+  // Smoothing change
+  wsClient.on('csm', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      user.setSmoothing(data.smoothing);
+    }
+  });
+
   // Name change
   wsClient.on('cn', (data) => {
     const user = users.get(data.sessionIndex);
@@ -238,6 +246,54 @@ export function setupWebSocketHandlers(app) {
     const user = users.get(data.sessionIndex);
     if (user) {
       remoteUserHandler.handleSelectionCommit(user);
+    }
+  });
+
+  // Selection delete - remote user deleted selection
+  wsClient.on('sel_delete', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleSelectionDelete(user);
+    }
+  });
+
+  // Selection fill - remote user filled selection
+  wsClient.on('sel_fill', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleSelectionFill(user, data.color);
+    }
+  });
+
+  // Selection stamp - remote user stamped selection
+  wsClient.on('sel_stamp', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleSelectionStamp(user);
+    }
+  });
+
+  // Selection cancel - remote user cancelled selection
+  wsClient.on('sel_cancel', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleSelectionCancel(user);
+    }
+  });
+
+  // Selection to brush - remote user converted selection to brush
+  wsClient.on('sel_to_brush', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleSelectionToBrush(user, data.brushData);
+    }
+  });
+
+  // Image paste - remote user pasted image content
+  wsClient.on('img_paste', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleImagePaste(user, data);
     }
   });
 

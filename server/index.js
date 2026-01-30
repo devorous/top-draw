@@ -19,8 +19,8 @@ const T = {
   CONNECT: 0, USERS: 1, SETTINGS: 2, LEFT: 3,
   MM: 10, MD: 11, MU: 12, CP: 13, CS: 14, CT: 15, CC: 16,
   CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25, CANCEL: 26,
-  HIDE_CURSOR: 27, SHOW_CURSOR: 28,
-  SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32,
+  HIDE_CURSOR: 27, SHOW_CURSOR: 28, CSM: 29,
+  SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32, SEL_DELETE: 33, SEL_FILL: 34, SEL_STAMP: 35, SEL_CANCEL: 36, SEL_TO_BRUSH: 37, IMG_PASTE: 38,
   SYNC_REQUEST: 40, SYNC_PROVIDE: 41, SYNC_CANVAS: 42, SYNC_COMPLETE: 43
 };
 
@@ -182,6 +182,9 @@ function handleBroadcast(data, sessionIndex) {
     case T.CSP:
       user.spacing = data.sp;
       break;
+    case T.CSM:
+      user.smoothing = data.sm;
+      break;
     case T.CP:
       user.pressure = data.p;
       break;
@@ -240,6 +243,7 @@ wss.on('connection', (ws, req) => {
             color: packColor([0, 0, 0, 1]),
             size: 1000,      // 10.00 * 100
             spacing: 10,     // 0.10 * 100
+            smoothing: 3000, // 30.00 * 100 (default 30%)
             pressure: 100,   // 1.00 * 100
             name: data.n || '',
             text: ''
@@ -263,6 +267,7 @@ wss.on('connection', (ws, req) => {
               c: u.color,
               s: u.size,
               sp: u.spacing,
+              sm: u.smoothing,
               p: u.pressure,
               n: u.name,
               tx: u.text

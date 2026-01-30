@@ -9,6 +9,7 @@ import { RemoteUserHandler } from './RemoteUserHandler.js';
 import { TouchHandler } from './TouchHandler.js';
 import { setupWebSocketHandlers } from './WebSocketHandlers.js';
 import { DebugOverlay, RegionTracker, SyncClient } from './sync/index.js';
+import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
 
 /**
  * Main application class
@@ -69,6 +70,18 @@ export class DrawingApp {
       pointerType: 'mouse',
       movement: { x: 0, y: 0 }, // accumulated movement for panning
       dirty: false         // whether buffer has new data to process
+    };
+
+    // Point reduction configuration (Level 1 smoothing)
+    this.pointReduction = {
+      enabled: options.enablePointReduction !== false, // true by default
+      algorithm: options.reductionAlgorithm || 'douglas-peucker', // 'douglas-peucker' or 'distance-based'
+      // Epsilon mapping for Douglas-Peucker (based on smoothing %)
+      minEpsilon: 0.1,
+      maxEpsilon: 5.0,
+      // Distance threshold for distance-based culling (based on smoothing %)
+      minDistance: 0.5,
+      maxDistance: 10.0
     };
   }
 
@@ -297,8 +310,9 @@ export class DrawingApp {
       const lastY = points[points.length - 1];
       this.self.setPosition(lastX, lastY);
 
-      // 2. Broadcast the entire batch
-      this.wsClient.broadcastMove(points);
+      // 2. Apply Level 1 point reduction and broadcast
+      const reducedPoints = this.applyPointReduction(points);
+      this.wsClient.broadcastMove(reducedPoints);
 
       // 3. Process locally for immediate feedback
       if (this.self.mousedown && !this.self.panning) {
@@ -324,6 +338,58 @@ export class DrawingApp {
     this.inputBuffer.dirty = false;
   }
 
+  /**
+   * Apply Level 1 point reduction to reduce bandwidth before network broadcast
+   * @param {Array} points - Flat array [x1, y1, x2, y2, ...]
+   * @returns {Array} - Reduced flat array
+   */
+  applyPointReduction(points) {
+    // Skip reduction if disabled or insufficient points
+    if (!this.pointReduction.enabled || points.length < 4) {
+      return points;
+    }
+
+    const smoothingPercent = this.self.smoothing * 100; // Convert 0-1 to 0-100
+
+    // Skip reduction if smoothing is 0
+    if (smoothingPercent === 0) {
+      return points;
+    }
+
+    // Convert flat array [x1, y1, x2, y2, ...] to point objects
+    const pointObjects = [];
+    for (let i = 0; i < points.length; i += 2) {
+      pointObjects.push({ x: points[i], y: points[i + 1] });
+    }
+
+    let reduced;
+
+    if (this.pointReduction.algorithm === 'douglas-peucker') {
+      // Calculate epsilon based on smoothing level (0-100%)
+      const { minEpsilon, maxEpsilon } = this.pointReduction;
+      const epsilon = minEpsilon + (maxEpsilon - minEpsilon) * (smoothingPercent / 100);
+
+      reduced = douglasPeucker(pointObjects, epsilon);
+    } else if (this.pointReduction.algorithm === 'distance-based') {
+      // Calculate distance threshold based on smoothing level
+      const { minDistance, maxDistance } = this.pointReduction;
+      const threshold = minDistance + (maxDistance - minDistance) * (smoothingPercent / 100);
+
+      reduced = distanceBasedCulling(pointObjects, threshold);
+    } else {
+      // Invalid algorithm, return original
+      console.warn(`Invalid point reduction algorithm: ${this.pointReduction.algorithm}`);
+      return points;
+    }
+
+    // Convert back to flat array
+    const result = [];
+    for (const p of reduced) {
+      result.push(p.x, p.y);
+    }
+
+    return result;
+  }
 
   startOfflineMode() {
     // Set up offline mode - no server connection needed
@@ -455,7 +521,7 @@ export class DrawingApp {
     const smoothing = Number(e.target.value);
     this.self.setSmoothing(smoothing / 100); // Convert to 0-1 range
     this.ui.updateSmoothingValue(smoothing);
-    // TODO: Broadcast smoothing change when protocol is updated
+    this.wsClient.broadcastSmoothingChange(smoothing / 100);
   }
 
   async handleBrushFileLoad(e) {

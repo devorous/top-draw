@@ -8,8 +8,8 @@ const T = {
   CONNECT: 0, USERS: 1, SETTINGS: 2, LEFT: 3,
   MM: 10, MD: 11, MU: 12, CP: 13, CS: 14, CT: 15, CC: 16,
   CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25, CANCEL: 26,
-  HIDE_CURSOR: 27, SHOW_CURSOR: 28,
-  SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32,
+  HIDE_CURSOR: 27, SHOW_CURSOR: 28, CSM: 29,
+  SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32, SEL_DELETE: 33, SEL_FILL: 34, SEL_STAMP: 35, SEL_CANCEL: 36, SEL_TO_BRUSH: 37, IMG_PASTE: 38,
   SYNC_REQUEST: 40, SYNC_PROVIDE: 41, SYNC_CANVAS: 42, SYNC_COMPLETE: 43
 };
 
@@ -149,6 +149,7 @@ export class WebSocketClient {
           color: unpackColor(u.c),
           size: (u.s || 1000) / 100,
           spacing: (u.sp ?? 0) / 100,
+          smoothing: (u.sm ?? 3000) / 100,
           pressure: (u.p || 100) / 100,
           name: u.n || '',
           text: u.tx || ''
@@ -202,6 +203,10 @@ export class WebSocketClient {
 
       case T.CSP:
         this.emit('csp', { sessionIndex: data.u, spacing: (data.sp ?? 0) / 100 });
+        break;
+
+      case T.CSM:
+        this.emit('csm', { sessionIndex: data.u, smoothing: (data.sm ?? 3000) / 100 });
         break;
 
       case T.CN:
@@ -267,6 +272,37 @@ export class WebSocketClient {
 
       case T.SEL_COMMIT:
         this.emit('sel_commit', { sessionIndex: data.u });
+        break;
+
+      case T.SEL_DELETE:
+        this.emit('sel_delete', { sessionIndex: data.u });
+        break;
+
+      case T.SEL_FILL:
+        this.emit('sel_fill', { sessionIndex: data.u, color: unpackColor(data.c) });
+        break;
+
+      case T.SEL_STAMP:
+        this.emit('sel_stamp', { sessionIndex: data.u });
+        break;
+
+      case T.SEL_CANCEL:
+        this.emit('sel_cancel', { sessionIndex: data.u });
+        break;
+
+      case T.SEL_TO_BRUSH:
+        this.emit('sel_to_brush', { sessionIndex: data.u, brushData: data.g });
+        break;
+
+      case T.IMG_PASTE:
+        this.emit('img_paste', {
+          sessionIndex: data.u,
+          x: data.sx,
+          y: data.sy,
+          width: data.sw,
+          height: data.sh,
+          imageData: data.g  // Base64 data URL
+        });
         break;
 
       case T.SYNC_PROVIDE:
@@ -352,6 +388,10 @@ export class WebSocketClient {
     this.send({ t: T.CSP, sp: Math.round(spacing * 100) });
   }
 
+  broadcastSmoothingChange(smoothing) {
+    this.send({ t: T.CSM, sm: Math.round(smoothing * 100) });
+  }
+
   broadcastPressureChange(pressure) {
     this.send({ t: T.CP, p: Math.round(pressure * 100) });
   }
@@ -430,6 +470,45 @@ broadcastSelectionMove(corners) {
  */
 broadcastSelectionCommit() {
   this.send({ t: T.SEL_COMMIT });
+}
+
+broadcastSelectionDelete() {
+  this.send({ t: T.SEL_DELETE });
+}
+
+broadcastSelectionFill(color) {
+  this.send({ t: T.SEL_FILL, c: packColor(color) });
+}
+
+broadcastSelectionStamp() {
+  this.send({ t: T.SEL_STAMP });
+}
+
+broadcastSelectionCancel() {
+  this.send({ t: T.SEL_CANCEL });
+}
+
+broadcastSelectionToBrush(brushData) {
+  this.send({ t: T.SEL_TO_BRUSH, g: JSON.stringify(brushData) });
+}
+
+/**
+ * Broadcast pasted image data
+ * @param {number} x - X position
+ * @param {number} y - Y position
+ * @param {number} width - Image width
+ * @param {number} height - Image height
+ * @param {string} dataUrl - Base64 data URL of the image
+ */
+broadcastImagePaste(x, y, width, height, dataUrl) {
+  this.send({
+    t: T.IMG_PASTE,
+    sx: Math.round(x),
+    sy: Math.round(y),
+    sw: Math.round(width),
+    sh: Math.round(height),
+    g: dataUrl
+  });
 }
 
 /**
