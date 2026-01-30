@@ -478,12 +478,12 @@ export class ImageBrushTool extends Tool {
 }
 
 /**
- * Pen tool for pressure-sensitive strokes using circle stamping
+ * Flow Pen tool for pressure-sensitive strokes using circle stamping
  * Uses offscreen canvas to prevent opacity stacking when circles overlap
  */
-export class PenTool extends Tool {
+export class FlowPenTool extends Tool {
   constructor(board) {
-    super('pen', board);
+    super('flowPen', board);
     this.pressureSteps = 256;
     this.offscreenCanvas = null;
     this.offscreenCtx = null;
@@ -884,7 +884,7 @@ export class ToolManager {
     this.tools = {
       select: new SelectTool(board),
       brush: new BrushTool(board),
-      pen: new PenTool(board),
+      flowPen: new FlowPenTool(board),
       line: new LineTool(board),
       rectangle: new RectangleTool(board),
       circle: new CircleTool(board),

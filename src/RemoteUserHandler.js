@@ -120,7 +120,7 @@ export class RemoteUserHandler {
             }
             break;
 
-          case 'pen':
+          case 'flowPen':
             this.handlePenMove(user, pos);
             break;
 
@@ -234,7 +234,7 @@ export class RemoteUserHandler {
         }
         break;
 
-      case 'pen':
+      case 'flowPen':
         this.handlePenDown(user, pos);
         break;
 
@@ -290,7 +290,7 @@ export class RemoteUserHandler {
     const mainCtx = this.board.mainCtx;
 
     // Pen tool needs to composite user.context BEFORE clearing it
-    if (user.tool === 'pen') {
+    if (user.tool === 'flowPen') {
       this.handlePenUp(user);
     }
 
@@ -309,7 +309,7 @@ export class RemoteUserHandler {
         }
         break;
 
-      case 'pen':
+      case 'flowPen':
         // Already handled above before clear
         break;
 

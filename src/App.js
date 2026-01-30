@@ -166,7 +166,7 @@ export class DrawingApp {
     elements.offlineBtn.addEventListener('click', () => this.startOfflineMode());
     elements.selectBtn.addEventListener('click', () => this.selectTool('select'));
     elements.brushBtn.addEventListener('click', () => this.selectTool('brush'));
-    elements.penBtn.addEventListener('click', () => this.selectTool('pen'));
+    elements.flowPenBtn.addEventListener('click', () => this.selectTool('flowPen'));
     elements.lineBtn.addEventListener('click', () => this.selectTool('line'));
     elements.rectangleBtn.addEventListener('click', () => this.selectTool('rectangle'));
     elements.circleBtn.addEventListener('click', () => this.selectTool('circle'));
@@ -419,8 +419,8 @@ export class DrawingApp {
       if (this.self.tool === 'brush' && this.self.currentLine.length > 0) {
         const brushTool = this.toolManager.getTool('brush');
         brushTool.onPointerUp(this.self, { x: this.self.x, y: this.self.y });
-      } else if (this.self.tool === 'pen' && this.self.penPoints && this.self.penPoints.length > 0) {
-        const penTool = this.toolManager.getTool('pen');
+      } else if (this.self.tool === 'flowPen' && this.self.penPoints && this.self.penPoints.length > 0) {
+        const penTool = this.toolManager.getTool('flowPen');
         penTool.onPointerUp(this.self, { x: this.self.x, y: this.self.y });
       }
       this.self.mousedown = false;
@@ -800,7 +800,7 @@ export class DrawingApp {
 
     // Clear pen stroke data
     this.self.penPoints = [];
-    const penTool = this.toolManager.getTool('pen');
+    const penTool = this.toolManager.getTool('flowPen');
     if (penTool && penTool.clearStroke) {
       penTool.clearStroke();
     }
@@ -915,7 +915,7 @@ export class DrawingApp {
           this.selectTool('brush');
           break;
         case 'p':
-          this.selectTool('pen');
+          this.selectTool('flowPen');
           break;
         case 'l':
           this.selectTool('line');

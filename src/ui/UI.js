@@ -40,7 +40,7 @@ export class UI {
 
       selectBtn: document.getElementById('selectBtn'),
       brushBtn: document.getElementById('brushBtn'),
-      penBtn: document.getElementById('penBtn'),
+      flowPenBtn: document.getElementById('flowPenBtn'),
       lineBtn: document.getElementById('lineBtn'),
       rectangleBtn: document.getElementById('rectangleBtn'),
       circleBtn: document.getElementById('circleBtn'),
@@ -175,7 +175,7 @@ export class UI {
         selfCrosshair.style.display = 'block';
         break;
       case 'brush':
-      case 'pen':
+      case 'flowPen':
       case 'line':
       case 'rectangle':
       case 'circle':
@@ -202,7 +202,7 @@ export class UI {
     const buttons = {
       select: this.elements.selectBtn,
       brush: this.elements.brushBtn,
-      pen: this.elements.penBtn,
+      flowPen: this.elements.flowPenBtn,
       line: this.elements.lineBtn,
       rectangle: this.elements.rectangleBtn,
       circle: this.elements.circleBtn,
@@ -482,7 +482,7 @@ export class UI {
         if (crosshair) crosshair.style.display = 'block';
         break;
       case 'brush':
-      case 'pen':
+      case 'flowPen':
       case 'line':
       case 'rectangle':
       case 'circle':
