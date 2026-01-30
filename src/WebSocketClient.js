@@ -21,11 +21,11 @@ const Tool = {
 
 const ToolNames = [
   'brush', 'text', 'erase', 'imageBrush',
-  'select', 'pen', 'line', 'rectangle', 'circle'
+  'select', 'flowPen', 'line', 'rectangle', 'circle'
 ];
 const ToolToEnum = { 
   brush: 0, text: 1, erase: 2, imageBrush: 3,
-  select: 4, pen: 5, line: 6, rectangle: 7, circle: 8 
+  select: 4, flowPen: 5, line: 6, rectangle: 7, circle: 8 
 };
 
 // Helper: Pack RGBA array to fixed32
