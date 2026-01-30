@@ -121,7 +121,7 @@ export class RemoteUserHandler {
             break;
 
           case 'pen':
-            this.toolManager.getTool('pen').onPointerMove(user, pos, lastPos);
+            this.handlePenMove(user, pos);
             break;
 
           case 'line':
@@ -235,7 +235,7 @@ export class RemoteUserHandler {
         break;
 
       case 'pen':
-        this.toolManager.getTool('pen').onPointerDown(user, pos);
+        this.handlePenDown(user, pos);
         break;
 
       case 'erase':
@@ -289,6 +289,11 @@ export class RemoteUserHandler {
     const pos = { x: user.x, y: user.y };
     const mainCtx = this.board.mainCtx;
 
+    // Pen tool needs to composite user.context BEFORE clearing it
+    if (user.tool === 'pen') {
+      this.handlePenUp(user);
+    }
+
     // Clear preview canvas FIRST to prevent composite boldness
     // (otherwise both preview and mainCtx briefly show the same line)
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
@@ -305,7 +310,7 @@ export class RemoteUserHandler {
         break;
 
       case 'pen':
-        this.toolManager.getTool('pen').onPointerUp(user, pos);
+        // Already handled above before clear
         break;
 
       case 'line':
@@ -460,11 +465,13 @@ export class RemoteUserHandler {
     user.startPos = null;
     user.pendingSelection = null;
 
-    // Clear pen stroke data (matching local cancelCurrentStroke behavior)
+    // Clear per-user pen state
     user.penPoints = [];
-    const penTool = this.toolManager.getTool('pen');
-    if (penTool && penTool.clearStroke) {
-      penTool.clearStroke();
+    user._penLastStampPos = null;
+    user._penStrokeColor = null;
+    user._penAlpha = null;
+    if (user._penOffscreenCtx) {
+      user._penOffscreenCtx.clearRect(0, 0, user._penOffscreen.width, user._penOffscreen.height);
     }
   }
 
@@ -928,7 +935,8 @@ export class RemoteUserHandler {
     }
 
     // Explicitly set ALL context properties to ensure consistency
-    ctx.globalAlpha = 1.0;
+    const opacity = user.opacity !== undefined ? user.opacity : 1;
+    ctx.globalAlpha = opacity;
     ctx.globalCompositeOperation = 'source-over';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -942,5 +950,125 @@ export class RemoteUserHandler {
       ctx.lineTo(points[i].x, points[i].y);
     }
     ctx.stroke();
+    ctx.globalAlpha = 1.0;
+  }
+
+  // Pen tool helpers - use per-user offscreen canvas to avoid opacity stacking
+
+  ensurePenOffscreen(user) {
+    const width = this.board.getWidth();
+    const height = this.board.getHeight();
+    if (!user._penOffscreen || user._penOffscreen.width !== width || user._penOffscreen.height !== height) {
+      user._penOffscreen = document.createElement('canvas');
+      user._penOffscreen.width = width;
+      user._penOffscreen.height = height;
+      user._penOffscreenCtx = user._penOffscreen.getContext('2d');
+    }
+  }
+
+  handlePenDown(user, pos) {
+    this.ensurePenOffscreen(user);
+
+    // Clear offscreen canvas
+    user._penOffscreenCtx.clearRect(0, 0, user._penOffscreen.width, user._penOffscreen.height);
+
+    const pressure = Math.round(user.pressure * 255) / 255;
+    const radius = pressure * user.size;
+
+    // Store color at FULL opacity for offscreen (RGB only)
+    const color = user.color.slice(0, 3);
+    user._penStrokeColor = `rgb(${color.join(',')})`;
+    user._penOffscreenCtx.fillStyle = user._penStrokeColor;
+
+    // Store alpha for compositing later
+    const colorAlpha = user.color[3];
+    const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
+    user._penAlpha = colorAlpha * opacitySlider;
+
+    // Stamp first circle to offscreen at full opacity
+    user._penOffscreenCtx.beginPath();
+    user._penOffscreenCtx.arc(pos.x, pos.y, Math.max(0.5, radius), 0, Math.PI * 2);
+    user._penOffscreenCtx.fill();
+
+    user._penLastStampPos = { x: pos.x, y: pos.y, radius };
+    user.penPoints = [{ x: pos.x, y: pos.y, radius }];
+
+    // Update preview
+    this.updatePenPreview(user);
+  }
+
+  handlePenMove(user, pos) {
+    if (!user._penLastStampPos || !user._penOffscreenCtx) return;
+
+    const pressure = Math.round(user.pressure * 255) / 255;
+    const radius = pressure * user.size;
+
+    // Adaptive spacing
+    const avgRadius = (user._penLastStampPos.radius + radius) / 2;
+    const spacing = Math.max(1, avgRadius * 0.2);
+    const dx = pos.x - user._penLastStampPos.x;
+    const dy = pos.y - user._penLastStampPos.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance >= spacing) {
+      // Stamp circles to offscreen at full opacity
+      user._penOffscreenCtx.fillStyle = user._penStrokeColor;
+      const steps = Math.ceil(distance / spacing);
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        const x = user._penLastStampPos.x + dx * t;
+        const y = user._penLastStampPos.y + dy * t;
+        const r = user._penLastStampPos.radius + (radius - user._penLastStampPos.radius) * t;
+        user._penOffscreenCtx.beginPath();
+        user._penOffscreenCtx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
+        user._penOffscreenCtx.fill();
+      }
+
+      user._penLastStampPos = { x: pos.x, y: pos.y, radius };
+      if (user.penPoints) {
+        user.penPoints.push({ x: pos.x, y: pos.y, radius });
+      }
+
+      // Update preview
+      this.updatePenPreview(user);
+    }
+  }
+
+  handlePenUp(user) {
+    if (!user._penLastStampPos || !user._penOffscreen) return;
+
+    // Clear preview FIRST to prevent double opacity (preview + final stacking)
+    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+
+    // Composite offscreen to mainCtx with alpha
+    const mainCtx = this.board.mainCtx;
+    mainCtx.globalAlpha = user._penAlpha;
+    mainCtx.drawImage(user._penOffscreen, 0, 0);
+
+    if (this.board.mirror) {
+      mainCtx.save();
+      mainCtx.translate(this.board.getWidth(), 0);
+      mainCtx.scale(-1, 1);
+      mainCtx.drawImage(user._penOffscreen, 0, 0);
+      mainCtx.restore();
+    }
+
+    mainCtx.globalAlpha = 1.0;
+
+    // Clean up per-user pen state
+    user._penLastStampPos = null;
+    user._penStrokeColor = null;
+    user._penAlpha = null;
+    user.penPoints = [];
+  }
+
+  updatePenPreview(user) {
+    if (!user._penOffscreen) return;
+
+    // Composite offscreen to user.context with alpha for preview
+    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    user.context.globalAlpha = user._penAlpha;
+    user.context.drawImage(user._penOffscreen, 0, 0);
+    user.context.globalAlpha = 1.0;
   }
 }
