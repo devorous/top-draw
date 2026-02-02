@@ -17,6 +17,8 @@
     "vite": "^5.0.0"
   },
   "dependencies": {
+    "emojibase-data": "^17.0.0",
+    "emojibase-regex": "^17.0.0",
     "protobufjs": "^8.0.0",
     "ws": "^8.14.0"
   },

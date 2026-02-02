@@ -9,8 +9,8 @@ const T = {
   MM: 10, MD: 11, MU: 12, CP: 13, CS: 14, CT: 15, CC: 16,
   CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25, CANCEL: 26,
   HIDE_CURSOR: 27, SHOW_CURSOR: 28, CSM: 29,
-  SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32, SEL_DELETE: 33, SEL_FILL: 34, SEL_STAMP: 35, SEL_CANCEL: 36, SEL_TO_BRUSH: 37, IMG_PASTE: 38,
-  SYNC_REQUEST: 40, SYNC_PROVIDE: 41, SYNC_CANVAS: 42, SYNC_COMPLETE: 43
+  SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32, SEL_DELETE: 33, SEL_FILL: 34, SEL_STAMP: 35, SEL_CANCEL: 36, SEL_TO_BRUSH: 37, IMG_PASTE: 38, DM: 39,
+  CHAT_IMG: 40, SYNC_REQUEST: 41, SYNC_PROVIDE: 42, SYNC_CANVAS: 43, SYNC_COMPLETE: 44
 };
 
 // Tool enum matching proto
@@ -128,6 +128,16 @@ export class WebSocketClient {
   }
 
   handleMessage(data) {
+    // Debug: log CHAT_IMG messages
+    if (data.t === T.CHAT_IMG || data.t === 40) {
+      console.log('[handleMessage] Received CHAT_IMG:', {
+        type: data.t,
+        hasCimg: !!data.cimg,
+        cimgLength: data.cimg?.length,
+        fromUser: data.u
+      });
+    }
+
     switch (data.t) {
       case T.CONNECT:
         // Server assigned us a session index
@@ -227,6 +237,38 @@ export class WebSocketClient {
 
       case T.MSG:
         this.emit('msg', { sessionIndex: data.u, message: data.g });
+        break;
+
+      case T.DM:
+        this.emit('dm', { sessionIndex: data.u, message: data.g });
+        break;
+
+      case T.CHAT_IMG:
+        const rawBytes = data.cimg;
+
+        if (!rawBytes || rawBytes.length === 0) {
+          console.warn('[CHAT_IMG] No image data received');
+          break;
+        }
+
+        console.log('[CHAT_IMG] Received', rawBytes.length, 'bytes');
+
+        // Convert bytes back to base64 data URL
+        const bytes = rawBytes instanceof Uint8Array ? rawBytes : new Uint8Array(rawBytes);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const base64 = btoa(binary);
+
+        // Detect image type from first bytes (magic numbers)
+        let mimeType = 'image/png'; // default
+        if (bytes[0] === 0xFF && bytes[1] === 0xD8) mimeType = 'image/jpeg';
+        else if (bytes[0] === 0x47 && bytes[1] === 0x49) mimeType = 'image/gif';
+        else if (bytes[0] === 0x52 && bytes[1] === 0x49) mimeType = 'image/webp';
+
+        const imageDataUrl = `data:${mimeType};base64,${base64}`;
+        this.emit('chat_img', { sessionIndex: data.u, imageData: imageDataUrl, recipientId: data.r });
         break;
 
       case T.GMP:
@@ -430,6 +472,30 @@ export class WebSocketClient {
 
   broadcastChat(message) {
     this.send({ t: T.MSG, g: message });
+  }
+
+  broadcastChatImage(imageData, recipientId = null) {
+    // Convert base64 data URL to bytes
+    const base64Data = imageData.split(',')[1];
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    console.log('[CHAT_IMG] Sending', bytes.length, 'bytes, recipientId:', recipientId);
+
+    if (recipientId !== null) {
+      // Send as DM with image
+      this.send({ t: T.CHAT_IMG, cimg: bytes, r: recipientId });
+    } else {
+      // Send to all
+      this.send({ t: T.CHAT_IMG, cimg: bytes });
+    }
+  }
+
+  broadcastDM(message, recipientId) {
+    this.send({ t: T.DM, g: message, r: recipientId });
   }
 
   broadcastBrush(brushData) {

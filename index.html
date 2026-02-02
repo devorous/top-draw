@@ -55,7 +55,6 @@
 
           <div class="right">
             <a class="btn" id="saveBtn">Save Image</a>
-            <a class="btn" id="chatResetBtn">Reset Chat</a>
             <a class="btn" id="chatBtn">Chat</a>
           </div>
         </div>
@@ -132,13 +131,53 @@
       <div id="sideMenu">
         <!-- Chat Window (Floating) -->
         <div id="chat">
+          <div id="chatHeader">
+            <div class="chatTabs">
+              <button class="chatTab active" id="chatTabAll">Public</button>
+              <button class="chatTab" id="chatTabDM">Private</button>
+            </div>
+            <button class="chatCloseBtn" id="chatCloseBtn">×</button>
+          </div>
+
+          <!-- All Messages Tab -->
           <div id="chatMessages">
             <ul id="messageList"></ul>
           </div>
-          <div class="chatBottom">
-            <input autocomplete="off" id="chatInput" placeholder="Type a message...">
-            <a class="btn" id="sendMessageBtn">Send</a>
+
+          <!-- DM User List -->
+          <div id="chatDMUserList" style="display: none;">
+            <div id="dmUserListContent"></div>
           </div>
+
+          <!-- DM Conversation -->
+          <div id="chatDMConversation" style="display: none;">
+            <div id="chatDMHeader"></div>
+            <div id="chatDMMessages">
+              <ul id="dmMessageList"></ul>
+            </div>
+          </div>
+
+          <div class="chatBottom">
+            <textarea autocomplete="off" id="chatInput" placeholder="Type a message..." rows="1"></textarea>
+            <div class="chatActions">
+              <div class="chatActionBtns">
+                <button class="chatActionBtn" id="chatAttachBtn" title="Attach image">📎</button>
+                <button class="chatActionBtn" id="chatEmojiBtn" title="Emoji">😊</button>
+              </div>
+              <a class="btn" id="sendMessageBtn">Send</a>
+            </div>
+          </div>
+
+          <!-- Emoji Picker Popup -->
+          <div id="chatEmojiPicker" class="chatEmojiPicker" style="display: none;">
+            <div class="emojiRecentRow" id="emojiRecentRow" style="display: none;">
+              <label>Recently Used</label>
+            </div>
+            <div class="emojiPickerGrid" id="emojiPickerGrid"></div>
+          </div>
+
+          <!-- Hidden File Input -->
+          <input type="file" id="chatFileInput" accept="image/*" style="display: none;">
         </div>
 
         <!-- Tool Buttons -->

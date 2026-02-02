@@ -11,9 +11,7 @@ import { setupWebSocketHandlers } from './WebSocketHandlers.js';
 import { DebugOverlay, RegionTracker, SyncClient } from './sync/index.js';
 import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
 
-/**
- * Main application class
- */
+
 export class DrawingApp {
   constructor(options = {}) {
     this.sessionIndex = null;  // Assigned by server on connect
@@ -21,14 +19,16 @@ export class DrawingApp {
     this.connected = false;
 
     this.board = new Board({
-      dimensions: options.dimensions || [720, 1280]
+      dimensions: options.dimensions || [1080, 1920]
     });
     this.board.app = this; // Allow tools to access wsClient
 
     this.toolManager = new ToolManager(this.board);
     this.ui = new UI();
     this.chat = new Chat({
-      onSend: (message) => this.handleChatSend(message)
+      onSend: (message) => this.handleChatSend(message),
+      onDM: (message, recipientId) => this.handleDMSend(message, recipientId),
+      onSendImage: (imageData, recipientId) => this.handleChatImageSend(imageData, recipientId)
     });
     this.brushGallery = new BrushGallery({
       onSelect: (brush) => this.handleBrushSelect(brush)
@@ -72,7 +72,7 @@ export class DrawingApp {
       dirty: false         // whether buffer has new data to process
     };
 
-    // Point reduction configuration (Level 1 smoothing)
+    // Point reduction configuration 
     this.pointReduction = {
       enabled: options.enablePointReduction !== false, // true by default
       algorithm: options.reductionAlgorithm || 'douglas-peucker', // 'douglas-peucker' or 'distance-based'
@@ -183,7 +183,6 @@ export class DrawingApp {
     elements.saveBtn.addEventListener('click', () => this.board.saveAsImage());
 
     elements.chatBtn.addEventListener('click', () => this.chat.toggle());
-    elements.chatResetBtn.addEventListener('click', () => this.chat.resetPosition());
 
     elements.sizeSlider.addEventListener('input', (e) => this.handleSizeChange(e));
     elements.spacingSlider.addEventListener('input', (e) => this.handleSpacingChange(e));
@@ -318,7 +317,7 @@ export class DrawingApp {
       if (this.self.mousedown && !this.self.panning) {
         const tool = this.toolManager.getCurrentTool();
         if (tool) {
-          // We iterate through the batch locally so the drawer sees smooth lines
+          // We iterate through the batch locally so the user sees smooth lines
           for (let i = 0; i < points.length; i += 2) {
               const currentPos = { x: points[i], y: points[i+1] };
               const prevPos = i === 0 ? (this.inputBuffer.lastPosition || currentPos) : { x: points[i-2], y: points[i-1] };
@@ -542,6 +541,35 @@ export class DrawingApp {
     this.wsClient.broadcastChat(message);
   }
 
+  handleDMSend(message, recipientId) {
+    if (this.connected) {
+      this.wsClient.broadcastDM(message, recipientId);
+    }
+  }
+
+  handleChatImageSend(imageData, recipientId = null) {
+    if (this.connected) {
+      if (recipientId) {
+        // DM image
+        this.chat.addDMImage(imageData, recipientId, true);
+      } else {
+        // Public chat image
+        this.chat.addChatImage(imageData, this.self);
+      }
+      this.wsClient.broadcastChatImage(imageData, recipientId);
+    }
+  }
+
+  updateChatUserList() {
+    const userList = Array.from(this.users.values()).map(user => ({
+      id: user.id,
+      username: user.username,
+      color: `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3]})`,
+      isSelf: user.id === this.sessionIndex
+    }));
+    this.chat.updateUserList(userList);
+  }
+
   handlePaletteColorSelect(colorOrCallback) {
     // If it's a callback (from the add button), pass the current color
     if (typeof colorOrCallback === 'function') {
@@ -760,6 +788,7 @@ export class DrawingApp {
     let size = this.self.size;
     let step = 1;
 
+    // Variable size changing
     if (size < 2) step = 0.25;
     else if (size < 4) step = 0.5;
     else if (size <= 30) step = 1;
