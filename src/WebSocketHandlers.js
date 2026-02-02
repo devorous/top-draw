@@ -38,6 +38,9 @@ export function setupWebSocketHandlers(app) {
         }
       }
     });
+
+    // Update chat user list for DM functionality
+    app.updateChatUserList();
   });
 
   // Board settings
@@ -53,6 +56,9 @@ export function setupWebSocketHandlers(app) {
       chat.addSystemMessage(`${user.username || 'User'} has left the room`);
       users.delete(data.sessionIndex);
       ui.removeRemoteUser(data.sessionIndex);
+
+      // Update chat user list
+      app.updateChatUserList();
     }
   });
 
@@ -158,6 +164,9 @@ export function setupWebSocketHandlers(app) {
       user.setUsername(data.name);
       ui.updateRemoteName(data.sessionIndex, data.name);
       chat.addSystemMessage(`${data.name} joined the room`);
+
+      // Update chat user list
+      app.updateChatUserList();
     }
   });
 
@@ -185,6 +194,32 @@ export function setupWebSocketHandlers(app) {
     const user = users.get(data.sessionIndex);
     if (user) {
       chat.addMessage(data.message, user);
+    }
+  });
+
+  // Direct message
+  wsClient.on('dm', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      chat.addDMMessage(data.message, data.sessionIndex, false);
+    }
+  });
+
+  // Chat image
+  wsClient.on('chat_img', (data) => {
+    console.log('[CHAT_IMG] Received image from user', data.sessionIndex);
+
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      if (data.recipientId) {
+        // DM image - add to DM conversation
+        chat.addDMImage(data.imageData, data.sessionIndex, false);
+      } else {
+        // Public chat image
+        chat.addChatImage(data.imageData, user);
+      }
+    } else {
+      console.warn('[CHAT_IMG] User not found for sessionIndex:', data.sessionIndex);
     }
   });
 

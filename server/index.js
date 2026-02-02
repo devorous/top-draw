@@ -20,8 +20,8 @@ const T = {
   MM: 10, MD: 11, MU: 12, CP: 13, CS: 14, CT: 15, CC: 16,
   CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25, CANCEL: 26,
   HIDE_CURSOR: 27, SHOW_CURSOR: 28, CSM: 29,
-  SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32, SEL_DELETE: 33, SEL_FILL: 34, SEL_STAMP: 35, SEL_CANCEL: 36, SEL_TO_BRUSH: 37, IMG_PASTE: 38,
-  SYNC_REQUEST: 40, SYNC_PROVIDE: 41, SYNC_CANVAS: 42, SYNC_COMPLETE: 43
+  SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32, SEL_DELETE: 33, SEL_FILL: 34, SEL_STAMP: 35, SEL_CANCEL: 36, SEL_TO_BRUSH: 37, IMG_PASTE: 38, DM: 39,
+  CHAT_IMG: 40, SYNC_REQUEST: 41, SYNC_PROVIDE: 42, SYNC_CANVAS: 43, SYNC_COMPLETE: 44
 };
 
 // Tool enum matching proto
@@ -99,11 +99,28 @@ function broadcast(payload, excludeIndex = null) {
   const message = Msg.create(payload);
   const buffer = Msg.encode(message).finish();
 
+  // Debug logging for CHAT_IMG
+  if (payload.t === T.CHAT_IMG) {
+    console.log(`[broadcast] CHAT_IMG message size: ${buffer.length} bytes, excluding: ${excludeIndex}`);
+  }
+
+  let sentCount = 0;
+  let skippedSender = false;
   wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN && client.sessionIndex !== excludeIndex) {
+    if (client.readyState === WebSocket.OPEN) {
+      // Use == to handle potential type differences (string vs number)
+      if (excludeIndex != null && client.sessionIndex == excludeIndex) {
+        skippedSender = true;
+        return; // Skip sender
+      }
       client.send(buffer);
+      sentCount++;
     }
   });
+
+  if (payload.t === T.CHAT_IMG) {
+    console.log(`[broadcast] CHAT_IMG sent to ${sentCount} clients, skipped sender: ${skippedSender}`);
+  }
 }
 
 function broadcastToAll(payload) {
@@ -228,6 +245,16 @@ wss.on('connection', (ws, req) => {
     try {
       const data = Msg.decode(new Uint8Array(rawData));
 
+      // Debug: Log message type for CHAT_IMG
+      if (data.t === T.CHAT_IMG || data.t === 40) {
+        console.log('[DEBUG] Received CHAT_IMG message:', {
+          type: data.t,
+          expectedType: T.CHAT_IMG,
+          hasCimg: !!data.cimg,
+          sessionIndex: ws.sessionIndex
+        });
+      }
+
       switch (data.t) {
         case T.CONNECT:
           const sessionIndex = allocateSessionIndex();
@@ -336,6 +363,75 @@ wss.on('connection', (ws, req) => {
               console.log(`[Sync] Canvas forwarded to user ${targetUser}, sync complete`);
               break;
             }
+          }
+          break;
+
+        case T.DM:
+          // Direct message - send only to the specified recipient
+          const recipientId = data.r;
+          if (recipientId !== undefined && ws.sessionIndex !== undefined) {
+            // Find the recipient's WebSocket and send the message
+            for (const client of wss.clients) {
+              if (client.sessionIndex === recipientId && client.readyState === WebSocket.OPEN) {
+                sendTo(client, {
+                  t: T.DM,
+                  u: ws.sessionIndex,
+                  g: data.g
+                });
+                console.log(`[DM] User ${ws.sessionIndex} -> User ${recipientId}`);
+                break;
+              }
+            }
+            updateUserActivity(ws.sessionIndex);
+          }
+          break;
+
+        case T.CHAT_IMG:
+          // Chat image - send to recipient (if DM) or broadcast to all
+          if (ws.sessionIndex !== undefined) {
+            let imageBytes = data.cimg;
+            const imageRecipientId = data.r;
+
+            console.log(`[CHAT_IMG] Raw data.cimg type: ${imageBytes?.constructor?.name}, length: ${imageBytes?.length}`);
+
+            if (!imageBytes || imageBytes.length === 0) {
+              console.log(`[CHAT_IMG] No image data received from user ${ws.sessionIndex}`);
+              break;
+            }
+
+            // Ensure we have a proper Uint8Array for protobuf encoding
+            if (Buffer.isBuffer(imageBytes)) {
+              imageBytes = new Uint8Array(imageBytes.buffer, imageBytes.byteOffset, imageBytes.length);
+            } else if (!(imageBytes instanceof Uint8Array)) {
+              imageBytes = new Uint8Array(imageBytes);
+            }
+
+            console.log(`[CHAT_IMG] Processed bytes type: ${imageBytes.constructor.name}, length: ${imageBytes.length}`);
+
+            if (imageRecipientId !== undefined) {
+              // DM image - send only to recipient
+              for (const client of wss.clients) {
+                if (client.sessionIndex === imageRecipientId && client.readyState === WebSocket.OPEN) {
+                  sendTo(client, {
+                    t: T.CHAT_IMG,
+                    u: ws.sessionIndex,
+                    cimg: imageBytes,
+                    r: imageRecipientId
+                  });
+                  console.log(`[CHAT_IMG DM] User ${ws.sessionIndex} -> User ${imageRecipientId}`);
+                  break;
+                }
+              }
+            } else {
+              // Public chat image - broadcast to all except sender
+              broadcast({
+                t: T.CHAT_IMG,
+                u: ws.sessionIndex,
+                cimg: imageBytes
+              }, ws.sessionIndex);
+              console.log(`[CHAT_IMG] User ${ws.sessionIndex} broadcast image to all`);
+            }
+            updateUserActivity(ws.sessionIndex);
           }
           break;
 

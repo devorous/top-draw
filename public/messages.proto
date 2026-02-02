@@ -41,12 +41,14 @@ message Msg {
     SEL_CANCEL = 36;    // Cancel selection movement
     SEL_TO_BRUSH = 37;  // Convert selection to brush
     IMG_PASTE = 38;     // Paste image data (selection paste, image upload)
+    DM = 39;            // Direct message
+    CHAT_IMG = 40;      // Chat image message
 
-    // Sync types (40+)
-    SYNC_REQUEST = 40;   // New user requests canvas state
-    SYNC_PROVIDE = 41;   // Server asks existing user to provide canvas
-    SYNC_CANVAS = 42;    // Canvas data (PNG) being sent
-    SYNC_COMPLETE = 43;  // Sync complete
+    // Sync types (41+)
+    SYNC_REQUEST = 41;   // New user requests canvas state
+    SYNC_PROVIDE = 42;   // Server asks existing user to provide canvas
+    SYNC_CANVAS = 43;    // Canvas data (PNG) being sent
+    SYNC_COMPLETE = 44;  // Sync complete
   }
 
   // Tool enum
@@ -110,4 +112,10 @@ message Msg {
   // === Sync Fields ===
   bytes img = 24;            // PNG image data (full canvas)
   uint32 tu = 25;            // Target user for sync messages
+
+  // === DM Field ===
+  uint32 r = 26;             // Recipient user ID for direct messages
+
+  // === Chat Image Field ===
+  bytes cimg = 27;           // Chat image data (raw image bytes)
 }

@@ -61,7 +61,6 @@ export class UI {
       debugOverlay: document.getElementById('debugOverlay'),
 
       chatBtn: document.getElementById('chatBtn'),
-      chatResetBtn: document.getElementById('chatResetBtn'),
       saveBtn: document.getElementById('saveBtn'),
 
       sizeSlider: document.querySelector('.slider.size'),
