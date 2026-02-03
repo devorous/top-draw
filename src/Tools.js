@@ -36,12 +36,17 @@ export class BrushTool extends Tool {
 
   /**
    * Apply exponential moving average smoothing to position
+   * Combines baseline smoothing (always-on) with user's smoothing setting
    * @param {number} targetX - Target X position
    * @param {number} targetY - Target Y position
-   * @param {number} smoothing - Smoothing factor (0-1, where 0 = no smoothing)
+   * @param {number} userSmoothing - User's smoothing factor (0-1)
    */
-  smoothPosition(targetX, targetY, smoothing) {
-    if (this.isFirstPoint || smoothing === 0) {
+  smoothPosition(targetX, targetY, userSmoothing) {
+    // Combine baseline (12%) with user smoothing additively
+    const baselineEma = 0.12;
+    const totalSmoothing = baselineEma + userSmoothing * (1 - baselineEma);
+
+    if (this.isFirstPoint || totalSmoothing === 0) {
       this.smoothBuffer.x = targetX;
       this.smoothBuffer.y = targetY;
       this.isFirstPoint = false;
@@ -49,7 +54,7 @@ export class BrushTool extends Tool {
     }
 
     // Higher smoothing = more lag/stabilization (lerp factor becomes smaller)
-    const factor = 1 - smoothing * 0.9; // At max smoothing, factor is 0.1
+    const factor = 1 - totalSmoothing * 0.9;
     this.smoothBuffer.x += (targetX - this.smoothBuffer.x) * factor;
     this.smoothBuffer.y += (targetY - this.smoothBuffer.y) * factor;
 
@@ -497,16 +502,21 @@ export class FlowPenTool extends Tool {
 
   /**
    * Apply exponential moving average smoothing to position
+   * Combines baseline smoothing (always-on) with user's smoothing setting
    */
-  smoothPosition(targetX, targetY, smoothing) {
-    if (this.isFirstPoint || smoothing === 0) {
+  smoothPosition(targetX, targetY, userSmoothing) {
+    // Combine baseline (12%) with user smoothing additively
+    const baselineEma = 0.12;
+    const totalSmoothing = baselineEma + userSmoothing * (1 - baselineEma);
+
+    if (this.isFirstPoint || totalSmoothing === 0) {
       this.smoothBuffer.x = targetX;
       this.smoothBuffer.y = targetY;
       this.isFirstPoint = false;
       return { x: targetX, y: targetY };
     }
 
-    const factor = 1 - smoothing * 0.9;
+    const factor = 1 - totalSmoothing * 0.9;
     this.smoothBuffer.x += (targetX - this.smoothBuffer.x) * factor;
     this.smoothBuffer.y += (targetY - this.smoothBuffer.y) * factor;
 
