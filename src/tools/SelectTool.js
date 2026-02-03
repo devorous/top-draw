@@ -52,15 +52,25 @@ export class SelectTool extends Tool {
     this.rotationStartAngle = 0; // Angle when rotation started
     this.cornersAtRotationStart = null; // Corners at the start of rotation
 
-    // Homography instance for transforms
+    // Homography instance for transforms (reused to avoid per-frame allocation)
     this.homography = null;
+    this.previewHomography = null; // Separate instance for downscaled previews
     this.isTransforming = false;
+
+    // Preview downscaling settings
+    this.previewMaxSize = 256; // Max dimension for preview warps
 
     // Clipboard
     this.clipboard = null;
 
     // Context menu elements (cached after first use)
     this.menuElements = null;
+
+    // Throttling for selection move broadcasts (30 TPS for homography performance)
+    this.selectionMoveThrottleRate = 30; // TPS
+    this.selectionMoveThrottleInterval = 1000 / this.selectionMoveThrottleRate; // ~33.33ms
+    this.lastSelectionBroadcastTime = 0;
+    this.pendingSelectionBroadcast = null; // Stores corners to broadcast after throttle
   }
 
   activate() {
@@ -76,6 +86,40 @@ export class SelectTool extends Tool {
     this.hideContextMenu();
     // Reset cursor
     this.board.container.style.cursor = 'none';
+  }
+
+  /**
+   * Throttled broadcast for selection moves to limit network/render load.
+   * Broadcasts at most at selectionMoveThrottleRate TPS (default 30).
+   * @param {Object} corners - { tl: {x,y}, tr: {x,y}, bl: {x,y}, br: {x,y} }
+   * @param {boolean} force - If true, bypass throttle (for final position on pointer up)
+   */
+  throttledBroadcastSelectionMove(corners, force = false) {
+    if (!this.board.app || !this.board.app.wsClient) return;
+
+    const now = performance.now();
+    const elapsed = now - this.lastSelectionBroadcastTime;
+
+    if (force || elapsed >= this.selectionMoveThrottleInterval) {
+      // Enough time has passed or forced - send immediately
+      this.board.app.wsClient.broadcastSelectionMove(corners);
+      this.lastSelectionBroadcastTime = now;
+      this.pendingSelectionBroadcast = null;
+    } else {
+      // Store for later - will be sent when throttle window passes or on pointer up
+      this.pendingSelectionBroadcast = { ...corners };
+    }
+  }
+
+  /**
+   * Flush any pending selection broadcast (call on pointer up to ensure final state is sent)
+   */
+  flushPendingSelectionBroadcast() {
+    if (this.pendingSelectionBroadcast && this.board.app && this.board.app.wsClient) {
+      this.board.app.wsClient.broadcastSelectionMove(this.pendingSelectionBroadcast);
+      this.pendingSelectionBroadcast = null;
+      this.lastSelectionBroadcastTime = performance.now();
+    }
   }
 
   setupMenuListeners() {
@@ -356,9 +400,9 @@ export class SelectTool extends Tool {
       // Update selection bounds from rotated corners
       this.updateSelectionFromCorners();
 
-      // Broadcast the rotation to other users
-      if (this.corners && this.board.app && this.board.app.wsClient) {
-        this.board.app.wsClient.broadcastSelectionMove(this.corners);
+      // Broadcast the rotation to other users (throttled for performance)
+      if (this.corners) {
+        this.throttledBroadcastSelectionMove(this.corners);
       }
 
       this.board.clearTop();
@@ -389,10 +433,8 @@ export class SelectTool extends Tool {
         this.corners.br.x += dx;
         this.corners.br.y += dy;
 
-        // Broadcast the move to other users
-        if (this.board.app && this.board.app.wsClient) {
-          this.board.app.wsClient.broadcastSelectionMove(this.corners);
-        }
+        // Broadcast the move to other users (throttled for performance)
+        this.throttledBroadcastSelectionMove(this.corners);
       }
 
       this.board.clearTop();
@@ -411,9 +453,9 @@ export class SelectTool extends Tool {
       this.updateCornerFromHandle(this.activeHandle.id, pos);
       this.isTransforming = true;
 
-      // Broadcast the transform to other users
-      if (this.corners && this.board.app && this.board.app.wsClient) {
-        this.board.app.wsClient.broadcastSelectionMove(this.corners);
+      // Broadcast the transform to other users (throttled for performance)
+      if (this.corners) {
+        this.throttledBroadcastSelectionMove(this.corners);
       }
 
       // Redraw with transform preview
@@ -437,6 +479,8 @@ export class SelectTool extends Tool {
     if (this.isRotating) {
       this.isRotating = false;
       this.cornersAtRotationStart = null;
+      // Flush any pending broadcast to ensure final rotation state is sent
+      this.flushPendingSelectionBroadcast();
       this.board.clearTop();
       // Use homography-based preview (corners are rotated)
       this.drawTransformPreview();
@@ -446,6 +490,8 @@ export class SelectTool extends Tool {
 
     if (this.isDragging) {
       this.isDragging = false;
+      // Flush any pending broadcast to ensure final drag position is sent
+      this.flushPendingSelectionBroadcast();
       this.drawSelectionUI();
       this.showContextMenu();
       return;
@@ -456,6 +502,8 @@ export class SelectTool extends Tool {
       // Transform will be applied when committing the selection
       this.activeHandle = null;
       this.isTransforming = false;
+      // Flush any pending broadcast to ensure final transform state is sent
+      this.flushPendingSelectionBroadcast();
       this.showContextMenu();
       this.board.clearTop();
       // Draw the transform preview (keeps showing warped result)
@@ -590,39 +638,62 @@ export class SelectTool extends Tool {
     const ctx = this.board.topCtx;
 
     try {
-      // Create homography for projective transform
-      const homography = new Homography('projective');
-
-      // Source points (original corners of the floating canvas)
-      const srcPoints = [
-        [this.originalCorners.tl.x, this.originalCorners.tl.y],
-        [this.originalCorners.tr.x, this.originalCorners.tr.y],
-        [this.originalCorners.bl.x, this.originalCorners.bl.y],
-        [this.originalCorners.br.x, this.originalCorners.br.y]
-      ];
-
-      // Destination points (current corner positions, relative to output)
+      // Calculate output bounds
       const c = this.corners;
       const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
       const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+      const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+      const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+      const outputWidth = maxX - minX;
+      const outputHeight = maxY - minY;
 
-      const dstPoints = [
-        [c.tl.x - minX, c.tl.y - minY],
-        [c.tr.x - minX, c.tr.y - minY],
-        [c.bl.x - minX, c.bl.y - minY],
-        [c.br.x - minX, c.br.y - minY]
+      // Calculate preview scale for downsampling input image (max 256px on longest side of source)
+      const srcMaxDim = Math.max(this.floatingCanvas.width, this.floatingCanvas.height);
+      const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
+      const previewSrcWidth = Math.max(1, Math.round(this.floatingCanvas.width * previewScale));
+      const previewSrcHeight = Math.max(1, Math.round(this.floatingCanvas.height * previewScale));
+
+      // Reuse or create preview homography instance
+      if (!this.previewHomography) {
+        this.previewHomography = new Homography('projective');
+      }
+
+      // Source points scaled for the downsampled input image
+      const srcPoints = [
+        [this.originalCorners.tl.x * previewScale, this.originalCorners.tl.y * previewScale],
+        [this.originalCorners.tr.x * previewScale, this.originalCorners.tr.y * previewScale],
+        [this.originalCorners.bl.x * previewScale, this.originalCorners.bl.y * previewScale],
+        [this.originalCorners.br.x * previewScale, this.originalCorners.br.y * previewScale]
       ];
 
-      // Set up homography
-      homography.setSourcePoints(srcPoints, this.floatingCanvas);
-      homography.setDestinyPoints(dstPoints);
+      // Destination points scaled down proportionally
+      const dstPoints = [
+        [(c.tl.x - minX) * previewScale, (c.tl.y - minY) * previewScale],
+        [(c.tr.x - minX) * previewScale, (c.tr.y - minY) * previewScale],
+        [(c.bl.x - minX) * previewScale, (c.bl.y - minY) * previewScale],
+        [(c.br.x - minX) * previewScale, (c.br.y - minY) * previewScale]
+      ];
+
+      // Set up homography with downscaled source image
+      this.previewHomography.setSourcePoints(srcPoints, this.floatingCanvas, previewSrcWidth, previewSrcHeight);
+      this.previewHomography.setDestinyPoints(dstPoints);
 
       // Warp the image
-      const result = homography.warp();
+      const result = this.previewHomography.warp();
 
       if (result) {
-        // Draw the warped result
-        ctx.putImageData(result, minX, minY);
+        // Draw the warped result scaled up to full size
+        // Create temporary canvas to hold the ImageData
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = result.width;
+        tempCanvas.height = result.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.putImageData(result, 0, 0);
+
+        // Draw scaled up to full output size
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'low';
+        ctx.drawImage(tempCanvas, minX, minY, outputWidth, outputHeight);
       }
     } catch (e) {
       // Fallback: just draw the original floating selection
@@ -728,8 +799,10 @@ export class SelectTool extends Tool {
     if (!this.floatingCanvas || !this.corners || !this.originalCorners) return;
 
     try {
-      // Create homography for projective transform
-      const homography = new Homography('projective');
+      // Reuse or create homography instance for full-resolution transform
+      if (!this.homography) {
+        this.homography = new Homography('projective');
+      }
 
       // Source points
       const srcPoints = [
@@ -751,10 +824,11 @@ export class SelectTool extends Tool {
         [c.br.x - minX, c.br.y - minY]
       ];
 
-      homography.setSourcePoints(srcPoints, this.floatingCanvas);
-      homography.setDestinyPoints(dstPoints);
+      this.homography.setSourcePoints(srcPoints, this.floatingCanvas);
+      this.homography.setDestinyPoints(dstPoints);
 
-      const result = homography.warp();
+      // Warp at full resolution
+      const result = this.homography.warp();
 
       if (result) {
         // Create new floating canvas with transformed result
@@ -1062,34 +1136,59 @@ export class SelectTool extends Tool {
     // Check if corners have been transformed (including rotation) - if so, use homography
     if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
       try {
-        const homography = new Homography('projective');
-
-        // Source points (original corners of the floating canvas)
-        const srcPoints = [
-          [this.originalCorners.tl.x, this.originalCorners.tl.y],
-          [this.originalCorners.tr.x, this.originalCorners.tr.y],
-          [this.originalCorners.bl.x, this.originalCorners.bl.y],
-          [this.originalCorners.br.x, this.originalCorners.br.y]
-        ];
-
-        // Destination points (current corner positions, relative to output)
+        // Calculate output bounds
         const c = this.corners;
         const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
         const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+        const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+        const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+        const outputWidth = maxX - minX;
+        const outputHeight = maxY - minY;
 
-        const dstPoints = [
-          [c.tl.x - minX, c.tl.y - minY],
-          [c.tr.x - minX, c.tr.y - minY],
-          [c.bl.x - minX, c.bl.y - minY],
-          [c.br.x - minX, c.br.y - minY]
+        // Calculate preview scale for downsampling input image (max 256px on longest side of source)
+        const srcMaxDim = Math.max(this.floatingCanvas.width, this.floatingCanvas.height);
+        const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
+        const previewSrcWidth = Math.max(1, Math.round(this.floatingCanvas.width * previewScale));
+        const previewSrcHeight = Math.max(1, Math.round(this.floatingCanvas.height * previewScale));
+
+        // Reuse or create preview homography instance
+        if (!this.previewHomography) {
+          this.previewHomography = new Homography('projective');
+        }
+
+        // Source points scaled for the downsampled input image
+        const srcPoints = [
+          [this.originalCorners.tl.x * previewScale, this.originalCorners.tl.y * previewScale],
+          [this.originalCorners.tr.x * previewScale, this.originalCorners.tr.y * previewScale],
+          [this.originalCorners.bl.x * previewScale, this.originalCorners.bl.y * previewScale],
+          [this.originalCorners.br.x * previewScale, this.originalCorners.br.y * previewScale]
         ];
 
-        homography.setSourcePoints(srcPoints, this.floatingCanvas);
-        homography.setDestinyPoints(dstPoints);
+        // Destination points scaled down proportionally
+        const dstPoints = [
+          [(c.tl.x - minX) * previewScale, (c.tl.y - minY) * previewScale],
+          [(c.tr.x - minX) * previewScale, (c.tr.y - minY) * previewScale],
+          [(c.bl.x - minX) * previewScale, (c.bl.y - minY) * previewScale],
+          [(c.br.x - minX) * previewScale, (c.br.y - minY) * previewScale]
+        ];
 
-        const result = homography.warp();
+        // Set up homography with downscaled source image
+        this.previewHomography.setSourcePoints(srcPoints, this.floatingCanvas, previewSrcWidth, previewSrcHeight);
+        this.previewHomography.setDestinyPoints(dstPoints);
+
+        const result = this.previewHomography.warp();
         if (result) {
-          ctx.putImageData(result, minX, minY);
+          // Create temporary canvas to hold the ImageData
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = result.width;
+          tempCanvas.height = result.height;
+          const tempCtx = tempCanvas.getContext('2d');
+          tempCtx.putImageData(result, 0, 0);
+
+          // Draw scaled up to full output size
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'low';
+          ctx.drawImage(tempCanvas, minX, minY, outputWidth, outputHeight);
           return;
         }
       } catch (e) {
@@ -1131,6 +1230,10 @@ export class SelectTool extends Tool {
       this.originalSelectionPos = { x: s.x, y: s.y };
     }
 
+    // Create reusable homography instances for this selection
+    this.homography = new Homography('projective');
+    this.previewHomography = new Homography('projective');
+
     // Draw floating selection on top canvas
     this.board.clearTop();
     this.drawFloatingSelection();
@@ -1148,8 +1251,10 @@ export class SelectTool extends Tool {
     // Check if we need to apply a homography transform (includes rotation via corners)
     if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
       try {
-        // Create homography for projective transform
-        const homography = new Homography('projective');
+        // Reuse or create homography instance for full-resolution commit
+        if (!this.homography) {
+          this.homography = new Homography('projective');
+        }
 
         // Source points (original corners of the floating canvas)
         const srcPoints = [
@@ -1171,12 +1276,12 @@ export class SelectTool extends Tool {
           [c.br.x - minX, c.br.y - minY]
         ];
 
-        // Set up homography
-        homography.setSourcePoints(srcPoints, this.floatingCanvas);
-        homography.setDestinyPoints(dstPoints);
+        // Set up homography for full-resolution warp
+        this.homography.setSourcePoints(srcPoints, this.floatingCanvas);
+        this.homography.setDestinyPoints(dstPoints);
 
-        // Warp the image
-        const result = homography.warp();
+        // Warp the image at full resolution (no width/height = full res)
+        const result = this.homography.warp();
 
         if (result) {
           // All this is required to prevent putImageData from overwriting the main context with transparent pixels
@@ -1247,6 +1352,9 @@ export class SelectTool extends Tool {
     this.rotation = 0;
     this.isRotating = false;
     this.cornersAtRotationStart = null;
+    // Clear homography instances
+    this.homography = null;
+    this.previewHomography = null;
     this.hideContextMenu();
     this.board.clearTop();
   }
@@ -1440,7 +1548,10 @@ export class SelectTool extends Tool {
     // Same logic as commitSelection but don't clear the floating canvas
     if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
       try {
-        const homography = new Homography('projective');
+        // Reuse or create homography instance for full-resolution stamp
+        if (!this.homography) {
+          this.homography = new Homography('projective');
+        }
 
         const srcPoints = [
           [this.originalCorners.tl.x, this.originalCorners.tl.y],
@@ -1460,10 +1571,11 @@ export class SelectTool extends Tool {
           [c.br.x - minX, c.br.y - minY]
         ];
 
-        homography.setSourcePoints(srcPoints, this.floatingCanvas);
-        homography.setDestinyPoints(dstPoints);
+        this.homography.setSourcePoints(srcPoints, this.floatingCanvas);
+        this.homography.setDestinyPoints(dstPoints);
 
-        const result = homography.warp();
+        // Warp at full resolution
+        const result = this.homography.warp();
 
         if (result) {
           const tempCanvas = document.createElement('canvas');

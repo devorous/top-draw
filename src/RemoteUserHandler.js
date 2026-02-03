@@ -10,6 +10,9 @@ export class RemoteUserHandler {
     this.app = app;
     this.remoteSelectionAnimationId = null;
     this.remoteSelectionOffset = 0;
+
+    // Preview downscaling settings (same as SelectTool)
+    this.previewMaxSize = 256; // Max dimension for preview warps
   }
 
   get board() { return this.app.board; }
@@ -513,6 +516,10 @@ export class RemoteUserHandler {
     };
     user.originalSelectionPos = { x: s.x, y: s.y };
 
+    // Create reusable homography instances for this user's selection
+    user.homography = new Homography('projective');
+    user.previewHomography = new Homography('projective');
+
     // Draw floating selection on user's preview layer
     this.drawFloatingSelection(user);
 
@@ -555,9 +562,12 @@ export class RemoteUserHandler {
     const hasTransform = this.hasTransformedCorners(user);
 
     if (hasTransform && user.originalCorners) {
-      // Apply homography transform
+      // Apply homography transform using reused instance
       try {
-        const homography = new Homography('projective');
+        // Reuse or create homography instance for full-resolution commit
+        if (!user.homography) {
+          user.homography = new Homography('projective');
+        }
 
         const srcPoints = [
           [user.originalCorners.tl.x, user.originalCorners.tl.y],
@@ -576,10 +586,11 @@ export class RemoteUserHandler {
           [c.br.x - minX, c.br.y - minY]
         ];
 
-        homography.setSourcePoints(srcPoints, user.floatingCanvas);
-        homography.setDestinyPoints(dstPoints);
+        user.homography.setSourcePoints(srcPoints, user.floatingCanvas);
+        user.homography.setDestinyPoints(dstPoints);
 
-        const result = homography.warp();
+        // Warp at full resolution
+        const result = user.homography.warp();
         if (result) {
           // Use tempCanvas to avoid putImageData overwriting transparent pixels
           const tempCanvas = document.createElement('canvas');
@@ -608,6 +619,9 @@ export class RemoteUserHandler {
     user.selection = null;
     user.selectionCorners = null;
     user.originalCorners = null;
+    // Clear homography instances
+    user.homography = null;
+    user.previewHomography = null;
   }
 
   handleSelectionDelete(user) {
@@ -630,6 +644,9 @@ export class RemoteUserHandler {
     user.pendingSelection = null;
     user.selectionCorners = null;
     user.originalCorners = null;
+    // Clear homography instances
+    user.homography = null;
+    user.previewHomography = null;
   }
 
   handleSelectionFill(user, color) {
@@ -666,7 +683,10 @@ export class RemoteUserHandler {
 
     if (hasTransform && user.originalCorners) {
       try {
-        const homography = new Homography('projective');
+        // Reuse or create homography instance for full-resolution stamp
+        if (!user.homography) {
+          user.homography = new Homography('projective');
+        }
 
         const srcPoints = [
           [user.originalCorners.tl.x, user.originalCorners.tl.y],
@@ -685,10 +705,11 @@ export class RemoteUserHandler {
           [c.br.x - minX, c.br.y - minY]
         ];
 
-        homography.setSourcePoints(srcPoints, user.floatingCanvas);
-        homography.setDestinyPoints(dstPoints);
+        user.homography.setSourcePoints(srcPoints, user.floatingCanvas);
+        user.homography.setDestinyPoints(dstPoints);
 
-        const result = homography.warp();
+        // Warp at full resolution
+        const result = user.homography.warp();
         if (result) {
           // Use tempCanvas to avoid putImageData overwriting transparent pixels
           const tempCanvas = document.createElement('canvas');
@@ -711,7 +732,7 @@ export class RemoteUserHandler {
     // Keep selection active (don't cleanup like commit does)
     // Redraw floating selection on user's layer
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-    user.context.drawImage(user.floatingCanvas, s.x, s.y);
+    this.drawFloatingSelection(user);
   }
 
   handleSelectionCancel(user) {
@@ -732,6 +753,9 @@ export class RemoteUserHandler {
     user.selectionCorners = null;
     user.originalCorners = null;
     user.originalSelectionPos = null;
+    // Clear homography instances
+    user.homography = null;
+    user.previewHomography = null;
   }
 
   handleSelectionToBrush(user, brushDataJson) {
@@ -775,6 +799,10 @@ export class RemoteUserHandler {
       };
       user.originalSelectionPos = { x: -1, y: -1 }; // Pasted content is "moved"
 
+      // Create reusable homography instances for this user's selection
+      user.homography = new Homography('projective');
+      user.previewHomography = new Homography('projective');
+
       // Draw the floating selection
       this.drawFloatingSelection(user);
 
@@ -813,33 +841,58 @@ export class RemoteUserHandler {
     // Check if we need to apply homography transform
     if (c && user.originalCorners && this.hasTransformedCorners(user)) {
       try {
-        const homography = new Homography('projective');
-
-        // Source points (original corners of the floating canvas)
-        const srcPoints = [
-          [user.originalCorners.tl.x, user.originalCorners.tl.y],
-          [user.originalCorners.tr.x, user.originalCorners.tr.y],
-          [user.originalCorners.bl.x, user.originalCorners.bl.y],
-          [user.originalCorners.br.x, user.originalCorners.br.y]
-        ];
-
-        // Destination points (current corner positions, relative to output)
+        // Calculate output bounds
         const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
         const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+        const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+        const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+        const outputWidth = maxX - minX;
+        const outputHeight = maxY - minY;
 
-        const dstPoints = [
-          [c.tl.x - minX, c.tl.y - minY],
-          [c.tr.x - minX, c.tr.y - minY],
-          [c.bl.x - minX, c.bl.y - minY],
-          [c.br.x - minX, c.br.y - minY]
+        // Calculate preview scale for downsampling input image (max 256px on longest side of source)
+        const srcMaxDim = Math.max(user.floatingCanvas.width, user.floatingCanvas.height);
+        const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
+        const previewSrcWidth = Math.max(1, Math.round(user.floatingCanvas.width * previewScale));
+        const previewSrcHeight = Math.max(1, Math.round(user.floatingCanvas.height * previewScale));
+
+        // Reuse or create preview homography instance
+        if (!user.previewHomography) {
+          user.previewHomography = new Homography('projective');
+        }
+
+        // Source points scaled for the downsampled input image
+        const srcPoints = [
+          [user.originalCorners.tl.x * previewScale, user.originalCorners.tl.y * previewScale],
+          [user.originalCorners.tr.x * previewScale, user.originalCorners.tr.y * previewScale],
+          [user.originalCorners.bl.x * previewScale, user.originalCorners.bl.y * previewScale],
+          [user.originalCorners.br.x * previewScale, user.originalCorners.br.y * previewScale]
         ];
 
-        homography.setSourcePoints(srcPoints, user.floatingCanvas);
-        homography.setDestinyPoints(dstPoints);
+        // Destination points scaled down proportionally
+        const dstPoints = [
+          [(c.tl.x - minX) * previewScale, (c.tl.y - minY) * previewScale],
+          [(c.tr.x - minX) * previewScale, (c.tr.y - minY) * previewScale],
+          [(c.bl.x - minX) * previewScale, (c.bl.y - minY) * previewScale],
+          [(c.br.x - minX) * previewScale, (c.br.y - minY) * previewScale]
+        ];
 
-        const result = homography.warp();
+        // Set up homography with downscaled source image
+        user.previewHomography.setSourcePoints(srcPoints, user.floatingCanvas, previewSrcWidth, previewSrcHeight);
+        user.previewHomography.setDestinyPoints(dstPoints);
+
+        const result = user.previewHomography.warp();
         if (result) {
-          ctx.putImageData(result, minX, minY);
+          // Create temporary canvas to hold the ImageData
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = result.width;
+          tempCanvas.height = result.height;
+          const tempCtx = tempCanvas.getContext('2d');
+          tempCtx.putImageData(result, 0, 0);
+
+          // Draw scaled up to full output size
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'low';
+          ctx.drawImage(tempCanvas, minX, minY, outputWidth, outputHeight);
         } else {
           // Fallback to simple draw
           ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
