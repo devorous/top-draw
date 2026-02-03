@@ -72,7 +72,7 @@ export class DrawingApp {
       dirty: false         // whether buffer has new data to process
     };
 
-    // Point reduction configuration 
+    // Point reduction configuration
     this.pointReduction = {
       enabled: options.enablePointReduction !== false, // true by default
       algorithm: options.reductionAlgorithm || 'douglas-peucker', // 'douglas-peucker' or 'distance-based'
@@ -83,6 +83,19 @@ export class DrawingApp {
       minDistance: 0.5,
       maxDistance: 10.0
     };
+
+    // Baseline smoothing configuration - always-on light smoothing
+    this.baselineSmoothing = {
+      enabled: true,
+      emaFactor: 0.12,        // 12% baseline EMA (light stabilization)
+      pointReduction: {
+        minEpsilon: 0.3,      // Always reduce some points
+        maxEpsilon: 4.0       // Scales with total smoothing
+      }
+    };
+
+    // EMA buffer for broadcast smoothing
+    this.broadcastSmoothBuffer = { x: 0, y: 0, isFirst: true };
   }
 
   async init() {
@@ -93,6 +106,7 @@ export class DrawingApp {
     this.colorPalette.init();
 
     this.createSelf();
+    this.initSelfFromUI(); // Sync self's settings from UI slider values
     this.setupColorPicker();
 
     // Initialize handlers
@@ -134,6 +148,31 @@ export class DrawingApp {
       context: this.board.topCtx,
       board: this.board.mainCanvas
     });
+  }
+
+  initSelfFromUI() {
+    // Initialize self's settings from UI slider values
+    const { elements } = this.ui;
+
+    if (elements.smoothingSlider) {
+      const smoothing = Number(elements.smoothingSlider.value) / 100;
+      this.self.setSmoothing(smoothing);
+    }
+
+    if (elements.sizeSlider) {
+      const size = Number(elements.sizeSlider.value);
+      this.self.setSize(size);
+    }
+
+    if (elements.spacingSlider) {
+      const spacing = Number(elements.spacingSlider.value);
+      this.self.setSpacing(spacing);
+    }
+
+    if (elements.pressureSlider) {
+      const pressure = Number(elements.pressureSlider.value) / 100;
+      this.self.setPressure(pressure);
+    }
   }
 
   setupColorPicker() {
@@ -264,6 +303,11 @@ export class DrawingApp {
 
     this.wsClient.broadcastNameChange(name);
 
+    // Broadcast initial settings so other users see correct values
+    this.wsClient.broadcastSmoothingChange(this.self.smoothing);
+    this.wsClient.broadcastSizeChange(this.self.size);
+    this.wsClient.broadcastColorChange(this.self.color);
+
     // Start the tick loop
     this.startTickLoop();
 
@@ -309,8 +353,15 @@ export class DrawingApp {
       const lastY = points[points.length - 1];
       this.self.setPosition(lastX, lastY);
 
-      // 2. Apply Level 1 point reduction and broadcast
-      const reducedPoints = this.applyPointReduction(points);
+      // 2. Apply smoothing only when actively drawing (not just moving cursor)
+      // This ensures dots are placed at exact click position, not lagged
+      let broadcastPoints;
+      if (this.self.mousedown && !this.self.panning) {
+        broadcastPoints = this.applyBroadcastSmoothing(points);
+      } else {
+        broadcastPoints = points;
+      }
+      const reducedPoints = this.applyPointReduction(broadcastPoints);
       this.wsClient.broadcastMove(reducedPoints);
 
       // 3. Process locally for immediate feedback
@@ -348,12 +399,8 @@ export class DrawingApp {
       return points;
     }
 
-    const smoothingPercent = this.self.smoothing * 100; // Convert 0-1 to 0-100
-
-    // Skip reduction if smoothing is 0
-    if (smoothingPercent === 0) {
-      return points;
-    }
+    const userSmoothing = this.self.smoothing * 100; // Convert 0-1 to 0-100
+    const baseline = this.baselineSmoothing.pointReduction;
 
     // Convert flat array [x1, y1, x2, y2, ...] to point objects
     const pointObjects = [];
@@ -364,15 +411,15 @@ export class DrawingApp {
     let reduced;
 
     if (this.pointReduction.algorithm === 'douglas-peucker') {
-      // Calculate epsilon based on smoothing level (0-100%)
-      const { minEpsilon, maxEpsilon } = this.pointReduction;
-      const epsilon = minEpsilon + (maxEpsilon - minEpsilon) * (smoothingPercent / 100);
+      // Always apply at least baseline reduction, scale up with user smoothing
+      const epsilon = baseline.minEpsilon +
+        (baseline.maxEpsilon - baseline.minEpsilon) * (userSmoothing / 100);
 
       reduced = douglasPeucker(pointObjects, epsilon);
     } else if (this.pointReduction.algorithm === 'distance-based') {
       // Calculate distance threshold based on smoothing level
       const { minDistance, maxDistance } = this.pointReduction;
-      const threshold = minDistance + (maxDistance - minDistance) * (smoothingPercent / 100);
+      const threshold = minDistance + (maxDistance - minDistance) * (userSmoothing / 100);
 
       reduced = distanceBasedCulling(pointObjects, threshold);
     } else {
@@ -387,6 +434,42 @@ export class DrawingApp {
       result.push(p.x, p.y);
     }
 
+    return result;
+  }
+
+  /**
+   * Apply EMA smoothing to points before broadcast
+   * This must match BrushTool.smoothPosition() exactly so remote users
+   * see the smoothed position (with lag), not the raw cursor position
+   * @param {Array} points - Flat array [x1, y1, x2, y2, ...]
+   * @returns {Array} - Smoothed flat array
+   */
+  applyBroadcastSmoothing(points) {
+    if (points.length < 2) {
+      return points;
+    }
+
+    // Match BrushTool.smoothPosition() formula exactly:
+    // totalSmoothing = baseline + userSmoothing * (1 - baseline)
+    // factor = 1 - totalSmoothing * 0.9
+    const baselineEma = 0.12;
+    const userSmoothing = this.self.smoothing || 0;
+    const totalSmoothing = baselineEma + userSmoothing * (1 - baselineEma);
+    const factor = 1 - totalSmoothing * 0.9;
+
+    const result = [];
+
+    for (let i = 0; i < points.length; i += 2) {
+      if (this.broadcastSmoothBuffer.isFirst) {
+        this.broadcastSmoothBuffer.x = points[i];
+        this.broadcastSmoothBuffer.y = points[i + 1];
+        this.broadcastSmoothBuffer.isFirst = false;
+      } else {
+        this.broadcastSmoothBuffer.x += (points[i] - this.broadcastSmoothBuffer.x) * factor;
+        this.broadcastSmoothBuffer.y += (points[i + 1] - this.broadcastSmoothBuffer.y) * factor;
+      }
+      result.push(this.broadcastSmoothBuffer.x, this.broadcastSmoothBuffer.y);
+    }
     return result;
   }
 
@@ -670,6 +753,9 @@ export class DrawingApp {
     this.inputBuffer.lastPosition = pos;
     this.inputBuffer.movement = { x: 0, y: 0 };
     this.inputBuffer.pointerType = e.pointerType;
+
+    // Reset broadcast smooth buffer for new stroke
+    this.broadcastSmoothBuffer.isFirst = true;
 
     // Set self position immediately for pointerDown
     this.self.setPosition(pos.x, pos.y);

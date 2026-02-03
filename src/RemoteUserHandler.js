@@ -943,12 +943,58 @@ export class RemoteUserHandler {
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;
 
+    const smoothing = user.smoothing || 0;
+
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
 
-    for (let i = 1; i < points.length; i++) {
-      ctx.lineTo(points[i].x, points[i].y);
+    if (points.length === 1) {
+      // Single point - draw a dot
+      ctx.lineTo(points[0].x, points[0].y);
+    } else if (points.length === 2 || smoothing === 0) {
+      // Two points or no smoothing - straight lines
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+    } else {
+      // 3+ points with smoothing: quadratic curves with control point
+      // interpolated based on smoothing level
+      // smoothing=0: straight line, smoothing=1: full curve through point
+
+      let prevX = points[0].x;
+      let prevY = points[0].y;
+
+      for (let i = 1; i < points.length; i++) {
+        const curr = points[i];
+
+        if (i < points.length - 1) {
+          // Not the last point - curve to midpoint
+          const next = points[i + 1];
+          const midX = (curr.x + next.x) / 2;
+          const midY = (curr.y + next.y) / 2;
+
+          // Interpolate control point: at smoothing=0, cp is on the line
+          // at smoothing=1, cp is at the actual point
+          const linearCpX = (prevX + midX) / 2;
+          const linearCpY = (prevY + midY) / 2;
+          const cpX = linearCpX + (curr.x - linearCpX) * smoothing;
+          const cpY = linearCpY + (curr.y - linearCpY) * smoothing;
+
+          ctx.quadraticCurveTo(cpX, cpY, midX, midY);
+          prevX = midX;
+          prevY = midY;
+        } else {
+          // Last point - curve to it
+          const linearCpX = (prevX + curr.x) / 2;
+          const linearCpY = (prevY + curr.y) / 2;
+          const cpX = linearCpX + (curr.x - linearCpX) * smoothing;
+          const cpY = linearCpY + (curr.y - linearCpY) * smoothing;
+
+          ctx.quadraticCurveTo(cpX, cpY, curr.x, curr.y);
+        }
+      }
     }
+
     ctx.stroke();
     ctx.globalAlpha = 1.0;
   }
