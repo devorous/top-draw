@@ -11,12 +11,12 @@ A real-time multiplayer collaborative drawing application. Multiple users can dr
 - **Real-time Collaboration** - Draw with others and see their cursors and strokes live
 - **Multiple Drawing Tools**
   - Brush - Freehand drawing with adjustable size and spacing
-  - Pen - Pressure-sensitive drawing
+  - Flow Pen - Pressure-sensitive circle stamping
   - Line - Straight lines
   - Rectangle & Circle - Shape tools
   - Text - Add text to canvas
   - Eraser - Remove content
-  - GIMP Brushes - Import and use .gbr/.gih brush files
+  - Image Brush - GIMP brushes (.gbr/.gih) and standard images (.png/.jpg/.webp)
   - Select - Selection with perspective transformation
 - **Canvas Controls** - Zoom, pan, mirror mode, save as image
 - **Color Picker** - Full color selection with alpha channel
