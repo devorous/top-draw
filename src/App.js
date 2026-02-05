@@ -361,8 +361,9 @@ export class DrawingApp {
     const now = performance.now();
     this.lastTickTime = now;
 
-    // Only process if we have new input data
-    if (!this.inputBuffer.dirty) return;
+    // Only process if we have new input data OR need to catch up smoothing
+    const needsCatchup = this.needsSmoothingCatchup();
+    if (!this.inputBuffer.dirty && !needsCatchup) return;
 
     const { points, movement } = this.inputBuffer;
 
@@ -409,9 +410,88 @@ export class DrawingApp {
       this.inputBuffer.lastPosition = { x: lastX, y: lastY };
     }
 
+    // Smoothing catch-up: continue drawing towards target even when pointer is still
+    if (needsCatchup) {
+      this.processSmoothingCatchup();
+    }
+
     // Clear points for next tick
     this.inputBuffer.points = [];
     this.inputBuffer.dirty = false;
+  }
+
+  /**
+   * Check if smoothing needs to catch up to the target position
+   * @returns {boolean} - True if catch-up is needed
+   */
+  needsSmoothingCatchup() {
+    // Only catch up when actively drawing (not panning, mouse is down)
+    if (!this.self.mousedown || this.self.panning) return false;
+
+    const tool = this.toolManager.getCurrentTool();
+    if (!tool || !tool.smoothBuffer) return false;
+
+    // Only catch up for tools that use smoothing
+    const smoothingTools = ['brush', 'flowPen'];
+    if (!smoothingTools.includes(this.self.tool)) return false;
+
+    // Check if smoothing is enabled
+    if (!this.self.smoothing || this.self.smoothing === 0) return false;
+
+    // Calculate distance from smoothed position to target
+    const dx = this.self.x - tool.smoothBuffer.x;
+    const dy = this.self.y - tool.smoothBuffer.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // Need catch-up if distance > 1 pixel
+    return distance > 1;
+  }
+
+  /**
+   * Process smoothing catch-up to continue drawing towards target
+   */
+  processSmoothingCatchup() {
+    const tool = this.toolManager.getCurrentTool();
+    if (!tool || !tool.smoothBuffer) return;
+
+    // Calculate distance to determine catch-up speed
+    const dx = this.self.x - tool.smoothBuffer.x;
+    const dy = this.self.y - tool.smoothBuffer.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // Scale catch-up iterations based on distance for faster convergence
+    // Farther away = more iterations per tick
+    let iterations = 1;
+    if (distance > 100) iterations = 8;
+    else if (distance > 50) iterations = 5;
+    else if (distance > 20) iterations = 3;
+    else if (distance > 10) iterations = 2;
+
+    // Generate a synthetic pointer move towards the target
+    const targetPos = { x: this.self.x, y: this.self.y };
+    let prevPos = { x: tool.smoothBuffer.x, y: tool.smoothBuffer.y };
+
+    // Process multiple catch-up steps for faster convergence
+    for (let i = 0; i < iterations; i++) {
+      tool.onPointerMove(this.self, targetPos, prevPos);
+      prevPos = { x: tool.smoothBuffer.x, y: tool.smoothBuffer.y };
+
+      // Check if we've converged (within 1 pixel)
+      const dx = this.self.x - tool.smoothBuffer.x;
+      const dy = this.self.y - tool.smoothBuffer.y;
+      if (Math.sqrt(dx * dx + dy * dy) <= 1) break;
+    }
+
+    // Broadcast the final catch-up position
+    const points = [targetPos.x, targetPos.y];
+    const broadcastPoints = this.applyBroadcastSmoothing(points);
+    const reducedPoints = this.applyPointReduction(broadcastPoints);
+    this.wsClient.broadcastMove(reducedPoints);
+
+    // Track for debug overlay
+    this.debugOverlay.addStrokePoint(this.self.id, targetPos.x, targetPos.y, 'catchup');
+    this.debugOverlay.addDrawingPoint(targetPos.x, targetPos.y, this.self.size, this.self.id);
+    this.regionTracker.addDrawingPoint(targetPos.x, targetPos.y, this.self.size, this.self.id);
   }
 
   /**
