@@ -10,7 +10,7 @@ const T = {
   CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25, CANCEL: 26,
   HIDE_CURSOR: 27, SHOW_CURSOR: 28, CSM: 29,
   SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32, SEL_DELETE: 33, SEL_FILL: 34, SEL_STAMP: 35, SEL_CANCEL: 36, SEL_TO_BRUSH: 37, IMG_PASTE: 38, DM: 39,
-  CHAT_IMG: 40, SYNC_REQUEST: 41, SYNC_PROVIDE: 42, SYNC_CANVAS: 43, SYNC_COMPLETE: 44
+  CHAT_IMG: 40, SYNC_REQUEST: 41, SYNC_PROVIDE: 42, SYNC_CANVAS: 43, SYNC_COMPLETE: 44, CHD: 45
 };
 
 // Tool enum matching proto
@@ -159,7 +159,8 @@ export class WebSocketClient {
           color: unpackColor(u.c),
           size: (u.s || 1000) / 100,
           spacing: (u.sp ?? 0) / 100,
-          smoothing: (u.sm ?? 3000) / 100,
+          smoothing: (u.sm ?? 3000) / 10000,
+          hardness: (u.hd ?? 10000) / 10000,
           pressure: (u.p || 100) / 100,
           name: u.n || '',
           text: u.tx || ''
@@ -216,7 +217,11 @@ export class WebSocketClient {
         break;
 
       case T.CSM:
-        this.emit('csm', { sessionIndex: data.u, smoothing: (data.sm ?? 3000) / 100 });
+        this.emit('csm', { sessionIndex: data.u, smoothing: (data.sm ?? 3000) / 10000 });
+        break;
+
+      case T.CHD:
+        this.emit('chd', { sessionIndex: data.u, hardness: (data.hd ?? 10000) / 10000 });
         break;
 
       case T.CN:
@@ -431,7 +436,11 @@ export class WebSocketClient {
   }
 
   broadcastSmoothingChange(smoothing) {
-    this.send({ t: T.CSM, sm: Math.round(smoothing * 100) });
+    this.send({ t: T.CSM, sm: Math.round(smoothing * 10000) });
+  }
+
+  broadcastHardnessChange(hardness) {
+    this.send({ t: T.CHD, hd: Math.round(hardness * 10000) });
   }
 
   broadcastPressureChange(pressure) {

@@ -96,6 +96,9 @@ export class DrawingApp {
 
     // EMA buffer for broadcast smoothing
     this.broadcastSmoothBuffer = { x: 0, y: 0, isFirst: true };
+
+    // Tool-specific locked values
+    this.toolLocks = this.loadToolLocks();
   }
 
   async init() {
@@ -138,6 +141,12 @@ export class DrawingApp {
 
     this.toolManager.setTool('brush');
     this.ui.updateToolDisplay('brush');
+
+    // Restore locked values for initial tool and update lock button states
+    if (this.toolLocks['brush']) {
+      this.restoreLockedValues('brush');
+      this.updateAllLockButtons('brush');
+    }
 
     await this.wsClient.connect(this.self.toJSON());
   }
@@ -189,6 +198,13 @@ export class DrawingApp {
           this.self.setOpacity(rgba[3]); // Opacity comes from color alpha
           this.ui.updateSelfColor(rgba);
           this.ui.updateSelfTextStyle(this.self.size, rgba);
+          this.ui.updateImageBrushOpacityValue(rgba[3]); // Sync with image brush opacity slider
+
+          // Update image brush opacity slider position
+          const { elements } = this.ui;
+          if (elements.imageBrushOpacitySlider) {
+            elements.imageBrushOpacitySlider.value = rgba[3] * 100;
+          }
 
           if (this.connected) {
             this.wsClient.broadcastColorChange(rgba);
@@ -227,7 +243,17 @@ export class DrawingApp {
     elements.spacingSlider.addEventListener('input', (e) => this.handleSpacingChange(e));
     elements.pressureSlider.addEventListener('input', (e) => this.handlePressureSliderChange(e));
     elements.smoothingSlider.addEventListener('input', (e) => this.handleSmoothingChange(e));
+    elements.hardnessSlider.addEventListener('input', (e) => this.handleHardnessChange(e));
+    elements.imageBrushOpacitySlider.addEventListener('input', (e) => this.handleImageBrushOpacityChange(e));
     elements.brushFileInput.addEventListener('change', (e) => this.handleBrushFileLoad(e));
+
+    // Lock button event listeners
+    if (elements.sizeLock) elements.sizeLock.addEventListener('click', () => this.toggleLock('size'));
+    if (elements.pressureLock) elements.pressureLock.addEventListener('click', () => this.toggleLock('pressure'));
+    if (elements.smoothingLock) elements.smoothingLock.addEventListener('click', () => this.toggleLock('smoothing'));
+    if (elements.spacingLock) elements.spacingLock.addEventListener('click', () => this.toggleLock('spacing'));
+    if (elements.hardnessLock) elements.hardnessLock.addEventListener('click', () => this.toggleLock('hardness'));
+    if (elements.imageBrushOpacityLock) elements.imageBrushOpacityLock.addEventListener('click', () => this.toggleLock('imageBrushOpacity'));
 
     elements.board.addEventListener('pointermove', (e) => this.handlePointerMove(e));
     elements.board.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
@@ -509,10 +535,25 @@ export class DrawingApp {
       this.wsClient.broadcastMouseUp();
     }
 
+    const previousTool = this.self.tool;
+
+    // Save current values for previous tool if locked
+    if (previousTool && this.toolLocks[previousTool]) {
+      this.saveLockedValues(previousTool);
+    }
+
     this.self.setTool(tool);
     this.toolManager.setTool(tool);
     this.ui.updateToolDisplay(tool);
     this.wsClient.broadcastToolChange(tool);
+
+    // Restore locked values for new tool
+    if (this.toolLocks[tool]) {
+      this.restoreLockedValues(tool);
+    }
+
+    // Update lock button states
+    this.updateAllLockButtons(tool);
 
     // Show/hide brush gallery for imageBrush tool
     if (tool === 'imageBrush') {
@@ -604,6 +645,32 @@ export class DrawingApp {
     this.self.setSmoothing(smoothing / 100); // Convert to 0-1 range
     this.ui.updateSmoothingValue(smoothing);
     this.wsClient.broadcastSmoothingChange(smoothing / 100);
+  }
+
+  handleHardnessChange(e) {
+    const hardness = Number(e.target.value);
+    this.self.setHardness(hardness / 100); // Convert to 0-1 range
+    this.ui.updateHardnessValue(hardness / 100);
+    this.wsClient.broadcastHardnessChange(hardness / 100);
+  }
+
+  handleImageBrushOpacityChange(e) {
+    const opacity = Number(e.target.value) / 100; // Convert to 0-1 range
+
+    // Update user opacity (same as color picker alpha)
+    this.self.setOpacity(opacity);
+    this.ui.updateImageBrushOpacityValue(opacity);
+
+    // Update color picker to match
+    const currentColor = [...this.self.color];
+    currentColor[3] = opacity;
+    this.self.setColor(currentColor);
+    this.colorPicker.setColor(`rgba(${currentColor.join(',')})`);
+
+    // Broadcast to other users
+    if (this.connected) {
+      this.wsClient.broadcastColorChange(currentColor);
+    }
   }
 
   async handleBrushFileLoad(e) {
@@ -1063,5 +1130,177 @@ export class DrawingApp {
 
   handleResize() {
     this.board.calculateDefaultView();
+  }
+
+  // Tool Locks Management
+
+  loadToolLocks() {
+    try {
+      const saved = localStorage.getItem('topDrawToolLocks');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.warn('Failed to load tool locks:', e);
+    }
+
+    // Default structure
+    return this.getDefaultToolLocks();
+  }
+
+  getDefaultToolLocks() {
+    const tools = ['brush', 'flowPen', 'line', 'rectangle', 'circle', 'imageBrush', 'erase', 'text', 'select'];
+    const locks = {};
+
+    tools.forEach(tool => {
+      locks[tool] = {
+        size: { locked: false, value: 10 },
+        pressure: { locked: false, value: 1.0 },
+        smoothing: { locked: false, value: 0.3 },
+        spacing: { locked: false, value: 0 },
+        hardness: { locked: false, value: 1.0 },
+        imageBrushOpacity: { locked: false, value: 1.0 }
+      };
+    });
+
+    return locks;
+  }
+
+  saveToolLocks() {
+    try {
+      localStorage.setItem('topDrawToolLocks', JSON.stringify(this.toolLocks));
+    } catch (e) {
+      console.warn('Failed to save tool locks:', e);
+    }
+  }
+
+  saveLockedValues(toolName) {
+    const locks = this.toolLocks[toolName];
+    if (!locks) return;
+
+    // Save current values for locked properties
+    if (locks.size?.locked) locks.size.value = this.self.size;
+    if (locks.pressure?.locked) locks.pressure.value = this.self.pressure;
+    if (locks.smoothing?.locked) locks.smoothing.value = this.self.smoothing;
+    if (locks.spacing?.locked) locks.spacing.value = this.self.spacing;
+    if (locks.hardness?.locked) locks.hardness.value = this.self.hardness;
+    if (locks.imageBrushOpacity?.locked) {
+      // imageBrushOpacity is derived from color alpha
+      locks.imageBrushOpacity.value = this.self.opacity;
+    }
+
+    this.saveToolLocks();
+  }
+
+  restoreLockedValues(toolName) {
+    const locks = this.toolLocks[toolName];
+    if (!locks) return;
+
+    const { elements } = this.ui;
+
+    // Restore locked values
+    if (locks.size?.locked) {
+      this.self.setSize(locks.size.value);
+      this.ui.updateSizeValue(locks.size.value);
+      this.ui.updateCursorSize(locks.size.value);
+      if (elements.sizeSlider) elements.sizeSlider.value = locks.size.value;
+      if (this.connected) {
+        this.wsClient.broadcastSizeChange(locks.size.value);
+      }
+    }
+    if (locks.pressure?.locked) {
+      this.self.setPressure(locks.pressure.value);
+      this.ui.updatePressureValue(locks.pressure.value * 100);
+      if (elements.pressureSlider) elements.pressureSlider.value = locks.pressure.value * 100;
+      if (this.connected) {
+        this.wsClient.broadcastPressureChange(locks.pressure.value);
+      }
+    }
+    if (locks.smoothing?.locked) {
+      this.self.setSmoothing(locks.smoothing.value);
+      this.ui.updateSmoothingValue(locks.smoothing.value * 100);
+      if (elements.smoothingSlider) elements.smoothingSlider.value = locks.smoothing.value * 100;
+      if (this.connected) {
+        this.wsClient.broadcastSmoothingChange(locks.smoothing.value);
+      }
+    }
+    if (locks.spacing?.locked) {
+      this.self.setSpacing(locks.spacing.value);
+      this.ui.updateSpacingValue(locks.spacing.value);
+      if (elements.spacingSlider) elements.spacingSlider.value = locks.spacing.value;
+      if (this.connected) {
+        this.wsClient.broadcastSpacingChange(locks.spacing.value);
+      }
+    }
+    if (locks.hardness?.locked) {
+      this.self.setHardness(locks.hardness.value);
+      this.ui.updateHardnessValue(locks.hardness.value * 100);
+      if (elements.hardnessSlider) elements.hardnessSlider.value = locks.hardness.value * 100;
+      if (this.connected) {
+        this.wsClient.broadcastHardnessChange(locks.hardness.value);
+      }
+    }
+    if (locks.imageBrushOpacity?.locked) {
+      // Update color alpha (opacity)
+      const currentColor = [...this.self.color];
+      currentColor[3] = locks.imageBrushOpacity.value;
+      this.self.setColor(currentColor);
+      this.self.setOpacity(locks.imageBrushOpacity.value);
+      this.ui.updateImageBrushOpacityValue(locks.imageBrushOpacity.value);
+      if (elements.imageBrushOpacitySlider) elements.imageBrushOpacitySlider.value = locks.imageBrushOpacity.value * 100;
+
+      // Update color picker to reflect the locked opacity
+      if (this.colorPicker) {
+        this.colorPicker.setColor(`rgba(${currentColor.join(',')})`, true);
+      }
+
+      if (this.connected) {
+        this.wsClient.broadcastColorChange(currentColor);
+      }
+    }
+  }
+
+  updateAllLockButtons(toolName) {
+    const locks = this.toolLocks[toolName];
+    if (!locks) return;
+
+    this.ui.updateLockButton('size', locks.size?.locked || false);
+    this.ui.updateLockButton('pressure', locks.pressure?.locked || false);
+    this.ui.updateLockButton('smoothing', locks.smoothing?.locked || false);
+    this.ui.updateLockButton('spacing', locks.spacing?.locked || false);
+    this.ui.updateLockButton('hardness', locks.hardness?.locked || false);
+    this.ui.updateLockButton('imageBrushOpacity', locks.imageBrushOpacity?.locked || false);
+  }
+
+  toggleLock(property) {
+    const tool = this.self.tool;
+    if (!this.toolLocks[tool]) return;
+
+    const lock = this.toolLocks[tool][property];
+    if (!lock) {
+      // Initialize lock if it doesn't exist
+      this.toolLocks[tool][property] = { locked: false, value: this.self[property] || 0 };
+      return;
+    }
+
+    // Toggle lock state
+    lock.locked = !lock.locked;
+
+    // If locking, save current value
+    if (lock.locked) {
+      if (property === 'imageBrushOpacity') {
+        lock.value = this.self.opacity;
+      } else {
+        lock.value = this.self[property];
+      }
+    }
+
+    // Update UI
+    this.ui.updateLockButton(property, lock.locked);
+
+    // Save to localStorage
+    this.saveToolLocks();
+
+    console.log(`${property} ${lock.locked ? 'locked' : 'unlocked'} for ${tool} tool at value ${lock.value}`);
   }
 }
