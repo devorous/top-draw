@@ -21,7 +21,7 @@ const T = {
   CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25, CANCEL: 26,
   HIDE_CURSOR: 27, SHOW_CURSOR: 28, CSM: 29,
   SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32, SEL_DELETE: 33, SEL_FILL: 34, SEL_STAMP: 35, SEL_CANCEL: 36, SEL_TO_BRUSH: 37, IMG_PASTE: 38, DM: 39,
-  CHAT_IMG: 40, SYNC_REQUEST: 41, SYNC_PROVIDE: 42, SYNC_CANVAS: 43, SYNC_COMPLETE: 44
+  CHAT_IMG: 40, SYNC_REQUEST: 41, SYNC_PROVIDE: 42, SYNC_CANVAS: 43, SYNC_COMPLETE: 44, CHD: 45
 };
 
 // Tool enum matching proto
@@ -202,6 +202,9 @@ function handleBroadcast(data, sessionIndex) {
     case T.CSM:
       user.smoothing = data.sm;
       break;
+    case T.CHD:
+      user.hardness = data.hd;
+      break;
     case T.CP:
       user.pressure = data.p;
       break;
@@ -271,6 +274,7 @@ wss.on('connection', (ws, req) => {
             size: 1000,      // 10.00 * 100
             spacing: 10,     // 0.10 * 100
             smoothing: 3000, // 30.00 * 100 (default 30%)
+            hardness: 10000, // 100.00 * 100 (default 100%)
             pressure: 100,   // 1.00 * 100
             name: data.n || '',
             text: ''
@@ -295,6 +299,7 @@ wss.on('connection', (ws, req) => {
               s: u.size,
               sp: u.spacing,
               sm: u.smoothing,
+              hd: u.hardness,
               p: u.pressure,
               n: u.name,
               tx: u.text

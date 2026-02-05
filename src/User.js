@@ -14,6 +14,7 @@ export class User {
     this.spacing = options.spacing || 0;
     this.smoothing = options.smoothing !== undefined ? options.smoothing : 0.3;  // Stroke stabilization (0-1), default 30%
     this.opacity = options.opacity || 1;       // Brush opacity (0-1)
+    this.hardness = options.hardness !== undefined ? options.hardness : 1.0;  // Brush hardness (0-1), default 100%
     this.spaceIndex = 0;
     this.color = options.color || [0, 0, 0, 1];
     this.tool = options.tool || 'brush';
@@ -71,6 +72,10 @@ export class User {
 
   setOpacity(opacity) {
     this.opacity = opacity;
+  }
+
+  setHardness(hardness) {
+    this.hardness = hardness;
   }
 
   setUsername(username) {

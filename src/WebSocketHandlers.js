@@ -157,6 +157,14 @@ export function setupWebSocketHandlers(app) {
     }
   });
 
+  // Hardness change
+  wsClient.on('chd', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      user.setHardness(data.hardness);
+    }
+  });
+
   // Name change
   wsClient.on('cn', (data) => {
     const user = users.get(data.sessionIndex);

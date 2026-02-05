@@ -67,15 +67,29 @@ export class UI {
       spacingSlider: document.querySelector('.slider.spacing'),
       pressureSlider: document.querySelector('.slider.pressure'),
       smoothingSlider: document.querySelector('.slider.smoothing'),
+      hardnessSlider: document.querySelector('.slider.hardness'),
+      imageBrushOpacitySlider: document.querySelector('.slider.imageBrushOpacity'),
 
       sizeValue: document.getElementById('sizeValue'),
       pressureValue: document.getElementById('pressureValue'),
       smoothingValue: document.getElementById('smoothingValue'),
       spacingValue: document.getElementById('spacingValue'),
+      hardnessValue: document.getElementById('hardnessValue'),
+      imageBrushOpacityValue: document.getElementById('imageBrushOpacityValue'),
 
       brushFileInput: document.getElementById('brush-file-input'),
       brushImage: document.getElementById('brushImage'),
       brushSpacing: document.getElementById('brush-spacing'),
+      brushHardness: document.getElementById('brush-hardness'),
+      imageBrushOpacityContainer: document.getElementById('image-brush-opacity'),
+
+      // Lock buttons
+      sizeLock: document.getElementById('sizeLock'),
+      pressureLock: document.getElementById('pressureLock'),
+      smoothingLock: document.getElementById('smoothingLock'),
+      spacingLock: document.getElementById('spacingLock'),
+      hardnessLock: document.getElementById('hardnessLock'),
+      imageBrushOpacityLock: document.getElementById('imageBrushOpacityLock'),
 
       colorPicker: document.getElementById('colorPicker'),
 
@@ -159,7 +173,7 @@ export class UI {
   }
 
   updateToolDisplay(tool) {
-    const { selfCircle, selfSquare, selfCrosshair, selfText, brushImage, brushFileInput, brushSpacing } = this.elements;
+    const { selfCircle, selfSquare, selfCrosshair, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, imageBrushOpacityContainer } = this.elements;
 
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
@@ -168,6 +182,8 @@ export class UI {
     brushImage.style.display = 'none';
     brushFileInput.style.display = 'none';
     brushSpacing.style.display = 'none';
+    brushHardness.style.display = 'none';
+    imageBrushOpacityContainer.style.display = 'none';
 
     switch (tool) {
       case 'select':
@@ -175,10 +191,14 @@ export class UI {
         break;
       case 'brush':
       case 'flowPen':
+        selfCircle.style.display = 'block';
+        brushHardness.style.display = 'block';
+        break;
       case 'line':
       case 'rectangle':
       case 'circle':
         selfCircle.style.display = 'block';
+        brushHardness.style.display = 'block';
         break;
       case 'text':
         selfText.style.display = 'block';
@@ -191,6 +211,7 @@ export class UI {
         // brushImage is shown only when a brush is selected (via setBrushPreview)
         brushFileInput.style.display = 'block';
         brushSpacing.style.display = 'block';
+        imageBrushOpacityContainer.style.display = 'block';
         break;
     }
 
@@ -283,6 +304,27 @@ export class UI {
     if (this.elements.spacingValue) {
       this.elements.spacingValue.textContent = spacing;
     }
+  }
+
+  updateHardnessValue(hardness) {
+    if (this.elements.hardnessValue) {
+      this.elements.hardnessValue.textContent = Math.round(hardness * 100) + '%';
+    }
+  }
+
+  updateImageBrushOpacityValue(opacity) {
+    if (this.elements.imageBrushOpacityValue) {
+      this.elements.imageBrushOpacityValue.textContent = Math.round(opacity * 100) + '%';
+    }
+  }
+
+  updateLockButton(property, locked) {
+    const btn = this.elements[`${property}Lock`];
+    if (!btn) return;
+
+    btn.textContent = locked ? '🔒' : '🔓';
+    btn.classList.toggle('locked', locked);
+    btn.title = locked ? `Unlock ${property} for current tool` : `Lock ${property} for current tool`;
   }
 
   hideRemoteCursor(userId) {
