@@ -1,6 +1,7 @@
 import { mirrorLine } from './utils/drawing.js';
 import { Homography } from './utils/homography.js';
 import { SELECTION_MODES, getNextBrushIndex } from './utils/parseGimp.js';
+import { pointInHull } from './sync/ConvexHull.js';
 
 /**
  * Handles all remote user drawing synchronization
@@ -501,7 +502,13 @@ export class RemoteUserHandler {
 
   // Selection handling
 
-  handleSelectionLift(user, selection) {
+  /**
+   * Handle a remote user lifting a selection
+   * @param {Object} user - The remote user
+   * @param {Object} selection - Selection bounds {x, y, width, height}
+   * @param {Array<{x: number, y: number}>|null} lassoPath - Optional lasso path for non-rectangular selections
+   */
+  handleSelectionLift(user, selection, lassoPath = null) {
     // Clear pending selection since it's now being lifted
     user.pendingSelection = null;
 
@@ -517,10 +524,32 @@ export class RemoteUserHandler {
 
     // Copy selected region from main canvas
     const imageData = this.board.mainCtx.getImageData(s.x, s.y, s.width, s.height);
+
+    // Apply lasso mask if path provided (preserves concave selections)
+    if (lassoPath && lassoPath.length >= 3) {
+      this.applyLassoMask(imageData, s.x, s.y, lassoPath);
+      user.lassoPath = lassoPath; // Store for potential later use
+    }
+
     user.floatingCtx.putImageData(imageData, 0, 0);
 
-    // Clear the region on main canvas
-    this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
+    // Clear the region on main canvas - use lasso path as clip if available
+    if (lassoPath && lassoPath.length >= 3) {
+      // Use lasso path as clipping mask to only clear the selected area
+      this.board.mainCtx.save();
+      this.board.mainCtx.beginPath();
+      this.board.mainCtx.moveTo(lassoPath[0].x, lassoPath[0].y);
+      for (let i = 1; i < lassoPath.length; i++) {
+        this.board.mainCtx.lineTo(lassoPath[i].x, lassoPath[i].y);
+      }
+      this.board.mainCtx.closePath();
+      this.board.mainCtx.clip();
+      this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
+      this.board.mainCtx.restore();
+    } else {
+      // Rectangle mode - clear the entire selection
+      this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
+    }
 
     // Initialize corners for transform
     user.selectionCorners = {
@@ -546,6 +575,33 @@ export class RemoteUserHandler {
 
     // Start the selection animation loop
     this.startRemoteSelectionAnimation();
+  }
+
+  /**
+   * Apply lasso mask to ImageData - sets alpha to 0 for pixels outside lasso path
+   * @param {ImageData} imageData - The image data to mask
+   * @param {number} offsetX - X offset of imageData relative to canvas
+   * @param {number} offsetY - Y offset of imageData relative to canvas
+   * @param {Array<{x: number, y: number}>} lassoPath - The lasso polygon
+   */
+  applyLassoMask(imageData, offsetX, offsetY, lassoPath) {
+    const data = imageData.data;
+    const width = imageData.width;
+    const height = imageData.height;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const canvasX = x + offsetX;
+        const canvasY = y + offsetY;
+
+        // Check if this pixel is inside the lasso path (pointInHull uses winding number algorithm)
+        if (!pointInHull({ x: canvasX, y: canvasY }, lassoPath)) {
+          // Set alpha to 0 for pixels outside the lasso
+          const idx = (y * width + x) * 4;
+          data[idx + 3] = 0; // Alpha channel
+        }
+      }
+    }
   }
 
   handleSelectionMove(user, corners) {
@@ -640,6 +696,7 @@ export class RemoteUserHandler {
     user.selection = null;
     user.selectionCorners = null;
     user.originalCorners = null;
+    user.lassoPath = null;
     // Clear homography instances
     user.homography = null;
     user.previewHomography = null;
@@ -665,6 +722,7 @@ export class RemoteUserHandler {
     user.pendingSelection = null;
     user.selectionCorners = null;
     user.originalCorners = null;
+    user.lassoPath = null;
     // Clear homography instances
     user.homography = null;
     user.previewHomography = null;
@@ -774,6 +832,7 @@ export class RemoteUserHandler {
     user.selectionCorners = null;
     user.originalCorners = null;
     user.originalSelectionPos = null;
+    user.lassoPath = null;
     // Clear homography instances
     user.homography = null;
     user.previewHomography = null;

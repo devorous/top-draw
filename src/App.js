@@ -247,6 +247,17 @@ export class DrawingApp {
     elements.imageBrushOpacitySlider.addEventListener('input', (e) => this.handleImageBrushOpacityChange(e));
     elements.brushFileInput.addEventListener('change', (e) => this.handleBrushFileLoad(e));
 
+    // Selection mode radio buttons
+    const selectionModeRadios = document.querySelectorAll('input[name="selectionMode"]');
+    selectionModeRadios.forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        const selectTool = this.toolManager.getTool('select');
+        if (selectTool) {
+          selectTool.setMode(e.target.value);
+        }
+      });
+    });
+
     // Lock button event listeners
     if (elements.sizeLock) elements.sizeLock.addEventListener('click', () => this.toggleLock('size'));
     if (elements.pressureLock) elements.pressureLock.addEventListener('click', () => this.toggleLock('pressure'));

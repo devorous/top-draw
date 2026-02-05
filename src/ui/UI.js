@@ -83,6 +83,8 @@ export class UI {
       brushHardness: document.getElementById('brush-hardness'),
       imageBrushOpacityContainer: document.getElementById('image-brush-opacity'),
 
+      selectionModeOptions: document.getElementById('selectionModeOptions'),
+
       // Lock buttons
       sizeLock: document.getElementById('sizeLock'),
       pressureLock: document.getElementById('pressureLock'),
@@ -173,7 +175,7 @@ export class UI {
   }
 
   updateToolDisplay(tool) {
-    const { selfCircle, selfSquare, selfCrosshair, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, imageBrushOpacityContainer } = this.elements;
+    const { selfCircle, selfSquare, selfCrosshair, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, imageBrushOpacityContainer, selectionModeOptions } = this.elements;
 
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
@@ -184,10 +186,16 @@ export class UI {
     brushSpacing.style.display = 'none';
     brushHardness.style.display = 'none';
     imageBrushOpacityContainer.style.display = 'none';
+    if (selectionModeOptions) {
+      selectionModeOptions.style.display = 'none';
+    }
 
     switch (tool) {
       case 'select':
         selfCrosshair.style.display = 'block';
+        if (selectionModeOptions) {
+          selectionModeOptions.style.display = 'block';
+        }
         break;
       case 'brush':
       case 'flowPen':

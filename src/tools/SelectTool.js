@@ -1,4 +1,6 @@
 import { Homography } from '../utils/homography.js';
+import { pointInHull } from '../sync/ConvexHull.js';
+import { distanceBasedCulling } from '../utils/drawing.js';
 
 /**
  * Base tool class
@@ -22,7 +24,7 @@ class Tool {
 export class SelectTool extends Tool {
   constructor(board) {
     super('select', board);
-    this.mode = 'rectangle'; // 'rectangle' or 'lasso'
+    this.mode = 'lasso'; // 'rectangle' or 'lasso' - default to lasso
     this.isSelecting = false;
     this.isDragging = false;
     this.startPos = null;
@@ -71,6 +73,11 @@ export class SelectTool extends Tool {
     this.selectionMoveThrottleInterval = 1000 / this.selectionMoveThrottleRate; // ~33.33ms
     this.lastSelectionBroadcastTime = 0;
     this.pendingSelectionBroadcast = null; // Stores corners to broadcast after throttle
+
+    // Lasso-specific state
+    this.lassoPoints = []; // Raw points collected during lasso draw
+    this.lassoSimplified = null; // Simplified path for rendering/testing
+    this.lassoPath = null; // The actual lasso path used for point-in-polygon testing (preserves concave shape)
   }
 
   activate() {
@@ -119,6 +126,106 @@ export class SelectTool extends Tool {
       this.board.app.wsClient.broadcastSelectionMove(this.pendingSelectionBroadcast);
       this.pendingSelectionBroadcast = null;
       this.lastSelectionBroadcastTime = performance.now();
+    }
+  }
+
+  /**
+   * Set selection mode
+   * @param {string} mode - 'rectangle' or 'lasso'
+   */
+  setMode(mode) {
+    if (this.selection) {
+      this.commitSelection();
+      this.clearSelection();
+    }
+    this.mode = mode;
+  }
+
+  /**
+   * Get bounding box from array of points
+   * @param {Array<{x: number, y: number}>} points
+   * @returns {{x: number, y: number, width: number, height: number}}
+   */
+  getBoundsFromPoints(points) {
+    if (!points || points.length === 0) {
+      return { x: 0, y: 0, width: 0, height: 0 };
+    }
+
+    let minX = Infinity, minY = Infinity;
+    let maxX = -Infinity, maxY = -Infinity;
+
+    for (const p of points) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+
+    return {
+      x: Math.floor(minX),
+      y: Math.floor(minY),
+      width: Math.ceil(maxX - minX),
+      height: Math.ceil(maxY - minY)
+    };
+  }
+
+  /**
+   * Draw lasso preview during selection
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Array<{x: number, y: number}>} points
+   */
+  drawLassoPreview(ctx, points) {
+    if (points.length < 2) return;
+
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.lineDashOffset = -this.marchingAntsOffset;
+
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = '#fff';
+    ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+  }
+
+  /**
+   * Apply lasso mask to ImageData - sets alpha to 0 for pixels outside lasso
+   * @param {ImageData} imageData - The image data to mask
+   * @param {number} offsetX - X offset of imageData relative to canvas
+   * @param {number} offsetY - Y offset of imageData relative to canvas
+   * @param {Array<{x: number, y: number}>} lassoPath - The lasso polygon (any polygon works with pointInHull winding number algorithm)
+   */
+  applyLassoMask(imageData, offsetX, offsetY, lassoPath) {
+    const data = imageData.data;
+    const width = imageData.width;
+    const height = imageData.height;
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const canvasX = x + offsetX;
+        const canvasY = y + offsetY;
+
+        // Check if this pixel is inside the lasso path (pointInHull uses winding number algorithm which works with any polygon)
+        if (!pointInHull({ x: canvasX, y: canvasY }, lassoPath)) {
+          // Set alpha to 0 for pixels outside the lasso
+          const idx = (y * width + x) * 4;
+          data[idx + 3] = 0; // Alpha channel
+        }
+      }
     }
   }
 
@@ -325,6 +432,11 @@ export class SelectTool extends Tool {
     // Hide menu when starting any interaction
     this.hideContextMenu();
 
+    // Initialize lasso points if in lasso mode and starting new selection
+    if (this.mode === 'lasso' && !this.selection) {
+      this.lassoPoints = [{ x: pos.x, y: pos.y }];
+    }
+
     // Check if clicking a transform handle FIRST (higher priority than dragging)
     this.updateHandles();
     const handle = this.getHandleAtPoint(pos);
@@ -470,9 +582,19 @@ export class SelectTool extends Tool {
       return;
     }
 
-    // Update selection rectangle preview
-    this.board.clearTop();
-    this.drawSelectionBox(this.board.topCtx, this.startPos, pos);
+    // Mode-specific selection drawing
+    if (this.mode === 'lasso') {
+      // Collect lasso points
+      this.lassoPoints.push({ x: pos.x, y: pos.y });
+
+      // Redraw lasso preview
+      this.board.clearTop();
+      this.drawLassoPreview(this.board.topCtx, this.lassoPoints);
+    } else {
+      // Rectangle mode (existing code)
+      this.board.clearTop();
+      this.drawSelectionBox(this.board.topCtx, this.startPos, pos);
+    }
   }
 
   onPointerUp(user, pos) {
@@ -519,32 +641,76 @@ export class SelectTool extends Tool {
 
     this.isSelecting = false;
 
-    // Finalize selection rectangle
-    const x = Math.min(this.startPos.x, pos.x);
-    const y = Math.min(this.startPos.y, pos.y);
-    const width = Math.abs(pos.x - this.startPos.x);
-    const height = Math.abs(pos.y - this.startPos.y);
+    if (this.mode === 'lasso') {
+      // Finalize lasso selection
+      if (this.lassoPoints.length < 3) {
+        // Too few points - cancel
+        this.board.clearTop();
+        this.lassoPoints = [];
+        this.startPos = null;
+        return;
+      }
 
-    // Minimum selection size
-    if (width < 5 || height < 5) {
-      this.board.clearTop();
+      // Simplify the path
+      const threshold = 3; // pixels
+      this.lassoSimplified = distanceBasedCulling(this.lassoPoints, threshold);
+
+      // Use the simplified path directly for point-in-polygon testing
+      // The pointInHull winding number algorithm works with any polygon, not just convex hulls
+      this.lassoPath = this.lassoSimplified;
+
+      // Get bounding box
+      const bounds = this.getBoundsFromPoints(this.lassoSimplified);
+
+      // Minimum selection size check
+      if (bounds.width < 5 || bounds.height < 5) {
+        this.board.clearTop();
+        this.lassoPoints = [];
+        this.lassoSimplified = null;
+        this.lassoPath = null;
+        this.startPos = null;
+        return;
+      }
+
+      this.selection = bounds;
+      this.originalSelectionPos = { x: bounds.x, y: bounds.y };
       this.startPos = null;
-      return;
+
+      // Initialize corners for transform
+      this.initializeCorners();
+      this.updateHandles();
+
+      this.board.clearTop();
+      this.drawSelectionUI();
+      this.showContextMenu();
+    } else {
+      // Rectangle mode (existing code)
+      const x = Math.min(this.startPos.x, pos.x);
+      const y = Math.min(this.startPos.y, pos.y);
+      const width = Math.abs(pos.x - this.startPos.x);
+      const height = Math.abs(pos.y - this.startPos.y);
+
+      // Minimum selection size
+      if (width < 5 || height < 5) {
+        this.board.clearTop();
+        this.startPos = null;
+        return;
+      }
+
+      this.selection = { x, y, width, height };
+      this.startPos = null;
+
+      // Store original position to detect moves
+      this.originalSelectionPos = { x, y };
+
+      // Initialize corners for transform
+      this.initializeCorners();
+      this.updateHandles();
+
+      this.board.clearTop();
+      this.drawSelectionUI();
+      this.showContextMenu();
     }
-
-    this.selection = { x, y, width, height };
-    this.startPos = null;
-
-    // Store original position to detect moves
-    this.originalSelectionPos = { x, y };
-
-    // Initialize corners for transform
-    this.initializeCorners();
-    this.updateHandles();
-
-    this.board.clearTop();
-    this.drawSelectionUI();
-    this.showContextMenu();
   }
 
   initializeCorners() {
@@ -857,6 +1023,13 @@ export class SelectTool extends Tool {
 
   isInsideSelection(pos) {
     if (!this.selection) return false;
+
+    // For lasso mode with path, use point-in-polygon test
+    if (this.mode === 'lasso' && this.lassoPath) {
+      return pointInHull(pos, this.lassoPath);
+    }
+
+    // Rectangle mode (existing code)
     const s = this.selection;
     return pos.x >= s.x && pos.x <= s.x + s.width &&
            pos.y >= s.y && pos.y <= s.y + s.height;
@@ -1045,12 +1218,12 @@ export class SelectTool extends Tool {
       this.drawFloatingSelection();
     }
 
-    // Draw marching ants border - use corners if available for transformed selections
+    // Draw marching ants border
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
 
-    if (this.corners) {
-      // Draw quadrilateral outline using corners
+    if (this.corners && this.hasTransformedCorners()) {
+      // Transformed selection - draw quadrilateral
       const c = this.corners;
 
       ctx.strokeStyle = '#000';
@@ -1072,8 +1245,29 @@ export class SelectTool extends Tool {
       ctx.lineTo(c.bl.x, c.bl.y);
       ctx.closePath();
       ctx.stroke();
+    } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.floatingCanvas) {
+      // Lasso mode - draw simplified polygon ONLY if not lifted yet
+      ctx.strokeStyle = '#000';
+      ctx.lineDashOffset = -this.marchingAntsOffset;
+      ctx.beginPath();
+      ctx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
+      for (let i = 1; i < this.lassoSimplified.length; i++) {
+        ctx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.strokeStyle = '#fff';
+      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+      ctx.beginPath();
+      ctx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
+      for (let i = 1; i < this.lassoSimplified.length; i++) {
+        ctx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
+      }
+      ctx.closePath();
+      ctx.stroke();
     } else {
-      // Fallback to rectangle
+      // Rectangle mode OR lasso after lifting - draw bounding box
       ctx.strokeStyle = '#000';
       ctx.lineDashOffset = -this.marchingAntsOffset;
       ctx.strokeRect(s.x, s.y, s.width, s.height);
@@ -1219,11 +1413,32 @@ export class SelectTool extends Tool {
 
     // Copy selected region from main canvas
     const imageData = this.board.mainCtx.getImageData(s.x, s.y, s.width, s.height);
+
+    // Apply lasso mask if in lasso mode
+    if (this.mode === 'lasso' && this.lassoPath) {
+      this.applyLassoMask(imageData, s.x, s.y, this.lassoPath);
+    }
+
     this.floatingCtx.putImageData(imageData, 0, 0);
     this.selectedImageData = imageData;
 
-    // Clear the region on main canvas
-    this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
+    // Clear the region on main canvas - use lasso path as clip if available
+    if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
+      // Use lasso path as clipping mask to only clear the selected area
+      this.board.mainCtx.save();
+      this.board.mainCtx.beginPath();
+      this.board.mainCtx.moveTo(this.lassoPath[0].x, this.lassoPath[0].y);
+      for (let i = 1; i < this.lassoPath.length; i++) {
+        this.board.mainCtx.lineTo(this.lassoPath[i].x, this.lassoPath[i].y);
+      }
+      this.board.mainCtx.closePath();
+      this.board.mainCtx.clip();
+      this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
+      this.board.mainCtx.restore();
+    } else {
+      // Rectangle mode - clear the entire selection
+      this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
+    }
 
     // Store original position if not already set
     if (!this.originalSelectionPos) {
@@ -1241,7 +1456,7 @@ export class SelectTool extends Tool {
 
     // Send the data via the websocket client
     if (this.board.app?.wsClient) {
-      this.board.app.wsClient.broadcastSelectionLift(this.selection);
+      this.board.app.wsClient.broadcastSelectionLift(this.selection, this.lassoPath);
     }
   }
 
@@ -1355,6 +1570,12 @@ export class SelectTool extends Tool {
     // Clear homography instances
     this.homography = null;
     this.previewHomography = null;
+
+    // Lasso cleanup
+    this.lassoPoints = [];
+    this.lassoPath = null;
+    this.lassoSimplified = null;
+
     this.hideContextMenu();
     this.board.clearTop();
   }

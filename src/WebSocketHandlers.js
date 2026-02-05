@@ -274,7 +274,7 @@ export function setupWebSocketHandlers(app) {
   wsClient.on('sel_lift', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.handleSelectionLift(user, data.selection);
+      remoteUserHandler.handleSelectionLift(user, data.selection, data.lassoPath);
     }
   });
 

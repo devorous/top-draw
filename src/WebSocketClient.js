@@ -297,9 +297,18 @@ export class WebSocketClient {
         break;
 
       case T.SEL_LIFT:
+        // Parse lasso path from cr field if present
+        let lassoPath = null;
+        if (data.cr && data.cr.length >= 6) { // At least 3 points (6 coordinates)
+          lassoPath = [];
+          for (let i = 0; i < data.cr.length; i += 2) {
+            lassoPath.push({ x: data.cr[i], y: data.cr[i + 1] });
+          }
+        }
         this.emit('sel_lift', {
           sessionIndex: data.u,
-          selection: { x: data.sx, y: data.sy, width: data.sw, height: data.sh }
+          selection: { x: data.sx, y: data.sy, width: data.sw, height: data.sh },
+          lassoPath
         });
         break;
 
@@ -513,15 +522,24 @@ export class WebSocketClient {
 
 /**
  * Tells others to "lift" pixels from their local canvas.
+ * @param {Object} rect - Selection rectangle {x, y, width, height}
+ * @param {Array<{x: number, y: number}>|null} lassoPath - Optional lasso path for non-rectangular selections
  */
-broadcastSelectionLift(rect) {
-  this.send({
+broadcastSelectionLift(rect, lassoPath = null) {
+  const msg = {
     t: T.SEL_LIFT,
     sx: Math.round(rect.x),
     sy: Math.round(rect.y),
     sw: Math.round(rect.width),
     sh: Math.round(rect.height)
-  });
+  };
+
+  // Send lasso path as flattened coordinates [x1, y1, x2, y2, ...]
+  if (lassoPath && lassoPath.length > 0) {
+    msg.cr = lassoPath.flatMap(p => [Math.round(p.x), Math.round(p.y)]);
+  }
+
+  this.send(msg);
 }
 
 /**

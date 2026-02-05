@@ -487,6 +487,63 @@ canvas {
   opacity: 1;
 }
 
+/* Selection Mode Radio Buttons */
+.selection-mode-container {
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.selection-mode-container > label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.radio-group {
+  display: flex;
+  gap: 8px;
+}
+
+.radio-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.radio-option:hover {
+  border-color: var(--accent-primary);
+}
+
+.radio-option input[type="radio"] {
+  display: none;
+}
+
+.radio-option:has(input:checked) {
+  border-color: var(--accent-primary);
+  background: var(--bg-elevated);
+}
+
+.radio-option:has(input:checked) span {
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.radio-option span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 /* Tool Options Panel */
 #toolOptions {
   display: flex;
