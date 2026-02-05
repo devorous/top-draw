@@ -407,51 +407,72 @@ export class RemoteUserHandler {
 
     if (brushData.type === 'gbr' || brushData.type === 'image') {
       const image = new Image();
+      // Wait for image to load before assigning to user
+      image.onload = () => {
+        brushData.image = image;
+        user.imageBrush = brushData;
+        console.log(`[ImageBrush] Remote user ${user.id} loaded ${brushData.type} brush:`, brushData.brushName || brushData.fileName);
+      };
+      image.onerror = () => {
+        console.error(`[ImageBrush] Failed to load brush image for remote user ${user.id}`);
+      };
       image.src = brushData.gimpUrl;
-      brushData.image = image;
-      user.imageBrush = brushData;
     } else if (brushData.type === 'gih' && brushData.gBrushes && brushData.gBrushes.length > 0) {
-      const images = brushData.gBrushes.map(brush => {
+      // Track loading progress for all images
+      let loadedCount = 0;
+      const totalImages = brushData.gBrushes.length;
+
+      const images = brushData.gBrushes.map((brush, idx) => {
         const img = new Image();
+        img.onload = () => {
+          loadedCount++;
+          if (loadedCount === totalImages) {
+            // All images loaded - now safe to assign to user
+            brushData.images = images;
+            brushData.index = 0;
+            // Ensure ncells matches the actual number of images
+            brushData.ncells = images.length;
+            // Ensure cellwidth/cellheight are set (use first brush dimensions as fallback)
+            if (!brushData.cellwidth && brushData.gBrushes[0]) {
+              brushData.cellwidth = brushData.gBrushes[0].width || 32;
+              brushData.cellheight = brushData.gBrushes[0].height || 32;
+            }
+
+            // Recreate the getNextBrush and reset functions that were lost during JSON serialization
+            // These are needed for proper animation playback on remote clients
+            if (brushData.dimensions && brushData.dimensions.length > 0) {
+              // Reset dimension indices
+              for (const dim of brushData.dimensions) {
+                dim.currentIndex = 0;
+              }
+
+              // Recreate getNextBrush function using the imported helper
+              brushData.getNextBrush = function(context) {
+                const idx = getNextBrushIndex(this, context);
+                return {
+                  brush: this.gBrushes[idx],
+                  index: idx
+                };
+              };
+
+              // Recreate reset function
+              brushData.reset = function() {
+                for (const dim of this.dimensions) {
+                  dim.currentIndex = 0;
+                }
+              };
+            }
+
+            user.imageBrush = brushData;
+            console.log(`[ImageBrush] Remote user ${user.id} loaded GIH brush with ${totalImages} cells:`, brushData.brushName);
+          }
+        };
+        img.onerror = () => {
+          console.error(`[ImageBrush] Failed to load GIH image ${idx} for remote user ${user.id}`);
+        };
         img.src = brush.gimpUrl;
         return img;
       });
-      brushData.images = images;
-      brushData.index = 0;
-      // Ensure ncells matches the actual number of images
-      brushData.ncells = images.length;
-      // Ensure cellwidth/cellheight are set (use first brush dimensions as fallback)
-      if (!brushData.cellwidth && brushData.gBrushes[0]) {
-        brushData.cellwidth = brushData.gBrushes[0].width || 32;
-        brushData.cellheight = brushData.gBrushes[0].height || 32;
-      }
-
-      // Recreate the getNextBrush and reset functions that were lost during JSON serialization
-      // These are needed for proper animation playback on remote clients
-      if (brushData.dimensions && brushData.dimensions.length > 0) {
-        // Reset dimension indices
-        for (const dim of brushData.dimensions) {
-          dim.currentIndex = 0;
-        }
-
-        // Recreate getNextBrush function using the imported helper
-        brushData.getNextBrush = function(context) {
-          const idx = getNextBrushIndex(this, context);
-          return {
-            brush: this.gBrushes[idx],
-            index: idx
-          };
-        };
-
-        // Recreate reset function
-        brushData.reset = function() {
-          for (const dim of this.dimensions) {
-            dim.currentIndex = 0;
-          }
-        };
-      }
-
-      user.imageBrush = brushData;
     }
   }
 
@@ -989,12 +1010,32 @@ export class RemoteUserHandler {
 
     // Explicitly set ALL context properties to ensure consistency
     const opacity = user.opacity !== undefined ? user.opacity : 1;
+    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
+
     ctx.globalAlpha = opacity;
     ctx.globalCompositeOperation = 'source-over';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;
+
+    // Apply softness using shadow blur (hardness controls blur amount)
+    // For soft brushes, draw off-screen and use shadow only
+    if (hardness < 1.0) {
+      const blurAmount = (1 - hardness) * user.size * 1.5;
+      const offset = 100000;
+
+      ctx.strokeStyle = user.getColorString();
+      ctx.shadowBlur = blurAmount;
+      ctx.shadowColor = user.getColorString();
+      ctx.shadowOffsetX = -offset;
+      ctx.shadowOffsetY = 0;
+
+      ctx.save();
+      ctx.translate(offset, 0);
+    } else {
+      ctx.strokeStyle = user.getColorString();
+      ctx.shadowBlur = 0;
+    }
 
     const smoothing = user.smoothing || 0;
 
@@ -1049,6 +1090,13 @@ export class RemoteUserHandler {
     }
 
     ctx.stroke();
+
+    // Reset shadow and restore context if using soft brush
+    if (hardness < 1.0) {
+      ctx.restore();
+    }
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
     ctx.globalAlpha = 1.0;
   }
 
@@ -1079,15 +1127,31 @@ export class RemoteUserHandler {
     user._penStrokeColor = `rgb(${color.join(',')})`;
     user._penOffscreenCtx.fillStyle = user._penStrokeColor;
 
-    // Store alpha for compositing later
+    // Store alpha and hardness for compositing later
     const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     user._penAlpha = colorAlpha * opacitySlider;
+    user._penHardness = user.hardness !== undefined ? user.hardness : 1.0;
 
-    // Stamp first circle to offscreen at full opacity
-    user._penOffscreenCtx.beginPath();
-    user._penOffscreenCtx.arc(pos.x, pos.y, Math.max(0.5, radius), 0, Math.PI * 2);
-    user._penOffscreenCtx.fill();
+    // Apply softness using shadow blur
+    const ctx = user._penOffscreenCtx;
+    if (user._penHardness < 1.0) {
+      const blurAmount = (1 - user._penHardness) * radius * 1.2;
+      ctx.shadowBlur = blurAmount;
+      ctx.shadowColor = user._penStrokeColor;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+    } else {
+      ctx.shadowBlur = 0;
+    }
+
+    // Stamp first circle to offscreen
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, Math.max(0.5, radius), 0, Math.PI * 2);
+    ctx.fill();
+
+    // Reset shadow
+    ctx.shadowBlur = 0;
 
     user._penLastStampPos = { x: pos.x, y: pos.y, radius };
     user.penPoints = [{ x: pos.x, y: pos.y, radius }];
@@ -1110,18 +1174,34 @@ export class RemoteUserHandler {
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     if (distance >= spacing) {
-      // Stamp circles to offscreen at full opacity
-      user._penOffscreenCtx.fillStyle = user._penStrokeColor;
+      // Stamp circles to offscreen
+      const ctx = user._penOffscreenCtx;
+      ctx.fillStyle = user._penStrokeColor;
+
+      // Apply softness using shadow blur
+      if (user._penHardness < 1.0) {
+        const blurAmount = (1 - user._penHardness) * radius * 1.2;
+        ctx.shadowBlur = blurAmount;
+        ctx.shadowColor = user._penStrokeColor;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+      } else {
+        ctx.shadowBlur = 0;
+      }
+
       const steps = Math.ceil(distance / spacing);
       for (let i = 1; i <= steps; i++) {
         const t = i / steps;
         const x = user._penLastStampPos.x + dx * t;
         const y = user._penLastStampPos.y + dy * t;
         const r = user._penLastStampPos.radius + (radius - user._penLastStampPos.radius) * t;
-        user._penOffscreenCtx.beginPath();
-        user._penOffscreenCtx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
-        user._penOffscreenCtx.fill();
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
+        ctx.fill();
       }
+
+      // Reset shadow
+      ctx.shadowBlur = 0;
 
       user._penLastStampPos = { x: pos.x, y: pos.y, radius };
       if (user.penPoints) {

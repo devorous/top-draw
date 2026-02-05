@@ -1365,12 +1365,13 @@ export class SelectTool extends Tool {
 
     const s = this.selection;
 
-    // Get image data from floating canvas if lifted, otherwise from main canvas
+    // Get image data from transformed canvas if lifted, otherwise from main canvas
     if (this.floatingCanvas) {
+      const transformedCanvas = this.getTransformedCanvas();
       this.clipboard = {
-        width: s.width,
-        height: s.height,
-        imageData: this.floatingCtx.getImageData(0, 0, s.width, s.height)
+        width: transformedCanvas.width,
+        height: transformedCanvas.height,
+        imageData: transformedCanvas.getContext('2d').getImageData(0, 0, transformedCanvas.width, transformedCanvas.height)
       };
     } else {
       this.clipboard = {
@@ -1405,13 +1406,18 @@ export class SelectTool extends Tool {
     this.commitSelection();
     this.clearSelection();
 
-    // Create new selection at center of viewport (or offset from original)
-    const x = 50;
-    const y = 50;
+    // Paste at user's current cursor position (centered on cursor)
+    const app = this.board.app;
+    const x = app?.self?.x || 50;
+    const y = app?.self?.y || 50;
+
+    // Center the pasted content on cursor
+    const pasteX = x - this.clipboard.width / 2;
+    const pasteY = y - this.clipboard.height / 2;
 
     this.selection = {
-      x,
-      y,
+      x: pasteX,
+      y: pasteY,
       width: this.clipboard.width,
       height: this.clipboard.height
     };
@@ -1438,7 +1444,7 @@ export class SelectTool extends Tool {
     if (this.board.app?.wsClient) {
       // Convert floating canvas to data URL for transmission
       const dataUrl = this.floatingCanvas.toDataURL('image/png');
-      this.board.app.wsClient.broadcastImagePaste(x, y, this.clipboard.width, this.clipboard.height, dataUrl);
+      this.board.app.wsClient.broadcastImagePaste(pasteX, pasteY, this.clipboard.width, this.clipboard.height, dataUrl);
     }
 
     return true;
@@ -1633,10 +1639,11 @@ export class SelectTool extends Tool {
     const app = this.board.app;
     if (!app) return false;
 
-    // Get the image data
+    // Get the transformed image data
     let canvas;
     if (this.floatingCanvas) {
-      canvas = this.floatingCanvas;
+      // Use transformed canvas if homography was applied
+      canvas = this.getTransformedCanvas();
     } else {
       // Create a canvas with the selection content
       const s = this.selection;
@@ -1705,6 +1712,60 @@ export class SelectTool extends Tool {
       Math.abs(c.br.x - untransformed.br.x) > tolerance ||
       Math.abs(c.br.y - untransformed.br.y) > tolerance
     );
+  }
+
+  // Get transformed canvas (applies homography if corners are transformed)
+  getTransformedCanvas() {
+    if (!this.floatingCanvas) return null;
+
+    // If no transform, return original
+    if (!this.hasTransformedCorners()) {
+      return this.floatingCanvas;
+    }
+
+    try {
+      // Apply homography transform
+      const homography = new Homography('projective');
+      const c = this.corners;
+
+      // Source points (original canvas corners)
+      const srcPoints = [
+        [this.originalCorners.tl.x, this.originalCorners.tl.y],
+        [this.originalCorners.tr.x, this.originalCorners.tr.y],
+        [this.originalCorners.bl.x, this.originalCorners.bl.y],
+        [this.originalCorners.br.x, this.originalCorners.br.y]
+      ];
+
+      // Destination points (current transformed corners, relative to output)
+      const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+      const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+
+      const dstPoints = [
+        [c.tl.x - minX, c.tl.y - minY],
+        [c.tr.x - minX, c.tr.y - minY],
+        [c.bl.x - minX, c.bl.y - minY],
+        [c.br.x - minX, c.br.y - minY]
+      ];
+
+      homography.setSourcePoints(srcPoints, this.floatingCanvas);
+      homography.setDestinyPoints(dstPoints);
+
+      const result = homography.warp();
+      if (result) {
+        // Create canvas from ImageData
+        const canvas = document.createElement('canvas');
+        canvas.width = result.width;
+        canvas.height = result.height;
+        const ctx = canvas.getContext('2d');
+        ctx.putImageData(result, 0, 0);
+        return canvas;
+      }
+    } catch (e) {
+      console.warn('Failed to apply homography in getTransformedCanvas:', e);
+    }
+
+    // Fallback to original
+    return this.floatingCanvas;
   }
 
   // Cancel movement and restore selection to original position
