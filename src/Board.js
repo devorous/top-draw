@@ -10,6 +10,8 @@ export class Board {
     this.panY = 0;
     this.defaultPanX = 0;
     this.defaultPanY = 0;
+    this.rotation = 0;
+    this.defaultRotation = 0;
     this.mirror = false;
 
     this.container = null;
@@ -68,21 +70,26 @@ export class Board {
   }
 
   calculateDefaultView() {
-    const containerWidth = this.container.clientWidth * 0.95;
-    const containerHeight = this.container.clientHeight * 0.95 - 30;
+    const containerWidth = this.container.clientWidth;
+    const containerHeight = this.container.clientHeight - 50; // Account for toolbar
     const [height, width] = this.dimensions;
 
-    let zoom = Math.round((containerWidth / width) * 1000) / 1000;
-    let panX = (containerWidth * 0.05) / 2;
-    let panY = containerHeight / 2 - height * zoom / 2 + 30;
+    // Calculate zoom to fit board in container with padding
+    const padding = 20;
+    const availableWidth = containerWidth - padding * 2;
+    const availableHeight = containerHeight - padding * 2;
 
-    if (zoom > Math.round((containerHeight / height) * 1000) / 1000) {
-      zoom = Math.round((containerHeight / height) * 1000) / 1000;
-      panX = containerWidth / 2 - width * zoom / 2;
-      panY = (containerHeight * 0.05) / 2 + 30;
-    }
+    const zoomX = availableWidth / width;
+    const zoomY = availableHeight / height;
+    const zoom = Math.min(zoomX, zoomY, 1); // Don't zoom above 100%
 
-    this.defaultZoom = zoom;
+    // Center the board in the container
+    const scaledWidth = width * zoom;
+    const scaledHeight = height * zoom;
+    const panX = (containerWidth - scaledWidth) / 2;
+    const panY = (containerHeight - scaledHeight) / 2 + 50; // Offset for toolbar
+
+    this.defaultZoom = Math.round(zoom * 1000) / 1000;
     this.defaultPanX = panX;
     this.defaultPanY = panY;
   }
@@ -91,15 +98,36 @@ export class Board {
     this.zoom = this.defaultZoom;
     this.panX = this.defaultPanX;
     this.panY = this.defaultPanY;
+    this.rotation = this.defaultRotation;
 
-    this.boardsWrapper.style.transformOrigin = 'top left';
     this.applyTransform();
   }
 
   applyTransform() {
-    this.boardsWrapper.style.left = `${this.panX}px`;
-    this.boardsWrapper.style.top = `${this.panY}px`;
-    this.boardsWrapper.style.scale = this.zoom;
+    const [height, width] = this.dimensions;
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    // Apply scale and rotation via transform, position via left/top
+    // Transform origin is center for rotation, but we adjust pan to compensate
+    this.boardsWrapper.style.transformOrigin = `${centerX}px ${centerY}px`;
+    this.boardsWrapper.style.transform = `scale(${this.zoom}) rotate(${this.rotation}deg)`;
+
+    // Adjust pan to account for rotation around center
+    const adjustedPanX = this.panX + centerX * (1 - this.zoom);
+    const adjustedPanY = this.panY + centerY * (1 - this.zoom);
+    this.boardsWrapper.style.left = `${adjustedPanX}px`;
+    this.boardsWrapper.style.top = `${adjustedPanY}px`;
+  }
+
+  setRotation(angle) {
+    this.rotation = angle;
+    this.applyTransform();
+  }
+
+  resetRotation() {
+    this.rotation = this.defaultRotation;
+    this.applyTransform();
   }
 
   pan(dx, dy) {
@@ -114,8 +142,6 @@ export class Board {
 
     if (cursorPos) {
       // Zoom centered on cursor position
-      // Calculate the cursor position relative to the container
-      const containerRect = this.container.getBoundingClientRect();
       const cursorScreenX = cursorPos.x * oldZoom + this.panX;
       const cursorScreenY = cursorPos.y * oldZoom + this.panY;
 
@@ -127,9 +153,6 @@ export class Board {
       const [height, width] = this.dimensions;
       const centerX = width / 2;
       const centerY = height / 2;
-
-      const containerWidth = this.container.clientWidth;
-      const containerHeight = this.container.clientHeight;
 
       // Calculate where center currently is on screen
       const centerScreenX = centerX * oldZoom + this.panX;
