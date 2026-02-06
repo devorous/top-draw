@@ -115,6 +115,7 @@ export class DrawingApp {
     // Initialize handlers
     this.remoteUserHandler = new RemoteUserHandler(this);
     this.touchHandler = new TouchHandler(this);
+    this.touchHandler.init(this.ui.elements.boards);
 
     // Initialize debug overlay for dev mode
     this.debugOverlay = new DebugOverlay();
@@ -235,6 +236,7 @@ export class DrawingApp {
     elements.devBtn.addEventListener('click', () => this.handleToggleDevMode());
     elements.plusBtn.addEventListener('click', () => this.handleZoomIn());
     elements.minusBtn.addEventListener('click', () => this.handleZoomOut());
+    elements.rotationResetBtn.addEventListener('click', () => this.handleResetRotation());
     elements.saveBtn.addEventListener('click', () => this.board.saveAsImage());
 
     elements.chatBtn.addEventListener('click', () => this.chat.toggle());
@@ -298,10 +300,7 @@ export class DrawingApp {
       e.preventDefault();
     });
 
-    // Touch events for pinch-to-zoom
-    elements.boards.addEventListener('touchstart', (e) => this.touchHandler.handleTouchStart(e), { passive: false });
-    elements.boards.addEventListener('touchmove', (e) => this.touchHandler.handleTouchMove(e), { passive: false });
-    elements.boards.addEventListener('touchend', (e) => this.touchHandler.handleTouchEnd(e), { passive: false });
+    // Touch gestures are now handled by Hammer.js in TouchHandler.init()
 
     // Hidden input for touch keyboard (text tool)
     if (elements.touchInput) {
@@ -706,6 +705,10 @@ export class DrawingApp {
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
   }
 
+  handleResetRotation() {
+    this.board.resetRotation();
+  }
+
   // Brush/tool settings
 
   handleSizeChange(e) {
@@ -838,6 +841,11 @@ export class DrawingApp {
   // Pointer event handlers
 
   handlePointerMove(e) {
+    // Skip drawing during two-finger gestures
+    if (this.touchHandler.state.isPinching || this.touchHandler.state.gestureStartedWithTwoFingers) {
+      return;
+    }
+
     const x = e.offsetX;
     const y = e.offsetY;
 
@@ -881,6 +889,11 @@ export class DrawingApp {
   }
 
   handlePointerDown(e) {
+    // Skip drawing during two-finger gestures
+    if (this.touchHandler.state.isPinching || this.touchHandler.state.gestureStartedWithTwoFingers) {
+      return;
+    }
+
     // Middle-click enables panning mode
     if (e.button === 1) {
       e.preventDefault();
@@ -928,19 +941,27 @@ export class DrawingApp {
     if (!this.self.panning) {
       const tool = this.toolManager.getCurrentTool();
       if (tool) {
-        tool.onPointerDown(this.self, pos, e);
-
-        // Debug: Start tracking stroke points for local user
-        this.debugOverlay.startStrokeTracking(this.self.id, true);
-        this.debugOverlay.addStrokePoint(this.self.id, pos.x, pos.y, 'pointerDown');
-
-        // If text tool was used to commit text, update UI to clear the text display
-        if (this.self.tool === 'text') {
-          this.ui.updateSelfTextInput(this.self.text);
+        // For text tool with touch, don't commit immediately - wait for pointerUp
+        // to allow two-finger gestures to cancel the text placement
+        if (this.self.tool === 'text' && e.pointerType === 'touch') {
+          // Store pending text position but don't call onPointerDown yet
+          this.self._pendingTextPos = pos;
+          this.self._pendingTextPointerType = e.pointerType;
 
           // Focus hidden input for touch keyboard support
-          if (e.pointerType === 'touch' && this.ui.elements.touchInput) {
+          if (this.ui.elements.touchInput) {
             this.ui.elements.touchInput.focus();
+          }
+        } else {
+          tool.onPointerDown(this.self, pos, e);
+
+          // Debug: Start tracking stroke points for local user
+          this.debugOverlay.startStrokeTracking(this.self.id, true);
+          this.debugOverlay.addStrokePoint(this.self.id, pos.x, pos.y, 'pointerDown');
+
+          // If text tool was used to commit text, update UI to clear the text display
+          if (this.self.tool === 'text') {
+            this.ui.updateSelfTextInput(this.self.text);
           }
         }
       }
@@ -969,6 +990,16 @@ export class DrawingApp {
     // Only handle left-click release for drawing
     if (e.button !== 0) return;
 
+    // If a two-finger gesture occurred, cancel any pending text placement
+    if (this.touchHandler.state.gestureStartedWithTwoFingers) {
+      this.self._pendingTextPos = null;
+      this.self._pendingTextPointerType = null;
+      this.self.mousedown = false;
+      this.wsClient.broadcastMouseUp();
+      this.inputBuffer.dirty = false;
+      return;
+    }
+
     // Process any remaining buffered input before ending stroke
     if (this.inputBuffer.dirty) {
       this.tick();
@@ -976,7 +1007,17 @@ export class DrawingApp {
 
     if (!this.self.panning) {
       const tool = this.toolManager.getCurrentTool();
-      if (tool) {
+
+      // Handle text tool touch placement on lift
+      if (this.self.tool === 'text' && this.self._pendingTextPos && e.pointerType === 'touch') {
+        const textTool = this.toolManager.getTool('text');
+        if (textTool) {
+          textTool.onPointerDown(this.self, this.self._pendingTextPos, e);
+          this.ui.updateSelfTextInput(this.self.text);
+        }
+        this.self._pendingTextPos = null;
+        this.self._pendingTextPointerType = null;
+      } else if (tool) {
         tool.onPointerUp(this.self, { x: this.self.x, y: this.self.y }, e);
       }
 

@@ -18,6 +18,9 @@
 
     <!-- Styles -->
     <link rel="stylesheet" type="text/css" href="css/style.css">
+
+    <!-- Hammer.js for touch gestures -->
+    <script src="/src/utils/hammer.min.js"></script>
   </head>
   <body>
     <div id="main">
@@ -44,6 +47,7 @@
           <div class="zoomBtns">
             <a class="btn" id="minusBtn">-</a>
             <a class="btn" id="plusBtn">+</a>
+            <a class="btn" id="rotationResetBtn" title="Reset rotation">&#x21BA;</a>
           </div>
           <span class="zoomPercent">100%</span>
 
@@ -116,6 +120,9 @@
           <canvas id="board"></canvas>
           <canvas id="debugOverlay"></canvas>
         </div>
+
+        <!-- Hidden input for touch keyboard (text tool) -->
+        <input type="text" id="touchInput" style="position:absolute;opacity:0;pointer-events:none;left:-9999px;" inputmode="text" autocomplete="off">
 
         <!-- Hidden: Timeline (Not Implemented) -->
         <div id="bottomBar">

@@ -53,6 +53,7 @@ export class UI {
       mirrorBtn: document.getElementById('mirrorBtn'),
       plusBtn: document.getElementById('plusBtn'),
       minusBtn: document.getElementById('minusBtn'),
+      rotationResetBtn: document.getElementById('rotationResetBtn'),
       zoomPercent: document.querySelector('.zoomPercent'),
       mirrorText: document.querySelector('.mirrorOption'),
 
@@ -94,6 +95,8 @@ export class UI {
       imageBrushOpacityLock: document.getElementById('imageBrushOpacityLock'),
 
       colorPicker: document.getElementById('colorPicker'),
+
+      touchInput: document.getElementById('touchInput'),
 
       bottomBar: document.getElementById('bottomBar'),
       timeline: document.getElementById('timeline'),
