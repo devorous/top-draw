@@ -103,22 +103,18 @@ export class Board {
     this.applyTransform();
   }
 
-  applyTransform() {
-    const [height, width] = this.dimensions;
-    const centerX = width / 2;
-    const centerY = height / 2;
 
-    // Apply scale and rotation via transform, position via left/top
-    // Transform origin is center for rotation, but we adjust pan to compensate
-    this.boardsWrapper.style.transformOrigin = `${centerX}px ${centerY}px`;
-    this.boardsWrapper.style.transform = `scale(${this.zoom}) rotate(${this.rotation}deg)`;
-
-    // Adjust pan to account for rotation around center
-    const adjustedPanX = this.panX + centerX * (1 - this.zoom);
-    const adjustedPanY = this.panY + centerY * (1 - this.zoom);
-    this.boardsWrapper.style.left = `${adjustedPanX}px`;
-    this.boardsWrapper.style.top = `${adjustedPanY}px`;
-  }
+    applyTransform() {
+      // Set origin to top-left to simplify math
+      this.boardsWrapper.style.transformOrigin = '0 0';
+      
+      // Apply rotation and scale
+      // Note: We translate via left/top, but you could also do it in the transform string
+      this.boardsWrapper.style.transform = `scale(${this.zoom}) rotate(${this.rotation}deg)`;
+      this.boardsWrapper.style.left = `${this.panX}px`;
+      this.boardsWrapper.style.top = `${this.panY}px`;
+    }
+  
 
   setRotation(angle) {
     this.rotation = angle;
@@ -141,26 +137,25 @@ export class Board {
     this.zoom = Math.max(0.2, Math.min(3, zoom));
 
     if (cursorPos) {
-      // Zoom centered on cursor position
-      const cursorScreenX = cursorPos.x * oldZoom + this.panX;
-      const cursorScreenY = cursorPos.y * oldZoom + this.panY;
+      // 1. Where is the cursor on the screen?
+      // (Local canvas point * old zoom) + current offset
+      const screenX = cursorPos.x * oldZoom + this.panX;
+      const screenY = cursorPos.y * oldZoom + this.panY;
 
-      // Adjust pan so the cursor stays in the same screen position
-      this.panX = cursorScreenX - cursorPos.x * this.zoom;
-      this.panY = cursorScreenY - cursorPos.y * this.zoom;
+      // 2. Adjust pan so that: (cursorPos.x * newZoom) + newPan = screenX
+      this.panX = screenX - (cursorPos.x * this.zoom);
+      this.panY = screenY - (cursorPos.y * this.zoom);
     } else {
-      // Zoom centered on board center
+      // Center zoom logic (using board dimensions)
       const [height, width] = this.dimensions;
-      const centerX = width / 2;
-      const centerY = height / 2;
+      const midX = width / 2;
+      const midY = height / 2;
+      
+      const screenX = midX * oldZoom + this.panX;
+      const screenY = midY * oldZoom + this.panY;
 
-      // Calculate where center currently is on screen
-      const centerScreenX = centerX * oldZoom + this.panX;
-      const centerScreenY = centerY * oldZoom + this.panY;
-
-      // Adjust pan so center stays in same screen position
-      this.panX = centerScreenX - centerX * this.zoom;
-      this.panY = centerScreenY - centerY * this.zoom;
+      this.panX = screenX - (midX * this.zoom);
+      this.panY = screenY - (midY * this.zoom);
     }
 
     this.applyTransform();
