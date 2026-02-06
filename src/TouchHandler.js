@@ -210,72 +210,58 @@ export class TouchHandler {
       }
 
       case 'zoom': {
-        const scale = currentDistance / this.state.initialDistance;
-        const newZoom = Math.max(0.2, Math.min(3, this.state.initialZoom * scale));
+  const scale = currentDistance / this.state.initialDistance;
+  const newZoom = Math.max(0.2, Math.min(3, this.state.initialZoom * scale));
 
-        // Zoom centered on the FIXED pivot point (where fingers were when zoom started)
-        const pivotX = this.state.pivotCanvasX;
-        const pivotY = this.state.pivotCanvasY;
+  
+  const px = this.state.pivotCanvasX;
+  const py = this.state.pivotCanvasY;
+  
+  
+  const rad = (this.board.rotation * Math.PI) / 180;
 
-        // Calculate where pivot was on screen at the START of the gesture
-        const pivotScreenX = pivotX * this.state.initialZoom + this.state.initialPanX;
-        const pivotScreenY = pivotY * this.state.initialZoom + this.state.initialPanY;
+  
+  const rotatedX = px * Math.cos(rad) - py * Math.sin(rad);
+  const rotatedY = px * Math.sin(rad) + py * Math.cos(rad);
 
-        // Apply new zoom and adjust pan to keep pivot at that same screen position
-        this.board.zoom = newZoom;
-        this.board.panX = pivotScreenX - pivotX * newZoom;
-        this.board.panY = pivotScreenY - pivotY * newZoom;
+  
+  this.board.zoom = newZoom;
 
-        this.board.applyTransform();
-        this.ui.updateZoomDisplay(this.board.getZoomPercent());
-        break;
-      }
+  
+  
+  this.board.panX = this.state.initialCenter.x - (rotatedX * newZoom);
+  this.board.panY = this.state.initialCenter.y - (rotatedY * newZoom);
+
+  this.board.applyTransform();
+  this.ui.updateZoomDisplay(this.board.getZoomPercent());
+  break;
+}
 
       case 'rotate': {
-        let angleDelta = currentAngle - this.state.initialAngle;
-        // Handle angle wraparound
-        if (angleDelta > 180) angleDelta -= 360;
-        if (angleDelta < -180) angleDelta += 360;
+    let angleDelta = currentAngle - this.state.initialAngle;
+    // Handle angle wraparound (-180 to 180)
+    if (angleDelta > 180) angleDelta -= 360;
+    if (angleDelta < -180) angleDelta += 360;
 
-        const newRotation = this.state.initialRotation + angleDelta;
+    const newRotation = this.state.initialRotation + angleDelta;
+    const rad = (newRotation * Math.PI) / 180;
+    const zoom = this.board.zoom;
 
-        // Rotate around pivot point
-        const pivotX = this.state.pivotCanvasX;
-        const pivotY = this.state.pivotCanvasY;
-        const [height, width] = this.board.dimensions;
-        const boardCenterX = width / 2;
-        const boardCenterY = height / 2;
+    const px = this.state.pivotCanvasX;
+    const py = this.state.pivotCanvasY;
 
-        // Vector from board center to pivot
-        const dx = pivotX - boardCenterX;
-        const dy = pivotY - boardCenterY;
+    const rotatedCanvasX = px * Math.cos(rad) - py * Math.sin(rad);
+    const rotatedCanvasY = px * Math.sin(rad) + py * Math.cos(rad);
 
-        // Rotate this vector by the angle delta
-        const angleRad = (angleDelta * Math.PI) / 180;
-        const cos = Math.cos(angleRad);
-        const sin = Math.sin(angleRad);
+    this.board.rotation = newRotation;
 
-        const rotatedDx = dx * cos - dy * sin;
-        const rotatedDy = dx * sin + dy * cos;
+    this.board.panX = this.state.initialCenter.x - (rotatedCanvasX * zoom);
+    this.board.panY = this.state.initialCenter.y - (rotatedCanvasY * zoom);
 
-        // The pivot moves by the difference between rotated and original vector
-        const pivotMovedX = (rotatedDx - dx) * this.board.zoom;
-        const pivotMovedY = (rotatedDy - dy) * this.board.zoom;
 
-        // Adjust pan to compensate, keeping pivot in place
-        this.board.rotation = newRotation;
-        this.board.panX = this.state.initialPanX - pivotMovedX;
-        this.board.panY = this.state.initialPanY - pivotMovedY;
-
-        // Also follow the finger center movement
-        const centerDx = currentCenter.x - this.state.initialCenter.x;
-        const centerDy = currentCenter.y - this.state.initialCenter.y;
-        this.board.panX += centerDx;
-        this.board.panY += centerDy;
-
-        this.board.applyTransform();
-        break;
-      }
+    this.board.applyTransform();
+    break;
+}
     }
   }
 
