@@ -5,8 +5,8 @@
  */
 export class Moderation {
   constructor() {
-    // Hardcoded to 'admin' for testing; wire to auth later
-    this.localRole = 'admin';
+    // Numeric role: 0=guest, 1=user, 2=mod, 3=admin
+    this.localRole = 0;
 
     // Mod panel state
     this.modEntries = [];
@@ -25,12 +25,17 @@ export class Moderation {
     this.onBan = null;
   }
 
+  setRole(role) {
+    this.localRole = role;
+    this.updateModVisibility();
+  }
+
   isMod() {
-    return this.localRole === 'mod' || this.localRole === 'admin';
+    return this.localRole >= 2;
   }
 
   isAdmin() {
-    return this.localRole === 'admin';
+    return this.localRole >= 3;
   }
 
   /**

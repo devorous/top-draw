@@ -31,8 +31,6 @@ export class User {
     this.afk = options.afk || false;
     this.role = options.role || 0;  // 0=guest, 1=user, 2=mod, 3=admin
     this.isMuted = options.isMuted || false;
-    this.role = options.role || 0;       // 0 = guest, 1 = mod, 2 = admin
-    this.isMuted = options.isMuted || false;
   }
 
   setAfk(afk) {
@@ -58,32 +56,32 @@ export class User {
   }
 
   setSize(size) {
-    this.size = size;
+    this.size = Math.max(0.25, Math.min(100, size));
   }
 
   setPressure(pressure) {
     this.prevpressure = this.pressure;
-    this.pressure = pressure;
+    this.pressure = Math.max(0, Math.min(1, pressure));
   }
 
   setSpacing(spacing) {
-    this.spacing = spacing;
+    this.spacing = Math.max(0, Math.min(20, spacing));
   }
 
   setSmoothing(smoothing) {
-    this.smoothing = smoothing;
+    this.smoothing = Math.max(0, Math.min(1, smoothing));
   }
 
   setOpacity(opacity) {
-    this.opacity = opacity;
+    this.opacity = Math.max(0, Math.min(1, opacity));
   }
 
   setHardness(hardness) {
-    this.hardness = hardness;
+    this.hardness = Math.max(0, Math.min(1, hardness));
   }
 
   setUsername(username) {
-    this.username = username;
+    this.username = (username || '').slice(0, 20);
   }
 
   startLine(pos) {

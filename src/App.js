@@ -454,6 +454,9 @@ export class DrawingApp {
     this.wsClient.broadcastColorChange(this.self.color);
     this.wsClient.broadcastToolChange(this.self.tool);
 
+    // Update moderation UI visibility based on role
+    this.moderation.setRole(role);
+
     this.startTickLoop();
     this.syncClient.requestSync();
 
@@ -492,7 +495,7 @@ export class DrawingApp {
     }
 
     // Update moderation UI visibility based on role
-    this.moderation.updateModVisibility();
+    this.moderation.setRole(this.selfRole);
 
     // Start the tick loop (no-op if already running from a reconnect)
     this.startTickLoop();
