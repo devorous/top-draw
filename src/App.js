@@ -461,6 +461,7 @@ export class DrawingApp {
     this.syncClient.requestSync();
 
     const roleNames = ['Guest', 'User', 'Moderator', 'Admin'];
+    this.ui.showToast(`Logged in as ${username} (${roleNames[role] || 'Guest'})`, 3000);
     console.log(`[Auth] Logged in as ${username} (${roleNames[role] || 'Guest'})`);
   }
 
@@ -468,7 +469,7 @@ export class DrawingApp {
     // Show login form with error
     this.ui.showLogin();
     this.ui.elements.overlay.style.display = 'flex';
-    // Auth.js already shows the error in authError div
+    this.ui.showToast(error, 4000);
   }
 
   handleJoin() {
@@ -795,6 +796,14 @@ export class DrawingApp {
       this.wsClient.disconnect();
     }
     // handleWSDisconnect will update the UI via the onclose callback
+
+    // Clear stored auth so auto-login doesn't bypass the login form
+    if (this.auth) {
+      this.auth.clearToken();
+      this.auth.setRememberMe(false);
+    }
+    this.selfRole = 0;
+    this.moderation.setRole(0);
 
     // Return to login dialog
     this.ui.hideCursor();

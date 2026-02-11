@@ -175,6 +175,11 @@ body {
   width: 33%;
 }
 
+.authButtons .btn.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 /* Auth Checkbox */
 .authCheckbox {
   display: flex;

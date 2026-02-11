@@ -184,7 +184,6 @@ function sendTo(ws, payload) {
     // Use JSON for auth/mod messages (cleaner, no string encoding issues)
     const authMessageTypes = [T.AUTH_REGISTER, T.AUTH_LOGIN, T.AUTH_RESULT, T.MOD_ACTION, T.MOD_RESULT, T.MOD_NOTIFY, T.MOD_LIST];
     if (authMessageTypes.includes(payload.t)) {
-      console.log('[WS] Sending JSON message:', payload);
       ws.send(JSON.stringify(payload));
       return;
     }
@@ -323,7 +322,6 @@ wss.on('connection', (ws, req) => {
       if (rawData[0] === 0x7B || rawData[0] === 0x22) { // '{' or '"' - likely JSON
         const jsonString = rawData.toString('utf8');
         data = JSON.parse(jsonString);
-        console.log('[WS] Received JSON message:', data);
       } else {
         // Decode as protobuf
         data = Msg.decode(new Uint8Array(rawData));
