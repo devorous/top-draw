@@ -83,28 +83,39 @@ export class WebSocketClient {
   async connect(userData) {
     await this.loadProto();
 
-    let url;
+    this._userData = userData;
+    this._connectAttempts = 0;
+
+    this._buildUrl();
+    this._tryConnect();
+  }
+
+  _buildUrl() {
     if (this.serverUrl) {
-      url = this.serverUrl;
+      this._url = this.serverUrl;
     } else {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       if (import.meta.env.DEV) {
-        url = `${wsProtocol}://${window.location.host}/ws`;
+        this._url = `${wsProtocol}://${window.location.host}/ws`;
       } else {
-        url = import.meta.env.VITE_WS_SERVER_URL || `${wsProtocol}://${window.location.host}`;
+        this._url = import.meta.env.VITE_WS_SERVER_URL || `${wsProtocol}://${window.location.host}`;
       }
     }
+  }
 
-    console.log('Connecting to WebSocket:', url);
-    this.socket = new WebSocket(url);
+  _tryConnect() {
+    this._connectAttempts++;
+    console.log(`Connecting to WebSocket: ${this._url} (attempt ${this._connectAttempts})`);
+    this.socket = new WebSocket(this._url);
     this.socket.binaryType = 'arraybuffer';
 
     this.socket.onopen = () => {
       this.connected = true;
+      this._connectAttempts = 0;
       console.log('WebSocket connected, sending CONNECT');
 
       // Send connect with optional name
-      this.send({ t: T.CONNECT, n: userData.name || '' });
+      this.send({ t: T.CONNECT, n: this._userData.name || '' });
     };
 
     this.socket.onmessage = (event) => {
@@ -128,6 +139,15 @@ export class WebSocketClient {
     this.socket.onclose = (event) => {
       this.connected = false;
       console.log('WebSocket disconnected:', event.code, event.reason);
+
+      // Auto-retry if we never got a session (server wasn't ready yet)
+      if (this.sessionIndex === null && this._connectAttempts < 10) {
+        const delay = Math.min(1000 * this._connectAttempts, 5000);
+        console.log(`Server not ready, retrying in ${delay}ms...`);
+        setTimeout(() => this._tryConnect(), delay);
+        return;
+      }
+
       if (this.onDisconnect) {
         this.onDisconnect(event.code, event.reason);
       }
@@ -698,12 +718,10 @@ sendCanvasData(imageData, targetUser) {
   // Auth methods
 
   sendAuthRegister(username, password) {
-    console.log('[WS] Sending AUTH_REGISTER for username:', username);
     this.send({ t: T.AUTH_REGISTER, auth_username: username, auth_password: password });
   }
 
   sendAuthLogin(username, password) {
-    console.log('[WS] Sending AUTH_LOGIN for username:', username);
     this.send({ t: T.AUTH_LOGIN, auth_username: username, auth_password: password });
   }
 

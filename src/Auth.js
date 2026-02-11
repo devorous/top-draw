@@ -29,7 +29,6 @@ export class Auth {
       regConfirm: document.getElementById('regConfirm'),
       registerBtn: document.getElementById('registerBtn'),
       guestBtn: document.getElementById('guestBtn'),
-      authError: document.getElementById('authError'),
       rememberMe: document.getElementById('rememberMe')
     };
 
@@ -75,35 +74,41 @@ export class Auth {
   }
 
   handleLogin() {
+    if (this._loading) return;
+
     const username = this.els.loginUsername.value.trim();
     const password = this.els.loginPassword.value;
 
     if (!username || !password) {
-      this.showError('Please enter username and password');
+      if (this.onError) this.onError('Please enter username and password');
       return;
     }
 
+    this.setLoading(true);
     this.wsClient.sendAuthLogin(username, password);
   }
 
   handleRegister() {
+    if (this._loading) return;
+
     const username = this.els.regUsername.value.trim();
     const password = this.els.regPassword.value;
     const confirm = this.els.regConfirm.value;
 
     if (!username || !password) {
-      this.showError('Please fill in all fields');
+      if (this.onError) this.onError('Please fill in all fields');
       return;
     }
     if (password !== confirm) {
-      this.showError('Passwords do not match');
+      if (this.onError) this.onError('Passwords do not match');
       return;
     }
     if (password.length < 6) {
-      this.showError('Password must be at least 6 characters');
+      if (this.onError) this.onError('Password must be at least 6 characters');
       return;
     }
 
+    this.setLoading(true);
     this.wsClient.sendAuthRegister(username, password);
   }
 
@@ -122,6 +127,8 @@ export class Auth {
   }
 
   handleAuthResult(data) {
+    this.setLoading(false);
+
     if (data.success) {
       if (data.token) {
         this.storeToken(data.token);
@@ -145,21 +152,26 @@ export class Auth {
       if (this.onError) {
         this.onError(errorMessage);
       }
-      this.showError(errorMessage);
     }
   }
 
-  showError(message) {
-    if (this.els.authError) {
-      this.els.authError.textContent = message;
-      this.els.authError.style.display = 'block';
-    }
-  }
+  setLoading(loading) {
+    this._loading = loading;
+    const loginBtn = this.els.loginBtn;
+    const registerBtn = this.els.registerBtn;
 
-  clearError() {
-    if (this.els.authError) {
-      this.els.authError.textContent = '';
-      this.els.authError.style.display = 'none';
+    if (loading) {
+      if (loginBtn) { loginBtn.textContent = 'Logging in...'; loginBtn.classList.add('disabled'); }
+      if (registerBtn) { registerBtn.textContent = 'Registering...'; registerBtn.classList.add('disabled'); }
+      // Safety timeout — reset after 10s if server never responds
+      this._loadingTimeout = setTimeout(() => {
+        this.setLoading(false);
+        if (this.onError) this.onError('No response from server');
+      }, 10000);
+    } else {
+      if (this._loadingTimeout) { clearTimeout(this._loadingTimeout); this._loadingTimeout = null; }
+      if (loginBtn) { loginBtn.textContent = 'Login'; loginBtn.classList.remove('disabled'); }
+      if (registerBtn) { registerBtn.textContent = 'Register'; registerBtn.classList.remove('disabled'); }
     }
   }
 
