@@ -27,9 +27,40 @@
       <!-- Login Overlay -->
       <div id="overlay">
         <div id="login" class="overlayWindow" style="display: none;">
-          <label>Enter Your Name</label>
-          <input autocomplete="off" id="usernameInput" placeholder="Anonymous">
-          <a class="btn join" id="joinBtn">Join Session</a>
+          <!-- Auth Tabs -->
+          <div class="authTabs" id="authTabs">
+            <button class="authTab active" id="authTabLogin">Login</button>
+            <button class="authTab" id="authTabRegister">Register</button>
+          </div>
+
+          <!-- Login Form -->
+          <div id="loginForm">
+            <input autocomplete="off" class="authInput" id="loginUsername" placeholder="Username">
+            <input autocomplete="off" type="password" class="authInput" id="loginPassword" placeholder="Password (optional)">
+            <label class="authCheckbox">
+              <input type="checkbox" id="rememberMe">
+              <span>Remember me for 30 days</span>
+            </label>
+            <div class="authButtons">
+              <a class="btn" id="loginBtn">Login</a>
+              <a class="btn" id="joinBtn">Join</a>
+            </div>
+          </div>
+
+          <!-- Register Form -->
+          <div id="registerForm" style="display: none;">
+            <input autocomplete="off" class="authInput" id="regUsername" placeholder="Username">
+            <input autocomplete="off" type="password" class="authInput" id="regPassword" placeholder="Password">
+            <input autocomplete="off" type="password" class="authInput" id="regConfirm" placeholder="Confirm Password">
+            <div class="authButtons">
+              <a class="btn" id="registerBtn">Register</a>
+            </div>
+          </div>
+
+          <!-- Error Display -->
+          <div class="authError" id="authError" style="display: none;"></div>
+
+          <a class="btn offline" id="loginOfflineBtn">Draw Offline</a>
         </div>
         <div id="connecting" class="overlayWindow">
           <label>Connecting to server...</label>
@@ -58,8 +89,14 @@
           <span class="devOption">OFF</span>
 
           <div class="right">
+            <div id="connectionStatus" class="connectionStatus" style="display: none;">
+              <span class="connectionDot"></span>
+              <span class="connectionText"></span>
+              <a class="btn connectionReconnect" id="reconnectBtn" style="display: none;">Connect</a>
+            </div>
             <a class="btn" id="saveBtn">Save Image</a>
             <a class="btn" id="chatBtn">Chat</a>
+            <a class="btn" id="disconnectBtn">Exit</a>
           </div>
         </div>
 

@@ -10,6 +10,7 @@ import { TouchHandler } from './TouchHandler.js';
 import { setupWebSocketHandlers } from './WebSocketHandlers.js';
 import { DebugOverlay, RegionTracker, SyncClient } from './sync/index.js';
 import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
+import { Auth } from './Auth.js';
 
 
 export class DrawingApp {
@@ -42,7 +43,7 @@ export class DrawingApp {
     this.wsClient = new WebSocketClient({
       serverUrl: options.serverUrl,
       onConnect: (sessionIndex) => this.handleWSConnect(sessionIndex),
-      onDisconnect: () => this.handleWSDisconnect()
+      onDisconnect: (code, reason) => this.handleWSDisconnect(code, reason)
     });
 
     this.self = null;
@@ -55,6 +56,9 @@ export class DrawingApp {
     this.debugOverlay = null;
     this.regionTracker = null;
     this.syncClient = null;
+    this.auth = null;
+    this.moderation = null;
+    this.selfRole = 0; // 0=guest
 
     // Tick system for synchronized drawing (90 TPS = ~11ms)
     this.tickRate = 90;
@@ -133,6 +137,14 @@ export class DrawingApp {
       wsClient: this.wsClient,
       board: this.board
     });
+
+    // Initialize auth
+    this.auth = new Auth({
+      wsClient: this.wsClient,
+      onSuccess: (token, role, username) => this.handleAuthSuccess(token, role, username),
+      onError: (error) => this.handleAuthError(error)
+    });
+    this.auth.init();
 
     // Expose app globally for debugging
     window.app = this;
@@ -220,6 +232,9 @@ export class DrawingApp {
 
     elements.joinBtn.addEventListener('click', () => this.handleJoin());
     elements.offlineBtn.addEventListener('click', () => this.startOfflineMode());
+    elements.loginOfflineBtn.addEventListener('click', () => this.startOfflineMode());
+    elements.reconnectBtn.addEventListener('click', () => this.reconnect());
+    elements.disconnectBtn.addEventListener('click', () => this.disconnect());
     elements.selectBtn.addEventListener('click', () => this.selectTool('select'));
     elements.brushBtn.addEventListener('click', () => this.selectTool('brush'));
     elements.flowPenBtn.addEventListener('click', () => this.selectTool('flowPen'));
@@ -240,6 +255,7 @@ export class DrawingApp {
     elements.saveBtn.addEventListener('click', () => this.board.saveAsImage());
 
     elements.chatBtn.addEventListener('click', () => this.chat.toggle());
+    elements.selfListUser.addEventListener('click', () => this.handleRenameself());
 
     elements.sizeSlider.addEventListener('input', (e) => this.handleSizeChange(e));
     elements.spacingSlider.addEventListener('input', (e) => this.handleSpacingChange(e));
@@ -320,22 +336,77 @@ export class DrawingApp {
     this.sessionIndex = sessionIndex;
     this.self.id = sessionIndex;
     this.users.set(sessionIndex, this.self);
+
+    // Attempt auto-login with stored token
+    if (this.auth && this.auth.attemptAutoLogin()) {
+      // Wait for auth_result callback
+      return;
+    }
+
+    // No stored token — show login dialog
     this.ui.showLogin();
+    this.ui.elements.overlay.style.display = 'flex';
+    // Pre-fill with current username if reconnecting
+    if (this.self.username && this.self.username !== 'Offline') {
+      this.ui.elements.loginUsername.value = this.self.username;
+    }
   }
 
-  handleWSDisconnect() {
+  handleWSDisconnect(code, reason) {
     this.connected = false;
-    this.stopTickLoop();
+    // Don't stop the tick loop - drawing should continue locally
+    if (this.tickTimer) {
+      this.ui.showConnectionStatus('disconnected');
+    }
+
+    // Handle moderation close codes
+    if (code === 4001) {
+      this.ui.showToast('You have been banned' + (reason ? ': ' + reason : ''), 10000);
+    } else if (code === 4002) {
+      this.ui.showToast('You have been kicked' + (reason ? ': ' + reason : ''), 5000);
+    }
+  }
+
+  handleAuthSuccess(token, role, username) {
+    this.selfRole = role;
+    this.self.role = role;
+    this.self.setUsername(username);
+
+    this.connected = true;
+    this.ui.hideOverlay();
+    this.ui.showCursor();
+    this.ui.updateSelfName(username);
+    this.ui.showConnectionStatus('connected');
+
+    this.wsClient.broadcastNameChange(username);
+    this.wsClient.broadcastSmoothingChange(this.self.smoothing);
+    this.wsClient.broadcastSizeChange(this.self.size);
+    this.wsClient.broadcastColorChange(this.self.color);
+    this.wsClient.broadcastToolChange(this.self.tool);
+
+    this.startTickLoop();
+    this.syncClient.requestSync();
+
+    const roleNames = ['Guest', 'User', 'Moderator', 'Admin'];
+    console.log(`[Auth] Logged in as ${username} (${roleNames[role] || 'Guest'})`);
+  }
+
+  handleAuthError(error) {
+    // Show login form with error
+    this.ui.showLogin();
+    this.ui.elements.overlay.style.display = 'flex';
+    // Auth.js already shows the error in authError div
   }
 
   handleJoin() {
     this.connected = true;
-    const name = this.ui.elements.usernameInput.value || 'Anon';
+    const name = this.ui.elements.loginUsername.value || 'Anon';
     this.self.setUsername(name);
 
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(name);
+    this.ui.showConnectionStatus('connected');
 
     this.wsClient.broadcastNameChange(name);
 
@@ -343,12 +414,23 @@ export class DrawingApp {
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
+    this.wsClient.broadcastToolChange(this.self.tool);
 
-    // Start the tick loop
+    // Start the tick loop (no-op if already running from a reconnect)
     this.startTickLoop();
 
     // Request canvas sync from server
     this.syncClient.requestSync();
+  }
+
+  handleRenameself() {
+    if (!this.tickTimer) return; // Not in drawing mode yet
+    const name = prompt('Enter your name:', this.self.username);
+    if (name !== null && name.trim() !== '') {
+      this.self.setUsername(name.trim());
+      this.ui.updateSelfName(name.trim());
+      this.wsClient.broadcastNameChange(name.trim());
+    }
   }
 
   // Tick system methods
@@ -594,11 +676,12 @@ export class DrawingApp {
     this.connected = true;
     this.sessionIndex = 1;
     this.self.id = 1;
-    this.self.setUsername('Offline');
+    this.self.setUsername(this.ui.elements.loginUsername.value || 'Offline');
 
     this.ui.hideOverlay();
     this.ui.showCursor();
-    this.ui.updateSelfName('Offline');
+    this.ui.updateSelfName(this.self.username);
+    this.ui.hideConnectionStatus();
 
     // Start the tick loop (same behavior as online)
     this.startTickLoop();
@@ -607,6 +690,36 @@ export class DrawingApp {
     if (this.wsClient && this.wsClient.disconnect) {
       this.wsClient.disconnect();
     }
+  }
+
+  async reconnect() {
+    this.ui.showConnectionStatus('connecting');
+
+    // Clean up old socket before reconnecting
+    if (this.wsClient) {
+      this.wsClient.disconnect();
+    }
+
+    try {
+      await this.wsClient.connect(this.self.toJSON());
+      // handleWSConnect will show the login dialog on success
+    } catch (err) {
+      console.error('Reconnect failed:', err);
+      this.ui.showConnectionStatus('disconnected');
+    }
+  }
+
+  disconnect() {
+    if (this.wsClient) {
+      this.wsClient.disconnect();
+    }
+    // handleWSDisconnect will update the UI via the onclose callback
+
+    // Return to login dialog
+    this.ui.hideCursor();
+    this.ui.hideConnectionStatus();
+    this.ui.showLogin();
+    this.ui.elements.overlay.style.display = 'flex';
   }
 
   // Tool management
@@ -1165,8 +1278,8 @@ export class DrawingApp {
       const textTool = this.toolManager.getTool('text');
       const text = textTool.onKeyPress(this.self, e.key);
       this.ui.updateSelfTextInput(text);
-    } else if (this.connected) {
-      // Handle selection tool shortcuts
+    } else if (this.tickTimer) {
+      // Handle shortcuts only when in drawing mode (tick loop running)
       const selectTool = this.toolManager.getTool('select');
 
       if (e.ctrlKey || e.metaKey) {

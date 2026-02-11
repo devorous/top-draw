@@ -10,7 +10,9 @@ const T = {
   CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25, CANCEL: 26,
   HIDE_CURSOR: 27, SHOW_CURSOR: 28, CSM: 29,
   SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32, SEL_DELETE: 33, SEL_FILL: 34, SEL_STAMP: 35, SEL_CANCEL: 36, SEL_TO_BRUSH: 37, IMG_PASTE: 38, DM: 39,
-  CHAT_IMG: 40, SYNC_REQUEST: 41, SYNC_PROVIDE: 42, SYNC_CANVAS: 43, SYNC_COMPLETE: 44, CHD: 45
+  CHAT_IMG: 40, SYNC_REQUEST: 41, SYNC_PROVIDE: 42, SYNC_CANVAS: 43, SYNC_COMPLETE: 44, CHD: 45,
+  AUTH_REGISTER: 50, AUTH_LOGIN: 51, AUTH_RESULT: 52,
+  MOD_ACTION: 53, MOD_RESULT: 54, MOD_NOTIFY: 55, MOD_LIST: 56
 };
 
 // Tool enum matching proto
@@ -107,7 +109,16 @@ export class WebSocketClient {
 
     this.socket.onmessage = (event) => {
       try {
-        const data = this.Msg.decode(new Uint8Array(event.data));
+        let data;
+
+        // Check if message is JSON (auth/mod messages) or protobuf (drawing messages)
+        if (typeof event.data === 'string') {
+          data = JSON.parse(event.data);
+          console.log('[WS] Received JSON message:', data);
+        } else {
+          data = this.Msg.decode(new Uint8Array(event.data));
+        }
+
         this.handleMessage(data);
       } catch (err) {
         console.error('Failed to decode message:', err);
@@ -118,7 +129,7 @@ export class WebSocketClient {
       this.connected = false;
       console.log('WebSocket disconnected:', event.code, event.reason);
       if (this.onDisconnect) {
-        this.onDisconnect();
+        this.onDisconnect(event.code, event.reason);
       }
     };
 
@@ -163,7 +174,8 @@ export class WebSocketClient {
           hardness: (u.hd ?? 10000) / 10000,
           pressure: (u.p || 100) / 100,
           name: u.n || '',
-          text: u.tx || ''
+          text: u.tx || '',
+          role: u.role || 0
         }));
         this.emit('users', { users });
         break;
@@ -379,6 +391,56 @@ export class WebSocketClient {
       case T.SYNC_COMPLETE:
         this.emit('sync_complete', {});
         break;
+
+      case T.AUTH_RESULT:
+        console.log('[WS] AUTH_RESULT received:', {
+          success: data.a,
+          token: data.auth_token ? 'present' : 'missing',
+          role: data.auth_role,
+          username: data.auth_username,
+          error: data.auth_error
+        });
+        this.emit('auth_result', {
+          success: data.a,
+          token: data.auth_token || '',
+          role: data.auth_role || 0,
+          username: data.auth_username || '',
+          error: data.auth_error || ''
+        });
+        break;
+
+      case T.MOD_NOTIFY:
+        this.emit('mod_notify', {
+          actionType: data.mod_action_type,
+          targetName: data.mod_target_name || '',
+          issuerName: data.mod_issuer_name || '',
+          reason: data.mod_reason || '',
+          targetSessionIndex: data.mod_target
+        });
+        break;
+
+      case T.MOD_RESULT:
+        this.emit('mod_result', {
+          success: data.a,
+          error: data.auth_error || ''
+        });
+        break;
+
+      case T.MOD_LIST:
+        this.emit('mod_list', {
+          entries: (data.mod_entries || []).map(e => ({
+            id: e.id,
+            type: e.type,
+            username: e.username,
+            reason: e.reason,
+            ip: e.ip,
+            issuedBy: e.issuedBy,
+            createdAt: e.createdAt,
+            expiresAt: e.expiresAt,
+            active: e.active
+          }))
+        });
+        break;
     }
   }
 
@@ -395,6 +457,15 @@ export class WebSocketClient {
 
   send(data) {
     if (this.socket && this.socket.readyState === WebSocket.OPEN && this.Msg) {
+      // Use JSON for auth/mod messages (cleaner, no string encoding issues)
+      const authMessageTypes = [T.AUTH_REGISTER, T.AUTH_LOGIN, T.AUTH_RESULT, T.MOD_ACTION, T.MOD_RESULT, T.MOD_NOTIFY, T.MOD_LIST];
+      if (authMessageTypes.includes(data.t)) {
+        console.log('[WS] Sending JSON message:', data);
+        this.socket.send(JSON.stringify(data));
+        return;
+      }
+
+      // Use protobuf for all drawing messages
       const message = this.Msg.create(data);
       const buffer = this.Msg.encode(message).finish();
       this.socket.send(buffer);
@@ -623,6 +694,38 @@ sendCanvasData(imageData, targetUser) {
     tu: targetUser
   });
 }
+
+  // Auth methods
+
+  sendAuthRegister(username, password) {
+    console.log('[WS] Sending AUTH_REGISTER for username:', username);
+    this.send({ t: T.AUTH_REGISTER, auth_username: username, auth_password: password });
+  }
+
+  sendAuthLogin(username, password) {
+    console.log('[WS] Sending AUTH_LOGIN for username:', username);
+    this.send({ t: T.AUTH_LOGIN, auth_username: username, auth_password: password });
+  }
+
+  sendAuthTokenLogin(token) {
+    this.send({ t: T.AUTH_LOGIN, auth_token: token });
+  }
+
+  // Moderation methods
+
+  sendModAction(actionType, targetSessionIndex, reason, duration) {
+    this.send({
+      t: T.MOD_ACTION,
+      mod_action_type: actionType,
+      mod_target: targetSessionIndex,
+      mod_reason: reason || '',
+      mod_duration: duration || 0
+    });
+  }
+
+  requestModList() {
+    this.send({ t: T.MOD_LIST });
+  }
 
   disconnect() {
     if (this.socket) {

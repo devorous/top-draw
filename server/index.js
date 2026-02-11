@@ -3,6 +3,9 @@ import { createServer } from 'http';
 import protobuf from 'protobufjs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { connectDB, getDB } from './db.js';
+import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
+import { issueModAction, revokeModAction, getActiveModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,7 +24,9 @@ const T = {
   CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25, CANCEL: 26,
   HIDE_CURSOR: 27, SHOW_CURSOR: 28, CSM: 29,
   SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32, SEL_DELETE: 33, SEL_FILL: 34, SEL_STAMP: 35, SEL_CANCEL: 36, SEL_TO_BRUSH: 37, IMG_PASTE: 38, DM: 39,
-  CHAT_IMG: 40, SYNC_REQUEST: 41, SYNC_PROVIDE: 42, SYNC_CANVAS: 43, SYNC_COMPLETE: 44, CHD: 45
+  CHAT_IMG: 40, SYNC_REQUEST: 41, SYNC_PROVIDE: 42, SYNC_CANVAS: 43, SYNC_COMPLETE: 44, CHD: 45,
+  AUTH_REGISTER: 50, AUTH_LOGIN: 51, AUTH_RESULT: 52,
+  MOD_ACTION: 53, MOD_RESULT: 54, MOD_NOTIFY: 55, MOD_LIST: 56
 };
 
 // Tool enum matching proto
@@ -37,6 +42,23 @@ const ToolToEnum = {
   brush: 0, text: 1, erase: 2, imageBrush: 3, 
   select: 4, pen: 5, line: 6, rectangle: 7, circle: 8 
 };
+
+// Role constants
+const Role = { GUEST: 0, USER: 1, MOD: 2, ADMIN: 3 };
+
+// Extract client IP, handling X-Forwarded-For for proxies (Koyeb)
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.socket.remoteAddress || '';
+}
+
+// Username validation: 3-20 chars, alphanumeric + underscores
+function isValidUsername(username) {
+  return /^[a-zA-Z0-9_]{2,20}$/.test(username);
+}
 
 // Session management
 const sessions = new Map();  // odlUserId -> sessionIndex
@@ -85,6 +107,9 @@ function freeSessionIndex(index) {
 }
 
 async function init() {
+  // Connect to MongoDB (optional — runs without DB if MONGODB_URI not set)
+  await connectDB();
+
   const protoPath = path.join(__dirname, '..', 'public', 'messages.proto');
   const root = await protobuf.load(protoPath);
   Msg = root.lookupType('Msg');
@@ -96,12 +121,20 @@ async function init() {
 }
 
 function broadcast(payload, excludeIndex = null) {
-  const message = Msg.create(payload);
-  const buffer = Msg.encode(message).finish();
+  // Use JSON for auth/mod messages (cleaner, no string encoding issues)
+  const authMessageTypes = [T.AUTH_REGISTER, T.AUTH_LOGIN, T.AUTH_RESULT, T.MOD_ACTION, T.MOD_RESULT, T.MOD_NOTIFY, T.MOD_LIST];
+  let buffer;
 
-  // Debug logging for CHAT_IMG
-  if (payload.t === T.CHAT_IMG) {
-    console.log(`[broadcast] CHAT_IMG message size: ${buffer.length} bytes, excluding: ${excludeIndex}`);
+  if (authMessageTypes.includes(payload.t)) {
+    buffer = JSON.stringify(payload);
+  } else {
+    const message = Msg.create(payload);
+    buffer = Msg.encode(message).finish();
+
+    // Debug logging for CHAT_IMG
+    if (payload.t === T.CHAT_IMG) {
+      console.log(`[broadcast] CHAT_IMG message size: ${buffer.length} bytes, excluding: ${excludeIndex}`);
+    }
   }
 
   let sentCount = 0;
@@ -124,8 +157,16 @@ function broadcast(payload, excludeIndex = null) {
 }
 
 function broadcastToAll(payload) {
-  const message = Msg.create(payload);
-  const buffer = Msg.encode(message).finish();
+  // Use JSON for auth/mod messages (cleaner, no string encoding issues)
+  const authMessageTypes = [T.AUTH_REGISTER, T.AUTH_LOGIN, T.AUTH_RESULT, T.MOD_ACTION, T.MOD_RESULT, T.MOD_NOTIFY, T.MOD_LIST];
+  let buffer;
+
+  if (authMessageTypes.includes(payload.t)) {
+    buffer = JSON.stringify(payload);
+  } else {
+    const message = Msg.create(payload);
+    buffer = Msg.encode(message).finish();
+  }
 
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
@@ -136,6 +177,15 @@ function broadcastToAll(payload) {
 
 function sendTo(ws, payload) {
   if (ws.readyState === WebSocket.OPEN) {
+    // Use JSON for auth/mod messages (cleaner, no string encoding issues)
+    const authMessageTypes = [T.AUTH_REGISTER, T.AUTH_LOGIN, T.AUTH_RESULT, T.MOD_ACTION, T.MOD_RESULT, T.MOD_NOTIFY, T.MOD_LIST];
+    if (authMessageTypes.includes(payload.t)) {
+      console.log('[WS] Sending JSON message:', payload);
+      ws.send(JSON.stringify(payload));
+      return;
+    }
+
+    // Use protobuf for all drawing messages
     const message = Msg.create(payload);
     ws.send(Msg.encode(message).finish());
   }
@@ -239,14 +289,41 @@ function handleBroadcast(data, sessionIndex) {
       break;
   }
 
+  // Mute enforcement: block chat messages from muted users
+  if (data.t === T.MSG || data.t === T.DM || data.t === T.CHAT_IMG) {
+    // Find the WebSocket for this session
+    for (const client of wss.clients) {
+      if (client.sessionIndex === sessionIndex && client.isMuted) {
+        sendTo(client, { t: T.MOD_RESULT, a: false, auth_error: 'You are muted' });
+        return; // Don't relay
+      }
+    }
+  }
+
   // Relay to other clients
   broadcast({ ...data, u: sessionIndex }, sessionIndex);
 }
 
 wss.on('connection', (ws, req) => {
-  ws.on('message', (rawData) => {
+  ws.clientIp = getClientIp(req);
+  ws.userRole = Role.GUEST;
+  ws.userId = null;
+  ws.username = null;
+  ws.isMuted = false;
+
+  ws.on('message', async (rawData) => {
     try {
-      const data = Msg.decode(new Uint8Array(rawData));
+      let data;
+
+      // Check if message is JSON (auth/mod messages) or protobuf (drawing messages)
+      if (rawData[0] === 0x7B || rawData[0] === 0x22) { // '{' or '"' - likely JSON
+        const jsonString = rawData.toString('utf8');
+        data = JSON.parse(jsonString);
+        console.log('[WS] Received JSON message:', data);
+      } else {
+        // Decode as protobuf
+        data = Msg.decode(new Uint8Array(rawData));
+      }
 
       // Debug: Log message type for CHAT_IMG
       if (data.t === T.CHAT_IMG || data.t === 40) {
@@ -302,7 +379,8 @@ wss.on('connection', (ws, req) => {
               hd: u.hardness,
               p: u.pressure,
               n: u.name,
-              tx: u.text
+              tx: u.text,
+              role: u.role || Role.GUEST
             }))
           });
 
@@ -439,6 +517,381 @@ wss.on('connection', (ws, req) => {
             updateUserActivity(ws.sessionIndex);
           }
           break;
+
+        case T.MOD_ACTION: {
+          // Verify requester is mod or admin
+          if (ws.userRole < Role.MOD) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, auth_error: 'Insufficient permissions' });
+            break;
+          }
+
+          const modActionType = data.mod_action_type; // 0=kick,1=mute,2=ban,3=unmute,4=unban
+          const modTargetIndex = data.mod_target;
+          const modReason = data.mod_reason || '';
+          const modDuration = data.mod_duration || 0;
+
+          // Find target WebSocket
+          let targetWs = null;
+          for (const client of wss.clients) {
+            if (client.sessionIndex === modTargetIndex && client.readyState === WebSocket.OPEN) {
+              targetWs = client;
+              break;
+            }
+          }
+
+          const targetUser = users.get(modTargetIndex);
+          const targetName = targetWs?.username || targetUser?.name || `User ${modTargetIndex}`;
+
+          try {
+            switch (modActionType) {
+              case 0: // Kick
+                broadcastToAll({
+                  t: T.MOD_NOTIFY,
+                  mod_action_type: 0,
+                  mod_target: modTargetIndex,
+                  mod_target_name: targetName,
+                  mod_issuer_name: ws.username || `User ${ws.sessionIndex}`,
+                  mod_reason: modReason
+                });
+                if (targetWs) {
+                  targetWs.close(4002, 'Kicked');
+                }
+                console.log(`[Mod] ${ws.username} kicked ${targetName}`);
+                break;
+
+              case 1: // Mute
+                if (getDB()) {
+                  await issueModAction({
+                    type: 'mute',
+                    targetUserId: targetWs?.userId || null,
+                    targetUsername: targetName,
+                    targetIp: targetWs?.clientIp || null,
+                    reason: modReason,
+                    issuedBy: ws.userId || null,
+                    issuedByUsername: ws.username || '',
+                    duration: modDuration
+                  });
+                }
+                if (targetWs) {
+                  targetWs.isMuted = true;
+                }
+                broadcastToAll({
+                  t: T.MOD_NOTIFY,
+                  mod_action_type: 1,
+                  mod_target: modTargetIndex,
+                  mod_target_name: targetName,
+                  mod_issuer_name: ws.username || `User ${ws.sessionIndex}`,
+                  mod_reason: modReason
+                });
+                console.log(`[Mod] ${ws.username} muted ${targetName}`);
+                break;
+
+              case 2: // Ban
+                if (getDB()) {
+                  await issueModAction({
+                    type: 'ban',
+                    targetUserId: targetWs?.userId || null,
+                    targetUsername: targetName,
+                    targetIp: targetWs?.clientIp || null,
+                    reason: modReason,
+                    issuedBy: ws.userId || null,
+                    issuedByUsername: ws.username || '',
+                    duration: modDuration
+                  });
+                }
+                broadcastToAll({
+                  t: T.MOD_NOTIFY,
+                  mod_action_type: 2,
+                  mod_target: modTargetIndex,
+                  mod_target_name: targetName,
+                  mod_issuer_name: ws.username || `User ${ws.sessionIndex}`,
+                  mod_reason: modReason
+                });
+                if (targetWs) {
+                  targetWs.close(4001, 'Banned');
+                }
+                console.log(`[Mod] ${ws.username} banned ${targetName}`);
+                break;
+
+              case 3: // Unmute
+                if (getDB()) {
+                  // Find and revoke active mute for this user
+                  const db = getDB();
+                  const activeMute = await db.collection('moderation').findOne({
+                    type: 'mute',
+                    active: true,
+                    targetUsername: targetName
+                  });
+                  if (activeMute) {
+                    await revokeModAction(activeMute._id.toString(), ws.userId);
+                  }
+                }
+                if (targetWs) {
+                  targetWs.isMuted = false;
+                }
+                broadcastToAll({
+                  t: T.MOD_NOTIFY,
+                  mod_action_type: 3,
+                  mod_target: modTargetIndex,
+                  mod_target_name: targetName,
+                  mod_issuer_name: ws.username || `User ${ws.sessionIndex}`,
+                  mod_reason: modReason
+                });
+                console.log(`[Mod] ${ws.username} unmuted ${targetName}`);
+                break;
+
+              case 4: // Unban
+                if (getDB()) {
+                  const db = getDB();
+                  const activeBan = await db.collection('moderation').findOne({
+                    type: 'ban',
+                    active: true,
+                    targetUsername: targetName
+                  });
+                  if (activeBan) {
+                    await revokeModAction(activeBan._id.toString(), ws.userId);
+                  }
+                }
+                broadcastToAll({
+                  t: T.MOD_NOTIFY,
+                  mod_action_type: 4,
+                  mod_target: modTargetIndex,
+                  mod_target_name: targetName,
+                  mod_issuer_name: ws.username || `User ${ws.sessionIndex}`,
+                  mod_reason: modReason
+                });
+                console.log(`[Mod] ${ws.username} unbanned ${targetName}`);
+                break;
+            }
+
+            sendTo(ws, { t: T.MOD_RESULT, a: true });
+          } catch (err) {
+            console.error('[Mod] Action error:', err);
+            sendTo(ws, { t: T.MOD_RESULT, a: false, auth_error: 'Moderation action failed' });
+          }
+          break;
+        }
+
+        case T.MOD_LIST: {
+          // Verify requester is mod or admin
+          if (ws.userRole < Role.MOD) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, auth_error: 'Insufficient permissions' });
+            break;
+          }
+
+          try {
+            const entries = await getActiveModEntries();
+            sendTo(ws, {
+              t: T.MOD_LIST,
+              mod_entries: entries
+            });
+          } catch (err) {
+            console.error('[Mod] List error:', err);
+          }
+          break;
+        }
+
+        case T.AUTH_REGISTER: {
+          const db = getDB();
+          if (!db) {
+            const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Database not available' };
+            sendTo(ws, errorResponse);
+            break;
+          }
+
+          const regUsername = (data.auth_username || '').trim();
+          const regPassword = data.auth_password || '';
+
+          if (!isValidUsername(regUsername)) {
+            const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Username must be 2-20 characters (letters, numbers, underscores)' };
+            sendTo(ws, errorResponse);
+            break;
+          }
+          if (regPassword.length < 6) {
+            const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Password must be at least 6 characters' };
+            sendTo(ws, errorResponse);
+            break;
+          }
+
+          try {
+            const passwordHash = await hashPassword(regPassword);
+
+            // Check if this is the first user (auto-promote to admin)
+            const userCount = await db.collection('users').countDocuments();
+            const role = userCount === 0 ? Role.ADMIN : Role.USER;
+
+            const newUserDoc = {
+              username: regUsername,
+              passwordHash,
+              role,
+              createdAt: new Date(),
+              lastLoginAt: new Date(),
+              lastIp: ws.clientIp,
+              ipHistory: [ws.clientIp]
+            };
+
+            const result = await db.collection('users').insertOne(newUserDoc);
+
+            const token = generateToken({ userId: result.insertedId.toString(), username: regUsername, role });
+
+            ws.userId = result.insertedId.toString();
+            ws.userRole = role;
+            ws.username = regUsername;
+
+            // Update user record with role
+            const user = users.get(ws.sessionIndex);
+            if (user) {
+              user.role = role;
+              user.name = regUsername;
+            }
+
+            console.log(`[Auth] Registered: ${regUsername} (role: ${role}, first user: ${userCount === 0})`);
+
+            const successResponse = {
+              t: T.AUTH_RESULT,
+              a: true,
+              auth_token: token,
+              auth_role: role,
+              auth_username: regUsername
+            };
+            sendTo(ws, successResponse);
+          } catch (err) {
+            if (err.code === 11000) {
+              const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Username already taken' };
+                sendTo(ws, errorResponse);
+            } else {
+              console.error('[Auth] Registration error:', err);
+              const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Registration failed' };
+                sendTo(ws, errorResponse);
+            }
+          }
+          break;
+        }
+
+        case T.AUTH_LOGIN: {
+          const db = getDB();
+          if (!db) {
+            const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Database not available' };
+            sendTo(ws, errorResponse);
+            break;
+          }
+
+          try {
+            let userDoc = null;
+
+            if (data.auth_token) {
+              // Token-based login
+              const decoded = verifyToken(data.auth_token);
+              if (!decoded) {
+                const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Invalid or expired token' };
+                    sendTo(ws, errorResponse);
+                break;
+              }
+
+              const { ObjectId } = await import('mongodb');
+              userDoc = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
+              if (!userDoc) {
+                const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Account not found' };
+                    sendTo(ws, errorResponse);
+                break;
+              }
+            } else if (data.auth_username && data.auth_password) {
+              // Password-based login
+              userDoc = await db.collection('users').findOne(
+                { username: data.auth_username },
+                { collation: { locale: 'en', strength: 2 } }
+              );
+              if (!userDoc) {
+                const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Invalid username or password' };
+                sendTo(ws, errorResponse);
+                break;
+              }
+              const passwordValid = await verifyPassword(data.auth_password, userDoc.passwordHash);
+              if (!passwordValid) {
+                const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Invalid username or password' };
+                sendTo(ws, errorResponse);
+                break;
+              }
+            } else {
+              const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Missing credentials' };
+                sendTo(ws, errorResponse);
+              break;
+            }
+
+            // Check for active bans
+            const banCheck = await db.collection('moderation').findOne({
+              type: 'ban',
+              active: true,
+              $or: [
+                { targetUserId: userDoc._id.toString() },
+                { targetIp: ws.clientIp }
+              ]
+            });
+
+            if (banCheck) {
+              const expiry = banCheck.expiresAt ? ` until ${banCheck.expiresAt.toISOString()}` : ' permanently';
+              const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: `You are banned${expiry}. Reason: ${banCheck.reason || 'No reason given'}` };
+              sendTo(ws, errorResponse);
+              ws.close(4001, 'Banned');
+              break;
+            }
+
+            // Check for active mutes
+            const muteCheck = await db.collection('moderation').findOne({
+              type: 'mute',
+              active: true,
+              $or: [
+                { targetUserId: userDoc._id.toString() },
+                { targetIp: ws.clientIp }
+              ]
+            });
+            ws.isMuted = !!muteCheck;
+
+            // Update login info
+            const ipHistory = userDoc.ipHistory || [];
+            if (!ipHistory.includes(ws.clientIp)) {
+              ipHistory.push(ws.clientIp);
+            }
+
+            await db.collection('users').updateOne(
+              { _id: userDoc._id },
+              { $set: { lastLoginAt: new Date(), lastIp: ws.clientIp, ipHistory } }
+            );
+
+            const token = generateToken({
+              userId: userDoc._id.toString(),
+              username: userDoc.username,
+              role: userDoc.role
+            });
+
+            ws.userId = userDoc._id.toString();
+            ws.userRole = userDoc.role;
+            ws.username = userDoc.username;
+
+            // Update user record with role
+            const user = users.get(ws.sessionIndex);
+            if (user) {
+              user.role = userDoc.role;
+              user.name = userDoc.username;
+            }
+
+            console.log(`[Auth] Login: ${userDoc.username} (role: ${userDoc.role})`);
+
+            const successResponse = {
+              t: T.AUTH_RESULT,
+              a: true,
+              auth_token: token,
+              auth_role: userDoc.role,
+              auth_username: userDoc.username
+            };
+            sendTo(ws, successResponse);
+          } catch (err) {
+            console.error('[Auth] Login error:', err);
+            const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Login failed' };
+            sendTo(ws, errorResponse);
+          }
+          break;
+        }
 
         default:
           // All other messages are broadcasts
