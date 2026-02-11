@@ -318,13 +318,21 @@ wss.on('connection', (ws, req) => {
     try {
       let data;
 
-      // Check if message is JSON (auth/mod messages) or protobuf (drawing messages)
-      if (rawData[0] === 0x7B || rawData[0] === 0x22) { // '{' or '"' - likely JSON
+      // Determine message format from first byte:
+      //   0x7B '{' or 0x22 '"' → JSON (auth/mod messages)
+      //   0x08                  → Protobuf (field 1 varint tag, all valid Msg start here)
+      //   anything else         → invalid, drop silently
+      const firstByte = rawData[0];
+
+      if (firstByte === 0x7B || firstByte === 0x22) {
         const jsonString = rawData.toString('utf8');
         data = JSON.parse(jsonString);
-      } else {
-        // Decode as protobuf
+      } else if (firstByte === 0x08) {
         data = Msg.decode(new Uint8Array(rawData));
+      } else {
+        // Not JSON, not valid protobuf for our schema — skip
+        console.warn(`[WS] Dropping unknown message: first byte 0x${firstByte.toString(16)}, length ${rawData.length}, from session ${ws.sessionIndex ?? 'unassigned'}`);
+        return;
       }
 
       // Debug: Log message type for CHAT_IMG
@@ -903,7 +911,10 @@ wss.on('connection', (ws, req) => {
           break;
       }
     } catch (err) {
-      console.error('Error decoding message:', err);
+      // Log first 32 bytes as hex for diagnosis
+      const preview = Buffer.from(rawData).subarray(0, 32);
+      console.error(`[WS] Decode error (${rawData.length} bytes, session ${ws.sessionIndex ?? 'unassigned'}): ${err.message}`);
+      console.error(`[WS] Hex: ${preview.toString('hex')} | ASCII: ${preview.toString('ascii').replace(/[^\x20-\x7e]/g, '.')}`);
     }
   });
 
