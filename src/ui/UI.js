@@ -20,7 +20,8 @@ export class UI {
       connecting: document.getElementById('connecting'),
       joinBtn: document.getElementById('joinBtn'),
       offlineBtn: document.getElementById('offlineBtn'),
-      usernameInput: document.getElementById('usernameInput'),
+      loginOfflineBtn: document.getElementById('loginOfflineBtn'),
+      loginUsername: document.getElementById('loginUsername'),
 
       boardContainer: document.getElementById('boardContainer'),
       boards: document.getElementById('boards'),
@@ -108,7 +109,13 @@ export class UI {
       selfListUser: document.querySelector('.listUser.self'),
       selfListActive: document.querySelector('.listActive.self'),
 
-      toast: document.getElementById('toast')
+      toast: document.getElementById('toast'),
+
+      connectionStatus: document.getElementById('connectionStatus'),
+      connectionDot: document.querySelector('.connectionDot'),
+      connectionText: document.querySelector('.connectionText'),
+      reconnectBtn: document.getElementById('reconnectBtn'),
+      disconnectBtn: document.getElementById('disconnectBtn')
     };
   }
 
@@ -659,5 +666,28 @@ export class UI {
     this._toastTimeout = setTimeout(() => {
       toast.classList.remove('show');
     }, duration);
+  }
+
+  showConnectionStatus(state) {
+    const { connectionStatus, connectionText, reconnectBtn } = this.elements;
+    if (!connectionStatus) return;
+
+    connectionStatus.style.display = 'flex';
+    connectionStatus.className = `connectionStatus ${state}`;
+
+    const labels = {
+      connected: 'Connected',
+      disconnected: 'Disconnected',
+      connecting: 'Connecting...'
+    };
+    connectionText.textContent = labels[state] || state;
+    reconnectBtn.style.display = state === 'disconnected' ? 'inline-flex' : 'none';
+  }
+
+  hideConnectionStatus() {
+    const { connectionStatus } = this.elements;
+    if (connectionStatus) {
+      connectionStatus.style.display = 'none';
+    }
   }
 }

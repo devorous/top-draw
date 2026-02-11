@@ -18,7 +18,8 @@ export function setupWebSocketHandlers(app) {
             ...userData,
             username: userData.name || userData.username || '',
             afk: userData.afk || false,
-            opacity: userData.color ? userData.color[3] : 1 // Derive opacity from color alpha
+            opacity: userData.color ? userData.color[3] : 1, // Derive opacity from color alpha
+            role: userData.role || 0
           };
 
           // Create new remote user
@@ -339,6 +340,45 @@ export function setupWebSocketHandlers(app) {
     const user = users.get(data.sessionIndex);
     if (user) {
       remoteUserHandler.handleImagePaste(user, data);
+    }
+  });
+
+  // Auth result
+  wsClient.on('auth_result', (data) => {
+    if (app.auth) {
+      app.auth.handleAuthResult(data);
+    }
+  });
+
+  // Moderation notify
+  wsClient.on('mod_notify', (data) => {
+    const actionNames = ['kicked', 'muted', 'banned', 'unmuted', 'unbanned'];
+    const actionName = actionNames[data.actionType] || 'moderated';
+    const message = `${data.targetName} was ${actionName} by ${data.issuerName}`;
+    if (data.reason) {
+      chat.addSystemMessage(`${message} — ${data.reason}`);
+    } else {
+      chat.addSystemMessage(message);
+    }
+    ui.showToast(message, 3000);
+
+    // If we are the target of a kick, show a message
+    if (data.targetSessionIndex === app.sessionIndex && (data.actionType === 0 || data.actionType === 2)) {
+      ui.showToast(`You have been ${actionName}${data.reason ? ': ' + data.reason : ''}`, 5000);
+    }
+  });
+
+  // Moderation result (error feedback)
+  wsClient.on('mod_result', (data) => {
+    if (!data.success && data.error) {
+      ui.showToast(data.error, 3000);
+    }
+  });
+
+  // Moderation list (for mod panel)
+  wsClient.on('mod_list', (data) => {
+    if (app.moderation) {
+      app.moderation.updateModEntries(data.entries);
     }
   });
 

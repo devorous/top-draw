@@ -29,6 +29,8 @@ export class User {
     this.currentLine = [];
     this.lineLength = 0;
     this.afk = options.afk || false;
+    this.role = options.role || 0;  // 0=guest, 1=user, 2=mod, 3=admin
+    this.isMuted = options.isMuted || false;
   }
 
   setAfk(afk) {
