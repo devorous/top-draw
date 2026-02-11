@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import protobuf from 'protobufjs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { connectDB } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,7 +22,9 @@ const T = {
   CSP: 17, CN: 18, KP: 19, CLR: 20, MIR: 21, MSG: 22, GMP: 23, AFK: 24, PAN: 25, CANCEL: 26,
   HIDE_CURSOR: 27, SHOW_CURSOR: 28, CSM: 29,
   SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32, SEL_DELETE: 33, SEL_FILL: 34, SEL_STAMP: 35, SEL_CANCEL: 36, SEL_TO_BRUSH: 37, IMG_PASTE: 38, DM: 39,
-  CHAT_IMG: 40, SYNC_REQUEST: 41, SYNC_PROVIDE: 42, SYNC_CANVAS: 43, SYNC_COMPLETE: 44, CHD: 45
+  CHAT_IMG: 40, SYNC_REQUEST: 41, SYNC_PROVIDE: 42, SYNC_CANVAS: 43, SYNC_COMPLETE: 44, CHD: 45,
+  AUTH_REGISTER: 50, AUTH_LOGIN: 51, AUTH_RESULT: 52,
+  MOD_ACTION: 53, MOD_RESULT: 54, MOD_NOTIFY: 55, MOD_LIST: 56
 };
 
 // Tool enum matching proto
@@ -85,6 +88,13 @@ function freeSessionIndex(index) {
 }
 
 async function init() {
+  // Connect to MongoDB (non-fatal if not configured)
+  try {
+    await connectDB();
+  } catch (err) {
+    console.warn('[Server] Starting without database — auth/moderation disabled');
+  }
+
   const protoPath = path.join(__dirname, '..', 'public', 'messages.proto');
   const root = await protobuf.load(protoPath);
   Msg = root.lookupType('Msg');

@@ -60,6 +60,7 @@
           <div class="right">
             <a class="btn" id="saveBtn">Save Image</a>
             <a class="btn" id="chatBtn">Chat</a>
+            <a class="btn modOnly" id="modBtn">Mod</a>
           </div>
         </div>
 
@@ -74,6 +75,16 @@
           <button class="menuItem" id="selMenuBrush" title="Use as image brush">Brush</button>
           <button class="menuItem" id="selMenuStamp" title="Stamp to canvas">Stamp</button>
           <button class="menuItem" id="selMenuCancel" title="Cancel and restore">Cancel</button>
+        </div>
+
+        <!-- User Context Menu (right-click on user list) -->
+        <div id="userContextMenu" class="contextMenu" style="display: none;">
+          <button class="menuItem" data-action="sync">Sync Canvas</button>
+          <button class="menuItem" data-action="pm">Private Message</button>
+          <div class="menuDivider modOnly"></div>
+          <button class="menuItem danger modOnly" data-action="mute">Mute</button>
+          <button class="menuItem danger modOnly" data-action="kick">Kick</button>
+          <button class="menuItem danger modOnly" data-action="ban">Ban</button>
         </div>
 
         <!-- Canvas Area -->
@@ -136,6 +147,20 @@
 
       <!-- Side Panel -->
       <div id="sideMenu">
+        <!-- Moderation Panel (Floating) -->
+        <div id="modPanel" style="display: none;">
+          <div id="modPanelHeader">
+            <div class="modTabs">
+              <button class="modTab active" data-tab="bans">Bans</button>
+              <button class="modTab" data-tab="mutes">Mutes</button>
+            </div>
+            <button class="chatCloseBtn" id="modPanelCloseBtn">&times;</button>
+          </div>
+          <div id="modEntryList" class="modEntryList">
+            <div class="modNoEntries">No entries</div>
+          </div>
+        </div>
+
         <!-- Chat Window (Floating) -->
         <div id="chat">
           <div id="chatHeader">

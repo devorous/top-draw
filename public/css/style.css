@@ -1547,3 +1547,219 @@ canvas {
 .lock-btn:active {
   transform: scale(0.95);
 }
+
+/* ========================================
+   User Context Menu
+   ======================================== */
+
+.contextMenu {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--surface-glass);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  min-width: 150px;
+}
+
+.contextMenu .menuItem {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.contextMenu .menuItem:hover {
+  background: var(--bg-elevated);
+  color: var(--accent-primary);
+}
+
+.contextMenu .menuItem.danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.menuDivider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 4px 0;
+}
+
+/* ========================================
+   Role Badges
+   ======================================== */
+
+.roleBadge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.roleBadge.mod {
+  background: rgba(0, 212, 170, 0.2);
+  color: var(--accent-primary);
+}
+
+.roleBadge.admin {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+}
+
+/* ========================================
+   Moderation Panel
+   ======================================== */
+
+#modPanel {
+  display: none;
+  flex-direction: column;
+  position: absolute;
+  right: 220px;
+  top: 60px;
+  width: 320px;
+  height: 400px;
+  background: var(--surface-glass);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  z-index: 50;
+}
+
+#modPanelHeader {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modTabs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.modTab {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.modTab:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.modTab.active {
+  color: var(--accent-primary);
+  background: var(--bg-tertiary);
+  border-color: var(--accent-primary);
+}
+
+.modEntryList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.modEntry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.modEntry .modEntryUser {
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.modEntry .modEntryReason {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.modEntry .modEntryTime {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.modEntry .modEntryAction {
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.modEntry .modEntryAction:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.modNoEntries {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* Mod-only visibility */
+.modOnly {
+  display: none;
+}
+
+.modOnly.visible {
+  display: block;
+}
+
+/* Fix for flex items that use modOnly */
+.menuDivider.modOnly.visible {
+  display: block;
+}
+
+button.modOnly.visible,
+a.modOnly.visible {
+  display: inline-flex;
+}
+
+@media (max-width: 768px) {
+  #modPanel {
+    width: 240px;
+    right: 180px;
+  }
+}
