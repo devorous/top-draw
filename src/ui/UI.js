@@ -367,7 +367,7 @@ export class UI {
     // Note: circle, square, crosshair, text visibility is managed by updateRemoteToolDisplay()
     // This will be called after showing to restore the correct cursor shape
   }
-
+  
   createRemoteUser(userId, userData) {
     const id = `u${userId}`;
     const cursor = document.createElement('div');
@@ -686,7 +686,7 @@ export class UI {
       toast.classList.remove('show');
     }, duration);
   }
-
+  
   showConnectionStatus(state) {
     const { connectionStatus, connectionText, reconnectBtn } = this.elements;
     if (!connectionStatus) return;
@@ -707,6 +707,25 @@ export class UI {
     const { connectionStatus } = this.elements;
     if (connectionStatus) {
       connectionStatus.style.display = 'none';
+    }
+  }
+  
+  updateUserRoleBadge(userId, role) {
+    const id = `u${userId}`;
+    const badge = document.querySelector(`.roleBadge.${id}`);
+    if (!badge) return;
+
+    badge.classList.remove('mod', 'admin');
+    if (role === 2) {
+      badge.textContent = 'admin';
+      badge.classList.add('admin');
+      badge.style.display = '';
+    } else if (role === 1) {
+      badge.textContent = 'mod';
+      badge.classList.add('mod');
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
     }
   }
 }
