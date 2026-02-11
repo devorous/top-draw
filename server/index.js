@@ -107,8 +107,12 @@ function freeSessionIndex(index) {
 }
 
 async function init() {
-  // Connect to MongoDB (optional — runs without DB if MONGODB_URI not set)
-  await connectDB();
+  // Connect to MongoDB (non-fatal if not configured)
+  try {
+    await connectDB();
+  } catch (err) {
+    console.warn('[Server] Starting without database — auth/moderation disabled');
+  }
 
   const protoPath = path.join(__dirname, '..', 'public', 'messages.proto');
   const root = await protobuf.load(protoPath);

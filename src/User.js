@@ -31,6 +31,8 @@ export class User {
     this.afk = options.afk || false;
     this.role = options.role || 0;  // 0=guest, 1=user, 2=mod, 3=admin
     this.isMuted = options.isMuted || false;
+    this.role = options.role || 0;       // 0 = guest, 1 = mod, 2 = admin
+    this.isMuted = options.isMuted || false;
   }
 
   setAfk(afk) {
