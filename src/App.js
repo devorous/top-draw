@@ -11,7 +11,7 @@ import { setupWebSocketHandlers } from './WebSocketHandlers.js';
 import { DebugOverlay, RegionTracker, SyncClient } from './sync/index.js';
 import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
 import { Auth } from './Auth.js';
-
+import { Moderation } from './Moderation.js';
 
 export class DrawingApp {
   constructor(options = {}) {
@@ -59,6 +59,7 @@ export class DrawingApp {
     this.auth = null;
     this.moderation = null;
     this.selfRole = 0; // 0=guest
+    this.moderation = new Moderation();
 
     // Tick system for synchronized drawing (90 TPS = ~11ms)
     this.tickRate = 90;
@@ -145,6 +146,32 @@ export class DrawingApp {
       onError: (error) => this.handleAuthError(error)
     });
     this.auth.init();
+
+    // Wire moderation callbacks
+    this.moderation.onSync = (sessionIndex) => {
+      this.syncClient.requestSync();
+      this.ui.showToast('Sync requested');
+    };
+    this.moderation.onPM = (sessionIndex, user) => {
+      if (user) {
+        this.chat.selectDMRecipient({
+          id: sessionIndex,
+          username: user.username,
+          color: `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3]})`,
+          isSelf: sessionIndex === this.sessionIndex
+        });
+        this.chat.show();
+      }
+    };
+    this.moderation.onMute = (sessionIndex, user) => {
+      this.ui.showToast(`Mute ${user?.username || sessionIndex} (not yet implemented)`);
+    };
+    this.moderation.onKick = (sessionIndex, user) => {
+      this.ui.showToast(`Kick ${user?.username || sessionIndex} (not yet implemented)`);
+    };
+    this.moderation.onBan = (sessionIndex, user) => {
+      this.ui.showToast(`Ban ${user?.username || sessionIndex} (not yet implemented)`);
+    };
 
     // Expose app globally for debugging
     window.app = this;
@@ -256,6 +283,49 @@ export class DrawingApp {
 
     elements.chatBtn.addEventListener('click', () => this.chat.toggle());
     elements.selfListUser.addEventListener('click', () => this.handleRenameself());
+
+    // Mod panel toggle
+    if (elements.modBtn) {
+      elements.modBtn.addEventListener('click', () => this.moderation.togglePanel());
+    }
+
+    // Mod panel close button
+    const modPanelCloseBtn = document.getElementById('modPanelCloseBtn');
+    if (modPanelCloseBtn) {
+      modPanelCloseBtn.addEventListener('click', () => this.moderation.hidePanel());
+    }
+
+    // Mod panel tab clicks
+    document.querySelectorAll('.modTab').forEach(tab => {
+      tab.addEventListener('click', () => this.moderation.setActiveTab(tab.dataset.tab));
+    });
+
+    // Context menu button clicks
+    if (elements.userContextMenu) {
+      elements.userContextMenu.addEventListener('click', (e) => {
+        const btn = e.target.closest('.menuItem');
+        if (btn) {
+          this.moderation.handleMenuAction(btn.dataset.action);
+        }
+      });
+    }
+
+    // Right-click on user list entries for context menu
+    elements.userList.addEventListener('contextmenu', (e) => {
+      const entry = e.target.closest('.userEntry');
+      if (entry && entry.dataset.sessionIndex) {
+        const sessionIndex = Number(entry.dataset.sessionIndex);
+        const user = this.users.get(sessionIndex);
+        this.moderation.showContextMenu(e, sessionIndex, user);
+      }
+    });
+
+    // Click-outside to close context menu
+    document.addEventListener('click', (e) => {
+      if (elements.userContextMenu && !elements.userContextMenu.contains(e.target)) {
+        this.moderation.hideContextMenu();
+      }
+    });
 
     elements.sizeSlider.addEventListener('input', (e) => this.handleSizeChange(e));
     elements.spacingSlider.addEventListener('input', (e) => this.handleSpacingChange(e));
@@ -415,6 +485,14 @@ export class DrawingApp {
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
     this.wsClient.broadcastToolChange(this.self.tool);
+
+    // Set sessionIndex on self user entry for context menu
+    if (this.ui.elements.selfUserEntry) {
+      this.ui.elements.selfUserEntry.dataset.sessionIndex = this.sessionIndex;
+    }
+
+    // Update moderation UI visibility based on role
+    this.moderation.updateModVisibility();
 
     // Start the tick loop (no-op if already running from a reconnect)
     this.startTickLoop();
@@ -1263,6 +1341,12 @@ export class DrawingApp {
   // Keyboard handlers
 
   handleKeyDown(e) {
+    // Close context menu on Escape
+    if (e.key === 'Escape' && this.ui.elements.userContextMenu?.style.display !== 'none') {
+      this.moderation.hideContextMenu();
+      return;
+    }
+
     if (e.key === '/' || e.key === "'") {
       e.preventDefault();
     }

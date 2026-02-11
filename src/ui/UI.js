@@ -115,7 +115,10 @@ export class UI {
       connectionDot: document.querySelector('.connectionDot'),
       connectionText: document.querySelector('.connectionText'),
       reconnectBtn: document.getElementById('reconnectBtn'),
-      disconnectBtn: document.getElementById('disconnectBtn')
+      disconnectBtn: document.getElementById('disconnectBtn'),
+      userContextMenu: document.getElementById('userContextMenu'),
+      modPanel: document.getElementById('modPanel'),
+      modBtn: document.getElementById('modBtn')
     };
   }
 
@@ -474,6 +477,7 @@ export class UI {
     const id = `u${userId}`;
     const entry = document.createElement('div');
     entry.className = `userEntry ${id}`;
+    entry.dataset.sessionIndex = userId;
 
     const toolEntry = document.createElement('a');
     toolEntry.className = `listTool ${id}`;
@@ -488,12 +492,27 @@ export class UI {
     userEntry.className = `listUser ${id}`;
     userEntry.textContent = userData.username || userId;
 
+    // Role badge (hidden by default, shown when role > 0)
+    const roleBadge = document.createElement('span');
+    roleBadge.className = `roleBadge ${id}`;
+    roleBadge.style.display = 'none';
+    if (userData.role === 2) {
+      roleBadge.textContent = 'admin';
+      roleBadge.classList.add('admin');
+      roleBadge.style.display = '';
+    } else if (userData.role === 1) {
+      roleBadge.textContent = 'mod';
+      roleBadge.classList.add('mod');
+      roleBadge.style.display = '';
+    }
+
     const activeEntry = document.createElement('span');
     activeEntry.className = `listActive ${id}`;
 
     entry.appendChild(toolEntry);
     entry.appendChild(colorEntry);
     entry.appendChild(userEntry);
+    entry.appendChild(roleBadge);
     entry.appendChild(activeEntry);
 
     this.elements.userList.appendChild(entry);

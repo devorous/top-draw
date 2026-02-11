@@ -132,33 +132,33 @@ message Msg {
   // === Chat Image Field ===
   bytes cimg = 27;           // Chat image data (raw image bytes)
 
-  // === Auth Fields ===
-  string auth_username    = 29;
-  string auth_password    = 30;
-  string auth_token       = 31;
-  string auth_error       = 32;
-  uint32 auth_role        = 33;   // 0=guest,1=user,2=mod,3=admin
+  // === Auth Fields (29-33) ===
+  string auth_username  = 29;  // Username for register/login
+  string auth_password  = 30;  // Password for register/login
+  string auth_token     = 31;  // JWT token (login with token, or returned in AUTH_RESULT)
+  string auth_error     = 32;  // Error message in AUTH_RESULT
+  uint32 auth_role      = 33;  // Role in AUTH_RESULT: 0=guest, 1=user, 2=mod, 3=admin
 
-  // === Moderation Fields ===
-  uint32 mod_action_type  = 34;   // 0=kick,1=mute,2=ban,3=unmute,4=unban
-  uint32 mod_target       = 35;   // target session index
-  string mod_reason       = 36;
-  uint32 mod_duration     = 37;   // minutes, 0=permanent
-  string mod_ip           = 38;   // obfuscated IP for mod panel
-  string mod_target_name  = 39;
-  string mod_issuer_name  = 40;
-  repeated ModEntry mod_entries = 42;
+  // === Moderation Fields (34-42) ===
+  uint32 mod_action_type  = 34;  // 0=kick, 1=mute, 2=ban, 3=unmute, 4=unban
+  uint32 mod_target       = 35;  // Target session index
+  string mod_reason       = 36;  // Reason for action
+  uint32 mod_duration     = 37;  // Duration in minutes (0=permanent)
+  string mod_ip           = 38;  // Obfuscated IP for mod panel
+  string mod_target_name  = 39;  // Target username
+  string mod_issuer_name  = 40;  // Issuer username
 
-  // === Moderation Entry sub-message ===
+  // Moderation entry for active bans/mutes list
   message ModEntry {
-    string id        = 1;
-    uint32 type      = 2;   // 0=ban,1=mute
+    string id        = 1;   // DB entry ID
+    uint32 type      = 2;   // 0=ban, 1=mute
     string username  = 3;
     string reason    = 4;
-    string ip        = 5;   // obfuscated
+    string ip        = 5;   // Obfuscated
     string issuedBy  = 6;
     uint64 createdAt = 7;
     uint64 expiresAt = 8;   // 0=permanent
     bool   active    = 9;
   }
+  repeated ModEntry mod_entries = 42;  // List of active moderation entries
 }
