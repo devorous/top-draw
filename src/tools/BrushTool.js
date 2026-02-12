@@ -192,9 +192,14 @@ export class BrushTool extends Tool {
     ctx.globalAlpha = 1.0;
   }
 
-  commitCurrentLine(user) {
+  commitCurrentLine(user, newPressure, newSize) {
     this.board.clearTop();
     this.board.topCtx.beginPath();
+
+    // Old segment draws with current user.pressure (still the old value
+    // because callers commit BEFORE calling setPressure)
+    const oldRadius = user.pressure * user.size;
+    const newRadius = (newPressure ?? user.pressure) * (newSize ?? user.size);
     this.drawLineArray(user.currentLine, this.board.mainCtx, user);
 
     if (this.board.mirror) {
@@ -202,7 +207,80 @@ export class BrushTool extends Tool {
       this.drawLineArray(mirrored, this.board.mainCtx, user);
     }
 
+    // Save last smoothed position (where old segment visually ends)
+    const lastSmoothedPos = user.currentLine.length > 0
+      ? user.currentLine[user.currentLine.length - 1]
+      : { x: user.x, y: user.y };
+
+    // Bridge the gap between old segment end and new segment start
+    // using interpolated filled circles (flow-pen style)
+    if (user.currentLine.length > 0) {
+      const from = lastSmoothedPos;
+      this.bridgeGap(this.board.mainCtx, from, lastSmoothedPos, oldRadius, newRadius, user);
+      if (this.board.mirror) {
+        const w = this.board.getWidth();
+        this.bridgeGap(this.board.mainCtx,
+          { x: w - from.x, y: from.y },
+          { x: w - lastSmoothedPos.x, y: lastSmoothedPos.y },
+          oldRadius, newRadius, user);
+      }
+    }
+
+    // Reset smooth buffer to continue EMA from the last drawn position
+    this.smoothBuffer.x = lastSmoothedPos.x;
+    this.smoothBuffer.y = lastSmoothedPos.y;
+
     user.clearLine();
-    user.currentLine.push({ x: user.x, y: user.y });
+    user.currentLine.push(lastSmoothedPos);
+  }
+
+  /** Bridge gap between two points with interpolated filled circles (flow-pen style) */
+  bridgeGap(ctx, from, to, fromRadius, toRadius, user) {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    const opacity = user.opacity !== undefined ? user.opacity : 1;
+    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
+
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = user.getColorString();
+
+    if (hardness < 1.0) {
+      const avgRadius = (fromRadius + toRadius) / 2;
+      const blurAmount = (1 - hardness) * avgRadius * 1.5;
+      const offset = 100000;
+      ctx.shadowBlur = blurAmount;
+      ctx.shadowColor = user.getColorString();
+      ctx.shadowOffsetX = -offset;
+      ctx.shadowOffsetY = 0;
+      ctx.translate(offset, 0);
+    }
+
+    if (dist < 0.5) {
+      const r = Math.max(fromRadius, toRadius);
+      ctx.beginPath();
+      ctx.arc(from.x, from.y, Math.max(0.5, r), 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Adaptive spacing (20% of average radius, like flow pen)
+      const avgRadius = (fromRadius + toRadius) / 2;
+      const step = Math.max(1, avgRadius * 0.2);
+      const steps = Math.ceil(dist / step);
+
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = from.x + dx * t;
+        const y = from.y + dy * t;
+        const r = fromRadius + (toRadius - fromRadius) * t;
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
   }
 }

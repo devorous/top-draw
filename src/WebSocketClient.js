@@ -188,11 +188,11 @@ export class WebSocketClient {
           y: u.y,
           tool: ToolNames[u.l] || 'brush',
           color: unpackColor(u.c),
-          size: (u.s || 1000) / 100,
+          size: (u.s ?? 1000) / 100,
           spacing: (u.sp ?? 0) / 100,
           smoothing: (u.sm ?? 3000) / 10000,
           hardness: (u.hd ?? 10000) / 10000,
-          pressure: (u.p || 100) / 100,
+          pressure: (u.p ?? 100) / 100,
           name: u.n || '',
           text: u.tx || '',
           role: u.role || 0
@@ -229,11 +229,11 @@ export class WebSocketClient {
         break;
 
       case T.CP:
-        this.emit('cp', { sessionIndex: data.u, pressure: (data.p || 100) / 100 });
+        this.emit('cp', { sessionIndex: data.u, pressure: (data.p ?? 100) / 100 });
         break;
 
       case T.CS:
-        this.emit('cs', { sessionIndex: data.u, size: (data.s || 1000) / 100 });
+        this.emit('cs', { sessionIndex: data.u, size: (data.s ?? 1000) / 100 });
         break;
 
       case T.CT:

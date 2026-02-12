@@ -95,26 +95,26 @@ export function setupWebSocketHandlers(app) {
     }
   });
 
-  // Pressure change
+  // Pressure change - commit BEFORE updating so old segment draws at correct width
   wsClient.on('cp', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      user.setPressure(data.pressure);
       if (user.mousedown && user.tool === 'brush') {
-        remoteUserHandler.commitLine(user);
+        remoteUserHandler.commitLine(user, data.pressure, user.size);
       }
+      user.setPressure(data.pressure);
     }
   });
 
-  // Size change
+  // Size change - commit BEFORE updating so old segment draws at correct width
   wsClient.on('cs', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
+      if (user.mousedown && user.tool === 'brush') {
+        remoteUserHandler.commitLine(user, user.pressure, data.size);
+      }
       user.setSize(data.size);
       ui.updateRemoteSize(data.sessionIndex, data.size);
-      if (user.mousedown && user.tool === 'brush') {
-        remoteUserHandler.commitLine(user);
-      }
     }
   });
 
