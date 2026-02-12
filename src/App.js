@@ -1061,15 +1061,28 @@ export class DrawingApp {
       const maxPressure = Number(this.ui.elements.pressureSlider.value) / 100;
       pressure = Math.min(maxPressure, Math.round(e.pressure * 100) / 100);
 
-      // Pressure changes need immediate handling for brush commits
-      if (pressure !== this.inputBuffer.pressure) {
+      // If stroke start was deferred, now we have real pressure - start the stroke
+      if (this._pendingPenDown) {
+        const pending = this._pendingPenDown;
+        this._pendingPenDown = null;
         this.self.setPressure(pressure);
         this.inputBuffer.pressure = pressure;
+        this.wsClient.broadcastPressureChange(pressure);
 
-        if (this.self.pressure !== this.self.prevpressure && this.self.mousedown && this.self.tool === 'brush') {
-          this.wsClient.broadcastPressureChange(pressure);
-          this.commitSelfLine();
+        const tool = this.toolManager.getCurrentTool();
+        if (tool) {
+          tool.onPointerDown(this.self, pending.pos, pending.event);
+          this.debugOverlay.startStrokeTracking(this.self.id, true);
+          this.debugOverlay.addStrokePoint(this.self.id, pending.pos.x, pending.pos.y, 'pointerDown');
         }
+      } else if (pressure !== this.inputBuffer.pressure) {
+        // Commit BEFORE updating pressure so old segment draws at correct width
+        if (pressure !== this.self.pressure && this.self.mousedown && this.self.tool === 'brush') {
+          this.wsClient.broadcastPressureChange(pressure);
+          this.commitSelfLine(pressure, this.self.size);
+        }
+        this.self.setPressure(pressure);
+        this.inputBuffer.pressure = pressure;
       }
     }
 
@@ -1155,6 +1168,9 @@ export class DrawingApp {
           if (this.ui.elements.touchInput) {
             this.ui.elements.touchInput.focus();
           }
+        } else if (e.pointerType === 'pen') {
+          // Defer pen stroke start until first pointerMove provides real pressure
+          this._pendingPenDown = { pos, event: e };
         } else {
           tool.onPointerDown(this.self, pos, e);
 
@@ -1202,6 +1218,9 @@ export class DrawingApp {
       this.inputBuffer.dirty = false;
       return;
     }
+
+    // Clear pending pen down if pen lifted without moving
+    this._pendingPenDown = null;
 
     // Process any remaining buffered input before ending stroke
     if (this.inputBuffer.dirty) {
@@ -1290,11 +1309,12 @@ export class DrawingApp {
       return;
     }
 
+    size = Math.round(size * 100) / 100;
+
     if (this.self.mousedown && this.self.tool === 'brush') {
-      this.commitSelfLine();
+      this.commitSelfLine(this.self.pressure, size);
     }
 
-    size = Math.round(size * 100) / 100;
     this.self.setSize(size);
     this.ui.elements.sizeSlider.value = size;
     this.ui.updateCursorSize(size);
@@ -1306,9 +1326,9 @@ export class DrawingApp {
 
   // Line utilities
 
-  commitSelfLine() {
+  commitSelfLine(newPressure, newSize) {
     const brushTool = this.toolManager.getTool('brush');
-    brushTool.commitCurrentLine(this.self);
+    brushTool.commitCurrentLine(this.self, newPressure, newSize);
   }
 
   cancelCurrentStroke() {
