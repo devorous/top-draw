@@ -117,7 +117,6 @@ export class BrushTool extends Tool {
     const isMainCtx = ctx === this.board.mainCtx;
     if (isMainCtx) {
       user._mainCtxDrawCount = (user._mainCtxDrawCount || 0) + 1;
-      console.log(`[DrawDebug] LOCAL user=${user.id} draw #${user._mainCtxDrawCount} to mainCtx, ${points.length} points, lineWidth=${user.pressure * user.size * 2}`);
     }
 
     // Apply user opacity (independent of color alpha)

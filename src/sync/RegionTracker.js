@@ -41,7 +41,6 @@ export class RegionTracker extends EventTarget {
   init(mainCanvas) {
     this.mainCanvas = mainCanvas;
     this.startTick();
-    console.log('[RegionTracker] Initialized');
   }
 
   /**
@@ -114,7 +113,6 @@ export class RegionTracker extends EventTarget {
     // Check if we should continue the last region or start a new one
     const shouldStartNew = this.shouldStartNewRegion({ x, y }, userId);
 
-    console.log('[RegionTracker] startDrawing', { x, y, tool, userId, shouldStartNew });
 
     if (shouldStartNew) {
       // Create a new region
@@ -205,11 +203,7 @@ export class RegionTracker extends EventTarget {
       // Update region activity time
       region.lastActivity = Date.now();
 
-      console.log('[RegionTracker] endDrawing', {
-        userId,
-        regionId: state.activeRegionId,
-        pointCount: state.activePoints.length
-      });
+
     }
 
     // Reset active state but keep lastRegionEnd
@@ -376,7 +370,6 @@ export class RegionTracker extends EventTarget {
    * @param {Object} region2 - Second region (removed)
    */
   mergeRegions(region1, region2) {
-    console.log('[RegionTracker] Merging regions', region1.id, 'and', region2.id);
 
     // Combine points
     const combinedPoints = [
@@ -426,7 +419,7 @@ export class RegionTracker extends EventTarget {
 
     region.finalized = true;
 
-    console.log('[RegionTracker] Finalizing region', regionId);
+
 
     try {
       // Capture the region as PNG
@@ -453,9 +446,8 @@ export class RegionTracker extends EventTarget {
         }
       }));
 
-      console.log('[RegionTracker] Region finalized and emitted', regionId, 'size:', imageData?.length || 0);
     } catch (error) {
-      console.error('[RegionTracker] Failed to finalize region', regionId, error);
+
     }
   }
 
@@ -514,7 +506,6 @@ export class RegionTracker extends EventTarget {
   clearAllRegions() {
     this.regions.clear();
     this.userDrawingState.clear();
-    console.log('[RegionTracker] All regions cleared');
   }
 
   /**

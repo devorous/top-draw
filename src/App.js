@@ -1252,8 +1252,6 @@ export class DrawingApp {
       // Debug: End stroke tracking for local user
       this.debugOverlay.endStrokeTracking(this.self.id);
 
-      // Debug: Log total mainCtx draws for this stroke
-      console.log(`[DrawDebug] LOCAL user=${this.self.id} STROKE END - total mainCtx draws: ${this.self._mainCtxDrawCount || 0}`);
     }
 
     this.self.mousedown = false;

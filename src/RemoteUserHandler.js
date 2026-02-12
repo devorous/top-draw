@@ -367,8 +367,6 @@ export class RemoteUserHandler {
       this.debugOverlay.endStrokeTracking(user.id);
     }
 
-    // Debug: Log total mainCtx draws for this stroke
-    console.log(`[DrawDebug] REMOTE user=${user.id} STROKE END - total mainCtx draws: ${user._mainCtxDrawCount || 0}`);
 
     // Cleanup (preview was already cleared at start of handleMouseUp)
     user.clearLine();
@@ -1138,7 +1136,6 @@ export class RemoteUserHandler {
     const isMainCtx = ctx === this.board.mainCtx;
     if (isMainCtx) {
       user._mainCtxDrawCount = (user._mainCtxDrawCount || 0) + 1;
-      console.log(`[DrawDebug] REMOTE user=${user.id} draw #${user._mainCtxDrawCount} to mainCtx, ${points.length} points, lineWidth=${user.pressure * user.size * 2}`);
     }
 
     // Explicitly set ALL context properties to ensure consistency
