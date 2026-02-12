@@ -31,7 +31,6 @@ export class RegionStore {
       imageData: region.imageData
     });
 
-    console.log(`[RegionStore] Added region ${region.id}, total: ${this.regions.size}`);
   }
 
   /**
@@ -42,7 +41,6 @@ export class RegionStore {
   removeRegion(regionId) {
     const existed = this.regions.delete(regionId);
     if (existed) {
-      console.log(`[RegionStore] Removed region ${regionId}, total: ${this.regions.size}`);
     }
     return existed;
   }
@@ -79,7 +77,6 @@ export class RegionStore {
   clear() {
     const count = this.regions.size;
     this.regions.clear();
-    console.log(`[RegionStore] Cleared ${count} regions`);
   }
 
   /**
