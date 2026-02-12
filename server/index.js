@@ -112,6 +112,7 @@ async function init() {
     await connectDB();
   } catch (err) {
     console.warn('[Server] Starting without database — auth/moderation disabled');
+    console.log(err);
   }
 
   const protoPath = path.join(__dirname, '..', 'public', 'messages.proto');

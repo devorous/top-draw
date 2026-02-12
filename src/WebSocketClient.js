@@ -125,7 +125,6 @@ export class WebSocketClient {
         // Check if message is JSON (auth/mod messages) or protobuf (drawing messages)
         if (typeof event.data === 'string') {
           data = JSON.parse(event.data);
-          console.log('[WS] Received JSON message:', data);
         } else {
           data = this.Msg.decode(new Uint8Array(event.data));
         }
@@ -413,13 +412,6 @@ export class WebSocketClient {
         break;
 
       case T.AUTH_RESULT:
-        console.log('[WS] AUTH_RESULT received:', {
-          success: data.a,
-          token: data.auth_token ? 'present' : 'missing',
-          role: data.auth_role,
-          username: data.auth_username,
-          error: data.auth_error
-        });
         this.emit('auth_result', {
           success: data.a,
           token: data.auth_token || '',
@@ -480,7 +472,6 @@ export class WebSocketClient {
       // Use JSON for auth/mod messages (cleaner, no string encoding issues)
       const authMessageTypes = [T.AUTH_REGISTER, T.AUTH_LOGIN, T.AUTH_RESULT, T.MOD_ACTION, T.MOD_RESULT, T.MOD_NOTIFY, T.MOD_LIST];
       if (authMessageTypes.includes(data.t)) {
-        console.log('[WS] Sending JSON message:', data);
         this.socket.send(JSON.stringify(data));
         return;
       }

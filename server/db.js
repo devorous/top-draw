@@ -8,7 +8,7 @@ let db = null;
 let client = null;
 
 export async function connectDB() {
-  if (db) return db; // Optimization: don't reconnect if already connected
+  if (db) return db;
 
   // Use the modern Stable API settings Atlas gave you
   client = new MongoClient(uri, {
@@ -24,7 +24,6 @@ export async function connectDB() {
     // You can choose your database name here
     db = client.db("Draw"); 
 
-    // Keep your index logic! Atlas doesn't do this for you.
     await db.collection('users').createIndex(
       { username: 1 },
       { unique: true, collation: { locale: 'en', strength: 2 } }
