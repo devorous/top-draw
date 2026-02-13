@@ -67,7 +67,11 @@ export class UI {
 
       sizeSlider: document.querySelector('.slider.size'),
       spacingSlider: document.querySelector('.slider.spacing'),
-      pressureSlider: document.querySelector('.slider.pressure'),
+      pressureMinSlider: document.getElementById('pressureMinSlider'),
+      pressureMaxSlider: document.getElementById('pressureMaxSlider'),
+      pressureEnabled: document.getElementById('pressureEnabled'),
+      pressureDualSlider: document.getElementById('pressureDualSlider'),
+      pressureContainer: document.getElementById('pressure-container'),
       smoothingSlider: document.querySelector('.slider.smoothing'),
       hardnessSlider: document.querySelector('.slider.hardness'),
       imageBrushOpacitySlider: document.querySelector('.slider.imageBrushOpacity'),
@@ -309,9 +313,14 @@ export class UI {
     }
   }
 
-  updatePressureValue(pressure) {
+  updatePressureValue(min, max) {
     if (this.elements.pressureValue) {
-      this.elements.pressureValue.textContent = `${pressure}%`;
+      if (max === undefined) {
+        // Legacy single-value call: treat as max with min=0
+        this.elements.pressureValue.textContent = `0 - ${min}%`;
+      } else {
+        this.elements.pressureValue.textContent = `${min} - ${max}%`;
+      }
     }
   }
 
@@ -346,6 +355,66 @@ export class UI {
     btn.textContent = locked ? '🔒' : '🔓';
     btn.classList.toggle('locked', locked);
     btn.title = locked ? `Unlock ${property} for current tool` : `Lock ${property} for current tool`;
+  }
+
+  /**
+   * Make a slider value span clickable to edit the value directly.
+   * @param {HTMLElement} spanEl - The .sliderValue span element
+   * @param {Object} opts - { min, max, step, suffix, onCommit(val) }
+   */
+  makeValueEditable(spanEl, opts) {
+    const { min, max, step, suffix = '', onCommit } = opts;
+
+    spanEl.addEventListener('click', (e) => {
+      // Prevent re-entry if already editing
+      if (spanEl.querySelector('.sliderValueInput')) return;
+
+      const originalText = spanEl.textContent;
+      const currentVal = parseFloat(originalText.replace(suffix, '').trim());
+
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'sliderValueInput';
+      input.min = min;
+      input.max = max;
+      input.step = step;
+      input.value = isNaN(currentVal) ? min : currentVal;
+
+      spanEl.textContent = '';
+      spanEl.appendChild(input);
+      input.focus();
+      input.select();
+
+      const commit = () => {
+        let val = parseFloat(input.value);
+        if (isNaN(val)) val = min;
+        val = Math.max(min, Math.min(max, val));
+        // Round to step precision
+        val = Math.round(val / step) * step;
+        val = parseFloat(val.toFixed(10)); // Clean floating point artifacts
+
+        spanEl.textContent = suffix ? `${val}${suffix}` : String(val);
+        onCommit(val);
+      };
+
+      const cancel = () => {
+        spanEl.textContent = originalText;
+      };
+
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', (ke) => {
+        if (ke.key === 'Enter') {
+          ke.preventDefault();
+          input.removeEventListener('blur', commit);
+          commit();
+        } else if (ke.key === 'Escape') {
+          ke.preventDefault();
+          input.removeEventListener('blur', commit);
+          cancel();
+        }
+        ke.stopPropagation(); // Prevent tool shortcuts while editing
+      });
+    });
   }
 
   hideRemoteCursor(userId) {

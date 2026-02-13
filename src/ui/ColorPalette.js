@@ -6,16 +6,6 @@ export class ColorPalette {
   constructor(options = {}) {
     this.onColorSelect = options.onColorSelect || (() => {});
 
-    // Preset colors - common art palette
-    this.presetColors = [
-      [0, 0, 0, 1],         // Black
-      [64, 64, 64, 1],      // Dark Gray
-      [128, 128, 128, 1],   // Medium Gray
-      [192, 192, 192, 1],   // Light Gray
-      [224, 224, 224, 1],   // Very Light Gray
-      [255, 255, 255, 1]    // White
-    ];
-
     // Recent colors (auto-populated)
     this.recentColors = [];
     this.maxRecentColors = 8;
@@ -26,7 +16,6 @@ export class ColorPalette {
 
     // DOM elements
     this.elements = {
-      presetSwatches: null,
       recentSwatches: null,
       customSwatches: null,
       addCustomSwatch: null
@@ -39,14 +28,12 @@ export class ColorPalette {
 
   init() {
     this.cacheElements();
-    this.renderPresets();
     this.renderRecent();
     this.renderCustom();
     this.setupEventListeners();
   }
 
   cacheElements() {
-    this.elements.presetSwatches = document.getElementById('presetSwatches');
     this.elements.recentSwatches = document.getElementById('recentSwatches');
     this.elements.customSwatches = document.getElementById('customSwatches');
     this.elements.addCustomSwatch = document.getElementById('addCustomSwatch');
@@ -88,19 +75,6 @@ export class ColorPalette {
     }
 
     return swatch;
-  }
-
-  /**
-   * Render preset swatches
-   */
-  renderPresets() {
-    if (!this.elements.presetSwatches) return;
-
-    this.elements.presetSwatches.innerHTML = '';
-    this.presetColors.forEach(color => {
-      const swatch = this.createSwatch(color, 'preset');
-      this.elements.presetSwatches.appendChild(swatch);
-    });
   }
 
   /**

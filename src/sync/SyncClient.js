@@ -5,6 +5,8 @@
  * - New users request sync on join
  * - Existing users provide their canvas when asked
  * - Received canvas is drawn to the main canvas
+ * - Overlay shown and local input blocked during sync
+ * - Remote drawing events buffered and replayed after sync
  */
 
 export class SyncClient {
@@ -15,6 +17,14 @@ export class SyncClient {
 
     // Track sync state
     this.syncing = false;
+
+    // Event buffering during sync
+    this.buffering = false;
+    this.eventBuffer = [];
+    this.handlerMap = null;
+
+    // Overlay element
+    this.overlayEl = null;
   }
 
   /**
@@ -26,6 +36,7 @@ export class SyncClient {
   init({ wsClient, board }) {
     this.wsClient = wsClient;
     this.board = board;
+    this.overlayEl = document.getElementById('syncOverlay');
     this.initialized = true;
     console.log('[SyncClient] Initialized');
   }
@@ -40,6 +51,9 @@ export class SyncClient {
     }
 
     this.syncing = true;
+    this.buffering = true;
+    this.eventBuffer = [];
+    this.showOverlay();
     console.log('[SyncClient] Requesting canvas sync...');
     this.wsClient.requestSync();
   }
@@ -94,7 +108,64 @@ export class SyncClient {
    */
   handleSyncComplete() {
     console.log('[SyncClient] Sync complete');
+    this.replayBuffer();
+    this.hideOverlay();
     this.syncing = false;
+    this.buffering = false;
+  }
+
+  /**
+   * Buffer a remote event for replay after sync
+   * @param {string} eventName - The event name
+   * @param {Object} data - The event data
+   */
+  bufferEvent(eventName, data) {
+    this.eventBuffer.push({ eventName, data });
+  }
+
+  /**
+   * Replay all buffered events in order
+   */
+  replayBuffer() {
+    if (!this.handlerMap || this.eventBuffer.length === 0) {
+      this.eventBuffer = [];
+      return;
+    }
+
+    console.log('[SyncClient] Replaying', this.eventBuffer.length, 'buffered events');
+    for (const { eventName, data } of this.eventBuffer) {
+      const handler = this.handlerMap.get(eventName);
+      if (handler) {
+        handler(data);
+      }
+    }
+    this.eventBuffer = [];
+  }
+
+  /**
+   * Set the handler map for event replay
+   * @param {Map} map - Map of eventName -> handler function
+   */
+  setHandlerMap(map) {
+    this.handlerMap = map;
+  }
+
+  /**
+   * Show the sync overlay
+   */
+  showOverlay() {
+    if (this.overlayEl) {
+      this.overlayEl.classList.add('active');
+    }
+  }
+
+  /**
+   * Hide the sync overlay
+   */
+  hideOverlay() {
+    if (this.overlayEl) {
+      this.overlayEl.classList.remove('active');
+    }
   }
 
   /**
@@ -122,6 +193,7 @@ export class SyncClient {
 
   /**
    * Draw received canvas data to the main canvas
+   * Clears the canvas first to replace (not overlay) existing content
    * @param {Uint8Array} imageData - PNG data
    */
   async _drawCanvasData(imageData) {
@@ -137,11 +209,12 @@ export class SyncClient {
       // Create ImageBitmap from blob
       const imageBitmap = await createImageBitmap(blob);
 
-      // Draw to main canvas at origin
+      // Draw to main canvas at origin - clear first to replace, not overlay
       const ctx = this.board.mainCtx;
       if (ctx) {
+        ctx.clearRect(0, 0, this.board.mainCanvas.width, this.board.mainCanvas.height);
         ctx.drawImage(imageBitmap, 0, 0);
-        console.log('[SyncClient] Drew synced canvas');
+        console.log('[SyncClient] Drew synced canvas (replaced)');
       }
 
       imageBitmap.close();
