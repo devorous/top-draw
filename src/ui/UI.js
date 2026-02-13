@@ -317,9 +317,9 @@ export class UI {
     if (this.elements.pressureValue) {
       if (max === undefined) {
         // Legacy single-value call: treat as max with min=0
-        this.elements.pressureValue.textContent = `0 - ${min}%`;
+        this.elements.pressureValue.textContent = `0-${min}`;
       } else {
-        this.elements.pressureValue.textContent = `${min} - ${max}%`;
+        this.elements.pressureValue.textContent = `${min}-${max}`;
       }
     }
   }
@@ -338,7 +338,7 @@ export class UI {
 
   updateHardnessValue(hardness) {
     if (this.elements.hardnessValue) {
-      this.elements.hardnessValue.textContent = Math.round(hardness * 100) + '%';
+      this.elements.hardnessValue.textContent = Math.round(hardness * 100);
     }
   }
 

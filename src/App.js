@@ -356,6 +356,7 @@ export class DrawingApp {
     elements.pressureEnabled.addEventListener('change', () => {
       this.pressureEnabled = elements.pressureEnabled.checked;
       elements.pressureDualSlider.style.display = this.pressureEnabled ? '' : 'none';
+      elements.pressureValue.style.display = this.pressureEnabled ? '' : 'none';
     });
 
     // Editable slider values
@@ -431,7 +432,7 @@ export class DrawingApp {
       minInput.value = minVal;
       minInput.style.width = '36px';
 
-      const sep = document.createTextNode(' - ');
+      const sep = document.createTextNode('-');
 
       const maxInput = document.createElement('input');
       maxInput.type = 'number';
@@ -442,13 +443,10 @@ export class DrawingApp {
       maxInput.value = maxVal;
       maxInput.style.width = '36px';
 
-      const pctSign = document.createTextNode('%');
-
       elements.pressureValue.textContent = '';
       elements.pressureValue.appendChild(minInput);
       elements.pressureValue.appendChild(sep);
       elements.pressureValue.appendChild(maxInput);
-      elements.pressureValue.appendChild(pctSign);
       minInput.focus();
       minInput.select();
 
