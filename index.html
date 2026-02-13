@@ -164,6 +164,9 @@
           <canvas id="topBoard" class="userBoard self"></canvas>
           <canvas id="board"></canvas>
           <canvas id="debugOverlay"></canvas>
+          <div id="syncOverlay" class="sync-overlay">
+            <span>Syncing...</span>
+          </div>
         </div>
 
         <!-- Hidden input for touch keyboard (text tool) -->
@@ -297,9 +300,19 @@
                 <input autocomplete="off" type="range" min="0.25" max="100" value="10" step="0.25" class="slider size">
               </div>
 
-              <div class="sliderContainer">
-                <label>Max Pressure <span class="sliderValue" id="pressureValue">100%</span><button class="lock-btn" id="pressureLock" title="Lock pressure for current tool">🔓</button></label>
-                <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider pressure">
+              <div class="sliderContainer" id="pressure-container">
+                <label>
+                  <label class="pressureToggle">
+                    <input type="checkbox" id="pressureEnabled" checked>
+                    <span>Pressure</span>
+                  </label>
+                  <span class="sliderValue" id="pressureValue">0 - 100%</span>
+                  <button class="lock-btn" id="pressureLock" title="Lock pressure for current tool">🔓</button>
+                </label>
+                <div class="dual-slider" id="pressureDualSlider">
+                  <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider pressureMin" id="pressureMinSlider">
+                  <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider pressureMax" id="pressureMaxSlider">
+                </div>
               </div>
 
               <div class="sliderContainer">
@@ -351,10 +364,6 @@
 
           <!-- Color Palette -->
           <div id="colorPalette">
-            <div class="paletteSection">
-              <label>Presets</label>
-              <div class="swatchGrid" id="presetSwatches"></div>
-            </div>
             <div class="paletteSection">
               <label>Recent</label>
               <div class="swatchGrid" id="recentSwatches"></div>

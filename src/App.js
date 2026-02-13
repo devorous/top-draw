@@ -102,6 +102,9 @@ export class DrawingApp {
     // EMA buffer for broadcast smoothing
     this.broadcastSmoothBuffer = { x: 0, y: 0, isFirst: true };
 
+    // Pressure enabled state (checkbox)
+    this.pressureEnabled = true;
+
     // Tool-specific locked values
     this.toolLocks = this.loadToolLocks();
   }
@@ -218,8 +221,8 @@ export class DrawingApp {
       this.self.setSpacing(spacing);
     }
 
-    if (elements.pressureSlider) {
-      const pressure = Number(elements.pressureSlider.value) / 100;
+    if (elements.pressureMaxSlider) {
+      const pressure = Number(elements.pressureMaxSlider.value) / 100;
       this.self.setPressure(pressure);
     }
   }
@@ -329,11 +332,168 @@ export class DrawingApp {
 
     elements.sizeSlider.addEventListener('input', (e) => this.handleSizeChange(e));
     elements.spacingSlider.addEventListener('input', (e) => this.handleSpacingChange(e));
-    elements.pressureSlider.addEventListener('input', (e) => this.handlePressureSliderChange(e));
     elements.smoothingSlider.addEventListener('input', (e) => this.handleSmoothingChange(e));
     elements.hardnessSlider.addEventListener('input', (e) => this.handleHardnessChange(e));
     elements.imageBrushOpacitySlider.addEventListener('input', (e) => this.handleImageBrushOpacityChange(e));
     elements.brushFileInput.addEventListener('change', (e) => this.handleBrushFileLoad(e));
+
+    // Dual pressure slider handlers
+    const clampPressureSliders = () => {
+      const minVal = Number(elements.pressureMinSlider.value);
+      const maxVal = Number(elements.pressureMaxSlider.value);
+      if (minVal > maxVal) {
+        elements.pressureMinSlider.value = maxVal;
+      }
+      this.ui.updatePressureValue(
+        Number(elements.pressureMinSlider.value),
+        Number(elements.pressureMaxSlider.value)
+      );
+    };
+    elements.pressureMinSlider.addEventListener('input', clampPressureSliders);
+    elements.pressureMaxSlider.addEventListener('input', clampPressureSliders);
+
+    // Pressure enable/disable checkbox
+    elements.pressureEnabled.addEventListener('change', () => {
+      this.pressureEnabled = elements.pressureEnabled.checked;
+      elements.pressureDualSlider.style.display = this.pressureEnabled ? '' : 'none';
+    });
+
+    // Editable slider values
+    this.ui.makeValueEditable(elements.sizeValue, {
+      min: 0.25, max: 100, step: 0.25, suffix: '',
+      onCommit: (val) => {
+        this.self.setSize(val);
+        elements.sizeSlider.value = val;
+        this.ui.updateCursorSize(val);
+        this.ui.updateSelfTextStyle(val, this.self.color);
+        this.board.mainCtx.lineWidth = val * 2;
+        this.wsClient.broadcastSizeChange(val);
+      }
+    });
+
+    this.ui.makeValueEditable(elements.smoothingValue, {
+      min: 0, max: 100, step: 1, suffix: '%',
+      onCommit: (val) => {
+        this.self.setSmoothing(val / 100);
+        elements.smoothingSlider.value = val;
+        this.wsClient.broadcastSmoothingChange(val / 100);
+      }
+    });
+
+    this.ui.makeValueEditable(elements.spacingValue, {
+      min: 0, max: 20, step: 1, suffix: '',
+      onCommit: (val) => {
+        this.self.setSpacing(val);
+        elements.spacingSlider.value = val;
+        this.wsClient.broadcastSpacingChange(val);
+      }
+    });
+
+    this.ui.makeValueEditable(elements.hardnessValue, {
+      min: 0, max: 100, step: 1, suffix: '%',
+      onCommit: (val) => {
+        this.self.setHardness(val / 100);
+        elements.hardnessSlider.value = val;
+        this.wsClient.broadcastHardnessChange(val / 100);
+      }
+    });
+
+    this.ui.makeValueEditable(elements.imageBrushOpacityValue, {
+      min: 0, max: 100, step: 1, suffix: '%',
+      onCommit: (val) => {
+        const opacity = val / 100;
+        this.self.setOpacity(opacity);
+        elements.imageBrushOpacitySlider.value = val;
+        const currentColor = [...this.self.color];
+        currentColor[3] = opacity;
+        this.self.setColor(currentColor);
+        this.colorPicker.setColor(`rgba(${currentColor.join(',')})`);
+        if (this.connected) {
+          this.wsClient.broadcastColorChange(currentColor);
+        }
+      }
+    });
+
+    // Pressure range value editing (special: two numbers "min - max%")
+    elements.pressureValue.addEventListener('click', () => {
+      if (elements.pressureValue.querySelector('.sliderValueInput')) return;
+
+      const minVal = Number(elements.pressureMinSlider.value);
+      const maxVal = Number(elements.pressureMaxSlider.value);
+      const originalText = elements.pressureValue.textContent;
+
+      const minInput = document.createElement('input');
+      minInput.type = 'number';
+      minInput.className = 'sliderValueInput';
+      minInput.min = 0;
+      minInput.max = 100;
+      minInput.step = 1;
+      minInput.value = minVal;
+      minInput.style.width = '36px';
+
+      const sep = document.createTextNode(' - ');
+
+      const maxInput = document.createElement('input');
+      maxInput.type = 'number';
+      maxInput.className = 'sliderValueInput';
+      maxInput.min = 0;
+      maxInput.max = 100;
+      maxInput.step = 1;
+      maxInput.value = maxVal;
+      maxInput.style.width = '36px';
+
+      const pctSign = document.createTextNode('%');
+
+      elements.pressureValue.textContent = '';
+      elements.pressureValue.appendChild(minInput);
+      elements.pressureValue.appendChild(sep);
+      elements.pressureValue.appendChild(maxInput);
+      elements.pressureValue.appendChild(pctSign);
+      minInput.focus();
+      minInput.select();
+
+      const commit = () => {
+        let mn = Math.max(0, Math.min(100, parseInt(minInput.value) || 0));
+        let mx = Math.max(0, Math.min(100, parseInt(maxInput.value) || 100));
+        if (mn > mx) mn = mx;
+        elements.pressureMinSlider.value = mn;
+        elements.pressureMaxSlider.value = mx;
+        this.ui.updatePressureValue(mn, mx);
+      };
+
+      const cancel = () => {
+        elements.pressureValue.textContent = originalText;
+      };
+
+      const onKey = (ke) => {
+        if (ke.key === 'Enter') {
+          ke.preventDefault();
+          minInput.removeEventListener('blur', onBlur);
+          maxInput.removeEventListener('blur', onBlur);
+          commit();
+        } else if (ke.key === 'Escape') {
+          ke.preventDefault();
+          minInput.removeEventListener('blur', onBlur);
+          maxInput.removeEventListener('blur', onBlur);
+          cancel();
+        }
+        ke.stopPropagation();
+      };
+
+      const onBlur = (be) => {
+        // Delay to check if focus moved to the other input
+        setTimeout(() => {
+          if (document.activeElement !== minInput && document.activeElement !== maxInput) {
+            commit();
+          }
+        }, 0);
+      };
+
+      minInput.addEventListener('keydown', onKey);
+      maxInput.addEventListener('keydown', onKey);
+      minInput.addEventListener('blur', onBlur);
+      maxInput.addEventListener('blur', onBlur);
+    });
 
     // Selection mode radio buttons
     const selectionModeRadios = document.querySelectorAll('input[name="selectionMode"]');
@@ -406,6 +566,10 @@ export class DrawingApp {
     this.sessionIndex = sessionIndex;
     this.self.id = sessionIndex;
     this.users.set(sessionIndex, this.self);
+
+    // Request sync immediately on connect (before login/username selection)
+    // so the board is already syncing while the user enters their name
+    this.syncClient.requestSync();
 
     // Attempt auto-login with stored token
     if (this.auth && this.auth.attemptAutoLogin()) {
@@ -534,6 +698,9 @@ export class DrawingApp {
   tick() {
     const now = performance.now();
     this.lastTickTime = now;
+
+    // Skip local drawing while syncing
+    if (this.syncClient?.isSyncing()) return;
 
     // Only process if we have new input data OR need to catch up smoothing
     const needsCatchup = this.needsSmoothingCatchup();
@@ -931,12 +1098,6 @@ export class DrawingApp {
     this.wsClient.broadcastSpacingChange(spacing);
   }
 
-  handlePressureSliderChange(e) {
-    const pressure = Number(e.target.value);
-    this.ui.updatePressureValue(pressure);
-    // Note: This sets max pressure for pen input, actual pressure comes from pointer events
-  }
-
   handleSmoothingChange(e) {
     const smoothing = Number(e.target.value);
     this.self.setSmoothing(smoothing / 100); // Convert to 0-1 range
@@ -1044,6 +1205,9 @@ export class DrawingApp {
   // Pointer event handlers
 
   handlePointerMove(e) {
+    // Block local input while syncing
+    if (this.syncClient?.isSyncing()) return;
+
     // Skip drawing during two-finger gestures
     if (this.touchHandler.state.isPinching || this.touchHandler.state.gestureStartedWithTwoFingers) {
       return;
@@ -1057,9 +1221,13 @@ export class DrawingApp {
 
     // Handle pressure for pen input
     let pressure = 1;
-    if (e.pointerType === 'pen' && !this.self.panning) {
-      const maxPressure = Number(this.ui.elements.pressureSlider.value) / 100;
-      pressure = Math.min(maxPressure, Math.round(e.pressure * 100) / 100);
+    if (!this.pressureEnabled) {
+      pressure = 1;
+    } else if (e.pointerType === 'pen' && !this.self.panning) {
+      const minP = Number(this.ui.elements.pressureMinSlider.value) / 100;
+      const maxP = Number(this.ui.elements.pressureMaxSlider.value) / 100;
+      pressure = minP + (maxP - minP) * e.pressure;
+      pressure = Math.round(pressure * 100) / 100;
 
       // If stroke start was deferred, now we have real pressure - start the stroke
       if (this._pendingPenDown) {
@@ -1105,6 +1273,9 @@ export class DrawingApp {
   }
 
   handlePointerDown(e) {
+    // Block local input while syncing
+    if (this.syncClient?.isSyncing()) return;
+
     // Skip drawing during two-finger gestures
     if (this.touchHandler.state.isPinching || this.touchHandler.state.gestureStartedWithTwoFingers) {
       return;
@@ -1127,7 +1298,7 @@ export class DrawingApp {
     // Only draw with left-click (button === 0)
     if (e.button !== 0) return;
 
-    if (e.pointerType === 'mouse') {
+    if (e.pointerType === 'mouse' || !this.pressureEnabled) {
       this.self.setPressure(1);
       this.inputBuffer.pressure = 1;
       this.wsClient.broadcastPressureChange(1);
@@ -1168,7 +1339,7 @@ export class DrawingApp {
           if (this.ui.elements.touchInput) {
             this.ui.elements.touchInput.focus();
           }
-        } else if (e.pointerType === 'pen') {
+        } else if (e.pointerType === 'pen' && this.pressureEnabled) {
           // Defer pen stroke start until first pointerMove provides real pressure
           this._pendingPenDown = { pos, event: e };
         } else {
@@ -1514,7 +1685,7 @@ export class DrawingApp {
     tools.forEach(tool => {
       locks[tool] = {
         size: { locked: false, value: 10 },
-        pressure: { locked: false, value: 1.0 },
+        pressure: { locked: false, min: 0, max: 100, enabled: true },
         smoothing: { locked: false, value: 0.3 },
         spacing: { locked: false, value: 0 },
         hardness: { locked: false, value: 1.0 },
@@ -1539,7 +1710,11 @@ export class DrawingApp {
 
     // Save current values for locked properties
     if (locks.size?.locked) locks.size.value = this.self.size;
-    if (locks.pressure?.locked) locks.pressure.value = this.self.pressure;
+    if (locks.pressure?.locked) {
+      locks.pressure.min = Number(this.ui.elements.pressureMinSlider.value);
+      locks.pressure.max = Number(this.ui.elements.pressureMaxSlider.value);
+      locks.pressure.enabled = this.pressureEnabled;
+    }
     if (locks.smoothing?.locked) locks.smoothing.value = this.self.smoothing;
     if (locks.spacing?.locked) locks.spacing.value = this.self.spacing;
     if (locks.hardness?.locked) locks.hardness.value = this.self.hardness;
@@ -1568,12 +1743,23 @@ export class DrawingApp {
       }
     }
     if (locks.pressure?.locked) {
-      this.self.setPressure(locks.pressure.value);
-      this.ui.updatePressureValue(locks.pressure.value * 100);
-      if (elements.pressureSlider) elements.pressureSlider.value = locks.pressure.value * 100;
-      if (this.connected) {
-        this.wsClient.broadcastPressureChange(locks.pressure.value);
+      // Backward compat: if old lock has .value instead of .min/.max
+      let pMin, pMax, pEnabled;
+      if (locks.pressure.value !== undefined && locks.pressure.min === undefined) {
+        pMin = 0;
+        pMax = Math.round(locks.pressure.value * 100);
+        pEnabled = true;
+      } else {
+        pMin = locks.pressure.min ?? 0;
+        pMax = locks.pressure.max ?? 100;
+        pEnabled = locks.pressure.enabled ?? true;
       }
+      if (elements.pressureMinSlider) elements.pressureMinSlider.value = pMin;
+      if (elements.pressureMaxSlider) elements.pressureMaxSlider.value = pMax;
+      this.ui.updatePressureValue(pMin, pMax);
+      this.pressureEnabled = pEnabled;
+      if (elements.pressureEnabled) elements.pressureEnabled.checked = pEnabled;
+      if (elements.pressureDualSlider) elements.pressureDualSlider.style.display = pEnabled ? '' : 'none';
     }
     if (locks.smoothing?.locked) {
       this.self.setSmoothing(locks.smoothing.value);
@@ -1647,7 +1833,11 @@ export class DrawingApp {
 
     // If locking, save current value
     if (lock.locked) {
-      if (property === 'imageBrushOpacity') {
+      if (property === 'pressure') {
+        lock.min = Number(this.ui.elements.pressureMinSlider.value);
+        lock.max = Number(this.ui.elements.pressureMaxSlider.value);
+        lock.enabled = this.pressureEnabled;
+      } else if (property === 'imageBrushOpacity') {
         lock.value = this.self.opacity;
       } else {
         lock.value = this.self[property];

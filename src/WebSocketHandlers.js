@@ -6,6 +6,27 @@ import { User } from './User.js';
 export function setupWebSocketHandlers(app) {
   const { wsClient, users, ui, board, chat, remoteUserHandler } = app;
 
+  // Handler map for event replay during sync buffering
+  const handlerMap = new Map();
+
+  /**
+   * Wrap a handler so that during sync buffering, events are queued
+   * instead of processed immediately. The handlerMap stores the original
+   * handler so replayBuffer() can call it after sync completes.
+   */
+  function wrapHandler(eventName, handler) {
+    handlerMap.set(eventName, handler);
+    wsClient.on(eventName, (data) => {
+      if (app.syncClient?.buffering) {
+        app.syncClient.bufferEvent(eventName, data);
+        return;
+      }
+      handler(data);
+    });
+  }
+
+  // --- Non-buffered events (metadata/chat/sync control) ---
+
   // Users list received
   wsClient.on('users', (data) => {
     data.users.forEach(userData => {
@@ -13,16 +34,18 @@ export function setupWebSocketHandlers(app) {
         let user = users.get(userData.sessionIndex);
 
         if (!user) {
+          const username = userData.name || userData.username || '';
+
           // Map 'name' to 'username' for User class compatibility
           const userOptions = {
             ...userData,
-            username: userData.name || userData.username || '',
+            username,
             afk: userData.afk || false,
             opacity: userData.color ? userData.color[3] : 1, // Derive opacity from color alpha
             role: userData.role || 0
           };
 
-          // Create new remote user
+          // Always create User object and board layer so we can receive events
           user = new User(userData.sessionIndex, userOptions);
           users.set(userData.sessionIndex, user);
 
@@ -30,7 +53,10 @@ export function setupWebSocketHandlers(app) {
           user.board = boardData.board;
           user.context = boardData.context;
 
-          ui.createRemoteUser(userData.sessionIndex, userOptions);
+          // Only show in user list / cursor if they have a name (have joined)
+          if (username) {
+            ui.createRemoteUser(userData.sessionIndex, userOptions);
+          }
         }
 
         // Apply AFK status
@@ -72,130 +98,34 @@ export function setupWebSocketHandlers(app) {
     }
   });
 
-  // Mouse move
-  wsClient.on('mm', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (!user || !data.ps || data.ps.length < 2) return;
-    remoteUserHandler.handleMouseMove(user, data);
-  });
-
-  // Mouse down
-  wsClient.on('md', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.handleMouseDown(user);
-    }
-  });
-
-  // Mouse up
-  wsClient.on('mu', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.handleMouseUp(user);
-    }
-  });
-
-  // Pressure change - commit BEFORE updating so old segment draws at correct width
-  wsClient.on('cp', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      if (user.mousedown && user.tool === 'brush') {
-        remoteUserHandler.commitLine(user, data.pressure, user.size);
-      }
-      user.setPressure(data.pressure);
-    }
-  });
-
-  // Size change - commit BEFORE updating so old segment draws at correct width
-  wsClient.on('cs', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      if (user.mousedown && user.tool === 'brush') {
-        remoteUserHandler.commitLine(user, user.pressure, data.size);
-      }
-      user.setSize(data.size);
-      ui.updateRemoteSize(data.sessionIndex, data.size);
-    }
-  });
-
-  // Tool change
-  wsClient.on('ct', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      // Clear pending selection if switching away from select tool
-      if (user.pendingSelection && data.tool !== 'select') {
-        user.pendingSelection = null;
-        user.context.clearRect(0, 0, board.getWidth(), board.getHeight());
-      }
-      user.setTool(data.tool);
-      ui.updateRemoteToolDisplay(data.sessionIndex, data.tool);
-    }
-  });
-
-  // Color change
-  wsClient.on('cc', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      user.setColor(data.color);
-      user.setOpacity(data.color[3]); // Sync opacity from color alpha (matches local behavior)
-      ui.updateRemoteColor(data.sessionIndex, data.color);
-    }
-  });
-
-  // Spacing change
-  wsClient.on('csp', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      user.setSpacing(data.spacing);
-    }
-  });
-
-  // Smoothing change
-  wsClient.on('csm', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      user.setSmoothing(data.smoothing);
-    }
-  });
-
-  // Hardness change
-  wsClient.on('chd', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      user.setHardness(data.hardness);
-    }
-  });
-
   // Name change
   wsClient.on('cn', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
+    let user = users.get(data.sessionIndex);
+    if (!user) {
+      // User wasn't in any users list yet — create from scratch
+      user = new User(data.sessionIndex, { username: data.name });
+      users.set(data.sessionIndex, user);
+
+      const boardData = ui.createUserBoard(data.sessionIndex);
+      user.board = boardData.board;
+      user.context = boardData.context;
+
+      ui.createRemoteUser(data.sessionIndex, user);
+    } else {
+      const hadName = !!user.username;
       user.setUsername(data.name);
-      ui.updateRemoteName(data.sessionIndex, data.name);
-      chat.addSystemMessage(`${data.name} joined the room`);
 
-      // Update chat user list
-      app.updateChatUserList();
+      if (!hadName) {
+        // User existed but had no UI entry yet (was nameless on connect)
+        ui.createRemoteUser(data.sessionIndex, user);
+      } else {
+        ui.updateRemoteName(data.sessionIndex, data.name);
+      }
     }
-  });
+    chat.addSystemMessage(`${data.name} joined the room`);
 
-  // Key press
-  wsClient.on('kp', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user && user.tool === 'text') {
-      remoteUserHandler.handleKeyPress(user, data.key);
-    }
-  });
-
-  // Clear canvas
-  wsClient.on('clr', () => {
-    board.clear();
-  });
-
-  // Toggle mirror
-  wsClient.on('mir', () => {
-    const mirror = board.toggleMirror();
-    ui.updateMirrorDisplay(mirror);
+    // Update chat user list
+    app.updateChatUserList();
   });
 
   // Chat message
@@ -232,30 +162,6 @@ export function setupWebSocketHandlers(app) {
     }
   });
 
-  // Image brush (GIMP brushes and standard images)
-  wsClient.on('gmp', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.handleBrushLoad(user, data.brushData);
-    }
-  });
-
-  // Pan mode
-  wsClient.on('pan', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      user.panning = data.panning;
-    }
-  });
-
-  // Cancel stroke
-  wsClient.on('cancel', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.handleCancel(user);
-    }
-  });
-
   // Hide cursor
   wsClient.on('hide_cursor', (data) => {
     ui.hideRemoteCursor(data.sessionIndex);
@@ -271,75 +177,11 @@ export function setupWebSocketHandlers(app) {
     }
   });
 
-  // Selection lift - remote user lifted a selection
-  wsClient.on('sel_lift', (data) => {
+  // Pan mode
+  wsClient.on('pan', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.handleSelectionLift(user, data.selection, data.lassoPath);
-    }
-  });
-
-  // Selection move - remote user moved/transformed selection
-  wsClient.on('sel_move', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.handleSelectionMove(user, data.corners);
-    }
-  });
-
-  // Selection commit - remote user committed selection
-  wsClient.on('sel_commit', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.handleSelectionCommit(user);
-    }
-  });
-
-  // Selection delete - remote user deleted selection
-  wsClient.on('sel_delete', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.handleSelectionDelete(user);
-    }
-  });
-
-  // Selection fill - remote user filled selection
-  wsClient.on('sel_fill', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.handleSelectionFill(user, data.color);
-    }
-  });
-
-  // Selection stamp - remote user stamped selection
-  wsClient.on('sel_stamp', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.handleSelectionStamp(user);
-    }
-  });
-
-  // Selection cancel - remote user cancelled selection
-  wsClient.on('sel_cancel', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.handleSelectionCancel(user);
-    }
-  });
-
-  // Selection to brush - remote user converted selection to brush
-  wsClient.on('sel_to_brush', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.handleSelectionToBrush(user, data.brushData);
-    }
-  });
-
-  // Image paste - remote user pasted image content
-  wsClient.on('img_paste', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.handleImagePaste(user, data);
+      user.panning = data.panning;
     }
   });
 
@@ -402,4 +244,212 @@ export function setupWebSocketHandlers(app) {
       app.syncClient.handleSyncComplete();
     }
   });
+
+  // --- Buffered events (all events that modify canvas state) ---
+
+  // Mouse move
+  wrapHandler('mm', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (!user || !data.ps || data.ps.length < 2) return;
+    remoteUserHandler.handleMouseMove(user, data);
+  });
+
+  // Mouse down
+  wrapHandler('md', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleMouseDown(user);
+    }
+  });
+
+  // Mouse up
+  wrapHandler('mu', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleMouseUp(user);
+    }
+  });
+
+  // Pressure change - commit BEFORE updating so old segment draws at correct width
+  wrapHandler('cp', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      if (user.mousedown && user.tool === 'brush') {
+        remoteUserHandler.commitLine(user, data.pressure, user.size);
+      }
+      user.setPressure(data.pressure);
+    }
+  });
+
+  // Size change - commit BEFORE updating so old segment draws at correct width
+  wrapHandler('cs', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      if (user.mousedown && user.tool === 'brush') {
+        remoteUserHandler.commitLine(user, user.pressure, data.size);
+      }
+      user.setSize(data.size);
+      ui.updateRemoteSize(data.sessionIndex, data.size);
+    }
+  });
+
+  // Tool change
+  wrapHandler('ct', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      // Clear pending selection if switching away from select tool
+      if (user.pendingSelection && data.tool !== 'select') {
+        user.pendingSelection = null;
+        user.context.clearRect(0, 0, board.getWidth(), board.getHeight());
+      }
+      user.setTool(data.tool);
+      ui.updateRemoteToolDisplay(data.sessionIndex, data.tool);
+    }
+  });
+
+  // Color change
+  wrapHandler('cc', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      user.setColor(data.color);
+      user.setOpacity(data.color[3]); // Sync opacity from color alpha (matches local behavior)
+      ui.updateRemoteColor(data.sessionIndex, data.color);
+    }
+  });
+
+  // Spacing change
+  wrapHandler('csp', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      user.setSpacing(data.spacing);
+    }
+  });
+
+  // Smoothing change
+  wrapHandler('csm', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      user.setSmoothing(data.smoothing);
+    }
+  });
+
+  // Hardness change
+  wrapHandler('chd', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      user.setHardness(data.hardness);
+    }
+  });
+
+  // Key press
+  wrapHandler('kp', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user && user.tool === 'text') {
+      remoteUserHandler.handleKeyPress(user, data.key);
+    }
+  });
+
+  // Clear canvas
+  wrapHandler('clr', () => {
+    board.clear();
+  });
+
+  // Toggle mirror
+  wrapHandler('mir', () => {
+    const mirror = board.toggleMirror();
+    ui.updateMirrorDisplay(mirror);
+  });
+
+  // Cancel stroke
+  wrapHandler('cancel', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleCancel(user);
+    }
+  });
+
+  // Image brush (GIMP brushes and standard images)
+  wrapHandler('gmp', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleBrushLoad(user, data.brushData);
+    }
+  });
+
+  // Selection lift - remote user lifted a selection
+  wrapHandler('sel_lift', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleSelectionLift(user, data.selection, data.lassoPath);
+    }
+  });
+
+  // Selection move - remote user moved/transformed selection
+  wrapHandler('sel_move', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleSelectionMove(user, data.corners);
+    }
+  });
+
+  // Selection commit - remote user committed selection
+  wrapHandler('sel_commit', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleSelectionCommit(user);
+    }
+  });
+
+  // Selection delete - remote user deleted selection
+  wrapHandler('sel_delete', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleSelectionDelete(user);
+    }
+  });
+
+  // Selection fill - remote user filled selection
+  wrapHandler('sel_fill', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleSelectionFill(user, data.color);
+    }
+  });
+
+  // Selection stamp - remote user stamped selection
+  wrapHandler('sel_stamp', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleSelectionStamp(user);
+    }
+  });
+
+  // Selection cancel - remote user cancelled selection
+  wrapHandler('sel_cancel', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleSelectionCancel(user);
+    }
+  });
+
+  // Selection to brush - remote user converted selection to brush
+  wrapHandler('sel_to_brush', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleSelectionToBrush(user, data.brushData);
+    }
+  });
+
+  // Image paste - remote user pasted image content
+  wrapHandler('img_paste', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleImagePaste(user, data);
+    }
+  });
+
+  // Pass handler map to sync client for replay
+  if (app.syncClient) {
+    app.syncClient.setHandlerMap(handlerMap);
+  }
 }
