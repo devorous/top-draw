@@ -112,6 +112,7 @@ message Msg {
     uint32 sm = 12;     // Smoothing * 100
     uint32 hd = 13;     // Hardness * 100
     uint32 role = 14;   // 0=guest,1=user,2=mod,3=admin
+    bool ch = 15;       // Cursor hidden
   }
   repeated U us = 17;   // Users array
 

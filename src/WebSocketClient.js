@@ -194,7 +194,8 @@ export class WebSocketClient {
           pressure: (u.p ?? 100) / 100,
           name: u.n || '',
           text: u.tx || '',
-          role: u.role || 0
+          role: u.role || 0,
+          cursorHidden: u.ch || false
         }));
         this.emit('users', { users });
         break;
