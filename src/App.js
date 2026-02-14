@@ -378,6 +378,7 @@ export class DrawingApp {
     // Editable slider values
     this.ui.makeValueEditable(elements.sizeValue, {
       min: 0.25, max: 100, step: 0.25, suffix: '',
+      dragStep: (val) => val >= 5 ? 1 : 0.5,
       onCommit: (val) => {
         this.self.setSize(val);
         elements.sizeSlider.value = val;
@@ -431,83 +432,141 @@ export class DrawingApp {
       }
     });
 
-    // Pressure range value editing (special: two numbers "min - max%")
-    elements.pressureValue.addEventListener('click', () => {
-      if (elements.pressureValue.querySelector('.sliderValueInput')) return;
+    // Pressure range value: drag to adjust max pressure, click to edit both
+    {
+      const pressureSpan = elements.pressureValue;
+      const DRAG_THRESHOLD = 3;
+      let dragState = null;
 
-      const minVal = Number(elements.pressureMinSlider.value);
-      const maxVal = Number(elements.pressureMaxSlider.value);
-      const originalText = elements.pressureValue.textContent;
+      const openPressureEditor = () => {
+        if (pressureSpan.querySelector('.sliderValueInput')) return;
 
-      const minInput = document.createElement('input');
-      minInput.type = 'number';
-      minInput.className = 'sliderValueInput';
-      minInput.min = 0;
-      minInput.max = 100;
-      minInput.step = 1;
-      minInput.value = minVal;
-      minInput.style.width = '36px';
+        const minVal = Number(elements.pressureMinSlider.value);
+        const maxVal = Number(elements.pressureMaxSlider.value);
+        const originalText = pressureSpan.textContent;
 
-      const sep = document.createTextNode('-');
+        const minInput = document.createElement('input');
+        minInput.type = 'number';
+        minInput.className = 'sliderValueInput';
+        minInput.min = 0;
+        minInput.max = 100;
+        minInput.step = 1;
+        minInput.value = minVal;
+        minInput.style.width = '36px';
 
-      const maxInput = document.createElement('input');
-      maxInput.type = 'number';
-      maxInput.className = 'sliderValueInput';
-      maxInput.min = 0;
-      maxInput.max = 100;
-      maxInput.step = 1;
-      maxInput.value = maxVal;
-      maxInput.style.width = '36px';
+        const sep = document.createTextNode('-');
 
-      elements.pressureValue.textContent = '';
-      elements.pressureValue.appendChild(minInput);
-      elements.pressureValue.appendChild(sep);
-      elements.pressureValue.appendChild(maxInput);
-      minInput.focus();
-      minInput.select();
+        const maxInput = document.createElement('input');
+        maxInput.type = 'number';
+        maxInput.className = 'sliderValueInput';
+        maxInput.min = 0;
+        maxInput.max = 100;
+        maxInput.step = 1;
+        maxInput.value = maxVal;
+        maxInput.style.width = '36px';
 
-      const commit = () => {
-        let mn = Math.max(0, Math.min(100, parseInt(minInput.value) || 0));
-        let mx = Math.max(0, Math.min(100, parseInt(maxInput.value) || 100));
-        if (mn > mx) mn = mx;
-        elements.pressureMinSlider.value = mn;
-        elements.pressureMaxSlider.value = mx;
-        this.ui.updatePressureValue(mn, mx);
-      };
+        pressureSpan.textContent = '';
+        pressureSpan.appendChild(minInput);
+        pressureSpan.appendChild(sep);
+        pressureSpan.appendChild(maxInput);
+        minInput.focus();
+        minInput.select();
 
-      const cancel = () => {
-        elements.pressureValue.textContent = originalText;
-      };
+        const commit = () => {
+          let mn = Math.max(0, Math.min(100, parseInt(minInput.value) || 0));
+          let mx = Math.max(0, Math.min(100, parseInt(maxInput.value) || 100));
+          if (mn > mx) mn = mx;
+          elements.pressureMinSlider.value = mn;
+          elements.pressureMaxSlider.value = mx;
+          this.ui.updatePressureValue(mn, mx);
+        };
 
-      const onKey = (ke) => {
-        if (ke.key === 'Enter') {
-          ke.preventDefault();
-          minInput.removeEventListener('blur', onBlur);
-          maxInput.removeEventListener('blur', onBlur);
-          commit();
-        } else if (ke.key === 'Escape') {
-          ke.preventDefault();
-          minInput.removeEventListener('blur', onBlur);
-          maxInput.removeEventListener('blur', onBlur);
-          cancel();
-        }
-        ke.stopPropagation();
-      };
+        const cancel = () => {
+          pressureSpan.textContent = originalText;
+        };
 
-      const onBlur = (be) => {
-        // Delay to check if focus moved to the other input
-        setTimeout(() => {
-          if (document.activeElement !== minInput && document.activeElement !== maxInput) {
+        const onKey = (ke) => {
+          if (ke.key === 'Enter') {
+            ke.preventDefault();
+            minInput.removeEventListener('blur', onBlur);
+            maxInput.removeEventListener('blur', onBlur);
             commit();
+          } else if (ke.key === 'Escape') {
+            ke.preventDefault();
+            minInput.removeEventListener('blur', onBlur);
+            maxInput.removeEventListener('blur', onBlur);
+            cancel();
           }
-        }, 0);
+          ke.stopPropagation();
+        };
+
+        const onBlur = (be) => {
+          setTimeout(() => {
+            if (document.activeElement !== minInput && document.activeElement !== maxInput) {
+              commit();
+            }
+          }, 0);
+        };
+
+        minInput.addEventListener('keydown', onKey);
+        maxInput.addEventListener('keydown', onKey);
+        minInput.addEventListener('blur', onBlur);
+        maxInput.addEventListener('blur', onBlur);
       };
 
-      minInput.addEventListener('keydown', onKey);
-      maxInput.addEventListener('keydown', onKey);
-      minInput.addEventListener('blur', onBlur);
-      maxInput.addEventListener('blur', onBlur);
-    });
+      pressureSpan.addEventListener('pointerdown', (e) => {
+        if (pressureSpan.querySelector('.sliderValueInput')) return;
+        e.preventDefault();
+
+        dragState = {
+          startY: e.clientY,
+          startMax: Number(elements.pressureMaxSlider.value),
+          startMin: Number(elements.pressureMinSlider.value),
+          dragging: false,
+          pointerId: e.pointerId
+        };
+
+        pressureSpan.setPointerCapture(e.pointerId);
+      });
+
+      pressureSpan.addEventListener('pointermove', (e) => {
+        if (!dragState) return;
+
+        const dy = dragState.startY - e.clientY;
+
+        if (!dragState.dragging) {
+          if (Math.abs(dy) < DRAG_THRESHOLD) return;
+          dragState.dragging = true;
+          pressureSpan.classList.add('dragging');
+          document.body.classList.add('parameter-dragging');
+        }
+
+        let sensitivity = 1;
+        if (e.shiftKey) sensitivity = 10;
+        else if (e.altKey) sensitivity = 0.1;
+
+        let mx = Math.round(dragState.startMax + dy * sensitivity);
+        mx = Math.max(dragState.startMin, Math.min(100, mx));
+
+        elements.pressureMaxSlider.value = mx;
+        this.ui.updatePressureValue(dragState.startMin, mx);
+      });
+
+      const endPressureDrag = () => {
+        if (!dragState) return;
+        const wasDragging = dragState.dragging;
+        pressureSpan.classList.remove('dragging');
+        document.body.classList.remove('parameter-dragging');
+        dragState = null;
+
+        if (!wasDragging) {
+          openPressureEditor();
+        }
+      };
+
+      pressureSpan.addEventListener('pointerup', endPressureDrag);
+      pressureSpan.addEventListener('pointercancel', endPressureDrag);
+    }
 
     // Selection mode radio buttons
     const selectionModeRadios = document.querySelectorAll('input[name="selectionMode"]');

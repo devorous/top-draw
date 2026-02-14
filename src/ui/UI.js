@@ -379,15 +379,19 @@ export class UI {
   }
 
   /**
-   * Make a slider value span clickable to edit the value directly.
+   * Make a slider value span interactive:
+   * - Click: opens a text input for precise editing
+   * - Drag up/down: parameter ladder (scrub to adjust value)
    * @param {HTMLElement} spanEl - The .sliderValue span element
    * @param {Object} opts - { min, max, step, suffix, onCommit(val) }
    */
   makeValueEditable(spanEl, opts) {
-    const { min, max, step, suffix = '', onCommit } = opts;
+    const { min, max, step, suffix = '', onCommit, dragStep } = opts;
+    const DRAG_THRESHOLD = 3; // px of vertical movement before drag starts
 
-    spanEl.addEventListener('click', (e) => {
-      // Prevent re-entry if already editing
+    let dragState = null;
+
+    const openEditor = () => {
       if (spanEl.querySelector('.sliderValueInput')) return;
 
       const originalText = spanEl.textContent;
@@ -410,9 +414,8 @@ export class UI {
         let val = parseFloat(input.value);
         if (isNaN(val)) val = min;
         val = Math.max(min, Math.min(max, val));
-        // Round to step precision
         val = Math.round(val / step) * step;
-        val = parseFloat(val.toFixed(10)); // Clean floating point artifacts
+        val = parseFloat(val.toFixed(10));
 
         spanEl.textContent = suffix ? `${val}${suffix}` : String(val);
         onCommit(val);
@@ -433,9 +436,73 @@ export class UI {
           input.removeEventListener('blur', commit);
           cancel();
         }
-        ke.stopPropagation(); // Prevent tool shortcuts while editing
+        ke.stopPropagation();
       });
+    };
+
+    spanEl.addEventListener('pointerdown', (e) => {
+      if (spanEl.querySelector('.sliderValueInput')) return;
+      e.preventDefault();
+
+      const currentText = spanEl.textContent;
+      const startVal = parseFloat(currentText.replace(suffix, '').trim()) || min;
+
+      dragState = {
+        startY: e.clientY,
+        startVal,
+        dragging: false,
+        pointerId: e.pointerId
+      };
+
+      spanEl.setPointerCapture(e.pointerId);
     });
+
+    spanEl.addEventListener('pointermove', (e) => {
+      if (!dragState) return;
+
+      const dy = dragState.startY - e.clientY; // up = positive
+
+      if (!dragState.dragging) {
+        if (Math.abs(dy) < DRAG_THRESHOLD) return;
+        dragState.dragging = true;
+        spanEl.classList.add('dragging');
+        document.body.classList.add('parameter-dragging');
+      }
+
+      // Use dragStep function for dynamic step sizes, or fall back to fixed step
+      const currentStep = dragStep ? dragStep(dragState.lastVal ?? dragState.startVal) : step;
+
+      let sensitivity = currentStep;
+      if (e.shiftKey) sensitivity = currentStep * 10;
+      else if (e.altKey) sensitivity = currentStep * 0.1;
+
+      let val = dragState.startVal + dy * sensitivity;
+      val = Math.max(min, Math.min(max, val));
+      // Snap to the appropriate step for the current value
+      const snapStep = dragStep ? dragStep(val) : step;
+      val = Math.round(val / snapStep) * snapStep;
+      val = parseFloat(val.toFixed(10));
+      dragState.lastVal = val;
+
+      spanEl.textContent = suffix ? `${val}${suffix}` : String(val);
+      onCommit(val);
+    });
+
+    const endDrag = (e) => {
+      if (!dragState) return;
+      const wasDragging = dragState.dragging;
+      spanEl.classList.remove('dragging');
+      document.body.classList.remove('parameter-dragging');
+      dragState = null;
+
+      // If it was a click (no drag), open the text editor
+      if (!wasDragging) {
+        openEditor();
+      }
+    };
+
+    spanEl.addEventListener('pointerup', endDrag);
+    spanEl.addEventListener('pointercancel', endDrag);
   }
 
   hideRemoteCursor(userId) {

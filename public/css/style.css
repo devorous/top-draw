@@ -10,7 +10,7 @@
   --bg-elevated: #363c4a;
 
   --surface-glass: rgba(45, 50, 60, 0.85);
-  --surface-overlay: rgba(0, 0, 0, 0.6);
+  --surface-overlay: rgba(0, 0, 0, 0.35);
 
   --accent-primary: #00d4aa;
   --accent-secondary: #00b894;
@@ -78,7 +78,7 @@ body {
   position: fixed;
   inset: 0;
   background: var(--surface-overlay);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(3px);
   z-index: 100;
 }
 
@@ -1635,11 +1635,23 @@ canvas {
    ======================================== */
 
 .sliderValue {
-  cursor: pointer;
+  cursor: ns-resize;
+  user-select: none;
+  touch-action: none;
 }
 
 .sliderValue:hover {
   outline: 1px solid var(--accent-primary);
+}
+
+.sliderValue.dragging {
+  outline: 1px solid var(--accent-primary);
+  background: var(--bg-primary);
+}
+
+body.parameter-dragging,
+body.parameter-dragging * {
+  cursor: ns-resize !important;
 }
 
 .sliderValueInput {
@@ -1655,6 +1667,13 @@ canvas {
   text-align: center;
   outline: none;
   box-shadow: 0 0 0 2px var(--accent-glow);
+  -moz-appearance: textfield;
+}
+
+.sliderValueInput::-webkit-inner-spin-button,
+.sliderValueInput::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 /* ========================================

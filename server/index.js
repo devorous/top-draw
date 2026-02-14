@@ -211,6 +211,8 @@ function updateUserActivity(sessionIndex) {
 function checkAfkUsers() {
   const now = Date.now();
   users.forEach((user, sessionIndex) => {
+    // Skip spectators (no name yet)
+    if (!user.name) return;
     if (!user.afk && user.lastActivity && (now - user.lastActivity > AFK_TIMEOUT)) {
       user.afk = true;
       broadcastToAll({ t: T.AFK, u: sessionIndex, a: true });
@@ -291,6 +293,12 @@ function handleBroadcast(data, sessionIndex) {
       }
       updateUserActivity(sessionIndex);
       break;
+    case T.HIDE_CURSOR:
+      user.cursorHidden = true;
+      break;
+    case T.SHOW_CURSOR:
+      user.cursorHidden = false;
+      break;
     case T.MIR:
       boardSettings.mirror = !boardSettings.mirror;
       break;
@@ -360,6 +368,7 @@ wss.on('connection', (ws, req) => {
           const newUser = {
             sessionIndex,
             afk: false,
+            cursorHidden: true, // Hidden until user enters the board
             lastActivity: Date.now(),
             x: 0, y: 0, lastx: 0, lasty: 0,
             mousedown: false,
@@ -380,25 +389,28 @@ wss.on('connection', (ws, req) => {
           // Send session index back to connecting user
           sendTo(ws, { t: T.CONNECT, u: sessionIndex });
 
-          // Send current users to all
+          // Send current joined users to all (only users with a name)
           broadcastToAll({
             t: T.USERS,
-            us: Array.from(users.values()).map(u => ({
-              u: u.sessionIndex,
-              a: u.afk,
-              x: u.x,
-              y: u.y,
-              l: u.tool,
-              c: u.color,
-              s: u.size,
-              sp: u.spacing,
-              sm: u.smoothing,
-              hd: u.hardness,
-              p: u.pressure,
-              n: u.name,
-              tx: u.text,
-              role: u.role || Role.GUEST
-            }))
+            us: Array.from(users.values())
+              .filter(u => u.name)
+              .map(u => ({
+                u: u.sessionIndex,
+                a: u.afk,
+                x: u.x,
+                y: u.y,
+                l: u.tool,
+                c: u.color,
+                s: u.size,
+                sp: u.spacing,
+                sm: u.smoothing,
+                hd: u.hardness,
+                p: u.pressure,
+                n: u.name,
+                tx: u.text,
+                role: u.role || Role.GUEST,
+                ch: u.cursorHidden || false
+              }))
           });
 
           // Send board settings to new user
@@ -409,12 +421,12 @@ wss.on('connection', (ws, req) => {
           // New user wants canvas state - find an existing user to provide it
           console.log(`[Sync] User ${ws.sessionIndex} requested sync`);
 
-          // Find another connected user to provide the canvas
+          // Find another connected user who has joined (has a name) to provide the canvas
           let providerFound = false;
           for (const [sessionIndex, userData] of users) {
-            if (sessionIndex !== ws.sessionIndex) {
-              // Found another user - ask them to provide canvas
-              console.log(`[Sync] Asking user ${sessionIndex} to provide canvas for user ${ws.sessionIndex}`);
+            if (sessionIndex !== ws.sessionIndex && userData.name) {
+              // Found a joined user - ask them to provide canvas
+              console.log(`[Sync] Asking user ${sessionIndex} (${userData.name}) to provide canvas for user ${ws.sessionIndex}`);
 
               // Track this pending request
               pendingSyncRequests.set(ws.sessionIndex, true);

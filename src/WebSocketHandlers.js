@@ -56,6 +56,11 @@ export function setupWebSocketHandlers(app) {
           // Only show in user list / cursor if they have a name (have joined)
           if (username) {
             ui.createRemoteUser(userData.sessionIndex, userOptions);
+
+            // Hide cursor if user's cursor was hidden (e.g. pointer off-board)
+            if (userData.cursorHidden) {
+              ui.hideRemoteCursor(userData.sessionIndex);
+            }
           }
         }
 
