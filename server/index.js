@@ -232,8 +232,14 @@ function handleBroadcast(data, sessionIndex) {
         const len = data.ps.length;
         user.lastx = user.x; // Old position is now last
         user.lasty = user.y;
-        user.x = data.ps[len - 2]; // Second to last element is X
-        user.y = data.ps[len - 1]; // Last element is Y
+        // FlowPen (PEN tool) sends triplets [x, y, r, ...] when drawing
+        if (user.tool === Tool.PEN && user.mousedown && len >= 3) {
+          user.x = data.ps[len - 3]; // Third to last element is X
+          user.y = data.ps[len - 2]; // Second to last element is Y
+        } else {
+          user.x = data.ps[len - 2]; // Second to last element is X
+          user.y = data.ps[len - 1]; // Last element is Y
+        }
       }
       updateUserActivity(sessionIndex);
       break;

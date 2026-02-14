@@ -41,7 +41,6 @@ export class UI {
 
       selectBtn: document.getElementById('selectBtn'),
       brushBtn: document.getElementById('brushBtn'),
-      flowPenBtn: document.getElementById('flowPenBtn'),
       lineBtn: document.getElementById('lineBtn'),
       rectangleBtn: document.getElementById('rectangleBtn'),
       circleBtn: document.getElementById('circleBtn'),
@@ -90,6 +89,7 @@ export class UI {
       imageBrushOpacityContainer: document.getElementById('image-brush-opacity'),
 
       selectionModeOptions: document.getElementById('selectionModeOptions'),
+      brushModeOptions: document.getElementById('brushModeOptions'),
 
       // Lock buttons
       sizeLock: document.getElementById('sizeLock'),
@@ -131,6 +131,7 @@ export class UI {
       select: this.createIcon('images/select-icon.svg'),
       brush: this.createIcon('images/brush-icon.svg'),
       pen: this.createIcon('images/pen-icon.svg'),
+      flowPen: this.createIcon('images/pen-icon.svg'),
       line: this.createIcon('images/line-icon.svg'),
       rectangle: this.createIcon('images/rectangle-icon.svg'),
       circle: this.createIcon('images/circle-icon.svg'),
@@ -192,7 +193,7 @@ export class UI {
   }
 
   updateToolDisplay(tool) {
-    const { selfCircle, selfSquare, selfCrosshair, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, imageBrushOpacityContainer, selectionModeOptions } = this.elements;
+    const { selfCircle, selfSquare, selfCrosshair, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, imageBrushOpacityContainer, selectionModeOptions, brushModeOptions } = this.elements;
 
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
@@ -206,6 +207,9 @@ export class UI {
     if (selectionModeOptions) {
       selectionModeOptions.style.display = 'none';
     }
+    if (brushModeOptions) {
+      brushModeOptions.style.display = 'none';
+    }
 
     switch (tool) {
       case 'select':
@@ -215,9 +219,18 @@ export class UI {
         }
         break;
       case 'brush':
+        selfCircle.style.display = 'block';
+        brushHardness.style.display = 'block';
+        if (brushModeOptions) {
+          brushModeOptions.style.display = 'block';
+        }
+        break;
       case 'flowPen':
         selfCircle.style.display = 'block';
         brushHardness.style.display = 'block';
+        if (brushModeOptions) {
+          brushModeOptions.style.display = 'block';
+        }
         break;
       case 'line':
       case 'rectangle':
@@ -247,7 +260,6 @@ export class UI {
     const buttons = {
       select: this.elements.selectBtn,
       brush: this.elements.brushBtn,
-      flowPen: this.elements.flowPenBtn,
       line: this.elements.lineBtn,
       rectangle: this.elements.rectangleBtn,
       circle: this.elements.circleBtn,
@@ -256,9 +268,11 @@ export class UI {
       imageBrush: this.elements.imageBrushBtn
     };
 
-    Object.values(buttons).forEach(btn => btn.classList.remove('selected'));
-    if (buttons[tool]) {
-      buttons[tool].classList.add('selected');
+    Object.values(buttons).forEach(btn => btn && btn.classList.remove('selected'));
+    // Map flowPen to brush button (unified brush)
+    const buttonTool = tool === 'flowPen' ? 'brush' : tool;
+    if (buttons[buttonTool]) {
+      buttons[buttonTool].classList.add('selected');
     }
 
     const toolIcon = this.icons[tool];
@@ -282,6 +296,13 @@ export class UI {
   updateDevModeDisplay(enabled) {
     this.elements.devText.textContent = enabled ? 'ON' : 'OFF';
     this.elements.devText.classList.toggle('active', enabled);
+  }
+
+  updateBrushModeDisplay(mode) {
+    const radios = document.querySelectorAll('input[name="brushMode"]');
+    radios.forEach(r => {
+      r.checked = (r.value === mode);
+    });
   }
 
   updateSelfColor(color) {

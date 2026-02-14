@@ -77,7 +77,18 @@ export class RemoteUserHandler {
     const points = data.ps;
     if (!points || points.length < 2) return;
 
-    // Process each point in the batch
+    // FlowPen sends stamp triplets [x, y, r, ...] — handle separately from pair-based tools
+    if (!user.panning && user.mousedown && user.tool === 'flowPen') {
+      this.handlePenStamps(user, points);
+      // Update cursor from last triplet
+      if (points.length >= 3) {
+        const lastIdx = points.length - 3;
+        this.ui.updateRemoteCursor(user.id, points[lastIdx], points[lastIdx + 1], user.size);
+      }
+      return;
+    }
+
+    // Process each point in the batch (pair-based: [x, y, x, y, ...])
     for (let i = 0; i < points.length; i += 2) {
       const x = points[i];
       const y = points[i + 1];
@@ -122,10 +133,6 @@ export class RemoteUserHandler {
             if (user.imageBrush) {
               this.toolManager.getTool('imageBrush').draw(user, pos);
             }
-            break;
-
-          case 'flowPen':
-            this.handlePenMove(user, pos);
             break;
 
           case 'line':
@@ -1287,6 +1294,43 @@ export class RemoteUserHandler {
     user.penPoints = [{ x: pos.x, y: pos.y, radius }];
 
     // Update preview
+    this.updatePenPreview(user);
+  }
+
+  handlePenStamps(user, stamps) {
+    if (!user._penOffscreenCtx || stamps.length < 3) return;
+
+    const ctx = user._penOffscreenCtx;
+    ctx.fillStyle = user._penStrokeColor;
+
+    // Apply softness
+    if (user._penHardness < 1.0) {
+      const avgR = stamps.length >= 3 ? stamps[2] : user.size;
+      const blurAmount = (1 - user._penHardness) * avgR * 1.2;
+      ctx.shadowBlur = blurAmount;
+      ctx.shadowColor = user._penStrokeColor;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+    } else {
+      ctx.shadowBlur = 0;
+    }
+
+    // Stamp each triplet directly — no re-interpolation
+    for (let i = 0; i < stamps.length; i += 3) {
+      const x = stamps[i];
+      const y = stamps[i + 1];
+      const r = stamps[i + 2];
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.shadowBlur = 0;
+
+    // Update last stamp pos and preview
+    const lastIdx = stamps.length - 3;
+    user._penLastStampPos = { x: stamps[lastIdx], y: stamps[lastIdx + 1], radius: stamps[lastIdx + 2] };
+    user.setPosition(stamps[lastIdx], stamps[lastIdx + 1]);
     this.updatePenPreview(user);
   }
 

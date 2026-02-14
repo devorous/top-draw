@@ -254,11 +254,8 @@
           <a class="tool btn" id="selectBtn" title="Select (S)">
             <img src="/images/select-icon.svg" alt="Select">
           </a>
-          <a class="tool btn selected" id="brushBtn" title="Brush (B)">
+          <a class="tool btn selected" id="brushBtn" title="Brush (B/P)">
             <img src="/images/brush-icon.svg" alt="Brush">
-          </a>
-          <a class="tool btn" id="flowPenBtn" title="Flow Pen (P)">
-            <img src="/images/pen-icon.svg" alt="Flow Pen">
           </a>
           <a class="tool btn" id="lineBtn" title="Line (L)">
             <img src="/images/line-icon.svg" alt="Line">
@@ -356,6 +353,23 @@
                   <label class="radio-option">
                     <input type="radio" name="selectionMode" value="rectangle">
                     <span>Rectangle</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Brush Mode Options -->
+            <div id="brushModeOptions" style="display: none;">
+              <div class="selection-mode-container">
+                <label>Brush Mode</label>
+                <div class="radio-group">
+                  <label class="radio-option">
+                    <input type="radio" name="brushMode" value="fluid" checked>
+                    <span>Fluid</span>
+                  </label>
+                  <label class="radio-option">
+                    <input type="radio" name="brushMode" value="classic">
+                    <span>Classic</span>
                   </label>
                 </div>
               </div>
