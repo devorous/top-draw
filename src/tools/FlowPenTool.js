@@ -30,6 +30,12 @@ export class FlowPenTool extends Tool {
     // Smoothing buffer for stroke stabilization
     this.smoothBuffer = { x: 0, y: 0 };
     this.isFirstPoint = true;
+    // Stillness timer
+    this.stillnessTimer = null;
+    this.lastTargetPos = null;
+    this.currentUser = null;
+    // Stamp buffer for remote sync — collects exact stamp positions as triplets [x, y, r, ...]
+    this.stampBuffer = [];
   }
 
   /**
@@ -120,11 +126,21 @@ export class FlowPenTool extends Tool {
     // Store points for reference
     user.penPoints = [{ x: smoothedPos.x, y: smoothedPos.y, radius }];
 
+    // Store user and position for stillness timer
+    this.currentUser = user;
+    this.lastTargetPos = { x: pos.x, y: pos.y };
+    this.resetStillnessTimer();
+
     this.drawPreview(user);
   }
 
   onPointerMove(user, pos, lastPos, e) {
     if (!user.mousedown || user.panning || !this.lastStampPos) return;
+
+    // Update target position and reset stillness timer
+    this.lastTargetPos = { x: pos.x, y: pos.y };
+    this.currentUser = user;
+    this.resetStillnessTimer();
 
     // Apply smoothing
     const smoothing = user.smoothing || 0;
@@ -133,7 +149,7 @@ export class FlowPenTool extends Tool {
     const pressure = this.quantizePressure(user.pressure);
     const radius = pressure * user.size;
 
-    // Adaptive spacing: stamp when distance >= 20% of average radius
+    // Adaptive spacing: 20% of average radius
     const avgRadius = (this.lastStampPos.radius + radius) / 2;
     const spacing = Math.max(1, avgRadius * 0.2);
     const distance = this.getDistance(this.lastStampPos, smoothedPos);
@@ -158,6 +174,32 @@ export class FlowPenTool extends Tool {
 
   onPointerUp(user, pos, e) {
     if (user.panning || !this.offscreenCanvas) return;
+
+    // Clear stillness timer
+    this.clearStillnessTimer();
+
+    // Stamp to the exact final position (unsmoothed) to close any gap
+    if (this.lastStampPos) {
+      const pressure = this.quantizePressure(user.pressure);
+      const radius = pressure * user.size;
+
+      // Calculate spacing for interpolation
+      const avgRadius = (this.lastStampPos.radius + radius) / 2;
+      const spacing = Math.max(1, avgRadius * 0.2);
+      const distance = this.getDistance(this.lastStampPos, pos);
+
+      // Interpolate stamps from last position to exact final position
+      if (distance > 0.5) {
+        const steps = Math.max(1, Math.ceil(distance / spacing));
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps;
+          const x = this.lastStampPos.x + (pos.x - this.lastStampPos.x) * t;
+          const y = this.lastStampPos.y + (pos.y - this.lastStampPos.y) * t;
+          const r = this.lastStampPos.radius + (radius - this.lastStampPos.radius) * t;
+          this.stampCircle(x, y, r);
+        }
+      }
+    }
 
     // Clear preview FIRST to prevent composite boldness
     this.board.clearTop();
@@ -201,6 +243,9 @@ export class FlowPenTool extends Tool {
     ctx.arc(x, y, Math.max(0.5, radius), 0, Math.PI * 2);
     ctx.fill();
 
+    // Collect stamp position for remote sync
+    this.stampBuffer.push(x, y, radius);
+
     // Reset shadow
     ctx.shadowBlur = 0;
   }
@@ -225,12 +270,60 @@ export class FlowPenTool extends Tool {
     ctx.globalAlpha = 1.0;
   }
 
+  drainStampBuffer() {
+    const stamps = this.stampBuffer;
+    this.stampBuffer = [];
+    return stamps;
+  }
+
   clearStroke() {
     if (this.offscreenCtx) {
       this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
     }
     this.lastStampPos = null;
+    this.stampBuffer = [];
     // Clear the preview from the top canvas as well
     this.board.clearTop();
+  }
+
+  resetStillnessTimer() {
+    this.clearStillnessTimer();
+    this.stillnessTimer = setTimeout(() => {
+      this.stampAtTarget();
+    }, 50); // 0.05 seconds
+  }
+
+  clearStillnessTimer() {
+    if (this.stillnessTimer) {
+      clearTimeout(this.stillnessTimer);
+      this.stillnessTimer = null;
+    }
+  }
+
+  stampAtTarget() {
+    if (!this.currentUser || !this.lastTargetPos || !this.lastStampPos) return;
+    if (!this.currentUser.mousedown || this.currentUser.panning) return;
+
+    const pressure = this.quantizePressure(this.currentUser.pressure);
+    const radius = pressure * this.currentUser.size;
+
+    // Stamp at exact target position
+    this.stampCircle(this.lastTargetPos.x, this.lastTargetPos.y, radius);
+    this.lastStampPos = { x: this.lastTargetPos.x, y: this.lastTargetPos.y, radius };
+
+    this.board.clearTop();
+    this.drawPreview(this.currentUser);
+
+    // Broadcast stamp triplets to other users
+    if (this.board.app && this.board.app.wsClient) {
+      const stamps = this.drainStampBuffer();
+      if (stamps.length > 0) {
+        this.board.app.wsClient.broadcastMove(stamps);
+      }
+    }
+  }
+
+  deactivate() {
+    this.clearStillnessTimer();
   }
 }
