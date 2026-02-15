@@ -15,7 +15,7 @@ const POINT_SAMPLE_DISTANCE = 5;   // Min distance between sampled points
 const MERGE_DISTANCE = 30;         // Auto-merge regions within 30px
 
 // Tools that create regions (brush-type tools)
-const REGION_TOOLS = ['brush', 'flowPen', 'imageBrush'];
+const REGION_TOOLS = ['brush', 'flowPen', 'ink', 'imageBrush'];
 
 export class RegionTracker extends EventTarget {
   constructor() {

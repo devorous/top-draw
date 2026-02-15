@@ -72,6 +72,7 @@ message Msg {
     LINE = 6;
     RECTANGLE = 7;
     CIRCLE = 8;
+    INK = 9;
   }
 
   // === High-frequency fields (1-15 = 1-byte tags) ===

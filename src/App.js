@@ -187,7 +187,7 @@ export class DrawingApp {
     this.setupEventListeners();
     setupWebSocketHandlers(this);
 
-    const initialTool = this.brushMode === 'fluid' ? 'flowPen' : 'brush';
+    const initialTool = this.brushMode === 'fluid' ? 'flowPen' : this.brushMode === 'ink' ? 'ink' : 'brush';
     this.self.setTool(initialTool);
     this.toolManager.setTool(initialTool);
     this.ui.updateToolDisplay(initialTool);
@@ -275,7 +275,7 @@ export class DrawingApp {
     elements.disconnectBtn.addEventListener('click', () => this.disconnect());
     elements.selectBtn.addEventListener('click', () => this.selectTool('select'));
     elements.brushBtn.addEventListener('click', () => {
-      const tool = this.brushMode === 'fluid' ? 'flowPen' : 'brush';
+      const tool = this.brushMode === 'fluid' ? 'flowPen' : this.brushMode === 'ink' ? 'ink' : 'brush';
       this.selectTool(tool);
     });
     elements.lineBtn.addEventListener('click', () => this.selectTool('line'));
@@ -641,6 +641,7 @@ export class DrawingApp {
     this.sessionIndex = sessionIndex;
     this.self.id = sessionIndex;
     this.users.set(sessionIndex, this.self);
+    this.wsClient.broadcastToolChange(this.self.tool);
 
     // Request sync immediately on connect (before login/username selection)
     // so the board is already syncing while the user enters their name
@@ -828,6 +829,13 @@ export class DrawingApp {
         if (stampPs.length > 0) {
           this.wsClient.broadcastStampMove(stampPs, stampRs);
         }
+      } else if (this.self.tool === 'ink' && this.self.mousedown && !this.self.panning) {
+        // Ink: send raw points + pressures via rs field
+        const tool = this.toolManager.getCurrentTool();
+        const { ps: fhPs, rs: fhRs } = tool.drainPointBuffer();
+        if (fhPs.length > 0) {
+          this.wsClient.broadcastStampMove(fhPs, fhRs);
+        }
       } else {
         let broadcastPoints;
         if (this.self.mousedown && !this.self.panning) {
@@ -865,7 +873,7 @@ export class DrawingApp {
     const tool = this.toolManager.getCurrentTool();
     if (!tool || !tool.smoothBuffer) return false;
 
-    // Only catch up for tools that use smoothing
+    // Only catch up for tools that use EMA smoothing (not ink - it uses its own streamline)
     const smoothingTools = ['brush', 'flowPen'];
     if (!smoothingTools.includes(this.self.tool)) return false;
 
@@ -1090,6 +1098,11 @@ export class DrawingApp {
       } else if (this.self.tool === 'flowPen' && this.self.penPoints && this.self.penPoints.length > 0) {
         const penTool = this.toolManager.getTool('flowPen');
         penTool.onPointerUp(this.self, { x: this.self.x, y: this.self.y });
+      } else if (this.self.tool === 'ink') {
+        const inkTool = this.toolManager.getTool('ink');
+        if (inkTool && inkTool.inputPoints && inkTool.inputPoints.length > 0) {
+          inkTool.onPointerUp(this.self, { x: this.self.x, y: this.self.y });
+        }
       }
       this.self.mousedown = false;
       this.wsClient.broadcastMouseUp();
@@ -1102,9 +1115,9 @@ export class DrawingApp {
       this.saveLockedValues(previousTool);
     }
 
-    // Update brush mode state when switching to brush/flowPen
-    if (tool === 'brush' || tool === 'flowPen') {
-      this.brushMode = tool === 'flowPen' ? 'fluid' : 'classic';
+    // Update brush mode state when switching to brush/flowPen/ink
+    if (tool === 'brush' || tool === 'flowPen' || tool === 'ink') {
+      this.brushMode = tool === 'flowPen' ? 'fluid' : tool === 'ink' ? 'ink' : 'classic';
       this.saveBrushMode();
       this.ui.updateBrushModeDisplay(this.brushMode);
     }
@@ -1139,7 +1152,7 @@ export class DrawingApp {
     this.brushMode = mode;
     this.saveBrushMode();
 
-    const toolName = mode === 'fluid' ? 'flowPen' : 'brush';
+    const toolName = mode === 'fluid' ? 'flowPen' : mode === 'ink' ? 'ink' : 'brush';
     this.selectTool(toolName);
   }
 
@@ -1370,6 +1383,7 @@ export class DrawingApp {
         this.self.setPressure(pressure);
         this.inputBuffer.pressure = pressure;
         this.wsClient.broadcastPressureChange(pressure);
+        this.wsClient.broadcastMouseDown();
 
         const tool = this.toolManager.getCurrentTool();
         if (tool) {
@@ -1379,15 +1393,20 @@ export class DrawingApp {
           if (this.self.tool === 'flowPen' && tool.drainStampBuffer) {
             tool.drainStampBuffer();
           }
+          if (this.self.tool === 'ink' && tool.drainPointBuffer) {
+            tool.drainPointBuffer();
+          }
 
           this.debugOverlay.startStrokeTracking(this.self.id, true);
           this.debugOverlay.addStrokePoint(this.self.id, pending.pos.x, pending.pos.y, 'pointerDown');
         }
       } else if (pressure !== this.inputBuffer.pressure) {
         // Commit BEFORE updating pressure so old segment draws at correct width
-        if (pressure !== this.self.pressure && this.self.mousedown && this.self.tool === 'brush') {
+        if (pressure !== this.self.pressure && this.self.mousedown) {
           this.wsClient.broadcastPressureChange(pressure);
-          this.commitSelfLine(pressure, this.self.size);
+          if (this.self.tool === 'brush') {
+            this.commitSelfLine(pressure, this.self.size);
+          }
         }
         this.self.setPressure(pressure);
         this.inputBuffer.pressure = pressure;
@@ -1472,7 +1491,13 @@ export class DrawingApp {
     this.self.spaceIndex = 0;
     this.self._mainCtxDrawCount = 0; // Reset draw counter for this stroke
 
-    this.wsClient.broadcastMouseDown();
+    // Defer broadcastMouseDown for pen input — pressure isn't known yet at pointerDown,
+    // so sending MD now would cause the remote side to draw the initial dot at max size.
+    // It will be sent when _pendingPenDown is resolved in handlePointerMove.
+    const deferBroadcast = e.pointerType === 'pen' && this.pressureEnabled && !this.self.panning;
+    if (!deferBroadcast) {
+      this.wsClient.broadcastMouseDown();
+    }
 
     if (!this.self.panning) {
       const tool = this.toolManager.getCurrentTool();
@@ -1497,6 +1522,9 @@ export class DrawingApp {
           // Discard initial stamp from buffer — remote already stamps via handlePenDown (MD)
           if (this.self.tool === 'flowPen' && tool.drainStampBuffer) {
             tool.drainStampBuffer();
+          }
+          if (this.self.tool === 'ink' && tool.drainPointBuffer) {
+            tool.drainPointBuffer();
           }
 
           // Debug: Start tracking stroke points for local user
@@ -1574,6 +1602,14 @@ export class DrawingApp {
             this.wsClient.broadcastStampMove(stampPs, stampRs);
           }
         }
+
+        // Flush ink point buffer on pointer up
+        if (this.self.tool === 'ink' && tool.pointBuffer && tool.pointBuffer.length > 0) {
+          const { ps: fhPs, rs: fhRs } = tool.drainPointBuffer();
+          if (fhPs.length > 0) {
+            this.wsClient.broadcastStampMove(fhPs, fhRs);
+          }
+        }
       }
 
       // End tracking for debug overlay
@@ -1617,7 +1653,7 @@ export class DrawingApp {
         this.board.zoomIn(0.1, cursorPos);
       }
       this.ui.updateZoomDisplay(this.board.getZoomPercent());
-    } else {
+    } else if (!(this.self.tool === 'ink' && this.self.mousedown)) {
       this.handleSizeScroll(e.deltaY);
     }
   }
@@ -1671,6 +1707,12 @@ export class DrawingApp {
     const penTool = this.toolManager.getTool('flowPen');
     if (penTool && penTool.clearStroke) {
       penTool.clearStroke();
+    }
+
+    // Clear ink stroke data
+    const inkTool = this.toolManager.getTool('ink');
+    if (inkTool && inkTool.clearStroke) {
+      inkTool.clearStroke();
     }
 
     // Clear shape tool data
@@ -1786,11 +1828,13 @@ export class DrawingApp {
           this.selectTool('select');
           break;
         case 'b':
-          this.selectTool(this.brushMode === 'fluid' ? 'flowPen' : 'brush');
+          this.selectTool(this.brushMode === 'fluid' ? 'flowPen' : this.brushMode === 'ink' ? 'ink' : 'brush');
           break;
         case 'p':
-          if (this.self.tool === 'brush' || this.self.tool === 'flowPen') {
-            this.handleBrushModeChange(this.brushMode === 'classic' ? 'fluid' : 'classic');
+          if (this.self.tool === 'brush' || this.self.tool === 'flowPen' || this.self.tool === 'ink') {
+            // Cycle: classic -> fluid -> ink -> classic
+            const nextMode = this.brushMode === 'classic' ? 'fluid' : this.brushMode === 'fluid' ? 'ink' : 'classic';
+            this.handleBrushModeChange(nextMode);
           } else {
             this.brushMode = 'fluid';
             this.selectTool('flowPen');
@@ -1846,7 +1890,7 @@ export class DrawingApp {
   }
 
   getDefaultToolLocks() {
-    const tools = ['brush', 'flowPen', 'line', 'rectangle', 'circle', 'imageBrush', 'erase', 'text', 'select'];
+    const tools = ['brush', 'flowPen', 'ink', 'line', 'rectangle', 'circle', 'imageBrush', 'erase', 'text', 'select'];
     const locks = {};
 
     tools.forEach(tool => {
