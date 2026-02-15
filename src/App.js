@@ -1347,8 +1347,8 @@ export class DrawingApp {
       return;
     }
 
-    const x = e.offsetX;
-    const y = e.offsetY;
+    const x = Math.round(e.offsetX * 100) / 100;
+    const y = Math.round(e.offsetY * 100) / 100;
 
     // Update cursor immediately for visual responsiveness
     this.ui.updateSelfCursor(x, y, this.self.size);
@@ -1453,7 +1453,7 @@ export class DrawingApp {
       this.wsClient.broadcastPressureChange(1);
     }
 
-    const pos = { x: e.offsetX, y: e.offsetY };
+    const pos = { x: Math.round(e.offsetX * 100) / 100, y: Math.round(e.offsetY * 100) / 100 };
 
     // Initialize input buffer for this stroke
     this.inputBuffer.position = pos;

@@ -23,6 +23,7 @@
     "emojibase-regex": "^17.0.0",
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.1.0",
+    "perfect-freehand": "^1.2.3",
     "protobufjs": "^8.0.0",
     "ws": "^8.14.0"
   },
