@@ -77,13 +77,13 @@ export class RemoteUserHandler {
     const points = data.ps;
     if (!points || points.length < 2) return;
 
-    // FlowPen sends stamp triplets [x, y, r, ...] — handle separately from pair-based tools
-    if (!user.panning && user.mousedown && user.tool === 'flowPen') {
-      this.handlePenStamps(user, points);
-      // Update cursor from last triplet
-      if (points.length >= 3) {
-        const lastIdx = points.length - 3;
-        this.ui.updateRemoteCursor(user.id, points[lastIdx], points[lastIdx + 1], user.size);
+    // Flow pen sends stamp radii in separate rs array — handle separately from pair-based tools
+    const radii = data.rs;
+    if (!user.panning && user.mousedown && radii && radii.length > 0) {
+      this.handlePenStamps(user, points, radii);
+      // Update cursor from last point pair
+      if (points.length >= 2) {
+        this.ui.updateRemoteCursor(user.id, points[points.length - 2], points[points.length - 1], user.size);
       }
       return;
     }
@@ -300,8 +300,11 @@ export class RemoteUserHandler {
     const pos = { x: user.x, y: user.y };
     const mainCtx = this.board.mainCtx;
 
-    // Pen tool needs to composite user.context BEFORE clearing it
-    if (user.tool === 'flowPen') {
+    // Pen stroke active — composite offscreen and skip the tool switch,
+    // since CT (tool change) may arrive after MD/MM when a new user joins
+    // and user.tool could still be 'brush' despite an active pen stroke
+    const hadPenStroke = user._penStrokeActive;
+    if (hadPenStroke) {
       this.handlePenUp(user);
     }
 
@@ -309,7 +312,9 @@ export class RemoteUserHandler {
     // (otherwise both preview and mainCtx briefly show the same line)
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
 
-    switch (user.tool) {
+    if (hadPenStroke) {
+      // Pen stroke was fully handled by handlePenUp — skip tool switch
+    } else switch (user.tool) {
       case 'brush':
         if (!user.panning) {
           this.drawLineArray(user.currentLine, mainCtx, user);
@@ -498,6 +503,7 @@ export class RemoteUserHandler {
     // Clear per-user pen state
     user.penPoints = [];
     user._penLastStampPos = null;
+    user._penStrokeActive = false;
     user._penStrokeColor = null;
     user._penAlpha = null;
     if (user._penOffscreenCtx) {
@@ -1291,21 +1297,29 @@ export class RemoteUserHandler {
     ctx.shadowBlur = 0;
 
     user._penLastStampPos = { x: pos.x, y: pos.y, radius };
+    user._penStrokeActive = true;
     user.penPoints = [{ x: pos.x, y: pos.y, radius }];
 
     // Update preview
     this.updatePenPreview(user);
   }
 
-  handlePenStamps(user, stamps) {
-    if (!user._penOffscreenCtx || stamps.length < 3) return;
+  handlePenStamps(user, points, radii) {
+    if (points.length < 2) return;
+
+    // Lazy-init: if MD arrived before CT (tool change), handlePenDown was never called.
+    // Also clears any junk brush points that handleMouseDown may have added.
+    if (!user._penStrokeActive) {
+      user.clearLine();
+      this.handlePenDown(user, { x: points[0], y: points[1] });
+    }
 
     const ctx = user._penOffscreenCtx;
     ctx.fillStyle = user._penStrokeColor;
 
     // Apply softness
     if (user._penHardness < 1.0) {
-      const avgR = stamps.length >= 3 ? stamps[2] : user.size;
+      const avgR = radii[0] || user.size;
       const blurAmount = (1 - user._penHardness) * avgR * 1.2;
       ctx.shadowBlur = blurAmount;
       ctx.shadowColor = user._penStrokeColor;
@@ -1315,11 +1329,11 @@ export class RemoteUserHandler {
       ctx.shadowBlur = 0;
     }
 
-    // Stamp each triplet directly — no re-interpolation
-    for (let i = 0; i < stamps.length; i += 3) {
-      const x = stamps[i];
-      const y = stamps[i + 1];
-      const r = stamps[i + 2];
+    // Stamp each point with its corresponding radius
+    for (let i = 0, ri = 0; i < points.length; i += 2, ri++) {
+      const x = points[i];
+      const y = points[i + 1];
+      const r = radii[ri];
       ctx.beginPath();
       ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
       ctx.fill();
@@ -1328,9 +1342,10 @@ export class RemoteUserHandler {
     ctx.shadowBlur = 0;
 
     // Update last stamp pos and preview
-    const lastIdx = stamps.length - 3;
-    user._penLastStampPos = { x: stamps[lastIdx], y: stamps[lastIdx + 1], radius: stamps[lastIdx + 2] };
-    user.setPosition(stamps[lastIdx], stamps[lastIdx + 1]);
+    const lastPtIdx = points.length - 2;
+    const lastR = radii[radii.length - 1];
+    user._penLastStampPos = { x: points[lastPtIdx], y: points[lastPtIdx + 1], radius: lastR };
+    user.setPosition(points[lastPtIdx], points[lastPtIdx + 1]);
     this.updatePenPreview(user);
   }
 
@@ -1410,6 +1425,7 @@ export class RemoteUserHandler {
 
     // Clean up per-user pen state
     user._penLastStampPos = null;
+    user._penStrokeActive = false;
     user._penStrokeColor = null;
     user._penAlpha = null;
     user.penPoints = [];

@@ -216,7 +216,8 @@ export class WebSocketClient {
       case T.MM:
         this.emit('mm', {
           sessionIndex: data.u,
-          ps: data.ps || []
+          ps: data.ps || [],
+          rs: data.rs || null
         });
         break;
 
@@ -487,19 +488,16 @@ export class WebSocketClient {
   // Broadcast methods
 
   broadcastMove(points) {
-  // 'ps' is the repeated uint32 field from protobuf
-  this.send({ 
-    t: T.MM, 
-    ps: points 
-  });
+  this.send({ t: T.MM, ps: points });
+}
+
+  broadcastStampMove(points, radii) {
+  this.send({ t: T.MM, ps: points, rs: radii });
 }
   broadcastMouseMove(x, y, lastx, lasty) {
     this.send({
       t: T.MM,
-      x: Math.round(x),
-      y: Math.round(y),
-      dx: Math.round(x - lastx),
-      dy: Math.round(y - lasty)
+      ps: [x, y]
     });
   }
 
@@ -528,11 +526,11 @@ export class WebSocketClient {
   }
 
   broadcastSmoothingChange(smoothing) {
-    this.send({ t: T.CSM, sm: Math.round(smoothing * 10000) });
+    this.send({ t: T.CSM, sm: Math.round(smoothing * 100) });
   }
 
   broadcastHardnessChange(hardness) {
-    this.send({ t: T.CHD, hd: Math.round(hardness * 10000) });
+    this.send({ t: T.CHD, hd: Math.round(hardness * 100) });
   }
 
   broadcastPressureChange(pressure) {
@@ -730,6 +728,16 @@ sendCanvasData(imageData, targetUser) {
       mod_target: targetSessionIndex,
       mod_reason: reason || '',
       mod_duration: duration || 0
+    });
+  }
+
+  sendModRevoke(actionType, targetName) {
+    this.send({
+      t: T.MOD_ACTION,
+      mod_action_type: actionType,
+      mod_target: 0,
+      mod_target_name: targetName,
+      mod_reason: ''
     });
   }
 

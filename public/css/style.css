@@ -1945,6 +1945,11 @@ body.parameter-dragging * {
   font-size: 10px;
 }
 
+.modEntry .modEntryInfo {
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
 .modEntry .modEntryAction {
   padding: 4px 8px;
   font-size: 10px;
@@ -2012,6 +2017,91 @@ body.parameter-dragging * {
 button.modOnly.visible,
 a.modOnly.visible {
   display: inline-flex;
+}
+
+/* ========================================
+   Mod Action Dialog
+   ======================================== */
+
+.modDialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modDialog {
+  background: var(--surface-glass);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 20px;
+  min-width: 300px;
+  max-width: 400px;
+}
+
+.modDialog h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.modDialog h3.danger {
+  color: #ef4444;
+}
+
+.modDialog label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.modDialog input,
+.modDialog select {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  box-sizing: border-box;
+}
+
+.modDialog input:focus,
+.modDialog select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.modDialog-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.modDialog-buttons .btn {
+  font-size: 12px;
+  padding: 6px 16px;
+}
+
+.modDialog-buttons .btn.danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.modDialog-buttons .btn.danger:hover {
+  background: rgba(239, 68, 68, 0.3);
 }
 
 @media (max-width: 768px) {

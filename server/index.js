@@ -223,25 +223,50 @@ function checkAfkUsers() {
 
 setInterval(checkAfkUsers, AFK_CHECK_INTERVAL);
 
-function handleBroadcast(data, sessionIndex) {
+// Message types blocked for muted users (drawing + chat + cursor movement)
+const MUTED_BLOCKED = new Set([
+  T.MM, T.MD, T.MU, T.KP, T.CLR,
+  T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL, T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH,
+  T.IMG_PASTE, T.MSG, T.DM, T.CHAT_IMG
+]);
+
+async function handleBroadcast(data, sessionIndex) {
   const user = users.get(sessionIndex);
   if (!user) return;
+
+  // IP ban enforcement on join (CN = name change = "joining" as anon)
+  // Authenticated users are checked in AUTH_LOGIN instead
+  if (data.t === T.CN) {
+    for (const client of wss.clients) {
+      if (client.sessionIndex === sessionIndex && client.userRole < Role.MOD && getDB()) {
+        try {
+          const ipBan = await getDB().collection('moderation').findOne({
+            type: 'ban', active: true, targetIp: client.clientIp
+          });
+          if (ipBan) {
+            const reason = ipBan.reason || '';
+            sendTo(client, { t: T.MOD_RESULT, a: false, auth_error: `You are banned${reason ? ': ' + reason : ''}` });
+            client.close(4001, 'Banned');
+            return;
+          }
+        } catch (err) {
+          console.error('[Mod] IP ban check error:', err);
+        }
+        break;
+      }
+      if (client.sessionIndex === sessionIndex) break;
+    }
+  }
 
   switch (data.t) {
     case T.MM:
       if (data.ps && data.ps.length >= 2) {
         // Update user state to the LAST point in the batch for continuity
         const len = data.ps.length;
-        user.lastx = user.x; // Old position is now last
+        user.lastx = user.x;
         user.lasty = user.y;
-        // FlowPen (PEN tool) sends triplets [x, y, r, ...] when drawing
-        if (user.tool === Tool.PEN && user.mousedown && len >= 3) {
-          user.x = data.ps[len - 3]; // Third to last element is X
-          user.y = data.ps[len - 2]; // Second to last element is Y
-        } else {
-          user.x = data.ps[len - 2]; // Second to last element is X
-          user.y = data.ps[len - 1]; // Last element is Y
-        }
+        user.x = data.ps[len - 2];
+        user.y = data.ps[len - 1];
       }
       updateUserActivity(sessionIndex);
       break;
@@ -307,12 +332,15 @@ function handleBroadcast(data, sessionIndex) {
       break;
   }
 
-  // Mute enforcement: block chat messages from muted users
-  if (data.t === T.MSG || data.t === T.DM || data.t === T.CHAT_IMG) {
-    // Find the WebSocket for this session
+  // Mute enforcement: block drawing + chat from muted users
+  // Allow cursor movement (MM) and UI state changes (CT, CC, CS, etc.) through
+  if (MUTED_BLOCKED.has(data.t)) {
     for (const client of wss.clients) {
       if (client.sessionIndex === sessionIndex && client.isMuted) {
-        sendTo(client, { t: T.MOD_RESULT, a: false, auth_error: 'You are muted' });
+        // Only send error feedback for chat (not every draw attempt)
+        if (data.t === T.MSG || data.t === T.DM || data.t === T.CHAT_IMG) {
+          sendTo(client, { t: T.MOD_RESULT, a: false, auth_error: 'You are muted' });
+        }
         return; // Don't relay
       }
     }
@@ -569,7 +597,7 @@ wss.on('connection', (ws, req) => {
           }
 
           const targetUser = users.get(modTargetIndex);
-          const targetName = targetWs?.username || targetUser?.name || `User ${modTargetIndex}`;
+          const targetName = data.mod_target_name || targetWs?.username || targetUser?.name || `User ${modTargetIndex}`;
 
           try {
             switch (modActionType) {
@@ -604,6 +632,8 @@ wss.on('connection', (ws, req) => {
                 if (targetWs) {
                   targetWs.isMuted = true;
                 }
+                // Hide muted user's cursor for everyone
+                broadcastToAll({ t: T.HIDE_CURSOR, u: modTargetIndex });
                 broadcastToAll({
                   t: T.MOD_NOTIFY,
                   mod_action_type: 1,
@@ -658,6 +688,8 @@ wss.on('connection', (ws, req) => {
                 if (targetWs) {
                   targetWs.isMuted = false;
                 }
+                // Restore unmuted user's cursor
+                broadcastToAll({ t: T.SHOW_CURSOR, u: modTargetIndex });
                 broadcastToAll({
                   t: T.MOD_NOTIFY,
                   mod_action_type: 3,
@@ -857,14 +889,17 @@ wss.on('connection', (ws, req) => {
               ]
             });
 
+            // Moderators and admins bypass bans
             if (banCheck) {
+              console.log(`[Auth] Ban check: user=${userDoc.username}, role=${userDoc.role}, Role.MOD=${Role.MOD}, bypass=${userDoc.role >= Role.MOD}`);
+            }
+            if (banCheck && userDoc.role < Role.MOD) {
               const expiry = banCheck.expiresAt ? ` until ${banCheck.expiresAt.toISOString()}` : ' permanently';
               const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: `You are banned${expiry}. Reason: ${banCheck.reason || 'No reason given'}` };
               sendTo(ws, errorResponse);
               ws.close(4001, 'Banned');
               break;
             }
-
             // Check for active mutes
             const muteCheck = await db.collection('moderation').findOne({
               type: 'mute',
@@ -874,7 +909,8 @@ wss.on('connection', (ws, req) => {
                 { targetIp: ws.clientIp }
               ]
             });
-            ws.isMuted = !!muteCheck;
+            // Moderators and admins bypass mutes
+            ws.isMuted = !!muteCheck && userDoc.role < Role.MOD;
 
             // Update login info
             const ipHistory = userDoc.ipHistory || [];
@@ -904,7 +940,7 @@ wss.on('connection', (ws, req) => {
               user.name = userDoc.username;
             }
 
-            console.log(`[Auth] Login: ${userDoc.username} (role: ${userDoc.role})`);
+            console.log(`[Auth] Login: ${userDoc.username} (role: ${userDoc.role}${ws.isMuted ? ', muted' : ''})`);
 
             const successResponse = {
               t: T.AUTH_RESULT,
@@ -914,6 +950,18 @@ wss.on('connection', (ws, req) => {
               auth_username: userDoc.username
             };
             sendTo(ws, successResponse);
+
+            // Notify user if they are muted
+            if (ws.isMuted) {
+              sendTo(ws, {
+                t: T.MOD_NOTIFY,
+                mod_action_type: 1,
+                mod_target: ws.sessionIndex,
+                mod_target_name: userDoc.username,
+                mod_issuer_name: 'System',
+                mod_reason: muteCheck.reason || ''
+              });
+            }
           } catch (err) {
             console.error('[Auth] Login error:', err);
             const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Login failed' };

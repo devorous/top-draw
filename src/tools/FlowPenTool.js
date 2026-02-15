@@ -34,7 +34,7 @@ export class FlowPenTool extends Tool {
     this.stillnessTimer = null;
     this.lastTargetPos = null;
     this.currentUser = null;
-    // Stamp buffer for remote sync — collects exact stamp positions as triplets [x, y, r, ...]
+    // Stamp buffer for remote sync — collects exact stamp positions as interleaved [x, y, r, ...], split on drain
     this.stampBuffer = [];
   }
 
@@ -271,9 +271,16 @@ export class FlowPenTool extends Tool {
   }
 
   drainStampBuffer() {
-    const stamps = this.stampBuffer;
+    const buf = this.stampBuffer;
     this.stampBuffer = [];
-    return stamps;
+    // Split interleaved [x,y,r,...] into separate ps [x,y,...] and rs [r,...] arrays
+    const ps = [];
+    const rs = [];
+    for (let i = 0; i < buf.length; i += 3) {
+      ps.push(buf[i], buf[i + 1]);
+      rs.push(buf[i + 2]);
+    }
+    return { ps, rs };
   }
 
   clearStroke() {
@@ -314,11 +321,11 @@ export class FlowPenTool extends Tool {
     this.board.clearTop();
     this.drawPreview(this.currentUser);
 
-    // Broadcast stamp triplets to other users
+    // Broadcast stamp positions to other users
     if (this.board.app && this.board.app.wsClient) {
-      const stamps = this.drainStampBuffer();
-      if (stamps.length > 0) {
-        this.board.app.wsClient.broadcastMove(stamps);
+      const { ps, rs } = this.drainStampBuffer();
+      if (ps.length > 0) {
+        this.board.app.wsClient.broadcastStampMove(ps, rs);
       }
     }
   }
