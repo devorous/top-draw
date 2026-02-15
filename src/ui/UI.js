@@ -34,6 +34,7 @@ export class UI {
       selfCircle: document.querySelector('.circle.self'),
       selfSquare: document.querySelector('.square.self'),
       selfCrosshair: document.querySelector('.crosshair.self'),
+      selfMutedIndicator: document.querySelector('.mutedIndicator.self'),
       selfText: document.querySelector('.text.self'),
       selfTextInput: document.querySelector('.textInput.self'),
       selfName: document.querySelector('.name.self'),
@@ -176,6 +177,7 @@ export class UI {
     const circle = this.elements.selfCircle;
     const square = this.elements.selfSquare;
     const crosshair = this.elements.selfCrosshair;
+    const mutedIndicator = this.elements.selfMutedIndicator;
 
     cursor.style.left = `${x - 100}px`;
     cursor.style.top = `${y - 100}px`;
@@ -184,12 +186,33 @@ export class UI {
     square.setAttribute('x', x - size);
     square.setAttribute('y', y - size);
     crosshair.setAttribute('transform', `translate(${x}, ${y})`);
+    if (mutedIndicator) {
+      mutedIndicator.setAttribute('transform', `translate(${x}, ${y})`);
+    }
   }
 
   updateCursorSize(size) {
     this.elements.selfCircle.setAttribute('r', size);
     this.elements.selfSquare.setAttribute('width', size * 2);
     this.elements.selfSquare.setAttribute('height', size * 2);
+  }
+
+  setMutedState(muted) {
+    const indicator = this.elements.selfMutedIndicator;
+    const circle = this.elements.selfCircle;
+    if (indicator) {
+      indicator.style.display = muted ? 'block' : 'none';
+    }
+    if (circle) {
+      circle.setAttribute('stroke', muted ? '#ef4444' : 'grey');
+    }
+  }
+
+  updateMutedIndicatorPosition(x, y) {
+    const indicator = this.elements.selfMutedIndicator;
+    if (indicator) {
+      indicator.setAttribute('transform', `translate(${x}, ${y})`);
+    }
   }
 
   updateToolDisplay(tool) {
