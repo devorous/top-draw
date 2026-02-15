@@ -10,8 +10,9 @@ A real-time multiplayer collaborative drawing application. Multiple users can dr
 
 - **Real-time Collaboration** - Draw with others and see their cursors and strokes live
 - **Multiple Drawing Tools**
-  - Brush - Freehand drawing with adjustable size and spacing
+  - Brush - Classic drawing with adjustable size and spacing
   - Flow Pen - Pressure-sensitive circle stamping
+  - Ink - Smooth calligraphic strokes with taper effects
   - Line - Straight lines
   - Rectangle & Circle - Shape tools
   - Text - Add text to canvas

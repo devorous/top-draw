@@ -133,6 +133,7 @@ export class UI {
       brush: this.createIcon('images/brush-icon.svg'),
       pen: this.createIcon('images/pen-icon.svg'),
       flowPen: this.createIcon('images/pen-icon.svg'),
+      ink: this.createIcon('images/brush-icon.svg'),
       line: this.createIcon('images/line-icon.svg'),
       rectangle: this.createIcon('images/rectangle-icon.svg'),
       circle: this.createIcon('images/circle-icon.svg'),
@@ -255,6 +256,12 @@ export class UI {
           brushModeOptions.style.display = 'block';
         }
         break;
+      case 'ink':
+        selfCircle.style.display = 'block';
+        if (brushModeOptions) {
+          brushModeOptions.style.display = 'block';
+        }
+        break;
       case 'line':
       case 'rectangle':
       case 'circle':
@@ -292,8 +299,8 @@ export class UI {
     };
 
     Object.values(buttons).forEach(btn => btn && btn.classList.remove('selected'));
-    // Map flowPen to brush button (unified brush)
-    const buttonTool = tool === 'flowPen' ? 'brush' : tool;
+    // Map flowPen/ink to brush button (unified brush)
+    const buttonTool = (tool === 'flowPen' || tool === 'ink') ? 'brush' : tool;
     if (buttons[buttonTool]) {
       buttons[buttonTool].classList.add('selected');
     }
@@ -741,6 +748,7 @@ export class UI {
         break;
       case 'brush':
       case 'flowPen':
+      case 'ink':
       case 'line':
       case 'rectangle':
       case 'circle':

@@ -2,6 +2,27 @@ import { mirrorLine } from './utils/drawing.js';
 import { Homography } from './utils/homography.js';
 import { SELECTION_MODES, getNextBrushIndex } from './utils/parseGimp.js';
 import { pointInHull } from './sync/ConvexHull.js';
+import { getStroke } from 'perfect-freehand';
+
+/**
+ * Convert perfect-freehand outline points to an SVG path string for Path2D.
+ * Uses quadratic bezier curves through midpoints for smooth results.
+ */
+function getSvgPathFromStroke(stroke) {
+  if (!stroke.length) return '';
+
+  const d = stroke.reduce(
+    (acc, [x0, y0], i, arr) => {
+      const [x1, y1] = arr[(i + 1) % arr.length];
+      acc.push(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
+      return acc;
+    },
+    ['M', ...stroke[0], 'Q']
+  );
+
+  d.push('Z');
+  return d.join(' ');
+}
 
 /**
  * Handles all remote user drawing synchronization
@@ -77,10 +98,15 @@ export class RemoteUserHandler {
     const points = data.ps;
     if (!points || points.length < 2) return;
 
-    // Flow pen sends stamp radii in separate rs array — handle separately from pair-based tools
+    // Flow pen and ink send per-point data in separate rs array
     const radii = data.rs;
     if (!user.panning && user.mousedown && radii && radii.length > 0) {
-      this.handlePenStamps(user, points, radii);
+      // Route by active stroke flag first (survives CT race), then by tool name
+      if (user._inkStrokeActive || user.tool === 'ink') {
+        this.handleInkPoints(user, points, radii);
+      } else {
+        this.handlePenStamps(user, points, radii);
+      }
       // Update cursor from last point pair
       if (points.length >= 2) {
         this.ui.updateRemoteCursor(user.id, points[points.length - 2], points[points.length - 1], user.size);
@@ -249,6 +275,10 @@ export class RemoteUserHandler {
         this.handlePenDown(user, pos);
         break;
 
+      case 'ink':
+        this.handleInkDown(user, pos);
+        break;
+
       case 'erase':
         if (!user.panning) {
           const eraserTool = this.toolManager.getTool('erase');
@@ -308,12 +338,18 @@ export class RemoteUserHandler {
       this.handlePenUp(user);
     }
 
+    // Ink stroke active — composite offscreen and skip tool switch
+    const hadInkStroke = user._inkStrokeActive;
+    if (hadInkStroke) {
+      this.handleInkUp(user);
+    }
+
     // Clear preview canvas FIRST to prevent composite boldness
     // (otherwise both preview and mainCtx briefly show the same line)
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
 
-    if (hadPenStroke) {
-      // Pen stroke was fully handled by handlePenUp — skip tool switch
+    if (hadPenStroke || hadInkStroke) {
+      // Pen/ink stroke was fully handled above — skip tool switch
     } else switch (user.tool) {
       case 'brush':
         if (!user.panning) {
@@ -508,6 +544,15 @@ export class RemoteUserHandler {
     user._penAlpha = null;
     if (user._penOffscreenCtx) {
       user._penOffscreenCtx.clearRect(0, 0, user._penOffscreen.width, user._penOffscreen.height);
+    }
+
+    // Clear per-user ink state
+    user._inkPoints = [];
+    user._inkStrokeActive = false;
+    user._inkStrokeColor = null;
+    user._inkAlpha = null;
+    if (user._inkCtx) {
+      user._inkCtx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
     }
   }
 
@@ -1317,9 +1362,11 @@ export class RemoteUserHandler {
     const ctx = user._penOffscreenCtx;
     ctx.fillStyle = user._penStrokeColor;
 
+    // rs values are 0-255 pressure — convert to pixel radius using user.size
     // Apply softness
     if (user._penHardness < 1.0) {
-      const avgR = radii[0] || user.size;
+      const avgPressure = (radii[0] || 255) / 255;
+      const avgR = avgPressure * user.size;
       const blurAmount = (1 - user._penHardness) * avgR * 1.2;
       ctx.shadowBlur = blurAmount;
       ctx.shadowColor = user._penStrokeColor;
@@ -1329,11 +1376,12 @@ export class RemoteUserHandler {
       ctx.shadowBlur = 0;
     }
 
-    // Stamp each point with its corresponding radius
+    // Stamp each point — convert pressure (0-255) to pixel radius
     for (let i = 0, ri = 0; i < points.length; i += 2, ri++) {
       const x = points[i];
       const y = points[i + 1];
-      const r = radii[ri];
+      const pressure = radii[ri] / 255;
+      const r = pressure * user.size;
       ctx.beginPath();
       ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
       ctx.fill();
@@ -1343,7 +1391,8 @@ export class RemoteUserHandler {
 
     // Update last stamp pos and preview
     const lastPtIdx = points.length - 2;
-    const lastR = radii[radii.length - 1];
+    const lastPressure = radii[radii.length - 1] / 255;
+    const lastR = lastPressure * user.size;
     user._penLastStampPos = { x: points[lastPtIdx], y: points[lastPtIdx + 1], radius: lastR };
     user.setPosition(points[lastPtIdx], points[lastPtIdx + 1]);
     this.updatePenPreview(user);
@@ -1438,6 +1487,143 @@ export class RemoteUserHandler {
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     user.context.globalAlpha = user._penAlpha;
     user.context.drawImage(user._penOffscreen, 0, 0);
+    user.context.globalAlpha = 1.0;
+  }
+
+  // Ink tool helpers - use per-user offscreen canvas with perfect-freehand
+
+  ensureInkOffscreen(user) {
+    const width = this.board.getWidth();
+    const height = this.board.getHeight();
+    if (!user._inkOffscreen || user._inkOffscreen.width !== width || user._inkOffscreen.height !== height) {
+      user._inkOffscreen = document.createElement('canvas');
+      user._inkOffscreen.width = width;
+      user._inkOffscreen.height = height;
+      user._inkCtx = user._inkOffscreen.getContext('2d');
+    }
+  }
+
+  handleInkDown(user, pos) {
+    this.ensureInkOffscreen(user);
+
+    // Clear offscreen canvas
+    user._inkCtx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
+
+    // Store color at FULL opacity for offscreen (RGB only)
+    const color = user.color.slice(0, 3);
+    user._inkStrokeColor = `rgb(${color.join(',')})`;
+
+    // Store alpha for compositing later
+    const colorAlpha = user.color[3];
+    const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
+    user._inkAlpha = colorAlpha * opacitySlider;
+
+    // Lock size at stroke start
+    user._inkSize = user.size;
+
+    // Initialize points with first point (pressure quantized to 1/255)
+    const pressure = Math.round(user.pressure * 255) / 255;
+    user._inkPoints = [[pos.x, pos.y, pressure]];
+    user._inkStrokeActive = true;
+
+    // Render initial stroke
+    this.renderInkStroke(user, false);
+    this.updateInkPreview(user);
+  }
+
+  handleInkPoints(user, points, pressures) {
+    if (points.length < 2) return;
+
+    // Lazy-init if MD arrived before CT
+    if (!user._inkStrokeActive) {
+      user.clearLine();
+      this.handleInkDown(user, { x: points[0], y: points[1] });
+    }
+
+    // Add points with pressure — rs values are 0-255, convert back to 0-1
+    for (let i = 0, pi = 0; i < points.length; i += 2, pi++) {
+      const raw = pressures[pi] !== undefined ? pressures[pi] : user.pressure * 255;
+      const pressure = raw / 255;
+      user._inkPoints.push([points[i], points[i + 1], pressure]);
+    }
+
+    // Re-render the entire stroke
+    this.renderInkStroke(user, false);
+
+    // Update position and preview
+    const lastIdx = points.length - 2;
+    user.setPosition(points[lastIdx], points[lastIdx + 1]);
+    this.updateInkPreview(user);
+  }
+
+  handleInkUp(user) {
+    if (!user._inkStrokeActive || !user._inkOffscreen) return;
+
+    // Final render with last=true for tapered end
+    this.renderInkStroke(user, true);
+
+    // Clear preview FIRST to prevent double opacity
+    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+
+    // Composite offscreen to mainCtx with alpha
+    const mainCtx = this.board.mainCtx;
+    mainCtx.globalAlpha = user._inkAlpha;
+    mainCtx.drawImage(user._inkOffscreen, 0, 0);
+
+    if (this.board.mirror) {
+      mainCtx.save();
+      mainCtx.translate(this.board.getWidth(), 0);
+      mainCtx.scale(-1, 1);
+      mainCtx.drawImage(user._inkOffscreen, 0, 0);
+      mainCtx.restore();
+    }
+
+    mainCtx.globalAlpha = 1.0;
+
+    // Clean up per-user ink state
+    user._inkPoints = [];
+    user._inkStrokeActive = false;
+    user._inkStrokeColor = null;
+    user._inkAlpha = null;
+  }
+
+  renderInkStroke(user, last) {
+    if (!user._inkPoints || user._inkPoints.length < 1) return;
+
+    const ctx = user._inkCtx;
+    ctx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
+
+    // Size is the base stroke diameter, locked at stroke start.
+    // Per-point pressure modulates width via thinning.
+    const allMaxPressure = user._inkPoints.every(p => p[2] === 1);
+    const options = {
+      size: ((user._inkSize || user.size) * 2) / 1.5,
+      thinning: 0.5,
+      smoothing: 0.5,
+      streamline: 0.5,
+      simulatePressure: allMaxPressure,
+      last
+    };
+
+    const outlinePoints = getStroke(user._inkPoints, options);
+
+    if (outlinePoints.length < 3) return;
+
+    const pathData = getSvgPathFromStroke(outlinePoints);
+    if (!pathData) return;
+
+    const path = new Path2D(pathData);
+    ctx.fillStyle = user._inkStrokeColor;
+    ctx.fill(path);
+  }
+
+  updateInkPreview(user) {
+    if (!user._inkOffscreen) return;
+
+    // Composite offscreen to user.context with alpha for preview
+    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    user.context.globalAlpha = user._inkAlpha;
+    user.context.drawImage(user._inkOffscreen, 0, 0);
     user.context.globalAlpha = 1.0;
   }
 }

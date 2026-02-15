@@ -120,8 +120,9 @@ export class FlowPenTool extends Tool {
     const smoothedPos = this.smoothPosition(pos.x, pos.y, smoothing);
 
     // Stamp first circle
-    this.stampCircle(smoothedPos.x, smoothedPos.y, radius);
-    this.lastStampPos = { x: smoothedPos.x, y: smoothedPos.y, radius };
+    const pressure255 = Math.round(pressure * 255);
+    this.stampCircle(smoothedPos.x, smoothedPos.y, radius, pressure255);
+    this.lastStampPos = { x: smoothedPos.x, y: smoothedPos.y, radius, pressure255 };
 
     // Store points for reference
     user.penPoints = [{ x: smoothedPos.x, y: smoothedPos.y, radius }];
@@ -156,15 +157,17 @@ export class FlowPenTool extends Tool {
 
     if (distance >= spacing) {
       // Interpolate circles along the path for smooth coverage
+      const pressure255End = Math.round(pressure * 255);
       const steps = Math.ceil(distance / spacing);
       for (let i = 1; i <= steps; i++) {
         const t = i / steps;
         const x = this.lastStampPos.x + (smoothedPos.x - this.lastStampPos.x) * t;
         const y = this.lastStampPos.y + (smoothedPos.y - this.lastStampPos.y) * t;
         const r = this.lastStampPos.radius + (radius - this.lastStampPos.radius) * t;
-        this.stampCircle(x, y, r);
+        const p255 = Math.round(this.lastStampPos.pressure255 + (pressure255End - this.lastStampPos.pressure255) * t);
+        this.stampCircle(x, y, r, p255);
       }
-      this.lastStampPos = { x: smoothedPos.x, y: smoothedPos.y, radius };
+      this.lastStampPos = { x: smoothedPos.x, y: smoothedPos.y, radius, pressure255: pressure255End };
       user.penPoints.push({ x: smoothedPos.x, y: smoothedPos.y, radius });
     }
 
@@ -190,13 +193,15 @@ export class FlowPenTool extends Tool {
 
       // Interpolate stamps from last position to exact final position
       if (distance > 0.5) {
+        const pressure255End = Math.round(pressure * 255);
         const steps = Math.max(1, Math.ceil(distance / spacing));
         for (let i = 1; i <= steps; i++) {
           const t = i / steps;
           const x = this.lastStampPos.x + (pos.x - this.lastStampPos.x) * t;
           const y = this.lastStampPos.y + (pos.y - this.lastStampPos.y) * t;
           const r = this.lastStampPos.radius + (radius - this.lastStampPos.radius) * t;
-          this.stampCircle(x, y, r);
+          const p255 = Math.round(this.lastStampPos.pressure255 + (pressure255End - this.lastStampPos.pressure255) * t);
+          this.stampCircle(x, y, r, p255);
         }
       }
     }
@@ -224,7 +229,7 @@ export class FlowPenTool extends Tool {
     user.penPoints = [];
   }
 
-  stampCircle(x, y, radius) {
+  stampCircle(x, y, radius, pressure255) {
     const ctx = this.offscreenCtx;
 
     // Apply softness using shadow blur
@@ -243,8 +248,8 @@ export class FlowPenTool extends Tool {
     ctx.arc(x, y, Math.max(0.5, radius), 0, Math.PI * 2);
     ctx.fill();
 
-    // Collect stamp position for remote sync
-    this.stampBuffer.push(x, y, radius);
+    // Collect stamp position for remote sync (pressure as 0-255, not radius)
+    this.stampBuffer.push(x, y, pressure255);
 
     // Reset shadow
     ctx.shadowBlur = 0;
@@ -315,8 +320,9 @@ export class FlowPenTool extends Tool {
     const radius = pressure * this.currentUser.size;
 
     // Stamp at exact target position
-    this.stampCircle(this.lastTargetPos.x, this.lastTargetPos.y, radius);
-    this.lastStampPos = { x: this.lastTargetPos.x, y: this.lastTargetPos.y, radius };
+    const pressure255 = Math.round(pressure * 255);
+    this.stampCircle(this.lastTargetPos.x, this.lastTargetPos.y, radius, pressure255);
+    this.lastStampPos = { x: this.lastTargetPos.x, y: this.lastTargetPos.y, radius, pressure255 };
 
     this.board.clearTop();
     this.drawPreview(this.currentUser);

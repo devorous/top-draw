@@ -1,6 +1,7 @@
 import { SelectTool } from './tools/SelectTool.js';
 import { BrushTool } from './tools/BrushTool.js';
 import { FlowPenTool } from './tools/FlowPenTool.js';
+import { InkTool } from './tools/InkTool.js';
 import { ImageBrushTool } from './tools/ImageBrushTool.js';
 import { LineTool, RectangleTool, CircleTool } from './tools/ShapeTools.js';
 import { EraserTool } from './tools/EraserTool.js';
@@ -32,6 +33,7 @@ export class ToolManager {
       select: new SelectTool(board),
       brush: new BrushTool(board),
       flowPen: new FlowPenTool(board),
+      ink: new InkTool(board),
       line: new LineTool(board),
       rectangle: new RectangleTool(board),
       circle: new CircleTool(board),
@@ -63,4 +65,4 @@ export class ToolManager {
 }
 
 // Re-export tools for backward compatibility
-export { BrushTool, FlowPenTool, ImageBrushTool, LineTool, RectangleTool, CircleTool, EraserTool, TextTool, SelectTool };
+export { BrushTool, FlowPenTool, InkTool, ImageBrushTool, LineTool, RectangleTool, CircleTool, EraserTool, TextTool, SelectTool };
