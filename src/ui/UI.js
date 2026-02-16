@@ -49,6 +49,7 @@ export class UI {
       textBtn: document.getElementById('textBtn'),
       eraseBtn: document.getElementById('eraseBtn'),
       imageBrushBtn: document.getElementById('imageBrushBtn'),
+      inkdropperBtn: document.getElementById('inkdropperBtn'),
 
       clearBtn: document.getElementById('clearBtn'),
       resetBtn: document.getElementById('resetBtn'),
@@ -293,6 +294,9 @@ export class UI {
         brushSpacing.style.display = 'block';
         imageBrushOpacityContainer.style.display = 'block';
         break;
+      case 'inkdropper':
+        selfCrosshair.style.display = 'block';
+        break;
     }
 
     this.updateToolButton(tool);
@@ -307,7 +311,8 @@ export class UI {
       circle: this.elements.circleBtn,
       text: this.elements.textBtn,
       erase: this.elements.eraseBtn,
-      imageBrush: this.elements.imageBrushBtn
+      imageBrush: this.elements.imageBrushBtn,
+      inkdropper: this.elements.inkdropperBtn
     };
 
     Object.values(buttons).forEach(btn => btn && btn.classList.remove('selected'));

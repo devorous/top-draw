@@ -18,16 +18,16 @@ const T = {
 // Tool enum matching proto
 const Tool = {
   BRUSH: 0, TEXT: 1, ERASE: 2, IMAGE_BRUSH: 3,
-  SELECT: 4, PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8, INK: 9
+  SELECT: 4, PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8, INK: 9, INKDROPPER: 10
 };
 
 const ToolNames = [
   'brush', 'text', 'erase', 'imageBrush',
-  'select', 'flowPen', 'line', 'rectangle', 'circle', 'ink'
+  'select', 'flowPen', 'line', 'rectangle', 'circle', 'ink', 'inkdropper'
 ];
 const ToolToEnum = {
   brush: 0, text: 1, erase: 2, imageBrush: 3,
-  select: 4, flowPen: 5, line: 6, rectangle: 7, circle: 8, ink: 9
+  select: 4, flowPen: 5, line: 6, rectangle: 7, circle: 8, ink: 9, inkdropper: 10
 };
 
 // Helper: Pack RGBA array to fixed32

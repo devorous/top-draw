@@ -12,12 +12,14 @@ import { DebugOverlay, RegionTracker, SyncClient } from './sync/index.js';
 import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
 import { Auth } from './Auth.js';
 import { Moderation } from './Moderation.js';
+import { ColorInputMenu } from './ColorInputMenu.js';
 
 export class DrawingApp {
   constructor(options = {}) {
     this.sessionIndex = null;  // Assigned by server on connect
     this.users = new Map();    // sessionIndex -> User
     this.connected = false;
+    this.previousTool = null;  // Track previous tool for temporary tool switching (e.g., TAB for inkdropper)
 
     this.board = new Board({
       dimensions: options.dimensions || [1080, 1920]
@@ -36,6 +38,9 @@ export class DrawingApp {
     });
     this.colorPalette = new ColorPalette({
       onColorSelect: (colorOrCallback) => this.handlePaletteColorSelect(colorOrCallback)
+    });
+    this.colorInputMenu = new ColorInputMenu({
+      onColorChange: (rgba) => this.handleColorInputChange(rgba)
     });
 
     this.colorPicker = null;
@@ -118,6 +123,7 @@ export class DrawingApp {
     this.chat.init();
     this.brushGallery.init();
     this.colorPalette.init();
+    this.colorInputMenu.init();
 
     this.createSelf();
     this.initSelfFromUI(); // Sync self's settings from UI slider values
@@ -257,6 +263,11 @@ export class DrawingApp {
             elements.imageBrushOpacitySlider.value = rgba[3] * 100;
           }
 
+          // Update color input menu
+          if (this.colorInputMenu) {
+            this.colorInputMenu.updateColor(rgba);
+          }
+
           if (this.connected) {
             this.wsClient.broadcastColorChange(rgba);
           }
@@ -284,6 +295,7 @@ export class DrawingApp {
     elements.textBtn.addEventListener('click', () => this.selectTool('text'));
     elements.eraseBtn.addEventListener('click', () => this.selectTool('erase'));
     elements.imageBrushBtn.addEventListener('click', () => this.selectTool('imageBrush'));
+    elements.inkdropperBtn.addEventListener('click', () => this.selectTool('inkdropper'));
 
     elements.clearBtn.addEventListener('click', () => this.handleClear());
     elements.resetBtn.addEventListener('click', () => this.handleResetBoard());
@@ -1110,6 +1122,16 @@ export class DrawingApp {
 
     const previousTool = this.self.tool;
 
+    // Clear previousTool state when manually switching tools
+    // But preserve it when switching TO inkdropper (TAB key) or when restoring from inkdropper
+    if (tool !== 'inkdropper' && previousTool === 'inkdropper' && tool !== this.previousTool) {
+      // User manually switched away from inkdropper without sampling
+      this.previousTool = null;
+    } else if (previousTool !== 'inkdropper' && tool !== 'inkdropper' && this.previousTool) {
+      // User manually switched to a different tool while previousTool was set
+      this.previousTool = null;
+    }
+
     // Save current values for previous tool if locked
     if (previousTool && this.toolLocks[previousTool]) {
       this.saveLockedValues(previousTool);
@@ -1346,6 +1368,30 @@ export class DrawingApp {
 
     if (this.connected) {
       this.wsClient.broadcastColorChange(color);
+    }
+  }
+
+  handleColorInputChange(rgba) {
+    // Update self's color
+    this.self.setColor(rgba);
+    this.self.setOpacity(rgba[3]);
+    this.ui.updateSelfColor(rgba);
+    this.ui.updateSelfTextStyle(this.self.size, rgba);
+    this.ui.updateImageBrushOpacityValue(rgba[3]);
+
+    // Update the color picker to match
+    if (this.colorPicker) {
+      this.colorPicker.setColor(rgba);
+    }
+
+    // Broadcast to other users if connected
+    if (this.connected) {
+      this.wsClient.broadcastColorChange(rgba);
+    }
+
+    // Add to recent colors
+    if (this.colorPalette) {
+      this.colorPalette.addRecent(rgba);
     }
   }
 
@@ -1761,6 +1807,16 @@ export class DrawingApp {
       this.wsClient.broadcastPan(true);
     }
 
+    // TAB key for temporary inkdropper mode
+    if (e.key === 'Tab' && this.self.tool !== 'text') {
+      e.preventDefault();
+      if (this.self.tool !== 'inkdropper') {
+        this.previousTool = this.self.tool;
+        this.selectTool('inkdropper');
+      }
+      return;
+    }
+
     this.wsClient.broadcastKeyPress(e.key);
 
     if (this.self.tool === 'text') {
@@ -1858,6 +1914,9 @@ export class DrawingApp {
         case 'g':
           this.selectTool('imageBrush');
           break;
+        case 'i':
+          this.selectTool('inkdropper');
+          break;
       }
     }
   }
@@ -1890,7 +1949,7 @@ export class DrawingApp {
   }
 
   getDefaultToolLocks() {
-    const tools = ['brush', 'flowPen', 'ink', 'line', 'rectangle', 'circle', 'imageBrush', 'erase', 'text', 'select'];
+    const tools = ['brush', 'flowPen', 'ink', 'line', 'rectangle', 'circle', 'imageBrush', 'erase', 'text', 'select', 'inkdropper'];
     const locks = {};
 
     tools.forEach(tool => {
