@@ -12,22 +12,23 @@ const T = {
   SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32, SEL_DELETE: 33, SEL_FILL: 34, SEL_STAMP: 35, SEL_CANCEL: 36, SEL_TO_BRUSH: 37, IMG_PASTE: 38, DM: 39,
   CHAT_IMG: 40, SYNC_REQUEST: 41, SYNC_PROVIDE: 42, SYNC_CANVAS: 43, SYNC_COMPLETE: 44, CHD: 45,
   AUTH_REGISTER: 50, AUTH_LOGIN: 51, AUTH_RESULT: 52,
-  MOD_ACTION: 53, MOD_RESULT: 54, MOD_NOTIFY: 55, MOD_LIST: 56
+  MOD_ACTION: 53, MOD_RESULT: 54, MOD_NOTIFY: 55, MOD_LIST: 56,
+  CBR: 57
 };
 
 // Tool enum matching proto
 const Tool = {
   BRUSH: 0, TEXT: 1, ERASE: 2, IMAGE_BRUSH: 3,
-  SELECT: 4, PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8, INK: 9, INKDROPPER: 10
+  SELECT: 4, PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8, INK: 9, INKDROPPER: 10, BLUR: 11, CIRCLE_BLUR: 12
 };
 
 const ToolNames = [
   'brush', 'text', 'erase', 'imageBrush',
-  'select', 'flowPen', 'line', 'rectangle', 'circle', 'ink', 'inkdropper'
+  'select', 'flowPen', 'line', 'rectangle', 'circle', 'ink', 'inkdropper', 'blur', 'circleBlur'
 ];
 const ToolToEnum = {
   brush: 0, text: 1, erase: 2, imageBrush: 3,
-  select: 4, flowPen: 5, line: 6, rectangle: 7, circle: 8, ink: 9, inkdropper: 10
+  select: 4, flowPen: 5, line: 6, rectangle: 7, circle: 8, ink: 9, inkdropper: 10, blur: 11, circleBlur: 12
 };
 
 // Helper: Pack RGBA array to fixed32
@@ -190,12 +191,13 @@ export class WebSocketClient {
           size: (u.s ?? 1000) / 100,
           spacing: (u.sp ?? 0) / 100,
           smoothing: (u.sm ?? 3000) / 10000,
-          hardness: (u.hd ?? 10000) / 10000,
+          hardness: (u.hd ?? 100) / 100,
           pressure: (u.p ?? 100) / 100,
           name: u.n || '',
           text: u.tx || '',
           role: u.role || 0,
-          cursorHidden: u.ch || false
+          cursorHidden: u.ch || false,
+          blurRadius: (u.br ?? 500) / 100
         }));
         this.emit('users', { users });
         break;
@@ -254,7 +256,11 @@ export class WebSocketClient {
         break;
 
       case T.CHD:
-        this.emit('chd', { sessionIndex: data.u, hardness: (data.hd ?? 10000) / 10000 });
+        this.emit('chd', { sessionIndex: data.u, hardness: (data.hd ?? 100) / 100 });
+        break;
+
+      case T.CBR:
+        this.emit('cbr', { sessionIndex: data.u, blurRadius: (data.br ?? 500) / 100 });
         break;
 
       case T.CN:
@@ -531,6 +537,10 @@ export class WebSocketClient {
 
   broadcastHardnessChange(hardness) {
     this.send({ t: T.CHD, hd: Math.round(hardness * 100) });
+  }
+
+  broadcastBlurRadiusChange(radius) {
+    this.send({ t: T.CBR, br: Math.round(radius * 100) });
   }
 
   broadcastPressureChange(pressure) {

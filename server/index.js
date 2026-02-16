@@ -26,21 +26,22 @@ const T = {
   SEL_LIFT: 30, SEL_MOVE: 31, SEL_COMMIT: 32, SEL_DELETE: 33, SEL_FILL: 34, SEL_STAMP: 35, SEL_CANCEL: 36, SEL_TO_BRUSH: 37, IMG_PASTE: 38, DM: 39,
   CHAT_IMG: 40, SYNC_REQUEST: 41, SYNC_PROVIDE: 42, SYNC_CANVAS: 43, SYNC_COMPLETE: 44, CHD: 45,
   AUTH_REGISTER: 50, AUTH_LOGIN: 51, AUTH_RESULT: 52,
-  MOD_ACTION: 53, MOD_RESULT: 54, MOD_NOTIFY: 55, MOD_LIST: 56
+  MOD_ACTION: 53, MOD_RESULT: 54, MOD_NOTIFY: 55, MOD_LIST: 56,
+  CBR: 57
 };
 
 // Tool enum matching proto
 const Tool = {
   BRUSH: 0, TEXT: 1, ERASE: 2, IMAGE_BRUSH: 3,
-  SELECT: 4, PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8, INK: 9, INKDROPPER: 10
+  SELECT: 4, PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8, INK: 9, INKDROPPER: 10, BLUR: 11, CIRCLE_BLUR: 12
 };
 const ToolNames = [
   'brush', 'text', 'erase', 'imageBrush',
-  'select', 'pen', 'line', 'rectangle', 'circle', 'ink', 'inkdropper'
+  'select', 'pen', 'line', 'rectangle', 'circle', 'ink', 'inkdropper', 'blur', 'circleBlur'
 ];
 const ToolToEnum = {
   brush: 0, text: 1, erase: 2, imageBrush: 3,
-  select: 4, pen: 5, line: 6, rectangle: 7, circle: 8, ink: 9, inkdropper: 10
+  select: 4, pen: 5, line: 6, rectangle: 7, circle: 8, ink: 9, inkdropper: 10, blur: 11, circleBlur: 12
 };
 
 // Role constants
@@ -299,6 +300,10 @@ async function handleBroadcast(data, sessionIndex) {
       user.hardness = data.hd;
       break;
 
+    case T.CBR: // Change blur radius — data.br is blur radius * 100 (e.g. 500 = 5.0px)
+      user.blurRadius = data.br;
+      break;
+
     case T.CP: // Change pressure — data.p is pressure * 100 (e.g. 100 = 1.0 = full pressure)
       user.pressure = data.p;
       break;
@@ -423,6 +428,7 @@ wss.on('connection', (ws, req) => {
             smoothing: 3000, // 30.00 * 100 (default 30%)
             hardness: 10000, // 100.00 * 100 (default 100%)
             pressure: 100,   // 1.00 * 100
+            blurRadius: 500, // 5.00 * 100 (default 5px)
             name: data.n || '',
             text: ''
           };
@@ -453,7 +459,8 @@ wss.on('connection', (ws, req) => {
                 n: u.name,
                 tx: u.text,
                 role: u.role || Role.GUEST,
-                ch: u.cursorHidden || false
+                ch: u.cursorHidden || false,
+                br: u.blurRadius || 500
               }))
           });
 

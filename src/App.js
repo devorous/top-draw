@@ -239,6 +239,10 @@ export class DrawingApp {
       const pressure = Number(elements.pressureMaxSlider.value) / 100;
       this.self.setPressure(pressure);
     }
+
+    if (elements.blurRadiusSlider) {
+      this.self.setBlurRadius(Number(elements.blurRadiusSlider.value));
+    }
   }
 
   setupColorPicker() {
@@ -294,6 +298,8 @@ export class DrawingApp {
     elements.circleBtn.addEventListener('click', () => this.selectTool('circle'));
     elements.textBtn.addEventListener('click', () => this.selectTool('text'));
     elements.eraseBtn.addEventListener('click', () => this.selectTool('erase'));
+    elements.blurBtn.addEventListener('click', () => this.selectTool('blur'));
+    elements.circleBlurBtn.addEventListener('click', () => this.selectTool('circleBlur'));
     elements.imageBrushBtn.addEventListener('click', () => this.selectTool('imageBrush'));
     elements.inkdropperBtn.addEventListener('click', () => this.selectTool('inkdropper'));
 
@@ -357,6 +363,9 @@ export class DrawingApp {
     elements.smoothingSlider.addEventListener('input', (e) => this.handleSmoothingChange(e));
     elements.hardnessSlider.addEventListener('input', (e) => this.handleHardnessChange(e));
     elements.imageBrushOpacitySlider.addEventListener('input', (e) => this.handleImageBrushOpacityChange(e));
+    if (elements.blurRadiusSlider) {
+      elements.blurRadiusSlider.addEventListener('input', (e) => this.handleBlurRadiusChange(e));
+    }
     elements.brushFileInput.addEventListener('change', (e) => this.handleBrushFileLoad(e));
 
     // Dual pressure slider handlers
@@ -445,6 +454,19 @@ export class DrawingApp {
         }
       }
     });
+
+    if (elements.blurRadiusValue) {
+      this.ui.makeValueEditable(elements.blurRadiusValue, {
+        min: 0, max: 20, step: 1, suffix: '',
+        onCommit: (val) => {
+          this.self.setBlurRadius(val);
+          elements.blurRadiusSlider.value = val;
+          if (this.connected) {
+            this.wsClient.broadcastBlurRadiusChange(val);
+          }
+        }
+      });
+    }
 
     // Pressure range value: drag to adjust max pressure, click to edit both
     {
@@ -600,6 +622,7 @@ export class DrawingApp {
     if (elements.spacingLock) elements.spacingLock.addEventListener('click', () => this.toggleLock('spacing'));
     if (elements.hardnessLock) elements.hardnessLock.addEventListener('click', () => this.toggleLock('hardness'));
     if (elements.imageBrushOpacityLock) elements.imageBrushOpacityLock.addEventListener('click', () => this.toggleLock('imageBrushOpacity'));
+    if (elements.blurRadiusLock) elements.blurRadiusLock.addEventListener('click', () => this.toggleLock('blurRadius'));
 
     elements.board.addEventListener('pointermove', (e) => this.handlePointerMove(e));
     elements.board.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
@@ -812,19 +835,36 @@ export class DrawingApp {
 
     // Process drawing if we have position data
     if (points.length >= 2) {
-      // 1. Update self state with the LATEST point in the batch
-      const lastX = points[points.length - 2];
-      const lastY = points[points.length - 1];
+      // 1. Calculate broadcast points early (before local processing)
+      let broadcastPoints;
+      if (this.self.mousedown && !this.self.panning) {
+        broadcastPoints = this.applyBroadcastSmoothing(points);
+        broadcastPoints = this.applyPointReduction(broadcastPoints);
+      } else {
+        broadcastPoints = points;
+      }
+
+      // For blur tools, use the reduced broadcast points for local processing too
+      // This ensures local and remote users process the same points (perfect sync)
+      const blurTools = ['blur', 'circleBlur'];
+      const localPoints = (this.self.mousedown && !this.self.panning && blurTools.includes(this.self.tool))
+        ? broadcastPoints
+        : points;
+
+      // 2. Update self state with the LATEST point in the batch
+      const lastX = localPoints[localPoints.length - 2];
+      const lastY = localPoints[localPoints.length - 1];
       this.self.setPosition(lastX, lastY);
 
-      // 2. Process locally for immediate feedback (must run before broadcast for flowPen stamp buffer)
+      // 3. Process locally for immediate feedback (must run before broadcast for flowPen stamp buffer)
       if (this.self.mousedown && !this.self.panning) {
         const tool = this.toolManager.getCurrentTool();
         if (tool) {
           // We iterate through the batch locally so the user sees smooth lines
-          for (let i = 0; i < points.length; i += 2) {
-              const currentPos = { x: points[i], y: points[i+1] };
-              const prevPos = i === 0 ? (this.inputBuffer.lastPosition || currentPos) : { x: points[i-2], y: points[i-1] };
+          // For blur tools, we use reduced points to match what remote users will see
+          for (let i = 0; i < localPoints.length; i += 2) {
+              const currentPos = { x: localPoints[i], y: localPoints[i+1] };
+              const prevPos = i === 0 ? (this.inputBuffer.lastPosition || currentPos) : { x: localPoints[i-2], y: localPoints[i-1] };
               tool.onPointerMove(this.self, currentPos, prevPos);
 
               // Debug: Track each point processed locally
@@ -833,7 +873,7 @@ export class DrawingApp {
         }
       }
 
-      // 3. Broadcast to remote users
+      // 4. Broadcast to remote users
       if (this.self.tool === 'flowPen' && this.self.mousedown && !this.self.panning) {
         // FlowPen: send exact stamp positions (already generated by tool.onPointerMove above)
         const tool = this.toolManager.getCurrentTool();
@@ -849,13 +889,7 @@ export class DrawingApp {
           this.wsClient.broadcastStampMove(fhPs, fhRs);
         }
       } else {
-        let broadcastPoints;
-        if (this.self.mousedown && !this.self.panning) {
-          broadcastPoints = this.applyBroadcastSmoothing(points);
-          broadcastPoints = this.applyPointReduction(broadcastPoints);
-        } else {
-          broadcastPoints = points;
-        }
+        // Use pre-calculated broadcastPoints
         if (broadcastPoints.length > 0) {
           this.wsClient.broadcastMove(broadcastPoints);
         }
@@ -1297,6 +1331,15 @@ export class DrawingApp {
     // Broadcast to other users
     if (this.connected) {
       this.wsClient.broadcastColorChange(currentColor);
+    }
+  }
+
+  handleBlurRadiusChange(e) {
+    const radius = Number(e.target.value);
+    this.self.setBlurRadius(radius);
+    this.ui.updateBlurRadiusValue(radius);
+    if (this.connected) {
+      this.wsClient.broadcastBlurRadiusChange(radius);
     }
   }
 
@@ -1911,6 +1954,12 @@ export class DrawingApp {
         case 'e':
           this.selectTool('erase');
           break;
+        case 'u':
+          this.selectTool('blur');
+          break;
+        case 'y':
+          this.selectTool('circleBlur');
+          break;
         case 'g':
           this.selectTool('imageBrush');
           break;
@@ -1949,7 +1998,7 @@ export class DrawingApp {
   }
 
   getDefaultToolLocks() {
-    const tools = ['brush', 'flowPen', 'ink', 'line', 'rectangle', 'circle', 'imageBrush', 'erase', 'text', 'select', 'inkdropper'];
+    const tools = ['brush', 'flowPen', 'ink', 'line', 'rectangle', 'circle', 'imageBrush', 'erase', 'text', 'select', 'blur', 'inkdropper'];
     const locks = {};
 
     tools.forEach(tool => {
@@ -1959,7 +2008,8 @@ export class DrawingApp {
         smoothing: { locked: false, value: 0.3 },
         spacing: { locked: false, value: 0 },
         hardness: { locked: false, value: 1.0 },
-        imageBrushOpacity: { locked: false, value: 1.0 }
+        imageBrushOpacity: { locked: false, value: 1.0 },
+        blurRadius: { locked: false, value: 5 }
       };
     });
 
@@ -1992,6 +2042,7 @@ export class DrawingApp {
       // imageBrushOpacity is derived from color alpha
       locks.imageBrushOpacity.value = this.self.opacity;
     }
+    if (locks.blurRadius?.locked) locks.blurRadius.value = this.self.blurRadius;
 
     this.saveToolLocks();
   }
@@ -2073,6 +2124,14 @@ export class DrawingApp {
         this.wsClient.broadcastColorChange(currentColor);
       }
     }
+    if (locks.blurRadius?.locked) {
+      this.self.setBlurRadius(locks.blurRadius.value);
+      this.ui.updateBlurRadiusValue(locks.blurRadius.value);
+      if (elements.blurRadiusSlider) elements.blurRadiusSlider.value = locks.blurRadius.value;
+      if (this.connected) {
+        this.wsClient.broadcastBlurRadiusChange(locks.blurRadius.value);
+      }
+    }
   }
 
   updateAllLockButtons(toolName) {
@@ -2085,6 +2144,7 @@ export class DrawingApp {
     this.ui.updateLockButton('spacing', locks.spacing?.locked || false);
     this.ui.updateLockButton('hardness', locks.hardness?.locked || false);
     this.ui.updateLockButton('imageBrushOpacity', locks.imageBrushOpacity?.locked || false);
+    this.ui.updateLockButton('blurRadius', locks.blurRadius?.locked || false);
   }
 
   toggleLock(property) {

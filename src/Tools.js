@@ -7,6 +7,8 @@ import { LineTool, RectangleTool, CircleTool } from './tools/ShapeTools.js';
 import { EraserTool } from './tools/EraserTool.js';
 import { TextTool } from './tools/TextTool.js';
 import { InkdropperTool } from './tools/InkdropperTool.js';
+import { BlurTool } from './tools/BlurTool.js';
+import { CircleBlurTool } from './tools/CircleBlurTool.js';
 
 /**
  * Base tool class
@@ -41,7 +43,9 @@ export class ToolManager {
       erase: new EraserTool(board),
       text: new TextTool(board),
       imageBrush: new ImageBrushTool(board),
-      inkdropper: new InkdropperTool(board)
+      inkdropper: new InkdropperTool(board),
+      blur: new BlurTool(board),
+      circleBlur: new CircleBlurTool(board)
     };
     this.currentTool = null;
   }
@@ -67,4 +71,4 @@ export class ToolManager {
 }
 
 // Re-export tools for backward compatibility
-export { BrushTool, FlowPenTool, InkTool, ImageBrushTool, LineTool, RectangleTool, CircleTool, EraserTool, TextTool, SelectTool, InkdropperTool };
+export { BrushTool, FlowPenTool, InkTool, ImageBrushTool, LineTool, RectangleTool, CircleTool, EraserTool, TextTool, SelectTool, InkdropperTool, BlurTool };
