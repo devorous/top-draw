@@ -211,12 +211,14 @@ export class FlowPenTool extends Tool {
 
     // Composite offscreen canvas to main canvas with user's alpha
     const ctx = this.board.mainCtx;
+    ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = this.userAlpha;
     ctx.drawImage(this.offscreenCanvas, 0, 0);
 
     if (this.board.mirror) {
       // Flip horizontally and draw mirrored
       ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
       ctx.translate(this.board.getWidth(), 0);
       ctx.scale(-1, 1);
       ctx.drawImage(this.offscreenCanvas, 0, 0);

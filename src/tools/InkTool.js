@@ -111,6 +111,9 @@ export class InkTool extends Tool {
     // Clear point buffer
     this.pointBuffer = [];
 
+    // Add first point to buffer for network sync
+    this.pointBuffer.push(pos.x, pos.y, Math.round(pressure * 255));
+
     // Render initial stroke
     this.renderStroke(false);
     this.drawPreview();
@@ -151,11 +154,13 @@ export class InkTool extends Tool {
 
     // Composite offscreen canvas to main canvas with user's alpha
     const ctx = this.board.mainCtx;
+    ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = this.userAlpha;
     ctx.drawImage(this.offscreenCanvas, 0, 0);
 
     if (this.board.mirror) {
       ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
       ctx.translate(this.board.getWidth(), 0);
       ctx.scale(-1, 1);
       ctx.drawImage(this.offscreenCanvas, 0, 0);

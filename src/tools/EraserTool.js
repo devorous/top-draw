@@ -26,6 +26,11 @@ export class EraserTool extends Tool {
     this.board.mainCtx.globalCompositeOperation = 'destination-out';
   }
 
+  deactivate() {
+    // Reset composite operation when switching away from eraser
+    this.board.mainCtx.globalCompositeOperation = 'source-over';
+  }
+
   onPointerDown(user, pos) {
     this.erase(pos.x, pos.y, pos.x, pos.y, user.pressure * user.size * 2);
   }

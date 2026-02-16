@@ -259,9 +259,9 @@ async function handleBroadcast(data, sessionIndex) {
   }
 
   switch (data.t) {
-    case T.MM:
+    case T.MM: // Mouse move — data.ps is a flat [x1,y1,x2,y2,...] point stream batched per tick
       if (data.ps && data.ps.length >= 2) {
-        // Update user state to the LAST point in the batch for continuity
+        // Track the last position so late-joining clients get accurate cursor placement in USERS list
         const len = data.ps.length;
         user.lastx = user.x;
         user.lasty = user.y;
@@ -270,64 +270,79 @@ async function handleBroadcast(data, sessionIndex) {
       }
       updateUserActivity(sessionIndex);
       break;
-    case T.MD:
+
+    case T.MD: // Mouse down — marks user as actively drawing
       user.mousedown = true;
       updateUserActivity(sessionIndex);
       break;
-    case T.MU:
+
+    case T.MU: // Mouse up — stroke ended; clear text tool buffer (text commits on pointer up)
       user.mousedown = false;
       if (user.tool === Tool.TEXT) {
         user.text = '';
       }
       break;
-    case T.CS:
+
+    case T.CS: // Change size — data.s is size * 100 (e.g. 1000 = 10px)
       user.size = data.s;
       break;
-    case T.CSP:
+
+    case T.CSP: // Change spacing — data.sp is spacing * 100 (e.g. 10 = 0.10 = 10% of brush diameter)
       user.spacing = data.sp;
       break;
-    case T.CSM:
+
+    case T.CSM: // Change smoothing — data.sm is smoothing * 100 (e.g. 3000 = 30%)
       user.smoothing = data.sm;
       break;
-    case T.CHD:
+
+    case T.CHD: // Change hardness — data.hd is hardness * 100 (e.g. 10000 = 100%)
       user.hardness = data.hd;
       break;
-    case T.CP:
+
+    case T.CP: // Change pressure — data.p is pressure * 100 (e.g. 100 = 1.0 = full pressure)
       user.pressure = data.p;
       break;
-    case T.CT:
+
+    case T.CT: // Change tool — data.l is the Tool enum value; reset text buffer since tool changed
       user.tool = data.l;
       user.text = '';
       break;
-    case T.CC:
+
+    case T.CC: // Change color — data.c is a packed RGBA fixed32 (see packColor/unpackColor helpers)
       user.color = data.c;
       break;
-    case T.CN:
+
+    case T.CN: // Change name — sent when a user enters the canvas; this is the "join" event for anon users
       user.name = data.n;
       updateUserActivity(sessionIndex);
       break;
-    case T.KP:
+
+    case T.KP: // Key press — only relevant to the text tool; server mirrors the text buffer for USERS sync
       const key = data.k;
       if (key && key.length === 1) {
-        user.text = (user.text || '') + key;
+        user.text = (user.text || '') + key;   // Printable character
       }
       if (key === 'Enter') {
-        user.text = '';
+        user.text = '';                          // Enter commits and clears
       } else if (key === 'Backspace' && user.text) {
-        user.text = user.text.slice(0, -1);
+        user.text = user.text.slice(0, -1);     // Backspace removes last char
       }
       updateUserActivity(sessionIndex);
       break;
-    case T.HIDE_CURSOR:
+
+    case T.HIDE_CURSOR: // Cursor left the canvas area — stop rendering this user's cursor on all clients
       user.cursorHidden = true;
       break;
-    case T.SHOW_CURSOR:
+
+    case T.SHOW_CURSOR: // Cursor entered the canvas area — resume rendering
       user.cursorHidden = false;
       break;
-    case T.MIR:
+
+    case T.MIR: // Toggle mirror mode — server owns this state so late joiners get the correct setting via SETTINGS
       boardSettings.mirror = !boardSettings.mirror;
       break;
-    case T.MSG:
+
+    case T.MSG: // Chat message — no server-side state change needed, just bump activity timestamp
       updateUserActivity(sessionIndex);
       break;
   }
@@ -389,6 +404,7 @@ wss.on('connection', (ws, req) => {
       }
 
       switch (data.t) {
+        // Client handshake — assign a session index and send the full user list + board settings
         case T.CONNECT:
           const sessionIndex = allocateSessionIndex();
           ws.sessionIndex = sessionIndex;
@@ -445,6 +461,9 @@ wss.on('connection', (ws, req) => {
           sendTo(ws, { t: T.SETTINGS, m: boardSettings.mirror });
           break;
 
+        // Canvas sync handshake (step 1 of 3) — new client asks for the current canvas state.
+        // Server picks a provider and sends them SYNC_PROVIDE (step 2).
+        // Provider replies with SYNC_CANVAS (step 3), which the server forwards + sends SYNC_COMPLETE.
         case T.SYNC_REQUEST:
           // New user wants canvas state - find an existing user to provide it
           console.log(`[Sync] User ${ws.sessionIndex} requested sync`);
@@ -481,6 +500,7 @@ wss.on('connection', (ws, req) => {
           }
           break;
 
+        // Canvas sync (step 3) — provider sends PNG via data.img; server routes it to data.tu (target user index)
         case T.SYNC_CANVAS:
           // User is providing canvas data - forward to the target user
           const targetUser = data.tu;
@@ -506,6 +526,7 @@ wss.on('connection', (ws, req) => {
           }
           break;
 
+        // Direct message — data.r is the recipient's session index, data.g is the message text
         case T.DM:
           // Direct message - send only to the specified recipient
           const recipientId = data.r;
@@ -526,6 +547,8 @@ wss.on('connection', (ws, req) => {
           }
           break;
 
+        // Chat image — data.cimg is raw PNG bytes; data.r (optional) targets a specific user for a DM image.
+        // Protobuf sends bytes as Buffer on Node; we normalise to Uint8Array before re-encoding.
         case T.CHAT_IMG:
           // Chat image - send to recipient (if DM) or broadcast to all
           if (ws.sessionIndex !== undefined) {
@@ -575,6 +598,9 @@ wss.on('connection', (ws, req) => {
           }
           break;
 
+        // Moderation action — mod_action_type: 0=kick, 1=mute, 2=ban, 3=unmute, 4=unban
+        // mod_target is the session index; mod_target_name, mod_reason, mod_duration are optional context.
+        // Kick/mute/ban are written to the DB (if available) for persistence across reconnects.
         case T.MOD_ACTION: {
           // Verify requester is mod or admin
           if (ws.userRole < Role.MOD) {
@@ -733,6 +759,7 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
+        // Mod panel request — returns all active bans/mutes as a repeated ModEntry list (mod_entries)
         case T.MOD_LIST: {
           // Verify requester is mod or admin
           if (ws.userRole < Role.MOD) {
@@ -752,6 +779,9 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
+        // Register a new account — auth_username + auth_password required.
+        // First ever registration is auto-promoted to admin (Role.ADMIN).
+        // On success replies with AUTH_RESULT containing a JWT (auth_token) and the assigned role.
         case T.AUTH_REGISTER: {
           const db = getDB();
           if (!db) {
@@ -829,6 +859,11 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
+        // Login — supports two modes:
+        //   Token mode:    auth_token present → verify JWT and look up user by stored ID
+        //   Password mode: auth_username + auth_password → bcrypt verify
+        // After auth: checks active bans (closes socket 4001 if banned), loads mute state,
+        // refreshes lastLoginAt + IP history, and returns a fresh JWT via AUTH_RESULT.
         case T.AUTH_LOGIN: {
           const db = getDB();
           if (!db) {
@@ -970,8 +1005,9 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
+        // All drawing/tool/cursor messages — relay to other clients after updating server-side user state.
+        // handleBroadcast also enforces mute (blocks draw + chat) and mirrors board state changes.
         default:
-          // All other messages are broadcasts
           if (ws.sessionIndex !== undefined) {
             handleBroadcast(data, ws.sessionIndex);
           }

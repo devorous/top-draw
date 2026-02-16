@@ -731,17 +731,21 @@ export class RemoteUserHandler {
           tempCanvas.height = result.height;
           const tempCtx = tempCanvas.getContext('2d');
           tempCtx.putImageData(result, 0, 0);
+          this.board.mainCtx.globalCompositeOperation = 'source-over';
           this.board.mainCtx.drawImage(tempCanvas, minX, minY);
         } else {
           // Fallback
+          this.board.mainCtx.globalCompositeOperation = 'source-over';
           this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
         }
       } catch (e) {
         console.warn('Remote homography failed:', e);
+        this.board.mainCtx.globalCompositeOperation = 'source-over';
         this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
       }
     } else {
       // Simple draw without transform
+      this.board.mainCtx.globalCompositeOperation = 'source-over';
       this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
     }
 
@@ -801,6 +805,7 @@ export class RemoteUserHandler {
       user.context.drawImage(user.floatingCanvas, s.x, s.y);
     } else {
       // Fill directly on main canvas
+      this.board.mainCtx.globalCompositeOperation = 'source-over';
       this.board.mainCtx.fillStyle = colorString;
       this.board.mainCtx.fillRect(s.x, s.y, s.width, s.height);
     }
@@ -852,15 +857,19 @@ export class RemoteUserHandler {
           tempCanvas.height = result.height;
           const tempCtx = tempCanvas.getContext('2d');
           tempCtx.putImageData(result, 0, 0);
+          this.board.mainCtx.globalCompositeOperation = 'source-over';
           this.board.mainCtx.drawImage(tempCanvas, minX, minY);
         } else {
+          this.board.mainCtx.globalCompositeOperation = 'source-over';
           this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
         }
       } catch (e) {
         console.warn('Remote stamp homography failed:', e);
+        this.board.mainCtx.globalCompositeOperation = 'source-over';
         this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
       }
     } else {
+      this.board.mainCtx.globalCompositeOperation = 'source-over';
       this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
     }
 
@@ -874,6 +883,7 @@ export class RemoteUserHandler {
     if (!user.floatingCanvas || !user.selection || !user.originalSelectionPos) return;
 
     // Restore selection to original position on main canvas
+    this.board.mainCtx.globalCompositeOperation = 'source-over';
     this.board.mainCtx.drawImage(
       user.floatingCanvas,
       user.originalSelectionPos.x,
@@ -1459,11 +1469,13 @@ export class RemoteUserHandler {
 
     // Composite offscreen to mainCtx with alpha
     const mainCtx = this.board.mainCtx;
+    mainCtx.globalCompositeOperation = 'source-over';
     mainCtx.globalAlpha = user._penAlpha;
     mainCtx.drawImage(user._penOffscreen, 0, 0);
 
     if (this.board.mirror) {
       mainCtx.save();
+      mainCtx.globalCompositeOperation = 'source-over';
       mainCtx.translate(this.board.getWidth(), 0);
       mainCtx.scale(-1, 1);
       mainCtx.drawImage(user._penOffscreen, 0, 0);
@@ -1487,6 +1499,15 @@ export class RemoteUserHandler {
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     user.context.globalAlpha = user._penAlpha;
     user.context.drawImage(user._penOffscreen, 0, 0);
+
+    if (this.board.mirror) {
+      user.context.save();
+      user.context.translate(this.board.getWidth(), 0);
+      user.context.scale(-1, 1);
+      user.context.drawImage(user._penOffscreen, 0, 0);
+      user.context.restore();
+    }
+
     user.context.globalAlpha = 1.0;
   }
 
@@ -1567,11 +1588,13 @@ export class RemoteUserHandler {
 
     // Composite offscreen to mainCtx with alpha
     const mainCtx = this.board.mainCtx;
+    mainCtx.globalCompositeOperation = 'source-over';
     mainCtx.globalAlpha = user._inkAlpha;
     mainCtx.drawImage(user._inkOffscreen, 0, 0);
 
     if (this.board.mirror) {
       mainCtx.save();
+      mainCtx.globalCompositeOperation = 'source-over';
       mainCtx.translate(this.board.getWidth(), 0);
       mainCtx.scale(-1, 1);
       mainCtx.drawImage(user._inkOffscreen, 0, 0);
@@ -1624,6 +1647,15 @@ export class RemoteUserHandler {
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     user.context.globalAlpha = user._inkAlpha;
     user.context.drawImage(user._inkOffscreen, 0, 0);
+
+    if (this.board.mirror) {
+      user.context.save();
+      user.context.translate(this.board.getWidth(), 0);
+      user.context.scale(-1, 1);
+      user.context.drawImage(user._inkOffscreen, 0, 0);
+      user.context.restore();
+    }
+
     user.context.globalAlpha = 1.0;
   }
 }

@@ -1158,9 +1158,9 @@ export class DrawingApp {
 
   loadBrushMode() {
     try {
-      return localStorage.getItem('topDrawBrushMode') || 'fluid';
+      return localStorage.getItem('topDrawBrushMode') || 'ink';
     } catch (e) {
-      return 'fluid';
+      return 'ink';
     }
   }
 
