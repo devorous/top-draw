@@ -115,7 +115,6 @@ export function setupWebSocketHandlers(app) {
       const boardData = ui.createUserBoard(data.sessionIndex);
       user.board = boardData.board;
       user.context = boardData.context;
-
       ui.createRemoteUser(data.sessionIndex, user);
     } else {
       const hadName = !!user.username;
@@ -129,7 +128,6 @@ export function setupWebSocketHandlers(app) {
       }
     }
     chat.addSystemMessage(`${data.name} joined the room`);
-
     // Update chat user list
     app.updateChatUserList();
   });

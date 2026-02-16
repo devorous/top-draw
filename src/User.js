@@ -17,7 +17,7 @@ export class User {
     this.hardness = options.hardness !== undefined ? options.hardness : 1.0;  // Brush hardness (0-1), default 100%
     this.spaceIndex = 0;
     this.color = options.color || [0, 0, 0, 1];
-    this.tool = options.tool || 'brush';
+    this.tool = options.tool || 'ink';
     this.text = options.text || '';
     this.mousedown = false;
     this.panning = false;
