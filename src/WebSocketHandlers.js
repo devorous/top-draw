@@ -47,6 +47,7 @@ export function setupWebSocketHandlers(app) {
 
           // Always create User object and board layer so we can receive events
           user = new User(userData.sessionIndex, userOptions);
+          user.setTool(userData.tool);
           users.set(userData.sessionIndex, user);
 
           const boardData = ui.createUserBoard(userData.sessionIndex);
