@@ -13,6 +13,7 @@ export class Board {
     this.rotation = 0;
     this.defaultRotation = 0;
     this.mirror = false;
+    this.backgroundColor = options.backgroundColor || [255, 255, 255, 1]; // Default: white [r, g, b, a]
 
     this.container = null;
     this.boardsWrapper = null;
