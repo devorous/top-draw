@@ -61,6 +61,7 @@ export class SelectTool extends Tool {
 
     // Preview downscaling settings
     this.previewMaxSize = 256; // Max dimension for preview warps
+    this.hasShownPreviewToast = false; // Track if we've shown the low-res preview toast
 
     // Clipboard
     this.clipboard = null;
@@ -93,6 +94,9 @@ export class SelectTool extends Tool {
     this.hideContextMenu();
     // Reset cursor
     this.board.container.style.cursor = 'none';
+    if (this.board.app?.ui) {
+      this.board.app.ui.setSelectCursor(false); // Reset to crosshair
+    }
   }
 
   /**
@@ -345,11 +349,17 @@ export class SelectTool extends Tool {
     // Check if over selection (for move)
     if (this.selection && this.isInsideSelection(pos)) {
       this.board.container.style.cursor = 'move';
+      if (this.board.app?.ui) {
+        this.board.app.ui.setSelectCursor(true); // Show hand cursor
+      }
       return;
     }
 
     // Default crosshair for selection
     this.board.container.style.cursor = 'crosshair';
+    if (this.board.app?.ui) {
+      this.board.app.ui.setSelectCursor(false); // Show crosshair cursor
+    }
   }
 
   startMarchingAnts() {
@@ -382,11 +392,84 @@ export class SelectTool extends Tool {
 
     const ctx = this.board.topCtx;
 
-    // Draw marching ants border using corners if available
-    if (this.corners) {
+    // Draw marching ants border using corners if available AND transformed
+    if (this.corners && this.hasTransformedCorners()) {
       this.drawTransformOutline(ctx);
       this.drawTransformHandles(ctx);
+    } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.hasScaledSelection()) {
+      // Lasso mode - draw simplified polygon (only if not scaled)
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.lineDashOffset = -this.marchingAntsOffset;
+      ctx.beginPath();
+      ctx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
+      for (let i = 1; i < this.lassoSimplified.length; i++) {
+        ctx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.strokeStyle = '#fff';
+      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+      ctx.beginPath();
+      ctx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
+      for (let i = 1; i < this.lassoSimplified.length; i++) {
+        ctx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Also draw a subtle bounding rectangle (no animation)
+      const s = this.selection;
+      ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(s.x, s.y, s.width, s.height);
+
+      // Draw handles
+      this.updateHandles();
+      for (const handle of this.handles) {
+        if (handle.isRotation) {
+          // Draw connecting line to rotation handle
+          const tm = this.handles.find(h => h.id === 'tm');
+          if (tm) {
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(tm.x, tm.y);
+            ctx.lineTo(handle.x, handle.y);
+            ctx.stroke();
+          }
+
+          // Draw rotation handle as a circle
+          ctx.fillStyle = '#fff';
+          ctx.strokeStyle = '#000';
+          ctx.beginPath();
+          ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        } else {
+          // Draw regular handles as squares
+          ctx.fillStyle = '#fff';
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 1;
+          ctx.fillRect(
+            handle.x - this.handleSize / 2,
+            handle.y - this.handleSize / 2,
+            this.handleSize,
+            this.handleSize
+          );
+          ctx.strokeRect(
+            handle.x - this.handleSize / 2,
+            handle.y - this.handleSize / 2,
+            this.handleSize,
+            this.handleSize
+          );
+        }
+      }
     } else {
+      // Rectangle mode - draw bounding box
       const s = this.selection;
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 1;
@@ -402,21 +485,43 @@ export class SelectTool extends Tool {
       // Draw handles
       this.updateHandles();
       for (const handle of this.handles) {
-        ctx.fillStyle = '#fff';
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 1;
-        ctx.fillRect(
-          handle.x - this.handleSize / 2,
-          handle.y - this.handleSize / 2,
-          this.handleSize,
-          this.handleSize
-        );
-        ctx.strokeRect(
-          handle.x - this.handleSize / 2,
-          handle.y - this.handleSize / 2,
-          this.handleSize,
-          this.handleSize
-        );
+        if (handle.isRotation) {
+          // Draw connecting line to rotation handle
+          const tm = this.handles.find(h => h.id === 'tm');
+          if (tm) {
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(tm.x, tm.y);
+            ctx.lineTo(handle.x, handle.y);
+            ctx.stroke();
+          }
+
+          // Draw rotation handle as a circle
+          ctx.fillStyle = '#fff';
+          ctx.strokeStyle = '#000';
+          ctx.beginPath();
+          ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        } else {
+          // Draw regular handles as squares
+          ctx.fillStyle = '#fff';
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 1;
+          ctx.fillRect(
+            handle.x - this.handleSize / 2,
+            handle.y - this.handleSize / 2,
+            this.handleSize,
+            this.handleSize
+          );
+          ctx.strokeRect(
+            handle.x - this.handleSize / 2,
+            handle.y - this.handleSize / 2,
+            this.handleSize,
+            this.handleSize
+          );
+        }
       }
     }
   }
@@ -549,8 +654,23 @@ export class SelectTool extends Tool {
         this.throttledBroadcastSelectionMove(this.corners);
       }
 
+      // Also translate lasso path points to match the new position
+      if (this.lassoPath) {
+        this.lassoPath = this.lassoPath.map(p => ({
+          x: p.x + dx,
+          y: p.y + dy
+        }));
+      }
+
+      // Also translate the simplified lasso path for rendering
+      if (this.lassoSimplified) {
+        this.lassoSimplified = this.lassoSimplified.map(p => ({
+          x: p.x + dx,
+          y: p.y + dy
+        }));
+      }
+
       this.board.clearTop();
-      this.drawFloatingSelection();
       this.drawSelectionUI();
       return;
     }
@@ -615,6 +735,7 @@ export class SelectTool extends Tool {
       // Flush any pending broadcast to ensure final drag position is sent
       this.flushPendingSelectionBroadcast();
       this.drawSelectionUI();
+      this.updateCursor(pos);
       this.showContextMenu();
       return;
     }
@@ -682,6 +803,7 @@ export class SelectTool extends Tool {
 
       this.board.clearTop();
       this.drawSelectionUI();
+      this.updateCursor(pos);
       this.showContextMenu();
     } else {
       // Rectangle mode (existing code)
@@ -709,6 +831,7 @@ export class SelectTool extends Tool {
 
       this.board.clearTop();
       this.drawSelectionUI();
+      this.updateCursor(pos);
       this.showContextMenu();
     }
   }
@@ -818,6 +941,12 @@ export class SelectTool extends Tool {
       const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
       const previewSrcWidth = Math.max(1, Math.round(this.floatingCanvas.width * previewScale));
       const previewSrcHeight = Math.max(1, Math.round(this.floatingCanvas.height * previewScale));
+
+      // Show toast if preview downscaling is active (only once per selection session)
+      if (previewScale < 1 && !this.hasShownPreviewToast && this.board.app?.ui) {
+        this.board.app.ui.showToast('Low res preview!');
+        this.hasShownPreviewToast = true;
+      }
 
       // Reuse or create preview homography instance
       if (!this.previewHomography) {
@@ -1024,12 +1153,13 @@ export class SelectTool extends Tool {
   isInsideSelection(pos) {
     if (!this.selection) return false;
 
-    // For lasso mode with path, use point-in-polygon test
-    if (this.mode === 'lasso' && this.lassoPath) {
+    // For lasso mode with path, use point-in-polygon test ONLY if not lifted yet
+    // Once lifted, use rectangle bounds for dragging
+    if (this.mode === 'lasso' && this.lassoPath && !this.floatingCanvas) {
       return pointInHull(pos, this.lassoPath);
     }
 
-    // Rectangle mode (existing code)
+    // Rectangle mode or lifted selection - use bounding box
     const s = this.selection;
     return pos.x >= s.x && pos.x <= s.x + s.width &&
            pos.y >= s.y && pos.y <= s.y + s.height;
@@ -1245,8 +1375,8 @@ export class SelectTool extends Tool {
       ctx.lineTo(c.bl.x, c.bl.y);
       ctx.closePath();
       ctx.stroke();
-    } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.floatingCanvas) {
-      // Lasso mode - draw simplified polygon ONLY if not lifted yet
+    } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.hasScaledSelection()) {
+      // Lasso mode - draw simplified polygon (only if not scaled)
       ctx.strokeStyle = '#000';
       ctx.lineDashOffset = -this.marchingAntsOffset;
       ctx.beginPath();
@@ -1266,6 +1396,13 @@ export class SelectTool extends Tool {
       }
       ctx.closePath();
       ctx.stroke();
+
+      // Also draw a subtle bounding rectangle (no animation)
+      ctx.setLineDash([]);
+      ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(s.x, s.y, s.width, s.height);
+      ctx.setLineDash([4, 4]); // Restore for cleanup below
     } else {
       // Rectangle mode OR lasso after lifting - draw bounding box
       ctx.strokeStyle = '#000';
@@ -1405,6 +1542,9 @@ export class SelectTool extends Tool {
 
     const s = this.selection;
 
+    // Reset preview toast flag when starting a new transform session
+    this.hasShownPreviewToast = false;
+
     // Create floating canvas with selection content
     this.floatingCanvas = document.createElement('canvas');
     this.floatingCanvas.width = s.width;
@@ -1451,7 +1591,6 @@ export class SelectTool extends Tool {
 
     // Draw floating selection on top canvas
     this.board.clearTop();
-    this.drawFloatingSelection();
     this.drawSelectionUI();
 
     // Send the data via the websocket client
@@ -1567,6 +1706,7 @@ export class SelectTool extends Tool {
     this.rotation = 0;
     this.isRotating = false;
     this.cornersAtRotationStart = null;
+    this.hasShownPreviewToast = false; // Reset toast flag for next selection
     // Clear homography instances
     this.homography = null;
     this.previewHomography = null;
@@ -1657,7 +1797,6 @@ export class SelectTool extends Tool {
     this.initializeCorners();
     this.updateHandles();
     this.board.clearTop();
-    this.drawFloatingSelection();
     this.drawSelectionUI();
     this.showContextMenu();
 
@@ -1683,7 +1822,22 @@ export class SelectTool extends Tool {
       this.floatingCtx = null;
     } else {
       // Clear region on main canvas
-      this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
+      if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
+        // Use lasso path as clipping region
+        this.board.mainCtx.save();
+        this.board.mainCtx.beginPath();
+        this.board.mainCtx.moveTo(this.lassoPath[0].x, this.lassoPath[0].y);
+        for (let i = 1; i < this.lassoPath.length; i++) {
+          this.board.mainCtx.lineTo(this.lassoPath[i].x, this.lassoPath[i].y);
+        }
+        this.board.mainCtx.closePath();
+        this.board.mainCtx.clip();
+        this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
+        this.board.mainCtx.restore();
+      } else {
+        // Rectangle mode - clear entire selection
+        this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
+      }
     }
 
     // Broadcast delete to other users
@@ -1744,16 +1898,49 @@ export class SelectTool extends Tool {
     if (this.floatingCanvas) {
       this.floatingCtx.globalAlpha = opacity;
       this.floatingCtx.fillStyle = color;
-      this.floatingCtx.fillRect(0, 0, s.width, s.height);
+
+      if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
+        // Use lasso path as clipping region (translate to floating canvas coordinates)
+        this.floatingCtx.save();
+        this.floatingCtx.beginPath();
+        this.floatingCtx.moveTo(this.lassoPath[0].x - s.x, this.lassoPath[0].y - s.y);
+        for (let i = 1; i < this.lassoPath.length; i++) {
+          this.floatingCtx.lineTo(this.lassoPath[i].x - s.x, this.lassoPath[i].y - s.y);
+        }
+        this.floatingCtx.closePath();
+        this.floatingCtx.clip();
+        this.floatingCtx.fillRect(0, 0, s.width, s.height);
+        this.floatingCtx.restore();
+      } else {
+        // Rectangle mode - fill entire selection
+        this.floatingCtx.fillRect(0, 0, s.width, s.height);
+      }
+
       this.floatingCtx.globalAlpha = 1;
       this.board.clearTop();
-      this.drawFloatingSelection();
       this.drawSelectionUI();
     } else {
       // Fill directly on main canvas
       this.board.mainCtx.globalAlpha = opacity;
       this.board.mainCtx.fillStyle = color;
-      this.board.mainCtx.fillRect(s.x, s.y, s.width, s.height);
+
+      if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
+        // Use lasso path as clipping region
+        this.board.mainCtx.save();
+        this.board.mainCtx.beginPath();
+        this.board.mainCtx.moveTo(this.lassoPath[0].x, this.lassoPath[0].y);
+        for (let i = 1; i < this.lassoPath.length; i++) {
+          this.board.mainCtx.lineTo(this.lassoPath[i].x, this.lassoPath[i].y);
+        }
+        this.board.mainCtx.closePath();
+        this.board.mainCtx.clip();
+        this.board.mainCtx.fillRect(s.x, s.y, s.width, s.height);
+        this.board.mainCtx.restore();
+      } else {
+        // Rectangle mode - fill entire selection
+        this.board.mainCtx.fillRect(s.x, s.y, s.width, s.height);
+      }
+
       this.board.mainCtx.globalAlpha = 1;
     }
 
@@ -1846,7 +2033,6 @@ export class SelectTool extends Tool {
 
     // Redraw the floating selection on top canvas
     this.board.clearTop();
-    this.drawFloatingSelection();
     this.drawSelectionUI();
     this.showContextMenu();
 
@@ -1932,6 +2118,16 @@ export class SelectTool extends Tool {
       Math.abs(c.bl.y - untransformed.bl.y) > tolerance ||
       Math.abs(c.br.x - untransformed.br.x) > tolerance ||
       Math.abs(c.br.y - untransformed.br.y) > tolerance
+    );
+  }
+
+  // Check if selection has been scaled from its original size
+  hasScaledSelection() {
+    if (!this.selection || !this.originalCorners || !this.floatingCanvas) return false;
+    const tolerance = 1; // Allow 1px tolerance for rounding
+    return (
+      Math.abs(this.selection.width - this.originalCorners.br.x) > tolerance ||
+      Math.abs(this.selection.height - this.originalCorners.br.y) > tolerance
     );
   }
 

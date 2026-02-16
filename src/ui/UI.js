@@ -34,6 +34,7 @@ export class UI {
       selfCircle: document.querySelector('.circle.self'),
       selfSquare: document.querySelector('.square.self'),
       selfCrosshair: document.querySelector('.crosshair.self'),
+      selfHand: document.querySelector('.hand.self'),
       selfMutedIndicator: document.querySelector('.mutedIndicator.self'),
       selfText: document.querySelector('.text.self'),
       selfTextInput: document.querySelector('.textInput.self'),
@@ -198,6 +199,16 @@ export class UI {
     this.elements.selfSquare.setAttribute('height', size * 2);
   }
 
+  setSelectCursor(isHand) {
+    if (isHand) {
+      this.elements.selfCrosshair.style.display = 'none';
+      this.elements.selfHand.style.display = 'block';
+    } else {
+      this.elements.selfCrosshair.style.display = 'block';
+      this.elements.selfHand.style.display = 'none';
+    }
+  }
+
   setMutedState(muted) {
     const indicator = this.elements.selfMutedIndicator;
     const circle = this.elements.selfCircle;
@@ -217,11 +228,12 @@ export class UI {
   }
 
   updateToolDisplay(tool) {
-    const { selfCircle, selfSquare, selfCrosshair, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, imageBrushOpacityContainer, selectionModeOptions, brushModeOptions } = this.elements;
+    const { selfCircle, selfSquare, selfCrosshair, selfHand, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, imageBrushOpacityContainer, selectionModeOptions, brushModeOptions } = this.elements;
 
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
     selfCrosshair.style.display = 'none';
+    selfHand.style.display = 'none';
     selfText.style.display = 'none';
     brushImage.style.display = 'none';
     brushFileInput.style.display = 'none';
