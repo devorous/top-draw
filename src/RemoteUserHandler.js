@@ -155,6 +155,20 @@ export class RemoteUserHandler {
             }
             break;
 
+          case 'blur':
+            const blurTool = this.toolManager.getTool('blur');
+            if (blurTool) {
+              blurTool.applyBlur(pos.x, pos.y, user.size, user);
+            }
+            break;
+
+          case 'circleBlur':
+            const circleBlurTool = this.toolManager.getTool('circleBlur');
+            if (circleBlurTool) {
+              circleBlurTool.stampBlurredCircle(pos.x, pos.y, user.size, user);
+            }
+            break;
+
           case 'imageBrush':
             if (user.imageBrush) {
               this.toolManager.getTool('imageBrush').draw(user, pos);
@@ -283,6 +297,24 @@ export class RemoteUserHandler {
         if (!user.panning) {
           const eraserTool = this.toolManager.getTool('erase');
           eraserTool.erase(pos.x, pos.y, pos.x, pos.y, user.pressure * user.size * 2);
+        }
+        break;
+
+      case 'blur':
+        if (!user.panning) {
+          const blurTool = this.toolManager.getTool('blur');
+          if (blurTool) {
+            blurTool.applyBlur(pos.x, pos.y, user.size, user);
+          }
+        }
+        break;
+
+      case 'circleBlur':
+        if (!user.panning) {
+          const circleBlurTool = this.toolManager.getTool('circleBlur');
+          if (circleBlurTool) {
+            circleBlurTool.stampBlurredCircle(pos.x, pos.y, user.size, user);
+          }
         }
         break;
 

@@ -48,6 +48,8 @@ export class UI {
       circleBtn: document.getElementById('circleBtn'),
       textBtn: document.getElementById('textBtn'),
       eraseBtn: document.getElementById('eraseBtn'),
+      blurBtn: document.getElementById('blurBtn'),
+      circleBlurBtn: document.getElementById('circleBlurBtn'),
       imageBrushBtn: document.getElementById('imageBrushBtn'),
       inkdropperBtn: document.getElementById('inkdropperBtn'),
 
@@ -77,6 +79,7 @@ export class UI {
       smoothingSlider: document.querySelector('.slider.smoothing'),
       hardnessSlider: document.querySelector('.slider.hardness'),
       imageBrushOpacitySlider: document.querySelector('.slider.imageBrushOpacity'),
+      blurRadiusSlider: document.querySelector('.slider.blurRadius'),
 
       sizeValue: document.getElementById('sizeValue'),
       pressureValue: document.getElementById('pressureValue'),
@@ -84,12 +87,14 @@ export class UI {
       spacingValue: document.getElementById('spacingValue'),
       hardnessValue: document.getElementById('hardnessValue'),
       imageBrushOpacityValue: document.getElementById('imageBrushOpacityValue'),
+      blurRadiusValue: document.getElementById('blurRadiusValue'),
 
       brushFileInput: document.getElementById('brush-file-input'),
       brushImage: document.getElementById('brushImage'),
       brushSpacing: document.getElementById('brush-spacing'),
       brushHardness: document.getElementById('brush-hardness'),
       imageBrushOpacityContainer: document.getElementById('image-brush-opacity'),
+      blurRadiusContainer: document.getElementById('blur-radius'),
 
       selectionModeOptions: document.getElementById('selectionModeOptions'),
       brushModeOptions: document.getElementById('brushModeOptions'),
@@ -101,6 +106,7 @@ export class UI {
       spacingLock: document.getElementById('spacingLock'),
       hardnessLock: document.getElementById('hardnessLock'),
       imageBrushOpacityLock: document.getElementById('imageBrushOpacityLock'),
+      blurRadiusLock: document.getElementById('blurRadiusLock'),
 
       colorPicker: document.getElementById('colorPicker'),
 
@@ -141,6 +147,8 @@ export class UI {
       circle: this.createIcon('images/circle-icon.svg'),
       text: this.createIcon('images/text-icon.svg'),
       erase: this.createIcon('images/eraser-icon.svg'),
+      blur: this.createIcon('images/brush-icon.svg'),
+      circleBlur: this.createIcon('images/circle-icon.svg'),
       imageBrush: this.createIcon('images/pepper.png')
     };
   }
@@ -229,7 +237,7 @@ export class UI {
   }
 
   updateToolDisplay(tool) {
-    const { selfCircle, selfSquare, selfCrosshair, selfHand, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, imageBrushOpacityContainer, selectionModeOptions, brushModeOptions } = this.elements;
+    const { selfCircle, selfSquare, selfCrosshair, selfHand, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, imageBrushOpacityContainer, blurRadiusContainer, selectionModeOptions, brushModeOptions, smoothingSlider } = this.elements;
 
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
@@ -241,11 +249,18 @@ export class UI {
     brushSpacing.style.display = 'none';
     brushHardness.style.display = 'none';
     imageBrushOpacityContainer.style.display = 'none';
+    if (blurRadiusContainer) {
+      blurRadiusContainer.style.display = 'none';
+    }
     if (selectionModeOptions) {
       selectionModeOptions.style.display = 'none';
     }
     if (brushModeOptions) {
       brushModeOptions.style.display = 'none';
+    }
+    // Show smoothing by default
+    if (smoothingSlider && smoothingSlider.parentElement) {
+      smoothingSlider.parentElement.style.display = 'block';
     }
 
     switch (tool) {
@@ -287,6 +302,20 @@ export class UI {
       case 'erase':
         selfCircle.style.display = 'block';
         break;
+      case 'circleBlur':
+        selfCircle.style.display = 'block';
+        brushHardness.style.display = 'block';
+        break;
+      case 'blur':
+        selfSquare.style.display = 'block';
+        if (blurRadiusContainer) {
+          blurRadiusContainer.style.display = 'block';
+        }
+        // Hide smoothing for blur tool
+        if (smoothingSlider && smoothingSlider.parentElement) {
+          smoothingSlider.parentElement.style.display = 'none';
+        }
+        break;
       case 'imageBrush':
         selfSquare.style.display = 'block';
         // brushImage is shown only when a brush is selected (via setBrushPreview)
@@ -311,6 +340,8 @@ export class UI {
       circle: this.elements.circleBtn,
       text: this.elements.textBtn,
       erase: this.elements.eraseBtn,
+      blur: this.elements.blurBtn,
+      circleBlur: this.elements.circleBlurBtn,
       imageBrush: this.elements.imageBrushBtn,
       inkdropper: this.elements.inkdropperBtn
     };
@@ -407,6 +438,12 @@ export class UI {
   updateHardnessValue(hardness) {
     if (this.elements.hardnessValue) {
       this.elements.hardnessValue.textContent = Math.round(hardness * 100);
+    }
+  }
+
+  updateBlurRadiusValue(radius) {
+    if (this.elements.blurRadiusValue) {
+      this.elements.blurRadiusValue.textContent = radius;
     }
   }
 
@@ -598,7 +635,7 @@ export class UI {
     square.setAttribute('height', userData.size * 2);
     square.setAttribute('width', userData.size * 2);
 
-    if (userData.tool !== 'imageBrush') {
+    if (userData.tool !== 'imageBrush' && userData.tool !== 'blur') {
       square.style.display = 'none';
     }
 
@@ -770,11 +807,13 @@ export class UI {
       case 'rectangle':
       case 'circle':
       case 'erase':
+      case 'circleBlur':
         if (circle) circle.style.display = 'block';
         break;
       case 'text':
         if (text) text.style.display = 'block';
         break;
+      case 'blur':
       case 'imageBrush':
         if (square) square.style.display = 'block';
         break;

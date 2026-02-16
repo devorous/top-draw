@@ -15,6 +15,7 @@ export class User {
     this.smoothing = options.smoothing !== undefined ? options.smoothing : 0.3;  // Stroke stabilization (0-1), default 30%
     this.opacity = options.opacity || 1;       // Brush opacity (0-1)
     this.hardness = options.hardness !== undefined ? options.hardness : 1.0;  // Brush hardness (0-1), default 100%
+    this.blurRadius = options.blurRadius !== undefined ? options.blurRadius : 5;  // Blur tool radius (0-20)
     this.spaceIndex = 0;
     this.color = options.color || [0, 0, 0, 1];
     this.tool = options.tool || 'ink';
@@ -80,6 +81,10 @@ export class User {
     this.hardness = Math.max(0, Math.min(1, hardness));
   }
 
+  setBlurRadius(radius) {
+    this.blurRadius = Math.max(0, Math.min(20, radius));
+  }
+
   setUsername(username) {
     this.username = (username || '').slice(0, 20);
   }
@@ -112,6 +117,8 @@ export class User {
       spacing: this.spacing,
       smoothing: this.smoothing,
       opacity: this.opacity,
+      hardness: this.hardness,
+      blurRadius: this.blurRadius,
       color: this.color,
       tool: this.tool,
       text: this.text,
@@ -121,7 +128,7 @@ export class User {
   }
 
   updateFrom(data) {
-    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'color', 'tool', 'text', 'username', 'blendMode'];
+    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'username', 'blendMode'];
     fields.forEach(field => {
       if (data[field] !== undefined) {
         this[field] = data[field];

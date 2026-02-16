@@ -383,6 +383,14 @@ export function setupWebSocketHandlers(app) {
     }
   });
 
+  // Blur radius change
+  wrapHandler('cbr', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      user.setBlurRadius(data.blurRadius);
+    }
+  });
+
   // Key press
   wrapHandler('kp', (data) => {
     const user = users.get(data.sessionIndex);

@@ -43,9 +43,16 @@ export class InkdropperTool {
     const imageData = ctx.getImageData(x, y, 1, 1);
     let [r, g, b, a] = imageData.data;
 
-    // If the pixel is transparent (empty canvas area), use the canvas background color
-    if (a === 0) {
-      [r, g, b, a] = this.board.backgroundColor.map((v, i) => i === 3 ? v * 255 : v);
+    // Composite against background for any transparency
+    // This gives us the "visual" color that the user sees on screen
+    if (a < 255) {
+      const bgColor = this.board.backgroundColor;
+      const alpha = a / 255;
+      // Alpha compositing: result = fg * alpha + bg * (1 - alpha)
+      r = Math.round(r * alpha + bgColor[0] * (1 - alpha));
+      g = Math.round(g * alpha + bgColor[1] * (1 - alpha));
+      b = Math.round(b * alpha + bgColor[2] * (1 - alpha));
+      a = 255; // Sampled color is now fully opaque (visual color)
     }
 
     // Convert to RGBA array (0-255 for RGB, 0-1 for alpha)

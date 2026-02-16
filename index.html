@@ -284,6 +284,12 @@
           <a class="tool btn" id="eraseBtn" title="Eraser (E)">
             <img src="/images/eraser-icon.svg" alt="Eraser">
           </a>
+          <a class="tool btn" id="blurBtn" title="Blur (U)">
+            <img src="/images/blend-icon.svg" alt="Blur">
+          </a>
+          <a class="tool btn" id="circleBlurBtn" title="Circle Blur (Y)">
+            <img src="/images/circle-blur-icon.svg" alt="Circle Blur">
+          </a>
           <a class="tool btn" id="imageBrushBtn" title="Image Brush (G)">
             <img src="/images/pepper.png" alt="Image Brush">
           </a>
@@ -337,6 +343,11 @@
               <div class="sliderContainer" id="brush-hardness" style="display: none;">
                 <label>Hardness <span class="sliderValue" id="hardnessValue">100</span><button class="lock-btn" id="hardnessLock" title="Lock hardness for current tool">🔓</button></label>
                 <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider hardness">
+              </div>
+
+              <div class="sliderContainer" id="blur-radius" style="display: none;">
+                <label>Blur Radius <span class="sliderValue" id="blurRadiusValue">5</span><button class="lock-btn" id="blurRadiusLock" title="Lock blur radius">🔓</button></label>
+                <input autocomplete="off" type="range" min="0" max="20" value="5" step="1" class="slider blurRadius">
               </div>
 
               <div class="sliderContainer" id="image-brush-opacity" style="display: none;">
