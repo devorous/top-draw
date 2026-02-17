@@ -1,3 +1,6 @@
+import { EditableValueHandler } from './EditableValueHandler.js';
+import { RemoteUserUI } from './RemoteUserUI.js';
+
 /**
  * UI Manager for handling DOM interactions
  */
@@ -6,11 +9,14 @@ export class UI {
     this.elements = {};
     this.icons = {};
     this.cursors = new Map();
+    this.editableHandler = new EditableValueHandler();
+    this.remoteUserUI = null; // Initialized after icons are created
   }
 
   init() {
     this.cacheElements();
     this.createIcons();
+    this.remoteUserUI = new RemoteUserUI(this.elements, this.icons);
   }
 
   cacheElements() {
@@ -470,443 +476,64 @@ export class UI {
    * @param {Object} opts - { min, max, step, suffix, onCommit(val) }
    */
   makeValueEditable(spanEl, opts) {
-    const { min, max, step, suffix = '', onCommit, dragStep } = opts;
-    const DRAG_THRESHOLD = 3; // px of vertical movement before drag starts
-
-    let dragState = null;
-
-    const openEditor = () => {
-      if (spanEl.querySelector('.sliderValueInput')) return;
-
-      const originalText = spanEl.textContent;
-      const currentVal = parseFloat(originalText.replace(suffix, '').trim());
-
-      const input = document.createElement('input');
-      input.type = 'number';
-      input.className = 'sliderValueInput';
-      input.min = min;
-      input.max = max;
-      input.step = step;
-      input.value = isNaN(currentVal) ? min : currentVal;
-
-      spanEl.textContent = '';
-      spanEl.appendChild(input);
-      input.focus();
-      input.select();
-
-      const commit = () => {
-        let val = parseFloat(input.value);
-        if (isNaN(val)) val = min;
-        val = Math.max(min, Math.min(max, val));
-        val = Math.round(val / step) * step;
-        val = parseFloat(val.toFixed(10));
-
-        spanEl.textContent = suffix ? `${val}${suffix}` : String(val);
-        onCommit(val);
-      };
-
-      const cancel = () => {
-        spanEl.textContent = originalText;
-      };
-
-      input.addEventListener('blur', commit);
-      input.addEventListener('keydown', (ke) => {
-        if (ke.key === 'Enter') {
-          ke.preventDefault();
-          input.removeEventListener('blur', commit);
-          commit();
-        } else if (ke.key === 'Escape') {
-          ke.preventDefault();
-          input.removeEventListener('blur', commit);
-          cancel();
-        }
-        ke.stopPropagation();
-      });
-    };
-
-    spanEl.addEventListener('pointerdown', (e) => {
-      if (spanEl.querySelector('.sliderValueInput')) return;
-      e.preventDefault();
-
-      const currentText = spanEl.textContent;
-      const startVal = parseFloat(currentText.replace(suffix, '').trim()) || min;
-
-      dragState = {
-        startY: e.clientY,
-        startVal,
-        dragging: false,
-        pointerId: e.pointerId
-      };
-
-      spanEl.setPointerCapture(e.pointerId);
-    });
-
-    spanEl.addEventListener('pointermove', (e) => {
-      if (!dragState) return;
-
-      const dy = dragState.startY - e.clientY; // up = positive
-
-      if (!dragState.dragging) {
-        if (Math.abs(dy) < DRAG_THRESHOLD) return;
-        dragState.dragging = true;
-        spanEl.classList.add('dragging');
-        document.body.classList.add('parameter-dragging');
-      }
-
-      // Use dragStep function for dynamic step sizes, or fall back to fixed step
-      const currentStep = dragStep ? dragStep(dragState.lastVal ?? dragState.startVal) : step;
-
-      let sensitivity = currentStep;
-      if (e.shiftKey) sensitivity = currentStep * 10;
-      else if (e.altKey) sensitivity = currentStep * 0.1;
-
-      let val = dragState.startVal + dy * sensitivity;
-      val = Math.max(min, Math.min(max, val));
-      // Snap to the appropriate step for the current value
-      const snapStep = dragStep ? dragStep(val) : step;
-      val = Math.round(val / snapStep) * snapStep;
-      val = parseFloat(val.toFixed(10));
-      dragState.lastVal = val;
-
-      spanEl.textContent = suffix ? `${val}${suffix}` : String(val);
-      onCommit(val);
-    });
-
-    const endDrag = (e) => {
-      if (!dragState) return;
-      const wasDragging = dragState.dragging;
-      spanEl.classList.remove('dragging');
-      document.body.classList.remove('parameter-dragging');
-      dragState = null;
-
-      // If it was a click (no drag), open the text editor
-      if (!wasDragging) {
-        openEditor();
-      }
-    };
-
-    spanEl.addEventListener('pointerup', endDrag);
-    spanEl.addEventListener('pointercancel', endDrag);
+    return this.editableHandler.makeEditable(spanEl, opts);
   }
 
   hideRemoteCursor(userId) {
-    const cursorElements = this.cursors.get(userId);
-    if (!cursorElements) return;
-
-    cursorElements.cursor.style.display = 'none';
-    cursorElements.circle.style.display = 'none';
-    cursorElements.square.style.display = 'none';
-    cursorElements.crosshair.style.display = 'none';
-    cursorElements.text.style.display = 'none';
+    return this.remoteUserUI.hideRemoteCursor(userId);
   }
 
   showRemoteCursor(userId) {
-    const cursorElements = this.cursors.get(userId);
-    if (!cursorElements) return;
-
-    cursorElements.cursor.style.display = 'block';
-    // Note: circle, square, crosshair, text visibility is managed by updateRemoteToolDisplay()
-    // This will be called after showing to restore the correct cursor shape
+    return this.remoteUserUI.showRemoteCursor(userId);
   }
   
   createRemoteUser(userId, userData) {
-    const id = `u${userId}`;
-    const cursor = document.createElement('div');
-    cursor.className = `cursor ${id}`;
-    cursor.style.left = `${userData.x}px`;
-    cursor.style.top = `${userData.y}px`;
-
-    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('class', `circle ${id}`);
-    circle.setAttribute('stroke', 'grey');
-    circle.setAttribute('stroke-width', '1');
-    circle.setAttribute('fill', 'none');
-    circle.setAttribute('cx', '0');
-    circle.setAttribute('cy', '0');
-    circle.setAttribute('r', '10');
-
-    const square = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    square.setAttribute('class', `square ${id}`);
-    square.setAttribute('stroke', 'grey');
-    square.setAttribute('stroke-width', '1');
-    square.setAttribute('fill', 'none');
-    square.setAttribute('x', userData.x - userData.size);
-    square.setAttribute('y', userData.y - userData.size);
-    square.setAttribute('height', userData.size * 2);
-    square.setAttribute('width', userData.size * 2);
-
-    if (userData.tool !== 'imageBrush' && userData.tool !== 'blur') {
-      square.style.display = 'none';
-    }
-
-    // Crosshair cursor for select tool
-    const crosshair = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    crosshair.setAttribute('class', `crosshair ${id}`);
-    crosshair.style.display = userData.tool === 'select' ? 'block' : 'none';
-    const chSize = 10;
-    const hLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    hLine.setAttribute('x1', -chSize);
-    hLine.setAttribute('y1', '0');
-    hLine.setAttribute('x2', chSize);
-    hLine.setAttribute('y2', '0');
-    hLine.setAttribute('stroke', 'grey');
-    hLine.setAttribute('stroke-width', '1');
-    const vLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    vLine.setAttribute('x1', '0');
-    vLine.setAttribute('y1', -chSize);
-    vLine.setAttribute('x2', '0');
-    vLine.setAttribute('y2', chSize);
-    vLine.setAttribute('stroke', 'grey');
-    vLine.setAttribute('stroke-width', '1');
-    crosshair.appendChild(hLine);
-    crosshair.appendChild(vLine);
-
-    const name = document.createElement('text');
-    name.className = `name ${id}`;
-    name.textContent = userData.username || userId;
-
-    const text = document.createElement('text');
-    text.className = `text ${id}`;
-    text.style.width = '400px';
-    text.style.color = `rgba(${userData.color.join(',')})`;
-    text.style.fontSize = `${userData.size + 5}px`;
-
-    if (userData.tool !== 'text') {
-      text.style.display = 'none';
-    }
-
-    const textInput = document.createElement('text');
-    textInput.className = `textInput ${id}`;
-    textInput.textContent = userData.text || '';
-
-    const line = document.createElement('text');
-    line.textContent = '|';
-
-    text.appendChild(textInput);
-    text.appendChild(line);
-
-    this.elements.cursorsSvg.appendChild(circle);
-    this.elements.cursorsSvg.appendChild(square);
-    this.elements.cursorsSvg.appendChild(crosshair);
-    cursor.appendChild(name);
-    cursor.appendChild(text);
-
-    document.querySelector('.cursors').appendChild(cursor);
-
-    this.createUserListEntry(userId, userData);
-    this.createUserBoard(userId);
-
-    this.cursors.set(userId, { cursor, circle, square, crosshair, text, textInput, name });
+    return this.remoteUserUI.createRemoteUser(userId, userData);
   }
 
   createUserBoard(userId) {
-    const id = `u${userId}`;
-    const board = document.createElement('canvas');
-    board.setAttribute('height', this.elements.board.height);
-    board.setAttribute('width', this.elements.board.width);
-    board.className = `userBoard ${id}`;
-    this.elements.userBoards.appendChild(board);
-
-    const context = board.getContext('2d');
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-
-    return { board, context };
+    return this.remoteUserUI.createUserBoard(userId);
   }
 
   createUserListEntry(userId, userData) {
-    const id = `u${userId}`;
-    const entry = document.createElement('div');
-    entry.className = `userEntry ${id}`;
-    entry.dataset.sessionIndex = userId;
-
-    const toolEntry = document.createElement('a');
-    toolEntry.className = `listTool ${id}`;
-    const icon = this.icons[userData.tool] || this.icons.brush;
-    toolEntry.appendChild(icon.cloneNode(true));
-
-    const colorEntry = document.createElement('a');
-    colorEntry.className = `listColor ${id}`;
-    colorEntry.style.backgroundColor = `rgba(${userData.color.join(',')})`;
-
-    const userEntry = document.createElement('span');
-    userEntry.className = `listUser ${id}`;
-    userEntry.textContent = userData.username || userId;
-
-    // Role badge (hidden by default, shown when role > 0)
-    const roleBadge = document.createElement('span');
-    roleBadge.className = `roleBadge ${id}`;
-    roleBadge.style.display = 'none';
-    if (userData.role === 2) {
-      roleBadge.textContent = 'admin';
-      roleBadge.classList.add('admin');
-      roleBadge.style.display = '';
-    } else if (userData.role === 1) {
-      roleBadge.textContent = 'mod';
-      roleBadge.classList.add('mod');
-      roleBadge.style.display = '';
-    }
-
-    const activeEntry = document.createElement('span');
-    activeEntry.className = `listActive ${id}`;
-
-    entry.appendChild(toolEntry);
-    entry.appendChild(colorEntry);
-    entry.appendChild(userEntry);
-    entry.appendChild(roleBadge);
-    entry.appendChild(activeEntry);
-
-    this.elements.userList.appendChild(entry);
+    return this.remoteUserUI.createUserListEntry(userId, userData);
   }
 
   updateRemoteCursor(userId, x, y, size) {
-    const id = `u${userId}`;
-    const cursor = document.querySelector(`.cursor.${id}`);
-    const circle = document.querySelector(`.circle.${id}`);
-    const square = document.querySelector(`.square.${id}`);
-    const crosshair = document.querySelector(`.crosshair.${id}`);
-
-    if (cursor) {
-      cursor.style.left = `${x - 100}px`;
-      cursor.style.top = `${y - 100}px`;
-    }
-    if (circle) {
-      circle.setAttribute('cx', x);
-      circle.setAttribute('cy', y);
-    }
-    if (square) {
-      square.setAttribute('x', x - size);
-      square.setAttribute('y', y - size);
-    }
-    if (crosshair) {
-      crosshair.setAttribute('transform', `translate(${x}, ${y})`);
-    }
+    return this.remoteUserUI.updateRemoteCursor(userId, x, y, size);
   }
 
   updateRemoteToolDisplay(userId, tool) {
-    const id = `u${userId}`;
-    const circle = document.querySelector(`.circle.${id}`);
-    const square = document.querySelector(`.square.${id}`);
-    const crosshair = document.querySelector(`.crosshair.${id}`);
-    const text = document.querySelector(`.text.${id}`);
-    const toolEntry = document.querySelector(`.listTool.${id}`);
-
-    if (circle) circle.style.display = 'none';
-    if (square) square.style.display = 'none';
-    if (crosshair) crosshair.style.display = 'none';
-    if (text) text.style.display = 'none';
-
-    switch (tool) {
-      case 'select':
-        if (crosshair) crosshair.style.display = 'block';
-        break;
-      case 'brush':
-      case 'flowPen':
-      case 'ink':
-      case 'line':
-      case 'rectangle':
-      case 'circle':
-      case 'erase':
-      case 'circleBlur':
-        if (circle) circle.style.display = 'block';
-        break;
-      case 'text':
-        if (text) text.style.display = 'block';
-        break;
-      case 'blur':
-      case 'imageBrush':
-        if (square) square.style.display = 'block';
-        break;
-    }
-
-    if (toolEntry && this.icons[tool]) {
-      if (toolEntry.children[0]) {
-        toolEntry.children[0].remove();
-      }
-      toolEntry.appendChild(this.icons[tool].cloneNode(true));
-    }
+    this.remoteUserUI.updateRemoteToolDisplay(userId, tool);
+    this.remoteUserUI.updateRemoteToolIcon(userId, tool);
   }
 
   updateRemoteSize(userId, size) {
-    const id = `u${userId}`;
-    const circle = document.querySelector(`.circle.${id}`);
-    const square = document.querySelector(`.square.${id}`);
-    const text = document.querySelector(`.text.${id}`);
-
-    if (circle) circle.setAttribute('r', size);
-    if (square) {
-      square.setAttribute('height', size * 2);
-      square.setAttribute('width', size * 2);
-    }
-    if (text) text.style.fontSize = `${size + 5}px`;
+    return this.remoteUserUI.updateRemoteSize(userId, size);
   }
 
   updateRemoteColor(userId, color) {
-    const id = `u${userId}`;
-    const text = document.querySelector(`.text.${id}`);
-    const colorEntry = document.querySelector(`.listColor.${id}`);
-    const colorStr = `rgba(${color.join(',')})`;
-
-    if (text) text.style.color = colorStr;
-    if (colorEntry) colorEntry.style.backgroundColor = colorStr;
+    return this.remoteUserUI.updateRemoteColor(userId, color);
   }
 
   updateRemoteName(userId, name) {
-    const id = `u${userId}`;
-    const nameEl = document.querySelector(`.name.${id}`);
-    const listUser = document.querySelector(`.listUser.${id}`);
-
-    if (nameEl) nameEl.textContent = name;
-    if (listUser) listUser.textContent = name;
+    return this.remoteUserUI.updateRemoteName(userId, name);
   }
 
   updateRemoteText(userId, textContent) {
-    const id = `u${userId}`;
-    const textInput = document.querySelector(`.textInput.${id}`);
-    if (textInput) {
-      textInput.innerHTML = textContent.replace(/ /g, '&nbsp;');
-    }
+    return this.remoteUserUI.updateRemoteText(userId, textContent);
   }
 
   setRemoteUserAfk(userId, afk) {
-    const id = `u${userId}`;
-    const cursor = document.querySelector(`.cursor.${id}`);
-    const circle = document.querySelector(`.circle.${id}`);
-    const square = document.querySelector(`.square.${id}`);
-    const userEntry = document.querySelector(`.userEntry.${id}`);
-
-    if (cursor) {
-      cursor.style.opacity = afk ? '0' : '1';
-      cursor.style.transition = 'opacity 0.5s ease';
-    }
-    if (circle) {
-      circle.style.opacity = afk ? '0' : '1';
-      circle.style.transition = 'opacity 0.5s ease';
-    }
-    if (square) {
-      square.style.opacity = afk ? '0' : '1';
-      square.style.transition = 'opacity 0.5s ease';
-    }
-    if (userEntry) {
-      userEntry.style.opacity = afk ? '0.5' : '1';
-      userEntry.style.transition = 'opacity 0.3s ease';
-    }
+    return this.remoteUserUI.setRemoteUserAfk(userId, afk);
   }
 
   removeRemoteUser(userId) {
-    const id = `u${userId}`;
-    const elements = document.querySelectorAll(`.${id}`);
-    elements.forEach(el => el.remove());
-    this.cursors.delete(userId);
+    return this.remoteUserUI.removeRemoteUser(userId);
   }
 
   getRemoteUserBoard(userId) {
-    const id = `u${userId}`;
-    const board = document.querySelector(`.userBoard.${id}`);
-    if (board) {
-      return { board, context: board.getContext('2d') };
-    }
-    return null;
+    return this.remoteUserUI.getRemoteUserBoard(userId);
   }
 
   /**

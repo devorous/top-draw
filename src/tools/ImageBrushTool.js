@@ -57,7 +57,8 @@ export class ImageBrushTool extends Tool {
 
     const brush = user.imageBrush;
     const size = user.size;
-    const ctx = this.board.mainCtx;
+    // Use user.context for remote users, mainCtx for local user
+    const ctx = user.context || this.board.mainCtx;
 
     let height, width, image;
 
