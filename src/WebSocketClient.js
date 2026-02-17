@@ -1,7 +1,6 @@
 /**
  * WebSocket client for real-time communication with optimized protobuf
  */
-import protobuf from 'protobufjs';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
 
@@ -22,10 +21,13 @@ export class WebSocketClient {
     if (this.protoLoaded) return;
 
     try {
+      // Lazy load protobufjs
+      const protobuf = await import('protobufjs');
+
       const baseUrl = import.meta.env.BASE_URL || '/';
       const protoUrl = `${baseUrl}messages.proto`.replace('//', '/');
       console.log('Loading protobuf from:', protoUrl);
-      const root = await protobuf.load(protoUrl);
+      const root = await protobuf.default.load(protoUrl);
       this.Msg = root.lookupType('Msg');
       this.protoLoaded = true;
       console.log('Protobuf loaded on client');
