@@ -328,6 +328,22 @@ export class RemoteUserHandler {
       this.inkHandler.handleInkUp(user);
     }
 
+    // Image brush — commit user.context to mainCtx BEFORE clearing
+    // (imageBrush draws directly to user.context during the stroke)
+    if (user.tool === 'imageBrush' && user.imageBrush && !user.panning) {
+      mainCtx.globalCompositeOperation = 'source-over';
+      mainCtx.globalAlpha = 1.0;
+      mainCtx.drawImage(user.context.canvas, 0, 0);
+
+      if (this.board.mirror) {
+        mainCtx.save();
+        mainCtx.translate(this.board.getWidth(), 0);
+        mainCtx.scale(-1, 1);
+        mainCtx.drawImage(user.context.canvas, 0, 0);
+        mainCtx.restore();
+      }
+    }
+
     // Clear preview canvas FIRST to prevent composite boldness
     // (otherwise both preview and mainCtx briefly show the same line)
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
