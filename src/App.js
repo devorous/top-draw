@@ -13,6 +13,10 @@ import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
 import { Auth } from './Auth.js';
 import { Moderation } from './Moderation.js';
 import { ColorInputMenu } from './ColorInputMenu.js';
+import { ToolLockManager } from './ToolLockManager.js';
+import { InputBufferManager } from './InputBufferManager.js';
+import { KeyboardHandler } from './KeyboardHandler.js';
+import { BrushModeManager } from './BrushModeManager.js';
 
 export class DrawingApp {
   constructor(options = {}) {
@@ -66,55 +70,20 @@ export class DrawingApp {
     this.selfRole = 0; // 0=guest
     this.moderation = new Moderation();
 
-    // Tick system for synchronized drawing (90 TPS = ~11ms)
-    this.tickRate = 90;
-    this.tickInterval = 1000 / this.tickRate; // ~11.11ms
-    this.tickTimer = null;
-    this.lastTickTime = 0;
-
-    // Input buffer - stores latest pointer state between ticks
-    this.inputBuffer = {
-      points: [],      // Array of [x1, y1, x2, y2, ...]
-      lastPosition: null,  // { x, y } - previous position for interpolation
-      pressure: 1,
-      pointerType: 'mouse',
-      movement: { x: 0, y: 0 }, // accumulated movement for panning
-      dirty: false         // whether buffer has new data to process
-    };
-
-    // Point reduction configuration
-    this.pointReduction = {
-      enabled: options.enablePointReduction !== false, // true by default
-      algorithm: options.reductionAlgorithm || 'douglas-peucker', // 'douglas-peucker' or 'distance-based'
-      // Epsilon mapping for Douglas-Peucker (based on smoothing %)
-      minEpsilon: 0.1,
-      maxEpsilon: 5.0,
-      // Distance threshold for distance-based culling (based on smoothing %)
-      minDistance: 0.5,
-      maxDistance: 10.0
-    };
-
-    // Baseline smoothing configuration - always-on light smoothing
-    this.baselineSmoothing = {
-      enabled: true,
-      emaFactor: 0.12,        // 12% baseline EMA (light stabilization)
-      pointReduction: {
-        minEpsilon: 0.3,      // Always reduce some points
-        maxEpsilon: 4.0       // Scales with total smoothing
-      }
-    };
-
-    // EMA buffer for broadcast smoothing
-    this.broadcastSmoothBuffer = { x: 0, y: 0, isFirst: true };
+    // Input buffer manager - handles tick system, smoothing, point reduction
+    this.inputBufferManager = new InputBufferManager(this);
 
     // Pressure enabled state (checkbox)
     this.pressureEnabled = true;
 
-    // Brush mode: 'classic' (BrushTool) or 'fluid' (FlowPenTool)
-    this.brushMode = this.loadBrushMode();
+    // Brush mode manager - handles classic/fluid/ink brush mode switching
+    this.brushModeManager = new BrushModeManager(this);
 
     // Tool-specific locked values
-    this.toolLocks = this.loadToolLocks();
+    this.toolLockManager = new ToolLockManager(this);
+
+    // Keyboard handler
+    this.keyboardHandler = new KeyboardHandler(this);
   }
 
   async init() {
@@ -193,16 +162,16 @@ export class DrawingApp {
     this.setupEventListeners();
     setupWebSocketHandlers(this);
 
-    const initialTool = this.brushMode === 'fluid' ? 'flowPen' : this.brushMode === 'ink' ? 'ink' : 'brush';
+    const initialTool = this.brushModeManager.getCurrentToolName();
     this.self.setTool(initialTool);
     this.toolManager.setTool(initialTool);
     this.ui.updateToolDisplay(initialTool);
-    this.ui.updateBrushModeDisplay(this.brushMode);
+    this.ui.updateBrushModeDisplay(this.brushModeManager.getMode());
 
     // Restore locked values for initial tool and update lock button states
-    if (this.toolLocks[initialTool]) {
-      this.restoreLockedValues(initialTool);
-      this.updateAllLockButtons(initialTool);
+    if (this.toolLockManager.toolLocks[initialTool]) {
+      this.toolLockManager.restoreLockedValues(initialTool);
+      this.toolLockManager.updateAllLockButtons(initialTool);
     }
 
     await this.wsClient.connect(this.self.toJSON());
@@ -290,8 +259,7 @@ export class DrawingApp {
     elements.disconnectBtn.addEventListener('click', () => this.disconnect());
     elements.selectBtn.addEventListener('click', () => this.selectTool('select'));
     elements.brushBtn.addEventListener('click', () => {
-      const tool = this.brushMode === 'fluid' ? 'flowPen' : this.brushMode === 'ink' ? 'ink' : 'brush';
-      this.selectTool(tool);
+      this.selectTool(this.brushModeManager.getCurrentToolName());
     });
     elements.lineBtn.addEventListener('click', () => this.selectTool('line'));
     elements.rectangleBtn.addEventListener('click', () => this.selectTool('rectangle'));
@@ -394,7 +362,7 @@ export class DrawingApp {
     const brushModeRadios = document.querySelectorAll('input[name="brushMode"]');
     brushModeRadios.forEach(radio => {
       radio.addEventListener('change', (e) => {
-        this.handleBrushModeChange(e.target.value);
+        this.brushModeManager.setMode(e.target.value);
       });
     });
 
@@ -616,13 +584,13 @@ export class DrawingApp {
     });
 
     // Lock button event listeners
-    if (elements.sizeLock) elements.sizeLock.addEventListener('click', () => this.toggleLock('size'));
-    if (elements.pressureLock) elements.pressureLock.addEventListener('click', () => this.toggleLock('pressure'));
-    if (elements.smoothingLock) elements.smoothingLock.addEventListener('click', () => this.toggleLock('smoothing'));
-    if (elements.spacingLock) elements.spacingLock.addEventListener('click', () => this.toggleLock('spacing'));
-    if (elements.hardnessLock) elements.hardnessLock.addEventListener('click', () => this.toggleLock('hardness'));
-    if (elements.imageBrushOpacityLock) elements.imageBrushOpacityLock.addEventListener('click', () => this.toggleLock('imageBrushOpacity'));
-    if (elements.blurRadiusLock) elements.blurRadiusLock.addEventListener('click', () => this.toggleLock('blurRadius'));
+    if (elements.sizeLock) elements.sizeLock.addEventListener('click', () => this.toolLockManager.toggleLock('size'));
+    if (elements.pressureLock) elements.pressureLock.addEventListener('click', () => this.toolLockManager.toggleLock('pressure'));
+    if (elements.smoothingLock) elements.smoothingLock.addEventListener('click', () => this.toolLockManager.toggleLock('smoothing'));
+    if (elements.spacingLock) elements.spacingLock.addEventListener('click', () => this.toolLockManager.toggleLock('spacing'));
+    if (elements.hardnessLock) elements.hardnessLock.addEventListener('click', () => this.toolLockManager.toggleLock('hardness'));
+    if (elements.imageBrushOpacityLock) elements.imageBrushOpacityLock.addEventListener('click', () => this.toolLockManager.toggleLock('imageBrushOpacity'));
+    if (elements.blurRadiusLock) elements.blurRadiusLock.addEventListener('click', () => this.toolLockManager.toggleLock('blurRadius'));
 
     elements.board.addEventListener('pointermove', (e) => this.handlePointerMove(e));
     elements.board.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
@@ -664,8 +632,8 @@ export class DrawingApp {
       elements.touchInput.addEventListener('blur', () => this.touchHandler.handleTouchInputBlur());
     }
 
-    document.addEventListener('keydown', (e) => this.handleKeyDown(e));
-    document.addEventListener('keyup', (e) => this.handleKeyUp(e));
+    // Initialize keyboard handler
+    this.keyboardHandler.init();
 
     window.addEventListener('resize', () => this.handleResize());
   }
@@ -700,7 +668,7 @@ export class DrawingApp {
   handleWSDisconnect(code, reason) {
     this.connected = false;
     // Don't stop the tick loop - drawing should continue locally
-    if (this.tickTimer) {
+    if (this.inputBufferManager.tickTimer) {
       this.ui.showConnectionStatus('disconnected');
     }
 
@@ -740,7 +708,7 @@ export class DrawingApp {
     // Update moderation UI visibility based on role
     this.moderation.setRole(role);
 
-    this.startTickLoop();
+    this.inputBufferManager.startTickLoop();
     this.syncClient.requestSync();
 
     const roleNames = ['Guest', 'User', 'Moderator', 'Admin'];
@@ -782,296 +750,20 @@ export class DrawingApp {
     this.moderation.setRole(this.selfRole);
 
     // Start the tick loop (no-op if already running from a reconnect)
-    this.startTickLoop();
+    this.inputBufferManager.startTickLoop();
 
     // Request canvas sync from server
     this.syncClient.requestSync();
   }
 
   handleRenameself() {
-    if (!this.tickTimer) return; // Not in drawing mode yet
+    if (!this.inputBufferManager.tickTimer) return; // Not in drawing mode yet
     const name = prompt('Enter your name:', this.self.username);
     if (name !== null && name.trim() !== '') {
       this.self.setUsername(name.trim());
       this.ui.updateSelfName(name.trim());
       this.wsClient.broadcastNameChange(name.trim());
     }
-  }
-
-  // Tick system methods
-
-  startTickLoop() {
-    if (this.tickTimer) return; // Already running
-
-    this.lastTickTime = performance.now();
-    this.tickTimer = setInterval(() => this.tick(), this.tickInterval);
-  }
-
-  stopTickLoop() {
-    if (this.tickTimer) {
-      clearInterval(this.tickTimer);
-      this.tickTimer = null;
-    }
-  }
-
-  tick() {
-    const now = performance.now();
-    this.lastTickTime = now;
-
-    // Skip local drawing while syncing
-    if (this.syncClient?.isSyncing()) return;
-
-    // Only process if we have new input data OR need to catch up smoothing
-    const needsCatchup = this.needsSmoothingCatchup();
-    if (!this.inputBuffer.dirty && !needsCatchup) return;
-
-    const { points, movement } = this.inputBuffer;
-
-    // Handle panning movement
-    if (this.self.panning && this.self.mousedown && (movement.x !== 0 || movement.y !== 0)) {
-      this.board.pan(movement.x, movement.y);
-      this.inputBuffer.movement = { x: 0, y: 0 }; // Reset accumulated movement
-    }
-
-    // Process drawing if we have position data
-    if (points.length >= 2) {
-      // 1. Calculate broadcast points early (before local processing)
-      let broadcastPoints;
-      if (this.self.mousedown && !this.self.panning) {
-        broadcastPoints = this.applyBroadcastSmoothing(points);
-        broadcastPoints = this.applyPointReduction(broadcastPoints);
-      } else {
-        broadcastPoints = points;
-      }
-
-      // For blur tools, use the reduced broadcast points for local processing too
-      // This ensures local and remote users process the same points (perfect sync)
-      const blurTools = ['blur', 'circleBlur'];
-      const localPoints = (this.self.mousedown && !this.self.panning && blurTools.includes(this.self.tool))
-        ? broadcastPoints
-        : points;
-
-      // 2. Update self state with the LATEST point in the batch
-      const lastX = localPoints[localPoints.length - 2];
-      const lastY = localPoints[localPoints.length - 1];
-      this.self.setPosition(lastX, lastY);
-
-      // 3. Process locally for immediate feedback (must run before broadcast for flowPen stamp buffer)
-      if (this.self.mousedown && !this.self.panning) {
-        const tool = this.toolManager.getCurrentTool();
-        if (tool) {
-          // We iterate through the batch locally so the user sees smooth lines
-          // For blur tools, we use reduced points to match what remote users will see
-          for (let i = 0; i < localPoints.length; i += 2) {
-              const currentPos = { x: localPoints[i], y: localPoints[i+1] };
-              const prevPos = i === 0 ? (this.inputBuffer.lastPosition || currentPos) : { x: localPoints[i-2], y: localPoints[i-1] };
-              tool.onPointerMove(this.self, currentPos, prevPos);
-
-              // Debug: Track each point processed locally
-              this.debugOverlay.addStrokePoint(this.self.id, currentPos.x, currentPos.y, 'tick');
-          }
-        }
-      }
-
-      // 4. Broadcast to remote users
-      if (this.self.tool === 'flowPen' && this.self.mousedown && !this.self.panning) {
-        // FlowPen: send exact stamp positions (already generated by tool.onPointerMove above)
-        const tool = this.toolManager.getCurrentTool();
-        const { ps: stampPs, rs: stampRs } = tool.drainStampBuffer();
-        if (stampPs.length > 0) {
-          this.wsClient.broadcastStampMove(stampPs, stampRs);
-        }
-      } else if (this.self.tool === 'ink' && this.self.mousedown && !this.self.panning) {
-        // Ink: send raw points + pressures via rs field
-        const tool = this.toolManager.getCurrentTool();
-        const { ps: fhPs, rs: fhRs } = tool.drainPointBuffer();
-        if (fhPs.length > 0) {
-          this.wsClient.broadcastStampMove(fhPs, fhRs);
-        }
-      } else {
-        // Use pre-calculated broadcastPoints
-        if (broadcastPoints.length > 0) {
-          this.wsClient.broadcastMove(broadcastPoints);
-        }
-      }
-
-      this.inputBuffer.lastPosition = { x: lastX, y: lastY };
-    }
-
-    // Smoothing catch-up: continue drawing towards target even when pointer is still
-    if (needsCatchup) {
-      this.processSmoothingCatchup();
-    }
-
-    // Clear points for next tick
-    this.inputBuffer.points = [];
-    this.inputBuffer.dirty = false;
-  }
-
-  /**
-   * Check if smoothing needs to catch up to the target position
-   * @returns {boolean} - True if catch-up is needed
-   */
-  needsSmoothingCatchup() {
-    // Only catch up when actively drawing (not panning, mouse is down)
-    if (!this.self.mousedown || this.self.panning) return false;
-
-    const tool = this.toolManager.getCurrentTool();
-    if (!tool || !tool.smoothBuffer) return false;
-
-    // Only catch up for tools that use EMA smoothing (not ink - it uses its own streamline)
-    const smoothingTools = ['brush', 'flowPen'];
-    if (!smoothingTools.includes(this.self.tool)) return false;
-
-    // Check if smoothing is enabled
-    if (!this.self.smoothing || this.self.smoothing === 0) return false;
-
-    // Calculate distance from smoothed position to target
-    const dx = this.self.x - tool.smoothBuffer.x;
-    const dy = this.self.y - tool.smoothBuffer.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-
-    // Need catch-up if distance > 1 pixel
-    return distance > 1;
-  }
-
-  /**
-   * Process smoothing catch-up to continue drawing towards target
-   */
-  processSmoothingCatchup() {
-    const tool = this.toolManager.getCurrentTool();
-    if (!tool || !tool.smoothBuffer) return;
-
-    // Calculate distance to determine catch-up speed
-    const dx = this.self.x - tool.smoothBuffer.x;
-    const dy = this.self.y - tool.smoothBuffer.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-
-    // Scale catch-up iterations based on distance for faster convergence
-    // Farther away = more iterations per tick
-    let iterations = 1;
-    if (distance > 100) iterations = 8;
-    else if (distance > 50) iterations = 5;
-    else if (distance > 20) iterations = 3;
-    else if (distance > 10) iterations = 2;
-
-    // Generate a synthetic pointer move towards the target
-    const targetPos = { x: this.self.x, y: this.self.y };
-    let prevPos = { x: tool.smoothBuffer.x, y: tool.smoothBuffer.y };
-
-    // Process multiple catch-up steps for faster convergence
-    for (let i = 0; i < iterations; i++) {
-      tool.onPointerMove(this.self, targetPos, prevPos);
-      prevPos = { x: tool.smoothBuffer.x, y: tool.smoothBuffer.y };
-
-      // Check if we've converged (within 1 pixel)
-      const dx = this.self.x - tool.smoothBuffer.x;
-      const dy = this.self.y - tool.smoothBuffer.y;
-      if (Math.sqrt(dx * dx + dy * dy) <= 1) break;
-    }
-
-    // Broadcast the final catch-up position
-    if (this.self.tool === 'flowPen') {
-      const { ps: stampPs, rs: stampRs } = tool.drainStampBuffer();
-      if (stampPs.length > 0) {
-        this.wsClient.broadcastStampMove(stampPs, stampRs);
-      }
-    } else {
-      const points = [targetPos.x, targetPos.y];
-      const broadcastPoints = this.applyBroadcastSmoothing(points);
-      const reducedPoints = this.applyPointReduction(broadcastPoints);
-      this.wsClient.broadcastMove(reducedPoints);
-    }
-
-    // Track for debug overlay
-    this.debugOverlay.addStrokePoint(this.self.id, targetPos.x, targetPos.y, 'catchup');
-    this.debugOverlay.addDrawingPoint(targetPos.x, targetPos.y, this.self.size, this.self.id);
-    this.regionTracker.addDrawingPoint(targetPos.x, targetPos.y, this.self.size, this.self.id);
-  }
-
-  /**
-   * Apply Level 1 point reduction to reduce bandwidth before network broadcast
-   * @param {Array} points - Flat array [x1, y1, x2, y2, ...]
-   * @returns {Array} - Reduced flat array
-   */
-  applyPointReduction(points) {
-    // Skip reduction if disabled or insufficient points
-    if (!this.pointReduction.enabled || points.length < 4) {
-      return points;
-    }
-
-    const userSmoothing = this.self.smoothing * 100; // Convert 0-1 to 0-100
-    const baseline = this.baselineSmoothing.pointReduction;
-
-    // Convert flat array [x1, y1, x2, y2, ...] to point objects
-    const pointObjects = [];
-    for (let i = 0; i < points.length; i += 2) {
-      pointObjects.push({ x: points[i], y: points[i + 1] });
-    }
-
-    let reduced;
-
-    if (this.pointReduction.algorithm === 'douglas-peucker') {
-      // Always apply at least baseline reduction, scale up with user smoothing
-      const epsilon = baseline.minEpsilon +
-        (baseline.maxEpsilon - baseline.minEpsilon) * (userSmoothing / 100);
-
-      reduced = douglasPeucker(pointObjects, epsilon);
-    } else if (this.pointReduction.algorithm === 'distance-based') {
-      // Calculate distance threshold based on smoothing level
-      const { minDistance, maxDistance } = this.pointReduction;
-      const threshold = minDistance + (maxDistance - minDistance) * (userSmoothing / 100);
-
-      reduced = distanceBasedCulling(pointObjects, threshold);
-    } else {
-      // Invalid algorithm, return original
-      console.warn(`Invalid point reduction algorithm: ${this.pointReduction.algorithm}`);
-      return points;
-    }
-
-    // Convert back to flat array
-    const result = [];
-    for (const p of reduced) {
-      result.push(p.x, p.y);
-    }
-
-    return result;
-  }
-
-  /**
-   * Apply EMA smoothing to points before broadcast
-   * This must match BrushTool.smoothPosition() exactly so remote users
-   * see the smoothed position (with lag), not the raw cursor position
-   * @param {Array} points - Flat array [x1, y1, x2, y2, ...]
-   * @returns {Array} - Smoothed flat array
-   */
-  applyBroadcastSmoothing(points) {
-    if (points.length < 2) {
-      return points;
-    }
-
-    // Match BrushTool.smoothPosition() formula exactly:
-    // totalSmoothing = baseline + userSmoothing * (1 - baseline)
-    // factor = 1 - totalSmoothing * 0.9
-    const baselineEma = 0.12;
-    const userSmoothing = this.self.smoothing || 0;
-    const totalSmoothing = baselineEma + userSmoothing * (1 - baselineEma);
-    const factor = 1 - totalSmoothing * 0.9;
-
-    const result = [];
-
-    for (let i = 0; i < points.length; i += 2) {
-      if (this.broadcastSmoothBuffer.isFirst) {
-        this.broadcastSmoothBuffer.x = points[i];
-        this.broadcastSmoothBuffer.y = points[i + 1];
-        this.broadcastSmoothBuffer.isFirst = false;
-      } else {
-        this.broadcastSmoothBuffer.x += (points[i] - this.broadcastSmoothBuffer.x) * factor;
-        this.broadcastSmoothBuffer.y += (points[i + 1] - this.broadcastSmoothBuffer.y) * factor;
-      }
-      result.push(this.broadcastSmoothBuffer.x, this.broadcastSmoothBuffer.y);
-    }
-    return result;
   }
 
   startOfflineMode() {
@@ -1087,7 +779,7 @@ export class DrawingApp {
     this.ui.hideConnectionStatus();
 
     // Start the tick loop (same behavior as online)
-    this.startTickLoop();
+    this.inputBufferManager.startTickLoop();
 
     // Disconnect WebSocket if it was trying to connect
     if (this.wsClient && this.wsClient.disconnect) {
@@ -1167,16 +859,12 @@ export class DrawingApp {
     }
 
     // Save current values for previous tool if locked
-    if (previousTool && this.toolLocks[previousTool]) {
-      this.saveLockedValues(previousTool);
+    if (previousTool && this.toolLockManager.toolLocks[previousTool]) {
+      this.toolLockManager.saveLockedValues(previousTool);
     }
 
     // Update brush mode state when switching to brush/flowPen/ink
-    if (tool === 'brush' || tool === 'flowPen' || tool === 'ink') {
-      this.brushMode = tool === 'flowPen' ? 'fluid' : tool === 'ink' ? 'ink' : 'classic';
-      this.saveBrushMode();
-      this.ui.updateBrushModeDisplay(this.brushMode);
-    }
+    this.brushModeManager.updateModeFromTool(tool);
 
     this.self.setTool(tool);
     this.toolManager.setTool(tool);
@@ -1184,12 +872,12 @@ export class DrawingApp {
     this.wsClient.broadcastToolChange(tool);
 
     // Restore locked values for new tool
-    if (this.toolLocks[tool]) {
-      this.restoreLockedValues(tool);
+    if (this.toolLockManager.toolLocks[tool]) {
+      this.toolLockManager.restoreLockedValues(tool);
     }
 
     // Update lock button states
-    this.updateAllLockButtons(tool);
+    this.toolLockManager.updateAllLockButtons(tool);
 
     // Show/hide brush gallery for imageBrush tool
     if (tool === 'imageBrush') {
@@ -1197,33 +885,6 @@ export class DrawingApp {
     } else {
       this.brushGallery.hide();
     }
-  }
-
-  handleBrushModeChange(mode) {
-    if (this.self.mousedown) {
-      this.ui.updateBrushModeDisplay(this.brushMode);
-      return;
-    }
-
-    this.brushMode = mode;
-    this.saveBrushMode();
-
-    const toolName = mode === 'fluid' ? 'flowPen' : mode === 'ink' ? 'ink' : 'brush';
-    this.selectTool(toolName);
-  }
-
-  loadBrushMode() {
-    try {
-      return localStorage.getItem('topDrawBrushMode') || 'ink';
-    } catch (e) {
-      return 'ink';
-    }
-  }
-
-  saveBrushMode() {
-    try {
-      localStorage.setItem('topDrawBrushMode', this.brushMode);
-    } catch (e) {}
   }
 
   handleBrushSelect(brush) {
@@ -1470,7 +1131,7 @@ export class DrawingApp {
         const pending = this._pendingPenDown;
         this._pendingPenDown = null;
         this.self.setPressure(pressure);
-        this.inputBuffer.pressure = pressure;
+        this.inputBufferManager.inputBuffer.pressure = pressure;
         this.wsClient.broadcastPressureChange(pressure);
         this.wsClient.broadcastMouseDown();
 
@@ -1489,7 +1150,7 @@ export class DrawingApp {
           this.debugOverlay.startStrokeTracking(this.self.id, true);
           this.debugOverlay.addStrokePoint(this.self.id, pending.pos.x, pending.pos.y, 'pointerDown');
         }
-      } else if (pressure !== this.inputBuffer.pressure) {
+      } else if (pressure !== this.inputBufferManager.inputBuffer.pressure) {
         // Commit BEFORE updating pressure so old segment draws at correct width
         if (pressure !== this.self.pressure && this.self.mousedown) {
           this.wsClient.broadcastPressureChange(pressure);
@@ -1498,19 +1159,19 @@ export class DrawingApp {
           }
         }
         this.self.setPressure(pressure);
-        this.inputBuffer.pressure = pressure;
+        this.inputBufferManager.inputBuffer.pressure = pressure;
       }
     }
 
     // Buffer the input for processing
-    this.inputBuffer.points.push(x, y);
-    this.inputBuffer.pointerType = e.pointerType;
-    this.inputBuffer.dirty = true;
+    this.inputBufferManager.inputBuffer.points.push(x, y);
+    this.inputBufferManager.inputBuffer.pointerType = e.pointerType;
+    this.inputBufferManager.inputBuffer.dirty = true;
 
     // Accumulate movement for panning (since multiple events may occur between ticks)
     if (this.self.panning && this.self.mousedown) {
-      this.inputBuffer.movement.x += e.movementX;
-      this.inputBuffer.movement.y += e.movementY;
+      this.inputBufferManager.inputBuffer.movement.x += e.movementX;
+      this.inputBufferManager.inputBuffer.movement.y += e.movementY;
     }
 
     // Track drawing for debug overlay (pass brush size and user info)
@@ -1557,20 +1218,20 @@ export class DrawingApp {
 
     if (e.pointerType === 'mouse' || !this.pressureEnabled) {
       this.self.setPressure(1);
-      this.inputBuffer.pressure = 1;
+      this.inputBufferManager.inputBuffer.pressure = 1;
       this.wsClient.broadcastPressureChange(1);
     }
 
     const pos = { x: Math.round(e.offsetX * 100) / 100, y: Math.round(e.offsetY * 100) / 100 };
 
     // Initialize input buffer for this stroke
-    this.inputBuffer.position = pos;
-    this.inputBuffer.lastPosition = pos;
-    this.inputBuffer.movement = { x: 0, y: 0 };
-    this.inputBuffer.pointerType = e.pointerType;
+    this.inputBufferManager.inputBuffer.position = pos;
+    this.inputBufferManager.inputBuffer.lastPosition = pos;
+    this.inputBufferManager.inputBuffer.movement = { x: 0, y: 0 };
+    this.inputBufferManager.inputBuffer.pointerType = e.pointerType;
 
     // Reset broadcast smooth buffer for new stroke
-    this.broadcastSmoothBuffer.isFirst = true;
+    this.inputBufferManager.broadcastSmoothBuffer.isFirst = true;
 
     // Set self position immediately for pointerDown
     this.self.setPosition(pos.x, pos.y);
@@ -1657,7 +1318,7 @@ export class DrawingApp {
       this.self._pendingTextPointerType = null;
       this.self.mousedown = false;
       this.wsClient.broadcastMouseUp();
-      this.inputBuffer.dirty = false;
+      this.inputBufferManager.inputBuffer.dirty = false;
       return;
     }
 
@@ -1665,8 +1326,8 @@ export class DrawingApp {
     this._pendingPenDown = null;
 
     // Process any remaining buffered input before ending stroke
-    if (this.inputBuffer.dirty) {
-      this.tick();
+    if (this.inputBufferManager.inputBuffer.dirty) {
+      this.inputBufferManager.tick();
     }
 
     if (!this.self.panning) {
@@ -1716,7 +1377,7 @@ export class DrawingApp {
     this.wsClient.broadcastMouseUp();
 
     // Reset input buffer
-    this.inputBuffer.dirty = false;
+    this.inputBufferManager.inputBuffer.dirty = false;
   }
 
   handlePointerLeave(e) {
@@ -1834,352 +1495,10 @@ export class DrawingApp {
 
   // Keyboard handlers
 
-  handleKeyDown(e) {
-    // Close context menu on Escape
-    if (e.key === 'Escape' && this.ui.elements.userContextMenu?.style.display !== 'none') {
-      this.moderation.hideContextMenu();
-      return;
-    }
-
-    if (e.key === '/' || e.key === "'") {
-      e.preventDefault();
-    }
-
-    if (e.key === ' ' && this.self.tool !== 'text' && !this.self.panning && !this.self.mousedown) {
-      this.self.panning = true;
-      this.wsClient.broadcastPan(true);
-    }
-
-    // TAB key for temporary inkdropper mode
-    if (e.key === 'Tab' && this.self.tool !== 'text') {
-      e.preventDefault();
-      if (this.self.tool !== 'inkdropper') {
-        this.previousTool = this.self.tool;
-        this.selectTool('inkdropper');
-      }
-      return;
-    }
-
-    this.wsClient.broadcastKeyPress(e.key);
-
-    if (this.self.tool === 'text') {
-      const textTool = this.toolManager.getTool('text');
-      const text = textTool.onKeyPress(this.self, e.key);
-      this.ui.updateSelfTextInput(text);
-    } else if (this.tickTimer) {
-      // Handle shortcuts only when in drawing mode (tick loop running)
-      const selectTool = this.toolManager.getTool('select');
-
-      if (e.ctrlKey || e.metaKey) {
-        switch (e.key.toLowerCase()) {
-          case 'c':
-            if (selectTool && selectTool.hasSelection()) {
-              e.preventDefault();
-              selectTool.copy();
-            }
-            return;
-          case 'x':
-            if (selectTool && selectTool.hasSelection()) {
-              e.preventDefault();
-              selectTool.cut();
-            }
-            return;
-          case 'v':
-            if (selectTool && selectTool.hasClipboard()) {
-              e.preventDefault();
-              this.selectTool('select');
-              selectTool.paste();
-            }
-            return;
-          case 'a':
-            e.preventDefault();
-            this.selectTool('select');
-            selectTool.selectAll();
-            return;
-          case 'd':
-            if (selectTool && selectTool.hasSelection()) {
-              e.preventDefault();
-              selectTool.deselect();
-            }
-            return;
-        }
-      }
-
-      // Delete/Backspace to delete selection
-      if ((e.key === 'Delete' || e.key === 'Backspace') && this.self.tool === 'select') {
-        if (selectTool && selectTool.hasSelection()) {
-          e.preventDefault();
-          selectTool.deleteSelection();
-        }
-        return;
-      }
-
-      // Escape to deselect
-      if (e.key === 'Escape' && this.self.tool === 'select') {
-        if (selectTool && selectTool.hasSelection()) {
-          selectTool.deselect();
-        }
-        return;
-      }
-
-      switch (e.key) {
-        case 's':
-          this.selectTool('select');
-          break;
-        case 'b':
-          this.selectTool(this.brushMode === 'fluid' ? 'flowPen' : this.brushMode === 'ink' ? 'ink' : 'brush');
-          break;
-        case 'p':
-          if (this.self.tool === 'brush' || this.self.tool === 'flowPen' || this.self.tool === 'ink') {
-            // Cycle: classic -> fluid -> ink -> classic
-            const nextMode = this.brushMode === 'classic' ? 'fluid' : this.brushMode === 'fluid' ? 'ink' : 'classic';
-            this.handleBrushModeChange(nextMode);
-          } else {
-            this.brushMode = 'fluid';
-            this.selectTool('flowPen');
-          }
-          break;
-        case 'l':
-          this.selectTool('line');
-          break;
-        case 'r':
-          this.selectTool('rectangle');
-          break;
-        case 'c':
-          this.selectTool('circle');
-          break;
-        case 't':
-          this.selectTool('text');
-          break;
-        case 'e':
-          this.selectTool('erase');
-          break;
-        case 'u':
-          this.selectTool('blur');
-          break;
-        case 'y':
-          this.selectTool('circleBlur');
-          break;
-        case 'g':
-          this.selectTool('imageBrush');
-          break;
-        case 'i':
-          this.selectTool('inkdropper');
-          break;
-      }
-    }
-  }
-
-  handleKeyUp(e) {
-    if (e.key === ' ' && this.self.tool !== 'text') {
-      this.self.panning = false;
-      this.wsClient.broadcastPan(false);
-    }
-  }
-
   handleResize() {
     this.board.calculateDefaultView();
   }
 
   // Tool Locks Management
 
-  loadToolLocks() {
-    try {
-      const saved = localStorage.getItem('topDrawToolLocks');
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch (e) {
-      console.warn('Failed to load tool locks:', e);
-    }
-
-    // Default structure
-    return this.getDefaultToolLocks();
-  }
-
-  getDefaultToolLocks() {
-    const tools = ['brush', 'flowPen', 'ink', 'line', 'rectangle', 'circle', 'imageBrush', 'erase', 'text', 'select', 'blur', 'inkdropper'];
-    const locks = {};
-
-    tools.forEach(tool => {
-      locks[tool] = {
-        size: { locked: false, value: 10 },
-        pressure: { locked: false, min: 0, max: 100, enabled: true },
-        smoothing: { locked: false, value: 0.3 },
-        spacing: { locked: false, value: 0 },
-        hardness: { locked: false, value: 1.0 },
-        imageBrushOpacity: { locked: false, value: 1.0 },
-        blurRadius: { locked: false, value: 5 }
-      };
-    });
-
-    return locks;
-  }
-
-  saveToolLocks() {
-    try {
-      localStorage.setItem('topDrawToolLocks', JSON.stringify(this.toolLocks));
-    } catch (e) {
-      console.warn('Failed to save tool locks:', e);
-    }
-  }
-
-  saveLockedValues(toolName) {
-    const locks = this.toolLocks[toolName];
-    if (!locks) return;
-
-    // Save current values for locked properties
-    if (locks.size?.locked) locks.size.value = this.self.size;
-    if (locks.pressure?.locked) {
-      locks.pressure.min = Number(this.ui.elements.pressureMinSlider.value);
-      locks.pressure.max = Number(this.ui.elements.pressureMaxSlider.value);
-      locks.pressure.enabled = this.pressureEnabled;
-    }
-    if (locks.smoothing?.locked) locks.smoothing.value = this.self.smoothing;
-    if (locks.spacing?.locked) locks.spacing.value = this.self.spacing;
-    if (locks.hardness?.locked) locks.hardness.value = this.self.hardness;
-    if (locks.imageBrushOpacity?.locked) {
-      // imageBrushOpacity is derived from color alpha
-      locks.imageBrushOpacity.value = this.self.opacity;
-    }
-    if (locks.blurRadius?.locked) locks.blurRadius.value = this.self.blurRadius;
-
-    this.saveToolLocks();
-  }
-
-  restoreLockedValues(toolName) {
-    const locks = this.toolLocks[toolName];
-    if (!locks) return;
-
-    const { elements } = this.ui;
-
-    // Restore locked values
-    if (locks.size?.locked) {
-      this.self.setSize(locks.size.value);
-      this.ui.updateSizeValue(locks.size.value);
-      this.ui.updateCursorSize(locks.size.value);
-      if (elements.sizeSlider) elements.sizeSlider.value = locks.size.value;
-      if (this.connected) {
-        this.wsClient.broadcastSizeChange(locks.size.value);
-      }
-    }
-    if (locks.pressure?.locked) {
-      // Backward compat: if old lock has .value instead of .min/.max
-      let pMin, pMax, pEnabled;
-      if (locks.pressure.value !== undefined && locks.pressure.min === undefined) {
-        pMin = 0;
-        pMax = Math.round(locks.pressure.value * 100);
-        pEnabled = true;
-      } else {
-        pMin = locks.pressure.min ?? 0;
-        pMax = locks.pressure.max ?? 100;
-        pEnabled = locks.pressure.enabled ?? true;
-      }
-      if (elements.pressureMinSlider) elements.pressureMinSlider.value = pMin;
-      if (elements.pressureMaxSlider) elements.pressureMaxSlider.value = pMax;
-      this.ui.updatePressureValue(pMin, pMax);
-      this.pressureEnabled = pEnabled;
-      if (elements.pressureEnabled) elements.pressureEnabled.checked = pEnabled;
-      if (elements.pressureDualSlider) elements.pressureDualSlider.style.display = pEnabled ? '' : 'none';
-    }
-    if (locks.smoothing?.locked) {
-      this.self.setSmoothing(locks.smoothing.value);
-      this.ui.updateSmoothingValue(locks.smoothing.value * 100);
-      if (elements.smoothingSlider) elements.smoothingSlider.value = locks.smoothing.value * 100;
-      if (this.connected) {
-        this.wsClient.broadcastSmoothingChange(locks.smoothing.value);
-      }
-    }
-    if (locks.spacing?.locked) {
-      this.self.setSpacing(locks.spacing.value);
-      this.ui.updateSpacingValue(locks.spacing.value);
-      if (elements.spacingSlider) elements.spacingSlider.value = locks.spacing.value;
-      if (this.connected) {
-        this.wsClient.broadcastSpacingChange(locks.spacing.value);
-      }
-    }
-    if (locks.hardness?.locked) {
-      this.self.setHardness(locks.hardness.value);
-      this.ui.updateHardnessValue(locks.hardness.value * 100);
-      if (elements.hardnessSlider) elements.hardnessSlider.value = locks.hardness.value * 100;
-      if (this.connected) {
-        this.wsClient.broadcastHardnessChange(locks.hardness.value);
-      }
-    }
-    if (locks.imageBrushOpacity?.locked) {
-      // Update color alpha (opacity)
-      const currentColor = [...this.self.color];
-      currentColor[3] = locks.imageBrushOpacity.value;
-      this.self.setColor(currentColor);
-      this.self.setOpacity(locks.imageBrushOpacity.value);
-      this.ui.updateImageBrushOpacityValue(locks.imageBrushOpacity.value);
-      if (elements.imageBrushOpacitySlider) elements.imageBrushOpacitySlider.value = locks.imageBrushOpacity.value * 100;
-
-      // Update color picker to reflect the locked opacity
-      if (this.colorPicker) {
-        this.colorPicker.setColor(`rgba(${currentColor.join(',')})`, true);
-      }
-
-      if (this.connected) {
-        this.wsClient.broadcastColorChange(currentColor);
-      }
-    }
-    if (locks.blurRadius?.locked) {
-      this.self.setBlurRadius(locks.blurRadius.value);
-      this.ui.updateBlurRadiusValue(locks.blurRadius.value);
-      if (elements.blurRadiusSlider) elements.blurRadiusSlider.value = locks.blurRadius.value;
-      if (this.connected) {
-        this.wsClient.broadcastBlurRadiusChange(locks.blurRadius.value);
-      }
-    }
-  }
-
-  updateAllLockButtons(toolName) {
-    const locks = this.toolLocks[toolName];
-    if (!locks) return;
-
-    this.ui.updateLockButton('size', locks.size?.locked || false);
-    this.ui.updateLockButton('pressure', locks.pressure?.locked || false);
-    this.ui.updateLockButton('smoothing', locks.smoothing?.locked || false);
-    this.ui.updateLockButton('spacing', locks.spacing?.locked || false);
-    this.ui.updateLockButton('hardness', locks.hardness?.locked || false);
-    this.ui.updateLockButton('imageBrushOpacity', locks.imageBrushOpacity?.locked || false);
-    this.ui.updateLockButton('blurRadius', locks.blurRadius?.locked || false);
-  }
-
-  toggleLock(property) {
-    const tool = this.self.tool;
-    if (!this.toolLocks[tool]) return;
-
-    const lock = this.toolLocks[tool][property];
-    if (!lock) {
-      // Initialize lock if it doesn't exist
-      this.toolLocks[tool][property] = { locked: false, value: this.self[property] || 0 };
-      return;
-    }
-
-    // Toggle lock state
-    lock.locked = !lock.locked;
-
-    // If locking, save current value
-    if (lock.locked) {
-      if (property === 'pressure') {
-        lock.min = Number(this.ui.elements.pressureMinSlider.value);
-        lock.max = Number(this.ui.elements.pressureMaxSlider.value);
-        lock.enabled = this.pressureEnabled;
-      } else if (property === 'imageBrushOpacity') {
-        lock.value = this.self.opacity;
-      } else {
-        lock.value = this.self[property];
-      }
-    }
-
-    // Update UI
-    this.ui.updateLockButton(property, lock.locked);
-
-    // Save to localStorage
-    this.saveToolLocks();
-
-    console.log(`${property} ${lock.locked ? 'locked' : 'unlocked'} for ${tool} tool at value ${lock.value}`);
-  }
 }

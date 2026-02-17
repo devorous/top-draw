@@ -430,7 +430,7 @@ export function setupWebSocketHandlers(app) {
   wrapHandler('sel_lift', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.handleSelectionLift(user, data.selection, data.lassoPath);
+      remoteUserHandler.selectionHandler.handleSelectionLift(user, data.selection, data.lassoPath);
     }
   });
 
@@ -438,7 +438,7 @@ export function setupWebSocketHandlers(app) {
   wrapHandler('sel_move', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.handleSelectionMove(user, data.corners);
+      remoteUserHandler.selectionHandler.handleSelectionMove(user, data.corners);
     }
   });
 
@@ -446,7 +446,7 @@ export function setupWebSocketHandlers(app) {
   wrapHandler('sel_commit', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.handleSelectionCommit(user);
+      remoteUserHandler.selectionHandler.handleSelectionCommit(user);
     }
   });
 
@@ -454,7 +454,7 @@ export function setupWebSocketHandlers(app) {
   wrapHandler('sel_delete', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.handleSelectionDelete(user);
+      remoteUserHandler.selectionHandler.handleSelectionDelete(user);
     }
   });
 
@@ -462,7 +462,7 @@ export function setupWebSocketHandlers(app) {
   wrapHandler('sel_fill', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.handleSelectionFill(user, data.color);
+      remoteUserHandler.selectionHandler.handleSelectionFill(user, data.color);
     }
   });
 
@@ -470,7 +470,7 @@ export function setupWebSocketHandlers(app) {
   wrapHandler('sel_stamp', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.handleSelectionStamp(user);
+      remoteUserHandler.selectionHandler.handleSelectionStamp(user);
     }
   });
 
@@ -478,7 +478,7 @@ export function setupWebSocketHandlers(app) {
   wrapHandler('sel_cancel', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.handleSelectionCancel(user);
+      remoteUserHandler.selectionHandler.handleSelectionCancel(user);
     }
   });
 
@@ -486,7 +486,7 @@ export function setupWebSocketHandlers(app) {
   wrapHandler('sel_to_brush', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.handleSelectionToBrush(user, data.brushData);
+      remoteUserHandler.selectionHandler.handleSelectionToBrush(user, data.brushData);
     }
   });
 
@@ -494,7 +494,7 @@ export function setupWebSocketHandlers(app) {
   wrapHandler('img_paste', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.handleImagePaste(user, data);
+      remoteUserHandler.selectionHandler.handleImagePaste(user, data);
     }
   });
 
