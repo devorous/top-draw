@@ -47,6 +47,35 @@ export class ImageBrushTool extends Tool {
     this.draw(user, pos);
   }
 
+  onPointerUp(user, pos, e) {
+    if (user.panning || !user.imageBrush) return;
+
+    // Commit the stroke from user canvas to main canvas
+    // For local user: commits from topCtx to mainCtx
+    // For remote users: commits from their user.context to mainCtx
+    if (user.context) {
+      // Get the user's canvas
+      const userCanvas = user.context.canvas;
+
+      // Draw it to the main canvas
+      this.board.mainCtx.globalCompositeOperation = 'source-over';
+      this.board.mainCtx.globalAlpha = 1.0;
+      this.board.mainCtx.drawImage(userCanvas, 0, 0);
+
+      // Handle mirror mode
+      if (this.board.mirror) {
+        this.board.mainCtx.save();
+        this.board.mainCtx.translate(this.board.getWidth(), 0);
+        this.board.mainCtx.scale(-1, 1);
+        this.board.mainCtx.drawImage(userCanvas, 0, 0);
+        this.board.mainCtx.restore();
+      }
+
+      // Clear the user's canvas for the next stroke
+      user.context.clearRect(0, 0, userCanvas.width, userCanvas.height);
+    }
+  }
+
   draw(user, pos) {
     // Handle spacing - if spacing is 0 or 1, draw every time
     if (user.spacing > 1) {
