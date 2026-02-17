@@ -8,19 +8,22 @@ import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth
 import { issueModAction, revokeModAction, getActiveModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
+import { SessionManager, Role } from './SessionManager.js';
+import { SyncCoordinator } from './SyncCoordinator.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 8000;
-const AFK_TIMEOUT = 2 * 60 * 1000;
-const AFK_CHECK_INTERVAL = 30 * 1000;
 
 const server = createServer();
 const wss = new WebSocketServer({ server });
 
-// Role constants
-const Role = { GUEST: 0, USER: 1, MOD: 2, ADMIN: 3 };
+const boardSettings = { mirror: false };
+
+let Msg;
+let sessionManager;
+let syncCoordinator;
 
 // Extract client IP, handling X-Forwarded-For for proxies (Koyeb)
 function getClientIp(req) {
@@ -36,32 +39,6 @@ function isValidUsername(username) {
   return /^[a-zA-Z0-9_]{2,20}$/.test(username);
 }
 
-// Session management
-const sessions = new Map();  // odlUserId -> sessionIndex
-const users = new Map();     // sessionIndex -> userData
-let nextSessionIndex = 0;
-const freedIndices = [];     // Reusable indices from disconnected users
-
-const boardSettings = { mirror: false };
-
-// Track pending sync requests: requestingUserIndex -> true
-const pendingSyncRequests = new Map();
-
-let Msg;
-
-// Allocate session index for new user
-function allocateSessionIndex() {
-  if (freedIndices.length > 0) {
-    return freedIndices.pop();
-  }
-  return nextSessionIndex++;
-}
-
-// Free session index when user disconnects
-function freeSessionIndex(index) {
-  freedIndices.push(index);
-}
-
 async function init() {
   // Connect to MongoDB (non-fatal if not configured)
   try {
@@ -75,6 +52,10 @@ async function init() {
   const root = await protobuf.load(protoPath);
   Msg = root.lookupType('Msg');
   console.log('Protobuf loaded');
+
+  // Initialize managers
+  sessionManager = new SessionManager(broadcastToAll);
+  syncCoordinator = new SyncCoordinator(sessionManager, wss, sendTo);
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`WebSocket server running on port ${PORT}`);
@@ -151,33 +132,6 @@ function sendTo(ws, payload) {
   }
 }
 
-function updateUserActivity(sessionIndex) {
-  const user = users.get(sessionIndex);
-  if (user) {
-    const wasAfk = user.afk;
-    user.lastActivity = Date.now();
-    user.afk = false;
-
-    if (wasAfk) {
-      broadcastToAll({ t: T.AFK, u: sessionIndex, a: false });
-    }
-  }
-}
-
-function checkAfkUsers() {
-  const now = Date.now();
-  users.forEach((user, sessionIndex) => {
-    // Skip spectators (no name yet)
-    if (!user.name) return;
-    if (!user.afk && user.lastActivity && (now - user.lastActivity > AFK_TIMEOUT)) {
-      user.afk = true;
-      broadcastToAll({ t: T.AFK, u: sessionIndex, a: true });
-      console.log(`User ${sessionIndex} marked as AFK`);
-    }
-  });
-}
-
-setInterval(checkAfkUsers, AFK_CHECK_INTERVAL);
 
 // Message types blocked for muted users (drawing + chat + cursor movement)
 const MUTED_BLOCKED = new Set([
@@ -187,7 +141,7 @@ const MUTED_BLOCKED = new Set([
 ]);
 
 async function handleBroadcast(data, sessionIndex) {
-  const user = users.get(sessionIndex);
+  const user = sessionManager.getUser(sessionIndex);
   if (!user) return;
 
   // IP ban enforcement on join (CN = name change = "joining" as anon)
@@ -224,12 +178,12 @@ async function handleBroadcast(data, sessionIndex) {
         user.x = data.ps[len - 2];
         user.y = data.ps[len - 1];
       }
-      updateUserActivity(sessionIndex);
+      sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.MD: // Mouse down — marks user as actively drawing
       user.mousedown = true;
-      updateUserActivity(sessionIndex);
+      sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.MU: // Mouse up — stroke ended; clear text tool buffer (text commits on pointer up)
@@ -274,7 +228,7 @@ async function handleBroadcast(data, sessionIndex) {
 
     case T.CN: // Change name — sent when a user enters the canvas; this is the "join" event for anon users
       user.name = data.n;
-      updateUserActivity(sessionIndex);
+      sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.KP: // Key press — only relevant to the text tool; server mirrors the text buffer for USERS sync
@@ -287,7 +241,7 @@ async function handleBroadcast(data, sessionIndex) {
       } else if (key === 'Backspace' && user.text) {
         user.text = user.text.slice(0, -1);     // Backspace removes last char
       }
-      updateUserActivity(sessionIndex);
+      sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.HIDE_CURSOR: // Cursor left the canvas area — stop rendering this user's cursor on all clients
@@ -303,7 +257,7 @@ async function handleBroadcast(data, sessionIndex) {
       break;
 
     case T.MSG: // Chat message — no server-side state change needed, just bump activity timestamp
-      updateUserActivity(sessionIndex);
+      sessionManager.updateUserActivity(sessionIndex);
       break;
   }
 
@@ -366,30 +320,17 @@ wss.on('connection', (ws, req) => {
       switch (data.t) {
         // Client handshake — assign a session index and send the full user list + board settings
         case T.CONNECT:
-          const sessionIndex = allocateSessionIndex();
+          const sessionIndex = sessionManager.allocateSessionIndex();
           ws.sessionIndex = sessionIndex;
 
-          const newUser = {
+          const newUser = sessionManager.createUser(
             sessionIndex,
-            afk: false,
-            cursorHidden: true, // Hidden until user enters the board
-            lastActivity: Date.now(),
-            x: 0, y: 0, lastx: 0, lasty: 0,
-            mousedown: false,
-            tool: Tool.BRUSH,
-            color: packColor([0, 0, 0, 1]),
-            size: 1000,      // 10.00 * 100
-            spacing: 10,     // 0.10 * 100
-            smoothing: 3000, // 30.00 * 100 (default 30%)
-            hardness: 10000, // 100.00 * 100 (default 100%)
-            pressure: 100,   // 1.00 * 100
-            blurRadius: 500, // 5.00 * 100 (default 5px)
-            name: data.n || '',
-            text: ''
-          };
-          users.set(sessionIndex, newUser);
+            data.n || '',
+            Tool.BRUSH,
+            packColor([0, 0, 0, 1])
+          );
 
-          console.log('Connected:', sessionIndex, '| Users:', users.size);
+          console.log('Connected:', sessionIndex, '| Users:', sessionManager.getUserCount());
 
           // Send session index back to connecting user
           sendTo(ws, { t: T.CONNECT, u: sessionIndex });
@@ -397,26 +338,24 @@ wss.on('connection', (ws, req) => {
           // Send current joined users to all (only users with a name)
           broadcastToAll({
             t: T.USERS,
-            us: Array.from(users.values())
-              .filter(u => u.name)
-              .map(u => ({
-                u: u.sessionIndex,
-                a: u.afk,
-                x: u.x,
-                y: u.y,
-                l: u.tool,
-                c: u.color,
-                s: u.size,
-                sp: u.spacing,
-                sm: u.smoothing,
-                hd: u.hardness,
-                p: u.pressure,
-                n: u.name,
-                tx: u.text,
-                role: u.role || Role.GUEST,
-                ch: u.cursorHidden || false,
-                br: u.blurRadius || 500
-              }))
+            us: sessionManager.getJoinedUsers().map(u => ({
+              u: u.sessionIndex,
+              a: u.afk,
+              x: u.x,
+              y: u.y,
+              l: u.tool,
+              c: u.color,
+              s: u.size,
+              sp: u.spacing,
+              sm: u.smoothing,
+              hd: u.hardness,
+              p: u.pressure,
+              n: u.name,
+              tx: u.text,
+              role: u.role || Role.GUEST,
+              ch: u.cursorHidden || false,
+              br: u.blurRadius || 500
+            }))
           });
 
           // Send board settings to new user
@@ -427,65 +366,12 @@ wss.on('connection', (ws, req) => {
         // Server picks a provider and sends them SYNC_PROVIDE (step 2).
         // Provider replies with SYNC_CANVAS (step 3), which the server forwards + sends SYNC_COMPLETE.
         case T.SYNC_REQUEST:
-          // New user wants canvas state - find an existing user to provide it
-          console.log(`[Sync] User ${ws.sessionIndex} requested sync`);
-
-          // Find another connected user who has joined (has a name) to provide the canvas
-          let providerFound = false;
-          for (const [sessionIndex, userData] of users) {
-            if (sessionIndex !== ws.sessionIndex && userData.name) {
-              // Found a joined user - ask them to provide canvas
-              console.log(`[Sync] Asking user ${sessionIndex} (${userData.name}) to provide canvas for user ${ws.sessionIndex}`);
-
-              // Track this pending request
-              pendingSyncRequests.set(ws.sessionIndex, true);
-
-              // Find the provider's WebSocket and send SYNC_PROVIDE
-              for (const client of wss.clients) {
-                if (client.sessionIndex === sessionIndex && client.readyState === WebSocket.OPEN) {
-                  sendTo(client, {
-                    t: T.SYNC_PROVIDE,
-                    tu: ws.sessionIndex  // Tell provider who needs the canvas
-                  });
-                  providerFound = true;
-                  break;
-                }
-              }
-              break;
-            }
-          }
-
-          if (!providerFound) {
-            // No other users - just send sync complete (empty canvas)
-            console.log(`[Sync] No other users, sending empty sync complete to user ${ws.sessionIndex}`);
-            sendTo(ws, { t: T.SYNC_COMPLETE });
-          }
+          syncCoordinator.handleSyncRequest(ws, data);
           break;
 
         // Canvas sync (step 3) — provider sends PNG via data.img; server routes it to data.tu (target user index)
         case T.SYNC_CANVAS:
-          // User is providing canvas data - forward to the target user
-          const targetUser = data.tu;
-          console.log(`[Sync] User ${ws.sessionIndex} providing canvas for user ${targetUser}`);
-
-          // Find the target user's WebSocket and forward the canvas
-          for (const client of wss.clients) {
-            if (client.sessionIndex === targetUser && client.readyState === WebSocket.OPEN) {
-              sendTo(client, {
-                t: T.SYNC_CANVAS,
-                u: ws.sessionIndex,
-                img: data.img
-              });
-
-              // Send sync complete to target
-              sendTo(client, { t: T.SYNC_COMPLETE });
-
-              // Clear pending request
-              pendingSyncRequests.delete(targetUser);
-              console.log(`[Sync] Canvas forwarded to user ${targetUser}, sync complete`);
-              break;
-            }
-          }
+          syncCoordinator.handleSyncCanvas(ws, data);
           break;
 
         // Direct message — data.r is the recipient's session index, data.g is the message text
@@ -505,7 +391,7 @@ wss.on('connection', (ws, req) => {
                 break;
               }
             }
-            updateUserActivity(ws.sessionIndex);
+            sessionManager.updateUserActivity(ws.sessionIndex);
           }
           break;
 
@@ -584,7 +470,7 @@ wss.on('connection', (ws, req) => {
             }
           }
 
-          const targetUser = users.get(modTargetIndex);
+          const targetUser = sessionManager.getUser(modTargetIndex);
           const targetName = data.mod_target_name || targetWs?.username || targetUser?.name || `User ${modTargetIndex}`;
 
           try {
@@ -792,7 +678,7 @@ wss.on('connection', (ws, req) => {
             ws.username = regUsername;
 
             // Update user record with role
-            const user = users.get(ws.sessionIndex);
+            const user = sessionManager.getUser(ws.sessionIndex);
             if (user) {
               user.role = role;
               user.name = regUsername;
@@ -931,7 +817,7 @@ wss.on('connection', (ws, req) => {
             ws.username = userDoc.username;
 
             // Update user record with role
-            const user = users.get(ws.sessionIndex);
+            const user = sessionManager.getUser(ws.sessionIndex);
             if (user) {
               user.role = userDoc.role;
               user.name = userDoc.username;
@@ -987,16 +873,16 @@ wss.on('connection', (ws, req) => {
     const sessionIndex = ws.sessionIndex;
     if (sessionIndex !== undefined) {
       console.log('Disconnected:', sessionIndex);
-      users.delete(sessionIndex);
-      freeSessionIndex(sessionIndex);
+      sessionManager.removeUser(sessionIndex);
+      sessionManager.freeSessionIndex(sessionIndex);
 
       broadcast({ t: T.LEFT, u: sessionIndex });
 
-      console.log('Current users:', users.size);
+      console.log('Current users:', sessionManager.getUserCount());
 
-      if (users.size === 0) {
+      if (sessionManager.getUserCount() === 0) {
         boardSettings.mirror = false;
-        pendingSyncRequests.clear();
+        syncCoordinator.clearPendingRequests();
       }
     }
   });
