@@ -1,4 +1,4 @@
-import { blurImageDataWithBackground } from '../utils/drawing.js';
+import { blurImageDataWithBackground } from '../utils/blurUtils.js';
 
 /**
  * Base tool class
@@ -52,7 +52,7 @@ export class BlurTool extends Tool {
   /**
    * Apply blur to a square region centered at (x, y) with given size
    */
-  applyBlur(x, y, size, user) {
+  async applyBlur(x, y, size, user) {
     const ctx = this.board.mainCtx;
     const canvas = this.board.mainCanvas;
 
@@ -73,8 +73,8 @@ export class BlurTool extends Tool {
       // Get the ImageData for this region
       const imageData = ctx.getImageData(left, top, width, height);
 
-      // Apply blur with background compositing
-      const blurred = blurImageDataWithBackground(
+      // Apply blur with background compositing (async now)
+      const blurred = await blurImageDataWithBackground(
         imageData,
         width,
         height,

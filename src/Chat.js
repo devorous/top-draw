@@ -1,4 +1,4 @@
-import emojiData from 'emojibase-data/en/compact.json';
+import { loadEmojiData } from './utils/EmojiDataLoader.js';
 
 /**
  * Chat manager for handling chat functionality with tabs and DM support
@@ -25,6 +25,7 @@ export class Chat {
 
     // Emoji picker state
     this.emojiList = [];
+    this.emojiPickerInitialized = false;
     this.recentEmojis = this.loadRecentEmojis();
 
     // Image upload state
@@ -44,7 +45,7 @@ export class Chat {
     this.makeDraggable();
     this.setupEventListeners();
     this.setupTextareaAutoResize();
-    this.setupEmojiPicker();
+    // Don't setup emoji picker yet - wait until user clicks emoji button
   }
 
   setupEventListeners() {
@@ -277,25 +278,42 @@ export class Chat {
     this.input.style.height = 'auto';
   }
 
-  setupEmojiPicker() {
-    // Filter to ~300 most common emojis from popular groups
-    // Group 0: smileys-emotion, Group 1: people-body, Group 2: component (skin tones, etc)
-    // Group 3: animals-nature, Group 4: food-drink, Group 5: travel-places
-    // Group 6: activities, Group 7: objects, Group 8: symbols
-    const popularGroups = [0, 1, 3, 4, 5, 6, 7, 8];
+  async setupEmojiPicker() {
+    if (this.emojiPickerInitialized) {
+      return; // Already initialized
+    }
 
-    this.emojiList = emojiData
-      .filter(e => {
-        // Only include emojis version 11 or older for better browser support (fewer squares)
-        // Skip skin tone variations and gender variants
-        return popularGroups.includes(e.group) &&
-               (!e.version || e.version <= 11) &&
-               e.type !== 5; // Skip components like skin tones
-      })
-      .slice(0, 300);
+    try {
+      // Lazy load emoji data
+      const emojiData = await loadEmojiData();
 
-    this.renderEmojiGrid();
-    this.renderRecentEmojis();
+      // Filter to ~300 most common emojis from popular groups
+      // Group 0: smileys-emotion, Group 1: people-body, Group 2: component (skin tones, etc)
+      // Group 3: animals-nature, Group 4: food-drink, Group 5: travel-places
+      // Group 6: activities, Group 7: objects, Group 8: symbols
+      const popularGroups = [0, 1, 3, 4, 5, 6, 7, 8];
+
+      this.emojiList = emojiData
+        .filter(e => {
+          // Only include emojis version 11 or older for better browser support (fewer squares)
+          // Skip skin tone variations and gender variants
+          return popularGroups.includes(e.group) &&
+                 (!e.version || e.version <= 11) &&
+                 e.type !== 5; // Skip components like skin tones
+        })
+        .slice(0, 300);
+
+      this.renderEmojiGrid();
+      this.renderRecentEmojis();
+      this.emojiPickerInitialized = true;
+    } catch (error) {
+      console.error('Failed to setup emoji picker:', error);
+      // Show error to user
+      const grid = document.getElementById('emojiPickerGrid');
+      if (grid) {
+        grid.innerHTML = '<div style="padding: 20px; text-align: center;">Failed to load emojis</div>';
+      }
+    }
   }
 
   renderEmojiGrid() {
@@ -381,9 +399,20 @@ export class Chat {
     });
   }
 
-  toggleEmojiPicker() {
+  async toggleEmojiPicker() {
     const isVisible = this.emojiPicker.style.display !== 'none';
-    this.emojiPicker.style.display = isVisible ? 'none' : 'block';
+
+    if (isVisible) {
+      // Just hide if already visible
+      this.emojiPicker.style.display = 'none';
+    } else {
+      // Show picker and initialize if needed
+      this.emojiPicker.style.display = 'block';
+
+      if (!this.emojiPickerInitialized) {
+        await this.setupEmojiPicker();
+      }
+    }
   }
 
   insertEmoji(emoji) {

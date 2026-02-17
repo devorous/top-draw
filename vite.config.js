@@ -18,5 +18,23 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Core vendor - protobufjs (lazy loaded but split for caching)
+          'vendor-core': ['protobufjs'],
+          // UI vendor - perfect-freehand
+          'vendor-ui': ['perfect-freehand'],
+          // Emoji data (lazy loaded)
+          'vendor-emoji': ['emojibase-data/en/compact.json'],
+          // Blur library (lazy loaded)
+          'vendor-blur': ['stackblur'],
+        },
+        // Use hashed filenames for long-term caching
+        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]',
+      },
+    },
   },
 });

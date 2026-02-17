@@ -1,4 +1,4 @@
-import { SelectTool } from './tools/SelectTool.js';
+import { SelectToolLoader } from './tools/SelectToolLoader.js';
 import { BrushTool } from './tools/BrushTool.js';
 import { FlowPenTool } from './tools/FlowPenTool.js';
 import { InkTool } from './tools/InkTool.js';
@@ -33,7 +33,7 @@ export class ToolManager {
   constructor(board) {
     this.board = board;
     this.tools = {
-      select: new SelectTool(board),
+      select: new SelectToolLoader(board),
       brush: new BrushTool(board),
       flowPen: new FlowPenTool(board),
       ink: new InkTool(board),
@@ -71,4 +71,4 @@ export class ToolManager {
 }
 
 // Re-export tools for backward compatibility
-export { BrushTool, FlowPenTool, InkTool, ImageBrushTool, LineTool, RectangleTool, CircleTool, EraserTool, TextTool, SelectTool, InkdropperTool, BlurTool };
+export { BrushTool, FlowPenTool, InkTool, ImageBrushTool, LineTool, RectangleTool, CircleTool, EraserTool, TextTool, SelectToolLoader, InkdropperTool, BlurTool };

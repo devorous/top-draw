@@ -4,7 +4,7 @@ import { ToolManager, BrushTool } from './Tools.js';
 import { WebSocketClient } from './WebSocketClient.js';
 import { Chat } from './Chat.js';
 import { UI, ColorPalette } from './ui/index.js';
-import { BrushGallery } from './BrushGallery.js';
+import { BrushGalleryLoader } from './BrushGalleryLoader.js';
 import { RemoteUserHandler } from './RemoteUserHandler.js';
 import { TouchHandler } from './TouchHandler.js';
 import { setupWebSocketHandlers } from './WebSocketHandlers.js';
@@ -37,7 +37,7 @@ export class DrawingApp {
       onDM: (message, recipientId) => this.handleDMSend(message, recipientId),
       onSendImage: (imageData, recipientId) => this.handleChatImageSend(imageData, recipientId)
     });
-    this.brushGallery = new BrushGallery({
+    this.brushGallery = new BrushGalleryLoader({
       onSelect: (brush) => this.handleBrushSelect(brush)
     });
     this.colorPalette = new ColorPalette({
