@@ -401,6 +401,45 @@
                 </div>
               </div>
             </div>
+
+            <!-- Blend Mode Options -->
+            <div id="blendModeOptions">
+              <div class="selection-mode-container">
+                <label>Blend Mode</label>
+                <select id="blendModeSelect" class="blendModeSelect">
+                  <option value="source-over">Normal</option>
+                  <option value="multiply">Multiply</option>
+                  <option value="screen">Screen</option>
+                  <option value="lighter">Add</option>
+                  <option value="destination-over">Behind</option>
+                  <option value="overlay">Overlay</option>
+                  <option value="darken">Darken</option>
+                  <option value="lighten">Lighten</option>
+                  <option value="difference">Difference</option>
+                  <option value="color-dodge">Color Dodge</option>
+                  <option value="color-burn">Color Burn</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Layer Panel -->
+            <div id="layerPanel">
+              <label>Layers</label>
+              <div id="layerList">
+                <div class="layerEntry" data-layer="2">
+                  <button class="layerVisibility" data-layer="2" title="Toggle visibility">👁</button>
+                  <button class="layerButton active" data-layer="2">Layer 3</button>
+                </div>
+                <div class="layerEntry" data-layer="1">
+                  <button class="layerVisibility" data-layer="1" title="Toggle visibility">👁</button>
+                  <button class="layerButton" data-layer="1">Layer 2</button>
+                </div>
+                <div class="layerEntry" data-layer="0">
+                  <button class="layerVisibility" data-layer="0" title="Toggle visibility">👁</button>
+                  <button class="layerButton" data-layer="0">Layer 1</button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Color Palette -->

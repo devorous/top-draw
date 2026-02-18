@@ -174,22 +174,26 @@ export class RemotePenHandler {
     // Clear preview FIRST to prevent double opacity (preview + final stacking)
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
 
-    // Composite offscreen to mainCtx with alpha
-    const mainCtx = this.board.mainCtx;
-    mainCtx.globalCompositeOperation = 'source-over';
-    mainCtx.globalAlpha = user._penAlpha;
-    mainCtx.drawImage(user._penOffscreen, 0, 0);
+    // Composite offscreen to active layer with alpha and blend mode
+    const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer);
+    if (layerCtx) {
+      layerCtx.globalCompositeOperation = user.blendMode || 'source-over';
+      layerCtx.globalAlpha = user._penAlpha;
+      layerCtx.drawImage(user._penOffscreen, 0, 0);
 
-    if (this.board.mirror) {
-      mainCtx.save();
-      mainCtx.globalCompositeOperation = 'source-over';
-      mainCtx.translate(this.board.getWidth(), 0);
-      mainCtx.scale(-1, 1);
-      mainCtx.drawImage(user._penOffscreen, 0, 0);
-      mainCtx.restore();
+      if (this.board.mirror) {
+        layerCtx.save();
+        layerCtx.translate(this.board.getWidth(), 0);
+        layerCtx.scale(-1, 1);
+        layerCtx.drawImage(user._penOffscreen, 0, 0);
+        layerCtx.restore();
+      }
+
+      layerCtx.globalAlpha = 1.0;
+
+      // Composite all layers to visible canvas
+      this.board.compositeAllLayers();
     }
-
-    mainCtx.globalAlpha = 1.0;
 
     // Clean up per-user pen state
     user._penLastStampPos = null;

@@ -23,13 +23,17 @@ export class TextTool extends Tool {
   }
 
   activate() {
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    const ctx = this.board.getActiveLayerContext();
+    const blendMode = this.board.app?.self?.blendMode || 'source-over';
+    ctx.globalCompositeOperation = blendMode;
   }
 
   onPointerDown(user, pos) {
     if (user.text) {
       this.drawText(user);
       user.text = '';
+      // Composite after drawing text
+      this.board.compositeAllLayers();
     }
   }
 
@@ -49,8 +53,8 @@ export class TextTool extends Tool {
   }
 
   drawText(user) {
-    const ctx = this.board.mainCtx;
-    ctx.globalCompositeOperation = 'source-over';
+    const ctx = this.board.getActiveLayerContext();
+    ctx.globalCompositeOperation = user.blendMode || 'source-over';
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     ctx.globalAlpha = opacity;
     const size = (user.size + 5).toString();

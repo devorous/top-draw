@@ -104,6 +104,10 @@ export class UI {
 
       selectionModeOptions: document.getElementById('selectionModeOptions'),
       brushModeOptions: document.getElementById('brushModeOptions'),
+      blendModeOptions: document.getElementById('blendModeOptions'),
+      blendModeSelect: document.getElementById('blendModeSelect'),
+      layerPanel: document.getElementById('layerPanel'),
+      layerList: document.getElementById('layerList'),
 
       // Lock buttons
       sizeLock: document.getElementById('sizeLock'),
@@ -387,6 +391,20 @@ export class UI {
     radios.forEach(r => {
       r.checked = (r.value === mode);
     });
+  }
+
+  updateActiveLayerDisplay(layerIndex) {
+    const layerButtons = document.querySelectorAll('.layerButton');
+    layerButtons.forEach(btn => {
+      const btnLayer = parseInt(btn.dataset.layer);
+      btn.classList.toggle('active', btnLayer === layerIndex);
+    });
+  }
+
+  updateBlendModeDisplay(blendMode) {
+    if (this.elements.blendModeSelect) {
+      this.elements.blendModeSelect.value = blendMode;
+    }
   }
 
   updateSelfColor(color) {

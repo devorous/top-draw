@@ -17,6 +17,7 @@ import { ToolLockManager } from './ToolLockManager.js';
 import { InputBufferManager } from './InputBufferManager.js';
 import { KeyboardHandler } from './KeyboardHandler.js';
 import { BrushModeManager } from './BrushModeManager.js';
+import { BlendModeManager } from './BlendModeManager.js';
 
 export class DrawingApp {
   constructor(options = {}) {
@@ -28,7 +29,6 @@ export class DrawingApp {
     this.board = new Board({
       dimensions: options.dimensions || [1080, 1920]
     });
-    this.board.app = this; // Allow tools to access wsClient
 
     this.toolManager = new ToolManager(this.board);
     this.ui = new UI();
@@ -79,6 +79,9 @@ export class DrawingApp {
     // Brush mode manager - handles classic/fluid/ink brush mode switching
     this.brushModeManager = new BrushModeManager(this);
 
+    // Blend mode manager - handles blend mode per tool
+    this.blendModeManager = new BlendModeManager(this);
+
     // Tool-specific locked values
     this.toolLockManager = new ToolLockManager(this);
 
@@ -89,6 +92,7 @@ export class DrawingApp {
   async init() {
     this.ui.init();
     this.board.init('#boardContainer');
+    this.board.setApp(this); // Set app reference for layer/blend mode access
     this.chat.init();
     this.brushGallery.init();
     this.colorPalette.init();
@@ -363,6 +367,33 @@ export class DrawingApp {
     brushModeRadios.forEach(radio => {
       radio.addEventListener('change', (e) => {
         this.brushModeManager.setMode(e.target.value);
+      });
+    });
+
+    // Blend mode select
+    if (elements.blendModeSelect) {
+      elements.blendModeSelect.addEventListener('change', (e) => {
+        this.handleBlendModeChange(e.target.value);
+      });
+    }
+
+    // Layer selection buttons
+    const layerButtons = document.querySelectorAll('.layerButton');
+    layerButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const layerIndex = parseInt(btn.dataset.layer);
+        this.handleLayerSelect(layerIndex);
+      });
+    });
+
+    // Layer visibility toggles
+    const layerVisibilityButtons = document.querySelectorAll('.layerVisibility');
+    layerVisibilityButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const layerIndex = parseInt(btn.dataset.layer);
+        const visible = this.board.layerManager.toggleLayerVisibility(layerIndex);
+        btn.classList.toggle('hidden', !visible);
+        this.board.compositeAllLayers();
       });
     });
 
@@ -871,6 +902,21 @@ export class DrawingApp {
     this.ui.updateToolDisplay(tool);
     this.wsClient.broadcastToolChange(tool);
 
+    // Apply blend mode for new tool (eraser always uses destination-out)
+    if (tool !== 'erase') {
+      const blendMode = this.blendModeManager.getBlendMode(tool);
+      this.self.setBlendMode(blendMode);
+      const ctx = this.board.getActiveLayerContext();
+      if (ctx) {
+        ctx.globalCompositeOperation = blendMode;
+      }
+      // Update UI to show current blend mode for this tool
+      this.ui.updateBlendModeDisplay(blendMode);
+    } else {
+      // For eraser, show normal blend mode in UI (even though it uses destination-out)
+      this.ui.updateBlendModeDisplay('source-over');
+    }
+
     // Restore locked values for new tool
     if (this.toolLockManager.toolLocks[tool]) {
       this.toolLockManager.restoreLockedValues(tool);
@@ -900,6 +946,30 @@ export class DrawingApp {
 
     // Broadcast brush to other users
     this.wsClient.broadcastBrush(brush);
+  }
+
+  // Layer and blend mode management
+
+  handleLayerSelect(layerIndex) {
+    this.self.setActiveLayer(layerIndex);
+    this.ui.updateActiveLayerDisplay(layerIndex);
+    if (this.connected) {
+      this.wsClient.broadcastLayerChange(layerIndex);
+    }
+  }
+
+  handleBlendModeChange(blendMode) {
+    const currentTool = this.self.tool;
+    this.blendModeManager.setBlendMode(currentTool, blendMode);
+    this.self.setBlendMode(blendMode);
+
+    // Update context blend mode
+    const ctx = this.board.getActiveLayerContext();
+    if (ctx) {
+      ctx.globalCompositeOperation = blendMode;
+    }
+
+    // Broadcast is handled by BlendModeManager.setBlendMode()
   }
 
   // Canvas controls

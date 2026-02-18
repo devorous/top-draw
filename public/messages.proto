@@ -60,6 +60,8 @@ message Msg {
     MOD_NOTIFY    = 55;  // Moderation notification broadcast
     MOD_LIST      = 56;  // Active moderation entries list
     CBR           = 57;  // Change blur radius
+    CL            = 58;  // Change active layer
+    CBM           = 59;  // Change blend mode
   }
 
   // Tool enum
@@ -102,6 +104,8 @@ message Msg {
   uint32 sm = 23;       // Smoothing * 100 (0-100 for 0-100%)
   uint32 hd = 28;       // Hardness * 100 (0-100 for 0-100%)
   uint32 br = 43;       // Blur radius * 100
+  uint32 ly = 44;       // Active layer index
+  string bm = 45;       // Blend mode (e.g., 'source-over', 'multiply')
 
   // User list for USERS message
   message U {
@@ -121,6 +125,8 @@ message Msg {
     uint32 role = 14;   // 0=guest,1=user,2=mod,3=admin
     bool ch = 15;       // Cursor hidden
     uint32 br = 16;     // Blur radius * 100
+    uint32 ly = 17;     // Active layer index
+    string bm = 18;     // Blend mode
   }
   repeated U us = 17;   // Users array
 
