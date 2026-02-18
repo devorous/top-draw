@@ -213,6 +213,14 @@ async function handleBroadcast(data, sessionIndex) {
       user.blurRadius = data.br;
       break;
 
+    case T.CL: // Change active layer — data.ly is layer index (0-4)
+      user.activeLayer = data.ly;
+      break;
+
+    case T.CBM: // Change blend mode — data.bm is blend mode string (e.g. 'source-over', 'multiply')
+      user.blendMode = data.bm;
+      break;
+
     case T.CP: // Change pressure — data.p is pressure * 100 (e.g. 100 = 1.0 = full pressure)
       user.pressure = data.p;
       break;
@@ -354,7 +362,9 @@ wss.on('connection', (ws, req) => {
               tx: u.text,
               role: u.role || Role.GUEST,
               ch: u.cursorHidden || false,
-              br: u.blurRadius || 500
+              br: u.blurRadius || 500,
+              ly: u.activeLayer || 0,
+              bm: u.blendMode || 'source-over'
             }))
           });
 

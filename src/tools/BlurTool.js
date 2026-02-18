@@ -26,11 +26,14 @@ export class BlurTool extends Tool {
 
   activate() {
     // No special composite operation needed - we're manipulating pixels directly
+    const ctx = this.board.getActiveLayerContext();
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   deactivate() {
     // Reset to default if needed
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    const ctx = this.board.getActiveLayerContext();
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   onPointerDown(user, pos) {
@@ -53,15 +56,16 @@ export class BlurTool extends Tool {
    * Apply blur to a square region centered at (x, y) with given size
    */
   async applyBlur(x, y, size, user) {
-    const ctx = this.board.mainCtx;
-    const canvas = this.board.mainCanvas;
+    const ctx = this.board.getActiveLayerContext();
+    const canvasWidth = this.board.getWidth();
+    const canvasHeight = this.board.getHeight();
 
     // Calculate the square bounds (centered on cursor)
     const halfSize = size;
     const left = Math.max(0, Math.floor(x - halfSize));
     const top = Math.max(0, Math.floor(y - halfSize));
-    const right = Math.min(canvas.width, Math.ceil(x + halfSize));
-    const bottom = Math.min(canvas.height, Math.ceil(y + halfSize));
+    const right = Math.min(canvasWidth, Math.ceil(x + halfSize));
+    const bottom = Math.min(canvasHeight, Math.ceil(y + halfSize));
 
     const width = right - left;
     const height = bottom - top;
@@ -84,6 +88,9 @@ export class BlurTool extends Tool {
 
       // Put the blurred ImageData back
       ctx.putImageData(blurred, left, top);
+
+      // Composite all layers to visible canvas
+      this.board.compositeAllLayers();
     } catch (error) {
       console.error('Blur error:', error);
     }

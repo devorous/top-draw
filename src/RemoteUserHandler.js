@@ -83,10 +83,14 @@ export class RemoteUserHandler {
 
           case 'erase':
             const eraserTool = this.toolManager.getTool('erase');
-            eraserTool.erase(pos.x, pos.y, lastPos.x, lastPos.y, user.pressure * user.size * 2);
-            if (this.board.mirror) {
-              const w = this.board.getWidth();
-              eraserTool.erase(w - pos.x, pos.y, w - lastPos.x, lastPos.y, user.pressure * user.size * 2);
+            const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer);
+            if (layerCtx) {
+              eraserTool.eraseOnContext(layerCtx, pos.x, pos.y, lastPos.x, lastPos.y, user.pressure * user.size * 2);
+              if (this.board.mirror) {
+                const w = this.board.getWidth();
+                eraserTool.eraseOnContext(layerCtx, w - pos.x, pos.y, w - lastPos.x, lastPos.y, user.pressure * user.size * 2);
+              }
+              this.board.compositeAllLayers();
             }
             break;
 
@@ -312,7 +316,10 @@ export class RemoteUserHandler {
 
   handleMouseUp(user) {
     const pos = { x: user.x, y: user.y };
-    const mainCtx = this.board.mainCtx;
+
+    // Get layer context for this user's active layer
+    const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer);
+    if (!layerCtx) return; // Safety check
 
     // Pen stroke active — composite offscreen and skip the tool switch,
     // since CT (tool change) may arrive after MD/MM when a new user joins
@@ -328,19 +335,19 @@ export class RemoteUserHandler {
       this.inkHandler.handleInkUp(user);
     }
 
-    // Image brush — commit user.context to mainCtx BEFORE clearing
+    // Image brush — commit user.context to active layer BEFORE clearing
     // (imageBrush draws directly to user.context during the stroke)
     if (user.tool === 'imageBrush' && user.imageBrush && !user.panning) {
-      mainCtx.globalCompositeOperation = 'source-over';
-      mainCtx.globalAlpha = 1.0;
-      mainCtx.drawImage(user.context.canvas, 0, 0);
+      layerCtx.globalCompositeOperation = user.blendMode || 'source-over';
+      layerCtx.globalAlpha = 1.0;
+      layerCtx.drawImage(user.context.canvas, 0, 0);
 
       if (this.board.mirror) {
-        mainCtx.save();
-        mainCtx.translate(this.board.getWidth(), 0);
-        mainCtx.scale(-1, 1);
-        mainCtx.drawImage(user.context.canvas, 0, 0);
-        mainCtx.restore();
+        layerCtx.save();
+        layerCtx.translate(this.board.getWidth(), 0);
+        layerCtx.scale(-1, 1);
+        layerCtx.drawImage(user.context.canvas, 0, 0);
+        layerCtx.restore();
       }
     }
 
@@ -353,10 +360,11 @@ export class RemoteUserHandler {
     } else switch (user.tool) {
       case 'brush':
         if (!user.panning) {
-          drawLineArray(user.currentLine, mainCtx, user);
+          layerCtx.globalCompositeOperation = user.blendMode || 'source-over';
+          drawLineArray(user.currentLine, layerCtx, user);
           if (this.board.mirror) {
             const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-            drawLineArray(mirrored, mainCtx, user);
+            drawLineArray(mirrored, layerCtx, user);
           }
         }
         break;
@@ -366,28 +374,31 @@ export class RemoteUserHandler {
         break;
 
       case 'line':
-        this.toolManager.getTool('line').drawPreview(mainCtx, user, user.startPos, pos);
+        layerCtx.globalCompositeOperation = user.blendMode || 'source-over';
+        this.toolManager.getTool('line').drawPreview(layerCtx, user, user.startPos, pos);
         if (this.board.mirror) {
           const w = this.board.getWidth();
-          this.toolManager.getTool('line').drawPreview(mainCtx, user,
+          this.toolManager.getTool('line').drawPreview(layerCtx, user,
             { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
         }
         break;
 
       case 'rectangle':
-        this.toolManager.getTool('rectangle').drawRect(mainCtx, user, user.startPos, pos);
+        layerCtx.globalCompositeOperation = user.blendMode || 'source-over';
+        this.toolManager.getTool('rectangle').drawRect(layerCtx, user, user.startPos, pos);
         if (this.board.mirror) {
           const w = this.board.getWidth();
-          this.toolManager.getTool('rectangle').drawRect(mainCtx, user,
+          this.toolManager.getTool('rectangle').drawRect(layerCtx, user,
             { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
         }
         break;
 
       case 'circle':
-        this.toolManager.getTool('circle').drawEllipse(mainCtx, user, user.startPos, pos);
+        layerCtx.globalCompositeOperation = user.blendMode || 'source-over';
+        this.toolManager.getTool('circle').drawEllipse(layerCtx, user, user.startPos, pos);
         if (this.board.mirror) {
           const w = this.board.getWidth();
-          this.toolManager.getTool('circle').drawEllipse(mainCtx, user,
+          this.toolManager.getTool('circle').drawEllipse(layerCtx, user,
             { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
         }
         break;
@@ -417,6 +428,9 @@ export class RemoteUserHandler {
       this.debugOverlay.endStrokeTracking(user.id);
     }
 
+
+    // Composite all layers to visible canvas after remote drawing
+    this.board.compositeAllLayers();
 
     // Cleanup (preview was already cleared at start of handleMouseUp)
     user.clearLine();

@@ -219,6 +219,14 @@ export class WebSocketClient {
         this.emit('cbr', { sessionIndex: data.u, blurRadius: (data.br ?? 500) / 100 });
         break;
 
+      case T.CL:
+        this.emit('cl', { sessionIndex: data.u, layerIndex: data.ly ?? 0 });
+        break;
+
+      case T.CBM:
+        this.emit('cbm', { sessionIndex: data.u, blendMode: data.bm || 'source-over' });
+        break;
+
       case T.CN:
         this.emit('cn', { sessionIndex: data.u, name: data.n });
         break;
@@ -497,6 +505,14 @@ export class WebSocketClient {
 
   broadcastBlurRadiusChange(radius) {
     this.send({ t: T.CBR, br: Math.round(radius * 100) });
+  }
+
+  broadcastLayerChange(layerIndex) {
+    this.send({ t: T.CL, ly: layerIndex });
+  }
+
+  broadcastBlendModeChange(blendMode) {
+    this.send({ t: T.CBM, bm: blendMode });
   }
 
   broadcastPressureChange(pressure) {

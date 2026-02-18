@@ -114,6 +114,22 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
+  // Layer change
+  wrapHandler('cl', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      user.setActiveLayer(data.layerIndex);
+    }
+  });
+
+  // Blend mode change
+  wrapHandler('cbm', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      user.setBlendMode(data.blendMode);
+    }
+  });
+
   // Key press
   wrapHandler('kp', (data) => {
     const user = users.get(data.sessionIndex);

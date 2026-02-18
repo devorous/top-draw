@@ -28,7 +28,9 @@ export class BrushTool extends Tool {
   }
 
   activate() {
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    const ctx = this.board.getActiveLayerContext();
+    const blendMode = this.board.app?.self?.blendMode || 'source-over';
+    ctx.globalCompositeOperation = blendMode;
   }
 
   /**
@@ -96,14 +98,19 @@ export class BrushTool extends Tool {
     // Clear preview FIRST to prevent composite boldness
     this.board.clearTop();
 
-    this.drawLineArray(user.currentLine, this.board.mainCtx, user);
+    // Draw to active layer
+    const layerCtx = this.board.getActiveLayerContext();
+    this.drawLineArray(user.currentLine, layerCtx, user);
 
     if (this.board.mirror) {
       const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-      this.drawLineArray(mirrored, this.board.mainCtx, user);
+      this.drawLineArray(mirrored, layerCtx, user);
     }
 
     user.clearLine();
+
+    // Composite all layers to visible canvas
+    this.board.compositeAllLayers();
   }
 
   drawPreview(user) {
@@ -125,7 +132,7 @@ export class BrushTool extends Tool {
 
     // Explicitly set ALL context properties to ensure consistency
     ctx.globalAlpha = opacity;
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalCompositeOperation = user.blendMode || 'source-over';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.lineWidth = user.pressure * user.size * 2;
@@ -199,11 +206,14 @@ export class BrushTool extends Tool {
     // because callers commit BEFORE calling setPressure)
     const oldRadius = user.pressure * user.size;
     const newRadius = (newPressure ?? user.pressure) * (newSize ?? user.size);
-    this.drawLineArray(user.currentLine, this.board.mainCtx, user);
+
+    // Draw to active layer
+    const layerCtx = this.board.getActiveLayerContext();
+    this.drawLineArray(user.currentLine, layerCtx, user);
 
     if (this.board.mirror) {
       const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-      this.drawLineArray(mirrored, this.board.mainCtx, user);
+      this.drawLineArray(mirrored, layerCtx, user);
     }
 
     // Save last smoothed position (where old segment visually ends)
@@ -215,10 +225,10 @@ export class BrushTool extends Tool {
     // using interpolated filled circles (flow-pen style)
     if (user.currentLine.length > 0) {
       const from = lastSmoothedPos;
-      this.bridgeGap(this.board.mainCtx, from, lastSmoothedPos, oldRadius, newRadius, user);
+      this.bridgeGap(layerCtx, from, lastSmoothedPos, oldRadius, newRadius, user);
       if (this.board.mirror) {
         const w = this.board.getWidth();
-        this.bridgeGap(this.board.mainCtx,
+        this.bridgeGap(layerCtx,
           { x: w - from.x, y: from.y },
           { x: w - lastSmoothedPos.x, y: lastSmoothedPos.y },
           oldRadius, newRadius, user);
@@ -231,6 +241,9 @@ export class BrushTool extends Tool {
 
     user.clearLine();
     user.currentLine.push(lastSmoothedPos);
+
+    // Composite all layers to visible canvas
+    this.board.compositeAllLayers();
   }
 
   /** Bridge gap between two points with interpolated filled circles (flow-pen style) */
@@ -244,7 +257,7 @@ export class BrushTool extends Tool {
 
     ctx.save();
     ctx.globalAlpha = opacity;
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalCompositeOperation = user.blendMode || 'source-over';
     ctx.fillStyle = user.getColorString();
 
     if (hardness < 1.0) {

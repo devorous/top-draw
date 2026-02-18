@@ -24,7 +24,9 @@ export class LineTool extends Tool {
   }
 
   activate() {
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    const ctx = this.board.getActiveLayerContext();
+    const blendMode = this.board.app?.self?.blendMode || 'source-over';
+    ctx.globalCompositeOperation = blendMode;
   }
 
   onPointerDown(user, pos) {
@@ -41,17 +43,22 @@ export class LineTool extends Tool {
   onPointerUp(user, pos) {
     if (user.panning || !this.startPos) return;
 
-    this.drawLine(this.board.mainCtx, user, this.startPos, pos);
+    // Draw to active layer
+    const layerCtx = this.board.getActiveLayerContext();
+    this.drawLine(layerCtx, user, this.startPos, pos);
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
       const mirroredStart = { x: width - this.startPos.x, y: this.startPos.y };
       const mirroredEnd = { x: width - pos.x, y: pos.y };
-      this.drawLine(this.board.mainCtx, user, mirroredStart, mirroredEnd);
+      this.drawLine(layerCtx, user, mirroredStart, mirroredEnd);
     }
 
     this.board.clearTop();
     this.startPos = null;
+
+    // Composite all layers to visible canvas
+    this.board.compositeAllLayers();
   }
 
   drawPreview(ctx, user, start, end) {
@@ -114,7 +121,9 @@ export class RectangleTool extends Tool {
   }
 
   activate() {
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    const ctx = this.board.getActiveLayerContext();
+    const blendMode = this.board.app?.self?.blendMode || 'source-over';
+    ctx.globalCompositeOperation = blendMode;
   }
 
   onPointerDown(user, pos) {
@@ -131,17 +140,22 @@ export class RectangleTool extends Tool {
   onPointerUp(user, pos) {
     if (user.panning || !this.startPos) return;
 
-    this.drawRect(this.board.mainCtx, user, this.startPos, pos);
+    // Draw to active layer
+    const layerCtx = this.board.getActiveLayerContext();
+    this.drawRect(layerCtx, user, this.startPos, pos);
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
       const mirroredStart = { x: width - this.startPos.x, y: this.startPos.y };
       const mirroredEnd = { x: width - pos.x, y: pos.y };
-      this.drawRect(this.board.mainCtx, user, mirroredStart, mirroredEnd);
+      this.drawRect(layerCtx, user, mirroredStart, mirroredEnd);
     }
 
     this.board.clearTop();
     this.startPos = null;
+
+    // Composite all layers to visible canvas
+    this.board.compositeAllLayers();
   }
 
   drawPreview(user, pos) {
@@ -208,7 +222,9 @@ export class CircleTool extends Tool {
   }
 
   activate() {
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    const ctx = this.board.getActiveLayerContext();
+    const blendMode = this.board.app?.self?.blendMode || 'source-over';
+    ctx.globalCompositeOperation = blendMode;
   }
 
   onPointerDown(user, pos) {
@@ -225,17 +241,22 @@ export class CircleTool extends Tool {
   onPointerUp(user, pos) {
     if (user.panning || !this.startPos) return;
 
-    this.drawEllipse(this.board.mainCtx, user, this.startPos, pos);
+    // Draw to active layer
+    const layerCtx = this.board.getActiveLayerContext();
+    this.drawEllipse(layerCtx, user, this.startPos, pos);
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
       const mirroredStart = { x: width - this.startPos.x, y: this.startPos.y };
       const mirroredEnd = { x: width - pos.x, y: pos.y };
-      this.drawEllipse(this.board.mainCtx, user, mirroredStart, mirroredEnd);
+      this.drawEllipse(layerCtx, user, mirroredStart, mirroredEnd);
     }
 
     this.board.clearTop();
     this.startPos = null;
+
+    // Composite all layers to visible canvas
+    this.board.compositeAllLayers();
   }
 
   drawPreview(user, pos) {
