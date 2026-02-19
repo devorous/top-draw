@@ -254,7 +254,7 @@ export class UI {
     brushFileInput.style.display = 'none';
     brushSpacing.style.display = 'none';
     brushHardness.style.display = 'none';
-    opacityContainer.style.display = 'none';
+    opacityContainer.style.display = 'block';
     if (blurRadiusContainer) {
       blurRadiusContainer.style.display = 'none';
     }
@@ -327,7 +327,6 @@ export class UI {
         // brushImage is shown only when a brush is selected (via setBrushPreview)
         brushFileInput.style.display = 'block';
         brushSpacing.style.display = 'block';
-        opacityContainer.style.display = 'block';
         break;
       case 'inkdropper':
         selfCrosshair.style.display = 'block';

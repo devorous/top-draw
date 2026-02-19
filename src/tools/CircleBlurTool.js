@@ -31,18 +31,20 @@ export class CircleBlurTool extends Tool {
   }
 
   onPointerDown(user, pos) {
-    this.stampBlurredCircle(pos.x, pos.y, user.size, user);
+    const radius = user.pressure * user.size;
+    this.stampBlurredCircle(pos.x, pos.y, radius, user);
   }
 
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
-    this.stampBlurredCircle(pos.x, pos.y, user.size, user);
+    const radius = user.pressure * user.size;
+    this.stampBlurredCircle(pos.x, pos.y, radius, user);
 
     // Mirror mode support
     if (this.board.mirror) {
       const width = this.board.getWidth();
-      this.stampBlurredCircle(width - pos.x, pos.y, user.size, user);
+      this.stampBlurredCircle(width - pos.x, pos.y, radius, user);
     }
   }
 
@@ -151,6 +153,7 @@ export class CircleBlurTool extends Tool {
       // Draw the averaged color circle with hardness support
       ctx.save();
       ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
 
       // Apply hardness using shadow blur (like brush tool)
       if (hardness < 1.0) {
