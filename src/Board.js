@@ -222,8 +222,11 @@ export class Board {
   }
 
   /**
-   * Get the drawing context for the active layer
-   * @returns {CanvasRenderingContext2D} The active layer's context
+   * Get the drawing context for the active layer's blend-mode sub-layer.
+   * The returned context should always be drawn to source-over; the blend
+   * mode is applied at composite time.
+   * Uses the layer's activeBlendMode (set via setActiveLayerBlendMode).
+   * @returns {CanvasRenderingContext2D} The active sub-layer's context
    */
   getActiveLayerContext() {
     const activeLayer = this.app?.self?.activeLayer ?? 0;
@@ -231,12 +234,51 @@ export class Board {
   }
 
   /**
-   * Get the drawing context for a specific layer
-   * @param {number} layerIndex - Layer index
-   * @returns {CanvasRenderingContext2D} The layer's context
+   * Get the drawing context for a specific layer's active blend-mode sub-layer.
+   * Uses the layer's activeBlendMode (not a per-user blend mode).
+   * @param {number} layerIndex - Layer group index
+   * @returns {CanvasRenderingContext2D} The sub-layer's context
    */
   getLayerContext(layerIndex) {
     return this.layerManager?.getLayerContext(layerIndex) ?? this.mainCtx;
+  }
+
+  /**
+   * Get the active blend mode for the current layer
+   * @returns {string} The active blend mode (e.g., 'source-over', 'multiply')
+   */
+  getActiveLayerBlendMode() {
+    const activeLayer = this.app?.self?.activeLayer ?? 0;
+    return this.layerManager?.getActiveBlendMode(activeLayer) ?? 'source-over';
+  }
+
+  /**
+   * Set the active blend mode for the current layer
+   * @param {string} blendMode - CSS composite operation
+   */
+  setActiveLayerBlendMode(blendMode) {
+    const activeLayer = this.app?.self?.activeLayer ?? 0;
+    if (this.layerManager) {
+      this.layerManager.setActiveBlendMode(activeLayer, blendMode);
+    }
+  }
+
+  /**
+   * Get the full layer group for the active layer (used by eraser)
+   * @returns {Object|undefined}
+   */
+  getActiveLayerGroup() {
+    const activeLayer = this.app?.self?.activeLayer ?? 0;
+    return this.layerManager?.getLayerGroup(activeLayer);
+  }
+
+  /**
+   * Get the full layer group for a specific index (used by remote eraser)
+   * @param {number} index - Layer group index
+   * @returns {Object|undefined}
+   */
+  getLayerGroup(index) {
+    return this.layerManager?.getLayerGroup(index);
   }
 
   /**

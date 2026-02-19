@@ -1,7 +1,9 @@
+console.log('[main.js] Script loaded!');
 import { DrawingApp } from './App.js';
+console.log('[main.js] Import successful');
 
-// Wait for DOM to be ready
-document.addEventListener('DOMContentLoaded', async () => {
+async function init() {
+  console.log('[main.js] Init function called');
   // Get WebSocket server URL from environment or use default
   const wsServerUrl = import.meta.env.VITE_WS_SERVER_URL || null;
 
@@ -18,4 +20,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Expose app for debugging
   window.app = app;
-});
+}
+
+// Handle both already-loaded and loading states
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  // DOM already loaded (e.g., with type="module" deferred)
+  init();
+}

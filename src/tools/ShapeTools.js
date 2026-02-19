@@ -24,9 +24,7 @@ export class LineTool extends Tool {
   }
 
   activate() {
-    const ctx = this.board.getActiveLayerContext();
-    const blendMode = this.board.app?.self?.blendMode || 'source-over';
-    ctx.globalCompositeOperation = blendMode;
+    // Sub-layers always draw source-over; blend mode is applied at composite time.
   }
 
   onPointerDown(user, pos) {
@@ -76,6 +74,10 @@ export class LineTool extends Tool {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
+    // Use the layer's blend mode for layer context, source-over for preview
+    const isPreview = ctx === this.board.topCtx;
+    const blendMode = isPreview ? 'source-over' : this.board.getActiveLayerBlendMode();
+    ctx.globalCompositeOperation = blendMode;
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;
@@ -121,9 +123,7 @@ export class RectangleTool extends Tool {
   }
 
   activate() {
-    const ctx = this.board.getActiveLayerContext();
-    const blendMode = this.board.app?.self?.blendMode || 'source-over';
-    ctx.globalCompositeOperation = blendMode;
+    // Sub-layers always draw source-over; blend mode is applied at composite time.
   }
 
   onPointerDown(user, pos) {
@@ -178,6 +178,10 @@ export class RectangleTool extends Tool {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
+    // Use the layer's blend mode for layer context, source-over for preview
+    const isPreview = ctx === this.board.topCtx;
+    const blendMode = isPreview ? 'source-over' : this.board.getActiveLayerBlendMode();
+    ctx.globalCompositeOperation = blendMode;
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;
@@ -222,9 +226,7 @@ export class CircleTool extends Tool {
   }
 
   activate() {
-    const ctx = this.board.getActiveLayerContext();
-    const blendMode = this.board.app?.self?.blendMode || 'source-over';
-    ctx.globalCompositeOperation = blendMode;
+    // Sub-layers always draw source-over; blend mode is applied at composite time.
   }
 
   onPointerDown(user, pos) {
@@ -279,6 +281,10 @@ export class CircleTool extends Tool {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
+    // Use the layer's blend mode for layer context, source-over for preview
+    const isPreview = ctx === this.board.topCtx;
+    const blendMode = isPreview ? 'source-over' : this.board.getActiveLayerBlendMode();
+    ctx.globalCompositeOperation = blendMode;
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;

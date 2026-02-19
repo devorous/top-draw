@@ -102,15 +102,18 @@ export class RemoteInkHandler {
     // Clear preview FIRST to prevent double opacity
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
 
-    // Composite offscreen to active layer with alpha and blend mode
+    // Composite offscreen to the layer with the layer's blend mode.
+    // This allows strokes to blend with existing content on the same layer.
     const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer);
+    const blendMode = this.board.layerManager.getActiveBlendMode(user.activeLayer);
     if (layerCtx) {
-      layerCtx.globalCompositeOperation = user.blendMode || 'source-over';
+      layerCtx.globalCompositeOperation = blendMode;
       layerCtx.globalAlpha = user._inkAlpha;
       layerCtx.drawImage(user._inkOffscreen, 0, 0);
 
       if (this.board.mirror) {
         layerCtx.save();
+        layerCtx.globalCompositeOperation = blendMode;
         layerCtx.translate(this.board.getWidth(), 0);
         layerCtx.scale(-1, 1);
         layerCtx.drawImage(user._inkOffscreen, 0, 0);

@@ -373,7 +373,10 @@ export class DrawingApp {
     // Blend mode select
     if (elements.blendModeSelect) {
       elements.blendModeSelect.addEventListener('change', (e) => {
-        this.handleBlendModeChange(e.target.value);
+        // Only handle user-initiated changes, not programmatic updates
+        if (!this.ui._updatingBlendMode) {
+          this.handleBlendModeChange(e.target.value);
+        }
       });
     }
 
@@ -735,6 +738,11 @@ export class DrawingApp {
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
     this.wsClient.broadcastToolChange(this.self.tool);
+    // Blend mode is per-layer now - broadcast the active layer's blend mode
+    const activeLayer = this.self.activeLayer;
+    const layerBlendMode = this.board.layerManager.getActiveBlendMode(activeLayer);
+    this.wsClient.broadcastLayerBlendModeChange(activeLayer, layerBlendMode);
+    this.wsClient.broadcastLayerChange(activeLayer);
 
     // Update moderation UI visibility based on role
     this.moderation.setRole(role);
@@ -771,6 +779,11 @@ export class DrawingApp {
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
     this.wsClient.broadcastToolChange(this.self.tool);
+    // Blend mode is per-layer now - broadcast the active layer's blend mode
+    const activeLayer = this.self.activeLayer;
+    const layerBlendMode = this.board.layerManager.getActiveBlendMode(activeLayer);
+    this.wsClient.broadcastLayerBlendModeChange(activeLayer, layerBlendMode);
+    this.wsClient.broadcastLayerChange(activeLayer);
 
     // Set sessionIndex on self user entry for context menu
     if (this.ui.elements.selfUserEntry) {
@@ -902,19 +915,14 @@ export class DrawingApp {
     this.ui.updateToolDisplay(tool);
     this.wsClient.broadcastToolChange(tool);
 
-    // Apply blend mode for new tool (eraser always uses destination-out)
-    if (tool !== 'erase') {
-      const blendMode = this.blendModeManager.getBlendMode(tool);
-      this.self.setBlendMode(blendMode);
-      const ctx = this.board.getActiveLayerContext();
-      if (ctx) {
-        ctx.globalCompositeOperation = blendMode;
-      }
-      // Update UI to show current blend mode for this tool
-      this.ui.updateBlendModeDisplay(blendMode);
+    // Blend mode is now a layer property, not per-tool. Don't change it on tool switch.
+    // For eraser, reset preview canvas blend mode to normal (eraser uses destination-out internally)
+    if (tool === 'erase') {
+      this.board.topCanvas.style.mixBlendMode = 'normal';
     } else {
-      // For eraser, show normal blend mode in UI (even though it uses destination-out)
-      this.ui.updateBlendModeDisplay('source-over');
+      // Keep current layer's blend mode for preview
+      const layerBlendMode = this.board.getActiveLayerBlendMode();
+      this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(layerBlendMode);
     }
 
     // Restore locked values for new tool
@@ -953,23 +961,34 @@ export class DrawingApp {
   handleLayerSelect(layerIndex) {
     this.self.setActiveLayer(layerIndex);
     this.ui.updateActiveLayerDisplay(layerIndex);
+
+    // Update blend mode dropdown to show this layer's active blend mode
+    const layerBlendMode = this.board.layerManager.getActiveBlendMode(layerIndex);
+    this.ui.updateBlendModeDisplay(layerBlendMode);
+
+    // Update preview canvas mix-blend-mode for live preview
+    this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(layerBlendMode);
+
     if (this.connected) {
       this.wsClient.broadcastLayerChange(layerIndex);
     }
   }
 
   handleBlendModeChange(blendMode) {
-    const currentTool = this.self.tool;
-    this.blendModeManager.setBlendMode(currentTool, blendMode);
-    this.self.setBlendMode(blendMode);
+    // Set the blend mode on the active layer (not per-tool)
+    const activeLayer = this.self.activeLayer;
+    this.board.setActiveLayerBlendMode(blendMode);
 
-    // Update context blend mode
-    const ctx = this.board.getActiveLayerContext();
-    if (ctx) {
-      ctx.globalCompositeOperation = blendMode;
+    // Update preview canvas mix-blend-mode for live preview
+    this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(blendMode);
+
+    // Persist to localStorage
+    this.blendModeManager.persistBlendModes();
+
+    // Broadcast to other users (include layer index)
+    if (this.connected) {
+      this.wsClient.broadcastLayerBlendModeChange(activeLayer, blendMode);
     }
-
-    // Broadcast is handled by BlendModeManager.setBlendMode()
   }
 
   // Canvas controls

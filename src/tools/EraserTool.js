@@ -23,15 +23,10 @@ export class EraserTool extends Tool {
   }
 
   activate() {
-    const ctx = this.board.getActiveLayerContext();
-    ctx.globalCompositeOperation = 'destination-out';
+    // No blend mode setup needed; eraser uses destination-out per sub-layer.
   }
 
-  deactivate() {
-    // Reset composite operation when switching away from eraser
-    const ctx = this.board.getActiveLayerContext();
-    ctx.globalCompositeOperation = 'source-over';
-  }
+  deactivate() {}
 
   onPointerDown(user, pos) {
     this.erase(pos.x, pos.y, pos.x, pos.y, user.pressure * user.size * 2);
@@ -48,34 +43,33 @@ export class EraserTool extends Tool {
     }
   }
 
+  /**
+   * Erase on the local active layer group — clears all sub-layers at this position.
+   */
   erase(x1, y1, x2, y2, size) {
-    const ctx = this.board.getActiveLayerContext();
-    // Explicitly set all properties (remote users bypass activate())
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.globalAlpha = 1.0;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = size;
-    ctx.strokeStyle = 'rgba(255,255,255,1)';
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-
-    // Composite after erasing
+    const group = this.board.getActiveLayerGroup();
+    if (group) {
+      this.eraseOnGroup(group, x1, y1, x2, y2, size);
+    }
     this.board.compositeAllLayers();
   }
 
   /**
-   * Erase on a specific layer context (for remote users)
-   * @param {CanvasRenderingContext2D} ctx - Layer context to erase on
+   * Erase on every sub-layer of a layer group (for local and remote users).
+   * @param {Object} group - Layer group from LayerManager
    * @param {number} x1 - Start X
    * @param {number} y1 - Start Y
    * @param {number} x2 - End X
    * @param {number} y2 - End Y
    * @param {number} size - Eraser size
    */
-  eraseOnContext(ctx, x1, y1, x2, y2, size) {
+  eraseOnGroup(group, x1, y1, x2, y2, size) {
+    for (const sub of group.subLayers) {
+      this._eraseOnCtx(sub.context, x1, y1, x2, y2, size);
+    }
+  }
+
+  _eraseOnCtx(ctx, x1, y1, x2, y2, size) {
     ctx.globalCompositeOperation = 'destination-out';
     ctx.globalAlpha = 1.0;
     ctx.lineCap = 'round';
@@ -86,5 +80,6 @@ export class EraserTool extends Tool {
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
     ctx.stroke();
+    ctx.globalCompositeOperation = 'source-over';
   }
 }
