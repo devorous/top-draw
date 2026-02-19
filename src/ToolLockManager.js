@@ -34,7 +34,7 @@ export class ToolLockManager {
         smoothing: { locked: false, value: 0.3 },
         spacing: { locked: false, value: 0 },
         hardness: { locked: false, value: 1.0 },
-        imageBrushOpacity: { locked: false, value: 1.0 },
+        opacity: { locked: false, value: 1.0 },
         blurRadius: { locked: false, value: 5 }
       };
     });
@@ -66,9 +66,9 @@ export class ToolLockManager {
     if (locks.smoothing?.locked) locks.smoothing.value = self.smoothing;
     if (locks.spacing?.locked) locks.spacing.value = self.spacing;
     if (locks.hardness?.locked) locks.hardness.value = self.hardness;
-    if (locks.imageBrushOpacity?.locked) {
-      // imageBrushOpacity is derived from color alpha
-      locks.imageBrushOpacity.value = self.opacity;
+    if (locks.opacity?.locked) {
+      // opacity is derived from color alpha
+      locks.opacity.value = self.opacity;
     }
     if (locks.blurRadius?.locked) locks.blurRadius.value = self.blurRadius;
 
@@ -135,14 +135,14 @@ export class ToolLockManager {
         wsClient.broadcastHardnessChange(locks.hardness.value);
       }
     }
-    if (locks.imageBrushOpacity?.locked) {
+    if (locks.opacity?.locked) {
       // Update color alpha (opacity)
       const currentColor = [...self.color];
-      currentColor[3] = locks.imageBrushOpacity.value;
+      currentColor[3] = locks.opacity.value;
       self.setColor(currentColor);
-      self.setOpacity(locks.imageBrushOpacity.value);
-      ui.updateImageBrushOpacityValue(locks.imageBrushOpacity.value);
-      if (elements.imageBrushOpacitySlider) elements.imageBrushOpacitySlider.value = locks.imageBrushOpacity.value * 100;
+      self.setOpacity(locks.opacity.value);
+      ui.updateopacityValue(locks.opacity.value);
+      if (elements.opacitySlider) elements.opacitySlider.value = locks.opacity.value * 100;
 
       // Update color picker to reflect the locked opacity
       if (colorPicker) {
@@ -173,7 +173,7 @@ export class ToolLockManager {
     ui.updateLockButton('smoothing', locks.smoothing?.locked || false);
     ui.updateLockButton('spacing', locks.spacing?.locked || false);
     ui.updateLockButton('hardness', locks.hardness?.locked || false);
-    ui.updateLockButton('imageBrushOpacity', locks.imageBrushOpacity?.locked || false);
+    ui.updateLockButton('opacity', locks.opacity?.locked || false);
     ui.updateLockButton('blurRadius', locks.blurRadius?.locked || false);
   }
 
@@ -198,7 +198,7 @@ export class ToolLockManager {
         lock.min = Number(ui.elements.pressureMinSlider.value);
         lock.max = Number(ui.elements.pressureMaxSlider.value);
         lock.enabled = pressureEnabled;
-      } else if (property === 'imageBrushOpacity') {
+      } else if (property === 'opacity') {
         lock.value = self.opacity;
       } else {
         lock.value = self[property];

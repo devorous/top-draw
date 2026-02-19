@@ -232,12 +232,12 @@ export class DrawingApp {
           this.self.setOpacity(rgba[3]); // Opacity comes from color alpha
           this.ui.updateSelfColor(rgba);
           this.ui.updateSelfTextStyle(this.self.size, rgba);
-          this.ui.updateImageBrushOpacityValue(rgba[3]); // Sync with image brush opacity slider
+          this.ui.updateopacityValue(rgba[3]); // Sync with image brush opacity slider
 
           // Update image brush opacity slider position
           const { elements } = this.ui;
-          if (elements.imageBrushOpacitySlider) {
-            elements.imageBrushOpacitySlider.value = rgba[3] * 100;
+          if (elements.opacitySlider) {
+            elements.opacitySlider.value = rgba[3] * 100;
           }
 
           // Update color input menu
@@ -334,7 +334,7 @@ export class DrawingApp {
     elements.spacingSlider.addEventListener('input', (e) => this.handleSpacingChange(e));
     elements.smoothingSlider.addEventListener('input', (e) => this.handleSmoothingChange(e));
     elements.hardnessSlider.addEventListener('input', (e) => this.handleHardnessChange(e));
-    elements.imageBrushOpacitySlider.addEventListener('input', (e) => this.handleImageBrushOpacityChange(e));
+    elements.opacitySlider.addEventListener('input', (e) => this.handleopacityChange(e));
     if (elements.blurRadiusSlider) {
       elements.blurRadiusSlider.addEventListener('input', (e) => this.handleBlurRadiusChange(e));
     }
@@ -441,12 +441,12 @@ export class DrawingApp {
       }
     });
 
-    this.ui.makeValueEditable(elements.imageBrushOpacityValue, {
+    this.ui.makeValueEditable(elements.opacityValue, {
       min: 0, max: 100, step: 1, suffix: '%',
       onCommit: (val) => {
         const opacity = val / 100;
         this.self.setOpacity(opacity);
-        elements.imageBrushOpacitySlider.value = val;
+        elements.opacitySlider.value = val;
         const currentColor = [...this.self.color];
         currentColor[3] = opacity;
         this.self.setColor(currentColor);
@@ -623,7 +623,7 @@ export class DrawingApp {
     if (elements.smoothingLock) elements.smoothingLock.addEventListener('click', () => this.toolLockManager.toggleLock('smoothing'));
     if (elements.spacingLock) elements.spacingLock.addEventListener('click', () => this.toolLockManager.toggleLock('spacing'));
     if (elements.hardnessLock) elements.hardnessLock.addEventListener('click', () => this.toolLockManager.toggleLock('hardness'));
-    if (elements.imageBrushOpacityLock) elements.imageBrushOpacityLock.addEventListener('click', () => this.toolLockManager.toggleLock('imageBrushOpacity'));
+    if (elements.opacityLock) elements.opacityLock.addEventListener('click', () => this.toolLockManager.toggleLock('opacity'));
     if (elements.blurRadiusLock) elements.blurRadiusLock.addEventListener('click', () => this.toolLockManager.toggleLock('blurRadius'));
 
     elements.board.addEventListener('pointermove', (e) => this.handlePointerMove(e));
@@ -1065,12 +1065,12 @@ export class DrawingApp {
     this.wsClient.broadcastHardnessChange(hardness / 100);
   }
 
-  handleImageBrushOpacityChange(e) {
+  handleopacityChange(e) {
     const opacity = Number(e.target.value) / 100; // Convert to 0-1 range
 
     // Update user opacity (same as color picker alpha)
     this.self.setOpacity(opacity);
-    this.ui.updateImageBrushOpacityValue(opacity);
+    this.ui.updateopacityValue(opacity);
 
     // Update color picker to match
     const currentColor = [...this.self.color];
@@ -1170,7 +1170,7 @@ export class DrawingApp {
     this.self.setOpacity(rgba[3]);
     this.ui.updateSelfColor(rgba);
     this.ui.updateSelfTextStyle(this.self.size, rgba);
-    this.ui.updateImageBrushOpacityValue(rgba[3]);
+    this.ui.updateopacityValue(rgba[3]);
 
     // Update the color picker to match
     if (this.colorPicker) {

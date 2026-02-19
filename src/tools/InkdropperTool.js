@@ -66,7 +66,7 @@ export class InkdropperTool {
     // Update UI
     app.ui.updateSelfColor(rgba);
     app.ui.updateSelfTextStyle(app.self.size, rgba);
-    app.ui.updateImageBrushOpacityValue(rgba[3]);
+    app.ui.updateopacityValue(rgba[3]);
 
     // Update color picker
     if (app.colorPicker) {
