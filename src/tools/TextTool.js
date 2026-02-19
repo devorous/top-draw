@@ -41,11 +41,7 @@ export class TextTool extends Tool {
     } else if (key === 'Enter') {
       user.text = '';
     } else if (key === 'Backspace') {
-      if (user.text.endsWith('&nbsp;')) {
-        user.text = user.text.slice(0, -6);
-      } else {
-        user.text = user.text.slice(0, -1);
-      }
+      user.text = user.text.slice(0, -1);
     }
     return user.text;
   }
@@ -58,7 +54,7 @@ export class TextTool extends Tool {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     ctx.globalAlpha = opacity;
     const size = (user.size + 5).toString();
-    const text = user.text.replace(/&nbsp;/g, ' ');
+    const text = user.text;
 
     ctx.beginPath();
     ctx.fillStyle = user.getColorString();
