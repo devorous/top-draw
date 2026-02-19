@@ -23,9 +23,7 @@ export class TextTool extends Tool {
   }
 
   activate() {
-    const ctx = this.board.getActiveLayerContext();
-    const blendMode = this.board.app?.self?.blendMode || 'source-over';
-    ctx.globalCompositeOperation = blendMode;
+    // Sub-layers always draw source-over; blend mode is applied at composite time.
   }
 
   onPointerDown(user, pos) {
@@ -53,8 +51,10 @@ export class TextTool extends Tool {
   }
 
   drawText(user) {
+    // Use the layer's blend mode so text blends with existing content on the same layer.
     const ctx = this.board.getActiveLayerContext();
-    ctx.globalCompositeOperation = user.blendMode || 'source-over';
+    const blendMode = this.board.getActiveLayerBlendMode();
+    ctx.globalCompositeOperation = blendMode;
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     ctx.globalAlpha = opacity;
     const size = (user.size + 5).toString();

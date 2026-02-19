@@ -8,7 +8,7 @@ export class ColorPalette {
 
     // Recent colors (auto-populated)
     this.recentColors = [];
-    this.maxRecentColors = 8;
+    this.maxRecentColors = 6;
 
     // Custom swatches (user-saved)
     this.customColors = [];

@@ -1,148 +1,209 @@
 /**
  * LayerManager - Manages multiple off-screen canvas layers for drawing
  *
- * Each layer is an off-screen canvas that can be drawn to independently.
- * Layers are composited together onto the main visible canvas.
+ * Each user-visible "layer" is a LayerGroup containing one sub-canvas per
+ * blend mode used. Strokes are drawn source-over into the appropriate
+ * sub-canvas. At composite time, each sub-canvas is drawn onto the target
+ * using its blend mode, so blend modes compound correctly across layers.
  */
 export class LayerManager {
   constructor(width, height) {
     this.width = width;
     this.height = height;
-    this.layers = [];
+    this.layerGroups = [];
     this.needsComposite = true;
 
-    this.initLayers(3); // Start with 3 layers
+    this.initLayerGroups(3); // Start with 3 layers
   }
 
   /**
-   * Initialize layer canvases
-   * @param {number} count - Number of layers to create
+   * Create a new sub-layer canvas for a given blend mode
    */
-  initLayers(count) {
-    for (let i = 0; i < count; i++) {
-      const canvas = document.createElement('canvas');
-      canvas.width = this.width;
-      canvas.height = this.height;
-      const ctx = canvas.getContext('2d');
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.imageSmoothingQuality = 'high';
+  _createSubLayer(blendMode) {
+    const canvas = document.createElement('canvas');
+    canvas.width = this.width;
+    canvas.height = this.height;
+    const ctx = canvas.getContext('2d');
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.imageSmoothingQuality = 'high';
+    return { blendMode, canvas, context: ctx };
+  }
 
-      this.layers.push({
+  /**
+   * Initialize layer groups
+   * @param {number} count - Number of layer groups to create
+   */
+  initLayerGroups(count) {
+    for (let i = 0; i < count; i++) {
+      this.layerGroups.push({
         id: i,
         name: `Layer ${i + 1}`,
         visible: true,
-        canvas,
-        context: ctx
+        activeBlendMode: 'source-over',  // Currently selected blend mode for this layer
+        subLayers: [this._createSubLayer('source-over')]
       });
     }
   }
 
   /**
-   * Get a layer by index
-   * @param {number} index - Layer index
-   * @returns {Object|undefined} Layer object
+   * Get or create the sub-layer context for a given group.
+   * Uses the group's activeBlendMode to determine which sub-layer to return.
+   * The base sub-layer (source-over) is always at index 0.
+   * Additional blend modes are appended on first use.
+   * @param {number} groupIndex - Layer group index
+   * @returns {CanvasRenderingContext2D|undefined}
    */
-  getLayer(index) {
-    return this.layers[index];
+  getLayerContext(groupIndex) {
+    const group = this.layerGroups[groupIndex];
+    if (!group) return undefined;
+
+    const blendMode = group.activeBlendMode || 'source-over';
+
+    // Find existing sub-layer for this blend mode
+    let sub = group.subLayers.find(s => s.blendMode === blendMode);
+    if (!sub) {
+      // Create new sub-layer for this blend mode
+      sub = this._createSubLayer(blendMode);
+      group.subLayers.push(sub);
+    }
+    return sub.context;
   }
 
   /**
-   * Get the drawing context for a layer
-   * @param {number} index - Layer index
-   * @returns {CanvasRenderingContext2D|undefined} Layer context
+   * Get the active blend mode for a layer group
+   * @param {number} groupIndex - Layer group index
+   * @returns {string} The active blend mode (e.g., 'source-over', 'multiply')
    */
-  getLayerContext(index) {
-    return this.layers[index]?.context;
+  getActiveBlendMode(groupIndex) {
+    const group = this.layerGroups[groupIndex];
+    return group?.activeBlendMode || 'source-over';
   }
 
   /**
-   * Get the number of layers
-   * @returns {number} Number of layers
+   * Set the active blend mode for a layer group.
+   * Creates the sub-layer if it doesn't exist yet.
+   * @param {number} groupIndex - Layer group index
+   * @param {string} blendMode - CSS composite operation
+   */
+  setActiveBlendMode(groupIndex, blendMode) {
+    const group = this.layerGroups[groupIndex];
+    if (!group) return;
+
+    group.activeBlendMode = blendMode || 'source-over';
+
+    // Ensure sub-layer exists for this blend mode
+    let sub = group.subLayers.find(s => s.blendMode === group.activeBlendMode);
+    if (!sub) {
+      sub = this._createSubLayer(group.activeBlendMode);
+      group.subLayers.push(sub);
+    }
+
+    this.needsComposite = true;
+  }
+
+  /**
+   * Get the full layer group (needed for eraser to clear all sub-layers)
+   * @param {number} groupIndex - Layer group index
+   * @returns {Object|undefined}
+   */
+  getLayerGroup(groupIndex) {
+    return this.layerGroups[groupIndex];
+  }
+
+  /**
+   * Get the number of layer groups
+   * @returns {number}
    */
   getLayerCount() {
-    return this.layers.length;
+    return this.layerGroups.length;
   }
 
   /**
-   * Check if a layer is visible
-   * @param {number} index - Layer index
-   * @returns {boolean} True if visible
+   * Check if a layer group is visible
+   * @param {number} index - Layer group index
+   * @returns {boolean}
    */
   isLayerVisible(index) {
-    return this.layers[index]?.visible ?? false;
+    return this.layerGroups[index]?.visible ?? false;
   }
 
   /**
-   * Toggle layer visibility
-   * @param {number} index - Layer index
+   * Toggle layer group visibility
+   * @param {number} index - Layer group index
    * @returns {boolean} New visibility state
    */
   toggleLayerVisibility(index) {
-    if (this.layers[index]) {
-      this.layers[index].visible = !this.layers[index].visible;
+    if (this.layerGroups[index]) {
+      this.layerGroups[index].visible = !this.layerGroups[index].visible;
       this.needsComposite = true;
-      return this.layers[index].visible;
+      return this.layerGroups[index].visible;
     }
     return false;
   }
 
   /**
-   * Set layer visibility
-   * @param {number} index - Layer index
+   * Set layer group visibility
+   * @param {number} index - Layer group index
    * @param {boolean} visible - Visibility state
    */
   setLayerVisibility(index, visible) {
-    if (this.layers[index]) {
-      this.layers[index].visible = visible;
+    if (this.layerGroups[index]) {
+      this.layerGroups[index].visible = visible;
       this.needsComposite = true;
     }
   }
 
   /**
-   * Composite all visible layers onto a target context
-   * Layers are composited from bottom (index 0) to top
-   * @param {CanvasRenderingContext2D} targetCtx - Target context to composite onto
+   * Composite all visible layer groups onto a target context.
+   * Groups are composited bottom to top; within each group, sub-layers are
+   * drawn in order (first-use order) using their blend mode.
+   * @param {CanvasRenderingContext2D} targetCtx - Target context
    */
   compositeLayers(targetCtx) {
-    // Clear composite canvas
     targetCtx.clearRect(0, 0, this.width, this.height);
 
-    // Composite all visible layers (bottom to top)
-    for (const layer of this.layers) {
-      if (layer.visible) {
-        targetCtx.globalCompositeOperation = 'source-over';
-        targetCtx.drawImage(layer.canvas, 0, 0);
+    for (const group of this.layerGroups) {
+      if (!group.visible) continue;
+      for (const sub of group.subLayers) {
+        targetCtx.globalCompositeOperation = sub.blendMode;
+        targetCtx.drawImage(sub.canvas, 0, 0);
       }
     }
 
+    // Reset to default
+    targetCtx.globalCompositeOperation = 'source-over';
     this.needsComposite = false;
   }
 
   /**
-   * Clear a specific layer
-   * @param {number} index - Layer index to clear
+   * Clear a specific layer group (all its sub-layers)
+   * @param {number} index - Layer group index
    */
   clear(index) {
-    const layer = this.layers[index];
-    if (layer) {
-      layer.context.clearRect(0, 0, this.width, this.height);
+    const group = this.layerGroups[index];
+    if (group) {
+      for (const sub of group.subLayers) {
+        sub.context.clearRect(0, 0, this.width, this.height);
+      }
       this.needsComposite = true;
     }
   }
 
   /**
-   * Clear all layers
+   * Clear all layer groups and their sub-layers
    */
   clearAll() {
-    for (const layer of this.layers) {
-      layer.context.clearRect(0, 0, this.width, this.height);
+    for (const group of this.layerGroups) {
+      for (const sub of group.subLayers) {
+        sub.context.clearRect(0, 0, this.width, this.height);
+      }
     }
     this.needsComposite = true;
   }
 
   /**
-   * Resize all layer canvases
+   * Resize all layer group canvases (preserving content)
    * @param {number} width - New width
    * @param {number} height - New height
    */
@@ -150,24 +211,22 @@ export class LayerManager {
     this.width = width;
     this.height = height;
 
-    for (const layer of this.layers) {
-      // Create a temporary canvas to preserve content
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = layer.canvas.width;
-      tempCanvas.height = layer.canvas.height;
-      tempCanvas.getContext('2d').drawImage(layer.canvas, 0, 0);
+    for (const group of this.layerGroups) {
+      for (const sub of group.subLayers) {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = sub.canvas.width;
+        tempCanvas.height = sub.canvas.height;
+        tempCanvas.getContext('2d').drawImage(sub.canvas, 0, 0);
 
-      // Resize the layer canvas
-      layer.canvas.width = width;
-      layer.canvas.height = height;
+        sub.canvas.width = width;
+        sub.canvas.height = height;
 
-      // Restore context settings
-      layer.context.lineCap = 'round';
-      layer.context.lineJoin = 'round';
-      layer.context.imageSmoothingQuality = 'high';
+        sub.context.lineCap = 'round';
+        sub.context.lineJoin = 'round';
+        sub.context.imageSmoothingQuality = 'high';
 
-      // Draw back the preserved content
-      layer.context.drawImage(tempCanvas, 0, 0);
+        sub.context.drawImage(tempCanvas, 0, 0);
+      }
     }
 
     this.needsComposite = true;
@@ -175,7 +234,7 @@ export class LayerManager {
 
   /**
    * Get image data from all visible layers composited
-   * @returns {ImageData} Composited image data
+   * @returns {ImageData}
    */
   getCompositedImageData() {
     const tempCanvas = document.createElement('canvas');
@@ -189,14 +248,15 @@ export class LayerManager {
   }
 
   /**
-   * Get all layer data for serialization
-   * @returns {Array} Array of layer metadata
+   * Get all layer data for serialization (one entry per user-visible layer)
+   * @returns {Array}
    */
   getLayerData() {
-    return this.layers.map(layer => ({
-      id: layer.id,
-      name: layer.name,
-      visible: layer.visible
+    return this.layerGroups.map(group => ({
+      id: group.id,
+      name: group.name,
+      visible: group.visible,
+      activeBlendMode: group.activeBlendMode || 'source-over'
     }));
   }
 }

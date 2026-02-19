@@ -28,9 +28,7 @@ export class BrushTool extends Tool {
   }
 
   activate() {
-    const ctx = this.board.getActiveLayerContext();
-    const blendMode = this.board.app?.self?.blendMode || 'source-over';
-    ctx.globalCompositeOperation = blendMode;
+    // Sub-layers always draw source-over; blend mode is applied at composite time.
   }
 
   /**
@@ -130,9 +128,12 @@ export class BrushTool extends Tool {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
-    // Explicitly set ALL context properties to ensure consistency
+    // Use the layer's blend mode so strokes blend with existing content on the same layer.
+    // For preview canvas (topCtx), use source-over since preview shouldn't affect layer content.
+    const isPreview = ctx === this.board.topCtx;
+    const blendMode = isPreview ? 'source-over' : this.board.getActiveLayerBlendMode();
     ctx.globalAlpha = opacity;
-    ctx.globalCompositeOperation = user.blendMode || 'source-over';
+    ctx.globalCompositeOperation = blendMode;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.lineWidth = user.pressure * user.size * 2;
@@ -255,9 +256,13 @@ export class BrushTool extends Tool {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
+    // Use the layer's blend mode so strokes blend with existing content
+    const isPreview = ctx === this.board.topCtx;
+    const blendMode = isPreview ? 'source-over' : this.board.getActiveLayerBlendMode();
+
     ctx.save();
     ctx.globalAlpha = opacity;
-    ctx.globalCompositeOperation = user.blendMode || 'source-over';
+    ctx.globalCompositeOperation = blendMode;
     ctx.fillStyle = user.getColorString();
 
     if (hardness < 1.0) {

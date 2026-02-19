@@ -403,7 +403,9 @@ export class UI {
 
   updateBlendModeDisplay(blendMode) {
     if (this.elements.blendModeSelect) {
+      this._updatingBlendMode = true;  // Set flag to prevent change event
       this.elements.blendModeSelect.value = blendMode;
+      this._updatingBlendMode = false;  // Clear flag
     }
   }
 

@@ -27,9 +27,7 @@ export class ImageBrushTool extends Tool {
   }
 
   activate() {
-    const ctx = this.board.getActiveLayerContext();
-    const blendMode = this.board.app?.self?.blendMode || 'source-over';
-    ctx.globalCompositeOperation = blendMode;
+    // Sub-layers always draw source-over; blend mode is applied at composite time.
   }
 
   onPointerDown(user, pos) {
@@ -59,15 +57,17 @@ export class ImageBrushTool extends Tool {
       // Get the user's canvas
       const userCanvas = user.context.canvas;
 
-      // Draw it to the active layer
+      // Use the layer's blend mode so strokes blend with existing content on the same layer.
       const layerCtx = this.board.getActiveLayerContext();
-      layerCtx.globalCompositeOperation = user.blendMode || 'source-over';
+      const blendMode = this.board.getActiveLayerBlendMode();
+      layerCtx.globalCompositeOperation = blendMode;
       layerCtx.globalAlpha = 1.0;
       layerCtx.drawImage(userCanvas, 0, 0);
 
       // Handle mirror mode
       if (this.board.mirror) {
         layerCtx.save();
+        layerCtx.globalCompositeOperation = blendMode;
         layerCtx.translate(this.board.getWidth(), 0);
         layerCtx.scale(-1, 1);
         layerCtx.drawImage(userCanvas, 0, 0);

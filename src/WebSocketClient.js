@@ -53,8 +53,10 @@ export class WebSocketClient {
     } else {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       if (import.meta.env.DEV) {
+        // In dev mode, use Vite's WebSocket proxy at /ws
         this._url = `${wsProtocol}://${window.location.host}/ws`;
       } else {
+        // In production, use VITE_WS_SERVER_URL or same host
         this._url = import.meta.env.VITE_WS_SERVER_URL || `${wsProtocol}://${window.location.host}`;
       }
     }
@@ -153,7 +155,9 @@ export class WebSocketClient {
           text: u.tx || '',
           role: u.role || 0,
           cursorHidden: u.ch || false,
-          blurRadius: (u.br ?? 500) / 100
+          blurRadius: (u.br ?? 500) / 100,
+          activeLayer: u.ly ?? 0,
+          blendMode: u.bm || 'source-over'
         }));
         this.emit('users', { users });
         break;
@@ -224,7 +228,11 @@ export class WebSocketClient {
         break;
 
       case T.CBM:
-        this.emit('cbm', { sessionIndex: data.u, blendMode: data.bm || 'source-over' });
+        this.emit('cbm', {
+          sessionIndex: data.u,
+          layerIndex: data.ly ?? null,  // null means legacy (per-user, not per-layer)
+          blendMode: data.bm || 'source-over'
+        });
         break;
 
       case T.CN:
@@ -512,7 +520,14 @@ export class WebSocketClient {
   }
 
   broadcastBlendModeChange(blendMode) {
+    // Legacy method - broadcasts without layer index
+    console.log(`[WS] Broadcasting blend mode (legacy): ${blendMode}`);
     this.send({ t: T.CBM, bm: blendMode });
+  }
+
+  broadcastLayerBlendModeChange(layerIndex, blendMode) {
+    console.log(`[WS] Broadcasting layer ${layerIndex} blend mode: ${blendMode}`);
+    this.send({ t: T.CBM, ly: layerIndex, bm: blendMode });
   }
 
   broadcastPressureChange(pressure) {
