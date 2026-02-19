@@ -438,15 +438,11 @@ export class RemoteUserHandler {
 
   handleKeyPress(user, key) {
     if (key.length === 1) {
-      user.text += key === ' ' ? '&nbsp;' : key;
+      user.text += key;
     } else if (key === 'Enter') {
       user.text = '';
     } else if (key === 'Backspace') {
-      if (user.text.endsWith('&nbsp;')) {
-        user.text = user.text.slice(0, -6);
-      } else {
-        user.text = user.text.slice(0, -1);
-      }
+      user.text = user.text.slice(0, -1);
     }
     this.ui.updateRemoteText(user.id, user.text);
   }

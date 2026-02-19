@@ -460,6 +460,9 @@ canvas {
   position: absolute;
   top: 95px;
   left: 105px;
+  white-space: pre;
+  display: inline-block;
+  width: max-content;
 }
 
 .text.self {

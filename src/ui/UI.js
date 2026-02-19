@@ -394,7 +394,7 @@ export class UI {
   }
 
   updateSelfTextInput(text) {
-    this.elements.selfTextInput.innerHTML = text.replace(/ /g, '&nbsp;');
+    this.elements.selfTextInput.innerHTML = text;
   }
 
   updateSelfName(name) {
