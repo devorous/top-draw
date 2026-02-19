@@ -84,7 +84,7 @@ export class UI {
       pressureContainer: document.getElementById('pressure-container'),
       smoothingSlider: document.querySelector('.slider.smoothing'),
       hardnessSlider: document.querySelector('.slider.hardness'),
-      imageBrushOpacitySlider: document.querySelector('.slider.imageBrushOpacity'),
+      opacitySlider: document.querySelector('.slider.opacity'),
       blurRadiusSlider: document.querySelector('.slider.blurRadius'),
 
       sizeValue: document.getElementById('sizeValue'),
@@ -92,14 +92,14 @@ export class UI {
       smoothingValue: document.getElementById('smoothingValue'),
       spacingValue: document.getElementById('spacingValue'),
       hardnessValue: document.getElementById('hardnessValue'),
-      imageBrushOpacityValue: document.getElementById('imageBrushOpacityValue'),
+      opacityValue: document.getElementById('opacityValue'),
       blurRadiusValue: document.getElementById('blurRadiusValue'),
 
       brushFileInput: document.getElementById('brush-file-input'),
       brushImage: document.getElementById('brushImage'),
       brushSpacing: document.getElementById('brush-spacing'),
       brushHardness: document.getElementById('brush-hardness'),
-      imageBrushOpacityContainer: document.getElementById('image-brush-opacity'),
+      opacityContainer: document.getElementById('brush-opacity'),
       blurRadiusContainer: document.getElementById('blur-radius'),
 
       selectionModeOptions: document.getElementById('selectionModeOptions'),
@@ -111,7 +111,7 @@ export class UI {
       smoothingLock: document.getElementById('smoothingLock'),
       spacingLock: document.getElementById('spacingLock'),
       hardnessLock: document.getElementById('hardnessLock'),
-      imageBrushOpacityLock: document.getElementById('imageBrushOpacityLock'),
+      opacityLock: document.getElementById('opacityLock'),
       blurRadiusLock: document.getElementById('blurRadiusLock'),
 
       colorPicker: document.getElementById('colorPicker'),
@@ -243,7 +243,7 @@ export class UI {
   }
 
   updateToolDisplay(tool) {
-    const { selfCircle, selfSquare, selfCrosshair, selfHand, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, imageBrushOpacityContainer, blurRadiusContainer, selectionModeOptions, brushModeOptions, smoothingSlider } = this.elements;
+    const { selfCircle, selfSquare, selfCrosshair, selfHand, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, opacityContainer, blurRadiusContainer, selectionModeOptions, brushModeOptions, smoothingSlider } = this.elements;
 
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
@@ -254,7 +254,7 @@ export class UI {
     brushFileInput.style.display = 'none';
     brushSpacing.style.display = 'none';
     brushHardness.style.display = 'none';
-    imageBrushOpacityContainer.style.display = 'none';
+    opacityContainer.style.display = 'none';
     if (blurRadiusContainer) {
       blurRadiusContainer.style.display = 'none';
     }
@@ -327,7 +327,7 @@ export class UI {
         // brushImage is shown only when a brush is selected (via setBrushPreview)
         brushFileInput.style.display = 'block';
         brushSpacing.style.display = 'block';
-        imageBrushOpacityContainer.style.display = 'block';
+        opacityContainer.style.display = 'block';
         break;
       case 'inkdropper':
         selfCrosshair.style.display = 'block';
@@ -453,9 +453,9 @@ export class UI {
     }
   }
 
-  updateImageBrushOpacityValue(opacity) {
-    if (this.elements.imageBrushOpacityValue) {
-      this.elements.imageBrushOpacityValue.textContent = Math.round(opacity * 100) + '%';
+  updateopacityValue(opacity) {
+    if (this.elements.opacityValue) {
+      this.elements.opacityValue.textContent = Math.round(opacity * 100) + '%';
     }
   }
 
