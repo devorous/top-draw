@@ -29,27 +29,27 @@ export class EraserTool extends Tool {
   deactivate() {}
 
   onPointerDown(user, pos) {
-    this.erase(pos.x, pos.y, pos.x, pos.y, user.pressure * user.size * 2);
+    this.erase(pos.x, pos.y, pos.x, pos.y, user.pressure * user.size * 2, user.opacity);
   }
 
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
-    this.erase(pos.x, pos.y, lastPos.x, lastPos.y, user.pressure * user.size * 2);
+    this.erase(pos.x, pos.y, lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity);
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
-      this.erase(width - pos.x, pos.y, width - lastPos.x, lastPos.y, user.pressure * user.size * 2);
+      this.erase(width - pos.x, pos.y, width - lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity);
     }
   }
 
   /**
    * Erase on the local active layer group — clears all sub-layers at this position.
    */
-  erase(x1, y1, x2, y2, size) {
+  erase(x1, y1, x2, y2, size, opacity = 1.0) {
     const group = this.board.getActiveLayerGroup();
     if (group) {
-      this.eraseOnGroup(group, x1, y1, x2, y2, size);
+      this.eraseOnGroup(group, x1, y1, x2, y2, size, opacity);
     }
     this.board.compositeAllLayers();
   }
@@ -62,16 +62,17 @@ export class EraserTool extends Tool {
    * @param {number} x2 - End X
    * @param {number} y2 - End Y
    * @param {number} size - Eraser size
+   * @param {number} opacity - Eraser opacity
    */
-  eraseOnGroup(group, x1, y1, x2, y2, size) {
+  eraseOnGroup(group, x1, y1, x2, y2, size, opacity = 1.0) {
     for (const sub of group.subLayers) {
-      this._eraseOnCtx(sub.context, x1, y1, x2, y2, size);
+      this._eraseOnCtx(sub.context, x1, y1, x2, y2, size, opacity);
     }
   }
 
-  _eraseOnCtx(ctx, x1, y1, x2, y2, size) {
+  _eraseOnCtx(ctx, x1, y1, x2, y2, size, opacity = 1.0) {
     ctx.globalCompositeOperation = 'destination-out';
-    ctx.globalAlpha = 1.0;
+    ctx.globalAlpha = opacity;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.lineWidth = size;

@@ -1,9 +1,9 @@
-import { setupUserHandlers } from './handlers/UserHandlers.js';
-import { setupChatHandlers } from './handlers/ChatHandlers.js';
-import { setupAuthModHandlers } from './handlers/AuthModHandlers.js';
-import { setupSyncHandlers } from './handlers/SyncHandlers.js';
-import { setupDrawingHandlers } from './handlers/DrawingHandlers.js';
-import { setupSelectionHandlers } from './handlers/SelectionHandlers.js';
+import { setupUserHandlers } from '../handlers/UserHandlers.js';
+import { setupChatHandlers } from '../handlers/ChatHandlers.js';
+import { setupAuthModHandlers } from '../handlers/AuthModHandlers.js';
+import { setupSyncHandlers } from '../handlers/SyncHandlers.js';
+import { setupDrawingHandlers } from '../handlers/DrawingHandlers.js';
+import { setupSelectionHandlers } from '../handlers/SelectionHandlers.js';
 
 /**
  * Sets up all WebSocket message handlers for the app

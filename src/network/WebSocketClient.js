@@ -1,8 +1,8 @@
 /**
  * WebSocket client for real-time communication with optimized protobuf
  */
-import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
-import { packColor, unpackColor } from '../shared/ColorUtils.js';
+import { T, Tool, ToolNames, ToolToEnum } from '../../shared/MessageTypes.js';
+import { packColor, unpackColor } from '../../shared/ColorUtils.js';
 
 export class WebSocketClient {
   constructor(options = {}) {

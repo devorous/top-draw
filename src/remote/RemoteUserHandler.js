@@ -1,6 +1,6 @@
-import { mirrorLine } from './utils/drawing.js';
-import { SELECTION_MODES, getNextBrushIndex } from './utils/parseGimp.js';
-import { bridgeGap, drawLineArray } from './utils/remoteDrawingUtils.js';
+import { mirrorLine } from '../utils/drawing.js';
+import { SELECTION_MODES, getNextBrushIndex } from '../utils/parseGimp.js';
+import { bridgeGap, drawLineArray } from '../utils/remoteDrawingUtils.js';
 import { RemotePenHandler } from './RemotePenHandler.js';
 import { RemoteInkHandler } from './RemoteInkHandler.js';
 import { RemoteSelectionHandler } from './RemoteSelectionHandler.js';
@@ -85,10 +85,10 @@ export class RemoteUserHandler {
             const eraserTool = this.toolManager.getTool('erase');
             const group = this.board.layerManager.getLayerGroup(user.activeLayer);
             if (group) {
-              eraserTool.eraseOnGroup(group, pos.x, pos.y, lastPos.x, lastPos.y, user.pressure * user.size * 2);
+              eraserTool.eraseOnGroup(group, pos.x, pos.y, lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity);
               if (this.board.mirror) {
                 const w = this.board.getWidth();
-                eraserTool.eraseOnGroup(group, w - pos.x, pos.y, w - lastPos.x, lastPos.y, user.pressure * user.size * 2);
+                eraserTool.eraseOnGroup(group, w - pos.x, pos.y, w - lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity);
               }
               this.board.compositeAllLayers();
             }

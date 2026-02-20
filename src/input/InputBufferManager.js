@@ -3,7 +3,7 @@
  * Runs at 90 TPS to process input data and broadcast to server
  */
 
-import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
+import { douglasPeucker, distanceBasedCulling } from '../utils/drawing.js';
 
 export class InputBufferManager {
   constructor(app) {

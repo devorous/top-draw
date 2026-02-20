@@ -1,4 +1,4 @@
-import { parseGbr, parseGih } from './utils/parseGimp.js';
+import { parseGbr, parseGih } from '../utils/parseGimp.js';
 
 /**
  * Brush Gallery - loads and displays GIMP or image brushes from the brushes folder

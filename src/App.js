@@ -1,23 +1,23 @@
 import { User } from './User.js';
-import { Board } from './Board.js';
-import { ToolManager, BrushTool } from './Tools.js';
-import { WebSocketClient } from './WebSocketClient.js';
-import { Chat } from './Chat.js';
+import { Board } from './canvas/Board.js';
+import { ToolManager, BrushTool } from './tools/Tools.js';
+import { WebSocketClient } from './network/WebSocketClient.js';
+import { Chat } from './ui/Chat.js';
 import { UI, ColorPalette } from './ui/index.js';
-import { BrushGalleryLoader } from './BrushGalleryLoader.js';
-import { RemoteUserHandler } from './RemoteUserHandler.js';
-import { TouchHandler } from './TouchHandler.js';
-import { setupWebSocketHandlers } from './WebSocketHandlers.js';
+import { BrushGalleryLoader } from './ui/BrushGalleryLoader.js';
+import { RemoteUserHandler } from './remote/RemoteUserHandler.js';
+import { TouchHandler } from './input/TouchHandler.js';
+import { setupWebSocketHandlers } from './network/WebSocketHandlers.js';
 import { DebugOverlay, RegionTracker, SyncClient } from './sync/index.js';
 import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
-import { Auth } from './Auth.js';
-import { Moderation } from './Moderation.js';
-import { ColorInputMenu } from './ColorInputMenu.js';
-import { ToolLockManager } from './ToolLockManager.js';
-import { InputBufferManager } from './InputBufferManager.js';
-import { KeyboardHandler } from './KeyboardHandler.js';
-import { BrushModeManager } from './BrushModeManager.js';
-import { BlendModeManager } from './BlendModeManager.js';
+import { Auth } from './auth/Auth.js';
+import { Moderation } from './auth/Moderation.js';
+import { ColorInputMenu } from './ui/ColorInputMenu.js';
+import { ToolLockManager } from './tools/ToolLockManager.js';
+import { InputBufferManager } from './input/InputBufferManager.js';
+import { KeyboardHandler } from './input/KeyboardHandler.js';
+import { BrushModeManager } from './tools/BrushModeManager.js';
+import { BlendModeManager } from './canvas/BlendModeManager.js';
 
 export class DrawingApp {
   constructor(options = {}) {

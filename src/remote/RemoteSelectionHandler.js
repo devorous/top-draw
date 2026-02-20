@@ -1,5 +1,5 @@
-import { Homography } from './utils/homography.js';
-import { pointInHull } from './sync/ConvexHull.js';
+import { Homography } from '../utils/homography.js';
+import { pointInHull } from '../sync/ConvexHull.js';
 
 /**
  * RemoteSelectionHandler - Handles selection tool rendering and operations for remote users
