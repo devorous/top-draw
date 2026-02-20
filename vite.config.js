@@ -25,8 +25,6 @@ export default defineConfig({
           'vendor-core': ['protobufjs'],
           // UI vendor - perfect-freehand
           'vendor-ui': ['perfect-freehand'],
-          // Emoji data (lazy loaded)
-          'vendor-emoji': ['emojibase-data/en/compact.json'],
           // Blur library (lazy loaded)
           'vendor-blur': ['stackblur'],
         },

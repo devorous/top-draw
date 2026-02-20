@@ -1,5 +1,3 @@
-import { loadEmojiData } from './utils/EmojiDataLoader.js';
-
 /**
  * Chat manager for handling chat functionality with tabs and DM support
  */
