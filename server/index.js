@@ -22,6 +22,7 @@ const wss = new WebSocketServer({ server });
 const boardSettings = { mirror: false };
 
 let Msg;
+let POOLED_MSG;
 let sessionManager;
 let syncCoordinator;
 
@@ -41,17 +42,18 @@ function isValidUsername(username) {
 
 async function init() {
   // Connect to MongoDB (non-fatal if not configured)
+
+  const protoPath = path.join(__dirname, '..', 'public', 'messages.proto');
+  const root = await protobuf.load(protoPath); // Assign to a local 'root'
+  Msg = root.lookupType('Msg');
+  POOLED_MSG = Msg.create();
+
   try {
     await connectDB();
   } catch (err) {
     console.warn('[Server] Starting without database — auth/moderation disabled');
     console.log(err);
   }
-
-  const protoPath = path.join(__dirname, '..', 'public', 'messages.proto');
-  const root = await protobuf.load(protoPath);
-  Msg = root.lookupType('Msg');
-  console.log('Protobuf loaded');
 
   // Initialize managers
   sessionManager = new SessionManager(broadcastToAll);
@@ -61,19 +63,19 @@ async function init() {
     console.log(`WebSocket server running on port ${PORT}`);
   });
 }
-
 function broadcast(payload, excludeIndex = null) {
-  // Use JSON for auth/mod messages (cleaner, no string encoding issues)
   const authMessageTypes = [T.AUTH_REGISTER, T.AUTH_LOGIN, T.AUTH_RESULT, T.MOD_ACTION, T.MOD_RESULT, T.MOD_NOTIFY, T.MOD_LIST];
   let buffer;
-
+  
   if (authMessageTypes.includes(payload.t)) {
     buffer = JSON.stringify(payload);
   } else {
-    const message = Msg.create(payload);
-    buffer = Msg.encode(message).finish();
+    // Clear old data to prevent "ghost" properties from previous messages
+    for (let key in POOLED_MSG) { if (POOLED_MSG.hasOwnProperty(key)) delete POOLED_MSG[key]; }
+    Object.assign(POOLED_MSG, payload);
 
-    // Debug logging for CHAT_IMG
+    buffer = Msg.encode(POOLED_MSG).finish();
+
     if (payload.t === T.CHAT_IMG) {
       console.log(`[broadcast] CHAT_IMG message size: ${buffer.length} bytes, excluding: ${excludeIndex}`);
     }
@@ -81,12 +83,12 @@ function broadcast(payload, excludeIndex = null) {
 
   let sentCount = 0;
   let skippedSender = false;
+
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
-      // Use == to handle potential type differences (string vs number)
       if (excludeIndex != null && client.sessionIndex == excludeIndex) {
         skippedSender = true;
-        return; // Skip sender
+        return;
       }
       client.send(buffer);
       sentCount++;
@@ -97,7 +99,6 @@ function broadcast(payload, excludeIndex = null) {
     console.log(`[broadcast] CHAT_IMG sent to ${sentCount} clients, skipped sender: ${skippedSender}`);
   }
 }
-
 function broadcastToAll(payload) {
   // Use JSON for auth/mod messages (cleaner, no string encoding issues)
   const authMessageTypes = [T.AUTH_REGISTER, T.AUTH_LOGIN, T.AUTH_RESULT, T.MOD_ACTION, T.MOD_RESULT, T.MOD_NOTIFY, T.MOD_LIST];

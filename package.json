@@ -11,10 +11,12 @@
     "preview": "vite preview",
     "server": "node server/index.js",
     "start": "node server/index.js",
-    "brushes": "node scripts/generate-brush-manifest.js"
+    "brushes": "node scripts/generate-brush-manifest.js",
+    "bench": "node bench.js"
   },
   "devDependencies": {
     "concurrently": "^8.2.0",
+    "mitata": "^1.0.34",
     "vite": "^5.0.0"
   },
   "dependencies": {
