@@ -12,7 +12,7 @@
     "server": "node server/index.js",
     "start": "node server/index.js",
     "brushes": "node scripts/generate-brush-manifest.js",
-    "bench": "node bench.js"
+    "bench": "node ./testing/bench.js"
   },
   "devDependencies": {
     "concurrently": "^8.2.0",

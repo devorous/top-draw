@@ -77,7 +77,7 @@ function broadcast(payload, excludeIndex = null) {
     buffer = Msg.encode(POOLED_MSG).finish();
 
     if (payload.t === T.CHAT_IMG) {
-      console.log(`[broadcast] CHAT_IMG message size: ${buffer.length} bytes, excluding: ${excludeIndex}`);
+      
     }
   }
 
@@ -96,7 +96,7 @@ function broadcast(payload, excludeIndex = null) {
   });
 
   if (payload.t === T.CHAT_IMG) {
-    console.log(`[broadcast] CHAT_IMG sent to ${sentCount} clients, skipped sender: ${skippedSender}`);
+
   }
 }
 function broadcastToAll(payload) {
@@ -299,10 +299,6 @@ wss.on('connection', (ws, req) => {
     try {
       let data;
 
-      // Determine message format from first byte:
-      //   0x7B '{' or 0x22 '"' → JSON (auth/mod messages)
-      //   0x08                  → Protobuf (field 1 varint tag, all valid Msg start here)
-      //   anything else         → invalid, drop silently
       const firstByte = rawData[0];
 
       if (firstByte === 0x7B || firstByte === 0x22) {

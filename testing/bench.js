@@ -2,10 +2,10 @@ import { bench, run, group, do_not_optimize } from 'mitata';
 import protobuf from 'protobufjs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { T } from './shared/MessageTypes.js';
+import { T } from '../shared/MessageTypes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const root = await protobuf.load(path.join(__dirname, 'public', 'messages.proto'));
+const root = await protobuf.load(path.join(__dirname, '..', 'public', 'messages.proto'));
 const Msg = root.lookupType('Msg');
 
 // Helper to generate coordinate streams (2 numbers per point)
