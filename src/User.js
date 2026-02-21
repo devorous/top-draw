@@ -27,6 +27,7 @@ export class User {
     this.board = options.board || null;
     this.imageBrush = null;
     this.blendMode = options.blendMode || 'source-over';
+    this.activeLayer = options.activeLayer || 0;  // Which layer user is drawing on (0-indexed)
     this.currentLine = [];
     this.lineLength = 0;
     this.afk = options.afk || false;
@@ -85,6 +86,14 @@ export class User {
     this.blurRadius = Math.max(0, Math.min(20, radius));
   }
 
+  setBlendMode(blendMode) {
+    this.blendMode = blendMode || 'source-over';
+  }
+
+  setActiveLayer(layerIndex) {
+    this.activeLayer = Math.max(0, Math.min(4, layerIndex)); // 0-4 for 5 layers max
+  }
+
   setUsername(username) {
     this.username = (username || '').slice(0, 20);
   }
@@ -123,12 +132,13 @@ export class User {
       tool: this.tool,
       text: this.text,
       username: this.username,
-      blendMode: this.blendMode
+      blendMode: this.blendMode,
+      activeLayer: this.activeLayer
     };
   }
 
   updateFrom(data) {
-    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'username', 'blendMode'];
+    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'username', 'blendMode', 'activeLayer'];
     fields.forEach(field => {
       if (data[field] !== undefined) {
         this[field] = data[field];

@@ -65,7 +65,7 @@ export class FlowPenTool extends Tool {
   }
 
   activate() {
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    // Sub-layers always draw source-over; blend mode is applied at composite time.
     this.ensureOffscreenCanvas();
   }
 
@@ -209,16 +209,17 @@ export class FlowPenTool extends Tool {
     // Clear preview FIRST to prevent composite boldness
     this.board.clearTop();
 
-    // Composite offscreen canvas to main canvas with user's alpha
-    const ctx = this.board.mainCtx;
-    ctx.globalCompositeOperation = 'source-over';
+    // Composite offscreen canvas to the layer with the layer's blend mode.
+    // This allows strokes to blend with existing content on the same layer.
+    const ctx = this.board.getActiveLayerContext();
+    const blendMode = this.board.getActiveLayerBlendMode();
+    ctx.globalCompositeOperation = blendMode;
     ctx.globalAlpha = this.userAlpha;
     ctx.drawImage(this.offscreenCanvas, 0, 0);
 
     if (this.board.mirror) {
-      // Flip horizontally and draw mirrored
       ctx.save();
-      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalCompositeOperation = blendMode;
       ctx.translate(this.board.getWidth(), 0);
       ctx.scale(-1, 1);
       ctx.drawImage(this.offscreenCanvas, 0, 0);
@@ -229,6 +230,9 @@ export class FlowPenTool extends Tool {
 
     this.clearStroke();
     user.penPoints = [];
+
+    // Composite all layers to visible canvas
+    this.board.compositeAllLayers();
   }
 
   stampCircle(x, y, radius, pressure255) {

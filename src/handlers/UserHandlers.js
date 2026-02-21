@@ -40,6 +40,7 @@ export function setupUserHandlers(wsClient, app) {
           const boardData = ui.createUserBoard(userData.sessionIndex);
           user.board = boardData.board;
           user.context = boardData.context;
+          user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(user.blendMode);
 
           // Only show in user list / cursor if they have a name (have joined)
           if (username) {
@@ -102,6 +103,7 @@ export function setupUserHandlers(wsClient, app) {
       const boardData = ui.createUserBoard(data.sessionIndex);
       user.board = boardData.board;
       user.context = boardData.context;
+      user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(user.blendMode);
       ui.createRemoteUser(data.sessionIndex, user);
     } else {
       const hadName = !!user.username;

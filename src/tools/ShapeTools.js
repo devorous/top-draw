@@ -24,7 +24,7 @@ export class LineTool extends Tool {
   }
 
   activate() {
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    // Sub-layers always draw source-over; blend mode is applied at composite time.
   }
 
   onPointerDown(user, pos) {
@@ -41,17 +41,22 @@ export class LineTool extends Tool {
   onPointerUp(user, pos) {
     if (user.panning || !this.startPos) return;
 
-    this.drawLine(this.board.mainCtx, user, this.startPos, pos);
+    // Draw to active layer
+    const layerCtx = this.board.getActiveLayerContext();
+    this.drawLine(layerCtx, user, this.startPos, pos);
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
       const mirroredStart = { x: width - this.startPos.x, y: this.startPos.y };
       const mirroredEnd = { x: width - pos.x, y: pos.y };
-      this.drawLine(this.board.mainCtx, user, mirroredStart, mirroredEnd);
+      this.drawLine(layerCtx, user, mirroredStart, mirroredEnd);
     }
 
     this.board.clearTop();
     this.startPos = null;
+
+    // Composite all layers to visible canvas
+    this.board.compositeAllLayers();
   }
 
   drawPreview(ctx, user, start, end) {
@@ -69,6 +74,10 @@ export class LineTool extends Tool {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
+    // Use the layer's blend mode for layer context, source-over for preview
+    const isPreview = ctx === this.board.topCtx;
+    const blendMode = isPreview ? 'source-over' : this.board.getActiveLayerBlendMode();
+    ctx.globalCompositeOperation = blendMode;
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;
@@ -114,7 +123,7 @@ export class RectangleTool extends Tool {
   }
 
   activate() {
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    // Sub-layers always draw source-over; blend mode is applied at composite time.
   }
 
   onPointerDown(user, pos) {
@@ -131,17 +140,22 @@ export class RectangleTool extends Tool {
   onPointerUp(user, pos) {
     if (user.panning || !this.startPos) return;
 
-    this.drawRect(this.board.mainCtx, user, this.startPos, pos);
+    // Draw to active layer
+    const layerCtx = this.board.getActiveLayerContext();
+    this.drawRect(layerCtx, user, this.startPos, pos);
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
       const mirroredStart = { x: width - this.startPos.x, y: this.startPos.y };
       const mirroredEnd = { x: width - pos.x, y: pos.y };
-      this.drawRect(this.board.mainCtx, user, mirroredStart, mirroredEnd);
+      this.drawRect(layerCtx, user, mirroredStart, mirroredEnd);
     }
 
     this.board.clearTop();
     this.startPos = null;
+
+    // Composite all layers to visible canvas
+    this.board.compositeAllLayers();
   }
 
   drawPreview(user, pos) {
@@ -164,6 +178,10 @@ export class RectangleTool extends Tool {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
+    // Use the layer's blend mode for layer context, source-over for preview
+    const isPreview = ctx === this.board.topCtx;
+    const blendMode = isPreview ? 'source-over' : this.board.getActiveLayerBlendMode();
+    ctx.globalCompositeOperation = blendMode;
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;
@@ -208,7 +226,7 @@ export class CircleTool extends Tool {
   }
 
   activate() {
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    // Sub-layers always draw source-over; blend mode is applied at composite time.
   }
 
   onPointerDown(user, pos) {
@@ -225,17 +243,22 @@ export class CircleTool extends Tool {
   onPointerUp(user, pos) {
     if (user.panning || !this.startPos) return;
 
-    this.drawEllipse(this.board.mainCtx, user, this.startPos, pos);
+    // Draw to active layer
+    const layerCtx = this.board.getActiveLayerContext();
+    this.drawEllipse(layerCtx, user, this.startPos, pos);
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
       const mirroredStart = { x: width - this.startPos.x, y: this.startPos.y };
       const mirroredEnd = { x: width - pos.x, y: pos.y };
-      this.drawEllipse(this.board.mainCtx, user, mirroredStart, mirroredEnd);
+      this.drawEllipse(layerCtx, user, mirroredStart, mirroredEnd);
     }
 
     this.board.clearTop();
     this.startPos = null;
+
+    // Composite all layers to visible canvas
+    this.board.compositeAllLayers();
   }
 
   drawPreview(user, pos) {
@@ -258,6 +281,10 @@ export class CircleTool extends Tool {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
+    // Use the layer's blend mode for layer context, source-over for preview
+    const isPreview = ctx === this.board.topCtx;
+    const blendMode = isPreview ? 'source-over' : this.board.getActiveLayerBlendMode();
+    ctx.globalCompositeOperation = blendMode;
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;

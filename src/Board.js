@@ -1,3 +1,5 @@
+import { LayerManager } from './LayerManager.js';
+
 /**
  * Board class managing canvas elements and viewport
  */
@@ -23,6 +25,18 @@ export class Board {
     this.topCtx = null;
     this.cursorsSvg = null;
     this.mirrorLine = null;
+
+    // Layer management
+    this.layerManager = null;
+    this.app = null; // Reference to DrawingApp for accessing user state
+  }
+
+  /**
+   * Set reference to the DrawingApp
+   * @param {DrawingApp} app - The main application instance
+   */
+  setApp(app) {
+    this.app = app;
   }
 
   init(containerSelector) {
@@ -37,6 +51,11 @@ export class Board {
     this.topCtx = this.topCanvas.getContext('2d');
 
     this.setupCanvas();
+
+    // Initialize layer manager after canvas setup
+    const [height, width] = this.dimensions;
+    this.layerManager = new LayerManager(width, height);
+
     this.calculateDefaultView();
     this.resetView();
   }
@@ -190,8 +209,85 @@ export class Board {
     const [height, width] = this.dimensions;
     this.mainCtx.beginPath();
     this.topCtx.beginPath();
-    this.mainCtx.clearRect(0, 0, width, height);
+
+    // Clear all layers
+    if (this.layerManager) {
+      this.layerManager.clearAll();
+      this.compositeAllLayers();
+    } else {
+      this.mainCtx.clearRect(0, 0, width, height);
+    }
+
     this.topCtx.clearRect(0, 0, width, height);
+  }
+
+  /**
+   * Get the drawing context for the active layer's blend-mode sub-layer.
+   * The returned context should always be drawn to source-over; the blend
+   * mode is applied at composite time.
+   * Uses the layer's activeBlendMode (set via setActiveLayerBlendMode).
+   * @returns {CanvasRenderingContext2D} The active sub-layer's context
+   */
+  getActiveLayerContext() {
+    const activeLayer = this.app?.self?.activeLayer ?? 0;
+    return this.layerManager?.getLayerContext(activeLayer) ?? this.mainCtx;
+  }
+
+  /**
+   * Get the drawing context for a specific layer's active blend-mode sub-layer.
+   * Uses the layer's activeBlendMode (not a per-user blend mode).
+   * @param {number} layerIndex - Layer group index
+   * @returns {CanvasRenderingContext2D} The sub-layer's context
+   */
+  getLayerContext(layerIndex) {
+    return this.layerManager?.getLayerContext(layerIndex) ?? this.mainCtx;
+  }
+
+  /**
+   * Get the active blend mode for the current layer
+   * @returns {string} The active blend mode (e.g., 'source-over', 'multiply')
+   */
+  getActiveLayerBlendMode() {
+    const activeLayer = this.app?.self?.activeLayer ?? 0;
+    return this.layerManager?.getActiveBlendMode(activeLayer) ?? 'source-over';
+  }
+
+  /**
+   * Set the active blend mode for the current layer
+   * @param {string} blendMode - CSS composite operation
+   */
+  setActiveLayerBlendMode(blendMode) {
+    const activeLayer = this.app?.self?.activeLayer ?? 0;
+    if (this.layerManager) {
+      this.layerManager.setActiveBlendMode(activeLayer, blendMode);
+    }
+  }
+
+  /**
+   * Get the full layer group for the active layer (used by eraser)
+   * @returns {Object|undefined}
+   */
+  getActiveLayerGroup() {
+    const activeLayer = this.app?.self?.activeLayer ?? 0;
+    return this.layerManager?.getLayerGroup(activeLayer);
+  }
+
+  /**
+   * Get the full layer group for a specific index (used by remote eraser)
+   * @param {number} index - Layer group index
+   * @returns {Object|undefined}
+   */
+  getLayerGroup(index) {
+    return this.layerManager?.getLayerGroup(index);
+  }
+
+  /**
+   * Composite all visible layers onto the main canvas
+   */
+  compositeAllLayers() {
+    if (this.layerManager) {
+      this.layerManager.compositeLayers(this.mainCtx);
+    }
   }
 
   clearTop() {

@@ -11,8 +11,9 @@
  * @param {number} fromRadius - Start radius
  * @param {number} toRadius - End radius
  * @param {Object} user - User object with color, opacity, hardness
+ * @param {string} blendMode - Blend mode to use (default 'source-over')
  */
-export function bridgeGap(ctx, from, to, fromRadius, toRadius, user) {
+export function bridgeGap(ctx, from, to, fromRadius, toRadius, user, blendMode = 'source-over') {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
@@ -22,7 +23,7 @@ export function bridgeGap(ctx, from, to, fromRadius, toRadius, user) {
 
   ctx.save();
   ctx.globalAlpha = opacity;
-  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalCompositeOperation = blendMode;
   ctx.fillStyle = user.getColorString();
 
   if (hardness < 1.0) {
@@ -66,22 +67,17 @@ export function bridgeGap(ctx, from, to, fromRadius, toRadius, user) {
  * @param {Array} points - Array of {x, y} points
  * @param {CanvasRenderingContext2D} ctx - Canvas context
  * @param {Object} user - User object with drawing properties
- * @param {CanvasRenderingContext2D} mainCtx - Main context for debug tracking (optional)
+ * @param {string} blendMode - Blend mode to use (default 'source-over')
  */
-export function drawLineArray(points, ctx, user, mainCtx = null) {
+export function drawLineArray(points, ctx, user, blendMode = 'source-over') {
   if (points.length === 0) return;
-
-  // Debug: Track draws to mainCtx
-  if (mainCtx && ctx === mainCtx) {
-    user._mainCtxDrawCount = (user._mainCtxDrawCount || 0) + 1;
-  }
 
   // Explicitly set ALL context properties to ensure consistency
   const opacity = user.opacity !== undefined ? user.opacity : 1;
   const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
   ctx.globalAlpha = opacity;
-  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalCompositeOperation = blendMode;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.lineWidth = user.pressure * user.size * 2;

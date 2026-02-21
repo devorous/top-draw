@@ -17,6 +17,7 @@ import { ToolLockManager } from './ToolLockManager.js';
 import { InputBufferManager } from './InputBufferManager.js';
 import { KeyboardHandler } from './KeyboardHandler.js';
 import { BrushModeManager } from './BrushModeManager.js';
+import { BlendModeManager } from './BlendModeManager.js';
 
 export class DrawingApp {
   constructor(options = {}) {
@@ -28,7 +29,6 @@ export class DrawingApp {
     this.board = new Board({
       dimensions: options.dimensions || [1080, 1920]
     });
-    this.board.app = this; // Allow tools to access wsClient
 
     this.toolManager = new ToolManager(this.board);
     this.ui = new UI();
@@ -79,6 +79,9 @@ export class DrawingApp {
     // Brush mode manager - handles classic/fluid/ink brush mode switching
     this.brushModeManager = new BrushModeManager(this);
 
+    // Blend mode manager - handles blend mode per tool
+    this.blendModeManager = new BlendModeManager(this);
+
     // Tool-specific locked values
     this.toolLockManager = new ToolLockManager(this);
 
@@ -89,6 +92,7 @@ export class DrawingApp {
   async init() {
     this.ui.init();
     this.board.init('#boardContainer');
+    this.board.setApp(this); // Set app reference for layer/blend mode access
     this.chat.init();
     this.brushGallery.init();
     this.colorPalette.init();
@@ -363,6 +367,36 @@ export class DrawingApp {
     brushModeRadios.forEach(radio => {
       radio.addEventListener('change', (e) => {
         this.brushModeManager.setMode(e.target.value);
+      });
+    });
+
+    // Blend mode select
+    if (elements.blendModeSelect) {
+      elements.blendModeSelect.addEventListener('change', (e) => {
+        // Only handle user-initiated changes, not programmatic updates
+        if (!this.ui._updatingBlendMode) {
+          this.handleBlendModeChange(e.target.value);
+        }
+      });
+    }
+
+    // Layer selection buttons
+    const layerButtons = document.querySelectorAll('.layerButton');
+    layerButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const layerIndex = parseInt(btn.dataset.layer);
+        this.handleLayerSelect(layerIndex);
+      });
+    });
+
+    // Layer visibility toggles
+    const layerVisibilityButtons = document.querySelectorAll('.layerVisibility');
+    layerVisibilityButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const layerIndex = parseInt(btn.dataset.layer);
+        const visible = this.board.layerManager.toggleLayerVisibility(layerIndex);
+        btn.classList.toggle('hidden', !visible);
+        this.board.compositeAllLayers();
       });
     });
 
@@ -704,6 +738,11 @@ export class DrawingApp {
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
     this.wsClient.broadcastToolChange(this.self.tool);
+    // Blend mode is per-layer now - broadcast the active layer's blend mode
+    const activeLayer = this.self.activeLayer;
+    const layerBlendMode = this.board.layerManager.getActiveBlendMode(activeLayer);
+    this.wsClient.broadcastLayerBlendModeChange(activeLayer, layerBlendMode);
+    this.wsClient.broadcastLayerChange(activeLayer);
 
     // Update moderation UI visibility based on role
     this.moderation.setRole(role);
@@ -740,6 +779,11 @@ export class DrawingApp {
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
     this.wsClient.broadcastToolChange(this.self.tool);
+    // Blend mode is per-layer now - broadcast the active layer's blend mode
+    const activeLayer = this.self.activeLayer;
+    const layerBlendMode = this.board.layerManager.getActiveBlendMode(activeLayer);
+    this.wsClient.broadcastLayerBlendModeChange(activeLayer, layerBlendMode);
+    this.wsClient.broadcastLayerChange(activeLayer);
 
     // Set sessionIndex on self user entry for context menu
     if (this.ui.elements.selfUserEntry) {
@@ -871,6 +915,16 @@ export class DrawingApp {
     this.ui.updateToolDisplay(tool);
     this.wsClient.broadcastToolChange(tool);
 
+    // Blend mode is now a layer property, not per-tool. Don't change it on tool switch.
+    // For eraser, reset preview canvas blend mode to normal (eraser uses destination-out internally)
+    if (tool === 'erase') {
+      this.board.topCanvas.style.mixBlendMode = 'normal';
+    } else {
+      // Keep current layer's blend mode for preview
+      const layerBlendMode = this.board.getActiveLayerBlendMode();
+      this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(layerBlendMode);
+    }
+
     // Restore locked values for new tool
     if (this.toolLockManager.toolLocks[tool]) {
       this.toolLockManager.restoreLockedValues(tool);
@@ -900,6 +954,41 @@ export class DrawingApp {
 
     // Broadcast brush to other users
     this.wsClient.broadcastBrush(brush);
+  }
+
+  // Layer and blend mode management
+
+  handleLayerSelect(layerIndex) {
+    this.self.setActiveLayer(layerIndex);
+    this.ui.updateActiveLayerDisplay(layerIndex);
+
+    // Update blend mode dropdown to show this layer's active blend mode
+    const layerBlendMode = this.board.layerManager.getActiveBlendMode(layerIndex);
+    this.ui.updateBlendModeDisplay(layerBlendMode);
+
+    // Update preview canvas mix-blend-mode for live preview
+    this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(layerBlendMode);
+
+    if (this.connected) {
+      this.wsClient.broadcastLayerChange(layerIndex);
+    }
+  }
+
+  handleBlendModeChange(blendMode) {
+    // Set the blend mode on the active layer (not per-tool)
+    const activeLayer = this.self.activeLayer;
+    this.board.setActiveLayerBlendMode(blendMode);
+
+    // Update preview canvas mix-blend-mode for live preview
+    this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(blendMode);
+
+    // Persist to localStorage
+    this.blendModeManager.persistBlendModes();
+
+    // Broadcast to other users (include layer index)
+    if (this.connected) {
+      this.wsClient.broadcastLayerBlendModeChange(activeLayer, blendMode);
+    }
   }
 
   // Canvas controls

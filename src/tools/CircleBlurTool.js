@@ -23,11 +23,13 @@ export class CircleBlurTool extends Tool {
   }
 
   activate() {
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    const ctx = this.board.getActiveLayerContext();
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   deactivate() {
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    const ctx = this.board.getActiveLayerContext();
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   onPointerDown(user, pos) {
@@ -53,14 +55,15 @@ export class CircleBlurTool extends Tool {
    * Transparent pixels are blended with the background color before averaging
    */
   stampBlurredCircle(x, y, radius, user) {
-    const ctx = this.board.mainCtx;
-    const canvas = this.board.mainCanvas;
+    const ctx = this.board.getActiveLayerContext();
+    const canvasWidth = this.board.getWidth();
+    const canvasHeight = this.board.getHeight();
 
     // Get the bounding box for sampling
     const left = Math.max(0, Math.floor(x - radius));
     const top = Math.max(0, Math.floor(y - radius));
-    const right = Math.min(canvas.width, Math.ceil(x + radius));
-    const bottom = Math.min(canvas.height, Math.ceil(y + radius));
+    const right = Math.min(canvasWidth, Math.ceil(x + radius));
+    const bottom = Math.min(canvasHeight, Math.ceil(y + radius));
 
     const width = right - left;
     const height = bottom - top;
@@ -184,6 +187,9 @@ export class CircleBlurTool extends Tool {
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 0;
       ctx.restore();
+
+      // Composite all layers to visible canvas
+      this.board.compositeAllLayers();
 
     } catch (error) {
       console.error('Circle blur error:', error);

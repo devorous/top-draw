@@ -27,7 +27,7 @@ export class ImageBrushTool extends Tool {
   }
 
   activate() {
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
+    // Sub-layers always draw source-over; blend mode is applied at composite time.
   }
 
   onPointerDown(user, pos) {
@@ -50,30 +50,36 @@ export class ImageBrushTool extends Tool {
   onPointerUp(user, pos, e) {
     if (user.panning || !user.imageBrush) return;
 
-    // Commit the stroke from user canvas to main canvas
-    // For local user: commits from topCtx to mainCtx
-    // For remote users: commits from their user.context to mainCtx
+    // Commit the stroke from user canvas to active layer
+    // For local user: commits from topCtx to active layer
+    // For remote users: commits from their user.context to active layer
     if (user.context) {
       // Get the user's canvas
       const userCanvas = user.context.canvas;
 
-      // Draw it to the main canvas
-      this.board.mainCtx.globalCompositeOperation = 'source-over';
-      this.board.mainCtx.globalAlpha = 1.0;
-      this.board.mainCtx.drawImage(userCanvas, 0, 0);
+      // Use the layer's blend mode so strokes blend with existing content on the same layer.
+      const layerCtx = this.board.getActiveLayerContext();
+      const blendMode = this.board.getActiveLayerBlendMode();
+      layerCtx.globalCompositeOperation = blendMode;
+      layerCtx.globalAlpha = 1.0;
+      layerCtx.drawImage(userCanvas, 0, 0);
 
       // Handle mirror mode
       if (this.board.mirror) {
-        this.board.mainCtx.save();
-        this.board.mainCtx.translate(this.board.getWidth(), 0);
-        this.board.mainCtx.scale(-1, 1);
-        this.board.mainCtx.drawImage(userCanvas, 0, 0);
-        this.board.mainCtx.restore();
+        layerCtx.save();
+        layerCtx.globalCompositeOperation = blendMode;
+        layerCtx.translate(this.board.getWidth(), 0);
+        layerCtx.scale(-1, 1);
+        layerCtx.drawImage(userCanvas, 0, 0);
+        layerCtx.restore();
       }
 
       // Clear the user's canvas for the next stroke
       user.context.clearRect(0, 0, userCanvas.width, userCanvas.height);
     }
+
+    // Composite all layers to visible canvas
+    this.board.compositeAllLayers();
   }
 
   draw(user, pos) {

@@ -114,6 +114,33 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
+  // Layer change
+  wrapHandler('cl', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      user.setActiveLayer(data.layerIndex);
+    }
+  });
+
+  // Blend mode change (per-layer)
+  wrapHandler('cbm', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      // Legacy: if no layerIndex, just update user's blend mode (backwards compat)
+      if (data.layerIndex === null || data.layerIndex === undefined) {
+        user.setBlendMode(data.blendMode);
+        if (user.board) {
+          user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(data.blendMode);
+        }
+      } else {
+        // New: set the blend mode on the specified layer
+        board.layerManager.setActiveBlendMode(data.layerIndex, data.blendMode);
+        // Re-composite to show the change immediately
+        board.compositeAllLayers();
+      }
+    }
+  });
+
   // Key press
   wrapHandler('kp', (data) => {
     const user = users.get(data.sessionIndex);
