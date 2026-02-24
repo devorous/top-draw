@@ -174,18 +174,16 @@ export class RemotePenHandler {
     // Clear preview FIRST to prevent double opacity (preview + final stacking)
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
 
-    // Composite offscreen to the layer with the layer's blend mode.
-    // This allows strokes to blend with existing content on the same layer.
-    const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer);
-    const blendMode = this.board.layerManager.getActiveBlendMode(user.activeLayer);
+    // Composite offscreen source-over into the sub-layer; blend mode applied at composite time.
+    const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);
     if (layerCtx) {
-      layerCtx.globalCompositeOperation = blendMode;
+      layerCtx.globalCompositeOperation = 'source-over';
       layerCtx.globalAlpha = user._penAlpha;
       layerCtx.drawImage(user._penOffscreen, 0, 0);
 
       if (this.board.mirror) {
         layerCtx.save();
-        layerCtx.globalCompositeOperation = blendMode;
+        layerCtx.globalCompositeOperation = 'source-over';
         layerCtx.translate(this.board.getWidth(), 0);
         layerCtx.scale(-1, 1);
         layerCtx.drawImage(user._penOffscreen, 0, 0);

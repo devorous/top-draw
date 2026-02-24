@@ -1,14 +1,14 @@
-import { SelectToolLoader } from './tools/SelectToolLoader.js';
-import { BrushTool } from './tools/BrushTool.js';
-import { FlowPenTool } from './tools/FlowPenTool.js';
-import { InkTool } from './tools/InkTool.js';
-import { ImageBrushTool } from './tools/ImageBrushTool.js';
-import { LineTool, RectangleTool, CircleTool } from './tools/ShapeTools.js';
-import { EraserTool } from './tools/EraserTool.js';
-import { TextTool } from './tools/TextTool.js';
-import { InkdropperTool } from './tools/InkdropperTool.js';
-import { BlurTool } from './tools/BlurTool.js';
-import { CircleBlurTool } from './tools/CircleBlurTool.js';
+import { SelectToolLoader } from './SelectToolLoader.js';
+import { BrushTool } from './BrushTool.js';
+import { FlowPenTool } from './FlowPenTool.js';
+import { InkTool } from './InkTool.js';
+import { ImageBrushTool } from './ImageBrushTool.js';
+import { LineTool, RectangleTool, CircleTool } from './ShapeTools.js';
+import { EraserTool } from './EraserTool.js';
+import { TextTool } from './TextTool.js';
+import { InkdropperTool } from './InkdropperTool.js';
+import { BlurTool } from './BlurTool.js';
+import { CircleBlurTool } from './CircleBlurTool.js';
 
 /**
  * Base tool class

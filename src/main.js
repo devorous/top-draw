@@ -8,7 +8,7 @@ async function init() {
   const wsServerUrl = import.meta.env.VITE_WS_SERVER_URL || null;
 
   const app = new DrawingApp({
-    dimensions: [720, 1280],
+    dimensions: [1080, 1920],
     serverUrl: wsServerUrl
   });
 

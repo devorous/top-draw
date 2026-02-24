@@ -32,6 +32,7 @@ export class ImageBrushTool extends Tool {
 
   onPointerDown(user, pos) {
     if (user.imageBrush) {
+      this.board.beginStroke(user);
       this.lastPos = { x: pos.x, y: pos.y };
       this.lastTime = performance.now();
       // Reset GIH brush dimensions on new stroke
@@ -57,17 +58,16 @@ export class ImageBrushTool extends Tool {
       // Get the user's canvas
       const userCanvas = user.context.canvas;
 
-      // Use the layer's blend mode so strokes blend with existing content on the same layer.
+      // Composite source-over into sub-layer; blend mode applied at composite time.
       const layerCtx = this.board.getActiveLayerContext();
-      const blendMode = this.board.getActiveLayerBlendMode();
-      layerCtx.globalCompositeOperation = blendMode;
+      layerCtx.globalCompositeOperation = 'source-over';
       layerCtx.globalAlpha = 1.0;
       layerCtx.drawImage(userCanvas, 0, 0);
 
       // Handle mirror mode
       if (this.board.mirror) {
         layerCtx.save();
-        layerCtx.globalCompositeOperation = blendMode;
+        layerCtx.globalCompositeOperation = 'source-over';
         layerCtx.translate(this.board.getWidth(), 0);
         layerCtx.scale(-1, 1);
         layerCtx.drawImage(userCanvas, 0, 0);
@@ -80,6 +80,7 @@ export class ImageBrushTool extends Tool {
 
     // Composite all layers to visible canvas
     this.board.compositeAllLayers();
+    this.board.endStroke(user);
   }
 
   draw(user, pos) {

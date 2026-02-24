@@ -378,6 +378,23 @@
               </div>
             </div>
 
+            <!-- Eraser Mode Options -->
+            <div id="eraserModeOptions" style="display: none;">
+              <div class="selection-mode-container">
+                <label class="modeLabel">Erase Mode</label>
+                <div class="radio-group">
+                  <label class="radio-option">
+                    <input type="radio" name="eraserMode" value="layer" checked>
+                    <span>Active Layer</span>
+                  </label>
+                  <label class="radio-option">
+                    <input type="radio" name="eraserMode" value="all">
+                    <span>All Layers</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
             <!-- Brush Mode Options -->
             <div id="brushModeOptions" style="display: none;">
               <div class="selection-mode-container">
@@ -434,6 +451,25 @@
                 <div class="layerEntry" data-layer="0">
                   <button class="layerVisibility" data-layer="0" title="Toggle visibility">👁</button>
                   <button class="layerButton" data-layer="0">Layer 1</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Stroke History Panel (Dev Mode Only) -->
+            <div id="strokeHistoryPanel" style="display: none;">
+              <label>Stroke History <span class="strokeHistoryHint">(Dev Mode)</span></label>
+              <div id="strokeHistoryContent">
+                <div class="strokeHistorySection">
+                  <span class="strokeSectionLabel">Base</span>
+                  <div class="strokeThumbnail base" id="baseCanvasThumbnail"></div>
+                </div>
+                <div class="strokeHistorySection">
+                  <span class="strokeSectionLabel">Stack</span>
+                  <div id="strokeStackThumbnails" class="strokeThumbnailGrid"></div>
+                </div>
+                <div class="strokeHistorySection">
+                  <span class="strokeSectionLabel">Active</span>
+                  <div id="activeStrokeThumbnails" class="strokeThumbnailGrid"></div>
                 </div>
               </div>
             </div>

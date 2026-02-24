@@ -28,10 +28,10 @@ export class TextTool extends Tool {
 
   onPointerDown(user, pos) {
     if (user.text) {
+      this.board.beginStroke(user);
       this.drawText(user);
       user.text = '';
-      // Composite after drawing text
-      this.board.compositeAllLayers();
+      this.board.endStroke(user); // commits stroke and composites
     }
   }
 
@@ -47,10 +47,9 @@ export class TextTool extends Tool {
   }
 
   drawText(user) {
-    // Use the layer's blend mode so text blends with existing content on the same layer.
+    // Text drawn source-over into sub-layer; blend mode applied at composite time.
     const ctx = this.board.getActiveLayerContext();
-    const blendMode = this.board.getActiveLayerBlendMode();
-    ctx.globalCompositeOperation = blendMode;
+    ctx.globalCompositeOperation = 'source-over';
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     ctx.globalAlpha = opacity;
     const size = (user.size + 5).toString();

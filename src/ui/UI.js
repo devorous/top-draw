@@ -103,6 +103,7 @@ export class UI {
       blurRadiusContainer: document.getElementById('blur-radius'),
 
       selectionModeOptions: document.getElementById('selectionModeOptions'),
+      eraserModeOptions: document.getElementById('eraserModeOptions'),
       brushModeOptions: document.getElementById('brushModeOptions'),
       blendModeOptions: document.getElementById('blendModeOptions'),
       blendModeSelect: document.getElementById('blendModeSelect'),
@@ -123,6 +124,7 @@ export class UI {
       touchInput: document.getElementById('touchInput'),
 
       bottomBar: document.getElementById('bottomBar'),
+      undoBtn: document.getElementById('undoBtn'),
       timeline: document.getElementById('timeline'),
 
       userList: document.getElementById('userList'),
@@ -247,7 +249,7 @@ export class UI {
   }
 
   updateToolDisplay(tool) {
-    const { selfCircle, selfSquare, selfCrosshair, selfHand, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, opacityContainer, blurRadiusContainer, selectionModeOptions, brushModeOptions, smoothingSlider } = this.elements;
+    const { selfCircle, selfSquare, selfCrosshair, selfHand, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, opacityContainer, blurRadiusContainer, selectionModeOptions, eraserModeOptions, brushModeOptions, smoothingSlider } = this.elements;
 
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
@@ -264,6 +266,9 @@ export class UI {
     }
     if (selectionModeOptions) {
       selectionModeOptions.style.display = 'none';
+    }
+    if (eraserModeOptions) {
+      eraserModeOptions.style.display = 'none';
     }
     if (brushModeOptions) {
       brushModeOptions.style.display = 'none';
@@ -311,6 +316,9 @@ export class UI {
         break;
       case 'erase':
         selfCircle.style.display = 'block';
+        if (eraserModeOptions) {
+          eraserModeOptions.style.display = 'block';
+        }
         break;
       case 'circleBlur':
         selfCircle.style.display = 'block';
