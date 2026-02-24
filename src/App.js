@@ -1615,6 +1615,12 @@ export class DrawingApp {
 
   handleUndo() {
     this.board.undo(this.self.activeLayer, this.self.id);
+    if (this.connected) this.wsClient.broadcastUndo();
+  }
+
+  handleRedo() {
+    this.board.redo(this.self.id);
+    if (this.connected) this.wsClient.broadcastRedo();
   }
 
   // Keyboard handlers

@@ -58,7 +58,11 @@ export class KeyboardHandler {
         switch (e.key.toLowerCase()) {
           case 'z':
             e.preventDefault();
-            app.handleUndo();
+            if (e.shiftKey) {
+              app.handleRedo();
+            } else {
+              app.handleUndo();
+            }
             return;
           case 'c':
             if (selectTool && selectTool.hasSelection()) {

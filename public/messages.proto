@@ -62,6 +62,8 @@ message Msg {
     CBR           = 57;  // Change blur radius
     CL            = 58;  // Change active layer
     CBM           = 59;  // Change blend mode
+    UNDO          = 60;  // Undo last stroke for user
+    REDO          = 61;  // Redo last undone stroke for user
   }
 
   // Tool enum

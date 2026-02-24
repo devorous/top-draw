@@ -433,6 +433,14 @@ export class WebSocketClient {
           }))
         });
         break;
+
+      case T.UNDO:
+        this.emit('undo', { sessionIndex: data.u });
+        break;
+
+      case T.REDO:
+        this.emit('redo', { sessionIndex: data.u });
+        break;
     }
   }
 
@@ -564,6 +572,14 @@ export class WebSocketClient {
 
   broadcastMirror() {
     this.send({ t: T.MIR });
+  }
+
+  broadcastUndo() {
+    this.send({ t: T.UNDO });
+  }
+
+  broadcastRedo() {
+    this.send({ t: T.REDO });
   }
 
   broadcastChat(message) {

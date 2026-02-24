@@ -49,7 +49,7 @@ export class Board {
     this.cursorsSvg = document.getElementById('cursorsSvg');
     this.mirrorLine = document.querySelector('.mirrorLine');
 
-    this.mainCtx = this.mainCanvas.getContext('2d');
+    this.mainCtx = this.mainCanvas.getContext('2d', { willReadFrequently: true });
     this.topCtx = this.topCanvas.getContext('2d');
 
     // Create upper layers canvas: renders layers above the active layer so they
@@ -328,9 +328,10 @@ export class Board {
   endStrokeAllLayers(user) {
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     if (!this.layerManager) return;
+    const batchTimestamp = Date.now();
     const count = this.layerManager.getLayerCount();
     for (let i = 0; i < count; i++) {
-      this.layerManager.commitUserStroke(i, userId, { eraseAll: true });
+      this.layerManager.commitUserStroke(i, userId, { eraseAll: true, timestamp: batchTimestamp });
     }
     this.compositeAllLayers();
   }
@@ -366,35 +367,25 @@ export class Board {
   }
 
   /**
-   * Undo the most recent stroke by userId on the given layer.
-   * If that stroke was an erase-all gesture, undo it on every layer.
-   * @param {number} layerIndex
+   * Undo the most recent stroke for userId across all layers (global, timestamp-ordered).
+   * Erase-all batches are removed atomically. The undone batch is pushed onto the redo stack.
+   * @param {number} _layerIndex - Unused; kept for call-site compatibility
    * @param {number} userId
    */
-  undo(layerIndex, userId) {
+  undo(_layerIndex, userId) {
     if (!this.layerManager) return;
+    const batch = this.layerManager.undoLastStrokeGlobal(userId);
+    if (batch) this.layerManager._pushToRedoStack(userId, batch);
+    this.compositeAllLayers();
+  }
 
-    // Peek at the most recent stroke for this user to check if it was erase-all.
-    const group = this.layerManager.getLayerGroup(layerIndex);
-    let isEraseAll = false;
-    if (group) {
-      for (let i = group.strokeStack.length - 1; i >= 0; i--) {
-        if (group.strokeStack[i].userId === userId) {
-          isEraseAll = group.strokeStack[i].eraseAll === true;
-          break;
-        }
-      }
-    }
-
-    if (isEraseAll) {
-      const count = this.layerManager.getLayerCount();
-      for (let i = 0; i < count; i++) {
-        this.layerManager.undoLastStroke(i, userId);
-      }
-    } else {
-      this.layerManager.undoLastStroke(layerIndex, userId);
-    }
-
+  /**
+   * Redo the most recently undone stroke batch for userId.
+   * @param {number} userId
+   */
+  redo(userId) {
+    if (!this.layerManager) return;
+    this.layerManager.redoLastStroke(userId);
     this.compositeAllLayers();
   }
 
@@ -440,11 +431,17 @@ export class Board {
     // depth is correct. Outside of drawing, upper-layer blend modes need to
     // blend against lower-layer pixels, which only works when all layers share
     // one canvas context.
+    //
+    // Also skip split mode if upper layers have blend-mode strokes (non-source-over).
+    // CSS canvas stacking doesn't support cross-canvas blend operations, so those
+    // strokes would composite against transparent instead of lower-layer content.
     const activeGroup = this.layerManager.getLayerGroup(activeLayerIdx);
     const isDrawing = activeGroup?.activeStrokeByUser?.has(userId) ?? false;
+    const upperLayersHaveBlendModes = this.layerManager.rangeHasBlendModeStrokes(activeLayerIdx + 1, totalLayers);
 
-    if (isDrawing && activeLayerIdx + 1 < totalLayers) {
+    if (isDrawing && activeLayerIdx + 1 < totalLayers && !upperLayersHaveBlendModes) {
       // Split mode: preview (topCtx) sits between lower and upper layer canvases.
+      // Safe because upper layers only have source-over strokes.
       this.layerManager.compositeLayerRange(this.mainCtx, 0, activeLayerIdx + 1, this.backgroundColor);
       if (this.upperLayersCtx) {
         this.layerManager.compositeLayerRange(this.upperLayersCtx, activeLayerIdx + 1, totalLayers, null);

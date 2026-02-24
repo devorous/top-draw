@@ -28,6 +28,7 @@ export class LayerManager {
     this.backgroundColor = [255, 255, 255, 1];
     // Reference to stroke history panel (set by App.js for dev mode visualization)
     this.strokeHistoryPanel = null;
+    this.redoStackByUser = new Map(); // userId → [{groupIdx, record}][] (batches, newest last)
 
     this.initLayerGroups(3);
   }
@@ -153,31 +154,140 @@ export class LayerManager {
     group.userStrokeCounts.set(userId, prev + 1);
 
     this._bakeOverflowStrokes(group);
+    this._clearRedoStack(userId);
     this.needsComposite = true;
     this._notifyHistoryPanel();
   }
 
-  /**
-   * Remove the most recent stroke by userId from strokeStack.
-   * @param {number} groupIdx
-   * @param {number} userId
-   * @returns {boolean} true if a stroke was removed
-   */
-  undoLastStroke(groupIdx, userId) {
-    const group = this.layerGroups[groupIdx];
-    if (!group) return false;
+  // ---------------------------------------------------------------------------
+  // Redo Stack Helpers
+  // ---------------------------------------------------------------------------
 
-    for (let i = group.strokeStack.length - 1; i >= 0; i--) {
-      if (group.strokeStack[i].userId === userId) {
-        group.strokeStack.splice(i, 1);
-        const count = group.userStrokeCounts.get(userId) || 0;
-        if (count > 0) group.userStrokeCounts.set(userId, count - 1);
-        this.needsComposite = true;
-        this._notifyHistoryPanel();
-        return true;
+  _pushToRedoStack(userId, batch) {
+    if (!this.redoStackByUser.has(userId)) this.redoStackByUser.set(userId, []);
+    this.redoStackByUser.get(userId).push(batch);
+  }
+
+  _clearRedoStack(userId) {
+    this.redoStackByUser.set(userId, []);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Global Undo / Redo
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Undo the most recently committed stroke across ALL layers for a user,
+   * regardless of which layer is currently active.
+   * Erase-all batches (strokes sharing the same timestamp + eraseAll flag) are
+   * removed atomically from every layer at once.
+   * @param {number} userId
+   * @returns {Array<{groupIdx:number, record:Object}>|null} The removed batch for the redo stack, or null if nothing to undo
+   */
+  undoLastStrokeGlobal(userId) {
+    // Find the latest timestamp across all layers for this user.
+    let latestTimestamp = -1;
+    for (const group of this.layerGroups) {
+      for (let i = group.strokeStack.length - 1; i >= 0; i--) {
+        if (group.strokeStack[i].userId === userId) {
+          if (group.strokeStack[i].timestamp > latestTimestamp) {
+            latestTimestamp = group.strokeStack[i].timestamp;
+          }
+          break;
+        }
       }
     }
-    return false;
+    if (latestTimestamp === -1) return null;
+
+    // Peek at the stroke to check the eraseAll flag.
+    let isEraseAll = false;
+    outer: for (const group of this.layerGroups) {
+      for (let i = group.strokeStack.length - 1; i >= 0; i--) {
+        const s = group.strokeStack[i];
+        if (s.userId === userId && s.timestamp === latestTimestamp) {
+          isEraseAll = s.eraseAll === true;
+          break outer;
+        }
+      }
+    }
+
+    const undoneStrokes = [];
+
+    if (isEraseAll) {
+      // Remove all strokes across every layer that share this batch timestamp.
+      for (let gi = 0; gi < this.layerGroups.length; gi++) {
+        const group = this.layerGroups[gi];
+        for (let si = group.strokeStack.length - 1; si >= 0; si--) {
+          const s = group.strokeStack[si];
+          if (s.userId === userId && s.eraseAll && s.timestamp === latestTimestamp) {
+            const [removed] = group.strokeStack.splice(si, 1);
+            const cnt = group.userStrokeCounts.get(userId) || 0;
+            if (cnt > 0) group.userStrokeCounts.set(userId, cnt - 1);
+            undoneStrokes.push({ groupIdx: gi, record: removed });
+            break;
+          }
+        }
+      }
+    } else {
+      // Single-layer stroke: remove from whichever layer owns it.
+      for (let gi = 0; gi < this.layerGroups.length; gi++) {
+        const group = this.layerGroups[gi];
+        for (let si = group.strokeStack.length - 1; si >= 0; si--) {
+          const s = group.strokeStack[si];
+          if (s.userId === userId && s.timestamp === latestTimestamp) {
+            const [removed] = group.strokeStack.splice(si, 1);
+            const cnt = group.userStrokeCounts.get(userId) || 0;
+            if (cnt > 0) group.userStrokeCounts.set(userId, cnt - 1);
+            undoneStrokes.push({ groupIdx: gi, record: removed });
+            break;
+          }
+        }
+      }
+    }
+
+    if (undoneStrokes.length === 0) return null;
+    this.needsComposite = true;
+    this._notifyHistoryPanel();
+    return undoneStrokes;
+  }
+
+  /**
+   * Redo the most recently undone stroke batch for a user.
+   * Records are re-appended to their respective layer stacks.
+   * @param {number} userId
+   * @returns {boolean}
+   */
+  redoLastStroke(userId) {
+    const stack = this.redoStackByUser.get(userId);
+    if (!stack || stack.length === 0) return false;
+
+    const batch = stack.pop();
+    for (const { groupIdx, record } of batch) {
+      const group = this.layerGroups[groupIdx];
+      if (!group) continue;
+      // Re-insert at the original chronological position so the stroke appears
+      // below any strokes drawn by other users after the original commit.
+      let insertIdx = group.strokeStack.length;
+      for (let i = 0; i < group.strokeStack.length; i++) {
+        if (group.strokeStack[i].timestamp > record.timestamp) {
+          insertIdx = i;
+          break;
+        }
+      }
+      group.strokeStack.splice(insertIdx, 0, record);
+      const cnt = group.userStrokeCounts.get(userId) || 0;
+      group.userStrokeCounts.set(userId, cnt + 1);
+      this._bakeOverflowStrokes(group);
+    }
+
+    this.needsComposite = true;
+    this._notifyHistoryPanel();
+    return true;
+  }
+
+  /** @deprecated Use undoLastStrokeGlobal(userId) */
+  undoLastStroke(groupIdx, userId) {
+    return this.undoLastStrokeGlobal(userId) !== null;
   }
 
   // ---------------------------------------------------------------------------
@@ -282,6 +392,28 @@ export class LayerManager {
     if (group.strokeStack.some(s => s.blendMode === 'destination-out')) return true;
     for (const [, active] of group.activeStrokeByUser) {
       if (active.blendMode === 'destination-out') return true;
+    }
+    return false;
+  }
+
+  /**
+   * Returns true if any layer in the range [startIdx, endIdx) has a non-source-over
+   * stroke (committed or active). Used to decide whether split-mode compositing is safe.
+   * @param {number} startIdx - Inclusive start index
+   * @param {number} endIdx - Exclusive end index
+   * @returns {boolean}
+   */
+  rangeHasBlendModeStrokes(startIdx, endIdx) {
+    const count = Math.min(endIdx, this.layerGroups.length);
+    for (let i = startIdx; i < count; i++) {
+      const group = this.layerGroups[i];
+      if (!group.visible) continue;
+      for (const stroke of group.strokeStack) {
+        if (stroke.blendMode !== 'source-over') return true;
+      }
+      for (const [, active] of group.activeStrokeByUser) {
+        if (active.blendMode !== 'source-over') return true;
+      }
     }
     return false;
   }

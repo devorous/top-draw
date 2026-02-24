@@ -126,15 +126,12 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('cbm', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      // Legacy: if no layerIndex, just update user's blend mode (backwards compat)
-      if (data.layerIndex === null || data.layerIndex === undefined) {
-        user.setBlendMode(data.blendMode);
-        if (user.board) {
-          user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(data.blendMode);
-        }
-      } else {
-        // Update the user's sticky blend mode so handleMouseDown uses it for new strokes
-        user.setBlendMode(data.blendMode);
+      user.setBlendMode(data.blendMode);
+      // Always update CSS blend mode on the remote user's preview canvas
+      if (user.board) {
+        user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(data.blendMode);
+      }
+      if (data.layerIndex !== null && data.layerIndex !== undefined) {
         board.compositeAllLayers();
       }
     }
@@ -172,6 +169,22 @@ export function setupDrawingHandlers(wrapHandler, app) {
     const user = users.get(data.sessionIndex);
     if (user) {
       remoteUserHandler.handleBrushLoad(user, data.brushData);
+    }
+  });
+
+  // Undo - remote user undid their last stroke
+  wrapHandler('undo', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      board.undo(user.activeLayer, user.id);
+    }
+  });
+
+  // Redo - remote user redid their last undone stroke
+  wrapHandler('redo', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      board.redo(user.id);
     }
   });
 }
