@@ -133,9 +133,8 @@ export function setupDrawingHandlers(wrapHandler, app) {
           user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(data.blendMode);
         }
       } else {
-        // New: set the blend mode on the specified layer
-        board.layerManager.setActiveBlendMode(data.layerIndex, data.blendMode);
-        // Re-composite to show the change immediately
+        // Update the user's sticky blend mode so handleMouseDown uses it for new strokes
+        user.setBlendMode(data.blendMode);
         board.compositeAllLayers();
       }
     }

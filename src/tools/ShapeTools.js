@@ -28,6 +28,7 @@ export class LineTool extends Tool {
   }
 
   onPointerDown(user, pos) {
+    this.board.beginStroke(user);
     this.startPos = { x: pos.x, y: pos.y };
     user.startPos = this.startPos; // Store on user for remote sync
   }
@@ -57,6 +58,7 @@ export class LineTool extends Tool {
 
     // Composite all layers to visible canvas
     this.board.compositeAllLayers();
+    this.board.endStroke(user);
   }
 
   drawPreview(ctx, user, start, end) {
@@ -74,10 +76,8 @@ export class LineTool extends Tool {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
-    // Use the layer's blend mode for layer context, source-over for preview
-    const isPreview = ctx === this.board.topCtx;
-    const blendMode = isPreview ? 'source-over' : this.board.getActiveLayerBlendMode();
-    ctx.globalCompositeOperation = blendMode;
+    // Strokes always drawn source-over into sub-layers; blend applied at composite time.
+    ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;
@@ -127,6 +127,7 @@ export class RectangleTool extends Tool {
   }
 
   onPointerDown(user, pos) {
+    this.board.beginStroke(user);
     this.startPos = { x: pos.x, y: pos.y };
     this.drawPreview(user, pos);
   }
@@ -156,6 +157,7 @@ export class RectangleTool extends Tool {
 
     // Composite all layers to visible canvas
     this.board.compositeAllLayers();
+    this.board.endStroke(user);
   }
 
   drawPreview(user, pos) {
@@ -178,10 +180,8 @@ export class RectangleTool extends Tool {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
-    // Use the layer's blend mode for layer context, source-over for preview
-    const isPreview = ctx === this.board.topCtx;
-    const blendMode = isPreview ? 'source-over' : this.board.getActiveLayerBlendMode();
-    ctx.globalCompositeOperation = blendMode;
+    // Strokes always drawn source-over into sub-layers; blend applied at composite time.
+    ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;
@@ -230,6 +230,7 @@ export class CircleTool extends Tool {
   }
 
   onPointerDown(user, pos) {
+    this.board.beginStroke(user);
     this.startPos = { x: pos.x, y: pos.y };
     this.drawPreview(user, pos);
   }
@@ -259,6 +260,7 @@ export class CircleTool extends Tool {
 
     // Composite all layers to visible canvas
     this.board.compositeAllLayers();
+    this.board.endStroke(user);
   }
 
   drawPreview(user, pos) {
@@ -281,10 +283,8 @@ export class CircleTool extends Tool {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
-    // Use the layer's blend mode for layer context, source-over for preview
-    const isPreview = ctx === this.board.topCtx;
-    const blendMode = isPreview ? 'source-over' : this.board.getActiveLayerBlendMode();
-    ctx.globalCompositeOperation = blendMode;
+    // Strokes always drawn source-over into sub-layers; blend applied at composite time.
+    ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.pressure * user.size * 2;

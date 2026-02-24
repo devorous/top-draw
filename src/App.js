@@ -18,6 +18,7 @@ import { InputBufferManager } from './input/InputBufferManager.js';
 import { KeyboardHandler } from './input/KeyboardHandler.js';
 import { BrushModeManager } from './tools/BrushModeManager.js';
 import { BlendModeManager } from './canvas/BlendModeManager.js';
+import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js';
 
 export class DrawingApp {
   constructor(options = {}) {
@@ -76,6 +77,9 @@ export class DrawingApp {
     // Pressure enabled state (checkbox)
     this.pressureEnabled = true;
 
+    // Eraser mode: false = active layer only, true = all layers
+    this.eraseAllLayers = false;
+
     // Brush mode manager - handles classic/fluid/ink brush mode switching
     this.brushModeManager = new BrushModeManager(this);
 
@@ -87,6 +91,9 @@ export class DrawingApp {
 
     // Keyboard handler
     this.keyboardHandler = new KeyboardHandler(this);
+
+    // Stroke history panel (dev mode)
+    this.strokeHistoryPanel = new StrokeHistoryPanel();
   }
 
   async init() {
@@ -112,6 +119,13 @@ export class DrawingApp {
     const debugCanvas = document.getElementById('debugOverlay');
     console.log('[App] Debug overlay canvas element:', debugCanvas);
     this.debugOverlay.init(debugCanvas, this.board.getWidth(), this.board.getHeight());
+
+    // Initialize stroke history panel (dev mode)
+    this.strokeHistoryPanel.init();
+    this.strokeHistoryPanel.setLayerManager(this.board.layerManager);
+    this.strokeHistoryPanel.setActiveLayer(this.self?.activeLayer ?? 0);
+    // Store reference on layerManager so it can trigger updates
+    this.board.layerManager.strokeHistoryPanel = this.strokeHistoryPanel;
 
     // Initialize region tracker for canvas sync
     this.regionTracker = new RegionTracker();
@@ -171,6 +185,7 @@ export class DrawingApp {
     this.toolManager.setTool(initialTool);
     this.ui.updateToolDisplay(initialTool);
     this.ui.updateBrushModeDisplay(this.brushModeManager.getMode());
+    this.ui.updateActiveLayerDisplay(this.self.activeLayer);
 
     // Restore locked values for initial tool and update lock button states
     if (this.toolLockManager.toolLocks[initialTool]) {
@@ -279,6 +294,7 @@ export class DrawingApp {
     elements.resetBtn.addEventListener('click', () => this.handleResetBoard());
     elements.mirrorBtn.addEventListener('click', () => this.handleToggleMirror());
     elements.devBtn.addEventListener('click', () => this.handleToggleDevMode());
+    if (elements.undoBtn) elements.undoBtn.addEventListener('click', () => this.handleUndo());
     elements.plusBtn.addEventListener('click', () => this.handleZoomIn());
     elements.minusBtn.addEventListener('click', () => this.handleZoomOut());
     elements.rotationResetBtn.addEventListener('click', () => this.handleResetRotation());
@@ -360,6 +376,14 @@ export class DrawingApp {
       this.pressureEnabled = elements.pressureEnabled.checked;
       elements.pressureDualSlider.style.display = this.pressureEnabled ? '' : 'none';
       elements.pressureValue.style.display = this.pressureEnabled ? '' : 'none';
+    });
+
+    // Eraser mode radio buttons
+    const eraserModeRadios = document.querySelectorAll('input[name="eraserMode"]');
+    eraserModeRadios.forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        this.eraseAllLayers = (e.target.value === 'all');
+      });
     });
 
     // Brush mode radio buttons
@@ -738,10 +762,9 @@ export class DrawingApp {
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
     this.wsClient.broadcastToolChange(this.self.tool);
-    // Blend mode is per-layer now - broadcast the active layer's blend mode
+    // Broadcast the user's sticky blend mode and active layer
     const activeLayer = this.self.activeLayer;
-    const layerBlendMode = this.board.layerManager.getActiveBlendMode(activeLayer);
-    this.wsClient.broadcastLayerBlendModeChange(activeLayer, layerBlendMode);
+    this.wsClient.broadcastLayerBlendModeChange(activeLayer, this.self.blendMode);
     this.wsClient.broadcastLayerChange(activeLayer);
 
     // Update moderation UI visibility based on role
@@ -779,10 +802,9 @@ export class DrawingApp {
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
     this.wsClient.broadcastToolChange(this.self.tool);
-    // Blend mode is per-layer now - broadcast the active layer's blend mode
+    // Broadcast the user's sticky blend mode and active layer
     const activeLayer = this.self.activeLayer;
-    const layerBlendMode = this.board.layerManager.getActiveBlendMode(activeLayer);
-    this.wsClient.broadcastLayerBlendModeChange(activeLayer, layerBlendMode);
+    this.wsClient.broadcastLayerBlendModeChange(activeLayer, this.self.blendMode);
     this.wsClient.broadcastLayerChange(activeLayer);
 
     // Set sessionIndex on self user entry for context menu
@@ -915,14 +937,13 @@ export class DrawingApp {
     this.ui.updateToolDisplay(tool);
     this.wsClient.broadcastToolChange(tool);
 
-    // Blend mode is now a layer property, not per-tool. Don't change it on tool switch.
+    // Blend mode is sticky per-user, not per-tool or per-layer.
     // For eraser, reset preview canvas blend mode to normal (eraser uses destination-out internally)
     if (tool === 'erase') {
       this.board.topCanvas.style.mixBlendMode = 'normal';
     } else {
-      // Keep current layer's blend mode for preview
-      const layerBlendMode = this.board.getActiveLayerBlendMode();
-      this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(layerBlendMode);
+      // Keep user's current blend mode for live preview
+      this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
     }
 
     // Restore locked values for new tool
@@ -962,12 +983,18 @@ export class DrawingApp {
     this.self.setActiveLayer(layerIndex);
     this.ui.updateActiveLayerDisplay(layerIndex);
 
-    // Update blend mode dropdown to show this layer's active blend mode
-    const layerBlendMode = this.board.layerManager.getActiveBlendMode(layerIndex);
-    this.ui.updateBlendModeDisplay(layerBlendMode);
+    // Show the user's current sticky blend mode in the dropdown (blend mode is per-user, not per-layer)
+    this.ui.updateBlendModeDisplay(this.self.blendMode);
 
     // Update preview canvas mix-blend-mode for live preview
-    this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(layerBlendMode);
+    this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
+
+    // Re-composite with the new active layer so mainCtx/upperLayersCtx split is correct
+    // (upperLayersCtx must show layers above the new active layer before any preview appears)
+    this.board.compositeAllLayers();
+
+    // Update stroke history panel to show selected layer
+    this.strokeHistoryPanel.setActiveLayer(layerIndex);
 
     if (this.connected) {
       this.wsClient.broadcastLayerChange(layerIndex);
@@ -975,15 +1002,17 @@ export class DrawingApp {
   }
 
   handleBlendModeChange(blendMode) {
-    // Set the blend mode on the active layer (not per-tool)
     const activeLayer = this.self.activeLayer;
-    this.board.setActiveLayerBlendMode(blendMode);
+
+    // Update sticky blend mode on the local user
+    this.self.setBlendMode(blendMode);
+
+    // Create a new blend sub-layer for this user on the active layer.
+    // Each blend mode switch creates a fresh sub-layer so effects stack independently.
+    this.board.createActiveLayerBlendSubLayer(blendMode);
 
     // Update preview canvas mix-blend-mode for live preview
     this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(blendMode);
-
-    // Persist to localStorage
-    this.blendModeManager.persistBlendModes();
 
     // Broadcast to other users (include layer index)
     if (this.connected) {
@@ -1013,6 +1042,8 @@ export class DrawingApp {
     console.log('[App] handleToggleDevMode called');
     const enabled = this.debugOverlay.toggle();
     this.ui.updateDevModeDisplay(enabled);
+    // Also toggle stroke history panel
+    this.strokeHistoryPanel.setEnabled(enabled);
     console.log('[App] Dev mode now:', enabled);
   }
 
@@ -1580,6 +1611,10 @@ export class DrawingApp {
     this.debugOverlay.cancelDrawing(this.self.id);
 
     this.wsClient.broadcastCancel();
+  }
+
+  handleUndo() {
+    this.board.undo(this.self.activeLayer, this.self.id);
   }
 
   // Keyboard handlers

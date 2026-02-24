@@ -85,10 +85,10 @@ export class RemoteUserHandler {
             const eraserTool = this.toolManager.getTool('erase');
             const group = this.board.layerManager.getLayerGroup(user.activeLayer);
             if (group) {
-              eraserTool.eraseOnGroup(group, pos.x, pos.y, lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity);
+              eraserTool.eraseOnGroup(group, pos.x, pos.y, lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity, user.id);
               if (this.board.mirror) {
                 const w = this.board.getWidth();
-                eraserTool.eraseOnGroup(group, w - pos.x, pos.y, w - lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity);
+                eraserTool.eraseOnGroup(group, w - pos.x, pos.y, w - lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity, user.id);
               }
               this.board.compositeAllLayers();
             }
@@ -220,6 +220,12 @@ export class RemoteUserHandler {
     // Essential for all shape tools and selection
     user.startPos = pos;
 
+    // Begin a fresh active stroke for this user so each stroke composites independently
+    if (!user.panning) {
+      const blendMode = user.tool === 'erase' ? 'destination-out' : (user.blendMode || 'source-over');
+      this.board.layerManager.beginUserStroke(user.activeLayer, user.id, blendMode);
+    }
+
     // Track region for debug overlay (if not panning)
     if (!user.panning && this.debugOverlay) {
       this.debugOverlay.startDrawing(pos.x, pos.y, user.tool, user.size, user.id, user.username);
@@ -249,7 +255,11 @@ export class RemoteUserHandler {
       case 'erase':
         if (!user.panning) {
           const eraserTool = this.toolManager.getTool('erase');
-          eraserTool.erase(pos.x, pos.y, pos.x, pos.y, user.pressure * user.size * 2);
+          const eraseGroup = this.board.layerManager.getLayerGroup(user.activeLayer);
+          if (eraseGroup) {
+            eraserTool.eraseOnGroup(eraseGroup, pos.x, pos.y, pos.x, pos.y, user.pressure * user.size * 2, 1.0, user.id);
+            this.board.compositeAllLayers();
+          }
         }
         break;
 
@@ -318,9 +328,8 @@ export class RemoteUserHandler {
     const pos = { x: user.x, y: user.y };
 
     // Get the sub-layer context for this user's active layer.
-    // The layer's activeBlendMode determines which sub-layer is used.
-    // Drawing is always source-over into the sub-layer; blend mode is applied at composite time.
-    const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer);
+    // Strokes are always drawn source-over into the sub-layer; blend mode applied at composite time.
+    const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);
     if (!layerCtx) return; // Safety check
 
     // Pen stroke active — composite offscreen and skip the tool switch,
@@ -340,14 +349,13 @@ export class RemoteUserHandler {
     // Image brush — commit user.context to active layer BEFORE clearing
     // (imageBrush draws directly to user.context during the stroke)
     if (user.tool === 'imageBrush' && user.imageBrush && !user.panning) {
-      const imageBrushBlendMode = this.board.layerManager.getActiveBlendMode(user.activeLayer);
-      layerCtx.globalCompositeOperation = imageBrushBlendMode;
+      layerCtx.globalCompositeOperation = 'source-over';
       layerCtx.globalAlpha = 1.0;
       layerCtx.drawImage(user.context.canvas, 0, 0);
 
       if (this.board.mirror) {
         layerCtx.save();
-        layerCtx.globalCompositeOperation = imageBrushBlendMode;
+        layerCtx.globalCompositeOperation = 'source-over';
         layerCtx.translate(this.board.getWidth(), 0);
         layerCtx.scale(-1, 1);
         layerCtx.drawImage(user.context.canvas, 0, 0);
@@ -359,18 +367,15 @@ export class RemoteUserHandler {
     // (otherwise both preview and mainCtx briefly show the same line)
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
 
-    // Get the layer's blend mode for drawing
-    const blendMode = this.board.layerManager.getActiveBlendMode(user.activeLayer);
-
     if (hadPenStroke || hadInkStroke) {
       // Pen/ink stroke was fully handled above — skip tool switch
     } else switch (user.tool) {
       case 'brush':
         if (!user.panning) {
-          drawLineArray(user.currentLine, layerCtx, user, blendMode);
+          drawLineArray(user.currentLine, layerCtx, user);
           if (this.board.mirror) {
             const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-            drawLineArray(mirrored, layerCtx, user, blendMode);
+            drawLineArray(mirrored, layerCtx, user);
           }
         }
         break;
@@ -434,6 +439,9 @@ export class RemoteUserHandler {
 
     // Composite all layers to visible canvas after remote drawing
     this.board.compositeAllLayers();
+
+    // Commit the stroke to the history stack
+    this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
 
     // Cleanup (preview was already cleared at start of handleMouseUp)
     user.clearLine();
@@ -584,14 +592,13 @@ export class RemoteUserHandler {
     const oldRadius = user.pressure * user.size;
     const newRadius = (newPressure ?? user.pressure) * (newSize ?? user.size);
 
-    // Draw into the layer's active blend-mode sub-layer with the layer's blend mode
-    const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer);
-    const blendMode = this.board.layerManager.getActiveBlendMode(user.activeLayer);
-    drawLineArray(user.currentLine, layerCtx, user, blendMode);
+    // Draw into the layer's sub-layer (always source-over; blend mode applied at composite time)
+    const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);
+    drawLineArray(user.currentLine, layerCtx, user);
 
     if (this.board.mirror) {
       const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-      drawLineArray(mirrored, layerCtx, user, blendMode);
+      drawLineArray(mirrored, layerCtx, user);
     }
 
     // Save last drawn position (where old segment visually ends)
@@ -603,13 +610,13 @@ export class RemoteUserHandler {
     // using interpolated filled circles (flow-pen style)
     if (user.currentLine.length > 0) {
       const from = lastDrawnPos;
-      bridgeGap(layerCtx, from, lastDrawnPos, oldRadius, newRadius, user, blendMode);
+      bridgeGap(layerCtx, from, lastDrawnPos, oldRadius, newRadius, user);
       if (this.board.mirror) {
         const w = this.board.getWidth();
         bridgeGap(layerCtx,
           { x: w - from.x, y: from.y },
           { x: w - lastDrawnPos.x, y: lastDrawnPos.y },
-          oldRadius, newRadius, user, blendMode);
+          oldRadius, newRadius, user);
       }
     }
 

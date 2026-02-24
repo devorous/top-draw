@@ -17,26 +17,23 @@ class Tool {
 }
 
 /**
- * Blur tool - applies stackblur to the area under the square cursor
+ * Blur tool - applies stackblur to the area under the square cursor.
+ *
+ * Each blur gesture is stored as one active stroke: dabs are accumulated on the
+ * stroke canvas during the gesture and committed as a single undoable record on
+ * pointerUp. Reading from board.mainCtx ensures each dab sees previously blurred
+ * content (mainCtx is composited after each dab, including the active stroke).
  */
 export class BlurTool extends Tool {
   constructor(board) {
     super('blur', board);
   }
 
-  activate() {
-    // No special composite operation needed - we're manipulating pixels directly
-    const ctx = this.board.getActiveLayerContext();
-    ctx.globalCompositeOperation = 'source-over';
-  }
-
-  deactivate() {
-    // Reset to default if needed
-    const ctx = this.board.getActiveLayerContext();
-    ctx.globalCompositeOperation = 'source-over';
-  }
+  activate() {}
+  deactivate() {}
 
   onPointerDown(user, pos) {
+    this.board.beginStroke(user);
     this.applyBlur(pos.x, pos.y, user.size, user);
   }
 
@@ -45,22 +42,26 @@ export class BlurTool extends Tool {
 
     this.applyBlur(pos.x, pos.y, user.size, user);
 
-    // Mirror mode support
     if (this.board.mirror) {
       const width = this.board.getWidth();
       this.applyBlur(width - pos.x, pos.y, user.size, user);
     }
   }
 
+  onPointerUp(user) {
+    this.board.clearTop();
+    this.board.endStroke(user);
+  }
+
   /**
-   * Apply blur to a square region centered at (x, y) with given size
+   * Apply blur to a square region centered at (x, y).
+   * Reads from board.mainCtx (fully composited, includes previous dabs in this gesture)
+   * and writes blurred pixels source-over to the user's active stroke canvas.
    */
   async applyBlur(x, y, size, user) {
-    const ctx = this.board.getActiveLayerContext();
     const canvasWidth = this.board.getWidth();
     const canvasHeight = this.board.getHeight();
 
-    // Calculate the square bounds (centered on cursor)
     const halfSize = size;
     const left = Math.max(0, Math.floor(x - halfSize));
     const top = Math.max(0, Math.floor(y - halfSize));
@@ -70,14 +71,12 @@ export class BlurTool extends Tool {
     const width = right - left;
     const height = bottom - top;
 
-    // Don't blur if the area is too small
     if (width <= 0 || height <= 0) return;
 
     try {
-      // Get the ImageData for this region
-      const imageData = ctx.getImageData(left, top, width, height);
+      // Read from the composited canvas (includes active stroke's previous dabs)
+      const imageData = this.board.mainCtx.getImageData(left, top, width, height);
 
-      // Apply blur with background compositing (async now)
       const blurred = await blurImageDataWithBackground(
         imageData,
         width,
@@ -86,10 +85,15 @@ export class BlurTool extends Tool {
         this.board.backgroundColor
       );
 
-      // Put the blurred ImageData back
-      ctx.putImageData(blurred, left, top);
+      // Write blurred pixels source-over to the active stroke canvas
+      const strokeCtx = this.board.layerManager?.getUserStrokeContext(
+        user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0,
+        user.id ?? this.board.app?.self?.id ?? 0
+      );
+      if (strokeCtx) {
+        strokeCtx.putImageData(blurred, left, top);
+      }
 
-      // Composite all layers to visible canvas
       this.board.compositeAllLayers();
     } catch (error) {
       console.error('Blur error:', error);

@@ -21,8 +21,10 @@ export class Board {
     this.boardsWrapper = null;
     this.mainCanvas = null;
     this.topCanvas = null;
+    this.upperLayersCanvas = null;
     this.mainCtx = null;
     this.topCtx = null;
+    this.upperLayersCtx = null;
     this.cursorsSvg = null;
     this.mirrorLine = null;
 
@@ -50,6 +52,18 @@ export class Board {
     this.mainCtx = this.mainCanvas.getContext('2d');
     this.topCtx = this.topCanvas.getContext('2d');
 
+    // Create upper layers canvas: renders layers above the active layer so they
+    // appear on top of the topCtx preview stroke during drawing.
+    this.upperLayersCanvas = document.createElement('canvas');
+    this.upperLayersCanvas.id = 'upperLayersBoard';
+    this.upperLayersCanvas.style.position = 'absolute';
+    this.upperLayersCanvas.style.top = '0';
+    this.upperLayersCanvas.style.left = '0';
+    this.upperLayersCanvas.style.pointerEvents = 'none';
+    this.upperLayersCanvas.style.zIndex = '2';
+    this.boardsWrapper.appendChild(this.upperLayersCanvas);
+    this.upperLayersCtx = this.upperLayersCanvas.getContext('2d');
+
     this.setupCanvas();
 
     // Initialize layer manager after canvas setup
@@ -70,6 +84,10 @@ export class Board {
     this.mainCanvas.width = width;
     this.topCanvas.height = height;
     this.topCanvas.width = width;
+    if (this.upperLayersCanvas) {
+      this.upperLayersCanvas.height = height;
+      this.upperLayersCanvas.width = width;
+    }
 
     this.mainCtx.globalCompositeOperation = 'source-over';
     this.mainCtx.imageSmoothingQuality = 'high';
@@ -222,45 +240,162 @@ export class Board {
   }
 
   /**
-   * Get the drawing context for the active layer's blend-mode sub-layer.
-   * The returned context should always be drawn to source-over; the blend
-   * mode is applied at composite time.
-   * Uses the layer's activeBlendMode (set via setActiveLayerBlendMode).
+   * Get the drawing context for the local user's active sub-layer.
+   * Strokes must always be drawn source-over into this context —
+   * the blend mode is applied at composite time, not at draw time.
    * @returns {CanvasRenderingContext2D} The active sub-layer's context
    */
   getActiveLayerContext() {
     const activeLayer = this.app?.self?.activeLayer ?? 0;
-    return this.layerManager?.getLayerContext(activeLayer) ?? this.mainCtx;
+    const userId = this.app?.self?.id ?? 0;
+    return this.layerManager?.getLayerContext(activeLayer, userId) ?? this.mainCtx;
   }
 
   /**
-   * Get the drawing context for a specific layer's active blend-mode sub-layer.
-   * Uses the layer's activeBlendMode (not a per-user blend mode).
+   * Get the drawing context for a specific user on a specific layer.
+   * Used by remote user handlers.
    * @param {number} layerIndex - Layer group index
+   * @param {number} userId - User ID
    * @returns {CanvasRenderingContext2D} The sub-layer's context
    */
-  getLayerContext(layerIndex) {
-    return this.layerManager?.getLayerContext(layerIndex) ?? this.mainCtx;
+  getLayerContext(layerIndex, userId) {
+    return this.layerManager?.getLayerContext(layerIndex, userId) ?? this.mainCtx;
   }
 
   /**
-   * Get the active blend mode for the current layer
-   * @returns {string} The active blend mode (e.g., 'source-over', 'multiply')
+   * Get the local user's current blend mode.
+   * This is the sticky blend mode set by the user, used for UI display.
+   * Sub-layers are always drawn source-over internally.
+   * @returns {string}
    */
   getActiveLayerBlendMode() {
-    const activeLayer = this.app?.self?.activeLayer ?? 0;
-    return this.layerManager?.getActiveBlendMode(activeLayer) ?? 'source-over';
+    return this.app?.self?.blendMode ?? 'source-over';
   }
 
   /**
-   * Set the active blend mode for the current layer
+   * Begin a new stroke for the local user with the given blend mode.
+   * Called when the user switches blend modes mid-session.
    * @param {string} blendMode - CSS composite operation
    */
-  setActiveLayerBlendMode(blendMode) {
+  createActiveLayerBlendSubLayer(blendMode) {
     const activeLayer = this.app?.self?.activeLayer ?? 0;
+    const userId = this.app?.self?.id ?? 0;
     if (this.layerManager) {
-      this.layerManager.setActiveBlendMode(activeLayer, blendMode);
+      this.layerManager.beginUserStroke(activeLayer, userId, blendMode);
     }
+  }
+
+  /**
+   * Begin a new stroke for a user. Creates a fresh active-stroke canvas so each
+   * stroke composites independently — required for blend modes like difference/multiply.
+   * @param {Object} user - User object with activeLayer, id, and blendMode
+   * @param {string} [blendModeOverride] - Override user.blendMode (e.g. 'destination-out' for eraser)
+   */
+  beginStroke(user, blendModeOverride) {
+    if (user?.panning) return;
+    const activeLayer = user?.activeLayer ?? this.app?.self?.activeLayer ?? 0;
+    const userId = user?.id ?? this.app?.self?.id ?? 0;
+    const blendMode = blendModeOverride ?? user?.blendMode ?? 'source-over';
+    if (this.layerManager) {
+      this.layerManager.beginUserStroke(activeLayer, userId, blendMode);
+    }
+    // Refresh the mainCtx/upperLayersCtx split so the preview (topCtx) sits at the
+    // correct depth between lower and upper layers when drawing begins.
+    this.compositeAllLayers();
+  }
+
+  /**
+   * Begin a destination-out stroke on every layer simultaneously (erase-all mode).
+   * @param {Object} user - User object with id
+   * @param {string} blendMode - Expected to be 'destination-out'
+   */
+  beginStrokeAllLayers(user, blendMode) {
+    if (user?.panning) return;
+    const userId = user?.id ?? this.app?.self?.id ?? 0;
+    if (this.layerManager) {
+      const count = this.layerManager.getLayerCount();
+      for (let i = 0; i < count; i++) {
+        this.layerManager.beginUserStroke(i, userId, blendMode);
+      }
+    }
+    this.compositeAllLayers();
+  }
+
+  /**
+   * Commit active strokes on every layer for a user (erase-all mode).
+   * @param {Object} user - User object with id
+   */
+  endStrokeAllLayers(user) {
+    const userId = user?.id ?? this.app?.self?.id ?? 0;
+    if (!this.layerManager) return;
+    const count = this.layerManager.getLayerCount();
+    for (let i = 0; i < count; i++) {
+      this.layerManager.commitUserStroke(i, userId, { eraseAll: true });
+    }
+    this.compositeAllLayers();
+  }
+
+  /**
+   * Return drawing contexts for all layers for a given user.
+   * Lazily creates active stroke canvases if not present.
+   * @param {number} userId
+   * @returns {CanvasRenderingContext2D[]}
+   */
+  getAllLayerContexts(userId) {
+    if (!this.layerManager) return [];
+    const ctxs = [];
+    const count = this.layerManager.getLayerCount();
+    for (let i = 0; i < count; i++) {
+      const ctx = this.layerManager.getUserStrokeContext(i, userId);
+      if (ctx) ctxs.push(ctx);
+    }
+    return ctxs;
+  }
+
+  /**
+   * End the current stroke for a user. Commits the active stroke canvas to the
+   * stroke history stack and triggers a composite refresh.
+   * @param {Object} user - User object with activeLayer and id
+   */
+  endStroke(user) {
+    const activeLayer = user?.activeLayer ?? this.app?.self?.activeLayer ?? 0;
+    const userId = user?.id ?? this.app?.self?.id ?? 0;
+    if (!this.layerManager) return;
+    this.layerManager.commitUserStroke(activeLayer, userId);
+    this.compositeAllLayers();
+  }
+
+  /**
+   * Undo the most recent stroke by userId on the given layer.
+   * If that stroke was an erase-all gesture, undo it on every layer.
+   * @param {number} layerIndex
+   * @param {number} userId
+   */
+  undo(layerIndex, userId) {
+    if (!this.layerManager) return;
+
+    // Peek at the most recent stroke for this user to check if it was erase-all.
+    const group = this.layerManager.getLayerGroup(layerIndex);
+    let isEraseAll = false;
+    if (group) {
+      for (let i = group.strokeStack.length - 1; i >= 0; i--) {
+        if (group.strokeStack[i].userId === userId) {
+          isEraseAll = group.strokeStack[i].eraseAll === true;
+          break;
+        }
+      }
+    }
+
+    if (isEraseAll) {
+      const count = this.layerManager.getLayerCount();
+      for (let i = 0; i < count; i++) {
+        this.layerManager.undoLastStroke(i, userId);
+      }
+    } else {
+      this.layerManager.undoLastStroke(layerIndex, userId);
+    }
+
+    this.compositeAllLayers();
   }
 
   /**
@@ -282,12 +417,48 @@ export class Board {
   }
 
   /**
-   * Composite all visible layers onto the main canvas
+   * Composite all visible layers onto the main canvas.
+   *
+   * While the local user has an active in-progress stroke we use a split:
+   *   - mainCtx   → layers 0..activeLayerIdx (with background)
+   *   - upperLayersCtx → layers above activeLayerIdx (transparent)
+   * This lets the topCtx live-preview stroke sit visually between the two canvases.
+   *
+   * At all other times (layer switch, undo, stroke committed, etc.) we do a full
+   * composite of all layers onto mainCtx so that blend modes (overlay, multiply…)
+   * interact correctly with every layer beneath them. upperLayersCtx is cleared.
    */
   compositeAllLayers() {
-    if (this.layerManager) {
-      this.layerManager.compositeLayers(this.mainCtx);
+    if (!this.layerManager) return;
+
+    const activeLayerIdx = this.app?.self?.activeLayer ?? 0;
+    const userId = this.app?.self?.id ?? 0;
+    const totalLayers = this.layerManager.getLayerCount();
+    const [height, width] = this.dimensions;
+
+    // Only split when the user actually has a stroke in progress so the preview
+    // depth is correct. Outside of drawing, upper-layer blend modes need to
+    // blend against lower-layer pixels, which only works when all layers share
+    // one canvas context.
+    const activeGroup = this.layerManager.getLayerGroup(activeLayerIdx);
+    const isDrawing = activeGroup?.activeStrokeByUser?.has(userId) ?? false;
+
+    if (isDrawing && activeLayerIdx + 1 < totalLayers) {
+      // Split mode: preview (topCtx) sits between lower and upper layer canvases.
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, activeLayerIdx + 1, this.backgroundColor);
+      if (this.upperLayersCtx) {
+        this.layerManager.compositeLayerRange(this.upperLayersCtx, activeLayerIdx + 1, totalLayers, null);
+      }
+    } else {
+      // Full composite: all layers together so blend modes resolve correctly.
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.backgroundColor);
+      if (this.upperLayersCtx) {
+        this.upperLayersCtx.clearRect(0, 0, width, height);
+      }
     }
+
+    this.layerManager.needsComposite = false;
+    this.layerManager._notifyHistoryPanel();
   }
 
   clearTop() {

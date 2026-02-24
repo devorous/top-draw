@@ -1,25 +1,51 @@
 /**
- * LayerManager - Manages multiple off-screen canvas layers for drawing
+ * LayerManager - Manages multiple off-screen canvas layers with stroke history
  *
- * Each user-visible "layer" is a LayerGroup containing one sub-canvas per
- * blend mode used. Strokes are drawn source-over into the appropriate
- * sub-canvas. At composite time, each sub-canvas is drawn onto the target
- * using its blend mode, so blend modes compound correctly across layers.
+ * Each layer group maintains:
+ *  - baseCanvas: full-size baked history canvas (oldest strokes composited in)
+ *  - strokeStack: ordered list of completed stroke records [{canvas, x, y, w, h, blendMode, userId}]
+ *  - userStrokeCounts: Map of userId → count of their strokes in the stack
+ *  - activeStrokeByUser: Map of userId → in-progress stroke {canvas, ctx, blendMode}
+ *
+ * Composite order per group:
+ *   background → baseCanvas (source-over) → activeStrokes (each with blendMode)
+ *   → strokeStack entries (each at x,y with blendMode)
+ *
+ * Baking: when any user exceeds MAX_STROKES_PER_USER, the oldest strokes are
+ * shifted from the bottom of strokeStack and composited into baseCanvas.
+ *
+ * Undo: undoLastStroke() splices the user's most recent entry from strokeStack.
  */
 export class LayerManager {
+  static MAX_STROKES_PER_USER = 10;
+
   constructor(width, height) {
     this.width = width;
     this.height = height;
     this.layerGroups = [];
     this.needsComposite = true;
+    // Cached background color for baking — updated each time compositeLayers is called
+    this.backgroundColor = [255, 255, 255, 1];
+    // Reference to stroke history panel (set by App.js for dev mode visualization)
+    this.strokeHistoryPanel = null;
 
-    this.initLayerGroups(3); // Start with 3 layers
+    this.initLayerGroups(3);
   }
 
   /**
-   * Create a new sub-layer canvas for a given blend mode
+   * Notify the stroke history panel to update (if enabled)
    */
-  _createSubLayer(blendMode) {
+  _notifyHistoryPanel() {
+    if (this.strokeHistoryPanel) {
+      this.strokeHistoryPanel.queueUpdate();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal helpers
+  // ---------------------------------------------------------------------------
+
+  _createCanvas() {
     const canvas = document.createElement('canvas');
     canvas.width = this.width;
     canvas.height = this.height;
@@ -27,112 +53,392 @@ export class LayerManager {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.imageSmoothingQuality = 'high';
-    return { blendMode, canvas, context: ctx };
+    return { canvas, ctx };
   }
 
-  /**
-   * Initialize layer groups
-   * @param {number} count - Number of layer groups to create
-   */
+  // ---------------------------------------------------------------------------
+  // Initialization
+  // ---------------------------------------------------------------------------
+
   initLayerGroups(count) {
     for (let i = 0; i < count; i++) {
+      const { canvas: baseCanvas, ctx: baseCtx } = this._createCanvas();
       this.layerGroups.push({
         id: i,
         name: `Layer ${i + 1}`,
         visible: true,
-        activeBlendMode: 'source-over',  // Currently selected blend mode for this layer
-        subLayers: [this._createSubLayer('source-over')]
+        baseCanvas,
+        baseCtx,
+        strokeStack: [],          // completed stroke records
+        userStrokeCounts: new Map(), // userId → count in strokeStack
+        activeStrokeByUser: new Map() // userId → { canvas, ctx, blendMode }
       });
     }
   }
 
-  /**
-   * Get or create the sub-layer context for a given group.
-   * Uses the group's activeBlendMode to determine which sub-layer to return.
-   * The base sub-layer (source-over) is always at index 0.
-   * Additional blend modes are appended on first use.
-   * @param {number} groupIndex - Layer group index
-   * @returns {CanvasRenderingContext2D|undefined}
-   */
-  getLayerContext(groupIndex) {
-    const group = this.layerGroups[groupIndex];
-    if (!group) return undefined;
-
-    const blendMode = group.activeBlendMode || 'source-over';
-
-    // Find existing sub-layer for this blend mode
-    let sub = group.subLayers.find(s => s.blendMode === blendMode);
-    if (!sub) {
-      // Create new sub-layer for this blend mode
-      sub = this._createSubLayer(blendMode);
-      group.subLayers.push(sub);
-    }
-    return sub.context;
-  }
+  // ---------------------------------------------------------------------------
+  // Core Stroke Lifecycle
+  // ---------------------------------------------------------------------------
 
   /**
-   * Get the active blend mode for a layer group
-   * @param {number} groupIndex - Layer group index
-   * @returns {string} The active blend mode (e.g., 'source-over', 'multiply')
+   * Begin a new in-progress stroke for a user on a layer group.
+   * Creates a full-size temp canvas stored in activeStrokeByUser.
+   * @param {number} groupIdx
+   * @param {number} userId
+   * @param {string} [blendMode='source-over']
    */
-  getActiveBlendMode(groupIndex) {
-    const group = this.layerGroups[groupIndex];
-    return group?.activeBlendMode || 'source-over';
-  }
-
-  /**
-   * Set the active blend mode for a layer group.
-   * Creates the sub-layer if it doesn't exist yet.
-   * @param {number} groupIndex - Layer group index
-   * @param {string} blendMode - CSS composite operation
-   */
-  setActiveBlendMode(groupIndex, blendMode) {
-    const group = this.layerGroups[groupIndex];
+  beginUserStroke(groupIdx, userId, blendMode = 'source-over') {
+    const group = this.layerGroups[groupIdx];
     if (!group) return;
 
-    group.activeBlendMode = blendMode || 'source-over';
-
-    // Ensure sub-layer exists for this blend mode
-    let sub = group.subLayers.find(s => s.blendMode === group.activeBlendMode);
-    if (!sub) {
-      sub = this._createSubLayer(group.activeBlendMode);
-      group.subLayers.push(sub);
-    }
-
+    const { canvas, ctx } = this._createCanvas();
+    group.activeStrokeByUser.set(userId, { canvas, ctx, blendMode });
     this.needsComposite = true;
+    this._notifyHistoryPanel();
   }
 
   /**
-   * Get the full layer group (needed for eraser to clear all sub-layers)
-   * @param {number} groupIndex - Layer group index
-   * @returns {Object|undefined}
+   * Get the drawing context for a user's current in-progress stroke.
+   * Lazily creates a source-over stroke if none exists (e.g. for mid-stroke tool calls).
+   * @param {number} groupIdx
+   * @param {number} userId
+   * @returns {CanvasRenderingContext2D|undefined}
    */
+  getUserStrokeContext(groupIdx, userId) {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return undefined;
+
+    let active = group.activeStrokeByUser.get(userId);
+    if (!active) {
+      const { canvas, ctx } = this._createCanvas();
+      active = { canvas, ctx, blendMode: 'source-over' };
+      group.activeStrokeByUser.set(userId, active);
+    }
+    return active.ctx;
+  }
+
+  /**
+   * Commit a completed stroke: pixel-scan to find content bounds, crop to that
+   * region, push a StrokeRecord onto strokeStack, and bake overflow.
+   * @param {number} groupIdx
+   * @param {number} userId
+   * @param {Object} [extraProps] - Extra properties merged into the stroke record (e.g. { eraseAll: true })
+   */
+  commitUserStroke(groupIdx, userId, extraProps = {}) {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return;
+
+    const active = group.activeStrokeByUser.get(userId);
+    if (!active) return;
+
+    group.activeStrokeByUser.delete(userId);
+
+    // Find non-transparent bounding box
+    const bounds = this._findContentBounds(active.canvas);
+    if (!bounds) return; // Empty stroke — discard
+
+    const { x, y, width, height } = bounds;
+
+    // Crop the full-size canvas to just the content area
+    const croppedCanvas = document.createElement('canvas');
+    croppedCanvas.width = width;
+    croppedCanvas.height = height;
+    const croppedCtx = croppedCanvas.getContext('2d');
+    croppedCtx.drawImage(active.canvas, x, y, width, height, 0, 0, width, height);
+
+    const record = { canvas: croppedCanvas, ctx: croppedCtx, x, y, width, height, blendMode: active.blendMode, userId, timestamp: Date.now(), ...extraProps };
+    group.strokeStack.push(record);
+
+    const prev = group.userStrokeCounts.get(userId) || 0;
+    group.userStrokeCounts.set(userId, prev + 1);
+
+    this._bakeOverflowStrokes(group);
+    this.needsComposite = true;
+    this._notifyHistoryPanel();
+  }
+
+  /**
+   * Remove the most recent stroke by userId from strokeStack.
+   * @param {number} groupIdx
+   * @param {number} userId
+   * @returns {boolean} true if a stroke was removed
+   */
+  undoLastStroke(groupIdx, userId) {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return false;
+
+    for (let i = group.strokeStack.length - 1; i >= 0; i--) {
+      if (group.strokeStack[i].userId === userId) {
+        group.strokeStack.splice(i, 1);
+        const count = group.userStrokeCounts.get(userId) || 0;
+        if (count > 0) group.userStrokeCounts.set(userId, count - 1);
+        this.needsComposite = true;
+        this._notifyHistoryPanel();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Baking
+  // ---------------------------------------------------------------------------
+
+  _bakeOverflowStrokes(group) {
+    const MAX = LayerManager.MAX_STROKES_PER_USER;
+    while (this._anyUserOverMax(group, MAX) && group.strokeStack.length > 0) {
+      const stroke = group.strokeStack.shift();
+      this._bakeStrokeToBase(group, stroke);
+      const count = group.userStrokeCounts.get(stroke.userId) || 0;
+      if (count > 0) group.userStrokeCounts.set(stroke.userId, count - 1);
+    }
+  }
+
+  _anyUserOverMax(group, max) {
+    for (const count of group.userStrokeCounts.values()) {
+      if (count > max) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Composite existing baseCanvas + stroke (with blendMode) into a temp canvas,
+   * then copy the result back into baseCanvas.
+   *
+   * For blend modes like multiply/difference the temp canvas is pre-filled with
+   * the scene background so the math produces the correct colour result.
+   * For destination-out (eraser) we must NOT fill the background: an opaque white
+   * fill would make every previously-transparent pixel in the layer turn white after
+   * source-over compositing, and those white pixels would then occlude lower layers.
+   */
+  _bakeStrokeToBase(group, stroke) {
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = this.width;
+    tempCanvas.height = this.height;
+    const tempCtx = tempCanvas.getContext('2d');
+
+    // Pre-fill with background for blend modes that need it (multiply, difference…).
+    // Skip for destination-out: erased areas must stay transparent, not become white.
+    if (stroke.blendMode !== 'destination-out' && this.backgroundColor) {
+      const [r, g, b, a] = this.backgroundColor;
+      tempCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+      tempCtx.fillRect(0, 0, this.width, this.height);
+    }
+
+    // Existing baked content
+    tempCtx.globalCompositeOperation = 'source-over';
+    tempCtx.drawImage(group.baseCanvas, 0, 0);
+
+    // New stroke at its recorded position with its blend mode
+    tempCtx.globalCompositeOperation = stroke.blendMode;
+    tempCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
+    tempCtx.globalCompositeOperation = 'source-over';
+
+    // Replace base with result
+    group.baseCtx.clearRect(0, 0, this.width, this.height);
+    group.baseCtx.drawImage(tempCanvas, 0, 0);
+  }
+
+  /**
+   * Scan canvas pixels and return the bounding box of all non-transparent content.
+   * @param {HTMLCanvasElement} canvas
+   * @returns {{x,y,width,height}|null}
+   */
+  _findContentBounds(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    const w = canvas.width;
+    const h = canvas.height;
+
+    let minX = w, minY = h, maxX = -1, maxY = -1;
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (data[(y * w + x) * 4 + 3] > 0) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+
+    if (maxX < 0) return null;
+    return { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Compositing
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns true if the group has any live destination-out strokes (eraser).
+   * Used to decide whether isolated compositing is needed.
+   * @param {Object} group
+   * @returns {boolean}
+   */
+  _groupHasDestOut(group) {
+    if (group.strokeStack.some(s => s.blendMode === 'destination-out')) return true;
+    for (const [, active] of group.activeStrokeByUser) {
+      if (active.blendMode === 'destination-out') return true;
+    }
+    return false;
+  }
+
+  /**
+   * Composite all strokes for a single group into a context.
+   * Used by both the direct and isolated compositing paths.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Object} group
+   */
+  _compositeGroupInto(ctx, group) {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(group.baseCanvas, 0, 0);
+
+    for (const stroke of group.strokeStack) {
+      ctx.globalCompositeOperation = stroke.blendMode;
+      ctx.drawImage(stroke.canvas, stroke.x, stroke.y);
+    }
+
+    for (const [, active] of group.activeStrokeByUser) {
+      ctx.globalCompositeOperation = active.blendMode;
+      ctx.drawImage(active.canvas, 0, 0);
+    }
+
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /**
+   * Composite a range of layer groups onto a target context.
+   *
+   * For groups WITHOUT destination-out (eraser) strokes, all strokes are drawn
+   * directly onto targetCtx so blend modes like multiply correctly blend against
+   * the accumulated lower-layer content.
+   *
+   * For groups WITH destination-out strokes the algorithm is:
+   *   1. Snapshot targetCtx (lower layers accumulated so far) → lowerSnap
+   *   2. Draw baseCanvas + all non-dest-out strokes directly onto targetCtx
+   *      (blend modes still blend against lower layers ✓)
+   *   3. Apply dest-out strokes → punches transparent holes in targetCtx
+   *   4. destination-over lowerSnap onto targetCtx → fills the transparent holes
+   *      with the lower-layer content, while leaving non-erased pixels untouched
+   *
+   * This means the eraser only removes this layer's own contribution and lower
+   * layers show through the holes, with no impact on blend-mode strokes.
+   *
+   * @param {CanvasRenderingContext2D} targetCtx
+   * @param {number} startIdx - Inclusive start index
+   * @param {number} endIdx - Exclusive end index
+   * @param {Array|null} backgroundColor - [r,g,b,a] or null for transparent background
+   */
+  compositeLayerRange(targetCtx, startIdx, endIdx, backgroundColor = null) {
+    targetCtx.clearRect(0, 0, this.width, this.height);
+
+    if (backgroundColor) {
+      const [r, g, b, a] = backgroundColor;
+      targetCtx.globalCompositeOperation = 'source-over';
+      targetCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+      targetCtx.fillRect(0, 0, this.width, this.height);
+    }
+
+    const count = Math.min(endIdx, this.layerGroups.length);
+    for (let i = startIdx; i < count; i++) {
+      const group = this.layerGroups[i];
+      if (!group.visible) continue;
+
+      if (this._groupHasDestOut(group)) {
+        // --- Eraser-aware compositing ---
+        // Step 1: snapshot lower layers already in targetCtx.
+        const lowerSnap = document.createElement('canvas');
+        lowerSnap.width = this.width;
+        lowerSnap.height = this.height;
+        lowerSnap.getContext('2d').drawImage(targetCtx.canvas, 0, 0);
+
+        // Step 2: baked history + non-dest-out strokes drawn directly so blend
+        // modes (multiply, difference…) blend against lower layers. ✓
+        targetCtx.globalCompositeOperation = 'source-over';
+        targetCtx.drawImage(group.baseCanvas, 0, 0);
+
+        for (const stroke of group.strokeStack) {
+          if (stroke.blendMode !== 'destination-out') {
+            targetCtx.globalCompositeOperation = stroke.blendMode;
+            targetCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
+          }
+        }
+
+        for (const [, active] of group.activeStrokeByUser) {
+          if (active.blendMode !== 'destination-out') {
+            targetCtx.globalCompositeOperation = active.blendMode;
+            targetCtx.drawImage(active.canvas, 0, 0);
+          }
+        }
+
+        // Step 3: apply dest-out strokes → transparent holes in targetCtx.
+        for (const stroke of group.strokeStack) {
+          if (stroke.blendMode === 'destination-out') {
+            targetCtx.globalCompositeOperation = 'destination-out';
+            targetCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
+          }
+        }
+
+        for (const [, active] of group.activeStrokeByUser) {
+          if (active.blendMode === 'destination-out') {
+            targetCtx.globalCompositeOperation = 'destination-out';
+            targetCtx.drawImage(active.canvas, 0, 0);
+          }
+        }
+
+        // Step 4: destination-over restores lower-layer content in the holes.
+        // destination-over draws lowerSnap *behind* the current targetCtx pixels:
+        //   transparent pixels (erased) → filled with lower-layer content ✓
+        //   opaque pixels (non-erased)  → lowerSnap stays hidden behind them ✓
+        targetCtx.globalCompositeOperation = 'destination-over';
+        targetCtx.drawImage(lowerSnap, 0, 0);
+        targetCtx.globalCompositeOperation = 'source-over';
+        // --------------------------------
+      } else {
+        // No destination-out: draw directly so blend modes (multiply, difference…)
+        // blend against the accumulated lower-layer content in targetCtx.
+        this._compositeGroupInto(targetCtx, group);
+      }
+    }
+
+    targetCtx.globalCompositeOperation = 'source-over';
+  }
+
+  /**
+   * Composite all visible layer groups onto a target context.
+   * Order per group: background → baseCanvas → stroke stack → active strokes.
+   * @param {CanvasRenderingContext2D} targetCtx
+   * @param {Array} [backgroundColor] - [r,g,b,a]
+   */
+  compositeLayers(targetCtx, backgroundColor) {
+    // Cache bg for baking
+    if (backgroundColor) this.backgroundColor = backgroundColor;
+
+    this.compositeLayerRange(targetCtx, 0, this.layerGroups.length, backgroundColor || null);
+
+    this.needsComposite = false;
+    this._notifyHistoryPanel();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Layer Group Management
+  // ---------------------------------------------------------------------------
+
   getLayerGroup(groupIndex) {
     return this.layerGroups[groupIndex];
   }
 
-  /**
-   * Get the number of layer groups
-   * @returns {number}
-   */
   getLayerCount() {
     return this.layerGroups.length;
   }
 
-  /**
-   * Check if a layer group is visible
-   * @param {number} index - Layer group index
-   * @returns {boolean}
-   */
   isLayerVisible(index) {
     return this.layerGroups[index]?.visible ?? false;
   }
 
-  /**
-   * Toggle layer group visibility
-   * @param {number} index - Layer group index
-   * @returns {boolean} New visibility state
-   */
   toggleLayerVisibility(index) {
     if (this.layerGroups[index]) {
       this.layerGroups[index].visible = !this.layerGroups[index].visible;
@@ -142,11 +448,6 @@ export class LayerManager {
     return false;
   }
 
-  /**
-   * Set layer group visibility
-   * @param {number} index - Layer group index
-   * @param {boolean} visible - Visibility state
-   */
   setLayerVisibility(index, visible) {
     if (this.layerGroups[index]) {
       this.layerGroups[index].visible = visible;
@@ -154,109 +455,106 @@ export class LayerManager {
     }
   }
 
-  /**
-   * Composite all visible layer groups onto a target context.
-   * Groups are composited bottom to top; within each group, sub-layers are
-   * drawn in order (first-use order) using their blend mode.
-   * @param {CanvasRenderingContext2D} targetCtx - Target context
-   */
-  compositeLayers(targetCtx) {
-    targetCtx.clearRect(0, 0, this.width, this.height);
-
-    for (const group of this.layerGroups) {
-      if (!group.visible) continue;
-      for (const sub of group.subLayers) {
-        targetCtx.globalCompositeOperation = sub.blendMode;
-        targetCtx.drawImage(sub.canvas, 0, 0);
-      }
-    }
-
-    // Reset to default
-    targetCtx.globalCompositeOperation = 'source-over';
-    this.needsComposite = false;
-  }
-
-  /**
-   * Clear a specific layer group (all its sub-layers)
-   * @param {number} index - Layer group index
-   */
   clear(index) {
     const group = this.layerGroups[index];
     if (group) {
-      for (const sub of group.subLayers) {
-        sub.context.clearRect(0, 0, this.width, this.height);
-      }
+      group.baseCtx.clearRect(0, 0, this.width, this.height);
+      group.strokeStack = [];
+      group.userStrokeCounts.clear();
+      group.activeStrokeByUser.clear();
       this.needsComposite = true;
+      this._notifyHistoryPanel();
     }
   }
 
-  /**
-   * Clear all layer groups and their sub-layers
-   */
   clearAll() {
-    for (const group of this.layerGroups) {
-      for (const sub of group.subLayers) {
-        sub.context.clearRect(0, 0, this.width, this.height);
-      }
+    for (let i = 0; i < this.layerGroups.length; i++) {
+      this.clear(i);
     }
-    this.needsComposite = true;
+    this._notifyHistoryPanel();
   }
 
-  /**
-   * Resize all layer group canvases (preserving content)
-   * @param {number} width - New width
-   * @param {number} height - New height
-   */
   resize(width, height) {
     this.width = width;
     this.height = height;
 
     for (const group of this.layerGroups) {
-      for (const sub of group.subLayers) {
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = sub.canvas.width;
-        tempCanvas.height = sub.canvas.height;
-        tempCanvas.getContext('2d').drawImage(sub.canvas, 0, 0);
+      // Resize base canvas, preserving content
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = group.baseCanvas.width;
+      tempCanvas.height = group.baseCanvas.height;
+      tempCanvas.getContext('2d').drawImage(group.baseCanvas, 0, 0);
+      group.baseCanvas.width = width;
+      group.baseCanvas.height = height;
+      group.baseCtx.lineCap = 'round';
+      group.baseCtx.lineJoin = 'round';
+      group.baseCtx.imageSmoothingQuality = 'high';
+      group.baseCtx.drawImage(tempCanvas, 0, 0);
 
-        sub.canvas.width = width;
-        sub.canvas.height = height;
-
-        sub.context.lineCap = 'round';
-        sub.context.lineJoin = 'round';
-        sub.context.imageSmoothingQuality = 'high';
-
-        sub.context.drawImage(tempCanvas, 0, 0);
+      // Resize active stroke canvases
+      for (const [, active] of group.activeStrokeByUser) {
+        const temp2 = document.createElement('canvas');
+        temp2.width = active.canvas.width;
+        temp2.height = active.canvas.height;
+        temp2.getContext('2d').drawImage(active.canvas, 0, 0);
+        active.canvas.width = width;
+        active.canvas.height = height;
+        active.ctx.drawImage(temp2, 0, 0);
       }
+      // Stroke stack records store cropped canvases at x,y — no resize needed
     }
 
     this.needsComposite = true;
   }
 
-  /**
-   * Get image data from all visible layers composited
-   * @returns {ImageData}
-   */
   getCompositedImageData() {
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = this.width;
     tempCanvas.height = this.height;
     const tempCtx = tempCanvas.getContext('2d');
-
     this.compositeLayers(tempCtx);
-
     return tempCtx.getImageData(0, 0, this.width, this.height);
   }
 
-  /**
-   * Get all layer data for serialization (one entry per user-visible layer)
-   * @returns {Array}
-   */
   getLayerData() {
     return this.layerGroups.map(group => ({
       id: group.id,
       name: group.name,
       visible: group.visible,
-      activeBlendMode: group.activeBlendMode || 'source-over'
+      strokeCount: group.strokeStack.length
     }));
   }
+
+  // ---------------------------------------------------------------------------
+  // Backward-Compat Stubs
+  // ---------------------------------------------------------------------------
+
+  /** @deprecated Use getUserStrokeContext(groupIndex, userId) */
+  getLayerContext(groupIndex, userId) {
+    return this.getUserStrokeContext(groupIndex, userId);
+  }
+
+  /** @deprecated Use beginUserStroke(groupIndex, userId, blendMode) */
+  createBlendSubLayer(groupIndex, userId, blendMode) {
+    this.beginUserStroke(groupIndex, userId, blendMode);
+    return this.getUserStrokeContext(groupIndex, userId);
+  }
+
+  /** @deprecated No-op */
+  getActiveBlendMode(groupIndex) { return 'source-over'; }
+
+  /** @deprecated No-op */
+  setActiveBlendMode(groupIndex, blendMode) {}
+
+  /** @deprecated No-op */
+  getUserBlendMode(groupIndex, userId) { return 'source-over'; }
+
+  /** @deprecated No-op */
+  mergeAdjacentSourceOverSubLayers(groupIndex, userId) {}
+
+  /** @deprecated No-op */
+  flattenLayerGroup(groupIndex, backgroundColor) {}
+
+  /** @deprecated No-op */
+  cleanupEmptySubLayers(groupIndex, userId) {}
 }

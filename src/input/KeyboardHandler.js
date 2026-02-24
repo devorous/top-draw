@@ -56,6 +56,10 @@ export class KeyboardHandler {
 
       if (e.ctrlKey || e.metaKey) {
         switch (e.key.toLowerCase()) {
+          case 'z':
+            e.preventDefault();
+            app.handleUndo();
+            return;
           case 'c':
             if (selectTool && selectTool.hasSelection()) {
               e.preventDefault();

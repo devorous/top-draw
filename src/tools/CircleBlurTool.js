@@ -15,24 +15,22 @@ class Tool {
 }
 
 /**
- * Circle Blur tool - averages pixels in circular area and stamps a circle with that color
+ * Circle Blur tool - averages pixels in a circular area and stamps a circle with that color.
+ *
+ * Each gesture is stored as one active stroke: stamps accumulate on the stroke canvas
+ * and are committed as a single undoable record on pointerUp.
+ * Reads from board.mainCtx so each stamp sees the already-blurred content.
  */
 export class CircleBlurTool extends Tool {
   constructor(board) {
     super('circleBlur', board);
   }
 
-  activate() {
-    const ctx = this.board.getActiveLayerContext();
-    ctx.globalCompositeOperation = 'source-over';
-  }
-
-  deactivate() {
-    const ctx = this.board.getActiveLayerContext();
-    ctx.globalCompositeOperation = 'source-over';
-  }
+  activate() {}
+  deactivate() {}
 
   onPointerDown(user, pos) {
+    this.board.beginStroke(user);
     const radius = user.pressure * user.size;
     this.stampBlurredCircle(pos.x, pos.y, radius, user);
   }
@@ -43,23 +41,24 @@ export class CircleBlurTool extends Tool {
     const radius = user.pressure * user.size;
     this.stampBlurredCircle(pos.x, pos.y, radius, user);
 
-    // Mirror mode support
     if (this.board.mirror) {
       const width = this.board.getWidth();
       this.stampBlurredCircle(width - pos.x, pos.y, radius, user);
     }
   }
 
+  onPointerUp(user) {
+    this.board.endStroke(user);
+  }
+
   /**
-   * Sample pixels in a circular area, average them, and stamp a circle with that color
-   * Transparent pixels are blended with the background color before averaging
+   * Sample pixels in a circular area from board.mainCtx, average them, and stamp
+   * a circle with that color onto the user's active stroke canvas.
    */
   stampBlurredCircle(x, y, radius, user) {
-    const ctx = this.board.getActiveLayerContext();
     const canvasWidth = this.board.getWidth();
     const canvasHeight = this.board.getHeight();
 
-    // Get the bounding box for sampling
     const left = Math.max(0, Math.floor(x - radius));
     const top = Math.max(0, Math.floor(y - radius));
     const right = Math.min(canvasWidth, Math.ceil(x + radius));
@@ -71,126 +70,80 @@ export class CircleBlurTool extends Tool {
     if (width <= 0 || height <= 0) return;
 
     try {
-      // Get image data for the region
-      const imageData = ctx.getImageData(left, top, width, height);
+      // Read from the composited canvas (includes previous stamps in this gesture)
+      const imageData = this.board.mainCtx.getImageData(left, top, width, height);
       const data = imageData.data;
 
-      // Get background color (default white)
-      // backgroundColor might be in different formats, so normalize it
+      // Normalize background color
       let bgR = 255, bgG = 255, bgB = 255;
       if (this.board.backgroundColor) {
-        if (typeof this.board.backgroundColor === 'object') {
-          bgR = this.board.backgroundColor.r || 255;
-          bgG = this.board.backgroundColor.g || 255;
-          bgB = this.board.backgroundColor.b || 255;
-        }
+        const bg = this.board.backgroundColor;
+        bgR = bg[0] ?? 255;
+        bgG = bg[1] ?? 255;
+        bgB = bg[2] ?? 255;
       }
 
-      // Sample pixels within the circular area and calculate average
-      let totalR = 0, totalG = 0, totalB = 0;
-      let sampleCount = 0;
+      let totalR = 0, totalG = 0, totalB = 0, sampleCount = 0;
 
       for (let py = 0; py < height; py++) {
         for (let px = 0; px < width; px++) {
-          // Check if pixel is within radius
           const worldX = left + px;
           const worldY = top + py;
           const dx = worldX - x;
           const dy = worldY - y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-
-          if (distance <= radius) {
+          if (dx * dx + dy * dy <= radius * radius) {
             const idx = (py * width + px) * 4;
-            const r = data[idx];
-            const g = data[idx + 1];
-            const b = data[idx + 2];
             const alpha = data[idx + 3] / 255;
-
-            // Blend pixel with background color based on alpha
-            // Fully transparent (alpha=0) gives background color
-            // Fully opaque (alpha=1) gives pixel color
-            const blendedR = r * alpha + bgR * (1 - alpha);
-            const blendedG = g * alpha + bgG * (1 - alpha);
-            const blendedB = b * alpha + bgB * (1 - alpha);
-
-            totalR += blendedR;
-            totalG += blendedG;
-            totalB += blendedB;
+            totalR += data[idx]     * alpha + bgR * (1 - alpha);
+            totalG += data[idx + 1] * alpha + bgG * (1 - alpha);
+            totalB += data[idx + 2] * alpha + bgB * (1 - alpha);
             sampleCount++;
           }
         }
       }
 
-      // Calculate average color
-      let avgR, avgG, avgB;
+      const avgR = sampleCount > 0 ? Math.round(totalR / sampleCount) : bgR;
+      const avgG = sampleCount > 0 ? Math.round(totalG / sampleCount) : bgG;
+      const avgB = sampleCount > 0 ? Math.round(totalB / sampleCount) : bgB;
 
-      if (sampleCount > 0) {
-        avgR = Math.round(totalR / sampleCount);
-        avgG = Math.round(totalG / sampleCount);
-        avgB = Math.round(totalB / sampleCount);
-      } else {
-        // No pixels sampled, use background color
-        avgR = bgR;
-        avgG = bgG;
-        avgB = bgB;
-      }
-
-      // Debug: log first stamp to check values
       const hardness = user.hardness !== undefined ? user.hardness : 1.0;
       const blurAmount = hardness < 1.0 ? (1 - hardness) * radius * 1.2 : 0;
 
-      if (!this._debugLogged) {
-        console.log('CircleBlur Debug:', {
-          userId: user.id || 'self',
-          bgR, bgG, bgB,
-          sampleCount,
-          avgR, avgG, avgB,
-          radius,
-          hardness,
-          blurAmount,
-          backgroundColor: this.board.backgroundColor
-        });
-        this._debugLogged = true;
-      }
+      // Write the averaged circle onto the active stroke canvas
+      const activeLayer = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+      const userId = user.id ?? this.board.app?.self?.id ?? 0;
+      const strokeCtx = this.board.layerManager?.getUserStrokeContext(activeLayer, userId);
+      if (!strokeCtx) return;
 
-      // Draw the averaged color circle with hardness support
-      ctx.save();
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
+      strokeCtx.save();
+      strokeCtx.globalCompositeOperation = 'source-over';
+      strokeCtx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
 
-      // Apply hardness using shadow blur (like brush tool)
       if (hardness < 1.0) {
-        // Use shadow blur technique for soft edges
         const offset = 100000;
-
-        ctx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
-        ctx.shadowBlur = blurAmount;
-        ctx.shadowColor = `rgb(${avgR}, ${avgG}, ${avgB})`;
-        ctx.shadowOffsetX = -offset;
-        ctx.shadowOffsetY = 0;
-
-        ctx.translate(offset, 0);
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fill();
+        strokeCtx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
+        strokeCtx.shadowBlur = blurAmount;
+        strokeCtx.shadowColor = `rgb(${avgR}, ${avgG}, ${avgB})`;
+        strokeCtx.shadowOffsetX = -offset;
+        strokeCtx.shadowOffsetY = 0;
+        strokeCtx.translate(offset, 0);
+        strokeCtx.beginPath();
+        strokeCtx.arc(x, y, radius, 0, Math.PI * 2);
+        strokeCtx.fill();
       } else {
-        // Hard edges - no shadow
-        ctx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
-        ctx.shadowBlur = 0;
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fill();
+        strokeCtx.fillStyle = `rgb(${avgR}, ${avgG}, ${avgB})`;
+        strokeCtx.shadowBlur = 0;
+        strokeCtx.beginPath();
+        strokeCtx.arc(x, y, radius, 0, Math.PI * 2);
+        strokeCtx.fill();
       }
 
-      // Ensure shadow is completely reset
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
-      ctx.restore();
+      strokeCtx.shadowBlur = 0;
+      strokeCtx.shadowOffsetX = 0;
+      strokeCtx.shadowOffsetY = 0;
+      strokeCtx.restore();
 
-      // Composite all layers to visible canvas
       this.board.compositeAllLayers();
-
     } catch (error) {
       console.error('Circle blur error:', error);
     }
