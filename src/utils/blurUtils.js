@@ -65,7 +65,6 @@ export async function blurImageDataWithBackground(imageData, width, height, blur
   offscreen.height = height;
   const ctx = offscreen.getContext('2d');
 
-  // Fill with background color (alpha is already 0-1, not 0-255)
   const [r, g, b, a] = backgroundColor;
   ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
   ctx.fillRect(0, 0, width, height);

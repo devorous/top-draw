@@ -27,6 +27,7 @@ class Tool {
 export class BlurTool extends Tool {
   constructor(board) {
     super('blur', board);
+    this.pendingBlur = Promise.resolve();
   }
 
   activate() {}
@@ -34,23 +35,30 @@ export class BlurTool extends Tool {
 
   onPointerDown(user, pos) {
     this.board.beginStroke(user);
-    this.applyBlur(pos.x, pos.y, user.size, user);
+    this.pendingBlur = this.applyBlur(pos.x, pos.y, user.size, user);
   }
 
-  onPointerMove(user, pos, lastPos) {
+  onPointerMove(user, pos) {
     if (!user.mousedown || user.panning) return;
 
-    this.applyBlur(pos.x, pos.y, user.size, user);
+    // Chain subsequent dabs so they don't overlap and we can track completion
+    this.pendingBlur = this.pendingBlur.then(() => 
+      this.applyBlur(pos.x, pos.y, user.size, user)
+    );
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
-      this.applyBlur(width - pos.x, pos.y, user.size, user);
+      this.pendingBlur = this.pendingBlur.then(() => 
+        this.applyBlur(width - pos.x, pos.y, user.size, user)
+      );
     }
   }
 
-  onPointerUp(user) {
+  async onPointerUp(user) {
+    await this.pendingBlur;
     this.board.clearTop();
     this.board.endStroke(user);
+    this.pendingBlur = Promise.resolve();
   }
 
   /**
