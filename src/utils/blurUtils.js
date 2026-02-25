@@ -83,7 +83,7 @@ export async function blurImageDataWithBackground(imageData, width, height, blur
 
 /**
  * Apply stackblur directly without background compositing
- * Preserves transparency - useful for blurring images with intentional alpha
+ * Preserves transparency by using pre-multiplied alpha to avoid dark fringes.
  * @param {ImageData} imageData - The image data to blur
  * @param {number} width - Width of the image data
  * @param {number} height - Height of the image data
@@ -96,15 +96,28 @@ export async function blurImageData(imageData, width, height, blurRadius) {
   // Lazy load stackblur
   const blur = await loadStackblur();
 
-  // Clone the image data to avoid modifying the original
-  const cloned = new ImageData(
-    new Uint8ClampedArray(imageData.data),
-    width,
-    height
-  );
+  const data = new Uint8ClampedArray(imageData.data);
 
-  // Apply blur directly to preserve transparency
-  blur(cloned.data, width, height, blurRadius);
+  // Pre-multiply alpha
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3] / 255;
+    data[i] *= alpha;
+    data[i + 1] *= alpha;
+    data[i + 2] *= alpha;
+  }
 
-  return cloned;
+  // Apply blur
+  blur(data, width, height, blurRadius);
+
+  // Un-pre-multiply alpha
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3] / 255;
+    if (alpha > 0) {
+      data[i] /= alpha;
+      data[i + 1] /= alpha;
+      data[i + 2] /= alpha;
+    }
+  }
+
+  return new ImageData(data, width, height);
 }

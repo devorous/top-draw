@@ -311,30 +311,15 @@ export class LayerManager {
     return false;
   }
 
-  /**
-   * Composite existing baseCanvas + stroke (with blendMode) into a temp canvas,
-   * then copy the result back into baseCanvas.
-   *
-   * For blend modes like multiply/difference the temp canvas is pre-filled with
-   * the scene background so the math produces the correct colour result.
-   * For destination-out (eraser) we must NOT fill the background: an opaque white
-   * fill would make every previously-transparent pixel in the layer turn white after
-   * source-over compositing, and those white pixels would then occlude lower layers.
-   */
   _bakeStrokeToBase(group, stroke) {
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = this.width;
     tempCanvas.height = this.height;
     const tempCtx = tempCanvas.getContext('2d');
 
-    // Pre-fill with background for blend modes that need it (multiply, difference…).
-    // Skip for destination-out: erased areas must stay transparent, not become white.
-    if (stroke.blendMode !== 'destination-out' && this.backgroundColor) {
-      const [r, g, b, a] = this.backgroundColor;
-      tempCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-      tempCtx.fillRect(0, 0, this.width, this.height);
-    }
-
+    // Do NOT fill with backgroundColor here. Individual layers should remain 
+    // transparent. Background is only for the final composite in compositeLayers().
+    
     // Existing baked content
     tempCtx.globalCompositeOperation = 'source-over';
     tempCtx.drawImage(group.baseCanvas, 0, 0);
