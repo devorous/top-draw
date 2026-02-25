@@ -17,10 +17,11 @@ class Tool {
 }
 
 /**
- * Blur tool - applies stackblur to the area under the circular cursor.
+ * Blur tool - applies a GPU-accelerated blur to the area under the circular cursor.
  *
  * Each blur gesture is stored as one active stroke. Dabs are applied continuously
- * while the pointer is held down, even if stationary.
+ * and additively while the pointer is held down, even if stationary. It reads from a
+ * clean snapshot of the layer to prevent destructive feedback loops.
  */
 export class BlurTool extends Tool {
   constructor(board) {
@@ -34,6 +35,31 @@ export class BlurTool extends Tool {
 
   onPointerDown(user, pos) {
     user.lastBlurPos = pos;
+
+    // --- Create the snapshot of the committed layer state ---
+    const activeLayerIdx = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+    const group = this.board.layerManager?.getLayerGroup(activeLayerIdx);
+    if (!group) return;
+
+    const snapshotCanvas = document.createElement('canvas');
+    const canvasWidth = this.board.getWidth();
+    const canvasHeight = this.board.getHeight();
+    snapshotCanvas.width = canvasWidth;
+    snapshotCanvas.height = canvasHeight;
+    const snapshotCtx = snapshotCanvas.getContext('2d');
+
+    // Draw the baked base layer
+    snapshotCtx.drawImage(group.baseCanvas, 0, 0);
+
+    // Draw all committed strokes onto the snapshot
+    for (const stroke of group.strokeStack) {
+      snapshotCtx.globalCompositeOperation = stroke.blendMode;
+      snapshotCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
+    }
+    
+    user.blurSnapshot = snapshotCanvas;
+    // --- End snapshot creation ---
+
     this.board.beginStroke(user);
     this.startBlurLoop(user);
   }
@@ -49,6 +75,9 @@ export class BlurTool extends Tool {
     this.board.clearTop();
     this.board.endStroke(user);
     this.pendingBlur = Promise.resolve();
+
+    // --- Clean up snapshot ---
+    user.blurSnapshot = null;
   }
 
   startBlurLoop(user) {
@@ -62,15 +91,12 @@ export class BlurTool extends Tool {
 
       const pos = user.lastBlurPos;
       if (pos) {
-        this.pendingBlur = this.pendingBlur.then(() => 
-          this.applyBlur(pos.x, pos.y, user.size, user)
-        );
+        // No need for pendingBlur promise chain with this simpler implementation
+        this.applyBlur(pos.x, pos.y, user.size, user);
 
         if (this.board.mirror) {
           const width = this.board.getWidth();
-          this.pendingBlur = this.pendingBlur.then(() => 
-            this.applyBlur(width - pos.x, pos.y, user.size, user)
-          );
+          this.applyBlur(width - pos.x, pos.y, user.size, user);
         }
       }
 
@@ -90,22 +116,19 @@ export class BlurTool extends Tool {
 
   /**
    * Apply blur to a circular region centered at (x, y).
-   * Reads only from the active layer's content and writes blurred pixels 
-   * to the user's active stroke canvas using a feathered circular mask.
+   * Reads from a clean snapshot, applies a hardware-accelerated blur,
+   * and draws the result additively to the stroke canvas.
    */
-  async applyBlur(x, y, size, user) {
-    const canvasWidth = this.board.getWidth();
-    const canvasHeight = this.board.getHeight();
-
-    // Use a slightly larger bounding box for the blur kernel to avoid edge artifacts
+  applyBlur(x, y, size, user) {
+    const blurAmount = user.blurRadius || 10;
     const radius = size;
-    const blurRadius = user.blurRadius || 10;
-    const margin = Math.ceil(blurRadius);
     
+    // Bounding box for the update region, expanded to accommodate the blur effect
+    const margin = Math.ceil(blurAmount);
     const left = Math.max(0, Math.floor(x - radius - margin));
     const top = Math.max(0, Math.floor(y - radius - margin));
-    const right = Math.min(canvasWidth, Math.ceil(x + radius + margin));
-    const bottom = Math.min(canvasHeight, Math.ceil(y + radius + margin));
+    const right = Math.min(this.board.getWidth(), Math.ceil(x + radius + margin));
+    const bottom = Math.min(this.board.getHeight(), Math.ceil(y + radius + margin));
 
     const width = right - left;
     const height = bottom - top;
@@ -114,73 +137,44 @@ export class BlurTool extends Tool {
 
     try {
       const activeLayerIdx = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
-      const group = this.board.layerManager?.getLayerGroup(activeLayerIdx);
-      if (!group) return;
+      const strokeCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, user.id);
+      if (!strokeCtx || !user.blurSnapshot) return;
 
-      const userId = user.id ?? this.board.app?.self?.id ?? 0;
-      const strokeCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, userId);
-      if (!strokeCtx) return;
-
-      // Create a temporary canvas to composite just the active layer's content
+      // Use a single temporary canvas for the blur operation
       const temp = document.createElement('canvas');
       temp.width = width;
       temp.height = height;
       const tempCtx = temp.getContext('2d');
 
-      // 1. Draw base baked content
-      tempCtx.drawImage(group.baseCanvas, left, top, width, height, 0, 0, width, height);
+      // Apply the browser's native blur filter to the temp context
+      tempCtx.filter = `blur(${blurAmount}px)`;
 
-      // 2. Draw committed strokes
-      for (const stroke of group.strokeStack) {
-        tempCtx.globalCompositeOperation = stroke.blendMode;
-        tempCtx.drawImage(stroke.canvas, stroke.x - left, stroke.y - top);
-      }
+      // Draw the region from the clean snapshot into the temp canvas.
+      // The filter will be applied to this drawing operation.
+      // We draw with a margin inside the temp canvas to prevent the blur from getting clipped at the edges.
+      tempCtx.drawImage(user.blurSnapshot, 
+        left, top, width, height, // Source rect from snapshot
+        0, 0, width, height      // Destination rect in temp canvas
+      );
 
-      // 3. Draw active strokes (including previous dabs of THIS blur gesture)
-      for (const [id, active] of group.activeStrokeByUser) {
-        tempCtx.globalCompositeOperation = active.blendMode;
-        tempCtx.drawImage(active.canvas, left, top, width, height, 0, 0, width, height);
-      }
-
-      // Apply the blur
-      const imageData = tempCtx.getImageData(0, 0, width, height);
-      const blurred = await blurImageData(imageData, width, height, blurRadius);
-
-      // Now merge the blurred result back into the stroke canvas using a circular mask
-      const destImageData = strokeCtx.getImageData(left, top, width, height);
-      const destData = destImageData.data;
-      const blurredData = blurred.data;
+      // --- Composite onto the main stroke canvas additively, using a circular brush shape ---
+      strokeCtx.save();
       
-      const centerX = x - left;
-      const centerY = y - top;
-      const radiusSq = radius * radius;
-      const featherRange = radius * 0.4; // Soften the edge
-      const innerRadius = radius - featherRange;
-      const innerRadiusSq = innerRadius * innerRadius;
-
-      for (let i = 0; i < blurredData.length; i += 4) {
-        const px = (i / 4) % width;
-        const py = Math.floor((i / 4) / width);
-        const dx = px - centerX;
-        const dy = py - centerY;
-        const distSq = dx * dx + dy * dy;
-
-        if (distSq < radiusSq) {
-          let weight = 1;
-          if (distSq > innerRadiusSq) {
-            const dist = Math.sqrt(distSq);
-            weight = 1 - (dist - innerRadius) / featherRange;
-          }
-          
-          // Interpolate: replace dest with blurred result based on weight
-          destData[i]     = blurredData[i]     * weight + destData[i]     * (1 - weight);
-          destData[i + 1] = blurredData[i + 1] * weight + destData[i + 1] * (1 - weight);
-          destData[i + 2] = blurredData[i + 2] * weight + destData[i + 2] * (1 - weight);
-          destData[i + 3] = blurredData[i + 3] * weight + destData[i + 3] * (1 - weight);
-        }
-      }
+      // 1. Set up additive blending
+      strokeCtx.globalAlpha = 0.2; // This controls the strength of each dab
+      strokeCtx.globalCompositeOperation = 'source-over';
       
-      strokeCtx.putImageData(destImageData, left, top);
+      // 2. Create a circular clipping path to define the brush shape
+      strokeCtx.beginPath();
+      strokeCtx.arc(x, y, radius, 0, Math.PI * 2);
+      strokeCtx.clip();
+
+      // 3. Draw the blurred temporary canvas onto the stroke canvas
+      strokeCtx.drawImage(temp, left, top);
+      
+      // 4. Restore context to remove clip and reset alpha/composite settings
+      strokeCtx.restore();
+
       this.board.compositeAllLayers();
     } catch (error) {
       console.error('Blur error:', error);
