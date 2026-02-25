@@ -383,6 +383,12 @@ canvas {
   display: none;
 }
 
+.selectionMenu .menuItem.toggled {
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+  border-color: var(--accent-primary);
+}
+
 /* ========================================
    Toast Notification
    ======================================== */
@@ -638,8 +644,9 @@ canvas {
 
 .radio-group {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
+  width: 100%;
 }
 
 .radio-option {
@@ -659,7 +666,8 @@ canvas {
   border-color: var(--accent-primary);
 }
 
-.radio-option input[type="radio"] {
+.radio-option input[type="radio"],
+.radio-option input[type="checkbox"] {
   display: none;
 }
 

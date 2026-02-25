@@ -364,7 +364,7 @@
             <!-- Selection Mode Options -->
             <div id="selectionModeOptions" style="display: none;">
               <div class="selection-mode-container">
-                <label>Selection Mode</label>
+                <label class="modeLabel">Selection Mode</label>
                 <div class="radio-group">
                   <label class="radio-option">
                     <input type="radio" name="selectionMode" value="lasso" checked>
@@ -372,7 +372,13 @@
                   </label>
                   <label class="radio-option">
                     <input type="radio" name="selectionMode" value="rectangle">
-                    <span>Rectangle</span>
+                    <span>Rect</span>
+                  </label>
+                </div>
+                <div class="radio-group" style="margin-top: 8px;">
+                  <label class="radio-option">
+                    <input type="checkbox" id="selAllLayersCheck">
+                    <span>All Layers</span>
                   </label>
                 </div>
               </div>

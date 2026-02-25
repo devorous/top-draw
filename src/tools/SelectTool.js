@@ -26,6 +26,8 @@ export class SelectTool extends Tool {
   constructor(board) {
     super('select', board);
     this.mode = 'lasso'; // 'rectangle' or 'lasso' - default to lasso
+    this.copyAllLayers = false; // Toggle: copy/cut all visible layers vs active layer only
+    this._restoreData = null; // Snapshot of erased area for cancelMovement()
     this.isSelecting = false;
     this.isDragging = false;
     this.startPos = null;
@@ -1463,8 +1465,9 @@ export class SelectTool extends Tool {
     this.floatingCanvas.height = s.height;
     this.floatingCtx = this.floatingCanvas.getContext('2d');
 
-    // Copy selected region from main canvas
-    const imageData = this.board.mainCtx.getImageData(s.x, s.y, s.width, s.height);
+    // Copy from flattened layer(s) with transparent background
+    const flatCanvas = this._flattenSelectionToCanvas(s);
+    const imageData = flatCanvas.getContext('2d').getImageData(0, 0, s.width, s.height);
 
     // Apply lasso mask if in lasso mode
     if (this.mode === 'lasso' && this.lassoPath) {
@@ -1474,28 +1477,13 @@ export class SelectTool extends Tool {
     this.floatingCtx.putImageData(imageData, 0, 0);
     this.selectedImageData = imageData;
 
-    // Clear the region on main canvas - use lasso path as clip if available
-    if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
-      // Use lasso path as clipping mask to only clear the selected area
-      this.board.mainCtx.save();
-      this.board.mainCtx.beginPath();
-      this.board.mainCtx.moveTo(this.lassoPath[0].x, this.lassoPath[0].y);
-      for (let i = 1; i < this.lassoPath.length; i++) {
-        this.board.mainCtx.lineTo(this.lassoPath[i].x, this.lassoPath[i].y);
-      }
-      this.board.mainCtx.closePath();
-      this.board.mainCtx.clip();
-      this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
-      this.board.mainCtx.restore();
-    } else {
-      // Rectangle mode - clear the entire selection
-      this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
-    }
-
-    // Store original position if not already set
+    // Store original position BEFORE erasing so we can track moves
     if (!this.originalSelectionPos) {
       this.originalSelectionPos = { x: s.x, y: s.y };
     }
+
+    // Erase source area directly from baseCanvas (no stroke record created)
+    this._restoreData = this._eraseSelectionDirectly(s, this.mode === 'lasso' ? this.lassoPath : null);
 
     // Create reusable homography instances for this selection
     this.homography = new Homography('projective');
@@ -1514,55 +1502,56 @@ export class SelectTool extends Tool {
   commitSelection() {
     if (!this.floatingCanvas || !this.selection) return;
 
-    // Check if we need to apply a homography transform (includes rotation via corners)
-    if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
-      // Reuse or create homography instance for full-resolution commit
-      if (!this.homography) {
-        this.homography = new Homography('projective');
-      }
+    const lm = this.board.layerManager;
+    const userId = this.board.app?.self?.id ?? 0;
+    const activeLayer = this.board.app?.self?.activeLayer ?? 0;
 
-      // Perform the transform using shared utility
+    // Begin a new stroke on the active layer so this paste is undoable
+    lm.beginUserStroke(activeLayer, userId, 'source-over');
+    const active = lm.layerGroups[activeLayer]?.activeStrokeByUser.get(userId);
+    if (!active) {
+      this.floatingCanvas = null;
+      this.floatingCtx = null;
+      this.selectedImageData = null;
+      this.board.clearTop();
+      return;
+    }
+
+    // Draw the floating selection (with optional transform) into the stroke canvas
+    if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
+      if (!this.homography) this.homography = new Homography('projective');
+
       const result = performHomographyTransform({
         sourceCanvas: this.floatingCanvas,
         sourceCorners: this.originalCorners,
         destCorners: this.corners,
-        scale: 1, // Full resolution
+        scale: 1,
         homographyInstance: this.homography
       });
 
       if (result) {
-        // Draw transformed result to main canvas
         const tempCanvas = imageDataToCanvas(result.imageData);
-        this.board.mainCtx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
+        active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
       } else {
-        // Fallback: draw without transform
-        this.board.mainCtx.drawImage(
-          this.floatingCanvas,
-          this.selection.x,
-          this.selection.y,
-          this.selection.width,
-          this.selection.height
-        );
+        active.ctx.drawImage(this.floatingCanvas, this.selection.x, this.selection.y, this.selection.width, this.selection.height);
       }
     } else {
-      // No transform needed, just draw at current position
-      this.board.mainCtx.drawImage(
-        this.floatingCanvas,
-        this.selection.x,
-        this.selection.y,
-        this.selection.width,
-        this.selection.height
-      );
+      active.ctx.drawImage(this.floatingCanvas, this.selection.x, this.selection.y, this.selection.width, this.selection.height);
     }
+
+    // Commit as an undoable stroke record.
+    // Attach restore data so Board.undo/redo can also reverse the source-area erase.
+    lm.commitUserStroke(activeLayer, userId, { selectionRestoreData: this._restoreData });
+    this.board.compositeAllLayers();
 
     if (this.board.app && this.board.app.wsClient) {
       this.board.app.wsClient.broadcastSelectionCommit();
     }
 
-    //Cleanup local state
     this.floatingCanvas = null;
     this.floatingCtx = null;
     this.selectedImageData = null;
+    this._restoreData = null;
     this.board.clearTop();
   }
 
@@ -1580,6 +1569,7 @@ export class SelectTool extends Tool {
     this.isRotating = false;
     this.cornersAtRotationStart = null;
     this.hasShownPreviewToast = false; // Reset toast flag for next selection
+    this._restoreData = null;
     // Clear homography instances
     this.homography = null;
     this.previewHomography = null;
@@ -1591,6 +1581,127 @@ export class SelectTool extends Tool {
 
     this.hideContextMenu();
     this.board.clearTop();
+  }
+
+  // Toggle all-layers copy/cut mode
+  toggleCopyAllLayers(value) {
+    this.copyAllLayers = value !== undefined ? value : !this.copyAllLayers;
+  }
+
+  // Flatten visible layers (all or active only) into a selection-sized canvas.
+  // When copying all layers, reads from mainCtx (includes background).
+  // When copying single layer, composites just that layer with transparent background.
+  _flattenSelectionToCanvas(s) {
+    const lm = this.board.layerManager;
+    const selCanvas = document.createElement('canvas');
+    selCanvas.width = s.width;
+    selCanvas.height = s.height;
+    const selCtx = selCanvas.getContext('2d');
+
+    if (this.copyAllLayers) {
+      // Read from mainCtx which has all layers composited with background
+      selCtx.drawImage(this.board.mainCanvas, s.x, s.y, s.width, s.height, 0, 0, s.width, s.height);
+    } else {
+      // Composite just the active layer with transparent background
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = lm.width;
+      tempCanvas.height = lm.height;
+      const tempCtx = tempCanvas.getContext('2d');
+      const activeLayer = this.board.app?.self?.activeLayer ?? 0;
+      lm.compositeLayerRange(tempCtx, activeLayer, activeLayer + 1, null);
+      selCtx.drawImage(tempCanvas, -s.x, -s.y);
+    }
+
+    return selCanvas;
+  }
+
+  // Erase the selection directly from baseCanvas without touching the stroke history.
+  // Bakes the current user's uncommitted strokes into baseCanvas first, then applies
+  // destination-out. Stores a per-layer restore snapshot and returns it.
+  _eraseSelectionDirectly(s, lassoPath) {
+    const lm = this.board.layerManager;
+    const isMultiLayer = this.copyAllLayers;
+    const snapshots = [];
+
+    const eraseGroup = (groupIdx) => {
+      const group = lm.layerGroups[groupIdx];
+      if (!group || !group.visible) return;
+
+      // Composite the entire group (base + all strokes) onto a TRANSPARENT canvas.
+      // _compositeGroupInto does not fill a background, so transparency is preserved —
+      // unlike _bakeStrokeToBase which fills with the board background colour (white).
+      const layerCanvas = document.createElement('canvas');
+      layerCanvas.width = lm.width;
+      layerCanvas.height = lm.height;
+      const layerCtx = layerCanvas.getContext('2d');
+      lm._compositeGroupInto(layerCtx, group);
+
+      // Snapshot the selection area BEFORE erasing (used by cancelMovement / undo to restore)
+      const snap = document.createElement('canvas');
+      snap.width = s.width;
+      snap.height = s.height;
+      snap.getContext('2d').drawImage(layerCanvas, s.x, s.y, s.width, s.height, 0, 0, s.width, s.height);
+      snapshots.push({ groupIdx, canvas: snap, x: s.x, y: s.y });
+
+      // Apply the erase to the composited layer canvas
+      layerCtx.globalCompositeOperation = 'destination-out';
+      layerCtx.fillStyle = 'white';
+      if (lassoPath && lassoPath.length >= 3) {
+        layerCtx.beginPath();
+        layerCtx.moveTo(lassoPath[0].x, lassoPath[0].y);
+        for (let i = 1; i < lassoPath.length; i++) {
+          layerCtx.lineTo(lassoPath[i].x, lassoPath[i].y);
+        }
+        layerCtx.closePath();
+        layerCtx.fill();
+      } else {
+        layerCtx.fillRect(s.x, s.y, s.width, s.height);
+      }
+      layerCtx.globalCompositeOperation = 'source-over';
+
+      // Replace baseCanvas with the transparent erased composite
+      // and clear the stroke stack (everything is now baked in)
+      group.baseCtx.clearRect(0, 0, lm.width, lm.height);
+      group.baseCtx.drawImage(layerCanvas, 0, 0);
+      group.strokeStack = [];
+      group.userStrokeCounts.clear();
+      group.activeStrokeByUser.clear();
+
+      lm.needsComposite = true;
+    };
+
+    if (isMultiLayer) {
+      for (let i = 0; i < lm.layerGroups.length; i++) eraseGroup(i);
+    } else {
+      eraseGroup(this.board.app?.self?.activeLayer ?? 0);
+    }
+
+    lm._notifyHistoryPanel();
+    this.board.compositeAllLayers();
+
+    // Return snapshots + the original erase shape so Board.undo/redo can replay it
+    return {
+      snapshots,
+      eraseS: { ...s },
+      eraseLassoPath: lassoPath ? lassoPath.map(p => ({ ...p })) : null
+    };
+  }
+
+  // Restore erased content from a restore snapshot (used by cancelMovement / Board.undo)
+  _restoreSelectionContent(restoreData) {
+    if (!restoreData) return;
+    const snapshots = restoreData.snapshots || restoreData; // accept both formats
+    const lm = this.board.layerManager;
+
+    for (const { groupIdx, canvas, x, y } of snapshots) {
+      const group = lm.layerGroups[groupIdx];
+      if (!group) continue;
+      group.baseCtx.drawImage(canvas, x, y);
+      lm.needsComposite = true;
+    }
+
+    lm._notifyHistoryPanel();
+    this.board.compositeAllLayers();
   }
 
   // Copy selection to clipboard
@@ -1608,10 +1719,15 @@ export class SelectTool extends Tool {
         imageData: transformedCanvas.getContext('2d').getImageData(0, 0, transformedCanvas.width, transformedCanvas.height)
       };
     } else {
+      const flatCanvas = this._flattenSelectionToCanvas(s);
+      const imageData = flatCanvas.getContext('2d').getImageData(0, 0, s.width, s.height);
+      if (this.mode === 'lasso' && this.lassoPath) {
+        this.applyLassoMask(imageData, s.x, s.y, this.lassoPath);
+      }
       this.clipboard = {
         width: s.width,
         height: s.height,
-        imageData: this.board.mainCtx.getImageData(s.x, s.y, s.width, s.height)
+        imageData
       };
     }
 
@@ -1689,28 +1805,14 @@ export class SelectTool extends Tool {
 
     const s = this.selection;
 
-    // If floating, just discard it
+    // If floating, erase already happened at lift time — just discard
     if (this.floatingCanvas) {
       this.floatingCanvas = null;
       this.floatingCtx = null;
+      this._restoreData = null;
     } else {
-      // Clear region on main canvas
-      if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
-        // Use lasso path as clipping region
-        this.board.mainCtx.save();
-        this.board.mainCtx.beginPath();
-        this.board.mainCtx.moveTo(this.lassoPath[0].x, this.lassoPath[0].y);
-        for (let i = 1; i < this.lassoPath.length; i++) {
-          this.board.mainCtx.lineTo(this.lassoPath[i].x, this.lassoPath[i].y);
-        }
-        this.board.mainCtx.closePath();
-        this.board.mainCtx.clip();
-        this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
-        this.board.mainCtx.restore();
-      } else {
-        // Rectangle mode - clear entire selection
-        this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
-      }
+      // Not yet lifted — erase now directly
+      this._eraseSelectionDirectly(s, this.mode === 'lasso' ? this.lassoPath : null);
     }
 
     // Broadcast delete to other users
@@ -2004,23 +2106,11 @@ export class SelectTool extends Tool {
   cancelMovement() {
     if (!this.floatingCanvas || !this.selection || !this.originalSelectionPos) return false;
 
-    // Restore selection to original position
-    this.selection.x = this.originalSelectionPos.x;
-    this.selection.y = this.originalSelectionPos.y;
-
-    // Reset rotation
-    this.rotation = 0;
-    this.cornersAtRotationStart = null;
-
-    // Reinitialize corners to original rectangle
-    this.initializeCorners();
-
-    // Draw the floating canvas back to its original position on main canvas
-    this.board.mainCtx.drawImage(
-      this.floatingCanvas,
-      this.originalSelectionPos.x,
-      this.originalSelectionPos.y
-    );
+    // Restore the erased source area from our snapshot
+    if (this._restoreData) {
+      this._restoreSelectionContent(this._restoreData);
+      this._restoreData = null;
+    }
 
     // Broadcast cancel to other users
     if (this.board.app?.wsClient) {

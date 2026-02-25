@@ -375,7 +375,16 @@ export class Board {
   undo(_layerIndex, userId) {
     if (!this.layerManager) return;
     const batch = this.layerManager.undoLastStrokeGlobal(userId);
-    if (batch) this.layerManager._pushToRedoStack(userId, batch);
+    if (batch) {
+      this.layerManager._pushToRedoStack(userId, batch);
+      // If the undone stroke was a selection paste, restore the erased source area
+      for (const { record } of batch) {
+        if (record.selectionRestoreData) {
+          this._applySelectionRestore(record.selectionRestoreData.snapshots);
+          break;
+        }
+      }
+    }
     this.compositeAllLayers();
   }
 
@@ -385,8 +394,58 @@ export class Board {
    */
   redo(userId) {
     if (!this.layerManager) return;
+    // If the stroke being redone was a selection paste, re-apply the source-area erase
+    const redoStack = this.layerManager.redoStackByUser.get(userId);
+    if (redoStack && redoStack.length > 0) {
+      const batch = redoStack[redoStack.length - 1];
+      for (const { record } of batch) {
+        if (record.selectionRestoreData) {
+          this._applySelectionReErase(record.selectionRestoreData);
+          break;
+        }
+      }
+    }
     this.layerManager.redoLastStroke(userId);
     this.compositeAllLayers();
+  }
+
+  /** Apply pixel snapshots back to baseCanvas (used by undo of a selection paste) */
+  _applySelectionRestore(snapshots) {
+    if (!snapshots) return;
+    const lm = this.layerManager;
+    for (const { groupIdx, canvas, x, y } of snapshots) {
+      const group = lm.layerGroups[groupIdx];
+      if (!group) continue;
+      group.baseCtx.drawImage(canvas, x, y);
+      lm.needsComposite = true;
+    }
+    lm._notifyHistoryPanel();
+  }
+
+  /** Re-apply the erase to baseCanvas (used by redo of a selection paste) */
+  _applySelectionReErase(restoreData) {
+    const lm = this.layerManager;
+    const { snapshots, eraseS: s, eraseLassoPath: lassoPath } = restoreData;
+    for (const { groupIdx } of snapshots) {
+      const group = lm.layerGroups[groupIdx];
+      if (!group) continue;
+      group.baseCtx.globalCompositeOperation = 'destination-out';
+      group.baseCtx.fillStyle = 'white';
+      if (lassoPath && lassoPath.length >= 3) {
+        group.baseCtx.beginPath();
+        group.baseCtx.moveTo(lassoPath[0].x, lassoPath[0].y);
+        for (let i = 1; i < lassoPath.length; i++) {
+          group.baseCtx.lineTo(lassoPath[i].x, lassoPath[i].y);
+        }
+        group.baseCtx.closePath();
+        group.baseCtx.fill();
+      } else {
+        group.baseCtx.fillRect(s.x, s.y, s.width, s.height);
+      }
+      group.baseCtx.globalCompositeOperation = 'source-over';
+      lm.needsComposite = true;
+    }
+    lm._notifyHistoryPanel();
   }
 
   /**

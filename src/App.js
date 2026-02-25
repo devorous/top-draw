@@ -641,6 +641,17 @@ export class DrawingApp {
       });
     });
 
+    // All layers toggle for select tool
+    const selAllLayersCheck = document.getElementById('selAllLayersCheck');
+    if (selAllLayersCheck) {
+      selAllLayersCheck.addEventListener('change', (e) => {
+        const selectTool = this.toolManager.getTool('select');
+        if (selectTool) {
+          selectTool.toggleCopyAllLayers(e.target.checked);
+        }
+      });
+    }
+
     // Lock button event listeners
     if (elements.sizeLock) elements.sizeLock.addEventListener('click', () => this.toolLockManager.toggleLock('size'));
     if (elements.pressureLock) elements.pressureLock.addEventListener('click', () => this.toolLockManager.toggleLock('pressure'));
