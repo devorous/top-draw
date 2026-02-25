@@ -1614,6 +1614,9 @@ export class DrawingApp {
 
     this.self.mousedown = false;
 
+    // Cancel active stroke in LayerManager (prevent zombie strokes)
+    this.board.cancelStroke(this.self);
+
     // Clear the top canvas AFTER all tool state is reset
     // This ensures no residual preview remains
     this.board.clearTop();

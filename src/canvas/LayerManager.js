@@ -100,20 +100,25 @@ export class LayerManager {
 
   /**
    * Get the drawing context for a user's current in-progress stroke.
-   * Lazily creates a source-over stroke if none exists (e.g. for mid-stroke tool calls).
+   * Lazily creates a stroke if none exists (e.g. for mid-stroke tool calls).
    * @param {number} groupIdx
    * @param {number} userId
+   * @param {string} [createBlendMode='source-over'] - Blend mode to use if a new stroke must be created
    * @returns {CanvasRenderingContext2D|undefined}
    */
-  getUserStrokeContext(groupIdx, userId) {
+  getUserStrokeContext(groupIdx, userId, createBlendMode = 'source-over') {
     const group = this.layerGroups[groupIdx];
     if (!group) return undefined;
 
     let active = group.activeStrokeByUser.get(userId);
     if (!active) {
       const { canvas, ctx } = this._createCanvas();
-      active = { canvas, ctx, blendMode: 'source-over' };
+      active = { canvas, ctx, blendMode: createBlendMode };
       group.activeStrokeByUser.set(userId, active);
+    } else if (createBlendMode !== 'source-over' && active.blendMode !== createBlendMode) {
+      // Force update blend mode if requesting something specific (like eraser)
+      // and we have a default/stale stroke (e.g. from deferred pointer down or zombie stroke).
+      active.blendMode = createBlendMode;
     }
     return active.ctx;
   }
@@ -157,6 +162,22 @@ export class LayerManager {
     this._clearRedoStack(userId);
     this.needsComposite = true;
     this._notifyHistoryPanel();
+  }
+
+  /**
+   * Cancel an in-progress stroke: discard the active stroke canvas without committing it.
+   * @param {number} groupIdx
+   * @param {number} userId
+   */
+  cancelUserStroke(groupIdx, userId) {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return;
+
+    if (group.activeStrokeByUser.has(userId)) {
+      group.activeStrokeByUser.delete(userId);
+      this.needsComposite = true;
+      this._notifyHistoryPanel();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -427,22 +448,44 @@ export class LayerManager {
   }
 
   /**
+   * Helper to render a single stroke (stored or active) onto the target context.
+   * Handles eraser logic (erase + restore background) vs normal blending.
+   */
+  _compositeStroke(ctx, stroke, lowerSnap) {
+    // For active strokes, x/y might be missing (implicit 0,0), but stored strokes have them.
+    const x = stroke.x ?? 0;
+    const y = stroke.y ?? 0;
+
+    if (stroke.blendMode === 'destination-out') {
+      // 1. Erase current content (cut hole)
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.drawImage(stroke.canvas, x, y);
+      
+      // 2. Restore lower layers into the hole
+      // destination-over draws *behind* existing pixels.
+      // - Existing opaque pixels (from current layer) block lowerSnap.
+      // - Existing transparent pixels (holes) show lowerSnap.
+      ctx.globalCompositeOperation = 'destination-over';
+      ctx.drawImage(lowerSnap, 0, 0);
+    } else {
+      // Normal blend mode (source-over, multiply, etc)
+      ctx.globalCompositeOperation = stroke.blendMode;
+      ctx.drawImage(stroke.canvas, x, y);
+    }
+  }
+
+  /**
    * Composite a range of layer groups onto a target context.
    *
    * For groups WITHOUT destination-out (eraser) strokes, all strokes are drawn
    * directly onto targetCtx so blend modes like multiply correctly blend against
    * the accumulated lower-layer content.
    *
-   * For groups WITH destination-out strokes the algorithm is:
+   * For groups WITH destination-out strokes:
    *   1. Snapshot targetCtx (lower layers accumulated so far) → lowerSnap
-   *   2. Draw baseCanvas + all non-dest-out strokes directly onto targetCtx
-   *      (blend modes still blend against lower layers ✓)
-   *   3. Apply dest-out strokes → punches transparent holes in targetCtx
-   *   4. destination-over lowerSnap onto targetCtx → fills the transparent holes
-   *      with the lower-layer content, while leaving non-erased pixels untouched
-   *
-   * This means the eraser only removes this layer's own contribution and lower
-   * layers show through the holes, with no impact on blend-mode strokes.
+   *   2. Draw baseCanvas + all strokes IN ORDER.
+   *      - Eraser strokes cut holes and immediately restore lowerSnap behind.
+   *      - This ensures erasers only affect content drawn *before* them in the stack.
    *
    * @param {CanvasRenderingContext2D} targetCtx
    * @param {number} startIdx - Inclusive start index
@@ -465,53 +508,26 @@ export class LayerManager {
       if (!group.visible) continue;
 
       if (this._groupHasDestOut(group)) {
-        // --- Eraser-aware compositing ---
+        // --- Eraser-aware compositing (Sequential) ---
         // Step 1: snapshot lower layers already in targetCtx.
         const lowerSnap = document.createElement('canvas');
         lowerSnap.width = this.width;
         lowerSnap.height = this.height;
         lowerSnap.getContext('2d').drawImage(targetCtx.canvas, 0, 0);
 
-        // Step 2: baked history + non-dest-out strokes drawn directly so blend
-        // modes (multiply, difference…) blend against lower layers. ✓
+        // Step 2: Draw base canvas
         targetCtx.globalCompositeOperation = 'source-over';
         targetCtx.drawImage(group.baseCanvas, 0, 0);
 
+        // Step 3: Draw all strokes in strict chronological order
         for (const stroke of group.strokeStack) {
-          if (stroke.blendMode !== 'destination-out') {
-            targetCtx.globalCompositeOperation = stroke.blendMode;
-            targetCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
-          }
+          this._compositeStroke(targetCtx, stroke, lowerSnap);
         }
 
         for (const [, active] of group.activeStrokeByUser) {
-          if (active.blendMode !== 'destination-out') {
-            targetCtx.globalCompositeOperation = active.blendMode;
-            targetCtx.drawImage(active.canvas, 0, 0);
-          }
+          this._compositeStroke(targetCtx, active, lowerSnap);
         }
-
-        // Step 3: apply dest-out strokes → transparent holes in targetCtx.
-        for (const stroke of group.strokeStack) {
-          if (stroke.blendMode === 'destination-out') {
-            targetCtx.globalCompositeOperation = 'destination-out';
-            targetCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
-          }
-        }
-
-        for (const [, active] of group.activeStrokeByUser) {
-          if (active.blendMode === 'destination-out') {
-            targetCtx.globalCompositeOperation = 'destination-out';
-            targetCtx.drawImage(active.canvas, 0, 0);
-          }
-        }
-
-        // Step 4: destination-over restores lower-layer content in the holes.
-        // destination-over draws lowerSnap *behind* the current targetCtx pixels:
-        //   transparent pixels (erased) → filled with lower-layer content ✓
-        //   opaque pixels (non-erased)  → lowerSnap stays hidden behind them ✓
-        targetCtx.globalCompositeOperation = 'destination-over';
-        targetCtx.drawImage(lowerSnap, 0, 0);
+        
         targetCtx.globalCompositeOperation = 'source-over';
         // --------------------------------
       } else {
@@ -647,8 +663,8 @@ export class LayerManager {
   // ---------------------------------------------------------------------------
 
   /** @deprecated Use getUserStrokeContext(groupIndex, userId) */
-  getLayerContext(groupIndex, userId) {
-    return this.getUserStrokeContext(groupIndex, userId);
+  getLayerContext(groupIndex, userId, createBlendMode = 'source-over') {
+    return this.getUserStrokeContext(groupIndex, userId, createBlendMode);
   }
 
   /** @deprecated Use beginUserStroke(groupIndex, userId, blendMode) */

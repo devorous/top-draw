@@ -243,12 +243,13 @@ export class Board {
    * Get the drawing context for the local user's active sub-layer.
    * Strokes must always be drawn source-over into this context —
    * the blend mode is applied at composite time, not at draw time.
+   * @param {string} [createBlendMode='source-over']
    * @returns {CanvasRenderingContext2D} The active sub-layer's context
    */
-  getActiveLayerContext() {
+  getActiveLayerContext(createBlendMode = 'source-over') {
     const activeLayer = this.app?.self?.activeLayer ?? 0;
     const userId = this.app?.self?.id ?? 0;
-    return this.layerManager?.getLayerContext(activeLayer, userId) ?? this.mainCtx;
+    return this.layerManager?.getLayerContext(activeLayer, userId, createBlendMode) ?? this.mainCtx;
   }
 
   /**
@@ -256,10 +257,11 @@ export class Board {
    * Used by remote user handlers.
    * @param {number} layerIndex - Layer group index
    * @param {number} userId - User ID
+   * @param {string} [createBlendMode='source-over']
    * @returns {CanvasRenderingContext2D} The sub-layer's context
    */
-  getLayerContext(layerIndex, userId) {
-    return this.layerManager?.getLayerContext(layerIndex, userId) ?? this.mainCtx;
+  getLayerContext(layerIndex, userId, createBlendMode = 'source-over') {
+    return this.layerManager?.getLayerContext(layerIndex, userId, createBlendMode) ?? this.mainCtx;
   }
 
   /**
@@ -363,6 +365,19 @@ export class Board {
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     if (!this.layerManager) return;
     this.layerManager.commitUserStroke(activeLayer, userId);
+    this.compositeAllLayers();
+  }
+
+  /**
+   * Cancel the current stroke for a user. Discards the active stroke canvas
+   * without committing it.
+   * @param {Object} user - User object with activeLayer and id
+   */
+  cancelStroke(user) {
+    const activeLayer = user?.activeLayer ?? this.app?.self?.activeLayer ?? 0;
+    const userId = user?.id ?? this.app?.self?.id ?? 0;
+    if (!this.layerManager) return;
+    this.layerManager.cancelUserStroke(activeLayer, userId);
     this.compositeAllLayers();
   }
 

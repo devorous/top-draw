@@ -70,12 +70,12 @@ export class EraserTool extends Tool {
   erase(x1, y1, x2, y2, size, opacity = 1.0) {
     if (this._eraseAllLayers()) {
       const userId = this.board.app?.self?.id ?? 0;
-      const ctxs = this.board.getAllLayerContexts(userId);
+      const ctxs = this.board.getAllLayerContexts(userId, 'destination-out');
       for (const ctx of ctxs) {
         this._eraseOnCtx(ctx, x1, y1, x2, y2, size, opacity);
       }
     } else {
-      const ctx = this.board.getActiveLayerContext();
+      const ctx = this.board.getActiveLayerContext('destination-out');
       if (ctx) {
         this._eraseOnCtx(ctx, x1, y1, x2, y2, size, opacity);
       }
