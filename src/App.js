@@ -139,6 +139,9 @@ export class DrawingApp {
     this.board.layerManager.strokeHistoryPanel = this.strokeHistoryPanel;
     this.board.layerManager.onHistoryChange = () => this.updateUndoRedoHud();
 
+    // Initialize layer preview hover listeners
+    this.ui.setupLayerPreviewListeners(this.board.layerManager);
+
     // Initialize region tracker for canvas sync
     this.regionTracker = new RegionTracker();
     this.regionTracker.init(this.board.mainCanvas);

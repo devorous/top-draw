@@ -1,5 +1,6 @@
 import { EditableValueHandler } from './EditableValueHandler.js';
 import { RemoteUserUI } from './RemoteUserUI.js';
+import { LayerPreview } from './LayerPreview.js';
 
 /**
  * UI Manager for handling DOM interactions
@@ -11,12 +12,33 @@ export class UI {
     this.cursors = new Map();
     this.editableHandler = new EditableValueHandler();
     this.remoteUserUI = null; // Initialized after icons are created
+    this.layerPreview = new LayerPreview();
   }
 
   init() {
     this.cacheElements();
     this.createIcons();
     this.remoteUserUI = new RemoteUserUI(this.elements, this.icons);
+    this.layerPreview.init();
+  }
+
+  /**
+   * Setup hover listeners for layer buttons to show miniatures
+   * @param {LayerManager} layerManager - Reference to the layer system
+   */
+  setupLayerPreviewListeners(layerManager) {
+    const layerButtons = document.querySelectorAll('.layerButton');
+    layerButtons.forEach(btn => {
+      btn.addEventListener('mouseenter', (e) => {
+        const layerIdx = parseInt(btn.dataset.layer);
+        const rect = btn.getBoundingClientRect();
+        this.layerPreview.show(layerIdx, layerManager, rect.right, rect.top + rect.height / 2);
+      });
+
+      btn.addEventListener('mouseleave', () => {
+        this.layerPreview.hide();
+      });
+    });
   }
 
   cacheElements() {
@@ -455,7 +477,9 @@ export class UI {
 
   updateSelfTextStyle(size, color) {
     this.elements.selfText.style.fontSize = `${size + 5}px`;
-    this.elements.selfText.style.color = `rgba(${color.join(',')})`;
+    // Square the alpha to match board rendering (globalAlpha * colorAlpha)
+    const [r, g, b, a] = color;
+    this.elements.selfText.style.color = `rgba(${r}, ${g}, ${b}, ${a * a})`;
   }
 
   setBrushPreview(url) {

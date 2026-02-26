@@ -48,7 +48,7 @@ export class TextTool extends Tool {
 
   drawText(user) {
     // Text drawn source-over into sub-layer; blend mode applied at composite time.
-    const ctx = this.board.getActiveLayerContext();
+    const ctx = this.board.getLayerContext(user.activeLayer, user.id);
     ctx.globalCompositeOperation = 'source-over';
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     ctx.globalAlpha = opacity;

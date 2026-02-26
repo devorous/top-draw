@@ -84,7 +84,8 @@ export class RemoteUserUI {
     const text = document.createElement('text');
     text.className = `text ${id}`;
     text.style.width = '400px';
-    text.style.color = `rgba(${userData.color.join(',')})`;
+    text.style.color = `rgb(${userData.color[0]}, ${userData.color[1]}, ${userData.color[2]})`;
+    text.style.opacity = userData.color[3] ?? 1;
     text.style.fontSize = `${userData.size + 5}px`;
 
     if (userData.tool !== 'text') {
@@ -279,7 +280,10 @@ export class RemoteUserUI {
     const colorEntry = document.querySelector(`.listColor.${id}`);
 
     if (circle) circle.setAttribute('stroke', `rgba(${color.join(',')})`);
-    if (text) text.style.color = `rgba(${color.join(',')})`;
+    if (text) {
+      const [r, g, b, a] = color;
+      text.style.color = `rgba(${r}, ${g}, ${b}, ${a * a})`;
+    }
     if (colorEntry) colorEntry.style.backgroundColor = `rgba(${color.join(',')})`;
   }
 

@@ -287,6 +287,10 @@ export class RemoteUserHandler {
           this.toolManager.getTool('text').drawText(user);
           user.text = '';
           this.ui.updateRemoteText(user.id, '');
+          
+          // Commit to history stack so it can be undone by other clients
+          this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
+          this.board.compositeAllLayers();
         }
         break;
 
@@ -441,8 +445,11 @@ export class RemoteUserHandler {
     // Composite all layers to visible canvas after remote drawing
     this.board.compositeAllLayers();
 
-    // Commit the stroke to the history stack
-    this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
+    // Commit the stroke to the history stack.
+    // Skip if tool is text, as text is committed immediately in handleMouseDown.
+    if (user.tool !== 'text') {
+      this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
+    }
 
     // Cleanup (preview was already cleared at start of handleMouseUp)
     user.clearLine();
