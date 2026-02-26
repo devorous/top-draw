@@ -376,9 +376,22 @@ wss.on('connection', (ws, req) => {
           syncCoordinator.handleSyncRequest(ws, data);
           break;
 
-        // Canvas sync (step 3) — provider sends PNG via data.img; server routes it to data.tu (target user index)
+        // Canvas sync (step 3, legacy) — provider sends PNG via data.img; server routes it to data.tu
         case T.SYNC_CANVAS:
           syncCoordinator.handleSyncCanvas(ws, data);
+          break;
+
+        // Structured stroke sync — provider sends per-layer base canvases and stroke records
+        case T.SYNC_LAYER_BASE:
+          syncCoordinator.handleSyncLayerBase(ws, data);
+          break;
+
+        case T.SYNC_STROKE:
+          syncCoordinator.handleSyncStroke(ws, data);
+          break;
+
+        case T.SYNC_STROKES_DONE:
+          syncCoordinator.handleSyncStrokesDone(ws, data);
           break;
 
         // Direct message — data.r is the recipient's session index, data.g is the message text

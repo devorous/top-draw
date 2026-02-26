@@ -2,27 +2,43 @@
  * SyncHandlers
  *
  * Handles canvas synchronization events:
- * - Sync provide request (server asking us to provide canvas)
- * - Sync canvas data (receiving canvas from another user)
+ * - Sync provide request (server asking us to provide state)
+ * - Sync layer base (receiving a layer group's base canvas)
+ * - Sync stroke (receiving a stroke record — stack or redo)
+ * - Sync strokes done (all stroke data received)
  * - Sync complete (server finished sync process)
  */
 
 export function setupSyncHandlers(wsClient, app) {
-  // Sync provide - server asking us to provide our canvas for a new user
+  // Server asking us to provide our full layer state for a new user
   wsClient.on('sync_provide', (data) => {
     if (app.syncClient) {
       app.syncClient.handleSyncProvide(data);
     }
   });
 
-  // Sync canvas - receiving canvas data from another user
-  wsClient.on('sync_canvas', (data) => {
+  // Receiving a layer group's baked base canvas
+  wsClient.on('sync_layer_base', (data) => {
     if (app.syncClient) {
-      app.syncClient.handleSyncCanvas(data);
+      app.syncClient.handleSyncLayerBase(data);
     }
   });
 
-  // Sync complete - server finished sync process
+  // Receiving a stroke record (strokeStack or redo stack)
+  wsClient.on('sync_stroke', (data) => {
+    if (app.syncClient) {
+      app.syncClient.handleSyncStroke(data);
+    }
+  });
+
+  // All stroke data received — recomposite before SYNC_COMPLETE arrives
+  wsClient.on('sync_strokes_done', () => {
+    if (app.syncClient) {
+      app.syncClient.handleSyncStrokesDone();
+    }
+  });
+
+  // Sync complete — replay buffered events
   wsClient.on('sync_complete', () => {
     if (app.syncClient) {
       app.syncClient.handleSyncComplete();

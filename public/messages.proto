@@ -46,10 +46,13 @@ message Msg {
     CHAT_IMG = 40;      // Chat image message
 
     // Sync types (41+)
-    SYNC_REQUEST = 41;   // New user requests canvas state
-    SYNC_PROVIDE = 42;   // Server asks existing user to provide canvas
-    SYNC_CANVAS = 43;    // Canvas data (PNG) being sent
-    SYNC_COMPLETE = 44;  // Sync complete
+    SYNC_REQUEST = 41;      // New user requests canvas state
+    SYNC_PROVIDE = 42;      // Server asks existing user to provide canvas
+    SYNC_CANVAS = 43;       // (legacy) Canvas data (PNG) being sent
+    SYNC_COMPLETE = 44;     // Sync complete
+    SYNC_LAYER_BASE = 46;   // One per layer: baked base canvas PNG
+    SYNC_STROKE = 47;       // One per stroke record (stack or redo)
+    SYNC_STROKES_DONE = 48; // All stroke data sent; triggers SYNC_COMPLETE
 
     // Auth & Moderation (50+)
     AUTH_REGISTER = 50;  // Register new account
@@ -140,8 +143,13 @@ message Msg {
   repeated float cr = 22; // Selection control region/points
 
   // === Sync Fields ===
-  bytes img = 24;            // PNG image data (full canvas)
+  bytes img = 24;            // PNG image data (full canvas or stroke/base canvas)
   uint32 tu = 25;            // Target user for sync messages
+
+  // === Stroke Sync Fields ===
+  uint64 stroke_ts = 46;       // Stroke timestamp (Date.now()) for undo grouping
+  bool stroke_redo = 47;       // true = belongs to redo stack, false = strokeStack
+  uint32 stroke_redo_batch = 48; // Redo batch index (oldest batch = 0)
 
   // === DM Field ===
   uint32 r = 26;             // Recipient user ID for direct messages

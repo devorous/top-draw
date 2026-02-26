@@ -199,6 +199,55 @@ export class LayerManager {
   }
 
   // ---------------------------------------------------------------------------
+  // Sync Import Helpers (used when a new user joins and receives state)
+  // These bypass baking and redo-stack management to restore exact provider state.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set a layer group's base canvas from a received ImageBitmap.
+   * Called during join-sync to restore baked history.
+   * @param {number} groupIdx
+   * @param {ImageBitmap} imageBitmap
+   */
+  importBaseCanvas(groupIdx, imageBitmap) {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return;
+    group.baseCtx.clearRect(0, 0, this.width, this.height);
+    group.baseCtx.drawImage(imageBitmap, 0, 0);
+    this.needsComposite = true;
+  }
+
+  /**
+   * Insert a stroke record directly into a layer group's stroke stack.
+   * Does NOT trigger overflow baking or redo-stack clearing.
+   * @param {number} groupIdx
+   * @param {Object} record - StrokeRecord: { canvas, ctx, x, y, width, height, blendMode, userId, timestamp, ...extras }
+   */
+  importStroke(groupIdx, record) {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return;
+    group.strokeStack.push(record);
+    const prev = group.userStrokeCounts.get(record.userId) || 0;
+    group.userStrokeCounts.set(record.userId, prev + 1);
+    this.needsComposite = true;
+  }
+
+  /**
+   * Insert a stroke record into a specific redo batch for a user.
+   * Redo batches are ordered oldest-first (batchIdx 0 = oldest undo).
+   * @param {number} userId
+   * @param {number} batchIdx - Index within the user's redo stack
+   * @param {number} groupIdx - Layer group the stroke belongs to
+   * @param {Object} record - StrokeRecord
+   */
+  importRedoStroke(userId, batchIdx, groupIdx, record) {
+    if (!this.redoStackByUser.has(userId)) this.redoStackByUser.set(userId, []);
+    const batches = this.redoStackByUser.get(userId);
+    while (batches.length <= batchIdx) batches.push([]);
+    batches[batchIdx].push({ groupIdx, record });
+  }
+
+  // ---------------------------------------------------------------------------
   // Global Undo / Redo
   // ---------------------------------------------------------------------------
 

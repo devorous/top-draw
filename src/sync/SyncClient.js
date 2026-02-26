@@ -3,10 +3,12 @@
  *
  * Handles full canvas sync between users:
  * - New users request sync on join
- * - Existing users provide their canvas when asked
- * - Received canvas is drawn to the main canvas
- * - Overlay shown and local input blocked during sync
- * - Remote drawing events buffered and replayed after sync
+ * - Existing users provide their full layer state when asked:
+ *     1. Base canvases (baked history) for each layer group
+ *     2. All stroke stack entries (each as a cropped PNG + metadata)
+ *     3. All redo stack entries (same format, with batch index)
+ * - Received data reconstructs the LayerManager identically on the joiner
+ * - Remote drawing events are buffered during sync and replayed after
  */
 
 export class SyncClient {
@@ -17,6 +19,10 @@ export class SyncClient {
 
     // Track sync state
     this.syncing = false;
+
+    // Pending async import promises — createImageBitmap is async, and we must
+    // wait for ALL imports to settle before replaying buffered events.
+    this._pendingImports = [];
 
     // Event buffering during sync
     this.buffering = false;
@@ -53,66 +59,209 @@ export class SyncClient {
     this.syncing = true;
     this.buffering = true;
     this.eventBuffer = [];
+    this._pendingImports = [];
     this.showOverlay();
     console.log('[SyncClient] Requesting canvas sync...');
     this.wsClient.requestSync();
   }
 
+  // ---------------------------------------------------------------------------
+  // Provider side — called when another user joins and we must send our state
+  // ---------------------------------------------------------------------------
+
   /**
-   * Handle server asking us to provide our canvas
-   * Called when another user joins and needs our canvas state
+   * Handle server asking us to provide our canvas state.
+   * Sends base canvases, stroke records, and redo stacks to the joiner.
    * @param {Object} data
-   * @param {number} data.targetUser - The user who needs the canvas
+   * @param {number} data.targetUser - The user who needs the state
    */
   async handleSyncProvide(data) {
     const { targetUser } = data;
-    console.log('[SyncClient] Asked to provide canvas for user', targetUser);
+    console.log('[SyncClient] Asked to provide layer state for user', targetUser);
 
-    if (!this.board || !this.board.mainCanvas) {
-      console.warn('[SyncClient] No canvas to provide');
+    if (!this.board?.layerManager) {
+      console.warn('[SyncClient] No layer manager to provide');
       return;
     }
 
     try {
-      // Capture the main canvas as PNG
-      const imageData = await this._captureCanvas();
+      const lm = this.board.layerManager;
+      const groups = lm.layerGroups;
 
-      // Send to server
-      this.wsClient.sendCanvasData(imageData, targetUser);
-      console.log('[SyncClient] Sent canvas data, size:', imageData.length, 'bytes');
+      // Phase A: send each layer group's baked base canvas
+      for (let gi = 0; gi < groups.length; gi++) {
+        const img = await this._captureCanvasElement(groups[gi].baseCanvas);
+        this.wsClient.sendSyncLayerBase(img, gi, targetUser);
+      }
+
+      // Phase B: send all strokeStack entries across all layer groups
+      for (let gi = 0; gi < groups.length; gi++) {
+        for (const stroke of groups[gi].strokeStack) {
+          const img = await this._captureCanvasElement(stroke.canvas);
+          this.wsClient.sendSyncStroke({
+            targetUser,
+            layerIdx: gi,
+            userId: stroke.userId,
+            x: stroke.x,
+            y: stroke.y,
+            w: stroke.width,
+            h: stroke.height,
+            blendMode: stroke.blendMode,
+            timestamp: stroke.timestamp,
+            eraseAll: stroke.eraseAll || false,
+            isRedo: false,
+            redoBatchIdx: 0,
+            imageData: img
+          });
+        }
+      }
+
+      // Phase C: send all redo stack entries (per user, per batch)
+      for (const [userId, batches] of lm.redoStackByUser) {
+        for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+          for (const { groupIdx, record } of batches[batchIdx]) {
+            const img = await this._captureCanvasElement(record.canvas);
+            this.wsClient.sendSyncStroke({
+              targetUser,
+              layerIdx: groupIdx,
+              userId: record.userId,
+              x: record.x,
+              y: record.y,
+              w: record.width,
+              h: record.height,
+              blendMode: record.blendMode,
+              timestamp: record.timestamp,
+              eraseAll: record.eraseAll || false,
+              isRedo: true,
+              redoBatchIdx: batchIdx,
+              imageData: img
+            });
+          }
+        }
+      }
+
+      // Phase D: signal completion
+      this.wsClient.sendSyncStrokesDone(targetUser);
+      console.log('[SyncClient] Finished sending layer state to user', targetUser);
     } catch (error) {
-      console.error('[SyncClient] Failed to capture/send canvas', error);
+      console.error('[SyncClient] Failed to provide layer state', error);
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Receiver side — called when we are the joiner receiving state
+  // ---------------------------------------------------------------------------
+
   /**
-   * Handle receiving canvas data from another user
-   * @param {Object} data
-   * @param {number} data.sessionIndex - User who provided the canvas
-   * @param {Uint8Array} data.imageData - PNG image data
+   * Handle receiving a layer group's base canvas.
+   * Pushes the async import into _pendingImports so handleSyncComplete
+   * can wait for all of them before replaying buffered events.
    */
-  async handleSyncCanvas(data) {
-    const { sessionIndex, imageData } = data;
-    console.log('[SyncClient] Received canvas from user', sessionIndex, 'size:', imageData?.length || 0);
+  handleSyncLayerBase(data) {
+    const p = this._importLayerBase(data);
+    this._pendingImports.push(p);
+  }
 
-    if (!imageData || imageData.length === 0) {
-      console.warn('[SyncClient] Received empty canvas data');
-      return;
+  async _importLayerBase(data) {
+    if (!this.board?.layerManager) return;
+    try {
+      const blob = new Blob([data.imageData], { type: 'image/png' });
+      const bitmap = await createImageBitmap(blob);
+      this.board.layerManager.importBaseCanvas(data.layerIdx, bitmap);
+      bitmap.close();
+    } catch (error) {
+      console.error('[SyncClient] Failed to apply layer base', data.layerIdx, error);
     }
-
-    await this._drawCanvasData(imageData);
   }
 
   /**
-   * Handle sync complete from server
+   * Handle receiving a stroke record (either strokeStack or redo stack).
+   * Pushes the async import into _pendingImports so handleSyncComplete
+   * can wait for all of them before replaying buffered events.
+   */
+  handleSyncStroke(data) {
+    const p = this._importStroke(data);
+    this._pendingImports.push(p);
+  }
+
+  async _importStroke(data) {
+    if (!this.board?.layerManager) return;
+    try {
+      const blob = new Blob([data.imageData], { type: 'image/png' });
+      const bitmap = await createImageBitmap(blob);
+
+      const strokeCanvas = document.createElement('canvas');
+      strokeCanvas.width = data.w;
+      strokeCanvas.height = data.h;
+      const strokeCtx = strokeCanvas.getContext('2d');
+      strokeCtx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+
+      const record = {
+        canvas: strokeCanvas,
+        ctx: strokeCtx,
+        x: data.x,
+        y: data.y,
+        width: data.w,
+        height: data.h,
+        blendMode: data.blendMode,
+        userId: data.userId,
+        timestamp: data.timestamp
+      };
+      if (data.eraseAll) record.eraseAll = true;
+
+      if (!data.isRedo) {
+        this.board.layerManager.importStroke(data.layerIdx, record);
+      } else {
+        this.board.layerManager.importRedoStroke(data.userId, data.redoBatchIdx, data.layerIdx, record);
+      }
+    } catch (error) {
+      console.error('[SyncClient] Failed to apply stroke', error);
+    }
+  }
+
+  /**
+   * Handle sync strokes done signal — all messages have been sent by the provider.
+   * The actual work happens in handleSyncComplete once pending imports settle.
+   */
+  handleSyncStrokesDone() {
+    // No action needed here — handleSyncComplete waits for _pendingImports.
+    console.log('[SyncClient] All stroke messages received, waiting for imports...');
+  }
+
+  /**
+   * Handle sync complete from server.
+   * Waits for all pending async stroke imports (createImageBitmap calls) to
+   * finish before compositing and replaying buffered events. This guarantees
+   * the stroke stack is fully populated before any UNDO/REDO events are processed.
    */
   handleSyncComplete() {
-    console.log('[SyncClient] Sync complete');
-    this.replayBuffer();
-    this.hideOverlay();
-    this.syncing = false;
-    this.buffering = false;
+    const pending = this._pendingImports;
+    this._pendingImports = [];
+
+    const finalize = () => {
+      console.log('[SyncClient] Imports settled, replaying', this.eventBuffer.length, 'buffered events');
+      if (this.board) this.board.compositeAllLayers();
+      this.replayBuffer();
+      this.hideOverlay();
+      this.syncing = false;
+      this.buffering = false;
+    };
+
+    if (pending.length > 0) {
+      console.log('[SyncClient] Waiting for', pending.length, 'pending imports...');
+      Promise.all(pending).then(finalize).catch((err) => {
+        console.error('[SyncClient] Error during stroke import:', err);
+        finalize(); // Still finalize so the client isn't stuck
+      });
+    } else {
+      finalize();
+    }
   }
+
+  // ---------------------------------------------------------------------------
+  // Event buffering
+  // ---------------------------------------------------------------------------
 
   /**
    * Buffer a remote event for replay after sync
@@ -132,7 +281,6 @@ export class SyncClient {
       return;
     }
 
-    console.log('[SyncClient] Replaying', this.eventBuffer.length, 'buffered events');
     for (const { eventName, data } of this.eventBuffer) {
       const handler = this.handlerMap.get(eventName);
       if (handler) {
@@ -150,77 +298,45 @@ export class SyncClient {
     this.handlerMap = map;
   }
 
-  /**
-   * Show the sync overlay
-   */
+  // ---------------------------------------------------------------------------
+  // Overlay
+  // ---------------------------------------------------------------------------
+
   showOverlay() {
     if (this.overlayEl) {
       this.overlayEl.classList.add('active');
     }
   }
 
-  /**
-   * Hide the sync overlay
-   */
   hideOverlay() {
     if (this.overlayEl) {
       this.overlayEl.classList.remove('active');
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Internal helpers
+  // ---------------------------------------------------------------------------
+
   /**
-   * Capture the main canvas as PNG
+   * Capture a canvas element as a PNG Uint8Array.
+   * @param {HTMLCanvasElement} canvas
    * @returns {Promise<Uint8Array>}
    */
-  async _captureCanvas() {
-    const canvas = this.board.mainCanvas;
-
+  _captureCanvasElement(canvas) {
     return new Promise((resolve, reject) => {
       canvas.toBlob(
         async (blob) => {
           if (!blob) {
-            reject(new Error('Failed to create blob'));
+            reject(new Error('Failed to create blob from canvas'));
             return;
           }
-
           const arrayBuffer = await blob.arrayBuffer();
           resolve(new Uint8Array(arrayBuffer));
         },
         'image/png'
       );
     });
-  }
-
-  /**
-   * Draw received canvas data to the main canvas
-   * Clears the canvas first to replace (not overlay) existing content
-   * @param {Uint8Array} imageData - PNG data
-   */
-  async _drawCanvasData(imageData) {
-    if (!this.board) {
-      console.warn('[SyncClient] No board reference');
-      return;
-    }
-
-    try {
-      // Convert Uint8Array to Blob
-      const blob = new Blob([imageData], { type: 'image/png' });
-
-      // Create ImageBitmap from blob
-      const imageBitmap = await createImageBitmap(blob);
-
-      // Draw to main canvas at origin - clear first to replace, not overlay
-      const ctx = this.board.mainCtx;
-      if (ctx) {
-        ctx.clearRect(0, 0, this.board.mainCanvas.width, this.board.mainCanvas.height);
-        ctx.drawImage(imageBitmap, 0, 0);
-        console.log('[SyncClient] Drew synced canvas (replaced)');
-      }
-
-      imageBitmap.close();
-    } catch (error) {
-      console.error('[SyncClient] Failed to draw canvas data', error);
-    }
   }
 
   /**

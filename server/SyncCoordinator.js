@@ -64,31 +64,80 @@ export class SyncCoordinator {
   }
 
   /**
-   * Handle SYNC_CANVAS from provider
-   * Forward canvas data to the target user
+   * Handle SYNC_CANVAS from provider (legacy, kept for compatibility)
    */
   handleSyncCanvas(ws, data) {
     const targetUser = data.tu;
-    console.log(`[Sync] User ${ws.sessionIndex} providing canvas for user ${targetUser}`);
-
-    // Find the target user's WebSocket and forward the canvas
+    console.log(`[Sync] User ${ws.sessionIndex} providing legacy canvas for user ${targetUser}`);
     for (const client of this.wss.clients) {
       if (client.sessionIndex === targetUser && client.readyState === WebSocket.OPEN) {
-        this.sendTo(client, {
-          t: T.SYNC_CANVAS,
-          u: ws.sessionIndex,
-          img: data.img
-        });
-
-        // Send sync complete to target
+        this.sendTo(client, { t: T.SYNC_CANVAS, u: ws.sessionIndex, img: data.img });
         this.sendTo(client, { t: T.SYNC_COMPLETE });
-
-        // Clear pending request
         this.pendingSyncRequests.delete(targetUser);
-        console.log(`[Sync] Canvas forwarded to user ${targetUser}, sync complete`);
         break;
       }
     }
+  }
+
+  /**
+   * Relay SYNC_LAYER_BASE from provider to target joiner
+   */
+  handleSyncLayerBase(ws, data) {
+    const targetUser = data.tu;
+    const client = this._findClient(targetUser);
+    if (client) {
+      this.sendTo(client, { t: T.SYNC_LAYER_BASE, ly: data.ly, img: data.img });
+    }
+  }
+
+  /**
+   * Relay SYNC_STROKE from provider to target joiner
+   */
+  handleSyncStroke(ws, data) {
+    const targetUser = data.tu;
+    const client = this._findClient(targetUser);
+    if (client) {
+      this.sendTo(client, {
+        t: T.SYNC_STROKE,
+        u: data.u,
+        ly: data.ly,
+        sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh,
+        bm: data.bm,
+        // protobufjs decodes snake_case proto fields as camelCase JS properties:
+        // stroke_ts → strokeTs, stroke_redo → strokeRedo, stroke_redo_batch → strokeRedoBatch
+        strokeTs: data.strokeTs,
+        a: data.a,
+        strokeRedo: data.strokeRedo,
+        strokeRedoBatch: data.strokeRedoBatch,
+        img: data.img
+      });
+    }
+  }
+
+  /**
+   * Handle SYNC_STROKES_DONE from provider.
+   * Relays done signal to joiner and sends SYNC_COMPLETE.
+   */
+  handleSyncStrokesDone(ws, data) {
+    const targetUser = data.tu;
+    console.log(`[Sync] User ${ws.sessionIndex} finished sending strokes for user ${targetUser}`);
+    const client = this._findClient(targetUser);
+    if (client) {
+      this.sendTo(client, { t: T.SYNC_STROKES_DONE });
+      this.sendTo(client, { t: T.SYNC_COMPLETE });
+      this.pendingSyncRequests.delete(targetUser);
+      console.log(`[Sync] Stroke sync complete for user ${targetUser}`);
+    }
+  }
+
+  /** Find an open WebSocket for the given session index */
+  _findClient(sessionIndex) {
+    for (const client of this.wss.clients) {
+      if (client.sessionIndex === sessionIndex && client.readyState === WebSocket.OPEN) {
+        return client;
+      }
+    }
+    return null;
   }
 
   /**

@@ -391,6 +391,35 @@ export class WebSocketClient {
         this.emit('sync_complete', {});
         break;
 
+      case T.SYNC_LAYER_BASE:
+        this.emit('sync_layer_base', {
+          layerIdx: data.ly,
+          imageData: data.img
+        });
+        break;
+
+      case T.SYNC_STROKE:
+        this.emit('sync_stroke', {
+          layerIdx: data.ly,
+          userId: data.u,
+          x: data.sx, y: data.sy, w: data.sw, h: data.sh,
+          blendMode: data.bm,
+          // protobufjs decodes snake_case proto fields as camelCase JS properties:
+          // stroke_ts (uint64) → data.strokeTs (Long object; Number() converts safely)
+          // stroke_redo → data.strokeRedo
+          // stroke_redo_batch → data.strokeRedoBatch
+          timestamp: data.strokeTs ? Number(data.strokeTs) : 0,
+          eraseAll: data.a || false,
+          isRedo: data.strokeRedo || false,
+          redoBatchIdx: data.strokeRedoBatch || 0,
+          imageData: data.img
+        });
+        break;
+
+      case T.SYNC_STROKES_DONE:
+        this.emit('sync_strokes_done', {});
+        break;
+
       case T.AUTH_RESULT:
         this.emit('auth_result', {
           success: data.a,
@@ -706,7 +735,7 @@ requestSync() {
 }
 
 /**
- * Send full canvas data to server (in response to SYNC_PROVIDE)
+ * Send full canvas data to server (legacy, in response to SYNC_PROVIDE)
  * @param {Uint8Array} imageData - PNG image data of full canvas
  * @param {number} targetUser - The user who needs the canvas
  */
@@ -716,6 +745,46 @@ sendCanvasData(imageData, targetUser) {
     img: imageData,
     tu: targetUser
   });
+}
+
+/**
+ * Send a layer group's base canvas PNG during structured sync.
+ * @param {Uint8Array} imageData - PNG of the baked base canvas
+ * @param {number} layerIdx - Layer group index (0-based)
+ * @param {number} targetUser - Joiner's session index
+ */
+sendSyncLayerBase(imageData, layerIdx, targetUser) {
+  this.send({ t: T.SYNC_LAYER_BASE, ly: layerIdx, img: imageData, tu: targetUser });
+}
+
+/**
+ * Send a single stroke record during structured sync.
+ * @param {Object} opts
+ */
+sendSyncStroke({ targetUser, layerIdx, userId, x, y, w, h, blendMode, timestamp, eraseAll, isRedo, redoBatchIdx, imageData }) {
+  this.send({
+    t: T.SYNC_STROKE,
+    tu: targetUser,
+    ly: layerIdx,
+    u: userId,
+    sx: x, sy: y, sw: w, sh: h,
+    bm: blendMode,
+    // protobufjs maps camelCase JS keys to snake_case proto fields:
+    // strokeTs → stroke_ts, strokeRedo → stroke_redo, strokeRedoBatch → stroke_redo_batch
+    strokeTs: timestamp,
+    a: eraseAll || false,
+    strokeRedo: isRedo || false,
+    strokeRedoBatch: redoBatchIdx || 0,
+    img: imageData
+  });
+}
+
+/**
+ * Signal that all stroke data has been sent.
+ * @param {number} targetUser - Joiner's session index
+ */
+sendSyncStrokesDone(targetUser) {
+  this.send({ t: T.SYNC_STROKES_DONE, tu: targetUser });
 }
 
   // Auth methods
