@@ -47,6 +47,8 @@ export class UI {
       selfName: document.querySelector('.name.self'),
       mirrorLine: document.querySelector('.mirrorLine'),
 
+      panBtn: document.getElementById('panBtn'),
+      rotateBtn: document.getElementById('rotateBtn'),
       selectBtn: document.getElementById('selectBtn'),
       brushBtn: document.getElementById('brushBtn'),
       lineBtn: document.getElementById('lineBtn'),
@@ -66,6 +68,8 @@ export class UI {
       minusBtn: document.getElementById('minusBtn'),
       rotationResetBtn: document.getElementById('rotationResetBtn'),
       zoomPercent: document.querySelector('.zoomPercent'),
+      hudUndoBtn: document.getElementById('hudUndoBtn'),
+      hudRedoBtn: document.getElementById('hudRedoBtn'),
       mirrorText: document.querySelector('.mirrorOption'),
 
       devBtn: document.getElementById('devBtn'),
@@ -200,6 +204,7 @@ export class UI {
     const circle = this.elements.selfCircle;
     const square = this.elements.selfSquare;
     const crosshair = this.elements.selfCrosshair;
+    const hand = this.elements.selfHand;
     const mutedIndicator = this.elements.selfMutedIndicator;
 
     cursor.style.left = `${x - 100}px`;
@@ -209,6 +214,9 @@ export class UI {
     square.setAttribute('x', x - size);
     square.setAttribute('y', y - size);
     crosshair.setAttribute('transform', `translate(${x}, ${y})`);
+    if (hand) {
+      hand.setAttribute('transform', `translate(${x}, ${y})`);
+    }
     if (mutedIndicator) {
       mutedIndicator.setAttribute('transform', `translate(${x}, ${y})`);
     }
@@ -343,6 +351,20 @@ export class UI {
       case 'inkdropper':
         selfCrosshair.style.display = 'block';
         break;
+      case 'pan':
+        selfHand.style.display = 'block';
+        opacityContainer.style.display = 'none';
+        if (smoothingSlider && smoothingSlider.parentElement) {
+          smoothingSlider.parentElement.style.display = 'none';
+        }
+        break;
+      case 'rotate':
+        selfCrosshair.style.display = 'block';
+        opacityContainer.style.display = 'none';
+        if (smoothingSlider && smoothingSlider.parentElement) {
+          smoothingSlider.parentElement.style.display = 'none';
+        }
+        break;
     }
 
     this.updateToolButton(tool);
@@ -350,6 +372,8 @@ export class UI {
 
   updateToolButton(tool) {
     const buttons = {
+      pan: this.elements.panBtn,
+      rotate: this.elements.rotateBtn,
       select: this.elements.selectBtn,
       brush: this.elements.brushBtn,
       line: this.elements.lineBtn,

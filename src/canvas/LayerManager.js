@@ -28,6 +28,8 @@ export class LayerManager {
     this.backgroundColor = [255, 255, 255, 1];
     // Reference to stroke history panel (set by App.js for dev mode visualization)
     this.strokeHistoryPanel = null;
+    // Optional callback fired whenever stroke history changes (undo/redo availability may change)
+    this.onHistoryChange = null;
     this.redoStackByUser = new Map(); // userId → [{groupIdx, record}][] (batches, newest last)
 
     this.initLayerGroups(3);
@@ -39,6 +41,9 @@ export class LayerManager {
   _notifyHistoryPanel() {
     if (this.strokeHistoryPanel) {
       this.strokeHistoryPanel.queueUpdate();
+    }
+    if (this.onHistoryChange) {
+      this.onHistoryChange();
     }
   }
 

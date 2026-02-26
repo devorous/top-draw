@@ -267,6 +267,7 @@ export class RemoteUserHandler {
         if (!user.panning) {
           const blurTool = this.toolManager.getTool('blur');
           if (blurTool) {
+            blurTool.initBlurSnapshot(user);
             blurTool.applyBlur(pos.x, pos.y, user.size, user);
           }
         }
@@ -448,6 +449,7 @@ export class RemoteUserHandler {
     user.mousedown = false;
     user.startPos = null;
     user.lassoPoints = null;
+    user.blurSnapshot = null;
 
     // Redraw floating selection if user has one (persists after handle release)
     if (user.floatingCanvas && user.selection) {

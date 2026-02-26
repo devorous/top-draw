@@ -12,20 +12,63 @@ export class InkdropperTool {
   }
 
   deactivate() {
-    // No cleanup needed
+    this.board.clearTop();
   }
 
   onPointerDown(user, pos, e) {
-    // Sample color from the main canvas at the clicked position
-    this.sampleColor(pos);
+    // No action on down - wait for release to sample
   }
 
   onPointerMove(user, pos, lastPos, e) {
-    // No action on move
+    this._drawColorPreview(pos);
   }
 
   onPointerUp(user, pos, e) {
-    // No action on up
+    // Sample color at the final cursor position on release
+    this.sampleColor(pos);
+  }
+
+  /**
+   * Draw a small color swatch on topCtx showing the color under the cursor
+   * @param {Object} pos - {x, y} position on canvas
+   */
+  _drawColorPreview(pos) {
+    this.board.clearTop();
+
+    const [height, width] = this.board.dimensions;
+    const x = Math.round(pos.x);
+    const y = Math.round(pos.y);
+    if (x < 0 || y < 0 || x >= width || y >= height) return;
+
+    const imageData = this.board.mainCtx.getImageData(x, y, 1, 1);
+    let [r, g, b, a] = imageData.data;
+
+    if (a < 255) {
+      const bg = this.board.backgroundColor;
+      const alpha = a / 255;
+      r = Math.round(r * alpha + bg[0] * (1 - alpha));
+      g = Math.round(g * alpha + bg[1] * (1 - alpha));
+      b = Math.round(b * alpha + bg[2] * (1 - alpha));
+    }
+
+    const ctx = this.board.topCtx;
+    const size = 22;
+    const offset = 14;
+    const sx = pos.x + offset;
+    const sy = pos.y + offset;
+
+    // White outer border for visibility on dark backgrounds
+    ctx.fillStyle = 'white';
+    ctx.fillRect(sx - 1, sy - 1, size + 2, size + 2);
+
+    // Thin dark border
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(sx - 0.5, sy - 0.5, size + 1, size + 1);
+
+    // Color fill
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(sx, sy, size, size);
   }
 
   /**
@@ -43,16 +86,14 @@ export class InkdropperTool {
     const imageData = ctx.getImageData(x, y, 1, 1);
     let [r, g, b, a] = imageData.data;
 
-    // Composite against background for any transparency
-    // This gives us the "visual" color that the user sees on screen
+    // Composite against background to give the "visual" color the user sees
     if (a < 255) {
       const bgColor = this.board.backgroundColor;
       const alpha = a / 255;
-      // Alpha compositing: result = fg * alpha + bg * (1 - alpha)
       r = Math.round(r * alpha + bgColor[0] * (1 - alpha));
       g = Math.round(g * alpha + bgColor[1] * (1 - alpha));
       b = Math.round(b * alpha + bgColor[2] * (1 - alpha));
-      a = 255; // Sampled color is now fully opaque (visual color)
+      a = 255;
     }
 
     // Convert to RGBA array (0-255 for RGB, 0-1 for alpha)

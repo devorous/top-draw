@@ -98,6 +98,18 @@
         <!-- Toast Notification -->
         <div id="toast" class="toast"></div>
 
+        <!-- Floating Undo/Redo HUD (bottom-left) -->
+        <div id="viewHud" class="viewHud">
+          <button class="viewHudBtn" id="hudUndoBtn" title="Undo (Ctrl+Z)" style="display:none;">
+            <span class="hudBtnIcon">&#x21A9;</span>
+            <span class="hudBtnLabel">Undo</span>
+          </button>
+          <button class="viewHudBtn" id="hudRedoBtn" title="Redo (Ctrl+Shift+Z)" style="display:none;">
+            <span class="hudBtnIcon">&#x21AA;</span>
+            <span class="hudBtnLabel">Redo</span>
+          </button>
+        </div>
+
         <!-- Selection Context Menu -->
         <div id="selectionMenu" class="selectionMenu" style="display: none;">
           <button class="menuItem" id="selMenuClear" title="Clear selection contents">Clear</button>
@@ -257,6 +269,12 @@
 
         <!-- Tool Buttons -->
         <div class="tools">
+          <a class="tool btn" id="panBtn" title="Pan (H)">
+            <img src="/images/move-icon.svg" alt="Pan">
+          </a>
+          <a class="tool btn" id="rotateBtn" title="Rotate (N)">
+            <img src="/images/rotate-icon.svg" alt="Rotate">
+          </a>
           <a class="tool btn" id="inkdropperBtn" title="Inkdropper (I / Tab)">
             <img src="/images/inkdropper-icon.svg" alt="Inkdropper">
           </a>
@@ -375,12 +393,16 @@
                     <span>Rect</span>
                   </label>
                 </div>
+                <!--
                 <div class="radio-group" style="margin-top: 8px;">
                   <label class="radio-option">
                     <input type="checkbox" id="selAllLayersCheck">
                     <span>All Layers</span>
                   </label>
                 </div>
+                
+                -->
+                
               </div>
             </div>
 

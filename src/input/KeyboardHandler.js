@@ -158,6 +158,12 @@ export class KeyboardHandler {
         case 'i':
           app.selectTool('inkdropper');
           break;
+        case 'h':
+          app.selectTool('pan');
+          break;
+        case 'n':
+          app.selectTool('rotate');
+          break;
       }
     }
   }
@@ -165,7 +171,7 @@ export class KeyboardHandler {
   handleKeyUp(e) {
     const { app } = this;
 
-    if (e.key === ' ' && app.self.tool !== 'text') {
+    if (e.key === ' ' && app.self.tool !== 'text' && app.self.tool !== 'pan' && app.self.tool !== 'rotate') {
       app.self.panning = false;
       app.wsClient.broadcastPan(false);
     }

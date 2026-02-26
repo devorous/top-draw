@@ -159,6 +159,38 @@ export class Board {
     this.applyTransform();
   }
 
+  /**
+   * Rotate to a new angle while keeping the given boardContainer-space pivot fixed on screen.
+   * @param {number} newAngleDeg - New rotation in degrees
+   * @param {number} pivotX - Pivot X in boardContainer coordinates (same space as panX)
+   * @param {number} pivotY - Pivot Y in boardContainer coordinates (same space as panY)
+   */
+  setRotationAround(newAngleDeg, pivotX, pivotY) {
+    const oldRad = this.rotation * Math.PI / 180;
+    const newRad = newAngleDeg * Math.PI / 180;
+    const { zoom } = this;
+
+    // Find board-space coordinate of the pivot using current transform:
+    //   cx = panX + zoom*(bx*cosθ - by*sinθ)
+    //   cy = panY + zoom*(bx*sinθ + by*cosθ)
+    // Inverting: boardX = ((cx-panX)*cosθ + (cy-panY)*sinθ) / zoom
+    //            boardY = (-(cx-panX)*sinθ + (cy-panY)*cosθ) / zoom
+    const dx = pivotX - this.panX;
+    const dy = pivotY - this.panY;
+    const cosOld = Math.cos(oldRad);
+    const sinOld = Math.sin(oldRad);
+    const boardX = (dx * cosOld + dy * sinOld) / zoom;
+    const boardY = (-dx * sinOld + dy * cosOld) / zoom;
+
+    // Compute new pan so the board point maps back to the same pivot on screen
+    const cosNew = Math.cos(newRad);
+    const sinNew = Math.sin(newRad);
+    this.panX = pivotX - zoom * (boardX * cosNew - boardY * sinNew);
+    this.panY = pivotY - zoom * (boardX * sinNew + boardY * cosNew);
+    this.rotation = newAngleDeg;
+    this.applyTransform();
+  }
+
   resetRotation() {
     this.rotation = this.defaultRotation;
     this.applyTransform();

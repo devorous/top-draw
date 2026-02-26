@@ -33,33 +33,34 @@ export class BlurTool extends Tool {
   activate() {}
   deactivate() {}
 
-  onPointerDown(user, pos) {
-    user.lastBlurPos = pos;
-
-    // --- Create the snapshot of the committed layer state ---
+  /**
+   * Capture a snapshot of the committed layer state for this user.
+   * Must be called before the first applyBlur of a stroke so applyBlur
+   * reads from a stable source (prevents feedback loops).
+   * Called by onPointerDown locally and by RemoteUserHandler on mouse-down.
+   */
+  initBlurSnapshot(user) {
     const activeLayerIdx = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
     const group = this.board.layerManager?.getLayerGroup(activeLayerIdx);
     if (!group) return;
 
     const snapshotCanvas = document.createElement('canvas');
-    const canvasWidth = this.board.getWidth();
-    const canvasHeight = this.board.getHeight();
-    snapshotCanvas.width = canvasWidth;
-    snapshotCanvas.height = canvasHeight;
+    snapshotCanvas.width = this.board.getWidth();
+    snapshotCanvas.height = this.board.getHeight();
     const snapshotCtx = snapshotCanvas.getContext('2d');
 
-    // Draw the baked base layer
     snapshotCtx.drawImage(group.baseCanvas, 0, 0);
-
-    // Draw all committed strokes onto the snapshot
     for (const stroke of group.strokeStack) {
       snapshotCtx.globalCompositeOperation = stroke.blendMode;
       snapshotCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
     }
-    
-    user.blurSnapshot = snapshotCanvas;
-    // --- End snapshot creation ---
 
+    user.blurSnapshot = snapshotCanvas;
+  }
+
+  onPointerDown(user, pos) {
+    user.lastBlurPos = pos;
+    this.initBlurSnapshot(user);
     this.board.beginStroke(user);
     this.startBlurLoop(user);
   }

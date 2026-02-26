@@ -92,6 +92,17 @@ export class DrawingApp {
     // Keyboard handler
     this.keyboardHandler = new KeyboardHandler(this);
 
+    // boardContainer background pan tracking
+    this._containerPanActive = false;
+
+    // Rotate tool state
+    this._rotateToolActive = false;  // true while rotate-tool drag is in progress
+    this._rotatePivotX = 0;          // boardContainer-relative pivot
+    this._rotatePivotY = 0;
+    this._rotatePivotClientX = 0;    // page-relative pivot (for angle calculation)
+    this._rotatePivotClientY = 0;
+    this._rotatePrevAngle = null;    // previous angle from pivot to pointer
+
     // Stroke history panel (dev mode)
     this.strokeHistoryPanel = new StrokeHistoryPanel();
   }
@@ -126,6 +137,7 @@ export class DrawingApp {
     this.strokeHistoryPanel.setActiveLayer(this.self?.activeLayer ?? 0);
     // Store reference on layerManager so it can trigger updates
     this.board.layerManager.strokeHistoryPanel = this.strokeHistoryPanel;
+    this.board.layerManager.onHistoryChange = () => this.updateUndoRedoHud();
 
     // Initialize region tracker for canvas sync
     this.regionTracker = new RegionTracker();
@@ -276,6 +288,8 @@ export class DrawingApp {
     elements.loginOfflineBtn.addEventListener('click', () => this.startOfflineMode());
     elements.reconnectBtn.addEventListener('click', () => this.reconnect());
     elements.disconnectBtn.addEventListener('click', () => this.disconnect());
+    elements.panBtn.addEventListener('click', () => this.selectTool('pan'));
+    elements.rotateBtn.addEventListener('click', () => this.selectTool('rotate'));
     elements.selectBtn.addEventListener('click', () => this.selectTool('select'));
     elements.brushBtn.addEventListener('click', () => {
       this.selectTool(this.brushModeManager.getCurrentToolName());
@@ -299,6 +313,10 @@ export class DrawingApp {
     elements.minusBtn.addEventListener('click', () => this.handleZoomOut());
     elements.rotationResetBtn.addEventListener('click', () => this.handleResetRotation());
     elements.saveBtn.addEventListener('click', () => this.board.saveAsImage());
+
+    // Undo/Redo HUD buttons
+    if (elements.hudUndoBtn) elements.hudUndoBtn.addEventListener('click', () => this.handleUndo());
+    if (elements.hudRedoBtn) elements.hudRedoBtn.addEventListener('click', () => this.handleRedo());
 
     elements.chatBtn.addEventListener('click', () => this.chat.toggle());
     elements.selfListUser.addEventListener('click', () => this.handleRenameself());
@@ -687,11 +705,19 @@ export class DrawingApp {
     elements.board.addEventListener('wheel', (e) => this.handleWheel(e));
     elements.board.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      this.cancelCurrentStroke();
+      if (this.self.tool !== 'pan' && this.self.tool !== 'rotate') {
+        this.cancelCurrentStroke();
+      }
     });
     elements.boardContainer.addEventListener('contextmenu', (e) => {
       e.preventDefault();
     });
+
+    // boardContainer: middle-click to pan anywhere, and pan/rotate by dragging the background
+    elements.boardContainer.addEventListener('pointerdown', (e) => this.handleBoardContainerPointerDown(e));
+    elements.boardContainer.addEventListener('pointermove', (e) => this.handleBoardContainerPointerMove(e));
+    elements.boardContainer.addEventListener('pointerup', (e) => this.handleBoardContainerPointerUp(e));
+    elements.boardContainer.addEventListener('pointercancel', () => { this._containerPanActive = false; });
 
     // Touch gestures are now handled by Hammer.js in TouchHandler.init()
 
@@ -905,6 +931,15 @@ export class DrawingApp {
   // Tool management
 
   selectTool(tool) {
+    // Clean up pan/rotate state when leaving those tools
+    if (this.self.tool === 'pan') {
+      this.self.panning = false;
+    }
+    if (this.self.tool === 'rotate') {
+      this._rotateToolActive = false;
+      this._rotatePrevAngle = null;
+    }
+
     // Commit any in-progress stroke before switching tools
     if (this.self.mousedown) {
       if (this.self.tool === 'brush' && this.self.currentLine.length > 0) {
@@ -1241,6 +1276,24 @@ export class DrawingApp {
       return;
     }
 
+    // Rotate tool: compute angle from pivot to pointer and apply delta
+    if (this._rotateToolActive) {
+      const currAngle = Math.atan2(
+        e.clientY - this._rotatePivotClientY,
+        e.clientX - this._rotatePivotClientX
+      );
+      if (this._rotatePrevAngle !== null) {
+        let delta = currAngle - this._rotatePrevAngle;
+        // Unwrap to [-π, π] to avoid jumps when crossing ±180°
+        if (delta > Math.PI)  delta -= 2 * Math.PI;
+        if (delta < -Math.PI) delta += 2 * Math.PI;
+        const newRotation = this.board.rotation + delta * (180 / Math.PI);
+        this.board.setRotationAround(newRotation, this._rotatePivotX, this._rotatePivotY);
+      }
+      this._rotatePrevAngle = currAngle;
+      return;
+    }
+
     const x = Math.round(e.offsetX * 100) / 100;
     const y = Math.round(e.offsetY * 100) / 100;
 
@@ -1325,7 +1378,33 @@ export class DrawingApp {
     if (e.button === 1) {
       e.preventDefault();
       this.self.panning = true;
+      this.self.mousedown = true;
       this.wsClient.broadcastPan(true);
+      return;
+    }
+
+    // Pan tool: left drag pans the canvas
+    if (this.self.tool === 'pan') {
+      if (e.button === 0) {
+        this.self.panning = true;
+        this.self.mousedown = true;
+      }
+      return;
+    }
+
+    // Rotate tool: left drag rotates around the click point
+    if (this.self.tool === 'rotate') {
+      if (e.button === 0) {
+        const containerRect = this.ui.elements.boardContainer.getBoundingClientRect();
+        this._rotatePivotX = e.clientX - containerRect.left;
+        this._rotatePivotY = e.clientY - containerRect.top;
+        this._rotatePivotClientX = e.clientX;
+        this._rotatePivotClientY = e.clientY;
+        this._rotatePrevAngle = null;
+        this._rotateToolActive = true;
+        this.self.mousedown = true;
+        e.target.setPointerCapture(e.pointerId);
+      }
       return;
     }
 
@@ -1433,9 +1512,29 @@ export class DrawingApp {
   }
 
   handlePointerUp(e) {
+    // Pan tool: release clears panning
+    if (this.self.tool === 'pan') {
+      if (e.button === 0) {
+        this.self.panning = false;
+        this.self.mousedown = false;
+      }
+      return;
+    }
+
+    // Rotate tool: release ends rotation
+    if (this.self.tool === 'rotate') {
+      if (e.button === 0) {
+        this._rotateToolActive = false;
+        this._rotatePrevAngle = null;
+        this.self.mousedown = false;
+      }
+      return;
+    }
+
     // Middle-click release disables panning mode
     if (e.button === 1) {
       this.self.panning = false;
+      this.self.mousedown = false;
       this.wsClient.broadcastPan(false);
       return;
     }
@@ -1521,12 +1620,52 @@ export class DrawingApp {
     }
   }
 
+  // boardContainer pointer handlers: pan by dragging the background (Space held or middle-click)
+
+  handleBoardContainerPointerDown(e) {
+    // Only handle events on the boardContainer background itself (not bubbled from canvas/children)
+    if (e.target !== this.ui.elements.boardContainer) return;
+
+    // Middle-click: enable panning
+    if (e.button === 1) {
+      e.preventDefault();
+      this.self.panning = true;
+      this.wsClient.broadcastPan(true);
+      this._containerPanActive = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    if (e.button !== 0) return;
+
+    // Left-click on background: pan if space is held
+    if (this.self.panning) {
+      this._containerPanActive = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+  }
+
+  handleBoardContainerPointerMove(e) {
+    if (!this._containerPanActive) return;
+    this.board.pan(e.movementX, e.movementY);
+  }
+
+  handleBoardContainerPointerUp(e) {
+    if (!this._containerPanActive) return;
+    this._containerPanActive = false;
+
+    if (e.button === 1) {
+      this.self.panning = false;
+      this.wsClient.broadcastPan(false);
+    }
+  }
+
   // Wheel/zoom handlers
 
   handleWheel(e) {
     e.preventDefault();
 
-    if (this.self.panning) {
+    if (this.self.panning || this.self.tool === 'pan' || this.self.tool === 'rotate') {
       const cursorPos = { x: this.self.x, y: this.self.y };
       if (e.deltaY > 0) {
         this.board.zoomOut(0.1, cursorPos);
@@ -1635,6 +1774,19 @@ export class DrawingApp {
   handleRedo() {
     this.board.redo(this.self.id);
     if (this.connected) this.wsClient.broadcastRedo();
+  }
+
+  updateUndoRedoHud() {
+    const lm = this.board.layerManager;
+    const { hudUndoBtn, hudRedoBtn } = this.ui.elements;
+    if (!lm || !hudUndoBtn || !hudRedoBtn) return;
+
+    const userId = this.self?.id;
+    const canUndo = lm.layerGroups.some(g => g.strokeStack.some(r => r.userId === userId));
+    const canRedo = (lm.redoStackByUser.get(userId) ?? []).length > 0;
+
+    hudUndoBtn.style.display = canUndo ? '' : 'none';
+    hudRedoBtn.style.display = canRedo ? '' : 'none';
   }
 
   // Keyboard handlers
