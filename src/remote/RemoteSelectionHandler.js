@@ -92,8 +92,18 @@ export class RemoteSelectionHandler {
     user.floatingCanvas.height = s.height;
     user.floatingCtx = user.floatingCanvas.getContext('2d');
 
-    // Copy selected region from main canvas
-    const imageData = this.board.mainCtx.getImageData(s.x, s.y, s.width, s.height);
+    // Copy selected region from the remote user's active layer only (transparent background),
+    // matching local SelectTool behaviour (copyAllLayers=false).
+    // Reading from mainCtx would capture all layers + background, so moving the selection
+    // would appear to move content from every layer instead of just the user's layer.
+    const lm = this.board.layerManager;
+    const layerIdx = user.activeLayer ?? 0;
+    const layerFlatCanvas = document.createElement('canvas');
+    layerFlatCanvas.width = lm.width;
+    layerFlatCanvas.height = lm.height;
+    const layerFlatCtx = layerFlatCanvas.getContext('2d');
+    lm.compositeLayerRange(layerFlatCtx, layerIdx, layerIdx + 1, null);
+    const imageData = layerFlatCtx.getImageData(s.x, s.y, s.width, s.height);
 
     // Apply lasso mask if path provided (preserves concave selections)
     if (lassoPath && lassoPath.length >= 3) {
@@ -103,23 +113,14 @@ export class RemoteSelectionHandler {
 
     user.floatingCtx.putImageData(imageData, 0, 0);
 
-    // Clear the region on main canvas - use lasso path as clip if available
-    if (lassoPath && lassoPath.length >= 3) {
-      // Use lasso path as clipping mask to only clear the selected area
-      this.board.mainCtx.save();
-      this.board.mainCtx.beginPath();
-      this.board.mainCtx.moveTo(lassoPath[0].x, lassoPath[0].y);
-      for (let i = 1; i < lassoPath.length; i++) {
-        this.board.mainCtx.lineTo(lassoPath[i].x, lassoPath[i].y);
-      }
-      this.board.mainCtx.closePath();
-      this.board.mainCtx.clip();
-      this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
-      this.board.mainCtx.restore();
-    } else {
-      // Rectangle mode - clear the entire selection
-      this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
-    }
+    // Erase directly from the layer canvas so the hole persists through compositing.
+    // Clearing mainCtx is insufficient because compositeAllLayers() rebuilds it from
+    // the underlying layer data, restoring the erased pixels.
+    // Store restore data so commitSelection can make this undoable for remote users.
+    user._selectionRestoreData = this._eraseSelectionFromLayer(s, user.activeLayer ?? 0, lassoPath && lassoPath.length >= 3 ? lassoPath : null);
+
+    // Activate split-composite mode so upper layers render above the floating selection
+    this.board.activeSelectionLayer = user.activeLayer ?? 0;
 
     // Initialize corners for transform
     user.selectionCorners = {
@@ -211,16 +212,25 @@ export class RemoteSelectionHandler {
   handleSelectionCommit(user) {
     if (!user.floatingCanvas || !user.selection) return;
 
+    const lm = this.board.layerManager;
+    const layerIdx = user.activeLayer ?? 0;
     const s = user.selection;
     const c = user.selectionCorners;
+
+    // Begin a stroke on the remote user's active layer so the committed pixels
+    // enter the layer system and persist through compositeAllLayers() calls.
+    lm.beginUserStroke(layerIdx, user.id, 'source-over');
+    const active = lm.layerGroups[layerIdx]?.activeStrokeByUser.get(user.id);
+    if (!active) {
+      this._cleanupUserSelection(user);
+      return;
+    }
 
     // Check if transform was applied (corners moved from axis-aligned rectangle)
     const hasTransform = this.hasTransformedCorners(user);
 
     if (hasTransform && user.originalCorners) {
-      // Apply homography transform using reused instance
       try {
-        // Reuse or create homography instance for full-resolution commit
         if (!user.homography) {
           user.homography = new Homography('projective');
         }
@@ -245,44 +255,30 @@ export class RemoteSelectionHandler {
         user.homography.setSourcePoints(srcPoints, user.floatingCanvas);
         user.homography.setDestinyPoints(dstPoints);
 
-        // Warp at full resolution
         const result = user.homography.warp();
         if (result) {
-          // Use tempCanvas to avoid putImageData overwriting transparent pixels
           const tempCanvas = document.createElement('canvas');
           tempCanvas.width = result.width;
           tempCanvas.height = result.height;
           const tempCtx = tempCanvas.getContext('2d');
           tempCtx.putImageData(result, 0, 0);
-          this.board.mainCtx.globalCompositeOperation = 'source-over';
-          this.board.mainCtx.drawImage(tempCanvas, minX, minY);
+          active.ctx.drawImage(tempCanvas, minX, minY);
         } else {
-          // Fallback
-          this.board.mainCtx.globalCompositeOperation = 'source-over';
-          this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+          active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
         }
       } catch (e) {
         console.warn('Remote homography failed:', e);
-        this.board.mainCtx.globalCompositeOperation = 'source-over';
-        this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+        active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
       }
     } else {
-      // Simple draw without transform
-      this.board.mainCtx.globalCompositeOperation = 'source-over';
-      this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+      active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
     }
 
-    // Cleanup user selection state
-    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-    user.floatingCanvas = null;
-    user.floatingCtx = null;
-    user.selection = null;
-    user.selectionCorners = null;
-    user.originalCorners = null;
-    user.lassoPath = null;
-    // Clear homography instances
-    user.homography = null;
-    user.previewHomography = null;
+    // Pass the restore data captured during lift so Board.undo can reverse the erase
+    lm.commitUserStroke(layerIdx, user.id, { selectionRestoreData: user._selectionRestoreData });
+    this.board.activeSelectionLayer = -1;
+    this.board.compositeAllLayers();
+    this._cleanupUserSelection(user);
   }
 
   handleSelectionDelete(user) {
@@ -291,25 +287,18 @@ export class RemoteSelectionHandler {
     const s = user.selection || user.pendingSelection;
     if (!s) return;
 
-    // If floating, just clear it; otherwise clear on main canvas
-    if (user.floatingCanvas) {
-      user.floatingCanvas = null;
-      user.floatingCtx = null;
-    } else {
-      this.board.mainCtx.clearRect(s.x, s.y, s.width, s.height);
+    // If floating the pixels were already erased from the layer on lift — just
+    // discard the floating canvas. Otherwise erase directly from the layer now.
+    if (!user.floatingCanvas) {
+      this._eraseSelectionFromLayer(
+        s,
+        user.activeLayer ?? 0,
+        user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null
+      );
     }
 
-    // Clear user selection state
-    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-    user.selection = null;
-    user.pendingSelection = null;
-    user.pendingLassoPath = null;
-    user.selectionCorners = null;
-    user.originalCorners = null;
-    user.lassoPath = null;
-    // Clear homography instances
-    user.homography = null;
-    user.previewHomography = null;
+    this.board.activeSelectionLayer = -1;
+    this._cleanupUserSelection(user);
   }
 
   handleSelectionFill(user, color) {
@@ -336,18 +325,22 @@ export class RemoteSelectionHandler {
   }
 
   handleSelectionStamp(user) {
-    // Same as commit but don't clear floating canvas
+    // Same as commit but keep floating canvas active for further moves/stamps
     if (!user.floatingCanvas || !user.selection) return;
 
+    const lm = this.board.layerManager;
+    const layerIdx = user.activeLayer ?? 0;
     const s = user.selection;
     const c = user.selectionCorners;
 
-    // Check if transform was applied
+    lm.beginUserStroke(layerIdx, user.id, 'source-over');
+    const active = lm.layerGroups[layerIdx]?.activeStrokeByUser.get(user.id);
+    if (!active) return;
+
     const hasTransform = this.hasTransformedCorners(user);
 
     if (hasTransform && user.originalCorners) {
       try {
-        // Reuse or create homography instance for full-resolution stamp
         if (!user.homography) {
           user.homography = new Homography('projective');
         }
@@ -372,33 +365,29 @@ export class RemoteSelectionHandler {
         user.homography.setSourcePoints(srcPoints, user.floatingCanvas);
         user.homography.setDestinyPoints(dstPoints);
 
-        // Warp at full resolution
         const result = user.homography.warp();
         if (result) {
-          // Use tempCanvas to avoid putImageData overwriting transparent pixels
           const tempCanvas = document.createElement('canvas');
           tempCanvas.width = result.width;
           tempCanvas.height = result.height;
           const tempCtx = tempCanvas.getContext('2d');
           tempCtx.putImageData(result, 0, 0);
-          this.board.mainCtx.globalCompositeOperation = 'source-over';
-          this.board.mainCtx.drawImage(tempCanvas, minX, minY);
+          active.ctx.drawImage(tempCanvas, minX, minY);
         } else {
-          this.board.mainCtx.globalCompositeOperation = 'source-over';
-          this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+          active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
         }
       } catch (e) {
         console.warn('Remote stamp homography failed:', e);
-        this.board.mainCtx.globalCompositeOperation = 'source-over';
-        this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+        active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
       }
     } else {
-      this.board.mainCtx.globalCompositeOperation = 'source-over';
-      this.board.mainCtx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+      active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
     }
 
-    // Keep selection active (don't cleanup like commit does)
-    // Redraw floating selection on user's layer
+    lm.commitUserStroke(layerIdx, user.id);
+    this.board.compositeAllLayers();
+
+    // Keep selection active — redraw floating selection on user's overlay layer
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     this.drawFloatingSelection(user);
   }
@@ -406,26 +395,31 @@ export class RemoteSelectionHandler {
   handleSelectionCancel(user) {
     if (!user.floatingCanvas || !user.selection || !user.originalSelectionPos) return;
 
-    // Restore selection to original position on main canvas
-    this.board.mainCtx.globalCompositeOperation = 'source-over';
-    this.board.mainCtx.drawImage(
-      user.floatingCanvas,
-      user.originalSelectionPos.x,
-      user.originalSelectionPos.y
-    );
+    // Restore the lifted pixels back to the layer at their original position
+    const lm = this.board.layerManager;
+    const layerIdx = user.activeLayer ?? 0;
 
-    // Clear user selection state
-    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-    user.floatingCanvas = null;
-    user.floatingCtx = null;
-    user.selection = null;
-    user.selectionCorners = null;
-    user.originalCorners = null;
-    user.originalSelectionPos = null;
-    user.lassoPath = null;
-    // Clear homography instances
-    user.homography = null;
-    user.previewHomography = null;
+    // If we have accurate restore data (layer snapshots), use that.
+    // Otherwise fall back to drawing the floating canvas back.
+    if (user._selectionRestoreData) {
+      for (const { groupIdx, canvas, x, y } of user._selectionRestoreData.snapshots) {
+        const group = lm.layerGroups[groupIdx];
+        if (group) {
+          group.baseCtx.drawImage(canvas, x, y);
+        }
+      }
+    } else {
+      lm.beginUserStroke(layerIdx, user.id, 'source-over');
+      const active = lm.layerGroups[layerIdx]?.activeStrokeByUser.get(user.id);
+      if (active) {
+        active.ctx.drawImage(user.floatingCanvas, user.originalSelectionPos.x, user.originalSelectionPos.y);
+        lm.commitUserStroke(layerIdx, user.id);
+      }
+    }
+
+    this.board.activeSelectionLayer = -1;
+    this.board.compositeAllLayers();
+    this._cleanupUserSelection(user);
   }
 
   handleSelectionToBrush(user, brushDataJson) {
@@ -474,10 +468,33 @@ export class RemoteSelectionHandler {
       user.homography = new Homography('projective');
       user.previewHomography = new Homography('projective');
 
+      // Activate split-composite mode for the pasted floating selection
+      this.board.activeSelectionLayer = user.activeLayer ?? 0;
+
       // Draw the floating selection
       this.drawFloatingSelection(user);
+      this.startRemoteSelectionAnimation();
     };
     img.src = imageData;
+  }
+
+  /**
+   * Reset all selection-related state on a user object and clear their overlay canvas.
+   */
+  _cleanupUserSelection(user) {
+    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    user.floatingCanvas = null;
+    user.floatingCtx = null;
+    user.selection = null;
+    user.pendingSelection = null;
+    user.pendingLassoPath = null;
+    user.selectionCorners = null;
+    user.originalCorners = null;
+    user.originalSelectionPos = null;
+    user.lassoPath = null;
+    user.homography = null;
+    user.previewHomography = null;
+    user._selectionRestoreData = null;
   }
 
   hasTransformedCorners(user) {
@@ -698,5 +715,86 @@ export class RemoteSelectionHandler {
       ctx.setLineDash([]);
       ctx.lineDashOffset = 0;
     }
+  }
+
+  /**
+   * Erase a selection region directly from the layer canvas data so the hole
+   * persists through compositeAllLayers() calls. Mirrors the local SelectTool's
+   * _eraseSelectionDirectly() — bakes all strokes into baseCanvas then applies
+   * destination-out for the selected area.
+   * @param {Object} s - Selection bounds {x, y, width, height}
+   * @param {number} layerIdx - Layer group index (from user.activeLayer)
+   * @param {Array<{x,y}>|null} lassoPath - Lasso polygon, or null for rectangle erase
+   */
+  _eraseSelectionFromLayer(s, layerIdx, lassoPath) {
+    const lm = this.board.layerManager;
+    if (!lm) return null;
+
+    const group = lm.layerGroups[layerIdx];
+    if (!group) return null;
+
+    // Composite the entire group (base + all strokes) onto a transparent canvas.
+    // _compositeGroupInto does not fill a background, preserving transparency.
+    const layerCanvas = document.createElement('canvas');
+    layerCanvas.width = lm.width;
+    layerCanvas.height = lm.height;
+    const layerCtx = layerCanvas.getContext('2d');
+    lm._compositeGroupInto(layerCtx, group);
+
+    // Snapshot the selection area BEFORE erasing (used for undo/cancel)
+    const snap = document.createElement('canvas');
+    snap.width = s.width;
+    snap.height = s.height;
+    const snapCtx = snap.getContext('2d');
+    snapCtx.drawImage(layerCanvas, s.x, s.y, s.width, s.height, 0, 0, s.width, s.height);
+
+    // Mask the snapshot with the lasso path if in lasso mode so restoration respects the shape
+    if (lassoPath && lassoPath.length >= 3) {
+      snapCtx.globalCompositeOperation = 'destination-in';
+      snapCtx.fillStyle = 'white';
+      snapCtx.beginPath();
+      snapCtx.moveTo(lassoPath[0].x - s.x, lassoPath[0].y - s.y);
+      for (let i = 1; i < lassoPath.length; i++) {
+        snapCtx.lineTo(lassoPath[i].x - s.x, lassoPath[i].y - s.y);
+      }
+      snapCtx.closePath();
+      snapCtx.fill();
+      snapCtx.globalCompositeOperation = 'source-over';
+    }
+
+    const snapshots = [{ groupIdx: layerIdx, canvas: snap, x: s.x, y: s.y }];
+
+    // Apply destination-out to punch the selection hole
+    layerCtx.globalCompositeOperation = 'destination-out';
+    layerCtx.fillStyle = 'white';
+    if (lassoPath && lassoPath.length >= 3) {
+      layerCtx.beginPath();
+      layerCtx.moveTo(lassoPath[0].x, lassoPath[0].y);
+      for (let i = 1; i < lassoPath.length; i++) {
+        layerCtx.lineTo(lassoPath[i].x, lassoPath[i].y);
+      }
+      layerCtx.closePath();
+      layerCtx.fill();
+    } else {
+      layerCtx.fillRect(s.x, s.y, s.width, s.height);
+    }
+    layerCtx.globalCompositeOperation = 'source-over';
+
+    // Replace baseCanvas with the erased composite and clear the stroke stack
+    // (all strokes are now baked in, with the selection hole applied)
+    group.baseCtx.clearRect(0, 0, lm.width, lm.height);
+    group.baseCtx.drawImage(layerCanvas, 0, 0);
+    group.strokeStack = [];
+    group.userStrokeCounts.clear();
+    group.activeStrokeByUser.clear();
+
+    lm.needsComposite = true;
+    this.board.compositeAllLayers();
+
+    return {
+      snapshots,
+      eraseS: { ...s },
+      eraseLassoPath: lassoPath ? lassoPath.map(p => ({ ...p })) : null
+    };
   }
 }

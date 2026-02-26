@@ -1489,6 +1489,9 @@ export class SelectTool extends Tool {
     this.homography = new Homography('projective');
     this.previewHomography = new Homography('projective');
 
+    // Activate split-composite mode so upper layers render above the floating selection
+    this.board.activeSelectionLayer = this.board.app?.self?.activeLayer ?? 0;
+
     // Draw floating selection on top canvas
     this.board.clearTop();
     this.drawSelectionUI();
@@ -1556,6 +1559,9 @@ export class SelectTool extends Tool {
   }
 
   clearSelection() {
+    // Deactivate split-composite mode — no floating selection in flight
+    this.board.activeSelectionLayer = -1;
+
     this.selection = null;
     this.handles = [];
     this.corners = null;
@@ -1640,7 +1646,23 @@ export class SelectTool extends Tool {
       const snap = document.createElement('canvas');
       snap.width = s.width;
       snap.height = s.height;
-      snap.getContext('2d').drawImage(layerCanvas, s.x, s.y, s.width, s.height, 0, 0, s.width, s.height);
+      const snapCtx = snap.getContext('2d');
+      snapCtx.drawImage(layerCanvas, s.x, s.y, s.width, s.height, 0, 0, s.width, s.height);
+
+      // Mask the snapshot with the lasso path if in lasso mode so restoration respects the shape
+      if (lassoPath && lassoPath.length >= 3) {
+        snapCtx.globalCompositeOperation = 'destination-in';
+        snapCtx.fillStyle = 'white';
+        snapCtx.beginPath();
+        snapCtx.moveTo(lassoPath[0].x - s.x, lassoPath[0].y - s.y);
+        for (let i = 1; i < lassoPath.length; i++) {
+          snapCtx.lineTo(lassoPath[i].x - s.x, lassoPath[i].y - s.y);
+        }
+        snapCtx.closePath();
+        snapCtx.fill();
+        snapCtx.globalCompositeOperation = 'source-over';
+      }
+
       snapshots.push({ groupIdx, canvas: snap, x: s.x, y: s.y });
 
       // Apply the erase to the composited layer canvas

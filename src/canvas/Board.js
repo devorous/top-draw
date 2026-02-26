@@ -31,6 +31,11 @@ export class Board {
     // Layer management
     this.layerManager = null;
     this.app = null; // Reference to DrawingApp for accessing user state
+
+    // Selection split layer: when >= 0, compositeAllLayers() enters split mode
+    // at this layer index so the floating selection canvas sits correctly between
+    // lower and upper layers. -1 = no active selection.
+    this.activeSelectionLayer = -1;
   }
 
   /**
@@ -533,24 +538,27 @@ export class Board {
     const totalLayers = this.layerManager.getLayerCount();
     const [height, width] = this.dimensions;
 
-    // Only split when the user actually has a stroke in progress so the preview
-    // depth is correct. Outside of drawing, upper-layer blend modes need to
-    // blend against lower-layer pixels, which only works when all layers share
-    // one canvas context.
+    // Determine the split layer: either a stroke is in progress (drawing split) or
+    // a selection is being moved (selection split). The split puts lower layers on
+    // mainCtx so the floating selection canvas / topCtx preview sits between lower
+    // and upper layers rather than above everything.
     //
-    // Also skip split mode if upper layers have blend-mode strokes (non-source-over).
-    // CSS canvas stacking doesn't support cross-canvas blend operations, so those
-    // strokes would composite against transparent instead of lower-layer content.
+    // activeSelectionLayer is set by SelectTool (local) and RemoteSelectionHandler
+    // (remote) when a floating selection is active.
+    //
+    // Skip split mode if upper layers have blend-mode strokes — CSS canvas stacking
+    // can't handle cross-canvas blend operations.
     const activeGroup = this.layerManager.getLayerGroup(activeLayerIdx);
     const isDrawing = activeGroup?.activeStrokeByUser?.has(userId) ?? false;
-    const upperLayersHaveBlendModes = this.layerManager.rangeHasBlendModeStrokes(activeLayerIdx + 1, totalLayers);
+    const hasActiveSelection = this.activeSelectionLayer >= 0;
+    const splitLayer = hasActiveSelection ? this.activeSelectionLayer : activeLayerIdx;
+    const upperLayersHaveBlendModes = this.layerManager.rangeHasBlendModeStrokes(splitLayer + 1, totalLayers);
 
-    if (isDrawing && activeLayerIdx + 1 < totalLayers && !upperLayersHaveBlendModes) {
-      // Split mode: preview (topCtx) sits between lower and upper layer canvases.
-      // Safe because upper layers only have source-over strokes.
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, activeLayerIdx + 1, this.backgroundColor);
+    if ((isDrawing || hasActiveSelection) && splitLayer + 1 < totalLayers && !upperLayersHaveBlendModes) {
+      // Split mode: floating canvas / topCtx preview sits between lower and upper layers.
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.backgroundColor);
       if (this.upperLayersCtx) {
-        this.layerManager.compositeLayerRange(this.upperLayersCtx, activeLayerIdx + 1, totalLayers, null);
+        this.layerManager.compositeLayerRange(this.upperLayersCtx, splitLayer + 1, totalLayers, null);
       }
     } else {
       // Full composite: all layers together so blend modes resolve correctly.
