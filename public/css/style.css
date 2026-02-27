@@ -416,6 +416,14 @@ canvas {
   box-shadow: var(--shadow-md);
 }
 
+/* Grid layout for moved selections (more compact) */
+.selectionMenu.grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  min-width: 160px;
+}
+
 .selectionMenu .menuItem {
   padding: 6px 10px;
   font-size: 11px;

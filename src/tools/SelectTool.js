@@ -27,7 +27,7 @@ export class SelectTool extends Tool {
     super('select', board);
     this.mode = 'lasso'; // 'rectangle' or 'lasso' - default to lasso
     this.copyAllLayers = false; // Toggle: copy/cut all visible layers vs active layer only
-    this._restoreData = null; // Snapshot of erased area for cancelMovement()
+    this._restoreData = null; // Snapshot of erased area for undoMovement()
     this.isSelecting = false;
     this.isDragging = false;
     this.startPos = null;
@@ -74,6 +74,9 @@ export class SelectTool extends Tool {
 
     // Context menu elements (cached after first use)
     this.menuElements = null;
+
+    // Menu positioning
+    this.lastPointerUpPos = null; // Track where mouse up occurred for menu positioning
 
     // Throttling for selection move broadcasts (30 TPS for homography performance)
     this.selectionMoveThrottleRate = 30; // TPS
@@ -248,7 +251,9 @@ export class SelectTool extends Tool {
       fill: document.getElementById('selMenuFill'),
       copy: document.getElementById('selMenuCopy'),
       brush: document.getElementById('selMenuBrush'),
+      flip: document.getElementById('selMenuFlip'),
       stamp: document.getElementById('selMenuStamp'),
+      undo: document.getElementById('selMenuUndo'),
       cancel: document.getElementById('selMenuCancel')
     };
 
@@ -258,8 +263,10 @@ export class SelectTool extends Tool {
     this.menuElements.fill.addEventListener('click', () => this.fillSelection());
     this.menuElements.copy.addEventListener('click', () => this.copy());
     this.menuElements.brush.addEventListener('click', () => this.toImageBrush());
+    this.menuElements.flip.addEventListener('click', () => this.flipHorizontal());
     this.menuElements.stamp.addEventListener('click', () => this.stamp());
-    this.menuElements.cancel.addEventListener('click', () => this.cancelMovement());
+    this.menuElements.undo.addEventListener('click', () => this.undoMovement());
+    this.menuElements.cancel.addEventListener('click', () => this.cancelSelection());
   }
 
   showContextMenu() {
@@ -271,44 +278,59 @@ export class SelectTool extends Tool {
     // Show/hide options based on state
     this.menuElements.clear.classList.toggle('hidden', hasMoved);
     this.menuElements.fill.classList.toggle('hidden', hasMoved);
+    this.menuElements.flip.classList.toggle('hidden', false); // Always visible
     this.menuElements.stamp.classList.toggle('hidden', !hasMoved);
+    this.menuElements.undo.classList.toggle('hidden', !hasMoved);
     this.menuElements.cancel.classList.toggle('hidden', !hasMoved);
 
-    // Position menu at bottom-right of the selection
-    const c = this.corners || {
-      tr: { x: this.selection.x + this.selection.width, y: this.selection.y },
-      br: { x: this.selection.x + this.selection.width, y: this.selection.y + this.selection.height }
-    };
-    // Find the rightmost x and bottommost y of the selection
-    const rightX = this.corners
-      ? Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x)
-      : this.selection.x + this.selection.width;
-    const bottomY = this.corners
-      ? Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y)
-      : this.selection.y + this.selection.height;
+    // Use grid layout when selection has been moved (6 buttons in 2x3 grid)
+    // Use column layout for fresh selection (5 buttons in vertical list)
+    menu.classList.toggle('grid', hasMoved);
 
-    // Account for board position and zoom/pan transforms
+    // Position menu near cursor instead of selection corner
+    let canvasX, canvasY;
+
+    if (this.lastPointerUpPos) {
+      // Use last pointer up position
+      canvasX = this.lastPointerUpPos.x;
+      canvasY = this.lastPointerUpPos.y;
+    } else {
+      // Fallback to bottom-right of selection (legacy behavior)
+      const rightX = this.corners
+        ? Math.max(this.corners.tl.x, this.corners.tr.x, this.corners.bl.x, this.corners.br.x)
+        : this.selection.x + this.selection.width;
+      const bottomY = this.corners
+        ? Math.max(this.corners.tl.y, this.corners.tr.y, this.corners.bl.y, this.corners.br.y)
+        : this.selection.y + this.selection.height;
+
+      canvasX = rightX;
+      canvasY = bottomY;
+    }
+
+    // Account for board zoom/pan transforms
     const zoom = this.board.zoom || 1;
     const panX = this.board.panX || 0;
     const panY = this.board.panY || 0;
 
     // Transform canvas coordinates to screen coordinates
-    const screenX = rightX * zoom + panX;
-    const screenY = bottomY * zoom + panY;
+    const screenX = canvasX * zoom + panX;
+    const screenY = canvasY * zoom + panY;
 
-    // Get the menu dimensions
-    menu.style.display = 'flex'; // Show first to measure
+    // Show menu to measure dimensions (let CSS classes control display type)
+    menu.style.display = '';
     const menuWidth = menu.offsetWidth;
+    const menuHeight = menu.offsetHeight;
 
-    // Position relative to the board container, to the right and below selection
+    // Position relative to board container
     const containerRect = this.board.container.getBoundingClientRect();
 
+    // Position menu slightly offset from cursor (10px right, 10px down)
     let left = containerRect.left + screenX + 10;
     let top = containerRect.top + screenY + 10;
 
     // Keep menu on screen
     left = Math.max(10, Math.min(left, window.innerWidth - menuWidth - 10));
-    top = Math.max(10, Math.min(top, window.innerHeight - menu.offsetHeight - 10));
+    top = Math.max(10, Math.min(top, window.innerHeight - menuHeight - 10));
 
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
@@ -775,6 +797,9 @@ export class SelectTool extends Tool {
   }
 
   onPointerUp(user, pos) {
+    // Capture pointer up position for menu positioning
+    this.lastPointerUpPos = { x: pos.x, y: pos.y };
+
     if (this.isRotating) {
       this.isRotating = false;
       this.cornersAtRotationStart = null;
@@ -1867,6 +1892,7 @@ export class SelectTool extends Tool {
     this.cornersAtRotationStart = null;
     this.hasShownPreviewToast = false; // Reset toast flag for next selection
     this._restoreData = null;
+    this.lastPointerUpPos = null; // Reset menu positioning
     // Clear homography instances
     this.homography = null;
     this.previewHomography = null;
@@ -1933,7 +1959,7 @@ export class SelectTool extends Tool {
       const layerCtx = layerCanvas.getContext('2d');
       lm._compositeGroupInto(layerCtx, group);
 
-      // Snapshot the selection area BEFORE erasing (used by cancelMovement / undo to restore)
+      // Snapshot the selection area BEFORE erasing (used by undoMovement / undo to restore)
       const snap = document.createElement('canvas');
       snap.width = s.width;
       snap.height = s.height;
@@ -2000,7 +2026,7 @@ export class SelectTool extends Tool {
     };
   }
 
-  // Restore erased content from a restore snapshot (used by cancelMovement / Board.undo)
+  // Restore erased content from a restore snapshot (used by undoMovement / Board.undo)
   _restoreSelectionContent(restoreData) {
     if (!restoreData) return;
     const snapshots = restoreData.snapshots || restoreData; // accept both formats
@@ -2277,28 +2303,34 @@ export class SelectTool extends Tool {
       this.board.clearTop();
       this.drawSelectionUI();
     } else {
-      // Fill directly on main canvas
-      this.board.mainCtx.globalAlpha = opacity;
-      this.board.mainCtx.fillStyle = color;
+      // Fill on active layer using layer system
+      this.board.beginStroke(app.self);
+
+      const layerCtx = this.board.getActiveLayerContext();
+      layerCtx.globalAlpha = opacity;
+      layerCtx.fillStyle = color;
 
       if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
         // Use lasso path as clipping region
-        this.board.mainCtx.save();
-        this.board.mainCtx.beginPath();
-        this.board.mainCtx.moveTo(this.lassoPath[0].x, this.lassoPath[0].y);
+        layerCtx.save();
+        layerCtx.beginPath();
+        layerCtx.moveTo(this.lassoPath[0].x, this.lassoPath[0].y);
         for (let i = 1; i < this.lassoPath.length; i++) {
-          this.board.mainCtx.lineTo(this.lassoPath[i].x, this.lassoPath[i].y);
+          layerCtx.lineTo(this.lassoPath[i].x, this.lassoPath[i].y);
         }
-        this.board.mainCtx.closePath();
-        this.board.mainCtx.clip();
-        this.board.mainCtx.fillRect(s.x, s.y, s.width, s.height);
-        this.board.mainCtx.restore();
+        layerCtx.closePath();
+        layerCtx.clip();
+        layerCtx.fillRect(s.x, s.y, s.width, s.height);
+        layerCtx.restore();
       } else {
         // Rectangle mode - fill entire selection
-        this.board.mainCtx.fillRect(s.x, s.y, s.width, s.height);
+        layerCtx.fillRect(s.x, s.y, s.width, s.height);
       }
 
-      this.board.mainCtx.globalAlpha = 1;
+      layerCtx.globalAlpha = 1;
+
+      this.board.compositeAllLayers();
+      this.board.endStroke(app.self);
     }
 
     // Broadcast fill to other users
@@ -2315,6 +2347,15 @@ export class SelectTool extends Tool {
   // Stamp current selection to canvas without clearing it (for repeated stamping)
   stamp() {
     if (!this.floatingCanvas || !this.selection) return false;
+
+    const app = this.board.app;
+    if (!app) return false;
+
+    // Begin stroke for the stamp operation
+    this.board.beginStroke(app.self);
+
+    // Get layer context instead of mainCtx
+    const layerCtx = this.board.getActiveLayerContext();
 
     // Same logic as commitSelection but don't clear the floating canvas
     if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
@@ -2334,9 +2375,9 @@ export class SelectTool extends Tool {
 
       if (result) {
         const tempCanvas = imageDataToCanvas(result.imageData);
-        this.board.mainCtx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
+        layerCtx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
       } else {
-        this.board.mainCtx.drawImage(
+        layerCtx.drawImage(
           this.floatingCanvas,
           this.selection.x,
           this.selection.y,
@@ -2345,7 +2386,7 @@ export class SelectTool extends Tool {
         );
       }
     } else {
-      this.board.mainCtx.drawImage(
+      layerCtx.drawImage(
         this.floatingCanvas,
         this.selection.x,
         this.selection.y,
@@ -2354,12 +2395,67 @@ export class SelectTool extends Tool {
       );
     }
 
+    // Composite and commit the stroke
+    this.board.compositeAllLayers();
+    this.board.endStroke(app.self);
+
     // Broadcast stamp but keep selection active
     if (this.board.app?.wsClient) {
       this.board.app.wsClient.broadcastSelectionStamp();
     }
 
     // Redraw the floating selection on top canvas
+    this.board.clearTop();
+    this.drawSelectionUI();
+    this.showContextMenu();
+
+    return true;
+  }
+
+  // Flip selection horizontally
+  flipHorizontal() {
+    if (!this.selection) return false;
+
+    // If selection hasn't been lifted yet, lift it first
+    if (!this.floatingCanvas) {
+      this.liftSelection();
+    }
+
+    if (!this.floatingCanvas) return false;
+
+    // Create a temporary canvas for the flipped image
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = this.floatingCanvas.width;
+    tempCanvas.height = this.floatingCanvas.height;
+    const tempCtx = tempCanvas.getContext('2d');
+
+    // Flip horizontally by scaling -1 on x-axis
+    tempCtx.save();
+    tempCtx.translate(tempCanvas.width, 0);
+    tempCtx.scale(-1, 1);
+    tempCtx.drawImage(this.floatingCanvas, 0, 0);
+    tempCtx.restore();
+
+    // Replace the floating canvas with the flipped version
+    this.floatingCanvas = tempCanvas;
+    this.floatingCtx = tempCtx;
+
+    // If there are original corners (for transforms), we need to flip them too
+    if (this.originalCorners) {
+      const width = this.floatingCanvas.width;
+      // Swap left and right corners horizontally
+      const tempTL = { ...this.originalCorners.tl };
+      const tempBL = { ...this.originalCorners.bl };
+
+      this.originalCorners.tl.x = width - this.originalCorners.tr.x;
+      this.originalCorners.bl.x = width - this.originalCorners.br.x;
+      this.originalCorners.tr.x = width - tempTL.x;
+      this.originalCorners.br.x = width - tempBL.x;
+    }
+
+    // Note: Network broadcast not implemented yet - flip is local only
+
+    // Redraw the selection with flipped content
     this.board.clearTop();
     this.drawSelectionUI();
     this.showContextMenu();
@@ -2485,7 +2581,11 @@ export class SelectTool extends Tool {
   }
 
   // Cancel movement and restore selection to original position
-  cancelMovement() {
+  /**
+   * Undo movement - restore selection to original position and clear
+   * (Previous CANCEL behavior)
+   */
+  undoMovement() {
     if (!this.floatingCanvas || !this.selection || !this.originalSelectionPos) return false;
 
     // Restore the erased source area from our snapshot
@@ -2493,6 +2593,35 @@ export class SelectTool extends Tool {
       this._restoreSelectionContent(this._restoreData);
       this._restoreData = null;
     }
+
+    // Broadcast cancel to other users
+    if (this.board.app?.wsClient) {
+      this.board.app.wsClient.broadcastSelectionCancel();
+    }
+
+    // Clear floating state
+    this.floatingCanvas = null;
+    this.floatingCtx = null;
+    this.selectedImageData = null;
+
+    // Clear selection and UI
+    this.hideContextMenu();
+    this.clearSelection();
+    this.board.clearTop();
+
+    return true;
+  }
+
+  /**
+   * Cancel selection - delete the floating selection without restoring original content
+   * (New behavior - different from UNDO)
+   */
+  cancelSelection() {
+    if (!this.floatingCanvas || !this.selection) return false;
+
+    // Do NOT restore the erased area - let it stay erased
+    // Clear the restore data without using it
+    this._restoreData = null;
 
     // Broadcast cancel to other users
     if (this.board.app?.wsClient) {
