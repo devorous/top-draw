@@ -128,6 +128,8 @@ export class ImageBrushTool extends Tool {
   drawStamp(user, pos) {
     const brush = user.imageBrush;
     const size = user.size;
+    const pressure = user.pressure || 1;
+    const scaledSize = size * pressure;
     // Use user.context for remote users, mainCtx for local user
     const ctx = user.context || this.board.mainCtx;
 
@@ -176,10 +178,10 @@ export class ImageBrushTool extends Tool {
     ctx.fillStyle = user.getColorString();
     ctx.drawImage(
       image,
-      pos.x - size * ratioX,
-      pos.y - size * ratioY,
-      size * 2 * ratioX,
-      size * 2 * ratioY
+      pos.x - scaledSize * ratioX,
+      pos.y - scaledSize * ratioY,
+      scaledSize * 2 * ratioX,
+      scaledSize * 2 * ratioY
     );
     ctx.stroke();
     ctx.globalAlpha = 1.0;

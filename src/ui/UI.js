@@ -60,7 +60,9 @@ export class UI {
       cursorsSvg: document.getElementById('cursorsSvg'),
       selfCursor: document.querySelector('.cursor.self'),
       selfCircle: document.querySelector('.circle.self'),
+      selfPressureCircle: document.querySelector('.pressureCircle.self'),
       selfSquare: document.querySelector('.square.self'),
+      selfPressureSquare: document.querySelector('.pressureSquare.self'),
       selfCrosshair: document.querySelector('.crosshair.self'),
       selfHand: document.querySelector('.hand.self'),
       selfMutedIndicator: document.querySelector('.mutedIndicator.self'),
@@ -219,22 +221,44 @@ export class UI {
     this.elements.selfSquare.style.display = 'none';
     this.elements.selfCrosshair.style.display = 'none';
     this.elements.selfText.style.display = 'none';
+    if (this.elements.selfPressureCircle) {
+      this.elements.selfPressureCircle.style.display = 'none';
+    }
+    if (this.elements.selfPressureSquare) {
+      this.elements.selfPressureSquare.style.display = 'none';
+    }
   }
 
   updateSelfCursor(x, y, size) {
     const cursor = this.elements.selfCursor;
     const circle = this.elements.selfCircle;
+    const pressureCircle = this.elements.selfPressureCircle;
     const square = this.elements.selfSquare;
+    const pressureSquare = this.elements.selfPressureSquare;
     const crosshair = this.elements.selfCrosshair;
     const hand = this.elements.selfHand;
     const mutedIndicator = this.elements.selfMutedIndicator;
+
+    // Store cursor position for size change updates
+    this._lastCursorX = x;
+    this._lastCursorY = y;
 
     cursor.style.left = `${x - 100}px`;
     cursor.style.top = `${y - 100}px`;
     circle.setAttribute('cx', x);
     circle.setAttribute('cy', y);
+    if (pressureCircle) {
+      pressureCircle.setAttribute('cx', x);
+      pressureCircle.setAttribute('cy', y);
+    }
     square.setAttribute('x', x - size);
     square.setAttribute('y', y - size);
+    if (pressureSquare && pressureSquare.style.display !== 'none') {
+      const psizeAttr = pressureSquare.getAttribute('width') || 10;
+      const psize = parseFloat(psizeAttr) / 2; // Convert width to radius
+      pressureSquare.setAttribute('x', x - psize);
+      pressureSquare.setAttribute('y', y - psize);
+    }
     crosshair.setAttribute('transform', `translate(${x}, ${y})`);
     if (hand) {
       hand.setAttribute('transform', `translate(${x}, ${y})`);
@@ -248,6 +272,58 @@ export class UI {
     this.elements.selfCircle.setAttribute('r', size);
     this.elements.selfSquare.setAttribute('width', size * 2);
     this.elements.selfSquare.setAttribute('height', size * 2);
+  }
+
+  updatePressureCursorRadius(r, baseSize) {
+    const el = this.elements.selfPressureCircle;
+    if (!el) return;
+
+    // Only show the circle if actual pressure has been applied (radius < base size)
+    // baseSize is the unpressured size, r is the pressure-scaled radius
+    if (baseSize !== undefined && r < baseSize) {
+      el.style.display = 'block';
+      // Show actual pressure-scaled size (0-100% as pressure goes from 0 to 1)
+      el.setAttribute('r', Math.max(1, r));
+    } else {
+      el.style.display = 'none';
+    }
+  }
+
+  updatePressureSquareSize(squareSize, baseSize) {
+    const el = this.elements.selfPressureSquare;
+    if (!el) return;
+
+    // Only show the square if actual pressure has been applied (size < base size)
+    if (baseSize !== undefined && squareSize < baseSize) {
+      el.style.display = 'block';
+      // Show actual pressure-scaled size (0-100% as pressure goes from 0 to 1)
+      const sizeDoubled = Math.max(2, squareSize * 2);
+      el.setAttribute('width', sizeDoubled);
+      el.setAttribute('height', sizeDoubled);
+    } else {
+      el.style.display = 'none';
+    }
+  }
+
+  updateSquarePositions(size) {
+    const x = this._lastCursorX || 0;
+    const y = this._lastCursorY || 0;
+    const square = this.elements.selfSquare;
+    const pressureSquare = this.elements.selfPressureSquare;
+
+    // Update main square position
+    if (square && square.style.display !== 'none') {
+      square.setAttribute('x', x - size);
+      square.setAttribute('y', y - size);
+    }
+
+    // Update pressure square position
+    if (pressureSquare && pressureSquare.style.display !== 'none') {
+      const psizeAttr = parseFloat(pressureSquare.getAttribute('width') || 2);
+      const psize = psizeAttr / 2;
+      pressureSquare.setAttribute('x', x - psize);
+      pressureSquare.setAttribute('y', y - psize);
+    }
   }
 
   setSelectCursor(isHand) {
@@ -279,7 +355,7 @@ export class UI {
   }
 
   updateToolDisplay(tool) {
-    const { selfCircle, selfSquare, selfCrosshair, selfHand, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, opacityContainer, blurRadiusContainer, selectionModeOptions, eraserModeOptions, brushModeOptions, smoothingSlider } = this.elements;
+    const { selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, opacityContainer, blurRadiusContainer, selectionModeOptions, eraserModeOptions, brushModeOptions, smoothingSlider } = this.elements;
 
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
@@ -303,6 +379,13 @@ export class UI {
     if (brushModeOptions) {
       brushModeOptions.style.display = 'none';
     }
+    // Hide pressure indicators by default (only shown for pressure-sensitive tools)
+    if (selfPressureCircle) {
+      selfPressureCircle.style.display = 'none';
+    }
+    if (selfPressureSquare) {
+      selfPressureSquare.style.display = 'none';
+    }
     // Show smoothing by default
     if (smoothingSlider && smoothingSlider.parentElement) {
       smoothingSlider.parentElement.style.display = 'block';
@@ -321,6 +404,9 @@ export class UI {
         if (brushModeOptions) {
           brushModeOptions.style.display = 'block';
         }
+        if (selfPressureCircle) {
+          selfPressureCircle.style.display = 'block';
+        }
         break;
       case 'flowPen':
         selfCircle.style.display = 'block';
@@ -328,11 +414,17 @@ export class UI {
         if (brushModeOptions) {
           brushModeOptions.style.display = 'block';
         }
+        if (selfPressureCircle) {
+          selfPressureCircle.style.display = 'block';
+        }
         break;
       case 'ink':
         selfCircle.style.display = 'block';
         if (brushModeOptions) {
           brushModeOptions.style.display = 'block';
+        }
+        if (selfPressureCircle) {
+          selfPressureCircle.style.display = 'block';
         }
         break;
       case 'line':
@@ -349,11 +441,17 @@ export class UI {
         if (eraserModeOptions) {
           eraserModeOptions.style.display = 'block';
         }
+        if (selfPressureCircle) {
+          selfPressureCircle.style.display = 'block';
+        }
         break;
       case 'circleBlur':
         selfCircle.style.display = 'block';
         brushHardness.style.display = 'block';
         brushSpacing.style.display = 'block';
+        if (selfPressureCircle) {
+          selfPressureCircle.style.display = 'block';
+        }
         break;
       case 'blur':
         selfSquare.style.display = 'block';
@@ -371,6 +469,10 @@ export class UI {
         // brushImage is shown only when a brush is selected (via setBrushPreview)
         brushFileInput.style.display = 'block';
         brushSpacing.style.display = 'block';
+        // Show pressure square for imageBrush (can scale with pressure)
+        if (selfPressureSquare) {
+          selfPressureSquare.style.display = 'block';
+        }
         break;
       case 'inkdropper':
         selfCrosshair.style.display = 'block';

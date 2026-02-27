@@ -1123,6 +1123,15 @@ export class DrawingApp {
     const size = Number(e.target.value);
     this.self.setSize(size);
     this.ui.updateCursorSize(size);
+    this.ui.updateSquarePositions(size);
+    // Update pressure indicators only for tools that use pressure
+    const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur'];
+    if (pressureTools.includes(this.self.tool)) {
+      this.ui.updatePressureCursorRadius(this.self.pressure * size, size);
+    }
+    if (this.self.tool === 'imageBrush') {
+      this.ui.updatePressureSquareSize(this.self.pressure * size, size);
+    }
     this.ui.updateSelfTextStyle(size, this.self.color);
     this.ui.updateSizeValue(size);
     this.board.mainCtx.lineWidth = size * 2;
@@ -1326,6 +1335,15 @@ export class DrawingApp {
       const maxP = Number(this.ui.elements.pressureMaxSlider.value) / 100;
       pressure = minP + (maxP - minP) * e.pressure;
       pressure = Math.round(pressure * 100) / 100;
+
+      // Update pressure indicators only for tools that use pressure
+      const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur'];
+      if (pressureTools.includes(this.self.tool)) {
+        this.ui.updatePressureCursorRadius(pressure * this.self.size, this.self.size);
+      }
+      if (this.self.tool === 'imageBrush') {
+        this.ui.updatePressureSquareSize(pressure * this.self.size, this.self.size);
+      }
 
       // If stroke start was deferred, now we have real pressure - start the stroke
       if (this._pendingPenDown) {
@@ -1731,6 +1749,7 @@ export class DrawingApp {
     this.self.setSize(size);
     this.ui.elements.sizeSlider.value = size;
     this.ui.updateCursorSize(size);
+    this.ui.updateSquarePositions(size);
     this.ui.updateSizeValue(size);
     this.ui.updateSelfTextStyle(size, this.self.color);
     this.board.mainCtx.lineWidth = size * 2;
