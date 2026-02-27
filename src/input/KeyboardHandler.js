@@ -19,6 +19,12 @@ export class KeyboardHandler {
   handleKeyDown(e) {
     const { app } = this;
 
+    // Skip keyboard shortcuts/input if user is typing in a form field or the touch keyboard hidden input
+    const target = e.target;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      return;
+    }
+
     // Close context menu on Escape
     if (e.key === 'Escape' && app.ui.elements.userContextMenu?.style.display !== 'none') {
       app.moderation.hideContextMenu();

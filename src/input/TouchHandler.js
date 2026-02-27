@@ -116,6 +116,12 @@ export class TouchHandler {
         this.app.cancelCurrentStroke();
       }
 
+      // Hide cursor during gestures
+      this.ui.hideCursor();
+      if (this.wsClient && this.wsClient.connected) {
+        this.wsClient.broadcastHideCursor();
+      }
+
       // Capture initial touch state
       this.state.initialDistance = this.getDistance(e.touches);
       this.state.initialAngle = this.getAngle(e.touches);
@@ -274,6 +280,14 @@ export class TouchHandler {
 
     if (e.touches.length === 0) {
       this.state.gestureStartedWithTwoFingers = false;
+      
+      // Restore cursor visibility if still on board
+      if (this.app.isOnBoard) {
+        this.ui.showCursor();
+        if (this.wsClient && this.wsClient.connected) {
+          this.wsClient.broadcastShowCursor();
+        }
+      }
     }
   }
 
@@ -286,25 +300,66 @@ export class TouchHandler {
     }
   }
 
-  // Hidden input handlers for touch keyboard
-  handleTouchInput(e) {
+  // Hidden input handlers for touch keyboard (using beforeinput API)
+  handleTouchBeforeInput(e) {
     if (this.self.tool !== 'text') return;
 
     const textTool = this.toolManager.getTool('text');
 
-    // Handle each character typed
-    if (e.inputType === 'insertText' && e.data) {
-      for (const char of e.data) {
-        textTool.onKeyPress(this.self, char);
-        this.wsClient.broadcastKeyPress(char);
-      }
-    } else if (e.inputType === 'deleteContentBackward') {
-      textTool.onKeyPress(this.self, 'Backspace');
-      this.wsClient.broadcastKeyPress('Backspace');
+    // Handle user intent based on inputType
+    switch (e.inputType) {
+      case 'insertText':
+        if (e.data) {
+          for (const char of e.data) {
+            textTool.onKeyPress(this.self, char);
+            this.wsClient.broadcastKeyPress(char);
+          }
+        }
+        break;
+
+      case 'insertLineBreak':
+      case 'insertParagraph':
+        // Enter key - clears text as requested
+        textTool.onKeyPress(this.self, 'Enter');
+        this.wsClient.broadcastKeyPress('Enter');
+        break;
+
+      case 'deleteContentBackward':
+      case 'deleteContentForward':
+      case 'deleteWordBackward':
+      case 'deleteWordForward':
+        // All delete variants are treated as Backspace
+        // Only trigger backspace if we have text to delete
+        if (this.self.text.length > 0) {
+            textTool.onKeyPress(this.self, 'Backspace');
+            this.wsClient.broadcastKeyPress('Backspace');
+        }
+        break;
+        
+      case 'insertCompositionText':
+        if (e.data) {
+          for (const char of e.data) {
+            textTool.onKeyPress(this.self, char);
+            this.wsClient.broadcastKeyPress(char);
+          }
+        }
+        break;
     }
 
     this.ui.updateSelfTextInput(this.self.text);
-    e.target.value = ''; // Clear input after processing
+    
+    // Prevent default browser behavior on the input
+    e.preventDefault();
+    
+    // Ensure the input always contains a single space (' ') to keep the backspace key active
+    e.target.value = ' ';
+    
+    // Re-focus immediately to keep keyboard open
+    setTimeout(() => {
+      if (this.self.tool === 'text') {
+        e.target.focus();
+      }
+    }, 0);
   }
 
   handleTouchInputBlur() {

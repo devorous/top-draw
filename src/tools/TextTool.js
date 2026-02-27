@@ -32,7 +32,15 @@ export class TextTool extends Tool {
       this.drawText(user);
       user.text = '';
       this.board.endStroke(user); // commits stroke and composites
+
+      // Clear the hidden touch input value too (reset with one space)
+      if (this.board.app?.ui.elements.touchInput) {
+        this.board.app.ui.elements.touchInput.value = ' ';
+      }
     }
+    // Update user position to the new click/lift location
+    user.x = pos.x;
+    user.y = pos.y;
   }
 
   onKeyPress(user, key) {

@@ -482,6 +482,36 @@ export class UI {
     this.elements.selfText.style.color = `rgba(${r}, ${g}, ${b}, ${a * a})`;
   }
 
+  /**
+   * Move and focus the hidden touch input to trigger the virtual keyboard.
+   * Moving it to the touch location makes the trigger more reliable on some OSs.
+   * @param {number} x - Screen X (clientX)
+   * @param {number} y - Screen Y (clientY)
+   */
+  activateTouchInput(x, y) {
+    const input = this.elements.touchInput;
+    if (!input) return;
+
+    // Move to touch location
+    input.style.left = `${x}px`;
+    input.style.top = `${y}px`;
+    
+    // Set a placeholder space so the virtual keyboard enables the backspace key
+    input.value = ' ';
+    
+    // Temporarily enable pointer events so the OS sees this as a valid target
+    input.style.pointerEvents = 'auto';
+    
+    // Use timeout to ensure browser state is settled before requesting keyboard
+    setTimeout(() => {
+      input.focus();
+      // Keep pointer-events active for a moment to 'bless' the focus
+      setTimeout(() => {
+        input.style.pointerEvents = 'none';
+      }, 500);
+    }, 10);
+  }
+
   setBrushPreview(url) {
     this.elements.brushImage.src = url;
     this.elements.brushImage.style.display = 'block';
