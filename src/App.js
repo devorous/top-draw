@@ -1326,15 +1326,21 @@ export class DrawingApp {
     // Update cursor immediately for visual responsiveness
     this.ui.updateSelfCursor(x, y, this.self.size);
 
-    // Handle pressure for pen input
-    let pressure = 1;
+    // Handle pressure for pen input — default to current pressure so non-pen
+    // events (e.g. palm touch) mid-stroke don't slam pressure to 1
+    let pressure = this.self.pressure;
     if (!this.pressureEnabled) {
       pressure = 1;
     } else if (e.pointerType === 'pen' && !this.self.panning) {
-      const minP = Number(this.ui.elements.pressureMinSlider.value) / 100;
-      const maxP = Number(this.ui.elements.pressureMaxSlider.value) / 100;
-      pressure = minP + (maxP - minP) * e.pressure;
-      pressure = Math.round(pressure * 100) / 100;
+      // On pen lift (e.pressure === 0), always use 0, bypass min/max slider scaling
+      if (e.pressure === 0) {
+        pressure = 0;
+      } else {
+        const minP = Number(this.ui.elements.pressureMinSlider.value) / 100;
+        const maxP = Number(this.ui.elements.pressureMaxSlider.value) / 100;
+        pressure = minP + (maxP - minP) * e.pressure;
+        pressure = Math.round(pressure * 100) / 100;
+      }
 
       // Update pressure indicators only for tools that use pressure
       const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur'];

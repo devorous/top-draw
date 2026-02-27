@@ -128,7 +128,7 @@ export class ImageBrushTool extends Tool {
   drawStamp(user, pos) {
     const brush = user.imageBrush;
     const size = user.size;
-    const pressure = user.pressure || 1;
+    const pressure = user.pressure ?? 1;  // Use ?? instead of || so 0 doesn't default to 1
     const scaledSize = size * pressure;
     // Use user.context for remote users, mainCtx for local user
     const ctx = user.context || this.board.mainCtx;
