@@ -18,16 +18,22 @@ class Tool {
 
 /**
  * Image brush tool - supports GIMP brushes (.gbr/.gih) and standard images (.png/.jpg/.webp)
+ * Uses distance-based spacing for consistent stamp intervals regardless of cursor speed.
  */
 export class ImageBrushTool extends Tool {
   constructor(board) {
     super('imageBrush', board);
     this.lastPos = null;
     this.lastTime = null;
+    this.lastStampPos = new Map(); // userId -> {x, y} - last stamp position for distance-based spacing
   }
 
   activate() {
     // Sub-layers always draw source-over; blend mode is applied at composite time.
+  }
+
+  deactivate() {
+    this.lastStampPos.clear();
   }
 
   onPointerDown(user, pos) {
@@ -39,13 +45,46 @@ export class ImageBrushTool extends Tool {
       if (user.imageBrush.type === 'gih' && user.imageBrush.reset) {
         user.imageBrush.reset();
       }
-      this.draw(user, pos);
+      // Stamp first image immediately and track position
+      this.drawStamp(user, pos);
+      this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
     }
   }
 
   onPointerMove(user, pos) {
     if (!user.mousedown || user.panning || !user.imageBrush) return;
-    this.draw(user, pos);
+
+    const lastStamp = this.lastStampPos.get(user.id);
+    if (!lastStamp) {
+      // Fallback: stamp and track
+      this.drawStamp(user, pos);
+      this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+      return;
+    }
+
+    // Distance-based spacing
+    const dx = pos.x - lastStamp.x;
+    const dy = pos.y - lastStamp.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // Spacing calculation: 0 = 10% (default), 1-20 = 5%-100% of brush size
+    const spacingPercent = user.spacing === 0 ? 0.1 : (user.spacing * 0.05);
+    const minSpacing = Math.max(1, user.size * spacingPercent);
+
+    if (distance >= minSpacing) {
+      // Interpolate stamps along the path for smooth coverage
+      const steps = Math.max(1, Math.floor(distance / minSpacing));
+
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        const interpX = lastStamp.x + dx * t;
+        const interpY = lastStamp.y + dy * t;
+        this.drawStamp(user, { x: interpX, y: interpY });
+      }
+
+      // Update last stamp position to the final interpolated point
+      this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+    }
   }
 
   onPointerUp(user, pos, e) {
@@ -81,16 +120,12 @@ export class ImageBrushTool extends Tool {
     // Composite all layers to visible canvas
     this.board.compositeAllLayers();
     this.board.endStroke(user);
+
+    // Clean up tracking
+    this.lastStampPos.delete(user.id);
   }
 
-  draw(user, pos) {
-    // Handle spacing - if spacing is 0 or 1, draw every time
-    if (user.spacing > 1) {
-      user.spaceIndex = (user.spaceIndex + 1) % user.spacing;
-      // Only draw when spacing counter reaches 0
-      if (user.spaceIndex !== 0) return;
-    }
-
+  drawStamp(user, pos) {
     const brush = user.imageBrush;
     const size = user.size;
     // Use user.context for remote users, mainCtx for local user
