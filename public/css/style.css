@@ -37,6 +37,10 @@
 }
 
 /* ========================================
+   Animations for Tool Controls
+   ======================================== */
+
+/* ========================================
    Base Styles
    ======================================== */
 
@@ -1863,7 +1867,7 @@ body.parameter-dragging * {
   height: 6px;
   background: var(--bg-elevated);
   border-radius: 3px;
-  margin-top: 2px;
+  margin-top: 7px;
 }
 
 .dual-slider input[type="range"] {

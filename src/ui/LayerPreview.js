@@ -60,9 +60,8 @@ export class LayerPreview {
     this.ctx.save();
     this.ctx.scale(w / layerManager.width, h / layerManager.height);
     
-    // Composite ONLY this specific layer
-    // Use white background to match main board behavior and prevent double-blending issues
-    layerManager.compositeLayerRange(this.ctx, layerIdx, layerIdx + 1, [255, 255, 255, 1]);
+    // Composite ONLY this specific layer over the checkerboard (transparent background)
+    layerManager.compositeLayerRange(this.ctx, layerIdx, layerIdx + 1, null);
     
     this.ctx.restore();
 
@@ -85,7 +84,7 @@ export class LayerPreview {
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        this.ctx.fillStyle = (r + c) % 2 === 0 ? '#eee' : '#ccc';
+        this.ctx.fillStyle = (r + c) % 2 === 0 ? '#2d323c' : '#363c4a';
         this.ctx.fillRect(c * this.checkerSize, r * this.checkerSize, this.checkerSize, this.checkerSize);
       }
     }
