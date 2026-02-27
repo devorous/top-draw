@@ -731,7 +731,7 @@ export class DrawingApp {
 
     // Hidden input for touch keyboard (text tool)
     if (elements.touchInput) {
-      elements.touchInput.addEventListener('input', (e) => this.touchHandler.handleTouchInput(e));
+      elements.touchInput.addEventListener('beforeinput', (e) => this.touchHandler.handleTouchBeforeInput(e));
       elements.touchInput.addEventListener('blur', () => this.touchHandler.handleTouchInputBlur());
     }
 
@@ -1492,9 +1492,7 @@ export class DrawingApp {
           this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);
 
           // Focus hidden input for touch keyboard support
-          if (this.ui.elements.touchInput) {
-            this.ui.elements.touchInput.focus();
-          }
+          this.ui.activateTouchInput(e.clientX, e.clientY);
         } else if (e.pointerType === 'pen' && this.pressureEnabled) {
           // Defer pen stroke start until first pointerMove provides real pressure
           this._pendingPenDown = { pos, event: e };
