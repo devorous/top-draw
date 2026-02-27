@@ -668,10 +668,11 @@ export class UI {
     }
   }
 
-  updateLockButton(property, locked) {
+  updateLockButton(property, locked, visible = true) {
     const btn = this.elements[`${property}Lock`];
     if (!btn) return;
 
+    btn.style.display = visible ? 'inline-block' : 'none';
     btn.textContent = locked ? '🔒' : '🔓';
     btn.classList.toggle('locked', locked);
     btn.title = locked ? `Unlock ${property} for current tool` : `Lock ${property} for current tool`;
