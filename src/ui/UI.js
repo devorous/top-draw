@@ -422,6 +422,7 @@ export class UI {
         break;
       case 'ink':
         selfCircle.style.display = 'block';
+        brushHardness.style.display = 'block';
         if (brushModeOptions) {
           brushModeOptions.style.display = 'block';
         }

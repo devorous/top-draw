@@ -27,8 +27,8 @@ export function bridgeGap(ctx, from, to, fromRadius, toRadius, user, blendMode =
   ctx.fillStyle = user.getColorString();
 
   if (hardness < 1.0) {
-    const avgRadius = (fromRadius + toRadius) / 2;
-    const blurAmount = (1 - hardness) * avgRadius * 1.5;
+    // Hybrid blur: 20px base + 20% of size gives consistent softness across all brush sizes
+    const blurAmount = (1 - hardness) * (20 + user.size * 0.2);
     const offset = 100000;
     ctx.shadowBlur = blurAmount;
     ctx.shadowColor = user.getColorString();
@@ -85,7 +85,8 @@ export function drawLineArray(points, ctx, user, blendMode = 'source-over') {
   // Apply softness using shadow blur (hardness controls blur amount)
   // For soft brushes, draw off-screen and use shadow only
   if (hardness < 1.0) {
-    const blurAmount = (1 - hardness) * user.size * 1.5;
+    // Hybrid blur: 20px base + 20% of size gives consistent softness across all brush sizes
+    const blurAmount = (1 - hardness) * (20 + user.size * 0.2);
     const offset = 100000;
 
     ctx.strokeStyle = user.getColorString();

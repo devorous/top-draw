@@ -50,10 +50,11 @@ export class RemoteInkHandler {
     const color = user.color.slice(0, 3);
     user._inkStrokeColor = `rgb(${color.join(',')})`;
 
-    // Store alpha for compositing later
+    // Store alpha and hardness for compositing later
     const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     user._inkAlpha = colorAlpha * opacitySlider;
+    user._inkHardness = user.hardness !== undefined ? user.hardness : 1.0;
 
     // Lock size at stroke start
     user._inkSize = user.size;
@@ -107,14 +108,16 @@ export class RemoteInkHandler {
     if (layerCtx) {
       layerCtx.globalCompositeOperation = 'source-over';
       layerCtx.globalAlpha = user._inkAlpha;
-      layerCtx.drawImage(user._inkOffscreen, 0, 0);
+
+      // Apply global blur using shadow injection
+      this.compositeWithHardness(layerCtx, user._inkOffscreen, user._inkSize || user.size, user._inkHardness, user._inkStrokeColor, 0, 0);
 
       if (this.board.mirror) {
         layerCtx.save();
         layerCtx.globalCompositeOperation = 'source-over';
         layerCtx.translate(this.board.getWidth(), 0);
         layerCtx.scale(-1, 1);
-        layerCtx.drawImage(user._inkOffscreen, 0, 0);
+        this.compositeWithHardness(layerCtx, user._inkOffscreen, user._inkSize || user.size, user._inkHardness, user._inkStrokeColor, 0, 0);
         layerCtx.restore();
       }
 
@@ -167,16 +170,39 @@ export class RemoteInkHandler {
     // Composite offscreen to user.context with alpha for preview
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     user.context.globalAlpha = user._inkAlpha;
-    user.context.drawImage(user._inkOffscreen, 0, 0);
+
+    // Apply global blur using shadow injection
+    this.compositeWithHardness(user.context, user._inkOffscreen, user._inkSize || user.size, user._inkHardness, user._inkStrokeColor, 0, 0);
 
     if (this.board.mirror) {
       user.context.save();
       user.context.translate(this.board.getWidth(), 0);
       user.context.scale(-1, 1);
-      user.context.drawImage(user._inkOffscreen, 0, 0);
+      this.compositeWithHardness(user.context, user._inkOffscreen, user._inkSize || user.size, user._inkHardness, user._inkStrokeColor, 0, 0);
       user.context.restore();
     }
 
     user.context.globalAlpha = 1.0;
+  }
+
+  /**
+   * Composite offscreen canvas with optional global blur using shadow injection.
+   * Uses hybrid formula: base blur + size scaling for consistent softness across sizes.
+   */
+  compositeWithHardness(ctx, sourceCanvas, size, hardness, strokeColor, x, y) {
+    const blurAmount = (1 - hardness) * (20 + size * 0.2);
+
+    if (blurAmount > 0) {
+      const offset = 100000;
+      ctx.save();
+      ctx.shadowBlur = blurAmount;
+      ctx.shadowColor = strokeColor;
+      ctx.shadowOffsetX = -offset;
+      ctx.shadowOffsetY = 0;
+      ctx.drawImage(sourceCanvas, x + offset, y);
+      ctx.restore();
+    } else {
+      ctx.drawImage(sourceCanvas, x, y);
+    }
   }
 }

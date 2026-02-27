@@ -96,10 +96,11 @@ export class InkTool extends Tool {
     this.strokeColor = `rgb(${color.join(',')})`;
     this.offscreenCtx.fillStyle = this.strokeColor;
 
-    // Store user's alpha for compositing
+    // Store user's alpha and hardness for compositing
     const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     this.userAlpha = colorAlpha * opacitySlider;
+    this.userHardness = user.hardness !== undefined ? user.hardness : 1.0;
 
     // Lock size at stroke start — does not change mid-stroke
     this._strokeSize = user.size;
@@ -158,14 +159,16 @@ export class InkTool extends Tool {
     const ctx = this.board.getActiveLayerContext();
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = this.userAlpha;
-    ctx.drawImage(this.offscreenCanvas, 0, 0);
+
+    // Apply global blur using shadow injection technique
+    this.compositeWithHardness(ctx, this.offscreenCanvas, this._strokeSize, 0, 0);
 
     if (this.board.mirror) {
       ctx.save();
       ctx.globalCompositeOperation = 'source-over';
       ctx.translate(this.board.getWidth(), 0);
       ctx.scale(-1, 1);
-      ctx.drawImage(this.offscreenCanvas, 0, 0);
+      this.compositeWithHardness(ctx, this.offscreenCanvas, this._strokeSize, 0, 0);
       ctx.restore();
     }
 
@@ -218,17 +221,49 @@ export class InkTool extends Tool {
 
     const ctx = this.board.topCtx;
     ctx.globalAlpha = this.userAlpha;
-    ctx.drawImage(this.offscreenCanvas, 0, 0);
+
+    // Apply global blur using shadow injection technique
+    this.compositeWithHardness(ctx, this.offscreenCanvas, this._strokeSize, 0, 0);
 
     if (this.board.mirror) {
       ctx.save();
       ctx.translate(this.board.getWidth(), 0);
       ctx.scale(-1, 1);
-      ctx.drawImage(this.offscreenCanvas, 0, 0);
+      this.compositeWithHardness(ctx, this.offscreenCanvas, this._strokeSize, 0, 0);
       ctx.restore();
     }
 
     ctx.globalAlpha = 1.0;
+  }
+
+  /**
+   * Composite offscreen canvas with optional global blur using shadow injection.
+   * This applies hardness as a post-process effect to the entire stroke buffer.
+   * Uses hybrid formula: base blur + size scaling for consistent softness across sizes.
+   * @param {CanvasRenderingContext2D} ctx - Target context
+   * @param {HTMLCanvasElement} sourceCanvas - Source canvas to composite
+   * @param {number} size - Brush size for blur scaling
+   * @param {number} x - X offset for drawing
+   * @param {number} y - Y offset for drawing
+   */
+  compositeWithHardness(ctx, sourceCanvas, size, x, y) {
+    // Hybrid blur: 20px base + 20% of size gives consistent softness across all brush sizes
+    const blurAmount = (1 - this.userHardness) * (20 + size * 0.2);
+
+    if (blurAmount > 0) {
+      // Shadow injection trick: draw way off-screen so only the shadow appears
+      const offset = 100000;
+      ctx.save();
+      ctx.shadowBlur = blurAmount;
+      ctx.shadowColor = this.strokeColor;
+      ctx.shadowOffsetX = -offset;
+      ctx.shadowOffsetY = 0;
+      ctx.drawImage(sourceCanvas, x + offset, y);
+      ctx.restore();
+    } else {
+      // No blur needed - direct composite
+      ctx.drawImage(sourceCanvas, x, y);
+    }
   }
 
   /**

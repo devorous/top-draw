@@ -141,8 +141,8 @@ export class BrushTool extends Tool {
     // Apply softness using shadow blur (hardness controls blur amount)
     // For soft brushes, draw off-screen and use shadow only
     if (hardness < 1.0) {
-      // Calculate blur based on hardness
-      const blurAmount = (1 - hardness) * user.size * 1.5;
+      // Hybrid blur: 20px base + 20% of size gives consistent softness across all brush sizes
+      const blurAmount = (1 - hardness) * (20 + user.size * 0.2);
       const offset = 100000; // Draw way off-screen
 
       ctx.strokeStyle = user.getColorString();
@@ -263,8 +263,8 @@ export class BrushTool extends Tool {
     ctx.fillStyle = user.getColorString();
 
     if (hardness < 1.0) {
-      const avgRadius = (fromRadius + toRadius) / 2;
-      const blurAmount = (1 - hardness) * avgRadius * 1.5;
+      // Hybrid blur: 20px base + 20% of size gives consistent softness across all brush sizes
+      const blurAmount = (1 - hardness) * (20 + user.size * 0.2);
       const offset = 100000;
       ctx.shadowBlur = blurAmount;
       ctx.shadowColor = user.getColorString();

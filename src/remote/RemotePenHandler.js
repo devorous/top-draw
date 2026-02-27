@@ -38,25 +38,11 @@ export class RemotePenHandler {
     user._penAlpha = colorAlpha * opacitySlider;
     user._penHardness = user.hardness !== undefined ? user.hardness : 1.0;
 
-    // Apply softness using shadow blur
+    // Draw hard stamps - blur will be applied globally during composite
     const ctx = user._penOffscreenCtx;
-    if (user._penHardness < 1.0) {
-      const blurAmount = (1 - user._penHardness) * radius * 1.2;
-      ctx.shadowBlur = blurAmount;
-      ctx.shadowColor = user._penStrokeColor;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
-    } else {
-      ctx.shadowBlur = 0;
-    }
-
-    // Stamp first circle to offscreen
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, Math.max(0.5, radius), 0, Math.PI * 2);
     ctx.fill();
-
-    // Reset shadow
-    ctx.shadowBlur = 0;
 
     user._penLastStampPos = { x: pos.x, y: pos.y, radius };
     user._penStrokeActive = true;
@@ -79,20 +65,7 @@ export class RemotePenHandler {
     const ctx = user._penOffscreenCtx;
     ctx.fillStyle = user._penStrokeColor;
 
-    // rs values are 0-255 pressure — convert to pixel radius using user.size
-    // Apply softness
-    if (user._penHardness < 1.0) {
-      const avgPressure = (radii[0] || 255) / 255;
-      const avgR = avgPressure * user.size;
-      const blurAmount = (1 - user._penHardness) * avgR * 1.2;
-      ctx.shadowBlur = blurAmount;
-      ctx.shadowColor = user._penStrokeColor;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
-    } else {
-      ctx.shadowBlur = 0;
-    }
-
+    // Draw hard stamps - blur will be applied globally during composite
     // Stamp each point — convert pressure (0-255) to pixel radius
     for (let i = 0, ri = 0; i < points.length; i += 2, ri++) {
       const x = points[i];
@@ -103,8 +76,6 @@ export class RemotePenHandler {
       ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
       ctx.fill();
     }
-
-    ctx.shadowBlur = 0;
 
     // Update last stamp pos and preview
     const lastPtIdx = points.length - 2;
@@ -129,20 +100,9 @@ export class RemotePenHandler {
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     if (distance >= spacing) {
-      // Stamp circles to offscreen
+      // Draw hard stamps - blur will be applied globally during composite
       const ctx = user._penOffscreenCtx;
       ctx.fillStyle = user._penStrokeColor;
-
-      // Apply softness using shadow blur
-      if (user._penHardness < 1.0) {
-        const blurAmount = (1 - user._penHardness) * radius * 1.2;
-        ctx.shadowBlur = blurAmount;
-        ctx.shadowColor = user._penStrokeColor;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 0;
-      } else {
-        ctx.shadowBlur = 0;
-      }
 
       const steps = Math.ceil(distance / spacing);
       for (let i = 1; i <= steps; i++) {
@@ -154,9 +114,6 @@ export class RemotePenHandler {
         ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
         ctx.fill();
       }
-
-      // Reset shadow
-      ctx.shadowBlur = 0;
 
       user._penLastStampPos = { x: pos.x, y: pos.y, radius };
       if (user.penPoints) {
@@ -179,14 +136,16 @@ export class RemotePenHandler {
     if (layerCtx) {
       layerCtx.globalCompositeOperation = 'source-over';
       layerCtx.globalAlpha = user._penAlpha;
-      layerCtx.drawImage(user._penOffscreen, 0, 0);
+
+      // Apply global blur using shadow injection
+      this.compositeWithHardness(layerCtx, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
 
       if (this.board.mirror) {
         layerCtx.save();
         layerCtx.globalCompositeOperation = 'source-over';
         layerCtx.translate(this.board.getWidth(), 0);
         layerCtx.scale(-1, 1);
-        layerCtx.drawImage(user._penOffscreen, 0, 0);
+        this.compositeWithHardness(layerCtx, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
         layerCtx.restore();
       }
 
@@ -210,16 +169,39 @@ export class RemotePenHandler {
     // Composite offscreen to user.context with alpha for preview
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     user.context.globalAlpha = user._penAlpha;
-    user.context.drawImage(user._penOffscreen, 0, 0);
+
+    // Apply global blur using shadow injection
+    this.compositeWithHardness(user.context, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
 
     if (this.board.mirror) {
       user.context.save();
       user.context.translate(this.board.getWidth(), 0);
       user.context.scale(-1, 1);
-      user.context.drawImage(user._penOffscreen, 0, 0);
+      this.compositeWithHardness(user.context, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
       user.context.restore();
     }
 
     user.context.globalAlpha = 1.0;
+  }
+
+  /**
+   * Composite offscreen canvas with optional global blur using shadow injection.
+   * Uses hybrid formula: base blur + size scaling for consistent softness across sizes.
+   */
+  compositeWithHardness(ctx, sourceCanvas, size, hardness, strokeColor, x, y) {
+    const blurAmount = (1 - hardness) * (20 + size * 0.2);
+
+    if (blurAmount > 0) {
+      const offset = 100000;
+      ctx.save();
+      ctx.shadowBlur = blurAmount;
+      ctx.shadowColor = strokeColor;
+      ctx.shadowOffsetX = -offset;
+      ctx.shadowOffsetY = 0;
+      ctx.drawImage(sourceCanvas, x + offset, y);
+      ctx.restore();
+    } else {
+      ctx.drawImage(sourceCanvas, x, y);
+    }
   }
 }

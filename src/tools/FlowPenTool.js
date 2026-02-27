@@ -215,14 +215,16 @@ export class FlowPenTool extends Tool {
     const ctx = this.board.getActiveLayerContext();
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = this.userAlpha;
-    ctx.drawImage(this.offscreenCanvas, 0, 0);
+
+    // Apply global blur using shadow injection technique
+    this.compositeWithHardness(ctx, this.offscreenCanvas, this.currentUser.size, 0, 0);
 
     if (this.board.mirror) {
       ctx.save();
       ctx.globalCompositeOperation = 'source-over';
       ctx.translate(this.board.getWidth(), 0);
       ctx.scale(-1, 1);
-      ctx.drawImage(this.offscreenCanvas, 0, 0);
+      this.compositeWithHardness(ctx, this.offscreenCanvas, this.currentUser.size, 0, 0);
       ctx.restore();
     }
 
@@ -239,17 +241,7 @@ export class FlowPenTool extends Tool {
   stampCircle(x, y, radius, pressure255) {
     const ctx = this.offscreenCtx;
 
-    // Apply softness using shadow blur
-    if (this.userHardness < 1.0) {
-      const blurAmount = (1 - this.userHardness) * radius * 1.2;
-      ctx.shadowBlur = blurAmount;
-      ctx.shadowColor = this.strokeColor;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
-    } else {
-      ctx.shadowBlur = 0;
-    }
-
+    // Draw hard stamps - blur will be applied globally during composite
     ctx.fillStyle = this.strokeColor;
     ctx.beginPath();
     ctx.arc(x, y, Math.max(0.5, radius), 0, Math.PI * 2);
@@ -257,29 +249,56 @@ export class FlowPenTool extends Tool {
 
     // Collect stamp position for remote sync (pressure as 0-255, not radius)
     this.stampBuffer.push(x, y, pressure255);
-
-    // Reset shadow
-    ctx.shadowBlur = 0;
   }
 
   drawPreview(user) {
     if (!this.offscreenCanvas) return;
 
     const ctx = this.board.topCtx;
-
-    // Draw offscreen canvas with user's alpha
     ctx.globalAlpha = this.userAlpha;
-    ctx.drawImage(this.offscreenCanvas, 0, 0);
+
+    // Apply global blur using shadow injection technique
+    this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
 
     if (this.board.mirror) {
       ctx.save();
       ctx.translate(this.board.getWidth(), 0);
       ctx.scale(-1, 1);
-      ctx.drawImage(this.offscreenCanvas, 0, 0);
+      this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
       ctx.restore();
     }
 
     ctx.globalAlpha = 1.0;
+  }
+
+  /**
+   * Composite offscreen canvas with optional global blur using shadow injection.
+   * This applies hardness as a post-process effect to the entire stroke buffer.
+   * Uses hybrid formula: base blur + size scaling for consistent softness across sizes.
+   * @param {CanvasRenderingContext2D} ctx - Target context
+   * @param {HTMLCanvasElement} sourceCanvas - Source canvas to composite
+   * @param {number} size - Brush size for blur scaling
+   * @param {number} x - X offset for drawing
+   * @param {number} y - Y offset for drawing
+   */
+  compositeWithHardness(ctx, sourceCanvas, size, x, y) {
+    // Hybrid blur: 20px base + 20% of size gives consistent softness across all brush sizes
+    const blurAmount = (1 - this.userHardness) * (20 + size * 0.2);
+
+    if (blurAmount > 0) {
+      // Shadow injection trick: draw way off-screen so only the shadow appears
+      const offset = 100000;
+      ctx.save();
+      ctx.shadowBlur = blurAmount;
+      ctx.shadowColor = this.strokeColor;
+      ctx.shadowOffsetX = -offset;
+      ctx.shadowOffsetY = 0;
+      ctx.drawImage(sourceCanvas, x + offset, y);
+      ctx.restore();
+    } else {
+      // No blur needed - direct composite
+      ctx.drawImage(sourceCanvas, x, y);
+    }
   }
 
   drainStampBuffer() {
