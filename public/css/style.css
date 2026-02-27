@@ -704,6 +704,9 @@ canvas {
   gap: 8px;
   width: 100%;
 }
+.selection-mode-container>.radio-group{
+  flex-wrap: wrap;
+}
 
 .radio-option {
   flex: 1;

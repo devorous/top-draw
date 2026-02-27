@@ -685,10 +685,15 @@ export class DrawingApp {
     elements.board.addEventListener('pointermove', (e) => this.handlePointerMove(e));
     elements.board.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
     elements.board.addEventListener('pointerup', (e) => this.handlePointerUp(e));
-    elements.board.addEventListener('pointerenter', () => {
-      this.isOnBoard = true;
-      this.ui.showCursor();
-      // Refresh tool display to show correct cursor shape
+         elements.board.addEventListener('pointerenter', () => {
+           this.isOnBoard = true;
+    
+           // Skip showing cursor during two-finger gestures
+           if (this.touchHandler.state.isPinching || this.touchHandler.state.gestureStartedWithTwoFingers) {
+             return;
+           }
+    
+           this.ui.showCursor();      // Refresh tool display to show correct cursor shape
       this.ui.updateToolDisplay(this.self.tool);
 
       // Broadcast cursor show to other users
@@ -1276,6 +1281,7 @@ export class DrawingApp {
 
     // Skip drawing during two-finger gestures
     if (this.touchHandler.state.isPinching || this.touchHandler.state.gestureStartedWithTwoFingers) {
+      this.ui.hideCursor();
       return;
     }
 
@@ -1299,6 +1305,14 @@ export class DrawingApp {
 
     const x = Math.round(e.offsetX * 100) / 100;
     const y = Math.round(e.offsetY * 100) / 100;
+
+    // Text tool: update pending position for touch drag preview
+    if (this.self.tool === 'text' && this.self._pendingTextPos && e.pointerType === 'touch') {
+      this.self._pendingTextPos = { x, y };
+      this.self.setPosition(x, y);
+      this.ui.updateSelfCursor(x, y, this.self.size);
+      return;
+    }
 
     // Update cursor immediately for visual responsiveness
     this.ui.updateSelfCursor(x, y, this.self.size);
@@ -1374,6 +1388,7 @@ export class DrawingApp {
 
     // Skip drawing during two-finger gestures
     if (this.touchHandler.state.isPinching || this.touchHandler.state.gestureStartedWithTwoFingers) {
+      this.ui.hideCursor();
       return;
     }
 
@@ -1471,6 +1486,10 @@ export class DrawingApp {
           // Store pending text position but don't call onPointerDown yet
           this.self._pendingTextPos = pos;
           this.self._pendingTextPointerType = e.pointerType;
+
+          // Update local position so the cursor/preview follows the touch immediately
+          this.self.setPosition(pos.x, pos.y);
+          this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);
 
           // Focus hidden input for touch keyboard support
           if (this.ui.elements.touchInput) {
@@ -1615,6 +1634,12 @@ export class DrawingApp {
 
   handlePointerLeave(e) {
     this.isOnBoard = false;
+
+    // Keep cursor visible if text tool is active
+    if (this.self.tool === 'text') {
+      return;
+    }
+
     this.ui.hideCursor();
 
     // Broadcast cursor hide to other users

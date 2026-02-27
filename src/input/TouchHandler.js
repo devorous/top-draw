@@ -116,6 +116,12 @@ export class TouchHandler {
         this.app.cancelCurrentStroke();
       }
 
+      // Hide cursor during gestures
+      this.ui.hideCursor();
+      if (this.wsClient && this.wsClient.connected) {
+        this.wsClient.broadcastHideCursor();
+      }
+
       // Capture initial touch state
       this.state.initialDistance = this.getDistance(e.touches);
       this.state.initialAngle = this.getAngle(e.touches);
@@ -274,6 +280,14 @@ export class TouchHandler {
 
     if (e.touches.length === 0) {
       this.state.gestureStartedWithTwoFingers = false;
+      
+      // Restore cursor visibility if still on board
+      if (this.app.isOnBoard) {
+        this.ui.showCursor();
+        if (this.wsClient && this.wsClient.connected) {
+          this.wsClient.broadcastShowCursor();
+        }
+      }
     }
   }
 

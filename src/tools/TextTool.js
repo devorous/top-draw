@@ -33,6 +33,9 @@ export class TextTool extends Tool {
       user.text = '';
       this.board.endStroke(user); // commits stroke and composites
     }
+    // Update user position to the new click/lift location
+    user.x = pos.x;
+    user.y = pos.y;
   }
 
   onKeyPress(user, key) {
