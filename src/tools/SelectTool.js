@@ -57,6 +57,9 @@ export class SelectTool extends Tool {
     this.rotationStartAngle = 0; // Angle when rotation started
     this.cornersAtRotationStart = null; // Corners at the start of rotation
 
+    // Perspective handles (extend from corners for homography control)
+    this.perspectiveHandleDistance = 40; // Distance from corners (similar to rotation's 30px)
+
     // Homography instance for transforms (reused to avoid per-frame allocation)
     this.homography = null;
     this.previewHomography = null; // Separate instance for downscaled previews
@@ -343,7 +346,8 @@ export class SelectTool extends Tool {
         'tl': 'nwse-resize', 'br': 'nwse-resize',
         'tr': 'nesw-resize', 'bl': 'nesw-resize',
         'tm': 'ns-resize', 'bm': 'ns-resize',
-        'ml': 'ew-resize', 'mr': 'ew-resize'
+        'ml': 'ew-resize', 'mr': 'ew-resize',
+        'ptl': 'grab', 'ptr': 'grab', 'pbl': 'grab', 'pbr': 'grab'
       };
       this.board.container.style.cursor = cursorMap[handle.id] || 'move';
       return;
@@ -452,6 +456,31 @@ export class SelectTool extends Tool {
           ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
+        } else if (handle.isPerspective) {
+          // Draw perspective handle with connecting line
+          const cornerMap = { ptl: 'tl', ptr: 'tr', pbl: 'bl', pbr: 'br' };
+          const cornerId = cornerMap[handle.id];
+          const corner = this.corners[cornerId];
+
+          if (corner) {
+            // Draw connecting line from corner to perspective handle (dark grey, very thin)
+            ctx.strokeStyle = '#222';
+            ctx.lineWidth = 0.75;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.moveTo(corner.x, corner.y);
+            ctx.lineTo(handle.x, handle.y);
+            ctx.stroke();
+
+            // Draw perspective handle as desaturated cyan circle
+            ctx.fillStyle = '#88CCCC'; // Less saturated cyan
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
         } else {
           // Draw regular handles as squares
           ctx.fillStyle = '#fff';
@@ -507,6 +536,31 @@ export class SelectTool extends Tool {
           ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
+        } else if (handle.isPerspective) {
+          // Draw perspective handle with connecting line
+          const cornerMap = { ptl: 'tl', ptr: 'tr', pbl: 'bl', pbr: 'br' };
+          const cornerId = cornerMap[handle.id];
+          const corner = this.corners[cornerId];
+
+          if (corner) {
+            // Draw connecting line from corner to perspective handle (dark grey, very thin)
+            ctx.strokeStyle = '#222';
+            ctx.lineWidth = 0.75;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.moveTo(corner.x, corner.y);
+            ctx.lineTo(handle.x, handle.y);
+            ctx.stroke();
+
+            // Draw perspective handle as desaturated cyan circle
+            ctx.fillStyle = '#88CCCC'; // Less saturated cyan
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
         } else {
           // Draw regular handles as squares
           ctx.fillStyle = '#fff';
@@ -863,46 +917,124 @@ export class SelectTool extends Tool {
 
     const c = this.corners;
 
-    switch (handleId) {
-      // Corner handles - free transform
-      case 'tl':
-        c.tl.x = pos.x;
-        c.tl.y = pos.y;
-        break;
-      case 'tr':
-        c.tr.x = pos.x;
-        c.tr.y = pos.y;
-        break;
-      case 'bl':
-        c.bl.x = pos.x;
-        c.bl.y = pos.y;
-        break;
-      case 'br':
-        c.br.x = pos.x;
-        c.br.y = pos.y;
-        break;
+    // CASE 1: Perspective handles - free-form corner movement
+    if (['ptl', 'ptr', 'pbl', 'pbr'].includes(handleId)) {
+      const cornerMap = { ptl: 'tl', ptr: 'tr', pbl: 'bl', pbr: 'br' };
+      const cornerId = cornerMap[handleId];
 
-      // Edge handles - constrained transform
-      case 'tm': // Top middle - move both top corners
-        const topDy = pos.y - (c.tl.y + c.tr.y) / 2;
-        c.tl.y += topDy;
-        c.tr.y += topDy;
+      // Free-form perspective control - just move the corner
+      c[cornerId].x = pos.x;
+      c[cornerId].y = pos.y;
+
+      // Update selection bounds to encompass all corners
+      this.updateSelectionFromCorners();
+      return;
+    }
+
+    // CASE 2: Corner scale handles - scale all corners proportionally from center
+    if (['tl', 'tr', 'bl', 'br'].includes(handleId)) {
+      // Calculate current bounding box
+      const oldMinX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+      const oldMaxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+      const oldMinY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+      const oldMaxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+      const oldWidth = oldMaxX - oldMinX;
+      const oldHeight = oldMaxY - oldMinY;
+
+      // Determine which corner of bounding box is being dragged
+      const oppositeMap = { tl: 'br', tr: 'bl', bl: 'tr', br: 'tl' };
+      const oppositeId = oppositeMap[handleId];
+
+      // Get the opposite corner position (fixed point)
+      const oppositeBBoxCorner = {
+        tl: { x: oldMinX, y: oldMinY },
+        tr: { x: oldMaxX, y: oldMinY },
+        bl: { x: oldMinX, y: oldMaxY },
+        br: { x: oldMaxX, y: oldMaxY }
+      }[oppositeId];
+
+      // Calculate new bounding box
+      const newMinX = Math.min(pos.x, oppositeBBoxCorner.x);
+      const newMaxX = Math.max(pos.x, oppositeBBoxCorner.x);
+      const newMinY = Math.min(pos.y, oppositeBBoxCorner.y);
+      const newMaxY = Math.max(pos.y, oppositeBBoxCorner.y);
+      const newWidth = newMaxX - newMinX;
+      const newHeight = newMaxY - newMinY;
+
+      // Calculate scale factors
+      const scaleX = oldWidth > 0 ? newWidth / oldWidth : 1;
+      const scaleY = oldHeight > 0 ? newHeight / oldHeight : 1;
+
+      // Scale all corners relative to the opposite corner
+      const scaleCorner = (corner) => ({
+        x: oppositeBBoxCorner.x + (corner.x - oppositeBBoxCorner.x) * scaleX,
+        y: oppositeBBoxCorner.y + (corner.y - oppositeBBoxCorner.y) * scaleY
+      });
+
+      c.tl = scaleCorner(c.tl);
+      c.tr = scaleCorner(c.tr);
+      c.bl = scaleCorner(c.bl);
+      c.br = scaleCorner(c.br);
+
+      this.updateSelectionFromCorners();
+      return;
+    }
+
+    // CASE 3: Edge handles - scale proportionally along one axis
+    const oldMinX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+    const oldMaxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+    const oldMinY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+    const oldMaxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+
+    switch (handleId) {
+      case 'tm': { // Top middle - scale vertically from bottom
+        const oldHeight = oldMaxY - oldMinY;
+        const newMinY = pos.y;
+        const newHeight = oldMaxY - newMinY;
+        const scaleY = oldHeight > 0 ? newHeight / oldHeight : 1;
+
+        c.tl.y = oldMaxY - (oldMaxY - c.tl.y) * scaleY;
+        c.tr.y = oldMaxY - (oldMaxY - c.tr.y) * scaleY;
+        c.bl.y = oldMaxY - (oldMaxY - c.bl.y) * scaleY;
+        c.br.y = oldMaxY - (oldMaxY - c.br.y) * scaleY;
         break;
-      case 'bm': // Bottom middle
-        const botDy = pos.y - (c.bl.y + c.br.y) / 2;
-        c.bl.y += botDy;
-        c.br.y += botDy;
+      }
+      case 'bm': { // Bottom middle - scale vertically from top
+        const oldHeight = oldMaxY - oldMinY;
+        const newMaxY = pos.y;
+        const newHeight = newMaxY - oldMinY;
+        const scaleY = oldHeight > 0 ? newHeight / oldHeight : 1;
+
+        c.tl.y = oldMinY + (c.tl.y - oldMinY) * scaleY;
+        c.tr.y = oldMinY + (c.tr.y - oldMinY) * scaleY;
+        c.bl.y = oldMinY + (c.bl.y - oldMinY) * scaleY;
+        c.br.y = oldMinY + (c.br.y - oldMinY) * scaleY;
         break;
-      case 'ml': // Middle left
-        const leftDx = pos.x - (c.tl.x + c.bl.x) / 2;
-        c.tl.x += leftDx;
-        c.bl.x += leftDx;
+      }
+      case 'ml': { // Middle left - scale horizontally from right
+        const oldWidth = oldMaxX - oldMinX;
+        const newMinX = pos.x;
+        const newWidth = oldMaxX - newMinX;
+        const scaleX = oldWidth > 0 ? newWidth / oldWidth : 1;
+
+        c.tl.x = oldMaxX - (oldMaxX - c.tl.x) * scaleX;
+        c.tr.x = oldMaxX - (oldMaxX - c.tr.x) * scaleX;
+        c.bl.x = oldMaxX - (oldMaxX - c.bl.x) * scaleX;
+        c.br.x = oldMaxX - (oldMaxX - c.br.x) * scaleX;
         break;
-      case 'mr': // Middle right
-        const rightDx = pos.x - (c.tr.x + c.br.x) / 2;
-        c.tr.x += rightDx;
-        c.br.x += rightDx;
+      }
+      case 'mr': { // Middle right - scale horizontally from left
+        const oldWidth = oldMaxX - oldMinX;
+        const newMaxX = pos.x;
+        const newWidth = newMaxX - oldMinX;
+        const scaleX = oldWidth > 0 ? newWidth / oldWidth : 1;
+
+        c.tl.x = oldMinX + (c.tl.x - oldMinX) * scaleX;
+        c.tr.x = oldMinX + (c.tr.x - oldMinX) * scaleX;
+        c.bl.x = oldMinX + (c.bl.x - oldMinX) * scaleX;
+        c.br.x = oldMinX + (c.br.x - oldMinX) * scaleX;
         break;
+      }
     }
 
     // Update selection bounds based on corners
@@ -923,6 +1055,7 @@ export class SelectTool extends Tool {
     this.selection.width = maxX - minX;
     this.selection.height = maxY - minY;
   }
+
 
   drawTransformPreview() {
     if (!this.floatingCanvas || !this.corners || !this.originalCorners) return;
@@ -1010,18 +1143,40 @@ export class SelectTool extends Tool {
     if (!this.corners) return;
 
     const c = this.corners;
-    const tm = { x: (c.tl.x + c.tr.x) / 2, y: (c.tl.y + c.tr.y) / 2 };
+    const center = this.getSelectionCenter();
 
-    const handlePositions = [
-      c.tl, c.tr, c.bl, c.br,
+    // Calculate bounding box
+    const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+    const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+    const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+    const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+
+    const bbox = {
+      tl: { x: minX, y: minY },
+      tr: { x: maxX, y: minY },
+      bl: { x: minX, y: maxY },
+      br: { x: maxX, y: maxY }
+    };
+
+    // Draw bounding box rectangle (dashed gray line)
+    ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+    ctx.setLineDash([]);
+
+    // Bounding box handles
+    const tm = { x: (bbox.tl.x + bbox.tr.x) / 2, y: (bbox.tl.y + bbox.tr.y) / 2 };
+    const bboxHandlePositions = [
+      bbox.tl, bbox.tr, bbox.bl, bbox.br,
       tm,
-      { x: (c.bl.x + c.br.x) / 2, y: (c.bl.y + c.br.y) / 2 }, // bm
-      { x: (c.tl.x + c.bl.x) / 2, y: (c.tl.y + c.bl.y) / 2 }, // ml
-      { x: (c.tr.x + c.br.x) / 2, y: (c.tr.y + c.br.y) / 2 }  // mr
+      { x: (bbox.bl.x + bbox.br.x) / 2, y: (bbox.bl.y + bbox.br.y) / 2 }, // bm
+      { x: (bbox.tl.x + bbox.bl.x) / 2, y: (bbox.tl.y + bbox.bl.y) / 2 }, // ml
+      { x: (bbox.tr.x + bbox.br.x) / 2, y: (bbox.tr.y + bbox.br.y) / 2 }  // mr
     ];
 
-    // Draw regular handles as squares
-    for (const pos of handlePositions) {
+    // Draw bounding box handles as white squares
+    for (const pos of bboxHandlePositions) {
       ctx.fillStyle = '#fff';
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 1;
@@ -1039,14 +1194,57 @@ export class SelectTool extends Tool {
       );
     }
 
+    // Draw perspective handles (extending from actual corners)
+    const getPerspectiveHandlePos = (corner) => {
+      const dx = corner.x - center.x;
+      const dy = corner.y - center.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist === 0) {
+        return { x: corner.x, y: corner.y };
+      }
+
+      const extendDist = dist + this.perspectiveHandleDistance;
+      return {
+        x: center.x + (dx / dist) * extendDist,
+        y: center.y + (dy / dist) * extendDist
+      };
+    };
+
+    const perspectiveHandles = [
+      { corner: c.tl, handle: getPerspectiveHandlePos(c.tl) },
+      { corner: c.tr, handle: getPerspectiveHandlePos(c.tr) },
+      { corner: c.bl, handle: getPerspectiveHandlePos(c.bl) },
+      { corner: c.br, handle: getPerspectiveHandlePos(c.br) }
+    ];
+
+    // Draw perspective handle connecting lines first (dark grey, very thin)
+    for (const { corner, handle } of perspectiveHandles) {
+      ctx.strokeStyle = '#222';
+      ctx.lineWidth = 0.75;
+      ctx.beginPath();
+      ctx.moveTo(corner.x, corner.y);
+      ctx.lineTo(handle.x, handle.y);
+      ctx.stroke();
+    }
+
+    // Draw perspective handle circles
+    for (const { handle } of perspectiveHandles) {
+      ctx.fillStyle = '#88CCCC';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
     // Draw rotation handle
-    const center = this.getSelectionCenter();
     const rotHandle = this.getRotationHandlePosition(center, tm.x, tm.y);
 
     // Draw connecting line from top-middle to rotation handle
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 1;
-    ctx.setLineDash([]);
     ctx.beginPath();
     ctx.moveTo(tm.x, tm.y);
     ctx.lineTo(rotHandle.x, rotHandle.y);
@@ -1130,22 +1328,66 @@ export class SelectTool extends Tool {
     // Use corners if available (for perspective transform), otherwise use selection bounds
     if (this.corners) {
       const c = this.corners;
-      const tmX = (c.tl.x + c.tr.x) / 2;
-      const tmY = (c.tl.y + c.tr.y) / 2;
-
-      // Calculate rotation handle position (above top-middle, accounting for current rotation)
       const center = this.getSelectionCenter();
+
+      // Calculate bounding box from actual corners (for scaling handles)
+      const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+      const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+      const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+      const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+
+      const bbox = {
+        tl: { x: minX, y: minY },
+        tr: { x: maxX, y: minY },
+        bl: { x: minX, y: maxY },
+        br: { x: maxX, y: maxY }
+      };
+
+      // Calculate perspective handle positions (extend outward from ACTUAL corners)
+      const getPerspectiveHandlePos = (corner) => {
+        const dx = corner.x - center.x;
+        const dy = corner.y - center.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist === 0) {
+          return { x: corner.x, y: corner.y };
+        }
+
+        // Extend outward by perspectiveHandleDistance
+        const extendDist = dist + this.perspectiveHandleDistance;
+        return {
+          x: center.x + (dx / dist) * extendDist,
+          y: center.y + (dy / dist) * extendDist
+        };
+      };
+
+      const ptlPos = getPerspectiveHandlePos(c.tl);
+      const ptrPos = getPerspectiveHandlePos(c.tr);
+      const pblPos = getPerspectiveHandlePos(c.bl);
+      const pbrPos = getPerspectiveHandlePos(c.br);
+
+      // Calculate rotation handle position (from bounding box top-middle)
+      const tmX = (bbox.tl.x + bbox.tr.x) / 2;
+      const tmY = (bbox.tl.y + bbox.tr.y) / 2;
       const rotHandlePos = this.getRotationHandlePosition(center, tmX, tmY);
 
       this.handles = [
-        { id: 'tl', x: c.tl.x, y: c.tl.y },
-        { id: 'tr', x: c.tr.x, y: c.tr.y },
-        { id: 'bl', x: c.bl.x, y: c.bl.y },
-        { id: 'br', x: c.br.x, y: c.br.y },
-        { id: 'tm', x: tmX, y: tmY },
-        { id: 'bm', x: (c.bl.x + c.br.x) / 2, y: (c.bl.y + c.br.y) / 2 },
-        { id: 'ml', x: (c.tl.x + c.bl.x) / 2, y: (c.tl.y + c.bl.y) / 2 },
-        { id: 'mr', x: (c.tr.x + c.br.x) / 2, y: (c.tr.y + c.br.y) / 2 },
+        // Corner handles on BOUNDING BOX (for scaling)
+        { id: 'tl', x: bbox.tl.x, y: bbox.tl.y, type: 'scale' },
+        { id: 'tr', x: bbox.tr.x, y: bbox.tr.y, type: 'scale' },
+        { id: 'bl', x: bbox.bl.x, y: bbox.bl.y, type: 'scale' },
+        { id: 'br', x: bbox.br.x, y: bbox.br.y, type: 'scale' },
+        // Edge midpoint handles on BOUNDING BOX
+        { id: 'tm', x: tmX, y: tmY, type: 'edge' },
+        { id: 'bm', x: (bbox.bl.x + bbox.br.x) / 2, y: (bbox.bl.y + bbox.br.y) / 2, type: 'edge' },
+        { id: 'ml', x: (bbox.tl.x + bbox.bl.x) / 2, y: (bbox.tl.y + bbox.bl.y) / 2, type: 'edge' },
+        { id: 'mr', x: (bbox.tr.x + bbox.br.x) / 2, y: (bbox.tr.y + bbox.br.y) / 2, type: 'edge' },
+        // Perspective handles at ACTUAL corners (for warping)
+        { id: 'ptl', x: ptlPos.x, y: ptlPos.y, type: 'perspective', isPerspective: true },
+        { id: 'ptr', x: ptrPos.x, y: ptrPos.y, type: 'perspective', isPerspective: true },
+        { id: 'pbl', x: pblPos.x, y: pblPos.y, type: 'perspective', isPerspective: true },
+        { id: 'pbr', x: pbrPos.x, y: pbrPos.y, type: 'perspective', isPerspective: true },
+        // Rotation handle
         { id: 'rotate', x: rotHandlePos.x, y: rotHandlePos.y, isRotation: true }
       ];
     } else {
@@ -1158,14 +1400,14 @@ export class SelectTool extends Tool {
       const rotHandlePos = this.getRotationHandlePosition(center, tmX, tmY);
 
       this.handles = [
-        { id: 'tl', x: s.x, y: s.y },
-        { id: 'tr', x: s.x + s.width, y: s.y },
-        { id: 'bl', x: s.x, y: s.y + s.height },
-        { id: 'br', x: s.x + s.width, y: s.y + s.height },
-        { id: 'tm', x: tmX, y: tmY },
-        { id: 'bm', x: s.x + s.width / 2, y: s.y + s.height },
-        { id: 'ml', x: s.x, y: s.y + s.height / 2 },
-        { id: 'mr', x: s.x + s.width, y: s.y + s.height / 2 },
+        { id: 'tl', x: s.x, y: s.y, type: 'scale' },
+        { id: 'tr', x: s.x + s.width, y: s.y, type: 'scale' },
+        { id: 'bl', x: s.x, y: s.y + s.height, type: 'scale' },
+        { id: 'br', x: s.x + s.width, y: s.y + s.height, type: 'scale' },
+        { id: 'tm', x: tmX, y: tmY, type: 'edge' },
+        { id: 'bm', x: s.x + s.width / 2, y: s.y + s.height, type: 'edge' },
+        { id: 'ml', x: s.x, y: s.y + s.height / 2, type: 'edge' },
+        { id: 'mr', x: s.x + s.width, y: s.y + s.height / 2, type: 'edge' },
         { id: 'rotate', x: rotHandlePos.x, y: rotHandlePos.y, isRotation: true }
       ];
     }
@@ -1319,6 +1561,18 @@ export class SelectTool extends Tool {
       ctx.lineTo(c.bl.x, c.bl.y);
       ctx.closePath();
       ctx.stroke();
+
+      // Draw bounding box
+      ctx.setLineDash([]);
+      const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+      const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+      const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+      const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+      ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+      ctx.setLineDash([4, 4]); // Keep dashed for cleanup
     } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.hasScaledSelection()) {
       // Lasso mode - draw simplified polygon (only if not scaled)
       ctx.strokeStyle = '#000';
@@ -1362,28 +1616,44 @@ export class SelectTool extends Tool {
 
     // Draw transform handles
     this.updateHandles();
+
+    // PASS 1: Draw perspective handle connecting lines first (so corner handles appear on top)
     for (const handle of this.handles) {
-      if (handle.isRotation) {
-        // Draw connecting line to rotation handle
-        const tm = this.handles.find(h => h.id === 'tm');
-        if (tm) {
-          ctx.strokeStyle = '#000';
-          ctx.lineWidth = 1;
+      if (handle.isPerspective) {
+        const cornerMap = { ptl: 'tl', ptr: 'tr', pbl: 'bl', pbr: 'br' };
+        const cornerId = cornerMap[handle.id];
+        const corner = this.corners[cornerId];
+
+        if (corner) {
+          // Draw connecting line from corner to perspective handle (dark grey, very thin)
+          ctx.strokeStyle = '#222';
+          ctx.lineWidth = 0.75;
+          ctx.setLineDash([]);
           ctx.beginPath();
-          ctx.moveTo(tm.x, tm.y);
+          ctx.moveTo(corner.x, corner.y);
           ctx.lineTo(handle.x, handle.y);
           ctx.stroke();
         }
+      }
+    }
 
-        // Draw rotation handle as a circle
-        ctx.fillStyle = '#fff';
+    // PASS 2: Draw perspective handle circles
+    for (const handle of this.handles) {
+      if (handle.isPerspective) {
+        // Draw perspective handle as desaturated cyan circle
+        ctx.fillStyle = '#88CCCC';
         ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-      } else {
-        // Draw regular handles as squares
+      }
+    }
+
+    // PASS 3: Draw regular corner/edge handles (these appear on top of perspective lines)
+    for (const handle of this.handles) {
+      if (!handle.isPerspective && !handle.isRotation) {
         ctx.fillStyle = '#fff';
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 1;
@@ -1400,6 +1670,27 @@ export class SelectTool extends Tool {
           this.handleSize
         );
       }
+    }
+
+    // PASS 4: Draw rotation handle last
+    const rotHandle = this.handles.find(h => h.isRotation);
+    if (rotHandle) {
+      const tm = this.handles.find(h => h.id === 'tm');
+      if (tm) {
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(tm.x, tm.y);
+        ctx.lineTo(rotHandle.x, rotHandle.y);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(rotHandle.x, rotHandle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
     }
   }
 
