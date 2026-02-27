@@ -83,6 +83,8 @@ export class UI {
       blurBtn: document.getElementById('blurBtn'),
       circleBlurBtn: document.getElementById('circleBlurBtn'),
       imageBrushBtn: document.getElementById('imageBrushBtn'),
+      uploadBtn: document.getElementById('uploadBtn'),
+      imageUploadInput: document.getElementById('imageUploadInput'),
       inkdropperBtn: document.getElementById('inkdropperBtn'),
 
       clearBtn: document.getElementById('clearBtn'),

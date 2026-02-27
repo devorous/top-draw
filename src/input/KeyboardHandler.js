@@ -14,6 +14,38 @@ export class KeyboardHandler {
   init() {
     document.addEventListener('keydown', (e) => this.handleKeyDown(e));
     document.addEventListener('keyup', (e) => this.handleKeyUp(e));
+    document.addEventListener('paste', (e) => this.handlePaste(e));
+  }
+
+  handlePaste(e) {
+    const { app } = this;
+
+    // Skip if user is typing in a form field
+    const target = e.target;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      return;
+    }
+
+    const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const blob = items[i].getAsFile();
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const img = new Image();
+          img.onload = () => {
+            const selectTool = app.toolManager.getTool('select');
+            if (selectTool) {
+              selectTool.pasteImage(img);
+            }
+          };
+          img.src = event.target.result;
+        };
+        reader.readAsDataURL(blob);
+        e.preventDefault();
+        break;
+      }
+    }
   }
 
   handleKeyDown(e) {
@@ -83,11 +115,18 @@ export class KeyboardHandler {
             }
             return;
           case 'v':
+            // The 'paste' event listener will handle system clipboard pastes (e.g., images).
+            // Here, we only need to handle the application's internal clipboard.
+            const selectTool = app.toolManager.getTool('select');
             if (selectTool && selectTool.hasClipboard()) {
+              // If we have an internal clipboard, prevent the native paste event
+              // and use our internal paste logic.
               e.preventDefault();
               app.selectTool('select');
               selectTool.paste();
             }
+            // If there's no internal clipboard, we do nothing and allow the native 'paste'
+            // event to proceed, which is handled by our 'handlePaste' method.
             return;
           case 'a':
             e.preventDefault();

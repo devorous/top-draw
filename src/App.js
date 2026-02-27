@@ -305,6 +305,12 @@ export class DrawingApp {
     elements.blurBtn.addEventListener('click', () => this.selectTool('blur'));
     elements.circleBlurBtn.addEventListener('click', () => this.selectTool('circleBlur'));
     elements.imageBrushBtn.addEventListener('click', () => this.selectTool('imageBrush'));
+    elements.uploadBtn.addEventListener('click', () => elements.imageUploadInput.click());
+    elements.imageUploadInput.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files[0]) {
+        this.handleImageFile(e.target.files[0]);
+      }
+    });
     elements.inkdropperBtn.addEventListener('click', () => this.selectTool('inkdropper'));
 
     elements.clearBtn.addEventListener('click', () => this.handleClear());
@@ -737,6 +743,13 @@ export class DrawingApp {
 
     // Initialize keyboard handler
     this.keyboardHandler.init();
+
+    // Drag and drop images
+    elements.boardContainer.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    elements.boardContainer.addEventListener('drop', (e) => this.handleImageDrop(e));
 
     window.addEventListener('resize', () => this.handleResize());
   }
@@ -1844,6 +1857,47 @@ export class DrawingApp {
 
   handleResize() {
     this.board.calculateDefaultView();
+  }
+
+  // Image Upload/Drop handlers
+
+  handleImageFile(file) {
+    if (!file || !file.type.startsWith('image/')) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const selectTool = this.toolManager.getTool('select');
+        if (selectTool) {
+          selectTool.pasteImage(img);
+        }
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  handleImageDrop(e) {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      this.handleImageFile(e.dataTransfer.files[0]);
+    } else {
+      // Handle dropped image URLs if any
+      const html = e.dataTransfer.getData('text/html');
+      const match = html && html.match(/src="?([^"\s]+)"?/);
+      if (match && match[1]) {
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = () => {
+          const selectTool = this.toolManager.getTool('select');
+          if (selectTool) {
+            selectTool.pasteImage(img);
+          }
+        };
+        img.src = match[1];
+      }
+    }
   }
 
   // Tool Locks Management

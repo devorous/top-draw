@@ -1821,6 +1821,75 @@ export class SelectTool extends Tool {
     return true;
   }
 
+  /**
+   * Paste an image from an external source (clipboard, drag-drop, file upload)
+   * @param {HTMLImageElement|HTMLCanvasElement|ImageData} imageSource 
+   */
+  pasteImage(imageSource) {
+    // Commit any existing selection
+    this.commitSelection();
+    this.clearSelection();
+
+    let width, height;
+    if (imageSource instanceof ImageData) {
+      width = imageSource.width;
+      height = imageSource.height;
+    } else {
+      width = imageSource.width;
+      height = imageSource.height;
+    }
+
+    // Paste at user's current cursor position (centered on cursor)
+    const app = this.board.app;
+    const x = app?.self?.x || this.board.mainCanvas.width / 2;
+    const y = app?.self?.y || this.board.mainCanvas.height / 2;
+
+    const pasteX = x - width / 2;
+    const pasteY = y - height / 2;
+
+    this.selection = {
+      x: pasteX,
+      y: pasteY,
+      width: width,
+      height: height
+    };
+
+    // Create floating canvas with the image content
+    this.floatingCanvas = document.createElement('canvas');
+    this.floatingCanvas.width = width;
+    this.floatingCanvas.height = height;
+    this.floatingCtx = this.floatingCanvas.getContext('2d');
+    
+    if (imageSource instanceof ImageData) {
+      this.floatingCtx.putImageData(imageSource, 0, 0);
+    } else {
+      this.floatingCtx.drawImage(imageSource, 0, 0);
+    }
+
+    // Store original position - pasted content is considered "moved"
+    this.originalSelectionPos = { x: -1, y: -1 };
+
+    // Initialize corners for transform handles
+    this.initializeCorners();
+    this.updateHandles();
+    this.board.clearTop();
+    this.drawSelectionUI();
+    this.showContextMenu();
+
+    // Broadcast paste to other users
+    if (this.board.app?.wsClient) {
+      const dataUrl = this.floatingCanvas.toDataURL('image/png');
+      this.board.app.wsClient.broadcastImagePaste(pasteX, pasteY, width, height, dataUrl);
+    }
+
+    // Switch to select tool if not already active
+    if (this.board.app?.self?.tool !== 'select') {
+      this.board.app?.selectTool('select');
+    }
+
+    return true;
+  }
+
   // Delete/clear selection content
   deleteSelection() {
     if (!this.selection) return false;

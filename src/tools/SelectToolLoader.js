@@ -153,6 +153,41 @@ export class SelectToolLoader extends Tool {
     }
   }
 
+  // BEGIN: Added proxy methods for copy/paste
+  async copy() {
+    if (!this.realTool) await this.loadRealTool();
+    if (this.realTool) return this.realTool.copy();
+  }
+
+  async cut() {
+    if (!this.realTool) await this.loadRealTool();
+    if (this.realTool) return this.realTool.cut();
+  }
+
+  async paste() {
+    if (!this.realTool) await this.loadRealTool();
+    if (this.realTool) return this.realTool.paste();
+  }
+
+  hasSelection() {
+    return this.realTool ? this.realTool.hasSelection() : false;
+  }
+
+  hasClipboard() {
+    return this.realTool ? this.realTool.hasClipboard() : false;
+  }
+  // END: Added proxy methods
+
+  async pasteImage(imageSource) {
+    if (!this.realTool) {
+      await this.loadRealTool();
+    }
+    if (this.realTool) {
+      return this.realTool.pasteImage(imageSource);
+    }
+    return false;
+  }
+
   getMode() {
     return this.realTool ? this.realTool.mode : 'lasso';
   }
