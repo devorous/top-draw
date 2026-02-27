@@ -20,35 +20,69 @@ class Tool {
  * Each gesture is stored as one active stroke: stamps accumulate on the stroke canvas
  * and are committed as a single undoable record on pointerUp.
  * Reads from board.mainCtx so each stamp sees the already-blurred content.
+ * Uses distance-based spacing to prevent lag at 90 TPS.
  */
 export class CircleBlurTool extends Tool {
   constructor(board) {
     super('circleBlur', board);
+    this.lastStampPos = new Map(); // userId -> {x, y, radius}
   }
 
   activate() {}
-  deactivate() {}
+  deactivate() {
+    this.lastStampPos.clear();
+  }
 
   onPointerDown(user, pos) {
     this.board.beginStroke(user);
     const radius = user.pressure * user.size;
-    this.stampBlurredCircle(pos.x, pos.y, radius, user);
-  }
 
-  onPointerMove(user, pos, lastPos) {
-    if (!user.mousedown || user.panning) return;
-
-    const radius = user.pressure * user.size;
+    // Stamp first circle immediately
     this.stampBlurredCircle(pos.x, pos.y, radius, user);
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
       this.stampBlurredCircle(width - pos.x, pos.y, radius, user);
     }
+
+    // Store last stamp position for distance-based spacing
+    this.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
+  }
+
+  onPointerMove(user, pos, lastPos) {
+    if (!user.mousedown || user.panning) return;
+
+    const radius = user.pressure * user.size;
+    const lastStamp = this.lastStampPos.get(user.id);
+
+    // Distance-based spacing
+    if (lastStamp) {
+      const dx = pos.x - lastStamp.x;
+      const dy = pos.y - lastStamp.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      // Spacing calculation: 0 = 10% (default), 1-20 = 5%-100% of brush size
+      const avgRadius = (lastStamp.radius + radius) / 2;
+      const spacingPercent = user.spacing === 0 ? 0.1 : (user.spacing * 0.05);
+      const minSpacing = Math.max(1, avgRadius * spacingPercent);
+
+      if (distance >= minSpacing) {
+        this.stampBlurredCircle(pos.x, pos.y, radius, user);
+
+        if (this.board.mirror) {
+          const width = this.board.getWidth();
+          this.stampBlurredCircle(width - pos.x, pos.y, radius, user);
+        }
+
+        // Update last stamp position
+        this.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
+      }
+    }
   }
 
   onPointerUp(user) {
     this.board.endStroke(user);
+    this.lastStampPos.delete(user.id);
   }
 
   /**

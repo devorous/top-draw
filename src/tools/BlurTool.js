@@ -19,19 +19,24 @@ class Tool {
 /**
  * Blur tool - applies a GPU-accelerated blur to the area under the circular cursor.
  *
- * Each blur gesture is stored as one active stroke. Dabs are applied continuously
- * and additively while the pointer is held down, even if stationary. It reads from a
- * clean snapshot of the layer to prevent destructive feedback loops.
+ * Each blur gesture is stored as one active stroke. Dabs are applied based on distance
+ * to prevent lag at 90 TPS. It reads from a clean snapshot of the layer to prevent
+ * destructive feedback loops.
  */
 export class BlurTool extends Tool {
   constructor(board) {
     super('blur', board);
     this.pendingBlur = Promise.resolve();
     this.activeLoops = new Map(); // userId -> animationFrameID
+    this.lastStampPos = new Map(); // userId -> {x, y} - last blur application position
   }
 
   activate() {}
-  deactivate() {}
+  deactivate() {
+    // Clean up on deactivate
+    this.activeLoops.clear();
+    this.lastStampPos.clear();
+  }
 
   /**
    * Capture a snapshot of the committed layer state for this user.
@@ -62,6 +67,14 @@ export class BlurTool extends Tool {
     user.lastBlurPos = pos;
     this.initBlurSnapshot(user);
     this.board.beginStroke(user);
+    // Initialize last stamp position
+    this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+    // Apply first blur immediately
+    this.applyBlur(pos.x, pos.y, user.size, user);
+    if (this.board.mirror) {
+      const width = this.board.getWidth();
+      this.applyBlur(width - pos.x, pos.y, user.size, user);
+    }
     this.startBlurLoop(user);
   }
 
@@ -77,8 +90,9 @@ export class BlurTool extends Tool {
     this.board.endStroke(user);
     this.pendingBlur = Promise.resolve();
 
-    // --- Clean up snapshot ---
+    // --- Clean up ---
     user.blurSnapshot = null;
+    this.lastStampPos.delete(user.id);
   }
 
   startBlurLoop(user) {
@@ -91,13 +105,28 @@ export class BlurTool extends Tool {
       }
 
       const pos = user.lastBlurPos;
-      if (pos) {
-        // No need for pendingBlur promise chain with this simpler implementation
-        this.applyBlur(pos.x, pos.y, user.size, user);
+      const lastPos = this.lastStampPos.get(user.id);
 
-        if (this.board.mirror) {
-          const width = this.board.getWidth();
-          this.applyBlur(width - pos.x, pos.y, user.size, user);
+      if (pos && lastPos) {
+        // Distance-based spacing to prevent lag
+        const dx = pos.x - lastPos.x;
+        const dy = pos.y - lastPos.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        // Spacing calculation: 0 = 10% (default), 1-20 = 5%-100% of brush size
+        const spacingPercent = user.spacing === 0 ? 0.1 : (user.spacing * 0.05);
+        const minSpacing = Math.max(1, user.size * spacingPercent);
+
+        if (distance >= minSpacing) {
+          this.applyBlur(pos.x, pos.y, user.size, user);
+
+          if (this.board.mirror) {
+            const width = this.board.getWidth();
+            this.applyBlur(width - pos.x, pos.y, user.size, user);
+          }
+
+          // Update last stamp position
+          this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
         }
       }
 

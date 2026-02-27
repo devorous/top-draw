@@ -353,9 +353,11 @@ export class UI {
       case 'circleBlur':
         selfCircle.style.display = 'block';
         brushHardness.style.display = 'block';
+        brushSpacing.style.display = 'block';
         break;
       case 'blur':
         selfSquare.style.display = 'block';
+        brushSpacing.style.display = 'block';
         if (blurRadiusContainer) {
           blurRadiusContainer.style.display = 'block';
         }
