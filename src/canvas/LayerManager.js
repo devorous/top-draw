@@ -2,17 +2,17 @@
  * LayerManager - Manages multiple off-screen canvas layers with stroke history
  *
  * Each layer group maintains:
- *  - baseCanvas: full-size baked history canvas (oldest strokes composited in)
+ *  - bakedSequences: Array of sequential bins [{blendMode, canvas, ctx}] in chronological order
  *  - strokeStack: ordered list of completed stroke records [{canvas, x, y, w, h, blendMode, userId}]
  *  - userStrokeCounts: Map of userId → count of their strokes in the stack
  *  - activeStrokeByUser: Map of userId → in-progress stroke {canvas, ctx, blendMode}
  *
  * Composite order per group:
- *   background → baseCanvas (source-over) → activeStrokes (each with blendMode)
- *   → strokeStack entries (each at x,y with blendMode)
+ *   background → bakedSequences (chronological) → strokeStack → activeStrokes
  *
  * Baking: when any user exceeds MAX_STROKES_PER_USER, the oldest strokes are
- * shifted from the bottom of strokeStack and composited into baseCanvas.
+ * shifted from the bottom of strokeStack. Consecutive strokes with the same blend mode
+ * are compressed into a single sequence bin to preserve chronological order.
  *
  * Undo: undoLastStroke() splices the user's most recent entry from strokeStack.
  */
@@ -37,10 +37,15 @@ export class LayerManager {
 
   /**
    * Notify the stroke history panel to update (if enabled)
+   * @param {boolean} immediate - If true, update immediately instead of queuing
    */
-  _notifyHistoryPanel() {
+  _notifyHistoryPanel(immediate = false) {
     if (this.strokeHistoryPanel) {
-      this.strokeHistoryPanel.queueUpdate();
+      if (immediate) {
+        this.strokeHistoryPanel.update();
+      } else {
+        this.strokeHistoryPanel.queueUpdate();
+      }
     }
     if (this.onHistoryChange) {
       this.onHistoryChange();
@@ -68,13 +73,11 @@ export class LayerManager {
 
   initLayerGroups(count) {
     for (let i = 0; i < count; i++) {
-      const { canvas: baseCanvas, ctx: baseCtx } = this._createCanvas();
       this.layerGroups.push({
         id: i,
         name: `Layer ${i + 1}`,
         visible: true,
-        baseCanvas,
-        baseCtx,
+        bakedSequences: [],       // [{type:'sequence'|'group', blendMode, canvas?, ctx?, strokes?[], timestamp}]
         strokeStack: [],          // completed stroke records
         userStrokeCounts: new Map(), // userId → count in strokeStack
         activeStrokeByUser: new Map() // userId → { canvas, ctx, blendMode }
@@ -204,17 +207,31 @@ export class LayerManager {
   // ---------------------------------------------------------------------------
 
   /**
-   * Set a layer group's base canvas from a received ImageBitmap.
-   * Called during join-sync to restore baked history.
+   * Import a baked sequence from network sync.
+   * Called during join-sync to restore baked history in chronological order.
    * @param {number} groupIdx
+   * @param {string} blendMode
    * @param {ImageBitmap} imageBitmap
    */
-  importBaseCanvas(groupIdx, imageBitmap) {
+  importSequence(groupIdx, blendMode, imageBitmap) {
     const group = this.layerGroups[groupIdx];
     if (!group) return;
-    group.baseCtx.clearRect(0, 0, this.width, this.height);
-    group.baseCtx.drawImage(imageBitmap, 0, 0);
+
+    const seq = this._createCanvas();
+    seq.blendMode = blendMode;
+    seq.ctx.drawImage(imageBitmap, 0, 0);
+    group.bakedSequences.push(seq);
     this.needsComposite = true;
+  }
+
+  /** @deprecated Use importSequence */
+  importLayerBin(groupIdx, blendMode, imageBitmap) {
+    this.importSequence(groupIdx, blendMode, imageBitmap);
+  }
+
+  /** @deprecated Use importSequence */
+  importBaseCanvas(groupIdx, imageBitmap) {
+    this.importSequence(groupIdx, 'source-over', imageBitmap);
   }
 
   /**
@@ -321,8 +338,14 @@ export class LayerManager {
     }
 
     if (undoneStrokes.length === 0) return null;
+
     this.needsComposite = true;
-    this._notifyHistoryPanel();
+
+    // Cleanup empty sequences now that strokes have been removed from history
+    // (might make cleanup safe if the undone strokes were erasers)
+    this.cleanupEmptySequencesAll();
+
+    this._notifyHistoryPanel(true); // Immediate update for undo
     return undoneStrokes;
   }
 
@@ -356,7 +379,7 @@ export class LayerManager {
     }
 
     this.needsComposite = true;
-    this._notifyHistoryPanel();
+    this._notifyHistoryPanel(true); // Immediate update for redo
     return true;
   }
 
@@ -371,42 +394,263 @@ export class LayerManager {
 
   _bakeOverflowStrokes(group) {
     const MAX = LayerManager.MAX_STROKES_PER_USER;
-    while (this._anyUserOverMax(group, MAX) && group.strokeStack.length > 0) {
-      const stroke = group.strokeStack.shift();
-      this._bakeStrokeToBase(group, stroke);
+
+    // We only bake strokes that are mathematically "safe" to collapse without a background.
+    // Associative blend modes can be pre-collapsed because (BG ⊗ A) ⊗ B = BG ⊗ (A ⊗ B).
+    // Non-associative modes (difference, overlay, dodge, burn) must be kept separate.
+    const safeModes = [
+      'source-over',     // Normal blending (fully associative)
+      'destination-out',  // Eraser (associative as mask accumulation)
+      'multiply',        // Mathematically associative: (BG * A) * B = BG * (A * B)
+      'darken',          // min() is associative
+      'lighten',         // max() is associative
+      'screen'           // (1-(1-BG)*(1-A))*(1-B) associative via distributive property
+    ];
+
+    // Process oldest strokes first, compressing them either into bins or groups
+    let i = 0;
+    while (i < group.strokeStack.length && this._anyUserOverMax(group, MAX)) {
+      const stroke = group.strokeStack[i];
+
+      if (safeModes.includes(stroke.blendMode)) {
+        // Bakeable stroke: compress into sequence bin
+        this._bakeStrokeToBin(group, stroke);
+        group.strokeStack.splice(i, 1);
+
+        const count = group.userStrokeCounts.get(stroke.userId) || 0;
+        if (count > 0) group.userStrokeCounts.set(stroke.userId, count - 1);
+
+        // Do NOT increment i, as we just removed the element at i
+      } else {
+        // Non-bakeable stroke: check if we should compress into a group
+        // Compress if there's a blend mode change after this run
+        const runEnd = this._findBlendModeRunEnd(group.strokeStack, i);
+        const runLength = runEnd - i + 1;
+        const hasBlendModeChange = runEnd + 1 < group.strokeStack.length &&
+                                    group.strokeStack[runEnd + 1].blendMode !== stroke.blendMode;
+
+        if (hasBlendModeChange || runLength >= 5) {
+          // Compress this run into a group
+          this._compressStrokesToGroup(group, i, runEnd);
+          // Do NOT increment i, we removed elements
+        } else {
+          // Keep in stack for now, try next stroke
+          i++;
+        }
+      }
+    }
+  }
+
+  /**
+   * Find the end index of a consecutive run of strokes with the same blend mode
+   */
+  _findBlendModeRunEnd(strokeStack, startIdx) {
+    const blendMode = strokeStack[startIdx].blendMode;
+    let endIdx = startIdx;
+
+    while (endIdx + 1 < strokeStack.length && strokeStack[endIdx + 1].blendMode === blendMode) {
+      endIdx++;
+    }
+
+    return endIdx;
+  }
+
+  /**
+   * Compress a run of strokes into a visual group (for non-bakeable strokes)
+   */
+  _compressStrokesToGroup(group, startIdx, endIdx) {
+    const strokes = group.strokeStack.splice(startIdx, endIdx - startIdx + 1);
+
+    const compressedGroup = {
+      type: 'group',
+      blendMode: strokes[0].blendMode,
+      strokes: strokes,
+      timestamp: strokes[0].timestamp
+    };
+
+    group.bakedSequences.push(compressedGroup);
+
+    // Update user stroke counts
+    for (const stroke of strokes) {
       const count = group.userStrokeCounts.get(stroke.userId) || 0;
       if (count > 0) group.userStrokeCounts.set(stroke.userId, count - 1);
     }
   }
 
   _anyUserOverMax(group, max) {
-    for (const count of group.userStrokeCounts.values()) {
+    // Only count BAKEABLE strokes toward the limit.
+    // Non-bakeable strokes (difference, overlay, etc.) can accumulate indefinitely
+    // without triggering baking, preserving chronological order.
+    const safeModes = ['source-over', 'destination-out', 'multiply', 'darken', 'lighten', 'screen'];
+    const bakeableCountsByUser = new Map();
+
+    for (const stroke of group.strokeStack) {
+      if (safeModes.includes(stroke.blendMode)) {
+        const count = bakeableCountsByUser.get(stroke.userId) || 0;
+        bakeableCountsByUser.set(stroke.userId, count + 1);
+      }
+    }
+
+    for (const count of bakeableCountsByUser.values()) {
       if (count > max) return true;
     }
+
     return false;
   }
 
+  /** @deprecated Use _bakeStrokeToBin */
   _bakeStrokeToBase(group, stroke) {
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = this.width;
-    tempCanvas.height = this.height;
-    const tempCtx = tempCanvas.getContext('2d');
+    this._bakeStrokeToBin(group, stroke);
+  }
 
-    // Do NOT fill with backgroundColor here. Individual layers should remain 
-    // transparent. Background is only for the final composite in compositeLayers().
-    
-    // Existing baked content
-    tempCtx.globalCompositeOperation = 'source-over';
-    tempCtx.drawImage(group.baseCanvas, 0, 0);
+  _bakeStrokeToBin(group, stroke) {
+    // Check if we can append to the last baked sequence (same blend mode)
+    const lastSeq = group.bakedSequences[group.bakedSequences.length - 1];
 
-    // New stroke at its recorded position with its blend mode
-    tempCtx.globalCompositeOperation = stroke.blendMode;
-    tempCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
-    tempCtx.globalCompositeOperation = 'source-over';
+    let targetBin;
+    if (lastSeq && lastSeq.blendMode === stroke.blendMode) {
+      // Append to existing sequence
+      targetBin = lastSeq;
+    } else {
+      // Create new sequence for this blend mode
+      targetBin = this._createCanvas();
+      targetBin.blendMode = stroke.blendMode;
+      group.bakedSequences.push(targetBin);
+    }
 
-    // Replace base with result
-    group.baseCtx.clearRect(0, 0, this.width, this.height);
-    group.baseCtx.drawImage(tempCanvas, 0, 0);
+    // Use the stroke's actual blend mode for self-interaction within the bin.
+    // This makes the math associative: (BG mode S1) mode S2 == BG mode (S1 mode S2).
+    // Exception: Eraser bin accumulates the "mask", so we use source-over.
+    targetBin.ctx.globalCompositeOperation = (stroke.blendMode === 'destination-out')
+      ? 'source-over'
+      : stroke.blendMode;
+
+    targetBin.ctx.drawImage(stroke.canvas, stroke.x, stroke.y);
+  }
+
+  /**
+   * Add image content directly to baked sequences (used by Selection Restore)
+   * @param {number} groupIdx
+   * @param {HTMLCanvasElement} canvas
+   * @param {number} x
+   * @param {number} y
+   * @param {string} [blendMode='source-over']
+   */
+  addToBaseBin(groupIdx, canvas, x, y, blendMode = 'source-over') {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return;
+
+    // Append to last sequence if same blend mode, otherwise create new sequence
+    const lastSeq = group.bakedSequences[group.bakedSequences.length - 1];
+    let targetSeq;
+    if (lastSeq && lastSeq.blendMode === blendMode) {
+      targetSeq = lastSeq;
+    } else {
+      targetSeq = this._createCanvas();
+      targetSeq.blendMode = blendMode;
+      group.bakedSequences.push(targetSeq);
+    }
+
+    targetSeq.ctx.globalCompositeOperation = 'source-over';
+    targetSeq.ctx.drawImage(canvas, x, y);
+    this.needsComposite = true;
+  }
+
+  /**
+   * Apply an eraser (destination-out) operation to all baked sequences in a layer group.
+   * Used when redo-ing a selection cut or restored eraser strokes.
+   */
+  eraseFromAllBaseBins(groupIdx, eraserCanvas, x, y, lassoPath = null) {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return;
+
+    for (const seq of group.bakedSequences) {
+      seq.ctx.globalCompositeOperation = 'destination-out';
+      if (lassoPath && lassoPath.length >= 3) {
+        seq.ctx.beginPath();
+        seq.ctx.moveTo(lassoPath[0].x, lassoPath[0].y);
+        for (let i = 1; i < lassoPath.length; i++) {
+          seq.ctx.lineTo(lassoPath[i].x, lassoPath[i].y);
+        }
+        seq.ctx.closePath();
+        seq.ctx.fill();
+      } else {
+        seq.ctx.drawImage(eraserCanvas, x, y);
+      }
+      seq.ctx.globalCompositeOperation = 'source-over';
+    }
+    this.cleanupEmptyBins(groupIdx);
+    this.needsComposite = true;
+  }
+
+  /**
+   * Remove empty sequences from a specific layer group.
+   * Only removes empty sequences if there are no eraser operations in undo/redo history
+   * (to prevent deleting sequences that could be restored by undoing an eraser).
+   * @param {number} groupIdx
+   */
+  cleanupEmptyBins(groupIdx) {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return;
+
+    // Check if any eraser operations exist in the undo/redo history
+    const hasEraserInHistory = this._hasEraserInHistory(group);
+
+    if (hasEraserInHistory) {
+      // Don't cleanup - erasers in history might restore content when undone
+      return;
+    }
+
+    // Safe to cleanup - no erasers that could be undone/redone
+    group.bakedSequences = group.bakedSequences.filter(seq => this._hasContent(seq.canvas));
+  }
+
+  /**
+   * Remove empty sequences from all layer groups.
+   * Called after undo/redo operations to clean up sequences that became empty.
+   */
+  cleanupEmptySequencesAll() {
+    for (let i = 0; i < this.layerGroups.length; i++) {
+      this.cleanupEmptyBins(i);
+    }
+  }
+
+  /**
+   * Check if there are any eraser operations in the undo/redo stacks.
+   * If yes, we should NOT delete empty sequences as undoing might restore content.
+   * @param {Object} group
+   * @returns {boolean}
+   */
+  _hasEraserInHistory(group) {
+    // Check stroke stack (recent strokes that can be undone)
+    if (group.strokeStack.some(s => s.blendMode === 'destination-out')) {
+      return true;
+    }
+
+    // Check redo stacks for all users (undone strokes that can be redone)
+    for (const batches of this.redoStackByUser.values()) {
+      for (const batch of batches) {
+        for (const { record } of batch) {
+          if (record.blendMode === 'destination-out') {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Quick check if canvas has any non-transparent pixels
+   */
+  _hasContent(canvas) {
+    const ctx = canvas.getContext('2d');
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] > 0) return true;
+    }
+    return false;
   }
 
   /**
@@ -449,6 +693,7 @@ export class LayerManager {
    * @returns {boolean}
    */
   _groupHasDestOut(group) {
+    if (group.bakedSequences.some(seq => seq.blendMode === 'destination-out')) return true;
     if (group.strokeStack.some(s => s.blendMode === 'destination-out')) return true;
     for (const [, active] of group.activeStrokeByUser) {
       if (active.blendMode === 'destination-out') return true;
@@ -458,7 +703,7 @@ export class LayerManager {
 
   /**
    * Returns true if any layer in the range [startIdx, endIdx) has a non-source-over
-   * stroke (committed or active). Used to decide whether split-mode compositing is safe.
+   * stroke (committed, active, or baked bin). Used to decide whether split-mode compositing is safe.
    * @param {number} startIdx - Inclusive start index
    * @param {number} endIdx - Exclusive end index
    * @returns {boolean}
@@ -468,9 +713,18 @@ export class LayerManager {
     for (let i = startIdx; i < count; i++) {
       const group = this.layerGroups[i];
       if (!group.visible) continue;
+
+      // Check baked sequences
+      for (const seq of group.bakedSequences) {
+        if (seq.blendMode !== 'source-over') return true;
+      }
+
+      // Check stack
       for (const stroke of group.strokeStack) {
         if (stroke.blendMode !== 'source-over') return true;
       }
+
+      // Check active
       for (const [, active] of group.activeStrokeByUser) {
         if (active.blendMode !== 'source-over') return true;
       }
@@ -485,14 +739,28 @@ export class LayerManager {
    * @param {Object} group
    */
   _compositeGroupInto(ctx, group) {
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.drawImage(group.baseCanvas, 0, 0);
+    // 1. Draw all baked sequences and compressed groups in chronological order
+    for (const item of group.bakedSequences) {
+      if (item.type === 'group') {
+        // Compressed group: draw each stroke in order
+        for (const stroke of item.strokes) {
+          ctx.globalCompositeOperation = stroke.blendMode;
+          ctx.drawImage(stroke.canvas, stroke.x, stroke.y);
+        }
+      } else {
+        // Baked sequence: draw as single canvas
+        ctx.globalCompositeOperation = item.blendMode;
+        ctx.drawImage(item.canvas, 0, 0);
+      }
+    }
 
+    // 2. Draw individual strokes (recent undo buffer)
     for (const stroke of group.strokeStack) {
       ctx.globalCompositeOperation = stroke.blendMode;
       ctx.drawImage(stroke.canvas, stroke.x, stroke.y);
     }
 
+    // 3. Draw active strokes (currently being drawn)
     for (const [, active] of group.activeStrokeByUser) {
       ctx.globalCompositeOperation = active.blendMode;
       ctx.drawImage(active.canvas, 0, 0);
@@ -514,7 +782,7 @@ export class LayerManager {
       // 1. Erase current content (cut hole)
       ctx.globalCompositeOperation = 'destination-out';
       ctx.drawImage(stroke.canvas, x, y);
-      
+
       // 2. Restore lower layers into the hole
       // destination-over draws *behind* existing pixels.
       // - Existing opaque pixels (from current layer) block lowerSnap.
@@ -569,9 +837,18 @@ export class LayerManager {
         lowerSnap.height = this.height;
         lowerSnap.getContext('2d').drawImage(targetCtx.canvas, 0, 0);
 
-        // Step 2: Draw base canvas
-        targetCtx.globalCompositeOperation = 'source-over';
-        targetCtx.drawImage(group.baseCanvas, 0, 0);
+        // Step 2: Draw baked sequences and compressed groups in chronological order
+        for (const item of group.bakedSequences) {
+          if (item.type === 'group') {
+            // Compressed group: draw each stroke with eraser-aware logic
+            for (const stroke of item.strokes) {
+              this._compositeStroke(targetCtx, stroke, lowerSnap);
+            }
+          } else {
+            // Baked sequence: draw as single canvas
+            this._compositeStroke(targetCtx, { canvas: item.canvas, blendMode: item.blendMode }, lowerSnap);
+          }
+        }
 
         // Step 3: Draw all strokes in strict chronological order
         for (const stroke of group.strokeStack) {
@@ -645,7 +922,7 @@ export class LayerManager {
   clear(index) {
     const group = this.layerGroups[index];
     if (group) {
-      group.baseCtx.clearRect(0, 0, this.width, this.height);
+      group.bakedSequences = [];
       group.strokeStack = [];
       group.userStrokeCounts.clear();
       group.activeStrokeByUser.clear();
@@ -666,17 +943,19 @@ export class LayerManager {
     this.height = height;
 
     for (const group of this.layerGroups) {
-      // Resize base canvas, preserving content
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = group.baseCanvas.width;
-      tempCanvas.height = group.baseCanvas.height;
-      tempCanvas.getContext('2d').drawImage(group.baseCanvas, 0, 0);
-      group.baseCanvas.width = width;
-      group.baseCanvas.height = height;
-      group.baseCtx.lineCap = 'round';
-      group.baseCtx.lineJoin = 'round';
-      group.baseCtx.imageSmoothingQuality = 'high';
-      group.baseCtx.drawImage(tempCanvas, 0, 0);
+      // Resize baked sequences
+      for (const seq of group.bakedSequences) {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = seq.canvas.width;
+        tempCanvas.height = seq.canvas.height;
+        tempCanvas.getContext('2d').drawImage(seq.canvas, 0, 0);
+        seq.canvas.width = width;
+        seq.canvas.height = height;
+        seq.ctx.lineCap = 'round';
+        seq.ctx.lineJoin = 'round';
+        seq.ctx.imageSmoothingQuality = 'high';
+        seq.ctx.drawImage(tempCanvas, 0, 0);
+      }
 
       // Resize active stroke canvases
       for (const [, active] of group.activeStrokeByUser) {

@@ -1005,13 +1005,9 @@ export class DrawingApp {
     this.wsClient.broadcastToolChange(tool);
 
     // Blend mode is sticky per-user, not per-tool or per-layer.
-    // For eraser, reset preview canvas blend mode to normal (eraser uses destination-out internally)
-    if (tool === 'erase') {
-      this.board.topCanvas.style.mixBlendMode = 'normal';
-    } else {
-      // Keep user's current blend mode for live preview
-      this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
-    }
+    // CSS mix-blend-mode is no longer used for live preview to ensure mathematical 
+    // consistency with baked bins. The compositor handles this now.
+    this.board.topCanvas.style.mixBlendMode = 'normal';
 
     // Restore locked values for new tool
     if (this.toolLockManager.toolLocks[tool]) {

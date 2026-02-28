@@ -3,7 +3,7 @@
  *
  * Handles canvas synchronization events:
  * - Sync provide request (server asking us to provide state)
- * - Sync layer base (receiving a layer group's base canvas)
+ * - Sync layer bin (receiving a baked history bin for a specific blend mode)
  * - Sync stroke (receiving a stroke record — stack or redo)
  * - Sync strokes done (all stroke data received)
  * - Sync complete (server finished sync process)
@@ -17,10 +17,18 @@ export function setupSyncHandlers(wsClient, app) {
     }
   });
 
-  // Receiving a layer group's baked base canvas
+  // Receiving a layer group's baked history bin
+  wsClient.on('sync_layer_bin', (data) => {
+    if (app.syncClient) {
+      app.syncClient.handleSyncLayerBin(data);
+    }
+  });
+
+  // Backward-compat: handle legacy sync_layer_base events
   wsClient.on('sync_layer_base', (data) => {
     if (app.syncClient) {
-      app.syncClient.handleSyncLayerBase(data);
+      // route to same bin logic (defaults to source-over if blendMode is missing)
+      app.syncClient.handleSyncLayerBin(data);
     }
   });
 

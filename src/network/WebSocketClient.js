@@ -392,8 +392,9 @@ export class WebSocketClient {
         break;
 
       case T.SYNC_LAYER_BASE:
-        this.emit('sync_layer_base', {
+        this.emit('sync_layer_bin', {
           layerIdx: data.ly,
+          blendMode: data.bm || 'source-over',
           imageData: data.img
         });
         break;

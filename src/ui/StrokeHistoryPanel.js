@@ -2,8 +2,8 @@
  * StrokeHistoryPanel - Debug panel for visualizing stroke history
  *
  * Shows thumbnails of:
- * - Base canvas (baked history)
- * - Each stroke in the strokeStack
+ * - Baked sequences (chronological compressed history)
+ * - Each stroke in the strokeStack (recent history)
  * - Active strokes (in-progress)
  *
  * Only visible when dev mode is enabled.
@@ -27,7 +27,7 @@ export class StrokeHistoryPanel {
    */
   init() {
     this.panel = document.getElementById('strokeHistoryPanel');
-    this.baseContainer = document.getElementById('baseCanvasThumbnail');
+    this.baseContainer = document.getElementById('baseCanvasThumbnails');
     this.stackContainer = document.getElementById('strokeStackThumbnails');
     this.activeContainer = document.getElementById('activeStrokeThumbnails');
   }
@@ -86,7 +86,9 @@ export class StrokeHistoryPanel {
     const group = this.layerManager.getLayerGroup(this.activeLayerIndex);
     if (!group) return;
 
-    this.updateBaseThumbnail(group);
+    // Base shows compressed history (bakedSequences)
+    // Stack shows undo buffer (strokeStack)
+    this.updateBaseThumbnails(group);
     this.updateStackThumbnails(group);
     this.updateActiveThumbnails(group);
   }
@@ -141,52 +143,138 @@ export class StrokeHistoryPanel {
   }
 
   /**
-   * Update the base canvas thumbnail
+   * Update the base history: baked sequences + compressed stroke groups
+   * @param {Object} group - Layer group
    */
-  updateBaseThumbnail(group) {
+  updateBaseThumbnails(group) {
     this.baseContainer.innerHTML = '';
 
-    const thumb = this.createThumbnail(group.baseCanvas);
-    this.baseContainer.appendChild(thumb);
+    const bakedSequences = group.bakedSequences || [];
 
-    // Check if base has content
-    const hasContent = this.canvasHasContent(group.baseCanvas);
-    if (!hasContent) {
-      this.baseContainer.classList.add('empty');
-    } else {
-      this.baseContainer.classList.remove('empty');
-    }
-  }
-
-  /**
-   * Update stroke stack thumbnails
-   */
-  updateStackThumbnails(group) {
-    this.stackContainer.innerHTML = '';
-
-    if (group.strokeStack.length === 0) {
+    if (bakedSequences.length === 0) {
       const emptyLabel = document.createElement('span');
       emptyLabel.className = 'strokeSectionLabel';
       emptyLabel.style.fontStyle = 'italic';
       emptyLabel.style.color = 'var(--text-muted)';
-      emptyLabel.textContent = '(no strokes)';
+      emptyLabel.textContent = '(no history)';
+      this.baseContainer.appendChild(emptyLabel);
+      return;
+    }
+
+    // Render each history item in chronological order
+    for (let i = 0; i < bakedSequences.length; i++) {
+      const item = bakedSequences[i];
+      const container = document.createElement('div');
+
+      if (item.type === 'group') {
+        // Compressed non-bakeable stroke group
+        container.className = 'strokeThumbnail compressed-group';
+
+        // Create composite thumbnail from all strokes in group
+        const compositeThumb = this.createCompositeThumbnail(item.strokes);
+        container.appendChild(compositeThumb);
+
+        // Add group label
+        const indexLabel = document.createElement('span');
+        indexLabel.className = 'indexLabel';
+        indexLabel.textContent = `G${i}`;
+        indexLabel.title = `Group ${i} - ${item.strokes.length} strokes`;
+        container.appendChild(indexLabel);
+
+        // Add blend mode label with count
+        const blendLabel = document.createElement('span');
+        blendLabel.className = 'blendLabel';
+        blendLabel.textContent = `${this.formatBlendMode(item.blendMode)} ×${item.strokes.length}`;
+        blendLabel.style.backgroundColor = 'rgba(255, 152, 0, 0.9)'; // Orange for non-bakeable
+        container.appendChild(blendLabel);
+
+      } else {
+        // Baked sequence
+        container.className = 'strokeThumbnail baked-sequence';
+
+        const thumb = this.createThumbnail(item.canvas);
+        container.appendChild(thumb);
+
+        const indexLabel = document.createElement('span');
+        indexLabel.className = 'indexLabel';
+        indexLabel.textContent = `S${i}`;
+        indexLabel.title = `Sequence ${i}`;
+        container.appendChild(indexLabel);
+
+        const blendLabel = document.createElement('span');
+        blendLabel.className = 'blendLabel';
+        blendLabel.textContent = this.formatBlendMode(item.blendMode);
+        container.appendChild(blendLabel);
+
+        if (!this.canvasHasContent(item.canvas)) {
+          container.classList.add('empty');
+        }
+      }
+
+      this.baseContainer.appendChild(container);
+    }
+  }
+
+  /**
+   * Create a composite thumbnail showing multiple strokes layered together
+   */
+  createCompositeThumbnail(strokes) {
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = this.layerManager.width;
+    tempCanvas.height = this.layerManager.height;
+    const tempCtx = tempCanvas.getContext('2d');
+
+    // Draw all strokes onto temp canvas
+    for (const stroke of strokes) {
+      tempCtx.globalCompositeOperation = stroke.blendMode;
+      tempCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
+    }
+
+    // Create thumbnail from composite
+    return this.createThumbnail(tempCanvas);
+  }
+
+  /**
+   * Update stroke stack thumbnails - shows undo buffer
+   * @param {Object} group - Layer group
+   */
+  updateStackThumbnails(group) {
+    this.stackContainer.innerHTML = '';
+
+    const strokeStack = group.strokeStack || [];
+
+    if (strokeStack.length === 0) {
+      const emptyLabel = document.createElement('span');
+      emptyLabel.className = 'strokeSectionLabel';
+      emptyLabel.style.fontStyle = 'italic';
+      emptyLabel.style.color = 'var(--text-muted)';
+      emptyLabel.textContent = '(empty undo buffer)';
       this.stackContainer.appendChild(emptyLabel);
       return;
     }
 
-    for (let i = 0; i < group.strokeStack.length; i++) {
-      const stroke = group.strokeStack[i];
+    const safeModes = ['source-over', 'destination-out', 'multiply', 'darken', 'lighten', 'screen'];
+
+    for (let i = 0; i < strokeStack.length; i++) {
+      const stroke = strokeStack[i];
+      const isNonBakeable = !safeModes.includes(stroke.blendMode);
+
       const container = document.createElement('div');
-      container.className = 'strokeThumbnail';
+      container.className = 'strokeThumbnail undo-buffer';
+
+      if (isNonBakeable) {
+        container.classList.add('non-bakeable');
+      }
 
       // Create thumbnail from the stroke canvas
       const thumb = this.createThumbnail(stroke.canvas, 0, 0, stroke.width, stroke.height);
       container.appendChild(thumb);
 
-      // Add index label
+      // Add index label (position in undo buffer)
       const indexLabel = document.createElement('span');
       indexLabel.className = 'indexLabel';
       indexLabel.textContent = i.toString();
+      indexLabel.title = `Undo position ${i}`;
       container.appendChild(indexLabel);
 
       // Add blend mode label

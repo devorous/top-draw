@@ -468,8 +468,7 @@ export class Board {
     for (const { groupIdx, canvas, x, y } of snapshots) {
       const group = lm.layerGroups[groupIdx];
       if (!group) continue;
-      group.baseCtx.drawImage(canvas, x, y);
-      lm.needsComposite = true;
+      lm.addToBaseBin(groupIdx, canvas, x, y, 'source-over');
     }
     lm._notifyHistoryPanel();
   }
@@ -481,21 +480,16 @@ export class Board {
     for (const { groupIdx } of snapshots) {
       const group = lm.layerGroups[groupIdx];
       if (!group) continue;
-      group.baseCtx.globalCompositeOperation = 'destination-out';
-      group.baseCtx.fillStyle = 'white';
-      if (lassoPath && lassoPath.length >= 3) {
-        group.baseCtx.beginPath();
-        group.baseCtx.moveTo(lassoPath[0].x, lassoPath[0].y);
-        for (let i = 1; i < lassoPath.length; i++) {
-          group.baseCtx.lineTo(lassoPath[i].x, lassoPath[i].y);
-        }
-        group.baseCtx.closePath();
-        group.baseCtx.fill();
-      } else {
-        group.baseCtx.fillRect(s.x, s.y, s.width, s.height);
-      }
-      group.baseCtx.globalCompositeOperation = 'source-over';
-      lm.needsComposite = true;
+
+      // Use eraser canvas if available, or just clear rectangle
+      const eraserCanvas = document.createElement('canvas');
+      eraserCanvas.width = s.width;
+      eraserCanvas.height = s.height;
+      const eCtx = eraserCanvas.getContext('2d');
+      eCtx.fillStyle = 'white';
+      eCtx.fillRect(0, 0, s.width, s.height);
+
+      lm.eraseFromAllBaseBins(groupIdx, eraserCanvas, s.x, s.y, lassoPath);
     }
     lm._notifyHistoryPanel();
   }
@@ -557,12 +551,29 @@ export class Board {
     if ((isDrawing || hasActiveSelection) && splitLayer + 1 < totalLayers && !upperLayersHaveBlendModes) {
       // Split mode: floating canvas / topCtx preview sits between lower and upper layers.
       this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.backgroundColor);
+      
+      // Manually composite the topCtx (local live preview) into the mainCtx using the active blend mode
+      // This ensures the math is identical to baked bins and doesn't rely on CSS mix-blend-mode.
+      if (isDrawing) {
+        this.mainCtx.globalCompositeOperation = this.getActiveLayerBlendMode();
+        this.mainCtx.drawImage(this.topCanvas, 0, 0);
+        this.mainCtx.globalCompositeOperation = 'source-over';
+      }
+
       if (this.upperLayersCtx) {
         this.layerManager.compositeLayerRange(this.upperLayersCtx, splitLayer + 1, totalLayers, null);
       }
     } else {
       // Full composite: all layers together so blend modes resolve correctly.
       this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.backgroundColor);
+      
+      // In full composite mode, also inject the live preview if active
+      if (isDrawing) {
+        this.mainCtx.globalCompositeOperation = this.getActiveLayerBlendMode();
+        this.mainCtx.drawImage(this.topCanvas, 0, 0);
+        this.mainCtx.globalCompositeOperation = 'source-over';
+      }
+
       if (this.upperLayersCtx) {
         this.upperLayersCtx.clearRect(0, 0, width, height);
       }

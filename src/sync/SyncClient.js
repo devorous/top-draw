@@ -4,7 +4,7 @@
  * Handles full canvas sync between users:
  * - New users request sync on join
  * - Existing users provide their full layer state when asked:
- *     1. Base canvases (baked history) for each layer group
+ *     1. Base bins (categorized baked history) for each layer group
  *     2. All stroke stack entries (each as a cropped PNG + metadata)
  *     3. All redo stack entries (same format, with batch index)
  * - Received data reconstructs the LayerManager identically on the joiner
@@ -71,7 +71,7 @@ export class SyncClient {
 
   /**
    * Handle server asking us to provide our canvas state.
-   * Sends base canvases, stroke records, and redo stacks to the joiner.
+   * Sends base bins, stroke records, and redo stacks to the joiner.
    * @param {Object} data
    * @param {number} data.targetUser - The user who needs the state
    */
@@ -88,10 +88,13 @@ export class SyncClient {
       const lm = this.board.layerManager;
       const groups = lm.layerGroups;
 
-      // Phase A: send each layer group's baked base canvas
+      // Phase A: send each layer group's baked sequences in chronological order
       for (let gi = 0; gi < groups.length; gi++) {
-        const img = await this._captureCanvasElement(groups[gi].baseCanvas);
-        this.wsClient.sendSyncLayerBase(img, gi, targetUser);
+        const group = groups[gi];
+        for (const seq of group.bakedSequences) {
+          const img = await this._captureCanvasElement(seq.canvas);
+          this.wsClient.sendSyncLayerBin(img, gi, seq.blendMode, targetUser);
+        }
       }
 
       // Phase B: send all strokeStack entries across all layer groups
@@ -153,24 +156,24 @@ export class SyncClient {
   // ---------------------------------------------------------------------------
 
   /**
-   * Handle receiving a layer group's base canvas.
+   * Handle receiving a layer group's base bin.
    * Pushes the async import into _pendingImports so handleSyncComplete
    * can wait for all of them before replaying buffered events.
    */
-  handleSyncLayerBase(data) {
-    const p = this._importLayerBase(data);
+  handleSyncLayerBin(data) {
+    const p = this._importLayerBin(data);
     this._pendingImports.push(p);
   }
 
-  async _importLayerBase(data) {
+  async _importLayerBin(data) {
     if (!this.board?.layerManager) return;
     try {
       const blob = new Blob([data.imageData], { type: 'image/png' });
       const bitmap = await createImageBitmap(blob);
-      this.board.layerManager.importBaseCanvas(data.layerIdx, bitmap);
+      this.board.layerManager.importLayerBin(data.layerIdx, data.blendMode, bitmap);
       bitmap.close();
     } catch (error) {
-      console.error('[SyncClient] Failed to apply layer base', data.layerIdx, error);
+      console.error('[SyncClient] Failed to apply layer bin', data.layerIdx, data.blendMode, error);
     }
   }
 
