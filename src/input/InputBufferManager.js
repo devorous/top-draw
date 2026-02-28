@@ -22,7 +22,6 @@ export class InputBufferManager {
       pointerType: 'mouse',
       position: null,    // Latest { x, y }
       lastPosition: null, // Previous { x, y }
-      movement: { x: 0, y: 0 }, // Accumulated delta for panning
       dirty: false       // True if new data since last tick
     };
 
@@ -77,13 +76,7 @@ export class InputBufferManager {
     const needsCatchup = this.needsSmoothingCatchup();
     if (!this.inputBuffer.dirty && !needsCatchup) return;
 
-    const { points, movement } = this.inputBuffer;
-
-    // Handle panning movement
-    if (app.self.panning && app.self.mousedown && (movement.x !== 0 || movement.y !== 0)) {
-      app.board.pan(movement.x, movement.y);
-      this.inputBuffer.movement = { x: 0, y: 0 }; // Reset accumulated movement
-    }
+    const { points } = this.inputBuffer;
 
     // Process drawing if we have position data
     if (points.length >= 2) {

@@ -1406,10 +1406,9 @@ export class DrawingApp {
     this.inputBufferManager.inputBuffer.pointerType = e.pointerType;
     this.inputBufferManager.inputBuffer.dirty = true;
 
-    // Accumulate movement for panning (since multiple events may occur between ticks)
+    // Handle panning instantaneously (bypasses input buffer for better responsiveness)
     if (this.self.panning && this.self.mousedown) {
-      this.inputBufferManager.inputBuffer.movement.x += e.movementX;
-      this.inputBufferManager.inputBuffer.movement.y += e.movementY;
+      this.board.pan(e.movementX, e.movementY);
     }
 
     // Track drawing for debug overlay (pass brush size and user info)
