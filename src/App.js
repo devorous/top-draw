@@ -1005,9 +1005,13 @@ export class DrawingApp {
     this.wsClient.broadcastToolChange(tool);
 
     // Blend mode is sticky per-user, not per-tool or per-layer.
-    // CSS mix-blend-mode is no longer used for live preview to ensure mathematical 
-    // consistency with baked bins. The compositor handles this now.
-    this.board.topCanvas.style.mixBlendMode = 'normal';
+    // Eraser uses destination-out internally, so its preview should be 'normal'.
+    // Other tools use the user's sticky blend mode for preview.
+    if (tool === 'eraser') {
+      this.board.topCanvas.style.mixBlendMode = 'normal';
+    } else {
+      this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
+    }
 
     // Restore locked values for new tool
     if (this.toolLockManager.toolLocks[tool]) {
