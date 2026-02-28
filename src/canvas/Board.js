@@ -538,28 +538,65 @@ export class Board {
     // a selection is being moved (selection split). The split puts lower layers on
     // mainCtx so the floating selection canvas / topCtx preview sits between lower
     // and upper layers rather than above everything.
-    //
-    // activeSelectionLayer is set by SelectTool (local) and RemoteSelectionHandler
-    // (remote) when a floating selection is active.
-    //
-    // Skip split mode if upper layers have blend-mode strokes — CSS canvas stacking
-    // can't handle cross-canvas blend operations.
     const activeGroup = this.layerManager.getLayerGroup(activeLayerIdx);
     const isDrawing = activeGroup?.activeStrokeByUser?.has(userId) ?? false;
+    const isEraser = this.app?.activeTool === 'erase';
+    const eraseAll = isEraser && (this.app?.eraseAllLayers ?? false);
+    
     const hasActiveSelection = this.activeSelectionLayer >= 0;
     const splitLayer = hasActiveSelection ? this.activeSelectionLayer : activeLayerIdx;
+    
+    // Skip split mode if upper layers have blend-mode strokes — CSS canvas stacking
+    // can't handle cross-canvas blend operations.
     const upperLayersHaveBlendModes = this.layerManager.rangeHasBlendModeStrokes(splitLayer + 1, totalLayers);
 
-    if ((isDrawing || hasActiveSelection) && splitLayer + 1 < totalLayers && !upperLayersHaveBlendModes) {
+    // OPTIMIZATION: Global Punch-Through for "Erase All Layers" mode
+    if (isDrawing && eraseAll) {
+      // 1. Composite all layers onto a transparent background first
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, null);
+      
+      // 2. Punch the hole once through the entire stack using the preview canvas
+      this.mainCtx.globalCompositeOperation = 'destination-out';
+      this.mainCtx.globalAlpha = this.app?.self?.opacity ?? 1.0;
+      this.mainCtx.drawImage(this.topCanvas, 0, 0);
+      
+      // 3. Draw the background behind everything
+      this.mainCtx.globalCompositeOperation = 'destination-over';
+      const [r, g, b, a] = this.backgroundColor;
+      this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+      this.mainCtx.fillRect(0, 0, width, height);
+      
+      this.mainCtx.globalCompositeOperation = 'source-over';
+      this.mainCtx.globalAlpha = 1.0;
+      
+      if (this.upperLayersCtx) {
+        this.upperLayersCtx.clearRect(0, 0, width, height);
+      }
+    } 
+    else if ((isDrawing || hasActiveSelection) && splitLayer + 1 < totalLayers && !upperLayersHaveBlendModes) {
       // Split mode: floating canvas / topCtx preview sits between lower and upper layers.
       this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.backgroundColor);
       
-      // Manually composite the topCtx (local live preview) into the mainCtx using the active blend mode
-      // This ensures the math is identical to baked bins and doesn't rely on CSS mix-blend-mode.
+      // Handle live preview composite
       if (isDrawing) {
-        this.mainCtx.globalCompositeOperation = this.getActiveLayerBlendMode();
-        this.mainCtx.drawImage(this.topCanvas, 0, 0);
+        if (isEraser) {
+          // Live eraser preview: punch hole in the layers drawn so far
+          this.mainCtx.globalCompositeOperation = 'destination-out';
+          this.mainCtx.globalAlpha = this.app?.self?.opacity ?? 1.0;
+          this.mainCtx.drawImage(this.topCanvas, 0, 0);
+          
+          // Restore the background behind the hole (so only layers are erased)
+          this.mainCtx.globalCompositeOperation = 'destination-over';
+          const [r, g, b, a] = this.backgroundColor;
+          this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+          this.mainCtx.fillRect(0, 0, width, height);
+        } else {
+          // Normal tool preview
+          this.mainCtx.globalCompositeOperation = this.getActiveLayerBlendMode();
+          this.mainCtx.drawImage(this.topCanvas, 0, 0);
+        }
         this.mainCtx.globalCompositeOperation = 'source-over';
+        this.mainCtx.globalAlpha = 1.0;
       }
 
       if (this.upperLayersCtx) {
@@ -571,9 +608,21 @@ export class Board {
       
       // In full composite mode, also inject the live preview if active
       if (isDrawing) {
-        this.mainCtx.globalCompositeOperation = this.getActiveLayerBlendMode();
-        this.mainCtx.drawImage(this.topCanvas, 0, 0);
+        if (isEraser) {
+          this.mainCtx.globalCompositeOperation = 'destination-out';
+          this.mainCtx.globalAlpha = this.app?.self?.opacity ?? 1.0;
+          this.mainCtx.drawImage(this.topCanvas, 0, 0);
+          
+          this.mainCtx.globalCompositeOperation = 'destination-over';
+          const [r, g, b, a] = this.backgroundColor;
+          this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+          this.mainCtx.fillRect(0, 0, width, height);
+        } else {
+          this.mainCtx.globalCompositeOperation = this.getActiveLayerBlendMode();
+          this.mainCtx.drawImage(this.topCanvas, 0, 0);
+        }
         this.mainCtx.globalCompositeOperation = 'source-over';
+        this.mainCtx.globalAlpha = 1.0;
       }
 
       if (this.upperLayersCtx) {

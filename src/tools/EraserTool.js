@@ -25,6 +25,8 @@ class Tool {
 export class EraserTool extends Tool {
   constructor(board) {
     super('erase', board);
+    this.userSize = 10;
+    this.lastPos = null;
   }
 
   activate() {}
@@ -35,23 +37,24 @@ export class EraserTool extends Tool {
   }
 
   onPointerDown(user, pos) {
+    this.userSize = user.size;
+    this.lastPos = { x: pos.x, y: pos.y };
+
+    // Eraser always uses 1.0 opacity now
     if (this._eraseAllLayers()) {
-      this.board.beginStrokeAllLayers(user, 'destination-out');
+      this.board.beginStrokeAllLayers(user, 'destination-out', 1.0);
     } else {
-      this.board.beginStroke(user, 'destination-out');
+      this.board.beginStroke(user, 'destination-out', 1.0);
     }
-    this.erase(pos.x, pos.y, pos.x, pos.y, user.pressure * user.size * 2, user.opacity);
+    
+    this._drawSegment(user, pos, pos);
   }
 
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
-    this.erase(pos.x, pos.y, lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity);
-
-    if (this.board.mirror) {
-      const width = this.board.getWidth();
-      this.erase(width - pos.x, pos.y, width - lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity);
-    }
+    this._drawSegment(user, this.lastPos, pos);
+    this.lastPos = { x: pos.x, y: pos.y };
   }
 
   onPointerUp(user) {
@@ -60,63 +63,71 @@ export class EraserTool extends Tool {
     } else {
       this.board.endStroke(user);
     }
+    this.lastPos = null;
   }
 
   /**
-   * Erase on the active layer (or all layers if eraseAllLayers is set).
-   * Draws source-over circles into the active stroke canvas(es), which have
-   * blendMode 'destination-out' applied at composite time.
+   * Draw a segment at 100% opacity into the active stroke canvas(es).
    */
-  erase(x1, y1, x2, y2, size, opacity = 1.0) {
+  _drawSegment(user, p1, p2) {
+    const size = user.pressure * this.userSize * 2;
+    const userId = user.id;
+
     if (this._eraseAllLayers()) {
-      const userId = this.board.app?.self?.id ?? 0;
-      const ctxs = this.board.getAllLayerContexts(userId, 'destination-out');
+      const ctxs = this.board.getAllLayerContexts(userId);
       for (const ctx of ctxs) {
-        this._eraseOnCtx(ctx, x1, y1, x2, y2, size, opacity);
+        this._renderSegmentToCtx(ctx, p1, p2, size);
       }
     } else {
       const ctx = this.board.getActiveLayerContext('destination-out');
       if (ctx) {
-        this._eraseOnCtx(ctx, x1, y1, x2, y2, size, opacity);
+        this._renderSegmentToCtx(ctx, p1, p2, size);
       }
     }
+
+    if (this.board.mirror) {
+      const width = this.board.getWidth();
+      const m1 = { x: width - p1.x, y: p1.y };
+      const m2 = { x: width - p2.x, y: p2.y };
+      if (this._eraseAllLayers()) {
+        const ctxs = this.board.getAllLayerContexts(userId);
+        for (const ctx of ctxs) {
+          this._renderSegmentToCtx(ctx, m1, m2, size);
+        }
+      } else {
+        const ctx = this.board.getActiveLayerContext('destination-out');
+        if (ctx) {
+          this._renderSegmentToCtx(ctx, m1, m2, size);
+        }
+      }
+    }
+
     this.board.compositeAllLayers();
   }
 
-  /**
-   * Erase on a specific layer group for a specific user.
-   * Used by remote user drawing handler.
-   * @param {Object} group - Layer group from LayerManager
-   * @param {number} x1 - Start X
-   * @param {number} y1 - Start Y
-   * @param {number} x2 - End X
-   * @param {number} y2 - End Y
-   * @param {number} size - Eraser size
-   * @param {number} opacity - Eraser opacity
-   * @param {number} userId - User ID whose active stroke canvas to draw into
-   */
-  eraseOnGroup(group, x1, y1, x2, y2, size, opacity = 1.0, userId) {
-    const active = group.activeStrokeByUser?.get(userId);
-    if (active?.ctx) {
-      this._eraseOnCtx(active.ctx, x1, y1, x2, y2, size, opacity);
-    }
-  }
-
-  /**
-   * Draw an eraser stroke into a context using source-over.
-   * The destination-out effect is applied at composite time via the active stroke's blendMode.
-   */
-  _eraseOnCtx(ctx, x1, y1, x2, y2, size, opacity = 1.0) {
+  _renderSegmentToCtx(ctx, p1, p2, size) {
+    ctx.save();
+    ctx.globalAlpha = 1.0;
     ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = opacity;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.lineWidth = size;
     ctx.strokeStyle = 'rgba(255,255,255,1)';
     ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
     ctx.stroke();
-    ctx.globalAlpha = 1.0;
+    ctx.restore();
+  }
+
+  /**
+   * Remote drawing handler.
+   */
+  eraseOnGroup(group, x1, y1, x2, y2, size, _opacity, userId) {
+    const active = group.activeStrokeByUser?.get(userId);
+    if (active?.ctx) {
+      active.opacity = 1.0; // Force 1.0 for remote erasers too
+      this._renderSegmentToCtx(active.ctx, { x: x1, y: y1 }, { x: x2, y: y2 }, size);
+    }
   }
 }

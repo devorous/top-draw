@@ -31,6 +31,8 @@ export class LayerManager {
     // Optional callback fired whenever stroke history changes (undo/redo availability may change)
     this.onHistoryChange = null;
     this.redoStackByUser = new Map(); // userId → [{groupIdx, record}][] (batches, newest last)
+    // Reusable buffer for isolated group compositing (eraser optimization)
+    this._groupBuffer = null;
 
     this.initLayerGroups(3);
   }
@@ -65,6 +67,18 @@ export class LayerManager {
     ctx.lineJoin = 'round';
     ctx.imageSmoothingQuality = 'high';
     return { canvas, ctx };
+  }
+
+  /**
+   * Get or create the reusable group buffer canvas for isolated compositing.
+   * This single buffer is reused for all groups to minimize memory allocation.
+   * @returns {{canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D}}
+   */
+  _getGroupBuffer() {
+    if (!this._groupBuffer || this._groupBuffer.canvas.width !== this.width || this._groupBuffer.canvas.height !== this.height) {
+      this._groupBuffer = this._createCanvas();
+    }
+    return this._groupBuffer;
   }
 
   // ---------------------------------------------------------------------------
@@ -702,6 +716,37 @@ export class LayerManager {
   }
 
   /**
+   * Returns true if the group has blend modes other than source-over/destination-out.
+   * Groups with complex blend modes (multiply, screen, etc.) need sequential compositing
+   * because those blend modes must interact with the accumulated background.
+   * @param {Object} group
+   * @returns {boolean}
+   */
+  _groupHasComplexBlendModes(group) {
+    const simpleBlendModes = ['source-over', 'destination-out'];
+
+    for (const seq of group.bakedSequences) {
+      if (seq.type === 'group') {
+        for (const stroke of seq.strokes) {
+          if (!simpleBlendModes.includes(stroke.blendMode)) return true;
+        }
+      } else {
+        if (!simpleBlendModes.includes(seq.blendMode)) return true;
+      }
+    }
+
+    for (const stroke of group.strokeStack) {
+      if (!simpleBlendModes.includes(stroke.blendMode)) return true;
+    }
+
+    for (const [, active] of group.activeStrokeByUser) {
+      if (!simpleBlendModes.includes(active.blendMode)) return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Returns true if any layer in the range [startIdx, endIdx) has a non-source-over
    * stroke (committed, active, or baked bin). Used to decide whether split-mode compositing is safe.
    * @param {number} startIdx - Inclusive start index
@@ -768,34 +813,6 @@ export class LayerManager {
 
     ctx.globalCompositeOperation = 'source-over';
   }
-
-  /**
-   * Helper to render a single stroke (stored or active) onto the target context.
-   * Handles eraser logic (erase + restore background) vs normal blending.
-   */
-  _compositeStroke(ctx, stroke, lowerSnap) {
-    // For active strokes, x/y might be missing (implicit 0,0), but stored strokes have them.
-    const x = stroke.x ?? 0;
-    const y = stroke.y ?? 0;
-
-    if (stroke.blendMode === 'destination-out') {
-      // 1. Erase current content (cut hole)
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.drawImage(stroke.canvas, x, y);
-
-      // 2. Restore lower layers into the hole
-      // destination-over draws *behind* existing pixels.
-      // - Existing opaque pixels (from current layer) block lowerSnap.
-      // - Existing transparent pixels (holes) show lowerSnap.
-      ctx.globalCompositeOperation = 'destination-over';
-      ctx.drawImage(lowerSnap, 0, 0);
-    } else {
-      // Normal blend mode (source-over, multiply, etc)
-      ctx.globalCompositeOperation = stroke.blendMode;
-      ctx.drawImage(stroke.canvas, x, y);
-    }
-  }
-
   /**
    * Composite a range of layer groups onto a target context.
    *
@@ -804,10 +821,9 @@ export class LayerManager {
    * the accumulated lower-layer content.
    *
    * For groups WITH destination-out strokes:
-   *   1. Snapshot targetCtx (lower layers accumulated so far) → lowerSnap
-   *   2. Draw baseCanvas + all strokes IN ORDER.
-   *      - Eraser strokes cut holes and immediately restore lowerSnap behind.
-   *      - This ensures erasers only affect content drawn *before* them in the stack.
+   *   - If group has ONLY source-over + destination-out: use "Isolated Group Buffering" (O(N))
+   *   - If group has complex blend modes (multiply, etc.): use sequential snapshot/restore (O(N*E))
+   *     because those blend modes need to interact with the accumulated background.
    *
    * @param {CanvasRenderingContext2D} targetCtx
    * @param {number} startIdx - Inclusive start index
@@ -830,37 +846,13 @@ export class LayerManager {
       if (!group.visible) continue;
 
       if (this._groupHasDestOut(group)) {
-        // --- Eraser-aware compositing (Sequential) ---
-        // Step 1: snapshot lower layers already in targetCtx.
-        const lowerSnap = document.createElement('canvas');
-        lowerSnap.width = this.width;
-        lowerSnap.height = this.height;
-        lowerSnap.getContext('2d').drawImage(targetCtx.canvas, 0, 0);
-
-        // Step 2: Draw baked sequences and compressed groups in chronological order
-        for (const item of group.bakedSequences) {
-          if (item.type === 'group') {
-            // Compressed group: draw each stroke with eraser-aware logic
-            for (const stroke of item.strokes) {
-              this._compositeStroke(targetCtx, stroke, lowerSnap);
-            }
-          } else {
-            // Baked sequence: draw as single canvas
-            this._compositeStroke(targetCtx, { canvas: item.canvas, blendMode: item.blendMode }, lowerSnap);
-          }
+        if (this._groupHasComplexBlendModes(group)) {
+          // Fall back to sequential approach for correctness with complex blend modes
+          this._compositeGroupSequential(targetCtx, group);
+        } else {
+          // Fast path: isolated buffering for simple source-over + eraser groups
+          this._compositeGroupIsolated(targetCtx, group);
         }
-
-        // Step 3: Draw all strokes in strict chronological order
-        for (const stroke of group.strokeStack) {
-          this._compositeStroke(targetCtx, stroke, lowerSnap);
-        }
-
-        for (const [, active] of group.activeStrokeByUser) {
-          this._compositeStroke(targetCtx, active, lowerSnap);
-        }
-        
-        targetCtx.globalCompositeOperation = 'source-over';
-        // --------------------------------
       } else {
         // No destination-out: draw directly so blend modes (multiply, difference…)
         // blend against the accumulated lower-layer content in targetCtx.
@@ -869,6 +861,114 @@ export class LayerManager {
     }
 
     targetCtx.globalCompositeOperation = 'source-over';
+  }
+
+  /**
+   * Composite a layer group with erasers using the sequential snapshot/restore approach.
+   * This is O(N*E) but handles complex blend modes correctly by allowing them to
+   * interact with the accumulated background.
+   *
+   * @param {CanvasRenderingContext2D} targetCtx
+   * @param {Object} group
+   */
+  _compositeGroupSequential(targetCtx, group) {
+    // Snapshot lower layers already in targetCtx
+    const lowerSnap = document.createElement('canvas');
+    lowerSnap.width = this.width;
+    lowerSnap.height = this.height;
+    lowerSnap.getContext('2d').drawImage(targetCtx.canvas, 0, 0);
+
+    // Draw baked sequences and compressed groups in chronological order
+    for (const item of group.bakedSequences) {
+      if (item.type === 'group') {
+        for (const stroke of item.strokes) {
+          this._compositeStrokeSequential(targetCtx, stroke, lowerSnap);
+        }
+      } else {
+        this._compositeStrokeSequential(targetCtx, { canvas: item.canvas, blendMode: item.blendMode }, lowerSnap);
+      }
+    }
+
+    // Draw all strokes in strict chronological order
+    for (const stroke of group.strokeStack) {
+      this._compositeStrokeSequential(targetCtx, stroke, lowerSnap);
+    }
+
+    for (const [, active] of group.activeStrokeByUser) {
+      this._compositeStrokeSequential(targetCtx, active, lowerSnap);
+    }
+
+    targetCtx.globalCompositeOperation = 'source-over';
+  }
+
+  /**
+   * Helper to render a single stroke with eraser-aware logic (sequential approach).
+   * For erasers: punch hole then restore background. For others: normal blend.
+   */
+  _compositeStrokeSequential(ctx, stroke, lowerSnap) {
+    const x = stroke.x ?? 0;
+    const y = stroke.y ?? 0;
+
+    if (stroke.blendMode === 'destination-out') {
+      // Erase current content (cut hole)
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.drawImage(stroke.canvas, x, y);
+      // Restore lower layers into the hole
+      ctx.globalCompositeOperation = 'destination-over';
+      ctx.drawImage(lowerSnap, 0, 0);
+    } else {
+      ctx.globalCompositeOperation = stroke.blendMode;
+      ctx.drawImage(stroke.canvas, x, y);
+    }
+  }
+
+  /**
+   * Composite a layer group with eraser strokes using isolated buffering.
+   * All strokes are rendered into a transparent buffer first, then the buffer
+   * is drawn onto the target canvas. This makes eraser performance O(N) instead
+   * of O(N*E) because erasers only punch holes in the buffer, not the accumulated
+   * background.
+   *
+   * @param {CanvasRenderingContext2D} targetCtx
+   * @param {Object} group
+   */
+  _compositeGroupIsolated(targetCtx, group) {
+    const { canvas: buffer, ctx: bufferCtx } = this._getGroupBuffer();
+    bufferCtx.clearRect(0, 0, this.width, this.height);
+
+    // 1. Draw all baked sequences and compressed groups into the transparent buffer
+    for (const item of group.bakedSequences) {
+      if (item.type === 'group') {
+        // Compressed group: draw each stroke in order
+        for (const stroke of item.strokes) {
+          bufferCtx.globalCompositeOperation = stroke.blendMode;
+          bufferCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
+        }
+      } else {
+        // Baked sequence: draw as single canvas
+        bufferCtx.globalCompositeOperation = item.blendMode;
+        bufferCtx.drawImage(item.canvas, 0, 0);
+      }
+    }
+
+    // 2. Draw stroke stack into the buffer
+    for (const stroke of group.strokeStack) {
+      bufferCtx.globalCompositeOperation = stroke.blendMode;
+      bufferCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
+    }
+
+    // 3. Draw active strokes into the buffer
+    for (const [, active] of group.activeStrokeByUser) {
+      bufferCtx.globalCompositeOperation = active.blendMode;
+      bufferCtx.drawImage(active.canvas, 0, 0);
+    }
+
+    bufferCtx.globalCompositeOperation = 'source-over';
+
+    // 4. Composite the finished buffer onto the target canvas
+    // The buffer already has holes punched by erasers, so we just draw it.
+    targetCtx.globalCompositeOperation = 'source-over';
+    targetCtx.drawImage(buffer, 0, 0);
   }
 
   /**
@@ -941,6 +1041,8 @@ export class LayerManager {
   resize(width, height) {
     this.width = width;
     this.height = height;
+    // Clear the group buffer so it gets recreated with new dimensions
+    this._groupBuffer = null;
 
     for (const group of this.layerGroups) {
       // Resize baked sequences
