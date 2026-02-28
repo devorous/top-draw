@@ -29,8 +29,19 @@ export class SyncClient {
     this.eventBuffer = [];
     this.handlerMap = null;
 
-    // Overlay element
+    // Overlay elements
     this.overlayEl = null;
+    this.progressTextEl = null;
+    this.progressBarEl = null;
+    this.progressFillEl = null;
+
+    // Progress tracking
+    this.expectedMessages = 0;
+    this.receivedMessages = 0;
+    this.syncTimeout = null;
+
+    // Progressive rendering
+    this.compositeScheduled = false;
   }
 
   /**
@@ -43,6 +54,9 @@ export class SyncClient {
     this.wsClient = wsClient;
     this.board = board;
     this.overlayEl = document.getElementById('syncOverlay');
+    this.progressTextEl = this.overlayEl?.querySelector('.sync-text');
+    this.progressBarEl = this.overlayEl?.querySelector('.sync-progress-bar');
+    this.progressFillEl = this.overlayEl?.querySelector('.sync-progress-fill');
     this.initialized = true;
     console.log('[SyncClient] Initialized');
   }
@@ -60,7 +74,19 @@ export class SyncClient {
     this.buffering = true;
     this.eventBuffer = [];
     this._pendingImports = [];
+    this.expectedMessages = 0;
+    this.receivedMessages = 0;
+
+    // Set a timeout to prevent indefinite hanging
+    this.syncTimeout = setTimeout(() => {
+      if (this.syncing) {
+        console.warn('[SyncClient] Sync timeout - completing anyway');
+        this.handleSyncComplete();
+      }
+    }, 30000); // 30 second timeout
+
     this.showOverlay();
+    this.updateProgress();
     console.log('[SyncClient] Requesting canvas sync...');
     this.wsClient.requestSync();
   }
@@ -88,12 +114,39 @@ export class SyncClient {
       const lm = this.board.layerManager;
       const groups = lm.layerGroups;
 
+      // Phase 0: Count total messages to send
+      let totalCount = 0;
+
+      // Count baked sequences
+      for (let gi = 0; gi < groups.length; gi++) {
+        totalCount += groups[gi].bakedSequences.length;
+      }
+
+      // Count strokeStack entries
+      for (let gi = 0; gi < groups.length; gi++) {
+        totalCount += groups[gi].strokeStack.length;
+      }
+
+      // Count redo stack entries
+      for (const [userId, batches] of lm.redoStackByUser) {
+        for (const batch of batches) {
+          totalCount += batch.length;
+        }
+      }
+
+      // Send metadata with total count
+      console.log(`[SyncClient] Sending sync metadata: ${totalCount} total messages`);
+      this.wsClient.sendSyncMetadata(totalCount, targetUser);
+
+      // Small delay to ensure metadata is processed before data starts arriving
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       // Phase A: send each layer group's baked sequences in chronological order
       for (let gi = 0; gi < groups.length; gi++) {
         const group = groups[gi];
         for (const seq of group.bakedSequences) {
           const img = await this._captureCanvasElement(seq.canvas);
-          this.wsClient.sendSyncLayerBin(img, gi, seq.blendMode, targetUser);
+          this.wsClient.sendSyncLayerBase(img, gi, seq.blendMode, targetUser);
         }
       }
 
@@ -156,6 +209,22 @@ export class SyncClient {
   // ---------------------------------------------------------------------------
 
   /**
+   * Handle receiving sync metadata (total message count).
+   * Called before receiving any layer/stroke data.
+   */
+  handleSyncMetadata(data) {
+    this.expectedMessages = data.totalCount || 0;
+    console.log(`[SyncClient] METADATA RECEIVED - Expecting ${this.expectedMessages} total messages (current received: ${this.receivedMessages})`);
+    console.log('[SyncClient] Progress elements:', {
+      textEl: !!this.progressTextEl,
+      fillEl: !!this.progressFillEl,
+      expectedMessages: this.expectedMessages,
+      receivedMessages: this.receivedMessages
+    });
+    this.updateProgress();
+  }
+
+  /**
    * Handle receiving a layer group's base bin.
    * Pushes the async import into _pendingImports so handleSyncComplete
    * can wait for all of them before replaying buffered events.
@@ -163,6 +232,11 @@ export class SyncClient {
   handleSyncLayerBin(data) {
     const p = this._importLayerBin(data);
     this._pendingImports.push(p);
+    this.receivedMessages++;
+    if (this.receivedMessages === 1) {
+      console.log(`[SyncClient] First message received (expected: ${this.expectedMessages})`);
+    }
+    this.updateProgress();
   }
 
   async _importLayerBin(data) {
@@ -172,6 +246,8 @@ export class SyncClient {
       const bitmap = await createImageBitmap(blob);
       this.board.layerManager.importLayerBin(data.layerIdx, data.blendMode, bitmap);
       bitmap.close();
+      // Schedule progressive render
+      this._scheduleComposite();
     } catch (error) {
       console.error('[SyncClient] Failed to apply layer bin', data.layerIdx, data.blendMode, error);
     }
@@ -185,6 +261,8 @@ export class SyncClient {
   handleSyncStroke(data) {
     const p = this._importStroke(data);
     this._pendingImports.push(p);
+    this.receivedMessages++;
+    this.updateProgress();
   }
 
   async _importStroke(data) {
@@ -218,6 +296,9 @@ export class SyncClient {
       } else {
         this.board.layerManager.importRedoStroke(data.userId, data.redoBatchIdx, data.layerIdx, record);
       }
+
+      // Schedule progressive render
+      this._scheduleComposite();
     } catch (error) {
       console.error('[SyncClient] Failed to apply stroke', error);
     }
@@ -239,6 +320,12 @@ export class SyncClient {
    * the stroke stack is fully populated before any UNDO/REDO events are processed.
    */
   handleSyncComplete() {
+    // Clear timeout
+    if (this.syncTimeout) {
+      clearTimeout(this.syncTimeout);
+      this.syncTimeout = null;
+    }
+
     const pending = this._pendingImports;
     this._pendingImports = [];
 
@@ -249,10 +336,13 @@ export class SyncClient {
       this.hideOverlay();
       this.syncing = false;
       this.buffering = false;
+      this.expectedMessages = 0;
+      this.receivedMessages = 0;
     };
 
     if (pending.length > 0) {
       console.log('[SyncClient] Waiting for', pending.length, 'pending imports...');
+      this.updateProgress('Processing images...');
       Promise.all(pending).then(finalize).catch((err) => {
         console.error('[SyncClient] Error during stroke import:', err);
         finalize(); // Still finalize so the client isn't stuck
@@ -317,9 +407,70 @@ export class SyncClient {
     }
   }
 
+  /**
+   * Update progress display
+   * @param {string} customText - Optional custom text to display
+   */
+  updateProgress(customText = null) {
+    if (!this.progressTextEl || !this.progressFillEl) {
+      console.warn('[SyncClient] Progress elements not found:', {
+        textEl: !!this.progressTextEl,
+        fillEl: !!this.progressFillEl
+      });
+      return;
+    }
+
+    if (customText) {
+      this.progressTextEl.textContent = customText;
+      // Keep progress bar at 100% when showing custom text
+      if (this.progressFillEl) {
+        this.progressFillEl.style.width = '100%';
+      }
+      return;
+    }
+
+    // Calculate progress percentage
+    let percentage = 0;
+    let text = 'Syncing...';
+
+    if (this.expectedMessages > 0) {
+      // We know the expected count, show accurate progress
+      percentage = Math.min(100, Math.round((this.receivedMessages / this.expectedMessages) * 100));
+      text = `Syncing... ${this.receivedMessages}/${this.expectedMessages} (${percentage}%)`;
+      console.log(`[SyncClient] Progress: ${percentage}% (${this.receivedMessages}/${this.expectedMessages})`);
+      if (this.progressFillEl) {
+        this.progressFillEl.style.width = `${percentage}%`;
+      }
+    } else {
+      // No expected count yet, start at 0% and wait for metadata
+      text = 'Syncing...';
+      console.log('[SyncClient] No expected count yet, waiting for metadata');
+      if (this.progressFillEl) {
+        this.progressFillEl.style.width = '0%';
+      }
+    }
+
+    this.progressTextEl.textContent = text;
+  }
+
   // ---------------------------------------------------------------------------
   // Internal helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Schedule a composite on the next animation frame (throttled)
+   * This allows multiple stroke imports to batch into one composite call
+   */
+  _scheduleComposite() {
+    if (this.compositeScheduled || !this.board) return;
+    this.compositeScheduled = true;
+    requestAnimationFrame(() => {
+      if (this.board) {
+        this.board.compositeAllLayers();
+      }
+      this.compositeScheduled = false;
+    });
+  }
 
   /**
    * Capture a canvas element as a PNG Uint8Array.

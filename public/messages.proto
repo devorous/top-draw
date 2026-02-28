@@ -53,6 +53,7 @@ message Msg {
     SYNC_LAYER_BASE = 46;   // One per layer: baked base canvas PNG
     SYNC_STROKE = 47;       // One per stroke record (stack or redo)
     SYNC_STROKES_DONE = 48; // All stroke data sent; triggers SYNC_COMPLETE
+    SYNC_METADATA = 49;     // Sync metadata (total message count)
 
     // Auth & Moderation (50+)
     AUTH_REGISTER = 50;  // Register new account
@@ -150,6 +151,7 @@ message Msg {
   uint64 stroke_ts = 46;       // Stroke timestamp (Date.now()) for undo grouping
   bool stroke_redo = 47;       // true = belongs to redo stack, false = strokeStack
   uint32 stroke_redo_batch = 48; // Redo batch index (oldest batch = 0)
+  uint32 sync_total = 49;      // Total number of sync messages that will be sent
 
   // === DM Field ===
   uint32 r = 26;             // Recipient user ID for direct messages

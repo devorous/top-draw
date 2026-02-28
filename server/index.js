@@ -381,7 +381,11 @@ wss.on('connection', (ws, req) => {
           syncCoordinator.handleSyncCanvas(ws, data);
           break;
 
-        // Structured stroke sync — provider sends per-layer base canvases and stroke records
+        // Structured stroke sync — provider sends metadata, then per-layer base canvases and stroke records
+        case T.SYNC_METADATA:
+          syncCoordinator.handleSyncMetadata(ws, data);
+          break;
+
         case T.SYNC_LAYER_BASE:
           syncCoordinator.handleSyncLayerBase(ws, data);
           break;

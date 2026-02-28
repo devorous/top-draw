@@ -17,6 +17,13 @@ export function setupSyncHandlers(wsClient, app) {
     }
   });
 
+  // Receiving sync metadata (total message count)
+  wsClient.on('sync_metadata', (data) => {
+    if (app.syncClient) {
+      app.syncClient.handleSyncMetadata(data);
+    }
+  });
+
   // Receiving a layer group's baked history bin
   wsClient.on('sync_layer_bin', (data) => {
     if (app.syncClient) {

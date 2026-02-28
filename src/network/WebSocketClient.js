@@ -391,6 +391,18 @@ export class WebSocketClient {
         this.emit('sync_complete', {});
         break;
 
+      case T.SYNC_METADATA:
+        console.log('[WebSocketClient] Received SYNC_METADATA:', {
+          raw: data,
+          syncTotal: data.syncTotal,
+          sync_total: data.sync_total,
+          allKeys: Object.keys(data)
+        });
+        this.emit('sync_metadata', {
+          totalCount: data.syncTotal || data.sync_total || 0
+        });
+        break;
+
       case T.SYNC_LAYER_BASE:
         this.emit('sync_layer_bin', {
           layerIdx: data.ly,
@@ -752,10 +764,11 @@ sendCanvasData(imageData, targetUser) {
  * Send a layer group's base canvas PNG during structured sync.
  * @param {Uint8Array} imageData - PNG of the baked base canvas
  * @param {number} layerIdx - Layer group index (0-based)
+ * @param {string} blendMode - Blend mode for this layer bin
  * @param {number} targetUser - Joiner's session index
  */
-sendSyncLayerBase(imageData, layerIdx, targetUser) {
-  this.send({ t: T.SYNC_LAYER_BASE, ly: layerIdx, img: imageData, tu: targetUser });
+sendSyncLayerBase(imageData, layerIdx, blendMode, targetUser) {
+  this.send({ t: T.SYNC_LAYER_BASE, ly: layerIdx, bm: blendMode, img: imageData, tu: targetUser });
 }
 
 /**
@@ -778,6 +791,17 @@ sendSyncStroke({ targetUser, layerIdx, userId, x, y, w, h, blendMode, timestamp,
     strokeRedoBatch: redoBatchIdx || 0,
     img: imageData
   });
+}
+
+/**
+ * Send sync metadata (total message count) to joiner.
+ * @param {number} totalCount - Total number of sync messages that will be sent
+ * @param {number} targetUser - Joiner's session index
+ */
+sendSyncMetadata(totalCount, targetUser) {
+  console.log('[WebSocketClient] Sending SYNC_METADATA:', { totalCount, targetUser });
+  // Use camelCase for protobufjs (it converts sync_total proto field to syncTotal in JS)
+  this.send({ t: T.SYNC_METADATA, syncTotal: totalCount, tu: targetUser });
 }
 
 /**

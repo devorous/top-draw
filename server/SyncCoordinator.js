@@ -80,13 +80,26 @@ export class SyncCoordinator {
   }
 
   /**
+   * Relay SYNC_METADATA from provider to target joiner
+   */
+  handleSyncMetadata(ws, data) {
+    const targetUser = data.tu;
+    console.log(`[Sync] Relaying metadata to user ${targetUser}, count:`, data.syncTotal);
+    const client = this._findClient(targetUser);
+    if (client) {
+      // protobufjs uses camelCase for JS properties (sync_total proto field → syncTotal JS property)
+      this.sendTo(client, { t: T.SYNC_METADATA, syncTotal: data.syncTotal });
+    }
+  }
+
+  /**
    * Relay SYNC_LAYER_BASE from provider to target joiner
    */
   handleSyncLayerBase(ws, data) {
     const targetUser = data.tu;
     const client = this._findClient(targetUser);
     if (client) {
-      this.sendTo(client, { t: T.SYNC_LAYER_BASE, ly: data.ly, img: data.img });
+      this.sendTo(client, { t: T.SYNC_LAYER_BASE, ly: data.ly, bm: data.bm, img: data.img });
     }
   }
 
