@@ -882,6 +882,8 @@ canvas {
   padding: 12px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-subtle);
+  max-height: 150px;
+  overflow-y: auto;
 }
 
 .userEntry {
