@@ -47,18 +47,39 @@ export class BlurTool extends Tool {
   initBlurSnapshot(user) {
     const activeLayerIdx = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
     const group = this.board.layerManager?.getLayerGroup(activeLayerIdx);
-    if (!group) return;
+    if (!group) {
+      console.warn('BlurTool: No layer group found for snapshot');
+      return;
+    }
 
     const snapshotCanvas = document.createElement('canvas');
     snapshotCanvas.width = this.board.getWidth();
     snapshotCanvas.height = this.board.getHeight();
     const snapshotCtx = snapshotCanvas.getContext('2d');
 
-    snapshotCtx.drawImage(group.baseCanvas, 0, 0);
+    // 1. Draw all baked sequences and compressed groups in chronological order
+    for (const item of group.bakedSequences) {
+      if (item.type === 'group') {
+        // Compressed group: draw each stroke in order
+        for (const stroke of item.strokes) {
+          snapshotCtx.globalCompositeOperation = stroke.blendMode;
+          snapshotCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
+        }
+      } else {
+        // Baked sequence: draw as single canvas
+        snapshotCtx.globalCompositeOperation = item.blendMode;
+        snapshotCtx.drawImage(item.canvas, 0, 0);
+      }
+    }
+
+    // 2. Draw individual strokes from the stroke stack (recent undo buffer)
     for (const stroke of group.strokeStack) {
       snapshotCtx.globalCompositeOperation = stroke.blendMode;
       snapshotCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
     }
+
+    // Reset to default
+    snapshotCtx.globalCompositeOperation = 'source-over';
 
     user.blurSnapshot = snapshotCanvas;
   }
@@ -152,7 +173,7 @@ export class BlurTool extends Tool {
   applyBlur(x, y, size, user) {
     const blurAmount = user.blurRadius || 10;
     const radius = size;
-    
+
     // Bounding box for the update region, expanded to accommodate the blur effect
     const margin = Math.ceil(blurAmount);
     const left = Math.max(0, Math.floor(x - radius - margin));
@@ -168,7 +189,14 @@ export class BlurTool extends Tool {
     try {
       const activeLayerIdx = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
       const strokeCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, user.id);
-      if (!strokeCtx || !user.blurSnapshot) return;
+      if (!strokeCtx) {
+        console.warn('BlurTool: No stroke context available');
+        return;
+      }
+      if (!user.blurSnapshot) {
+        console.warn('BlurTool: No blur snapshot available');
+        return;
+      }
 
       // Use a single temporary canvas for the blur operation
       const temp = document.createElement('canvas');
@@ -182,16 +210,19 @@ export class BlurTool extends Tool {
       // Draw the region from the clean snapshot into the temp canvas.
       // The filter will be applied to this drawing operation.
       // We draw with a margin inside the temp canvas to prevent the blur from getting clipped at the edges.
-      tempCtx.drawImage(user.blurSnapshot, 
+      tempCtx.drawImage(user.blurSnapshot,
         left, top, width, height, // Source rect from snapshot
         0, 0, width, height      // Destination rect in temp canvas
       );
 
+      // Reset filter to prevent it from affecting subsequent operations
+      tempCtx.filter = 'none';
+
       // --- Composite onto the main stroke canvas additively, using a circular brush shape ---
       strokeCtx.save();
-      
+
       // 1. Set up additive blending
-      strokeCtx.globalAlpha = 0.2; // This controls the strength of each dab
+      strokeCtx.globalAlpha = 0.5; // This controls the strength of each dab (increased from 0.2 for more visible effect)
       strokeCtx.globalCompositeOperation = 'source-over';
       
       // 2. Create a circular clipping path to define the brush shape
