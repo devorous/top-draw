@@ -45,6 +45,8 @@ export class ImageBrushTool extends Tool {
       if (user.imageBrush.type === 'gih' && user.imageBrush.reset) {
         user.imageBrush.reset();
       }
+      // Initialize dirty rect tracking
+      this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
       // Stamp first image immediately and track position
       this.drawStamp(user, pos);
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
@@ -117,12 +119,35 @@ export class ImageBrushTool extends Tool {
       user.context.clearRect(0, 0, userCanvas.width, userCanvas.height);
     }
 
+    // Update dirty rect before ending stroke with 25% safety margin
+    if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
+      // Add 25% safety margin for image brush edges/anti-aliasing
+      const brushRadius = user.size;
+      const safetyMargin = brushRadius * 0.25;
+      const margin = safetyMargin + 2; // +2 for anti-aliasing
+
+      const x = Math.floor(this.dirtyBounds.minX - margin);
+      const y = Math.floor(this.dirtyBounds.minY - margin);
+      const width = Math.ceil(this.dirtyBounds.maxX - this.dirtyBounds.minX + margin * 2);
+      const height = Math.ceil(this.dirtyBounds.maxY - this.dirtyBounds.minY + margin * 2);
+
+      this.board.expandDirtyRect(user, x, y, width, height);
+
+      // Mirror dirty rect if mirror mode is enabled
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirrorX = Math.floor(boardWidth - this.dirtyBounds.maxX - margin);
+        this.board.expandDirtyRect(user, mirrorX, y, width, height);
+      }
+    }
+
     // Composite all layers to visible canvas
     this.board.compositeAllLayers();
     this.board.endStroke(user);
 
     // Clean up tracking
     this.lastStampPos.delete(user.id);
+    this.dirtyBounds = null;
   }
 
   drawStamp(user, pos) {
@@ -176,15 +201,23 @@ export class ImageBrushTool extends Tool {
     ctx.globalAlpha = opacity;
     ctx.beginPath();
     ctx.fillStyle = user.getColorString();
-    ctx.drawImage(
-      image,
-      pos.x - scaledSize * ratioX,
-      pos.y - scaledSize * ratioY,
-      scaledSize * 2 * ratioX,
-      scaledSize * 2 * ratioY
-    );
+
+    const stampX = pos.x - scaledSize * ratioX;
+    const stampY = pos.y - scaledSize * ratioY;
+    const stampW = scaledSize * 2 * ratioX;
+    const stampH = scaledSize * 2 * ratioY;
+
+    ctx.drawImage(image, stampX, stampY, stampW, stampH);
     ctx.stroke();
     ctx.globalAlpha = 1.0;
+
+    // Track dirty bounds
+    if (this.dirtyBounds) {
+      this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, stampX);
+      this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, stampY);
+      this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, stampX + stampW);
+      this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, stampY + stampH);
+    }
   }
 
   /**

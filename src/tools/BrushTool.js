@@ -126,6 +126,9 @@ export class BrushTool extends Tool {
       user._mainCtxDrawCount = (user._mainCtxDrawCount || 0) + 1;
     }
 
+    // Check if we're drawing to the active layer (not a preview)
+    const isActiveLayer = ctx !== this.board.topCtx && ctx !== this.board.mainCtx && ctx !== this.board.upperLayersCtx;
+
     // Apply user opacity (independent of color alpha)
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
@@ -197,6 +200,31 @@ export class BrushTool extends Tool {
     ctx.shadowBlur = 0;
     ctx.shadowOffsetX = 0;
     ctx.globalAlpha = 1.0;
+
+    // Update dirty rect if drawing to active layer
+    if (isActiveLayer && points.length > 0) {
+      // Calculate bounding box of all points
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const pt of points) {
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+      }
+
+      // Expand by brush radius plus blur, with 25% safety margin
+      const radius = user.pressure * user.size;
+      const blurAmount = hardness < 1.0 ? (1 - hardness) * (20 + user.size * 0.2) : 0;
+      const safetyMargin = radius * 0.25; // 25% additional margin for blur/hardness
+      const margin = radius + blurAmount + safetyMargin + 2; // +2 for anti-aliasing
+
+      const x = Math.floor(minX - margin);
+      const y = Math.floor(minY - margin);
+      const width = Math.ceil(maxX - minX + margin * 2);
+      const height = Math.ceil(maxY - minY + margin * 2);
+
+      this.board.expandDirtyRect(user, x, y, width, height);
+    }
   }
 
   commitCurrentLine(user, newPressure, newSize) {
@@ -253,6 +281,9 @@ export class BrushTool extends Tool {
     const dy = to.y - from.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
+    // Check if we're drawing to the active layer (not a preview)
+    const isActiveLayer = ctx !== this.board.topCtx && ctx !== this.board.mainCtx && ctx !== this.board.upperLayersCtx;
+
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
@@ -293,6 +324,26 @@ export class BrushTool extends Tool {
         ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
         ctx.fill();
       }
+    }
+
+    // Update dirty rect if drawing to active layer
+    if (isActiveLayer) {
+      const maxRadius = Math.max(fromRadius, toRadius);
+      const blurAmount = hardness < 1.0 ? (1 - hardness) * (20 + user.size * 0.2) : 0;
+      const safetyMargin = maxRadius * 0.25; // 25% additional margin for blur/hardness
+      const margin = maxRadius + blurAmount + safetyMargin + 2; // +2 for anti-aliasing
+
+      const minX = Math.min(from.x, to.x) - margin;
+      const minY = Math.min(from.y, to.y) - margin;
+      const maxX = Math.max(from.x, to.x) + margin;
+      const maxY = Math.max(from.y, to.y) + margin;
+
+      const x = Math.floor(minX);
+      const y = Math.floor(minY);
+      const width = Math.ceil(maxX - minX);
+      const height = Math.ceil(maxY - minY);
+
+      this.board.expandDirtyRect(user, x, y, width, height);
     }
 
     ctx.restore();

@@ -102,6 +102,31 @@ export class EraserTool extends Tool {
       }
     }
 
+    // Update dirty rect for the drawn segment with 25% safety margin
+    const radius = size / 2;
+    const safetyMargin = radius * 0.25; // 25% additional margin
+    const margin = radius + safetyMargin + 2; // +2 for anti-aliasing
+
+    const minX = Math.min(p1.x, p2.x) - margin;
+    const minY = Math.min(p1.y, p2.y) - margin;
+    const maxX = Math.max(p1.x, p2.x) + margin;
+    const maxY = Math.max(p1.y, p2.y) + margin;
+
+    const x = Math.floor(minX);
+    const y = Math.floor(minY);
+    const w = Math.ceil(maxX - minX);
+    const h = Math.ceil(maxY - minY);
+
+    this.board.expandDirtyRect(user, x, y, w, h);
+
+    // Also update mirrored dirty rect if mirror mode is enabled
+    if (this.board.mirror) {
+      const width = this.board.getWidth();
+      const mirrorMinX = width - maxX;
+      const mirrorX = Math.floor(mirrorMinX);
+      this.board.expandDirtyRect(user, mirrorX, y, w, h);
+    }
+
     this.board.compositeAllLayers();
   }
 

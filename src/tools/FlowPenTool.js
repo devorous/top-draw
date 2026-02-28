@@ -133,6 +133,9 @@ export class FlowPenTool extends Tool {
     this.lastTargetPos = { x: pos.x, y: pos.y };
     this.resetStillnessTimer();
 
+    // Initialize dirty rect tracking
+    this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+
     this.drawPreview(user);
   }
 
@@ -230,6 +233,29 @@ export class FlowPenTool extends Tool {
 
     ctx.globalAlpha = 1.0;
 
+    // Update dirty rect before clearing stroke
+    if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
+      // Expand by blur amount with 25% safety margin
+      const brushRadius = this.currentUser.size;
+      const blurAmount = (1 - this.userHardness) * (20 + this.currentUser.size * 0.2);
+      const safetyMargin = brushRadius * 0.25; // 25% additional margin for blur/hardness
+      const margin = blurAmount + safetyMargin + 2; // +2 for anti-aliasing
+
+      const x = Math.floor(this.dirtyBounds.minX - margin);
+      const y = Math.floor(this.dirtyBounds.minY - margin);
+      const width = Math.ceil(this.dirtyBounds.maxX - this.dirtyBounds.minX + margin * 2);
+      const height = Math.ceil(this.dirtyBounds.maxY - this.dirtyBounds.minY + margin * 2);
+
+      this.board.expandDirtyRect(user, x, y, width, height);
+
+      // Mirror dirty rect if mirror mode is enabled
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirrorX = Math.floor(boardWidth - this.dirtyBounds.maxX - margin);
+        this.board.expandDirtyRect(user, mirrorX, y, width, height);
+      }
+    }
+
     this.clearStroke();
     user.penPoints = [];
 
@@ -246,6 +272,14 @@ export class FlowPenTool extends Tool {
     ctx.beginPath();
     ctx.arc(x, y, Math.max(0.5, radius), 0, Math.PI * 2);
     ctx.fill();
+
+    // Track dirty bounds
+    if (this.dirtyBounds) {
+      this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, x - radius);
+      this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, y - radius);
+      this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, x + radius);
+      this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, y + radius);
+    }
 
     // Collect stamp position for remote sync (pressure as 0-255, not radius)
     this.stampBuffer.push(x, y, pressure255);
@@ -320,6 +354,7 @@ export class FlowPenTool extends Tool {
     }
     this.lastStampPos = null;
     this.stampBuffer = [];
+    this.dirtyBounds = null;
     // Clear the preview from the top canvas as well
     this.board.clearTop();
   }

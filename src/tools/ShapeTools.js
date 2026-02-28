@@ -53,6 +53,28 @@ export class LineTool extends Tool {
       this.drawLine(layerCtx, user, mirroredStart, mirroredEnd);
     }
 
+    // Update dirty rect with 25% safety margin
+    const radius = user.pressure * user.size;
+    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
+    const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
+    const safetyMargin = radius * 0.25; // 25% additional margin for blur/hardness
+    const margin = radius + blurAmount + safetyMargin + 2;
+
+    const minX = Math.min(this.startPos.x, pos.x) - margin;
+    const minY = Math.min(this.startPos.y, pos.y) - margin;
+    const maxX = Math.max(this.startPos.x, pos.x) + margin;
+    const maxY = Math.max(this.startPos.y, pos.y) + margin;
+
+    this.board.expandDirtyRect(user, Math.floor(minX), Math.floor(minY),
+                                Math.ceil(maxX - minX), Math.ceil(maxY - minY));
+
+    if (this.board.mirror) {
+      const width = this.board.getWidth();
+      const mirrorMinX = width - maxX;
+      this.board.expandDirtyRect(user, Math.floor(mirrorMinX), Math.floor(minY),
+                                  Math.ceil(maxX - minX), Math.ceil(maxY - minY));
+    }
+
     this.board.clearTop();
     this.startPos = null;
 
@@ -150,6 +172,28 @@ export class RectangleTool extends Tool {
       const mirroredStart = { x: width - this.startPos.x, y: this.startPos.y };
       const mirroredEnd = { x: width - pos.x, y: pos.y };
       this.drawRect(layerCtx, user, mirroredStart, mirroredEnd);
+    }
+
+    // Update dirty rect with 25% safety margin
+    const radius = user.pressure * user.size;
+    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
+    const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
+    const safetyMargin = radius * 0.25; // 25% additional margin for blur/hardness
+    const margin = radius + blurAmount + safetyMargin + 2;
+
+    const minX = Math.min(this.startPos.x, pos.x) - margin;
+    const minY = Math.min(this.startPos.y, pos.y) - margin;
+    const maxX = Math.max(this.startPos.x, pos.x) + margin;
+    const maxY = Math.max(this.startPos.y, pos.y) + margin;
+
+    this.board.expandDirtyRect(user, Math.floor(minX), Math.floor(minY),
+                                Math.ceil(maxX - minX), Math.ceil(maxY - minY));
+
+    if (this.board.mirror) {
+      const width = this.board.getWidth();
+      const mirrorMinX = width - maxX;
+      this.board.expandDirtyRect(user, Math.floor(mirrorMinX), Math.floor(minY),
+                                  Math.ceil(maxX - minX), Math.ceil(maxY - minY));
     }
 
     this.board.clearTop();
@@ -253,6 +297,28 @@ export class CircleTool extends Tool {
       const mirroredStart = { x: width - this.startPos.x, y: this.startPos.y };
       const mirroredEnd = { x: width - pos.x, y: pos.y };
       this.drawEllipse(layerCtx, user, mirroredStart, mirroredEnd);
+    }
+
+    // Update dirty rect with 25% safety margin
+    const radius = user.pressure * user.size;
+    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
+    const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
+    const safetyMargin = radius * 0.25; // 25% additional margin for blur/hardness
+    const margin = radius + blurAmount + safetyMargin + 2;
+
+    const minX = Math.min(this.startPos.x, pos.x) - margin;
+    const minY = Math.min(this.startPos.y, pos.y) - margin;
+    const maxX = Math.max(this.startPos.x, pos.x) + margin;
+    const maxY = Math.max(this.startPos.y, pos.y) + margin;
+
+    this.board.expandDirtyRect(user, Math.floor(minX), Math.floor(minY),
+                                Math.ceil(maxX - minX), Math.ceil(maxY - minY));
+
+    if (this.board.mirror) {
+      const width = this.board.getWidth();
+      const mirrorMinX = width - maxX;
+      this.board.expandDirtyRect(user, Math.floor(mirrorMinX), Math.floor(minY),
+                                  Math.ceil(maxX - minX), Math.ceil(maxY - minY));
     }
 
     this.board.clearTop();

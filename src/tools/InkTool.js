@@ -116,6 +116,9 @@ export class InkTool extends Tool {
     // Add first point to buffer for network sync
     this.pointBuffer.push(pos.x, pos.y, Math.round(pressure * 255));
 
+    // Initialize dirty rect tracking
+    this.dirtyBounds = { minX: pos.x, minY: pos.y, maxX: pos.x, maxY: pos.y };
+
     // Render initial stroke
     this.renderStroke(false);
     this.drawPreview();
@@ -131,6 +134,14 @@ export class InkTool extends Tool {
 
     // Buffer for network sync — send pressure as 0-255 integer
     this.pointBuffer.push(pos.x, pos.y, Math.round(pressure * 255));
+
+    // Update dirty bounds
+    if (this.dirtyBounds) {
+      this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, pos.x);
+      this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, pos.y);
+      this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, pos.x);
+      this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y);
+    }
 
     // Re-render the entire stroke
     this.renderStroke(false);
@@ -173,6 +184,32 @@ export class InkTool extends Tool {
     }
 
     ctx.globalAlpha = 1.0;
+
+    // Update dirty rect before clearing stroke
+    if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
+      // InkTool only tracks center points, so we need to add the full stroke extent
+      // perfect-freehand uses size = (this._strokeSize * 2) / 1.5
+      // The actual rendered stroke can extend up to size/2 from center points
+      const strokeSize = (this._strokeSize * 2) / 1.5;
+      const strokeRadius = strokeSize / 2; // Maximum radius from center points
+      const blurAmount = (1 - this.userHardness) * (20 + this._strokeSize * 0.2);
+      const safetyMargin = strokeRadius * 0.25; // 25% additional margin for blur/hardness
+      const margin = strokeRadius + blurAmount + safetyMargin + 2;
+
+      const x = Math.floor(this.dirtyBounds.minX - margin);
+      const y = Math.floor(this.dirtyBounds.minY - margin);
+      const width = Math.ceil(this.dirtyBounds.maxX - this.dirtyBounds.minX + margin * 2);
+      const height = Math.ceil(this.dirtyBounds.maxY - this.dirtyBounds.minY + margin * 2);
+
+      this.board.expandDirtyRect(user, x, y, width, height);
+
+      // Mirror dirty rect if mirror mode is enabled
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirrorX = Math.floor(boardWidth - this.dirtyBounds.maxX - margin);
+        this.board.expandDirtyRect(user, mirrorX, y, width, height);
+      }
+    }
 
     this.clearStroke();
 

@@ -115,7 +115,12 @@ export class LayerManager {
     if (!group) return;
 
     const { canvas, ctx } = this._createCanvas();
-    group.activeStrokeByUser.set(userId, { canvas, ctx, blendMode });
+    group.activeStrokeByUser.set(userId, {
+      canvas,
+      ctx,
+      blendMode,
+      dirtyRect: { minX: this.width, minY: this.height, maxX: -1, maxY: -1 } // Initialize dirtyRect
+    });
     this.needsComposite = true;
     this._notifyHistoryPanel();
   }
@@ -135,7 +140,12 @@ export class LayerManager {
     let active = group.activeStrokeByUser.get(userId);
     if (!active) {
       const { canvas, ctx } = this._createCanvas();
-      active = { canvas, ctx, blendMode: createBlendMode };
+      active = {
+        canvas,
+        ctx,
+        blendMode: createBlendMode,
+        dirtyRect: { minX: this.width, minY: this.height, maxX: -1, maxY: -1 } // Initialize dirtyRect
+      };
       group.activeStrokeByUser.set(userId, active);
     } else if (createBlendMode !== 'source-over' && active.blendMode !== createBlendMode) {
       // Force update blend mode if requesting something specific (like eraser)
@@ -161,8 +171,8 @@ export class LayerManager {
 
     group.activeStrokeByUser.delete(userId);
 
-    // Find non-transparent bounding box
-    const bounds = this._findContentBounds(active.canvas);
+    // Find non-transparent bounding box (using dirty rect optimization if available)
+    const bounds = this._findContentBounds(active.canvas, active.dirtyRect);
     if (!bounds) return; // Empty stroke — discard
 
     const { x, y, width, height } = bounds;
@@ -668,22 +678,44 @@ export class LayerManager {
   }
 
   /**
-   * Scan canvas pixels and return the bounding box of all non-transparent content.
-   * @param {HTMLCanvasElement} canvas
+   * Expand a dirty rectangle to include new drawing bounds.
+   * @param {Object} dirtyRect - {minX, minY, maxX, maxY}
+   * @param {number} x
+   * @param {number} y
+   * @param {number} width
+   * @param {number} height
+   */
+  _expandDirtyRect(dirtyRect, x, y, width, height) {
+    if (dirtyRect.maxX === -1) {
+      // First update
+      dirtyRect.minX = x;
+      dirtyRect.minY = y;
+      dirtyRect.maxX = x + width - 1;
+      dirtyRect.maxY = y + height - 1;
+    } else {
+      dirtyRect.minX = Math.min(dirtyRect.minX, x);
+      dirtyRect.minY = Math.min(dirtyRect.minY, y);
+      dirtyRect.maxX = Math.max(dirtyRect.maxX, x + width - 1);
+      dirtyRect.maxY = Math.max(dirtyRect.maxY, y + height - 1);
+    }
+  }
+
+  /**
+   * Scans an ImageData object for content within its bounds.
+   * Returns the content bounds (relative to ImageData) or null if empty.
+   * @param {ImageData} imageData
    * @returns {{x,y,width,height}|null}
    */
-  _findContentBounds(canvas) {
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  _scanImageDataForContent(imageData) {
     const data = imageData.data;
-    const w = canvas.width;
-    const h = canvas.height;
+    const w = imageData.width;
+    const h = imageData.height;
 
     let minX = w, minY = h, maxX = -1, maxY = -1;
 
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        if (data[(y * w + x) * 4 + 3] > 0) {
+        if (data[(y * w + x) * 4 + 3] > 0) { // Check alpha channel
           if (x < minX) minX = x;
           if (x > maxX) maxX = x;
           if (y < minY) minY = y;
@@ -692,8 +724,50 @@ export class LayerManager {
       }
     }
 
-    if (maxX < 0) return null;
+    if (maxX < 0) return null; // Empty content
     return { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+  }
+
+  /**
+   * Legacy full-canvas scan (used as fallback).
+   * Scan canvas pixels and return the bounding box of all non-transparent content.
+   * @param {HTMLCanvasElement} canvas
+   * @returns {{x,y,width,height}|null}
+   */
+  _findContentBoundsLegacy(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    return this._scanImageDataForContent(imageData);
+  }
+
+  /**
+   * Optimized content bounds finder using dirty rect tracking.
+   * Falls back to legacy full-scan if dirty rect is invalid.
+   * @param {HTMLCanvasElement} canvas
+   * @param {Object} [dirtyRect] - Optional {minX, minY, maxX, maxY}
+   * @returns {{x,y,width,height}|null}
+   */
+  _findContentBounds(canvas, dirtyRect = null) {
+    if (dirtyRect && dirtyRect.maxX !== -1) {
+      // Optimized path: Use dirtyRect to get focused imageData and scan only that.
+      const dr = dirtyRect;
+      const ctx = canvas.getContext('2d');
+      const imageData = ctx.getImageData(dr.minX, dr.minY, dr.maxX - dr.minX + 1, dr.maxY - dr.minY + 1);
+      const contentInDirtyRect = this._scanImageDataForContent(imageData);
+
+      if (!contentInDirtyRect) return null; // Empty stroke within dirty rect
+
+      // Adjust bounds to be relative to the original canvas
+      return {
+        x: dr.minX + contentInDirtyRect.x,
+        y: dr.minY + contentInDirtyRect.y,
+        width: contentInDirtyRect.width,
+        height: contentInDirtyRect.height
+      };
+    } else {
+      // Fallback to legacy full scan if dirtyRect is not valid
+      return this._findContentBoundsLegacy(canvas);
+    }
   }
 
   // ---------------------------------------------------------------------------

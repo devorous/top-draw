@@ -406,6 +406,26 @@ export class Board {
   }
 
   /**
+   * Expand the dirty rectangle for a user's active stroke.
+   * Tools should call this after drawing operations to track the drawn region.
+   * @param {Object} user - User object with activeLayer and id
+   * @param {number} x - X coordinate of the drawn region
+   * @param {number} y - Y coordinate of the drawn region
+   * @param {number} width - Width of the drawn region
+   * @param {number} height - Height of the drawn region
+   */
+  expandDirtyRect(user, x, y, width, height) {
+    if (!this.layerManager) return;
+    const activeLayer = user?.activeLayer ?? this.app?.self?.activeLayer ?? 0;
+    const userId = user?.id ?? this.app?.self?.id ?? 0;
+    const group = this.layerManager.layerGroups[activeLayer];
+    if (!group) return;
+    const active = group.activeStrokeByUser.get(userId);
+    if (!active || !active.dirtyRect) return;
+    this.layerManager._expandDirtyRect(active.dirtyRect, x, y, width, height);
+  }
+
+  /**
    * Cancel the current stroke for a user. Discards the active stroke canvas
    * without committing it.
    * @param {Object} user - User object with activeLayer and id
