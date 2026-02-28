@@ -437,6 +437,7 @@ export class Board {
         }
       }
     }
+    this.clearTop();
     this.compositeAllLayers();
   }
 
@@ -458,6 +459,7 @@ export class Board {
       }
     }
     this.layerManager.redoLastStroke(userId);
+    this.clearTop();
     this.compositeAllLayers();
   }
 
