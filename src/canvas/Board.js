@@ -648,9 +648,13 @@ export class Board {
           this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
           this.mainCtx.fillRect(0, 0, width, height);
         } else {
-          // Normal tool preview
-          this.mainCtx.globalCompositeOperation = this.getActiveLayerBlendMode();
-          this.mainCtx.drawImage(this.topCanvas, 0, 0);
+          // Normal tool preview: only composite if using special blend mode
+          // For source-over, the topCtx preview layer is sufficient (prevents double-dot)
+          const blendMode = this.getActiveLayerBlendMode();
+          if (blendMode !== 'source-over') {
+            this.mainCtx.globalCompositeOperation = blendMode;
+            this.mainCtx.drawImage(this.topCanvas, 0, 0);
+          }
         }
         this.mainCtx.globalCompositeOperation = 'source-over';
         this.mainCtx.globalAlpha = 1.0;
@@ -675,8 +679,13 @@ export class Board {
           this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
           this.mainCtx.fillRect(0, 0, width, height);
         } else {
-          this.mainCtx.globalCompositeOperation = this.getActiveLayerBlendMode();
-          this.mainCtx.drawImage(this.topCanvas, 0, 0);
+          // Normal tool preview: only composite if using special blend mode
+          // For source-over, the topCtx preview layer is sufficient (prevents double-dot)
+          const blendMode = this.getActiveLayerBlendMode();
+          if (blendMode !== 'source-over') {
+            this.mainCtx.globalCompositeOperation = blendMode;
+            this.mainCtx.drawImage(this.topCanvas, 0, 0);
+          }
         }
         this.mainCtx.globalCompositeOperation = 'source-over';
         this.mainCtx.globalAlpha = 1.0;

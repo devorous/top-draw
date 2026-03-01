@@ -1508,8 +1508,9 @@ export class DrawingApp {
     // Defer broadcastMouseDown for pen input — pressure isn't known yet at pointerDown,
     // so sending MD now would cause the remote side to draw the initial dot at max size.
     // It will be sent when _pendingPenDown is resolved in handlePointerMove.
+    // Also don't broadcast if panning to prevent unwanted dots when space+click panning.
     const deferBroadcast = e.pointerType === 'pen' && this.pressureEnabled && !this.self.panning;
-    if (!deferBroadcast) {
+    if (!deferBroadcast && !this.self.panning) {
       this.wsClient.broadcastMouseDown();
     }
 
