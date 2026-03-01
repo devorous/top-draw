@@ -1,5 +1,4 @@
 import { Homography } from '../utils/homography.js';
-import { pointInHull } from '../sync/ConvexHull.js';
 
 /**
  * RemoteSelectionHandler - Handles selection tool rendering and operations for remote users
@@ -103,21 +102,21 @@ export class RemoteSelectionHandler {
     layerFlatCanvas.height = lm.height;
     const layerFlatCtx = layerFlatCanvas.getContext('2d');
     lm.compositeLayerRange(layerFlatCtx, layerIdx, layerIdx + 1, null);
-    const imageData = layerFlatCtx.getImageData(s.x, s.y, s.width, s.height);
+    
+    // Copy selected region into user's floating canvas
+    user.floatingCtx.drawImage(layerFlatCanvas, s.x, s.y, s.width, s.height, 0, 0, s.width, s.height);
 
     // Apply lasso mask if path provided (preserves concave selections)
     if (lassoPath && lassoPath.length >= 3) {
-      this.applyLassoMask(imageData, s.x, s.y, lassoPath);
+      this.applyLassoMask(user.floatingCtx, s.x, s.y, lassoPath);
       user.lassoPath = lassoPath; // Store for potential later use
     }
-
-    user.floatingCtx.putImageData(imageData, 0, 0);
 
     // Erase directly from the layer canvas so the hole persists through compositing.
     // Clearing mainCtx is insufficient because compositeAllLayers() rebuilds it from
     // the underlying layer data, restoring the erased pixels.
     // Store restore data so commitSelection can make this undoable for remote users.
-    user._selectionRestoreData = this._eraseSelectionFromLayer(s, user.activeLayer ?? 0, lassoPath && lassoPath.length >= 3 ? lassoPath : null);
+    user._selectionRestoreData = this._eraseSelectionFromLayer(s, user.activeLayer ?? 0, lassoPath && lassoPath.length >= 3 ? lassoPath : null, user.id);
 
     // Activate split-composite mode so upper layers render above the floating selection
     this.board.activeSelectionLayer = user.activeLayer ?? 0;
@@ -147,30 +146,28 @@ export class RemoteSelectionHandler {
   }
 
   /**
-   * Apply lasso mask to ImageData - sets alpha to 0 for pixels outside lasso path
-   * @param {ImageData} imageData - The image data to mask
-   * @param {number} offsetX - X offset of imageData relative to canvas
-   * @param {number} offsetY - Y offset of imageData relative to canvas
+   * Apply lasso mask to a canvas context - sets alpha to 0 for pixels outside lasso path
+   * Uses Canvas globalCompositeOperation for hardware-accelerated masking.
+   * @param {CanvasRenderingContext2D} ctx - The context to mask
+   * @param {number} offsetX - X offset of context relative to canvas
+   * @param {number} offsetY - Y offset of context relative to canvas
    * @param {Array<{x: number, y: number}>} lassoPath - The lasso polygon
    */
-  applyLassoMask(imageData, offsetX, offsetY, lassoPath) {
-    const data = imageData.data;
-    const width = imageData.width;
-    const height = imageData.height;
+  applyLassoMask(ctx, offsetX, offsetY, lassoPath) {
+    if (!lassoPath || lassoPath.length < 3) return;
 
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const canvasX = x + offsetX;
-        const canvasY = y + offsetY;
-
-        // Check if this pixel is inside the lasso path (pointInHull uses winding number algorithm)
-        if (!pointInHull({ x: canvasX, y: canvasY }, lassoPath)) {
-          // Set alpha to 0 for pixels outside the lasso
-          const idx = (y * width + x) * 4;
-          data[idx + 3] = 0; // Alpha channel
-        }
-      }
+    ctx.save();
+    // destination-in: Only keep pixels where the new drawing (the lasso path) overlaps existing content
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.fillStyle = 'white'; // Color doesn't matter for destination-in
+    ctx.beginPath();
+    ctx.moveTo(lassoPath[0].x - offsetX, lassoPath[0].y - offsetY);
+    for (let i = 1; i < lassoPath.length; i++) {
+      ctx.lineTo(lassoPath[i].x - offsetX, lassoPath[i].y - offsetY);
     }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 
   handleSelectionMove(user, corners) {
@@ -293,7 +290,8 @@ export class RemoteSelectionHandler {
       this._eraseSelectionFromLayer(
         s,
         user.activeLayer ?? 0,
-        user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null
+        user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null,
+        user.id
       );
     }
 
@@ -718,30 +716,27 @@ export class RemoteSelectionHandler {
   }
 
   /**
-   * Erase a selection region directly from the layer canvas data so the hole
-   * persists through compositeAllLayers() calls. Mirrors the local SelectTool's
-   * _eraseSelectionDirectly() — bakes all strokes into baseCanvas then applies
-   * destination-out for the selected area.
+   * Erase a selection region directly from the layer manager using a destination-out stroke.
+   * This correctly handles content in both baked sequences and the stroke stack.
    * @param {Object} s - Selection bounds {x, y, width, height}
-   * @param {number} layerIdx - Layer group index (from user.activeLayer)
+   * @param {number} layerIdx - Layer group index
    * @param {Array<{x,y}>|null} lassoPath - Lasso polygon, or null for rectangle erase
+   * @param {number} userId - ID of the user performing the erase
    */
-  _eraseSelectionFromLayer(s, layerIdx, lassoPath) {
+  _eraseSelectionFromLayer(s, layerIdx, lassoPath, userId) {
     const lm = this.board.layerManager;
     if (!lm) return null;
 
     const group = lm.layerGroups[layerIdx];
     if (!group) return null;
 
-    // Composite the entire group (base + all strokes) onto a transparent canvas.
-    // _compositeGroupInto does not fill a background, preserving transparency.
+    // 1. Snapshot the selection area BEFORE erasing (for undo/cancel)
     const layerCanvas = document.createElement('canvas');
     layerCanvas.width = lm.width;
     layerCanvas.height = lm.height;
     const layerCtx = layerCanvas.getContext('2d');
     lm._compositeGroupInto(layerCtx, group);
 
-    // Snapshot the selection area BEFORE erasing (used for undo/cancel)
     const snap = document.createElement('canvas');
     snap.width = s.width;
     snap.height = s.height;
@@ -764,29 +759,27 @@ export class RemoteSelectionHandler {
 
     const snapshots = [{ groupIdx: layerIdx, canvas: snap, x: s.x, y: s.y }];
 
-    // Apply destination-out to punch the selection hole
-    layerCtx.globalCompositeOperation = 'destination-out';
-    layerCtx.fillStyle = 'white';
+    // 2. Apply the erase as a committed stroke
+    lm.beginUserStroke(layerIdx, userId, 'destination-out');
+    const ctx = lm.getUserStrokeContext(layerIdx, userId);
+    
     if (lassoPath && lassoPath.length >= 3) {
-      layerCtx.beginPath();
-      layerCtx.moveTo(lassoPath[0].x, lassoPath[0].y);
+      ctx.fillStyle = 'white';
+      ctx.beginPath();
+      ctx.moveTo(lassoPath[0].x, lassoPath[0].y);
       for (let i = 1; i < lassoPath.length; i++) {
-        layerCtx.lineTo(lassoPath[i].x, lassoPath[i].y);
+        ctx.lineTo(lassoPath[i].x, lassoPath[i].y);
       }
-      layerCtx.closePath();
-      layerCtx.fill();
+      ctx.closePath();
+      ctx.fill();
     } else {
-      layerCtx.fillRect(s.x, s.y, s.width, s.height);
+      ctx.fillRect(s.x, s.y, s.width, s.height);
     }
-    layerCtx.globalCompositeOperation = 'source-over';
 
-    // Replace baseCanvas with the erased composite and clear the stroke stack
-    // (all strokes are now baked in, with the selection hole applied)
-    group.baseCtx.clearRect(0, 0, lm.width, lm.height);
-    group.baseCtx.drawImage(layerCanvas, 0, 0);
-    group.strokeStack = [];
-    group.userStrokeCounts.clear();
-    group.activeStrokeByUser.clear();
+    // Commit the stroke. Selection erasures are usually atomic/independent for remote users.
+    lm.commitUserStroke(layerIdx, userId, { 
+      isSelectionErase: true
+    });
 
     lm.needsComposite = true;
     this.board.compositeAllLayers();

@@ -222,24 +222,29 @@ export class SelectTool extends Tool {
    * @param {number} offsetY - Y offset of imageData relative to canvas
    * @param {Array<{x: number, y: number}>} lassoPath - The lasso polygon (any polygon works with pointInHull winding number algorithm)
    */
-  applyLassoMask(imageData, offsetX, offsetY, lassoPath) {
-    const data = imageData.data;
-    const width = imageData.width;
-    const height = imageData.height;
+  /**
+   * Apply lasso mask to a canvas context - sets alpha to 0 for pixels outside lasso path
+   * Uses Canvas globalCompositeOperation for hardware-accelerated masking.
+   * @param {CanvasRenderingContext2D} ctx - The context to mask
+   * @param {number} offsetX - X offset of context relative to canvas
+   * @param {number} offsetY - Y offset of context relative to canvas
+   * @param {Array<{x: number, y: number}>} lassoPath - The lasso polygon
+   */
+  applyLassoMask(ctx, offsetX, offsetY, lassoPath) {
+    if (!lassoPath || lassoPath.length < 3) return;
 
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const canvasX = x + offsetX;
-        const canvasY = y + offsetY;
-
-        // Check if this pixel is inside the lasso path (pointInHull uses winding number algorithm which works with any polygon)
-        if (!pointInHull({ x: canvasX, y: canvasY }, lassoPath)) {
-          // Set alpha to 0 for pixels outside the lasso
-          const idx = (y * width + x) * 4;
-          data[idx + 3] = 0; // Alpha channel
-        }
-      }
+    ctx.save();
+    // destination-in: Only keep pixels where the new drawing (the lasso path) overlaps existing content
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.fillStyle = 'white'; // Color doesn't matter for destination-in
+    ctx.beginPath();
+    ctx.moveTo(lassoPath[0].x - offsetX, lassoPath[0].y - offsetY);
+    for (let i = 1; i < lassoPath.length; i++) {
+      ctx.lineTo(lassoPath[i].x - offsetX, lassoPath[i].y - offsetY);
     }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 
   setupMenuListeners() {
@@ -1783,14 +1788,14 @@ export class SelectTool extends Tool {
 
     // Copy from flattened layer(s) with transparent background
     const flatCanvas = this._flattenSelectionToCanvas(s);
-    const imageData = flatCanvas.getContext('2d').getImageData(0, 0, s.width, s.height);
 
     // Apply lasso mask if in lasso mode
     if (this.mode === 'lasso' && this.lassoPath) {
-      this.applyLassoMask(imageData, s.x, s.y, this.lassoPath);
+      this.applyLassoMask(flatCanvas.getContext('2d'), s.x, s.y, this.lassoPath);
     }
 
-    this.floatingCtx.putImageData(imageData, 0, 0);
+    this.floatingCtx.drawImage(flatCanvas, 0, 0);
+    const imageData = this.floatingCtx.getImageData(0, 0, s.width, s.height);
     this.selectedImageData = imageData;
 
     // Store original position BEFORE erasing so we can track moves
@@ -1938,28 +1943,27 @@ export class SelectTool extends Tool {
     return selCanvas;
   }
 
-  // Erase the selection directly from baseCanvas without touching the stroke history.
-  // Bakes the current user's uncommitted strokes into baseCanvas first, then applies
-  // destination-out. Stores a per-layer restore snapshot and returns it.
+  // Erase the selection directly from the layer manager using a destination-out stroke.
+  // This correctly handles content in both baked sequences and the stroke stack.
   _eraseSelectionDirectly(s, lassoPath) {
     const lm = this.board.layerManager;
     const isMultiLayer = this.copyAllLayers;
+    const userId = this.board.app?.self?.id ?? 0;
+    const batchTimestamp = Date.now();
     const snapshots = [];
 
     const eraseGroup = (groupIdx) => {
       const group = lm.layerGroups[groupIdx];
       if (!group || !group.visible) return;
 
-      // Composite the entire group (base + all strokes) onto a TRANSPARENT canvas.
-      // _compositeGroupInto does not fill a background, so transparency is preserved —
-      // unlike _bakeStrokeToBase which fills with the board background colour (white).
+      // 1. Snapshot the selection area BEFORE erasing (for undo/cancel)
+      // We need to composite the group to a temp canvas to see what we're about to erase
       const layerCanvas = document.createElement('canvas');
       layerCanvas.width = lm.width;
       layerCanvas.height = lm.height;
       const layerCtx = layerCanvas.getContext('2d');
       lm._compositeGroupInto(layerCtx, group);
 
-      // Snapshot the selection area BEFORE erasing (used by undoMovement / undo to restore)
       const snap = document.createElement('canvas');
       snap.width = s.width;
       snap.height = s.height;
@@ -1982,31 +1986,29 @@ export class SelectTool extends Tool {
 
       snapshots.push({ groupIdx, canvas: snap, x: s.x, y: s.y });
 
-      // Apply the erase to the composited layer canvas
-      layerCtx.globalCompositeOperation = 'destination-out';
-      layerCtx.fillStyle = 'white';
+      // 2. Apply the erase as a committed stroke
+      lm.beginUserStroke(groupIdx, userId, 'destination-out');
+      const ctx = lm.getUserStrokeContext(groupIdx, userId);
+      
       if (lassoPath && lassoPath.length >= 3) {
-        layerCtx.beginPath();
-        layerCtx.moveTo(lassoPath[0].x, lassoPath[0].y);
+        ctx.fillStyle = 'white';
+        ctx.beginPath();
+        ctx.moveTo(lassoPath[0].x, lassoPath[0].y);
         for (let i = 1; i < lassoPath.length; i++) {
-          layerCtx.lineTo(lassoPath[i].x, lassoPath[i].y);
+          ctx.lineTo(lassoPath[i].x, lassoPath[i].y);
         }
-        layerCtx.closePath();
-        layerCtx.fill();
+        ctx.closePath();
+        ctx.fill();
       } else {
-        layerCtx.fillRect(s.x, s.y, s.width, s.height);
+        ctx.fillRect(s.x, s.y, s.width, s.height);
       }
-      layerCtx.globalCompositeOperation = 'source-over';
 
-      // Replace baseCanvas with the transparent erased composite
-      // and clear the stroke stack (everything is now baked in)
-      group.baseCtx.clearRect(0, 0, lm.width, lm.height);
-      group.baseCtx.drawImage(layerCanvas, 0, 0);
-      group.strokeStack = [];
-      group.userStrokeCounts.clear();
-      group.activeStrokeByUser.clear();
-
-      lm.needsComposite = true;
+      // Commit the stroke with the shared batch timestamp and original selection data
+      lm.commitUserStroke(groupIdx, userId, { 
+        eraseAll: isMultiLayer, 
+        timestamp: batchTimestamp,
+        isSelectionErase: true // Flag to distinguish from normal erasers if needed
+      });
     };
 
     if (isMultiLayer) {
@@ -2015,7 +2017,6 @@ export class SelectTool extends Tool {
       eraseGroup(this.board.app?.self?.activeLayer ?? 0);
     }
 
-    lm._notifyHistoryPanel();
     this.board.compositeAllLayers();
 
     // Return snapshots + the original erase shape so Board.undo/redo can replay it
@@ -2035,11 +2036,9 @@ export class SelectTool extends Tool {
     for (const { groupIdx, canvas, x, y } of snapshots) {
       const group = lm.layerGroups[groupIdx];
       if (!group) continue;
-      group.baseCtx.drawImage(canvas, x, y);
-      lm.needsComposite = true;
+      lm.addToBaseBin(groupIdx, canvas, x, y, 'source-over');
     }
 
-    lm._notifyHistoryPanel();
     this.board.compositeAllLayers();
   }
 
@@ -2059,14 +2058,13 @@ export class SelectTool extends Tool {
       };
     } else {
       const flatCanvas = this._flattenSelectionToCanvas(s);
-      const imageData = flatCanvas.getContext('2d').getImageData(0, 0, s.width, s.height);
       if (this.mode === 'lasso' && this.lassoPath) {
-        this.applyLassoMask(imageData, s.x, s.y, this.lassoPath);
+        this.applyLassoMask(flatCanvas.getContext('2d'), s.x, s.y, this.lassoPath);
       }
       this.clipboard = {
         width: s.width,
         height: s.height,
-        imageData
+        imageData: flatCanvas.getContext('2d').getImageData(0, 0, s.width, s.height)
       };
     }
 
@@ -2476,14 +2474,12 @@ export class SelectTool extends Tool {
       // Use transformed canvas if homography was applied
       canvas = this.getTransformedCanvas();
     } else {
-      // Create a canvas with the selection content
       const s = this.selection;
-      canvas = document.createElement('canvas');
-      canvas.width = s.width;
-      canvas.height = s.height;
-      const ctx = canvas.getContext('2d');
-      const imageData = this.board.mainCtx.getImageData(s.x, s.y, s.width, s.height);
-      ctx.putImageData(imageData, 0, 0);
+      canvas = this._flattenSelectionToCanvas(s);
+      // Apply lasso mask if in lasso mode
+      if (this.mode === 'lasso' && this.lassoPath) {
+        this.applyLassoMask(canvas.getContext('2d'), s.x, s.y, this.lassoPath);
+      }
     }
 
     // Create brush data structure similar to GIMP brush
