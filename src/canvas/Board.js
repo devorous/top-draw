@@ -40,6 +40,10 @@ export class Board {
     // Compositing throttle: prevent expensive full-canvas composites on every message
     this._needsComposite = false;
     this._compositeScheduled = false;
+
+    // Global dirty rectangle for optimized compositing
+    // null = full redraw needed, otherwise {x, y, width, height}
+    this._globalDirtyRect = null;
   }
 
   /**
@@ -427,6 +431,31 @@ export class Board {
     const active = group.activeStrokeByUser.get(userId);
     if (!active || !active.dirtyRect) return;
     this.layerManager._expandDirtyRect(active.dirtyRect, x, y, width, height);
+
+    // Also expand global dirty rect for optimized compositing
+    this._expandGlobalDirtyRect(x, y, width, height);
+  }
+
+  /**
+   * Expand the global dirty rectangle to include a new region.
+   * This accumulates all drawing changes across layers for efficient compositing.
+   * @private
+   */
+  _expandGlobalDirtyRect(x, y, width, height) {
+    if (!this._globalDirtyRect) {
+      this._globalDirtyRect = { x, y, width, height };
+    } else {
+      const minX = Math.min(this._globalDirtyRect.x, x);
+      const minY = Math.min(this._globalDirtyRect.y, y);
+      const maxX = Math.max(this._globalDirtyRect.x + this._globalDirtyRect.width, x + width);
+      const maxY = Math.max(this._globalDirtyRect.y + this._globalDirtyRect.height, y + height);
+      this._globalDirtyRect = {
+        x: minX,
+        y: minY,
+        width: maxX - minX,
+        height: maxY - minY
+      };
+    }
   }
 
   /**
@@ -558,6 +587,10 @@ export class Board {
     const totalLayers = this.layerManager.getLayerCount();
     const [height, width] = this.dimensions;
 
+    // Capture dirty rect for this composite and reset for next frame
+    const dirtyRect = this._globalDirtyRect;
+    this._globalDirtyRect = null;
+
     // Determine the split layer: either a stroke is in progress (drawing split) or
     // a selection is being moved (selection split). The split puts lower layers on
     // mainCtx so the floating selection canvas / topCtx preview sits between lower
@@ -577,7 +610,7 @@ export class Board {
     // OPTIMIZATION: Global Punch-Through for "Erase All Layers" mode
     if (isDrawing && eraseAll) {
       // 1. Composite all layers onto a transparent background first
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, null);
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, null, dirtyRect);
       
       // 2. Punch the hole once through the entire stack using the preview canvas
       this.mainCtx.globalCompositeOperation = 'destination-out';
@@ -599,7 +632,7 @@ export class Board {
     } 
     else if ((isDrawing || hasActiveSelection) && splitLayer + 1 < totalLayers && !upperLayersHaveBlendModes) {
       // Split mode: floating canvas / topCtx preview sits between lower and upper layers.
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.backgroundColor);
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.backgroundColor, dirtyRect);
       
       // Handle live preview composite
       if (isDrawing) {
@@ -624,11 +657,11 @@ export class Board {
       }
 
       if (this.upperLayersCtx) {
-        this.layerManager.compositeLayerRange(this.upperLayersCtx, splitLayer + 1, totalLayers, null);
+        this.layerManager.compositeLayerRange(this.upperLayersCtx, splitLayer + 1, totalLayers, null, dirtyRect);
       }
     } else {
       // Full composite: all layers together so blend modes resolve correctly.
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.backgroundColor);
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.backgroundColor, dirtyRect);
       
       // In full composite mode, also inject the live preview if active
       if (isDrawing) {

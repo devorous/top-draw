@@ -903,15 +903,40 @@ export class LayerManager {
    * @param {number} startIdx - Inclusive start index
    * @param {number} endIdx - Exclusive end index
    * @param {Array|null} backgroundColor - [r,g,b,a] or null for transparent background
+   * @param {Object|null} dirtyRect - Optional {x, y, width, height} to limit redraw area
    */
-  compositeLayerRange(targetCtx, startIdx, endIdx, backgroundColor = null) {
-    targetCtx.clearRect(0, 0, this.width, this.height);
+  compositeLayerRange(targetCtx, startIdx, endIdx, backgroundColor = null, dirtyRect = null) {
+    // Dirty-region optimization: only redraw changed area if it's small enough
+    const useDirtyRect = dirtyRect &&
+                        dirtyRect.width > 0 &&
+                        dirtyRect.height > 0 &&
+                        (dirtyRect.width * dirtyRect.height) < (this.width * this.height * 0.5); // < 50% of canvas
+
+    if (useDirtyRect) {
+      // Only clear and redraw the dirty region
+      targetCtx.clearRect(dirtyRect.x, dirtyRect.y, dirtyRect.width, dirtyRect.height);
+    } else {
+      // Full canvas clear
+      targetCtx.clearRect(0, 0, this.width, this.height);
+    }
 
     if (backgroundColor) {
       const [r, g, b, a] = backgroundColor;
       targetCtx.globalCompositeOperation = 'source-over';
       targetCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-      targetCtx.fillRect(0, 0, this.width, this.height);
+      if (useDirtyRect) {
+        targetCtx.fillRect(dirtyRect.x, dirtyRect.y, dirtyRect.width, dirtyRect.height);
+      } else {
+        targetCtx.fillRect(0, 0, this.width, this.height);
+      }
+    }
+
+    // Use clipping to restrict drawing to dirty region
+    if (useDirtyRect) {
+      targetCtx.save();
+      targetCtx.beginPath();
+      targetCtx.rect(dirtyRect.x, dirtyRect.y, dirtyRect.width, dirtyRect.height);
+      targetCtx.clip();
     }
 
     const count = Math.min(endIdx, this.layerGroups.length);
@@ -932,6 +957,10 @@ export class LayerManager {
         // blend against the accumulated lower-layer content in targetCtx.
         this._compositeGroupInto(targetCtx, group);
       }
+    }
+
+    if (useDirtyRect) {
+      targetCtx.restore();
     }
 
     targetCtx.globalCompositeOperation = 'source-over';

@@ -15,6 +15,16 @@ export class WebSocketClient {
     this.serverUrl = options.serverUrl || null;
     this.Msg = null;
     this.protoLoaded = false;
+
+    // Message batching to prevent task stacking
+    this._messageQueue = [];
+    this._processingScheduled = false;
+
+    // Drawing messages that should be batched (high-frequency)
+    this._batchableMessages = new Set([
+      T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC,
+      T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL
+    ]);
   }
 
   async loadProto() {
@@ -117,9 +127,50 @@ export class WebSocketClient {
   }
 
   handleMessage(data) {
+    // Batch high-frequency drawing messages to prevent task stacking
+    if (this._batchableMessages.has(data.t)) {
+      this._messageQueue.push(data);
+      this._scheduleProcessing();
+      return;
+    }
+
+    // Process non-batchable messages immediately
+    this._processMessage(data);
+  }
+
+  /**
+   * Schedule message queue processing on next animation frame.
+   * @private
+   */
+  _scheduleProcessing() {
+    if (!this._processingScheduled) {
+      this._processingScheduled = true;
+      requestAnimationFrame(() => this._processMessageQueue());
+    }
+  }
+
+  /**
+   * Process all queued messages in a single frame.
+   * @private
+   */
+  _processMessageQueue() {
+    this._processingScheduled = false;
+
+    // Process all queued messages
+    while (this._messageQueue.length > 0) {
+      const data = this._messageQueue.shift();
+      this._processMessage(data);
+    }
+  }
+
+  /**
+   * Process a single message (called directly for immediate messages, or from queue for batched).
+   * @private
+   */
+  _processMessage(data) {
     // Debug: log CHAT_IMG messages
     if (data.t === T.CHAT_IMG || data.t === 40) {
-      console.log('[handleMessage] Received CHAT_IMG:', {
+      console.log('[_processMessage] Received CHAT_IMG:', {
         type: data.t,
         hasCimg: !!data.cimg,
         cimgLength: data.cimg?.length,

@@ -127,7 +127,7 @@ export class EraserTool extends Tool {
       this.board.expandDirtyRect(user, mirrorX, y, w, h);
     }
 
-    this.board.compositeAllLayers();
+    this.board.requestUpdate();
   }
 
   _renderSegmentToCtx(ctx, p1, p2, size) {
