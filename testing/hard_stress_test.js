@@ -68,7 +68,8 @@ export default function () {
   // Stagger connections slightly so the handshakes don't happen at the exact same ms
   sleep(Math.random() * 2);
 
-  const url = 'ws://127.0.0.1:8000';
+  // Use environment variable or fallback to localhost
+  const url = __ENV.TARGET_URL || 'ws://127.0.0.1:8000';
   let sessionIndex = -1;
 
   const res = ws.connect(url, {}, function (socket) {

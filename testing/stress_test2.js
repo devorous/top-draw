@@ -10,7 +10,8 @@ export const options = {
 };
 
 export default function () {
-  const url = 'ws://127.0.0.1:8000';
+  // Use environment variable or fallback to localhost
+  const url = __ENV.TARGET_URL || 'ws://127.0.0.1:8000';
 
   const res = ws.connect(url, {}, function (socket) {
     socket.on('open', function () {
