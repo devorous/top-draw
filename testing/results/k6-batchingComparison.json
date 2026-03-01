@@ -1,0 +1,296 @@
+{
+  "root_group": {
+    "groups": [],
+    "checks": [
+        {
+          "name": "30TPS Connected",
+          "path": "::30TPS Connected",
+          "id": "dc9f0e1b702dc0602f771838a916c2d2",
+          "passes": 5,
+          "fails": 0
+        },
+        {
+          "fails": 0,
+          "name": "60TPS Connected",
+          "path": "::60TPS Connected",
+          "id": "8822b1324aee6e8304033d0ee6f95445",
+          "passes": 5
+        },
+        {
+          "name": "90TPS Connected",
+          "path": "::90TPS Connected",
+          "id": "0273d60fb207b15e3120782808ad49d3",
+          "passes": 5,
+          "fails": 0
+        },
+        {
+          "name": "120TPS Connected",
+          "path": "::120TPS Connected",
+          "id": "61114ea9681dbd02df5af3b79f65937f",
+          "passes": 5,
+          "fails": 0
+        }
+      ],
+    "name": "",
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "options": {
+    "summaryTrendStats": [
+      "avg",
+      "min",
+      "med",
+      "max",
+      "p(90)",
+      "p(95)"
+    ],
+    "summaryTimeUnit": "",
+    "noColor": false
+  },
+  "state": {
+    "isStdOutTTY": false,
+    "isStdErrTTY": false,
+    "testRunDurationMs": 136304.82956
+  },
+  "metrics": {
+    "latency_90tps": {
+      "type": "trend",
+      "contains": "default",
+      "values": {
+        "med": 5,
+        "max": 452,
+        "p(90)": 21,
+        "p(95)": 38,
+        "avg": 10.557542624166048,
+        "min": 0
+      }
+    },
+    "ws_sessions": {
+      "contains": "default",
+      "values": {
+        "count": 20,
+        "rate": 0.1467299439393393
+      },
+      "type": "counter"
+    },
+    "checks": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 1,
+        "passes": 20,
+        "fails": 0
+      }
+    },
+    "vus_max": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "value": 10,
+        "min": 10,
+        "max": 10
+      }
+    },
+    "vus": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "value": 3,
+        "min": 0,
+        "max": 5
+      }
+    },
+    "data_sent": {
+      "type": "counter",
+      "contains": "data",
+      "values": {
+        "rate": 10962.450889109934,
+        "count": 1494235
+      }
+    },
+    "messages_30tps": {
+      "contains": "default",
+      "values": {
+        "count": 4394,
+        "rate": 32.236568683472846
+      },
+      "type": "counter"
+    },
+    "points_per_msg_30tps": {
+      "type": "trend",
+      "contains": "default",
+      "values": {
+        "p(95)": 7,
+        "avg": 5.846381429221666,
+        "min": 1,
+        "med": 6,
+        "max": 8,
+        "p(90)": 7
+      }
+    },
+    "ws_msgs_sent": {
+      "contains": "default",
+      "values": {
+        "count": 37180,
+        "rate": 272.77096578323176
+      },
+      "type": "counter"
+    },
+    "ws_msgs_received": {
+      "values": {
+        "count": 145766,
+        "rate": 1069.4118504130868
+      },
+      "type": "counter",
+      "contains": "default"
+    },
+    "messages_60tps": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 8383,
+        "rate": 61.50185600217407
+      }
+    },
+    "ws_connecting": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "min": 1.523797,
+        "med": 8.0185715,
+        "max": 234.783765,
+        "p(90)": 78.80913910000012,
+        "p(95)": 166.99408205000006,
+        "avg": 36.08204445
+      }
+    },
+    "data_received": {
+      "contains": "data",
+      "values": {
+        "count": 5274476,
+        "rate": 38696.17838946953
+      },
+      "type": "counter"
+    },
+    "iteration_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 30960.46788085,
+        "min": 30214.182805,
+        "med": 30983.108476499998,
+        "max": 31902.616841,
+        "p(90)": 31648.181496,
+        "p(95)": 31686.74815195
+      }
+    },
+    "messages_120tps": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 13244,
+        "rate": 97.1645688766305
+      }
+    },
+    "latency_60tps": {
+      "type": "trend",
+      "contains": "default",
+      "values": {
+        "p(90)": 14,
+        "p(95)": 27,
+        "avg": 6.155955754639364,
+        "min": 0,
+        "med": 2,
+        "max": 283
+      }
+    },
+    "ws_session_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(90)": 30082.7816348,
+        "p(95)": 30172.40708015,
+        "avg": 30043.241223150002,
+        "min": 30002.699573,
+        "med": 30014.157845499998,
+        "max": 30242.653028
+      }
+    },
+    "points_per_msg_60tps": {
+      "type": "trend",
+      "contains": "default",
+      "values": {
+        "max": 7,
+        "p(90)": 4,
+        "p(95)": 4,
+        "avg": 2.846475008946678,
+        "min": 1,
+        "med": 3
+      }
+    },
+    "latency_30tps": {
+      "type": "trend",
+      "contains": "default",
+      "values": {
+        "p(90)": 4,
+        "p(95)": 7,
+        "avg": 2.910142400464981,
+        "min": 0,
+        "med": 1,
+        "max": 328
+      }
+    },
+    "latency_120tps": {
+      "type": "trend",
+      "contains": "default",
+      "values": {
+        "p(90)": 23,
+        "p(95)": 46,
+        "avg": 11.290144175757113,
+        "min": 0,
+        "med": 4,
+        "max": 502
+      }
+    },
+    "points_per_msg_120tps": {
+      "contains": "default",
+      "values": {
+        "p(90)": 2,
+        "p(95)": 3,
+        "avg": 1.6294170945333737,
+        "min": 1,
+        "med": 2,
+        "max": 8
+      },
+      "type": "trend"
+    },
+    "iterations": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 20,
+        "rate": 0.1467299439393393
+      }
+    },
+    "messages_90tps": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 11139,
+        "rate": 81.72124227701502
+      }
+    },
+    "points_per_msg_90tps": {
+      "type": "trend",
+      "contains": "default",
+      "values": {
+        "avg": 1.9925487027560822,
+        "min": 1,
+        "med": 2,
+        "max": 6,
+        "p(90)": 3,
+        "p(95)": 3
+      }
+    }
+  }
+}
