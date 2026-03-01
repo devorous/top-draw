@@ -236,7 +236,7 @@ export class BlurTool extends Tool {
       // 4. Restore context to remove clip and reset alpha/composite settings
       strokeCtx.restore();
 
-      this.board.compositeAllLayers();
+      this.board.requestUpdate();
     } catch (error) {
       console.error('Blur error:', error);
     }

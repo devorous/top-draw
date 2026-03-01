@@ -344,7 +344,7 @@ export class Board {
     }
     // Refresh the mainCtx/upperLayersCtx split so the preview (topCtx) sits at the
     // correct depth between lower and upper layers when drawing begins.
-    this.compositeAllLayers();
+    this.requestUpdate();
   }
 
   /**
@@ -361,7 +361,7 @@ export class Board {
         this.layerManager.beginUserStroke(i, userId, blendMode);
       }
     }
-    this.compositeAllLayers();
+    this.requestUpdate();
   }
 
   /**
@@ -376,7 +376,7 @@ export class Board {
     for (let i = 0; i < count; i++) {
       this.layerManager.commitUserStroke(i, userId, { eraseAll: true, timestamp: batchTimestamp });
     }
-    this.compositeAllLayers();
+    this.requestUpdate();
   }
 
   /**
@@ -406,7 +406,7 @@ export class Board {
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     if (!this.layerManager) return;
     this.layerManager.commitUserStroke(activeLayer, userId);
-    this.compositeAllLayers();
+    this.requestUpdate();
   }
 
   /**
@@ -439,7 +439,7 @@ export class Board {
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     if (!this.layerManager) return;
     this.layerManager.cancelUserStroke(activeLayer, userId);
-    this.compositeAllLayers();
+    this.requestUpdate();
   }
 
   /**

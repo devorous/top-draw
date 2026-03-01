@@ -141,8 +141,7 @@ export class ImageBrushTool extends Tool {
       }
     }
 
-    // Composite all layers to visible canvas
-    this.board.compositeAllLayers();
+    // Composite all layers to visible canvas (handled by endStroke)
     this.board.endStroke(user);
 
     // Clean up tracking

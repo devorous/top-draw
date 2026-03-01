@@ -114,20 +114,44 @@ export class RemoteUserHandler {
           case 'blur':
             const blurTool = this.toolManager.getTool('blur');
             if (blurTool) {
-              blurTool.applyBlur(pos.x, pos.y, user.size, user);
+              // Update position for blur tool (it reads from user.lastBlurPos)
+              user.lastBlurPos = pos;
+              // Manually apply distance-based spacing since blur uses RAF loop for local users
+              const lastStamp = blurTool.lastStampPos.get(user.id);
+              if (lastStamp) {
+                const dx = pos.x - lastStamp.x;
+                const dy = pos.y - lastStamp.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const spacingPercent = user.spacing === 0 ? 0.1 : (user.spacing * 0.05);
+                const minSpacing = Math.max(1, user.size * spacingPercent);
+
+                if (distance >= minSpacing) {
+                  blurTool.applyBlur(pos.x, pos.y, user.size, user);
+                  if (this.board.mirror) {
+                    const width = this.board.getWidth();
+                    blurTool.applyBlur(width - pos.x, pos.y, user.size, user);
+                  }
+                  blurTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+                }
+              }
             }
             break;
 
           case 'circleBlur':
             const circleBlurTool = this.toolManager.getTool('circleBlur');
             if (circleBlurTool) {
-              circleBlurTool.stampBlurredCircle(pos.x, pos.y, user.size, user);
+              // Use onPointerMove which has distance-based spacing built-in
+              circleBlurTool.onPointerMove(user, pos, lastPos);
             }
             break;
 
           case 'imageBrush':
             if (user.imageBrush) {
-              this.toolManager.getTool('imageBrush').draw(user, pos);
+              const imageBrushTool = this.toolManager.getTool('imageBrush');
+              if (imageBrushTool) {
+                // Use onPointerMove which has distance-based spacing and interpolation
+                imageBrushTool.onPointerMove(user, pos);
+              }
             }
             break;
 
@@ -279,8 +303,15 @@ export class RemoteUserHandler {
         if (!user.panning) {
           const blurTool = this.toolManager.getTool('blur');
           if (blurTool) {
+            // Initialize blur snapshot and tracking for distance-based spacing
             blurTool.initBlurSnapshot(user);
+            user.lastBlurPos = pos;
+            blurTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
             blurTool.applyBlur(pos.x, pos.y, user.size, user);
+            if (this.board.mirror) {
+              const width = this.board.getWidth();
+              blurTool.applyBlur(width - pos.x, pos.y, user.size, user);
+            }
           }
         }
         break;
@@ -289,7 +320,14 @@ export class RemoteUserHandler {
         if (!user.panning) {
           const circleBlurTool = this.toolManager.getTool('circleBlur');
           if (circleBlurTool) {
-            circleBlurTool.stampBlurredCircle(pos.x, pos.y, user.size, user);
+            const radius = user.pressure * user.size;
+            // Initialize lastStampPos and stamp first circle
+            circleBlurTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
+            circleBlurTool.stampBlurredCircle(pos.x, pos.y, radius, user);
+            if (this.board.mirror) {
+              const width = this.board.getWidth();
+              circleBlurTool.stampBlurredCircle(width - pos.x, pos.y, radius, user);
+            }
           }
         }
         break;
@@ -312,7 +350,12 @@ export class RemoteUserHandler {
           if (user.imageBrush.type === 'gih' && user.imageBrush.reset) {
             user.imageBrush.reset();
           }
-          this.toolManager.getTool('imageBrush').draw(user, pos);
+          const imageBrushTool = this.toolManager.getTool('imageBrush');
+          if (imageBrushTool) {
+            // Initialize lastStampPos and stamp first image
+            imageBrushTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+            imageBrushTool.drawStamp(user, pos);
+          }
         }
         break;
 
@@ -465,6 +508,16 @@ export class RemoteUserHandler {
     user.lassoPoints = null;
     user.blurSnapshot = null;
 
+    // Clean up tool-specific tracking maps
+    const blurTool = this.toolManager.getTool('blur');
+    if (blurTool) blurTool.lastStampPos.delete(user.id);
+
+    const circleBlurTool = this.toolManager.getTool('circleBlur');
+    if (circleBlurTool) circleBlurTool.lastStampPos.delete(user.id);
+
+    const imageBrushTool = this.toolManager.getTool('imageBrush');
+    if (imageBrushTool) imageBrushTool.lastStampPos.delete(user.id);
+
     // Redraw floating selection if user has one (persists after handle release)
     if (user.floatingCanvas && user.selection) {
       this.selectionHandler.drawFloatingSelection(user);
@@ -595,6 +648,19 @@ export class RemoteUserHandler {
     if (user._inkCtx) {
       user._inkCtx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
     }
+
+    // Clear blur/circleBlur/imageBrush tracking
+    user.blurSnapshot = null;
+    user.lastBlurPos = null;
+
+    const blurTool = this.toolManager.getTool('blur');
+    if (blurTool) blurTool.lastStampPos.delete(user.id);
+
+    const circleBlurTool = this.toolManager.getTool('circleBlur');
+    if (circleBlurTool) circleBlurTool.lastStampPos.delete(user.id);
+
+    const imageBrushTool = this.toolManager.getTool('imageBrush');
+    if (imageBrushTool) imageBrushTool.lastStampPos.delete(user.id);
   }
 
   // Drawing utilities

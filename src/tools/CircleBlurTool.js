@@ -177,7 +177,7 @@ export class CircleBlurTool extends Tool {
       strokeCtx.shadowOffsetY = 0;
       strokeCtx.restore();
 
-      this.board.compositeAllLayers();
+      this.board.requestUpdate();
     } catch (error) {
       console.error('Circle blur error:', error);
     }
