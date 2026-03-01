@@ -198,7 +198,7 @@ export class DrawingApp {
     const initialTool = this.brushModeManager.getCurrentToolName();
     this.self.setTool(initialTool);
     this.toolManager.setTool(initialTool);
-    this.ui.updateToolDisplay(initialTool);
+    this.ui.updateToolDisplay(initialTool, this.self);
     this.ui.updateBrushModeDisplay(this.brushModeManager.getMode());
     this.ui.updateActiveLayerDisplay(this.self.activeLayer);
 
@@ -700,7 +700,7 @@ export class DrawingApp {
            }
     
            this.ui.showCursor();      // Refresh tool display to show correct cursor shape
-      this.ui.updateToolDisplay(this.self.tool);
+      this.ui.updateToolDisplay(this.self.tool, this.self);
 
       // Broadcast cursor show to other users
       if (this.connected) {
@@ -1001,7 +1001,7 @@ export class DrawingApp {
 
     this.self.setTool(tool);
     this.toolManager.setTool(tool);
-    this.ui.updateToolDisplay(tool);
+    this.ui.updateToolDisplay(tool, this.self);
     this.wsClient.broadcastToolChange(tool);
 
     // Blend mode is sticky per-user, not per-tool or per-layer.

@@ -356,7 +356,7 @@ export class UI {
     }
   }
 
-  updateToolDisplay(tool) {
+  updateToolDisplay(tool, user = null) {
     const { selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, opacityContainer, blurRadiusContainer, selectionModeOptions, eraserModeOptions, brushModeOptions, smoothingSlider } = this.elements;
 
     selfCircle.style.display = 'none';
@@ -470,6 +470,10 @@ export class UI {
       case 'imageBrush':
         selfSquare.style.display = 'block';
         // brushImage is shown only when a brush is selected (via setBrushPreview)
+        // Keep brush preview visible if user has an imageBrush selected
+        if (user && user.imageBrush) {
+          brushImage.style.display = 'block';
+        }
         brushFileInput.style.display = 'block';
         brushSpacing.style.display = 'block';
         // Show pressure square for imageBrush (can scale with pressure)
