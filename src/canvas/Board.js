@@ -36,6 +36,10 @@ export class Board {
     // at this layer index so the floating selection canvas sits correctly between
     // lower and upper layers. -1 = no active selection.
     this.activeSelectionLayer = -1;
+
+    // Compositing throttle: prevent expensive full-canvas composites on every message
+    this._needsComposite = false;
+    this._compositeScheduled = false;
   }
 
   /**
@@ -652,6 +656,31 @@ export class Board {
 
     this.layerManager.needsComposite = false;
     this.layerManager._notifyHistoryPanel();
+  }
+
+  /**
+   * Request a composite update on the next animation frame.
+   * This throttles expensive compositeAllLayers() calls to 60fps max,
+   * preventing hundreds of full-canvas composites from queuing messages.
+   */
+  requestUpdate() {
+    this._needsComposite = true;
+    if (!this._compositeScheduled) {
+      this._compositeScheduled = true;
+      requestAnimationFrame(() => this._performScheduledComposite());
+    }
+  }
+
+  /**
+   * Internal RAF callback that performs the actual composite if needed.
+   * @private
+   */
+  _performScheduledComposite() {
+    this._compositeScheduled = false;
+    if (this._needsComposite) {
+      this._needsComposite = false;
+      this.compositeAllLayers();
+    }
   }
 
   clearTop() {

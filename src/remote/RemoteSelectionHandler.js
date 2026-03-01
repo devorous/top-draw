@@ -274,7 +274,7 @@ export class RemoteSelectionHandler {
     // Pass the restore data captured during lift so Board.undo can reverse the erase
     lm.commitUserStroke(layerIdx, user.id, { selectionRestoreData: user._selectionRestoreData });
     this.board.activeSelectionLayer = -1;
-    this.board.compositeAllLayers();
+    this.board.requestUpdate();
     this._cleanupUserSelection(user);
   }
 
@@ -383,7 +383,7 @@ export class RemoteSelectionHandler {
     }
 
     lm.commitUserStroke(layerIdx, user.id);
-    this.board.compositeAllLayers();
+    this.board.requestUpdate();
 
     // Keep selection active — redraw floating selection on user's overlay layer
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
@@ -416,7 +416,7 @@ export class RemoteSelectionHandler {
     }
 
     this.board.activeSelectionLayer = -1;
-    this.board.compositeAllLayers();
+    this.board.requestUpdate();
     this._cleanupUserSelection(user);
   }
 
@@ -782,7 +782,7 @@ export class RemoteSelectionHandler {
     });
 
     lm.needsComposite = true;
-    this.board.compositeAllLayers();
+    this.board.requestUpdate();
 
     return {
       snapshots,

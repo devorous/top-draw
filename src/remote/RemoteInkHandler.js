@@ -124,7 +124,7 @@ export class RemoteInkHandler {
       layerCtx.globalAlpha = 1.0;
 
       // Composite all layers to visible canvas
-      this.board.compositeAllLayers();
+      this.board.requestUpdate();
     }
 
     // Clean up per-user ink state

@@ -74,7 +74,24 @@ export class RemoteUserHandler {
       if (!user.panning && user.mousedown) {
         switch (user.tool) {
           case 'brush':
+            // Incremental rendering: only draw the new segment instead of redrawing entire line
+            const prevPoint = user.currentLine.length > 0
+              ? user.currentLine[user.currentLine.length - 1]
+              : { x: user.lastx, y: user.lasty };
+
             user.addToLine(pos);
+
+            // Draw only the new segment directly to the layer context
+            const layerCtx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
+            if (layerCtx && user.currentLine.length >= 2) {
+              const segment = [prevPoint, pos];
+              drawLineArray(segment, layerCtx, user);
+              if (this.board.mirror) {
+                const mirroredSegment = mirrorLine(segment, this.board.getWidth());
+                drawLineArray(mirroredSegment, layerCtx, user);
+              }
+            }
+
             if (user.pressure !== user.prevpressure) {
               this.commitLine(user);
             }
@@ -90,7 +107,7 @@ export class RemoteUserHandler {
                 const w = this.board.getWidth();
                 eraserTool.eraseOnGroup(group, w - pos.x, pos.y, w - lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity, user.id);
               }
-              this.board.compositeAllLayers();
+              this.board.requestUpdate();
             }
             break;
 
@@ -143,13 +160,8 @@ export class RemoteUserHandler {
 
       switch (user.tool) {
         case 'brush':
-          // Redraw the accumulated line on preview canvas
-          user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-          drawLineArray(user.currentLine, user.context, user);
-          if (this.board.mirror) {
-            const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-            drawLineArray(mirrored, user.context, user);
-          }
+          // Brush now uses incremental rendering - no need to redraw entire line
+          // The line is drawn directly to the layer context as segments arrive
           break;
 
         case 'line':
@@ -258,7 +270,7 @@ export class RemoteUserHandler {
           const eraseGroup = this.board.layerManager.getLayerGroup(user.activeLayer);
           if (eraseGroup) {
             eraserTool.eraseOnGroup(eraseGroup, pos.x, pos.y, pos.x, pos.y, user.pressure * user.size * 2, 1.0, user.id);
-            this.board.compositeAllLayers();
+            this.board.requestUpdate();
           }
         }
         break;
@@ -290,7 +302,7 @@ export class RemoteUserHandler {
           
           // Commit to history stack so it can be undone by other clients
           this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
-          this.board.compositeAllLayers();
+          this.board.requestUpdate();
         }
         break;
 
@@ -376,13 +388,8 @@ export class RemoteUserHandler {
       // Pen/ink stroke was fully handled above — skip tool switch
     } else switch (user.tool) {
       case 'brush':
-        if (!user.panning) {
-          drawLineArray(user.currentLine, layerCtx, user);
-          if (this.board.mirror) {
-            const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-            drawLineArray(mirrored, layerCtx, user);
-          }
-        }
+        // Brush uses incremental rendering - line already drawn to layerCtx during mouse moves
+        // No need to redraw on mouse up
         break;
 
       case 'flowPen':
@@ -443,7 +450,7 @@ export class RemoteUserHandler {
 
 
     // Composite all layers to visible canvas after remote drawing
-    this.board.compositeAllLayers();
+    this.board.requestUpdate();
 
     // Commit the stroke to the history stack.
     // Skip if tool is text, as text is committed immediately in handleMouseDown.
@@ -601,23 +608,18 @@ export class RemoteUserHandler {
     const oldRadius = user.pressure * user.size;
     const newRadius = (newPressure ?? user.pressure) * (newSize ?? user.size);
 
-    // Draw into the layer's sub-layer (always source-over; blend mode applied at composite time)
+    // With incremental rendering, the line is already drawn to layerCtx.
+    // We just need to bridge the gap for pressure changes if needed.
     const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);
-    drawLineArray(user.currentLine, layerCtx, user);
-
-    if (this.board.mirror) {
-      const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-      drawLineArray(mirrored, layerCtx, user);
-    }
 
     // Save last drawn position (where old segment visually ends)
     const lastDrawnPos = user.currentLine.length > 0
       ? user.currentLine[user.currentLine.length - 1]
       : { x: user.x, y: user.y };
 
-    // Bridge the gap between old segment end and new segment start
+    // Bridge the gap between old segment end and new segment start when pressure changes
     // using interpolated filled circles (flow-pen style)
-    if (user.currentLine.length > 0) {
+    if (user.currentLine.length > 0 && oldRadius !== newRadius) {
       const from = lastDrawnPos;
       bridgeGap(layerCtx, from, lastDrawnPos, oldRadius, newRadius, user);
       if (this.board.mirror) {
