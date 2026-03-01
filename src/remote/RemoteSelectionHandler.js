@@ -38,11 +38,17 @@ export class RemoteSelectionHandler {
 
           if (user.floatingCanvas || user.pendingSelection) {
             hasActiveSelection = true;
-            // Redraw this user's selection with updated offset
-            user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+
             if (user.floatingCanvas && user.selection) {
-              this.drawFloatingSelection(user);
+              // Skip during active movement (like local SelectTool's !isDragging guard).
+              // handleSelectionMove already drew synchronously.
+              // When idle, redraw to animate marching ants.
+              if (!user._selectionMoving) {
+                user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+                this.drawFloatingSelection(user);
+              }
             } else if (user.pendingSelection) {
+              user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
               this.drawPendingSelection(user);
             }
           }
@@ -173,6 +179,19 @@ export class RemoteSelectionHandler {
   handleSelectionMove(user, corners) {
     if (!user.floatingCanvas || !user.selection) return;
 
+    // Signal animation loop: skip drawing while moves are arriving
+    // (mirrors local SelectTool's isDragging guard in startMarchingAnts)
+    user._selectionMoving = true;
+
+    // Reset idle timer — after 100ms of no SEL_MOVE, resume animation loop
+    if (user._selectionIdleTimer) {
+      clearTimeout(user._selectionIdleTimer);
+    }
+    user._selectionIdleTimer = setTimeout(() => {
+      user._selectionMoving = false;
+      user._selectionIdleTimer = null;
+    }, 100);
+
     // Calculate movement delta before updating selection
     const oldX = user.selection.x;
     const oldY = user.selection.y;
@@ -201,8 +220,15 @@ export class RemoteSelectionHandler {
       }));
     }
 
-    // Ensure animation loop is running to render updates at 60fps
-    // (This eliminates flicker by avoiding double-rendering)
+    // Regenerate preview cache if corners are transformed
+    this._regeneratePreviewCache(user);
+
+    // SYNCHRONOUS clear + redraw (matches local SelectTool pattern:
+    // board.clearTop() then drawSelectionUI() in onPointerMove)
+    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    this.drawFloatingSelection(user);
+
+    // Keep animation loop alive (for marching ants when idle)
     this.startRemoteSelectionAnimation();
   }
 
@@ -480,6 +506,13 @@ export class RemoteSelectionHandler {
    * Reset all selection-related state on a user object and clear their overlay canvas.
    */
   _cleanupUserSelection(user) {
+    // Cancel idle timer
+    if (user._selectionIdleTimer) {
+      clearTimeout(user._selectionIdleTimer);
+      user._selectionIdleTimer = null;
+    }
+    user._selectionMoving = false;
+
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     user.floatingCanvas = null;
     user.floatingCtx = null;
@@ -493,6 +526,8 @@ export class RemoteSelectionHandler {
     user.homography = null;
     user.previewHomography = null;
     user._selectionRestoreData = null;
+    user._cachedPreviewCanvas = null;
+    user._cachedPreviewBounds = null;
   }
 
   hasTransformedCorners(user) {
@@ -514,6 +549,89 @@ export class RemoteSelectionHandler {
     );
   }
 
+  /**
+   * Regenerate the cached preview canvas for transformed selections.
+   * This expensive operation is only done when corners change, not every frame.
+   * @private
+   */
+  _regeneratePreviewCache(user) {
+    if (!user.floatingCanvas || !user.selection || !user.selectionCorners || !user.originalCorners) return;
+    if (!this.hasTransformedCorners(user)) {
+      // No transform needed, clear cache
+      user._cachedPreviewCanvas = null;
+      user._cachedPreviewBounds = null;
+      return;
+    }
+
+    try {
+      const c = user.selectionCorners;
+      const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+      const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+      const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+      const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+      const outputWidth = maxX - minX;
+      const outputHeight = maxY - minY;
+
+      // Calculate preview scale for downsampling input image (max 256px on longest side of source)
+      const srcMaxDim = Math.max(user.floatingCanvas.width, user.floatingCanvas.height);
+      const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
+      const previewSrcWidth = Math.max(1, Math.round(user.floatingCanvas.width * previewScale));
+      const previewSrcHeight = Math.max(1, Math.round(user.floatingCanvas.height * previewScale));
+
+      // Reuse or create preview homography instance
+      if (!user.previewHomography) {
+        user.previewHomography = new Homography('projective');
+      }
+
+      // Source points scaled for the downsampled input image
+      const srcPoints = [
+        [user.originalCorners.tl.x * previewScale, user.originalCorners.tl.y * previewScale],
+        [user.originalCorners.tr.x * previewScale, user.originalCorners.tr.y * previewScale],
+        [user.originalCorners.bl.x * previewScale, user.originalCorners.bl.y * previewScale],
+        [user.originalCorners.br.x * previewScale, user.originalCorners.br.y * previewScale]
+      ];
+
+      // Destination points scaled down proportionally
+      const dstPoints = [
+        [(c.tl.x - minX) * previewScale, (c.tl.y - minY) * previewScale],
+        [(c.tr.x - minX) * previewScale, (c.tr.y - minY) * previewScale],
+        [(c.bl.x - minX) * previewScale, (c.bl.y - minY) * previewScale],
+        [(c.br.x - minX) * previewScale, (c.br.y - minY) * previewScale]
+      ];
+
+      // Set up homography with downscaled source image
+      user.previewHomography.setSourcePoints(srcPoints, user.floatingCanvas, previewSrcWidth, previewSrcHeight);
+      user.previewHomography.setDestinyPoints(dstPoints);
+
+      const result = user.previewHomography.warp();
+      if (result) {
+        // Create/reuse cached canvas
+        if (!user._cachedPreviewCanvas) {
+          user._cachedPreviewCanvas = document.createElement('canvas');
+        }
+        user._cachedPreviewCanvas.width = result.width;
+        user._cachedPreviewCanvas.height = result.height;
+        const cacheCtx = user._cachedPreviewCanvas.getContext('2d');
+        cacheCtx.putImageData(result, 0, 0);
+
+        // Store bounds for drawing
+        user._cachedPreviewBounds = {
+          minX,
+          minY,
+          width: outputWidth,
+          height: outputHeight
+        };
+      } else {
+        user._cachedPreviewCanvas = null;
+        user._cachedPreviewBounds = null;
+      }
+    } catch (e) {
+      console.warn('Remote preview cache generation failed:', e);
+      user._cachedPreviewCanvas = null;
+      user._cachedPreviewBounds = null;
+    }
+  }
+
   drawFloatingSelection(user) {
     if (!user.floatingCanvas || !user.selection) return;
 
@@ -521,68 +639,26 @@ export class RemoteSelectionHandler {
     const s = user.selection;
     const c = user.selectionCorners;
 
-    // Check if we need to apply homography transform
+    // Check if we need to use cached transform preview
     if (c && user.originalCorners && this.hasTransformedCorners(user)) {
-      try {
-        // Calculate output bounds
-        const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
-        const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
-        const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
-        const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
-        const outputWidth = maxX - minX;
-        const outputHeight = maxY - minY;
-
-        // Calculate preview scale for downsampling input image (max 256px on longest side of source)
-        const srcMaxDim = Math.max(user.floatingCanvas.width, user.floatingCanvas.height);
-        const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
-        const previewSrcWidth = Math.max(1, Math.round(user.floatingCanvas.width * previewScale));
-        const previewSrcHeight = Math.max(1, Math.round(user.floatingCanvas.height * previewScale));
-
-        // Reuse or create preview homography instance
-        if (!user.previewHomography) {
-          user.previewHomography = new Homography('projective');
-        }
-
-        // Source points scaled for the downsampled input image
-        const srcPoints = [
-          [user.originalCorners.tl.x * previewScale, user.originalCorners.tl.y * previewScale],
-          [user.originalCorners.tr.x * previewScale, user.originalCorners.tr.y * previewScale],
-          [user.originalCorners.bl.x * previewScale, user.originalCorners.bl.y * previewScale],
-          [user.originalCorners.br.x * previewScale, user.originalCorners.br.y * previewScale]
-        ];
-
-        // Destination points scaled down proportionally
-        const dstPoints = [
-          [(c.tl.x - minX) * previewScale, (c.tl.y - minY) * previewScale],
-          [(c.tr.x - minX) * previewScale, (c.tr.y - minY) * previewScale],
-          [(c.bl.x - minX) * previewScale, (c.bl.y - minY) * previewScale],
-          [(c.br.x - minX) * previewScale, (c.br.y - minY) * previewScale]
-        ];
-
-        // Set up homography with downscaled source image
-        user.previewHomography.setSourcePoints(srcPoints, user.floatingCanvas, previewSrcWidth, previewSrcHeight);
-        user.previewHomography.setDestinyPoints(dstPoints);
-
-        const result = user.previewHomography.warp();
-        if (result) {
-          // Create temporary canvas to hold the ImageData
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = result.width;
-          tempCanvas.height = result.height;
-          const tempCtx = tempCanvas.getContext('2d');
-          tempCtx.putImageData(result, 0, 0);
-
-          // Draw scaled up to full output size
+      // Use cached preview canvas if available
+      if (user._cachedPreviewCanvas && user._cachedPreviewBounds) {
+        const bounds = user._cachedPreviewBounds;
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'low';
+        ctx.drawImage(user._cachedPreviewCanvas, bounds.minX, bounds.minY, bounds.width, bounds.height);
+      } else {
+        // Fallback: regenerate if cache missing (shouldn't happen)
+        this._regeneratePreviewCache(user);
+        if (user._cachedPreviewCanvas && user._cachedPreviewBounds) {
+          const bounds = user._cachedPreviewBounds;
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'low';
-          ctx.drawImage(tempCanvas, minX, minY, outputWidth, outputHeight);
+          ctx.drawImage(user._cachedPreviewCanvas, bounds.minX, bounds.minY, bounds.width, bounds.height);
         } else {
-          // Fallback to simple draw
+          // Final fallback
           ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
         }
-      } catch (e) {
-        console.warn('Remote homography preview failed:', e);
-        ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
       }
     } else {
       // No transform, simple draw at current position

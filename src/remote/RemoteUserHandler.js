@@ -176,9 +176,11 @@ export class RemoteUserHandler {
     if (!user.panning && user.mousedown) {
       const pos = { x: finalX, y: finalY };
 
-      // Shape tools and eraser need their preview canvas cleared
+      // Shape tools and eraser need their preview canvas cleared.
+      // Skip for select tool when a floating selection exists — its rendering
+      // is handled by RemoteSelectionHandler and clearing here would erase it.
       const needsClear = ['line', 'rectangle', 'circle', 'select', 'erase'].includes(user.tool);
-      if (needsClear) {
+      if (needsClear && !(user.tool === 'select' && user.floatingCanvas)) {
         user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
       }
 
@@ -425,7 +427,11 @@ export class RemoteUserHandler {
 
     // Clear preview canvas FIRST to prevent composite boldness
     // (otherwise both preview and mainCtx briefly show the same line)
-    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    // Skip for select tool when a floating selection exists — its rendering
+    // is handled by RemoteSelectionHandler and clearing here would erase it.
+    if (!(user.tool === 'select' && user.floatingCanvas)) {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
 
     if (hadPenStroke || hadInkStroke) {
       // Pen/ink stroke was fully handled above — skip tool switch
