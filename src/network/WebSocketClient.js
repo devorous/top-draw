@@ -793,9 +793,14 @@ broadcastImagePaste(x, y, width, height, dataUrl) {
 
 /**
  * Request canvas sync (sent when joining)
+ * @param {number|null} targetUserId - Optional: specific user to sync from
  */
-requestSync() {
-  this.send({ t: T.SYNC_REQUEST });
+requestSync(targetUserId = null) {
+  const msg = { t: T.SYNC_REQUEST };
+  if (targetUserId !== null) {
+    msg.tu = targetUserId;
+  }
+  this.send(msg);
 }
 
 /**

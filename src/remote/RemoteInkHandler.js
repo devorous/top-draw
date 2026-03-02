@@ -23,6 +23,13 @@ function getSvgPathFromStroke(stroke) {
 /**
  * RemoteInkHandler - Handles ink tool rendering for remote users
  * Uses offscreen canvas with perfect-freehand library for smooth strokes
+ *
+ * IMPORTANT: Position Smoothing vs Visual Smoothing
+ * - Incoming points are already EMA-smoothed by sender's InputBufferManager
+ * - The `smoothing: 0.5` parameter in perfect-freehand options is VISUAL curve smoothing
+ *   (internal to the library), NOT position smoothing
+ * - This visual smoothing is separate from the EMA position smoothing and is applied
+ *   during stroke outline generation
  */
 export class RemoteInkHandler {
   constructor(board) {
@@ -146,7 +153,7 @@ export class RemoteInkHandler {
     const options = {
       size: ((user._inkSize || user.size) * 2) / 1.5,
       thinning: 0.5,
-      smoothing: 0.5,
+      smoothing: 0.5,      // perfect-freehand's VISUAL curve smoothing (not position EMA)
       streamline: 0.5,
       simulatePressure: allMaxPressure,
       last

@@ -7,6 +7,13 @@ import { RemoteSelectionHandler } from './RemoteSelectionHandler.js';
 
 /**
  * Handles all remote user drawing synchronization
+ *
+ * IMPORTANT: Position Smoothing vs Visual Smoothing
+ * - Incoming points (data.ps) are already EMA-smoothed by the sender's InputBufferManager
+ * - This ensures perfect parity: sender sees exactly what gets broadcast
+ * - Remote rendering applies NO additional position smoothing
+ * - Visual smoothing (e.g., Catmull-Rom curves in drawLineArray) is separate and applied
+ *   during rendering, not to the positions themselves
  */
 export class RemoteUserHandler {
   constructor(app) {
@@ -32,6 +39,10 @@ export class RemoteUserHandler {
   handleMouseMove(user, data) {
     const points = data.ps;
     if (!points || points.length < 2) return;
+
+    // NOTE: Points are already EMA-smoothed by sender's InputBufferManager.
+    // No additional position smoothing is applied here - we render the exact
+    // positions that were broadcast to ensure visual parity with the sender.
 
     // Flow pen and ink send per-point data in separate rs array
     const radii = data.rs;

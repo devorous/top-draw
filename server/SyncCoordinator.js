@@ -25,42 +25,84 @@ export class SyncCoordinator {
   /**
    * Handle SYNC_REQUEST from new user
    * Find a provider and ask them to send canvas
+   * @param {WebSocket} ws - Requesting user's WebSocket
+   * @param {Object} data - Message data (may contain tu field for targeted sync)
    */
   handleSyncRequest(ws, data) {
     console.log(`[Sync] User ${ws.sessionIndex} requested sync`);
 
-    // Find another connected user who has joined (has a name) to provide the canvas
-    let providerFound = false;
-    const users = this.sessionManager.users;
+    let providerSessionIndex = null;
 
-    for (const [sessionIndex, userData] of users) {
-      if (sessionIndex !== ws.sessionIndex && userData.name) {
-        // Found a joined user - ask them to provide canvas
-        console.log(`[Sync] Asking user ${sessionIndex} (${userData.name}) to provide canvas for user ${ws.sessionIndex}`);
+    // Check if user requested a specific provider
+    if (data.tu !== undefined && data.tu !== null) {
+      const requestedProvider = data.tu;
+      const providerData = this.sessionManager.users.get(requestedProvider);
 
-        // Track this pending request
-        this.pendingSyncRequests.set(ws.sessionIndex, true);
-
-        // Find the provider's WebSocket and send SYNC_PROVIDE
-        for (const client of this.wss.clients) {
-          if (client.sessionIndex === sessionIndex && client.readyState === WebSocket.OPEN) {
-            this.sendTo(client, {
-              t: T.SYNC_PROVIDE,
-              tu: ws.sessionIndex  // Tell provider who needs the canvas
-            });
-            providerFound = true;
-            break;
-          }
-        }
-        break;
+      if (providerData && providerData.name) {
+        // Requested provider exists and is valid
+        providerSessionIndex = requestedProvider;
+        console.log(`[Sync] Using requested provider ${providerSessionIndex} (${providerData.name})`);
+      } else {
+        console.log(`[Sync] Requested provider ${requestedProvider} not available, using auto-select`);
       }
     }
 
-    if (!providerFound) {
-      // No other users - just send sync complete (empty canvas)
-      console.log(`[Sync] No other users, sending empty sync complete to user ${ws.sessionIndex}`);
-      this.sendTo(ws, { t: T.SYNC_COMPLETE });
+    // If no valid requested provider, use smart selection
+    if (providerSessionIndex === null) {
+      providerSessionIndex = this.selectBestProvider(ws.sessionIndex);
+      if (providerSessionIndex !== null) {
+        const providerData = this.sessionManager.users.get(providerSessionIndex);
+        console.log(`[Sync] Auto-selected provider ${providerSessionIndex} (${providerData.name})`);
+      }
     }
+
+    // If we have a provider, ask them to send canvas
+    if (providerSessionIndex !== null) {
+      // Track this pending request
+      this.pendingSyncRequests.set(ws.sessionIndex, true);
+
+      // Find the provider's WebSocket and send SYNC_PROVIDE
+      const providerClient = this._findClient(providerSessionIndex);
+      if (providerClient) {
+        console.log(`[Sync] Asking user ${providerSessionIndex} to provide canvas for user ${ws.sessionIndex}`);
+        this.sendTo(providerClient, {
+          t: T.SYNC_PROVIDE,
+          tu: ws.sessionIndex  // Tell provider who needs the canvas
+        });
+        return;
+      }
+    }
+
+    // No provider available - send empty sync
+    console.log(`[Sync] No provider available, sending empty sync complete to user ${ws.sessionIndex}`);
+    this.sendTo(ws, { t: T.SYNC_COMPLETE });
+  }
+
+  /**
+   * Select best provider using smart selection algorithm
+   * Prefers most recently active users
+   * @param {number} excludeSessionIndex - Don't select this user
+   * @returns {number|null} Selected provider session index, or null if none available
+   */
+  selectBestProvider(excludeSessionIndex) {
+    const candidates = [];
+
+    for (const [sessionIndex, userData] of this.sessionManager.users) {
+      if (sessionIndex !== excludeSessionIndex && userData.name) {
+        candidates.push({
+          sessionIndex,
+          lastActivity: userData.lastActivity || 0,
+        });
+      }
+    }
+
+    if (candidates.length === 0) return null;
+
+    // Sort by last activity (most recent first)
+    candidates.sort((a, b) => b.lastActivity - a.lastActivity);
+
+    // Return most recently active user
+    return candidates[0].sessionIndex;
   }
 
   /**

@@ -18,67 +18,33 @@ class Tool {
 
 /**
  * Brush tool for drawing lines
+ *
+ * Note: Position smoothing is handled by InputBufferManager before points
+ * reach this tool, ensuring perfect parity between local preview and remote rendering.
  */
 export class BrushTool extends Tool {
   constructor(board) {
     super('brush', board);
-    // Smoothing buffer for stroke stabilization
-    this.smoothBuffer = { x: 0, y: 0 };
-    this.isFirstPoint = true;
   }
 
   activate() {
     // Sub-layers always draw source-over; blend mode is applied at composite time.
   }
 
-  /**
-   * Apply exponential moving average smoothing to position
-   * Combines baseline smoothing (always-on) with user's smoothing setting
-   * @param {number} targetX - Target X position
-   * @param {number} targetY - Target Y position
-   * @param {number} userSmoothing - User's smoothing factor (0-1)
-   */
-  smoothPosition(targetX, targetY, userSmoothing) {
-    // Combine baseline (12%) with user smoothing additively
-    const baselineEma = 0.12;
-    const totalSmoothing = baselineEma + userSmoothing * (1 - baselineEma);
-
-    if (this.isFirstPoint || totalSmoothing === 0) {
-      this.smoothBuffer.x = targetX;
-      this.smoothBuffer.y = targetY;
-      this.isFirstPoint = false;
-      return { x: targetX, y: targetY };
-    }
-
-    // Higher smoothing = more lag/stabilization (lerp factor becomes smaller)
-    const factor = 1 - totalSmoothing * 0.9;
-    this.smoothBuffer.x += (targetX - this.smoothBuffer.x) * factor;
-    this.smoothBuffer.y += (targetY - this.smoothBuffer.y) * factor;
-
-    return {
-      x: this.smoothBuffer.x,
-      y: this.smoothBuffer.y
-    };
-  }
-
   onPointerDown(user, pos) {
     this.board.beginStroke(user);
-    this.isFirstPoint = true;
-    const smoothing = user.smoothing || 0;
-    const smoothedPos = this.smoothPosition(pos.x, pos.y, smoothing);
 
-    user.currentLine.push(smoothedPos);
-    user.currentLine.push(smoothedPos);
+    // Position is already smoothed by InputBufferManager
+    user.currentLine.push(pos);
+    user.currentLine.push(pos);
     this.drawPreview(user);
   }
 
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
-    const smoothing = user.smoothing || 0;
-    const smoothedPos = this.smoothPosition(pos.x, pos.y, smoothing);
-
-    user.currentLine.push(smoothedPos);
+    // Position is already smoothed by InputBufferManager
+    user.currentLine.push(pos);
     this.board.clearTop();
     this.board.topCtx.beginPath();
     this.drawLineArray(user.currentLine, this.board.topCtx, user);
@@ -88,7 +54,7 @@ export class BrushTool extends Tool {
       this.drawLineArray(mirrored, this.board.topCtx, user);
     }
 
-    user.lineLength += manhattanDistance(smoothedPos, lastPos);
+    user.lineLength += manhattanDistance(pos, lastPos);
   }
 
   onPointerUp(user) {
@@ -263,10 +229,6 @@ export class BrushTool extends Tool {
           oldRadius, newRadius, user);
       }
     }
-
-    // Reset smooth buffer to continue EMA from the last drawn position
-    this.smoothBuffer.x = lastSmoothedPos.x;
-    this.smoothBuffer.y = lastSmoothedPos.y;
 
     user.clearLine();
     user.currentLine.push(lastSmoothedPos);

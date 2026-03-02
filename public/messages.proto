@@ -145,7 +145,7 @@ message Msg {
 
   // === Sync Fields ===
   bytes img = 24;            // PNG image data (full canvas or stroke/base canvas)
-  uint32 tu = 25;            // Target user for sync messages
+  uint32 tu = 25;            // Target user for sync messages (optional in SYNC_REQUEST to request from specific provider, required in SYNC_PROVIDE to indicate who needs sync)
 
   // === Stroke Sync Fields ===
   uint64 stroke_ts = 46;       // Stroke timestamp (Date.now()) for undo grouping

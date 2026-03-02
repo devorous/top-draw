@@ -1138,6 +1138,8 @@ export class LayerManager {
     for (let i = 0; i < this.layerGroups.length; i++) {
       this.clear(i);
     }
+    // Clear all redo stacks
+    this.redoStackByUser.clear();
     this._notifyHistoryPanel();
   }
 

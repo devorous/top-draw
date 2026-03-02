@@ -1,6 +1,11 @@
 /**
  * RemotePenHandler - Handles pen/flowPen tool rendering for remote users
  * Uses offscreen canvas to avoid opacity stacking
+ *
+ * IMPORTANT: Position Smoothing
+ * - Incoming stamp positions are already EMA-smoothed by sender's InputBufferManager
+ * - Pen/flowPen stamps are discrete circles - no additional position smoothing needed
+ * - Remote rendering matches sender's visual output exactly
  */
 export class RemotePenHandler {
   constructor(board) {

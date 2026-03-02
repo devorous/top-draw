@@ -17,6 +17,9 @@ class Tool {
 /**
  * Flow Pen tool for pressure-sensitive strokes using circle stamping
  * Uses offscreen canvas to prevent opacity stacking when circles overlap
+ *
+ * Note: Position smoothing is handled by InputBufferManager before points
+ * reach this tool, ensuring perfect parity between local preview and remote rendering.
  */
 export class FlowPenTool extends Tool {
   constructor(board) {
@@ -27,41 +30,12 @@ export class FlowPenTool extends Tool {
     this.lastStampPos = null;
     this.userAlpha = 1.0;
     this.strokeColor = null;
-    // Smoothing buffer for stroke stabilization
-    this.smoothBuffer = { x: 0, y: 0 };
-    this.isFirstPoint = true;
     // Stillness timer
     this.stillnessTimer = null;
     this.lastTargetPos = null;
     this.currentUser = null;
     // Stamp buffer for remote sync — collects exact stamp positions as interleaved [x, y, r, ...], split on drain
     this.stampBuffer = [];
-  }
-
-  /**
-   * Apply exponential moving average smoothing to position
-   * Combines baseline smoothing (always-on) with user's smoothing setting
-   */
-  smoothPosition(targetX, targetY, userSmoothing) {
-    // Combine baseline (12%) with user smoothing additively
-    const baselineEma = 0.12;
-    const totalSmoothing = baselineEma + userSmoothing * (1 - baselineEma);
-
-    if (this.isFirstPoint || totalSmoothing === 0) {
-      this.smoothBuffer.x = targetX;
-      this.smoothBuffer.y = targetY;
-      this.isFirstPoint = false;
-      return { x: targetX, y: targetY };
-    }
-
-    const factor = 1 - totalSmoothing * 0.9;
-    this.smoothBuffer.x += (targetX - this.smoothBuffer.x) * factor;
-    this.smoothBuffer.y += (targetY - this.smoothBuffer.y) * factor;
-
-    return {
-      x: this.smoothBuffer.x,
-      y: this.smoothBuffer.y
-    };
   }
 
   activate() {
@@ -96,7 +70,6 @@ export class FlowPenTool extends Tool {
   onPointerDown(user, pos, e) {
     this.board.beginStroke(user);
     this.ensureOffscreenCanvas();
-    this.isFirstPoint = true;
 
     // Clear offscreen canvas
     this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
@@ -116,17 +89,14 @@ export class FlowPenTool extends Tool {
     this.userAlpha = colorAlpha * opacitySlider;
     this.userHardness = user.hardness !== undefined ? user.hardness : 1.0;
 
-    // Apply smoothing
-    const smoothing = user.smoothing || 0;
-    const smoothedPos = this.smoothPosition(pos.x, pos.y, smoothing);
-
+    // Position is already smoothed by InputBufferManager
     // Stamp first circle
     const pressure255 = Math.round(pressure * 255);
-    this.stampCircle(smoothedPos.x, smoothedPos.y, radius, pressure255);
-    this.lastStampPos = { x: smoothedPos.x, y: smoothedPos.y, radius, pressure255 };
+    this.stampCircle(pos.x, pos.y, radius, pressure255);
+    this.lastStampPos = { x: pos.x, y: pos.y, radius, pressure255 };
 
     // Store points for reference
-    user.penPoints = [{ x: smoothedPos.x, y: smoothedPos.y, radius }];
+    user.penPoints = [{ x: pos.x, y: pos.y, radius }];
 
     // Store user and position for stillness timer
     this.currentUser = user;
@@ -147,17 +117,14 @@ export class FlowPenTool extends Tool {
     this.currentUser = user;
     this.resetStillnessTimer();
 
-    // Apply smoothing
-    const smoothing = user.smoothing || 0;
-    const smoothedPos = this.smoothPosition(pos.x, pos.y, smoothing);
-
+    // Position is already smoothed by InputBufferManager
     const pressure = this.quantizePressure(user.pressure);
     const radius = pressure * user.size;
 
     // Adaptive spacing: 20% of average radius
     const avgRadius = (this.lastStampPos.radius + radius) / 2;
     const spacing = Math.max(1, avgRadius * 0.2);
-    const distance = this.getDistance(this.lastStampPos, smoothedPos);
+    const distance = this.getDistance(this.lastStampPos, pos);
 
     if (distance >= spacing) {
       // Interpolate circles along the path for smooth coverage
@@ -165,14 +132,14 @@ export class FlowPenTool extends Tool {
       const steps = Math.ceil(distance / spacing);
       for (let i = 1; i <= steps; i++) {
         const t = i / steps;
-        const x = this.lastStampPos.x + (smoothedPos.x - this.lastStampPos.x) * t;
-        const y = this.lastStampPos.y + (smoothedPos.y - this.lastStampPos.y) * t;
+        const x = this.lastStampPos.x + (pos.x - this.lastStampPos.x) * t;
+        const y = this.lastStampPos.y + (pos.y - this.lastStampPos.y) * t;
         const r = this.lastStampPos.radius + (radius - this.lastStampPos.radius) * t;
         const p255 = Math.round(this.lastStampPos.pressure255 + (pressure255End - this.lastStampPos.pressure255) * t);
         this.stampCircle(x, y, r, p255);
       }
-      this.lastStampPos = { x: smoothedPos.x, y: smoothedPos.y, radius, pressure255: pressure255End };
-      user.penPoints.push({ x: smoothedPos.x, y: smoothedPos.y, radius });
+      this.lastStampPos = { x: pos.x, y: pos.y, radius, pressure255: pressure255End };
+      user.penPoints.push({ x: pos.x, y: pos.y, radius });
     }
 
     this.board.clearTop();

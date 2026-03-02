@@ -466,7 +466,7 @@ wss.on('connection', (ws, req) => {
               }, ws.sessionIndex);
               console.log(`[CHAT_IMG] User ${ws.sessionIndex} broadcast image to all`);
             }
-            updateUserActivity(ws.sessionIndex);
+            sessionManager.updateUserActivity(ws.sessionIndex);
           }
           break;
 

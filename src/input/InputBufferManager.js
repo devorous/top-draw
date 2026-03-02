@@ -4,6 +4,7 @@
  */
 
 import { douglasPeucker, distanceBasedCulling } from '../utils/drawing.js';
+import { applySmoothingEMA, resetSmoothingBuffer } from '../utils/smoothing.js';
 
 export class InputBufferManager {
   constructor(app) {
@@ -80,21 +81,35 @@ export class InputBufferManager {
 
     // Process drawing if we have position data
     if (points.length >= 2) {
-      // 1. Calculate broadcast points early (before local processing)
+      // 1. Apply smoothing and reduction for broadcast
+      let smoothedPoints;
       let broadcastPoints;
       if (app.self.mousedown && !app.self.panning) {
-        broadcastPoints = this.applyBroadcastSmoothing(points);
-        broadcastPoints = this.applyPointReduction(broadcastPoints);
+        smoothedPoints = this.applyBroadcastSmoothing(points);
+        broadcastPoints = this.applyPointReduction(smoothedPoints);
       } else {
+        smoothedPoints = points;
         broadcastPoints = points;
       }
 
-      // For blur tools, use the reduced broadcast points for local processing too
-      // This ensures local and remote users process the same points (perfect sync)
+      // 2. Determine local points based on tool type
+      // - Brush/Pen/Ink: use smoothed points (ensures local preview matches broadcast)
+      // - Blur tools: use reduced broadcast points (match remote exactly)
+      // - Others: use raw points
+      const smoothingTools = ['brush', 'flowPen', 'ink'];
       const blurTools = ['blur', 'circleBlur'];
-      const localPoints = (app.self.mousedown && !app.self.panning && blurTools.includes(app.self.tool))
-        ? broadcastPoints
-        : points;
+      let localPoints;
+      if (app.self.mousedown && !app.self.panning) {
+        if (smoothingTools.includes(app.self.tool)) {
+          localPoints = smoothedPoints; // Pre-smoothed by InputBufferManager
+        } else if (blurTools.includes(app.self.tool)) {
+          localPoints = broadcastPoints; // Smoothed + reduced
+        } else {
+          localPoints = points; // Raw
+        }
+      } else {
+        localPoints = points;
+      }
 
       // 2. Update self state with the LATEST point in the batch
       const lastX = localPoints[localPoints.length - 2];
@@ -163,9 +178,6 @@ export class InputBufferManager {
     // Only catch up when actively drawing (not panning, mouse is down)
     if (!app.self.mousedown || app.self.panning) return false;
 
-    const tool = app.toolManager.getCurrentTool();
-    if (!tool || !tool.smoothBuffer) return false;
-
     // Only catch up for tools that use EMA smoothing (not ink - it uses its own streamline)
     const smoothingTools = ['brush', 'flowPen'];
     if (!smoothingTools.includes(app.self.tool)) return false;
@@ -173,9 +185,12 @@ export class InputBufferManager {
     // Check if smoothing is enabled
     if (!app.self.smoothing || app.self.smoothing === 0) return false;
 
+    // Check if broadcast smooth buffer has been initialized
+    if (this.broadcastSmoothBuffer.isFirst) return false;
+
     // Calculate distance from smoothed position to target
-    const dx = app.self.x - tool.smoothBuffer.x;
-    const dy = app.self.y - tool.smoothBuffer.y;
+    const dx = app.self.x - this.broadcastSmoothBuffer.x;
+    const dy = app.self.y - this.broadcastSmoothBuffer.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     // Need catch-up if distance > 1 pixel
@@ -188,11 +203,11 @@ export class InputBufferManager {
   processSmoothingCatchup() {
     const { app } = this;
     const tool = app.toolManager.getCurrentTool();
-    if (!tool || !tool.smoothBuffer) return;
+    if (!tool) return;
 
     // Calculate distance to determine catch-up speed
-    const dx = app.self.x - tool.smoothBuffer.x;
-    const dy = app.self.y - tool.smoothBuffer.y;
+    const dx = app.self.x - this.broadcastSmoothBuffer.x;
+    const dy = app.self.y - this.broadcastSmoothBuffer.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     // Scale catch-up iterations based on distance for faster convergence
@@ -205,16 +220,22 @@ export class InputBufferManager {
 
     // Generate a synthetic pointer move towards the target
     const targetPos = { x: app.self.x, y: app.self.y };
-    let prevPos = { x: tool.smoothBuffer.x, y: tool.smoothBuffer.y };
+    let prevPos = { x: this.broadcastSmoothBuffer.x, y: this.broadcastSmoothBuffer.y };
 
     // Process multiple catch-up steps for faster convergence
     for (let i = 0; i < iterations; i++) {
-      tool.onPointerMove(app.self, targetPos, prevPos);
-      prevPos = { x: tool.smoothBuffer.x, y: tool.smoothBuffer.y };
+      // Smooth towards target using centralized smoothing
+      const points = [targetPos.x, targetPos.y];
+      const smoothedPoints = this.applyBroadcastSmoothing(points);
+      const smoothedPos = { x: smoothedPoints[0], y: smoothedPoints[1] };
+
+      // Call tool with smoothed position
+      tool.onPointerMove(app.self, smoothedPos, prevPos);
+      prevPos = smoothedPos;
 
       // Check if we've converged (within 1 pixel)
-      const dx = app.self.x - tool.smoothBuffer.x;
-      const dy = app.self.y - tool.smoothBuffer.y;
+      const dx = app.self.x - this.broadcastSmoothBuffer.x;
+      const dy = app.self.y - this.broadcastSmoothBuffer.y;
       if (Math.sqrt(dx * dx + dy * dy) <= 1) break;
     }
 
@@ -226,8 +247,8 @@ export class InputBufferManager {
       }
     } else {
       const points = [targetPos.x, targetPos.y];
-      const broadcastPoints = this.applyBroadcastSmoothing(points);
-      const reducedPoints = this.applyPointReduction(broadcastPoints);
+      const smoothedPoints = this.applyBroadcastSmoothing(points);
+      const reducedPoints = this.applyPointReduction(smoothedPoints);
       app.wsClient.broadcastMove(reducedPoints);
     }
 
@@ -288,8 +309,8 @@ export class InputBufferManager {
 
   /**
    * Apply EMA smoothing to points before broadcast
-   * This must match BrushTool.smoothPosition() exactly so remote users
-   * see the smoothed position (with lag), not the raw cursor position
+   * Uses the centralized smoothing utility to ensure perfect parity between
+   * local preview and remote rendering.
    * @param {Array} points - Flat array [x1, y1, x2, y2, ...]
    * @returns {Array} - Smoothed flat array
    */
@@ -298,31 +319,28 @@ export class InputBufferManager {
       return points;
     }
 
-    // Match BrushTool.smoothPosition() formula exactly:
-    // totalSmoothing = baseline + userSmoothing * (1 - baseline)
-    // factor = 1 - totalSmoothing * 0.9
-    const baselineEma = 0.12;
     const userSmoothing = this.app.self.smoothing || 0;
-    const totalSmoothing = baselineEma + userSmoothing * (1 - baselineEma);
-    const factor = 1 - totalSmoothing * 0.9;
-
     const result = [];
 
     for (let i = 0; i < points.length; i += 2) {
-      if (this.broadcastSmoothBuffer.isFirst) {
-        this.broadcastSmoothBuffer.x = points[i];
-        this.broadcastSmoothBuffer.y = points[i + 1];
-        this.broadcastSmoothBuffer.isFirst = false;
-      } else {
-        this.broadcastSmoothBuffer.x += (points[i] - this.broadcastSmoothBuffer.x) * factor;
-        this.broadcastSmoothBuffer.y += (points[i + 1] - this.broadcastSmoothBuffer.y) * factor;
-      }
-      result.push(this.broadcastSmoothBuffer.x, this.broadcastSmoothBuffer.y);
+      const targetX = points[i];
+      const targetY = points[i + 1];
+
+      // Use centralized smoothing utility
+      const smoothed = applySmoothingEMA(
+        this.broadcastSmoothBuffer,
+        targetX,
+        targetY,
+        userSmoothing
+      );
+
+      result.push(smoothed.x, smoothed.y);
     }
+
     return result;
   }
 
   resetBroadcastSmoothing() {
-    this.broadcastSmoothBuffer.isFirst = true;
+    resetSmoothingBuffer(this.broadcastSmoothBuffer);
   }
 }

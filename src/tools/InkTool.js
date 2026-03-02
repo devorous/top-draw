@@ -40,6 +40,9 @@ function getSvgPathFromStroke(stroke) {
  * Ink tool using perfect-freehand library
  * Produces filled polygon outlines from input points with taper/calligraphy effects
  * Uses offscreen canvas pattern (like FlowPenTool) to prevent opacity stacking
+ *
+ * Note: Position smoothing is handled by InputBufferManager before points
+ * reach this tool, ensuring perfect parity between local preview and remote rendering.
  */
 export class InkTool extends Tool {
   constructor(board) {
@@ -52,30 +55,6 @@ export class InkTool extends Tool {
     this.strokeColor = null;
     this._strokeSize = 10;
     this.pointBuffer = [];
-    // Smoothing buffer for stroke stabilization
-    this.smoothBuffer = { x: 0, y: 0 };
-    this.isFirstPoint = true;
-  }
-
-  /**
-   * Apply exponential moving average smoothing to position
-   */
-  smoothPosition(targetX, targetY, userSmoothing) {
-    const baselineEma = 0.12;
-    const totalSmoothing = baselineEma + userSmoothing * (1 - baselineEma);
-
-    if (this.isFirstPoint || totalSmoothing === 0) {
-      this.smoothBuffer.x = targetX;
-      this.smoothBuffer.y = targetY;
-      this.isFirstPoint = false;
-      return { x: targetX, y: targetY };
-    }
-
-    const factor = 1 - totalSmoothing * 0.9;
-    this.smoothBuffer.x += (targetX - this.smoothBuffer.x) * factor;
-    this.smoothBuffer.y += (targetY - this.smoothBuffer.y) * factor;
-
-    return { x: this.smoothBuffer.x, y: this.smoothBuffer.y };
   }
 
   activate() {
@@ -103,7 +82,6 @@ export class InkTool extends Tool {
   onPointerDown(user, pos, e) {
     this.board.beginStroke(user);
     this.ensureOffscreenCanvas();
-    this.isFirstPoint = true;
 
     this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
 
@@ -119,14 +97,13 @@ export class InkTool extends Tool {
     this._strokeSize = user.size;
 
     const pressure = this.quantizePressure(user.pressure);
-    const smoothing = user.smoothing || 0;
-    const smoothedPos = this.smoothPosition(pos.x, pos.y, smoothing);
 
-    this.inputPoints = [[smoothedPos.x, smoothedPos.y, pressure]];
-    this.pointBuffer = [smoothedPos.x, smoothedPos.y, Math.round(pressure * 255)];
+    // Position is already smoothed by InputBufferManager
+    this.inputPoints = [[pos.x, pos.y, pressure]];
+    this.pointBuffer = [pos.x, pos.y, Math.round(pressure * 255)];
 
     // Initialize dirty rect tracking (center points only)
-    this.dirtyBounds = { minX: smoothedPos.x, minY: smoothedPos.y, maxX: smoothedPos.x, maxY: smoothedPos.y };
+    this.dirtyBounds = { minX: pos.x, minY: pos.y, maxX: pos.x, maxY: pos.y };
 
     this.renderStroke(false);
     this.drawPreview();
@@ -135,18 +112,17 @@ export class InkTool extends Tool {
   onPointerMove(user, pos, lastPos, e) {
     if (!user.mousedown || user.panning || this.inputPoints.length === 0) return;
 
-    const smoothing = user.smoothing || 0;
-    const smoothedPos = this.smoothPosition(pos.x, pos.y, smoothing);
     const pressure = this.quantizePressure(user.pressure);
 
-    this.inputPoints.push([smoothedPos.x, smoothedPos.y, pressure]);
-    this.pointBuffer.push(smoothedPos.x, smoothedPos.y, Math.round(pressure * 255));
+    // Position is already smoothed by InputBufferManager
+    this.inputPoints.push([pos.x, pos.y, pressure]);
+    this.pointBuffer.push(pos.x, pos.y, Math.round(pressure * 255));
 
     if (this.dirtyBounds) {
-      this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, smoothedPos.x);
-      this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, smoothedPos.y);
-      this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, smoothedPos.x);
-      this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, smoothedPos.y);
+      this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, pos.x);
+      this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, pos.y);
+      this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, pos.x);
+      this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y);
     }
 
     this.renderStroke(false);

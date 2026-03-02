@@ -63,11 +63,19 @@ export class SyncClient {
 
   /**
    * Request sync from server (called after joining)
+   * @param {number|null} targetUserId - Optional: specific user to sync from
    */
-  requestSync() {
+  requestSync(targetUserId = null) {
     if (!this.wsClient) {
       console.warn('[SyncClient] Cannot request sync - no wsClient');
       return;
+    }
+
+    // Clear existing canvas before syncing to prevent double-up
+    if (this.board?.layerManager) {
+      console.log('[SyncClient] Clearing existing canvas before sync...');
+      this.board.layerManager.clearAll();
+      this.board.compositeAllLayers();
     }
 
     this.syncing = true;
@@ -87,8 +95,22 @@ export class SyncClient {
 
     this.showOverlay();
     this.updateProgress();
-    console.log('[SyncClient] Requesting canvas sync...');
-    this.wsClient.requestSync();
+
+    if (targetUserId !== null) {
+      console.log(`[SyncClient] Requesting canvas sync from user ${targetUserId}...`);
+    } else {
+      console.log('[SyncClient] Requesting canvas sync (auto-select provider)...');
+    }
+
+    this.wsClient.requestSync(targetUserId);
+  }
+
+  /**
+   * Request sync from a specific user
+   * @param {number} userId - User session index to sync from
+   */
+  requestSyncFrom(userId) {
+    this.requestSync(userId);
   }
 
   // ---------------------------------------------------------------------------
