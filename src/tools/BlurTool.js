@@ -27,14 +27,12 @@ export class BlurTool extends Tool {
   constructor(board) {
     super('blur', board);
     this.pendingBlur = Promise.resolve();
-    this.activeLoops = new Map(); // userId -> animationFrameID
     this.lastStampPos = new Map(); // userId -> {x, y} - last blur application position
   }
 
   activate() {}
   deactivate() {
     // Clean up on deactivate
-    this.activeLoops.clear();
     this.lastStampPos.clear();
   }
 
@@ -96,16 +94,40 @@ export class BlurTool extends Tool {
       const width = this.board.getWidth();
       this.applyBlur(width - pos.x, pos.y, user.size, user);
     }
-    this.startBlurLoop(user);
   }
 
-  onPointerMove(user, pos) {
+  onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
-    user.lastBlurPos = pos;
+    
+    // Points are provided by InputBufferManager (already smoothed/reduced)
+    const prevStamp = this.lastStampPos.get(user.id);
+    if (prevStamp) {
+      const dx = pos.x - prevStamp.x;
+      const dy = pos.y - prevStamp.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      // Spacing calculation: 0 = 10% (default), 1-20 = 5%-100% of brush size
+      const spacingPercent = user.spacing === 0 ? 0.1 : (user.spacing * 0.05);
+      const minSpacing = Math.max(1, user.size * spacingPercent);
+
+      if (distance >= minSpacing) {
+        this.applyBlur(pos.x, pos.y, user.size, user);
+
+        if (this.board.mirror) {
+          const width = this.board.getWidth();
+          this.applyBlur(width - pos.x, pos.y, user.size, user);
+        }
+
+        // Update last stamp position
+        this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+      }
+    } else {
+      // First point of the batch after down
+      this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+    }
   }
 
-  async onPointerUp(user) {
-    this.stopBlurLoop(user);
+  async onPointerUp(user, pos) {
     await this.pendingBlur;
     this.board.clearTop();
     this.board.endStroke(user);
@@ -114,55 +136,6 @@ export class BlurTool extends Tool {
     // --- Clean up ---
     user.blurSnapshot = null;
     this.lastStampPos.delete(user.id);
-  }
-
-  startBlurLoop(user) {
-    if (this.activeLoops.has(user.id)) return;
-
-    const loop = () => {
-      if (!user.mousedown || user.panning) {
-        this.stopBlurLoop(user);
-        return;
-      }
-
-      const pos = user.lastBlurPos;
-      const lastPos = this.lastStampPos.get(user.id);
-
-      if (pos && lastPos) {
-        // Distance-based spacing to prevent lag
-        const dx = pos.x - lastPos.x;
-        const dy = pos.y - lastPos.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        // Spacing calculation: 0 = 10% (default), 1-20 = 5%-100% of brush size
-        const spacingPercent = user.spacing === 0 ? 0.1 : (user.spacing * 0.05);
-        const minSpacing = Math.max(1, user.size * spacingPercent);
-
-        if (distance >= minSpacing) {
-          this.applyBlur(pos.x, pos.y, user.size, user);
-
-          if (this.board.mirror) {
-            const width = this.board.getWidth();
-            this.applyBlur(width - pos.x, pos.y, user.size, user);
-          }
-
-          // Update last stamp position
-          this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-        }
-      }
-
-      this.activeLoops.set(user.id, requestAnimationFrame(loop));
-    };
-
-    this.activeLoops.set(user.id, requestAnimationFrame(loop));
-  }
-
-  stopBlurLoop(user) {
-    const frameId = this.activeLoops.get(user.id);
-    if (frameId !== undefined) {
-      cancelAnimationFrame(frameId);
-      this.activeLoops.delete(user.id);
-    }
   }
 
   /**
