@@ -419,23 +419,6 @@ export class RemoteUserHandler {
       this.inkHandler.handleInkUp(user);
     }
 
-    // Image brush — commit user.context to active layer BEFORE clearing
-    // (imageBrush draws directly to user.context during the stroke)
-    if (user.tool === 'imageBrush' && user.imageBrush && !user.panning) {
-      layerCtx.globalCompositeOperation = 'source-over';
-      layerCtx.globalAlpha = 1.0;
-      layerCtx.drawImage(user.context.canvas, 0, 0);
-
-      if (this.board.mirror) {
-        layerCtx.save();
-        layerCtx.globalCompositeOperation = 'source-over';
-        layerCtx.translate(this.board.getWidth(), 0);
-        layerCtx.scale(-1, 1);
-        layerCtx.drawImage(user.context.canvas, 0, 0);
-        layerCtx.restore();
-      }
-    }
-
     // Clear preview canvas FIRST to prevent composite boldness
     // (otherwise both preview and mainCtx briefly show the same line)
     // Skip for select tool when a floating selection exists — its rendering

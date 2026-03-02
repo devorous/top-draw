@@ -61,6 +61,7 @@ export class ImageBrushTool extends Tool {
       // Fallback: stamp and track
       this.drawStamp(user, pos);
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+      this.board.requestUpdate();
       return;
     }
 
@@ -86,38 +87,12 @@ export class ImageBrushTool extends Tool {
 
       // Update last stamp position to the final interpolated point
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+      this.board.requestUpdate();
     }
   }
 
   onPointerUp(user, pos, e) {
     if (user.panning || !user.imageBrush) return;
-
-    // Commit the stroke from user canvas to active layer
-    // For local user: commits from topCtx to active layer
-    // For remote users: commits from their user.context to active layer
-    if (user.context) {
-      // Get the user's canvas
-      const userCanvas = user.context.canvas;
-
-      // Composite source-over into sub-layer; blend mode applied at composite time.
-      const layerCtx = this.board.getActiveLayerContext();
-      layerCtx.globalCompositeOperation = 'source-over';
-      layerCtx.globalAlpha = 1.0;
-      layerCtx.drawImage(userCanvas, 0, 0);
-
-      // Handle mirror mode
-      if (this.board.mirror) {
-        layerCtx.save();
-        layerCtx.globalCompositeOperation = 'source-over';
-        layerCtx.translate(this.board.getWidth(), 0);
-        layerCtx.scale(-1, 1);
-        layerCtx.drawImage(userCanvas, 0, 0);
-        layerCtx.restore();
-      }
-
-      // Clear the user's canvas for the next stroke
-      user.context.clearRect(0, 0, userCanvas.width, userCanvas.height);
-    }
 
     // Update dirty rect before ending stroke with 25% safety margin
     if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
@@ -141,7 +116,7 @@ export class ImageBrushTool extends Tool {
       }
     }
 
-    // Composite all layers to visible canvas
+    // Composite all layers to visible canvas and bake the volatile sub-layer
     this.board.compositeAllLayers();
     this.board.endStroke(user);
 
@@ -155,8 +130,10 @@ export class ImageBrushTool extends Tool {
     const size = user.size;
     const pressure = user.pressure ?? 1;  // Use ?? instead of || so 0 doesn't default to 1
     const scaledSize = size * pressure;
-    // Use user.context for remote users, active layer context for local user
-    const ctx = user.context || this.board.getActiveLayerContext();
+    
+    // Get the volatile stroke context from LayerManager for correct depth sorting
+    const ctx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
+    if (!ctx) return;
 
     let height, width, image;
 
