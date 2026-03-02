@@ -16,7 +16,6 @@ export class BlendModeManager {
     'Multiply': 'multiply',
     'Screen': 'screen',
     'Add': 'lighter',
-    'Behind': 'destination-over',
     'Overlay': 'overlay',
     'Darken': 'darken',
     'Lighten': 'lighten',
@@ -50,7 +49,6 @@ export class BlendModeManager {
       'color':          'color',
       'luminosity':     'luminosity',
       'lighter':        'plus-lighter',   // "Add" mode — closest CSS equivalent
-      'destination-over': 'normal',       // "Behind" — no CSS equivalent
       'destination-out':  'normal',       // Eraser — handled separately
     };
     return map[canvasBlendMode] || 'normal';

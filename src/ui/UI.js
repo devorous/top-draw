@@ -441,6 +441,7 @@ export class UI {
         break;
       case 'erase':
         selfCircle.style.display = 'block';
+        opacityContainer.style.display = 'none';
         if (eraserModeOptions) {
           eraserModeOptions.style.display = 'block';
         }
