@@ -7,20 +7,102 @@ export class ToolLockManager {
   constructor(app) {
     this.app = app;
     this.toolLocks = this.loadToolLocks();
+    this.globalUnlockedValues = this.loadGlobalUnlockedValues();
+  }
+
+  loadGlobalUnlockedValues() {
+    try {
+      const saved = localStorage.getItem('topDrawGlobalUnlockedValues');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.warn('Failed to load global unlocked values:', e);
+    }
+
+    // Default global unlocked values
+    return {
+      size: 10,
+      smoothing: 0.3,
+      hardness: 1.0,
+      opacity: 1.0,
+      spacing: 0,
+      blurRadius: 5,
+      pressure: { min: 0, max: 100, enabled: true }
+    };
+  }
+
+  saveGlobalUnlockedValues() {
+    try {
+      localStorage.setItem('topDrawGlobalUnlockedValues', JSON.stringify(this.globalUnlockedValues));
+    } catch (e) {
+      console.warn('Failed to save global unlocked values:', e);
+    }
   }
 
   loadToolLocks() {
+    // Always start with defaults to ensure all tools are present
+    const defaults = this.getDefaultToolLocks();
+
     try {
       const saved = localStorage.getItem('topDrawToolLocks');
       if (saved) {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        // Migrate old format to new format (with lockedValue/unlockedValue)
+        const migrated = this.migrateToolLocks(parsed);
+
+        // Merge migrated data into defaults (preserves any new tools added to codebase)
+        for (const [tool, props] of Object.entries(migrated)) {
+          if (defaults[tool]) {
+            // Merge properties from migrated data
+            for (const [prop, state] of Object.entries(props)) {
+              if (defaults[tool][prop]) {
+                defaults[tool][prop] = state;
+              }
+            }
+          }
+        }
       }
     } catch (e) {
       console.warn('Failed to load tool locks:', e);
     }
 
-    // Default structure
-    return this.getDefaultToolLocks();
+    return defaults;
+  }
+
+  migrateToolLocks(oldLocks) {
+    const newLocks = {};
+
+    for (const [tool, props] of Object.entries(oldLocks)) {
+      newLocks[tool] = {};
+
+      for (const [prop, state] of Object.entries(props)) {
+        // Check if already migrated (new format only has lockedValue, not unlockedValue)
+        if (state.lockedValue !== undefined && state.unlockedValue === undefined) {
+          newLocks[tool][prop] = state;
+          continue;
+        }
+
+        // Migrate old format
+        if (prop === 'pressure') {
+          newLocks[tool][prop] = {
+            locked: state.locked ?? false,
+            lockedValue: {
+              min: state.min ?? 0,
+              max: state.max ?? 100,
+              enabled: state.enabled ?? true
+            }
+          };
+        } else {
+          newLocks[tool][prop] = {
+            locked: state.locked ?? false,
+            lockedValue: state.value ?? 0
+          };
+        }
+      }
+    }
+
+    return newLocks;
   }
 
   getDefaultToolLocks() {
@@ -31,7 +113,7 @@ export class ToolLockManager {
       line: ['size', 'pressure', 'hardness', 'opacity'],
       rectangle: ['size', 'pressure', 'hardness', 'opacity'],
       circle: ['size', 'pressure', 'hardness', 'opacity'],
-      erase: ['size', 'pressure', 'opacity'],
+      erase: ['size', 'pressure'],
       blur: ['size', 'blurRadius', 'spacing'],
       imageBrush: ['size', 'pressure', 'spacing', 'opacity'],
       text: ['size', 'opacity'],
@@ -45,7 +127,10 @@ export class ToolLockManager {
       locks[tool] = {};
       props.forEach(prop => {
         if (prop === 'pressure') {
-          locks[tool][prop] = { locked: false, min: 0, max: 100, enabled: true };
+          locks[tool][prop] = {
+            locked: false,
+            lockedValue: { min: 0, max: 100, enabled: true }
+          };
         } else {
           // Default values based on property type
           let defaultValue = 0;
@@ -56,7 +141,10 @@ export class ToolLockManager {
           if (prop === 'blurRadius') defaultValue = 5;
           if (prop === 'spacing') defaultValue = 0;
 
-          locks[tool][prop] = { locked: false, value: defaultValue };
+          locks[tool][prop] = {
+            locked: false,
+            lockedValue: defaultValue
+          };
         }
       });
     }
@@ -72,64 +160,80 @@ export class ToolLockManager {
     }
   }
 
-  saveLockedValues(toolName) {
+  saveCurrentValues(toolName) {
     const locks = this.toolLocks[toolName];
     if (!locks) return;
 
     const { self, ui, pressureEnabled } = this.app;
 
-    // Only save values for properties that exist for this tool and are locked
+    // Save current values to either tool's lockedValue or global unlocked value
     for (const [prop, state] of Object.entries(locks)) {
-      if (!state.locked) continue;
-
-      if (prop === 'size') state.value = self.size;
-      else if (prop === 'pressure') {
-        state.min = Number(ui.elements.pressureMinSlider.value);
-        state.max = Number(ui.elements.pressureMaxSlider.value);
-        state.enabled = pressureEnabled;
+      if (state.locked) {
+        // Save to tool's locked value
+        if (prop === 'size') {
+          state.lockedValue = self.size;
+        }
+        else if (prop === 'pressure') {
+          state.lockedValue = {
+            min: Number(ui.elements.pressureMinSlider.value),
+            max: Number(ui.elements.pressureMaxSlider.value),
+            enabled: pressureEnabled
+          };
+        }
+        else if (prop === 'smoothing') state.lockedValue = self.smoothing;
+        else if (prop === 'spacing') state.lockedValue = self.spacing;
+        else if (prop === 'hardness') state.lockedValue = self.hardness;
+        else if (prop === 'opacity') state.lockedValue = self.opacity;
+        else if (prop === 'blurRadius') state.lockedValue = self.blurRadius;
+      } else {
+        // Save to global unlocked value
+        if (prop === 'size') {
+          this.globalUnlockedValues.size = self.size;
+        }
+        else if (prop === 'pressure') {
+          this.globalUnlockedValues.pressure = {
+            min: Number(ui.elements.pressureMinSlider.value),
+            max: Number(ui.elements.pressureMaxSlider.value),
+            enabled: pressureEnabled
+          };
+        }
+        else if (prop === 'smoothing') this.globalUnlockedValues.smoothing = self.smoothing;
+        else if (prop === 'spacing') this.globalUnlockedValues.spacing = self.spacing;
+        else if (prop === 'hardness') this.globalUnlockedValues.hardness = self.hardness;
+        else if (prop === 'opacity') this.globalUnlockedValues.opacity = self.opacity;
+        else if (prop === 'blurRadius') this.globalUnlockedValues.blurRadius = self.blurRadius;
       }
-      else if (prop === 'smoothing') state.value = self.smoothing;
-      else if (prop === 'spacing') state.value = self.spacing;
-      else if (prop === 'hardness') state.value = self.hardness;
-      else if (prop === 'opacity') state.value = self.opacity;
-      else if (prop === 'blurRadius') state.value = self.blurRadius;
     }
 
     this.saveToolLocks();
+    this.saveGlobalUnlockedValues();
   }
 
-  restoreLockedValues(toolName) {
+  restoreToolValues(toolName) {
     const locks = this.toolLocks[toolName];
     if (!locks) return;
 
-    const { self, ui, wsClient, connected, pressureEnabled, colorPicker } = this.app;
+    const { self, ui, wsClient, connected, colorPicker } = this.app;
     const { elements } = ui;
 
-    // Only restore values for properties that exist for this tool and are locked
+    // Restore values from either tool's lockedValue or global unlocked value
     for (const [prop, state] of Object.entries(locks)) {
-      if (!state.locked) continue;
+      const value = state.locked ? state.lockedValue : this.globalUnlockedValues[prop];
 
       if (prop === 'size') {
-        self.setSize(state.value);
-        ui.updateSizeValue(state.value);
-        ui.updateCursorSize(state.value);
-        if (elements.sizeSlider) elements.sizeSlider.value = state.value;
+        self.setSize(value);
+        ui.updateSizeValue(value);
+        ui.updateCursorSize(value);
+        if (elements.sizeSlider) elements.sizeSlider.value = value;
         if (connected) {
-          wsClient.broadcastSizeChange(state.value);
+          wsClient.broadcastSizeChange(value);
         }
       }
       else if (prop === 'pressure') {
-        // Backward compat check
-        let pMin, pMax, pEnabled;
-        if (state.value !== undefined && state.min === undefined) {
-          pMin = 0;
-          pMax = Math.round(state.value * 100);
-          pEnabled = true;
-        } else {
-          pMin = state.min ?? 0;
-          pMax = state.max ?? 100;
-          pEnabled = state.enabled ?? true;
-        }
+        const pMin = value.min ?? 0;
+        const pMax = value.max ?? 100;
+        const pEnabled = value.enabled ?? true;
+
         if (elements.pressureMinSlider) elements.pressureMinSlider.value = pMin;
         if (elements.pressureMaxSlider) elements.pressureMaxSlider.value = pMax;
         ui.updatePressureValue(pMin, pMax);
@@ -138,36 +242,36 @@ export class ToolLockManager {
         if (elements.pressureDualSlider) elements.pressureDualSlider.style.display = pEnabled ? '' : 'none';
       }
       else if (prop === 'smoothing') {
-        self.setSmoothing(state.value);
-        ui.updateSmoothingValue(state.value * 100);
-        if (elements.smoothingSlider) elements.smoothingSlider.value = state.value * 100;
+        self.setSmoothing(value);
+        ui.updateSmoothingValue(value * 100);
+        if (elements.smoothingSlider) elements.smoothingSlider.value = value * 100;
         if (connected) {
-          wsClient.broadcastSmoothingChange(state.value);
+          wsClient.broadcastSmoothingChange(value);
         }
       }
       else if (prop === 'spacing') {
-        self.setSpacing(state.value);
-        ui.updateSpacingValue(state.value);
-        if (elements.spacingSlider) elements.spacingSlider.value = state.value;
+        self.setSpacing(value);
+        ui.updateSpacingValue(value);
+        if (elements.spacingSlider) elements.spacingSlider.value = value;
         if (connected) {
-          wsClient.broadcastSpacingChange(state.value);
+          wsClient.broadcastSpacingChange(value);
         }
       }
       else if (prop === 'hardness') {
-        self.setHardness(state.value);
-        ui.updateHardnessValue(state.value * 100);
-        if (elements.hardnessSlider) elements.hardnessSlider.value = state.value * 100;
+        self.setHardness(value);
+        ui.updateHardnessValue(value * 100);
+        if (elements.hardnessSlider) elements.hardnessSlider.value = value * 100;
         if (connected) {
-          wsClient.broadcastHardnessChange(state.value);
+          wsClient.broadcastHardnessChange(value);
         }
       }
       else if (prop === 'opacity') {
         const currentColor = [...self.color];
-        currentColor[3] = state.value;
+        currentColor[3] = value;
         self.setColor(currentColor);
-        self.setOpacity(state.value);
-        ui.updateopacityValue(state.value);
-        if (elements.opacitySlider) elements.opacitySlider.value = state.value * 100;
+        self.setOpacity(value);
+        ui.updateopacityValue(value);
+        if (elements.opacitySlider) elements.opacitySlider.value = value * 100;
         if (colorPicker) {
           colorPicker.setColor(`rgba(${currentColor.join(',')})`, true);
         }
@@ -176,11 +280,11 @@ export class ToolLockManager {
         }
       }
       else if (prop === 'blurRadius') {
-        self.setBlurRadius(state.value);
-        ui.updateBlurRadiusValue(state.value);
-        if (elements.blurRadiusSlider) elements.blurRadiusSlider.value = state.value;
+        self.setBlurRadius(value);
+        ui.updateBlurRadiusValue(value);
+        if (elements.blurRadiusSlider) elements.blurRadiusSlider.value = value;
         if (connected) {
-          wsClient.broadcastBlurRadiusChange(state.value);
+          wsClient.broadcastBlurRadiusChange(value);
         }
       }
     }
@@ -206,7 +310,11 @@ export class ToolLockManager {
   toggleLock(property) {
     const { self, ui, pressureEnabled } = this.app;
     const tool = self.tool;
-    if (!this.toolLocks[tool]) return;
+
+    if (!this.toolLocks[tool]) {
+      console.warn(`No tool locks for tool: ${tool}`);
+      return;
+    }
 
     // Only allow toggling if the property is defined for this tool
     if (!(property in this.toolLocks[tool])) {
@@ -219,16 +327,32 @@ export class ToolLockManager {
     // Toggle lock state
     lock.locked = !lock.locked;
 
-    // If locking, save current value
+    // Save current value to appropriate location
     if (lock.locked) {
+      // Locking: save current value as this tool's locked value
       if (property === 'pressure') {
-        lock.min = Number(ui.elements.pressureMinSlider.value);
-        lock.max = Number(ui.elements.pressureMaxSlider.value);
-        lock.enabled = pressureEnabled;
+        lock.lockedValue = {
+          min: Number(ui.elements.pressureMinSlider.value),
+          max: Number(ui.elements.pressureMaxSlider.value),
+          enabled: pressureEnabled
+        };
       } else if (property === 'opacity') {
-        lock.value = self.opacity;
+        lock.lockedValue = self.opacity;
       } else {
-        lock.value = self[property];
+        lock.lockedValue = self[property];
+      }
+    } else {
+      // Unlocking: save current value as global unlocked value
+      if (property === 'pressure') {
+        this.globalUnlockedValues.pressure = {
+          min: Number(ui.elements.pressureMinSlider.value),
+          max: Number(ui.elements.pressureMaxSlider.value),
+          enabled: pressureEnabled
+        };
+      } else if (property === 'opacity') {
+        this.globalUnlockedValues.opacity = self.opacity;
+      } else {
+        this.globalUnlockedValues[property] = self[property];
       }
     }
 
@@ -237,7 +361,6 @@ export class ToolLockManager {
 
     // Save to localStorage
     this.saveToolLocks();
-
-    console.log(`${property} ${lock.locked ? 'locked' : 'unlocked'} for ${tool} tool`);
+    this.saveGlobalUnlockedValues();
   }
 }

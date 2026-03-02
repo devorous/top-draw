@@ -202,9 +202,9 @@ export class DrawingApp {
     this.ui.updateBrushModeDisplay(this.brushModeManager.getMode());
     this.ui.updateActiveLayerDisplay(this.self.activeLayer);
 
-    // Restore locked values for initial tool and update lock button states
+    // Restore tool values for initial tool and update lock button states
     if (this.toolLockManager.toolLocks[initialTool]) {
-      this.toolLockManager.restoreLockedValues(initialTool);
+      this.toolLockManager.restoreToolValues(initialTool);
       this.toolLockManager.updateAllLockButtons(initialTool);
     }
 
@@ -991,9 +991,9 @@ export class DrawingApp {
       this.previousTool = null;
     }
 
-    // Save current values for previous tool if locked
+    // Save current values for previous tool (locked or unlocked)
     if (previousTool && this.toolLockManager.toolLocks[previousTool]) {
-      this.toolLockManager.saveLockedValues(previousTool);
+      this.toolLockManager.saveCurrentValues(previousTool);
     }
 
     // Update brush mode state when switching to brush/flowPen/ink
@@ -1013,9 +1013,9 @@ export class DrawingApp {
       this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
     }
 
-    // Restore locked values for new tool
+    // Restore tool values (locked or unlocked)
     if (this.toolLockManager.toolLocks[tool]) {
-      this.toolLockManager.restoreLockedValues(tool);
+      this.toolLockManager.restoreToolValues(tool);
     }
 
     // Update lock button states
