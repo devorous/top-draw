@@ -93,10 +93,10 @@ export class InputBufferManager {
       }
 
       // 2. Determine local points based on tool type
-      // - Brush/Pen/Ink: use smoothed points (ensures local preview matches broadcast)
+      // - Brush/Pen/Ink/ImageBrush/Eraser: use smoothed points (ensures local preview matches broadcast)
       // - Blur tools: use reduced broadcast points (match remote exactly)
       // - Others: use raw points
-      const smoothingTools = ['brush', 'flowPen', 'ink'];
+      const smoothingTools = ['brush', 'flowPen', 'ink', 'imageBrush', 'erase'];
       const blurTools = ['blur', 'circleBlur'];
       let localPoints;
       if (app.self.mousedown && !app.self.panning) {
@@ -112,6 +112,12 @@ export class InputBufferManager {
       }
 
       // 2. Update self state with the LATEST point in the batch
+      // - targetX/Y: raw mouse target for catch-up convergence
+      // - x/y: rendered (smoothed) position
+      const lastRawX = points[points.length - 2];
+      const lastRawY = points[points.length - 1];
+      app.self.setTarget(lastRawX, lastRawY);
+
       const lastX = localPoints[localPoints.length - 2];
       const lastY = localPoints[localPoints.length - 1];
       app.self.setPosition(lastX, lastY);
@@ -178,23 +184,23 @@ export class InputBufferManager {
     // Only catch up when actively drawing (not panning, mouse is down)
     if (!app.self.mousedown || app.self.panning) return false;
 
-    // Only catch up for tools that use EMA smoothing (not ink - it uses its own streamline)
-    const smoothingTools = ['brush', 'flowPen'];
+    // Only catch up for tools that use position smoothing
+    const smoothingTools = ['brush', 'flowPen', 'imageBrush', 'erase', 'ink'];
     if (!smoothingTools.includes(app.self.tool)) return false;
 
-    // Check if smoothing is enabled
-    if (!app.self.smoothing || app.self.smoothing === 0) return false;
+    // Check if smoothing is enabled (for tools that use user.smoothing)
+    if (app.self.tool !== 'ink' && (!app.self.smoothing || app.self.smoothing === 0)) return false;
 
     // Check if broadcast smooth buffer has been initialized
     if (this.broadcastSmoothBuffer.isFirst) return false;
 
-    // Calculate distance from smoothed position to target
-    const dx = app.self.x - this.broadcastSmoothBuffer.x;
-    const dy = app.self.y - this.broadcastSmoothBuffer.y;
+    // Use raw mouse target for catch-up calculation
+    const dx = app.self.targetX - this.broadcastSmoothBuffer.x;
+    const dy = app.self.targetY - this.broadcastSmoothBuffer.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
-    // Need catch-up if distance > 1 pixel
-    return distance > 1;
+    // Need catch-up if distance > 0.5 pixels
+    return distance > 0.5;
   }
 
   /**
@@ -205,49 +211,33 @@ export class InputBufferManager {
     const tool = app.toolManager.getCurrentTool();
     if (!tool) return;
 
-    // Calculate distance to determine catch-up speed
-    const dx = app.self.x - this.broadcastSmoothBuffer.x;
-    const dy = app.self.y - this.broadcastSmoothBuffer.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-
-    // Scale catch-up iterations based on distance for faster convergence
-    // Farther away = more iterations per tick
-    let iterations = 1;
-    if (distance > 100) iterations = 8;
-    else if (distance > 50) iterations = 5;
-    else if (distance > 20) iterations = 3;
-    else if (distance > 10) iterations = 2;
-
-    // Generate a synthetic pointer move towards the target
-    const targetPos = { x: app.self.x, y: app.self.y };
+    // Generate a synthetic pointer move towards the raw target
+    const targetPos = { x: app.self.targetX, y: app.self.targetY };
     let prevPos = { x: this.broadcastSmoothBuffer.x, y: this.broadcastSmoothBuffer.y };
 
-    // Process multiple catch-up steps for faster convergence
-    for (let i = 0; i < iterations; i++) {
-      // Smooth towards target using centralized smoothing
-      const points = [targetPos.x, targetPos.y];
-      const smoothedPoints = this.applyBroadcastSmoothing(points);
-      const smoothedPos = { x: smoothedPoints[0], y: smoothedPoints[1] };
+    // Process one catch-up step per tick towards target using centralized smoothing
+    const points = [targetPos.x, targetPos.y];
+    const smoothedPoints = this.applyBroadcastSmoothing(points);
+    const smoothedPos = { x: smoothedPoints[0], y: smoothedPoints[1] };
 
-      // Call tool with smoothed position
-      tool.onPointerMove(app.self, smoothedPos, prevPos);
-      prevPos = smoothedPos;
+    // Update rendered position with smoothed catch-up point
+    app.self.setPosition(smoothedPos.x, smoothedPos.y);
 
-      // Check if we've converged (within 1 pixel)
-      const dx = app.self.x - this.broadcastSmoothBuffer.x;
-      const dy = app.self.y - this.broadcastSmoothBuffer.y;
-      if (Math.sqrt(dx * dx + dy * dy) <= 1) break;
-    }
+    // Call tool with smoothed position
+    tool.onPointerMove(app.self, smoothedPos, prevPos);
 
-    // Broadcast the final catch-up position
+    // Broadcast the catch-up position
     if (app.self.tool === 'flowPen') {
       const { ps: stampPs, rs: stampRs } = tool.drainStampBuffer();
       if (stampPs.length > 0) {
         app.wsClient.broadcastStampMove(stampPs, stampRs);
       }
+    } else if (app.self.tool === 'ink') {
+      const { ps: fhPs, rs: fhRs } = tool.drainPointBuffer();
+      if (fhPs.length > 0) {
+        app.wsClient.broadcastStampMove(fhPs, fhRs);
+      }
     } else {
-      const points = [targetPos.x, targetPos.y];
-      const smoothedPoints = this.applyBroadcastSmoothing(points);
       const reducedPoints = this.applyPointReduction(smoothedPoints);
       app.wsClient.broadcastMove(reducedPoints);
     }

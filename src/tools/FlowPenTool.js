@@ -30,10 +30,6 @@ export class FlowPenTool extends Tool {
     this.lastStampPos = null;
     this.userAlpha = 1.0;
     this.strokeColor = null;
-    // Stillness timer
-    this.stillnessTimer = null;
-    this.lastTargetPos = null;
-    this.currentUser = null;
     // Stamp buffer for remote sync — collects exact stamp positions as interleaved [x, y, r, ...], split on drain
     this.stampBuffer = [];
   }
@@ -98,11 +94,6 @@ export class FlowPenTool extends Tool {
     // Store points for reference
     user.penPoints = [{ x: pos.x, y: pos.y, radius }];
 
-    // Store user and position for stillness timer
-    this.currentUser = user;
-    this.lastTargetPos = { x: pos.x, y: pos.y };
-    this.resetStillnessTimer();
-
     // Initialize dirty rect tracking
     this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
 
@@ -111,11 +102,6 @@ export class FlowPenTool extends Tool {
 
   onPointerMove(user, pos, lastPos, e) {
     if (!user.mousedown || user.panning || !this.lastStampPos) return;
-
-    // Update target position and reset stillness timer
-    this.lastTargetPos = { x: pos.x, y: pos.y };
-    this.currentUser = user;
-    this.resetStillnessTimer();
 
     // Position is already smoothed by InputBufferManager
     const pressure = this.quantizePressure(user.pressure);
@@ -148,9 +134,6 @@ export class FlowPenTool extends Tool {
 
   onPointerUp(user, pos, e) {
     if (user.panning || !this.offscreenCanvas) return;
-
-    // Clear stillness timer
-    this.clearStillnessTimer();
 
     // Stamp to the exact final position (unsmoothed) to close any gap
     if (this.lastStampPos) {
@@ -187,14 +170,14 @@ export class FlowPenTool extends Tool {
     ctx.globalAlpha = this.userAlpha;
 
     // Apply global blur using shadow injection technique
-    this.compositeWithHardness(ctx, this.offscreenCanvas, this.currentUser.size, 0, 0);
+    this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
 
     if (this.board.mirror) {
       ctx.save();
       ctx.globalCompositeOperation = 'source-over';
       ctx.translate(this.board.getWidth(), 0);
       ctx.scale(-1, 1);
-      this.compositeWithHardness(ctx, this.offscreenCanvas, this.currentUser.size, 0, 0);
+      this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
       ctx.restore();
     }
 
@@ -203,8 +186,8 @@ export class FlowPenTool extends Tool {
     // Update dirty rect before clearing stroke
     if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
       // Expand by blur amount with 25% safety margin
-      const brushRadius = this.currentUser.size;
-      const blurAmount = (1 - this.userHardness) * (20 + this.currentUser.size * 0.2);
+      const brushRadius = user.size;
+      const blurAmount = (1 - this.userHardness) * (20 + user.size * 0.2);
       const safetyMargin = brushRadius * 0.25; // 25% additional margin for blur/hardness
       const margin = blurAmount + safetyMargin + 2; // +2 for anti-aliasing
 
@@ -326,45 +309,5 @@ export class FlowPenTool extends Tool {
     this.board.clearTop();
   }
 
-  resetStillnessTimer() {
-    this.clearStillnessTimer();
-    this.stillnessTimer = setTimeout(() => {
-      this.stampAtTarget();
-    }, 50); // 0.05 seconds
-  }
-
-  clearStillnessTimer() {
-    if (this.stillnessTimer) {
-      clearTimeout(this.stillnessTimer);
-      this.stillnessTimer = null;
-    }
-  }
-
-  stampAtTarget() {
-    if (!this.currentUser || !this.lastTargetPos || !this.lastStampPos) return;
-    if (!this.currentUser.mousedown || this.currentUser.panning) return;
-
-    const pressure = this.quantizePressure(this.currentUser.pressure);
-    const radius = pressure * this.currentUser.size;
-
-    // Stamp at exact target position
-    const pressure255 = Math.round(pressure * 255);
-    this.stampCircle(this.lastTargetPos.x, this.lastTargetPos.y, radius, pressure255);
-    this.lastStampPos = { x: this.lastTargetPos.x, y: this.lastTargetPos.y, radius, pressure255 };
-
-    this.board.clearTop();
-    this.drawPreview(this.currentUser);
-
-    // Broadcast stamp positions to other users
-    if (this.board.app && this.board.app.wsClient) {
-      const { ps, rs } = this.drainStampBuffer();
-      if (ps.length > 0) {
-        this.board.app.wsClient.broadcastStampMove(ps, rs);
-      }
-    }
-  }
-
-  deactivate() {
-    this.clearStillnessTimer();
-  }
+  deactivate() {}
 }

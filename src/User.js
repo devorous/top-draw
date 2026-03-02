@@ -6,6 +6,8 @@ export class User {
     this.id = id;
     this.x = options.x || 0;
     this.y = options.y || 0;
+    this.targetX = options.x || 0; // Raw mouse target
+    this.targetY = options.y || 0;
     this.lastx = null;
     this.lasty = null;
     this.size = options.size || 10;
@@ -30,6 +32,7 @@ export class User {
     this.activeLayer = options.activeLayer || 0;  // Which layer user is drawing on (0-indexed)
     this.currentLine = [];
     this.lineLength = 0;
+    this.smoothBuffer = { x: 0, y: 0, isFirst: true }; // EMA smoothing buffer
     this.afk = options.afk || false;
     this.role = options.role || 0;  // 0=guest, 1=user, 2=mod, 3=admin
     this.isMuted = options.isMuted || false;
@@ -44,6 +47,11 @@ export class User {
     this.lasty = this.y;
     this.x = x;
     this.y = y;
+  }
+
+  setTarget(x, y) {
+    this.targetX = x;
+    this.targetY = y;
   }
 
   setTool(tool) {

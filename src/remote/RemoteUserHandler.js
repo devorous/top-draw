@@ -1,6 +1,7 @@
 import { mirrorLine } from '../utils/drawing.js';
 import { SELECTION_MODES, getNextBrushIndex } from '../utils/parseGimp.js';
 import { bridgeGap, drawLineArray } from '../utils/remoteDrawingUtils.js';
+import { applySmoothingEMA, resetSmoothingBuffer } from '../utils/smoothing.js';
 import { RemotePenHandler } from './RemotePenHandler.js';
 import { RemoteInkHandler } from './RemoteInkHandler.js';
 import { RemoteSelectionHandler } from './RemoteSelectionHandler.js';
@@ -27,6 +28,10 @@ export class RemoteUserHandler {
       () => this.users,
       () => this.sessionIndex
     );
+
+    // Remote catch-up loop configuration
+    this.catchupInterval = 16; // ~60 FPS
+    this.catchupTimer = null;
   }
 
   get board() { return this.app.board; }
@@ -40,30 +45,49 @@ export class RemoteUserHandler {
     const points = data.ps;
     if (!points || points.length < 2) return;
 
-    // NOTE: Points are already EMA-smoothed by sender's InputBufferManager.
-    // No additional position smoothing is applied here - we render the exact
-    // positions that were broadcast to ensure visual parity with the sender.
+    // Track the raw final target for catch-up convergence
+    user.remoteTarget = { x: points[points.length - 2], y: points[points.length - 1] };
+    this.startCatchupLoop();
+
+    // Apply EMA smoothing to incoming points to match local user experience.
+    // While the sender smooths before broadcasting, the remote catch-up mechanism
+    // ensures the pointer reaches the target even if the broadcast stream ends.
+    const smoothedPoints = [];
+    const isInk = user._inkStrokeActive || user.tool === 'ink';
+    
+    for (let i = 0; i < points.length; i += 2) {
+      const rx = points[i];
+      const ry = points[i + 1];
+      
+      if (isInk) {
+        // Ink has its own calligraphic smoothing, don't double-smooth positions
+        smoothedPoints.push(rx, ry);
+      } else {
+        const smoothed = applySmoothingEMA(user.smoothBuffer, rx, ry, user.smoothing);
+        smoothedPoints.push(smoothed.x, smoothed.y);
+      }
+    }
 
     // Flow pen and ink send per-point data in separate rs array
     const radii = data.rs;
     if (!user.panning && user.mousedown && radii && radii.length > 0) {
       // Route by active stroke flag first (survives CT race), then by tool name
-      if (user._inkStrokeActive || user.tool === 'ink') {
-        this.inkHandler.handleInkPoints(user, points, radii);
+      if (isInk) {
+        this.inkHandler.handleInkPoints(user, smoothedPoints, radii);
       } else {
-        this.penHandler.handlePenStamps(user, points, radii);
+        this.penHandler.handlePenStamps(user, smoothedPoints, radii);
       }
       // Update cursor from last point pair
-      if (points.length >= 2) {
-        this.ui.updateRemoteCursor(user.id, points[points.length - 2], points[points.length - 1], user.size);
+      if (smoothedPoints.length >= 2) {
+        this.ui.updateRemoteCursor(user.id, smoothedPoints[smoothedPoints.length - 2], smoothedPoints[smoothedPoints.length - 1], user.size);
       }
       return;
     }
 
-    // Process each point in the batch (pair-based: [x, y, x, y, ...])
-    for (let i = 0; i < points.length; i += 2) {
-      const x = points[i];
-      const y = points[i + 1];
+    // Process each smoothed point in the batch (pair-based: [x, y, x, y, ...])
+    for (let i = 0; i < smoothedPoints.length; i += 2) {
+      const x = smoothedPoints[i];
+      const y = smoothedPoints[i + 1];
 
       if (user.lastx === null) {
         user.lastx = x;
@@ -83,96 +107,7 @@ export class RemoteUserHandler {
       }
 
       if (!user.panning && user.mousedown) {
-        switch (user.tool) {
-          case 'brush':
-            // Incremental rendering: only draw the new segment instead of redrawing entire line
-            const prevPoint = user.currentLine.length > 0
-              ? user.currentLine[user.currentLine.length - 1]
-              : { x: user.lastx, y: user.lasty };
-
-            user.addToLine(pos);
-
-            // Draw only the new segment directly to the layer context
-            const layerCtx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
-            if (layerCtx && user.currentLine.length >= 2) {
-              const segment = [prevPoint, pos];
-              drawLineArray(segment, layerCtx, user);
-              if (this.board.mirror) {
-                const mirroredSegment = mirrorLine(segment, this.board.getWidth());
-                drawLineArray(mirroredSegment, layerCtx, user);
-              }
-            }
-
-            if (user.pressure !== user.prevpressure) {
-              this.commitLine(user);
-            }
-            user.prevpressure = user.pressure;
-            break;
-
-          case 'erase':
-            const eraserTool = this.toolManager.getTool('erase');
-            const group = this.board.layerManager.getLayerGroup(user.activeLayer);
-            if (group) {
-              eraserTool.eraseOnGroup(group, pos.x, pos.y, lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity, user.id);
-              if (this.board.mirror) {
-                const w = this.board.getWidth();
-                eraserTool.eraseOnGroup(group, w - pos.x, pos.y, w - lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity, user.id);
-              }
-              this.board.requestUpdate();
-            }
-            break;
-
-          case 'blur':
-            const blurTool = this.toolManager.getTool('blur');
-            if (blurTool) {
-              // Update position for blur tool (it reads from user.lastBlurPos)
-              user.lastBlurPos = pos;
-              // Manually apply distance-based spacing since blur uses RAF loop for local users
-              const lastStamp = blurTool.lastStampPos.get(user.id);
-              if (lastStamp) {
-                const dx = pos.x - lastStamp.x;
-                const dy = pos.y - lastStamp.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                const spacingPercent = user.spacing === 0 ? 0.1 : (user.spacing * 0.05);
-                const minSpacing = Math.max(1, user.size * spacingPercent);
-
-                if (distance >= minSpacing) {
-                  blurTool.applyBlur(pos.x, pos.y, user.size, user);
-                  if (this.board.mirror) {
-                    const width = this.board.getWidth();
-                    blurTool.applyBlur(width - pos.x, pos.y, user.size, user);
-                  }
-                  blurTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-                }
-              }
-            }
-            break;
-
-          case 'circleBlur':
-            const circleBlurTool = this.toolManager.getTool('circleBlur');
-            if (circleBlurTool) {
-              // Use onPointerMove which has distance-based spacing built-in
-              circleBlurTool.onPointerMove(user, pos, lastPos);
-            }
-            break;
-
-          case 'imageBrush':
-            if (user.imageBrush) {
-              const imageBrushTool = this.toolManager.getTool('imageBrush');
-              if (imageBrushTool) {
-                // Use onPointerMove which has distance-based spacing and interpolation
-                imageBrushTool.onPointerMove(user, pos);
-              }
-            }
-            break;
-
-          case 'line':
-          case 'rectangle':
-          case 'circle':
-          case 'select':
-            // Shape tools only need the final position, skip intermediate points
-            break;
-        }
+        this.renderRemoteMove(user, pos, lastPos);
       }
 
       user.lastx = x;
@@ -180,81 +115,194 @@ export class RemoteUserHandler {
     }
 
     // After processing all points, update cursor and handle shape tools with final position
-    const finalX = points[points.length - 2];
-    const finalY = points[points.length - 1];
+    const finalX = smoothedPoints[smoothedPoints.length - 2];
+    const finalY = smoothedPoints[smoothedPoints.length - 1];
     this.ui.updateRemoteCursor(user.id, finalX, finalY, user.size);
 
     if (!user.panning && user.mousedown) {
-      const pos = { x: finalX, y: finalY };
+      this.renderRemotePreview(user, { x: finalX, y: finalY });
+    }
+  }
 
-      // Shape tools and eraser need their preview canvas cleared.
-      // Skip for select tool when a floating selection exists — its rendering
-      // is handled by RemoteSelectionHandler and clearing here would erase it.
-      const needsClear = ['line', 'rectangle', 'circle', 'select', 'erase'].includes(user.tool);
-      if (needsClear && !(user.tool === 'select' && user.floatingCanvas)) {
-        user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+  /**
+   * Start the global catch-up loop for remote users if not already running
+   */
+  startCatchupLoop() {
+    if (this.catchupTimer) return;
+    this.catchupTimer = setInterval(() => this.tickCatchup(), this.catchupInterval);
+  }
+
+  /**
+   * Process one step of convergence for all active remote users
+   */
+  tickCatchup() {
+    let anyActive = false;
+
+    for (const user of this.users.values()) {
+      // Only catch up while drawing and if we have a target
+      if (user.mousedown && !user.panning && user.remoteTarget) {
+        const dx = user.remoteTarget.x - user.smoothBuffer.x;
+        const dy = user.remoteTarget.y - user.smoothBuffer.y;
+        const distSq = dx * dx + dy * dy;
+
+        // Converge if distance > 0.5 pixels
+        if (distSq > 0.25) {
+          anyActive = true;
+          const lastPos = { x: user.x, y: user.y };
+          
+          // Smooth towards target
+          const isInk = user._inkStrokeActive || user.tool === 'ink';
+          let pos;
+          if (isInk) {
+            // Ink catch-up: perfect-freehand needs more points to shift the curve
+            pos = user.remoteTarget;
+          } else {
+            pos = applySmoothingEMA(user.smoothBuffer, user.remoteTarget.x, user.remoteTarget.y, user.smoothing);
+          }
+
+          user.setPosition(pos.x, pos.y);
+          this.ui.updateRemoteCursor(user.id, pos.x, pos.y, user.size);
+          this.renderRemoteMove(user, pos, lastPos);
+        }
       }
+    }
 
-      switch (user.tool) {
-        case 'brush':
-          // Brush now uses incremental rendering - no need to redraw entire line
-          // The line is drawn directly to the layer context as segments arrive
-          break;
+    // Stop loop if no users need catch-up
+    if (!anyActive) {
+      clearInterval(this.catchupTimer);
+      this.catchupTimer = null;
+    }
+  }
 
-        case 'line':
-          this.toolManager.getTool('line').drawPreview(user.context, user, user.startPos, pos);
+  /**
+   * Internal router for rendering a single movement step
+   */
+  renderRemoteMove(user, pos, lastPos) {
+    switch (user.tool) {
+      case 'brush':
+        // Incremental rendering: only draw the new segment instead of redrawing entire line
+        const prevPoint = user.currentLine.length > 0
+          ? user.currentLine[user.currentLine.length - 1]
+          : { x: user.lastx, y: user.lasty };
+
+        user.addToLine(pos);
+
+        // Draw only the new segment directly to the layer context
+        const layerCtx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
+        if (layerCtx && user.currentLine.length >= 2) {
+          const segment = [prevPoint, pos];
+          drawLineArray(segment, layerCtx, user);
+          if (this.board.mirror) {
+            const mirroredSegment = mirrorLine(segment, this.board.getWidth());
+            drawLineArray(mirroredSegment, layerCtx, user);
+          }
+        }
+
+        if (user.pressure !== user.prevpressure) {
+          this.commitLine(user);
+        }
+        user.prevpressure = user.pressure;
+        break;
+
+      case 'erase':
+        const eraserTool = this.toolManager.getTool('erase');
+        const group = this.board.layerManager.getLayerGroup(user.activeLayer);
+        if (group) {
+          eraserTool.eraseOnGroup(group, pos.x, pos.y, lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity, user.id);
           if (this.board.mirror) {
             const w = this.board.getWidth();
-            this.toolManager.getTool('line').drawPreview(user.context, user,
-              { x: w - user.startPos.x, y: user.startPos.y },
-              { x: w - pos.x, y: pos.y }
-            );
+            eraserTool.eraseOnGroup(group, w - pos.x, pos.y, w - lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity, user.id);
           }
-          break;
+          this.board.requestUpdate();
+        }
+        break;
 
-        case 'rectangle':
-          this.toolManager.getTool('rectangle').drawRect(user.context, user, user.startPos, pos);
-          if (this.board.mirror) {
-            const w = this.board.getWidth();
-            this.toolManager.getTool('rectangle').drawRect(user.context, user,
-              { x: w - user.startPos.x, y: user.startPos.y },
-              { x: w - pos.x, y: pos.y }
-            );
+      case 'blur':
+        const blurTool = this.toolManager.getTool('blur');
+        if (blurTool) {
+          user.lastBlurPos = pos;
+          blurTool.onPointerMove(user, pos, lastPos);
+        }
+        break;
+
+      case 'circleBlur':
+        const circleBlurTool = this.toolManager.getTool('circleBlur');
+        if (circleBlurTool) {
+          circleBlurTool.onPointerMove(user, pos, lastPos);
+        }
+        break;
+
+      case 'imageBrush':
+        if (user.imageBrush) {
+          const imageBrushTool = this.toolManager.getTool('imageBrush');
+          if (imageBrushTool) {
+            imageBrushTool.onPointerMove(user, pos);
           }
-          break;
+        }
+        break;
+    }
+  }
 
-        case 'circle':
-          this.toolManager.getTool('circle').drawEllipse(user.context, user, user.startPos, pos);
-          if (this.board.mirror) {
-            const w = this.board.getWidth();
-            this.toolManager.getTool('circle').drawEllipse(user.context, user,
-              { x: w - user.startPos.x, y: user.startPos.y },
-              { x: w - pos.x, y: pos.y }
-            );
+  /**
+   * Internal router for rendering shape previews/lasso
+   */
+  renderRemotePreview(user, pos) {
+    // Shape tools and eraser need their preview canvas cleared.
+    // Skip for select tool when a floating selection exists.
+    const needsClear = ['line', 'rectangle', 'circle', 'select', 'erase'].includes(user.tool);
+    if (needsClear && !(user.tool === 'select' && user.floatingCanvas)) {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
+
+    switch (user.tool) {
+      case 'line':
+        this.toolManager.getTool('line').drawPreview(user.context, user, user.startPos, pos);
+        if (this.board.mirror) {
+          const w = this.board.getWidth();
+          this.toolManager.getTool('line').drawPreview(user.context, user,
+            { x: w - user.startPos.x, y: user.startPos.y },
+            { x: w - pos.x, y: pos.y }
+          );
+        }
+        break;
+
+      case 'rectangle':
+        this.toolManager.getTool('rectangle').drawRect(user.context, user, user.startPos, pos);
+        if (this.board.mirror) {
+          const w = this.board.getWidth();
+          this.toolManager.getTool('rectangle').drawRect(user.context, user,
+            { x: w - user.startPos.x, y: user.startPos.y },
+            { x: w - pos.x, y: pos.y }
+          );
+        }
+        break;
+
+      case 'circle':
+        this.toolManager.getTool('circle').drawEllipse(user.context, user, user.startPos, pos);
+        if (this.board.mirror) {
+          const w = this.board.getWidth();
+          this.toolManager.getTool('circle').drawEllipse(user.context, user,
+            { x: w - user.startPos.x, y: user.startPos.y },
+            { x: w - pos.x, y: pos.y }
+          );
+        }
+        break;
+
+      case 'select':
+        if (!user.floatingCanvas && user.startPos) {
+          const selectTool = this.toolManager.getTool('select');
+          if (!user.lassoPoints) user.lassoPoints = [];
+          const lastPoint = user.lassoPoints[user.lassoPoints.length - 1];
+          if (!lastPoint || Math.hypot(pos.x - lastPoint.x, pos.y - lastPoint.y) >= 3) {
+            user.lassoPoints.push({ x: pos.x, y: pos.y });
           }
-          break;
-
-        case 'select':
-          if (!user.floatingCanvas && user.startPos) {
-            const selectTool = this.toolManager.getTool('select');
-            // Track lasso points during drawing (same as local SelectTool)
-            if (!user.lassoPoints) user.lassoPoints = [];
-
-            // Add points with distance threshold (same as SelectTool line 705)
-            const lastPoint = user.lassoPoints[user.lassoPoints.length - 1];
-            if (!lastPoint || Math.hypot(pos.x - lastPoint.x, pos.y - lastPoint.y) >= 3) {
-              user.lassoPoints.push({ x: pos.x, y: pos.y });
-            }
-
-            // Draw lasso preview if we have points, otherwise draw rectangle
-            if (user.lassoPoints.length >= 2) {
-              selectTool.drawLassoPreview(user.context, user.lassoPoints);
-            } else {
-              selectTool.drawSelectionBox(user.context, user.startPos, pos);
-            }
+          if (user.lassoPoints.length >= 2) {
+            selectTool.drawLassoPreview(user.context, user.lassoPoints);
+          } else {
+            selectTool.drawSelectionBox(user.context, user.startPos, pos);
           }
-          break;
-      }
+        }
+        break;
     }
   }
 
@@ -264,6 +312,10 @@ export class RemoteUserHandler {
     user.spaceIndex = 0;
     user.mousedown = true;
     user._mainCtxDrawCount = 0; // Reset draw counter for this stroke
+
+    // Reset smoothing buffer for the new stroke
+    resetSmoothingBuffer(user.smoothBuffer);
+    user.remoteTarget = null;
 
     const pos = { x: user.x, y: user.y };
     // Essential for all shape tools and selection
@@ -399,6 +451,7 @@ export class RemoteUserHandler {
 
   handleMouseUp(user) {
     const pos = { x: user.x, y: user.y };
+    user.remoteTarget = null; // Clear target on release
 
     // Get the sub-layer context for this user's active layer.
     // Strokes are always drawn source-over into the sub-layer; blend mode applied at composite time.

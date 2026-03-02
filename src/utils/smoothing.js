@@ -50,8 +50,17 @@ export function applySmoothingEMA(buffer, targetX, targetY, userSmoothing, basel
   const factor = 1 - totalSmoothing * 0.9;
 
   // Apply exponential moving average: new = old + (target - old) * factor
-  buffer.x += (targetX - buffer.x) * factor;
-  buffer.y += (targetY - buffer.y) * factor;
+  const dx = (targetX - buffer.x) * factor;
+  const dy = (targetY - buffer.y) * factor;
+
+  // Convergence: snap to target if the step is very small to prevent infinite approach
+  if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) {
+    buffer.x = targetX;
+    buffer.y = targetY;
+  } else {
+    buffer.x += dx;
+    buffer.y += dy;
+  }
 
   return { x: buffer.x, y: buffer.y };
 }
