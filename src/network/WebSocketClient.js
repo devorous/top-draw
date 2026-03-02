@@ -605,7 +605,7 @@ export class WebSocketClient {
   }
 
   broadcastSmoothingChange(smoothing) {
-    this.send({ t: T.CSM, sm: Math.round(smoothing * 100) });
+    this.send({ t: T.CSM, sm: Math.round(smoothing * 10000) });
   }
 
   broadcastHardnessChange(hardness) {
