@@ -4,15 +4,26 @@ on:
   # Run manually via workflow dispatch
   workflow_dispatch:
     inputs:
-      test_type:
-        description: 'Test type to run'
-        required: true
-        default: 'medium'
-        type: choice
-        options:
-          - medium
-          - hard
-          - all
+      run_medium:
+        description: 'Run Medium Stress Test (8 VUs)'
+        required: false
+        default: true
+        type: boolean
+      run_hard:
+        description: 'Run Hard Stress Test (20 VUs)'
+        required: false
+        default: false
+        type: boolean
+      run_basic:
+        description: 'Run Basic Stress Test'
+        required: false
+        default: false
+        type: boolean
+      run_staged:
+        description: 'Run Staged Stress Test (Ramp Up)'
+        required: false
+        default: false
+        type: boolean
   # Or run on schedule (e.g., daily at 2 AM UTC)
   # schedule:
   #   - cron: '0 2 * * *'
@@ -21,8 +32,8 @@ jobs:
   medium_stress_test:
     name: Medium Stress Test (8 VUs)
     runs-on: ubuntu-latest
-    # Only run if 'medium' or 'all' is selected
-    if: ${{ github.event.inputs.test_type == 'medium' || github.event.inputs.test_type == 'all' || github.event_name == 'schedule' }}
+    # Only run if checkbox is selected or on schedule
+    if: ${{ github.event.inputs.run_medium == 'true' || github.event_name == 'schedule' }}
 
     steps:
       - name: Checkout Code
@@ -48,8 +59,8 @@ jobs:
   hard_stress_test:
     name: Hard Stress Test (20 VUs)
     runs-on: ubuntu-latest
-    # Only run if 'hard' or 'all' is selected
-    if: ${{ github.event.inputs.test_type == 'hard' || github.event.inputs.test_type == 'all' }}
+    # Only run if checkbox is selected
+    if: ${{ github.event.inputs.run_hard == 'true' }}
 
     steps:
       - name: Checkout Code
@@ -75,8 +86,8 @@ jobs:
   basic_stress_test:
     name: Basic Stress Test
     runs-on: ubuntu-latest
-    # Only run if 'all' is selected
-    if: ${{ github.event.inputs.test_type == 'all' }}
+    # Only run if checkbox is selected
+    if: ${{ github.event.inputs.run_basic == 'true' }}
 
     steps:
       - name: Checkout Code
@@ -102,8 +113,8 @@ jobs:
   staged_stress_test:
     name: Staged Stress Test (Ramp Up)
     runs-on: ubuntu-latest
-    # Only run if 'all' is selected
-    if: ${{ github.event.inputs.test_type == 'all' }}
+    # Only run if checkbox is selected
+    if: ${{ github.event.inputs.run_staged == 'true' }}
 
     steps:
       - name: Checkout Code
