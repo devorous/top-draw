@@ -1927,8 +1927,11 @@ export class SelectTool extends Tool {
     const selCtx = selCanvas.getContext('2d');
 
     if (this.copyAllLayers) {
-      // Read from mainCtx which has all layers composited with background
-      selCtx.drawImage(this.board.mainCanvas, s.x, s.y, s.width, s.height, 0, 0, s.width, s.height);
+      // Composite all layers into the selection canvas
+      lm.compositeLayerRange(selCtx, 0, lm.layerGroups.length, {
+        offsetX: -s.x,
+        offsetY: -s.y
+      });
     } else {
       // Composite just the active layer with transparent background
       const tempCanvas = document.createElement('canvas');

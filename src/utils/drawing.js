@@ -381,5 +381,84 @@ export function distanceBasedCulling(points, threshold) {
   return result;
 }
 
+/**
+ * Bridge gap between two points with interpolated filled circles.
+ * Used for tools that need continuous stamping (Pen, Blur, etc).
+ */
+export function bridgeGap(ctx, from, to, fromRadius, toRadius, user, blendMode = 'source-over') {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  // Spacing: 20% of average radius
+  const avgRadius = (fromRadius + toRadius) / 2;
+  const spacing = Math.max(1, avgRadius * 0.2);
+  const steps = Math.ceil(distance / spacing);
+
+  ctx.save();
+  ctx.globalCompositeOperation = blendMode;
+  ctx.fillStyle = user.getColorString();
+
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const x = from.x + dx * t;
+    const y = from.y + dy * t;
+    const r = fromRadius + (toRadius - fromRadius) * t;
+
+    ctx.beginPath();
+    ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Draw a line through an array of points.
+ * Standard implementation used by BrushTool and RemoteUserHandler.
+ */
+export function drawLineArray(points, ctx, user, board = null, blendMode = 'source-over') {
+  if (!points || points.length === 0) return;
+
+  const opacity = user.opacity !== undefined ? user.opacity : 1;
+  const hardness = user.hardness !== undefined ? user.hardness : 1.0;
+
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  ctx.globalCompositeOperation = blendMode;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = user.pressure * user.size * 2;
+
+  const colorString = user.getColorString();
+
+  // Apply softness using shadow blur
+  if (hardness < 1.0) {
+    const blurAmount = (1 - hardness) * (20 + user.size * 0.2);
+    const offset = 100000;
+
+    ctx.strokeStyle = colorString;
+    ctx.shadowBlur = blurAmount;
+    ctx.shadowColor = colorString;
+    ctx.shadowOffsetX = -offset;
+    ctx.shadowOffsetY = 0;
+
+    ctx.translate(offset, 0);
+  } else {
+    ctx.strokeStyle = colorString;
+    ctx.shadowBlur = 0;
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 // Blur functions moved to blurUtils.js for lazy loading
 // Import from './blurUtils.js' instead

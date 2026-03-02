@@ -954,6 +954,29 @@ canvas {
   opacity: 0.5;
 }
 
+.listUser.admin,
+.listUser.mod {
+  background-color: var(--accent-primary);
+  color: black;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  margin: -2px -6px; /* Counteract padding to not disrupt flexbox gap */
+}
+
+.listSync {
+  visibility: hidden;
+  transition: opacity var(--transition-fast);
+}
+
+.userEntry:hover .listSync {
+  visibility: visible;
+  opacity: 0.6;
+}
+
+.listSync:hover {
+  opacity: 1.0 !important;
+}
+
 /* ========================================
    Sliders
    ======================================== */

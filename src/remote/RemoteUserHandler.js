@@ -1,6 +1,5 @@
-import { mirrorLine } from '../utils/drawing.js';
+import { mirrorLine, drawLineArray, bridgeGap } from '../utils/drawing.js';
 import { SELECTION_MODES, getNextBrushIndex } from '../utils/parseGimp.js';
-import { bridgeGap, drawLineArray } from '../utils/remoteDrawingUtils.js';
 import { applySmoothingEMA, resetSmoothingBuffer } from '../utils/smoothing.js';
 import { RemotePenHandler } from './RemotePenHandler.js';
 import { RemoteInkHandler } from './RemoteInkHandler.js';

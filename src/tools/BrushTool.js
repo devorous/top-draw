@@ -1,4 +1,4 @@
-import { manhattanDistance, mirrorLine } from '../utils/drawing.js';
+import { manhattanDistance, mirrorLine, drawLineArray, bridgeGap } from '../utils/drawing.js';
 
 /**
  * Base tool class
@@ -47,11 +47,11 @@ export class BrushTool extends Tool {
     user.currentLine.push(pos);
     this.board.clearTop();
     this.board.topCtx.beginPath();
-    this.drawLineArray(user.currentLine, this.board.topCtx, user);
+    drawLineArray(user.currentLine, this.board.topCtx, user);
 
     if (this.board.mirror) {
       const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-      this.drawLineArray(mirrored, this.board.topCtx, user);
+      drawLineArray(mirrored, this.board.topCtx, user);
     }
 
     user.lineLength += manhattanDistance(pos, lastPos);
@@ -65,12 +65,15 @@ export class BrushTool extends Tool {
 
     // Draw to active layer
     const layerCtx = this.board.getActiveLayerContext();
-    this.drawLineArray(user.currentLine, layerCtx, user);
+    drawLineArray(user.currentLine, layerCtx, user);
 
     if (this.board.mirror) {
       const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-      this.drawLineArray(mirrored, layerCtx, user);
+      drawLineArray(mirrored, layerCtx, user);
     }
+
+    // Update dirty rect
+    this.trackDirtyRect(user, user.currentLine);
 
     user.clearLine();
 
@@ -80,95 +83,43 @@ export class BrushTool extends Tool {
   }
 
   drawPreview(user) {
-    this.drawLineArray(user.currentLine, this.board.topCtx, user);
+    drawLineArray(user.currentLine, this.board.topCtx, user);
   }
 
-  drawLineArray(points, ctx, user) {
-    if (points.length === 0) return;
+  /**
+   * Calculate and expand the dirty rectangle for a set of points
+   */
+  trackDirtyRect(user, points) {
+    if (!points || points.length === 0) return;
 
-    // Debug: Track draws to mainCtx
-    const isMainCtx = ctx === this.board.mainCtx;
-    if (isMainCtx) {
-      user._mainCtxDrawCount = (user._mainCtxDrawCount || 0) + 1;
-    }
-
-    // Check if we're drawing to the active layer (not a preview)
-    const isActiveLayer = ctx !== this.board.topCtx && ctx !== this.board.mainCtx && ctx !== this.board.upperLayersCtx;
-
-    // Apply user opacity (independent of color alpha)
-    const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
-    // Strokes are always drawn source-over into sub-layers; the blend mode is applied
-    // at composite time when the sub-layer is composited onto the main canvas.
-    ctx.globalAlpha = opacity;
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = user.pressure * user.size * 2;
-
-    // Apply softness using shadow blur (hardness controls blur amount)
-    // For soft brushes, draw off-screen and use shadow only
-    if (hardness < 1.0) {
-      // Hybrid blur: 20px base + 20% of size gives consistent softness across all brush sizes
-      const blurAmount = (1 - hardness) * (20 + user.size * 0.2);
-      const offset = 100000; // Draw way off-screen
-
-      ctx.strokeStyle = user.getColorString();
-      ctx.shadowBlur = blurAmount;
-      ctx.shadowColor = user.getColorString();
-      ctx.shadowOffsetX = -offset;
-      ctx.shadowOffsetY = 0;
-
-      // Save context and translate to draw off-screen
-      ctx.save();
-      ctx.translate(offset, 0);
-    } else {
-      ctx.strokeStyle = user.getColorString();
-      ctx.shadowBlur = 0;
+    // Calculate bounding box of all points
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const pt of points) {
+      if (pt.x < minX) minX = pt.x;
+      if (pt.x > maxX) maxX = pt.x;
+      if (pt.y < minY) minY = pt.y;
+      if (pt.y > maxY) maxY = pt.y;
     }
 
-    // Original linear rendering for all points
-    // Note: Position is already smoothed by InputBufferManager (EMA)
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
+    // Expand by brush radius plus blur, with 25% safety margin
+    const radius = user.pressure * user.size;
+    const blurAmount = hardness < 1.0 ? (1 - hardness) * (20 + user.size * 0.2) : 0;
+    const safetyMargin = radius * 0.25; // 25% additional margin for blur/hardness
+    const margin = radius + blurAmount + safetyMargin + 2; // +2 for anti-aliasing
 
-    for (let i = 1; i < points.length; i++) {
-      ctx.lineTo(points[i].x, points[i].y);
-    }
-    ctx.stroke();
+    const x = Math.floor(minX - margin);
+    const y = Math.floor(minY - margin);
+    const width = Math.ceil(maxX - minX + margin * 2);
+    const height = Math.ceil(maxY - minY + margin * 2);
 
-    // Reset shadow and restore context if using soft brush
-    if (hardness < 1.0) {
-      ctx.restore();
-    }
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetX = 0;
-    ctx.globalAlpha = 1.0;
+    this.board.expandDirtyRect(user, x, y, width, height);
 
-    // Update dirty rect if drawing to active layer
-    if (isActiveLayer && points.length > 0) {
-      // Calculate bounding box of all points
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const pt of points) {
-        if (pt.x < minX) minX = pt.x;
-        if (pt.x > maxX) maxX = pt.x;
-        if (pt.y < minY) minY = pt.y;
-        if (pt.y > maxY) maxY = pt.y;
-      }
-
-      // Expand by brush radius plus blur, with 25% safety margin
-      const radius = user.pressure * user.size;
-      const blurAmount = hardness < 1.0 ? (1 - hardness) * (20 + user.size * 0.2) : 0;
-      const safetyMargin = radius * 0.25; // 25% additional margin for blur/hardness
-      const margin = radius + blurAmount + safetyMargin + 2; // +2 for anti-aliasing
-
-      const x = Math.floor(minX - margin);
-      const y = Math.floor(minY - margin);
-      const width = Math.ceil(maxX - minX + margin * 2);
-      const height = Math.ceil(maxY - minY + margin * 2);
-
-      this.board.expandDirtyRect(user, x, y, width, height);
+    if (this.board.mirror) {
+      const boardWidth = this.board.getWidth();
+      const mirrorX = Math.floor(boardWidth - maxX - margin);
+      this.board.expandDirtyRect(user, mirrorX, y, width, height);
     }
   }
 
@@ -183,12 +134,15 @@ export class BrushTool extends Tool {
 
     // Draw to active layer
     const layerCtx = this.board.getActiveLayerContext();
-    this.drawLineArray(user.currentLine, layerCtx, user);
+    drawLineArray(user.currentLine, layerCtx, user);
 
     if (this.board.mirror) {
       const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-      this.drawLineArray(mirrored, layerCtx, user);
+      drawLineArray(mirrored, layerCtx, user);
     }
+
+    // Update dirty rect for the line
+    this.trackDirtyRect(user, user.currentLine);
 
     // Save last smoothed position (where old segment visually ends)
     const lastSmoothedPos = user.currentLine.length > 0
@@ -199,10 +153,10 @@ export class BrushTool extends Tool {
     // using interpolated filled circles (flow-pen style)
     if (user.currentLine.length > 0) {
       const from = lastSmoothedPos;
-      this.bridgeGap(layerCtx, from, lastSmoothedPos, oldRadius, newRadius, user);
+      bridgeGap(layerCtx, from, lastSmoothedPos, oldRadius, newRadius, user);
       if (this.board.mirror) {
         const w = this.board.getWidth();
-        this.bridgeGap(layerCtx,
+        bridgeGap(layerCtx,
           { x: w - from.x, y: from.y },
           { x: w - lastSmoothedPos.x, y: lastSmoothedPos.y },
           oldRadius, newRadius, user);
@@ -214,79 +168,5 @@ export class BrushTool extends Tool {
 
     // Composite all layers to visible canvas
     this.board.compositeAllLayers();
-  }
-
-  /** Bridge gap between two points with interpolated filled circles (flow-pen style) */
-  bridgeGap(ctx, from, to, fromRadius, toRadius, user) {
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    // Check if we're drawing to the active layer (not a preview)
-    const isActiveLayer = ctx !== this.board.topCtx && ctx !== this.board.mainCtx && ctx !== this.board.upperLayersCtx;
-
-    const opacity = user.opacity !== undefined ? user.opacity : 1;
-    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
-
-    // Strokes always drawn source-over into sub-layers; blend applied at composite time.
-    ctx.save();
-    ctx.globalAlpha = opacity;
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = user.getColorString();
-
-    if (hardness < 1.0) {
-      // Hybrid blur: 20px base + 20% of size gives consistent softness across all brush sizes
-      const blurAmount = (1 - hardness) * (20 + user.size * 0.2);
-      const offset = 100000;
-      ctx.shadowBlur = blurAmount;
-      ctx.shadowColor = user.getColorString();
-      ctx.shadowOffsetX = -offset;
-      ctx.shadowOffsetY = 0;
-      ctx.translate(offset, 0);
-    }
-
-    if (dist < 0.5) {
-      const r = Math.max(fromRadius, toRadius);
-      ctx.beginPath();
-      ctx.arc(from.x, from.y, Math.max(0.5, r), 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      // Adaptive spacing (20% of average radius, like flow pen)
-      const avgRadius = (fromRadius + toRadius) / 2;
-      const step = Math.max(1, avgRadius * 0.2);
-      const steps = Math.ceil(dist / step);
-
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        const x = from.x + dx * t;
-        const y = from.y + dy * t;
-        const r = fromRadius + (toRadius - fromRadius) * t;
-        ctx.beginPath();
-        ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    // Update dirty rect if drawing to active layer
-    if (isActiveLayer) {
-      const maxRadius = Math.max(fromRadius, toRadius);
-      const blurAmount = hardness < 1.0 ? (1 - hardness) * (20 + user.size * 0.2) : 0;
-      const safetyMargin = maxRadius * 0.25; // 25% additional margin for blur/hardness
-      const margin = maxRadius + blurAmount + safetyMargin + 2; // +2 for anti-aliasing
-
-      const minX = Math.min(from.x, to.x) - margin;
-      const minY = Math.min(from.y, to.y) - margin;
-      const maxX = Math.max(from.x, to.x) + margin;
-      const maxY = Math.max(from.y, to.y) + margin;
-
-      const x = Math.floor(minX);
-      const y = Math.floor(minY);
-      const width = Math.ceil(maxX - minX);
-      const height = Math.ceil(maxY - minY);
-
-      this.board.expandDirtyRect(user, x, y, width, height);
-    }
-
-    ctx.restore();
   }
 }

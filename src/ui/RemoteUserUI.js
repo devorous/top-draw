@@ -158,27 +158,33 @@ export class RemoteUserUI {
     userEntry.textContent = userData.username || userId;
 
     // Role badge (hidden by default, shown when role > 0)
-    const roleBadge = document.createElement('span');
-    roleBadge.className = `roleBadge ${id}`;
-    roleBadge.style.display = 'none';
     if (userData.role === 2) {
-      roleBadge.textContent = 'admin';
-      roleBadge.classList.add('admin');
-      roleBadge.style.display = '';
+      userEntry.classList.add('admin');
     } else if (userData.role === 1) {
-      roleBadge.textContent = 'mod';
-      roleBadge.classList.add('mod');
-      roleBadge.style.display = '';
+      userEntry.classList.add('mod');
     }
 
     const activeEntry = document.createElement('span');
     activeEntry.className = `listActive ${id}`;
 
+    // Sync button - allow joiners to request sync from specific provider
+    const syncBtn = document.createElement('a');
+    syncBtn.className = `listSync ${id}`;
+    syncBtn.title = 'Request canvas sync from this user';
+    syncBtn.innerHTML = '&#8635;'; // Sync symbol
+    syncBtn.style.cursor = 'pointer';
+    syncBtn.style.opacity = '0.6';
+    syncBtn.onclick = () => {
+      if (window.app && window.app.syncClient) {
+        window.app.syncClient.requestSync(userId);
+      }
+    };
+
     entry.appendChild(toolEntry);
     entry.appendChild(colorEntry);
     entry.appendChild(userEntry);
-    entry.appendChild(roleBadge);
     entry.appendChild(activeEntry);
+    entry.appendChild(syncBtn);
 
     this.elements.userList.appendChild(entry);
   }
@@ -330,7 +336,6 @@ export class RemoteUserUI {
 
       // Gray out list entry
       if (userEntry) userEntry.style.opacity = '0.5';
-      if (activeEntry) activeEntry.textContent = '(AFK)';
     } else {
       // Restore opacity
       if (cursor) cursor.style.opacity = '1';
@@ -340,7 +345,6 @@ export class RemoteUserUI {
 
       // Restore list entry
       if (userEntry) userEntry.style.opacity = '1';
-      if (activeEntry) activeEntry.textContent = '';
     }
   }
 
