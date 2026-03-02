@@ -75,6 +75,12 @@ export function setupUserHandlers(wsClient, app) {
     const user = users.get(data.sessionIndex);
     if (user) {
       chat.addSystemMessage(`${user.username || 'User'} has left the room`);
+
+      // Clean up any active strokes from this user (e.g., if they disconnected mid-stroke)
+      if (board.layerManager) {
+        board.layerManager.cleanupUserStrokes(data.sessionIndex);
+      }
+
       users.delete(data.sessionIndex);
       ui.removeRemoteUser(data.sessionIndex);
 

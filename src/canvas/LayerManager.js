@@ -1222,6 +1222,21 @@ export class LayerManager {
   /** @deprecated No-op */
   getUserBlendMode(groupIndex, userId) { return 'source-over'; }
 
+  /**
+   * Clean up all active strokes for a user across all layers.
+   * Call this when a user disconnects to prevent orphaned active stroke canvases.
+   * @param {number} userId - User's session index
+   */
+  cleanupUserStrokes(userId) {
+    for (const group of this.layerGroups) {
+      if (group.activeStrokeByUser.has(userId)) {
+        group.activeStrokeByUser.delete(userId);
+      }
+    }
+    // Trigger recomposite to remove the orphaned stroke from display
+    this.markDirty();
+  }
+
   /** @deprecated No-op */
   mergeAdjacentSourceOverSubLayers(groupIndex, userId) {}
 
