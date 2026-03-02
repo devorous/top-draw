@@ -648,7 +648,7 @@ export class UI {
 
   updateSmoothingValue(smoothing) {
     if (this.elements.smoothingValue) {
-      this.elements.smoothingValue.textContent = `${smoothing}%`;
+      this.elements.smoothingValue.textContent = Math.round(smoothing);
     }
   }
 
@@ -672,7 +672,7 @@ export class UI {
 
   updateopacityValue(opacity) {
     if (this.elements.opacityValue) {
-      this.elements.opacityValue.textContent = Math.round(opacity * 100) + '%';
+      this.elements.opacityValue.textContent = Math.round(opacity * 100);
     }
   }
 

@@ -11,17 +11,7 @@ export class ToolLockManager {
   }
 
   loadGlobalUnlockedValues() {
-    try {
-      const saved = localStorage.getItem('topDrawGlobalUnlockedValues');
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch (e) {
-      console.warn('Failed to load global unlocked values:', e);
-    }
-
-    // Default global unlocked values
-    return {
+    const defaults = {
       size: 10,
       smoothing: 0.3,
       hardness: 1.0,
@@ -30,6 +20,31 @@ export class ToolLockManager {
       blurRadius: 5,
       pressure: { min: 0, max: 100, enabled: true }
     };
+
+    try {
+      const saved = localStorage.getItem('topDrawGlobalUnlockedValues');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+
+        // Migrate percentage values to decimal (0-1) if needed
+        if (parsed.hardness !== undefined && parsed.hardness > 1) {
+          parsed.hardness = parsed.hardness / 100;
+        }
+        if (parsed.smoothing !== undefined && parsed.smoothing > 1) {
+          parsed.smoothing = parsed.smoothing / 100;
+        }
+        if (parsed.opacity !== undefined && parsed.opacity > 1) {
+          parsed.opacity = parsed.opacity / 100;
+        }
+
+        // Merge with defaults to ensure all properties exist
+        return { ...defaults, ...parsed };
+      }
+    } catch (e) {
+      console.warn('Failed to load global unlocked values:', e);
+    }
+
+    return defaults;
   }
 
   saveGlobalUnlockedValues() {
@@ -79,6 +94,11 @@ export class ToolLockManager {
       for (const [prop, state] of Object.entries(props)) {
         // Check if already migrated (new format only has lockedValue, not unlockedValue)
         if (state.lockedValue !== undefined && state.unlockedValue === undefined) {
+          // Ensure percentage values are converted to decimal
+          if ((prop === 'hardness' || prop === 'smoothing' || prop === 'opacity') &&
+              state.lockedValue > 1) {
+            state.lockedValue = state.lockedValue / 100;
+          }
           newLocks[tool][prop] = state;
           continue;
         }
@@ -94,9 +114,16 @@ export class ToolLockManager {
             }
           };
         } else {
+          let value = state.value ?? 0;
+
+          // Convert percentage to decimal for hardness, smoothing, opacity
+          if ((prop === 'hardness' || prop === 'smoothing' || prop === 'opacity') && value > 1) {
+            value = value / 100;
+          }
+
           newLocks[tool][prop] = {
             locked: state.locked ?? false,
-            lockedValue: state.value ?? 0
+            lockedValue: value
           };
         }
       }
@@ -259,7 +286,7 @@ export class ToolLockManager {
       }
       else if (prop === 'hardness') {
         self.setHardness(value);
-        ui.updateHardnessValue(value * 100);
+        ui.updateHardnessValue(value);
         if (elements.hardnessSlider) elements.hardnessSlider.value = value * 100;
         if (connected) {
           wsClient.broadcastHardnessChange(value);
