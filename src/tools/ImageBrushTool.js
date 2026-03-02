@@ -141,7 +141,8 @@ export class ImageBrushTool extends Tool {
       }
     }
 
-    // Composite all layers to visible canvas (handled by endStroke)
+    // Composite all layers to visible canvas
+    this.board.compositeAllLayers();
     this.board.endStroke(user);
 
     // Clean up tracking
@@ -154,8 +155,8 @@ export class ImageBrushTool extends Tool {
     const size = user.size;
     const pressure = user.pressure ?? 1;  // Use ?? instead of || so 0 doesn't default to 1
     const scaledSize = size * pressure;
-    // Use user.context for remote users, mainCtx for local user
-    const ctx = user.context || this.board.mainCtx;
+    // Use user.context for remote users, active layer context for local user
+    const ctx = user.context || this.board.getActiveLayerContext();
 
     let height, width, image;
 
