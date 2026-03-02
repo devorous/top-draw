@@ -182,7 +182,9 @@ export default function () {
     });
 
     socket.on('error', (e) => console.log('WebSocket Error: ', e.error()));
-    socket.setTimeout(() => socket.close(), 35000);
+
+    // Close connection before test duration ends to ensure proper cleanup
+    socket.setTimeout(() => socket.close(), 25000);
   });
 
   check(res, { 'Connected': (r) => r && r.status === 101 });

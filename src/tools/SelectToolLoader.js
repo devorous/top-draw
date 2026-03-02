@@ -191,4 +191,17 @@ export class SelectToolLoader extends Tool {
   getMode() {
     return this.realTool ? this.realTool.mode : 'lasso';
   }
+
+  // Proxy methods for remote preview rendering
+  drawSelectionBox(ctx, startPos, endPos) {
+    if (this.realTool) {
+      this.realTool.drawSelectionBox(ctx, startPos, endPos);
+    }
+  }
+
+  drawLassoPreview(ctx, points) {
+    if (this.realTool) {
+      this.realTool.drawLassoPreview(ctx, points);
+    }
+  }
 }

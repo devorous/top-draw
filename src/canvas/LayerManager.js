@@ -1234,7 +1234,7 @@ export class LayerManager {
       }
     }
     // Trigger recomposite to remove the orphaned stroke from display
-    this.markDirty();
+    this.needsComposite = true;
   }
 
   /** @deprecated No-op */
