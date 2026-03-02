@@ -1,4 +1,4 @@
-import { manhattanDistance, mirrorLine, calcCatmullRomCurve } from '../utils/drawing.js';
+import { manhattanDistance, mirrorLine } from '../utils/drawing.js';
 
 /**
  * Base tool class
@@ -128,36 +128,15 @@ export class BrushTool extends Tool {
       ctx.shadowBlur = 0;
     }
 
-    // Apply Level 2 smoothing (Catmull-Rom) if enabled
-    const smoothing = user.smoothing || 0; // 0-1 range
+    // Original linear rendering for all points
+    // Note: Position is already smoothed by InputBufferManager (EMA)
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
 
-    if (smoothing > 0 && points.length >= 3) {
-      // Use Catmull-Rom curves for smooth rendering
-      const tension = smoothing; // 0.0 to 1.0
-      const smoothedPoints = calcCatmullRomCurve(points, tension);
-
-      // Draw as bezier curves
-      ctx.beginPath();
-      ctx.moveTo(smoothedPoints[0].x, smoothedPoints[0].y);
-
-      // smoothedPoints format: [p1, cp1, cp2, p2, cp1, cp2, p3, ...]
-      for (let i = 1; i < smoothedPoints.length - 2; i += 3) {
-        const cp1 = smoothedPoints[i];
-        const cp2 = smoothedPoints[i + 1];
-        const end = smoothedPoints[i + 2];
-        ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, end.x, end.y);
-      }
-      ctx.stroke();
-    } else {
-      // Original linear rendering for low/no smoothing
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-
-      for (let i = 1; i < points.length; i++) {
-        ctx.lineTo(points[i].x, points[i].y);
-      }
-      ctx.stroke();
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
     }
+    ctx.stroke();
 
     // Reset shadow and restore context if using soft brush
     if (hardness < 1.0) {
