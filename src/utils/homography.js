@@ -22,9 +22,9 @@
  */
 
 // In NPM
-    //import Delaunator from 'delaunator';
+    import Delaunator from 'delaunator';
 // In JS
-    import Delaunator from 'https://cdn.skypack.dev/delaunator@5.0.0';
+    //import Delaunator from 'https://cdn.skypack.dev/delaunator@5.0.0';
 
     
 const availableTransforms = ['auto', 'piecewiseaffine', 'affine', 'projective'];
