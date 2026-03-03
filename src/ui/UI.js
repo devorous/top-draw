@@ -100,6 +100,9 @@ export class UI {
 
       menuBtn: document.getElementById('menuBtn'),
       collapsibleBtns: document.getElementById('collapsibleBtns'),
+      sidebarToggleBtn: document.getElementById('sidebarToggleBtn'),
+      sideMenu: document.getElementById('sideMenu'),
+      toolOptions: document.getElementById('toolOptions'),
 
       devBtn: document.getElementById('devBtn'),
       devText: document.querySelector('.devOption'),
@@ -719,6 +722,26 @@ export class UI {
     const menu = this.elements.collapsibleBtns;
     if (menu) {
       menu.classList.remove('show');
+    }
+  }
+
+  toggleSidebar() {
+    const toolOptions = this.elements.toolOptions;
+    const btn = this.elements.sidebarToggleBtn;
+    if (toolOptions) {
+      const isCollapsed = toolOptions.classList.toggle('collapsed');
+      if (btn) btn.classList.toggle('active', isCollapsed);
+      return isCollapsed;
+    }
+    return false;
+  }
+
+  setSidebarCollapsed(collapsed) {
+    const toolOptions = this.elements.toolOptions;
+    const btn = this.elements.sidebarToggleBtn;
+    if (toolOptions) {
+      toolOptions.classList.toggle('collapsed', collapsed);
+      if (btn) btn.classList.toggle('active', collapsed);
     }
   }
 

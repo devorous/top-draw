@@ -299,6 +299,15 @@ export class DrawingApp {
       });
     }
 
+    if (elements.sidebarToggleBtn) {
+      elements.sidebarToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.ui.toggleSidebar();
+        // Recalculate view after the sidebar transition finishes (approx 300ms)
+        setTimeout(() => this.board.calculateDefaultView(), 350);
+      });
+    }
+
     elements.panBtn.addEventListener('click', () => this.selectTool('pan'));
     elements.rotateBtn.addEventListener('click', () => this.selectTool('rotate'));
     elements.selectBtn.addEventListener('click', () => this.selectTool('select'));
@@ -1868,6 +1877,15 @@ export class DrawingApp {
 
   handleResize() {
     this.board.calculateDefaultView();
+
+    // Auto-collapse sidebar on narrow screens
+    const width = window.innerWidth;
+    const isNarrow = width < 768;
+    
+    if (this._wasNarrow !== isNarrow) {
+      this.ui.setSidebarCollapsed(isNarrow);
+      this._wasNarrow = isNarrow;
+    }
   }
 
   // Image Upload/Drop handlers

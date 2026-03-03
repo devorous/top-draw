@@ -42,3 +42,36 @@
   color: var(--bg-primary);
 }
 
+/* ========================================
+   Lock Buttons
+   ======================================== */
+
+.sliderLabel .lock-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  margin-left: 4px;
+  opacity: 0.5;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+
+.sliderLabel .lock-btn:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.sliderLabel .lock-btn.locked {
+  opacity: 1;
+}
+
+.sliderLabel .lock-btn:active {
+  transform: scale(0.95);
+}
+
