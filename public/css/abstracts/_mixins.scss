@@ -1,0 +1,277 @@
+// ========================================
+// Reusable Style Mixins
+// ========================================
+// Common patterns used throughout the app
+
+@use 'variables' as *;
+@use 'breakpoints' as *;
+
+// ========================================
+// Glass Panel Effect (Glassmorphism)
+// ========================================
+
+/// Creates a frosted glass panel effect
+/// @param {Number} $blur - Backdrop blur amount (default: 12px)
+/// @param {Number} $opacity - Background opacity (default: 0.85)
+/// @example
+///   @include glass-panel(16px, 0.9);
+@mixin glass-panel($blur: 12px, $opacity: 0.85) {
+  background: rgba(45, 50, 60, $opacity);
+  backdrop-filter: blur($blur);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-lg);
+}
+
+// ========================================
+// Touch-Friendly Sizing
+// ========================================
+
+/// Ensures minimum touch target sizes for accessibility
+/// @param {Number} $min-size - Minimum size (default: 44px)
+/// @param {Number} $optimal-size - Optimal touch size (default: 48px)
+/// @example
+///   @include touch-target(44px, 52px);
+@mixin touch-target($min-size: $touch-target-min, $optimal-size: $touch-target-optimal) {
+  min-width: $min-size;
+  min-height: $min-size;
+
+  @include touch-device {
+    min-width: $optimal-size;
+    min-height: $optimal-size;
+  }
+}
+
+// ========================================
+// Interactive Element Behavior
+// ========================================
+
+/// Standard interactive element behavior (hover, active, focus)
+/// @param {Number} $scale-hover - Scale on hover (default: 1.05)
+/// @param {Number} $scale-active - Scale when pressed (default: 0.98)
+/// @example
+///   @include interactive(1.08, 0.95);
+@mixin interactive($scale-hover: 1.05, $scale-active: 0.98) {
+  transition: all var(--transition-fast);
+  cursor: pointer;
+
+  @include hover-device {
+    &:hover {
+      transform: scale($scale-hover);
+    }
+  }
+
+  &:active {
+    transform: scale($scale-active);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+  }
+}
+
+// ========================================
+// Custom Scrollbar
+// ========================================
+
+/// Styled scrollbar for panels and containers
+/// @param {Number} $width - Scrollbar width (default: 8px)
+/// @param {Color} $track-color - Track background (default: transparent)
+/// @param {Color} $thumb-color - Thumb color (default: rgba(255,255,255,0.3))
+/// @example
+///   @include custom-scrollbar(6px, transparent, rgba(0, 212, 170, 0.5));
+@mixin custom-scrollbar(
+  $width: 8px,
+  $track-color: transparent,
+  $thumb-color: rgba(255, 255, 255, 0.3)
+) {
+  &::-webkit-scrollbar {
+    width: $width;
+    height: $width;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: $track-color;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: $thumb-color;
+    border-radius: calc($width / 2);
+
+    &:hover {
+      background: lighten($thumb-color, 10%);
+    }
+  }
+
+  // Firefox
+  scrollbar-width: thin;
+  scrollbar-color: $thumb-color $track-color;
+}
+
+// ========================================
+// Truncate Text
+// ========================================
+
+/// Single-line text truncation with ellipsis
+@mixin truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/// Multi-line text truncation with ellipsis
+/// @param {Number} $lines - Number of lines to show (default: 2)
+@mixin line-clamp($lines: 2) {
+  display: -webkit-box;
+  -webkit-line-clamp: $lines;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+// ========================================
+// Flexbox Patterns
+// ========================================
+
+/// Flex container with center alignment
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/// Flex container with space-between
+@mixin flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/// Flex column layout
+@mixin flex-column {
+  display: flex;
+  flex-direction: column;
+}
+
+// ========================================
+// Absolute Positioning Shortcuts
+// ========================================
+
+/// Position absolute with all sides set
+/// @param {Number} $offset - Offset from all sides (default: 0)
+@mixin absolute-fill($offset: 0) {
+  position: absolute;
+  top: $offset;
+  right: $offset;
+  bottom: $offset;
+  left: $offset;
+}
+
+/// Position fixed with all sides set
+/// @param {Number} $offset - Offset from all sides (default: 0)
+@mixin fixed-fill($offset: 0) {
+  position: fixed;
+  top: $offset;
+  right: $offset;
+  bottom: $offset;
+  left: $offset;
+}
+
+// ========================================
+// Aspect Ratio (with fallback)
+// ========================================
+
+/// Maintain aspect ratio for container
+/// @param {Number} $width - Width ratio (default: 16)
+/// @param {Number} $height - Height ratio (default: 9)
+@mixin aspect-ratio($width: 16, $height: 9) {
+  aspect-ratio: $width / $height;
+
+  // Fallback for older browsers
+  @supports not (aspect-ratio: 1 / 1) {
+    &::before {
+      content: '';
+      display: block;
+      padding-top: calc(($height / $width) * 100%);
+    }
+  }
+}
+
+// ========================================
+// Hide Element (Accessibility-Friendly)
+// ========================================
+
+/// Visually hide element but keep it accessible to screen readers
+@mixin visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/// Reveal visually hidden element
+@mixin visually-visible {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: inherit;
+  margin: inherit;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+// ========================================
+// Focus Ring (Custom)
+// ========================================
+
+/// Custom focus ring styling
+/// @param {Color} $color - Focus ring color (default: var(--accent-primary))
+/// @param {Number} $width - Ring width (default: 2px)
+/// @param {Number} $offset - Offset from element (default: 2px)
+@mixin focus-ring($color: var(--accent-primary), $width: 2px, $offset: 2px) {
+  &:focus-visible {
+    outline: $width solid $color;
+    outline-offset: $offset;
+  }
+}
+
+// ========================================
+// Disable User Selection
+// ========================================
+
+/// Prevent text selection (useful for buttons, UI controls)
+@mixin no-select {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+// ========================================
+// GPU Acceleration
+// ========================================
+
+/// Force GPU acceleration for smoother animations
+@mixin gpu-accelerate {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+// ========================================
+// Overlay/Modal Backdrop
+// ========================================
+
+/// Full-screen overlay backdrop
+/// @param {Color} $bg - Background color (default: rgba(0, 0, 0, 0.35))
+/// @param {Number} $blur - Backdrop blur (default: 3px)
+@mixin overlay-backdrop($bg: rgba(0, 0, 0, 0.35), $blur: 3px) {
+  @include fixed-fill;
+  background: $bg;
+  backdrop-filter: blur($blur);
+  z-index: 100;
+}

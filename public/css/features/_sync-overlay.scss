@@ -1,0 +1,80 @@
+// ========================================
+// Sync Overlay
+// ========================================
+
+@use '../abstracts' as *;
+
+/* ========================================
+   Sync Overlay
+   ======================================== */
+
+.sync-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 100;
+  pointer-events: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.sync-overlay.active {
+  display: flex;
+}
+
+.sync-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.sync-text {
+  color: white;
+  font-size: 18px;
+  font-weight: 600;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+.sync-progress-bar {
+  width: 300px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.sync-progress-fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #4CAF50, #66BB6A);
+  border-radius: 4px;
+  animation: syncPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes syncPulse {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+
+/* Mod-only visibility */
+.modOnly {
+  display: none;
+}
+
+.modOnly.visible {
+  display: block;
+}
+
+/* Fix for flex items that use modOnly */
+.menuDivider.modOnly.visible {
+  display: block;
+}
+
+button.modOnly.visible,
+a.modOnly.visible {
+  display: inline-flex;
+}
+

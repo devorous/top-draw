@@ -1,4 +1,8 @@
 console.log('[main.js] Script loaded!');
+
+// Import SCSS - Vite will compile and inject it
+import '../public/css/main.scss';
+
 import { DrawingApp } from './App.js';
 console.log('[main.js] Import successful');
 

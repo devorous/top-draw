@@ -1,0 +1,239 @@
+// ========================================
+// SCSS Utility Functions
+// ========================================
+// Mathematical functions and utilities
+
+@use 'sass:math';
+@use 'sass:map';
+@use 'sass:color';
+@use 'sass:string';
+@use 'sass:list';
+
+// ========================================
+// Fluid Typography & Sizing
+// ========================================
+
+/// Generate fluid size using clamp()
+/// Scales smoothly between min and max based on viewport width
+/// @param {Number} $min - Minimum size
+/// @param {Number} $max - Maximum size
+/// @param {Number} $min-vw - Minimum viewport width (default: 375px)
+/// @param {Number} $max-vw - Maximum viewport width (default: 1280px)
+/// @return {String} - CSS clamp() function
+/// @example
+///   font-size: fluid(14px, 18px);
+///   width: fluid(200px, 400px, 640px, 1920px);
+@function fluid($min, $max, $min-vw: 375px, $max-vw: 1280px) {
+  // Calculate the slope
+  $slope: math.div($max - $min, $max-vw - $min-vw);
+  $y-intercept: $min - ($slope * $min-vw);
+
+  // Build the preferred value (vw-based)
+  $preferred: calc(#{$y-intercept} + #{$slope * 100}vw);
+
+  @return clamp(#{$min}, #{$preferred}, #{$max});
+}
+
+// ========================================
+// Spacing Utilities
+// ========================================
+
+/// Convert spacing scale number to rem value
+/// @param {Number} $multiplier - Scale multiplier (1-24)
+/// @return {Number} - Calculated rem value
+/// @example
+///   padding: space(4); // 1rem (16px)
+@function space($multiplier) {
+  @return calc(0.25rem * $multiplier);
+}
+
+// ========================================
+// Color Utilities
+// ========================================
+
+/// Lighten color by percentage
+/// @param {Color} $color - Base color
+/// @param {Number} $amount - Percentage to lighten (0-100)
+/// @return {Color} - Lightened color
+@function lighten($color, $amount) {
+  @return color.adjust($color, $lightness: $amount * 1%);
+}
+
+/// Darken color by percentage
+/// @param {Color} $color - Base color
+/// @param {Number} $amount - Percentage to darken (0-100)
+/// @return {Color} - Darkened color
+@function darken($color, $amount) {
+  @return color.adjust($color, $lightness: -$amount * 1%);
+}
+
+/// Adjust color opacity
+/// @param {Color} $color - Base color
+/// @param {Number} $opacity - Opacity value (0-1)
+/// @return {Color} - Color with adjusted opacity
+@function alpha($color, $opacity) {
+  @return color.adjust($color, $alpha: -1 + $opacity);
+}
+
+/// Mix two colors
+/// @param {Color} $color1 - First color
+/// @param {Color} $color2 - Second color
+/// @param {Number} $weight - Weight of first color (0-100)
+/// @return {Color} - Mixed color
+@function mix($color1, $color2, $weight: 50) {
+  @return color.mix($color1, $color2, $weight * 1%);
+}
+
+// ========================================
+// Unit Conversion
+// ========================================
+
+/// Strip units from a value
+/// @param {Number} $value - Value with units
+/// @return {Number} - Unitless number
+@function strip-unit($value) {
+  @return math.div($value, $value * 0 + 1);
+}
+
+/// Convert px to rem
+/// @param {Number} $px - Pixel value
+/// @param {Number} $base - Base font size (default: 16px)
+/// @return {Number} - Rem value
+@function px-to-rem($px, $base: 16px) {
+  @return math.div(strip-unit($px), strip-unit($base)) * 1rem;
+}
+
+/// Convert rem to px
+/// @param {Number} $rem - Rem value
+/// @param {Number} $base - Base font size (default: 16px)
+/// @return {Number} - Pixel value
+@function rem-to-px($rem, $base: 16px) {
+  @return strip-unit($rem) * strip-unit($base) * 1px;
+}
+
+/// Convert px to em
+/// @param {Number} $px - Pixel value
+/// @param {Number} $context - Context font size (default: 16px)
+/// @return {Number} - Em value
+@function px-to-em($px, $context: 16px) {
+  @return math.div(strip-unit($px), strip-unit($context)) * 1em;
+}
+
+// ========================================
+// Math Utilities
+// ========================================
+
+/// Power function (exponentiation)
+/// @param {Number} $base - Base number
+/// @param {Number} $exponent - Exponent
+/// @return {Number} - Result
+@function pow($base, $exponent) {
+  @if $exponent == 0 {
+    @return 1;
+  }
+
+  $result: $base;
+  @for $i from 2 through $exponent {
+    $result: $result * $base;
+  }
+
+  @return $result;
+}
+
+/// Get maximum value from list
+/// @param {List} $values - List of numbers
+/// @return {Number} - Maximum value
+@function max($values...) {
+  $max: list.nth($values, 1);
+  @each $value in $values {
+    @if $value > $max {
+      $max: $value;
+    }
+  }
+  @return $max;
+}
+
+/// Get minimum value from list
+/// @param {List} $values - List of numbers
+/// @return {Number} - Minimum value
+@function min($values...) {
+  $min: list.nth($values, 1);
+  @each $value in $values {
+    @if $value < $min {
+      $min: $value;
+    }
+  }
+  @return $min;
+}
+
+// ========================================
+// Aspect Ratio Utilities
+// ========================================
+
+/// Calculate height from width and aspect ratio
+/// @param {Number} $width - Width value
+/// @param {Number} $ratio-width - Aspect ratio width (default: 16)
+/// @param {Number} $ratio-height - Aspect ratio height (default: 9)
+/// @return {Number} - Calculated height
+@function aspect-height($width, $ratio-width: 16, $ratio-height: 9) {
+  @return math.div($width * $ratio-height, $ratio-width);
+}
+
+/// Calculate width from height and aspect ratio
+/// @param {Number} $height - Height value
+/// @param {Number} $ratio-width - Aspect ratio width (default: 16)
+/// @param {Number} $ratio-height - Aspect ratio height (default: 9)
+/// @return {Number} - Calculated width
+@function aspect-width($height, $ratio-width: 16, $ratio-height: 9) {
+  @return math.div($height * $ratio-width, $ratio-height);
+}
+
+// ========================================
+// Z-Index Management
+// ========================================
+
+/// Z-index scale for consistent layering
+$z-layers: (
+  'base': 1,
+  'canvas': 2,
+  'cursors': 3,
+  'toolbar': 10,
+  'hud': 15,
+  'panels': 20,
+  'chat': 50,
+  'overlay': 100,
+  'modal': 200,
+  'toast': 300
+);
+
+/// Get z-index value from scale
+/// @param {String} $layer - Layer name
+/// @return {Number} - Z-index value
+@function z($layer) {
+  @if map.has-key($z-layers, $layer) {
+    @return map.get($z-layers, $layer);
+  } @else {
+    @warn "Z-index layer '#{$layer}' not found. Available: #{map.keys($z-layers)}";
+    @return 1;
+  }
+}
+
+// ========================================
+// String Utilities
+// ========================================
+
+/// Replace substring in string
+/// @param {String} $string - Original string
+/// @param {String} $search - Substring to find
+/// @param {String} $replace - Replacement string
+/// @return {String} - Modified string
+@function str-replace($string, $search, $replace: '') {
+  $index: string.index($string, $search);
+
+  @if $index {
+    @return string.slice($string, 1, $index - 1) + $replace +
+            str-replace(string.slice($string, $index + string.length($search)), $search, $replace);
+  }
+
+  @return $string;
+}

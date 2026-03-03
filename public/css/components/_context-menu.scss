@@ -1,0 +1,30 @@
+// ========================================
+// Context Menus
+// ========================================
+
+@use '../abstracts' as *;
+
+/* ========================================
+   Role Badges
+   ======================================== */
+
+.roleBadge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.roleBadge.mod {
+  background: rgba(0, 212, 170, 0.2);
+  color: var(--accent-primary);
+}
+
+.roleBadge.admin {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+}
+

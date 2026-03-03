@@ -1,0 +1,100 @@
+// ========================================
+// Color Picker
+// ========================================
+
+@use '../abstracts' as *;
+
+/* ========================================
+   Color Palette
+   ======================================== */
+
+#colorPalette {
+  padding: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.paletteSection {
+  margin-bottom: 12px;
+}
+
+.paletteSection:last-child {
+  margin-bottom: 0;
+}
+
+.paletteSection label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.paletteHint {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.swatchGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  position: relative;
+}
+
+.swatch:hover {
+  transform: scale(1.15);
+  border-color: var(--text-primary);
+  z-index: 1;
+}
+
+.swatch.selected {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.swatch.addSwatch {
+  background: var(--bg-elevated);
+  border: 2px dashed var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.swatch.addSwatch:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  transform: scale(1.1);
+}
+
+.swatch.empty {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  cursor: default;
+  opacity: 0.3;
+}
+
+.swatch.empty:hover {
+  transform: none;
+  border-color: var(--border-subtle);
+}
+
+

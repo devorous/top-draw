@@ -1,0 +1,10 @@
+// ========================================
+// Abstracts Index
+// ========================================
+// Re-export all abstracts for easy importing
+// Usage: @use 'abstracts' as *;
+
+@forward 'variables';
+@forward 'breakpoints';
+@forward 'mixins';
+@forward 'functions';

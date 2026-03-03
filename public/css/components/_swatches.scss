@@ -1,0 +1,47 @@
+// ========================================
+// Color Palette & Swatches
+// ========================================
+
+@use '../abstracts' as *;
+
+/* ========================================
+   Color Picker
+   ======================================== */
+
+#pickerContainer {
+  border-top: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+#colorPicker {
+  overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+}
+
+.picker_wrapper {
+  background: var(--bg-secondary) !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  padding: 10px !important;
+  box-sizing: border-box !important;
+}
+
+.picker_wrapper .picker_slider,
+.picker_wrapper .picker_selector {
+  box-sizing: border-box;
+}
+
+.picker_sample {
+  display: block;
+  height: 35px;
+  width: 70%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.picker_done,
+.picker_editor {
+  display: none;
+}
+

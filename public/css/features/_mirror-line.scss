@@ -1,0 +1,21 @@
+// ========================================
+// Mirror Line
+// ========================================
+
+@use '../abstracts' as *;
+
+/* ========================================
+   Save Button in Top Bar
+   ======================================== */
+
+#saveBtn {
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+  border-color: var(--accent-primary);
+}
+
+#saveBtn:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+

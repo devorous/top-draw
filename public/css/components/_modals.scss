@@ -1,0 +1,22 @@
+// ========================================
+// Modals & Overlays
+// ========================================
+
+@use '../abstracts' as *;
+
+/* ========================================
+   Bottom Bar (Hidden - Not Implemented)
+   ======================================== */
+
+#bottomBar {
+  display: none;
+}
+
+#timeline {
+  display: none;
+}
+
+.bottomBarBtns {
+  display: none;
+}
+

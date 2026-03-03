@@ -1,0 +1,47 @@
+// ========================================
+// Board/Canvas Area
+// ========================================
+
+@use '../abstracts' as *;
+
+#boardContainer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  position: relative;
+  user-select: none;
+  overflow: hidden;
+}
+
+#boards {
+  background-color: white;
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-shadow: var(--shadow-lg);
+  border-radius: 4px;
+}
+
+#topBoard {
+  z-index: z('canvas');
+  pointer-events: none;
+}
+
+.userBoard {
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+canvas {
+  cursor: none;
+}
+
+// Disable touch-action only on devices with precise pointers
+@include hover-device {
+  canvas,
+  #boardContainer {
+    touch-action: none;
+  }
+}

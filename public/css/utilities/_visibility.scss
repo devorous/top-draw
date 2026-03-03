@@ -1,0 +1,29 @@
+// ========================================
+// Visibility Utilities
+// ========================================
+
+@use '../abstracts' as *;
+
+.hidden {
+  display: none;
+}
+
+.visible {
+  display: block;
+}
+
+@include mobile {
+  .hide-mobile {
+    display: none;
+  }
+}
+
+@include desktop {
+  .hide-desktop {
+    display: none;
+  }
+}
+
+.visually-hidden {
+  @include visually-hidden;
+}

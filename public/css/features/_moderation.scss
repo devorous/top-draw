@@ -1,0 +1,177 @@
+// ========================================
+// Moderation Panel
+// ========================================
+
+@use '../abstracts' as *;
+
+/* ========================================
+   Color Input Menu
+   ======================================== */
+
+.colorInputBtn {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.colorInputBtn:hover {
+  background: var(--bg-elevated);
+  color: var(--accent-primary);
+  border-color: var(--border-active);
+  transform: scale(1.05);
+}
+
+.colorInputMenu {
+  position: absolute;
+  bottom: 45px;
+  right: 8px;
+  width: 200px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  overflow: hidden;
+}
+
+.colorInputHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 8px 0 8px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.colorInputTabs {
+  display: flex;
+  gap: 4px;
+}
+
+.colorInputTab {
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.colorInputTab:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.colorInputTab.active {
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+}
+
+.colorInputClose {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color var(--transition-fast);
+}
+
+.colorInputClose:hover {
+  color: var(--text-primary);
+}
+
+.colorInputBody {
+  padding: 12px;
+}
+
+.colorInputMode {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.colorInputField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.colorInputField label {
+  width: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.colorInputField input {
+  flex: 1;
+  padding: 6px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: 'Inter', monospace;
+  transition: border-color var(--transition-fast);
+}
+
+.colorInputField input:focus {
+  outline: none;
+  border-color: var(--border-active);
+}
+
+.colorInputField .fieldUnit {
+  width: 20px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: left;
+}
+
+/* Remove spinner arrows from number inputs */
+.colorInputField input[type="number"]::-webkit-inner-spin-button,
+.colorInputField input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.colorInputField input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+#pickerContainer {
+  position: relative;
+}
+
+/* Hex field styling - wider input for hex code */
+.colorInputField.hexField input {
+  flex: 1;
+  font-family: 'Courier New', monospace;
+  letter-spacing: 0.5px;
+}
+
+.colorInputField.hexField label {
+  color: var(--text-primary);
+}
+

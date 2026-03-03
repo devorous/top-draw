@@ -1,0 +1,172 @@
+// ========================================
+// Responsive Breakpoint Mixins
+// ========================================
+// These mixins simplify responsive design by providing
+// clean, semantic breakpoint patterns
+
+@use 'sass:map';
+@use 'variables' as *;
+
+// ========================================
+// Mobile-First (min-width)
+// ========================================
+
+/// Apply styles at or above a breakpoint
+/// @param {String} $breakpoint - Breakpoint name (xs, sm, md, lg, xl, 2xl)
+/// @example
+///   @include respond-above(md) {
+///     font-size: 16px;
+///   }
+@mixin respond-above($breakpoint) {
+  @if map.has-key($breakpoints, $breakpoint) {
+    @media (min-width: map.get($breakpoints, $breakpoint)) {
+      @content;
+    }
+  } @else {
+    @warn "Breakpoint '#{$breakpoint}' not found in $breakpoints map. Available: #{map.keys($breakpoints)}";
+  }
+}
+
+// ========================================
+// Desktop-First (max-width)
+// ========================================
+
+/// Apply styles at or below a breakpoint
+/// @param {String} $breakpoint - Breakpoint name (xs, sm, md, lg, xl, 2xl)
+/// @example
+///   @include respond-below(md) {
+///     display: none;
+///   }
+@mixin respond-below($breakpoint) {
+  @if map.has-key($breakpoints, $breakpoint) {
+    $breakpoint-value: map.get($breakpoints, $breakpoint);
+    @media (max-width: ($breakpoint-value - 1px)) {
+      @content;
+    }
+  } @else {
+    @warn "Breakpoint '#{$breakpoint}' not found in $breakpoints map. Available: #{map.keys($breakpoints)}";
+  }
+}
+
+// ========================================
+// Between Breakpoints
+// ========================================
+
+/// Apply styles between two breakpoints
+/// @param {String} $lower - Lower breakpoint name
+/// @param {String} $upper - Upper breakpoint name
+/// @example
+///   @include respond-between(sm, lg) {
+///     padding: 20px;
+///   }
+@mixin respond-between($lower, $upper) {
+  @if map.has-key($breakpoints, $lower) and map.has-key($breakpoints, $upper) {
+    $lower-value: map.get($breakpoints, $lower);
+    $upper-value: map.get($breakpoints, $upper);
+    @media (min-width: $lower-value) and (max-width: ($upper-value - 1px)) {
+      @content;
+    }
+  } @else {
+    @warn "One or both breakpoints not found. Available: #{map.keys($breakpoints)}";
+  }
+}
+
+// ========================================
+// Device Type Queries
+// ========================================
+
+/// Target touch devices (mobile, tablets)
+/// @example
+///   @include touch-device {
+///     min-width: 48px;
+///   }
+@mixin touch-device {
+  @media (hover: none) and (pointer: coarse) {
+    @content;
+  }
+}
+
+/// Target hover-capable devices (desktops, laptops)
+/// @example
+///   @include hover-device {
+///     &:hover { background: blue; }
+///   }
+@mixin hover-device {
+  @media (hover: hover) and (pointer: fine) {
+    @content;
+  }
+}
+
+// ========================================
+// Orientation Queries
+// ========================================
+
+/// Target portrait orientation
+@mixin portrait {
+  @media (orientation: portrait) {
+    @content;
+  }
+}
+
+/// Target landscape orientation
+@mixin landscape {
+  @media (orientation: landscape) {
+    @content;
+  }
+}
+
+// ========================================
+// Reduced Motion (Accessibility)
+// ========================================
+
+/// Respect user's reduced motion preference
+/// @example
+///   @include reduced-motion {
+///     animation: none;
+///   }
+@mixin reduced-motion {
+  @media (prefers-reduced-motion: reduce) {
+    @content;
+  }
+}
+
+// ========================================
+// Quick Aliases
+// ========================================
+
+// Common breakpoint shortcuts
+@mixin mobile {
+  @include respond-below(md) {
+    @content;
+  }
+}
+
+@mixin tablet {
+  @include respond-between(md, lg) {
+    @content;
+  }
+}
+
+@mixin desktop {
+  @include respond-above(lg) {
+    @content;
+  }
+}
+
+@mixin mobile-only {
+  @include respond-below(sm) {
+    @content;
+  }
+}
+
+@mixin tablet-up {
+  @include respond-above(md) {
+    @content;
+  }
+}
+
+@mixin desktop-up {
+  @include respond-above(xl) {
+    @content;
+  }
+}

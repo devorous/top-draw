@@ -1,0 +1,162 @@
+// ========================================
+// SCSS Variables & CSS Custom Properties
+// ========================================
+
+// Breakpoint values (for mixin use)
+$breakpoints: (
+  'xs': 375px,
+  'sm': 640px,
+  'md': 768px,
+  'lg': 1024px,
+  'xl': 1280px,
+  '2xl': 1536px
+);
+
+// Spacing scale multipliers
+$space-unit: 0.25rem; // 4px base
+$space-scale: (
+  1: 1,   // 4px
+  2: 2,   // 8px
+  3: 3,   // 12px
+  4: 4,   // 16px
+  5: 5,   // 20px
+  6: 6,   // 24px
+  8: 8,   // 32px
+  10: 10, // 40px
+  12: 12, // 48px
+  16: 16, // 64px
+  20: 20, // 80px
+  24: 24  // 96px
+);
+
+// Component size ranges (for clamp functions)
+$tool-size-min: 32px;
+$tool-size-max: 48px;
+$swatch-size-min: 20px;
+$swatch-size-max: 28px;
+$panel-width-min: 160px;
+$panel-width-max: 280px;
+$chat-width-min: 280px;
+$chat-width-max: 400px;
+$hud-btn-min: 60px;
+$hud-btn-max: 80px;
+
+// Touch targets
+$touch-target-min: 44px;
+$touch-target-optimal: 48px;
+
+// CSS Custom Properties (runtime variables)
+// These are output as-is and can be changed dynamically
+:root {
+  // ========================================
+  // Color Palette
+  // ========================================
+  --bg-primary: #1a1d23;
+  --bg-secondary: #242830;
+  --bg-tertiary: #2d323c;
+  --bg-elevated: #363c4a;
+
+  --surface-glass: rgba(45, 50, 60, 0.85);
+  --surface-overlay: rgba(0, 0, 0, 0.35);
+
+  --accent-primary: #00d4aa;
+  --accent-secondary: #00b894;
+  --accent-hover: #00e6b8;
+  --accent-glow: rgba(0, 212, 170, 0.3);
+
+  --text-primary: #f0f2f5;
+  --text-secondary: #a0a8b8;
+  --text-muted: #6b7280;
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-active: rgba(0, 212, 170, 0.5);
+
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
+
+  // ========================================
+  // Border Radius
+  // ========================================
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  // ========================================
+  // Transitions
+  // ========================================
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s ease;
+
+  // ========================================
+  // Spacing Scale (CSS Custom Properties)
+  // ========================================
+  --space-unit: #{$space-unit};
+
+  --space-1: calc(var(--space-unit) * 1);
+  --space-2: calc(var(--space-unit) * 2);
+  --space-3: calc(var(--space-unit) * 3);
+  --space-4: calc(var(--space-unit) * 4);
+  --space-5: calc(var(--space-unit) * 5);
+  --space-6: calc(var(--space-unit) * 6);
+  --space-8: calc(var(--space-unit) * 8);
+  --space-10: calc(var(--space-unit) * 10);
+  --space-12: calc(var(--space-unit) * 12);
+  --space-16: calc(var(--space-unit) * 16);
+  --space-20: calc(var(--space-unit) * 20);
+  --space-24: calc(var(--space-unit) * 24);
+
+  // ========================================
+  // Fluid Spacing (viewport-responsive)
+  // ========================================
+  --space-fluid-xs: clamp(0.25rem, 0.5vw, 0.5rem);
+  --space-fluid-sm: clamp(0.5rem, 1vw, 1rem);
+  --space-fluid-md: clamp(1rem, 2vw, 2rem);
+  --space-fluid-lg: clamp(1.5rem, 3vw, 3rem);
+  --space-fluid-xl: clamp(2rem, 4vw, 4rem);
+
+  // ========================================
+  // Typography Scale
+  // ========================================
+  --text-xs: 0.6875rem;  /* 11px */
+  --text-sm: 0.75rem;    /* 12px */
+  --text-md: 0.8125rem;  /* 13px */
+  --text-base: 0.875rem; /* 14px */
+  --text-lg: 1rem;       /* 16px */
+  --text-xl: 1.125rem;   /* 18px */
+
+  // Fluid typography
+  --text-fluid-xs: clamp(0.625rem, 0.8vw, 0.75rem);
+  --text-fluid-sm: clamp(0.75rem, 1vw, 0.875rem);
+  --text-fluid-md: clamp(0.875rem, 1.2vw, 1rem);
+  --text-fluid-lg: clamp(1rem, 1.5vw, 1.25rem);
+
+  // ========================================
+  // Component Sizes (fluid)
+  // ========================================
+  --tool-size: clamp(#{$tool-size-min}, 5vw, #{$tool-size-max});
+  --swatch-size: clamp(#{$swatch-size-min}, 3vw, #{$swatch-size-max});
+  --panel-width: clamp(#{$panel-width-min}, 20vw, #{$panel-width-max});
+  --chat-width: clamp(#{$chat-width-min}, 35vw, #{$chat-width-max});
+  --chat-height: clamp(320px, 50vh, 600px);
+  --hud-btn-size: clamp(#{$hud-btn-min}, 8vw, #{$hud-btn-max});
+  --hud-icon-size: clamp(28px, 4vw, 40px);
+}
+
+// ========================================
+// Responsive Variable Adjustments
+// ========================================
+
+// Tighter spacing on mobile
+@media (max-width: 640px) {
+  :root {
+    --space-unit: 0.2rem;
+  }
+}
+
+// More generous spacing on large screens
+@media (min-width: 1536px) {
+  :root {
+    --space-unit: 0.3rem;
+  }
+}

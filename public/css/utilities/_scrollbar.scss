@@ -1,0 +1,17 @@
+// ========================================
+// Scrollbar Styling
+// ========================================
+
+@use '../abstracts' as *;
+
+/* ========================================
+   Mirror Line
+   ======================================== */
+
+.mirrorLine {
+  stroke: var(--accent-primary);
+  stroke-width: 2;
+  stroke-dasharray: 8, 4;
+  opacity: 0.6;
+}
+

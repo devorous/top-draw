@@ -1,0 +1,54 @@
+// ========================================
+// Top Toolbar
+// ========================================
+
+@use '../abstracts' as *;
+
+/* ========================================
+   Top Toolbar
+   ======================================== */
+
+.boardBtns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface-glass);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-subtle);
+  z-index: 10;
+}
+
+.zoomBtns {
+  display: flex;
+  gap: 4px;
+}
+
+#rotationResetBtn {
+  font-size: 14px;
+  padding: 6px 10px;
+}
+
+.mirrorOption,
+.devOption,
+.zoomPercent {
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.devOption {
+  color: var(--text-muted);
+}
+
+.devOption.active {
+  color: var(--accent-primary);
+}
+
+.right {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+

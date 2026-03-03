@@ -1,0 +1,14 @@
+// ========================================
+// Debug Overlay
+// ========================================
+
+@use '../abstracts' as *;
+
+#debugOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  pointer-events: none;
+  display: none;
+}
