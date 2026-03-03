@@ -84,6 +84,78 @@
   height: 40px;
   padding: 2px;
   border-radius: var(--radius-md);
+  position: relative; // Ensure indicators are relative to the button
+}
+
+/* Tool Grouping Logic */
+.toolGroup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  width: 100%;
+}
+
+.toolSubgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  align-items: center;
+}
+
+/* Common styles for collapsed groups */
+@mixin collapsed-group {
+  .toolSubgroup {
+    position: absolute;
+    right: 100%;
+    top: -5px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 4px;
+    padding-right: 12px;
+    width: auto;
+    display: none;
+    box-shadow: var(--shadow-md);
+    z-index: 120;
+    flex-direction: row;
+  }
+
+  &:hover .toolSubgroup {
+    display: flex;
+  }
+
+  /* Visual indicator - larger and positioned higher in the corner */
+  & > .tool.btn::after {
+    content: "◸";
+    position: absolute;
+    top: 0;
+    left: 0;
+    font-size: 16px;
+    line-height: 1;
+    color: var(--accent-primary);
+    opacity: 0.8;
+    pointer-events: none;
+    transform: translate(-2px, -5px); // Nudge further into the corner
+  }
+}
+
+/* Staggered Collapse Breakpoints (Lowered by 150px) */
+
+// 1. Movement/Rotation collapses first
+@media (max-height: 800px) {
+  #moveGroup { @include collapsed-group; }
+}
+
+// 2. Line/Circle/Rect collapses next
+@media (max-height: 700px) {
+  #shapesGroup { @include collapsed-group; }
+}
+
+// 3. Blur tools collapse last
+@media (max-height: 600px) {
+  #blurGroup { @include collapsed-group; }
 }
 
 .tool.btn img {

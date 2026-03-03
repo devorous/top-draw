@@ -326,12 +326,19 @@
           <button class="tool btn sidebarToggleBtn" id="sidebarToggleBtn" title="Toggle Sidebar">
             <span class="sidebarIcon">◫</span>
           </button>
-          <a class="tool btn" id="panBtn" title="Pan (H)">
-            <img src="/images/move-icon.svg" alt="Pan">
-          </a>
-          <a class="tool btn" id="rotateBtn" title="Rotate (N)">
-            <img src="/images/rotate-icon.svg" alt="Rotate">
-          </a>
+
+          <!-- Group: Movement -->
+          <div class="toolGroup" id="moveGroup">
+            <a class="tool btn" id="panBtn" title="Pan (H)">
+              <img src="/images/move-icon.svg" alt="Pan">
+            </a>
+            <div class="toolSubgroup">
+              <a class="tool btn" id="rotateBtn" title="Rotate (N)">
+                <img src="/images/rotate-icon.svg" alt="Rotate">
+              </a>
+            </div>
+          </div>
+
           <a class="tool btn" id="inkdropperBtn" title="Inkdropper (I / Tab)">
             <img src="/images/inkdropper-icon.svg" alt="Inkdropper">
           </a>
@@ -341,27 +348,41 @@
           <a class="tool btn selected" id="brushBtn" title="Brush (B/P)">
             <img src="/images/brush-icon.svg" alt="Brush">
           </a>
-          <a class="tool btn" id="lineBtn" title="Line (L)">
-            <img src="/images/line-icon.svg" alt="Line">
-          </a>
-          <a class="tool btn" id="rectangleBtn" title="Rectangle (R)">
-            <img src="/images/rectangle-icon.svg" alt="Rectangle">
-          </a>
-          <a class="tool btn" id="circleBtn" title="Circle (C)">
-            <img src="/images/circle-icon.svg" alt="Circle">
-          </a>
+
+          <!-- Group: Shapes -->
+          <div class="toolGroup" id="shapesGroup">
+            <a class="tool btn" id="lineBtn" title="Line (L)">
+              <img src="/images/line-icon.svg" alt="Line">
+            </a>
+            <div class="toolSubgroup">
+              <a class="tool btn" id="rectangleBtn" title="Rectangle (R)">
+                <img src="/images/rectangle-icon.svg" alt="Rectangle">
+              </a>
+              <a class="tool btn" id="circleBtn" title="Circle (C)">
+                <img src="/images/circle-icon.svg" alt="Circle">
+              </a>
+            </div>
+          </div>
+
           <a class="tool btn" id="textBtn" title="Text (T)">
             <img src="/images/text-icon.svg" alt="Text">
           </a>
           <a class="tool btn" id="eraseBtn" title="Eraser (E)">
             <img src="/images/eraser-icon.svg" alt="Eraser">
           </a>
-          <a class="tool btn" id="blurBtn" title="Blur (U)">
-            <img src="/images/blend-icon.svg" alt="Blur">
-          </a>
-          <a class="tool btn" id="circleBlurBtn" title="Circle Blur (Y)">
-            <img src="/images/circle-blur-icon.svg" alt="Circle Blur">
-          </a>
+
+          <!-- Group: Blur -->
+          <div class="toolGroup" id="blurGroup">
+            <a class="tool btn" id="blurBtn" title="Blur (U)">
+              <img src="/images/blend-icon.svg" alt="Blur">
+            </a>
+            <div class="toolSubgroup">
+              <a class="tool btn" id="circleBlurBtn" title="Circle Blur (Y)">
+                <img src="/images/circle-blur-icon.svg" alt="Circle Blur">
+              </a>
+            </div>
+          </div>
+
           <a class="tool btn" id="imageBrushBtn" title="Image Brush (G)">
             <img src="/images/pepper.png" alt="Image Brush">
           </a>
