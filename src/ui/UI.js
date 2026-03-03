@@ -98,6 +98,9 @@ export class UI {
       hudRedoBtn: document.getElementById('hudRedoBtn'),
       mirrorText: document.querySelector('.mirrorOption'),
 
+      menuBtn: document.getElementById('menuBtn'),
+      collapsibleBtns: document.getElementById('collapsibleBtns'),
+
       devBtn: document.getElementById('devBtn'),
       devText: document.querySelector('.devOption'),
       debugOverlay: document.getElementById('debugOverlay'),
@@ -705,6 +708,20 @@ export class UI {
     return this.remoteUserUI.showRemoteCursor(userId);
   }
   
+  toggleMenu() {
+    const menu = this.elements.collapsibleBtns;
+    if (menu) {
+      menu.classList.toggle('show');
+    }
+  }
+
+  closeMenu() {
+    const menu = this.elements.collapsibleBtns;
+    if (menu) {
+      menu.classList.remove('show');
+    }
+  }
+
   createRemoteUser(userId, userData) {
     return this.remoteUserUI.createRemoteUser(userId, userData);
   }

@@ -291,6 +291,14 @@ export class DrawingApp {
     elements.loginOfflineBtn.addEventListener('click', () => this.startOfflineMode());
     elements.reconnectBtn.addEventListener('click', () => this.reconnect());
     elements.disconnectBtn.addEventListener('click', () => this.disconnect());
+
+    if (elements.menuBtn) {
+      elements.menuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.ui.toggleMenu();
+      });
+    }
+
     elements.panBtn.addEventListener('click', () => this.selectTool('pan'));
     elements.rotateBtn.addEventListener('click', () => this.selectTool('rotate'));
     elements.selectBtn.addEventListener('click', () => this.selectTool('select'));
@@ -366,10 +374,13 @@ export class DrawingApp {
       }
     });
 
-    // Click-outside to close context menu
+    // Click-outside to close context menu and mobile menu
     document.addEventListener('click', (e) => {
       if (elements.userContextMenu && !elements.userContextMenu.contains(e.target)) {
         this.moderation.hideContextMenu();
+      }
+      if (elements.collapsibleBtns && !elements.collapsibleBtns.contains(e.target) && !elements.menuBtn.contains(e.target)) {
+        this.ui.closeMenu();
       }
     });
 

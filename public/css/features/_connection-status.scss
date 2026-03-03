@@ -16,6 +16,12 @@
   border-radius: var(--radius-sm);
   font-size: 11px;
   color: var(--text-secondary);
+  
+  // Hide connection status early to make room for toolbar buttons 
+  // before they collapse into the menu at 1280px.
+  @media (max-width: 1380px) {
+    display: none !important;
+  }
 }
 
 .connectionDot {
@@ -53,4 +59,3 @@
   font-size: 10px !important;
   margin-left: 4px;
 }
-

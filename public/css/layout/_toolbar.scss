@@ -1,7 +1,3 @@
-// ========================================
-// Top Toolbar
-// ========================================
-
 @use '../abstracts' as *;
 
 /* ========================================
@@ -11,17 +7,55 @@
 .boardBtns {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 8px 12px;
   background: var(--surface-glass);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-subtle);
-  z-index: 10;
+  z-index: 100; // Increased to ensure it's above other elements
+  position: relative;
+  flex-wrap: nowrap;
+  // REMOVED overflow: hidden to allow absolute dropdown to show
+}
+
+.menuBtn {
+  display: none; // Hidden by default on desktop
+  font-size: 18px;
+  padding: 6px 10px;
+  z-index: 110;
+  align-items: center;
+  justify-content: center;
+}
+
+.collapsibleBtns {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.mirrorContainer, .devContainer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.zoomGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
 }
 
 .zoomBtns {
   display: flex;
   gap: 4px;
+}
+
+.saveUploadGroup {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
 }
 
 #rotationResetBtn {
@@ -32,10 +66,11 @@
 .mirrorOption,
 .devOption,
 .zoomPercent {
-  padding: 0 12px;
+  padding: 0 2px;
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .devOption {
@@ -49,6 +84,119 @@
 .right {
   margin-left: auto;
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
+  align-items: center;
+  flex-shrink: 0;
 }
 
+/* ========================================
+   Responsive Toolbar
+   ======================================== */
+
+// Breakpoint for collapsing secondary actions into menu
+@include respond-below(xl) {
+  .menuBtn {
+    display: inline-flex; // Show hamburger
+  }
+
+  .collapsibleBtns {
+    display: none; // Hide from main bar
+    flex-direction: column;
+    position: absolute;
+    top: 100%; // Right below the toolbar
+    left: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    box-shadow: var(--shadow-lg);
+    z-index: 105;
+    align-items: stretch;
+    min-width: 180px;
+    gap: var(--space-3);
+
+    &.show {
+      display: flex !important; // Forced flex when toggled
+      animation: menuFadeIn 0.2s ease;
+    }
+
+    .btn {
+      justify-content: flex-start;
+      width: 100%;
+    }
+
+    .mirrorContainer, .devContainer {
+      justify-content: space-between;
+      padding: 0 var(--space-1);
+    }
+  }
+
+  .zoomPercent {
+    padding: 0 2px;
+  }
+}
+
+// Breakpoint for condensing text to icons (e.g., Save/Upload)
+@include respond-below(lg) {
+  .saveUploadGroup {
+    .btnText {
+      display: none;
+    }
+    .btnIcon {
+      display: inline !important;
+    }
+    .btn {
+      padding: 8px 10px;
+      font-size: 16px;
+    }
+  }
+}
+
+// Further adjustments for smaller screens - Emojis for Chat/Exit
+@include respond-below(md) {
+  .boardBtns {
+    padding: 6px 10px;
+  }
+  
+  #chatBtn, #disconnectBtn {
+    padding: 8px 10px;
+    font-size: 0;
+    
+    &::before {
+      font-size: 16px;
+    }
+  }
+  
+  #chatBtn::before { content: "💬"; }
+  #disconnectBtn::before { content: "🚪"; }
+}
+
+@include respond-below(sm) {
+  .boardBtns {
+    padding: 6px 8px;
+    gap: var(--space-1);
+  }
+  
+  .zoomGroup {
+    gap: var(--space-1);
+  }
+  
+  .right {
+    gap: var(--space-1);
+  }
+  
+  .saveUploadGroup {
+    gap: var(--space-1);
+  }
+}
+
+@keyframes menuFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
