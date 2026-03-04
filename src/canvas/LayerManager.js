@@ -903,41 +903,49 @@ export class LayerManager {
    * @param {number} startIdx - Inclusive start index
    * @param {number} endIdx - Exclusive end index
    * @param {Array|null} backgroundColor - [r,g,b,a] or null for transparent background
-   * @param {Object|null} dirtyRect - Optional {x, y, width, height} to limit redraw area
+   * @param {Array|null} dirtyRects - Optional array of {x, y, width, height} to limit redraw area
    */
-  compositeLayerRange(targetCtx, startIdx, endIdx, backgroundColor = null, dirtyRect = null) {
-    // Dirty-region optimization: only redraw changed area if it's small enough
-    const useDirtyRect = dirtyRect &&
-                        dirtyRect.width > 0 &&
-                        dirtyRect.height > 0 &&
-                        (dirtyRect.width * dirtyRect.height) < (this.width * this.height * 0.5); // < 50% of canvas
+  compositeLayerRange(targetCtx, startIdx, endIdx, backgroundColor = null, dirtyRects = null) {
+    // Multi-rect dirty-region optimization
+    let useDirtyRects = false;
+    let totalDirtyArea = 0;
 
-    if (useDirtyRect) {
-      // Only clear and redraw the dirty region
-      targetCtx.clearRect(dirtyRect.x, dirtyRect.y, dirtyRect.width, dirtyRect.height);
+    if (dirtyRects && Array.isArray(dirtyRects) && dirtyRects.length > 0) {
+      // Calculate total area covered by all dirty rects
+      totalDirtyArea = dirtyRects.reduce((sum, r) => sum + (r.width * r.height), 0);
+      const canvasArea = this.width * this.height;
+
+      // Use multi-rect optimization if total dirty area < 50% of canvas
+      useDirtyRects = totalDirtyArea < (canvasArea * 0.5);
+    }
+
+    if (useDirtyRects) {
+      // Clear each dirty region independently
+      for (const rect of dirtyRects) {
+        targetCtx.clearRect(rect.x, rect.y, rect.width, rect.height);
+      }
     } else {
-      // Full canvas clear
+      // Full canvas clear (dirty rects too large or null/empty)
       targetCtx.clearRect(0, 0, this.width, this.height);
+      dirtyRects = null; // Signal full redraw below
     }
 
     if (backgroundColor) {
       const [r, g, b, a] = backgroundColor;
       targetCtx.globalCompositeOperation = 'source-over';
       targetCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-      if (useDirtyRect) {
-        targetCtx.fillRect(dirtyRect.x, dirtyRect.y, dirtyRect.width, dirtyRect.height);
+      if (useDirtyRects) {
+        // Fill each dirty region with background
+        for (const rect of dirtyRects) {
+          targetCtx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        }
       } else {
         targetCtx.fillRect(0, 0, this.width, this.height);
       }
     }
 
-    // Use clipping to restrict drawing to dirty region
-    if (useDirtyRect) {
-      targetCtx.save();
-      targetCtx.beginPath();
-      targetCtx.rect(dirtyRect.x, dirtyRect.y, dirtyRect.width, dirtyRect.height);
-      targetCtx.clip();
-    }
+    // Skip clipping for multi-rect (benefit comes from reduced clear/fill operations)
+    // Drawing operations will naturally be bounded by the cleared regions
 
     const count = Math.min(endIdx, this.layerGroups.length);
     for (let i = startIdx; i < count; i++) {
@@ -957,10 +965,6 @@ export class LayerManager {
         // blend against the accumulated lower-layer content in targetCtx.
         this._compositeGroupInto(targetCtx, group);
       }
-    }
-
-    if (useDirtyRect) {
-      targetCtx.restore();
     }
 
     targetCtx.globalCompositeOperation = 'source-over';

@@ -41,9 +41,12 @@ export class Board {
     this._needsComposite = false;
     this._compositeScheduled = false;
 
-    // Global dirty rectangle for optimized compositing
-    // null = full redraw needed, otherwise {x, y, width, height}
-    this._globalDirtyRect = null;
+    // Multi-rectangle dirty tracking for optimized compositing
+    this._dirtyRects = []; // Array of {x, y, width, height}
+
+    // Dirty rect configuration
+    this.MAX_DIRTY_RECTS = 20;
+    this.DIRTY_RECT_MERGE_DISTANCE = 20;
   }
 
   /**
@@ -432,30 +435,107 @@ export class Board {
     if (!active || !active.dirtyRect) return;
     this.layerManager._expandDirtyRect(active.dirtyRect, x, y, width, height);
 
-    // Also expand global dirty rect for optimized compositing
-    this._expandGlobalDirtyRect(x, y, width, height);
+    // Also add/merge global dirty rect for optimized compositing
+    this._addOrMergeDirtyRect(x, y, width, height);
   }
 
   /**
-   * Expand the global dirty rectangle to include a new region.
-   * This accumulates all drawing changes across layers for efficient compositing.
+   * Add or merge a dirty rectangle into the global dirty regions array.
+   * Uses intelligent merging to consolidate nearby regions and prevent unbounded growth.
    * @private
    */
-  _expandGlobalDirtyRect(x, y, width, height) {
-    if (!this._globalDirtyRect) {
-      this._globalDirtyRect = { x, y, width, height };
-    } else {
-      const minX = Math.min(this._globalDirtyRect.x, x);
-      const minY = Math.min(this._globalDirtyRect.y, y);
-      const maxX = Math.max(this._globalDirtyRect.x + this._globalDirtyRect.width, x + width);
-      const maxY = Math.max(this._globalDirtyRect.y + this._globalDirtyRect.height, y + height);
-      this._globalDirtyRect = {
-        x: minX,
-        y: minY,
-        width: maxX - minX,
-        height: maxY - minY
-      };
+  _addOrMergeDirtyRect(x, y, width, height) {
+    const newRect = { x, y, width, height };
+
+    // Empty array: just add it
+    if (this._dirtyRects.length === 0) {
+      this._dirtyRects.push(newRect);
+      return;
     }
+
+    // Find closest rect and check if we should merge
+    let closestIdx = -1;
+    let closestDist = Infinity;
+
+    for (let i = 0; i < this._dirtyRects.length; i++) {
+      const dist = this._rectDistance(this._dirtyRects[i], newRect);
+      if (dist < closestDist) {
+        closestDist = dist;
+        closestIdx = i;
+      }
+    }
+
+    // Merge if close enough (including overlap = distance 0)
+    if (closestDist <= this.DIRTY_RECT_MERGE_DISTANCE) {
+      this._dirtyRects[closestIdx] = this._unionRects(this._dirtyRects[closestIdx], newRect);
+    } else {
+      this._dirtyRects.push(newRect);
+    }
+
+    // Enforce max limit by merging closest pair until under limit
+    while (this._dirtyRects.length > this.MAX_DIRTY_RECTS) {
+      this._mergeClosestPair();
+    }
+  }
+
+  /**
+   * Calculate minimum distance between two rectangles.
+   * Returns 0 if they overlap.
+   * @private
+   */
+  _rectDistance(r1, r2) {
+    // Check for overlap
+    const overlapX = !(r1.x + r1.width < r2.x || r2.x + r2.width < r1.x);
+    const overlapY = !(r1.y + r1.height < r2.y || r2.y + r2.height < r1.y);
+
+    if (overlapX && overlapY) return 0; // Overlapping
+
+    // Calculate gap distance (axis-aligned)
+    const gapX = overlapX ? 0 : Math.max(0,
+      Math.max(r1.x, r2.x) - Math.min(r1.x + r1.width, r2.x + r2.width));
+    const gapY = overlapY ? 0 : Math.max(0,
+      Math.max(r1.y, r2.y) - Math.min(r1.y + r1.height, r2.y + r2.height));
+
+    return Math.sqrt(gapX * gapX + gapY * gapY);
+  }
+
+  /**
+   * Union two rectangles into their bounding box.
+   * @private
+   */
+  _unionRects(r1, r2) {
+    const minX = Math.min(r1.x, r2.x);
+    const minY = Math.min(r1.y, r2.y);
+    const maxX = Math.max(r1.x + r1.width, r2.x + r2.width);
+    const maxY = Math.max(r1.y + r1.height, r2.y + r2.height);
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }
+
+  /**
+   * Find and merge the two closest rectangles in the array.
+   * Mutates _dirtyRects by replacing two entries with their union.
+   * @private
+   */
+  _mergeClosestPair() {
+    if (this._dirtyRects.length < 2) return;
+
+    let minDist = Infinity;
+    let mergeI = 0, mergeJ = 1;
+
+    for (let i = 0; i < this._dirtyRects.length; i++) {
+      for (let j = i + 1; j < this._dirtyRects.length; j++) {
+        const dist = this._rectDistance(this._dirtyRects[i], this._dirtyRects[j]);
+        if (dist < minDist) {
+          minDist = dist;
+          mergeI = i;
+          mergeJ = j;
+        }
+      }
+    }
+
+    // Merge j into i, then remove j
+    this._dirtyRects[mergeI] = this._unionRects(this._dirtyRects[mergeI], this._dirtyRects[mergeJ]);
+    this._dirtyRects.splice(mergeJ, 1);
   }
 
   /**
@@ -587,9 +667,9 @@ export class Board {
     const totalLayers = this.layerManager.getLayerCount();
     const [height, width] = this.dimensions;
 
-    // Capture dirty rect for this composite and reset for next frame
-    const dirtyRect = this._globalDirtyRect;
-    this._globalDirtyRect = null;
+    // Capture dirty rects for this composite and reset for next frame
+    const dirtyRects = this._dirtyRects.slice(); // Clone array
+    this._dirtyRects = [];
 
     // Determine the split layer: either a stroke is in progress (drawing split) or
     // a selection is being moved (selection split). The split puts lower layers on
@@ -610,7 +690,7 @@ export class Board {
     // OPTIMIZATION: Global Punch-Through for "Erase All Layers" mode
     if (isDrawing && eraseAll) {
       // 1. Composite all layers onto a transparent background first
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, null, dirtyRect);
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, null, dirtyRects);
       
       // 2. Punch the hole once through the entire stack using the preview canvas
       this.mainCtx.globalCompositeOperation = 'destination-out';
@@ -632,7 +712,7 @@ export class Board {
     } 
     else if ((isDrawing || hasActiveSelection) && splitLayer + 1 < totalLayers && !upperLayersHaveBlendModes) {
       // Split mode: floating canvas / topCtx preview sits between lower and upper layers.
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.backgroundColor, dirtyRect);
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.backgroundColor, dirtyRects);
       
       // Handle live preview composite
       if (isDrawing) {
@@ -661,11 +741,11 @@ export class Board {
       }
 
       if (this.upperLayersCtx) {
-        this.layerManager.compositeLayerRange(this.upperLayersCtx, splitLayer + 1, totalLayers, null, dirtyRect);
+        this.layerManager.compositeLayerRange(this.upperLayersCtx, splitLayer + 1, totalLayers, null, dirtyRects);
       }
     } else {
       // Full composite: all layers together so blend modes resolve correctly.
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.backgroundColor, dirtyRect);
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.backgroundColor, dirtyRects);
       
       // In full composite mode, also inject the live preview if active
       if (isDrawing) {
