@@ -94,7 +94,7 @@
             <div class="zoomBtns">
               <a class="btn" id="minusBtn" title="Zoom Out">-</a>
               <a class="btn" id="plusBtn" title="Zoom In">+</a>
-              <a class="btn" id="rotationResetBtn" title="Reset rotation">&#x21BA;</a>
+              <a class="btn" id="rotationResetBtn" title="Reset board">&#x21BA;</a>
             </div>
             <span class="zoomPercent">100%</span>
           </div>
@@ -525,7 +525,7 @@
             <!-- Blend Mode Options -->
             <div id="blendModeOptions">
               <div class="selection-mode-container">
-                <label>Blend Mode</label>
+                <label class="modeLabel">Blend Mode</label>
                 <select id="blendModeSelect" class="blendModeSelect">
                   <option value="source-over">Normal</option>
                   <option value="multiply">Multiply</option>
@@ -543,7 +543,6 @@
 
             <!-- Layer Panel -->
             <div id="layerPanel">
-              <label>Layers</label>
               <div id="layerList">
                 <div class="layerEntry" data-layer="2">
                   <button class="layerVisibility" data-layer="2" title="Toggle visibility">👁</button>
