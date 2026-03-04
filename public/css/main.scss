@@ -3,19 +3,19 @@
 // ========================================
 
 // ========================================
-// 1. Abstracts (Build-time tools)
+// Abstracts (Build-time tools)
 // ========================================
 @use 'abstracts' as *;
 
 // ========================================
-// 2. Base (Foundation)
+// Base (Foundation)
 // ========================================
 @use 'base/reset';
 @use 'base/typography';
 @use 'base/animations';
 
 // ========================================
-// 3. Layout (Major containers)
+// Layout (Major containers)
 // ========================================
 @use 'layout/grid';
 @use 'layout/canvas-area';
@@ -24,7 +24,7 @@
 @use 'layout/panels';
 
 // ========================================
-// 4. Components (UI elements)
+// Components (UI elements)
 // ========================================
 @use 'components/buttons';
 @use 'components/sliders';
@@ -40,7 +40,7 @@
 @use 'components/layers-panel';
 
 // ========================================
-// 5. Features (Feature-specific)
+// Features (Feature-specific)
 // ========================================
 @use 'features/auth';
 @use 'features/connection-status';
@@ -51,7 +51,7 @@
 @use 'features/selection-tool';
 
 // ========================================
-// 6. Utilities (Helper classes)
+// Utilities (Helper classes)
 // ========================================
 @use 'utilities/spacing';
 @use 'utilities/visibility';
@@ -59,20 +59,7 @@
 @use 'utilities/scrollbar';
 
 // ========================================
-// 7. Themes
+// Themes
 // ========================================
 @use 'themes/dark';
 
-// ========================================
-// Migration Status: COMPLETE! ✅
-// ========================================
-// [✓] Abstracts layer (variables, breakpoints, mixins, functions)
-// [✓] Base styles (reset, typography, animations)
-// [✓] Layout (grid, canvas, toolbar, sidebar, panels)
-// [✓] Components (buttons, sliders, colors, chat, etc.)
-// [✓] Features (auth, connection, mirror, sync, moderation)
-// [✓] Utilities (spacing, visibility, responsive, scrollbar)
-// [✓] Themes (dark theme)
-//
-// Legacy file (_legacy.scss) can now be deleted!
-// ========================================

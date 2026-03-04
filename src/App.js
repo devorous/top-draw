@@ -486,7 +486,7 @@ export class DrawingApp {
     });
 
     this.ui.makeValueEditable(elements.smoothingValue, {
-      min: 0, max: 100, step: 1, suffix: '%',
+      min: 0, max: 100, step: 1, suffix: '',
       onCommit: (val) => {
         this.self.setSmoothing(val / 100);
         elements.smoothingSlider.value = val;
@@ -504,7 +504,7 @@ export class DrawingApp {
     });
 
     this.ui.makeValueEditable(elements.hardnessValue, {
-      min: 0, max: 100, step: 1, suffix: '%',
+      min: 0, max: 100, step: 1, suffix: '',
       onCommit: (val) => {
         this.self.setHardness(val / 100);
         elements.hardnessSlider.value = val;

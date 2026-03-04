@@ -5,6 +5,39 @@
 @use '../abstracts' as *;
 
 /* ========================================
+   Slider Values (Editable/Draggable)
+   ======================================== */
+
+.sliderValue {
+  cursor: ns-resize; // Up-down arrow for drag-to-adjust
+  user-select: none;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  position: relative;
+  display: inline-block;
+}
+
+.sliderValue:hover {
+  font-size: calc(1em + 2px);
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 1px var(--accent-primary);
+
+  &::after {
+    content: '⇕';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 1.2em;
+    color: var(--accent-primary);
+    opacity: 0.3;
+    pointer-events: none;
+    z-index: -1;
+  }
+}
+
+/* ========================================
    Image Brush Options
    ======================================== */
 
@@ -82,5 +115,79 @@
   height: 100%;
   object-fit: contain;
   padding: 4px;
+}
+
+/* ========================================
+   Dual Range Slider (Pressure)
+   ======================================== */
+
+.dual-slider {
+  position: relative;
+  height: 6px;
+  background: var(--bg-elevated);
+  border-radius: 3px;
+  margin-top: 7px;
+}
+
+.dual-slider input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 6px;
+  background: transparent;
+  pointer-events: none;
+  margin: 0;
+  padding: 0;
+  outline: none;
+}
+
+.dual-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--accent-primary);
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.dual-slider input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 0 4px var(--accent-glow);
+}
+
+.dual-slider input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: var(--accent-primary);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+/* ========================================
+   Pressure Toggle
+   ======================================== */
+
+.pressureToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  margin: 0;
+}
+
+.pressureToggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  margin: 0;
+  accent-color: var(--accent-primary);
 }
 
