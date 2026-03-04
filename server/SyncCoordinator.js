@@ -170,6 +170,22 @@ export class SyncCoordinator {
   }
 
   /**
+   * Relay SYNC_STROKE_BATCH from provider to target joiner (batched sync)
+   */
+  handleSyncStrokeBatch(ws, data) {
+    const targetUser = data.tu;
+    const client = this._findClient(targetUser);
+    if (client) {
+      this.sendTo(client, {
+        t: T.SYNC_STROKE_BATCH,
+        strokes: data.strokes,
+        layerIdx: data.layerIdx,
+        tu: data.tu
+      });
+    }
+  }
+
+  /**
    * Handle SYNC_STROKES_DONE from provider.
    * Relays done signal to joiner and sends SYNC_COMPLETE.
    */

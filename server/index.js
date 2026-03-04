@@ -394,6 +394,10 @@ wss.on('connection', (ws, req) => {
           syncCoordinator.handleSyncStroke(ws, data);
           break;
 
+        case T.SYNC_STROKE_BATCH:
+          syncCoordinator.handleSyncStrokeBatch(ws, data);
+          break;
+
         case T.SYNC_STROKES_DONE:
           syncCoordinator.handleSyncStrokesDone(ws, data);
           break;

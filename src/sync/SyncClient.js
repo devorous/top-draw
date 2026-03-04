@@ -66,8 +66,17 @@ export class SyncClient {
    * @param {number|null} targetUserId - Optional: specific user to sync from
    */
   requestSync(targetUserId = null) {
+    console.log('[SyncClient] requestSync called, current syncing state:', this.syncing);
+    console.trace('[SyncClient] requestSync call stack');
+
     if (!this.wsClient) {
       console.warn('[SyncClient] Cannot request sync - no wsClient');
+      return;
+    }
+
+    // If already syncing, don't start a new sync
+    if (this.syncing) {
+      console.warn('[SyncClient] Already syncing, ignoring duplicate requestSync call');
       return;
     }
 
@@ -136,28 +145,28 @@ export class SyncClient {
       const lm = this.board.layerManager;
       const groups = lm.layerGroups;
 
-      // Phase 0: Count total messages to send
+      // Phase 0: Count total messages to send (batched sync)
       let totalCount = 0;
 
-      // Count baked sequences
+      // Count baked sequences (still sent individually)
       for (let gi = 0; gi < groups.length; gi++) {
         totalCount += groups[gi].bakedSequences.length;
       }
 
-      // Count strokeStack entries
+      // Count stroke batches (1 message per layer with strokes)
       for (let gi = 0; gi < groups.length; gi++) {
-        totalCount += groups[gi].strokeStack.length;
-      }
-
-      // Count redo stack entries
-      for (const [userId, batches] of lm.redoStackByUser) {
-        for (const batch of batches) {
-          totalCount += batch.length;
+        if (groups[gi].strokeStack.length > 0) {
+          totalCount += 1; // One batched message per layer
         }
       }
 
+      // Count redo batches (1 message per user per batch)
+      for (const [userId, batches] of lm.redoStackByUser) {
+        totalCount += batches.length; // One batched message per redo batch
+      }
+
       // Send metadata with total count
-      console.log(`[SyncClient] Sending sync metadata: ${totalCount} total messages`);
+      console.log(`[SyncClient] Sending sync metadata: ${totalCount} total messages (batched)`);
       this.wsClient.sendSyncMetadata(totalCount, targetUser);
 
       // Small delay to ensure metadata is processed before data starts arriving
@@ -172,49 +181,67 @@ export class SyncClient {
         }
       }
 
-      // Phase B: send all strokeStack entries across all layer groups
+      // Phase B: send strokeStack entries batched per layer group
       for (let gi = 0; gi < groups.length; gi++) {
-        for (const stroke of groups[gi].strokeStack) {
-          const img = await this._captureCanvasElement(stroke.canvas);
-          this.wsClient.sendSyncStroke({
-            targetUser,
-            layerIdx: gi,
-            userId: stroke.userId,
-            x: stroke.x,
-            y: stroke.y,
-            w: stroke.width,
-            h: stroke.height,
-            blendMode: stroke.blendMode,
-            timestamp: stroke.timestamp,
-            eraseAll: stroke.eraseAll || false,
-            isRedo: false,
-            redoBatchIdx: 0,
-            imageData: img
-          });
+        if (groups[gi].strokeStack.length > 0) {
+          console.log(`[Sync] Layer ${gi} strokeStack:`, groups[gi].strokeStack.map(s => ({
+            userId: s.userId,
+            timestamp: s.timestamp,
+            x: s.x, y: s.y
+          })));
+
+          const strokeRecords = [];
+          for (const stroke of groups[gi].strokeStack) {
+            const img = await this._captureCanvasElement(stroke.canvas);
+            strokeRecords.push({
+              img,
+              userId: stroke.userId,
+              x: stroke.x,
+              y: stroke.y,
+              width: stroke.width,
+              height: stroke.height,
+              blendMode: stroke.blendMode,
+              timestamp: stroke.timestamp,
+              eraseAll: stroke.eraseAll || false,
+              isRedo: false,
+              redoBatch: 0,
+              layerIdx: gi
+            });
+          }
+
+          console.log(`[Sync] Sending batch for layer ${gi}:`, strokeRecords.map(s => ({
+            userId: s.userId,
+            timestamp: s.timestamp,
+            x: s.x, y: s.y
+          })));
+
+          this.wsClient.sendSyncStrokeBatch(strokeRecords, gi, targetUser);
         }
       }
 
-      // Phase C: send all redo stack entries (per user, per batch)
+      // Phase C: send redo stack entries batched per user per batch
       for (const [userId, batches] of lm.redoStackByUser) {
         for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+          const strokeRecords = [];
           for (const { groupIdx, record } of batches[batchIdx]) {
             const img = await this._captureCanvasElement(record.canvas);
-            this.wsClient.sendSyncStroke({
-              targetUser,
-              layerIdx: groupIdx,
+            strokeRecords.push({
+              img,
               userId: record.userId,
               x: record.x,
               y: record.y,
-              w: record.width,
-              h: record.height,
+              width: record.width,
+              height: record.height,
               blendMode: record.blendMode,
               timestamp: record.timestamp,
               eraseAll: record.eraseAll || false,
               isRedo: true,
-              redoBatchIdx: batchIdx,
-              imageData: img
+              redoBatch: batchIdx,
+              layerIdx: groupIdx  // Each stroke has its own layer index
             });
           }
+          // Use 0 as placeholder since each stroke now has its own layerIdx
+          this.wsClient.sendSyncStrokeBatch(strokeRecords, 0, targetUser);
         }
       }
 
@@ -314,8 +341,10 @@ export class SyncClient {
       if (data.eraseAll) record.eraseAll = true;
 
       if (!data.isRedo) {
+        console.log(`[SyncClient] Importing stroke: layerIdx=${data.layerIdx}, userId=${data.userId}, timestamp=${data.timestamp}, x=${data.x}, y=${data.y}`);
         this.board.layerManager.importStroke(data.layerIdx, record);
       } else {
+        console.log(`[SyncClient] Importing redo stroke: batchIdx=${data.redoBatchIdx}, layerIdx=${data.layerIdx}, userId=${data.userId}, timestamp=${data.timestamp}`);
         this.board.layerManager.importRedoStroke(data.userId, data.redoBatchIdx, data.layerIdx, record);
       }
 

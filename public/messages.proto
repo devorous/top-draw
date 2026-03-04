@@ -65,9 +65,10 @@ message Msg {
     MOD_LIST      = 56;  // Active moderation entries list
     CBR           = 57;  // Change blur radius
     CL            = 58;  // Change active layer
-    CBM           = 59;  // Change blend mode
-    UNDO          = 60;  // Undo last stroke for user
-    REDO          = 61;  // Redo last undone stroke for user
+    CBM                = 59;  // Change blend mode
+    UNDO               = 60;  // Undo last stroke for user
+    REDO               = 61;  // Redo last undone stroke for user
+    SYNC_STROKE_BATCH  = 62;  // Batch of strokes per layer (efficient sync)
   }
 
   // Tool enum
@@ -188,4 +189,23 @@ message Msg {
     bool   active    = 9;
   }
   repeated ModEntry mod_entries = 42;  // List of active moderation entries
+
+  // Stroke record for batched sync
+  message StrokeRecord {
+    bytes img        = 1;   // PNG blob of cropped stroke canvas
+    uint32 userId    = 2;   // User who drew this stroke
+    int32 x          = 3;   // X offset on canvas
+    int32 y          = 4;   // Y offset on canvas
+    uint32 width     = 5;   // Cropped width
+    uint32 height    = 6;   // Cropped height
+    string blendMode = 7;   // 'source-over', 'multiply', etc.
+    uint64 timestamp = 8;   // Date.now() for undo grouping
+    bool isRedo      = 9;   // true = redo stack entry
+    uint32 redoBatch = 10;  // Redo batch index (if isRedo)
+    uint32 layerIdx  = 11;  // Layer group index (needed for redo batches with mixed layers)
+  }
+
+  // === Batched Sync Fields ===
+  repeated StrokeRecord strokes = 50;  // Stroke batch (for SYNC_STROKE_BATCH)
+  uint32 layerIdx = 51;                // Which layer group this batch belongs to
 }

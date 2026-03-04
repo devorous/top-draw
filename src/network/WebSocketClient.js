@@ -480,6 +480,35 @@ export class WebSocketClient {
         });
         break;
 
+      case T.SYNC_STROKE_BATCH:
+        // Unpack batched strokes and emit individual sync_stroke events
+        if (data.strokes && data.strokes.length > 0) {
+          console.log(`[Sync] Received batch with ${data.strokes.length} strokes:`, data.strokes.map(s => ({
+            layerIdx: s.layerIdx,
+            userId: s.userId,
+            timestamp: s.timestamp ? Number(s.timestamp) : 0,
+            x: s.x, y: s.y
+          })));
+
+          for (const stroke of data.strokes) {
+            this.emit('sync_stroke', {
+              layerIdx: stroke.layerIdx !== undefined ? stroke.layerIdx : data.layerIdx,  // Use per-stroke layerIdx if available
+              userId: stroke.userId,
+              x: stroke.x,
+              y: stroke.y,
+              w: stroke.width,
+              h: stroke.height,
+              blendMode: stroke.blendMode || 'source-over',
+              timestamp: stroke.timestamp ? Number(stroke.timestamp) : 0,
+              eraseAll: stroke.eraseAll || false,
+              isRedo: stroke.isRedo || false,
+              redoBatchIdx: stroke.redoBatch || 0,
+              imageData: stroke.img
+            });
+          }
+        }
+        break;
+
       case T.SYNC_STROKES_DONE:
         this.emit('sync_strokes_done', {});
         break;
@@ -846,6 +875,36 @@ sendSyncStroke({ targetUser, layerIdx, userId, x, y, w, h, blendMode, timestamp,
     strokeRedo: isRedo || false,
     strokeRedoBatch: redoBatchIdx || 0,
     img: imageData
+  });
+}
+
+/**
+ * Send batched strokes for a layer group (new efficient sync).
+ * @param {Array} strokeRecords - Array of stroke objects with {img, userId, x, y, width, height, blendMode, timestamp, isRedo, redoBatch}
+ * @param {number} layerIdx - Layer group index
+ * @param {number} targetUser - Target user session index
+ */
+sendSyncStrokeBatch(strokeRecords, layerIdx, targetUser) {
+  // Map stroke records to protobuf StrokeRecord format
+  const strokes = strokeRecords.map(s => ({
+    img: s.img,
+    userId: s.userId,
+    x: s.x,
+    y: s.y,
+    width: s.width,
+    height: s.height,
+    blendMode: s.blendMode,
+    timestamp: s.timestamp,
+    isRedo: s.isRedo || false,
+    redoBatch: s.redoBatch || 0,
+    layerIdx: s.layerIdx  // Include per-stroke layer index
+  }));
+
+  this.send({
+    t: T.SYNC_STROKE_BATCH,
+    strokes,
+    layerIdx,  // Kept for backward compat, but strokes now have individual layerIdx
+    tu: targetUser
   });
 }
 
