@@ -8,7 +8,7 @@ import { BrushGalleryLoader } from './ui/BrushGalleryLoader.js';
 import { RemoteUserHandler } from './remote/RemoteUserHandler.js';
 import { TouchHandler } from './input/TouchHandler.js';
 import { setupWebSocketHandlers } from './network/WebSocketHandlers.js';
-import { DebugOverlay, RegionTracker, SyncClient } from './sync/index.js';
+import { DebugOverlay, SyncClient } from './sync/index.js';
 import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
 import { Auth } from './auth/Auth.js';
 import { Moderation } from './auth/Moderation.js';
@@ -130,6 +130,7 @@ export class DrawingApp {
     const debugCanvas = document.getElementById('debugOverlay');
     console.log('[App] Debug overlay canvas element:', debugCanvas);
     this.debugOverlay.init(debugCanvas, this.board.getWidth(), this.board.getHeight());
+    this.debugOverlay.setBoard(this.board); // Connect to board for dirty rect access
 
     // Initialize stroke history panel (dev mode)
     this.strokeHistoryPanel.init();
@@ -141,10 +142,6 @@ export class DrawingApp {
 
     // Initialize layer preview hover listeners
     this.ui.setupLayerPreviewListeners(this.board.layerManager);
-
-    // Initialize region tracker for canvas sync
-    this.regionTracker = new RegionTracker();
-    this.regionTracker.init(this.board.mainCanvas);
 
     // Initialize sync client
     this.syncClient = new SyncClient();
@@ -1112,6 +1109,10 @@ export class DrawingApp {
   handleClear() {
     this.board.clear();
     this.wsClient.broadcastClear();
+    // Also clear debug overlay data
+    if (this.debugOverlay) {
+      this.debugOverlay.clearAll();
+    }
   }
 
   handleResetBoard() {
@@ -1434,7 +1435,6 @@ export class DrawingApp {
     // Track drawing for debug overlay (pass brush size and user info)
     if (this.self.mousedown && !this.self.panning) {
       this.debugOverlay.addDrawingPoint(x, y, this.self.size, this.self.id);
-      this.regionTracker.addDrawingPoint(x, y, this.self.size, this.self.id);
     }
   }
 
@@ -1582,9 +1582,6 @@ export class DrawingApp {
 
       // Start tracking for debug overlay (pass tool type, brush size, and user info)
       this.debugOverlay.startDrawing(pos.x, pos.y, this.self.tool, this.self.size, this.self.id, this.self.username);
-
-      // Start tracking for region sync
-      this.regionTracker.startDrawing(pos.x, pos.y, this.self.tool, this.self.size, this.self.id, this.self.username);
     }
   }
 
@@ -1671,9 +1668,6 @@ export class DrawingApp {
 
       // End tracking for debug overlay
       this.debugOverlay.endDrawing(this.self.id);
-
-      // End tracking for region sync
-      this.regionTracker.endDrawing(this.self.id);
 
       // Debug: End stroke tracking for local user
       this.debugOverlay.endStrokeTracking(this.self.id);

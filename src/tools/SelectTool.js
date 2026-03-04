@@ -1,7 +1,6 @@
 import { Homography } from '../utils/homography.js';
 import { performHomographyTransform, imageDataToCanvas, calculateCornerBounds } from '../utils/homographyUtils.js';
-import { pointInHull } from '../sync/ConvexHull.js';
-import { distanceBasedCulling } from '../utils/drawing.js';
+import { pointInHull, distanceBasedCulling } from '../utils/drawing.js';
 
 /**
  * Base tool class

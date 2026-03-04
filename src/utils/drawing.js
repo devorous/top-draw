@@ -462,3 +462,52 @@ export function drawLineArray(points, ctx, user, board = null, blendMode = 'sour
 
 // Blur functions moved to blurUtils.js for lazy loading
 // Import from './blurUtils.js' instead
+
+/**
+ * Test if a point is inside a polygon using winding number algorithm.
+ * Works with any polygon (convex or concave).
+ * @param {Object} point - Point to test {x, y}
+ * @param {Array<Object>} polygon - Array of polygon vertices [{x, y}, ...]
+ * @returns {boolean} True if point is inside polygon
+ */
+export function pointInHull(point, polygon) {
+  if (!polygon || polygon.length < 3) return false;
+
+  let windingNumber = 0;
+  const n = polygon.length;
+
+  for (let i = 0; i < n; i++) {
+    const v1 = polygon[i];
+    const v2 = polygon[(i + 1) % n];
+
+    if (v1.y <= point.y) {
+      if (v2.y > point.y) {
+        // Upward crossing
+        if (isLeft(v1, v2, point) > 0) {
+          windingNumber++;
+        }
+      }
+    } else {
+      if (v2.y <= point.y) {
+        // Downward crossing
+        if (isLeft(v1, v2, point) < 0) {
+          windingNumber--;
+        }
+      }
+    }
+  }
+
+  return windingNumber !== 0;
+}
+
+/**
+ * Test if a point is left/on/right of an infinite line.
+ * @param {Object} p0 - Line start point {x, y}
+ * @param {Object} p1 - Line end point {x, y}
+ * @param {Object} p2 - Point to test {x, y}
+ * @returns {number} >0 for left, =0 for on, <0 for right
+ * @private
+ */
+function isLeft(p0, p1, p2) {
+  return ((p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y));
+}

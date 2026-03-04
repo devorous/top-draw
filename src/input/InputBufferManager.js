@@ -245,7 +245,6 @@ export class InputBufferManager {
     // Track for debug overlay
     app.debugOverlay.addStrokePoint(app.self.id, targetPos.x, targetPos.y, 'catchup');
     app.debugOverlay.addDrawingPoint(targetPos.x, targetPos.y, app.self.size, app.self.id);
-    app.regionTracker.addDrawingPoint(targetPos.x, targetPos.y, app.self.size, app.self.id);
   }
 
   /**
