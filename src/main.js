@@ -18,8 +18,27 @@ async function init() {
 
   try {
     await app.init();
+    console.log('[main.js] App initialized');
+
+    // Dismiss loading screen and show main app
+    const loadingScreen = document.getElementById('app-loading-screen');
+    const mainContent = document.getElementById('main');
+    if (loadingScreen && mainContent) {
+      mainContent.style.opacity = '1';
+      mainContent.style.transition = 'opacity 0.5s ease-out';
+      loadingScreen.style.opacity = '0';
+      setTimeout(() => {
+        loadingScreen.remove();
+        // Remove initial inline style tag to avoid potential conflicts
+        const styleTag = document.getElementById('initial-loading-style');
+        if (styleTag) styleTag.remove();
+      }, 500);
+    }
   } catch (err) {
     console.error('Failed to initialize app:', err);
+    // Even on error, hide loading so user can potentially see error message or UI
+    const loadingScreen = document.getElementById('app-loading-screen');
+    if (loadingScreen) loadingScreen.remove();
   }
 
   // Expose app for debugging
