@@ -337,7 +337,7 @@ export class DrawingApp {
     if (elements.undoBtn) elements.undoBtn.addEventListener('click', () => this.handleUndo());
     elements.plusBtn.addEventListener('click', () => this.handleZoomIn());
     elements.minusBtn.addEventListener('click', () => this.handleZoomOut());
-    elements.rotationResetBtn.addEventListener('click', () => this.handleResetRotation());
+    elements.rotationResetBtn.addEventListener('click', () => this.handleResetBoard());
     elements.saveBtn.addEventListener('click', () => this.board.saveAsImage());
 
     // Undo/Redo HUD buttons
