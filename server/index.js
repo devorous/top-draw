@@ -65,22 +65,11 @@ async function init() {
   });
 }
 function broadcast(payload, excludeIndex = null) {
-  const authMessageTypes = [T.AUTH_REGISTER, T.AUTH_LOGIN, T.AUTH_RESULT, T.MOD_ACTION, T.MOD_RESULT, T.MOD_NOTIFY, T.MOD_LIST];
-  let buffer;
-  
-  if (authMessageTypes.includes(payload.t)) {
-    buffer = JSON.stringify(payload);
-  } else {
-    // Clear old data to prevent "ghost" properties from previous messages
-    for (let key in POOLED_MSG) { if (POOLED_MSG.hasOwnProperty(key)) delete POOLED_MSG[key]; }
-    Object.assign(POOLED_MSG, payload);
+  // Clear old data to prevent "ghost" properties from previous messages
+  for (let key in POOLED_MSG) { if (POOLED_MSG.hasOwnProperty(key)) delete POOLED_MSG[key]; }
+  Object.assign(POOLED_MSG, payload);
 
-    buffer = Msg.encode(POOLED_MSG).finish();
-
-    if (payload.t === T.CHAT_IMG) {
-      
-    }
-  }
+  const buffer = Msg.encode(POOLED_MSG).finish();
 
   let sentCount = 0;
   let skippedSender = false;
@@ -95,22 +84,11 @@ function broadcast(payload, excludeIndex = null) {
       sentCount++;
     }
   });
-
-  if (payload.t === T.CHAT_IMG) {
-
-  }
 }
-function broadcastToAll(payload) {
-  // Use JSON for auth/mod messages (cleaner, no string encoding issues)
-  const authMessageTypes = [T.AUTH_REGISTER, T.AUTH_LOGIN, T.AUTH_RESULT, T.MOD_ACTION, T.MOD_RESULT, T.MOD_NOTIFY, T.MOD_LIST];
-  let buffer;
 
-  if (authMessageTypes.includes(payload.t)) {
-    buffer = JSON.stringify(payload);
-  } else {
-    const message = Msg.create(payload);
-    buffer = Msg.encode(message).finish();
-  }
+function broadcastToAll(payload) {
+  const message = Msg.create(payload);
+  const buffer = Msg.encode(message).finish();
 
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
@@ -121,14 +99,6 @@ function broadcastToAll(payload) {
 
 function sendTo(ws, payload) {
   if (ws.readyState === WebSocket.OPEN) {
-    // Use JSON for auth/mod messages (cleaner, no string encoding issues)
-    const authMessageTypes = [T.AUTH_REGISTER, T.AUTH_LOGIN, T.AUTH_RESULT, T.MOD_ACTION, T.MOD_RESULT, T.MOD_NOTIFY, T.MOD_LIST];
-    if (authMessageTypes.includes(payload.t)) {
-      ws.send(JSON.stringify(payload));
-      return;
-    }
-
-    // Use protobuf for all drawing messages
     const message = Msg.create(payload);
     ws.send(Msg.encode(message).finish());
   }

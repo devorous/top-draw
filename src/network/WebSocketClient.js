@@ -89,15 +89,8 @@ export class WebSocketClient {
 
     this.socket.onmessage = (event) => {
       try {
-        let data;
-
-        // Check if message is JSON (auth/mod messages) or protobuf (drawing messages)
-        if (typeof event.data === 'string') {
-          data = JSON.parse(event.data);
-        } else {
-          data = this.Msg.decode(new Uint8Array(event.data));
-        }
-
+        // Decode all messages as protobuf
+        const data = this.Msg.decode(new Uint8Array(event.data));
         this.handleMessage(data);
       } catch (err) {
         console.error('Failed to decode message:', err);
@@ -579,14 +572,7 @@ export class WebSocketClient {
 
   send(data) {
     if (this.socket && this.socket.readyState === WebSocket.OPEN && this.Msg) {
-      // Use JSON for auth/mod messages (cleaner, no string encoding issues)
-      const authMessageTypes = [T.AUTH_REGISTER, T.AUTH_LOGIN, T.AUTH_RESULT, T.MOD_ACTION, T.MOD_RESULT, T.MOD_NOTIFY, T.MOD_LIST];
-      if (authMessageTypes.includes(data.t)) {
-        this.socket.send(JSON.stringify(data));
-        return;
-      }
-
-      // Use protobuf for all drawing messages
+      // Use protobuf for ALL messages
       const message = this.Msg.create(data);
       const buffer = this.Msg.encode(message).finish();
       this.socket.send(buffer);
@@ -930,15 +916,15 @@ sendSyncStrokesDone(targetUser) {
   // Auth methods
 
   sendAuthRegister(username, password) {
-    this.send({ t: T.AUTH_REGISTER, auth_username: username, auth_password: password });
+    this.send({ t: T.AUTH_REGISTER, authUsername: username, authPassword: password });
   }
 
   sendAuthLogin(username, password) {
-    this.send({ t: T.AUTH_LOGIN, auth_username: username, auth_password: password });
+    this.send({ t: T.AUTH_LOGIN, authUsername: username, authPassword: password });
   }
 
   sendAuthTokenLogin(token) {
-    this.send({ t: T.AUTH_LOGIN, auth_token: token });
+    this.send({ t: T.AUTH_LOGIN, authToken: token });
   }
 
   // Moderation methods
@@ -946,20 +932,20 @@ sendSyncStrokesDone(targetUser) {
   sendModAction(actionType, targetSessionIndex, reason, duration) {
     this.send({
       t: T.MOD_ACTION,
-      mod_action_type: actionType,
-      mod_target: targetSessionIndex,
-      mod_reason: reason || '',
-      mod_duration: duration || 0
+      modActionType: actionType,
+      modTarget: targetSessionIndex,
+      modReason: reason || '',
+      modDuration: duration || 0
     });
   }
 
   sendModRevoke(actionType, targetName) {
     this.send({
       t: T.MOD_ACTION,
-      mod_action_type: actionType,
-      mod_target: 0,
-      mod_target_name: targetName,
-      mod_reason: ''
+      modActionType: actionType,
+      modTarget: 0,
+      modTargetName: targetName,
+      modReason: ''
     });
   }
 
