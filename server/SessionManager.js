@@ -68,10 +68,10 @@ export class SessionManager {
       color,
       size: 1000,      // 10.00 * 100
       spacing: 10,     // 0.10 * 100
-      smoothing: 3000, // 30.00 * 100 (default 30%)
-      hardness: 10000, // 100.00 * 100 (default 100%)
+      smoothing: 15,   // 0-50 integer (default 15/50 = 30%)
+      hardness: 100,   // 0-100 integer (default 100/100 = 100%)
       pressure: 100,   // 1.00 * 100
-      blurRadius: 500, // 5.00 * 100 (default 5px)
+      blurRadius: 5,   // 0-100 integer (default 5px)
       name,
       text: ''
     };

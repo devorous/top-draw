@@ -92,7 +92,7 @@ export class InkTool extends Tool {
     const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     this.userAlpha = colorAlpha * opacitySlider;
-    this.userHardness = user.hardness !== undefined ? user.hardness : 1.0;
+    this.userHardness = user.hardness !== undefined ? user.hardness : 100;
 
     this._strokeSize = user.size;
 
@@ -167,7 +167,7 @@ export class InkTool extends Tool {
     if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
       // Aggressive margin to prevent ALL clipping.
       const strokeRadius = this._strokeSize;
-      const blurAmount = (1 - this.userHardness) * (20 + this._strokeSize * 0.2);
+      const blurAmount = (1 - (this.userHardness / 100.0)) * (20 + this._strokeSize * 0.2);
       const safetyMargin = strokeRadius * 0.5; 
       const margin = strokeRadius + (blurAmount * 2.5) + safetyMargin + 15;
 
@@ -253,7 +253,7 @@ export class InkTool extends Tool {
   }
 
   compositeWithHardness(ctx, sourceCanvas, size, x, y) {
-    const blurAmount = (1 - this.userHardness) * (20 + size * 0.2);
+    const blurAmount = (1 - (this.userHardness / 100.0)) * (20 + size * 0.2);
     if (blurAmount > 0) {
       const offset = 100000;
       ctx.save();

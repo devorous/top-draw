@@ -92,7 +92,8 @@ export class BrushTool extends Tool {
   trackDirtyRect(user, points) {
     if (!points || points.length === 0) return;
 
-    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
+    const hardness = user.hardness !== undefined ? user.hardness : 100;
+    const hardnessFloat = hardness / 100.0;
 
     // Calculate bounding box of all points
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -105,7 +106,7 @@ export class BrushTool extends Tool {
 
     // Expand by brush radius plus blur, with 25% safety margin
     const radius = user.pressure * user.size;
-    const blurAmount = hardness < 1.0 ? (1 - hardness) * (20 + user.size * 0.2) : 0;
+    const blurAmount = hardness < 100 ? (1 - hardnessFloat) * (20 + user.size * 0.2) : 0;
     const safetyMargin = radius * 0.25; // 25% additional margin for blur/hardness
     const margin = radius + blurAmount + safetyMargin + 2; // +2 for anti-aliasing
 

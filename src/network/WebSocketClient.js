@@ -199,14 +199,14 @@ export class WebSocketClient {
           color: unpackColor(u.c),
           size: (u.s ?? 1000) / 100,
           spacing: (u.sp ?? 0) / 100,
-          smoothing: (u.sm ?? 3000) / 10000,
-          hardness: (u.hd ?? 100) / 100,
+          smoothing: u.sm ?? 15,
+          hardness: (u.hd ?? 100),
           pressure: (u.p ?? 100) / 100,
           name: u.n || '',
           text: u.tx || '',
           role: u.role || 0,
           cursorHidden: u.ch || false,
-          blurRadius: (u.br ?? 500) / 100,
+          blurRadius: (u.br ?? 500),
           activeLayer: u.ly ?? 0,
           blendMode: u.bm || 'source-over'
         }));
@@ -263,15 +263,15 @@ export class WebSocketClient {
         break;
 
       case T.CSM:
-        this.emit('csm', { sessionIndex: data.u, smoothing: (data.sm ?? 3000) / 10000 });
+        this.emit('csm', { sessionIndex: data.u, smoothing: data.sm ?? 15 });
         break;
 
       case T.CHD:
-        this.emit('chd', { sessionIndex: data.u, hardness: (data.hd ?? 100) / 100 });
+        this.emit('chd', { sessionIndex: data.u, hardness: (data.hd ?? 100) });
         break;
 
       case T.CBR:
-        this.emit('cbr', { sessionIndex: data.u, blurRadius: (data.br ?? 500) / 100 });
+        this.emit('cbr', { sessionIndex: data.u, blurRadius: (data.br ?? 500) });
         break;
 
       case T.CL:
@@ -634,15 +634,15 @@ export class WebSocketClient {
   }
 
   broadcastSmoothingChange(smoothing) {
-    this.send({ t: T.CSM, sm: Math.round(smoothing * 10000) });
+    this.send({ t: T.CSM, sm: Math.round(smoothing) });
   }
 
   broadcastHardnessChange(hardness) {
-    this.send({ t: T.CHD, hd: Math.round(hardness * 100) });
+    this.send({ t: T.CHD, hd: Math.round(hardness) });
   }
 
   broadcastBlurRadiusChange(radius) {
-    this.send({ t: T.CBR, br: Math.round(radius * 100) });
+    this.send({ t: T.CBR, br: Math.round(radius) });
   }
 
   broadcastLayerChange(layerIndex) {

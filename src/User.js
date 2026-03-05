@@ -14,10 +14,10 @@ export class User {
     this.pressure = options.pressure || 1;
     this.prevpressure = 1;
     this.spacing = options.spacing || 0;
-    this.smoothing = options.smoothing !== undefined ? options.smoothing : 0.3;  // Stroke stabilization (0-1), default 30%
+    this.smoothing = options.smoothing !== undefined ? options.smoothing : 15;  // Stroke stabilization (0-50), default 30%
     this.opacity = options.opacity || 1;       // Brush opacity (0-1)
-    this.hardness = options.hardness !== undefined ? options.hardness : 1.0;  // Brush hardness (0-1), default 100%
-    this.blurRadius = options.blurRadius !== undefined ? options.blurRadius : 5;  // Blur tool radius (0-20)
+    this.hardness = options.hardness !== undefined ? options.hardness : 100;  // Brush hardness (0-100), default 100%
+    this.blurRadius = options.blurRadius !== undefined ? options.blurRadius : 5;  // Blur tool radius (0-100)
     this.spaceIndex = 0;
     this.color = options.color || [0, 0, 0, 1];
     this.tool = options.tool || 'ink';
@@ -79,7 +79,7 @@ export class User {
   }
 
   setSmoothing(smoothing) {
-    this.smoothing = Math.max(0, Math.min(1, smoothing));
+    this.smoothing = Math.max(0, Math.min(50, smoothing));
   }
 
   setOpacity(opacity) {
@@ -87,11 +87,11 @@ export class User {
   }
 
   setHardness(hardness) {
-    this.hardness = Math.max(0, Math.min(1, hardness));
+    this.hardness = Math.max(0, Math.min(100, hardness));
   }
 
   setBlurRadius(radius) {
-    this.blurRadius = Math.max(0, Math.min(20, radius));
+    this.blurRadius = Math.max(0, Math.min(100, radius));
   }
 
   setBlendMode(blendMode) {

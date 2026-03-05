@@ -258,7 +258,7 @@ export class InputBufferManager {
       return points;
     }
 
-    const userSmoothing = this.app.self.smoothing * 100; // Convert 0-1 to 0-100
+    const userSmoothing = this.app.self.smoothing !== undefined ? this.app.self.smoothing : 15;
     const baseline = this.baselineSmoothing.pointReduction;
 
     // Convert flat array [x1, y1, x2, y2, ...] to point objects
@@ -272,13 +272,13 @@ export class InputBufferManager {
     if (this.pointReduction.algorithm === 'douglas-peucker') {
       // Always apply at least baseline reduction, scale up with user smoothing
       const epsilon = baseline.minEpsilon +
-        (baseline.maxEpsilon - baseline.minEpsilon) * (userSmoothing / 100);
+        (baseline.maxEpsilon - baseline.minEpsilon) * (userSmoothing / 50);
 
       reduced = douglasPeucker(pointObjects, epsilon);
     } else if (this.pointReduction.algorithm === 'distance-based') {
       // Calculate distance threshold based on smoothing level
       const { minDistance, maxDistance } = this.pointReduction;
-      const threshold = minDistance + (maxDistance - minDistance) * (userSmoothing / 100);
+      const threshold = minDistance + (maxDistance - minDistance) * (userSmoothing / 50);
 
       reduced = distanceBasedCulling(pointObjects, threshold);
     } else {

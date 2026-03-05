@@ -221,7 +221,7 @@ export class DrawingApp {
     const { elements } = this.ui;
 
     if (elements.smoothingSlider) {
-      const smoothing = Number(elements.smoothingSlider.value) / 100;
+      const smoothing = Number(elements.smoothingSlider.value);
       this.self.setSmoothing(smoothing);
     }
 
@@ -242,6 +242,10 @@ export class DrawingApp {
 
     if (elements.blurRadiusSlider) {
       this.self.setBlurRadius(Number(elements.blurRadiusSlider.value));
+    }
+
+    if (elements.hardnessSlider) {
+      this.self.setHardness(Number(elements.hardnessSlider.value));
     }
   }
 
@@ -483,11 +487,11 @@ export class DrawingApp {
     });
 
     this.ui.makeValueEditable(elements.smoothingValue, {
-      min: 0, max: 100, step: 1, suffix: '',
+      min: 0, max: 50, step: 1, suffix: '',
       onCommit: (val) => {
-        this.self.setSmoothing(val / 100);
+        this.self.setSmoothing(val);
         elements.smoothingSlider.value = val;
-        this.wsClient.broadcastSmoothingChange(val / 100);
+        this.wsClient.broadcastSmoothingChange(val);
       }
     });
 
@@ -503,9 +507,9 @@ export class DrawingApp {
     this.ui.makeValueEditable(elements.hardnessValue, {
       min: 0, max: 100, step: 1, suffix: '',
       onCommit: (val) => {
-        this.self.setHardness(val / 100);
+        this.self.setHardness(val);
         elements.hardnessSlider.value = val;
-        this.wsClient.broadcastHardnessChange(val / 100);
+        this.wsClient.broadcastHardnessChange(val);
       }
     });
 
@@ -1181,16 +1185,16 @@ export class DrawingApp {
 
   handleSmoothingChange(e) {
     const smoothing = Number(e.target.value);
-    this.self.setSmoothing(smoothing / 100); // Convert to 0-1 range
+    this.self.setSmoothing(smoothing);
     this.ui.updateSmoothingValue(smoothing);
-    this.wsClient.broadcastSmoothingChange(smoothing / 100);
+    this.wsClient.broadcastSmoothingChange(smoothing);
   }
 
   handleHardnessChange(e) {
     const hardness = Number(e.target.value);
-    this.self.setHardness(hardness / 100); // Convert to 0-1 range
-    this.ui.updateHardnessValue(hardness / 100);
-    this.wsClient.broadcastHardnessChange(hardness / 100);
+    this.self.setHardness(hardness);
+    this.ui.updateHardnessValue(hardness);
+    this.wsClient.broadcastHardnessChange(hardness);
   }
 
   handleopacityChange(e) {

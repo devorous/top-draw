@@ -20,22 +20,23 @@
  * @param {Object} buffer - Smoothing buffer with {x, y, isFirst} properties
  * @param {number} targetX - Target X position (raw input)
  * @param {number} targetY - Target Y position (raw input)
- * @param {number} userSmoothing - User smoothing setting (0-1 range)
+ * @param {number} userSmoothing - User smoothing setting (0-50 range)
  * @param {number} baseline - Baseline smoothing factor (default: 0.12 = 12%)
  * @returns {Object} Smoothed position {x, y}
  *
  * @example
  * const buffer = { x: 0, y: 0, isFirst: true };
- * const smoothed = applySmoothingEMA(buffer, 100, 50, 0.3);
+ * const smoothed = applySmoothingEMA(buffer, 100, 50, 15);
  * // buffer.isFirst is now false, buffer.x and buffer.y contain smoothed values
  * console.log(smoothed); // { x: 100, y: 50 } on first call (no smoothing)
  *
- * const smoothed2 = applySmoothingEMA(buffer, 120, 60, 0.3);
+ * const smoothed2 = applySmoothingEMA(buffer, 120, 60, 15);
  * console.log(smoothed2); // { x: ~105, y: ~52.5 } with smoothing applied
  */
 export function applySmoothingEMA(buffer, targetX, targetY, userSmoothing, baseline = 0.12) {
   // Calculate total smoothing: baseline (always on) + user contribution
-  const totalSmoothing = baseline + userSmoothing * (1 - baseline);
+  // userSmoothing is now 0-50 integer, so divide by 50.0 to get 0-1 range
+  const totalSmoothing = baseline + (userSmoothing / 50.0) * (1 - baseline);
 
   // First point: initialize buffer with target position (no smoothing)
   if (buffer.isFirst || totalSmoothing === 0) {

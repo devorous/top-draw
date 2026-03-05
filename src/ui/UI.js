@@ -666,7 +666,7 @@ export class UI {
 
   updateHardnessValue(hardness) {
     if (this.elements.hardnessValue) {
-      this.elements.hardnessValue.textContent = Math.round(hardness * 100);
+      this.elements.hardnessValue.textContent = Math.round(hardness);
     }
   }
 

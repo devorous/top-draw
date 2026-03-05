@@ -10,6 +10,7 @@ import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
 import { SessionManager, Role } from './SessionManager.js';
 import { SyncCoordinator } from './SyncCoordinator.js';
+import { sanitizeMessage } from './validation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -202,15 +203,15 @@ async function handleBroadcast(data, sessionIndex) {
       user.spacing = data.sp;
       break;
 
-    case T.CSM: // Change smoothing — data.sm is smoothing * 100 (e.g. 3000 = 30%)
+    case T.CSM: // Change smoothing — data.sm is 0-50 integer
       user.smoothing = data.sm;
       break;
 
-    case T.CHD: // Change hardness — data.hd is hardness * 100 (e.g. 10000 = 100%)
+    case T.CHD: // Change hardness — data.hd is 0-100 integer
       user.hardness = data.hd;
       break;
 
-    case T.CBR: // Change blur radius — data.br is blur radius * 100 (e.g. 500 = 5.0px)
+    case T.CBR: // Change blur radius — data.br is 0-100 integer
       user.blurRadius = data.br;
       break;
 
@@ -311,6 +312,9 @@ wss.on('connection', (ws, req) => {
         console.warn(`[WS] Dropping unknown message: first byte 0x${firstByte.toString(16)}, length ${rawData.length}, from session ${ws.sessionIndex ?? 'unassigned'}`);
         return;
       }
+
+      // Sanitize input data
+      data = sanitizeMessage(data);
 
       // Debug: Log message type for CHAT_IMG
       if (data.t === T.CHAT_IMG || data.t === 40) {
