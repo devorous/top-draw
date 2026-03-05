@@ -107,9 +107,6 @@ export class RemoteInkHandler {
     // Final render with last=true for tapered end
     this.renderInkStroke(user, true);
 
-    // Clear preview FIRST to prevent double opacity
-    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-
     // Composite offscreen source-over into the sub-layer; blend mode applied at composite time.
     const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);
     if (layerCtx) {
@@ -151,7 +148,9 @@ export class RemoteInkHandler {
     // Per-point pressure modulates width via thinning.
     const allMaxPressure = user._inkPoints.every(p => p[2] === 1);
     const options = {
-      size: ((user._inkSize || user.size) * 2) / 1.5,
+      // 1.33x diameter results in a 1.0x visual radius.
+      // Use Math.max to prevent perfect-freehand from collapsing at extremely small sizes.
+      size: Math.max(0.1, ((user._inkSize || user.size) * 2) / 1.5),
       thinning: 0.5,
       smoothing: 0.5,      // perfect-freehand's VISUAL curve smoothing (not position EMA)
       streamline: 0.5,

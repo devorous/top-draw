@@ -254,6 +254,17 @@ export class RemoteUserHandler {
     }
 
     switch (user.tool) {
+      case 'brush':
+        if (user.currentLine.length >= 2) {
+          drawLineArray(user.currentLine, user.context, user);
+          if (this.board.mirror) {
+            const w = this.board.getWidth();
+            const mirroredLine = mirrorLine(user.currentLine, w);
+            drawLineArray(mirroredLine, user.context, user);
+          }
+        }
+        break;
+
       case 'line':
         this.toolManager.getTool('line').drawPreview(user.context, user, user.startPos, pos);
         if (this.board.mirror) {
@@ -543,16 +554,22 @@ export class RemoteUserHandler {
       this.debugOverlay.endStrokeTracking(user.id);
     }
 
+    // Synchronously composite all layers to the visible canvas BEFORE clearing the preview.
+    // This ensures there is no frame where the stroke is missing from both.
+    this.board.compositeAllLayers();
 
-    // Composite all layers to visible canvas after remote drawing
-    this.board.requestUpdate();
+    // Clear preview canvas ONLY after we are certain the main board has the updated stroke
+    // Skip for select tool when a floating selection exists — its rendering
+    // is handled by RemoteSelectionHandler and clearing here would erase it.
+    if (!(user.tool === 'select' && user.floatingCanvas)) {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
 
     // Commit the stroke to the history stack.
     // Skip if tool is text, as text is committed immediately in handleMouseDown.
     if (user.tool !== 'text') {
       this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
     }
-
     // Cleanup (preview was already cleared at start of handleMouseUp)
     user.clearLine();
     user.mousedown = false;

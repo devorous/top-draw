@@ -28,6 +28,7 @@ export class Chat {
 
     // Image upload state
     this.pendingImage = null;
+    this.isDragging = false;
   }
 
   init() {
@@ -61,8 +62,12 @@ export class Chat {
     const allTab = document.getElementById('chatTabAll');
     const dmTab = document.getElementById('chatTabDM');
 
-    allTab?.addEventListener('click', () => this.switchTab('all'));
-    dmTab?.addEventListener('click', () => this.switchTab('dm'));
+    allTab?.addEventListener('click', () => {
+      if (!this.isDragging) this.switchTab('all');
+    });
+    dmTab?.addEventListener('click', () => {
+      if (!this.isDragging) this.switchTab('dm');
+    });
 
     const backBtn = document.getElementById('chatBackBtn');
     backBtn?.addEventListener('click', () => {
@@ -731,6 +736,7 @@ export class Chat {
 
     document.addEventListener('mousemove', (e) => {
       if (isDragging) {
+        this.isDragging = true; // Use class property for external access
         this.container.style.left = `${e.clientX - offsetX}px`;
         this.container.style.top = `${e.clientY - offsetY}px`;
       }
@@ -740,6 +746,8 @@ export class Chat {
       if (isDragging) {
         isDragging = false;
         this.container.style.cursor = 'default';
+        // Delay resetting isDragging class property slightly to catch final click events
+        setTimeout(() => { this.isDragging = false; }, 50);
       }
     });
   }

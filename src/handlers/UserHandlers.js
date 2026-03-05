@@ -37,6 +37,12 @@ export function setupUserHandlers(wsClient, app) {
           user.setTool(userData.tool);
           users.set(userData.sessionIndex, user);
 
+          // Initialize image brush if present in sync data
+          const brushData = userData.ib || userData.imageBrush;
+          if (brushData && remoteUserHandler) {
+            remoteUserHandler.handleBrushLoad(user, brushData);
+          }
+
           const boardData = ui.createUserBoard(userData.sessionIndex);
           user.board = boardData.board;
           user.context = boardData.context;

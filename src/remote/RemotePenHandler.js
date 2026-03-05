@@ -43,7 +43,7 @@ export class RemotePenHandler {
     user._penAlpha = colorAlpha * opacitySlider;
     user._penHardness = user.hardness !== undefined ? user.hardness : 1.0;
 
-    // Draw hard stamps - blur will be applied globally during composite
+    // Draw initial hard stamp
     const ctx = user._penOffscreenCtx;
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, Math.max(0.5, radius), 0, Math.PI * 2);
@@ -132,9 +132,6 @@ export class RemotePenHandler {
 
   handlePenUp(user) {
     if (!user._penLastStampPos || !user._penOffscreen) return;
-
-    // Clear preview FIRST to prevent double opacity (preview + final stacking)
-    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
 
     // Composite offscreen source-over into the sub-layer; blend mode applied at composite time.
     const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);

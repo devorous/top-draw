@@ -239,6 +239,10 @@ async function handleBroadcast(data, sessionIndex) {
     case T.MSG: // Chat message — no server-side state change needed, just bump activity timestamp
       sessionManager.updateUserActivity(sessionIndex);
       break;
+
+    case T.GMP: // Image brush load — data.bd is the GIMP brush metadata (JSON string or object)
+      user.imageBrush = data.bd;
+      break;
   }
 
   // Mute enforcement: block drawing + chat from muted users
@@ -335,7 +339,8 @@ wss.on('connection', (ws, req) => {
               ch: u.cursorHidden || false,
               br: u.blurRadius || 500,
               ly: u.activeLayer || 0,
-              bm: u.blendMode || 'source-over'
+              bm: u.blendMode || 'source-over',
+              ib: u.imageBrush
             }))
           });
 

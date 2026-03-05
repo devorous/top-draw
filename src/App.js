@@ -1316,7 +1316,7 @@ export class DrawingApp {
 
     // Add to recent colors
     if (this.colorPalette) {
-      this.colorPalette.addRecent(rgba);
+      this.colorPalette.addRecentColor(rgba);
     }
   }
 

@@ -73,7 +73,8 @@ export class SessionManager {
       pressure: 100,   // 1.00 * 100
       blurRadius: 5,   // 0-100 integer (default 5px)
       name,
-      text: ''
+      text: '',
+      imageBrush: null // Stores active GIMP brush data (JSON string or object)
     };
     this.users.set(sessionIndex, newUser);
     return newUser;

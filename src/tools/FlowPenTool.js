@@ -160,9 +160,6 @@ export class FlowPenTool extends Tool {
       }
     }
 
-    // Clear preview FIRST to prevent composite boldness
-    this.board.clearTop();
-
     // Composite offscreen canvas source-over into the sub-layer.
     // The sub-layer's blend mode is applied at composite time, not here.
     const ctx = this.board.getActiveLayerContext();
@@ -212,6 +209,7 @@ export class FlowPenTool extends Tool {
     // Composite all layers to visible canvas
     this.board.compositeAllLayers();
     this.board.endStroke(user);
+    this.board.clearTop();
   }
 
   stampCircle(x, y, radius, pressure255) {
@@ -305,8 +303,6 @@ export class FlowPenTool extends Tool {
     this.lastStampPos = null;
     this.stampBuffer = [];
     this.dirtyBounds = null;
-    // Clear the preview from the top canvas as well
-    this.board.clearTop();
   }
 
   deactivate() {}

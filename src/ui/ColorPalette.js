@@ -185,23 +185,34 @@ export class ColorPalette {
    */
   colorsEqual(a, b) {
     if (!a || !b) return false;
-    return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+    // Standardize alpha for comparison if one is very small but not zero (likely corrupted)
+    const a3 = (a[3] > 0 && a[3] < 0.01) ? 1.0 : a[3];
+    const b3 = (b[3] > 0 && b[3] < 0.01) ? 1.0 : b[3];
+    return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a3 === b3;
   }
 
   /**
-   * Convert color array to rgba string
+   * Convert color array to rgba string.
+   * Handles 0-1 and 0-255 alpha ranges robustly.
    */
   colorToRgba(color) {
-    return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3]})`;
+    if (!color) return 'rgba(0,0,0,1)';
+    let alpha = color[3];
+    // Repair: if alpha is > 0 but extremely small, it was likely corrupted by a previous bug
+    if (alpha > 0 && alpha < 0.01) alpha = 1.0;
+    // If alpha is > 1, assume it's in 0-255 range
+    if (alpha > 1) alpha = alpha / 255;
+    return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`;
   }
 
   /**
    * Convert color array to hex string
    */
   colorToHex(color) {
-    const r = color[0].toString(16).padStart(2, '0');
-    const g = color[1].toString(16).padStart(2, '0');
-    const b = color[2].toString(16).padStart(2, '0');
+    if (!color) return '#000000';
+    const r = Math.round(color[0]).toString(16).padStart(2, '0');
+    const g = Math.round(color[1]).toString(16).padStart(2, '0');
+    const b = Math.round(color[2]).toString(16).padStart(2, '0');
     return `#${r}${g}${b}`.toUpperCase();
   }
 
@@ -210,7 +221,13 @@ export class ColorPalette {
    */
   saveCustomColors() {
     try {
-      localStorage.setItem('topdraw_customColors', JSON.stringify(this.customColors));
+      // Ensure we don't save corrupted alpha values
+      const cleanColors = this.customColors.map(c => {
+        const copy = [...c];
+        if (copy[3] > 0 && copy[3] < 0.01) copy[3] = 1.0;
+        return copy;
+      });
+      localStorage.setItem('topdraw_customColors', JSON.stringify(cleanColors));
     } catch (e) {
       console.warn('Failed to save custom colors:', e);
     }
@@ -224,6 +241,10 @@ export class ColorPalette {
       const saved = localStorage.getItem('topdraw_customColors');
       if (saved) {
         this.customColors = JSON.parse(saved);
+        // Repair loaded colors
+        this.customColors.forEach(c => {
+          if (c[3] > 0 && c[3] < 0.01) c[3] = 1.0;
+        });
       }
     } catch (e) {
       console.warn('Failed to load custom colors:', e);
@@ -236,7 +257,13 @@ export class ColorPalette {
    */
   saveRecentColors() {
     try {
-      localStorage.setItem('topdraw_recentColors', JSON.stringify(this.recentColors));
+      // Ensure we don't save corrupted alpha values
+      const cleanColors = this.recentColors.map(c => {
+        const copy = [...c];
+        if (copy[3] > 0 && copy[3] < 0.01) copy[3] = 1.0;
+        return copy;
+      });
+      localStorage.setItem('topdraw_recentColors', JSON.stringify(cleanColors));
     } catch (e) {
       console.warn('Failed to save recent colors:', e);
     }
@@ -250,6 +277,10 @@ export class ColorPalette {
       const saved = localStorage.getItem('topdraw_recentColors');
       if (saved) {
         this.recentColors = JSON.parse(saved);
+        // Repair loaded colors
+        this.recentColors.forEach(c => {
+          if (c[3] > 0 && c[3] < 0.01) c[3] = 1.0;
+        });
       }
     } catch (e) {
       console.warn('Failed to load recent colors:', e);
