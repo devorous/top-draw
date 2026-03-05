@@ -765,15 +765,27 @@ export class LayerManager {
       // Optimized path: Use dirtyRect to get focused imageData and scan only that.
       const dr = dirtyRect;
       const ctx = canvas.getContext('2d');
-      const imageData = ctx.getImageData(dr.minX, dr.minY, dr.maxX - dr.minX + 1, dr.maxY - dr.minY + 1);
+      
+      // Safety check: Ensure bounds are positive and within canvas
+      const scanX = Math.max(0, dr.minX);
+      const scanY = Math.max(0, dr.minY);
+      const scanW = Math.min(canvas.width - scanX, dr.maxX - scanX + 1);
+      const scanH = Math.min(canvas.height - scanY, dr.maxY - scanY + 1);
+
+      if (scanW <= 0 || scanH <= 0) {
+        console.warn('[LayerManager] Invalid dirtyRect detected, falling back to legacy scan:', dr);
+        return this._findContentBoundsLegacy(canvas);
+      }
+
+      const imageData = ctx.getImageData(scanX, scanY, scanW, scanH);
       const contentInDirtyRect = this._scanImageDataForContent(imageData);
 
       if (!contentInDirtyRect) return null; // Empty stroke within dirty rect
 
       // Adjust bounds to be relative to the original canvas
       return {
-        x: dr.minX + contentInDirtyRect.x,
-        y: dr.minY + contentInDirtyRect.y,
+        x: scanX + contentInDirtyRect.x,
+        y: scanY + contentInDirtyRect.y,
         width: contentInDirtyRect.width,
         height: contentInDirtyRect.height
       };

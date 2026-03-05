@@ -83,7 +83,11 @@ export class FlowPenTool extends Tool {
     const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     this.userAlpha = colorAlpha * opacitySlider;
-    this.userHardness = user.hardness !== undefined ? user.hardness : 1.0;
+    
+    // Standardize hardness: UI uses 0-100, tool expects 0.0-1.0
+    const rawHardness = user.hardness !== undefined ? user.hardness : 100;
+    this.userHardness = rawHardness > 1.0 ? rawHardness / 100.0 : rawHardness;
+    if (this.userHardness > 1.0) this.userHardness = 1.0; // Cap at 1.0
 
     // Position is already smoothed by InputBufferManager
     // Stamp first circle
