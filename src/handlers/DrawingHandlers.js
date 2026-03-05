@@ -39,7 +39,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('cp', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      if (user.mousedown && user.tool === 'brush' && !user._penStrokeActive) {
+      if (user.mousedown && user.tool === 'brush' && !user._penStrokeActive && !user._inkStrokeActive) {
         remoteUserHandler.commitLine(user, data.pressure, user.size);
       }
       user.setPressure(data.pressure);
@@ -50,7 +50,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('cs', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      if (user.mousedown && user.tool === 'brush' && !user._penStrokeActive) {
+      if (user.mousedown && user.tool === 'brush' && !user._penStrokeActive && !user._inkStrokeActive) {
         remoteUserHandler.commitLine(user, user.pressure, data.size);
       }
       user.setSize(data.size);
