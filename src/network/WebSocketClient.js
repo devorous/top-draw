@@ -228,7 +228,11 @@ export class WebSocketClient {
         break;
 
       case T.MD:
-        this.emit('md', { sessionIndex: data.u });
+        this.emit('md', {
+          sessionIndex: data.u,
+          ps: data.ps || null,
+          rs: data.rs || null
+        });
         break;
 
       case T.MU:
@@ -607,8 +611,8 @@ export class WebSocketClient {
     });
   }
 
-  broadcastMouseDown() {
-    this.send({ t: T.MD });
+  broadcastMouseDown(points, radii) {
+    this.send({ t: T.MD, ps: points, rs: radii });
   }
 
   broadcastMouseUp() {

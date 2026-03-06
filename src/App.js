@@ -1584,13 +1584,26 @@ export class DrawingApp {
     this.self.spaceIndex = 0;
     this.self._mainCtxDrawCount = 0; // Reset draw counter for this stroke
 
+    // Reset smoothing buffer for new stroke
+    this.inputBufferManager.resetBroadcastSmoothing();
+
     // Defer broadcastMouseDown for pen input — pressure isn't known yet at pointerDown,
     // so sending MD now would cause the remote side to draw the initial dot at max size.
     // It will be sent when _pendingPenDown is resolved in handlePointerMove.
     // Also don't broadcast if panning to prevent unwanted dots when space+click panning.
     const deferBroadcast = e.pointerType === 'pen' && this.pressureEnabled && !this.self.panning;
     if (!deferBroadcast && !this.self.panning) {
-      this.wsClient.broadcastMouseDown();
+      // For tools that use smoothing, send the smoothed initial point instead of raw click.
+      // This ensures remote users see perfect parity with the sender.
+      const smoothingTools = ['brush', 'flowPen', 'ink', 'imageBrush', 'erase'];
+      let broadcastPos = [pos.x, pos.y];
+      if (smoothingTools.includes(this.self.tool)) {
+        const smoothed = this.inputBufferManager.applyBroadcastSmoothing([pos.x, pos.y]);
+        broadcastPos = [smoothed[0], smoothed[1]];
+        // Update local self position to match the smoothed broadcast position
+        this.self.setPosition(smoothed[0], smoothed[1]);
+      }
+      this.wsClient.broadcastMouseDown(broadcastPos);
     }
 
     if (!this.self.panning) {

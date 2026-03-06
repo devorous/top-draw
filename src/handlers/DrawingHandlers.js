@@ -23,7 +23,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('md', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.handleMouseDown(user);
+      remoteUserHandler.handleMouseDown(user, data);
     }
   });
 

@@ -305,16 +305,28 @@ export class RemoteUserHandler {
     }
   }
 
-  handleMouseDown(user) {
-    user.lastx = user.x;
-    user.lasty = user.y;
-    user.spaceIndex = 0;
+  handleMouseDown(user, data = {}) {
     user.mousedown = true;
     user._mainCtxDrawCount = 0; // Reset draw counter for this stroke
 
     // Reset smoothing buffer for the new stroke
     resetSmoothingBuffer(user.smoothBuffer);
     user.remoteTarget = null;
+
+    // Use broadcast position if provided (already smoothed by sender)
+    // This ensures remote users don't see raw click positions when high smoothing is active
+    if (data.ps && data.ps.length >= 2) {
+      const rx = data.ps[0];
+      const ry = data.ps[1];
+      user.setPosition(rx, ry);
+      user.smoothBuffer.x = rx;
+      user.smoothBuffer.y = ry;
+      user.smoothBuffer.isFirst = false;
+    }
+
+    user.lastx = user.x;
+    user.lasty = user.y;
+    user.spaceIndex = 0;
 
     const pos = { x: user.x, y: user.y };
     // Essential for all shape tools and selection
