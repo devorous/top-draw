@@ -66,7 +66,6 @@ export class DebugOverlay {
         rects: dirtyRects.slice(),
         timestamp: Date.now()
       });
-      console.log('[DebugOverlay] Captured dirty rects:', dirtyRects.length, dirtyRects);
     } else if (!this.enabled) {
       this.dirtyRectHistory = [];
     }

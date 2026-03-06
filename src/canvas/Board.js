@@ -452,12 +452,10 @@ export class Board {
    */
   _addOrMergeDirtyRect(x, y, width, height) {
     const newRect = { x, y, width, height };
-    console.log('[Board] Adding dirty rect:', newRect);
 
     // Empty array: just add it
     if (this._dirtyRects.length === 0) {
       this._dirtyRects.push(newRect);
-      console.log('[Board] First dirty rect added, total:', this._dirtyRects.length);
       return;
     }
 
@@ -677,10 +675,6 @@ export class Board {
 
     // Capture dirty rects for this composite and reset for next frame
     const dirtyRects = this._dirtyRects.slice(); // Clone array
-
-    if (dirtyRects.length > 0) {
-      console.log('[Board] Compositing with', dirtyRects.length, 'dirty rects:', dirtyRects);
-    }
 
     // Notify debug overlay before resetting (so it can visualize them)
     if (this.app?.debugOverlay) {

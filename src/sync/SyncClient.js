@@ -361,10 +361,8 @@ export class SyncClient {
       if (data.eraseAll) record.eraseAll = true;
 
       if (!data.isRedo) {
-        console.log(`[SyncClient] Importing stroke: layerIdx=${data.layerIdx}, userId=${data.userId}, timestamp=${data.timestamp}, x=${data.x}, y=${data.y}`);
         this.board.layerManager.importStroke(data.layerIdx, record);
       } else {
-        console.log(`[SyncClient] Importing redo stroke: batchIdx=${data.redoBatchIdx}, layerIdx=${data.layerIdx}, userId=${data.userId}, timestamp=${data.timestamp}`);
         this.board.layerManager.importRedoStroke(data.userId, data.redoBatchIdx, data.layerIdx, record);
       }
 
@@ -381,7 +379,6 @@ export class SyncClient {
    */
   handleSyncStrokesDone() {
     // No action needed here — handleSyncComplete waits for _pendingImports.
-    console.log('[SyncClient] All stroke messages received, waiting for imports...');
   }
 
   /**
@@ -401,7 +398,6 @@ export class SyncClient {
     this._pendingImports = [];
 
     const finalize = () => {
-      console.log('[SyncClient] Imports settled, replaying', this.eventBuffer.length, 'buffered events');
       if (this.board) this.board.compositeAllLayers();
       this.replayBuffer();
       this.hideOverlay();
@@ -413,7 +409,6 @@ export class SyncClient {
     };
 
     if (pending.length > 0) {
-      console.log('[SyncClient] Waiting for', pending.length, 'pending imports...');
       this.updateProgress('Processing images...');
       Promise.all(pending).then(finalize).catch((err) => {
         console.error('[SyncClient] Error during stroke import:', err);

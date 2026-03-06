@@ -1,13 +1,9 @@
-console.log('[main.js] Script loaded!');
-
 // Import SCSS - Vite will compile and inject it
 import '../public/css/main.scss';
 
 import { DrawingApp } from './App.js';
-console.log('[main.js] Import successful');
 
 async function init() {
-  console.log('[main.js] Init function called');
   // Get WebSocket server URL from environment or use default
   const wsServerUrl = import.meta.env.VITE_WS_SERVER_URL || null;
 
@@ -18,7 +14,6 @@ async function init() {
 
   try {
     await app.init();
-    console.log('[main.js] App initialized');
 
     // Dismiss loading screen and show main app
     const loadingScreen = document.getElementById('app-loading-screen');

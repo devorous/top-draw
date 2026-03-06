@@ -260,7 +260,6 @@ export class LayerManager {
     this._releaseCanvas(active);
 
     const record = { canvas: croppedCanvas, ctx: croppedCtx, x, y, width, height, blendMode: active.blendMode, userId, timestamp: Date.now(), ...extraProps };
-    console.log(`[LayerManager.commitUserStroke] Adding stroke for userId=${userId}, layer=${groupIdx}, timestamp=${record.timestamp}, stackSize=${group.strokeStack.length}`);
     group.strokeStack.push(record);
 
     const prev = group.userStrokeCounts.get(userId) || 0;
@@ -360,12 +359,7 @@ export class LayerManager {
     let insertIdx = group.strokeStack.findIndex(s => s.timestamp > record.timestamp);
     if (insertIdx === -1) insertIdx = group.strokeStack.length;
 
-    console.log(`[LayerManager] Inserting stroke at index ${insertIdx}/${group.strokeStack.length}, timestamp=${record.timestamp}`);
-    console.log(`[LayerManager] Stack before:`, group.strokeStack.map(s => s.timestamp));
-
     group.strokeStack.splice(insertIdx, 0, record);
-
-    console.log(`[LayerManager] Stack after:`, group.strokeStack.map(s => s.timestamp));
 
     const prev = group.userStrokeCounts.get(record.userId) || 0;
     group.userStrokeCounts.set(record.userId, prev + 1);
@@ -1366,7 +1360,6 @@ export class LayerManager {
   clear(index) {
     const group = this.layerGroups[index];
     if (group) {
-      console.log(`[LayerManager.clear] Clearing layer ${index}, strokeStack had ${group.strokeStack.length} strokes`);
       group.bakedSequences = [];
       group.strokeStack = [];
       group.userStrokeCounts.clear();
@@ -1380,19 +1373,16 @@ export class LayerManager {
       }
       this.needsComposite = true;
       this._notifyHistoryPanel();
-      console.log(`[LayerManager.clear] Layer ${index} cleared, strokeStack.length = ${group.strokeStack.length}`);
     }
   }
 
   clearAll() {
-    console.log('[LayerManager.clearAll] Called - clearing all layers');
     for (let i = 0; i < this.layerGroups.length; i++) {
       this.clear(i);
     }
     // Clear all redo stacks
     this.redoStackByUser.clear();
     this._notifyHistoryPanel();
-    console.log('[LayerManager.clearAll] Complete');
   }
 
   resize(width, height) {
