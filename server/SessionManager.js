@@ -74,7 +74,8 @@ export class SessionManager {
       blurRadius: 5,   // 0-100 integer (default 5px)
       name,
       text: '',
-      imageBrush: null // Stores active GIMP brush data (JSON string or object)
+      imageBrush: null, // Stores active GIMP brush data (JSON string or object)
+      role: Role.ADMIN  // TODO: TEMPORARY - All users are admin for testing
     };
     this.users.set(sessionIndex, newUser);
     return newUser;

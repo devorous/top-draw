@@ -217,6 +217,8 @@ async function handleBroadcast(data, sessionIndex, room) {
       break;
 
     case T.CN: // Change name — sent when a user enters the canvas; this is the "join" event for anon users
+      const wasNameless = !user.name;
+      const oldName = user.name;
       user.name = data.n;
       // Also sync other properties if provided in the CN message (prevents join race conditions)
       if (data.s !== undefined) user.size = data.s;
@@ -229,6 +231,39 @@ async function handleBroadcast(data, sessionIndex, room) {
       if (data.ly !== undefined) user.activeLayer = data.ly;
       if (data.bm !== undefined) user.blendMode = data.bm;
       room.sessionManager.updateUserActivity(sessionIndex);
+
+      console.log(`[CN] Session ${sessionIndex}: ${wasNameless ? 'gaining name' : 'changing name from "' + oldName + '"'} to "${data.n}"`);
+
+      // After a user gains a name, broadcast updated USERS list to ensure all clients see the new user
+      if (wasNameless && user.name) {
+        const roomBroadcaster = createRoomBroadcaster(room);
+        const joinedUsers = room.sessionManager.getJoinedUsers();
+        console.log(`[CN] User ${user.name}(${sessionIndex}) gained name. Broadcasting updated USERS to room ${room.id}: ${joinedUsers.length} users:`, joinedUsers.map(u => `${u.name}(${u.sessionIndex})`).join(', '));
+        roomBroadcaster({
+          t: T.USERS,
+          us: joinedUsers.map(u => ({
+            u: u.sessionIndex,
+            a: u.afk,
+            x: u.x,
+            y: u.y,
+            l: u.tool,
+            c: u.color,
+            s: u.size,
+            sp: u.spacing,
+            sm: u.smoothing,
+            hd: u.hardness,
+            p: u.pressure,
+            n: u.name,
+            tx: u.text,
+            role: u.role || Role.GUEST,
+            ch: u.cursorHidden || false,
+            br: u.blurRadius || 500,
+            ly: u.activeLayer || 0,
+            bm: u.blendMode || 'source-over',
+            ib: u.imageBrush
+          }))
+        });
+      }
       break;
 
     case T.KP: // Key press — only relevant to the text tool; server mirrors the text buffer for USERS sync
@@ -291,14 +326,24 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
 
   const buffer = Msg.encode(POOLED_MSG).finish();
 
+  let sentCount = 0;
+  let excludedCount = 0;
+
   room.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       if (excludeIndex != null && client.sessionIndex == excludeIndex) {
+        excludedCount++;
+        console.log(`[Broadcast] Excluding session ${client.sessionIndex} from message type ${payload.t}`);
         return;
       }
       client.send(buffer);
+      sentCount++;
     }
   });
+
+  if (payload.t === T.CN) {
+    console.log(`[Broadcast] CN message sent to ${sentCount} clients, excluded ${excludedCount} (excludeIndex: ${excludeIndex})`);
+  }
 }
 
 wss.on('connection', (ws, req) => {
@@ -306,7 +351,7 @@ wss.on('connection', (ws, req) => {
     console.log(`[WS] New connection attempt from ${req.socket.remoteAddress}`);
 
     ws.clientIp = getClientIp(req);
-    ws.userRole = Role.GUEST;
+    ws.userRole = Role.ADMIN; // TODO: TEMPORARY - All users are admin for testing
     ws.userId = null;
     ws.username = null;
     ws.isMuted = false;
@@ -386,23 +431,29 @@ wss.on('connection', (ws, req) => {
           const sessionIndex = room.sessionManager.allocateSessionIndex();
           ws.sessionIndex = sessionIndex;
 
+          // Create user without a name initially - name will be set via CN message
+          // This ensures proper USERS broadcast when user joins
+          console.log(`[CONNECT] Session ${sessionIndex} connecting (nameless, will receive name via CN)`);
+
           const newUser = room.sessionManager.createUser(
             sessionIndex,
-            data.n || '',
+            '', // Empty name - will be set via CN message
             Tool.BRUSH,
             packColor([0, 0, 0, 1])
           );
 
-          console.log('Connected:', sessionIndex, '| Room:', room.id, '| Users:', room.sessionManager.getUserCount());
+          console.log(`[CONNECT] Session ${sessionIndex} connected to room ${room.id} | Total users: ${room.sessionManager.getUserCount()}`);
 
-          // Send session index back to connecting user
-          sendTo(ws, { t: T.CONNECT, u: sessionIndex });
+          // Send session index and role back to connecting user
+          sendTo(ws, { t: T.CONNECT, u: sessionIndex, auth_role: ws.userRole });
 
           // Send current joined users to all in this room (only users with a name)
           const roomBroadcaster = createRoomBroadcaster(room);
+          const joinedUsers = room.sessionManager.getJoinedUsers();
+          console.log(`[CONNECT] Broadcasting USERS to room ${room.id}: ${joinedUsers.length} users with names:`, joinedUsers.map(u => `${u.name}(${u.sessionIndex})`).join(', '));
           roomBroadcaster({
             t: T.USERS,
-            us: room.sessionManager.getJoinedUsers().map(u => ({
+            us: joinedUsers.map(u => ({
               u: u.sessionIndex,
               a: u.afk,
               x: u.x,
@@ -694,6 +745,30 @@ wss.on('connection', (ws, req) => {
             console.error('[Mod] Action error:', err);
             sendTo(ws, { t: T.MOD_RESULT, a: false, auth_error: 'Moderation action failed' });
           }
+          break;
+        }
+
+        // Wipe user — remove all strokes from a specific user (mod action)
+        case T.MOD_WIPE: {
+          if (ws.userRole < Role.MOD) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, auth_error: 'Insufficient permissions' });
+            break;
+          }
+
+          const targetIndex = data.mod_target;
+          const targetName = data.mod_target_name || `User ${targetIndex}`;
+
+          // Broadcast to all clients in the room to wipe this user's strokes
+          const roomBroadcaster = createRoomBroadcaster(room);
+          roomBroadcaster({
+            t: T.MOD_WIPE,
+            mod_target: targetIndex,
+            mod_target_name: targetName,
+            mod_issuer_name: ws.username || `User ${ws.sessionIndex}`
+          });
+
+          console.log(`[Mod] ${ws.username} wiped all strokes from ${targetName}`);
+          sendTo(ws, { t: T.MOD_RESULT, a: true });
           break;
         }
 

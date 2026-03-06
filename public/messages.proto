@@ -69,6 +69,9 @@ message Msg {
     UNDO               = 60;  // Undo last stroke for user
     REDO               = 61;  // Redo last undone stroke for user
     SYNC_STROKE_BATCH  = 62;  // Batch of strokes per layer (efficient sync)
+    ROOM_LIST_REQUEST  = 63;  // Request list of rooms
+    ROOM_LIST_RESPONSE = 64;  // Response with room list
+    MOD_WIPE           = 65;  // Wipe all strokes from a user (mod action)
   }
 
   // Tool enum

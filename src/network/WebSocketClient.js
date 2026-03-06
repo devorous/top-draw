@@ -98,10 +98,12 @@ export class WebSocketClient {
     this.socket.onopen = () => {
       this.connected = true;
       this._connectAttempts = 0;
-      console.log('WebSocket connected, sending CONNECT');
+      const username = this._userData.username || this._userData.name || '';
+      console.log('WebSocket connected, sending CONNECT with username:', username);
+      console.log('_userData:', this._userData);
 
       // Send connect with optional name
-      this.send({ t: T.CONNECT, n: this._userData.name || '' });
+      this.send({ t: T.CONNECT, n: username });
     };
 
     this.socket.onmessage = (event) => {
@@ -190,11 +192,12 @@ export class WebSocketClient {
 
     switch (data.t) {
       case T.CONNECT:
-        // Server assigned us a session index
+        // Server assigned us a session index and role
         this.sessionIndex = data.u;
-        console.log('Assigned session index:', this.sessionIndex);
+        this.role = data.auth_role !== undefined ? data.auth_role : 0;
+        console.log('Assigned session index:', this.sessionIndex, 'Role:', this.role);
         if (this.onConnect) {
-          this.onConnect(this.sessionIndex);
+          this.onConnect(this.sessionIndex, this.role);
         }
         break;
 
@@ -588,6 +591,14 @@ export class WebSocketClient {
 
       case T.REDO:
         this.emit('redo', { sessionIndex: data.u });
+        break;
+
+      case T.MOD_WIPE:
+        this.emit('mod_wipe', {
+          targetSessionIndex: data.mod_target,
+          targetName: data.mod_target_name || '',
+          issuerName: data.mod_issuer_name || ''
+        });
         break;
     }
   }
@@ -984,6 +995,14 @@ sendSyncStrokesDone(targetUser) {
 
   requestModList() {
     this.send({ t: T.MOD_LIST });
+  }
+
+  sendModWipe(targetSessionIndex, targetName) {
+    this.send({
+      t: T.MOD_WIPE,
+      modTarget: targetSessionIndex,
+      modTargetName: targetName || ''
+    });
   }
 
   requestRoomList() {

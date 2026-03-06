@@ -16,6 +16,7 @@ export function setupUserHandlers(wsClient, app) {
 
   // Users list received (initial sync or updates)
   wsClient.on('users', (data) => {
+    console.log(`[USERS] Received ${data.users.length} users:`, data.users.map(u => `${u.name || 'unnamed'}(${u.sessionIndex})`).join(', '), `My sessionIndex: ${app.sessionIndex}`);
     data.users.forEach(userData => {
       if (userData.sessionIndex !== app.sessionIndex) {
         let user = users.get(userData.sessionIndex);
@@ -106,7 +107,15 @@ export function setupUserHandlers(wsClient, app) {
 
   // Name change (user joining)
   wsClient.on('cn', (data) => {
+    // Skip if this is our own session (defensive check)
+    if (data.sessionIndex === app.sessionIndex) {
+      return;
+    }
+
     let user = users.get(data.sessionIndex);
+    const hadName = user ? !!user.username : false;
+    const action = !user ? 'joined (new)' : (!hadName ? 'joined (was nameless)' : 'changed name');
+    console.log(`[CN] User ${data.name}(${data.sessionIndex}) ${action}`);
     if (!user) {
       // User wasn't in any users list yet — create from scratch
       const userOptions = {

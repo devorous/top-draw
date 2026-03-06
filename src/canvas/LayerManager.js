@@ -500,6 +500,54 @@ export class LayerManager {
     return true;
   }
 
+  /**
+   * Wipe all strokes from a specific user (moderation action).
+   * Removes all stroke records and active strokes for the target user across all layers.
+   * @param {number} targetUserId
+   */
+  wipeUserStrokes(targetUserId) {
+    let removed = false;
+
+    // Remove from all layer groups
+    for (const group of this.layerGroups) {
+      // Remove from stroke stack
+      const initialLength = group.strokeStack.length;
+      group.strokeStack = group.strokeStack.filter(stroke => stroke.userId !== targetUserId);
+
+      if (group.strokeStack.length < initialLength) {
+        removed = true;
+        group.userStrokeCounts.delete(targetUserId);
+      }
+
+      // Remove active strokes
+      if (group.activeStrokeByUser.has(targetUserId)) {
+        const active = group.activeStrokeByUser.get(targetUserId);
+        this._releaseCanvas(active);
+        group.activeStrokeByUser.delete(targetUserId);
+        removed = true;
+      }
+
+      // Remove from baked sequences (strokes array in groups)
+      for (const seq of group.bakedSequences) {
+        if (seq.type === 'group' && seq.strokes) {
+          const origLen = seq.strokes.length;
+          seq.strokes = seq.strokes.filter(s => s.userId !== targetUserId);
+          if (seq.strokes.length < origLen) removed = true;
+        }
+      }
+    }
+
+    // Clear redo stack for this user
+    this.redoStackByUser.delete(targetUserId);
+
+    if (removed) {
+      this.needsComposite = true;
+      this._notifyHistoryPanel(true);
+    }
+
+    return removed;
+  }
+
   /** @deprecated Use undoLastStrokeGlobal(userId) */
   undoLastStroke(groupIdx, userId) {
     return this.undoLastStrokeGlobal(userId) !== null;

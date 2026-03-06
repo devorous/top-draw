@@ -12,11 +12,11 @@ export class Room {
     
     this.clients = new Set();
     this.settings = { mirror: false };
-    
+
     // Each room has its own managers
     this.sessionManager = new SessionManager(this.broadcastToAll.bind(this));
     this.syncCoordinator = new SyncCoordinator(this.sessionManager, { clients: this.clients }, this.sendTo);
-    
+
     this.createdAt = Date.now();
     this.lastActivity = Date.now();
     

@@ -22,6 +22,7 @@ export class Moderation {
     this.onModAction = null;       // (actionType, sessionIndex, reason, duration)
     this.onRequestModList = null;   // ()
     this.onRevokeEntry = null;      // (entryId, type)
+    this.onModWipe = null;          // (sessionIndex, targetName)
   }
 
   setRole(role) {
@@ -106,6 +107,12 @@ export class Moderation {
         break;
       case 'pm':
         if (this.onPM) this.onPM(sessionIndex, user);
+        break;
+      case 'wipe':
+        // Wipe all strokes from this user
+        if (confirm(`Wipe all strokes from ${user?.username || 'User ' + sessionIndex}?`)) {
+          if (this.onModWipe) this.onModWipe(sessionIndex, user?.username || '');
+        }
         break;
       case 'mute':
         if (user?.isMuted) {

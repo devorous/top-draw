@@ -5,6 +5,55 @@
 @use '../abstracts' as *;
 
 /* ========================================
+   Context Menu
+   ======================================== */
+
+.contextMenu {
+  position: fixed;
+  z-index: 10000;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 6px;
+  min-width: 180px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  flex-direction: column;
+  gap: 2px;
+
+  .menuItem {
+    display: block;
+    width: 100%;
+    padding: 10px 14px;
+    background: transparent;
+    color: var(--color-text);
+    border: none;
+    border-radius: 6px;
+    text-align: left;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+
+    &:hover {
+      background: var(--color-bg-hover);
+    }
+
+    &.danger {
+      color: #ef4444;
+
+      &:hover {
+        background: rgba(239, 68, 68, 0.1);
+      }
+    }
+  }
+
+  .menuDivider {
+    height: 1px;
+    background: var(--color-border);
+    margin: 4px 0;
+  }
+}
+
+/* ========================================
    Role Badges
    ======================================== */
 

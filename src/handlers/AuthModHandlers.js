@@ -94,4 +94,24 @@ export function setupAuthModHandlers(wsClient, app) {
       app.landingPage.handleRoomListResponse(data.rooms);
     }
   });
+
+  // Wipe user strokes (moderation action)
+  wsClient.on('mod_wipe', (data) => {
+    const targetIndex = data.targetSessionIndex;
+    const targetName = data.targetName || `User ${targetIndex}`;
+    const issuerName = data.issuerName || 'Moderator';
+
+    // Wipe all strokes from this user across all layers
+    if (app.board?.layerManager) {
+      const removed = app.board.layerManager.wipeUserStrokes(targetIndex);
+      if (removed) {
+        // Force a composite to reflect changes
+        app.board.composite();
+      }
+    }
+
+    // Show notification
+    chat.addSystemMessage(`All strokes from ${targetName} were removed by ${issuerName}`);
+    ui.showToast(`${targetName}'s strokes wiped by ${issuerName}`, 3000);
+  });
 }

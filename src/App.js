@@ -199,6 +199,9 @@ export class DrawingApp {
       const revokeType = entryType === 'mutes' ? 3 : 4;
       this.wsClient.sendModRevoke(revokeType, username);
     };
+    this.moderation.onModWipe = (sessionIndex, targetName) => {
+      this.wsClient.sendModWipe(sessionIndex, targetName);
+    };
 
     // Expose app globally for debugging
     window.app = this;
@@ -897,10 +900,21 @@ export class DrawingApp {
 
   // Connection lifecycle
 
-  handleWSConnect(sessionIndex) {
+  handleWSConnect(sessionIndex, role) {
     this.sessionIndex = sessionIndex;
     this.self.id = sessionIndex;
     this.users.set(sessionIndex, this.self);
+
+    // Set role from server
+    if (role !== undefined) {
+      this.selfRole = role;
+      this.self.role = role;
+      console.log('[App] Role assigned from server:', role);
+      // Update moderation UI
+      if (this.moderation) {
+        this.moderation.setRole(role);
+      }
+    }
 
     // Update landing page connection status if still visible
     if (this.landingPage) {
@@ -1019,6 +1033,11 @@ export class DrawingApp {
     this.selfRole = role;
     this.self.role = role;
     this.self.setUsername(username);
+
+    // Update moderation UI visibility based on role
+    if (this.moderation) {
+      this.moderation.setRole(role);
+    }
 
     // If landing page is active and room is selected, proceed to room
     if (this.landingPage && this.landingPage.selectedRoom) {
