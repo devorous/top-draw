@@ -15,6 +15,7 @@ import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
 import { Auth } from './auth/Auth.js';
 import { Moderation } from './auth/Moderation.js';
 import { ColorInputMenu } from './ui/ColorInputMenu.js';
+import { LandingPage } from './ui/LandingPage.js';
 import { ToolLockManager } from './tools/ToolLockManager.js';
 import { InputBufferManager } from './input/InputBufferManager.js';
 import { KeyboardHandler } from './input/KeyboardHandler.js';
@@ -70,6 +71,8 @@ export class DrawingApp {
     this.syncClient = null;
     this.auth = null;
     this.moderation = null;
+    this.landingPage = null;
+    this.currentRoomId = null;
     this.selfRole = 0; // 0=guest
     this.moderation = new Moderation();
 
@@ -160,6 +163,15 @@ export class DrawingApp {
     });
     this.auth.init();
 
+    // Initialize landing page (combines auth + room selection)
+    this.landingPage = new LandingPage({
+      wsClient: this.wsClient,
+      auth: this.auth,
+      onRoomSelected: (roomId, password) => this.handleRoomSelected(roomId, password),
+      onOffline: () => this.handleOffline()
+    });
+    this.landingPage.init();
+
     // Wire moderation callbacks
     this.moderation.onSync = (sessionIndex) => {
       this.syncClient.requestSync();
@@ -211,7 +223,9 @@ export class DrawingApp {
       this.toolLockManager.updateAllLockButtons(initialTool);
     }
 
-    await this.wsClient.connect(this.self.toJSON());
+    // Connection flow: Connect to discovery room for room list -> User selects room -> Reconnect to actual room
+    console.log('[App] Landing page ready. Connecting for room discovery...');
+    this.connectForRoomDiscovery();
   }
 
   createSelf() {
@@ -781,13 +795,130 @@ export class DrawingApp {
     window.addEventListener('resize', () => this.handleResize());
   }
 
+  // Room selection
+
+  async handleRoomSelected(roomId, password = null) {
+    console.log(`[App] Room selected: ${roomId}`);
+    this.currentRoomId = roomId;
+    this.currentRoomPassword = password;
+
+    // Get username from login form if joining as guest
+    const usernameInput = this.ui.elements.loginUsername;
+    if (usernameInput && usernameInput.value && !this.self.username) {
+      const username = usernameInput.value.trim() || 'Guest';
+      this.self.setUsername(username);
+      console.log('[App] Set username from login form:', username);
+    }
+
+    // Disconnect from discovery room first
+    if (this.wsClient && this.wsClient.connected) {
+      console.log('[App] Disconnecting from discovery room');
+      this.wsClient.disconnect();
+      // Wait a moment for clean disconnect
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    // Connect to WebSocket with actual room ID
+    try {
+      await this.wsClient.connect(this.self.toJSON(), roomId);
+      // handleWSConnect will be called on success
+    } catch (err) {
+      console.error('Failed to connect to room:', err);
+      this.ui.showToast('Failed to connect to room', 3000);
+      // Show landing page again and reconnect to discovery
+      if (this.landingPage) {
+        this.landingPage.show();
+        this.connectForRoomDiscovery();
+      }
+    }
+  }
+
+  handleOffline() {
+    console.log('[App] Offline mode - creating local room');
+    this.connected = false;
+    this.currentRoomId = 'offline-' + Date.now();
+
+    // Disconnect from discovery room if connected
+    if (this.wsClient && this.wsClient.connected) {
+      this.wsClient.disconnect();
+    }
+
+    // Set up local session
+    this.sessionIndex = 0;
+    this.self.id = 0;
+    this.self.setUsername('Offline');
+    this.users.set(0, this.self);
+
+    // Hide landing page
+    if (this.landingPage) {
+      this.landingPage.hide();
+    }
+
+    // Show drawing interface
+    this.ui.hideOverlay();
+    this.ui.showCursor();
+    this.ui.updateSelfName('Offline');
+    this.ui.showConnectionStatus('offline');
+
+    // Start tick loop for local drawing
+    this.inputBufferManager.startTickLoop();
+
+    // Update URL to show offline room
+    const url = new URL(window.location);
+    url.searchParams.set('room', this.currentRoomId);
+    window.history.pushState({}, '', url);
+
+    console.log('[App] Offline mode ready - drawing locally in room:', this.currentRoomId);
+  }
+
+  // Discovery connection - connect on page load to enable room discovery
+  async connectForRoomDiscovery() {
+    console.log('[App] Connecting for room discovery...');
+
+    // Clear current room ID to mark this as a discovery connection
+    this.currentRoomId = null;
+
+    if (this.landingPage) {
+      this.landingPage.updateConnectionStatus('connecting');
+    }
+
+    try {
+      // Connect to a special discovery room that allows room list queries
+      await this.wsClient.connect(this.self.toJSON(), '_discovery');
+      console.log('[App] Connected to discovery room');
+      // handleWSConnect will update the status to 'connected'
+    } catch (err) {
+      console.error('[App] Discovery connection failed:', err);
+      if (this.landingPage) {
+        this.landingPage.updateConnectionStatus('disconnected');
+      }
+    }
+  }
+
   // Connection lifecycle
 
   handleWSConnect(sessionIndex) {
     this.sessionIndex = sessionIndex;
     this.self.id = sessionIndex;
     this.users.set(sessionIndex, this.self);
+
+    // Update landing page connection status if still visible
+    if (this.landingPage) {
+      this.landingPage.updateConnectionStatus('connected');
+    }
+
+    // Check if this is a discovery connection (not joining an actual room)
+    const isDiscoveryConnection = !this.currentRoomId || this.currentRoomId === '_discovery';
+
+    if (isDiscoveryConnection) {
+      console.log('[App] Discovery connection established - waiting for room selection');
+      // Don't sync, don't show login - just wait for user to select a room
+      return;
+    }
+
+    // Actual room connection - proceed with normal flow
     this.wsClient.broadcastToolChange(this.self.tool);
+    this.users.set(sessionIndex, this.self);
 
     // Reset sync state on new connection so we sync from scratch
     this.syncClient.hasCompletedSync = false;
@@ -802,6 +933,13 @@ export class DrawingApp {
       return;
     }
 
+    // If coming from landing page with a username already set, join immediately
+    if (this.landingPage && this.self.username && this.self.username !== 'Offline') {
+      console.log('[App] Auto-joining with username from landing page:', this.self.username);
+      this.handleJoinAfterConnect();
+      return;
+    }
+
     // No stored token — show login dialog
     this.ui.showLogin();
     this.ui.elements.overlay.style.display = 'flex';
@@ -811,8 +949,51 @@ export class DrawingApp {
     }
   }
 
+  handleJoinAfterConnect() {
+    // Called after WebSocket connect when we already have user credentials
+    this.connected = true;
+    this.ui.hideOverlay();
+    this.ui.showCursor();
+    this.ui.updateSelfName(this.self.username);
+    this.ui.showConnectionStatus('connected');
+
+    // Bundle initial settings with name change
+    const initialProps = {
+      s: Math.round(this.self.size * 100),
+      l: ToolToEnum[this.self.tool] || 0,
+      c: packColor(this.self.color),
+      sp: Math.round(this.self.spacing * 100),
+      sm: Math.round(this.self.smoothing),
+      hd: Math.round(this.self.hardness),
+      br: Math.round(this.self.blurRadius),
+      ly: this.self.activeLayer,
+      bm: this.self.blendMode
+    };
+    this.wsClient.broadcastNameChange(this.self.username, initialProps);
+
+    // Broadcast settings
+    this.wsClient.broadcastSmoothingChange(this.self.smoothing);
+    this.wsClient.broadcastSizeChange(this.self.size);
+    this.wsClient.broadcastColorChange(this.self.color);
+    this.wsClient.broadcastToolChange(this.self.tool);
+    this.wsClient.broadcastLayerBlendModeChange(this.self.activeLayer, this.self.blendMode);
+    this.wsClient.broadcastLayerChange(this.self.activeLayer);
+
+    // Update moderation UI
+    this.moderation.setRole(this.selfRole);
+
+    // Start tick loop
+    this.inputBufferManager.startTickLoop();
+  }
+
   handleWSDisconnect(code, reason) {
     this.connected = false;
+
+    // Update landing page connection status if visible
+    if (this.landingPage && this.landingPage.els.landingPage.style.display !== 'none') {
+      this.landingPage.updateConnectionStatus('disconnected');
+    }
+
     // Don't stop the tick loop - drawing should continue locally
     if (this.inputBufferManager.tickTimer) {
       this.ui.showConnectionStatus('disconnected');
@@ -839,6 +1020,14 @@ export class DrawingApp {
     this.self.role = role;
     this.self.setUsername(username);
 
+    // If landing page is active and room is selected, proceed to room
+    if (this.landingPage && this.landingPage.selectedRoom) {
+      this.landingPage.handleAuthSuccess(token, username);
+      this.landingPage.proceedToRoom(this.landingPage.selectedRoom);
+      return;
+    }
+
+    // Legacy flow (for reconnect)
     this.connected = true;
     this.ui.hideOverlay();
     this.ui.showCursor();
@@ -888,10 +1077,17 @@ export class DrawingApp {
   }
 
   handleJoin() {
-    this.connected = true;
     const name = this.ui.elements.loginUsername.value || 'Anon';
     this.self.setUsername(name);
 
+    // If landing page is active and room is selected, proceed to room
+    if (this.landingPage && this.landingPage.selectedRoom) {
+      this.landingPage.proceedToRoom(this.landingPage.selectedRoom);
+      return;
+    }
+
+    // Legacy flow (for reconnect, etc.)
+    this.connected = true;
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(name);

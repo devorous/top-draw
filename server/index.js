@@ -10,6 +10,7 @@ import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
 import { SessionManager, Role } from './SessionManager.js';
 import { SyncCoordinator } from './SyncCoordinator.js';
+import { RoomManager } from './RoomManager.js';
 import { sanitizeMessage } from './validation.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -17,15 +18,32 @@ const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 8000;
 
-const server = createServer();
+const server = createServer((req, res) => {
+  // Handle HTTP requests (health check, debugging)
+  if (req.url === '/health') {
+    res.writeHead(200);
+    res.end('OK');
+    return;
+  }
+  // For WebSocket upgrade requests, do nothing - ws library handles them
+  res.writeHead(200);
+  res.end();
+});
+
+// Add error handlers
+server.on('error', (err) => {
+  console.error('[HTTP Server] Error:', err);
+});
+
 const wss = new WebSocketServer({ server });
 
-const boardSettings = { mirror: false };
+wss.on('error', (err) => {
+  console.error('[WebSocket Server] Error:', err);
+});
 
 let Msg;
 let POOLED_MSG;
-let sessionManager;
-let syncCoordinator;
+let roomManager;
 
 // Extract client IP, handling X-Forwarded-For for proxies (Koyeb)
 function getClientIp(req) {
@@ -56,9 +74,10 @@ async function init() {
     console.log(err);
   }
 
-  // Initialize managers
-  sessionManager = new SessionManager(broadcastToAll);
-  syncCoordinator = new SyncCoordinator(sessionManager, wss, sendTo);
+  // Initialize room manager
+  roomManager = new RoomManager(wss, sendTo);
+  roomManager.setMsgEncoder(Msg, createRoomBroadcaster);
+  console.log('[Server] RoomManager initialized');
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`WebSocket server running on port ${PORT}`);
@@ -97,6 +116,20 @@ function broadcastToAll(payload) {
   });
 }
 
+// Broadcast to all clients in a specific room (used by SessionManager)
+function createRoomBroadcaster(room) {
+  return (payload) => {
+    const message = Msg.create(payload);
+    const buffer = Msg.encode(message).finish();
+
+    room.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(buffer);
+      }
+    });
+  };
+}
+
 function sendTo(ws, payload) {
   if (ws.readyState === WebSocket.OPEN) {
     const message = Msg.create(payload);
@@ -112,8 +145,9 @@ const MUTED_BLOCKED = new Set([
   T.IMG_PASTE, T.MSG, T.DM, T.CHAT_IMG
 ]);
 
-async function handleBroadcast(data, sessionIndex) {
-  const user = sessionManager.getUser(sessionIndex);
+async function handleBroadcast(data, sessionIndex, room) {
+  if (!room) return;
+  const user = room.sessionManager.getUser(sessionIndex);
   if (!user) return;
 
   switch (data.t) {
@@ -126,12 +160,12 @@ async function handleBroadcast(data, sessionIndex) {
         user.x = data.ps[len - 2];
         user.y = data.ps[len - 1];
       }
-      sessionManager.updateUserActivity(sessionIndex);
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.MD: // Mouse down — marks user as actively drawing
       user.mousedown = true;
-      sessionManager.updateUserActivity(sessionIndex);
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.MU: // Mouse up — stroke ended; clear text tool buffer (text commits on pointer up)
@@ -194,7 +228,7 @@ async function handleBroadcast(data, sessionIndex) {
       if (data.br !== undefined) user.blurRadius = data.br;
       if (data.ly !== undefined) user.activeLayer = data.ly;
       if (data.bm !== undefined) user.blendMode = data.bm;
-      sessionManager.updateUserActivity(sessionIndex);
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.KP: // Key press — only relevant to the text tool; server mirrors the text buffer for USERS sync
@@ -207,7 +241,7 @@ async function handleBroadcast(data, sessionIndex) {
       } else if (key === 'Backspace' && user.text) {
         user.text = user.text.slice(0, -1);     // Backspace removes last char
       }
-      sessionManager.updateUserActivity(sessionIndex);
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.HIDE_CURSOR: // Cursor left the canvas area — stop rendering this user's cursor on all clients
@@ -219,11 +253,11 @@ async function handleBroadcast(data, sessionIndex) {
       break;
 
     case T.MIR: // Toggle mirror mode — server owns this state so late joiners get the correct setting via SETTINGS
-      boardSettings.mirror = !boardSettings.mirror;
+      room.settings.mirror = !room.settings.mirror;
       break;
 
     case T.MSG: // Chat message — no server-side state change needed, just bump activity timestamp
-      sessionManager.updateUserActivity(sessionIndex);
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.GMP: // Image brush load — data.bd is the GIMP brush metadata (JSON string or object)
@@ -245,18 +279,61 @@ async function handleBroadcast(data, sessionIndex) {
     }
   }
 
-  // Relay to other clients
-  broadcast({ ...data, u: sessionIndex }, sessionIndex);
+  // Relay to other clients in the same room
+  broadcastToRoom(room, { ...data, u: sessionIndex }, sessionIndex);
+}
+
+// Broadcast to all clients in a specific room
+function broadcastToRoom(room, payload, excludeIndex = null) {
+  // Clear old data to prevent "ghost" properties from previous messages
+  for (let key in POOLED_MSG) { if (POOLED_MSG.hasOwnProperty(key)) delete POOLED_MSG[key]; }
+  Object.assign(POOLED_MSG, payload);
+
+  const buffer = Msg.encode(POOLED_MSG).finish();
+
+  room.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      if (excludeIndex != null && client.sessionIndex == excludeIndex) {
+        return;
+      }
+      client.send(buffer);
+    }
+  });
 }
 
 wss.on('connection', (ws, req) => {
-  ws.clientIp = getClientIp(req);
-  ws.userRole = Role.GUEST;
-  ws.userId = null;
-  ws.username = null;
-  ws.isMuted = false;
+  try {
+    console.log(`[WS] New connection attempt from ${req.socket.remoteAddress}`);
+
+    ws.clientIp = getClientIp(req);
+    ws.userRole = Role.GUEST;
+    ws.userId = null;
+    ws.username = null;
+    ws.isMuted = false;
+
+    // Parse room ID from query parameters
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const roomId = url.searchParams.get('room') || 'default';
+    console.log(`[Room] Parsed room ID: ${roomId}`);
+
+    // Get or create room
+    const room = roomManager.getOrCreateRoom(roomId);
+    room.addClient(ws);
+
+    console.log(`[Room] Client joined room: ${roomId}, total clients: ${room.getClientCount()}`);
+  } catch (err) {
+    console.error('[WS] Connection handler error:', err);
+    ws.close(1011, 'Server error during connection');
+  }
 
   ws.on('message', async (rawData) => {
+    // Get room for this connection
+    const room = roomManager.getRoomByClient(ws);
+    if (!room) {
+      console.warn('[WS] Message from client not in any room');
+      return;
+    }
+
     try {
       let data;
 
@@ -306,25 +383,26 @@ wss.on('connection', (ws, req) => {
             }
           }
 
-          const sessionIndex = sessionManager.allocateSessionIndex();
+          const sessionIndex = room.sessionManager.allocateSessionIndex();
           ws.sessionIndex = sessionIndex;
 
-          const newUser = sessionManager.createUser(
+          const newUser = room.sessionManager.createUser(
             sessionIndex,
             data.n || '',
             Tool.BRUSH,
             packColor([0, 0, 0, 1])
           );
 
-          console.log('Connected:', sessionIndex, '| Users:', sessionManager.getUserCount());
+          console.log('Connected:', sessionIndex, '| Room:', room.id, '| Users:', room.sessionManager.getUserCount());
 
           // Send session index back to connecting user
           sendTo(ws, { t: T.CONNECT, u: sessionIndex });
 
-          // Send current joined users to all (only users with a name)
-          broadcastToAll({
+          // Send current joined users to all in this room (only users with a name)
+          const roomBroadcaster = createRoomBroadcaster(room);
+          roomBroadcaster({
             t: T.USERS,
-            us: sessionManager.getJoinedUsers().map(u => ({
+            us: room.sessionManager.getJoinedUsers().map(u => ({
               u: u.sessionIndex,
               a: u.afk,
               x: u.x,
@@ -348,40 +426,40 @@ wss.on('connection', (ws, req) => {
           });
 
           // Send board settings to new user
-          sendTo(ws, { t: T.SETTINGS, m: boardSettings.mirror });
+          sendTo(ws, { t: T.SETTINGS, m: room.settings.mirror });
           break;
 
         // Canvas sync handshake (step 1 of 3) — new client asks for the current canvas state.
         // Server picks a provider and sends them SYNC_PROVIDE (step 2).
         // Provider replies with SYNC_CANVAS (step 3), which the server forwards + sends SYNC_COMPLETE.
         case T.SYNC_REQUEST:
-          syncCoordinator.handleSyncRequest(ws, data);
+          room.syncCoordinator.handleSyncRequest(ws, data);
           break;
 
         // Canvas sync (step 3, legacy) — provider sends PNG via data.img; server routes it to data.tu
         case T.SYNC_CANVAS:
-          syncCoordinator.handleSyncCanvas(ws, data);
+          room.syncCoordinator.handleSyncCanvas(ws, data);
           break;
 
         // Structured stroke sync — provider sends metadata, then per-layer base canvases and stroke records
         case T.SYNC_METADATA:
-          syncCoordinator.handleSyncMetadata(ws, data);
+          room.syncCoordinator.handleSyncMetadata(ws, data);
           break;
 
         case T.SYNC_LAYER_BASE:
-          syncCoordinator.handleSyncLayerBase(ws, data);
+          room.syncCoordinator.handleSyncLayerBase(ws, data);
           break;
 
         case T.SYNC_STROKE:
-          syncCoordinator.handleSyncStroke(ws, data);
+          room.syncCoordinator.handleSyncStroke(ws, data);
           break;
 
         case T.SYNC_STROKE_BATCH:
-          syncCoordinator.handleSyncStrokeBatch(ws, data);
+          room.syncCoordinator.handleSyncStrokeBatch(ws, data);
           break;
 
         case T.SYNC_STROKES_DONE:
-          syncCoordinator.handleSyncStrokesDone(ws, data);
+          room.syncCoordinator.handleSyncStrokesDone(ws, data);
           break;
 
         // Direct message — data.r is the recipient's session index, data.g is the message text
@@ -401,7 +479,7 @@ wss.on('connection', (ws, req) => {
                 break;
               }
             }
-            sessionManager.updateUserActivity(ws.sessionIndex);
+            room.sessionManager.updateUserActivity(ws.sessionIndex);
           }
           break;
 
@@ -444,15 +522,15 @@ wss.on('connection', (ws, req) => {
                 }
               }
             } else {
-              // Public chat image - broadcast to all except sender
-              broadcast({
+              // Public chat image - broadcast to all in room except sender
+              broadcastToRoom(room, {
                 t: T.CHAT_IMG,
                 u: ws.sessionIndex,
                 cimg: imageBytes
               }, ws.sessionIndex);
-              console.log(`[CHAT_IMG] User ${ws.sessionIndex} broadcast image to all`);
+              console.log(`[CHAT_IMG] User ${ws.sessionIndex} broadcast image to room`);
             }
-            sessionManager.updateUserActivity(ws.sessionIndex);
+            room.sessionManager.updateUserActivity(ws.sessionIndex);
           }
           break;
 
@@ -480,13 +558,15 @@ wss.on('connection', (ws, req) => {
             }
           }
 
-          const targetUser = sessionManager.getUser(modTargetIndex);
+          const targetUser = room.sessionManager.getUser(modTargetIndex);
           const targetName = data.mod_target_name || targetWs?.username || targetUser?.name || `User ${modTargetIndex}`;
 
           try {
+            const roomBroadcaster = createRoomBroadcaster(room);
+
             switch (modActionType) {
               case 0: // Kick
-                broadcastToAll({
+                roomBroadcaster({
                   t: T.MOD_NOTIFY,
                   mod_action_type: 0,
                   mod_target: modTargetIndex,
@@ -517,8 +597,8 @@ wss.on('connection', (ws, req) => {
                   targetWs.isMuted = true;
                 }
                 // Hide muted user's cursor for everyone
-                broadcastToAll({ t: T.HIDE_CURSOR, u: modTargetIndex });
-                broadcastToAll({
+                roomBroadcaster({ t: T.HIDE_CURSOR, u: modTargetIndex });
+                roomBroadcaster({
                   t: T.MOD_NOTIFY,
                   mod_action_type: 1,
                   mod_target: modTargetIndex,
@@ -542,7 +622,7 @@ wss.on('connection', (ws, req) => {
                     duration: modDuration
                   });
                 }
-                broadcastToAll({
+                roomBroadcaster({
                   t: T.MOD_NOTIFY,
                   mod_action_type: 2,
                   mod_target: modTargetIndex,
@@ -573,8 +653,8 @@ wss.on('connection', (ws, req) => {
                   targetWs.isMuted = false;
                 }
                 // Restore unmuted user's cursor
-                broadcastToAll({ t: T.SHOW_CURSOR, u: modTargetIndex });
-                broadcastToAll({
+                roomBroadcaster({ t: T.SHOW_CURSOR, u: modTargetIndex });
+                roomBroadcaster({
                   t: T.MOD_NOTIFY,
                   mod_action_type: 3,
                   mod_target: modTargetIndex,
@@ -597,7 +677,7 @@ wss.on('connection', (ws, req) => {
                     await revokeModAction(activeBan._id.toString(), ws.userId);
                   }
                 }
-                broadcastToAll({
+                roomBroadcaster({
                   t: T.MOD_NOTIFY,
                   mod_action_type: 4,
                   mod_target: modTargetIndex,
@@ -613,6 +693,25 @@ wss.on('connection', (ws, req) => {
           } catch (err) {
             console.error('[Mod] Action error:', err);
             sendTo(ws, { t: T.MOD_RESULT, a: false, auth_error: 'Moderation action failed' });
+          }
+          break;
+        }
+
+        // Room list request — returns list of active rooms
+        case T.ROOM_LIST_REQUEST: {
+          try {
+            const rooms = roomManager.getRoomList();
+            sendTo(ws, {
+              t: T.ROOM_LIST_RESPONSE,
+              rooms: rooms.map(r => ({
+                id: r.id,
+                userCount: r.userCount,
+                locked: r.locked,
+                hasPassword: r.hasPassword
+              }))
+            });
+          } catch (err) {
+            console.error('[Room] List error:', err);
           }
           break;
         }
@@ -688,7 +787,7 @@ wss.on('connection', (ws, req) => {
             ws.username = regUsername;
 
             // Update user record with role
-            const user = sessionManager.getUser(ws.sessionIndex);
+            const user = room.sessionManager.getUser(ws.sessionIndex);
             if (user) {
               user.role = role;
               user.name = regUsername;
@@ -827,7 +926,7 @@ wss.on('connection', (ws, req) => {
             ws.username = userDoc.username;
 
             // Update user record with role
-            const user = sessionManager.getUser(ws.sessionIndex);
+            const user = room.sessionManager.getUser(ws.sessionIndex);
             if (user) {
               user.role = userDoc.role;
               user.name = userDoc.username;
@@ -867,7 +966,7 @@ wss.on('connection', (ws, req) => {
         // handleBroadcast also enforces mute (blocks draw + chat) and mirrors board state changes.
         default:
           if (ws.sessionIndex !== undefined) {
-            handleBroadcast(data, ws.sessionIndex);
+            handleBroadcast(data, ws.sessionIndex, room);
           }
           break;
       }
@@ -881,18 +980,22 @@ wss.on('connection', (ws, req) => {
 
   ws.on('close', () => {
     const sessionIndex = ws.sessionIndex;
-    if (sessionIndex !== undefined) {
-      console.log('Disconnected:', sessionIndex);
-      sessionManager.removeUser(sessionIndex);
-      sessionManager.freeSessionIndex(sessionIndex);
+    const room = roomManager.getRoomByClient(ws);
 
-      broadcast({ t: T.LEFT, u: sessionIndex });
+    if (sessionIndex !== undefined && room) {
+      console.log('Disconnected:', sessionIndex, 'from room:', room.id);
+      room.sessionManager.removeUser(sessionIndex);
+      room.sessionManager.freeSessionIndex(sessionIndex);
+      room.removeClient(ws);
 
-      console.log('Current users:', sessionManager.getUserCount());
+      // Broadcast to room
+      broadcastToRoom(room, { t: T.LEFT, u: sessionIndex });
 
-      if (sessionManager.getUserCount() === 0) {
-        boardSettings.mirror = false;
-        syncCoordinator.clearPendingRequests();
+      console.log('Current users in room', room.id, ':', room.sessionManager.getUserCount());
+
+      if (room.sessionManager.getUserCount() === 0) {
+        room.settings.mirror = false;
+        room.syncCoordinator.clearPendingRequests();
       }
     }
   });

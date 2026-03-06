@@ -87,4 +87,11 @@ export function setupAuthModHandlers(wsClient, app) {
       app.moderation.updateModEntries(data.entries);
     }
   });
+
+  // Room list response
+  wsClient.on('room_list_response', (data) => {
+    if (app.landingPage) {
+      app.landingPage.handleRoomListResponse(data.rooms);
+    }
+  });
 }

@@ -853,7 +853,8 @@ export class UI {
     const labels = {
       connected: 'Connected',
       disconnected: 'Disconnected',
-      connecting: 'Connecting...'
+      connecting: 'Connecting...',
+      offline: 'Offline Mode'
     };
     connectionText.textContent = labels[state] || state;
     reconnectBtn.style.display = state === 'disconnected' ? 'inline-flex' : 'none';

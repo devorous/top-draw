@@ -73,6 +73,81 @@
     <div id="main">
       <!-- Login Overlay -->
       <div id="overlay">
+        <!-- Unified Landing Page: Login + Room Selection -->
+        <div id="landingPage" class="landingPage" style="display: none;">
+          <div class="landingContainer">
+            <!-- Left Panel: Authentication -->
+            <div class="landingPanel landingAuth">
+              <h2>Top Draw</h2>
+              <p class="landingSubtitle">Collaborative Drawing</p>
+
+              <!-- Auth Tabs -->
+              <div class="authTabs" id="authTabs">
+                <button class="authTab active" id="authTabLogin">Login</button>
+                <button class="authTab" id="authTabRegister">Register</button>
+              </div>
+
+              <!-- Login Form -->
+              <div id="loginForm">
+                <input autocomplete="off" class="authInput" id="loginUsername" placeholder="Username">
+                <input autocomplete="off" type="password" class="authInput" id="loginPassword" placeholder="Password (optional)">
+                <label class="authCheckbox">
+                  <input type="checkbox" id="rememberMe">
+                  <span>Remember Me</span>
+                </label>
+                <div class="authButtons">
+                  <button class="btn" id="loginBtn">Login</button>
+                  <button class="btn primary" id="joinBtn">Join as Guest</button>
+                </div>
+              </div>
+
+              <!-- Register Form -->
+              <div id="registerForm" style="display: none;">
+                <input autocomplete="off" class="authInput" id="regUsername" placeholder="Username">
+                <input autocomplete="off" type="password" class="authInput" id="regPassword" placeholder="Password">
+                <input autocomplete="off" type="password" class="authInput" id="regConfirm" placeholder="Confirm Password">
+                <div class="authButtons">
+                  <button class="btn" id="registerBtn">Register</button>
+                </div>
+              </div>
+
+              <div class="landingDivider">or</div>
+              <button class="btn offline" id="loginOfflineBtn">Draw Offline</button>
+            </div>
+
+            <!-- Right Panel: Room Selection -->
+            <div class="landingPanel landingRooms">
+              <div class="landingHeader">
+                <h3>Select a Room</h3>
+                <div class="landingConnectionStatus" id="landingConnectionStatus">
+                  <span class="connectionDot"></span>
+                  <span class="connectionText">Connecting...</span>
+                </div>
+              </div>
+
+              <!-- Join Room -->
+              <div class="roomActions">
+                <div class="roomInputGroup">
+                  <input autocomplete="off" class="authInput" id="roomIdInput" placeholder="Enter room name (creates if new)">
+                  <button class="btn primary" id="joinRoomBtn">Join Room</button>
+                </div>
+              </div>
+
+              <!-- Active Rooms List -->
+              <div class="roomListSection">
+                <div class="roomListHeader">
+                  <h4>Active Rooms</h4>
+                  <button class="btn secondary small" id="refreshRoomsBtn">Refresh</button>
+                </div>
+                <div id="roomList" class="roomList">
+                  <div class="roomListEmpty">Loading rooms...</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Old login screen (kept for offline/fallback) -->
         <div id="login" class="overlayWindow" style="display: none;">
           <!-- Auth Tabs -->
           <div class="authTabs" id="authTabs">
@@ -106,7 +181,8 @@
 
           <a class="btn offline" id="loginOfflineBtn">Draw Offline</a>
         </div>
-        <div id="connecting" class="overlayWindow">
+        <!-- Old connecting overlay (deprecated, now using landing page) -->
+        <div id="connecting" class="overlayWindow" style="display: none;">
           <label>Connecting to server...</label>
           <a class="btn offline" id="offlineBtn">Draw Offline</a>
         </div>

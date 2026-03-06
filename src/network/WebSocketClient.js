@@ -47,10 +47,11 @@ export class WebSocketClient {
     }
   }
 
-  async connect(userData) {
+  async connect(userData, roomId = null) {
     await this.loadProto();
 
     this._userData = userData;
+    this._roomId = roomId;
     this._connectAttempts = 0;
 
     this._buildUrl();
@@ -62,14 +63,30 @@ export class WebSocketClient {
       this._url = this.serverUrl;
     } else {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-      if (import.meta.env.DEV) {
-        // In dev mode, use Vite's WebSocket proxy at /ws
-        this._url = `${wsProtocol}://${window.location.host}/ws`;
+      const currentPort = window.location.port;
+
+      console.log('[WS] Current port:', currentPort);
+
+      // Dev mode (port 3000) - connect directly to backend server
+      // Production mode - use same host or configured URL
+      if (currentPort === '3000') {
+        // Dev mode - connect directly to backend on port 8000
+        this._url = `ws://localhost:8000`;
+        console.log('[WS] Dev mode - direct connection to backend');
       } else {
-        // In production, use VITE_WS_SERVER_URL or same host
+        // Production mode
         this._url = import.meta.env.VITE_WS_SERVER_URL || `${wsProtocol}://${window.location.host}`;
+        console.log('[WS] Using direct connection');
       }
     }
+
+    // Append room ID as query parameter
+    if (this._roomId) {
+      const separator = this._url.includes('?') ? '&' : '?';
+      this._url += `${separator}room=${encodeURIComponent(this._roomId)}`;
+    }
+
+    console.log('[WS] Final WebSocket URL:', this._url);
   }
 
   _tryConnect() {
@@ -967,6 +984,10 @@ sendSyncStrokesDone(targetUser) {
 
   requestModList() {
     this.send({ t: T.MOD_LIST });
+  }
+
+  requestRoomList() {
+    this.send({ t: T.ROOM_LIST_REQUEST });
   }
 
   disconnect() {
