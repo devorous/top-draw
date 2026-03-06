@@ -421,7 +421,7 @@ export function drawLineArray(points, ctx, user, board = null, blendMode = 'sour
   if (!points || points.length === 0) return;
 
   const opacity = user.opacity !== undefined ? user.opacity : 1;
-  const hardness = user.hardness !== undefined ? user.hardness : 1.0;
+  const hardness = user.hardness !== undefined ? user.hardness / 100.0 : 1.0;
 
   ctx.save();
   ctx.globalAlpha = opacity;

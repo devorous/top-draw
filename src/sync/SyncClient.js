@@ -19,6 +19,7 @@ export class SyncClient {
 
     // Track sync state
     this.syncing = false;
+    this.hasCompletedSync = false;
 
     // Pending async import promises — createImageBitmap is async, and we must
     // wait for ALL imports to settle before replaying buffered events.
@@ -77,6 +78,12 @@ export class SyncClient {
     // If already syncing, don't start a new sync
     if (this.syncing) {
       console.warn('[SyncClient] Already syncing, ignoring duplicate requestSync call');
+      return;
+    }
+
+    // If we've already successfully synced, skip unless explicitly requesting from a specific user
+    if (this.hasCompletedSync && targetUserId === null) {
+      console.log('[SyncClient] Already completed initial sync, ignoring duplicate auto-sync request');
       return;
     }
 
@@ -148,6 +155,11 @@ export class SyncClient {
       // Phase 0: Count total messages to send (batched sync)
       let totalCount = 0;
 
+      // Count flatCanvas for layer 0 (contains all baked content for the base layer)
+      if (groups[0]?.flatCanvas) {
+        totalCount += 1;
+      }
+
       // Count baked sequences (still sent individually)
       for (let gi = 0; gi < groups.length; gi++) {
         totalCount += groups[gi].bakedSequences.length;
@@ -175,6 +187,14 @@ export class SyncClient {
       // Phase A: send each layer group's baked sequences in chronological order
       for (let gi = 0; gi < groups.length; gi++) {
         const group = groups[gi];
+
+        // Layer 0: send the flatCanvas first (contains all baked content)
+        if (group.flatCanvas) {
+          const img = await this._captureCanvasElement(group.flatCanvas);
+          this.wsClient.sendSyncLayerBase(img, gi, 'source-over', targetUser);
+        }
+
+        // Send any additional baked sequences (upper layers use these)
         for (const seq of group.bakedSequences) {
           const img = await this._captureCanvasElement(seq.canvas);
           this.wsClient.sendSyncLayerBase(img, gi, seq.blendMode, targetUser);
@@ -387,6 +407,7 @@ export class SyncClient {
       this.hideOverlay();
       this.syncing = false;
       this.buffering = false;
+      this.hasCompletedSync = true;
       this.expectedMessages = 0;
       this.receivedMessages = 0;
     };
@@ -559,5 +580,6 @@ export class SyncClient {
     this.wsClient = null;
     this.board = null;
     this.initialized = false;
+    this.hasCompletedSync = false;
   }
 }

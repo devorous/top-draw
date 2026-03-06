@@ -789,6 +789,9 @@ export class DrawingApp {
     this.users.set(sessionIndex, this.self);
     this.wsClient.broadcastToolChange(this.self.tool);
 
+    // Reset sync state on new connection so we sync from scratch
+    this.syncClient.hasCompletedSync = false;
+
     // Request sync immediately on connect (before login/username selection)
     // so the board is already syncing while the user enters their name
     this.syncClient.requestSync();
