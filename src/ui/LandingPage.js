@@ -43,6 +43,10 @@ export class LandingPage {
     this.updateConnectionStatus('disconnected');
   }
 
+  get isVisible() {
+    return this.els.landingPage && this.els.landingPage.style.display !== 'none';
+  }
+
   setupListeners() {
     // Join room by ID
     this.els.joinRoomBtn?.addEventListener('click', () => this.joinRoomById());

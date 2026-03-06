@@ -57,6 +57,11 @@ export class KeyboardHandler {
       return;
     }
 
+    // Skip all drawing shortcuts if the landing page is visible
+    if (app.landingPage?.isVisible) {
+      return;
+    }
+
     // Close context menu on Escape
     if (e.key === 'Escape' && app.ui.elements.userContextMenu?.style.display !== 'none') {
       app.moderation.hideContextMenu();
