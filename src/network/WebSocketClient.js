@@ -280,7 +280,19 @@ export class WebSocketClient {
         break;
 
       case T.CN:
-        this.emit('cn', { sessionIndex: data.u, name: data.n });
+        this.emit('cn', {
+          sessionIndex: data.u,
+          name: data.n,
+          size: data.s !== undefined ? data.s / 100 : undefined,
+          tool: data.l !== undefined ? ToolNames[data.l] : undefined,
+          color: data.c !== undefined ? unpackColor(data.c) : undefined,
+          spacing: data.sp !== undefined ? data.sp / 100 : undefined,
+          smoothing: data.sm !== undefined ? data.sm : undefined,
+          hardness: data.hd !== undefined ? data.hd : undefined,
+          blurRadius: data.br !== undefined ? data.br : undefined,
+          activeLayer: data.ly !== undefined ? data.ly : undefined,
+          blendMode: data.bm || undefined
+        });
         break;
 
       case T.KP:
@@ -650,8 +662,8 @@ export class WebSocketClient {
     this.send({ t: T.CP, p: Math.round(pressure * 100) });
   }
 
-  broadcastNameChange(name) {
-    this.send({ t: T.CN, n: name });
+  broadcastNameChange(name, extraProperties = {}) {
+    this.send({ t: T.CN, n: name, ...extraProperties });
   }
 
   broadcastKeyPress(key) {

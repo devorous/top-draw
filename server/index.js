@@ -116,30 +116,6 @@ async function handleBroadcast(data, sessionIndex) {
   const user = sessionManager.getUser(sessionIndex);
   if (!user) return;
 
-  // IP ban enforcement on join (CN = name change = "joining" as anon)
-  // Authenticated users are checked in AUTH_LOGIN instead
-  if (data.t === T.CN) {
-    for (const client of wss.clients) {
-      if (client.sessionIndex === sessionIndex && client.userRole < Role.MOD && getDB()) {
-        try {
-          const ipBan = await getDB().collection('moderation').findOne({
-            type: 'ban', active: true, targetIp: client.clientIp
-          });
-          if (ipBan) {
-            const reason = ipBan.reason || '';
-            sendTo(client, { t: T.MOD_RESULT, a: false, auth_error: `You are banned${reason ? ': ' + reason : ''}` });
-            client.close(4001, 'Banned');
-            return;
-          }
-        } catch (err) {
-          console.error('[Mod] IP ban check error:', err);
-        }
-        break;
-      }
-      if (client.sessionIndex === sessionIndex) break;
-    }
-  }
-
   switch (data.t) {
     case T.MM: // Mouse move — data.ps is a flat [x1,y1,x2,y2,...] point stream batched per tick
       if (data.ps && data.ps.length >= 2) {
@@ -208,6 +184,16 @@ async function handleBroadcast(data, sessionIndex) {
 
     case T.CN: // Change name — sent when a user enters the canvas; this is the "join" event for anon users
       user.name = data.n;
+      // Also sync other properties if provided in the CN message (prevents join race conditions)
+      if (data.s !== undefined) user.size = data.s;
+      if (data.l !== undefined) user.tool = data.l;
+      if (data.c !== undefined) user.color = data.c;
+      if (data.sp !== undefined) user.spacing = data.sp;
+      if (data.sm !== undefined) user.smoothing = data.sm;
+      if (data.hd !== undefined) user.hardness = data.hd;
+      if (data.br !== undefined) user.blurRadius = data.br;
+      if (data.ly !== undefined) user.activeLayer = data.ly;
+      if (data.bm !== undefined) user.blendMode = data.bm;
       sessionManager.updateUserActivity(sessionIndex);
       break;
 
@@ -303,6 +289,23 @@ wss.on('connection', (ws, req) => {
       switch (data.t) {
         // Client handshake — assign a session index and send the full user list + board settings
         case T.CONNECT:
+          // IP ban enforcement on connect
+          if (getDB()) {
+            try {
+              const ipBan = await getDB().collection('moderation').findOne({
+                type: 'ban', active: true, targetIp: ws.clientIp
+              });
+              if (ipBan) {
+                const reason = ipBan.reason || '';
+                sendTo(ws, { t: T.MOD_RESULT, a: false, auth_error: `You are banned${reason ? ': ' + reason : ''}` });
+                ws.close(4001, 'Banned');
+                return;
+              }
+            } catch (err) {
+              console.error('[Mod] IP ban check error:', err);
+            }
+          }
+
           const sessionIndex = sessionManager.allocateSessionIndex();
           ws.sessionIndex = sessionIndex;
 

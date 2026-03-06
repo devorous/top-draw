@@ -1,3 +1,5 @@
+import { ToolToEnum } from '../shared/MessageTypes.js';
+import { packColor } from '../shared/ColorUtils.js';
 import { User } from './User.js';
 import { Board } from './canvas/Board.js';
 import { ToolManager, BrushTool } from './tools/Tools.js';
@@ -840,7 +842,21 @@ export class DrawingApp {
     this.ui.updateSelfName(username);
     this.ui.showConnectionStatus('connected');
 
-    this.wsClient.broadcastNameChange(username);
+    // Bundle initial settings with name change to prevent join race conditions
+    const initialProps = {
+      s: Math.round(this.self.size * 100),
+      l: ToolToEnum[this.self.tool] || 0,
+      c: packColor(this.self.color),
+      sp: Math.round(this.self.spacing * 100),
+      sm: Math.round(this.self.smoothing),
+      hd: Math.round(this.self.hardness),
+      br: Math.round(this.self.blurRadius),
+      ly: this.self.activeLayer,
+      bm: this.self.blendMode
+    };
+    this.wsClient.broadcastNameChange(username, initialProps);
+
+    // Also broadcast individual changes for compatibility and redundancy
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
@@ -878,9 +894,21 @@ export class DrawingApp {
     this.ui.updateSelfName(name);
     this.ui.showConnectionStatus('connected');
 
-    this.wsClient.broadcastNameChange(name);
+    // Bundle initial settings with name change to prevent join race conditions
+    const initialProps = {
+      s: Math.round(this.self.size * 100),
+      l: ToolToEnum[this.self.tool] || 0,
+      c: packColor(this.self.color),
+      sp: Math.round(this.self.spacing * 100),
+      sm: Math.round(this.self.smoothing),
+      hd: Math.round(this.self.hardness),
+      br: Math.round(this.self.blurRadius),
+      ly: this.self.activeLayer,
+      bm: this.self.blendMode
+    };
+    this.wsClient.broadcastNameChange(name, initialProps);
 
-    // Broadcast initial settings so other users see correct values
+    // Also broadcast individual changes for compatibility and redundancy
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);

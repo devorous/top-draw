@@ -109,7 +109,20 @@ export function setupUserHandlers(wsClient, app) {
     let user = users.get(data.sessionIndex);
     if (!user) {
       // User wasn't in any users list yet — create from scratch
-      user = new User(data.sessionIndex, { username: data.name });
+      const userOptions = {
+        username: data.name,
+        size: data.size,
+        tool: data.tool,
+        color: data.color,
+        opacity: data.color ? data.color[3] : undefined,
+        spacing: data.spacing,
+        smoothing: data.smoothing,
+        hardness: data.hardness,
+        blurRadius: data.blurRadius,
+        activeLayer: data.activeLayer,
+        blendMode: data.blendMode
+      };
+      user = new User(data.sessionIndex, userOptions);
       users.set(data.sessionIndex, user);
 
       const boardData = ui.createUserBoard(data.sessionIndex);
@@ -121,11 +134,29 @@ export function setupUserHandlers(wsClient, app) {
       const hadName = !!user.username;
       user.setUsername(data.name);
 
+      // Apply any properties that were bundled with the join message
+      if (data.size !== undefined) user.setSize(data.size);
+      if (data.tool !== undefined) user.setTool(data.tool);
+      if (data.color !== undefined) {
+        user.setColor(data.color);
+        user.setOpacity(data.color[3]);
+      }
+      if (data.spacing !== undefined) user.setSpacing(data.spacing);
+      if (data.smoothing !== undefined) user.setSmoothing(data.smoothing);
+      if (data.hardness !== undefined) user.setHardness(data.hardness);
+      if (data.blurRadius !== undefined) user.setBlurRadius(data.blurRadius);
+      if (data.activeLayer !== undefined) user.setActiveLayer(data.activeLayer);
+      if (data.blendMode !== undefined) user.setBlendMode(data.blendMode);
+
       if (!hadName) {
         // User existed but had no UI entry yet (was nameless on connect)
         ui.createRemoteUser(data.sessionIndex, user);
       } else {
         ui.updateRemoteName(data.sessionIndex, data.name);
+        // Refresh UI for properties that might have changed
+        if (data.tool !== undefined) ui.updateRemoteToolDisplay(data.sessionIndex, data.tool);
+        if (data.color !== undefined) ui.updateRemoteColor(data.sessionIndex, data.color);
+        if (data.size !== undefined) ui.updateRemoteSize(data.sessionIndex, data.size);
       }
     }
     chat.addSystemMessage(`${data.name} joined the room`);
