@@ -198,6 +198,10 @@ export class DrawingApp {
     this.ui.updateToolDisplay(initialTool, this.self);
     this.ui.updateBrushModeDisplay(this.brushModeManager.getMode());
     this.ui.updateActiveLayerDisplay(this.self.activeLayer);
+    // Apply blend mode visibility for the initial active layer
+    this.ui.updateBlendModeForLayer(
+      this.board.layerManager.getLayerAllowComplexBlendModes(this.self.activeLayer)
+    );
 
     // Restore tool values for initial tool and update lock button states
     if (this.toolLockManager.toolLocks[initialTool]) {
@@ -1026,12 +1030,19 @@ export class DrawingApp {
     this.wsClient.broadcastToolChange(tool);
 
     // Blend mode is sticky per-user, not per-tool or per-layer.
-    // Eraser uses destination-out internally, so its preview should be 'normal'.
+    // Eraser uses destination-out internally, so hide blend mode UI and set preview to 'normal'.
     // Other tools use the user's sticky blend mode for preview.
-    if (tool === 'eraser') {
+    if (tool === 'erase') {
       this.board.topCanvas.style.mixBlendMode = 'normal';
+      // Hide blend mode options for eraser (it always uses destination-out)
+      if (this.ui.elements.blendModeOptions) {
+        this.ui.elements.blendModeOptions.style.display = 'none';
+      }
     } else {
       this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
+      // Show blend mode options based on layer restrictions (not for eraser)
+      const allowComplex = this.board.layerManager.getLayerAllowComplexBlendModes(this.self.activeLayer);
+      this.ui.updateBlendModeForLayer(allowComplex);
     }
 
     // Restore tool values (locked or unlocked)
@@ -1071,8 +1082,19 @@ export class DrawingApp {
     this.self.setActiveLayer(layerIndex);
     this.ui.updateActiveLayerDisplay(layerIndex);
 
+    // Show/hide blend mode UI based on this layer's restriction
+    const allowComplex = this.board.layerManager.getLayerAllowComplexBlendModes(layerIndex);
+    const wasReset = this.ui.updateBlendModeForLayer(allowComplex);
+    if (wasReset) {
+      // Layer doesn't allow complex blend modes — silently revert user's blend mode to Normal
+      this.self.setBlendMode('source-over');
+      this.board.topCanvas.style.mixBlendMode = 'normal';
+    }
+
     // Show the user's current sticky blend mode in the dropdown (blend mode is per-user, not per-layer)
-    this.ui.updateBlendModeDisplay(this.self.blendMode);
+    if (allowComplex) {
+      this.ui.updateBlendModeDisplay(this.self.blendMode);
+    }
 
     // Update preview canvas mix-blend-mode for live preview
     this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
@@ -1091,6 +1113,11 @@ export class DrawingApp {
 
   handleBlendModeChange(blendMode) {
     const activeLayer = this.self.activeLayer;
+
+    // Enforce layer restriction — guard against programmatic calls on restricted layers
+    if (!this.board.layerManager.getLayerAllowComplexBlendModes(activeLayer)) {
+      blendMode = 'source-over';
+    }
 
     // Update sticky blend mode on the local user
     this.self.setBlendMode(blendMode);

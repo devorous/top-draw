@@ -126,10 +126,16 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('cbm', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      user.setBlendMode(data.blendMode);
+      // Enforce layer restriction — remote users cannot use complex blend modes on restricted layers
+      let blendMode = data.blendMode;
+      const layerIdx = data.layerIndex ?? user.activeLayer ?? 0;
+      if (!board.layerManager.getLayerAllowComplexBlendModes(layerIdx)) {
+        blendMode = 'source-over';
+      }
+      user.setBlendMode(blendMode);
       // Always update CSS blend mode on the remote user's preview canvas
       if (user.board) {
-        user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(data.blendMode);
+        user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(blendMode);
       }
       if (data.layerIndex !== null && data.layerIndex !== undefined) {
         board.compositeAllLayers();

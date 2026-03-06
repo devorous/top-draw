@@ -65,7 +65,7 @@ export class SelectTool extends Tool {
     this.isTransforming = false;
 
     // Preview downscaling settings
-    this.previewMaxSize = 256; // Max dimension for preview warps
+    this.previewMaxSize = 512; // Max dimension for preview warps (higher for better visual quality)
     this.hasShownPreviewToast = false; // Track if we've shown the low-res preview toast
 
     // Clipboard
@@ -1091,15 +1091,8 @@ export class SelectTool extends Tool {
 
     const ctx = this.board.topCtx;
 
-    // Calculate preview scale for downsampling input image (max 256px on longest side of source)
-    const srcMaxDim = Math.max(this.floatingCanvas.width, this.floatingCanvas.height);
-    const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
-
-    // Show toast if preview downscaling is active (only once per selection session)
-    if (previewScale < 1 && !this.hasShownPreviewToast && this.board.app?.ui) {
-      this.board.app.ui.showToast('Low res preview!');
-      this.hasShownPreviewToast = true;
-    }
+    // LOCAL USER: Always use full resolution (scale = 1) for the best visual experience.
+    const previewScale = 1;
 
     // Reuse or create preview homography instance
     if (!this.previewHomography) {
@@ -1119,11 +1112,11 @@ export class SelectTool extends Tool {
       // Calculate full output bounds for scaling up the preview
       const bounds = calculateCornerBounds(this.corners);
 
-      // Draw the warped result scaled up to full size
+      // Draw the warped result
       const tempCanvas = imageDataToCanvas(result.imageData);
       ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'low';
-      ctx.drawImage(tempCanvas, bounds.minX, bounds.minY, bounds.width, bounds.height);
+      ctx.imageSmoothingQuality = 'medium';
+      ctx.drawImage(tempCanvas, bounds.minX, bounds.minY);
     } else {
       // Fallback: just draw the original floating selection
       this.drawFloatingSelection();

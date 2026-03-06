@@ -33,6 +33,9 @@ export class LayerManager {
     this.redoStackByUser = new Map(); // userId → [{groupIdx, record}][] (batches, newest last)
     // Reusable buffer for isolated group compositing (eraser optimization)
     this._groupBuffer = null;
+    // Pool of reusable full-size canvases for active strokes (reduces GC pressure)
+    this._canvasPool = [];
+    this.CANVAS_POOL_MAX = 12;
 
     this.initLayerGroups(3);
   }
@@ -70,6 +73,34 @@ export class LayerManager {
   }
 
   /**
+   * Acquire a full-size canvas from the pool, or create one if the pool is empty.
+   * Always returns a cleared canvas ready for drawing.
+   */
+  _acquireCanvas() {
+    if (this._canvasPool.length > 0) {
+      const c = this._canvasPool.pop();
+      c.ctx.clearRect(0, 0, this.width, this.height);
+      c.ctx.globalCompositeOperation = 'source-over';
+      return c;
+    }
+    return this._createCanvas();
+  }
+
+  /**
+   * Return a full-size canvas to the pool for later reuse.
+   * Silently discards if the pool is already at capacity.
+   * @param {{canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D}} canvasObj
+   */
+  _releaseCanvas(canvasObj) {
+    if (!canvasObj) return;
+    if (this._canvasPool.length < this.CANVAS_POOL_MAX) {
+      canvasObj.ctx.clearRect(0, 0, this.width, this.height);
+      canvasObj.ctx.globalCompositeOperation = 'source-over';
+      this._canvasPool.push(canvasObj);
+    }
+  }
+
+  /**
    * Get or create the reusable group buffer canvas for isolated compositing.
    * This single buffer is reused for all groups to minimize memory allocation.
    * @returns {{canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D}}
@@ -87,16 +118,54 @@ export class LayerManager {
 
   initLayerGroups(count) {
     for (let i = 0; i < count; i++) {
-      this.layerGroups.push({
+      const group = {
         id: i,
         name: `Layer ${i + 1}`,
         visible: true,
+        // Layer 0 (bottom) allows all blend modes. Upper layers default to Normal-only
+        // for O(N) isolated compositing performance. Can be toggled via room settings.
+        allowComplexBlendModes: i === 0,
         bakedSequences: [],       // [{type:'sequence'|'group', blendMode, canvas?, ctx?, strokes?[], timestamp}]
         strokeStack: [],          // completed stroke records
         userStrokeCounts: new Map(), // userId → count in strokeStack
-        activeStrokeByUser: new Map() // userId → { canvas, ctx, blendMode }
-      });
+        activeStrokeByUser: new Map(), // userId → { canvas, ctx, blendMode }
+        flatCanvas: null,
+        flatCtx: null
+      };
+
+      // Layer 0 uses a single pre-composited "flat canvas" instead of separate sequence
+      // bins. It is initialized with the background color so that blend mode math is
+      // correct against the actual background (not transparent). Strokes bake directly
+      // onto it, and it is drawn with source-over during compositing.
+      if (i === 0) {
+        const { canvas, ctx } = this._createCanvas();
+        const [r, g, b, a] = this.backgroundColor;
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        group.flatCanvas = canvas;
+        group.flatCtx = ctx;
+      }
+
+      this.layerGroups.push(group);
     }
+  }
+
+  /**
+   * Set whether a layer allows complex blend modes (multiply, difference, etc.)
+   * When false, only Normal (source-over) is available — enables the O(N) isolated
+   * compositing path and hides the blend mode UI for this layer.
+   * @param {number} groupIdx
+   * @param {boolean} allow
+   */
+  setLayerAllowComplexBlendModes(groupIdx, allow) {
+    if (this.layerGroups[groupIdx]) {
+      this.layerGroups[groupIdx].allowComplexBlendModes = allow;
+    }
+  }
+
+  /** @returns {boolean} */
+  getLayerAllowComplexBlendModes(groupIdx) {
+    return this.layerGroups[groupIdx]?.allowComplexBlendModes ?? true;
   }
 
   // ---------------------------------------------------------------------------
@@ -114,7 +183,7 @@ export class LayerManager {
     const group = this.layerGroups[groupIdx];
     if (!group) return;
 
-    const { canvas, ctx } = this._createCanvas();
+    const { canvas, ctx } = this._acquireCanvas();
     group.activeStrokeByUser.set(userId, {
       canvas,
       ctx,
@@ -139,7 +208,7 @@ export class LayerManager {
 
     let active = group.activeStrokeByUser.get(userId);
     if (!active) {
-      const { canvas, ctx } = this._createCanvas();
+      const { canvas, ctx } = this._acquireCanvas();
       active = {
         canvas,
         ctx,
@@ -173,7 +242,10 @@ export class LayerManager {
 
     // Find non-transparent bounding box (using dirty rect optimization if available)
     const bounds = this._findContentBounds(active.canvas, active.dirtyRect);
-    if (!bounds) return; // Empty stroke — discard
+    if (!bounds) {
+      this._releaseCanvas(active); // Return empty canvas to pool
+      return;
+    }
 
     const { x, y, width, height } = bounds;
 
@@ -183,6 +255,9 @@ export class LayerManager {
     croppedCanvas.height = height;
     const croppedCtx = croppedCanvas.getContext('2d');
     croppedCtx.drawImage(active.canvas, x, y, width, height, 0, 0, width, height);
+
+    // Release the full-size active canvas back to the pool
+    this._releaseCanvas(active);
 
     const record = { canvas: croppedCanvas, ctx: croppedCtx, x, y, width, height, blendMode: active.blendMode, userId, timestamp: Date.now(), ...extraProps };
     console.log(`[LayerManager.commitUserStroke] Adding stroke for userId=${userId}, layer=${groupIdx}, timestamp=${record.timestamp}, stackSize=${group.strokeStack.length}`);
@@ -206,8 +281,10 @@ export class LayerManager {
     const group = this.layerGroups[groupIdx];
     if (!group) return;
 
-    if (group.activeStrokeByUser.has(userId)) {
+    const active = group.activeStrokeByUser.get(userId);
+    if (active) {
       group.activeStrokeByUser.delete(userId);
+      this._releaseCanvas(active);
       this.needsComposite = true;
       this._notifyHistoryPanel();
     }
@@ -242,10 +319,19 @@ export class LayerManager {
     const group = this.layerGroups[groupIdx];
     if (!group) return;
 
-    const seq = this._createCanvas();
-    seq.blendMode = blendMode;
-    seq.ctx.drawImage(imageBitmap, 0, 0);
-    group.bakedSequences.push(seq);
+    if (group.flatCanvas) {
+      // Layer 0: composite the incoming image onto the flat canvas.
+      // Sync providers send baked sequences in chronological order, so sequential
+      // drawImage calls here reconstruct the correct composited state.
+      group.flatCtx.globalCompositeOperation = blendMode;
+      group.flatCtx.drawImage(imageBitmap, 0, 0);
+      group.flatCtx.globalCompositeOperation = 'source-over';
+    } else {
+      const seq = this._createCanvas();
+      seq.blendMode = blendMode;
+      seq.ctx.drawImage(imageBitmap, 0, 0);
+      group.bakedSequences.push(seq);
+    }
     this.needsComposite = true;
   }
 
@@ -432,16 +518,18 @@ export class LayerManager {
   _bakeOverflowStrokes(group) {
     const MAX = LayerManager.MAX_STROKES_PER_USER;
 
-    // We only bake strokes that are mathematically "safe" to collapse without a background.
-    // Associative blend modes can be pre-collapsed because (BG ⊗ A) ⊗ B = BG ⊗ (A ⊗ B).
-    // Non-associative modes (difference, overlay, dodge, burn) must be kept separate.
+    // Layer 0 is the bottom layer — it composites against a static background only,
+    // so ALL blend modes are safe to bake directly into sequence bins.
+    // Upper layers may sit above other layers' content, so non-associative modes
+    // (difference, overlay, dodge, burn) cannot be safely pre-collapsed there.
+    const isBaseLayer = group.id === 0;
     const safeModes = [
-      'source-over',     // Normal blending (fully associative)
-      'destination-out',  // Eraser (associative as mask accumulation)
-      'multiply',        // Mathematically associative: (BG * A) * B = BG * (A * B)
-      'darken',          // min() is associative
-      'lighten',         // max() is associative
-      'screen'           // (1-(1-BG)*(1-A))*(1-B) associative via distributive property
+      'source-over',
+      'destination-out',
+      'multiply',
+      'darken',
+      'lighten',
+      'screen'
     ];
 
     // Process oldest strokes first, compressing them either into bins or groups
@@ -449,8 +537,8 @@ export class LayerManager {
     while (i < group.strokeStack.length && this._anyUserOverMax(group, MAX)) {
       const stroke = group.strokeStack[i];
 
-      if (safeModes.includes(stroke.blendMode)) {
-        // Bakeable stroke: compress into sequence bin
+      if (isBaseLayer || safeModes.includes(stroke.blendMode)) {
+        // Bakeable: compress into a sequence bin (permanently committed)
         this._bakeStrokeToBin(group, stroke);
         group.strokeStack.splice(i, 1);
 
@@ -459,7 +547,7 @@ export class LayerManager {
 
         // Do NOT increment i, as we just removed the element at i
       } else {
-        // Non-bakeable stroke: check if we should compress into a group
+        // Non-bakeable stroke on an upper layer: check if we should compress into a group
         // Compress if there's a blend mode change after this run
         const runEnd = this._findBlendModeRunEnd(group.strokeStack, i);
         const runLength = runEnd - i + 1;
@@ -515,20 +603,21 @@ export class LayerManager {
   }
 
   _anyUserOverMax(group, max) {
-    // Only count BAKEABLE strokes toward the limit.
-    // Non-bakeable strokes (difference, overlay, etc.) can accumulate indefinitely
-    // without triggering baking, preserving chronological order.
+    // On Layer 0 (base layer) every stroke is bakeable, so count them all.
+    // On upper layers, only count associative/safe modes — non-associative modes
+    // (difference, overlay, etc.) are compressed into groups instead of baked.
+    const isBaseLayer = group.id === 0;
     const safeModes = ['source-over', 'destination-out', 'multiply', 'darken', 'lighten', 'screen'];
-    const bakeableCountsByUser = new Map();
+    const countsByUser = new Map();
 
     for (const stroke of group.strokeStack) {
-      if (safeModes.includes(stroke.blendMode)) {
-        const count = bakeableCountsByUser.get(stroke.userId) || 0;
-        bakeableCountsByUser.set(stroke.userId, count + 1);
+      if (isBaseLayer || safeModes.includes(stroke.blendMode)) {
+        const count = countsByUser.get(stroke.userId) || 0;
+        countsByUser.set(stroke.userId, count + 1);
       }
     }
 
-    for (const count of bakeableCountsByUser.values()) {
+    for (const count of countsByUser.values()) {
       if (count > max) return true;
     }
 
@@ -541,6 +630,24 @@ export class LayerManager {
   }
 
   _bakeStrokeToBin(group, stroke) {
+    // Layer 0: bake directly onto the flat canvas so blend modes composite against
+    // the real background (correct sequential math, not transparent-bin math).
+    if (group.flatCanvas) {
+      // For blend modes other than source-over/destination-out, fill any transparent
+      // holes (from previous erasers) with backgroundColor first. This ensures blend
+      // modes compute against the background color, not transparent pixels.
+      if (stroke.blendMode !== 'source-over' && stroke.blendMode !== 'destination-out') {
+        const [r, g, b, a] = this.backgroundColor;
+        group.flatCtx.globalCompositeOperation = 'destination-over';
+        group.flatCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+        group.flatCtx.fillRect(0, 0, this.width, this.height);
+      }
+      group.flatCtx.globalCompositeOperation = stroke.blendMode;
+      group.flatCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
+      group.flatCtx.globalCompositeOperation = 'source-over';
+      return;
+    }
+
     // Check if we can append to the last baked sequence (same blend mode)
     const lastSeq = group.bakedSequences[group.bakedSequences.length - 1];
 
@@ -577,6 +684,15 @@ export class LayerManager {
     const group = this.layerGroups[groupIdx];
     if (!group) return;
 
+    if (group.flatCanvas) {
+      // Layer 0: composite directly onto the flat canvas
+      group.flatCtx.globalCompositeOperation = blendMode;
+      group.flatCtx.drawImage(canvas, x, y);
+      group.flatCtx.globalCompositeOperation = 'source-over';
+      this.needsComposite = true;
+      return;
+    }
+
     // Append to last sequence if same blend mode, otherwise create new sequence
     const lastSeq = group.bakedSequences[group.bakedSequences.length - 1];
     let targetSeq;
@@ -600,6 +716,27 @@ export class LayerManager {
   eraseFromAllBaseBins(groupIdx, eraserCanvas, x, y, lassoPath = null) {
     const group = this.layerGroups[groupIdx];
     if (!group) return;
+
+    if (group.flatCanvas) {
+      // Layer 0: apply eraser directly to the flat canvas.
+      // Punched-through areas become transparent; the backgroundColor fill in
+      // compositeLayerRange will show through correctly when rendering.
+      group.flatCtx.globalCompositeOperation = 'destination-out';
+      if (lassoPath && lassoPath.length >= 3) {
+        group.flatCtx.beginPath();
+        group.flatCtx.moveTo(lassoPath[0].x, lassoPath[0].y);
+        for (let i = 1; i < lassoPath.length; i++) {
+          group.flatCtx.lineTo(lassoPath[i].x, lassoPath[i].y);
+        }
+        group.flatCtx.closePath();
+        group.flatCtx.fill();
+      } else {
+        group.flatCtx.drawImage(eraserCanvas, x, y);
+      }
+      group.flatCtx.globalCompositeOperation = 'source-over';
+      this.needsComposite = true;
+      return;
+    }
 
     for (const seq of group.bakedSequences) {
       seq.ctx.globalCompositeOperation = 'destination-out';
@@ -931,6 +1068,9 @@ export class LayerManager {
    * @param {Array|null} dirtyRects - Optional array of {x, y, width, height} to limit redraw area
    */
   compositeLayerRange(targetCtx, startIdx, endIdx, backgroundColor = null, dirtyRects = null) {
+    // Sync backgroundColor so _compositeGroupWithFlatCanvas uses the same value
+    if (backgroundColor) this.backgroundColor = backgroundColor;
+
     // Multi-rect dirty-region optimization
     let useDirtyRects = false;
     let totalDirtyArea = 0;
@@ -977,7 +1117,11 @@ export class LayerManager {
       const group = this.layerGroups[i];
       if (!group.visible) continue;
 
-      if (this._groupHasDestOut(group)) {
+      if (group.flatCanvas) {
+        // Layer 0: always use the flat-canvas path — background is pre-embedded so
+        // all blend modes (including non-associative ones) are mathematically correct.
+        this._compositeGroupWithFlatCanvas(targetCtx, group);
+      } else if (this._groupHasDestOut(group)) {
         if (this._groupHasComplexBlendModes(group)) {
           // Fall back to sequential approach for correctness with complex blend modes
           this._compositeGroupSequential(targetCtx, group);
@@ -993,6 +1137,74 @@ export class LayerManager {
     }
 
     targetCtx.globalCompositeOperation = 'source-over';
+  }
+
+  /**
+   * Composite Layer 0 using its pre-composited flat canvas.
+   * The flat canvas already contains backgroundColor + all baked strokes composited
+   * in correct sequential order. Unbaked strokes (strokeStack + active) are applied
+   * on top using an isolated buffer so erasers don't bleed into the flat canvas.
+   *
+   * @param {CanvasRenderingContext2D} targetCtx
+   * @param {Object} group - Must have group.flatCanvas set
+   */
+  _compositeGroupWithFlatCanvas(targetCtx, group) {
+    const hasUnbaked = group.strokeStack.length > 0 || group.activeStrokeByUser.size > 0;
+
+    if (!hasUnbaked) {
+      // Fast path: nothing unbaked — just stamp the flat canvas
+      targetCtx.globalCompositeOperation = 'source-over';
+      targetCtx.drawImage(group.flatCanvas, 0, 0);
+      return;
+    }
+
+    // Use the shared group buffer as a scratch canvas.
+    // Pre-fill with backgroundColor so that transparent holes in flatCanvas (from baked
+    // erasers) are treated as the background colour during blend mode computation.
+    // Without this, a `difference` stroke over an erased area would compute against
+    // transparent (0,0,0,0) instead of white, giving the wrong result.
+    const { canvas: buffer, ctx: bufferCtx } = this._getGroupBuffer();
+    bufferCtx.clearRect(0, 0, this.width, this.height);
+    const [r, g, b, a] = this.backgroundColor;
+    bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+    bufferCtx.fillRect(0, 0, this.width, this.height);
+    bufferCtx.globalCompositeOperation = 'source-over';
+    bufferCtx.drawImage(group.flatCanvas, 0, 0);
+
+    // Process strokes, filling holes after each eraser so subsequent blend modes
+    // compute against backgroundColor instead of transparent
+    for (const stroke of group.strokeStack) {
+      bufferCtx.globalCompositeOperation = stroke.blendMode;
+      bufferCtx.globalAlpha = 1.0;
+      bufferCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
+      if (stroke.blendMode === 'destination-out') {
+        // Fill eraser holes with background color so blend modes compute correctly
+        bufferCtx.globalCompositeOperation = 'destination-over';
+        bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+        bufferCtx.fillRect(0, 0, this.width, this.height);
+        bufferCtx.globalCompositeOperation = 'source-over';
+      }
+    }
+
+    for (const [, active] of group.activeStrokeByUser) {
+      bufferCtx.globalCompositeOperation = active.blendMode;
+      bufferCtx.drawImage(active.canvas, 0, 0);
+      if (active.blendMode === 'destination-out') {
+        bufferCtx.globalCompositeOperation = 'destination-over';
+        bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+        bufferCtx.fillRect(0, 0, this.width, this.height);
+      }
+    }
+
+    // Final fill to ensure no transparent holes remain (belt and suspenders)
+    bufferCtx.globalCompositeOperation = 'destination-over';
+    bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+    bufferCtx.fillRect(0, 0, this.width, this.height);
+
+    bufferCtx.globalCompositeOperation = 'source-over';
+
+    targetCtx.globalCompositeOperation = 'source-over';
+    targetCtx.drawImage(buffer, 0, 0);
   }
 
   /**
@@ -1159,6 +1371,13 @@ export class LayerManager {
       group.strokeStack = [];
       group.userStrokeCounts.clear();
       group.activeStrokeByUser.clear();
+      // Reset Layer 0's flat canvas back to the background color
+      if (group.flatCanvas) {
+        group.flatCtx.clearRect(0, 0, this.width, this.height);
+        const [r, g, b, a] = this.backgroundColor;
+        group.flatCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+        group.flatCtx.fillRect(0, 0, this.width, this.height);
+      }
       this.needsComposite = true;
       this._notifyHistoryPanel();
       console.log(`[LayerManager.clear] Layer ${index} cleared, strokeStack.length = ${group.strokeStack.length}`);
@@ -1181,6 +1400,8 @@ export class LayerManager {
     this.height = height;
     // Clear the group buffer so it gets recreated with new dimensions
     this._groupBuffer = null;
+    // Discard pooled canvases — they're the wrong size now
+    this._canvasPool = [];
 
     for (const group of this.layerGroups) {
       // Resize baked sequences
@@ -1208,6 +1429,20 @@ export class LayerManager {
         active.ctx.drawImage(temp2, 0, 0);
       }
       // Stroke stack records store cropped canvases at x,y — no resize needed
+
+      // Resize Layer 0's flat canvas (preserves content, fills new space with bg color)
+      if (group.flatCanvas) {
+        const tempFlat = document.createElement('canvas');
+        tempFlat.width = group.flatCanvas.width;
+        tempFlat.height = group.flatCanvas.height;
+        tempFlat.getContext('2d').drawImage(group.flatCanvas, 0, 0);
+        group.flatCanvas.width = width;
+        group.flatCanvas.height = height;
+        const [r, g, b, a] = this.backgroundColor;
+        group.flatCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+        group.flatCtx.fillRect(0, 0, width, height);
+        group.flatCtx.drawImage(tempFlat, 0, 0);
+      }
     }
 
     this.needsComposite = true;
@@ -1262,8 +1497,10 @@ export class LayerManager {
    */
   cleanupUserStrokes(userId) {
     for (const group of this.layerGroups) {
-      if (group.activeStrokeByUser.has(userId)) {
+      const active = group.activeStrokeByUser.get(userId);
+      if (active) {
         group.activeStrokeByUser.delete(userId);
+        this._releaseCanvas(active);
       }
     }
     // Trigger recomposite to remove the orphaned stroke from display

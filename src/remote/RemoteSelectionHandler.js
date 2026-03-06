@@ -334,17 +334,47 @@ export class RemoteSelectionHandler {
 
     // If floating, fill the floating canvas
     if (user.floatingCanvas && user.floatingCtx) {
+      user.floatingCtx.save();
       user.floatingCtx.fillStyle = colorString;
-      user.floatingCtx.fillRect(0, 0, s.width, s.height);
+
+      // Translate lasso path to floating canvas coordinates (0,0-based)
+      // We must use the current user.lassoPath which moves with the selection
+      if (user.lassoPath && user.lassoPath.length >= 3) {
+        user.floatingCtx.beginPath();
+        user.floatingCtx.moveTo(user.lassoPath[0].x - s.x, user.lassoPath[0].y - s.y);
+        for (let i = 1; i < user.lassoPath.length; i++) {
+          user.floatingCtx.lineTo(user.lassoPath[i].x - s.x, user.lassoPath[i].y - s.y);
+        }
+        user.floatingCtx.closePath();
+        user.floatingCtx.clip();
+      }
+
+      // Fill either the clipped lasso or the full rectangle
+      user.floatingCtx.fillRect(0, 0, user.floatingCanvas.width, user.floatingCanvas.height);
+      user.floatingCtx.restore();
 
       // Redraw on user's layer
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-      user.context.drawImage(user.floatingCanvas, s.x, s.y);
+      this.drawFloatingSelection(user);
     } else {
-      // Fill directly on main canvas
+      // Fill directly on main canvas (happens BEFORE lift)
+      this.board.mainCtx.save();
       this.board.mainCtx.globalCompositeOperation = 'source-over';
+      
+      const path = user.lassoPath || (user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null);
+      if (path) {
+        this.board.mainCtx.beginPath();
+        this.board.mainCtx.moveTo(path[0].x, path[0].y);
+        for (let i = 1; i < path.length; i++) {
+          this.board.mainCtx.lineTo(path[i].x, path[i].y);
+        }
+        this.board.mainCtx.closePath();
+        this.board.mainCtx.clip();
+      }
+      
       this.board.mainCtx.fillStyle = colorString;
       this.board.mainCtx.fillRect(s.x, s.y, s.width, s.height);
+      this.board.mainCtx.restore();
     }
   }
 
@@ -573,6 +603,7 @@ export class RemoteSelectionHandler {
       const outputHeight = maxY - minY;
 
       // Calculate preview scale for downsampling input image (max 256px on longest side of source)
+      // REMOTE USER: Stay at lower resolution to avoid hitching the observer's frame rate.
       const srcMaxDim = Math.max(user.floatingCanvas.width, user.floatingCanvas.height);
       const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
       const previewSrcWidth = Math.max(1, Math.round(user.floatingCanvas.width * previewScale));

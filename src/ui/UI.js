@@ -580,6 +580,33 @@ export class UI {
     }
   }
 
+  /**
+   * Show or hide the blend mode section based on whether the active layer allows
+   * complex blend modes. When hidden, the user's blend mode is reset to Normal.
+   * @param {boolean} allowComplex - Whether the active layer allows blend modes
+   * @returns {boolean} Whether a reset to Normal was needed
+   */
+  updateBlendModeForLayer(allowComplex) {
+    const section = this.elements.blendModeOptions;
+    if (!section) return false;
+
+    if (allowComplex) {
+      section.style.display = '';
+      return false;
+    } else {
+      section.style.display = 'none';
+      // Reset the select to Normal so the value is consistent
+      const select = this.elements.blendModeSelect;
+      if (select && select.value !== 'source-over') {
+        this._updatingBlendMode = true;
+        select.value = 'source-over';
+        this._updatingBlendMode = false;
+        return true; // Caller should apply the reset
+      }
+      return false;
+    }
+  }
+
   updateSelfColor(color) {
     this.elements.selfListColor.style.backgroundColor = `rgba(${color.join(',')})`;
   }
