@@ -1180,25 +1180,51 @@ export class DrawingApp {
     }
   }
 
-  disconnect() {
-    if (this.wsClient) {
-      this.wsClient.disconnect();
-    }
-    // handleWSDisconnect will update the UI via the onclose callback
+  async disconnect() {
+    console.log('[App] Exiting room, returning to lobby...');
 
-    // Clear stored auth so auto-login doesn't bypass the login form
-    if (this.auth) {
-      this.auth.clearToken();
-      this.auth.setRememberMe(false);
+    // Stop tick loop
+    if (this.inputBufferManager) {
+      this.inputBufferManager.stopTickLoop();
     }
-    this.selfRole = 0;
-    this.moderation.setRole(0);
 
-    // Return to login dialog
+    // Clear remote users
+    this.users.forEach((user, sessionIndex) => {
+      if (sessionIndex !== this.sessionIndex) {
+        this.remoteUserHandler.handleCancel(user);
+        this.ui.removeRemoteUser(sessionIndex);
+      }
+    });
+    this.users.clear();
+    if (this.self) {
+      this.users.set(this.sessionIndex, this.self);
+    }
+
+    this.connected = false;
+    this.sessionIndex = null;
+    if (this.self) this.self.id = null;
+
+    // Clear canvas (optional - you might want to keep the drawing)
+    // this.board.clear();
+
+    // Hide drawing UI
     this.ui.hideCursor();
     this.ui.hideConnectionStatus();
-    this.ui.showLogin();
-    this.ui.elements.overlay.style.display = 'flex';
+
+    // Disconnect from current room and reconnect to discovery
+    if (this.wsClient && this.wsClient.connected) {
+      this.wsClient.disconnect();
+      // Wait a moment for clean disconnect
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    // Show landing page
+    if (this.landingPage) {
+      this.landingPage.show();
+    }
+
+    // Reconnect to discovery room for browsing
+    this.connectForRoomDiscovery();
   }
 
   // Tool management

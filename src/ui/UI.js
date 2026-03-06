@@ -44,6 +44,7 @@ export class UI {
   cacheElements() {
     this.elements = {
       overlay: document.getElementById('overlay'),
+      landingPage: document.getElementById('landingPage'),
       login: document.getElementById('login'),
       connecting: document.getElementById('connecting'),
       joinBtn: document.getElementById('joinBtn'),
@@ -209,7 +210,8 @@ export class UI {
   }
 
   showLogin() {
-    this.elements.login.style.display = 'block';
+    this.elements.landingPage.style.display = 'flex';
+    this.elements.login.style.display = 'none';
     this.elements.connecting.style.display = 'none';
   }
 
