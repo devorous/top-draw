@@ -120,6 +120,9 @@ export class RemoteUserHandler {
 
     if (!user.panning && user.mousedown) {
       this.renderRemotePreview(user, { x: finalX, y: finalY });
+      if (user.tool === 'brush') {
+        this.board.requestUpdate();
+      }
     }
   }
 
@@ -179,23 +182,8 @@ export class RemoteUserHandler {
   renderRemoteMove(user, pos, lastPos) {
     switch (user.tool) {
       case 'brush':
-        // Incremental rendering: only draw the new segment instead of redrawing entire line
-        const prevPoint = user.currentLine.length > 0
-          ? user.currentLine[user.currentLine.length - 1]
-          : { x: user.lastx, y: user.lasty };
-
+        // Store point for later rendering (whole line drawn in renderRemotePreview)
         user.addToLine(pos);
-
-        // Draw only the new segment directly to the layer context
-        const layerCtx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
-        if (layerCtx && user.currentLine.length >= 2) {
-          const segment = [prevPoint, pos];
-          drawLineArray(segment, layerCtx, user);
-          if (this.board.mirror) {
-            const mirroredSegment = mirrorLine(segment, this.board.getWidth());
-            drawLineArray(mirroredSegment, layerCtx, user);
-          }
-        }
 
         if (user.pressure !== user.prevpressure) {
           this.commitLine(user);
@@ -247,8 +235,9 @@ export class RemoteUserHandler {
    */
   renderRemotePreview(user, pos) {
     // Shape tools and eraser need their preview canvas cleared.
+    // Brush also needs clear because it redraws the whole line for better quality.
     // Skip for select tool when a floating selection exists.
-    const needsClear = ['line', 'rectangle', 'circle', 'select', 'erase'].includes(user.tool);
+    const needsClear = ['brush', 'line', 'rectangle', 'circle', 'select', 'erase'].includes(user.tool);
     if (needsClear && !(user.tool === 'select' && user.floatingCanvas)) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
@@ -463,10 +452,9 @@ export class RemoteUserHandler {
     const pos = { x: user.x, y: user.y };
     user.remoteTarget = null; // Clear target on release
 
-    // Get the sub-layer context for this user's active layer.
-    // Strokes are always drawn source-over into the sub-layer; blend mode applied at composite time.
-    const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);
-    if (!layerCtx) return; // Safety check
+    // Get the ACTIVE sub-layer context for this user's stroke.
+    // Brush uses this for the whole duration of the stroke.
+    const activeStrokeCtx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
 
     // Pen stroke active — composite offscreen and skip the tool switch,
     // since CT (tool change) may arrive after MD/MM when a new user joins
@@ -494,8 +482,15 @@ export class RemoteUserHandler {
       // Pen/ink stroke was fully handled above — skip tool switch
     } else switch (user.tool) {
       case 'brush':
-        // Brush uses incremental rendering - line already drawn to layerCtx during mouse moves
-        // No need to redraw on mouse up
+        // Brush uses non-incremental rendering now. Draw final line to activeStrokeCtx.
+        if (activeStrokeCtx && user.currentLine.length >= 2) {
+          drawLineArray(user.currentLine, activeStrokeCtx, user);
+          if (this.board.mirror) {
+            const w = this.board.getWidth();
+            const mirroredLine = mirrorLine(user.currentLine, w);
+            drawLineArray(mirroredLine, activeStrokeCtx, user);
+          }
+        }
         break;
 
       case 'flowPen':
@@ -503,29 +498,35 @@ export class RemoteUserHandler {
         break;
 
       case 'line':
-        this.toolManager.getTool('line').drawPreview(layerCtx, user, user.startPos, pos);
-        if (this.board.mirror) {
-          const w = this.board.getWidth();
-          this.toolManager.getTool('line').drawPreview(layerCtx, user,
-            { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
+        if (activeStrokeCtx) {
+          this.toolManager.getTool('line').drawPreview(activeStrokeCtx, user, user.startPos, pos);
+          if (this.board.mirror) {
+            const w = this.board.getWidth();
+            this.toolManager.getTool('line').drawPreview(activeStrokeCtx, user,
+              { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
+          }
         }
         break;
 
       case 'rectangle':
-        this.toolManager.getTool('rectangle').drawRect(layerCtx, user, user.startPos, pos);
-        if (this.board.mirror) {
-          const w = this.board.getWidth();
-          this.toolManager.getTool('rectangle').drawRect(layerCtx, user,
-            { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
+        if (activeStrokeCtx) {
+          this.toolManager.getTool('rectangle').drawRect(activeStrokeCtx, user, user.startPos, pos);
+          if (this.board.mirror) {
+            const w = this.board.getWidth();
+            this.toolManager.getTool('rectangle').drawRect(activeStrokeCtx, user,
+              { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
+          }
         }
         break;
 
       case 'circle':
-        this.toolManager.getTool('circle').drawEllipse(layerCtx, user, user.startPos, pos);
-        if (this.board.mirror) {
-          const w = this.board.getWidth();
-          this.toolManager.getTool('circle').drawEllipse(layerCtx, user,
-            { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
+        if (activeStrokeCtx) {
+          this.toolManager.getTool('circle').drawEllipse(activeStrokeCtx, user, user.startPos, pos);
+          if (this.board.mirror) {
+            const w = this.board.getWidth();
+            this.toolManager.getTool('circle').drawEllipse(activeStrokeCtx, user,
+              { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
+          }
         }
         break;
 
@@ -691,6 +692,9 @@ export class RemoteUserHandler {
       this.debugOverlay.cancelDrawing(user.id);
     }
 
+    // Cancel in-progress stroke in LayerManager
+    this.board.layerManager.cancelUserStroke(user.activeLayer, user.id);
+
     // Clear any in-progress drawing
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     user.clearLine();
@@ -730,43 +734,53 @@ export class RemoteUserHandler {
 
     const imageBrushTool = this.toolManager.getTool('imageBrush');
     if (imageBrushTool) imageBrushTool.lastStampPos.delete(user.id);
+
+    this.board.requestUpdate();
   }
 
   // Drawing utilities
 
   commitLine(user, newPressure, newSize) {
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-    user.context.beginPath();
-
-    // Old segment draws with current user.pressure (still the old value
-    // because callers commit BEFORE calling setPressure)
-    const oldRadius = user.pressure * user.size;
-    const newRadius = (newPressure ?? user.pressure) * (newSize ?? user.size);
-
-    // With incremental rendering, the line is already drawn to layerCtx.
-    // We just need to bridge the gap for pressure changes if needed.
-    const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);
-
+    
     // Save last drawn position (where old segment visually ends)
     const lastDrawnPos = user.currentLine.length > 0
       ? user.currentLine[user.currentLine.length - 1]
       : { x: user.x, y: user.y };
 
-    // Bridge the gap between old segment end and new segment start when pressure changes
-    // using interpolated filled circles (flow-pen style)
-    if (user.currentLine.length > 0 && oldRadius !== newRadius) {
-      const from = lastDrawnPos;
-      bridgeGap(layerCtx, from, lastDrawnPos, oldRadius, newRadius, user);
-      if (this.board.mirror) {
-        const w = this.board.getWidth();
-        bridgeGap(layerCtx,
-          { x: w - from.x, y: from.y },
-          { x: w - lastDrawnPos.x, y: lastDrawnPos.y },
-          oldRadius, newRadius, user);
+    const oldRadius = user.pressure * user.size;
+    const newRadius = (newPressure ?? user.pressure) * (newSize ?? user.size);
+
+    // Get the ACTIVE sub-layer context for this user's stroke.
+    const activeStrokeCtx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
+    if (activeStrokeCtx) {
+      // Draw the segment-so-far to the active stroke context before resetting the buffer
+      if (user.tool === 'brush' && user.currentLine.length >= 2) {
+        drawLineArray(user.currentLine, activeStrokeCtx, user);
+        if (this.board.mirror) {
+          const w = this.board.getWidth();
+          const mirroredLine = mirrorLine(user.currentLine, w);
+          drawLineArray(mirroredLine, activeStrokeCtx, user);
+        }
+      }
+
+      // Bridge the gap between old segment end and new segment start when pressure changes
+      // using interpolated filled circles (flow-pen style)
+      if (user.currentLine.length > 0 && oldRadius !== newRadius) {
+        const from = lastDrawnPos;
+        bridgeGap(activeStrokeCtx, from, lastDrawnPos, oldRadius, newRadius, user);
+        if (this.board.mirror) {
+          const w = this.board.getWidth();
+          bridgeGap(activeStrokeCtx,
+            { x: w - from.x, y: from.y },
+            { x: w - lastDrawnPos.x, y: lastDrawnPos.y },
+            oldRadius, newRadius, user);
+        }
       }
     }
 
     user.clearLine();
     user.addToLine(lastDrawnPos);
+    this.board.requestUpdate();
   }
 }
