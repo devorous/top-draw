@@ -30,6 +30,11 @@ export function setupWebSocketHandlers(app) {
   function wrapHandler(eventName, handler) {
     handlerMap.set(eventName, handler);
     wsClient.on(eventName, (data) => {
+      // Ignore messages from self to prevent double-processing/echo issues
+      if (data && data.sessionIndex === app.sessionIndex) {
+        return;
+      }
+
       if (app.syncClient?.buffering) {
         app.syncClient.bufferEvent(eventName, data);
         return;

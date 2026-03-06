@@ -12,6 +12,7 @@ export function setupChatHandlers(wsClient, app) {
 
   // Chat message
   wsClient.on('msg', (data) => {
+    if (data.sessionIndex === app.sessionIndex) return; // Skip self
     const user = users.get(data.sessionIndex);
     if (user) {
       chat.addMessage(data.message, user);
@@ -20,6 +21,7 @@ export function setupChatHandlers(wsClient, app) {
 
   // Direct message
   wsClient.on('dm', (data) => {
+    if (data.sessionIndex === app.sessionIndex) return; // Skip self
     const user = users.get(data.sessionIndex);
     if (user) {
       chat.addDMMessage(data.message, data.sessionIndex, false);
@@ -28,6 +30,7 @@ export function setupChatHandlers(wsClient, app) {
 
   // Chat image
   wsClient.on('chat_img', (data) => {
+    if (data.sessionIndex === app.sessionIndex) return; // Skip self
     console.log('[CHAT_IMG] Received image from user', data.sessionIndex);
 
     const user = users.get(data.sessionIndex);
