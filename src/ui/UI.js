@@ -51,6 +51,7 @@ export class UI {
       offlineBtn: document.getElementById('offlineBtn'),
       loginOfflineBtn: document.getElementById('loginOfflineBtn'),
       loginUsername: document.getElementById('loginUsername'),
+      loginPassword: document.getElementById('loginPassword'),
 
       boardContainer: document.getElementById('boardContainer'),
       boards: document.getElementById('boards'),
@@ -837,7 +838,7 @@ export class UI {
    * @param {string} message - The message to display
    * @param {number} duration - How long to show the toast (ms), default 2000
    */
-  showToast(message, duration = 2000) {
+  showToast(message, duration = 2000, type = '') {
     const toast = this.elements.toast;
     if (!toast) return;
 
@@ -847,10 +848,12 @@ export class UI {
     }
 
     toast.textContent = message;
+    toast.classList.remove('error');
+    if (type === 'error') toast.classList.add('error');
     toast.classList.add('show');
 
     this._toastTimeout = setTimeout(() => {
-      toast.classList.remove('show');
+      toast.classList.remove('show', 'error');
     }, duration);
   }
   

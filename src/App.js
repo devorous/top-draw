@@ -314,6 +314,12 @@ export class DrawingApp {
     elements.joinBtn.addEventListener('click', () => this.handleJoin());
     elements.offlineBtn.addEventListener('click', () => this.startOfflineMode());
     elements.loginOfflineBtn.addEventListener('click', () => this.startOfflineMode());
+
+    // Swap Join/Login button text based on password field
+    elements.loginPassword?.addEventListener('input', () => {
+      const hasPassword = elements.loginPassword.value.length > 0;
+      elements.joinBtn.textContent = hasPassword ? 'Login' : 'Join';
+    });
     elements.reconnectBtn.addEventListener('click', () => this.reconnect());
     elements.disconnectBtn.addEventListener('click', () => this.disconnect());
 
@@ -1042,6 +1048,10 @@ export class DrawingApp {
     this.self.role = role;
     this.self.setUsername(username);
 
+    // Reset join button and clear password field
+    if (this.ui.elements.joinBtn) this.ui.elements.joinBtn.textContent = 'Join';
+    if (this.ui.elements.loginPassword) this.ui.elements.loginPassword.value = '';
+
     // Update moderation UI visibility based on role
     if (this.moderation) {
       this.moderation.setRole(role);
@@ -1083,10 +1093,18 @@ export class DrawingApp {
   }
 
   handleAuthError(error) {
-    // Show login form with error
-    this.ui.showLogin();
-    this.ui.elements.overlay.style.display = 'flex';
-    this.ui.showToast(error, 4000);
+    this.ui.showToast(error, 4000, 'error');
+
+    // Return to landing page so user can retry
+    if (this.landingPage) {
+      this.syncClient.hideOverlay();
+      this.landingPage.show();
+      this.ui.elements.overlay.style.display = 'flex';
+      // Reset button back to Login (password is still filled)
+      if (this.ui.elements.loginPassword?.value) {
+        this.ui.elements.joinBtn.textContent = 'Login';
+      }
+    }
   }
 
   handleJoin() {

@@ -29,4 +29,10 @@
     visibility: visible;
     transform: translateX(-50%) translateY(0);
   }
+
+  &.error {
+    border-color: #e74c3c;
+    box-shadow: var(--shadow-md), 0 0 20px rgba(231, 76, 60, 0.3);
+    color: #e74c3c;
+  }
 }
