@@ -205,9 +205,12 @@ export class BlurTool extends Tool {
 
       // 3. Draw the blurred temporary canvas onto the stroke canvas
       strokeCtx.drawImage(temp, left, top);
-      
+
       // 4. Restore context to remove clip and reset alpha/composite settings
       strokeCtx.restore();
+
+      // Track dirty rect so commitUserStroke can skip expensive getImageData scan
+      this.board.expandDirtyRect(user, left, top, width, height);
 
       this.board.requestUpdate();
     } catch (error) {

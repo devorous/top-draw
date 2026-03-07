@@ -351,7 +351,12 @@ export class DrawingApp {
     elements.textBtn.addEventListener('click', () => this.selectTool('text'));
     elements.eraseBtn.addEventListener('click', () => this.selectTool('erase'));
     elements.blurBtn.addEventListener('click', () => this.selectTool('blur'));
-    elements.circleBlurBtn.addEventListener('click', () => this.selectTool('circleBlur'));
+    elements.circleBlurBtn.addEventListener('click', () => {
+      // Select whichever circle blur mode is currently active
+      const checked = document.querySelector('input[name="circleBlurMode"]:checked');
+      const tool = checked && checked.value === 'hard' ? 'circleBlurHard' : 'circleBlur';
+      this.selectTool(tool);
+    });
     elements.imageBrushBtn.addEventListener('click', () => this.selectTool('imageBrush'));
     elements.uploadBtn.addEventListener('click', () => elements.imageUploadInput.click());
     elements.imageUploadInput.addEventListener('change', (e) => {
@@ -469,6 +474,15 @@ export class DrawingApp {
     brushModeRadios.forEach(radio => {
       radio.addEventListener('change', (e) => {
         this.brushModeManager.setMode(e.target.value);
+      });
+    });
+
+    // Circle blur mode radio buttons
+    const circleBlurModeRadios = document.querySelectorAll('input[name="circleBlurMode"]');
+    circleBlurModeRadios.forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        const tool = e.target.value === 'hard' ? 'circleBlurHard' : 'circleBlur';
+        this.selectTool(tool);
       });
     });
 
@@ -1325,6 +1339,11 @@ export class DrawingApp {
     // Update brush mode state when switching to brush/flowPen/ink
     this.brushModeManager.updateModeFromTool(tool);
 
+    // Update circle blur mode radio when switching to circleBlur/circleBlurHard
+    if (tool === 'circleBlur' || tool === 'circleBlurHard') {
+      this.ui.updateCircleBlurModeDisplay(tool);
+    }
+
     this.self.setTool(tool);
     this.toolManager.setTool(tool);
     this.ui.updateToolDisplay(tool, this.self);
@@ -1492,7 +1511,7 @@ export class DrawingApp {
     this.ui.updateCursorSize(size);
     this.ui.updateSquarePositions(size);
     // Update pressure indicators only for tools that use pressure
-    const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur'];
+    const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'circleBlurHard'];
     if (pressureTools.includes(this.self.tool)) {
       this.ui.updatePressureCursorRadius(this.self.pressure * size, size);
     }
@@ -1710,7 +1729,7 @@ export class DrawingApp {
       }
 
       // Update pressure indicators only for tools that use pressure
-      const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur'];
+      const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'circleBlurHard'];
       if (pressureTools.includes(this.self.tool)) {
         this.ui.updatePressureCursorRadius(pressure * this.self.size, this.self.size);
       }

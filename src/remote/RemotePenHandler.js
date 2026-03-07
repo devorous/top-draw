@@ -133,6 +133,30 @@ export class RemotePenHandler {
   handlePenUp(user) {
     if (!user._penLastStampPos || !user._penOffscreen) return;
 
+    // Track dirty rect from pen stamp points to avoid expensive getImageData on commit
+    if (user.penPoints && user.penPoints.length > 0) {
+      const hardness = user._penHardness !== undefined ? user._penHardness : 1.0;
+      const blurAmount = (1 - hardness) * (20 + user.size * 0.2);
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const pt of user.penPoints) {
+        const r = pt.radius || user.size;
+        if (pt.x - r < minX) minX = pt.x - r;
+        if (pt.x + r > maxX) maxX = pt.x + r;
+        if (pt.y - r < minY) minY = pt.y - r;
+        if (pt.y + r > maxY) maxY = pt.y + r;
+      }
+      const margin = blurAmount + 2;
+      const x = Math.floor(minX - margin);
+      const y = Math.floor(minY - margin);
+      const w = Math.ceil(maxX - minX + margin * 2);
+      const h = Math.ceil(maxY - minY + margin * 2);
+      this.board.expandDirtyRect(user, x, y, w, h);
+      if (this.board.mirror) {
+        const boardW = this.board.getWidth();
+        this.board.expandDirtyRect(user, Math.floor(boardW - maxX - margin), y, w, h);
+      }
+    }
+
     // Composite offscreen source-over into the sub-layer; blend mode applied at composite time.
     const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);
     if (layerCtx) {

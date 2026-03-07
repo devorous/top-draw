@@ -145,6 +145,7 @@ export class UI {
       selectionModeOptions: document.getElementById('selectionModeOptions'),
       eraserModeOptions: document.getElementById('eraserModeOptions'),
       brushModeOptions: document.getElementById('brushModeOptions'),
+      circleBlurModeOptions: document.getElementById('circleBlurModeOptions'),
       blendModeOptions: document.getElementById('blendModeOptions'),
       blendModeSelect: document.getElementById('blendModeSelect'),
       layerPanel: document.getElementById('layerPanel'),
@@ -200,6 +201,7 @@ export class UI {
       erase: this.createIcon('images/eraser-icon.svg'),
       blur: this.createIcon('images/brush-icon.svg'),
       circleBlur: this.createIcon('images/circle-blur-icon.svg'),
+      circleBlurHard: this.createIcon('images/circle-blur-icon.svg'),
       inkdropper: this.createIcon('images/inkdropper-icon.svg'),
       pan: this.createIcon('images/move-icon.svg'),
       rotate: this.createIcon('images/rotate-icon.svg'),
@@ -394,6 +396,10 @@ export class UI {
     if (brushModeOptions) {
       brushModeOptions.style.display = 'none';
     }
+    const { circleBlurModeOptions } = this.elements;
+    if (circleBlurModeOptions) {
+      circleBlurModeOptions.style.display = 'none';
+    }
     // Hide pressure indicators by default (only shown for pressure-sensitive tools)
     if (selfPressureCircle) {
       selfPressureCircle.style.display = 'none';
@@ -463,9 +469,13 @@ export class UI {
         }
         break;
       case 'circleBlur':
+      case 'circleBlurHard':
         selfCircle.style.display = 'block';
         brushHardness.style.display = 'block';
         brushSpacing.style.display = 'block';
+        if (this.elements.circleBlurModeOptions) {
+          this.elements.circleBlurModeOptions.style.display = 'block';
+        }
         if (selfPressureCircle) {
           selfPressureCircle.style.display = 'block';
         }
@@ -535,8 +545,10 @@ export class UI {
     };
 
     Object.values(buttons).forEach(btn => btn && btn.classList.remove('selected'));
-    // Map flowPen/ink to brush button (unified brush)
-    const buttonTool = (tool === 'flowPen' || tool === 'ink') ? 'brush' : tool;
+    // Map sub-tools to their shared button
+    let buttonTool = tool;
+    if (tool === 'flowPen' || tool === 'ink') buttonTool = 'brush';
+    if (tool === 'circleBlurHard') buttonTool = 'circleBlur';
     if (buttons[buttonTool]) {
       buttons[buttonTool].classList.add('selected');
     }
@@ -566,6 +578,14 @@ export class UI {
 
   updateBrushModeDisplay(mode) {
     const radios = document.querySelectorAll('input[name="brushMode"]');
+    radios.forEach(r => {
+      r.checked = (r.value === mode);
+    });
+  }
+
+  updateCircleBlurModeDisplay(tool) {
+    const mode = tool === 'circleBlurHard' ? 'hard' : 'soft';
+    const radios = document.querySelectorAll('input[name="circleBlurMode"]');
     radios.forEach(r => {
       r.checked = (r.value === mode);
     });
