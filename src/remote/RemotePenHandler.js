@@ -41,7 +41,7 @@ export class RemotePenHandler {
     const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     user._penAlpha = colorAlpha * opacitySlider;
-    user._penHardness = user.hardness !== undefined ? user.hardness : 1.0;
+    user._penHardness = user.hardness !== undefined ? user.hardness / 100 : 1.0;
 
     // Draw initial hard stamp
     const ctx = user._penOffscreenCtx;
@@ -80,6 +80,10 @@ export class RemotePenHandler {
       ctx.beginPath();
       ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
       ctx.fill();
+      // Track stamp positions for dirty rect calculation in handlePenUp
+      if (user.penPoints) {
+        user.penPoints.push({ x, y, radius: r });
+      }
     }
 
     // Update last stamp pos and preview

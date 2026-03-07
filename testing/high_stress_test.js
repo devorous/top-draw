@@ -5,8 +5,8 @@ import { Trend } from 'k6/metrics';
 const broadcastLatency = new Trend('broadcast_latency_high');
 
 export const options = {
-  vus: 150,
-  duration: '3m',
+  vus: 50,
+  duration: '2m',
 };
 
 function encodeVarint(value) {

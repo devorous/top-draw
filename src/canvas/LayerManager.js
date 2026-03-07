@@ -241,20 +241,28 @@ export class LayerManager {
     group.activeStrokeByUser.delete(userId);
 
     // Use dirty rect directly as content bounds when available — avoids expensive
-    // getImageData GPU→CPU readback. Falls back to legacy pixel scan for tools
-    // that don't track dirty rects (text, blur).
+    // getImageData GPU→CPU readback.
     const dr = active.dirtyRect;
     let bounds;
     if (dr && dr.maxX !== -1) {
       // Fast path: dirty rect is the content bounds (no getImageData needed)
+      // Clamp to canvas dimensions to handle negative or overflow coordinates
       const bx = Math.max(0, dr.minX);
       const by = Math.max(0, dr.minY);
       const bw = Math.min(active.canvas.width, dr.maxX + 1) - bx;
       const bh = Math.min(active.canvas.height, dr.maxY + 1) - by;
-      bounds = (bw > 0 && bh > 0) ? { x: bx, y: by, width: bw, height: bh } : null;
+      if (bw > 0 && bh > 0) {
+        bounds = { x: bx, y: by, width: bw, height: bh };
+      } else {
+        // Dirty rect was expanded but produced invalid bounds after clamping —
+        // fall back to legacy scan to avoid silently discarding drawn content
+        bounds = this._findContentBoundsLegacy(active.canvas);
+      }
     } else {
-      // Slow path fallback: pixel-scan for tools that don't expand dirty rects
-      bounds = this._findContentBoundsLegacy(active.canvas);
+      // Dirty rect was never expanded — no tool drew to this stroke canvas.
+      // Release immediately instead of doing an expensive full-canvas getImageData scan.
+      this._releaseCanvas(active);
+      return;
     }
 
     if (!bounds) {

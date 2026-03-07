@@ -61,7 +61,7 @@ export class RemoteInkHandler {
     const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     user._inkAlpha = colorAlpha * opacitySlider;
-    user._inkHardness = user.hardness !== undefined ? user.hardness : 1.0;
+    user._inkHardness = user.hardness !== undefined ? user.hardness / 100 : 1.0;
 
     // Lock size at stroke start
     user._inkSize = user.size;

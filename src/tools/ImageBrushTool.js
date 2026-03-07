@@ -188,13 +188,17 @@ export class ImageBrushTool extends Tool {
     ctx.stroke();
     ctx.globalAlpha = 1.0;
 
-    // Track dirty bounds
+    // Track dirty bounds (local path uses this in onPointerUp)
     if (this.dirtyBounds) {
       this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, stampX);
       this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, stampY);
       this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, stampX + stampW);
       this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, stampY + stampH);
     }
+
+    // Expand dirty rect per-stamp so remote users also get fast commit paths
+    this.board.expandDirtyRect(user, Math.floor(stampX), Math.floor(stampY),
+      Math.ceil(stampW) + 1, Math.ceil(stampH) + 1);
   }
 
   /**

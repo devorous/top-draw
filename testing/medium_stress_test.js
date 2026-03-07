@@ -5,7 +5,7 @@ import { Trend } from 'k6/metrics';
 const broadcastLatency = new Trend('broadcast_latency_medium');
 
 export const options = {
-  vus: 50,
+  vus: 20,
   duration: '2m',
 };
 

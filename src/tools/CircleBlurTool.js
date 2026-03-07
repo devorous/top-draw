@@ -20,7 +20,7 @@ class Tool {
  * Each gesture is stored as one active stroke: stamps accumulate on the stroke canvas
  * and are committed as a single undoable record on pointerUp.
  * Reads from board.mainCtx so each stamp sees the already-blurred content.
- * Uses distance-based spacing to prevent lag at 90 TPS.
+ * Uses distance-based spacing to prevent lag at high TPS.
  */
 export class CircleBlurTool extends Tool {
   constructor(board) {

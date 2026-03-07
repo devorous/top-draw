@@ -20,7 +20,7 @@ class Tool {
  * Blur tool - applies a GPU-accelerated blur to the area under the circular cursor.
  *
  * Each blur gesture is stored as one active stroke. Dabs are applied based on distance
- * to prevent lag at 90 TPS. It reads from a clean snapshot of the layer to prevent
+ * to prevent lag at high TPS. It reads from a clean snapshot of the layer to prevent
  * destructive feedback loops.
  */
 export class BlurTool extends Tool {
