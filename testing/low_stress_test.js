@@ -2,11 +2,11 @@ import ws from 'k6/ws';
 import { check, sleep } from 'k6';
 import { Trend } from 'k6/metrics';
 
-const broadcastLatency = new Trend('broadcast_latency_random');
+const broadcastLatency = new Trend('broadcast_latency_low');
 
 export const options = {
-  vus: 8,
-  duration: '30s',
+  vus: 10,
+  duration: '1m',
 };
 
 function encodeVarint(value) {
@@ -72,12 +72,15 @@ const toolList = Object.values(Tool);
 export default function () {
   sleep(Math.random() * 2);
 
-  const url = __ENV.TARGET_URL || 'ws://127.0.0.1:8000';
+  const room = __ENV.ROOM || 'test';
+  const baseUrl = __ENV.TARGET_URL || 'ws://127.0.0.1:8000';
+  const url = `${baseUrl}/?room=${room}`;
+  
   let sessionIndex = -1;
 
   const res = ws.connect(url, {}, function (socket) {
     socket.on('open', function () {
-      socket.sendBinary(buildMsg({ t: T.CONNECT, n: `RAND_VU_${__VU}` }));
+      socket.sendBinary(buildMsg({ t: T.CONNECT, n: `LOW_VU_${__VU}` }));
       
       const margin = 50;
       let x = Math.random() * (1920 - 2 * margin) + margin;
@@ -92,7 +95,6 @@ export default function () {
       socket.setInterval(function() {
         if (sessionIndex === -1) return;
 
-        // Momentum-based movement logic
         dx += (Math.random() - 0.5) * 4;
         dy += (Math.random() - 0.5) * 4;
         dx = Math.max(-15, Math.min(15, dx));
@@ -105,7 +107,6 @@ export default function () {
         if (y > 1080 - margin) { y = 1080 - margin; dy *= -1; }
 
         if (state === 0) {
-          // Change Tool and Color randomly
           const randomTool = toolList[Math.floor(Math.random() * toolList.length)];
           const r = Math.floor(Math.random() * 256);
           const g = Math.floor(Math.random() * 256);
@@ -182,9 +183,7 @@ export default function () {
     });
 
     socket.on('error', (e) => console.log('WebSocket Error: ', e.error()));
-
-    // Close connection before test duration ends to ensure proper cleanup
-    socket.setTimeout(() => socket.close(), 25000);
+    socket.setTimeout(() => socket.close(), 55000);
   });
 
   check(res, { 'Connected': (r) => r && r.status === 101 });
