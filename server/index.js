@@ -54,9 +54,9 @@ function getClientIp(req) {
   return req.socket.remoteAddress || '';
 }
 
-// Username validation: 3-20 chars, alphanumeric + underscores
+// Username validation: 1-20 chars, alphanumeric + underscores (allow single char like 'D')
 function isValidUsername(username) {
-  return /^[a-zA-Z0-9_]{2,20}$/.test(username);
+  return /^[a-zA-Z0-9_]{1,20}$/.test(username);
 }
 
 async function init() {
@@ -286,11 +286,15 @@ async function handleBroadcast(data, sessionIndex, room) {
       break;
   }
 
-  // Mute enforcement: block drawing + chat from muted users
+  // Mute enforcement: block drawing + chat from muted users (unless they're mod/admin)
   // Allow cursor movement (MM) and UI state changes (CT, CC, CS, etc.) through
   if (MUTED_BLOCKED.has(data.t)) {
     for (const client of wss.clients) {
       if (client.sessionIndex === sessionIndex && client.isMuted) {
+        // Moderators and admins bypass mutes
+        if (client.userRole >= Role.MOD) {
+          break; // Mute is bypassed, allow the message through
+        }
         // Only send error feedback for chat (not every draw attempt)
         if (data.t === T.MSG || data.t === T.DM || data.t === T.CHAT_IMG) {
           sendTo(client, { t: T.MOD_RESULT, a: false, authError: 'You are muted' });
@@ -390,7 +394,8 @@ wss.on('connection', (ws, req) => {
           // Lazy load room from DB
           await room.ensureLoaded();
 
-          // IP ban + mute enforcement on connect (before session is created)
+          // IP ban enforcement on connect (before session is created)
+          // Note: Mutes are checked on login, not here, so mods/admins can authenticate first
           if (getDB()) {
             try {
               const ipBan = await getDB().collection('moderation').findOne({
@@ -402,16 +407,8 @@ wss.on('connection', (ws, req) => {
                 ws.close(4001, 'Banned');
                 return;
               }
-
-              const ipMute = await getDB().collection('moderation').findOne({
-                type: 'mute', active: true, targetIp: ws.clientIp
-              });
-              if (ipMute) {
-                ws.isMuted = true;
-                console.log(`[Mod] Guest from ${ws.clientIp} connected while IP-muted`);
-              }
             } catch (err) {
-              console.error('[Mod] IP moderation check error:', err);
+              console.error('[Mod] IP ban check error:', err);
             }
           }
 
@@ -466,18 +463,6 @@ wss.on('connection', (ws, req) => {
 
           // Send board settings to new user
           sendTo(ws, { t: T.SETTINGS, m: room.settings.mirror });
-
-          // Notify muted guest so their client shows the muted state
-          if (ws.isMuted) {
-            sendTo(ws, {
-              t: T.MOD_NOTIFY,
-              modActionType: 1,
-              modTarget: sessionIndex,
-              modTargetName: username,
-              modIssuerName: 'System',
-              modReason: 'You are muted'
-            });
-          }
           break;
 
         // Canvas sync handshake (step 1 of 3) — new client asks for the current canvas state.

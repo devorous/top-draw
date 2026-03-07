@@ -1122,10 +1122,19 @@ export class DrawingApp {
     this.updateRoomSettingsButtonVisibility();
 
     // If landing page is active and room is selected, proceed to room
-    if (this.landingPage && this.landingPage.selectedRoom) {
+    // But only if we're not already in that room (auth while already joined)
+    if (this.landingPage && this.landingPage.selectedRoom && this.landingPage.selectedRoom !== this.currentRoomId) {
       this.landingPage.handleAuthSuccess(token, username);
       this.landingPage.proceedToRoom(this.landingPage.selectedRoom);
       return;
+    }
+
+    // If we're already in the room (common case: join room, then authenticate),
+    // just update landing page state without triggering a reconnection
+    if (this.landingPage) {
+      this.landingPage.isAuthenticated = true;
+      this.landingPage.authToken = token;
+      this.landingPage.username = username;
     }
 
     // After auth success, user is already joined (username was in CONNECT)
