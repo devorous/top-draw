@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       run_low:
-        description: 'Run Low Stress Test (10 VUs)'
+        description: 'Run Low Stress Test (8 VUs)'
         required: false
         default: false
         type: boolean
