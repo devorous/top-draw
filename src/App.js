@@ -237,6 +237,7 @@ export class DrawingApp {
       context: this.board.topCtx,
       board: this.board.mainCanvas
     });
+    // Username will be set when user clicks JOIN
   }
 
   initSelfFromUI() {
@@ -816,13 +817,16 @@ export class DrawingApp {
     // Disconnect from discovery room first
     if (this.wsClient && this.wsClient.connected) {
       console.log('[App] Disconnecting from discovery room');
-      this.wsClient.disconnect();
-      // Wait a moment for clean disconnect
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await this.disconnect(); // Use the existing disconnect method to clean up state
+    } else {
+      // If we weren't connected (e.g. offline or failed discovery), still clear state
+      this.users.clear();
+      this.users.set(this.sessionIndex, this.self);
     }
 
     // Connect to WebSocket with actual room ID
     try {
+      this.currentRoomId = roomId; // Ensure roomId is set before connecting
       await this.wsClient.connect(this.self.toJSON(), roomId);
       // handleWSConnect will be called on success
     } catch (err) {
@@ -964,28 +968,14 @@ export class DrawingApp {
   }
 
   handleJoinAfterConnect() {
-    // Called after WebSocket connect when we already have user credentials
+    // Called after WebSocket connect - user is already joined with their username
     this.connected = true;
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(this.self.username);
     this.ui.showConnectionStatus('connected');
 
-    // Bundle initial settings with name change
-    const initialProps = {
-      s: Math.round(this.self.size * 100),
-      l: ToolToEnum[this.self.tool] || 0,
-      c: packColor(this.self.color),
-      sp: Math.round(this.self.spacing * 100),
-      sm: Math.round(this.self.smoothing),
-      hd: Math.round(this.self.hardness),
-      br: Math.round(this.self.blurRadius),
-      ly: this.self.activeLayer,
-      bm: this.self.blendMode
-    };
-    this.wsClient.broadcastNameChange(this.self.username, initialProps);
-
-    // Broadcast settings
+    // Broadcast initial settings (username was already sent in CONNECT)
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
@@ -1046,28 +1036,14 @@ export class DrawingApp {
       return;
     }
 
-    // Legacy flow (for reconnect)
+    // After auth success, user is already joined (username was in CONNECT)
     this.connected = true;
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(username);
     this.ui.showConnectionStatus('connected');
 
-    // Bundle initial settings with name change to prevent join race conditions
-    const initialProps = {
-      s: Math.round(this.self.size * 100),
-      l: ToolToEnum[this.self.tool] || 0,
-      c: packColor(this.self.color),
-      sp: Math.round(this.self.spacing * 100),
-      sm: Math.round(this.self.smoothing),
-      hd: Math.round(this.self.hardness),
-      br: Math.round(this.self.blurRadius),
-      ly: this.self.activeLayer,
-      bm: this.self.blendMode
-    };
-    this.wsClient.broadcastNameChange(username, initialProps);
-
-    // Also broadcast individual changes for compatibility and redundancy
+    // Broadcast initial settings (username was already in CONNECT)
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
@@ -1096,7 +1072,18 @@ export class DrawingApp {
   }
 
   handleJoin() {
-    const name = this.ui.elements.loginUsername.value || 'Anon';
+    // Use input value if provided, otherwise generate unique guest name
+    let name = this.ui.elements.loginUsername.value.trim();
+    if (!name) {
+      // Generate unique tab-specific username (persists per tab via sessionStorage)
+      let tabId = sessionStorage.getItem('tabId');
+      if (!tabId) {
+        tabId = Math.random().toString(36).substring(2, 8);
+        sessionStorage.setItem('tabId', tabId);
+      }
+      name = `Guest-${tabId}`;
+      console.log('[App] Generated tab-specific username:', name);
+    }
     this.self.setUsername(name);
 
     // If landing page is active and room is selected, proceed to room
@@ -1105,28 +1092,14 @@ export class DrawingApp {
       return;
     }
 
-    // Legacy flow (for reconnect, etc.)
+    // User is already joined (username was in CONNECT)
     this.connected = true;
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(name);
     this.ui.showConnectionStatus('connected');
 
-    // Bundle initial settings with name change to prevent join race conditions
-    const initialProps = {
-      s: Math.round(this.self.size * 100),
-      l: ToolToEnum[this.self.tool] || 0,
-      c: packColor(this.self.color),
-      sp: Math.round(this.self.spacing * 100),
-      sm: Math.round(this.self.smoothing),
-      hd: Math.round(this.self.hardness),
-      br: Math.round(this.self.blurRadius),
-      ly: this.self.activeLayer,
-      bm: this.self.blendMode
-    };
-    this.wsClient.broadcastNameChange(name, initialProps);
-
-    // Also broadcast individual changes for compatibility and redundancy
+    // Broadcast initial settings (username was already in CONNECT)
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
@@ -1299,6 +1272,7 @@ export class DrawingApp {
     this.self.setTool(tool);
     this.toolManager.setTool(tool);
     this.ui.updateToolDisplay(tool, this.self);
+    this.ui.updateSelfToolIcon(tool);
     this.wsClient.broadcastToolChange(tool);
 
     // Blend mode is sticky per-user, not per-tool or per-layer.

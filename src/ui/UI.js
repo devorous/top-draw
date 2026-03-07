@@ -622,6 +622,15 @@ export class UI {
     this.elements.selfListUser.textContent = name;
   }
 
+  updateSelfToolIcon(tool) {
+    const { selfListTool } = this.elements;
+    if (selfListTool) {
+      selfListTool.innerHTML = '';
+      const icon = this.icons[tool] || this.icons.brush;
+      selfListTool.appendChild(icon.cloneNode(true));
+    }
+  }
+
   updateSelfTextStyle(size, color) {
     this.elements.selfText.style.fontSize = `${size + 5}px`;
     // Square the alpha to match board rendering (globalAlpha * colorAlpha)

@@ -216,54 +216,40 @@ async function handleBroadcast(data, sessionIndex, room) {
       user.color = data.c;
       break;
 
-    case T.CN: // Change name — sent when a user enters the canvas; this is the "join" event for anon users
-      const wasNameless = !user.name;
+    case T.CN: // Change name - user is changing their display name (not joining)
       const oldName = user.name;
       user.name = data.n;
-      // Also sync other properties if provided in the CN message (prevents join race conditions)
-      if (data.s !== undefined) user.size = data.s;
-      if (data.l !== undefined) user.tool = data.l;
-      if (data.c !== undefined) user.color = data.c;
-      if (data.sp !== undefined) user.spacing = data.sp;
-      if (data.sm !== undefined) user.smoothing = data.sm;
-      if (data.hd !== undefined) user.hardness = data.hd;
-      if (data.br !== undefined) user.blurRadius = data.br;
-      if (data.ly !== undefined) user.activeLayer = data.ly;
-      if (data.bm !== undefined) user.blendMode = data.bm;
       room.sessionManager.updateUserActivity(sessionIndex);
 
-      console.log(`[CN] Session ${sessionIndex}: ${wasNameless ? 'gaining name' : 'changing name from "' + oldName + '"'} to "${data.n}"`);
+      console.log(`[CN] Session ${sessionIndex} changing name from "${oldName}" to "${data.n}"`);
 
-      // After a user gains a name, broadcast updated USERS list to ensure all clients see the new user
-      if (wasNameless && user.name) {
-        const roomBroadcaster = createRoomBroadcaster(room);
-        const joinedUsers = room.sessionManager.getJoinedUsers();
-        console.log(`[CN] User ${user.name}(${sessionIndex}) gained name. Broadcasting updated USERS to room ${room.id}: ${joinedUsers.length} users:`, joinedUsers.map(u => `${u.name}(${u.sessionIndex})`).join(', '));
-        roomBroadcaster({
-          t: T.USERS,
-          us: joinedUsers.map(u => ({
-            u: u.sessionIndex,
-            a: u.afk,
-            x: u.x,
-            y: u.y,
-            l: u.tool,
-            c: u.color,
-            s: u.size,
-            sp: u.spacing,
-            sm: u.smoothing,
-            hd: u.hardness,
-            p: u.pressure,
-            n: u.name,
-            tx: u.text,
-            role: u.role || Role.GUEST,
-            ch: u.cursorHidden || false,
-            br: u.blurRadius || 500,
-            ly: u.activeLayer || 0,
-            bm: u.blendMode || 'source-over',
-            ib: u.imageBrush
-          }))
-        });
-      }
+      // Broadcast updated USERS list to everyone
+      const roomBroadcaster = createRoomBroadcaster(room);
+      const allUsers = room.sessionManager.getJoinedUsers();
+      roomBroadcaster({
+        t: T.USERS,
+        us: allUsers.map(u => ({
+          u: u.sessionIndex,
+          a: u.afk,
+          x: u.x,
+          y: u.y,
+          l: u.tool,
+          c: u.color,
+          s: u.size,
+          sp: u.spacing,
+          sm: u.smoothing,
+          hd: u.hardness,
+          p: u.pressure,
+          n: u.name,
+          tx: u.text,
+          role: u.role || Role.GUEST,
+          ch: u.cursorHidden || false,
+          br: u.blurRadius || 500,
+          ly: u.activeLayer || 0,
+          bm: u.blendMode || 'source-over',
+          ib: u.imageBrush
+        }))
+      });
       break;
 
     case T.KP: // Key press — only relevant to the text tool; server mirrors the text buffer for USERS sync
@@ -307,7 +293,7 @@ async function handleBroadcast(data, sessionIndex, room) {
       if (client.sessionIndex === sessionIndex && client.isMuted) {
         // Only send error feedback for chat (not every draw attempt)
         if (data.t === T.MSG || data.t === T.DM || data.t === T.CHAT_IMG) {
-          sendTo(client, { t: T.MOD_RESULT, a: false, auth_error: 'You are muted' });
+          sendTo(client, { t: T.MOD_RESULT, a: false, authError: 'You are muted' });
         }
         return; // Don't relay
       }
@@ -326,24 +312,14 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
 
   const buffer = Msg.encode(POOLED_MSG).finish();
 
-  let sentCount = 0;
-  let excludedCount = 0;
-
   room.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       if (excludeIndex != null && client.sessionIndex == excludeIndex) {
-        excludedCount++;
-        console.log(`[Broadcast] Excluding session ${client.sessionIndex} from message type ${payload.t}`);
         return;
       }
       client.send(buffer);
-      sentCount++;
     }
   });
-
-  if (payload.t === T.CN) {
-    console.log(`[Broadcast] CN message sent to ${sentCount} clients, excluded ${excludedCount} (excludeIndex: ${excludeIndex})`);
-  }
 }
 
 wss.on('connection', (ws, req) => {
@@ -419,7 +395,7 @@ wss.on('connection', (ws, req) => {
               });
               if (ipBan) {
                 const reason = ipBan.reason || '';
-                sendTo(ws, { t: T.MOD_RESULT, a: false, auth_error: `You are banned${reason ? ': ' + reason : ''}` });
+                sendTo(ws, { t: T.MOD_RESULT, a: false, authError: `You are banned${reason ? ': ' + reason : ''}` });
                 ws.close(4001, 'Banned');
                 return;
               }
@@ -431,29 +407,30 @@ wss.on('connection', (ws, req) => {
           const sessionIndex = room.sessionManager.allocateSessionIndex();
           ws.sessionIndex = sessionIndex;
 
-          // Create user without a name initially - name will be set via CN message
-          // This ensures proper USERS broadcast when user joins
-          console.log(`[CONNECT] Session ${sessionIndex} connecting (nameless, will receive name via CN)`);
+          // User joins with their username immediately - no spectator mode
+          const username = data.n || '';
+          console.log(`[CONNECT] Session ${sessionIndex} joining room ${room.id} as "${username}"`);
 
           const newUser = room.sessionManager.createUser(
             sessionIndex,
-            '', // Empty name - will be set via CN message
+            username,
             Tool.BRUSH,
             packColor([0, 0, 0, 1])
           );
 
-          console.log(`[CONNECT] Session ${sessionIndex} connected to room ${room.id} | Total users: ${room.sessionManager.getUserCount()}`);
+          console.log(`[CONNECT] Room ${room.id} now has ${room.sessionManager.getUserCount()} users`);
 
           // Send session index and role back to connecting user
-          sendTo(ws, { t: T.CONNECT, u: sessionIndex, auth_role: ws.userRole });
+          sendTo(ws, { t: T.CONNECT, u: sessionIndex, authRole: ws.userRole });
 
-          // Send current joined users to all in this room (only users with a name)
+          // Broadcast complete user list to everyone (including new user)
+          const allUsers = room.sessionManager.getJoinedUsers();
           const roomBroadcaster = createRoomBroadcaster(room);
-          const joinedUsers = room.sessionManager.getJoinedUsers();
-          console.log(`[CONNECT] Broadcasting USERS to room ${room.id}: ${joinedUsers.length} users with names:`, joinedUsers.map(u => `${u.name}(${u.sessionIndex})`).join(', '));
+          console.log(`[CONNECT] Broadcasting user list to all: ${allUsers.length} users:`,
+            allUsers.map(u => `${u.name}(${u.sessionIndex})`).join(', '));
           roomBroadcaster({
             t: T.USERS,
-            us: joinedUsers.map(u => ({
+            us: allUsers.map(u => ({
               u: u.sessionIndex,
               a: u.afk,
               x: u.x,
@@ -591,14 +568,15 @@ wss.on('connection', (ws, req) => {
         case T.MOD_ACTION: {
           // Verify requester is mod or admin
           if (ws.userRole < Role.MOD) {
-            sendTo(ws, { t: T.MOD_RESULT, a: false, auth_error: 'Insufficient permissions' });
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Insufficient permissions' });
             break;
           }
 
-          const modActionType = data.mod_action_type; // 0=kick,1=mute,2=ban,3=unmute,4=unban
-          const modTargetIndex = data.mod_target;
-          const modReason = data.mod_reason || '';
-          const modDuration = data.mod_duration || 0;
+          // Use camelCase - protobufjs converts snake_case proto fields to camelCase
+          const modActionType = data.modActionType; // 0=kick,1=mute,2=ban,3=unmute,4=unban
+          const modTargetIndex = data.modTarget;
+          const modReason = data.modReason || '';
+          const modDuration = data.modDuration || 0;
 
           // Find target WebSocket
           let targetWs = null;
@@ -610,7 +588,7 @@ wss.on('connection', (ws, req) => {
           }
 
           const targetUser = room.sessionManager.getUser(modTargetIndex);
-          const targetName = data.mod_target_name || targetWs?.username || targetUser?.name || `User ${modTargetIndex}`;
+          const targetName = data.modTargetName || targetWs?.username || targetUser?.name || `User ${modTargetIndex}`;
 
           try {
             const roomBroadcaster = createRoomBroadcaster(room);
@@ -619,11 +597,11 @@ wss.on('connection', (ws, req) => {
               case 0: // Kick
                 roomBroadcaster({
                   t: T.MOD_NOTIFY,
-                  mod_action_type: 0,
-                  mod_target: modTargetIndex,
-                  mod_target_name: targetName,
-                  mod_issuer_name: ws.username || `User ${ws.sessionIndex}`,
-                  mod_reason: modReason
+                  modActionType: 0,
+                  modTarget: modTargetIndex,
+                  modTargetName: targetName,
+                  modIssuerName: ws.username || `User ${ws.sessionIndex}`,
+                  modReason: modReason
                 });
                 if (targetWs) {
                   targetWs.close(4002, 'Kicked');
@@ -651,11 +629,11 @@ wss.on('connection', (ws, req) => {
                 roomBroadcaster({ t: T.HIDE_CURSOR, u: modTargetIndex });
                 roomBroadcaster({
                   t: T.MOD_NOTIFY,
-                  mod_action_type: 1,
-                  mod_target: modTargetIndex,
-                  mod_target_name: targetName,
-                  mod_issuer_name: ws.username || `User ${ws.sessionIndex}`,
-                  mod_reason: modReason
+                  modActionType: 1,
+                  modTarget: modTargetIndex,
+                  modTargetName: targetName,
+                  modIssuerName: ws.username || `User ${ws.sessionIndex}`,
+                  modReason: modReason
                 });
                 console.log(`[Mod] ${ws.username} muted ${targetName}`);
                 break;
@@ -675,11 +653,11 @@ wss.on('connection', (ws, req) => {
                 }
                 roomBroadcaster({
                   t: T.MOD_NOTIFY,
-                  mod_action_type: 2,
-                  mod_target: modTargetIndex,
-                  mod_target_name: targetName,
-                  mod_issuer_name: ws.username || `User ${ws.sessionIndex}`,
-                  mod_reason: modReason
+                  modActionType: 2,
+                  modTarget: modTargetIndex,
+                  modTargetName: targetName,
+                  modIssuerName: ws.username || `User ${ws.sessionIndex}`,
+                  modReason: modReason
                 });
                 if (targetWs) {
                   targetWs.close(4001, 'Banned');
@@ -707,11 +685,11 @@ wss.on('connection', (ws, req) => {
                 roomBroadcaster({ t: T.SHOW_CURSOR, u: modTargetIndex });
                 roomBroadcaster({
                   t: T.MOD_NOTIFY,
-                  mod_action_type: 3,
-                  mod_target: modTargetIndex,
-                  mod_target_name: targetName,
-                  mod_issuer_name: ws.username || `User ${ws.sessionIndex}`,
-                  mod_reason: modReason
+                  modActionType: 3,
+                  modTarget: modTargetIndex,
+                  modTargetName: targetName,
+                  modIssuerName: ws.username || `User ${ws.sessionIndex}`,
+                  modReason: modReason
                 });
                 console.log(`[Mod] ${ws.username} unmuted ${targetName}`);
                 break;
@@ -730,11 +708,11 @@ wss.on('connection', (ws, req) => {
                 }
                 roomBroadcaster({
                   t: T.MOD_NOTIFY,
-                  mod_action_type: 4,
-                  mod_target: modTargetIndex,
-                  mod_target_name: targetName,
-                  mod_issuer_name: ws.username || `User ${ws.sessionIndex}`,
-                  mod_reason: modReason
+                  modActionType: 4,
+                  modTarget: modTargetIndex,
+                  modTargetName: targetName,
+                  modIssuerName: ws.username || `User ${ws.sessionIndex}`,
+                  modReason: modReason
                 });
                 console.log(`[Mod] ${ws.username} unbanned ${targetName}`);
                 break;
@@ -743,7 +721,7 @@ wss.on('connection', (ws, req) => {
             sendTo(ws, { t: T.MOD_RESULT, a: true });
           } catch (err) {
             console.error('[Mod] Action error:', err);
-            sendTo(ws, { t: T.MOD_RESULT, a: false, auth_error: 'Moderation action failed' });
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Moderation action failed' });
           }
           break;
         }
@@ -751,20 +729,20 @@ wss.on('connection', (ws, req) => {
         // Wipe user — remove all strokes from a specific user (mod action)
         case T.MOD_WIPE: {
           if (ws.userRole < Role.MOD) {
-            sendTo(ws, { t: T.MOD_RESULT, a: false, auth_error: 'Insufficient permissions' });
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Insufficient permissions' });
             break;
           }
 
-          const targetIndex = data.mod_target;
-          const targetName = data.mod_target_name || `User ${targetIndex}`;
+          const targetIndex = data.modTarget;
+          const targetName = data.modTargetName || `User ${targetIndex}`;
 
           // Broadcast to all clients in the room to wipe this user's strokes
           const roomBroadcaster = createRoomBroadcaster(room);
           roomBroadcaster({
             t: T.MOD_WIPE,
-            mod_target: targetIndex,
-            mod_target_name: targetName,
-            mod_issuer_name: ws.username || `User ${ws.sessionIndex}`
+            modTarget: targetIndex,
+            modTargetName: targetName,
+            modIssuerName: ws.username || `User ${ws.sessionIndex}`
           });
 
           console.log(`[Mod] ${ws.username} wiped all strokes from ${targetName}`);
@@ -795,7 +773,7 @@ wss.on('connection', (ws, req) => {
         case T.MOD_LIST: {
           // Verify requester is mod or admin
           if (ws.userRole < Role.MOD) {
-            sendTo(ws, { t: T.MOD_RESULT, a: false, auth_error: 'Insufficient permissions' });
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Insufficient permissions' });
             break;
           }
 
@@ -803,7 +781,7 @@ wss.on('connection', (ws, req) => {
             const entries = await getActiveModEntries();
             sendTo(ws, {
               t: T.MOD_LIST,
-              mod_entries: entries
+              modEntries: entries
             });
           } catch (err) {
             console.error('[Mod] List error:', err);
@@ -811,27 +789,27 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
-        // Register a new account — auth_username + auth_password required.
+        // Register a new account — authUsername + authPassword required.
         // First ever registration is auto-promoted to admin (Role.ADMIN).
-        // On success replies with AUTH_RESULT containing a JWT (auth_token) and the assigned role.
+        // On success replies with AUTH_RESULT containing a JWT (authToken) and the assigned role.
         case T.AUTH_REGISTER: {
           const db = getDB();
           if (!db) {
-            const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Database not available' };
+            const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Database not available' };
             sendTo(ws, errorResponse);
             break;
           }
 
-          const regUsername = (data.auth_username || '').trim();
-          const regPassword = data.auth_password || '';
+          const regUsername = (data.authUsername || '').trim();
+          const regPassword = data.authPassword || '';
 
           if (!isValidUsername(regUsername)) {
-            const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Username must be 2-20 characters (letters, numbers, underscores)' };
+            const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Username must be 2-20 characters (letters, numbers, underscores)' };
             sendTo(ws, errorResponse);
             break;
           }
           if (regPassword.length < 6) {
-            const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Password must be at least 6 characters' };
+            const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Password must be at least 6 characters' };
             sendTo(ws, errorResponse);
             break;
           }
@@ -873,18 +851,18 @@ wss.on('connection', (ws, req) => {
             const successResponse = {
               t: T.AUTH_RESULT,
               a: true,
-              auth_token: token,
-              auth_role: role,
-              auth_username: regUsername
+              authToken: token,
+              authRole: role,
+              authUsername: regUsername
             };
             sendTo(ws, successResponse);
           } catch (err) {
             if (err.code === 11000) {
-              const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Username already taken' };
+              const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Username already taken' };
                 sendTo(ws, errorResponse);
             } else {
               console.error('[Auth] Registration error:', err);
-              const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Registration failed' };
+              const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Registration failed' };
                 sendTo(ws, errorResponse);
             }
           }
@@ -892,14 +870,14 @@ wss.on('connection', (ws, req) => {
         }
 
         // Login — supports two modes:
-        //   Token mode:    auth_token present → verify JWT and look up user by stored ID
-        //   Password mode: auth_username + auth_password → bcrypt verify
+        //   Token mode:    authToken present → verify JWT and look up user by stored ID
+        //   Password mode: authUsername + authPassword → bcrypt verify
         // After auth: checks active bans (closes socket 4001 if banned), loads mute state,
         // refreshes lastLoginAt + IP history, and returns a fresh JWT via AUTH_RESULT.
         case T.AUTH_LOGIN: {
           const db = getDB();
           if (!db) {
-            const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Database not available' };
+            const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Database not available' };
             sendTo(ws, errorResponse);
             break;
           }
@@ -907,11 +885,11 @@ wss.on('connection', (ws, req) => {
           try {
             let userDoc = null;
 
-            if (data.auth_token) {
+            if (data.authToken) {
               // Token-based login
-              const decoded = verifyToken(data.auth_token);
+              const decoded = verifyToken(data.authToken);
               if (!decoded) {
-                const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Invalid or expired token' };
+                const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Invalid or expired token' };
                     sendTo(ws, errorResponse);
                 break;
               }
@@ -919,29 +897,29 @@ wss.on('connection', (ws, req) => {
               const { ObjectId } = await import('mongodb');
               userDoc = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
               if (!userDoc) {
-                const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Account not found' };
+                const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Account not found' };
                     sendTo(ws, errorResponse);
                 break;
               }
-            } else if (data.auth_username && data.auth_password) {
+            } else if (data.authUsername && data.authPassword) {
               // Password-based login
               userDoc = await db.collection('users').findOne(
-                { username: data.auth_username },
+                { username: data.authUsername },
                 { collation: { locale: 'en', strength: 2 } }
               );
               if (!userDoc) {
-                const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Invalid username or password' };
+                const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Invalid username or password' };
                 sendTo(ws, errorResponse);
                 break;
               }
-              const passwordValid = await verifyPassword(data.auth_password, userDoc.passwordHash);
+              const passwordValid = await verifyPassword(data.authPassword, userDoc.passwordHash);
               if (!passwordValid) {
-                const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Invalid username or password' };
+                const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Invalid username or password' };
                 sendTo(ws, errorResponse);
                 break;
               }
             } else {
-              const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Missing credentials' };
+              const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Missing credentials' };
                 sendTo(ws, errorResponse);
               break;
             }
@@ -962,7 +940,7 @@ wss.on('connection', (ws, req) => {
             }
             if (banCheck && userDoc.role < Role.MOD) {
               const expiry = banCheck.expiresAt ? ` until ${banCheck.expiresAt.toISOString()}` : ' permanently';
-              const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: `You are banned${expiry}. Reason: ${banCheck.reason || 'No reason given'}` };
+              const errorResponse = { t: T.AUTH_RESULT, a: false, authError: `You are banned${expiry}. Reason: ${banCheck.reason || 'No reason given'}` };
               sendTo(ws, errorResponse);
               ws.close(4001, 'Banned');
               break;
@@ -1012,9 +990,9 @@ wss.on('connection', (ws, req) => {
             const successResponse = {
               t: T.AUTH_RESULT,
               a: true,
-              auth_token: token,
-              auth_role: userDoc.role,
-              auth_username: userDoc.username
+              authToken: token,
+              authRole: userDoc.role,
+              authUsername: userDoc.username
             };
             sendTo(ws, successResponse);
 
@@ -1031,7 +1009,7 @@ wss.on('connection', (ws, req) => {
             }
           } catch (err) {
             console.error('[Auth] Login error:', err);
-            const errorResponse = { t: T.AUTH_RESULT, a: false, auth_error: 'Login failed' };
+            const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Login failed' };
             sendTo(ws, errorResponse);
           }
           break;
@@ -1057,20 +1035,27 @@ wss.on('connection', (ws, req) => {
     const sessionIndex = ws.sessionIndex;
     const room = roomManager.getRoomByClient(ws);
 
-    if (sessionIndex !== undefined && room) {
-      console.log('Disconnected:', sessionIndex, 'from room:', room.id);
-      room.sessionManager.removeUser(sessionIndex);
-      room.sessionManager.freeSessionIndex(sessionIndex);
+    if (room) {
+      // Always remove client from room (even if they never got a sessionIndex)
       room.removeClient(ws);
 
-      // Broadcast to room
-      broadcastToRoom(room, { t: T.LEFT, u: sessionIndex });
+      // Only do session cleanup if they had a session
+      if (sessionIndex !== undefined) {
+        console.log('Disconnected:', sessionIndex, 'from room:', room.id);
+        room.sessionManager.removeUser(sessionIndex);
+        room.sessionManager.freeSessionIndex(sessionIndex);
 
-      console.log('Current users in room', room.id, ':', room.sessionManager.getUserCount());
+        // Broadcast to room
+        broadcastToRoom(room, { t: T.LEFT, u: sessionIndex });
 
-      if (room.sessionManager.getUserCount() === 0) {
-        room.settings.mirror = false;
-        room.syncCoordinator.clearPendingRequests();
+        console.log('Current users in room', room.id, ':', room.sessionManager.getUserCount());
+
+        if (room.sessionManager.getUserCount() === 0) {
+          room.settings.mirror = false;
+          room.syncCoordinator.clearPendingRequests();
+        }
+      } else {
+        console.log('Disconnected: client without session from room:', room.id);
       }
     }
   });

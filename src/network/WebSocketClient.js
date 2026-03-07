@@ -194,7 +194,7 @@ export class WebSocketClient {
       case T.CONNECT:
         // Server assigned us a session index and role
         this.sessionIndex = data.u;
-        this.role = data.auth_role !== undefined ? data.auth_role : 0;
+        this.role = data.authRole !== undefined ? data.authRole : 0;
         console.log('Assigned session index:', this.sessionIndex, 'Role:', this.role);
         if (this.onConnect) {
           this.onConnect(this.sessionIndex, this.role);
@@ -545,33 +545,33 @@ export class WebSocketClient {
       case T.AUTH_RESULT:
         this.emit('auth_result', {
           success: data.a,
-          token: data.auth_token || '',
-          role: data.auth_role || 0,
-          username: data.auth_username || '',
-          error: data.auth_error || ''
+          token: data.authToken || '',
+          role: data.authRole || 0,
+          username: data.authUsername || '',
+          error: data.authError || ''
         });
         break;
 
       case T.MOD_NOTIFY:
         this.emit('mod_notify', {
-          actionType: data.mod_action_type,
-          targetName: data.mod_target_name || '',
-          issuerName: data.mod_issuer_name || '',
-          reason: data.mod_reason || '',
-          targetSessionIndex: data.mod_target
+          actionType: data.modActionType,
+          targetName: data.modTargetName || '',
+          issuerName: data.modIssuerName || '',
+          reason: data.modReason || '',
+          targetSessionIndex: data.modTarget
         });
         break;
 
       case T.MOD_RESULT:
         this.emit('mod_result', {
           success: data.a,
-          error: data.auth_error || ''
+          error: data.authError || ''
         });
         break;
 
       case T.MOD_LIST:
         this.emit('mod_list', {
-          entries: (data.mod_entries || []).map(e => ({
+          entries: (data.modEntries || []).map(e => ({
             id: e.id,
             type: e.type,
             username: e.username,
@@ -595,9 +595,9 @@ export class WebSocketClient {
 
       case T.MOD_WIPE:
         this.emit('mod_wipe', {
-          targetSessionIndex: data.mod_target,
-          targetName: data.mod_target_name || '',
-          issuerName: data.mod_issuer_name || ''
+          targetSessionIndex: data.modTarget,
+          targetName: data.modTargetName || '',
+          issuerName: data.modIssuerName || ''
         });
         break;
     }

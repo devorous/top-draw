@@ -137,6 +137,7 @@ message Msg {
     uint32 br = 16;     // Blur radius * 100
     uint32 ly = 17;     // Active layer index
     string bm = 18;     // Blend mode
+    string ib = 19;     // Image brush data (JSON)
   }
   repeated U us = 17;   // Users array
 

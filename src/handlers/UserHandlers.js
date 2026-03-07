@@ -17,31 +17,41 @@ export function setupUserHandlers(wsClient, app) {
   // Users list received (initial sync or updates)
   wsClient.on('users', (data) => {
     console.log(`[USERS] Received ${data.users.length} users:`, data.users.map(u => `${u.name || 'unnamed'}(${u.sessionIndex})`).join(', '), `My sessionIndex: ${app.sessionIndex}`);
+    
+    // 1. Authoritative Removal: Find users we have locally who are NOT in the new list
+    const remoteIndices = new Set(data.users.map(u => u.sessionIndex));
+    users.forEach((user, sessionIndex) => {
+      if (sessionIndex !== app.sessionIndex && !remoteIndices.has(sessionIndex)) {
+        console.log(`[USERS] Removing ghost user ${user.username}(${sessionIndex})`);
+        users.delete(sessionIndex);
+        ui.removeRemoteUser(sessionIndex);
+      }
+    });
+
+    // 2. Authoritative Update/Create
     data.users.forEach(userData => {
+      console.log(`[USERS] Processing user ${userData.name}(${userData.sessionIndex}), self=${app.sessionIndex}`);
       if (userData.sessionIndex !== app.sessionIndex) {
         let user = users.get(userData.sessionIndex);
+        const username = userData.name || userData.username || '';
 
         if (!user) {
-          const username = userData.name || userData.username || '';
-
-          // Map 'name' to 'username' for User class compatibility
+          // New user
           const userOptions = {
             ...userData,
             username,
             afk: userData.afk || false,
-            opacity: userData.color ? userData.color[3] : 1, // Derive opacity from color alpha
+            opacity: userData.color ? userData.color[3] : 1,
             role: userData.role || 0
           };
 
-          // Always create User object and board layer so we can receive events
           user = new User(userData.sessionIndex, userOptions);
           user.setTool(userData.tool);
           users.set(userData.sessionIndex, user);
 
-          // Initialize image brush if present in sync data
           const brushData = userData.ib || userData.imageBrush;
-          if (brushData && remoteUserHandler) {
-            remoteUserHandler.handleBrushLoad(user, brushData);
+          if (brushData && app.remoteUserHandler) {
+            app.remoteUserHandler.handleBrushLoad(user, brushData);
           }
 
           const boardData = ui.createUserBoard(userData.sessionIndex);
@@ -49,21 +59,47 @@ export function setupUserHandlers(wsClient, app) {
           user.context = boardData.context;
           user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(user.blendMode);
 
-          // Only show in user list / cursor if they have a name (have joined)
           if (username) {
             ui.createRemoteUser(userData.sessionIndex, userOptions);
-
-            // Hide cursor if user's cursor was hidden (e.g. pointer off-board)
-            if (userData.cursorHidden) {
-              ui.hideRemoteCursor(userData.sessionIndex);
+            if (userData.cursorHidden) ui.hideRemoteCursor(userData.sessionIndex);
+          }
+        } else {
+          // Existing user - Update properties if they changed
+          const hadName = !!user.username;
+          
+          if (username && username !== user.username) {
+            user.setUsername(username);
+            if (!hadName) {
+              // User gained a name - create UI
+              ui.createRemoteUser(userData.sessionIndex, { ...userData, username });
+            } else {
+              ui.updateRemoteName(userData.sessionIndex, username);
             }
+          }
+
+          if (userData.tool && userData.tool !== user.tool) {
+            user.setTool(userData.tool);
+            ui.updateRemoteToolDisplay(userData.sessionIndex, userData.tool);
+          }
+
+          if (userData.color && (userData.color[0] !== user.color[0] || userData.color[1] !== user.color[1] || userData.color[2] !== user.color[2])) {
+            user.setColor(userData.color);
+            ui.updateRemoteColor(userData.sessionIndex, userData.color);
+          }
+
+          if (userData.size !== undefined && userData.size !== user.size) {
+            user.setSize(userData.size);
+            ui.updateRemoteSize(userData.sessionIndex, userData.size);
+          }
+
+          if (userData.role !== undefined && userData.role !== user.role) {
+            user.role = userData.role;
+            // Update role badge if needed
           }
         }
 
         // Apply AFK status
-        if (userData.afk) {
-          ui.setRemoteUserAfk(userData.sessionIndex, true);
-        }
+        ui.setRemoteUserAfk(userData.sessionIndex, !!userData.afk);
       }
     });
 
