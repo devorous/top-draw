@@ -323,16 +323,16 @@ export class DrawingApp {
   setupEventListeners() {
     const { elements } = this.ui;
 
-    elements.joinBtn.addEventListener('click', () => this.handleJoin());
-    elements.offlineBtn.addEventListener('click', () => this.startOfflineMode());
-    elements.loginOfflineBtn.addEventListener('click', () => this.startOfflineMode());
+    elements.loginForm?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.handleJoin();
+    });
 
     // Swap Join/Login button text based on password field
     elements.loginPassword?.addEventListener('input', () => {
       const hasPassword = elements.loginPassword.value.length > 0;
       elements.joinBtn.textContent = hasPassword ? 'Login' : 'Join';
     });
-    elements.reconnectBtn.addEventListener('click', () => this.reconnect());
     elements.disconnectBtn.addEventListener('click', () => this.disconnect());
 
     if (elements.menuBtn) {
@@ -363,7 +363,12 @@ export class DrawingApp {
     elements.textBtn.addEventListener('click', () => this.selectTool('text'));
     elements.eraseBtn.addEventListener('click', () => this.selectTool('erase'));
     elements.blurBtn.addEventListener('click', () => this.selectTool('blur'));
-    elements.circleBlurBtn.addEventListener('click', () => this.selectTool('circleBlur'));
+    elements.circleBlurBtn.addEventListener('click', () => {
+      // Select whichever circle blur mode is currently active
+      const checked = document.querySelector('input[name="circleBlurMode"]:checked');
+      const tool = checked && checked.value === 'hard' ? 'circleBlurHard' : 'circleBlur';
+      this.selectTool(tool);
+    });
     elements.imageBrushBtn.addEventListener('click', () => this.selectTool('imageBrush'));
     elements.uploadBtn.addEventListener('click', () => elements.imageUploadInput.click());
     elements.imageUploadInput.addEventListener('change', (e) => {
@@ -506,6 +511,15 @@ export class DrawingApp {
     brushModeRadios.forEach(radio => {
       radio.addEventListener('change', (e) => {
         this.brushModeManager.setMode(e.target.value);
+      });
+    });
+
+    // Circle blur mode radio buttons
+    const circleBlurModeRadios = document.querySelectorAll('input[name="circleBlurMode"]');
+    circleBlurModeRadios.forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        const tool = e.target.value === 'hard' ? 'circleBlurHard' : 'circleBlur';
+        this.selectTool(tool);
       });
     });
 
@@ -897,7 +911,7 @@ export class DrawingApp {
     // Set up local session
     this.sessionIndex = 0;
     this.self.id = 0;
-    this.self.setUsername('Offline');
+    this.self.setUsername('');
     this.users.set(0, this.self);
 
     // Hide landing page
@@ -908,7 +922,7 @@ export class DrawingApp {
     // Show drawing interface
     this.ui.hideOverlay();
     this.ui.showCursor();
-    this.ui.updateSelfName('Offline');
+    this.ui.updateSelfName('');
     this.ui.showConnectionStatus('offline');
 
     // Start tick loop for local drawing
@@ -1016,7 +1030,7 @@ export class DrawingApp {
     }
 
     // If coming from landing page with a username already set, join immediately
-    if (this.landingPage && this.self.username && this.self.username !== 'Offline') {
+    if (this.landingPage && this.self.username) {
       console.log('[App] Auto-joining with username from landing page:', this.self.username);
       this.handleJoinAfterConnect();
       return;
@@ -1026,7 +1040,7 @@ export class DrawingApp {
     this.ui.showLogin();
     this.ui.elements.overlay.style.display = 'flex';
     // Pre-fill with current username if reconnecting
-    if (this.self.username && this.self.username !== 'Offline') {
+    if (this.self.username) {
       this.ui.elements.loginUsername.value = this.self.username;
     }
   }
@@ -1122,10 +1136,18 @@ export class DrawingApp {
     this.updateRoomSettingsButtonVisibility();
 
     // If landing page is active and room is selected, proceed to room
-    // But only if we're not already in that room (auth while already joined)
-    if (this.landingPage && this.landingPage.selectedRoom && this.landingPage.selectedRoom !== this.currentRoomId) {
+    if (this.landingPage && this.landingPage.selectedRoom) {
+      // If we are already in or connecting to this room, just hide the landing page
+      // and continue with the join process instead of triggering a new connection.
+      if (this.currentRoomId === this.landingPage.selectedRoom && this.wsClient.connected) {
+        console.log(`[App] Already connecting to ${this.currentRoomId}, skipping redundant proceedToRoom`);
+        this.landingPage.hide();
+        this.handleJoinAfterConnect();
+        return;
+      }
+
       this.landingPage.handleAuthSuccess(token, username);
-      this.landingPage.proceedToRoom(this.landingPage.selectedRoom);
+      // No need to call proceedToRoom here as landingPage.handleAuthSuccess already does it
       return;
     }
 
@@ -1252,7 +1274,7 @@ export class DrawingApp {
     this.connected = true;
     this.sessionIndex = 1;
     this.self.id = 1;
-    this.self.setUsername(this.ui.elements.loginUsername.value || 'Offline');
+    this.self.setUsername(this.ui.elements.loginUsername.value || '');
 
     this.ui.hideOverlay();
     this.ui.showCursor();
@@ -1367,9 +1389,16 @@ export class DrawingApp {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
+    // Reset URL to lobby
+    const url = new URL(window.location);
+    url.searchParams.delete('room');
+    window.history.pushState({}, '', url);
+
     // Show landing page
     if (this.landingPage) {
       this.landingPage.show();
+      // Reset landing page room input to lobby
+      this.landingPage.selectRoom('lobby');
     }
 
     // Reconnect to discovery room for browsing
@@ -1425,6 +1454,11 @@ export class DrawingApp {
 
     // Update brush mode state when switching to brush/flowPen/ink
     this.brushModeManager.updateModeFromTool(tool);
+
+    // Update circle blur mode radio when switching to circleBlur/circleBlurHard
+    if (tool === 'circleBlur' || tool === 'circleBlurHard') {
+      this.ui.updateCircleBlurModeDisplay(tool);
+    }
 
     this.self.setTool(tool);
     this.toolManager.setTool(tool);
@@ -1593,7 +1627,7 @@ export class DrawingApp {
     this.ui.updateCursorSize(size);
     this.ui.updateSquarePositions(size);
     // Update pressure indicators only for tools that use pressure
-    const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur'];
+    const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'circleBlurHard'];
     if (pressureTools.includes(this.self.tool)) {
       this.ui.updatePressureCursorRadius(this.self.pressure * size, size);
     }
@@ -1811,7 +1845,7 @@ export class DrawingApp {
       }
 
       // Update pressure indicators only for tools that use pressure
-      const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur'];
+      const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'circleBlurHard'];
       if (pressureTools.includes(this.self.tool)) {
         this.ui.updatePressureCursorRadius(pressure * this.self.size, this.self.size);
       }

@@ -2,11 +2,11 @@ import ws from 'k6/ws';
 import { check, sleep } from 'k6';
 import { Trend } from 'k6/metrics';
 
-const broadcastLatency = new Trend('broadcast_latency_soft_pen');
+const broadcastLatency = new Trend('broadcast_latency_high');
 
 export const options = {
-  vus: 8,
-  duration: '30s',
+  vus: 150,
+  duration: '3m',
 };
 
 function encodeVarint(value) {
@@ -62,36 +62,43 @@ function buildMsg(fields) {
 }
 
 const T = { CONNECT: 0, MM: 10, MD: 11, MU: 12, CS: 14, CT: 15, CC: 16, SHOW_CURSOR: 28, CHD: 45 };
-const Tool = { BRUSH: 0 };
+const Tool = { 
+  BRUSH: 0, TEXT: 1, ERASE: 2, IMAGE_BRUSH: 3, SELECT: 4, 
+  PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8, INK: 9, 
+  INKDROPPER: 10, BLUR: 11, CIRCLE_BLUR: 12 
+};
+const toolList = Object.values(Tool);
 
 export default function () {
   sleep(Math.random() * 2);
 
-  const url = __ENV.TARGET_URL || 'ws://127.0.0.1:8000';
+  const room = __ENV.ROOM || 'test';
+  const baseUrl = __ENV.TARGET_URL || 'ws://127.0.0.1:8000';
+  const url = `${baseUrl}/?room=${room}`;
+  
   let sessionIndex = -1;
 
   const res = ws.connect(url, {}, function (socket) {
     socket.on('open', function () {
-      socket.sendBinary(buildMsg({ t: T.CONNECT, n: `SOFT_VU_${__VU}` }));
+      socket.sendBinary(buildMsg({ t: T.CONNECT, n: `HIGH_VU_${__VU}` }));
       
-      const margin = 100;
+      const margin = 50;
       let x = Math.random() * (1920 - 2 * margin) + margin;
       let y = Math.random() * (1080 - 2 * margin) + margin;
-      let dx = (Math.random() - 0.5) * 15;
-      let dy = (Math.random() - 0.5) * 15;
+      let dx = (Math.random() - 0.5) * 10;
+      let dy = (Math.random() - 0.5) * 10;
       
-      let state = 0; // 0: Idle, 1: Setup, 2: Down, 3: Drawing
+      let state = 0;
       let stateTicks = 0;
-      let cycleLength = 80 + Math.floor(Math.random() * 40);
+      let cycleLength = 40 + Math.floor(Math.random() * 30);
 
       socket.setInterval(function() {
         if (sessionIndex === -1) return;
 
-        // Movement logic (always active)
-        dx += (Math.random() - 0.5) * 5;
-        dy += (Math.random() - 0.5) * 5;
-        dx = Math.max(-20, Math.min(20, dx));
-        dy = Math.max(-20, Math.min(20, dy));
+        dx += (Math.random() - 0.5) * 4;
+        dy += (Math.random() - 0.5) * 4;
+        dx = Math.max(-15, Math.min(15, dx));
+        dy = Math.max(-15, Math.min(15, dy));
         x += dx; y += dy;
 
         if (x < margin) { x = margin; dx *= -1; }
@@ -100,40 +107,35 @@ export default function () {
         if (y > 1080 - margin) { y = 1080 - margin; dy *= -1; }
 
         if (state === 0) {
-          // Idle movement
-          socket.sendBinary(buildMsg({ t: T.MM, u: sessionIndex, ps: [x, y] }));
-          socket.sendBinary(buildMsg({ t: T.SHOW_CURSOR, u: sessionIndex }));
-          if (Math.random() < 0.05) state = 1;
-        } 
-        else if (state === 1) {
-          // Change tool, color, and set medium hardness
+          const randomTool = toolList[Math.floor(Math.random() * toolList.length)];
           const r = Math.floor(Math.random() * 256);
           const g = Math.floor(Math.random() * 256);
           const b = Math.floor(Math.random() * 256);
-          const color = (r << 24) | (g << 16) | (b << 8) | 0xFF;
+          const color = (r << 24) | (g << 16) | (b << 8) | 0xFF; 
 
-          socket.sendBinary(buildMsg({ t: T.CT, u: sessionIndex, l: Tool.BRUSH }));
+          socket.sendBinary(buildMsg({ t: T.CT, u: sessionIndex, l: randomTool }));
           socket.sendBinary(buildMsg({ t: T.CC, u: sessionIndex, c: color }));
-          socket.sendBinary(buildMsg({ t: T.CS, u: sessionIndex, s: Math.floor(Math.random() * 3000) + 1000 }));
-          // Set hardness to 20-90% (20-90, will be divided by 100 to get 0.2-0.9)
-          socket.sendBinary(buildMsg({ t: T.CHD, u: sessionIndex, hd: Math.floor(Math.random() * 70) + 20 }));
-
+          socket.sendBinary(buildMsg({ t: T.CS, u: sessionIndex, s: Math.floor(Math.random() * 3000) + 500 }));
+          socket.sendBinary(buildMsg({ t: T.SHOW_CURSOR, u: sessionIndex }));
+          
+          socket.sendBinary(buildMsg({ t: T.MM, u: sessionIndex, ps: [x, y] }));
+          state = 1;
+        } 
+        else if (state === 1) {
+          socket.sendBinary(buildMsg({ t: T.MD, u: sessionIndex }));
           state = 2;
         }
-        else if (state === 2) {
-          socket.sendBinary(buildMsg({ t: T.MD, u: sessionIndex }));
-          state = 3;
-          stateTicks = 0;
-        }
-        else if (state === 3) {
+        else if (stateTicks < cycleLength) {
           socket.sendBinary(buildMsg({ t: T.MM, u: sessionIndex, ps: [x, y], stroke_ts: Date.now() }));
-          stateTicks++;
-          if (stateTicks >= cycleLength) {
-            socket.sendBinary(buildMsg({ t: T.MU, u: sessionIndex }));
-            state = 0;
-            cycleLength = 80 + Math.floor(Math.random() * 40);
-          }
+        } 
+        else if (stateTicks === cycleLength) {
+          socket.sendBinary(buildMsg({ t: T.MU, u: sessionIndex }));
+          state = 0;
+          stateTicks = -1;
+          cycleLength = 40 + Math.floor(Math.random() * 30);
         }
+
+        stateTicks++;
       }, 12); 
     });
 
@@ -181,8 +183,7 @@ export default function () {
     });
 
     socket.on('error', (e) => console.log('WebSocket Error: ', e.error()));
-    // Close before test duration ends to ensure proper cleanup
-    socket.setTimeout(() => socket.close(), 25000);
+    socket.setTimeout(() => socket.close(), 175000);
   });
 
   check(res, { 'Connected': (r) => r && r.status === 101 });

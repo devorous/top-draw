@@ -74,31 +74,40 @@ export class WebSocketClient {
   }
 
   _buildUrl() {
+    let baseUrl;
     if (this.serverUrl) {
-      this._url = this.serverUrl;
+      baseUrl = this.serverUrl;
     } else {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const currentPort = window.location.port;
 
       console.log('[WS] Current port:', currentPort);
 
-      // Dev mode (port 3000) - connect directly to backend server
-      // Production mode - use same host or configured URL
       if (currentPort === '3000') {
         // Dev mode - connect directly to backend on port 8000
-        this._url = `ws://localhost:8000`;
+        baseUrl = `ws://localhost:8000`;
         console.log('[WS] Dev mode - direct connection to backend');
       } else {
         // Production mode
-        this._url = import.meta.env.VITE_WS_SERVER_URL || `${wsProtocol}://${window.location.host}`;
+        baseUrl = import.meta.env.VITE_WS_SERVER_URL || `${wsProtocol}://${window.location.host}`;
         console.log('[WS] Using direct connection');
       }
     }
 
-    // Append room ID as query parameter
-    if (this._roomId) {
-      const separator = this._url.includes('?') ? '&' : '?';
-      this._url += `${separator}room=${encodeURIComponent(this._roomId)}`;
+    // Use URL object to reliably manage query parameters
+    try {
+      const url = new URL(baseUrl);
+      if (this._roomId) {
+        url.searchParams.set('room', this._roomId);
+      }
+      this._url = url.toString();
+    } catch (err) {
+      // Fallback if baseUrl is not a valid full URL (e.g. just a path or relative URL)
+      this._url = baseUrl;
+      if (this._roomId) {
+        const separator = this._url.includes('?') ? '&' : '?';
+        this._url += `${separator}room=${encodeURIComponent(this._roomId)}`;
+      }
     }
 
     console.log('[WS] Final WebSocket URL:', this._url);
@@ -123,9 +132,17 @@ export class WebSocketClient {
 
     this.socket.onmessage = (event) => {
       try {
-        // Decode all messages as protobuf
-        const data = this.Msg.decode(new Uint8Array(event.data));
-        this.handleMessage(data);
+        const raw = new Uint8Array(event.data);
+        // All Msg protobuf messages start with field 1 (tag byte 0x08).
+        // Batched frames start with a 4-byte BE length prefix — since messages
+        // are always < 16 MB, the first byte of the prefix is 0x00.
+        if (raw.length > 4 && raw[0] !== 0x08) {
+          // Length-delimited batch: [4-byte len][msg][4-byte len][msg]...
+          this._decodeBatchedFrame(raw);
+        } else {
+          const data = this.Msg.decode(raw);
+          this.handleMessage(data);
+        }
       } catch (err) {
         console.error('Failed to decode message:', err);
       }
@@ -177,16 +194,54 @@ export class WebSocketClient {
   }
 
   /**
-   * Process all queued messages in a single frame.
+   * Decode a length-delimited batch frame from the server.
+   * Format: [4-byte BE length][protobuf bytes][4-byte BE length][protobuf bytes]...
+   * @private
+   */
+  _decodeBatchedFrame(raw) {
+    const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+    let offset = 0;
+    while (offset + 4 <= raw.length) {
+      const len = view.getUint32(offset);
+      offset += 4;
+      if (offset + len > raw.length) break; // Incomplete message (shouldn't happen)
+      const msgBytes = raw.subarray(offset, offset + len);
+      offset += len;
+      try {
+        const data = this.Msg.decode(msgBytes);
+        this.handleMessage(data);
+      } catch (err) {
+        console.error('Failed to decode batched message:', err);
+      }
+    }
+  }
+
+  /**
+   * Process queued messages with a time budget to avoid blocking the main thread.
+   * If messages remain after the budget is exhausted, reschedule for the next frame.
    * @private
    */
   _processMessageQueue() {
     this._processingScheduled = false;
 
-    // Process all queued messages
+    const BUDGET_MS = 8; // ~half a frame at 60fps — leaves time for rendering
+    const start = performance.now();
+    let processed = 0;
+
     while (this._messageQueue.length > 0) {
       const data = this._messageQueue.shift();
       this._processMessage(data);
+      processed++;
+
+      // Check budget every 10 messages to avoid overhead of performance.now()
+      if (processed % 10 === 0 && performance.now() - start > BUDGET_MS) {
+        break;
+      }
+    }
+
+    // If messages remain, schedule another pass
+    if (this._messageQueue.length > 0) {
+      this._scheduleProcessing();
     }
   }
 

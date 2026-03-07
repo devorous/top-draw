@@ -52,6 +52,8 @@ export class UI {
       loginOfflineBtn: document.getElementById('loginOfflineBtn'),
       loginUsername: document.getElementById('loginUsername'),
       loginPassword: document.getElementById('loginPassword'),
+      loginForm: document.getElementById('loginForm'),
+      rememberMe: document.getElementById('rememberMe'),
 
       boardContainer: document.getElementById('boardContainer'),
       boards: document.getElementById('boards'),
@@ -143,6 +145,7 @@ export class UI {
       selectionModeOptions: document.getElementById('selectionModeOptions'),
       eraserModeOptions: document.getElementById('eraserModeOptions'),
       brushModeOptions: document.getElementById('brushModeOptions'),
+      circleBlurModeOptions: document.getElementById('circleBlurModeOptions'),
       blendModeOptions: document.getElementById('blendModeOptions'),
       blendModeSelect: document.getElementById('blendModeSelect'),
       layerPanel: document.getElementById('layerPanel'),
@@ -177,7 +180,6 @@ export class UI {
       connectionStatus: document.getElementById('connectionStatus'),
       connectionDot: document.querySelector('.connectionDot'),
       connectionText: document.querySelector('.connectionText'),
-      reconnectBtn: document.getElementById('reconnectBtn'),
       disconnectBtn: document.getElementById('disconnectBtn'),
       userContextMenu: document.getElementById('userContextMenu'),
       modPanel: document.getElementById('modPanel'),
@@ -189,8 +191,8 @@ export class UI {
     this.icons = {
       select: this.createIcon('images/select-icon.svg'),
       brush: this.createIcon('images/brush-icon.svg'),
-      pen: this.createIcon('images/pen-icon.svg'),
-      flowPen: this.createIcon('images/pen-icon.svg'),
+      pen: this.createIcon('images/brush-icon.svg'),
+      flowPen: this.createIcon('images/brush-icon.svg'),
       ink: this.createIcon('images/brush-icon.svg'),
       line: this.createIcon('images/line-icon.svg'),
       rectangle: this.createIcon('images/rectangle-icon.svg'),
@@ -198,7 +200,11 @@ export class UI {
       text: this.createIcon('images/text-icon.svg'),
       erase: this.createIcon('images/eraser-icon.svg'),
       blur: this.createIcon('images/brush-icon.svg'),
-      circleBlur: this.createIcon('images/circle-icon.svg'),
+      circleBlur: this.createIcon('images/circle-blur-icon.svg'),
+      circleBlurHard: this.createIcon('images/circle-blur-icon.svg'),
+      inkdropper: this.createIcon('images/inkdropper-icon.svg'),
+      pan: this.createIcon('images/move-icon.svg'),
+      rotate: this.createIcon('images/rotate-icon.svg'),
       imageBrush: this.createIcon('images/pepper.png')
     };
   }
@@ -390,6 +396,10 @@ export class UI {
     if (brushModeOptions) {
       brushModeOptions.style.display = 'none';
     }
+    const { circleBlurModeOptions } = this.elements;
+    if (circleBlurModeOptions) {
+      circleBlurModeOptions.style.display = 'none';
+    }
     // Hide pressure indicators by default (only shown for pressure-sensitive tools)
     if (selfPressureCircle) {
       selfPressureCircle.style.display = 'none';
@@ -459,9 +469,13 @@ export class UI {
         }
         break;
       case 'circleBlur':
+      case 'circleBlurHard':
         selfCircle.style.display = 'block';
         brushHardness.style.display = 'block';
         brushSpacing.style.display = 'block';
+        if (this.elements.circleBlurModeOptions) {
+          this.elements.circleBlurModeOptions.style.display = 'block';
+        }
         if (selfPressureCircle) {
           selfPressureCircle.style.display = 'block';
         }
@@ -531,8 +545,10 @@ export class UI {
     };
 
     Object.values(buttons).forEach(btn => btn && btn.classList.remove('selected'));
-    // Map flowPen/ink to brush button (unified brush)
-    const buttonTool = (tool === 'flowPen' || tool === 'ink') ? 'brush' : tool;
+    // Map sub-tools to their shared button
+    let buttonTool = tool;
+    if (tool === 'flowPen' || tool === 'ink') buttonTool = 'brush';
+    if (tool === 'circleBlurHard') buttonTool = 'circleBlur';
     if (buttons[buttonTool]) {
       buttons[buttonTool].classList.add('selected');
     }
@@ -562,6 +578,14 @@ export class UI {
 
   updateBrushModeDisplay(mode) {
     const radios = document.querySelectorAll('input[name="brushMode"]');
+    radios.forEach(r => {
+      r.checked = (r.value === mode);
+    });
+  }
+
+  updateCircleBlurModeDisplay(tool) {
+    const mode = tool === 'circleBlurHard' ? 'hard' : 'soft';
+    const radios = document.querySelectorAll('input[name="circleBlurMode"]');
     radios.forEach(r => {
       r.checked = (r.value === mode);
     });
@@ -858,7 +882,7 @@ export class UI {
   }
   
   showConnectionStatus(state) {
-    const { connectionStatus, connectionText, reconnectBtn } = this.elements;
+    const { connectionStatus, connectionText } = this.elements;
     if (!connectionStatus) return;
 
     connectionStatus.style.display = 'flex';
@@ -871,7 +895,6 @@ export class UI {
       offline: 'Offline Mode'
     };
     connectionText.textContent = labels[state] || state;
-    reconnectBtn.style.display = state === 'disconnected' ? 'inline-flex' : 'none';
   }
 
   hideConnectionStatus() {

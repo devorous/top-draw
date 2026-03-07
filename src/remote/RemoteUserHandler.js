@@ -213,11 +213,13 @@ export class RemoteUserHandler {
         break;
 
       case 'circleBlur':
-        const circleBlurTool = this.toolManager.getTool('circleBlur');
+      case 'circleBlurHard': {
+        const circleBlurTool = this.toolManager.getTool(user.tool);
         if (circleBlurTool) {
           circleBlurTool.onPointerMove(user, pos, lastPos);
         }
         break;
+      }
 
       case 'imageBrush':
         if (user.imageBrush) {
@@ -393,16 +395,17 @@ export class RemoteUserHandler {
         break;
 
       case 'circleBlur':
+      case 'circleBlurHard':
         if (!user.panning) {
-          const circleBlurTool = this.toolManager.getTool('circleBlur');
+          const circleBlurTool = this.toolManager.getTool(user.tool);
           if (circleBlurTool) {
             const radius = user.pressure * user.size;
-            // Initialize lastStampPos and stamp first circle
             circleBlurTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
-            circleBlurTool.stampBlurredCircle(pos.x, pos.y, radius, user);
+            const stampMethod = user.tool === 'circleBlurHard' ? 'stampHardCircle' : 'stampBlurredCircle';
+            circleBlurTool[stampMethod](pos.x, pos.y, radius, user);
             if (this.board.mirror) {
               const width = this.board.getWidth();
-              circleBlurTool.stampBlurredCircle(width - pos.x, pos.y, radius, user);
+              circleBlurTool[stampMethod](width - pos.x, pos.y, radius, user);
             }
           }
         }
@@ -502,6 +505,7 @@ export class RemoteUserHandler {
             const mirroredLine = mirrorLine(user.currentLine, w);
             drawLineArray(mirroredLine, activeStrokeCtx, user);
           }
+          this._expandDirtyRectFromPoints(user, user.currentLine, this._brushMargin(user));
         }
         break;
 
@@ -517,6 +521,8 @@ export class RemoteUserHandler {
             this.toolManager.getTool('line').drawPreview(activeStrokeCtx, user,
               { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
           }
+          const lineMargin = user.size + 2;
+          this._expandDirtyRectFromPoints(user, [user.startPos, pos], lineMargin);
         }
         break;
 
@@ -528,6 +534,8 @@ export class RemoteUserHandler {
             this.toolManager.getTool('rectangle').drawRect(activeStrokeCtx, user,
               { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
           }
+          const rectMargin = user.size + 2;
+          this._expandDirtyRectFromPoints(user, [user.startPos, pos], rectMargin);
         }
         break;
 
@@ -539,6 +547,8 @@ export class RemoteUserHandler {
             this.toolManager.getTool('circle').drawEllipse(activeStrokeCtx, user,
               { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
           }
+          const circleMargin = user.size + 2;
+          this._expandDirtyRectFromPoints(user, [user.startPos, pos], circleMargin);
         }
         break;
 
@@ -596,6 +606,9 @@ export class RemoteUserHandler {
 
     const circleBlurTool = this.toolManager.getTool('circleBlur');
     if (circleBlurTool) circleBlurTool.lastStampPos.delete(user.id);
+
+    const circleBlurHardTool = this.toolManager.getTool('circleBlurHard');
+    if (circleBlurHardTool) circleBlurHardTool.lastStampPos.delete(user.id);
 
     const imageBrushTool = this.toolManager.getTool('imageBrush');
     if (imageBrushTool) imageBrushTool.lastStampPos.delete(user.id);
@@ -744,6 +757,9 @@ export class RemoteUserHandler {
     const circleBlurTool = this.toolManager.getTool('circleBlur');
     if (circleBlurTool) circleBlurTool.lastStampPos.delete(user.id);
 
+    const circleBlurHardTool2 = this.toolManager.getTool('circleBlurHard');
+    if (circleBlurHardTool2) circleBlurHardTool2.lastStampPos.delete(user.id);
+
     const imageBrushTool = this.toolManager.getTool('imageBrush');
     if (imageBrushTool) imageBrushTool.lastStampPos.delete(user.id);
 
@@ -752,9 +768,47 @@ export class RemoteUserHandler {
 
   // Drawing utilities
 
+  /**
+   * Expand the dirty rect for a remote user based on drawn points and brush size.
+   * Mirrors the logic local tools use (BrushTool, ShapeTools, etc.).
+   */
+  _expandDirtyRectFromPoints(user, points, margin) {
+    if (!points || points.length === 0) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const pt of points) {
+      if (pt.x < minX) minX = pt.x;
+      if (pt.x > maxX) maxX = pt.x;
+      if (pt.y < minY) minY = pt.y;
+      if (pt.y > maxY) maxY = pt.y;
+    }
+
+    const x = Math.floor(minX - margin);
+    const y = Math.floor(minY - margin);
+    const w = Math.ceil(maxX - minX + margin * 2);
+    const h = Math.ceil(maxY - minY + margin * 2);
+
+    this.board.expandDirtyRect(user, x, y, w, h);
+
+    if (this.board.mirror) {
+      const boardW = this.board.getWidth();
+      this.board.expandDirtyRect(user, Math.floor(boardW - maxX - margin), y, w, h);
+    }
+  }
+
+  /**
+   * Compute brush margin for dirty rect expansion (matching BrushTool logic).
+   */
+  _brushMargin(user) {
+    const radius = user.pressure * user.size;
+    const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
+    const blurAmount = hardnessFloat < 1 ? (1 - hardnessFloat) * (20 + user.size * 0.2) : 0;
+    return radius + blurAmount + radius * 0.25 + 2;
+  }
+
   commitLine(user, newPressure, newSize) {
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-    
+
     // Save last drawn position (where old segment visually ends)
     const lastDrawnPos = user.currentLine.length > 0
       ? user.currentLine[user.currentLine.length - 1]
@@ -774,6 +828,8 @@ export class RemoteUserHandler {
           const mirroredLine = mirrorLine(user.currentLine, w);
           drawLineArray(mirroredLine, activeStrokeCtx, user);
         }
+        // Track dirty rect from drawn points
+        this._expandDirtyRectFromPoints(user, user.currentLine, this._brushMargin(user));
       }
 
       // Bridge the gap between old segment end and new segment start when pressure changes

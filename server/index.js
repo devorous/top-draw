@@ -79,6 +79,9 @@ async function init() {
   roomManager.setMsgEncoder(Msg, createRoomBroadcaster);
   console.log('[Server] RoomManager initialized');
 
+  // Start the batched-broadcast flush timer
+  startBatchTimer();
+
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`WebSocket server running on port ${PORT}`);
   });
@@ -308,6 +311,67 @@ async function handleBroadcast(data, sessionIndex, room) {
   broadcastToRoom(room, { ...data, u: sessionIndex }, sessionIndex);
 }
 
+// ---------------------------------------------------------------------------
+// Batched broadcast — high-frequency drawing messages are queued per-client
+// and flushed every BATCH_INTERVAL_MS as a single binary frame containing
+// length-delimited protobuf messages.  This dramatically reduces the number
+// of ws.send() calls under heavy load (50 users → ~50× fewer sends).
+// ---------------------------------------------------------------------------
+const BATCH_INTERVAL_MS = 16; // ~60 Hz flush rate
+
+// Per-client outbox: ws → Uint8Array[]
+const clientOutbox = new Map();
+let batchTimerRunning = false;
+
+function startBatchTimer() {
+  if (batchTimerRunning) return;
+  batchTimerRunning = true;
+  setInterval(flushAllOutboxes, BATCH_INTERVAL_MS);
+}
+
+/**
+ * Flush every client's outbox into a single binary frame.
+ * Each message in the frame is prefixed with a 4-byte big-endian length.
+ */
+function flushAllOutboxes() {
+  for (const [ws, buffers] of clientOutbox) {
+    if (buffers.length === 0) continue;
+
+    if (ws.readyState !== WebSocket.OPEN) {
+      buffers.length = 0;
+      continue;
+    }
+
+    if (buffers.length === 1) {
+      // Single message — send raw (no length prefix needed, client handles both)
+      ws.send(buffers[0]);
+    } else {
+      // Multiple messages — concatenate with 4-byte length prefixes
+      let totalLen = 0;
+      for (let i = 0; i < buffers.length; i++) totalLen += 4 + buffers[i].length;
+
+      const frame = new Uint8Array(totalLen);
+      const view = new DataView(frame.buffer);
+      let offset = 0;
+      for (let i = 0; i < buffers.length; i++) {
+        view.setUint32(offset, buffers[i].length);
+        frame.set(buffers[i], offset + 4);
+        offset += 4 + buffers[i].length;
+      }
+      ws.send(frame);
+    }
+
+    buffers.length = 0; // Reset without re-allocating the array
+  }
+}
+
+// Message types that should be batched (high-frequency drawing messages)
+const BATCHABLE_TYPES = new Set([
+  T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC,
+  T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL,
+  T.KP, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP, T.AFK
+]);
+
 // Broadcast to all clients in a specific room
 function broadcastToRoom(room, payload, excludeIndex = null) {
   // Clear old data to prevent "ghost" properties from previous messages
@@ -315,13 +379,25 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
   Object.assign(POOLED_MSG, payload);
 
   const buffer = Msg.encode(POOLED_MSG).finish();
+  const shouldBatch = BATCHABLE_TYPES.has(payload.t);
 
   room.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       if (excludeIndex != null && client.sessionIndex == excludeIndex) {
         return;
       }
-      client.send(buffer);
+      if (shouldBatch) {
+        // Queue for batched delivery
+        let outbox = clientOutbox.get(client);
+        if (!outbox) {
+          outbox = [];
+          clientOutbox.set(client, outbox);
+        }
+        outbox.push(buffer.slice()); // slice() since POOLED_MSG reuse mutates backing buffer
+      } else {
+        // Low-frequency / control messages: send immediately
+        client.send(buffer);
+      }
     }
   });
 }
@@ -1096,6 +1172,9 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
+    // Clean up batched outbox for this client
+    clientOutbox.delete(ws);
+
     const sessionIndex = ws.sessionIndex;
     const room = roomManager.getRoomByClient(ws);
 

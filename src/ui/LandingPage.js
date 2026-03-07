@@ -278,13 +278,17 @@ export class LandingPage {
    * Handle successful authentication
    */
   handleAuthSuccess(token, username) {
+    const wasAuthenticated = this.isAuthenticated;
     this.isAuthenticated = true;
     this.authToken = token;
     this.username = username;
 
-    // If a room is selected, proceed to it
-    if (this.selectedRoom) {
-      this.proceedToRoom(this.selectedRoom);
+    // Only proceed to room if we weren't already authenticated (initial login)
+    // and a room is selected.
+    if (!wasAuthenticated && this.selectedRoom) {
+      const room = this.selectedRoom;
+      // this.selectedRoom = null; // Don't clear yet, proceedToRoom might need it
+      this.proceedToRoom(room);
     }
   }
 
@@ -360,7 +364,12 @@ export class LandingPage {
    */
   getRoomFromURL() {
     const params = new URLSearchParams(window.location.search);
-    return params.get('room');
+    const room = params.get('room');
+    // Ignore transient offline room IDs
+    if (room && room.startsWith('offline-')) {
+      return null;
+    }
+    return room;
   }
 
   /**

@@ -107,6 +107,31 @@ export class RemoteInkHandler {
     // Final render with last=true for tapered end
     this.renderInkStroke(user, true);
 
+    // Track dirty rect from ink points to avoid expensive getImageData on commit
+    if (user._inkPoints && user._inkPoints.length > 0) {
+      const size = user._inkSize || user.size;
+      const hardness = user._inkHardness !== undefined ? user._inkHardness : 1.0;
+      const blurAmount = (1 - hardness) * (20 + size * 0.2);
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const pt of user._inkPoints) {
+        const r = pt[2] * size; // pressure * size
+        if (pt[0] - r < minX) minX = pt[0] - r;
+        if (pt[0] + r > maxX) maxX = pt[0] + r;
+        if (pt[1] - r < minY) minY = pt[1] - r;
+        if (pt[1] + r > maxY) maxY = pt[1] + r;
+      }
+      const margin = blurAmount + size * 0.5 + 2; // Extra margin for perfect-freehand outline expansion
+      const x = Math.floor(minX - margin);
+      const y = Math.floor(minY - margin);
+      const w = Math.ceil(maxX - minX + margin * 2);
+      const h = Math.ceil(maxY - minY + margin * 2);
+      this.board.expandDirtyRect(user, x, y, w, h);
+      if (this.board.mirror) {
+        const boardW = this.board.getWidth();
+        this.board.expandDirtyRect(user, Math.floor(boardW - maxX - margin), y, w, h);
+      }
+    }
+
     // Composite offscreen source-over into the sub-layer; blend mode applied at composite time.
     const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);
     if (layerCtx) {

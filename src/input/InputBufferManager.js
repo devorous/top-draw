@@ -97,7 +97,7 @@ export class InputBufferManager {
       // - Blur tools: use reduced broadcast points (match remote exactly)
       // - Others: use raw points
       const smoothingTools = ['brush', 'flowPen', 'ink', 'imageBrush', 'erase'];
-      const blurTools = ['blur', 'circleBlur'];
+      const blurTools = ['blur', 'circleBlur', 'circleBlurHard'];
       let localPoints;
       if (app.self.mousedown && !app.self.panning) {
         if (smoothingTools.includes(app.self.tool)) {

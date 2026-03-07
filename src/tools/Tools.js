@@ -9,6 +9,7 @@ import { TextTool } from './TextTool.js';
 import { InkdropperTool } from './InkdropperTool.js';
 import { BlurTool } from './BlurTool.js';
 import { CircleBlurTool } from './CircleBlurTool.js';
+import { HardCircleBlurTool } from './HardCircleBlurTool.js';
 import { PanTool } from './PanRotateTool.js';
 import { RotateTool } from './RotateTool.js';
 
@@ -48,6 +49,7 @@ export class ToolManager {
       inkdropper: new InkdropperTool(board),
       blur: new BlurTool(board),
       circleBlur: new CircleBlurTool(board),
+      circleBlurHard: new HardCircleBlurTool(board),
       pan: new PanTool(board),
       rotate: new RotateTool(board)
     };
