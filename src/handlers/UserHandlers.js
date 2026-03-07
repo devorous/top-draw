@@ -136,6 +136,7 @@ export function setupUserHandlers(wsClient, app) {
       // Clean up any active strokes from this user (e.g., if they disconnected mid-stroke)
       if (board.layerManager) {
         board.layerManager.cleanupUserStrokes(data.sessionIndex);
+        board.requestUpdate();
       }
 
       users.delete(data.sessionIndex);

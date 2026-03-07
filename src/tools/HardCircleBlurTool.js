@@ -58,8 +58,8 @@ export class HardCircleBlurTool extends Tool {
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       const avgRadius = (lastStamp.radius + radius) / 2;
-      const spacingPercent = user.spacing === 0 ? 0.1 : (user.spacing * 0.05);
-      const minSpacing = Math.max(1, avgRadius * spacingPercent);
+      const spacingPercent = 0.3 + user.spacing * 0.035; // 30% at spacing=0, 100% at spacing=20
+      const minSpacing = Math.max(5, avgRadius * spacingPercent);
 
       if (distance >= minSpacing) {
         // Interpolate stamps along the path at even intervals

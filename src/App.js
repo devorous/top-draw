@@ -612,7 +612,7 @@ export class DrawingApp {
 
     if (elements.blurRadiusValue) {
       this.ui.makeValueEditable(elements.blurRadiusValue, {
-        min: 0, max: 20, step: 1, suffix: '',
+        min: 1, max: 10, step: 1, suffix: '',
         onCommit: (val) => {
           this.self.setBlurRadius(val);
           elements.blurRadiusSlider.value = val;
