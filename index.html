@@ -186,7 +186,46 @@
             </div>
 
             <a class="btn" id="chatBtn">Chat</a>
+            <a class="btn" id="roomSettingsBtn" style="display: none;">Room Settings</a>
             <a class="btn" id="disconnectBtn">Leave Room</a>
+          </div>
+        </div>
+
+        <!-- Room Settings Dialog -->
+        <div id="roomSettingsOverlay" class="roomSettingsOverlay" style="display: none;">
+          <div class="roomSettingsDialog">
+            <div class="roomSettingsHeader">
+              <h3>Room Settings</h3>
+              <button class="closeBtn" id="roomSettingsCloseBtn">&times;</button>
+            </div>
+            <div class="roomSettingsBody">
+              <div class="formGroup">
+                <label>Room ID</label>
+                <input type="text" id="roomSettingsId" readonly disabled>
+              </div>
+              <div class="formGroup">
+                <label>Description</label>
+                <textarea id="roomSettingsDescription" placeholder="Optional description for this room..." rows="3"></textarea>
+              </div>
+              <div class="formGroup">
+                <label>Owner</label>
+                <input type="text" id="roomSettingsOwner" readonly disabled>
+              </div>
+              <div class="formGroup formGroupCheckbox">
+                <label>
+                  <input type="checkbox" id="roomSettingsLocked">
+                  <span>Lock room (prevent new users from joining)</span>
+                </label>
+              </div>
+              <div class="formGroup">
+                <label>Max Users (0 = unlimited)</label>
+                <input type="number" id="roomSettingsMaxUsers" min="0" max="100" value="0">
+              </div>
+            </div>
+            <div class="roomSettingsFooter">
+              <button class="btn secondary" id="roomSettingsCancelBtn">Cancel</button>
+              <button class="btn primary" id="roomSettingsSaveBtn">Save</button>
+            </div>
           </div>
         </div>
 
@@ -331,6 +370,10 @@
               <button class="modTab" data-tab="mutes">Mutes</button>
             </div>
             <button class="chatCloseBtn" id="modPanelCloseBtn">&times;</button>
+          </div>
+          <div class="modPanelControls">
+            <input type="text" id="modSearchInput" class="modSearchInput" placeholder="Search username..." autocomplete="off">
+            <button class="modHistoryToggle" id="modHistoryToggle">Active Only</button>
           </div>
           <div id="modEntryList" class="modEntryList">
             <div class="modNoEntries">No entries</div>

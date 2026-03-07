@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { connectDB, getDB } from './db.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
-import { issueModAction, revokeModAction, getActiveModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
+import { issueModAction, revokeModAction, getModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
 import { SessionManager, Role } from './SessionManager.js';
@@ -327,7 +327,7 @@ wss.on('connection', (ws, req) => {
     console.log(`[WS] New connection attempt from ${req.socket.remoteAddress}`);
 
     ws.clientIp = getClientIp(req);
-    ws.userRole = Role.ADMIN; // TODO: TEMPORARY - All users are admin for testing
+    ws.userRole = Role.GUEST;
     ws.userId = null;
     ws.username = null;
     ws.isMuted = false;
@@ -387,7 +387,10 @@ wss.on('connection', (ws, req) => {
       switch (data.t) {
         // Client handshake — assign a session index and send the full user list + board settings
         case T.CONNECT:
-          // IP ban enforcement on connect
+          // Lazy load room from DB
+          await room.ensureLoaded();
+
+          // IP ban + mute enforcement on connect (before session is created)
           if (getDB()) {
             try {
               const ipBan = await getDB().collection('moderation').findOne({
@@ -399,8 +402,16 @@ wss.on('connection', (ws, req) => {
                 ws.close(4001, 'Banned');
                 return;
               }
+
+              const ipMute = await getDB().collection('moderation').findOne({
+                type: 'mute', active: true, targetIp: ws.clientIp
+              });
+              if (ipMute) {
+                ws.isMuted = true;
+                console.log(`[Mod] Guest from ${ws.clientIp} connected while IP-muted`);
+              }
             } catch (err) {
-              console.error('[Mod] IP ban check error:', err);
+              console.error('[Mod] IP moderation check error:', err);
             }
           }
 
@@ -455,6 +466,18 @@ wss.on('connection', (ws, req) => {
 
           // Send board settings to new user
           sendTo(ws, { t: T.SETTINGS, m: room.settings.mirror });
+
+          // Notify muted guest so their client shows the muted state
+          if (ws.isMuted) {
+            sendTo(ws, {
+              t: T.MOD_NOTIFY,
+              modActionType: 1,
+              modTarget: sessionIndex,
+              modTargetName: username,
+              modIssuerName: 'System',
+              modReason: 'You are muted'
+            });
+          }
           break;
 
         // Canvas sync handshake (step 1 of 3) — new client asks for the current canvas state.
@@ -619,7 +642,8 @@ wss.on('connection', (ws, req) => {
                     reason: modReason,
                     issuedBy: ws.userId || null,
                     issuedByUsername: ws.username || '',
-                    duration: modDuration
+                    duration: modDuration,
+                    roomId: room.id
                   });
                 }
                 if (targetWs) {
@@ -648,7 +672,8 @@ wss.on('connection', (ws, req) => {
                     reason: modReason,
                     issuedBy: ws.userId || null,
                     issuedByUsername: ws.username || '',
-                    duration: modDuration
+                    duration: modDuration,
+                    roomId: room.id
                   });
                 }
                 roomBroadcaster({
@@ -760,7 +785,10 @@ wss.on('connection', (ws, req) => {
                 id: r.id,
                 userCount: r.userCount,
                 locked: r.locked,
-                hasPassword: r.hasPassword
+                hasPassword: r.hasPassword,
+                description: r.description || '',
+                ownerId: r.ownerId || '',
+                ownerUsername: r.ownerUsername || ''
               }))
             });
           } catch (err) {
@@ -769,7 +797,55 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
-        // Mod panel request — returns all active bans/mutes as a repeated ModEntry list (mod_entries)
+        // Room update — change room settings (owner or mod only)
+        case T.ROOM_UPDATE: {
+          // Must be logged in
+          if (!ws.userId) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Must be logged in' });
+            break;
+          }
+
+          // Must be room owner or mod/admin
+          const isOwner = room.ownerId === ws.userId;
+          const isMod = ws.userRole >= Role.MOD;
+
+          if (!isOwner && !isMod) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Only room owner or moderators can change settings' });
+            break;
+          }
+
+          try {
+            // Claim ownership if room has no owner
+            if (!room.ownerId && data.roomOwnerId === ws.userId) {
+              room.ownerId = ws.userId;
+              room.ownerUsername = ws.username;
+              console.log(`[Room] "${room.id}" claimed by ${ws.username}`);
+            }
+
+            // Update settings
+            if (data.roomDescription !== undefined) {
+              room.description = (data.roomDescription || '').substring(0, 200);
+            }
+            if (data.roomLocked !== undefined) {
+              room.settings.locked = !!data.roomLocked;
+            }
+            if (data.roomMaxUsers !== undefined) {
+              room.settings.maxUsers = Math.max(0, Math.min(100, data.roomMaxUsers || 0));
+            }
+
+            await room.saveToDB();
+
+            sendTo(ws, { t: T.MOD_RESULT, a: true });
+            console.log(`[Room] "${room.id}" settings updated by ${ws.username}`);
+          } catch (err) {
+            console.error('[Room] Update error:', err);
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Failed to update room' });
+          }
+          break;
+        }
+
+        // Mod panel request — returns bans/mutes as a repeated ModEntry list
+        // Supports modShowHistory (bool) and modSearch (string) filter params
         case T.MOD_LIST: {
           // Verify requester is mod or admin
           if (ws.userRole < Role.MOD) {
@@ -778,7 +854,10 @@ wss.on('connection', (ws, req) => {
           }
 
           try {
-            const entries = await getActiveModEntries();
+            const entries = await getModEntries({
+              showHistory: !!data.modShowHistory,
+              search: data.modSearch || ''
+            });
             sendTo(ws, {
               t: T.MOD_LIST,
               modEntries: entries
@@ -1000,11 +1079,11 @@ wss.on('connection', (ws, req) => {
             if (ws.isMuted) {
               sendTo(ws, {
                 t: T.MOD_NOTIFY,
-                mod_action_type: 1,
-                mod_target: ws.sessionIndex,
-                mod_target_name: userDoc.username,
-                mod_issuer_name: 'System',
-                mod_reason: muteCheck.reason || ''
+                modActionType: 1,
+                modTarget: ws.sessionIndex,
+                modTargetName: userDoc.username,
+                modIssuerName: 'System',
+                modReason: muteCheck.reason || ''
               });
             }
           } catch (err) {

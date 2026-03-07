@@ -66,7 +66,7 @@ export function setupAuthModHandlers(wsClient, app) {
 
     // Refresh mod panel if open
     if (app.moderation?.panelVisible) {
-      wsClient.requestModList();
+      app.moderation._requestList();
     }
   });
 
@@ -77,7 +77,7 @@ export function setupAuthModHandlers(wsClient, app) {
     }
     // Refresh mod panel after any action
     if (data.success && app.moderation?.panelVisible) {
-      wsClient.requestModList();
+      app.moderation._requestList();
     }
   });
 
@@ -92,6 +92,15 @@ export function setupAuthModHandlers(wsClient, app) {
   wsClient.on('room_list_response', (data) => {
     if (app.landingPage) {
       app.landingPage.handleRoomListResponse(data.rooms);
+    }
+
+    // Update current room data if we're in a room
+    if (app.currentRoomId && data.rooms) {
+      const currentRoom = data.rooms.find(r => r.id === app.currentRoomId);
+      if (currentRoom) {
+        app.currentRoomData = currentRoom;
+        app.updateRoomSettingsButtonVisibility();
+      }
     }
   });
 

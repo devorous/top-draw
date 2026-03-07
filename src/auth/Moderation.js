@@ -11,6 +11,8 @@ export class Moderation {
     this.modEntries = [];
     this.activeTab = 'bans';
     this.panelVisible = false;
+    this.showHistory = false;
+    this.searchQuery = '';
 
     // Context menu state
     this.targetSessionIndex = null;
@@ -20,7 +22,7 @@ export class Moderation {
     this.onSync = null;
     this.onPM = null;
     this.onModAction = null;       // (actionType, sessionIndex, reason, duration)
-    this.onRequestModList = null;   // ()
+    this.onRequestModList = null;   // ({ showHistory, search })
     this.onRevokeEntry = null;      // (entryId, type)
     this.onModWipe = null;          // (sessionIndex, targetName)
   }
@@ -213,15 +215,20 @@ export class Moderation {
 
   // --- Mod Panel ---
 
+  _requestList() {
+    if (this.onRequestModList) {
+      this.onRequestModList({ showHistory: this.showHistory, search: this.searchQuery });
+    }
+  }
+
   togglePanel() {
     this.panelVisible = !this.panelVisible;
     const panel = document.getElementById('modPanel');
     if (panel) {
       panel.style.display = this.panelVisible ? 'flex' : 'none';
     }
-    // Request fresh data when opening
-    if (this.panelVisible && this.onRequestModList) {
-      this.onRequestModList();
+    if (this.panelVisible) {
+      this._requestList();
     }
   }
 
@@ -239,6 +246,21 @@ export class Moderation {
     if (panel) {
       panel.style.display = 'none';
     }
+  }
+
+  setShowHistory(val) {
+    this.showHistory = val;
+    const btn = document.getElementById('modHistoryToggle');
+    if (btn) {
+      btn.textContent = val ? 'All History' : 'Active Only';
+      btn.classList.toggle('active', val);
+    }
+    this._requestList();
+  }
+
+  setSearch(query) {
+    this.searchQuery = query;
+    this._requestList();
   }
 
   setActiveTab(tab) {
@@ -279,35 +301,54 @@ export class Moderation {
     const filtered = this.modEntries.filter(e => e.type === this.activeTab);
 
     if (filtered.length === 0) {
-      list.innerHTML = '<div class="modNoEntries">No entries</div>';
+      const label = this.searchQuery
+        ? `No ${this.activeTab} match "${this.escapeHtml(this.searchQuery)}"`
+        : `No ${this.activeTab}`;
+      list.innerHTML = `<div class="modNoEntries">${label}</div>`;
       return;
     }
 
+    const now = Date.now();
+
     list.innerHTML = filtered.map(entry => {
-      const date = entry.createdAt ? new Date(Number(entry.createdAt)).toLocaleDateString() : '';
-      const expires = entry.expiresAt
-        ? new Date(Number(entry.expiresAt)).toLocaleDateString()
-        : 'permanent';
+      const createdDate = entry.createdAt
+        ? new Date(Number(entry.createdAt)).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
+        : '';
+      const expiresDate = entry.expiresAt
+        ? new Date(Number(entry.expiresAt)).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
+        : 'Permanent';
+
+      const isExpired = entry.expiresAt && Number(entry.expiresAt) < now;
+      const statusLabel = !entry.active ? 'Revoked' : isExpired ? 'Expired' : 'Active';
+      const statusClass = !entry.active ? 'revoked' : isExpired ? 'expired' : 'active';
+
+      const canRemove = entry.active && !isExpired;
 
       return `
-        <div class="modEntry">
-          <span class="modEntryUser">${this.escapeHtml(entry.username)}</span>
-          <span class="modEntryReason">${this.escapeHtml(entry.reason || 'No reason')}</span>
-          <span class="modEntryTime">${date} — ${expires}</span>
-          <span class="modEntryInfo">${this.escapeHtml(entry.ip)} by ${this.escapeHtml(entry.issuedBy)}</span>
-          <button class="modEntryAction" data-id="${this.escapeHtml(entry.id)}" data-type="${entry.type}" data-username="${this.escapeHtml(entry.username)}">Remove</button>
+        <div class="modEntry ${statusClass}">
+          <div class="modEntryTop">
+            <span class="modEntryUser">${this.escapeHtml(entry.username)}</span>
+            <span class="modEntryStatus ${statusClass}">${statusLabel}</span>
+          </div>
+          ${entry.reason ? `<div class="modEntryReason">"${this.escapeHtml(entry.reason)}"</div>` : ''}
+          <div class="modEntryMeta">
+            <span>by ${this.escapeHtml(entry.issuedBy || 'Unknown')}</span>
+            <span>${createdDate}</span>
+          </div>
+          <div class="modEntryMeta">
+            <span class="modEntryIp">${this.escapeHtml(entry.ip)}</span>
+            <span>expires: ${expiresDate}</span>
+          </div>
+          ${canRemove ? `<button class="modEntryRemove" data-id="${this.escapeHtml(entry.id)}" data-type="${entry.type}" data-username="${this.escapeHtml(entry.username)}">Revoke</button>` : ''}
         </div>
       `;
     }).join('');
 
-    // Wire up remove buttons
-    list.querySelectorAll('.modEntryAction').forEach(btn => {
+    // Wire up revoke buttons
+    list.querySelectorAll('.modEntryRemove').forEach(btn => {
       btn.addEventListener('click', () => {
-        const entryId = btn.dataset.id;
-        const entryType = btn.dataset.type;
-        const username = btn.dataset.username;
         if (this.onRevokeEntry) {
-          this.onRevokeEntry(entryId, entryType, username);
+          this.onRevokeEntry(btn.dataset.id, btn.dataset.type, btn.dataset.username);
         }
       });
     });

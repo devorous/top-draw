@@ -72,6 +72,7 @@ message Msg {
     ROOM_LIST_REQUEST  = 63;  // Request list of rooms
     ROOM_LIST_RESPONSE = 64;  // Response with room list
     MOD_WIPE           = 65;  // Wipe all strokes from a user (mod action)
+    ROOM_UPDATE        = 66;  // Update room settings (owner/mod only)
   }
 
   // Tool enum
@@ -179,6 +180,8 @@ message Msg {
   string mod_ip           = 38;  // Obfuscated IP for mod panel
   string mod_target_name  = 39;  // Target username
   string mod_issuer_name  = 40;  // Issuer username
+  bool   mod_show_history = 53;  // MOD_LIST: return all entries (not just active)
+  string mod_search       = 54;  // MOD_LIST: filter by username prefix
 
   // Moderation entry for active bans/mutes list
   message ModEntry {
@@ -215,10 +218,19 @@ message Msg {
 
   // Room list for ROOM_LIST_RESPONSE
   message RoomInfo {
-    string id         = 1;
-    uint32 userCount  = 2;
-    bool locked       = 3;
-    bool hasPassword  = 4;
+    string id          = 1;
+    uint32 userCount   = 2;
+    bool locked        = 3;
+    bool hasPassword   = 4;
+    string description = 5;
+    string ownerId     = 6;
+    string ownerUsername = 7;
   }
   repeated RoomInfo rooms = 52;
+
+  // === Room Settings Fields (55-58) ===
+  string room_description = 55;  // ROOM_UPDATE: new description
+  bool   room_locked      = 56;  // ROOM_UPDATE: locked state
+  uint32 room_max_users   = 57;  // ROOM_UPDATE: max users (0 = unlimited)
+  string room_owner_id    = 58;  // ROOM_UPDATE: owner userId (for claiming)
 }

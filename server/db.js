@@ -28,7 +28,8 @@ export async function connectDB() {
       { username: 1 },
       { unique: true, collation: { locale: 'en', strength: 2 } }
     );
-    // ... rest of your indexes ...
+    await db.collection('rooms').createIndex({ lastActiveAt: 1 });
+    await db.collection('moderation').createIndex({ active: 1, type: 1, targetIp: 1 });
 
     console.log('Connected to MongoDB Atlas');
     return db;

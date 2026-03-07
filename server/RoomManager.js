@@ -9,19 +9,106 @@ export class Room {
     this.id = id;
     this.Msg = msgProto;
     this.sendTo = sendToCallback;
-    
+
     this.clients = new Set();
-    this.settings = { mirror: false };
+    this.settings = {
+      mirror: false,
+      locked: false,
+      maxUsers: 0  // 0 = unlimited
+    };
+
+    // Room metadata (loaded from DB)
+    this.description = '';
+    this.ownerId = null;
+    this.ownerUsername = null;
+    this.createdAt = Date.now();
+    this.lastActivity = Date.now();
+    this.dbLoaded = false;
 
     // Each room has its own managers
     this.sessionManager = new SessionManager(this.broadcastToAll.bind(this));
     this.syncCoordinator = new SyncCoordinator(this.sessionManager, { clients: this.clients }, this.sendTo);
 
-    this.createdAt = Date.now();
-    this.lastActivity = Date.now();
-    
     // Pooled message for broadcasting
     this.POOLED_MSG = this.Msg.create();
+  }
+
+  /**
+   * Lazy load or create room document from MongoDB
+   * Called on first T.CONNECT to the room
+   */
+  async ensureLoaded() {
+    if (this.dbLoaded) return;
+
+    const db = getDB();
+    if (!db) {
+      this.dbLoaded = true;
+      return;
+    }
+
+    try {
+      const doc = await db.collection('rooms').findOne({ _id: this.id });
+
+      if (doc) {
+        // Load existing room
+        this.description = doc.description || '';
+        this.ownerId = doc.ownerId || null;
+        this.ownerUsername = doc.ownerUsername || null;
+        this.createdAt = doc.createdAt ? doc.createdAt.getTime() : this.createdAt;
+        this.settings.locked = doc.settings?.locked || false;
+        this.settings.maxUsers = doc.settings?.maxUsers || 0;
+        console.log(`[Room] Loaded "${this.id}" from DB`);
+      } else {
+        // Create new room document
+        const newDoc = {
+          _id: this.id,
+          description: '',
+          ownerId: null,
+          ownerUsername: null,
+          createdAt: new Date(),
+          lastActiveAt: new Date(),
+          settings: {
+            locked: false,
+            maxUsers: 0
+          }
+        };
+        await db.collection('rooms').insertOne(newDoc);
+        console.log(`[Room] Created "${this.id}" in DB`);
+      }
+
+      this.dbLoaded = true;
+    } catch (err) {
+      console.error(`[Room] DB load error for "${this.id}":`, err);
+      this.dbLoaded = true; // Don't retry
+    }
+  }
+
+  /**
+   * Save room metadata to DB (call after changes to description/settings/owner)
+   */
+  async saveToDB() {
+    const db = getDB();
+    if (!db) return;
+
+    try {
+      await db.collection('rooms').updateOne(
+        { _id: this.id },
+        {
+          $set: {
+            description: this.description,
+            ownerId: this.ownerId,
+            ownerUsername: this.ownerUsername,
+            lastActiveAt: new Date(),
+            settings: {
+              locked: this.settings.locked,
+              maxUsers: this.settings.maxUsers
+            }
+          }
+        }
+      );
+    } catch (err) {
+      console.error(`[Room] Save error for "${this.id}":`, err);
+    }
   }
 
   getClientCount() {
@@ -99,9 +186,12 @@ export class RoomManager {
       if (room.id === '_discovery') continue;
       list.push({
         id: room.id,
+        description: room.description || '',
         userCount: room.getClientCount(),
-        locked: false, // Future feature
-        hasPassword: false // Future feature
+        locked: room.settings.locked,
+        hasPassword: false, // Future feature
+        ownerId: room.ownerId || '',
+        ownerUsername: room.ownerUsername || ''
       });
     }
     return list;

@@ -16,6 +16,7 @@ import { Auth } from './auth/Auth.js';
 import { Moderation } from './auth/Moderation.js';
 import { ColorInputMenu } from './ui/ColorInputMenu.js';
 import { LandingPage } from './ui/LandingPage.js';
+import { RoomSettings } from './ui/RoomSettings.js';
 import { ToolLockManager } from './tools/ToolLockManager.js';
 import { InputBufferManager } from './input/InputBufferManager.js';
 import { KeyboardHandler } from './input/KeyboardHandler.js';
@@ -72,7 +73,9 @@ export class DrawingApp {
     this.auth = null;
     this.moderation = null;
     this.landingPage = null;
+    this.roomSettings = null;
     this.currentRoomId = null;
+    this.currentRoomData = null; // Full room data from server
     this.selfRole = 0; // 0=guest
     this.moderation = new Moderation();
 
@@ -172,6 +175,15 @@ export class DrawingApp {
     });
     this.landingPage.init();
 
+    // Initialize room settings
+    this.roomSettings = new RoomSettings({
+      wsClient: this.wsClient,
+      onUpdate: (roomData) => {
+        this.currentRoomData = roomData;
+      }
+    });
+    this.roomSettings.init();
+
     // Wire moderation callbacks
     this.moderation.onSync = (sessionIndex) => {
       this.syncClient.requestSync();
@@ -191,8 +203,8 @@ export class DrawingApp {
     this.moderation.onModAction = (actionType, sessionIndex, reason, duration) => {
       this.wsClient.sendModAction(actionType, sessionIndex, reason, duration);
     };
-    this.moderation.onRequestModList = () => {
-      this.wsClient.requestModList();
+    this.moderation.onRequestModList = ({ showHistory, search } = {}) => {
+      this.wsClient.requestModList({ showHistory, search });
     };
     this.moderation.onRevokeEntry = (entryId, entryType, username) => {
       // Revoke: unmute=3, unban=4
@@ -378,6 +390,12 @@ export class DrawingApp {
     elements.chatBtn.addEventListener('click', () => this.chat.toggle());
     elements.selfListUser.addEventListener('click', () => this.handleRenameself());
 
+    // Room settings button
+    const roomSettingsBtn = document.getElementById('roomSettingsBtn');
+    if (roomSettingsBtn) {
+      roomSettingsBtn.addEventListener('click', () => this.handleRoomSettings());
+    }
+
     // Mod panel toggle
     if (elements.modBtn) {
       elements.modBtn.addEventListener('click', () => this.moderation.togglePanel());
@@ -393,6 +411,25 @@ export class DrawingApp {
     document.querySelectorAll('.modTab').forEach(tab => {
       tab.addEventListener('click', () => this.moderation.setActiveTab(tab.dataset.tab));
     });
+
+    // Mod panel search
+    const modSearchInput = document.getElementById('modSearchInput');
+    if (modSearchInput) {
+      let searchDebounce = null;
+      modSearchInput.addEventListener('input', () => {
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(() => this.moderation.setSearch(modSearchInput.value.trim()), 300);
+      });
+      modSearchInput.addEventListener('keydown', (e) => e.stopPropagation());
+    }
+
+    // Mod panel history toggle
+    const modHistoryToggle = document.getElementById('modHistoryToggle');
+    if (modHistoryToggle) {
+      modHistoryToggle.addEventListener('click', () => {
+        this.moderation.setShowHistory(!this.moderation.showHistory);
+      });
+    }
 
     // Context menu button clicks
     if (elements.userContextMenu) {
@@ -945,6 +982,9 @@ export class DrawingApp {
     this.wsClient.broadcastToolChange(this.self.tool);
     this.users.set(sessionIndex, this.self);
 
+    // Request room list to get current room data (for settings button)
+    this.wsClient.requestRoomList();
+
     // Reset sync state on new connection so we sync from scratch
     this.syncClient.hasCompletedSync = false;
     this.syncClient.syncing = false;
@@ -1027,10 +1067,9 @@ export class DrawingApp {
       this.ui.showConnectionStatus('disconnected');
     }
 
-    // Handle moderation close codes — reconnect and show login so they can re-auth
+    // Handle moderation close codes — show overlay so user can return to room selection
     if (code === 4001 || code === 4002) {
-      const label = code === 4001 ? 'banned' : 'kicked';
-      this.ui.showToast(`You have been ${label}${reason ? ': ' + reason : ''}`, 5000);
+      const label = code === 4001 ? 'Banned' : 'Kicked';
 
       // Clear stored token so auto-login doesn't repeat the rejection
       if (this.auth) {
@@ -1038,9 +1077,31 @@ export class DrawingApp {
         this.auth.setRememberMe(false);
       }
 
-      // Reconnect — handleWSConnect will show login form since token is cleared
-      this.reconnect();
+      this.showModOverlay(label, reason || '');
     }
+  }
+
+  showModOverlay(title, reason) {
+    // Remove any existing mod overlay
+    document.getElementById('modOverlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'modOverlay';
+    overlay.className = 'modOverlay';
+    overlay.innerHTML = `
+      <div class="modOverlayBox">
+        <h3>${title}</h3>
+        ${reason ? `<p class="modOverlayReason">${reason}</p>` : ''}
+        <button class="btn" id="modOverlayReturnBtn">Return to Room Selection</button>
+      </div>
+    `;
+
+    document.getElementById('boardContainer')?.appendChild(overlay);
+
+    overlay.querySelector('#modOverlayReturnBtn').addEventListener('click', () => {
+      overlay.remove();
+      this.disconnect();
+    });
   }
 
   handleAuthSuccess(token, role, username) {
@@ -1056,6 +1117,9 @@ export class DrawingApp {
     if (this.moderation) {
       this.moderation.setRole(role);
     }
+
+    // Update room settings button visibility (role may have changed)
+    this.updateRoomSettingsButtonVisibility();
 
     // If landing page is active and room is selected, proceed to room
     if (this.landingPage && this.landingPage.selectedRoom) {
@@ -1212,6 +1276,46 @@ export class DrawingApp {
     }
   }
 
+  handleRoomSettings() {
+    if (!this.currentRoomData) {
+      this.ui.showToast('Room data not loaded yet', 3000);
+      return;
+    }
+
+    const canEdit = this.roomSettings.canEdit(
+      this.currentRoomData,
+      this.selfRole,
+      this.auth?.userId
+    );
+
+    if (!canEdit) {
+      this.ui.showToast('Only room owner or moderators can edit settings', 3000);
+      return;
+    }
+
+    this.roomSettings.show(this.currentRoomData, this.selfRole, this.auth?.userId);
+  }
+
+  updateRoomSettingsButtonVisibility() {
+    const btn = document.getElementById('roomSettingsBtn');
+    if (!btn) return;
+
+    // Hide if not connected to a room
+    if (!this.connected || !this.currentRoomData) {
+      btn.style.display = 'none';
+      return;
+    }
+
+    // Show if user can edit room settings
+    const canEdit = this.roomSettings?.canEdit(
+      this.currentRoomData,
+      this.selfRole,
+      this.auth?.userId
+    );
+
+    btn.style.display = canEdit ? 'inline-block' : 'none';
+  }
+
   async disconnect() {
     console.log('[App] Exiting room, returning to lobby...');
 
@@ -1235,6 +1339,10 @@ export class DrawingApp {
     this.connected = false;
     this.sessionIndex = null;
     if (this.self) this.self.id = null;
+    this.currentRoomData = null;
+
+    // Hide room settings button
+    this.updateRoomSettingsButtonVisibility();
 
     // Clear canvas (optional - you might want to keep the drawing)
     // this.board.clear();

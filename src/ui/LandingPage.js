@@ -185,8 +185,9 @@ export class LandingPage {
       <div class="roomListItem ${this.selectedRoom === room.id ? 'selected' : ''}" data-room-id="${room.id}">
         <div class="roomInfo">
           <div class="roomId">${room.id}</div>
+          ${room.description ? `<div class="roomDescription">${this.escapeHtml(room.description)}</div>` : ''}
           <div class="roomMeta">
-            <span class="roomUserCount">${room.userCount || 0}</span>
+            <span class="roomUserCount">${room.userCount || 0} ${room.userCount === 1 ? 'user' : 'users'}</span>
             ${room.id === 'lobby' ? '<span class="roomBadge default">Default</span>' : ''}
             ${room.locked ? '<span class="roomBadge locked">Locked</span>' : ''}
             ${room.hasPassword ? '<span class="roomBadge">Password</span>' : ''}
@@ -377,5 +378,14 @@ export class LandingPage {
     } else {
       console.error('[LandingPage]', message);
     }
+  }
+
+  /**
+   * Escape HTML to prevent XSS
+   */
+  escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
   }
 }

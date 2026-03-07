@@ -1019,8 +1019,8 @@ sendSyncStrokesDone(targetUser) {
     });
   }
 
-  requestModList() {
-    this.send({ t: T.MOD_LIST });
+  requestModList({ showHistory = false, search = '' } = {}) {
+    this.send({ t: T.MOD_LIST, modShowHistory: showHistory, modSearch: search });
   }
 
   sendModWipe(targetSessionIndex, targetName) {

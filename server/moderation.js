@@ -72,6 +72,7 @@ export async function checkMute(userId, ip) {
  * @param {string} opts.issuedBy - moderator userId
  * @param {string} opts.issuedByUsername
  * @param {number} opts.duration - minutes, 0 = permanent
+ * @param {string} [opts.roomId] - room scope (optional, null = global)
  */
 export async function issueModAction(opts) {
   const db = getDB();
@@ -90,6 +91,7 @@ export async function issueModAction(opts) {
     reason: opts.reason || '',
     issuedBy: opts.issuedBy,
     issuedByUsername: opts.issuedByUsername,
+    roomId: opts.roomId || null,
     createdAt: now,
     expiresAt,
     duration: opts.duration || 0,
@@ -120,14 +122,34 @@ export async function revokeModAction(actionId, revokedById) {
 
 /**
  * Get all active moderation entries (for mod panel)
+ * @deprecated Use getModEntries instead
  */
 export async function getActiveModEntries() {
+  return getModEntries({ showHistory: false, search: '' });
+}
+
+/**
+ * Get moderation entries with optional history and search filtering
+ * @param {Object} opts
+ * @param {boolean} [opts.showHistory=false] - include revoked/expired entries
+ * @param {string}  [opts.search='']         - filter by target username prefix
+ */
+export async function getModEntries({ showHistory = false, search = '' } = {}) {
   const db = getDB();
   if (!db) return [];
 
+  const query = {};
+  if (!showHistory) {
+    query.active = true;
+  }
+  if (search) {
+    query.targetUsername = { $regex: `^${search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, $options: 'i' };
+  }
+
   const entries = await db.collection('moderation')
-    .find({ active: true })
+    .find(query)
     .sort({ createdAt: -1 })
+    .limit(200)
     .toArray();
 
   return entries.map(e => ({
