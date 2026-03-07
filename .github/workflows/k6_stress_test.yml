@@ -1,39 +1,55 @@
 name: k6 Stress Tests
 
 on:
-  # Run manually via workflow dispatch
   workflow_dispatch:
     inputs:
+      run_low:
+        description: 'Run Low Stress Test (10 VUs)'
+        required: false
+        default: false
+        type: boolean
       run_medium:
-        description: 'Run Medium Stress Test (8 VUs)'
-        required: false
-        default: true
-        type: boolean
-      run_hard:
-        description: 'Run Hard Stress Test (20 VUs)'
+        description: 'Run Medium Stress Test'
         required: false
         default: false
         type: boolean
-      run_basic:
-        description: 'Run Basic Stress Test'
+      run_high:
+        description: 'Run High Stress Test'
         required: false
         default: false
         type: boolean
-      run_staged:
-        description: 'Run Staged Stress Test (Ramp Up)'
-        required: false
-        default: false
-        type: boolean
-  # Or run on schedule (e.g., daily at 2 AM UTC)
-  # schedule:
-  #   - cron: '0 2 * * *'
 
 jobs:
-  medium_stress_test:
-    name: Medium Stress Test (8 VUs)
+  low_stress_test:
+    name: Low Stress Test (10 VUs)
     runs-on: ubuntu-latest
-    # Only run if checkbox is selected or on schedule
-    if: ${{ github.event.inputs.run_medium == 'true' || github.event_name == 'schedule' }}
+    if: ${{ github.event.inputs.run_low == 'true' }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run Low Stress Test
+        run: k6 run testing/low_stress_test.js
+        env:
+          TARGET_URL: "wss://top-draw.koyeb.app"
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: low-stress-test-results
+          path: |
+            *.json
+            *.html
+
+  medium_stress_test:
+    name: Medium Stress Test
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.run_medium == 'true' }}
 
     steps:
       - name: Checkout Code
@@ -56,11 +72,10 @@ jobs:
             *.json
             *.html
 
-  hard_stress_test:
-    name: Hard Stress Test (20 VUs)
+  high_stress_test:
+    name: High Stress Test
     runs-on: ubuntu-latest
-    # Only run if checkbox is selected
-    if: ${{ github.event.inputs.run_hard == 'true' }}
+    if: ${{ github.event.inputs.run_high == 'true' }}
 
     steps:
       - name: Checkout Code
@@ -69,8 +84,8 @@ jobs:
       - name: Install k6
         uses: grafana/setup-k6-action@v1
 
-      - name: Run Hard Stress Test
-        run: k6 run testing/hard_stress_test.js
+      - name: Run High Stress Test
+        run: k6 run testing/high_stress_test.js
         env:
           TARGET_URL: "wss://top-draw.koyeb.app"
 
@@ -78,61 +93,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hard-stress-test-results
-          path: |
-            *.json
-            *.html
-
-  basic_stress_test:
-    name: Basic Stress Test
-    runs-on: ubuntu-latest
-    # Only run if checkbox is selected
-    if: ${{ github.event.inputs.run_basic == 'true' }}
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Install k6
-        uses: grafana/setup-k6-action@v1
-
-      - name: Run Basic Stress Test
-        run: k6 run testing/stress_test.js
-        env:
-          TARGET_URL: "wss://top-draw.koyeb.app"
-
-      - name: Upload Test Results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: basic-stress-test-results
-          path: |
-            *.json
-            *.html
-
-  staged_stress_test:
-    name: Staged Stress Test (Ramp Up)
-    runs-on: ubuntu-latest
-    # Only run if checkbox is selected
-    if: ${{ github.event.inputs.run_staged == 'true' }}
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Install k6
-        uses: grafana/setup-k6-action@v1
-
-      - name: Run Staged Stress Test
-        run: k6 run testing/stress_test2.js
-        env:
-          TARGET_URL: "wss://top-draw.koyeb.app"
-
-      - name: Upload Test Results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: staged-stress-test-results
+          name: high-stress-test-results
           path: |
             *.json
             *.html
