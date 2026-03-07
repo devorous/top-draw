@@ -240,10 +240,25 @@ export class LayerManager {
 
     group.activeStrokeByUser.delete(userId);
 
-    // Find non-transparent bounding box (using dirty rect optimization if available)
-    const bounds = this._findContentBounds(active.canvas, active.dirtyRect);
+    // Use dirty rect directly as content bounds when available — avoids expensive
+    // getImageData GPU→CPU readback. Falls back to legacy pixel scan for tools
+    // that don't track dirty rects (text, blur).
+    const dr = active.dirtyRect;
+    let bounds;
+    if (dr && dr.maxX !== -1) {
+      // Fast path: dirty rect is the content bounds (no getImageData needed)
+      const bx = Math.max(0, dr.minX);
+      const by = Math.max(0, dr.minY);
+      const bw = Math.min(active.canvas.width, dr.maxX + 1) - bx;
+      const bh = Math.min(active.canvas.height, dr.maxY + 1) - by;
+      bounds = (bw > 0 && bh > 0) ? { x: bx, y: by, width: bw, height: bh } : null;
+    } else {
+      // Slow path fallback: pixel-scan for tools that don't expand dirty rects
+      bounds = this._findContentBoundsLegacy(active.canvas);
+    }
+
     if (!bounds) {
-      this._releaseCanvas(active); // Return empty canvas to pool
+      this._releaseCanvas(active); // Empty stroke
       return;
     }
 
@@ -861,7 +876,7 @@ export class LayerManager {
    * Quick check if canvas has any non-transparent pixels
    */
   _hasContent(canvas) {
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
     for (let i = 3; i < data.length; i += 4) {
       if (data[i] > 0) return true;
@@ -927,7 +942,7 @@ export class LayerManager {
    * @returns {{x,y,width,height}|null}
    */
   _findContentBoundsLegacy(canvas) {
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     return this._scanImageDataForContent(imageData);
   }
