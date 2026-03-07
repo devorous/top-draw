@@ -19,7 +19,6 @@ export class LandingPage {
     this.els = {
       landingPage: document.getElementById('landingPage'),
       roomList: document.getElementById('roomList'),
-      joinRoomBtn: document.getElementById('joinRoomBtn'),
       roomIdInput: document.getElementById('roomIdInput'),
       refreshRoomsBtn: document.getElementById('refreshRoomsBtn'),
       joinBtn: document.getElementById('joinBtn'),
@@ -32,11 +31,13 @@ export class LandingPage {
     // Always show landing page - never auto-join
     this.show();
 
-    // Check URL for room parameter to pre-select it
+    // Check URL for room parameter to pre-fill room input
     const urlRoom = this.getRoomFromURL();
     if (urlRoom) {
-      // Just select it, don't join automatically
       this.selectedRoom = urlRoom;
+      if (this.els.roomIdInput) {
+        this.els.roomIdInput.value = urlRoom;
+      }
     }
 
     // Set initial connection status - not connected until user joins
@@ -48,11 +49,7 @@ export class LandingPage {
   }
 
   setupListeners() {
-    // Join room by ID
-    this.els.joinRoomBtn?.addEventListener('click', () => this.joinRoomById());
-
-    // Join as guest
-    this.els.joinBtn?.addEventListener('click', () => this.joinAsGuest());
+    // Join button is handled by App.handleJoin() which calls proceedToRoom
 
     // Offline mode
     this.els.loginOfflineBtn?.addEventListener('click', () => {
@@ -62,9 +59,9 @@ export class LandingPage {
     // Refresh rooms
     this.els.refreshRoomsBtn?.addEventListener('click', () => this.refreshRooms());
 
-    // Enter key on room ID input
+    // Enter key on room ID input joins directly
     this.els.roomIdInput?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this.joinRoomById();
+      if (e.key === 'Enter') this.joinAsGuest();
     });
   }
 
@@ -208,36 +205,25 @@ export class LandingPage {
   }
 
   /**
-   * Join room by ID from input (creates room if it doesn't exist)
-   */
-  joinRoomById() {
-    const roomId = this.els.roomIdInput?.value.trim();
-
-    if (!roomId) {
-      this.showError('Please enter a room name');
-      return;
-    }
-
-    // Validate room name (alphanumeric, dashes, underscores)
-    if (!/^[a-zA-Z0-9_-]+$/.test(roomId)) {
-      this.showError('Room name can only contain letters, numbers, dashes, and underscores');
-      return;
-    }
-
-    if (roomId.length < 2 || roomId.length > 20) {
-      this.showError('Room name must be 2-20 characters');
-      return;
-    }
-
-    this.selectRoom(roomId);
-  }
-
-  /**
-   * Join as guest (anonymous)
+   * Join — reads room from input (or uses selected/default), then proceeds
    */
   joinAsGuest() {
-    // Default to lobby if no room selected
-    const roomId = this.selectedRoom || 'lobby';
+    // Read room from input, fall back to selected room or lobby
+    let roomId = this.els.roomIdInput?.value.trim() || this.selectedRoom || 'lobby';
+
+    // Validate room name if user typed one
+    if (roomId !== 'lobby') {
+      if (!/^[a-zA-Z0-9_-]+$/.test(roomId)) {
+        this.showError('Room name can only contain letters, numbers, dashes, and underscores');
+        return;
+      }
+      if (roomId.length < 2 || roomId.length > 20) {
+        this.showError('Room name must be 2-20 characters');
+        return;
+      }
+    }
+
+    this.selectedRoom = roomId;
     this.proceedToRoom(roomId, null);
   }
 
@@ -247,17 +233,13 @@ export class LandingPage {
   selectRoom(roomId) {
     this.selectedRoom = roomId;
 
-    // Update URL
-    const url = new URL(window.location);
-    url.searchParams.set('room', roomId);
-    window.history.pushState({}, '', url);
+    // Fill the room input so the user can see what they'll join
+    if (this.els.roomIdInput) {
+      this.els.roomIdInput.value = roomId;
+    }
 
     // Highlight selected room in list
     this.highlightRoom(roomId);
-
-    // If already authenticated or auth handled by Auth component,
-    // proceed directly. Otherwise wait for user to login/join.
-    // For now, we'll let the user click "Join as Guest" or login
   }
 
   /**

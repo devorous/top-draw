@@ -95,6 +95,8 @@ export class RoomManager {
   getRoomList() {
     const list = [];
     for (const room of this.rooms.values()) {
+      // Hide internal discovery room
+      if (room.id === '_discovery') continue;
       list.push({
         id: room.id,
         userCount: room.getClientCount(),
@@ -103,5 +105,17 @@ export class RoomManager {
       });
     }
     return list;
+  }
+
+  /**
+   * Clean up empty rooms (except lobby and discovery)
+   */
+  cleanupEmptyRooms() {
+    for (const [id, room] of this.rooms) {
+      if (id !== 'lobby' && id !== '_discovery' && room.getClientCount() === 0) {
+        this.rooms.delete(id);
+        console.log(`[RoomManager] Cleaned up empty room: ${id}`);
+      }
+    }
   }
 }

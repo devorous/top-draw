@@ -76,39 +76,20 @@
         <!-- Unified Landing Page: Login + Room Selection -->
         <div id="landingPage" class="landingPage" style="display: none;">
           <div class="landingContainer">
-            <!-- Left Panel: Authentication -->
+            <!-- Left Panel -->
             <div class="landingPanel landingAuth">
               <h2>Top Draw</h2>
               <p class="landingSubtitle">Collaborative Drawing</p>
 
-              <!-- Auth Tabs -->
-              <div class="authTabs" id="authTabs">
-                <button class="authTab active" id="authTabLogin">Login</button>
-                <button class="authTab" id="authTabRegister">Register</button>
-              </div>
-
-              <!-- Login Form -->
-              <div id="loginForm">
-                <input autocomplete="off" class="authInput" id="loginUsername" placeholder="Username">
-                <input autocomplete="off" type="password" class="authInput" id="loginPassword" placeholder="Password (optional)">
-                <label class="authCheckbox">
-                  <input type="checkbox" id="rememberMe">
-                  <span>Remember Me</span>
-                </label>
-                <div class="authButtons">
-                  <button class="btn" id="loginBtn">Login</button>
-                  <button class="btn primary" id="joinBtn">Join as Guest</button>
-                </div>
-              </div>
-
-              <!-- Register Form -->
-              <div id="registerForm" style="display: none;">
-                <input autocomplete="off" class="authInput" id="regUsername" placeholder="Username">
-                <input autocomplete="off" type="password" class="authInput" id="regPassword" placeholder="Password">
-                <input autocomplete="off" type="password" class="authInput" id="regConfirm" placeholder="Confirm Password">
-                <div class="authButtons">
-                  <button class="btn" id="registerBtn">Register</button>
-                </div>
+              <input autocomplete="off" class="authInput" id="roomIdInput" placeholder="Room name (default: lobby)">
+              <input autocomplete="off" class="authInput" id="loginUsername" placeholder="Username">
+              <input autocomplete="off" type="password" class="authInput" id="loginPassword" placeholder="Password (optional)">
+              <label class="authCheckbox">
+                <input type="checkbox" id="rememberMe">
+                <span>Remember Me</span>
+              </label>
+              <div class="authButtons">
+                <button class="btn primary" id="joinBtn">Join</button>
               </div>
 
               <div class="landingDivider">or</div>
@@ -118,25 +99,16 @@
             <!-- Right Panel: Room Selection -->
             <div class="landingPanel landingRooms">
               <div class="landingHeader">
-                <h3>Select a Room</h3>
+                <h3>Active Rooms</h3>
                 <div class="landingConnectionStatus" id="landingConnectionStatus">
                   <span class="connectionDot"></span>
                   <span class="connectionText">Connecting...</span>
                 </div>
               </div>
 
-              <!-- Join Room -->
-              <div class="roomActions">
-                <div class="roomInputGroup">
-                  <input autocomplete="off" class="authInput" id="roomIdInput" placeholder="Enter room name (creates if new)">
-                  <button class="btn primary" id="joinRoomBtn">Join Room</button>
-                </div>
-              </div>
-
               <!-- Active Rooms List -->
               <div class="roomListSection">
                 <div class="roomListHeader">
-                  <h4>Active Rooms</h4>
                   <button class="btn secondary small" id="refreshRoomsBtn">Refresh</button>
                 </div>
                 <div id="roomList" class="roomList">
@@ -147,40 +119,8 @@
           </div>
         </div>
 
-        <!-- Old login screen (kept for offline/fallback) -->
-        <div id="login" class="overlayWindow" style="display: none;">
-          <!-- Auth Tabs -->
-          <div class="authTabs" id="authTabs">
-            <button class="authTab active" id="authTabLogin">Login</button>
-            <button class="authTab" id="authTabRegister">Register</button>
-          </div>
-
-          <!-- Login Form -->
-          <div id="loginForm">
-            <input autocomplete="off" class="authInput" id="loginUsername" placeholder="Username">
-            <input autocomplete="off" type="password" class="authInput" id="loginPassword" placeholder="Password (optional)">
-            <label class="authCheckbox">
-              <input type="checkbox" id="rememberMe">
-              <span>Log in Automatically</span>
-            </label>
-            <div class="authButtons">
-              <a class="btn" id="loginBtn">Login</a>
-              <a class="btn" id="joinBtn">Join</a>
-            </div>
-          </div>
-
-          <!-- Register Form -->
-          <div id="registerForm" style="display: none;">
-            <input autocomplete="off" class="authInput" id="regUsername" placeholder="Username">
-            <input autocomplete="off" type="password" class="authInput" id="regPassword" placeholder="Password">
-            <input autocomplete="off" type="password" class="authInput" id="regConfirm" placeholder="Confirm Password">
-            <div class="authButtons">
-              <a class="btn" id="registerBtn">Register</a>
-            </div>
-          </div>
-
-          <a class="btn offline" id="loginOfflineBtn">Draw Offline</a>
-        </div>
+        <!-- Legacy login overlay (hidden, kept for reconnect fallback) -->
+        <div id="login" class="overlayWindow" style="display: none;"></div>
         <!-- Old connecting overlay (deprecated, now using landing page) -->
         <div id="connecting" class="overlayWindow" style="display: none;">
           <label>Connecting to server...</label>

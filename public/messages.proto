@@ -212,4 +212,13 @@ message Msg {
   // === Batched Sync Fields ===
   repeated StrokeRecord strokes = 50;  // Stroke batch (for SYNC_STROKE_BATCH)
   uint32 layerIdx = 51;                // Which layer group this batch belongs to
+
+  // Room list for ROOM_LIST_RESPONSE
+  message RoomInfo {
+    string id         = 1;
+    uint32 userCount  = 2;
+    bool locked       = 3;
+    bool hasPassword  = 4;
+  }
+  repeated RoomInfo rooms = 52;
 }

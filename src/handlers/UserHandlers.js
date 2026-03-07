@@ -105,6 +105,20 @@ export function setupUserHandlers(wsClient, app) {
 
     // Update chat user list for DM functionality
     app.updateChatUserList();
+
+    // Trigger sync on first USERS message after connecting
+    if (app._needsSync) {
+      app._needsSync = false;
+      const otherUsers = data.users.filter(u => u.sessionIndex !== app.sessionIndex);
+      if (otherUsers.length > 0) {
+        // Other users exist — request canvas sync
+        app.syncClient.requestSync();
+      } else {
+        // We're alone — no sync needed, just hide the overlay
+        app.syncClient.hideOverlay();
+        app.syncClient.hasCompletedSync = true;
+      }
+    }
   });
 
   // Board settings

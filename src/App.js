@@ -814,19 +814,20 @@ export class DrawingApp {
       console.log('[App] Set username from login form:', username);
     }
 
-    // Disconnect from discovery room first
-    if (this.wsClient && this.wsClient.connected) {
-      console.log('[App] Disconnecting from discovery room');
-      await this.disconnect(); // Use the existing disconnect method to clean up state
-    } else {
-      // If we weren't connected (e.g. offline or failed discovery), still clear state
-      this.users.clear();
-      this.users.set(this.sessionIndex, this.self);
-    }
+    // Clear user state for fresh room
+    this.users.clear();
+    this.connected = false;
+    this.sessionIndex = null;
+    if (this.self) this.self.id = null;
+
+    // Show sync overlay immediately so there's no visual gap between
+    // landing page hiding and the sync overlay appearing
+    this.syncClient.showOverlay();
+    this.syncClient.updateProgress('Connecting...');
 
     // Connect to WebSocket with actual room ID
+    // wsClient.connect() handles closing any previous socket cleanly
     try {
-      this.currentRoomId = roomId; // Ensure roomId is set before connecting
       await this.wsClient.connect(this.self.toJSON(), roomId);
       // handleWSConnect will be called on success
     } catch (err) {
@@ -940,10 +941,27 @@ export class DrawingApp {
 
     // Reset sync state on new connection so we sync from scratch
     this.syncClient.hasCompletedSync = false;
+    this.syncClient.syncing = false;
+    this.syncClient.buffering = false;
+    this.syncClient.eventBuffer = [];
+    if (this.syncClient.syncTimeout) {
+      clearTimeout(this.syncClient.syncTimeout);
+      this.syncClient.syncTimeout = null;
+    }
 
-    // Request sync immediately on connect (before login/username selection)
-    // so the board is already syncing while the user enters their name
-    this.syncClient.requestSync();
+    // Sync will be triggered by the USERS handler once we know if we're alone
+    this._needsSync = true;
+
+    // If user provided a password, do a login after connecting
+    if (this._pendingPassword && this.self.username) {
+      console.log('[App] Logging in with password after connect');
+      this.wsClient.sendAuthLogin(this.self.username, this._pendingPassword);
+      this._pendingPassword = null;
+      // handleJoinAfterConnect will be called — auth_result callback handles the rest
+      this.handleJoinAfterConnect();
+      return;
+    }
+    this._pendingPassword = null;
 
     // Attempt auto-login with stored token
     if (this.auth && this.auth.attemptAutoLogin()) {
@@ -1086,9 +1104,13 @@ export class DrawingApp {
     }
     this.self.setUsername(name);
 
-    // If landing page is active and room is selected, proceed to room
-    if (this.landingPage && this.landingPage.selectedRoom) {
-      this.landingPage.proceedToRoom(this.landingPage.selectedRoom);
+    // Store password for login after connection (if provided)
+    const password = this.ui.elements.loginPassword?.value || '';
+    this._pendingPassword = password || null;
+
+    // If landing page is active, read room from input and proceed
+    if (this.landingPage && this.landingPage.isVisible) {
+      this.landingPage.joinAsGuest();
       return;
     }
 

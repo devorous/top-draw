@@ -50,6 +50,21 @@ export class WebSocketClient {
   async connect(userData, roomId = null) {
     await this.loadProto();
 
+    // Close any existing socket cleanly before reconnecting
+    if (this.socket) {
+      // Null out handlers so the old socket's close event doesn't interfere
+      this.socket.onclose = null;
+      this.socket.onmessage = null;
+      this.socket.onerror = null;
+      this.socket.onopen = null;
+      if (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING) {
+        this.socket.close();
+      }
+      this.socket = null;
+    }
+    this.connected = false;
+    this.sessionIndex = null;
+
     this._userData = userData;
     this._roomId = roomId;
     this._connectAttempts = 0;
@@ -598,6 +613,17 @@ export class WebSocketClient {
           targetSessionIndex: data.modTarget,
           targetName: data.modTargetName || '',
           issuerName: data.modIssuerName || ''
+        });
+        break;
+
+      case T.ROOM_LIST_RESPONSE:
+        this.emit('room_list_response', {
+          rooms: (data.rooms || []).map(r => ({
+            id: r.id,
+            userCount: r.userCount || 0,
+            locked: r.locked || false,
+            hasPassword: r.hasPassword || false
+          }))
         });
         break;
     }

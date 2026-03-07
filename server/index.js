@@ -1057,6 +1057,11 @@ wss.on('connection', (ws, req) => {
       } else {
         console.log('Disconnected: client without session from room:', room.id);
       }
+
+      // Clean up empty rooms (except lobby/_discovery)
+      if (room.getClientCount() === 0) {
+        roomManager.cleanupEmptyRooms();
+      }
     }
   });
 
