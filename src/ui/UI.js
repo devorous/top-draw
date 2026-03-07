@@ -52,6 +52,8 @@ export class UI {
       loginOfflineBtn: document.getElementById('loginOfflineBtn'),
       loginUsername: document.getElementById('loginUsername'),
       loginPassword: document.getElementById('loginPassword'),
+      loginForm: document.getElementById('loginForm'),
+      rememberMe: document.getElementById('rememberMe'),
 
       boardContainer: document.getElementById('boardContainer'),
       boards: document.getElementById('boards'),
@@ -177,7 +179,6 @@ export class UI {
       connectionStatus: document.getElementById('connectionStatus'),
       connectionDot: document.querySelector('.connectionDot'),
       connectionText: document.querySelector('.connectionText'),
-      reconnectBtn: document.getElementById('reconnectBtn'),
       disconnectBtn: document.getElementById('disconnectBtn'),
       userContextMenu: document.getElementById('userContextMenu'),
       modPanel: document.getElementById('modPanel'),
@@ -861,7 +862,7 @@ export class UI {
   }
   
   showConnectionStatus(state) {
-    const { connectionStatus, connectionText, reconnectBtn } = this.elements;
+    const { connectionStatus, connectionText } = this.elements;
     if (!connectionStatus) return;
 
     connectionStatus.style.display = 'flex';
@@ -874,7 +875,6 @@ export class UI {
       offline: 'Offline Mode'
     };
     connectionText.textContent = labels[state] || state;
-    reconnectBtn.style.display = state === 'disconnected' ? 'inline-flex' : 'none';
   }
 
   hideConnectionStatus() {

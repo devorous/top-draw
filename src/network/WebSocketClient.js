@@ -74,31 +74,40 @@ export class WebSocketClient {
   }
 
   _buildUrl() {
+    let baseUrl;
     if (this.serverUrl) {
-      this._url = this.serverUrl;
+      baseUrl = this.serverUrl;
     } else {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const currentPort = window.location.port;
 
       console.log('[WS] Current port:', currentPort);
 
-      // Dev mode (port 3000) - connect directly to backend server
-      // Production mode - use same host or configured URL
       if (currentPort === '3000') {
         // Dev mode - connect directly to backend on port 8000
-        this._url = `ws://localhost:8000`;
+        baseUrl = `ws://localhost:8000`;
         console.log('[WS] Dev mode - direct connection to backend');
       } else {
         // Production mode
-        this._url = import.meta.env.VITE_WS_SERVER_URL || `${wsProtocol}://${window.location.host}`;
+        baseUrl = import.meta.env.VITE_WS_SERVER_URL || `${wsProtocol}://${window.location.host}`;
         console.log('[WS] Using direct connection');
       }
     }
 
-    // Append room ID as query parameter
-    if (this._roomId) {
-      const separator = this._url.includes('?') ? '&' : '?';
-      this._url += `${separator}room=${encodeURIComponent(this._roomId)}`;
+    // Use URL object to reliably manage query parameters
+    try {
+      const url = new URL(baseUrl);
+      if (this._roomId) {
+        url.searchParams.set('room', this._roomId);
+      }
+      this._url = url.toString();
+    } catch (err) {
+      // Fallback if baseUrl is not a valid full URL (e.g. just a path or relative URL)
+      this._url = baseUrl;
+      if (this._roomId) {
+        const separator = this._url.includes('?') ? '&' : '?';
+        this._url += `${separator}room=${encodeURIComponent(this._roomId)}`;
+      }
     }
 
     console.log('[WS] Final WebSocket URL:', this._url);

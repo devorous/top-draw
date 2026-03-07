@@ -81,16 +81,18 @@
               <h2>Top Draw</h2>
               <p class="landingSubtitle">Collaborative Drawing</p>
 
-              <input autocomplete="off" class="authInput" id="roomIdInput" placeholder="Room name (default: lobby)">
-              <input autocomplete="off" class="authInput" id="loginUsername" placeholder="Username">
-              <input autocomplete="off" type="password" class="authInput" id="loginPassword" placeholder="Password (optional)">
-              <label class="authCheckbox">
-                <input type="checkbox" id="rememberMe">
-                <span>Remember Me</span>
-              </label>
-              <div class="authButtons">
-                <button class="btn primary" id="joinBtn">Join</button>
-              </div>
+              <form id="loginForm" onsubmit="return false;">
+                <input autocomplete="on" class="authInput" id="roomIdInput" name="room" placeholder="Room name (default: lobby)">
+                <input autocomplete="username" class="authInput" id="loginUsername" name="username" placeholder="Username">
+                <input autocomplete="current-password" type="password" class="authInput" id="loginPassword" name="password" placeholder="Password (optional)">
+                <label class="authCheckbox">
+                  <input type="checkbox" id="rememberMe">
+                  <span>Login Automatically (30 Days)</span>
+                </label>
+                <div class="authButtons">
+                  <button type="submit" class="btn primary" id="joinBtn">Join</button>
+                </div>
+              </form>
 
               <div class="landingDivider">or</div>
               <button class="btn offline" id="loginOfflineBtn">Draw Offline</button>
@@ -169,7 +171,6 @@
             <div id="connectionStatus" class="connectionStatus" style="display: none;">
               <span class="connectionDot"></span>
               <span class="connectionText"></span>
-              <a class="btn connectionReconnect" id="reconnectBtn" style="display: none;">Connect</a>
             </div>
             
             <div class="saveUploadGroup">
