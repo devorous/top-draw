@@ -1231,7 +1231,7 @@ canvas {
   border-color: var(--accent-primary);
 }
 
-.layerVisibility.hidden {
+.layerVisibility.is-hidden {
   opacity: 0.4;
 }
 

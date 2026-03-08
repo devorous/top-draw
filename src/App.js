@@ -550,7 +550,7 @@ export class DrawingApp {
       btn.addEventListener('click', () => {
         const layerIndex = parseInt(btn.dataset.layer);
         const visible = this.board.layerManager.toggleLayerVisibility(layerIndex);
-        btn.classList.toggle('hidden', !visible);
+        btn.classList.toggle('is-hidden', !visible);
         this.board.compositeAllLayers();
       });
     });
@@ -1981,6 +1981,15 @@ export class DrawingApp {
 
     // Only draw with left-click (button === 0)
     if (e.button !== 0) return;
+
+    // Block drawing on invisible layers
+    if (!this.self.panning && !this.board.layerManager.isLayerVisible(this.self.activeLayer)) {
+      if (!this._lastInvisibleToast || Date.now() - this._lastInvisibleToast > 3000) {
+        this.ui.showToast('Selected layer is hidden', 2000);
+        this._lastInvisibleToast = Date.now();
+      }
+      return;
+    }
 
     // Block drawing when muted (allow panning)
     if (this.self.isMuted && !this.self.panning) {
