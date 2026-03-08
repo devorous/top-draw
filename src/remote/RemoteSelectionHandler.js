@@ -1,4 +1,5 @@
 import { Homography } from '../utils/homography.js';
+import { performHomographyTransform, calculateCornerBounds, imageDataToCanvas } from '../utils/homographyUtils.js';
 
 /**
  * RemoteSelectionHandler - Handles selection tool rendering and operations for remote users
@@ -96,6 +97,7 @@ export class RemoteSelectionHandler {
     user.floatingCanvas.width = s.width;
     user.floatingCanvas.height = s.height;
     user.floatingCtx = user.floatingCanvas.getContext('2d');
+    user.floatingCtx.setTransform(1, 0, 0, 1, 0, 0); // Ensure clean state
 
     // Copy selected region from the remote user's active layer only (transparent background),
     // matching local SelectTool behaviour (copyAllLayers=false).
@@ -282,40 +284,21 @@ export class RemoteSelectionHandler {
           user.homography = new Homography('projective');
         }
 
-        const srcPoints = [
-          [user.originalCorners.tl.x, user.originalCorners.tl.y],
-          [user.originalCorners.tr.x, user.originalCorners.tr.y],
-          [user.originalCorners.bl.x, user.originalCorners.bl.y],
-          [user.originalCorners.br.x, user.originalCorners.br.y]
-        ];
+        const result = performHomographyTransform({
+          sourceCanvas: user.floatingCanvas,
+          sourceCorners: user.originalCorners,
+          destCorners: c,
+          scale: 1, // Full resolution for commit
+          homographyInstance: user.homography
+        });
 
-        const minX = Math.floor(Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x));
-        const minY = Math.floor(Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y));
-        const maxX = Math.ceil(Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x));
-        const maxY = Math.ceil(Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y));
-
-        const dstPoints = [
-          [c.tl.x - minX, c.tl.y - minY],
-          [c.tr.x - minX, c.tr.y - minY],
-          [c.bl.x - minX, c.bl.y - minY],
-          [c.br.x - minX, c.br.y - minY]
-        ];
-
-        user.homography.setSourcePoints(srcPoints, user.floatingCanvas);
-        user.homography.setDestinyPoints(dstPoints);
-
-        const result = user.homography.warp();
         if (result) {
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = result.width;
-          tempCanvas.height = result.height;
-          const tempCtx = tempCanvas.getContext('2d');
-          tempCtx.putImageData(result, 0, 0);
-          active.ctx.drawImage(tempCanvas, minX, minY);
-          dirtyX = minX;
-          dirtyY = minY;
-          dirtyWidth = maxX - minX;
-          dirtyHeight = maxY - minY;
+          const tempCanvas = imageDataToCanvas(result.imageData);
+          active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
+          dirtyX = result.bounds.minX;
+          dirtyY = result.bounds.minY;
+          dirtyWidth = result.bounds.width;
+          dirtyHeight = result.bounds.height;
         } else {
           active.ctx.drawImage(user.floatingCanvas, ix, iy, iw, ih);
           dirtyX = ix;
@@ -381,10 +364,10 @@ export class RemoteSelectionHandler {
     const colorString = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3]})`;
 
     // Ensure integer coordinates for consistent filling
-    const ix = Math.floor(s.x);
-    const iy = Math.floor(s.y);
-    const iw = Math.ceil(s.x + s.width) - ix;
-    const ih = Math.ceil(s.y + s.height) - iy;
+    let ix = Math.floor(s.x);
+    let iy = Math.floor(s.y);
+    let iw = Math.ceil(s.x + s.width) - ix;
+    let ih = Math.ceil(s.y + s.height) - iy;
 
     if (user.floatingCanvas && user.floatingCtx) {
       user.floatingCtx.save();
@@ -420,6 +403,22 @@ export class RemoteSelectionHandler {
 
       const path = user.lassoPath || (user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null);
       if (path) {
+        // Recalculate bounds from path to ensure dirty rect covers the entire shape
+        // (User selection bounds might be stale or not perfectly aligned with path)
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const p of path) {
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        }
+        
+        // Update variables for fill and dirty rect
+        ix = Math.floor(minX);
+        iy = Math.floor(minY);
+        iw = Math.ceil(maxX) - ix;
+        ih = Math.ceil(maxY) - iy;
+
         layerCtx.save();
         layerCtx.beginPath();
         layerCtx.moveTo(path[0].x, path[0].y);
@@ -464,40 +463,21 @@ export class RemoteSelectionHandler {
           user.homography = new Homography('projective');
         }
 
-        const srcPoints = [
-          [user.originalCorners.tl.x, user.originalCorners.tl.y],
-          [user.originalCorners.tr.x, user.originalCorners.tr.y],
-          [user.originalCorners.bl.x, user.originalCorners.bl.y],
-          [user.originalCorners.br.x, user.originalCorners.br.y]
-        ];
+        const result = performHomographyTransform({
+          sourceCanvas: user.floatingCanvas,
+          sourceCorners: user.originalCorners,
+          destCorners: c,
+          scale: 1, // Full resolution for stamp
+          homographyInstance: user.homography
+        });
 
-        const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
-        const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
-        const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
-        const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
-
-        const dstPoints = [
-          [c.tl.x - minX, c.tl.y - minY],
-          [c.tr.x - minX, c.tr.y - minY],
-          [c.bl.x - minX, c.bl.y - minY],
-          [c.br.x - minX, c.br.y - minY]
-        ];
-
-        user.homography.setSourcePoints(srcPoints, user.floatingCanvas);
-        user.homography.setDestinyPoints(dstPoints);
-
-        const result = user.homography.warp();
         if (result) {
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = result.width;
-          tempCanvas.height = result.height;
-          const tempCtx = tempCanvas.getContext('2d');
-          tempCtx.putImageData(result, 0, 0);
-          active.ctx.drawImage(tempCanvas, minX, minY);
-          dirtyX = minX;
-          dirtyY = minY;
-          dirtyWidth = maxX - minX;
-          dirtyHeight = maxY - minY;
+          const tempCanvas = imageDataToCanvas(result.imageData);
+          active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
+          dirtyX = result.bounds.minX;
+          dirtyY = result.bounds.minY;
+          dirtyWidth = result.bounds.width;
+          dirtyHeight = result.bounds.height;
         } else {
           active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
           dirtyX = s.x;
@@ -727,63 +707,43 @@ export class RemoteSelectionHandler {
     }
 
     try {
-      const c = user.selectionCorners;
-      const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
-      const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
-      const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
-      const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
-      const outputWidth = maxX - minX;
-      const outputHeight = maxY - minY;
-
       // Calculate preview scale for downsampling input image (max 256px on longest side of source)
       // REMOTE USER: Stay at lower resolution to avoid hitching the observer's frame rate.
       const srcMaxDim = Math.max(user.floatingCanvas.width, user.floatingCanvas.height);
       const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
-      const previewSrcWidth = Math.max(1, Math.round(user.floatingCanvas.width * previewScale));
-      const previewSrcHeight = Math.max(1, Math.round(user.floatingCanvas.height * previewScale));
 
       // Reuse or create preview homography instance
       if (!user.previewHomography) {
         user.previewHomography = new Homography('projective');
       }
 
-      // Source points scaled for the downsampled input image
-      const srcPoints = [
-        [user.originalCorners.tl.x * previewScale, user.originalCorners.tl.y * previewScale],
-        [user.originalCorners.tr.x * previewScale, user.originalCorners.tr.y * previewScale],
-        [user.originalCorners.bl.x * previewScale, user.originalCorners.bl.y * previewScale],
-        [user.originalCorners.br.x * previewScale, user.originalCorners.br.y * previewScale]
-      ];
+      const result = performHomographyTransform({
+        sourceCanvas: user.floatingCanvas,
+        sourceCorners: user.originalCorners,
+        destCorners: user.selectionCorners,
+        scale: previewScale,
+        homographyInstance: user.previewHomography
+      });
 
-      // Destination points scaled down proportionally
-      const dstPoints = [
-        [(c.tl.x - minX) * previewScale, (c.tl.y - minY) * previewScale],
-        [(c.tr.x - minX) * previewScale, (c.tr.y - minY) * previewScale],
-        [(c.bl.x - minX) * previewScale, (c.bl.y - minY) * previewScale],
-        [(c.br.x - minX) * previewScale, (c.br.y - minY) * previewScale]
-      ];
-
-      // Set up homography with downscaled source image
-      user.previewHomography.setSourcePoints(srcPoints, user.floatingCanvas, previewSrcWidth, previewSrcHeight);
-      user.previewHomography.setDestinyPoints(dstPoints);
-
-      const result = user.previewHomography.warp();
       if (result) {
         // Create/reuse cached canvas
         if (!user._cachedPreviewCanvas) {
           user._cachedPreviewCanvas = document.createElement('canvas');
         }
-        user._cachedPreviewCanvas.width = result.width;
-        user._cachedPreviewCanvas.height = result.height;
+        user._cachedPreviewCanvas.width = result.imageData.width;
+        user._cachedPreviewCanvas.height = result.imageData.height;
         const cacheCtx = user._cachedPreviewCanvas.getContext('2d');
-        cacheCtx.putImageData(result, 0, 0);
+        cacheCtx.putImageData(result.imageData, 0, 0);
+
+        // Calculate FULL SIZE bounds for drawing the preview scaled up
+        const fullBounds = calculateCornerBounds(user.selectionCorners);
 
         // Store bounds for drawing
         user._cachedPreviewBounds = {
-          minX,
-          minY,
-          width: outputWidth,
-          height: outputHeight
+          minX: fullBounds.minX,
+          minY: fullBounds.minY,
+          width: fullBounds.width,
+          height: fullBounds.height
         };
       } else {
         user._cachedPreviewCanvas = null;
@@ -1007,12 +967,26 @@ export class RemoteSelectionHandler {
     const ctx = active.ctx;
 
     // Ensure integer coordinates for consistent erasing
-    const ix = Math.floor(s.x);
-    const iy = Math.floor(s.y);
-    const iw = Math.ceil(s.x + s.width) - ix;
-    const ih = Math.ceil(s.y + s.height) - iy;
+    let ix = Math.floor(s.x);
+    let iy = Math.floor(s.y);
+    let iw = Math.ceil(s.x + s.width) - ix;
+    let ih = Math.ceil(s.y + s.height) - iy;
 
     if (lassoPath && lassoPath.length >= 3) {
+      // Recalculate bounds from path to ensure dirty rect covers the entire shape
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of lassoPath) {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+
+      ix = Math.floor(minX);
+      iy = Math.floor(minY);
+      iw = Math.ceil(maxX) - ix;
+      ih = Math.ceil(maxY) - iy;
+
       ctx.fillStyle = 'white';
       ctx.beginPath();
       ctx.moveTo(lassoPath[0].x, lassoPath[0].y);
