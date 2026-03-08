@@ -158,16 +158,19 @@ export class Board {
   }
 
 
-    applyTransform() {
-      // Set origin to top-left to simplify math
-      this.boardsWrapper.style.transformOrigin = '0 0';
-      
-      // Apply rotation and scale
-      // Note: We translate via left/top, but you could also do it in the transform string
-      this.boardsWrapper.style.transform = `scale(${this.zoom}) rotate(${this.rotation}deg)`;
-      this.boardsWrapper.style.left = `${this.panX}px`;
-      this.boardsWrapper.style.top = `${this.panY}px`;
-    }
+  applyTransform() {
+    // Set origin to top-left to simplify math
+    this.boardsWrapper.style.transformOrigin = '0 0';
+    
+    // Apply translation, scale, and rotation in a single transform string.
+    // This allows the browser to use GPU acceleration and avoids layout reflows
+    // that occur when changing 'left' and 'top' properties.
+    this.boardsWrapper.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom}) rotate(${this.rotation}deg)`;
+
+    // Clear left and top to avoid conflicts with the transform-based panning.
+    this.boardsWrapper.style.left = '';
+    this.boardsWrapper.style.top = '';
+  }
   
 
   setRotation(angle) {

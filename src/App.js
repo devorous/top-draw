@@ -102,6 +102,8 @@ export class DrawingApp {
 
     // boardContainer background pan tracking
     this._containerPanActive = false;
+    this._lastPanPointerX = 0;
+    this._lastPanPointerY = 0;
 
     // Rotate tool state
     this._rotateToolActive = false;  // true while rotate-tool drag is in progress
@@ -1910,7 +1912,11 @@ export class DrawingApp {
 
     // Handle panning instantaneously (bypasses input buffer for better responsiveness)
     if (this.self.panning && this.self.mousedown) {
-      this.board.pan(e.movementX, e.movementY);
+      const dx = e.clientX - this._lastPanPointerX;
+      const dy = e.clientY - this._lastPanPointerY;
+      this.board.pan(dx, dy);
+      this._lastPanPointerX = e.clientX;
+      this._lastPanPointerY = e.clientY;
     }
 
     // Track drawing for debug overlay (pass brush size and user info)
@@ -1934,6 +1940,8 @@ export class DrawingApp {
       e.preventDefault();
       this.self.panning = true;
       this.self.mousedown = true;
+      this._lastPanPointerX = e.clientX;
+      this._lastPanPointerY = e.clientY;
       this.wsClient.broadcastPan(true);
       return;
     }
@@ -1943,6 +1951,8 @@ export class DrawingApp {
       if (e.button === 0) {
         this.self.panning = true;
         this.self.mousedown = true;
+        this._lastPanPointerX = e.clientX;
+        this._lastPanPointerY = e.clientY;
       }
       return;
     }
@@ -2005,6 +2015,12 @@ export class DrawingApp {
     this.self.mousedown = true;
     this.self.spaceIndex = 0;
     this.self._mainCtxDrawCount = 0; // Reset draw counter for this stroke
+
+    // If panning (e.g. via Space key), initialize pan tracking coordinates
+    if (this.self.panning) {
+      this._lastPanPointerX = e.clientX;
+      this._lastPanPointerY = e.clientY;
+    }
 
     // Reset smoothing buffer for new stroke
     this.inputBufferManager.resetBroadcastSmoothing();
@@ -2201,6 +2217,8 @@ export class DrawingApp {
     if (e.button === 1) {
       e.preventDefault();
       this.self.panning = true;
+      this._lastPanPointerX = e.clientX;
+      this._lastPanPointerY = e.clientY;
       this.wsClient.broadcastPan(true);
       this._containerPanActive = true;
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -2212,13 +2230,19 @@ export class DrawingApp {
     // Left-click on background: pan if space is held
     if (this.self.panning) {
       this._containerPanActive = true;
+      this._lastPanPointerX = e.clientX;
+      this._lastPanPointerY = e.clientY;
       e.currentTarget.setPointerCapture(e.pointerId);
     }
   }
 
   handleBoardContainerPointerMove(e) {
     if (!this._containerPanActive) return;
-    this.board.pan(e.movementX, e.movementY);
+    const dx = e.clientX - this._lastPanPointerX;
+    const dy = e.clientY - this._lastPanPointerY;
+    this.board.pan(dx, dy);
+    this._lastPanPointerX = e.clientX;
+    this._lastPanPointerY = e.clientY;
   }
 
   handleBoardContainerPointerUp(e) {
