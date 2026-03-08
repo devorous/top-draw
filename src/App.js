@@ -1463,23 +1463,36 @@ export class DrawingApp {
     this.self.setTool(tool);
     this.toolManager.setTool(tool);
     this.ui.updateToolDisplay(tool, this.self);
+
+    // Force smoothing to 100% (value 50) for geometric tools where it's not applicable
+    if (tool === 'line' || tool === 'rectangle' || tool === 'circle') {
+      this.self.setSmoothing(50);
+      this.ui.updateSmoothingValue(50);
+    }
+
     this.ui.updateSelfToolIcon(tool);
     this.wsClient.broadcastToolChange(tool);
 
-    // Blend mode is sticky per-user, not per-tool or per-layer.
-    // Eraser uses destination-out internally, so hide blend mode UI and set preview to 'normal'.
-    // Other tools use the user's sticky blend mode for preview.
+    // Update preview canvas mix-blend-mode for live preview.
+    // Eraser uses destination-out internally, so set preview to 'normal'.
     if (tool === 'erase') {
       this.board.topCanvas.style.mixBlendMode = 'normal';
-      // Hide blend mode options for eraser (it always uses destination-out)
-      if (this.ui.elements.blendModeOptions) {
-        this.ui.elements.blendModeOptions.style.display = 'none';
-      }
     } else {
       this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
-      // Show blend mode options based on layer restrictions (not for eraser)
-      const allowComplex = this.board.layerManager.getLayerAllowComplexBlendModes(this.self.activeLayer);
-      this.ui.updateBlendModeForLayer(allowComplex);
+    }
+
+    // Blend mode UI visibility depends on both the tool and the current layer
+    const allowComplex = this.board.layerManager.getLayerAllowComplexBlendModes(this.self.activeLayer);
+    const wasReset = this.ui.updateBlendModeForLayer(allowComplex);
+    if (wasReset) {
+      this.self.setBlendMode('source-over');
+      this.board.topCanvas.style.mixBlendMode = 'normal';
+    }
+
+    // Final visibility check for blend modes (handles tool-specific hiding)
+    const blendModeOptions = this.ui.elements.blendModeOptions;
+    if (blendModeOptions && !this.ui.toolSupportsBlendMode(tool)) {
+      blendModeOptions.style.display = 'none';
     }
 
     // Restore tool values (locked or unlocked)

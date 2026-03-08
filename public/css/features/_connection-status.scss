@@ -17,10 +17,20 @@
   font-size: 11px;
   color: var(--text-secondary);
   
-  // Hide connection status early to make room for toolbar buttons 
-  // before they collapse into the menu at 1280px.
+  // Hide connection status text early to make room for toolbar buttons 
+  // but keep the dot visible.
   @media (max-width: 1380px) {
-    display: none !important;
+    padding: 4px;
+    gap: 0;
+    
+    .connectionText {
+      display: none;
+    }
+
+    .connectionReconnect,
+    .connectionDisconnect {
+      display: none !important;
+    }
   }
 }
 

@@ -691,56 +691,6 @@ body {
 }
 
 /* ========================================
-   Connection Status Indicator
-   ======================================== */
-
-.connectionStatus {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.connectionDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.connectionStatus.connected .connectionDot {
-  background: #22c55e;
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
-}
-
-.connectionStatus.disconnected .connectionDot {
-  background: #ef4444;
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
-}
-
-.connectionStatus.connecting .connectionDot {
-  background: #f59e0b;
-  box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.connectionReconnect,
-.connectionDisconnect {
-  padding: 3px 8px !important;
-  font-size: 10px !important;
-  margin-left: 4px;
-}
-
-/* ========================================
    Board Container
    ======================================== */
 
@@ -2229,21 +2179,6 @@ canvas {
 
 .bottomBarBtns {
   display: none;
-}
-
-/* ========================================
-   Save Button in Top Bar
-   ======================================== */
-
-#saveBtn {
-  background: var(--accent-primary);
-  color: var(--bg-primary);
-  border-color: var(--accent-primary);
-}
-
-#saveBtn:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
 }
 
 /* ========================================

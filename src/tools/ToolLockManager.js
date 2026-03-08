@@ -130,15 +130,17 @@ export class ToolLockManager {
       brush: ['size', 'pressure', 'smoothing', 'hardness', 'opacity'],
       flowPen: ['size', 'pressure', 'smoothing', 'hardness', 'opacity'],
       ink: ['size', 'pressure', 'smoothing', 'hardness', 'opacity'],
-      line: ['size', 'pressure', 'hardness', 'opacity'],
-      rectangle: ['size', 'pressure', 'hardness', 'opacity'],
-      circle: ['size', 'pressure', 'hardness', 'opacity'],
-      erase: ['size', 'pressure'],
+      line: ['size', 'hardness', 'opacity'],
+      rectangle: ['size', 'hardness', 'opacity'],
+      circle: ['size', 'hardness', 'opacity'],
+      erase: ['size', 'pressure', 'hardness', 'opacity'],
       blur: ['size', 'blurRadius', 'spacing'],
       imageBrush: ['size', 'pressure', 'spacing', 'opacity'],
       text: ['size', 'opacity'],
       select: [],
-      inkdropper: []
+      inkdropper: [],
+      pan: [],
+      rotate: []
     };
 
     const locks = {};

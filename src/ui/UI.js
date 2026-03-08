@@ -137,6 +137,9 @@ export class UI {
 
       brushFileInput: document.getElementById('brush-file-input'),
       brushImage: document.getElementById('brushImage'),
+      sizeContainer: document.getElementById('size-container'),
+      pressureContainer: document.getElementById('pressure-container'),
+      smoothingContainer: document.getElementById('smoothing-container'),
       brushSpacing: document.getElementById('brush-spacing'),
       brushHardness: document.getElementById('brush-hardness'),
       opacityContainer: document.getElementById('brush-opacity'),
@@ -372,8 +375,14 @@ export class UI {
   }
 
   updateToolDisplay(tool, user = null) {
-    const { selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText, brushImage, brushFileInput, brushSpacing, brushHardness, opacityContainer, blurRadiusContainer, selectionModeOptions, eraserModeOptions, brushModeOptions, smoothingSlider } = this.elements;
+    const {
+      selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText,
+      brushImage, brushFileInput, sizeContainer, pressureContainer, smoothingContainer,
+      brushSpacing, brushHardness, opacityContainer, blurRadiusContainer,
+      selectionModeOptions, eraserModeOptions, brushModeOptions, circleBlurModeOptions
+    } = this.elements;
 
+    // Reset defaults
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
     selfCrosshair.style.display = 'none';
@@ -383,148 +392,132 @@ export class UI {
     brushFileInput.style.display = 'none';
     brushSpacing.style.display = 'none';
     brushHardness.style.display = 'none';
+
+    // Options visibility defaults
+    sizeContainer.style.display = 'block';
+    pressureContainer.style.display = 'block';
+    smoothingContainer.style.display = 'block';
     opacityContainer.style.display = 'block';
-    if (blurRadiusContainer) {
-      blurRadiusContainer.style.display = 'none';
+
+    if (blurRadiusContainer) blurRadiusContainer.style.display = 'none';
+    if (selectionModeOptions) selectionModeOptions.style.display = 'none';
+    if (eraserModeOptions) eraserModeOptions.style.display = 'none';
+    if (brushModeOptions) brushModeOptions.style.display = 'none';
+    if (circleBlurModeOptions) circleBlurModeOptions.style.display = 'none';
+    
+    const { blendModeOptions } = this.elements;
+    if (blendModeOptions) {
+      blendModeOptions.style.display = this.toolSupportsBlendMode(tool) ? 'block' : 'none';
     }
-    if (selectionModeOptions) {
-      selectionModeOptions.style.display = 'none';
-    }
-    if (eraserModeOptions) {
-      eraserModeOptions.style.display = 'none';
-    }
-    if (brushModeOptions) {
-      brushModeOptions.style.display = 'none';
-    }
-    const { circleBlurModeOptions } = this.elements;
-    if (circleBlurModeOptions) {
-      circleBlurModeOptions.style.display = 'none';
-    }
+
     // Hide pressure indicators by default (only shown for pressure-sensitive tools)
-    if (selfPressureCircle) {
-      selfPressureCircle.style.display = 'none';
-    }
-    if (selfPressureSquare) {
-      selfPressureSquare.style.display = 'none';
-    }
-    // Show smoothing by default
-    if (smoothingSlider && smoothingSlider.parentElement) {
-      smoothingSlider.parentElement.style.display = 'block';
-    }
+    if (selfPressureCircle) selfPressureCircle.style.display = 'none';
+    if (selfPressureSquare) selfPressureSquare.style.display = 'none';
 
     switch (tool) {
       case 'select':
         selfCrosshair.style.display = 'block';
+        sizeContainer.style.display = 'none';
+        pressureContainer.style.display = 'none';
+        smoothingContainer.style.display = 'none';
+        opacityContainer.style.display = 'none';
         if (selectionModeOptions) {
           selectionModeOptions.style.display = 'block';
         }
         break;
+
       case 'brush':
-        selfCircle.style.display = 'block';
-        brushHardness.style.display = 'block';
-        if (brushModeOptions) {
-          brushModeOptions.style.display = 'block';
-        }
-        if (selfPressureCircle) {
-          selfPressureCircle.style.display = 'block';
-        }
-        break;
       case 'flowPen':
-        selfCircle.style.display = 'block';
-        brushHardness.style.display = 'block';
-        if (brushModeOptions) {
-          brushModeOptions.style.display = 'block';
-        }
-        if (selfPressureCircle) {
-          selfPressureCircle.style.display = 'block';
-        }
-        break;
       case 'ink':
         selfCircle.style.display = 'block';
         brushHardness.style.display = 'block';
-        if (brushModeOptions) {
-          brushModeOptions.style.display = 'block';
-        }
-        if (selfPressureCircle) {
-          selfPressureCircle.style.display = 'block';
-        }
+        if (brushModeOptions) brushModeOptions.style.display = 'block';
+        if (selfPressureCircle) selfPressureCircle.style.display = 'block';
         break;
+
       case 'line':
       case 'rectangle':
       case 'circle':
         selfCircle.style.display = 'block';
         brushHardness.style.display = 'block';
+        pressureContainer.style.display = 'none';
+        smoothingContainer.style.display = 'none';
         break;
+
       case 'text':
         selfText.style.display = 'block';
+        pressureContainer.style.display = 'none';
+        smoothingContainer.style.display = 'none';
         break;
+
       case 'erase':
         selfCircle.style.display = 'block';
-        opacityContainer.style.display = 'none';
-        if (eraserModeOptions) {
-          eraserModeOptions.style.display = 'block';
-        }
-        if (selfPressureCircle) {
-          selfPressureCircle.style.display = 'block';
-        }
+        opacityContainer.style.display = 'block'; // Show opacity for eraser
+        brushHardness.style.display = 'block';   // Show hardness for eraser
+        if (eraserModeOptions) eraserModeOptions.style.display = 'block';
+        if (selfPressureCircle) selfPressureCircle.style.display = 'block';
         break;
+
       case 'circleBlur':
       case 'circleBlurHard':
         selfCircle.style.display = 'block';
         brushHardness.style.display = 'block';
         brushSpacing.style.display = 'block';
-        if (this.elements.circleBlurModeOptions) {
-          this.elements.circleBlurModeOptions.style.display = 'block';
-        }
-        if (selfPressureCircle) {
-          selfPressureCircle.style.display = 'block';
-        }
+        if (circleBlurModeOptions) circleBlurModeOptions.style.display = 'block';
+        if (selfPressureCircle) selfPressureCircle.style.display = 'block';
         break;
+
       case 'blur':
         selfSquare.style.display = 'block';
         brushSpacing.style.display = 'block';
-        if (blurRadiusContainer) {
-          blurRadiusContainer.style.display = 'block';
-        }
-        // Hide smoothing for blur tool
-        if (smoothingSlider && smoothingSlider.parentElement) {
-          smoothingSlider.parentElement.style.display = 'none';
-        }
+        smoothingContainer.style.display = 'none';
+        if (blurRadiusContainer) blurRadiusContainer.style.display = 'block';
         break;
+
       case 'imageBrush':
         selfSquare.style.display = 'block';
-        // brushImage is shown only when a brush is selected (via setBrushPreview)
-        // Keep brush preview visible if user has an imageBrush selected
-        if (user && user.imageBrush) {
-          brushImage.style.display = 'block';
-        }
+        if (user && user.imageBrush) brushImage.style.display = 'block';
         brushFileInput.style.display = 'block';
         brushSpacing.style.display = 'block';
-        // Show pressure square for imageBrush (can scale with pressure)
-        if (selfPressureSquare) {
-          selfPressureSquare.style.display = 'block';
-        }
+        if (selfPressureSquare) selfPressureSquare.style.display = 'block';
         break;
+
       case 'inkdropper':
         selfCrosshair.style.display = 'block';
+        sizeContainer.style.display = 'none';
+        pressureContainer.style.display = 'none';
+        smoothingContainer.style.display = 'none';
+        opacityContainer.style.display = 'none';
         break;
+
       case 'pan':
         selfHand.style.display = 'block';
+        sizeContainer.style.display = 'none';
+        pressureContainer.style.display = 'none';
+        smoothingContainer.style.display = 'none';
         opacityContainer.style.display = 'none';
-        if (smoothingSlider && smoothingSlider.parentElement) {
-          smoothingSlider.parentElement.style.display = 'none';
-        }
         break;
+
       case 'rotate':
         selfCrosshair.style.display = 'block';
+        sizeContainer.style.display = 'none';
+        pressureContainer.style.display = 'none';
+        smoothingContainer.style.display = 'none';
         opacityContainer.style.display = 'none';
-        if (smoothingSlider && smoothingSlider.parentElement) {
-          smoothingSlider.parentElement.style.display = 'none';
-        }
         break;
     }
 
     this.updateToolButton(tool);
+  }
+
+  /**
+   * Check if a tool supports blend modes
+   * @param {string} tool - Tool name
+   * @returns {boolean}
+   */
+  toolSupportsBlendMode(tool) {
+    const noBlendTools = ['erase', 'select', 'pan', 'rotate', 'inkdropper'];
+    return !noBlendTools.includes(tool);
   }
 
   updateToolButton(tool) {
@@ -617,8 +610,12 @@ export class UI {
     const section = this.elements.blendModeOptions;
     if (!section) return false;
 
-    if (allowComplex) {
-      section.style.display = '';
+    // Only show if the layer allows it AND the current tool supports it
+    const tool = window.app?.self?.tool;
+    const toolSupports = tool ? this.toolSupportsBlendMode(tool) : true;
+
+    if (allowComplex && toolSupports) {
+      section.style.display = 'block';
       return false;
     } else {
       section.style.display = 'none';

@@ -24,6 +24,7 @@
     line-height: 32px;
     display: inline-flex;
     align-items: center;
+    justify-content: center; // Ensure content is centered
   }
 }
 
@@ -38,7 +39,9 @@
   
   .menuIcon {
     line-height: 1;
-    display: block;
+    display: flex; // Changed to flex for centering
+    align-items: center;
+    justify-content: center;
     margin-top: -2px; // Optical adjustment for the hamburger character
   }
 }
@@ -152,41 +155,46 @@
   }
 }
 
-// Breakpoint for condensing text to icons (e.g., Save/Upload)
+// Breakpoint for condensing text to icons (e.g., Save/Upload/Chat/Exit)
 @include respond-below(lg) {
-  .saveUploadGroup {
+  .saveUploadGroup .btn, #chatBtn, #disconnectBtn {
     .btnText {
       display: none;
     }
     .btnIcon {
-      display: inline !important;
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+      margin-right: 0; // Remove global margin-right for centering
+
+      img {
+        width: 18px; // Increased from 16px
+        height: 18px;
+        object-fit: contain;
+        filter: brightness(0) invert(0.7);
+        transition: filter var(--transition-fast);
+      }
     }
-    .btn {
-      width: 36px;
-      padding: 0;
-      font-size: 16px;
+    width: 36px;
+    padding: 0;
+
+    &:hover .btnIcon img {
+      filter: brightness(0) invert(1);
     }
+  }
+
+  // Specific sizing for chat icon (increase by ~50% from 16px -> 24px)
+  #chatBtn .btnIcon img {
+    width: 24px;
+    height: 24px;
   }
 }
 
-// Further adjustments for smaller screens - Emojis for Chat/Exit
+// Further adjustments for smaller screens
 @include respond-below(md) {
   .boardBtns {
     padding: 6px 10px;
   }
-  
-  #chatBtn, #disconnectBtn {
-    width: 36px;
-    padding: 0;
-    font-size: 0;
-    
-    &::before {
-      font-size: 16px;
-    }
-  }
-  
-  #chatBtn::before { content: "💬"; }
-  #disconnectBtn::before { content: "🚪"; }
 }
 
 @include respond-below(sm) {
