@@ -9,11 +9,12 @@ const clamp = (num, min, max) => {
 };
 
 /**
- * Sanitizes a string, trimming it and limiting its length.
+ * Sanitizes a string, trimming it (optional) and limiting its length.
  */
-const sanitizeString = (str, maxLength) => {
+const sanitizeString = (str, maxLength, shouldTrim = true) => {
   if (typeof str !== 'string') return '';
-  return str.trim().substring(0, maxLength);
+  const val = shouldTrim ? str.trim() : str;
+  return val.substring(0, maxLength);
 };
 
 /**
@@ -65,7 +66,8 @@ export const VALIDATION_RULES = {
   },
   [T.KP]: { // Key Press (for text tool sync)
     // Keys can be multi-char (e.g. 'Backspace', 'Enter') or single-char
-    k: (val) => sanitizeString(val, 20)
+    // Do NOT trim key presses, as a space is a valid key press.
+    k: (val) => sanitizeString(val, 20, false)
   },
 
   // === Selection & Images ===
