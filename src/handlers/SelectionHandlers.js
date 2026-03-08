@@ -18,6 +18,14 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
+  // Selection move - remote user moved selection
+  wrapHandler('sel_move', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.selectionHandler.handleSelectionMove(user, data.corners);
+    }
+  });
+
   // Selection commit - remote user committed selection
   wrapHandler('sel_commit', (data) => {
     const user = users.get(data.sessionIndex);

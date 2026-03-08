@@ -525,6 +525,10 @@ export class WebSocketClient {
         this.emit('sel_stamp', { sessionIndex: data.u, layerIndex: data.ly ?? 0 });
         break;
 
+      case T.SEL_FLIP:
+        this.emit('sel_flip', { sessionIndex: data.u });
+        break;
+
       case T.SEL_CANCEL:
         this.emit('sel_cancel', { sessionIndex: data.u });
         break;
