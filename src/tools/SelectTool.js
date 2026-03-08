@@ -68,6 +68,9 @@ export class SelectTool extends Tool {
     this.previewMaxSize = 512; // Max dimension for preview warps (higher for better visual quality)
     this.hasShownPreviewToast = false; // Track if we've shown the low-res preview toast
 
+    // Cache for transformed preview to avoid recalculating homography during drag
+    this._cachedTransform = null; // { canvas, bounds, cornersKey }
+
     // Clipboard
     this.clipboard = null;
 
@@ -257,6 +260,7 @@ export class SelectTool extends Tool {
       brush: document.getElementById('selMenuBrush'),
       flip: document.getElementById('selMenuFlip'),
       stamp: document.getElementById('selMenuStamp'),
+      save: document.getElementById('selMenuSave'),
       undo: document.getElementById('selMenuUndo'),
       cancel: document.getElementById('selMenuCancel')
     };
@@ -269,6 +273,7 @@ export class SelectTool extends Tool {
     this.menuElements.brush.addEventListener('click', () => this.toImageBrush());
     this.menuElements.flip.addEventListener('click', () => this.flipHorizontal());
     this.menuElements.stamp.addEventListener('click', () => this.stamp());
+    this.menuElements.save.addEventListener('click', () => this.saveSelection());
     this.menuElements.undo.addEventListener('click', () => this.undoMovement());
     this.menuElements.cancel.addEventListener('click', () => this.cancelSelection());
   }
@@ -284,11 +289,12 @@ export class SelectTool extends Tool {
     this.menuElements.fill.classList.toggle('hidden', hasMoved);
     this.menuElements.flip.classList.toggle('hidden', false); // Always visible
     this.menuElements.stamp.classList.toggle('hidden', !hasMoved);
+    this.menuElements.save.classList.toggle('hidden', false); // Always visible
     this.menuElements.undo.classList.toggle('hidden', !hasMoved);
     this.menuElements.cancel.classList.toggle('hidden', !hasMoved);
 
-    // Use grid layout when selection has been moved (6 buttons in 2x3 grid)
-    // Use column layout for fresh selection (5 buttons in vertical list)
+    // Use grid layout when selection has been moved (7 buttons in grid)
+    // Use column layout for fresh selection (6 buttons in vertical list)
     menu.classList.toggle('grid', hasMoved);
 
     // Position menu near cursor instead of selection corner
@@ -403,11 +409,8 @@ export class SelectTool extends Tool {
       // Only redraw if we have a selection and aren't actively transforming
       if (this.selection && !this.isDragging && !this.isTransforming && !this.isSelecting && !this.isRotating) {
         this.board.clearTop();
-        // Draw floating selection or transform preview
-        if (this.floatingCanvas && (this.hasTransformedCorners() || this.rotation !== 0)) {
-          // Show transform preview if corners have been moved or rotated
-          this.drawTransformPreview();
-        } else if (this.floatingCanvas) {
+        // Draw floating selection (uses cached transform) and marching ants
+        if (this.floatingCanvas) {
           this.drawFloatingSelection();
           this.drawMarchingAntsOnly();
         } else {
@@ -1091,35 +1094,57 @@ export class SelectTool extends Tool {
 
     const ctx = this.board.topCtx;
 
-    // LOCAL USER: Always use full resolution (scale = 1) for the best visual experience.
-    const previewScale = 1;
+    // Calculate full output bounds
+    const bounds = calculateCornerBounds(this.corners);
 
-    // Reuse or create preview homography instance
-    if (!this.previewHomography) {
-      this.previewHomography = new Homography('projective');
-    }
+    // Create a key from corner positions to detect when transformation changes
+    const cornersKey = `${(this.corners.tl.x - bounds.minX).toFixed(2)},${(this.corners.tl.y - bounds.minY).toFixed(2)},` +
+                      `${(this.corners.tr.x - bounds.minX).toFixed(2)},${(this.corners.tr.y - bounds.minY).toFixed(2)},` +
+                      `${(this.corners.bl.x - bounds.minX).toFixed(2)},${(this.corners.bl.y - bounds.minY).toFixed(2)},` +
+                      `${(this.corners.br.x - bounds.minX).toFixed(2)},${(this.corners.br.y - bounds.minY).toFixed(2)}`;
 
-    // Perform the transform using shared utility
-    const result = performHomographyTransform({
-      sourceCanvas: this.floatingCanvas,
-      sourceCorners: this.originalCorners,
-      destCorners: this.corners,
-      scale: previewScale,
-      homographyInstance: this.previewHomography
-    });
-
-    if (result) {
-      // Calculate full output bounds for scaling up the preview
-      const bounds = calculateCornerBounds(this.corners);
-
-      // Draw the warped result
-      const tempCanvas = imageDataToCanvas(result.imageData);
+    // Check if we can use the cached transform
+    if (this._cachedTransform && this._cachedTransform.cornersKey === cornersKey) {
+      // Use cached transformed image
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'medium';
-      ctx.drawImage(tempCanvas, bounds.minX, bounds.minY);
+      ctx.drawImage(this._cachedTransform.canvas, bounds.minX, bounds.minY, bounds.width, bounds.height);
     } else {
-      // Fallback: just draw the original floating selection
-      this.drawFloatingSelection();
+      // Need to recalculate transform - use downsampled preview for better performance
+      const srcMaxDim = Math.max(this.floatingCanvas.width, this.floatingCanvas.height);
+      const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
+
+      // Reuse or create preview homography instance
+      if (!this.previewHomography) {
+        this.previewHomography = new Homography('projective');
+      }
+
+      // Perform the transform using shared utility
+      const result = performHomographyTransform({
+        sourceCanvas: this.floatingCanvas,
+        sourceCorners: this.originalCorners,
+        destCorners: this.corners,
+        scale: previewScale,
+        homographyInstance: this.previewHomography
+      });
+
+      if (result) {
+        // Cache the transformed canvas
+        const tempCanvas = imageDataToCanvas(result.imageData);
+        this._cachedTransform = {
+          canvas: tempCanvas,
+          bounds: { width: bounds.width, height: bounds.height },
+          cornersKey
+        };
+
+        // Draw the warped result scaled up to full size
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'medium';
+        ctx.drawImage(tempCanvas, bounds.minX, bounds.minY, bounds.width, bounds.height);
+      } else {
+        // Fallback: just draw the original floating selection
+        this.drawFloatingSelection();
+      }
     }
 
     // Draw the quadrilateral outline
@@ -1723,7 +1748,26 @@ export class SelectTool extends Tool {
 
     // Check if corners have been transformed (including rotation) - if so, use homography
     if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
-      // Calculate preview scale for downsampling input image (max 256px on longest side of source)
+      // Calculate full output bounds
+      const bounds = calculateCornerBounds(this.corners);
+
+      // Create a key from corner positions to detect when transformation changes
+      // We use relative positions (subtract bounds.minX/minY) to make the key invariant to translation
+      const cornersKey = `${(this.corners.tl.x - bounds.minX).toFixed(2)},${(this.corners.tl.y - bounds.minY).toFixed(2)},` +
+                        `${(this.corners.tr.x - bounds.minX).toFixed(2)},${(this.corners.tr.y - bounds.minY).toFixed(2)},` +
+                        `${(this.corners.bl.x - bounds.minX).toFixed(2)},${(this.corners.bl.y - bounds.minY).toFixed(2)},` +
+                        `${(this.corners.br.x - bounds.minX).toFixed(2)},${(this.corners.br.y - bounds.minY).toFixed(2)}`;
+
+      // Check if we can use the cached transform (corners shape hasn't changed, only position)
+      if (this._cachedTransform && this._cachedTransform.cornersKey === cornersKey) {
+        // Use cached transformed image, just draw at new position
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'low';
+        ctx.drawImage(this._cachedTransform.canvas, bounds.minX, bounds.minY, bounds.width, bounds.height);
+        return;
+      }
+
+      // Need to recalculate transform
       const srcMaxDim = Math.max(this.floatingCanvas.width, this.floatingCanvas.height);
       const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
 
@@ -1742,11 +1786,15 @@ export class SelectTool extends Tool {
       });
 
       if (result) {
-        // Calculate full output bounds for scaling up the preview
-        const bounds = calculateCornerBounds(this.corners);
+        // Cache the transformed canvas for future frames
+        const tempCanvas = imageDataToCanvas(result.imageData);
+        this._cachedTransform = {
+          canvas: tempCanvas,
+          bounds: { width: bounds.width, height: bounds.height },
+          cornersKey
+        };
 
         // Draw the warped result scaled up to full size
-        const tempCanvas = imageDataToCanvas(result.imageData);
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'low';
         ctx.drawImage(tempCanvas, bounds.minX, bounds.minY, bounds.width, bounds.height);
@@ -1833,6 +1881,9 @@ export class SelectTool extends Tool {
       return;
     }
 
+    // Calculate dirty rect bounds for tracking
+    let dirtyX, dirtyY, dirtyWidth, dirtyHeight;
+
     // Draw the floating selection (with optional transform) into the stroke canvas
     if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
       if (!this.homography) this.homography = new Homography('projective');
@@ -1848,12 +1899,27 @@ export class SelectTool extends Tool {
       if (result) {
         const tempCanvas = imageDataToCanvas(result.imageData);
         active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
+        dirtyX = result.bounds.minX;
+        dirtyY = result.bounds.minY;
+        dirtyWidth = result.bounds.width;
+        dirtyHeight = result.bounds.height;
       } else {
         active.ctx.drawImage(this.floatingCanvas, this.selection.x, this.selection.y, this.selection.width, this.selection.height);
+        dirtyX = this.selection.x;
+        dirtyY = this.selection.y;
+        dirtyWidth = this.selection.width;
+        dirtyHeight = this.selection.height;
       }
     } else {
       active.ctx.drawImage(this.floatingCanvas, this.selection.x, this.selection.y, this.selection.width, this.selection.height);
+      dirtyX = this.selection.x;
+      dirtyY = this.selection.y;
+      dirtyWidth = this.selection.width;
+      dirtyHeight = this.selection.height;
     }
+
+    // Track the dirty region so the stroke is properly saved
+    this.board.expandDirtyRect(this.board.app?.self, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
 
     // Commit as an undoable stroke record.
     // Attach restore data so Board.undo/redo can also reverse the source-area erase.
@@ -1893,6 +1959,7 @@ export class SelectTool extends Tool {
     // Clear homography instances
     this.homography = null;
     this.previewHomography = null;
+    this._cachedTransform = null; // Clear cached transform
 
     // Lasso cleanup
     this.lassoPoints = [];
@@ -1984,7 +2051,7 @@ export class SelectTool extends Tool {
       // 2. Apply the erase as a committed stroke
       lm.beginUserStroke(groupIdx, userId, 'destination-out');
       const ctx = lm.getUserStrokeContext(groupIdx, userId);
-      
+
       if (lassoPath && lassoPath.length >= 3) {
         ctx.fillStyle = 'white';
         ctx.beginPath();
@@ -1998,9 +2065,20 @@ export class SelectTool extends Tool {
         ctx.fillRect(s.x, s.y, s.width, s.height);
       }
 
+      // Track the dirty region so the erase stroke is properly saved
+      const user = this.board.app?.self;
+      if (user) {
+        // Create a temp user object with the correct layer for expandDirtyRect
+        const tempUser = { ...user, activeLayer: groupIdx };
+        lm._expandDirtyRect(
+          lm.layerGroups[groupIdx].activeStrokeByUser.get(userId).dirtyRect,
+          s.x, s.y, s.width, s.height
+        );
+      }
+
       // Commit the stroke with the shared batch timestamp and original selection data
-      lm.commitUserStroke(groupIdx, userId, { 
-        eraseAll: isMultiLayer, 
+      lm.commitUserStroke(groupIdx, userId, {
+        eraseAll: isMultiLayer,
         timestamp: batchTimestamp,
         isSelectionErase: true // Flag to distinguish from normal erasers if needed
       });
@@ -2322,6 +2400,9 @@ export class SelectTool extends Tool {
 
       layerCtx.globalAlpha = 1;
 
+      // Track the dirty region so the stroke is properly saved
+      this.board.expandDirtyRect(app.self, s.x, s.y, s.width, s.height);
+
       this.board.compositeAllLayers();
       this.board.endStroke(app.self);
     }
@@ -2350,6 +2431,9 @@ export class SelectTool extends Tool {
     // Get layer context instead of mainCtx
     const layerCtx = this.board.getActiveLayerContext();
 
+    // Calculate dirty rect bounds for tracking
+    let dirtyX, dirtyY, dirtyWidth, dirtyHeight;
+
     // Same logic as commitSelection but don't clear the floating canvas
     if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
       // Reuse or create homography instance for full-resolution stamp
@@ -2369,6 +2453,10 @@ export class SelectTool extends Tool {
       if (result) {
         const tempCanvas = imageDataToCanvas(result.imageData);
         layerCtx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
+        dirtyX = result.bounds.minX;
+        dirtyY = result.bounds.minY;
+        dirtyWidth = result.bounds.width;
+        dirtyHeight = result.bounds.height;
       } else {
         layerCtx.drawImage(
           this.floatingCanvas,
@@ -2377,6 +2465,10 @@ export class SelectTool extends Tool {
           this.selection.width,
           this.selection.height
         );
+        dirtyX = this.selection.x;
+        dirtyY = this.selection.y;
+        dirtyWidth = this.selection.width;
+        dirtyHeight = this.selection.height;
       }
     } else {
       layerCtx.drawImage(
@@ -2386,7 +2478,14 @@ export class SelectTool extends Tool {
         this.selection.width,
         this.selection.height
       );
+      dirtyX = this.selection.x;
+      dirtyY = this.selection.y;
+      dirtyWidth = this.selection.width;
+      dirtyHeight = this.selection.height;
     }
+
+    // Track the dirty region so the stroke is properly saved
+    this.board.expandDirtyRect(app.self, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
 
     // Composite and commit the stroke
     this.board.compositeAllLayers();
@@ -2433,18 +2532,26 @@ export class SelectTool extends Tool {
     this.floatingCanvas = tempCanvas;
     this.floatingCtx = tempCtx;
 
-    // If there are original corners (for transforms), we need to flip them too
+    // If there are original corners (for transforms), flip them horizontally
     if (this.originalCorners) {
       const width = this.floatingCanvas.width;
-      // Swap left and right corners horizontally
-      const tempTL = { ...this.originalCorners.tl };
-      const tempBL = { ...this.originalCorners.bl };
+      // Swap left and right corners and flip their x positions
+      const temp = {
+        tl: { ...this.originalCorners.tl },
+        tr: { ...this.originalCorners.tr },
+        bl: { ...this.originalCorners.bl },
+        br: { ...this.originalCorners.br }
+      };
 
-      this.originalCorners.tl.x = width - this.originalCorners.tr.x;
-      this.originalCorners.bl.x = width - this.originalCorners.br.x;
-      this.originalCorners.tr.x = width - tempTL.x;
-      this.originalCorners.br.x = width - tempBL.x;
+      // Flip x coordinates and swap left/right
+      this.originalCorners.tl = { x: width - temp.tr.x, y: temp.tr.y };
+      this.originalCorners.tr = { x: width - temp.tl.x, y: temp.tl.y };
+      this.originalCorners.bl = { x: width - temp.br.x, y: temp.br.y };
+      this.originalCorners.br = { x: width - temp.bl.x, y: temp.bl.y };
     }
+
+    // Invalidate cached transform since the source image changed
+    this._cachedTransform = null;
 
     // Note: Network broadcast not implemented yet - flip is local only
 
@@ -2453,6 +2560,51 @@ export class SelectTool extends Tool {
     this.drawSelectionUI();
     this.showContextMenu();
 
+    return true;
+  }
+
+  // Save selection as image file
+  saveSelection() {
+    if (!this.selection) return false;
+
+    let canvas;
+
+    // Get the selection image
+    if (this.floatingCanvas) {
+      // If transformed/warped, get the transformed version
+      if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
+        canvas = this.getTransformedCanvas();
+      } else {
+        // Use floating canvas as-is
+        canvas = this.floatingCanvas;
+      }
+    } else {
+      // Selection not lifted yet - copy from canvas
+      const s = this.selection;
+      canvas = this._flattenSelectionToCanvas(s);
+
+      // Apply lasso mask if in lasso mode
+      if (this.mode === 'lasso' && this.lassoPath) {
+        this.applyLassoMask(canvas.getContext('2d'), s.x, s.y, this.lassoPath);
+      }
+    }
+
+    if (!canvas) return false;
+
+    // Convert to data URL and trigger download
+    const dataURL = canvas.toDataURL('image/png');
+    const link = document.createElement('a');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    link.download = `selection-${timestamp}.png`;
+    link.href = dataURL;
+    link.click();
+
+    // Show toast notification
+    if (this.board.app?.ui) {
+      this.board.app.ui.showToast('Selection saved!');
+    }
+
+    this.hideContextMenu();
     return true;
   }
 
