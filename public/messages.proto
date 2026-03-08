@@ -73,6 +73,8 @@ message Msg {
     ROOM_LIST_RESPONSE = 64;  // Response with room list
     MOD_WIPE           = 65;  // Wipe all strokes from a user (mod action)
     ROOM_UPDATE        = 66;  // Update room settings (owner/mod only)
+    SEL_FLIP           = 67;  // Flip selection horizontally
+    SEL_PENDING        = 68;  // Pending selection (marquee only)
   }
 
   // Tool enum

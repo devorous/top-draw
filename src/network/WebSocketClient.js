@@ -488,19 +488,41 @@ export class WebSocketClient {
         break;
 
       case T.SEL_COMMIT:
-        this.emit('sel_commit', { sessionIndex: data.u });
+        this.emit('sel_commit', { sessionIndex: data.u, layerIndex: data.ly ?? 0 });
         break;
 
+      case T.SEL_PENDING: {
+        // Parse lasso path from ps field if present (flat [x1,y1,x2,y2,...])
+        let pendingLassoPath = null;
+        if (data.ps && data.ps.length >= 6) { // At least 3 points
+          pendingLassoPath = [];
+          for (let i = 0; i < data.ps.length; i += 2) {
+            pendingLassoPath.push({ x: data.ps[i], y: data.ps[i + 1] });
+          }
+        }
+        this.emit('sel_pending', {
+          sessionIndex: data.u,
+          selection: {
+            x: Math.floor(data.sx),
+            y: Math.floor(data.sy),
+            width: Math.ceil(data.sw),
+            height: Math.ceil(data.sh)
+          },
+          lassoPath: pendingLassoPath
+        });
+        break;
+      }
+
       case T.SEL_DELETE:
-        this.emit('sel_delete', { sessionIndex: data.u });
+        this.emit('sel_delete', { sessionIndex: data.u, layerIndex: data.ly ?? 0 });
         break;
 
       case T.SEL_FILL:
-        this.emit('sel_fill', { sessionIndex: data.u, color: unpackColor(data.c) });
+        this.emit('sel_fill', { sessionIndex: data.u, color: unpackColor(data.c), layerIndex: data.ly ?? 0 });
         break;
 
       case T.SEL_STAMP:
-        this.emit('sel_stamp', { sessionIndex: data.u });
+        this.emit('sel_stamp', { sessionIndex: data.u, layerIndex: data.ly ?? 0 });
         break;
 
       case T.SEL_CANCEL:
@@ -870,8 +892,28 @@ broadcastSelectionLift(rect, lassoPath = null) {
 }
 
 /**
- * Sends the 8 corner coordinates for movement/perspective.
- * @param {Object} corners - { tl: {x,y}, tr: {x,y}, bl: {x,y}, br: {x,y} }
+ * Tells others that a selection marquee has been created (not yet moved/lifted).
+ * @param {Object} rect - Selection rectangle {x, y, width, height}
+ * @param {Array<{x: number, y: number}>|null} lassoPath - Optional lasso path
+ */
+broadcastSelectionPending(rect, lassoPath = null) {
+  const msg = {
+    t: T.SEL_PENDING,
+    sx: Math.round(rect.x),
+    sy: Math.round(rect.y),
+    sw: Math.round(rect.width),
+    sh: Math.round(rect.height)
+  };
+
+  if (lassoPath && lassoPath.length > 0) {
+    msg.ps = lassoPath.flatMap(p => [Math.round(p.x), Math.round(p.y)]);
+  }
+
+  this.send(msg);
+}
+
+/**
+ * Sends the 8 corner coordinates for movement/perspective. * @param {Object} corners - { tl: {x,y}, tr: {x,y}, bl: {x,y}, br: {x,y} }
  */
 broadcastSelectionMove(corners) {
   this.send({
@@ -892,16 +934,24 @@ broadcastSelectionCommit() {
   this.send({ t: T.SEL_COMMIT });
 }
 
-broadcastSelectionDelete() {
-  this.send({ t: T.SEL_DELETE });
+broadcastSelectionDelete(layerIndex) {
+  const msg = { t: T.SEL_DELETE };
+  if (layerIndex !== undefined) msg.ly = layerIndex;
+  this.send(msg);
 }
 
-broadcastSelectionFill(color) {
-  this.send({ t: T.SEL_FILL, c: packColor(color) });
+broadcastSelectionFill(color, layerIndex) {
+  const msg = { t: T.SEL_FILL, c: packColor(color) };
+  if (layerIndex !== undefined) msg.ly = layerIndex;
+  this.send(msg);
 }
 
 broadcastSelectionStamp() {
   this.send({ t: T.SEL_STAMP });
+}
+
+broadcastSelectionFlip() {
+  this.send({ t: T.SEL_FLIP });
 }
 
 broadcastSelectionCancel() {

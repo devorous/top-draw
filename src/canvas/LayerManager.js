@@ -79,6 +79,7 @@ export class LayerManager {
   _acquireCanvas() {
     if (this._canvasPool.length > 0) {
       const c = this._canvasPool.pop();
+      c.ctx.globalAlpha = 1;
       c.ctx.clearRect(0, 0, this.width, this.height);
       c.ctx.globalCompositeOperation = 'source-over';
       return c;

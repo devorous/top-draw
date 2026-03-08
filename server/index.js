@@ -144,7 +144,7 @@ function sendTo(ws, payload) {
 // Message types blocked for muted users (drawing + chat + cursor movement)
 const MUTED_BLOCKED = new Set([
   T.MM, T.MD, T.MU, T.KP, T.CLR,
-  T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL, T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH,
+  T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL, T.SEL_STAMP, T.SEL_FLIP, T.SEL_CANCEL, T.SEL_TO_BRUSH,
   T.IMG_PASTE, T.MSG, T.DM, T.CHAT_IMG
 ]);
 

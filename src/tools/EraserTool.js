@@ -114,8 +114,8 @@ export class EraserTool extends Tool {
 
     const x = Math.floor(minX);
     const y = Math.floor(minY);
-    const w = Math.ceil(maxX - minX);
-    const h = Math.ceil(maxY - minY);
+    const w = Math.ceil(maxX) - x;
+    const h = Math.ceil(maxY) - y;
 
     this.board.expandDirtyRect(user, x, y, w, h);
 

@@ -26,7 +26,7 @@ export class SelectTool extends Tool {
     super('select', board);
     this.mode = 'lasso'; // 'rectangle' or 'lasso' - default to lasso
     this.copyAllLayers = false; // Toggle: copy/cut all visible layers vs active layer only
-    this._restoreData = null; // Snapshot of erased area for undoMovement()
+    this._restoreData = null; // Snapshot of erased area
     this.isSelecting = false;
     this.isDragging = false;
     this.startPos = null;
@@ -176,11 +176,13 @@ export class SelectTool extends Tool {
       maxY = Math.max(maxY, p.y);
     }
 
+    const x = Math.floor(minX);
+    const y = Math.floor(minY);
     return {
-      x: Math.floor(minX),
-      y: Math.floor(minY),
-      width: Math.ceil(maxX - minX),
-      height: Math.ceil(maxY - minY)
+      x,
+      y,
+      width: Math.ceil(maxX) - x,
+      height: Math.ceil(maxY) - y
     };
   }
 
@@ -261,7 +263,6 @@ export class SelectTool extends Tool {
       flip: document.getElementById('selMenuFlip'),
       stamp: document.getElementById('selMenuStamp'),
       save: document.getElementById('selMenuSave'),
-      undo: document.getElementById('selMenuUndo'),
       cancel: document.getElementById('selMenuCancel')
     };
 
@@ -274,7 +275,6 @@ export class SelectTool extends Tool {
     this.menuElements.flip.addEventListener('click', () => this.flipHorizontal());
     this.menuElements.stamp.addEventListener('click', () => this.stamp());
     this.menuElements.save.addEventListener('click', () => this.saveSelection());
-    this.menuElements.undo.addEventListener('click', () => this.undoMovement());
     this.menuElements.cancel.addEventListener('click', () => this.cancelSelection());
   }
 
@@ -290,10 +290,9 @@ export class SelectTool extends Tool {
     this.menuElements.flip.classList.toggle('hidden', false); // Always visible
     this.menuElements.stamp.classList.toggle('hidden', !hasMoved);
     this.menuElements.save.classList.toggle('hidden', false); // Always visible
-    this.menuElements.undo.classList.toggle('hidden', !hasMoved);
     this.menuElements.cancel.classList.toggle('hidden', !hasMoved);
 
-    // Use grid layout when selection has been moved (7 buttons in grid)
+    // Use grid layout when selection has been moved (6 buttons in grid)
     // Use column layout for fresh selection (6 buttons in vertical list)
     menu.classList.toggle('grid', hasMoved);
 
@@ -716,12 +715,12 @@ export class SelectTool extends Tool {
 
     if (this.isDragging && this.selection) {
       // Calculate movement delta
-      const newX = pos.x - this.dragOffset.x;
-      const newY = pos.y - this.dragOffset.y;
+      const newX = Math.round(pos.x - this.dragOffset.x);
+      const newY = Math.round(pos.y - this.dragOffset.y);
       const dx = newX - this.selection.x;
       const dy = newY - this.selection.y;
 
-      // Move the selection
+      // Move the selection (ensure integer coordinates)
       this.selection.x = newX;
       this.selection.y = newY;
 
@@ -799,7 +798,18 @@ export class SelectTool extends Tool {
     } else {
       // Rectangle mode (existing code)
       this.board.clearTop();
-      this.drawSelectionBox(this.board.topCtx, this.startPos, pos);
+      
+      const minX = Math.min(this.startPos.x, pos.x);
+      const minY = Math.min(this.startPos.y, pos.y);
+      const maxX = Math.max(this.startPos.x, pos.x);
+      const maxY = Math.max(this.startPos.y, pos.y);
+
+      const x = Math.floor(minX);
+      const y = Math.floor(minY);
+      const width = Math.ceil(maxX) - x;
+      const height = Math.ceil(maxY) - y;
+
+      this.drawSelectionBox(this.board.topCtx, { x, y }, { x: x + width, y: y + height });
     }
   }
 
@@ -894,12 +904,22 @@ export class SelectTool extends Tool {
       this.drawSelectionUI();
       this.updateCursor(pos);
       this.showContextMenu();
+
+      // Broadcast the selection marquee (not yet lifted)
+      if (this.board.app?.wsClient) {
+        this.board.app.wsClient.broadcastSelectionPending(this.selection, this.lassoPath);
+      }
     } else {
       // Rectangle mode (existing code)
-      const x = Math.min(this.startPos.x, pos.x);
-      const y = Math.min(this.startPos.y, pos.y);
-      const width = Math.abs(pos.x - this.startPos.x);
-      const height = Math.abs(pos.y - this.startPos.y);
+      const minX = Math.min(this.startPos.x, pos.x);
+      const minY = Math.min(this.startPos.y, pos.y);
+      const maxX = Math.max(this.startPos.x, pos.x);
+      const maxY = Math.max(this.startPos.y, pos.y);
+
+      const x = Math.floor(minX);
+      const y = Math.floor(minY);
+      const width = Math.ceil(maxX) - x;
+      const height = Math.ceil(maxY) - y;
 
       // Minimum selection size
       if (width < 5 || height < 5) {
@@ -922,6 +942,11 @@ export class SelectTool extends Tool {
       this.drawSelectionUI();
       this.updateCursor(pos);
       this.showContextMenu();
+
+      // Broadcast the selection marquee (not yet lifted)
+      if (this.board.app?.wsClient) {
+        this.board.app.wsClient.broadcastSelectionPending(this.selection);
+      }
     }
   }
 
@@ -1082,10 +1107,12 @@ export class SelectTool extends Tool {
     const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
     const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
 
-    this.selection.x = minX;
-    this.selection.y = minY;
-    this.selection.width = maxX - minX;
-    this.selection.height = maxY - minY;
+    const x = Math.floor(minX);
+    const y = Math.floor(minY);
+    this.selection.x = x;
+    this.selection.y = y;
+    this.selection.width = Math.ceil(maxX) - x;
+    this.selection.height = Math.ceil(maxY) - y;
   }
 
 
@@ -2062,18 +2089,14 @@ export class SelectTool extends Tool {
         ctx.closePath();
         ctx.fill();
       } else {
+        ctx.fillStyle = 'white';
         ctx.fillRect(s.x, s.y, s.width, s.height);
       }
 
       // Track the dirty region so the erase stroke is properly saved
       const user = this.board.app?.self;
       if (user) {
-        // Create a temp user object with the correct layer for expandDirtyRect
-        const tempUser = { ...user, activeLayer: groupIdx };
-        lm._expandDirtyRect(
-          lm.layerGroups[groupIdx].activeStrokeByUser.get(userId).dirtyRect,
-          s.x, s.y, s.width, s.height
-        );
+        this.board.expandDirtyRect(user, s.x, s.y, s.width, s.height, groupIdx);
       }
 
       // Commit the stroke with the shared batch timestamp and original selection data
@@ -2098,21 +2121,6 @@ export class SelectTool extends Tool {
       eraseS: { ...s },
       eraseLassoPath: lassoPath ? lassoPath.map(p => ({ ...p })) : null
     };
-  }
-
-  // Restore erased content from a restore snapshot (used by undoMovement / Board.undo)
-  _restoreSelectionContent(restoreData) {
-    if (!restoreData) return;
-    const snapshots = restoreData.snapshots || restoreData; // accept both formats
-    const lm = this.board.layerManager;
-
-    for (const { groupIdx, canvas, x, y } of snapshots) {
-      const group = lm.layerGroups[groupIdx];
-      if (!group) continue;
-      lm.addToBaseBin(groupIdx, canvas, x, y, 'source-over');
-    }
-
-    this.board.compositeAllLayers();
   }
 
   // Copy selection to clipboard
@@ -2283,6 +2291,8 @@ export class SelectTool extends Tool {
     if (!this.selection) return false;
 
     const s = this.selection;
+    const app = this.board.app;
+    if (!app) return false;
 
     // If floating, erase already happened at lift time — just discard
     if (this.floatingCanvas) {
@@ -2295,8 +2305,8 @@ export class SelectTool extends Tool {
     }
 
     // Broadcast delete to other users
-    if (this.board.app?.wsClient) {
-      this.board.app.wsClient.broadcastSelectionDelete();
+    if (app.wsClient) {
+      app.wsClient.broadcastSelectionDelete(app.self.activeLayer);
     }
 
     this.hideContextMenu();
@@ -2409,7 +2419,7 @@ export class SelectTool extends Tool {
 
     // Broadcast fill to other users
     if (this.board.app?.wsClient) {
-      this.board.app.wsClient.broadcastSelectionFill(app.self.color);
+      this.board.app.wsClient.broadcastSelectionFill(app.self.color, app.self.activeLayer);
     }
 
     // Keep selection active, update menu position
@@ -2553,7 +2563,10 @@ export class SelectTool extends Tool {
     // Invalidate cached transform since the source image changed
     this._cachedTransform = null;
 
-    // Note: Network broadcast not implemented yet - flip is local only
+    // Broadcast flip to other users
+    if (this.board.app?.wsClient) {
+      this.board.app.wsClient.broadcastSelectionFlip();
+    }
 
     // Redraw the selection with flipped content
     this.board.clearTop();
@@ -2721,38 +2734,6 @@ export class SelectTool extends Tool {
 
     // Fallback to original
     return this.floatingCanvas;
-  }
-
-  // Cancel movement and restore selection to original position
-  /**
-   * Undo movement - restore selection to original position and clear
-   * (Previous CANCEL behavior)
-   */
-  undoMovement() {
-    if (!this.floatingCanvas || !this.selection || !this.originalSelectionPos) return false;
-
-    // Restore the erased source area from our snapshot
-    if (this._restoreData) {
-      this._restoreSelectionContent(this._restoreData);
-      this._restoreData = null;
-    }
-
-    // Broadcast cancel to other users
-    if (this.board.app?.wsClient) {
-      this.board.app.wsClient.broadcastSelectionCancel();
-    }
-
-    // Clear floating state
-    this.floatingCanvas = null;
-    this.floatingCtx = null;
-    this.selectedImageData = null;
-
-    // Clear selection and UI
-    this.hideContextMenu();
-    this.clearSelection();
-    this.board.clearTop();
-
-    return true;
   }
 
   /**

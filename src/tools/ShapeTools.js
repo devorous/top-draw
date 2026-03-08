@@ -65,14 +65,22 @@ export class LineTool extends Tool {
     const maxX = Math.max(this.startPos.x, pos.x) + margin;
     const maxY = Math.max(this.startPos.y, pos.y) + margin;
 
-    this.board.expandDirtyRect(user, Math.floor(minX), Math.floor(minY),
-                                Math.ceil(maxX - minX), Math.ceil(maxY - minY));
+    const x = Math.floor(minX);
+    const y = Math.floor(minY);
+    const width = Math.ceil(maxX) - x;
+    const height = Math.ceil(maxY) - y;
+
+    this.board.expandDirtyRect(user, x, y, width, height);
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
       const mirrorMinX = width - maxX;
-      this.board.expandDirtyRect(user, Math.floor(mirrorMinX), Math.floor(minY),
-                                  Math.ceil(maxX - minX), Math.ceil(maxY - minY));
+      const x_mirrored = Math.floor(mirrorMinX);
+      const y_mirrored = Math.floor(minY);
+      const width_mirrored = Math.ceil(width - minX) - x_mirrored;
+      const height_mirrored = Math.ceil(maxY) - y_mirrored;
+
+      this.board.expandDirtyRect(user, x_mirrored, y_mirrored, width_mirrored, height_mirrored);
     }
 
     this.board.clearTop();
@@ -186,14 +194,22 @@ export class RectangleTool extends Tool {
     const maxX = Math.max(this.startPos.x, pos.x) + margin;
     const maxY = Math.max(this.startPos.y, pos.y) + margin;
 
-    this.board.expandDirtyRect(user, Math.floor(minX), Math.floor(minY),
-                                Math.ceil(maxX - minX), Math.ceil(maxY - minY));
+    const x = Math.floor(minX);
+    const y = Math.floor(minY);
+    const width = Math.ceil(maxX) - x;
+    const height = Math.ceil(maxY) - y;
+
+    this.board.expandDirtyRect(user, x, y, width, height);
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
       const mirrorMinX = width - maxX;
-      this.board.expandDirtyRect(user, Math.floor(mirrorMinX), Math.floor(minY),
-                                  Math.ceil(maxX - minX), Math.ceil(maxY - minY));
+      const x_mirrored = Math.floor(mirrorMinX);
+      const y_mirrored = Math.floor(minY);
+      const width_mirrored = Math.ceil(width - minX) - x_mirrored;
+      const height_mirrored = Math.ceil(maxY) - y_mirrored;
+
+      this.board.expandDirtyRect(user, x_mirrored, y_mirrored, width_mirrored, height_mirrored);
     }
 
     this.board.clearTop();
@@ -311,14 +327,22 @@ export class CircleTool extends Tool {
     const maxX = Math.max(this.startPos.x, pos.x) + margin;
     const maxY = Math.max(this.startPos.y, pos.y) + margin;
 
-    this.board.expandDirtyRect(user, Math.floor(minX), Math.floor(minY),
-                                Math.ceil(maxX - minX), Math.ceil(maxY - minY));
+    const x = Math.floor(minX);
+    const y = Math.floor(minY);
+    const width = Math.ceil(maxX) - x;
+    const height = Math.ceil(maxY) - y;
+
+    this.board.expandDirtyRect(user, x, y, width, height);
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
       const mirrorMinX = width - maxX;
-      this.board.expandDirtyRect(user, Math.floor(mirrorMinX), Math.floor(minY),
-                                  Math.ceil(maxX - minX), Math.ceil(maxY - minY));
+      const x_mirrored = Math.floor(mirrorMinX);
+      const y_mirrored = Math.floor(minY);
+      const width_mirrored = Math.ceil(width - minX) - x_mirrored;
+      const height_mirrored = Math.ceil(maxY) - y_mirrored;
+
+      this.board.expandDirtyRect(user, x_mirrored, y_mirrored, width_mirrored, height_mirrored);
     }
 
     this.board.clearTop();

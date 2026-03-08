@@ -152,6 +152,20 @@ export class RemoteSelectionHandler {
   }
 
   /**
+   * Handle a remote user creating a selection marquee (not yet moved/lifted)
+   * @param {Object} user - The remote user
+   * @param {Object} selection - Selection bounds {x, y, width, height}
+   * @param {Array<{x: number, y: number}>|null} lassoPath - Optional lasso path
+   */
+  handleSelectionPending(user, selection, lassoPath = null) {
+    user.pendingSelection = selection;
+    user.pendingLassoPath = lassoPath;
+
+    // Start animation loop if not running to show the marquee
+    this.startRemoteSelectionAnimation();
+  }
+
+  /**
    * Apply lasso mask to a canvas context - sets alpha to 0 for pixels outside lasso path
    * Uses Canvas globalCompositeOperation for hardware-accelerated masking.
    * @param {CanvasRenderingContext2D} ctx - The context to mask
@@ -199,12 +213,13 @@ export class RemoteSelectionHandler {
     // Update corners
     user.selectionCorners = corners;
 
-    // Update selection bounds from corners
+    // Update selection bounds from corners (ensure integers)
     const c = corners;
-    const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
-    const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
-    const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
-    const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+    const minX = Math.floor(Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x));
+    const maxX = Math.ceil(Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x));
+    const minY = Math.floor(Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y));
+    const maxY = Math.ceil(Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y));
+    
     user.selection.x = minX;
     user.selection.y = minY;
     user.selection.width = maxX - minX;
@@ -232,13 +247,19 @@ export class RemoteSelectionHandler {
     this.startRemoteSelectionAnimation();
   }
 
-  handleSelectionCommit(user) {
+  handleSelectionCommit(user, layerIndex) {
     if (!user.floatingCanvas || !user.selection) return;
 
     const lm = this.board.layerManager;
-    const layerIdx = user.activeLayer ?? 0;
+    const layerIdx = layerIndex ?? user.activeLayer ?? 0;
     const s = user.selection;
     const c = user.selectionCorners;
+
+    // Ensure integer coordinates for consistent baking
+    const ix = Math.floor(s.x);
+    const iy = Math.floor(s.y);
+    const iw = Math.ceil(s.x + s.width) - ix;
+    const ih = Math.ceil(s.y + s.height) - iy;
 
     // Begin a stroke on the remote user's active layer so the committed pixels
     // enter the layer system and persist through compositeAllLayers() calls.
@@ -248,6 +269,9 @@ export class RemoteSelectionHandler {
       this._cleanupUserSelection(user);
       return;
     }
+
+    // Calculate dirty rect bounds for tracking
+    let dirtyX, dirtyY, dirtyWidth, dirtyHeight;
 
     // Check if transform was applied (corners moved from axis-aligned rectangle)
     const hasTransform = this.hasTransformedCorners(user);
@@ -265,8 +289,10 @@ export class RemoteSelectionHandler {
           [user.originalCorners.br.x, user.originalCorners.br.y]
         ];
 
-        const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
-        const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+        const minX = Math.floor(Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x));
+        const minY = Math.floor(Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y));
+        const maxX = Math.ceil(Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x));
+        const maxY = Math.ceil(Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y));
 
         const dstPoints = [
           [c.tl.x - minX, c.tl.y - minY],
@@ -286,35 +312,58 @@ export class RemoteSelectionHandler {
           const tempCtx = tempCanvas.getContext('2d');
           tempCtx.putImageData(result, 0, 0);
           active.ctx.drawImage(tempCanvas, minX, minY);
+          dirtyX = minX;
+          dirtyY = minY;
+          dirtyWidth = maxX - minX;
+          dirtyHeight = maxY - minY;
         } else {
-          active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+          active.ctx.drawImage(user.floatingCanvas, ix, iy, iw, ih);
+          dirtyX = ix;
+          dirtyY = iy;
+          dirtyWidth = iw;
+          dirtyHeight = ih;
         }
       } catch (e) {
         console.warn('Remote homography failed:', e);
-        active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+        active.ctx.drawImage(user.floatingCanvas, ix, iy, iw, ih);
+        dirtyX = ix;
+        dirtyY = iy;
+        dirtyWidth = iw;
+        dirtyHeight = ih;
       }
     } else {
-      active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+      active.ctx.drawImage(user.floatingCanvas, ix, iy, iw, ih);
+      dirtyX = ix;
+      dirtyY = iy;
+      dirtyWidth = iw;
+      dirtyHeight = ih;
     }
+
+    // Track the dirty region so the stroke is properly saved
+    this.board.expandDirtyRect(user, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
 
     // Pass the restore data captured during lift so Board.undo can reverse the erase
     lm.commitUserStroke(layerIdx, user.id, { selectionRestoreData: user._selectionRestoreData });
     this.board.activeSelectionLayer = -1;
-    this.board.requestUpdate();
+    this.board.compositeAllLayers();
     this._cleanupUserSelection(user);
   }
 
   handleSelectionDelete(user) {
     // Use selection if available, otherwise fall back to pendingSelection
-    // (Fill/Delete can be called before sel_lift when selection hasn't been moved)
     const s = user.selection || user.pendingSelection;
     if (!s) return;
 
-    // If floating the pixels were already erased from the layer on lift — just
-    // discard the floating canvas. Otherwise erase directly from the layer now.
+    // Ensure integer coordinates for consistent erasing
+    const x = Math.floor(s.x);
+    const y = Math.floor(s.y);
+    const width = Math.ceil(s.x + s.width) - x;
+    const height = Math.ceil(s.y + s.height) - y;
+    const intS = { x, y, width, height };
+
     if (!user.floatingCanvas) {
       this._eraseSelectionFromLayer(
-        s,
+        intS,
         user.activeLayer ?? 0,
         user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null,
         user.id
@@ -322,63 +371,76 @@ export class RemoteSelectionHandler {
     }
 
     this.board.activeSelectionLayer = -1;
+    this.board.compositeAllLayers();
     this._cleanupUserSelection(user);
   }
 
-  handleSelectionFill(user, color) {
-    // Use selection if available, otherwise fall back to pendingSelection
-    // (Fill can be called before sel_lift when selection hasn't been moved)
+  handleSelectionFill(user, color, layerIndex) {
     const s = user.selection || user.pendingSelection;
     if (!s) return;
     const colorString = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3]})`;
 
-    // If floating, fill the floating canvas
+    // Ensure integer coordinates for consistent filling
+    const ix = Math.floor(s.x);
+    const iy = Math.floor(s.y);
+    const iw = Math.ceil(s.x + s.width) - ix;
+    const ih = Math.ceil(s.y + s.height) - iy;
+
     if (user.floatingCanvas && user.floatingCtx) {
       user.floatingCtx.save();
+      user.floatingCtx.setTransform(1, 0, 0, 1, 0, 0); // Ensure clean coordinate space
       user.floatingCtx.fillStyle = colorString;
+      user.floatingCtx.globalCompositeOperation = 'source-over';
 
-      // Translate lasso path to floating canvas coordinates (0,0-based)
-      // We must use the current user.lassoPath which moves with the selection
-      if (user.lassoPath && user.lassoPath.length >= 3) {
+      const path = user.lassoPath || (user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null);
+      if (path) {
         user.floatingCtx.beginPath();
-        user.floatingCtx.moveTo(user.lassoPath[0].x - s.x, user.lassoPath[0].y - s.y);
-        for (let i = 1; i < user.lassoPath.length; i++) {
-          user.floatingCtx.lineTo(user.lassoPath[i].x - s.x, user.lassoPath[i].y - s.y);
+        user.floatingCtx.moveTo(path[0].x - s.x, path[0].y - s.y);
+        for (let i = 1; i < path.length; i++) {
+          user.floatingCtx.lineTo(path[i].x - s.x, path[i].y - s.y);
         }
         user.floatingCtx.closePath();
         user.floatingCtx.clip();
       }
-
-      // Fill either the clipped lasso or the full rectangle
       user.floatingCtx.fillRect(0, 0, user.floatingCanvas.width, user.floatingCanvas.height);
       user.floatingCtx.restore();
 
-      // Redraw on user's layer
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
       this.drawFloatingSelection(user);
     } else {
-      // Fill directly on main canvas (happens BEFORE lift)
-      this.board.mainCtx.save();
-      this.board.mainCtx.globalCompositeOperation = 'source-over';
-      
+      const lm = this.board.layerManager;
+      const layerIdx = layerIndex ?? user.activeLayer ?? 0;
+
+      lm.beginUserStroke(layerIdx, user.id, 'source-over');
+      const active = lm.layerGroups[layerIdx]?.activeStrokeByUser.get(user.id);
+      if (!active) return;
+
+      const layerCtx = active.ctx;
+      layerCtx.fillStyle = colorString;
+
       const path = user.lassoPath || (user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null);
       if (path) {
-        this.board.mainCtx.beginPath();
-        this.board.mainCtx.moveTo(path[0].x, path[0].y);
+        layerCtx.save();
+        layerCtx.beginPath();
+        layerCtx.moveTo(path[0].x, path[0].y);
         for (let i = 1; i < path.length; i++) {
-          this.board.mainCtx.lineTo(path[i].x, path[i].y);
+          layerCtx.lineTo(path[i].x, path[i].y);
         }
-        this.board.mainCtx.closePath();
-        this.board.mainCtx.clip();
+        layerCtx.closePath();
+        layerCtx.clip();
+        layerCtx.fillRect(ix, iy, iw, ih);
+        layerCtx.restore();
+      } else {
+        layerCtx.fillRect(ix, iy, iw, ih);
       }
-      
-      this.board.mainCtx.fillStyle = colorString;
-      this.board.mainCtx.fillRect(s.x, s.y, s.width, s.height);
-      this.board.mainCtx.restore();
+
+      this.board.expandDirtyRect(user, ix, iy, iw, ih);
+      lm.commitUserStroke(layerIdx, user.id);
+      this.board.compositeAllLayers();
     }
   }
 
-  handleSelectionStamp(user) {
+  handleSelectionStamp(user, layerIndex) {
     // Same as commit but keep floating canvas active for further moves/stamps
     if (!user.floatingCanvas || !user.selection) return;
 
@@ -390,6 +452,9 @@ export class RemoteSelectionHandler {
     lm.beginUserStroke(layerIdx, user.id, 'source-over');
     const active = lm.layerGroups[layerIdx]?.activeStrokeByUser.get(user.id);
     if (!active) return;
+
+    // Calculate dirty rect bounds for tracking
+    let dirtyX, dirtyY, dirtyWidth, dirtyHeight;
 
     const hasTransform = this.hasTransformedCorners(user);
 
@@ -408,6 +473,8 @@ export class RemoteSelectionHandler {
 
         const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
         const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+        const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+        const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
 
         const dstPoints = [
           [c.tl.x - minX, c.tl.y - minY],
@@ -427,21 +494,87 @@ export class RemoteSelectionHandler {
           const tempCtx = tempCanvas.getContext('2d');
           tempCtx.putImageData(result, 0, 0);
           active.ctx.drawImage(tempCanvas, minX, minY);
+          dirtyX = minX;
+          dirtyY = minY;
+          dirtyWidth = maxX - minX;
+          dirtyHeight = maxY - minY;
         } else {
           active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+          dirtyX = s.x;
+          dirtyY = s.y;
+          dirtyWidth = s.width;
+          dirtyHeight = s.height;
         }
       } catch (e) {
         console.warn('Remote stamp homography failed:', e);
         active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+        dirtyX = s.x;
+        dirtyY = s.y;
+        dirtyWidth = s.width;
+        dirtyHeight = s.height;
       }
     } else {
       active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
+      dirtyX = s.x;
+      dirtyY = s.y;
+      dirtyWidth = s.width;
+      dirtyHeight = s.height;
     }
 
+    // Track the dirty region so the stroke is properly saved
+    this.board.expandDirtyRect(user, dirtyX, dirtyY, dirtyWidth, dirtyHeight, layerIdx);
+
     lm.commitUserStroke(layerIdx, user.id);
-    this.board.requestUpdate();
+    this.board.compositeAllLayers();
 
     // Keep selection active — redraw floating selection on user's overlay layer
+    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    this.drawFloatingSelection(user);
+  }
+
+  handleSelectionFlip(user) {
+    if (!user.floatingCanvas || !user.selection) return;
+
+    // Create a temporary canvas for the flipped image
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = user.floatingCanvas.width;
+    tempCanvas.height = user.floatingCanvas.height;
+    const tempCtx = tempCanvas.getContext('2d');
+
+    // Flip horizontally by scaling -1 on x-axis
+    tempCtx.save();
+    tempCtx.translate(tempCanvas.width, 0);
+    tempCtx.scale(-1, 1);
+    tempCtx.drawImage(user.floatingCanvas, 0, 0);
+    tempCtx.restore();
+
+    // Replace the floating canvas with the flipped version
+    user.floatingCanvas = tempCanvas;
+    user.floatingCtx = tempCtx;
+
+    // If there are original corners (for transforms), flip them horizontally
+    if (user.originalCorners) {
+      const width = user.floatingCanvas.width;
+      // Swap left and right corners and flip their x positions
+      const temp = {
+        tl: { ...user.originalCorners.tl },
+        tr: { ...user.originalCorners.tr },
+        bl: { ...user.originalCorners.bl },
+        br: { ...user.originalCorners.br }
+      };
+
+      // Flip x coordinates and swap left/right
+      user.originalCorners.tl = { x: width - temp.tr.x, y: temp.tr.y };
+      user.originalCorners.tr = { x: width - temp.tl.x, y: temp.tl.y };
+      user.originalCorners.bl = { x: width - temp.br.x, y: temp.br.y };
+      user.originalCorners.br = { x: width - temp.bl.x, y: temp.bl.y };
+    }
+
+    // Invalidate cached preview since the source image changed
+    user._cachedPreviewCanvas = null;
+    user._cachedPreviewBounds = null;
+
+    // Redraw the selection with flipped content
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     this.drawFloatingSelection(user);
   }
@@ -472,7 +605,7 @@ export class RemoteSelectionHandler {
     }
 
     this.board.activeSelectionLayer = -1;
-    this.board.requestUpdate();
+    this.board.compositeAllLayers();
     this._cleanupUserSelection(user);
   }
 
@@ -868,8 +1001,17 @@ export class RemoteSelectionHandler {
 
     // 2. Apply the erase as a committed stroke
     lm.beginUserStroke(layerIdx, userId, 'destination-out');
-    const ctx = lm.getUserStrokeContext(layerIdx, userId);
-    
+    const active = lm.layerGroups[layerIdx]?.activeStrokeByUser.get(userId);
+    if (!active) return null;
+
+    const ctx = active.ctx;
+
+    // Ensure integer coordinates for consistent erasing
+    const ix = Math.floor(s.x);
+    const iy = Math.floor(s.y);
+    const iw = Math.ceil(s.x + s.width) - ix;
+    const ih = Math.ceil(s.y + s.height) - iy;
+
     if (lassoPath && lassoPath.length >= 3) {
       ctx.fillStyle = 'white';
       ctx.beginPath();
@@ -880,16 +1022,21 @@ export class RemoteSelectionHandler {
       ctx.closePath();
       ctx.fill();
     } else {
-      ctx.fillRect(s.x, s.y, s.width, s.height);
+      ctx.fillStyle = 'white';
+      ctx.fillRect(ix, iy, iw, ih);
     }
 
+    // Track the dirty region so the erase stroke is properly saved
+    const user = this.getUsersMap().get(userId);
+    this.board.expandDirtyRect(user, ix, iy, iw, ih);
+
     // Commit the stroke. Selection erasures are usually atomic/independent for remote users.
-    lm.commitUserStroke(layerIdx, userId, { 
+    lm.commitUserStroke(layerIdx, userId, {
       isSelectionErase: true
     });
 
     lm.needsComposite = true;
-    this.board.requestUpdate();
+    this.board.compositeAllLayers();
 
     return {
       snapshots,

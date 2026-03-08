@@ -18,19 +18,19 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
-  // Selection move - remote user moved/transformed selection
-  wrapHandler('sel_move', (data) => {
-    const user = users.get(data.sessionIndex);
-    if (user) {
-      remoteUserHandler.selectionHandler.handleSelectionMove(user, data.corners);
-    }
-  });
-
   // Selection commit - remote user committed selection
   wrapHandler('sel_commit', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.selectionHandler.handleSelectionCommit(user);
+      remoteUserHandler.selectionHandler.handleSelectionCommit(user, data.layerIndex);
+    }
+  });
+
+  // Selection pending - remote user created a selection marquee
+  wrapHandler('sel_pending', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.selectionHandler.handleSelectionPending(user, data.selection, data.lassoPath);
     }
   });
 
@@ -38,7 +38,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
   wrapHandler('sel_delete', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.selectionHandler.handleSelectionDelete(user);
+      remoteUserHandler.selectionHandler.handleSelectionDelete(user, data.layerIndex);
     }
   });
 
@@ -46,7 +46,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
   wrapHandler('sel_fill', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.selectionHandler.handleSelectionFill(user, data.color);
+      remoteUserHandler.selectionHandler.handleSelectionFill(user, data.color, data.layerIndex);
     }
   });
 
@@ -54,7 +54,15 @@ export function setupSelectionHandlers(wrapHandler, app) {
   wrapHandler('sel_stamp', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.selectionHandler.handleSelectionStamp(user);
+      remoteUserHandler.selectionHandler.handleSelectionStamp(user, data.layerIndex);
+    }
+  });
+
+  // Selection flip - remote user flipped selection
+  wrapHandler('sel_flip', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.selectionHandler.handleSelectionFlip(user);
     }
   });
 
