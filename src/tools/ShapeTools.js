@@ -54,7 +54,7 @@ export class LineTool extends Tool {
     }
 
     // Update dirty rect with 25% safety margin
-    const radius = user.pressure * user.size;
+    const radius = user.size;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
     const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
     const safetyMargin = radius * 0.25; // 25% additional margin for blur/hardness
@@ -110,7 +110,7 @@ export class LineTool extends Tool {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
-    ctx.lineWidth = user.pressure * user.size * 2;
+    ctx.lineWidth = user.size * 2;
 
     // Apply softness using shadow blur
     if (hardness < 1.0) {
@@ -183,7 +183,7 @@ export class RectangleTool extends Tool {
     }
 
     // Update dirty rect with 25% safety margin
-    const radius = user.pressure * user.size;
+    const radius = user.size;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
     const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
     const safetyMargin = radius * 0.25; // 25% additional margin for blur/hardness
@@ -244,7 +244,7 @@ export class RectangleTool extends Tool {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
-    ctx.lineWidth = user.pressure * user.size * 2;
+    ctx.lineWidth = user.size * 2;
 
     // Apply softness using shadow blur
     if (hardness < 1.0) {
@@ -316,7 +316,7 @@ export class CircleTool extends Tool {
     }
 
     // Update dirty rect with 25% safety margin
-    const radius = user.pressure * user.size;
+    const radius = user.size;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
     const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
     const safetyMargin = radius * 0.25; // 25% additional margin for blur/hardness
@@ -377,7 +377,7 @@ export class CircleTool extends Tool {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
-    ctx.lineWidth = user.pressure * user.size * 2;
+    ctx.lineWidth = user.size * 2;
 
     // Apply softness using shadow blur
     if (hardness < 1.0) {
