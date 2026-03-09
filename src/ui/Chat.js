@@ -29,6 +29,11 @@ export class Chat {
     // Image upload state
     this.pendingImage = null;
     this.isDragging = false;
+
+    // Notification state
+    this.unreadCount = 0;
+    this.badgeElement = null;
+    this.toastContainer = null;
   }
 
   init() {
@@ -45,6 +50,10 @@ export class Chat {
     this.setupEventListeners();
     this.setupTextareaAutoResize();
     // Don't setup emoji picker yet - wait until user clicks emoji button
+
+    // Notification elements
+    this.badgeElement = document.getElementById('chatBadge');
+    this.toastContainer = document.getElementById('chatToastContainer');
   }
 
   setupEventListeners() {
@@ -543,6 +552,13 @@ export class Chat {
     if (this.currentTab === 'all') {
       this.renderMessages();
     }
+
+    // Show notification if chat is hidden
+    if (!this.visible) {
+      this.unreadCount++;
+      this.updateBadge();
+      this.showChatToast(user?.username || 'Anon', '[sent an image]', user?.color);
+    }
   }
 
   addDMImage(imageData, userId, fromSelf = false) {
@@ -566,6 +582,18 @@ export class Chat {
     } else if (this.currentTab === 'dm' && !this.dmRecipient) {
       this.renderDMUserList();
     }
+
+    // Show notification for incoming DM images when chat is hidden
+    if (!fromSelf && !this.visible) {
+      const user = this.users.get(userId);
+      this.unreadCount++;
+      this.updateBadge();
+      this.showChatToast(
+        user?.username || 'Anon',
+        '[DM] sent an image',
+        user?.color
+      );
+    }
   }
 
   addMessage(message, user, isDM = false) {
@@ -588,6 +616,13 @@ export class Chat {
     if (this.currentTab === 'all') {
       this.renderMessages();
     }
+
+    // Show notification if chat is hidden and not a system message
+    if (!this.visible && user !== 'system') {
+      this.unreadCount++;
+      this.updateBadge();
+      this.showChatToast(user?.username || 'Anon', message, user?.color);
+    }
   }
 
   addDMMessage(message, userId, fromSelf = false) {
@@ -608,6 +643,18 @@ export class Chat {
       this.renderDMConversation();
     } else if (this.currentTab === 'dm' && !this.dmRecipient) {
       this.renderDMUserList();
+    }
+
+    // Show notification for incoming DMs when chat is hidden
+    if (!fromSelf && !this.visible) {
+      const user = this.users.get(userId);
+      this.unreadCount++;
+      this.updateBadge();
+      this.showChatToast(
+        user?.username || 'Anon',
+        `[DM] ${message}`,
+        user?.color
+      );
     }
   }
 
@@ -690,6 +737,7 @@ export class Chat {
     this.container.style.display = this.visible ? 'flex' : 'none';
     if (this.visible) {
       this.input.focus();
+      this.clearUnread();
     }
   }
 
@@ -697,6 +745,7 @@ export class Chat {
     this.visible = true;
     this.container.style.display = 'flex';
     this.input.focus();
+    this.clearUnread();
   }
 
   hide() {
@@ -714,6 +763,62 @@ export class Chat {
     this.messages.all = [];
     this.messages.dms.clear();
     this.renderMessages();
+  }
+
+  // ========================================
+  // Notification Methods
+  // ========================================
+
+  updateBadge() {
+    if (!this.badgeElement) return;
+
+    if (this.unreadCount > 0) {
+      this.badgeElement.textContent = this.unreadCount > 99 ? '99+' : this.unreadCount;
+      this.badgeElement.style.display = '';
+    } else {
+      this.badgeElement.style.display = 'none';
+    }
+  }
+
+  showChatToast(username, message, color = '#888') {
+    if (!this.toastContainer) return;
+
+    const toast = document.createElement('div');
+    toast.className = 'chatToast';
+
+    // Truncate long messages
+    const truncated = message.length > 100 ? message.slice(0, 100) + '...' : message;
+
+    toast.innerHTML = `
+      <span class="chatToastUsername" style="color: ${color}">${this.escapeHtml(username)}:</span>
+      <span class="chatToastMessage">${this.escapeHtml(truncated)}</span>
+    `;
+
+    // Click to open chat
+    toast.addEventListener('click', () => {
+      this.show();
+      toast.remove();
+    });
+
+    this.toastContainer.appendChild(toast);
+
+    // Auto-remove after 4 seconds
+    setTimeout(() => {
+      toast.classList.add('hiding');
+      setTimeout(() => toast.remove(), 300);
+    }, 4000);
+
+    // Limit to 3 visible toasts
+    const toasts = this.toastContainer.querySelectorAll('.chatToast:not(.hiding)');
+    if (toasts.length > 3) {
+      toasts[0].classList.add('hiding');
+      setTimeout(() => toasts[0].remove(), 300);
+    }
+  }
+
+  clearUnread() {
+    this.unreadCount = 0;
+    this.updateBadge();
   }
 
   makeDraggable() {

@@ -189,6 +189,7 @@
             <a class="btn" id="chatBtn" title="Chat">
               <span class="btnText">Chat</span>
               <span class="btnIcon" style="display: none;"><img src="/images/chat-icon.svg" alt="Chat"></span>
+              <span class="chatBadge" id="chatBadge" style="display: none;"></span>
             </a>
             <a class="btn" id="roomSettingsBtn" style="display: none;">Room Settings</a>
             <a class="btn" id="disconnectBtn" title="Exit Room">
@@ -237,6 +238,9 @@
 
         <!-- Toast Notification -->
         <div id="toast" class="toast"></div>
+
+        <!-- Chat Toast Container -->
+        <div id="chatToastContainer" class="chatToastContainer"></div>
 
         <!-- Floating Undo/Redo HUD (bottom-left) -->
         <div id="viewHud" class="viewHud">
