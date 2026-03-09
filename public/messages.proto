@@ -75,6 +75,8 @@ message Msg {
     ROOM_UPDATE        = 66;  // Update room settings (owner/mod only)
     SEL_FLIP           = 67;  // Flip selection horizontally
     SEL_PENDING        = 68;  // Pending selection (marquee only)
+    PING               = 69;
+    PONG               = 70;
   }
 
   // Tool enum

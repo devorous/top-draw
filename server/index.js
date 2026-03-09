@@ -422,6 +422,15 @@ wss.on('connection', (ws, req) => {
     room.addClient(ws);
 
     console.log(`[Room] Client joined room: ${roomId}, total clients: ${room.getClientCount()}`);
+
+    // Set up ping/pong interval (every 30 seconds)
+    ws.pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        sendTo(ws, { t: T.PING });
+      } else {
+        clearInterval(ws.pingInterval);
+      }
+    }, 30000);
   } catch (err) {
     console.error('[WS] Connection handler error:', err);
     ws.close(1011, 'Server error during connection');
@@ -929,6 +938,10 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
+        case T.PONG:
+          // Acknowledge ping
+          break;
+
         // Register a new account — authUsername + authPassword required.
         // First ever registration is auto-promoted to admin (Role.ADMIN).
         // On success replies with AUTH_RESULT containing a JWT (authToken) and the assigned role.
@@ -1174,6 +1187,11 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => {
     // Clean up batched outbox for this client
     clientOutbox.delete(ws);
+
+    // Clear ping interval
+    if (ws.pingInterval) {
+      clearInterval(ws.pingInterval);
+    }
 
     const sessionIndex = ws.sessionIndex;
     const room = roomManager.getRoomByClient(ws);

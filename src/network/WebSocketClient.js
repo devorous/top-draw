@@ -271,6 +271,10 @@ export class WebSocketClient {
         }
         break;
 
+      case T.PING:
+        this.send({ t: T.PONG });
+        break;
+
       case T.USERS:
         // Convert users data to app format
         const users = (data.us || []).map(u => ({
