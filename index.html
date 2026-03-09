@@ -83,14 +83,45 @@
 
               <form id="loginForm" onsubmit="return false;">
                 <input autocomplete="on" class="authInput" id="roomIdInput" name="room" placeholder="Room name (default: lobby)">
-                <input autocomplete="username" class="authInput" id="loginUsername" name="username" placeholder="Username">
-                <input autocomplete="current-password" type="password" class="authInput" id="loginPassword" name="password" placeholder="Password (optional)">
-                <label class="authCheckbox">
-                  <input type="checkbox" id="rememberMe">
-                  <span>Login Automatically (30 Days)</span>
-                </label>
-                <div class="authButtons">
-                  <button type="submit" class="btn primary" id="joinBtn">Join</button>
+
+                <!-- Not logged in state -->
+                <div id="authNotLoggedIn">
+                  <input autocomplete="username" class="authInput" id="loginUsername" name="username" placeholder="Username">
+                  <input autocomplete="current-password" type="password" class="authInput" id="loginPassword" name="password" placeholder="Password (optional)">
+                  <label class="authCheckbox">
+                    <input type="checkbox" id="rememberMe">
+                    <span>Login Automatically (30 Days)</span>
+                  </label>
+                  <div class="authButtons">
+                    <button type="button" class="btn primary large" id="loginJoinBtn">Join</button>
+                  </div>
+                </div>
+
+                <!-- Logged in state -->
+                <div id="authLoggedIn" style="display: none;">
+                  <div class="authLoggedInUser">
+                    <span class="authLoggedInLabel">Logged in as</span>
+                    <button type="button" class="authUsernameBtn" id="authUsernameBtn">
+                      <span id="authUsernameDisplay">Username</span>
+                      <span class="authEditIcon">&#9998;</span>
+                    </button>
+                  </div>
+                  <div class="authButtons">
+                    <button type="button" class="btn primary large" id="joinBtnLoggedIn">Join</button>
+                  </div>
+                </div>
+
+                <!-- Edit credentials panel (shown when clicking username button) -->
+                <div id="authEditCredentials" style="display: none;">
+                  <div class="authEditHeader">
+                    <span>Switch Account</span>
+                    <button type="button" class="authEditClose" id="authEditClose">&times;</button>
+                  </div>
+                  <input autocomplete="username" class="authInput" id="editUsername" name="edit-username" placeholder="Username">
+                  <input autocomplete="current-password" type="password" class="authInput" id="editPassword" name="edit-password" placeholder="Password">
+                  <div class="authButtons">
+                    <button type="button" class="btn primary large" id="editLoginJoinBtn">Join</button>
+                  </div>
                 </div>
               </form>
 

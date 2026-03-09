@@ -107,10 +107,22 @@
   gap: 8px;
   margin-top: 10px;
   justify-content: center;
+  width: 100%;
 }
 
 .authButtons .btn {
-  width: 33%;
+  width: auto;
+  min-width: 100px;
+}
+
+.authButtonsRow {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+
+  .btn {
+    flex: 1;
+  }
 }
 
 .authButtons .btn.disabled {
@@ -139,6 +151,117 @@
 
 .authCheckbox:hover {
   color: #fff;
+}
+
+/* Auth Containers */
+#authLoggedIn,
+#authNotLoggedIn,
+#authEditCredentials {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+/* Logged in state */
+.authLoggedInUser {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 0;
+  width: 100%;
+}
+
+.authLoggedInLabel {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.authUsernameBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    background: var(--bg-secondary);
+    border-color: var(--accent-primary);
+    transform: translateY(-1px);
+  }
+}
+
+.authEditIcon {
+  font-size: 12px;
+  opacity: 0.5;
+  transition: opacity var(--transition-fast);
+}
+
+.authUsernameBtn:hover .authEditIcon {
+  opacity: 1;
+}
+
+/* Edit credentials panel */
+#authEditCredentials {
+  width: 100%;
+  
+  .authInput {
+    margin-bottom: 8px;
+  }
+}
+
+.authEditHeader {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+  width: 100%;
+
+  span {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+}
+
+.authEditClose {
+  position: absolute;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--transition-fast), color var(--transition-fast);
+
+  &:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+  }
 }
 
 /* Auth Error */

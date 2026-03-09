@@ -325,16 +325,12 @@ export class DrawingApp {
   setupEventListeners() {
     const { elements } = this.ui;
 
+    // Form submit triggers join (both logged-in and not-logged-in join buttons are type="submit")
     elements.loginForm?.addEventListener('submit', (e) => {
       e.preventDefault();
       this.handleJoin();
     });
 
-    // Swap Join/Login button text based on password field
-    elements.loginPassword?.addEventListener('input', () => {
-      const hasPassword = elements.loginPassword.value.length > 0;
-      elements.joinBtn.textContent = hasPassword ? 'Login' : 'Join';
-    });
     elements.disconnectBtn.addEventListener('click', () => this.disconnect());
 
     if (elements.menuBtn) {
@@ -1125,8 +1121,7 @@ export class DrawingApp {
     this.self.role = role;
     this.self.setUsername(username);
 
-    // Reset join button and clear password field
-    if (this.ui.elements.joinBtn) this.ui.elements.joinBtn.textContent = 'Join';
+    // Clear password field
     if (this.ui.elements.loginPassword) this.ui.elements.loginPassword.value = '';
 
     // Update moderation UI visibility based on role
@@ -1137,28 +1132,26 @@ export class DrawingApp {
     // Update room settings button visibility (role may have changed)
     this.updateRoomSettingsButtonVisibility();
 
-    // If landing page is active and room is selected, proceed to room
-    if (this.landingPage && this.landingPage.selectedRoom) {
-      // If we are already in or connecting to this room, just hide the landing page
-      // and continue with the join process instead of triggering a new connection.
-      if (this.currentRoomId === this.landingPage.selectedRoom && this.wsClient.connected) {
-        console.log(`[App] Already connecting to ${this.currentRoomId}, skipping redundant proceedToRoom`);
-        this.landingPage.hide();
-        this.handleJoinAfterConnect();
-        return;
-      }
-
-      this.landingPage.handleAuthSuccess(token, username);
-      // No need to call proceedToRoom here as landingPage.handleAuthSuccess already does it
-      return;
-    }
-
-    // If we're already in the room (common case: join room, then authenticate),
-    // just update landing page state without triggering a reconnection
-    if (this.landingPage) {
+    // If landing page is visible, update its auth state but DON'T auto-join
+    // Let user press Join themselves after seeing they're logged in
+    if (this.landingPage && this.landingPage.isVisible) {
       this.landingPage.isAuthenticated = true;
       this.landingPage.authToken = token;
       this.landingPage.username = username;
+      console.log(`[App] Auth success on landing page, waiting for user to press Join`);
+      return;
+    }
+
+    // If we are already connecting to a room (not on landing page), continue
+    if (this.currentRoomId && this.wsClient.connected) {
+      console.log(`[App] Auth success while in room ${this.currentRoomId}`);
+      // If we're already in the room, just update state
+      if (this.connected) {
+        return;
+      }
+      // If we're connecting, continue the join process
+      this.handleJoinAfterConnect();
+      return;
     }
 
     // After auth success, user is already joined (username was in CONNECT)
@@ -1197,16 +1190,15 @@ export class DrawingApp {
       this.syncClient.hideOverlay();
       this.landingPage.show();
       this.ui.elements.overlay.style.display = 'flex';
-      // Reset button back to Login (password is still filled)
-      if (this.ui.elements.loginPassword?.value) {
-        this.ui.elements.joinBtn.textContent = 'Login';
-      }
     }
   }
 
   handleJoin() {
-    // Use input value if provided, otherwise generate unique guest name
-    let name = this.ui.elements.loginUsername.value.trim();
+    // Use logged-in username if available, otherwise use input value, otherwise generate guest name
+    let name = this.auth?.getJoinUsername();
+    if (!name) {
+      name = this.ui.elements.loginUsername?.value.trim();
+    }
     if (!name) {
       // Generate unique tab-specific username (persists per tab via sessionStorage)
       let tabId = sessionStorage.getItem('tabId');
@@ -1219,8 +1211,8 @@ export class DrawingApp {
     }
     this.self.setUsername(name);
 
-    // Store password for login after connection (if provided)
-    const password = this.ui.elements.loginPassword?.value || '';
+    // Store password for login after connection (only if not already logged in)
+    const password = (!this.auth?.isLoggedIn && this.ui.elements.loginPassword?.value) || '';
     this._pendingPassword = password || null;
 
     // If landing page is active, read room from input and proceed
@@ -1276,7 +1268,9 @@ export class DrawingApp {
     this.connected = true;
     this.sessionIndex = 1;
     this.self.id = 1;
-    this.self.setUsername(this.ui.elements.loginUsername.value || '');
+    // Use logged-in username if available, otherwise use input field
+    const username = this.auth?.getJoinUsername() || this.ui.elements.loginUsername?.value || '';
+    this.self.setUsername(username);
 
     this.ui.hideOverlay();
     this.ui.showCursor();

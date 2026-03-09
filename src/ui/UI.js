@@ -48,11 +48,13 @@ export class UI {
       login: document.getElementById('login'),
       connecting: document.getElementById('connecting'),
       joinBtn: document.getElementById('joinBtn'),
+      joinBtnLoggedIn: document.getElementById('joinBtnLoggedIn'),
       offlineBtn: document.getElementById('offlineBtn'),
       loginOfflineBtn: document.getElementById('loginOfflineBtn'),
       loginUsername: document.getElementById('loginUsername'),
       loginPassword: document.getElementById('loginPassword'),
       loginForm: document.getElementById('loginForm'),
+      loginBtn: document.getElementById('loginBtn'),
       rememberMe: document.getElementById('rememberMe'),
 
       boardContainer: document.getElementById('boardContainer'),

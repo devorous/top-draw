@@ -276,20 +276,14 @@ export class LandingPage {
 
   /**
    * Handle successful authentication
+   * Note: This does NOT auto-proceed to room. User must press Join.
    */
   handleAuthSuccess(token, username) {
-    const wasAuthenticated = this.isAuthenticated;
     this.isAuthenticated = true;
     this.authToken = token;
     this.username = username;
-
-    // Only proceed to room if we weren't already authenticated (initial login)
-    // and a room is selected.
-    if (!wasAuthenticated && this.selectedRoom) {
-      const room = this.selectedRoom;
-      // this.selectedRoom = null; // Don't clear yet, proceedToRoom might need it
-      this.proceedToRoom(room);
-    }
+    // User will see the logged-in state via Auth module's UI
+    // and can press Join when ready
   }
 
   /**

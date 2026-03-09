@@ -208,6 +208,103 @@ body {
   color: #fff;
 }
 
+/* Auth Buttons Row (side by side with equal width) */
+.authButtonsRow {
+  display: flex;
+  gap: 8px;
+}
+
+.authButtonsRow .btn {
+  flex: 1;
+}
+
+/* Logged in state */
+.authLoggedInUser {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0;
+}
+
+.authLoggedInLabel {
+  font-size: 13px;
+  color: #8b8d91;
+  text-align: center;
+}
+
+.authUsernameBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  font-size: 16px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.authUsernameBtn:hover {
+  background: var(--bg-secondary);
+  border-color: var(--accent-primary);
+}
+
+.authEditIcon {
+  font-size: 14px;
+  opacity: 0.6;
+}
+
+.authUsernameBtn:hover .authEditIcon {
+  opacity: 1;
+}
+
+/* Edit credentials panel */
+.authEditHeader {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+.authEditHeader span {
+  font-size: 14px;
+  font-weight: 500;
+  color: #ccc;
+  text-align: center;
+}
+
+.authEditClose {
+  position: absolute;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1;
+  color: #8b8d91;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.authEditClose:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
 /* Auth Error */
 .authError {
   margin-top: 10px;
@@ -1036,6 +1133,49 @@ canvas {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
   color: var(--bg-primary);
+}
+
+/* Button Variants */
+.btn.primary {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--bg-primary);
+}
+
+.btn.primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--bg-primary);
+}
+
+.btn.secondary {
+  background: var(--bg-tertiary);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.btn.secondary:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.btn.offline {
+  background: var(--bg-tertiary);
+  border-color: var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.btn.offline:hover {
+  background: var(--bg-elevated);
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.btn.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* ========================================
