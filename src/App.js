@@ -795,9 +795,11 @@ export class DrawingApp {
          elements.board.addEventListener('pointerenter', () => {
            this.isOnBoard = true;
     
-           // Skip showing cursor during two-finger gestures
+           // Skip showing cursor during two-finger gestures (except for text tool)
            if (this.touchHandler.state.isPinching || this.touchHandler.state.gestureStartedWithTwoFingers) {
-             return;
+             if (this.self.tool !== 'text') {
+               return;
+             }
            }
     
            this.ui.showCursor();      // Refresh tool display to show correct cursor shape
@@ -1815,7 +1817,9 @@ export class DrawingApp {
 
     // Skip drawing during two-finger gestures
     if (this.touchHandler.state.isPinching || this.touchHandler.state.gestureStartedWithTwoFingers) {
-      this.ui.hideCursor();
+      if (this.self.tool !== 'text') {
+        this.ui.hideCursor();
+      }
       return;
     }
 
@@ -1939,7 +1943,9 @@ export class DrawingApp {
 
     // Skip drawing during two-finger gestures
     if (this.touchHandler.state.isPinching || this.touchHandler.state.gestureStartedWithTwoFingers) {
-      this.ui.hideCursor();
+      if (this.self.tool !== 'text') {
+        this.ui.hideCursor();
+      }
       return;
     }
 

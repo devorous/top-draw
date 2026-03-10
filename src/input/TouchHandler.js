@@ -116,10 +116,12 @@ export class TouchHandler {
         this.app.cancelCurrentStroke();
       }
 
-      // Hide cursor during gestures
-      this.ui.hideCursor();
-      if (this.wsClient && this.wsClient.connected) {
-        this.wsClient.broadcastHideCursor();
+      // Hide cursor during gestures (except for text tool, so user can see what they're typing while zooming)
+      if (this.app.self.tool !== 'text') {
+        this.ui.hideCursor();
+        if (this.wsClient && this.wsClient.connected) {
+          this.wsClient.broadcastHideCursor();
+        }
       }
 
       // Capture initial touch state
@@ -281,8 +283,8 @@ export class TouchHandler {
     if (e.touches.length === 0) {
       this.state.gestureStartedWithTwoFingers = false;
       
-      // Restore cursor visibility if still on board
-      if (this.app.isOnBoard) {
+      // Restore cursor visibility if still on board or if using text tool
+      if (this.app.isOnBoard || this.app.self.tool === 'text') {
         this.ui.showCursor();
         if (this.wsClient && this.wsClient.connected) {
           this.wsClient.broadcastShowCursor();
