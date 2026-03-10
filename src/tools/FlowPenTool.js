@@ -89,6 +89,9 @@ export class FlowPenTool extends Tool {
     this.userHardness = rawHardness > 1.0 ? rawHardness / 100.0 : rawHardness;
     if (this.userHardness > 1.0) this.userHardness = 1.0; // Cap at 1.0
 
+    // Initialize dirty rect tracking before first stamp so the dot's bounds are recorded
+    this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+
     // Position is already smoothed by InputBufferManager
     // Stamp first circle
     const pressure255 = Math.round(pressure * 255);
@@ -97,9 +100,6 @@ export class FlowPenTool extends Tool {
 
     // Store points for reference
     user.penPoints = [{ x: pos.x, y: pos.y, radius }];
-
-    // Initialize dirty rect tracking
-    this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
 
     this.drawPreview(user);
   }
