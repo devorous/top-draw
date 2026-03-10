@@ -891,7 +891,7 @@ export class UI {
       connected: 'Connected',
       disconnected: 'Disconnected',
       connecting: 'Connecting...',
-      offline: 'Offline Mode'
+      offline: 'Drawing Alone'
     };
     connectionText.textContent = labels[state] || state;
   }

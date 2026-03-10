@@ -859,6 +859,7 @@ export class DrawingApp {
 
   async handleRoomSelected(roomId, password = null) {
     console.log(`[App] Room selected: ${roomId}`);
+    this.isOfflineMode = false;
     this.currentRoomId = roomId;
     this.currentRoomPassword = password;
 
@@ -898,12 +899,13 @@ export class DrawingApp {
   }
 
   handleOffline() {
-    console.log('[App] Offline mode - creating local room');
+    console.log('[App] Draw Alone mode - creating local room');
+    this.isOfflineMode = true;
     this.connected = false;
     this.currentRoomId = 'offline-' + Date.now();
 
-    // Disconnect from discovery room if connected
-    if (this.wsClient && this.wsClient.connected) {
+    // Disconnect from discovery room and cancel any pending reconnect attempts
+    if (this.wsClient) {
       this.wsClient.disconnect();
     }
 
@@ -962,6 +964,12 @@ export class DrawingApp {
   // Connection lifecycle
 
   handleWSConnect(sessionIndex, role) {
+    // Ignore server connections while drawing alone
+    if (this.isOfflineMode) {
+      console.log('[App] Ignoring server connection - Draw Alone mode active');
+      return;
+    }
+
     this.sessionIndex = sessionIndex;
     this.self.id = sessionIndex;
     this.users.set(sessionIndex, this.self);

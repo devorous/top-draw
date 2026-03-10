@@ -68,6 +68,7 @@ export class WebSocketClient {
     this._userData = userData;
     this._roomId = roomId;
     this._connectAttempts = 0;
+    this._cancelled = false;
 
     this._buildUrl();
     this._tryConnect();
@@ -153,7 +154,7 @@ export class WebSocketClient {
       console.log('WebSocket disconnected:', event.code, event.reason);
 
       // Auto-retry if we never got a session (server wasn't ready yet)
-      if (this.sessionIndex === null && this._connectAttempts < 10) {
+      if (!this._cancelled && this.sessionIndex === null && this._connectAttempts < 10) {
         const delay = Math.min(1000 * this._connectAttempts, 5000);
         console.log(`Server not ready, retrying in ${delay}ms...`);
         setTimeout(() => this._tryConnect(), delay);
@@ -1153,6 +1154,7 @@ sendSyncStrokesDone(targetUser) {
   }
 
   disconnect() {
+    this._cancelled = true;
     if (this.socket) {
       this.socket.close();
     }
