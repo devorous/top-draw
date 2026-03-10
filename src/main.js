@@ -3,6 +3,19 @@ import '../public/css/main.scss';
 
 import { DrawingApp } from './App.js';
 
+// Auto-reload once when a dynamically imported chunk fails to load (stale cache after deploy)
+window.addEventListener('unhandledrejection', (event) => {
+  if (event.reason?.message?.includes('dynamically imported module') ||
+      event.reason?.message?.includes('Failed to fetch')) {
+    if (!sessionStorage.getItem('chunk-reload')) {
+      sessionStorage.setItem('chunk-reload', '1');
+      window.location.reload();
+    }
+  }
+});
+// Clear the reload flag on successful load
+sessionStorage.removeItem('chunk-reload');
+
 async function init() {
   // Get WebSocket server URL from environment or use default
   const wsServerUrl = import.meta.env.VITE_WS_SERVER_URL || null;
