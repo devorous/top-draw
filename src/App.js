@@ -501,6 +501,7 @@ export class DrawingApp {
     eraserModeRadios.forEach(radio => {
       radio.addEventListener('change', (e) => {
         this.eraseAllLayers = (e.target.value === 'all');
+        this.wsClient.broadcastEraserModeChange(this.eraseAllLayers);
       });
     });
 
@@ -1467,7 +1468,7 @@ export class DrawingApp {
     }
 
     this.ui.updateSelfToolIcon(tool);
-    this.wsClient.broadcastToolChange(tool);
+    this.wsClient.broadcastToolChange(tool, tool === 'erase' ? this.eraseAllLayers : false);
 
     // Update preview canvas mix-blend-mode for live preview.
     // Eraser uses destination-out internally, so set preview to 'normal'.

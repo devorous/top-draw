@@ -342,7 +342,7 @@ export class WebSocketClient {
         break;
 
       case T.CT:
-        this.emit('ct', { sessionIndex: data.u, tool: ToolNames[data.l] || 'brush' });
+        this.emit('ct', { sessionIndex: data.u, tool: ToolNames[data.l] || 'brush', eraseAll: data.a || false });
         break;
 
       case T.CC:
@@ -758,8 +758,12 @@ export class WebSocketClient {
     this.send({ t: T.MU });
   }
 
-  broadcastToolChange(tool) {
-    this.send({ t: T.CT, l: ToolToEnum[tool] || 0 });
+  broadcastToolChange(tool, eraseAll = false) {
+    this.send({ t: T.CT, l: ToolToEnum[tool] || 0, a: eraseAll || false });
+  }
+
+  broadcastEraserModeChange(eraseAll) {
+    this.send({ t: T.CT, l: ToolToEnum['erase'], a: eraseAll || false });
   }
 
   broadcastColorChange(color) {

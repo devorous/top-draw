@@ -449,6 +449,34 @@ export class Board {
   }
 
   /**
+   * Expand dirty rects for ALL layers' active strokes for a user.
+   * Used by the erase-all eraser so every layer's stroke has a valid dirty rect
+   * and is not silently discarded by commitUserStroke.
+   * @param {Object} user - User object with id
+   * @param {number} x - X coordinate of the drawn region
+   * @param {number} y - Y coordinate of the drawn region
+   * @param {number} width - Width of the drawn region
+   * @param {number} height - Height of the drawn region
+   */
+  expandDirtyRectAllLayers(user, x, y, width, height) {
+    if (!this.layerManager) return;
+    const userId = user?.id ?? this.app?.self?.id ?? 0;
+    const count = this.layerManager.getLayerCount();
+    for (let i = 0; i < count; i++) {
+      const group = this.layerManager.layerGroups[i];
+      if (!group) continue;
+      const active = group.activeStrokeByUser.get(userId);
+      if (!active || !active.dirtyRect) continue;
+      this.layerManager._expandDirtyRect(active.dirtyRect, x, y, width, height);
+    }
+    this._addOrMergeDirtyRect(x, y, width, height);
+    if (this.app?.debugOverlay) {
+      const username = user?.username ?? this.app?.self?.username ?? `User ${userId}`;
+      this.app.debugOverlay.expandUserRegion(userId, username, x, y, width, height);
+    }
+  }
+
+  /**
    * Add or merge a dirty rectangle into the global dirty regions array.
    * Uses intelligent merging to consolidate nearby regions and prevent unbounded growth.
    * @private

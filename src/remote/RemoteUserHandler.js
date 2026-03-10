@@ -191,18 +191,34 @@ export class RemoteUserHandler {
         user.prevpressure = user.pressure;
         break;
 
-      case 'erase':
+      case 'erase': {
         const eraserTool = this.toolManager.getTool('erase');
-        const group = this.board.layerManager.getLayerGroup(user.activeLayer);
-        if (group) {
-          eraserTool.eraseOnGroup(group, pos.x, pos.y, lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity, user.id);
-          if (this.board.mirror) {
-            const w = this.board.getWidth();
-            eraserTool.eraseOnGroup(group, w - pos.x, pos.y, w - lastPos.x, lastPos.y, user.pressure * user.size * 2, user.opacity, user.id);
+        const eraseSize = user.pressure * user.size * 2;
+        if (user.eraseAllLayers) {
+          const count = this.board.layerManager.getLayerCount();
+          for (let i = 0; i < count; i++) {
+            const g = this.board.layerManager.getLayerGroup(i);
+            if (g) {
+              eraserTool.eraseOnGroup(g, pos.x, pos.y, lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
+              if (this.board.mirror) {
+                const w = this.board.getWidth();
+                eraserTool.eraseOnGroup(g, w - pos.x, pos.y, w - lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
+              }
+            }
           }
-          this.board.requestUpdate();
+        } else {
+          const group = this.board.layerManager.getLayerGroup(user.activeLayer);
+          if (group) {
+            eraserTool.eraseOnGroup(group, pos.x, pos.y, lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
+            if (this.board.mirror) {
+              const w = this.board.getWidth();
+              eraserTool.eraseOnGroup(group, w - pos.x, pos.y, w - lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
+            }
+          }
         }
+        this.board.requestUpdate();
         break;
+      }
 
       case 'blur':
         const blurTool = this.toolManager.getTool('blur');
@@ -336,8 +352,12 @@ export class RemoteUserHandler {
 
     // Begin a fresh active stroke for this user so each stroke composites independently
     if (!user.panning) {
-      const blendMode = user.tool === 'erase' ? 'destination-out' : (user.blendMode || 'source-over');
-      this.board.layerManager.beginUserStroke(user.activeLayer, user.id, blendMode);
+      if (user.tool === 'erase' && user.eraseAllLayers) {
+        this.board.beginStrokeAllLayers(user, 'destination-out');
+      } else {
+        const blendMode = user.tool === 'erase' ? 'destination-out' : (user.blendMode || 'source-over');
+        this.board.layerManager.beginUserStroke(user.activeLayer, user.id, blendMode);
+      }
     }
 
     // Track region for debug overlay (if not panning)
@@ -369,11 +389,18 @@ export class RemoteUserHandler {
       case 'erase':
         if (!user.panning) {
           const eraserTool = this.toolManager.getTool('erase');
-          const eraseGroup = this.board.layerManager.getLayerGroup(user.activeLayer);
-          if (eraseGroup) {
-            eraserTool.eraseOnGroup(eraseGroup, pos.x, pos.y, pos.x, pos.y, user.pressure * user.size * 2, 1.0, user.id);
-            this.board.requestUpdate();
+          const eraseSize = user.pressure * user.size * 2;
+          if (user.eraseAllLayers) {
+            const count = this.board.layerManager.getLayerCount();
+            for (let i = 0; i < count; i++) {
+              const g = this.board.layerManager.getLayerGroup(i);
+              if (g) eraserTool.eraseOnGroup(g, pos.x, pos.y, pos.x, pos.y, eraseSize, 1.0, user.id);
+            }
+          } else {
+            const eraseGroup = this.board.layerManager.getLayerGroup(user.activeLayer);
+            if (eraseGroup) eraserTool.eraseOnGroup(eraseGroup, pos.x, pos.y, pos.x, pos.y, eraseSize, 1.0, user.id);
           }
+          this.board.requestUpdate();
         }
         break;
 
@@ -591,7 +618,11 @@ export class RemoteUserHandler {
     // Commit the stroke to the history stack.
     // Skip if tool is text, as text is committed immediately in handleMouseDown.
     if (user.tool !== 'text') {
-      this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
+      if (user.tool === 'erase' && user.eraseAllLayers) {
+        this.board.endStrokeAllLayers(user);
+      } else {
+        this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
+      }
     }
     // Cleanup (preview was already cleared at start of handleMouseUp)
     user.clearLine();

@@ -68,6 +68,10 @@ export function setupDrawingHandlers(wrapHandler, app) {
         user.context.clearRect(0, 0, board.getWidth(), board.getHeight());
       }
       user.setTool(data.tool);
+      // Track eraser mode so remote erase-all works correctly
+      if (data.tool === 'erase') {
+        user.eraseAllLayers = data.eraseAll || false;
+      }
       ui.updateRemoteToolDisplay(data.sessionIndex, data.tool);
     }
   });
