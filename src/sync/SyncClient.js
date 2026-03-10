@@ -336,40 +336,52 @@ export class SyncClient {
 
   async _importStroke(data) {
     if (!this.board?.layerManager) return;
+
+    // Protection: skip strokes that take longer than 2 seconds to process
+    // (e.g. extremely large images or browser stalls) to prevent hanging sync.
+    const timeout = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Stroke import timeout (>2s)')), 2000);
+    });
+
     try {
-      const blob = new Blob([data.imageData], { type: 'image/png' });
-      const bitmap = await createImageBitmap(blob);
+      await Promise.race([
+        (async () => {
+          const blob = new Blob([data.imageData], { type: 'image/png' });
+          const bitmap = await createImageBitmap(blob);
 
-      const strokeCanvas = document.createElement('canvas');
-      strokeCanvas.width = data.w;
-      strokeCanvas.height = data.h;
-      const strokeCtx = strokeCanvas.getContext('2d');
-      strokeCtx.drawImage(bitmap, 0, 0);
-      bitmap.close();
+          const strokeCanvas = document.createElement('canvas');
+          strokeCanvas.width = data.w;
+          strokeCanvas.height = data.h;
+          const strokeCtx = strokeCanvas.getContext('2d');
+          strokeCtx.drawImage(bitmap, 0, 0);
+          bitmap.close();
 
-      const record = {
-        canvas: strokeCanvas,
-        ctx: strokeCtx,
-        x: data.x,
-        y: data.y,
-        width: data.w,
-        height: data.h,
-        blendMode: data.blendMode,
-        userId: data.userId,
-        timestamp: data.timestamp
-      };
-      if (data.eraseAll) record.eraseAll = true;
+          const record = {
+            canvas: strokeCanvas,
+            ctx: strokeCtx,
+            x: data.x,
+            y: data.y,
+            width: data.w,
+            height: data.h,
+            blendMode: data.blendMode,
+            userId: data.userId,
+            timestamp: data.timestamp
+          };
+          if (data.eraseAll) record.eraseAll = true;
 
-      if (!data.isRedo) {
-        this.board.layerManager.importStroke(data.layerIdx, record);
-      } else {
-        this.board.layerManager.importRedoStroke(data.userId, data.redoBatchIdx, data.layerIdx, record);
-      }
+          if (!data.isRedo) {
+            this.board.layerManager.importStroke(data.layerIdx, record);
+          } else {
+            this.board.layerManager.importRedoStroke(data.userId, data.redoBatchIdx, data.layerIdx, record);
+          }
 
-      // Schedule progressive render
-      this._scheduleComposite();
+          // Schedule progressive render
+          this._scheduleComposite();
+        })(),
+        timeout
+      ]);
     } catch (error) {
-      console.error('[SyncClient] Failed to apply stroke', error);
+      console.warn(`[SyncClient] Skipping stroke (User: ${data.userId}, Layer: ${data.layerIdx}):`, error.message || error);
     }
   }
 
