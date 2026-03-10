@@ -1469,6 +1469,11 @@ export class DrawingApp {
     this.toolManager.setTool(tool);
     this.ui.updateToolDisplay(tool, this.self);
 
+    // Sync text cursor style with current size/color when switching to text tool
+    if (tool === 'text') {
+      this.ui.updateSelfTextStyle(this.self.size, this.self.color);
+    }
+
     // Force smoothing to 100% (value 50) for geometric tools where it's not applicable
     if (tool === 'line' || tool === 'rectangle' || tool === 'circle') {
       this.self.setSmoothing(50);
@@ -2072,7 +2077,7 @@ export class DrawingApp {
 
           // Focus hidden input for touch keyboard support
           this.ui.activateTouchInput(e.clientX, e.clientY);
-        } else if (e.pointerType === 'pen' && this.pressureEnabled) {
+        } else if (e.pointerType === 'pen' && this.pressureEnabled && this.self.tool !== 'text') {
           // Defer pen stroke start until first pointerMove provides real pressure
           this._pendingPenDown = { pos, event: e };
         } else {
@@ -2148,8 +2153,24 @@ export class DrawingApp {
       return;
     }
 
-    // Clear pending pen down if pen lifted without moving
-    this._pendingPenDown = null;
+    // If pen was lifted without moving, flush the pending stroke as a single dot
+    if (this._pendingPenDown) {
+      const pending = this._pendingPenDown;
+      this._pendingPenDown = null;
+
+      // Use a small default pressure for taps (pen didn't move, so no pressure data)
+      const tapPressure = 0.5;
+      this.self.setPressure(tapPressure);
+      this.inputBufferManager.inputBuffer.pressure = tapPressure;
+      this.wsClient.broadcastPressureChange(tapPressure);
+      this.wsClient.broadcastMouseDown();
+
+      const tool = this.toolManager.getCurrentTool();
+      if (tool) {
+        tool.onPointerDown(this.self, pending.pos, pending.event);
+        // Let the tool produce the dot, then immediately end the stroke
+      }
+    }
 
     // Process any remaining buffered input before ending stroke
     if (this.inputBufferManager.inputBuffer.dirty) {
