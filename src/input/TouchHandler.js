@@ -103,9 +103,11 @@ export class TouchHandler {
   }
 
   handleTouchStart(e) {
-    if (e.touches.length === 2) {
-      e.preventDefault();
+    // Always prevent default on the drawing surface to stop browser gestures (scroll/zoom/long-press)
+    // from cancelling our PointerEvents. touch-action: none is usually enough but this is more robust.
+    e.preventDefault();
 
+    if (e.touches.length === 2) {
       this.state.active = true;
       this.state.mode = null; // Start in detection mode
       this.state.gestureStartedWithTwoFingers = true;
@@ -146,8 +148,9 @@ export class TouchHandler {
   }
 
   handleTouchMove(e) {
-    if (!this.state.active || e.touches.length !== 2) return;
     e.preventDefault();
+
+    if (!this.state.active || e.touches.length !== 2) return;
 
     const currentDistance = this.getDistance(e.touches);
     const currentAngle = this.getAngle(e.touches);

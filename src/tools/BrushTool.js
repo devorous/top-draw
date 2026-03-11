@@ -33,8 +33,10 @@ export class BrushTool extends Tool {
 
   onPointerDown(user, pos) {
     this.board.beginStroke(user);
+    user.clearLine();
 
     // Position is already smoothed by InputBufferManager
+    // Push twice to ensure dots are rendered (drawLineArray needs at least 2 points)
     user.currentLine.push(pos);
     user.currentLine.push(pos);
     this.drawPreview(user);

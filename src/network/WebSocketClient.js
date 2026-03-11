@@ -611,18 +611,11 @@ export class WebSocketClient {
         break;
 
       case T.SYNC_STROKE_BATCH:
-        // Unpack batched strokes and emit individual sync_stroke events
+        // Emit as a single batch event so it counts as 1 message for progress tracking
         if (data.strokes && data.strokes.length > 0) {
-          console.log(`[Sync] Received batch with ${data.strokes.length} strokes:`, data.strokes.map(s => ({
-            layerIdx: s.layerIdx,
-            userId: s.userId,
-            timestamp: s.timestamp ? Number(s.timestamp) : 0,
-            x: s.x, y: s.y
-          })));
-
-          for (const stroke of data.strokes) {
-            this.emit('sync_stroke', {
-              layerIdx: stroke.layerIdx !== undefined ? stroke.layerIdx : data.layerIdx,  // Use per-stroke layerIdx if available
+          this.emit('sync_stroke_batch', {
+            strokes: data.strokes.map(stroke => ({
+              layerIdx: stroke.layerIdx !== undefined ? stroke.layerIdx : data.layerIdx,
               userId: stroke.userId,
               x: stroke.x,
               y: stroke.y,
@@ -634,8 +627,8 @@ export class WebSocketClient {
               isRedo: stroke.isRedo || false,
               redoBatchIdx: stroke.redoBatch || 0,
               imageData: stroke.img
-            });
-          }
+            }))
+          });
         }
         break;
 

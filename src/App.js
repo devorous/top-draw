@@ -792,7 +792,8 @@ export class DrawingApp {
     elements.board.addEventListener('pointermove', (e) => this.handlePointerMove(e));
     elements.board.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
     elements.board.addEventListener('pointerup', (e) => this.handlePointerUp(e));
-         elements.board.addEventListener('pointerenter', () => {
+    elements.board.addEventListener('pointercancel', (e) => this.handlePointerUp(e));
+    elements.board.addEventListener('pointerenter', () => {
            this.isOnBoard = true;
     
            // Skip showing cursor during two-finger gestures (except for text tool)
@@ -1938,6 +1939,11 @@ export class DrawingApp {
   }
 
   handlePointerDown(e) {
+    // Reset smoothing buffer and state for new stroke immediately
+    this.inputBufferManager.resetBroadcastSmoothing();
+    this.self._mainCtxDrawCount = 0;
+    this.self.mousedown = false;
+
     // Block local input while syncing
     if (this.syncClient?.isSyncing()) return;
 
@@ -2031,10 +2037,9 @@ export class DrawingApp {
     // Reset broadcast smooth buffer for new stroke
     this.inputBufferManager.broadcastSmoothBuffer.isFirst = true;
 
-    // Set self position immediately for pointerDown
-    this.self.setPosition(pos.x, pos.y);
-    this.self.lastx = this.self.x;
-    this.self.lasty = this.self.y;
+    // Fully reset self position state for new stroke to prevent jumping
+    this.self.resetPosition(pos.x, pos.y);
+    this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);
     this.self.mousedown = true;
     this.self.spaceIndex = 0;
     this.self._mainCtxDrawCount = 0; // Reset draw counter for this stroke
@@ -2052,6 +2057,7 @@ export class DrawingApp {
     // so sending MD now would cause the remote side to draw the initial dot at max size.
     // It will be sent when _pendingPenDown is resolved in handlePointerMove.
     // Also don't broadcast if panning to prevent unwanted dots when space+click panning.
+    // Touch and mouse should broadcast immediately to enable "dots" (single clicks/taps).
     const deferBroadcast = e.pointerType === 'pen' && this.pressureEnabled && !this.self.panning;
     if (!deferBroadcast && !this.self.panning) {
       // For tools that use smoothing, send the smoothed initial point instead of raw click.
@@ -2159,22 +2165,27 @@ export class DrawingApp {
       return;
     }
 
-    // If pen was lifted without moving, flush the pending stroke as a single dot
-    if (this._pendingPenDown) {
+    // If pointer was lifted without moving, flush the pending stroke as a single dot.
+    // This applies to pen (which deactivates MD broadcast) and any other input
+    // that might have finished before the first tick occurred.
+    if (this._pendingPenDown || (this.self.mousedown && this.self._mainCtxDrawCount === 0)) {
       const pending = this._pendingPenDown;
       this._pendingPenDown = null;
 
-      // Use a small default pressure for taps (pen didn't move, so no pressure data)
-      const tapPressure = 0.5;
-      this.self.setPressure(tapPressure);
-      this.inputBufferManager.inputBuffer.pressure = tapPressure;
-      this.wsClient.broadcastPressureChange(tapPressure);
-      this.wsClient.broadcastMouseDown();
+      // For pen deactivation, we need to manually start the stroke now.
+      // For touch/mouse, the stroke already started in handlePointerDown.
+      if (pending) {
+        // Use a small default pressure for taps (pen didn't move, so no pressure data)
+        const tapPressure = 0.5;
+        this.self.setPressure(tapPressure);
+        this.inputBufferManager.inputBuffer.pressure = tapPressure;
+        this.wsClient.broadcastPressureChange(tapPressure);
+        this.wsClient.broadcastMouseDown();
 
-      const tool = this.toolManager.getCurrentTool();
-      if (tool) {
-        tool.onPointerDown(this.self, pending.pos, pending.event);
-        // Let the tool produce the dot, then immediately end the stroke
+        const tool = this.toolManager.getCurrentTool();
+        if (tool) {
+          tool.onPointerDown(this.self, pending.pos, pending.event);
+        }
       }
     }
 

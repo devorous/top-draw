@@ -46,6 +46,13 @@ export function setupSyncHandlers(wsClient, app) {
     }
   });
 
+  // Receiving a batch of stroke records
+  wsClient.on('sync_stroke_batch', (data) => {
+    if (app.syncClient) {
+      app.syncClient.handleSyncStrokeBatch(data);
+    }
+  });
+
   // All stroke data received — recomposite before SYNC_COMPLETE arrives
   wsClient.on('sync_strokes_done', () => {
     if (app.syncClient) {

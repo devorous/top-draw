@@ -42,6 +42,15 @@ export class User {
     this.afk = afk;
   }
 
+  resetPosition(x, y) {
+    this.x = x;
+    this.y = y;
+    this.lastx = x;
+    this.lasty = y;
+    this.targetX = x;
+    this.targetY = y;
+  }
+
   setPosition(x, y) {
     this.lastx = this.x;
     this.lasty = this.y;

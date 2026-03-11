@@ -835,12 +835,9 @@ canvas {
   cursor: none;
 }
 
-/* Disable touch-action only on devices with precise pointers (pen/mouse) */
-@media (hover: hover) and (pointer: fine) {
-  canvas,
-  #boardContainer {
-    touch-action: none;
-  }
+canvas,
+#boardContainer {
+  touch-action: none;
 }
 
 /* ========================================

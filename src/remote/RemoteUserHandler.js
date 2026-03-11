@@ -326,6 +326,7 @@ export class RemoteUserHandler {
   handleMouseDown(user, data = {}) {
     user.mousedown = true;
     user._mainCtxDrawCount = 0; // Reset draw counter for this stroke
+    user.clearLine(); // Ensure fresh line for new stroke
 
     // Reset smoothing buffer for the new stroke
     resetSmoothingBuffer(user.smoothBuffer);
