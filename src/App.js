@@ -1850,6 +1850,11 @@ export class DrawingApp {
       this.self._pendingTextPos = { x, y };
       this.self.setPosition(x, y);
       this.ui.updateSelfCursor(x, y, this.self.size);
+      
+      // Broadcast movement so remote users see the text cursor updating
+      if (this.connected) {
+        this.wsClient.broadcastMouseMove(x, y);
+      }
       return;
     }
 
@@ -2058,27 +2063,13 @@ export class DrawingApp {
     // It will be sent when _pendingPenDown is resolved in handlePointerMove.
     // Also don't broadcast if panning to prevent unwanted dots when space+click panning.
     // Touch and mouse should broadcast immediately to enable "dots" (single clicks/taps).
-    const deferBroadcast = e.pointerType === 'pen' && this.pressureEnabled && !this.self.panning;
-    if (!deferBroadcast && !this.self.panning) {
-      // For tools that use smoothing, send the smoothed initial point instead of raw click.
-      // This ensures remote users see perfect parity with the sender.
-      const smoothingTools = ['brush', 'flowPen', 'ink', 'imageBrush', 'erase'];
-      let broadcastPos = [pos.x, pos.y];
-      if (smoothingTools.includes(this.self.tool)) {
-        const smoothed = this.inputBufferManager.applyBroadcastSmoothing([pos.x, pos.y]);
-        broadcastPos = [smoothed[0], smoothed[1]];
-        // Update local self position to match the smoothed broadcast position
-        this.self.setPosition(smoothed[0], smoothed[1]);
-      }
-      this.wsClient.broadcastMouseDown(broadcastPos);
-    }
-
     if (!this.self.panning) {
       const tool = this.toolManager.getCurrentTool();
       if (tool) {
         // For text tool with touch, don't commit immediately - wait for pointerUp
         // to allow two-finger gestures to cancel the text placement
         if (this.self.tool === 'text' && e.pointerType === 'touch') {
+          this.self.mousedown = true;
           // Store pending text position but don't call onPointerDown yet
           this.self._pendingTextPos = pos;
           this.self._pendingTextPointerType = e.pointerType;
@@ -2089,10 +2080,26 @@ export class DrawingApp {
 
           // Focus hidden input for touch keyboard support
           this.ui.activateTouchInput(e.clientX, e.clientY);
+          
+          // DO NOT broadcastMouseDown here. We wait until pointerUp for text+touch.
         } else if (e.pointerType === 'pen' && this.pressureEnabled && this.self.tool !== 'text') {
           // Defer pen stroke start until first pointerMove provides real pressure
           this._pendingPenDown = { pos, event: e };
         } else {
+          // Standard immediate placement/stroke start
+          
+          // For tools that use smoothing, send the smoothed initial point instead of raw click.
+          // This ensures remote users see perfect parity with the sender.
+          const smoothingTools = ['brush', 'flowPen', 'ink', 'imageBrush', 'erase'];
+          let broadcastPos = [pos.x, pos.y];
+          if (smoothingTools.includes(this.self.tool)) {
+            const smoothed = this.inputBufferManager.applyBroadcastSmoothing([pos.x, pos.y]);
+            broadcastPos = [smoothed[0], smoothed[1]];
+            // Update local self position to match the smoothed broadcast position
+            this.self.setPosition(smoothed[0], smoothed[1]);
+          }
+          this.wsClient.broadcastMouseDown(broadcastPos);
+
           tool.onPointerDown(this.self, pos, e);
 
           // Discard initial stamp from buffer — remote already stamps via handlePenDown (MD)
@@ -2201,6 +2208,11 @@ export class DrawingApp {
       if (this.self.tool === 'text' && this.self._pendingTextPos && e.pointerType === 'touch') {
         const textTool = this.toolManager.getTool('text');
         if (textTool) {
+          // Broadcast final position before MU so remote users draw it in the right place
+          if (this.connected) {
+            // Send MD to trigger placement of any previous text and set remote mousedown=true
+            this.wsClient.broadcastMouseDown([this.self._pendingTextPos.x, this.self._pendingTextPos.y]);
+          }
           textTool.onPointerDown(this.self, this.self._pendingTextPos, e);
           this.ui.updateSelfTextInput(this.self.text);
         }

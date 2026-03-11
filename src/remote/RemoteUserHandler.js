@@ -255,12 +255,18 @@ export class RemoteUserHandler {
     // Shape tools and eraser need their preview canvas cleared.
     // Brush also needs clear because it redraws the whole line for better quality.
     // Skip for select tool when a floating selection exists.
-    const needsClear = ['brush', 'line', 'rectangle', 'circle', 'select', 'erase'].includes(user.tool);
+    const needsClear = ['brush', 'line', 'rectangle', 'circle', 'select', 'erase', 'text'].includes(user.tool);
     if (needsClear && !(user.tool === 'select' && user.floatingCanvas)) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
 
     switch (user.tool) {
+      case 'text':
+        if (user.text) {
+          this.toolManager.getTool('text').drawText(user, user.context);
+        }
+        break;
+
       case 'brush':
         if (user.currentLine.length >= 2) {
           drawLineArray(user.currentLine, user.context, user);
@@ -350,6 +356,7 @@ export class RemoteUserHandler {
     const pos = { x: user.x, y: user.y };
     // Essential for all shape tools and selection
     user.startPos = pos;
+    user.setPosition(pos.x, pos.y);
 
     // Begin a fresh active stroke for this user so each stroke composites independently
     if (!user.panning) {
@@ -492,6 +499,7 @@ export class RemoteUserHandler {
   }
 
   handleMouseUp(user) {
+    if (!user.mousedown) return;
     const pos = { x: user.x, y: user.y };
     user.remoteTarget = null; // Clear target on release
 
@@ -595,6 +603,16 @@ export class RemoteUserHandler {
           }
         }
         break;
+
+      case 'text':
+        // Handle text tool touch placement on lift
+        if (user.text) {
+          this.toolManager.getTool('text').drawText(user);
+          user.text = '';
+          this.ui.updateRemoteText(user.id, '');
+          this.board.requestUpdate();
+        }
+        break;
     }
 
     // End drawing tracking for debug overlay
@@ -617,14 +635,12 @@ export class RemoteUserHandler {
     }
 
     // Commit the stroke to the history stack.
-    // Skip if tool is text, as text is committed immediately in handleMouseDown.
-    if (user.tool !== 'text') {
-      if (user.tool === 'erase' && user.eraseAllLayers) {
-        this.board.endStrokeAllLayers(user);
-      } else {
-        this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
-      }
+    if (user.tool === 'erase' && user.eraseAllLayers) {
+      this.board.endStrokeAllLayers(user);
+    } else {
+      this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
     }
+
     // Cleanup (preview was already cleared at start of handleMouseUp)
     user.clearLine();
     user.mousedown = false;
