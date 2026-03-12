@@ -1,11 +1,20 @@
+/**
+ * @fileoverview Selection tool for manipulating canvas content.
+ * Provides lasso and rectangular selection, move, rotate, and homography-based transforms.
+ */
+
 import { Homography } from '../utils/homography.js';
 import { performHomographyTransform, imageDataToCanvas, calculateCornerBounds } from '../utils/homographyUtils.js';
 import { pointInHull, distanceBasedCulling } from '../utils/drawing.js';
 
 /**
- * Base tool class
+ * Base tool class for all interactive board tools.
  */
 class Tool {
+  /**
+   * @param {string} name - Unique identifier for the tool.
+   * @param {Board} board - The drawing board instance.
+   */
   constructor(name, board) {
     this.name = name;
     this.board = board;
@@ -19,12 +28,16 @@ class Tool {
 }
 
 /**
- * Selection tool for selecting, moving, and transforming regions
+ * Selection tool for selecting, moving, and transforming regions.
+ * Supports both rectangular and lasso selection modes.
  */
 export class SelectTool extends Tool {
+  /**
+   * @param {Board} board - The drawing board instance.
+   */
   constructor(board) {
     super('select', board);
-    this.mode = 'lasso'; // 'rectangle' or 'lasso' - default to lasso
+    this.mode = 'lasso'; // 'rectangle' or 'lasso'
     this.copyAllLayers = false; // Toggle: copy/cut all visible layers vs active layer only
     this._restoreData = null; // Snapshot of erased area
     this.isSelecting = false;
@@ -42,79 +55,83 @@ export class SelectTool extends Tool {
     this.handles = [];
     this.activeHandle = null;
     this.handleSize = 8;
-    this.handleHitArea = 20; // Larger hit area for easier clicking
+    this.handleHitArea = 20;
 
-    // Corner positions for transform (can be moved independently for perspective)
-    this.corners = null; // { tl, tr, bl, br } - each is {x, y}
-    this.originalCorners = null; // Original corners before transform
-    this.originalSelectionPos = null; // Track original position to detect moves
+    // Corner positions for transform
+    this.corners = null; // { tl, tr, bl, br }
+    this.originalCorners = null; // Original corners relative to selection
+    this.originalSelectionPos = null;
 
     // Rotation
-    this.rotation = 0; // Rotation angle in radians
-    this.rotationHandleDistance = 30; // Distance of rotation handle from top edge
+    this.rotation = 0;
+    this.rotationHandleDistance = 30;
     this.isRotating = false;
-    this.rotationStartAngle = 0; // Angle when rotation started
-    this.cornersAtRotationStart = null; // Corners at the start of rotation
+    this.rotationStartAngle = 0;
+    this.cornersAtRotationStart = null;
 
-    // Perspective handles (extend from corners for homography control)
-    this.perspectiveHandleDistance = 40; // Distance from corners (similar to rotation's 30px)
+    // Perspective handles
+    this.perspectiveHandleDistance = 40;
 
-    // Homography instance for transforms (reused to avoid per-frame allocation)
+    // Homography instances
     this.homography = null;
-    this.previewHomography = null; // Separate instance for downscaled previews
+    this.previewHomography = null;
     this.isTransforming = false;
 
-    // Preview downscaling settings
-    this.previewMaxSize = 512; // Max dimension for preview warps (higher for better visual quality)
-    this.hasShownPreviewToast = false; // Track if we've shown the low-res preview toast
+    // Preview downscaling
+    this.previewMaxSize = 512;
+    this.hasShownPreviewToast = false;
 
-    // Cache for transformed preview to avoid recalculating homography during drag
+    // Cache for transformed preview
     this._cachedTransform = null; // { canvas, bounds, cornersKey }
 
     // Clipboard
     this.clipboard = null;
 
-    // Context menu elements (cached after first use)
+    // Context menu elements
     this.menuElements = null;
 
     // Menu positioning
-    this.lastPointerUpPos = null; // Track where mouse up occurred for menu positioning
+    this.lastPointerUpPos = null;
 
-    // Throttling for selection move broadcasts (30 TPS for homography performance)
-    this.selectionMoveThrottleRate = 30; // TPS
-    this.selectionMoveThrottleInterval = 1000 / this.selectionMoveThrottleRate; // ~33.33ms
+    // Throttling for selection move broadcasts (30 TPS)
+    this.selectionMoveThrottleRate = 30;
+    this.selectionMoveThrottleInterval = 1000 / this.selectionMoveThrottleRate;
     this.lastSelectionBroadcastTime = 0;
-    this.pendingSelectionBroadcast = null; // Stores corners to broadcast after throttle
+    this.pendingSelectionBroadcast = null;
 
     // Lasso-specific state
-    this.lassoPoints = []; // Raw points collected during lasso draw
-    this.lassoSimplified = null; // Simplified path for rendering/testing
-    this.lassoPath = null; // The actual lasso path used for point-in-polygon testing (preserves concave shape)
+    this.lassoPoints = [];
+    this.lassoSimplified = null;
+    this.lassoPath = null;
   }
 
+  /**
+   * Activates the tool.
+   */
   activate() {
     this.board.mainCtx.globalCompositeOperation = 'source-over';
     this.startMarchingAnts();
     this.setupMenuListeners();
   }
 
+  /**
+   * Deactivates the tool, committing any active selection.
+   */
   deactivate() {
     this.stopMarchingAnts();
     this.commitSelection();
     this.clearSelection();
     this.hideContextMenu();
-    // Reset cursor
     this.board.container.style.cursor = 'none';
     if (this.board.app?.ui) {
-      this.board.app.ui.setSelectCursor(false); // Reset to crosshair
+      this.board.app.ui.setSelectCursor(false);
     }
   }
 
   /**
    * Throttled broadcast for selection moves to limit network/render load.
-   * Broadcasts at most at selectionMoveThrottleRate TPS (default 30).
    * @param {Object} corners - { tl: {x,y}, tr: {x,y}, bl: {x,y}, br: {x,y} }
-   * @param {boolean} force - If true, bypass throttle (for final position on pointer up)
+   * @param {boolean} [force=false] - If true, bypass throttle.
    */
   throttledBroadcastSelectionMove(corners, force = false) {
     if (!this.board.app || !this.board.app.wsClient) return;
@@ -123,18 +140,16 @@ export class SelectTool extends Tool {
     const elapsed = now - this.lastSelectionBroadcastTime;
 
     if (force || elapsed >= this.selectionMoveThrottleInterval) {
-      // Enough time has passed or forced - send immediately
       this.board.app.wsClient.broadcastSelectionMove(corners);
       this.lastSelectionBroadcastTime = now;
       this.pendingSelectionBroadcast = null;
     } else {
-      // Store for later - will be sent when throttle window passes or on pointer up
       this.pendingSelectionBroadcast = { ...corners };
     }
   }
 
   /**
-   * Flush any pending selection broadcast (call on pointer up to ensure final state is sent)
+   * Flush any pending selection broadcast.
    */
   flushPendingSelectionBroadcast() {
     if (this.pendingSelectionBroadcast && this.board.app && this.board.app.wsClient) {
@@ -145,8 +160,8 @@ export class SelectTool extends Tool {
   }
 
   /**
-   * Set selection mode
-   * @param {string} mode - 'rectangle' or 'lasso'
+   * Set selection mode.
+   * @param {string} mode - 'rectangle' or 'lasso'.
    */
   setMode(mode) {
     if (this.selection) {
@@ -157,7 +172,7 @@ export class SelectTool extends Tool {
   }
 
   /**
-   * Get bounding box from array of points
+   * Get bounding box from array of points.
    * @param {Array<{x: number, y: number}>} points
    * @returns {{x: number, y: number, width: number, height: number}}
    */
@@ -187,7 +202,7 @@ export class SelectTool extends Tool {
   }
 
   /**
-   * Draw lasso preview during selection
+   * Draw lasso preview during selection.
    * @param {CanvasRenderingContext2D} ctx
    * @param {Array<{x: number, y: number}>} points
    */
@@ -220,27 +235,18 @@ export class SelectTool extends Tool {
   }
 
   /**
-   * Apply lasso mask to ImageData - sets alpha to 0 for pixels outside lasso
-   * @param {ImageData} imageData - The image data to mask
-   * @param {number} offsetX - X offset of imageData relative to canvas
-   * @param {number} offsetY - Y offset of imageData relative to canvas
-   * @param {Array<{x: number, y: number}>} lassoPath - The lasso polygon (any polygon works with pointInHull winding number algorithm)
-   */
-  /**
-   * Apply lasso mask to a canvas context - sets alpha to 0 for pixels outside lasso path
-   * Uses Canvas globalCompositeOperation for hardware-accelerated masking.
-   * @param {CanvasRenderingContext2D} ctx - The context to mask
-   * @param {number} offsetX - X offset of context relative to canvas
-   * @param {number} offsetY - Y offset of context relative to canvas
-   * @param {Array<{x: number, y: number}>} lassoPath - The lasso polygon
+   * Apply lasso mask to a canvas context.
+   * @param {CanvasRenderingContext2D} ctx - The context to mask.
+   * @param {number} offsetX - X offset relative to canvas.
+   * @param {number} offsetY - Y offset relative to canvas.
+   * @param {Array<{x: number, y: number}>} lassoPath - The lasso polygon.
    */
   applyLassoMask(ctx, offsetX, offsetY, lassoPath) {
     if (!lassoPath || lassoPath.length < 3) return;
 
     ctx.save();
-    // destination-in: Only keep pixels where the new drawing (the lasso path) overlaps existing content
     ctx.globalCompositeOperation = 'destination-in';
-    ctx.fillStyle = 'white'; // Color doesn't matter for destination-in
+    ctx.fillStyle = 'white';
     ctx.beginPath();
     ctx.moveTo(lassoPath[0].x - offsetX, lassoPath[0].y - offsetY);
     for (let i = 1; i < lassoPath.length; i++) {
@@ -251,8 +257,11 @@ export class SelectTool extends Tool {
     ctx.restore();
   }
 
+  /**
+   * Sets up context menu event listeners.
+   */
   setupMenuListeners() {
-    if (this.menuElements) return; // Already set up
+    if (this.menuElements) return;
 
     this.menuElements = {
       menu: document.getElementById('selectionMenu'),
@@ -278,33 +287,30 @@ export class SelectTool extends Tool {
     this.menuElements.cancel.addEventListener('click', () => this.cancelSelection());
   }
 
+  /**
+   * Displays the selection context menu.
+   */
   showContextMenu() {
     if (!this.menuElements?.menu || !this.selection) return;
 
     const menu = this.menuElements.menu;
     const hasMoved = this.hasBeenMoved();
 
-    // Show/hide options based on state
     this.menuElements.clear.classList.toggle('hidden', hasMoved);
     this.menuElements.fill.classList.toggle('hidden', hasMoved);
-    this.menuElements.flip.classList.toggle('hidden', false); // Always visible
+    this.menuElements.flip.classList.toggle('hidden', false);
     this.menuElements.stamp.classList.toggle('hidden', !hasMoved);
-    this.menuElements.save.classList.toggle('hidden', false); // Always visible
+    this.menuElements.save.classList.toggle('hidden', false);
     this.menuElements.cancel.classList.toggle('hidden', !hasMoved);
 
-    // Use grid layout when selection has been moved (6 buttons in grid)
-    // Use column layout for fresh selection (6 buttons in vertical list)
     menu.classList.toggle('grid', hasMoved);
 
-    // Position menu near cursor instead of selection corner
     let canvasX, canvasY;
 
     if (this.lastPointerUpPos) {
-      // Use last pointer up position
       canvasX = this.lastPointerUpPos.x;
       canvasY = this.lastPointerUpPos.y;
     } else {
-      // Fallback to bottom-right of selection (legacy behavior)
       const rightX = this.corners
         ? Math.max(this.corners.tl.x, this.corners.tr.x, this.corners.bl.x, this.corners.br.x)
         : this.selection.x + this.selection.width;
@@ -316,28 +322,22 @@ export class SelectTool extends Tool {
       canvasY = bottomY;
     }
 
-    // Account for board zoom/pan transforms
     const zoom = this.board.zoom || 1;
     const panX = this.board.panX || 0;
     const panY = this.board.panY || 0;
 
-    // Transform canvas coordinates to screen coordinates
     const screenX = canvasX * zoom + panX;
     const screenY = canvasY * zoom + panY;
 
-    // Show menu to measure dimensions (let CSS classes control display type)
     menu.style.display = '';
     const menuWidth = menu.offsetWidth;
     const menuHeight = menu.offsetHeight;
 
-    // Position relative to board container
     const containerRect = this.board.container.getBoundingClientRect();
 
-    // Position menu slightly offset from cursor (10px right, 10px down)
     let left = containerRect.left + screenX + 10;
     let top = containerRect.top + screenY + 10;
 
-    // Keep menu on screen
     left = Math.max(10, Math.min(left, window.innerWidth - menuWidth - 10));
     top = Math.max(10, Math.min(top, window.innerHeight - menuHeight - 10));
 
@@ -345,12 +345,19 @@ export class SelectTool extends Tool {
     menu.style.top = `${top}px`;
   }
 
+  /**
+   * Hides the selection context menu.
+   */
   hideContextMenu() {
     if (this.menuElements?.menu) {
       this.menuElements.menu.style.display = 'none';
     }
   }
 
+  /**
+   * Checks if the selection has been moved or transformed.
+   * @returns {boolean}
+   */
   hasBeenMoved() {
     if (!this.originalSelectionPos || !this.selection) return false;
     return (
@@ -361,14 +368,16 @@ export class SelectTool extends Tool {
     );
   }
 
+  /**
+   * Updates the cursor style based on pointer position.
+   * @param {{x: number, y: number}} pos
+   */
   updateCursor(pos) {
     if (!this.board.container) return;
 
-    // Check if over a handle first (highest priority)
     this.updateHandles();
     const handle = this.getHandleAtPoint(pos);
     if (handle) {
-      // Set cursor based on handle position
       if (handle.id === 'rotate') {
         this.board.container.style.cursor = 'grab';
         return;
@@ -384,36 +393,34 @@ export class SelectTool extends Tool {
       return;
     }
 
-    // Check if over selection (for move)
     if (this.selection && this.isInsideSelection(pos)) {
       this.board.container.style.cursor = 'move';
       if (this.board.app?.ui) {
-        this.board.app.ui.setSelectCursor(true); // Show hand cursor
+        this.board.app.ui.setSelectCursor(true);
       }
       return;
     }
 
-    // Default crosshair for selection
     this.board.container.style.cursor = 'crosshair';
     if (this.board.app?.ui) {
-      this.board.app.ui.setSelectCursor(false); // Show crosshair cursor
+      this.board.app.ui.setSelectCursor(false);
     }
   }
 
+  /**
+   * Starts the "marching ants" selection border animation.
+   */
   startMarchingAnts() {
     if (this.animationId) return;
 
     const animate = () => {
       this.marchingAntsOffset = (this.marchingAntsOffset + 1) % 16;
-      // Only redraw if we have a selection and aren't actively transforming
       if (this.selection && !this.isDragging && !this.isTransforming && !this.isSelecting && !this.isRotating) {
         this.board.clearTop();
-        // Draw floating selection (uses cached transform) and marching ants
         if (this.floatingCanvas) {
           this.drawFloatingSelection();
           this.drawMarchingAntsOnly();
         } else {
-          // Draw only the marching ants border and handles
           this.drawMarchingAntsOnly();
         }
       }
@@ -422,17 +429,18 @@ export class SelectTool extends Tool {
     this.animationId = requestAnimationFrame(animate);
   }
 
+  /**
+   * Draws the animated selection border and handles.
+   */
   drawMarchingAntsOnly() {
     if (!this.selection) return;
 
     const ctx = this.board.topCtx;
 
-    // Draw marching ants border using corners if available AND transformed
     if (this.corners && this.hasTransformedCorners()) {
       this.drawTransformOutline(ctx);
       this.drawTransformHandles(ctx);
     } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.hasScaledSelection()) {
-      // Lasso mode - draw simplified polygon (only if not scaled)
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
@@ -456,17 +464,14 @@ export class SelectTool extends Tool {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Also draw a subtle bounding rectangle (no animation)
       const s = this.selection;
       ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
       ctx.lineWidth = 1;
       ctx.strokeRect(s.x, s.y, s.width, s.height);
 
-      // Draw handles
       this.updateHandles();
       for (const handle of this.handles) {
         if (handle.isRotation) {
-          // Draw connecting line to rotation handle
           const tm = this.handles.find(h => h.id === 'tm');
           if (tm) {
             ctx.strokeStyle = '#000';
@@ -477,7 +482,6 @@ export class SelectTool extends Tool {
             ctx.stroke();
           }
 
-          // Draw rotation handle as a circle
           ctx.fillStyle = '#fff';
           ctx.strokeStyle = '#000';
           ctx.beginPath();
@@ -485,13 +489,11 @@ export class SelectTool extends Tool {
           ctx.fill();
           ctx.stroke();
         } else if (handle.isPerspective) {
-          // Draw perspective handle with connecting line
           const cornerMap = { ptl: 'tl', ptr: 'tr', pbl: 'bl', pbr: 'br' };
           const cornerId = cornerMap[handle.id];
           const corner = this.corners[cornerId];
 
           if (corner) {
-            // Draw connecting line from corner to perspective handle (dark grey, very thin)
             ctx.strokeStyle = '#222';
             ctx.lineWidth = 0.75;
             ctx.setLineDash([]);
@@ -500,8 +502,7 @@ export class SelectTool extends Tool {
             ctx.lineTo(handle.x, handle.y);
             ctx.stroke();
 
-            // Draw perspective handle as desaturated cyan circle
-            ctx.fillStyle = '#88CCCC'; // Less saturated cyan
+            ctx.fillStyle = '#88CCCC';
             ctx.strokeStyle = '#000';
             ctx.lineWidth = 1;
             ctx.beginPath();
@@ -510,7 +511,6 @@ export class SelectTool extends Tool {
             ctx.stroke();
           }
         } else {
-          // Draw regular handles as squares
           ctx.fillStyle = '#fff';
           ctx.strokeStyle = '#000';
           ctx.lineWidth = 1;
@@ -529,7 +529,6 @@ export class SelectTool extends Tool {
         }
       }
     } else {
-      // Rectangle mode - draw bounding box
       const s = this.selection;
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 1;
@@ -542,11 +541,9 @@ export class SelectTool extends Tool {
       ctx.strokeRect(s.x, s.y, s.width, s.height);
       ctx.setLineDash([]);
 
-      // Draw handles
       this.updateHandles();
       for (const handle of this.handles) {
         if (handle.isRotation) {
-          // Draw connecting line to rotation handle
           const tm = this.handles.find(h => h.id === 'tm');
           if (tm) {
             ctx.strokeStyle = '#000';
@@ -557,7 +554,6 @@ export class SelectTool extends Tool {
             ctx.stroke();
           }
 
-          // Draw rotation handle as a circle
           ctx.fillStyle = '#fff';
           ctx.strokeStyle = '#000';
           ctx.beginPath();
@@ -565,13 +561,11 @@ export class SelectTool extends Tool {
           ctx.fill();
           ctx.stroke();
         } else if (handle.isPerspective) {
-          // Draw perspective handle with connecting line
           const cornerMap = { ptl: 'tl', ptr: 'tr', pbl: 'bl', pbr: 'br' };
           const cornerId = cornerMap[handle.id];
           const corner = this.corners[cornerId];
 
           if (corner) {
-            // Draw connecting line from corner to perspective handle (dark grey, very thin)
             ctx.strokeStyle = '#222';
             ctx.lineWidth = 0.75;
             ctx.setLineDash([]);
@@ -580,8 +574,7 @@ export class SelectTool extends Tool {
             ctx.lineTo(handle.x, handle.y);
             ctx.stroke();
 
-            // Draw perspective handle as desaturated cyan circle
-            ctx.fillStyle = '#88CCCC'; // Less saturated cyan
+            ctx.fillStyle = '#88CCCC';
             ctx.strokeStyle = '#000';
             ctx.lineWidth = 1;
             ctx.beginPath();
@@ -590,7 +583,6 @@ export class SelectTool extends Tool {
             ctx.stroke();
           }
         } else {
-          // Draw regular handles as squares
           ctx.fillStyle = '#fff';
           ctx.strokeStyle = '#000';
           ctx.lineWidth = 1;
@@ -611,6 +603,9 @@ export class SelectTool extends Tool {
     }
   }
 
+  /**
+   * Stops the marching ants animation.
+   */
   stopMarchingAnts() {
     if (this.animationId) {
       cancelAnimationFrame(this.animationId);
@@ -2045,7 +2040,6 @@ export class SelectTool extends Tool {
       const group = lm.layerGroups[groupIdx];
       if (!group || !group.visible) return;
 
-      // 1. Snapshot the selection area BEFORE erasing (for undo/cancel)
       // We need to composite the group to a temp canvas to see what we're about to erase
       const layerCanvas = document.createElement('canvas');
       layerCanvas.width = lm.width;
@@ -2075,7 +2069,6 @@ export class SelectTool extends Tool {
 
       snapshots.push({ groupIdx, canvas: snap, x: s.x, y: s.y });
 
-      // 2. Apply the erase as a committed stroke
       lm.beginUserStroke(groupIdx, userId, 'destination-out');
       const ctx = lm.getUserStrokeContext(groupIdx, userId);
 

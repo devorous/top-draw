@@ -1,3 +1,5 @@
+/** @fileoverview K6 stress test for low-volume WebSocket traffic, simulating a small number of VUs. */
+
 import ws from 'k6/ws';
 import { check, sleep } from 'k6';
 import { Trend } from 'k6/metrics';
@@ -9,6 +11,11 @@ export const options = {
   duration: '1m',
 };
 
+/**
+ * Encodes a numeric value as a Protobuf-style varint.
+ * @param {number} value - The value to encode.
+ * @returns {number[]} - The byte array representation of the varint.
+ */
 function encodeVarint(value) {
   let bytes = [];
   while (value >= 0x80) {
@@ -19,6 +26,11 @@ function encodeVarint(value) {
   return bytes;
 }
 
+/**
+ * Builds a binary message based on the provided fields, following the application's Protobuf schema.
+ * @param {Object} fields - The message fields to include.
+ * @returns {ArrayBuffer} - The serialized binary message.
+ */
 function buildMsg(fields) {
   let parts = [];
   if (fields.t !== undefined) parts.push(new Uint8Array([0x08, ...encodeVarint(fields.t)]));
@@ -69,6 +81,10 @@ const Tool = {
 };
 const toolList = Object.values(Tool);
 
+/**
+ * Main K6 virtual user function. Simulates a user connecting and drawing on the canvas.
+ * @returns {void}
+ */
 export default function () {
   sleep(Math.random() * 2);
 

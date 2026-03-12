@@ -1,16 +1,13 @@
-/**
- * SelectionHandlers
- *
- * Handles all selection-related events (buffered during sync):
- * - Selection lifecycle (lift, move, commit, cancel)
- * - Selection operations (delete, fill, stamp, to_brush)
- * - Image paste
- */
+/** @fileoverview Handles selection-related events including lifting, moving, committing, and manipulating selections. */
 
+/**
+ * Sets up WebSocket event handlers for selection and image paste operations.
+ * @param {Function} wrapHandler - Function to wrap event handlers for sync buffering.
+ * @param {App} app - The main application instance.
+ */
 export function setupSelectionHandlers(wrapHandler, app) {
   const { users, remoteUserHandler } = app;
 
-  // Selection lift - remote user lifted a selection
   wrapHandler('sel_lift', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -18,7 +15,6 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
-  // Selection move - remote user moved selection
   wrapHandler('sel_move', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -26,7 +22,6 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
-  // Selection commit - remote user committed selection
   wrapHandler('sel_commit', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -34,7 +29,6 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
-  // Selection pending - remote user created a selection marquee
   wrapHandler('sel_pending', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -42,7 +36,6 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
-  // Selection delete - remote user deleted selection
   wrapHandler('sel_delete', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -50,7 +43,6 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
-  // Selection fill - remote user filled selection
   wrapHandler('sel_fill', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -58,7 +50,6 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
-  // Selection stamp - remote user stamped selection
   wrapHandler('sel_stamp', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -66,7 +57,6 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
-  // Selection flip - remote user flipped selection
   wrapHandler('sel_flip', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -74,7 +64,6 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
-  // Selection cancel - remote user cancelled selection
   wrapHandler('sel_cancel', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -82,7 +71,6 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
-  // Selection to brush - remote user converted selection to brush
   wrapHandler('sel_to_brush', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -90,7 +78,6 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
-  // Image paste - remote user pasted image content
   wrapHandler('img_paste', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {

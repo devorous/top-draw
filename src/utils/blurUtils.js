@@ -1,13 +1,14 @@
 /**
- * Blur utility functions with lazy-loaded stackblur
+ * @fileoverview Blur utility functions with lazy-loaded stackblur.
+ * Provides functions for blurring image data with or without background compositing.
  */
 
 let stackblurCache = null;
 let loadingPromise = null;
 
 /**
- * Load stackblur dynamically (once)
- * @returns {Promise<Function>} The stackblur function
+ * Loads stackblur dynamically (once).
+ * @returns {Promise<Function>} The stackblur function.
  */
 async function loadStackblur() {
   // Return cached function if already loaded

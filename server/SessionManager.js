@@ -1,38 +1,36 @@
+/** @fileoverview Manages user sessions, state tracking, and AFK detection. */
+
 import { T } from '../shared/MessageTypes.js';
 
-// Role constants
+/**
+ * User role constants.
+ * @enum {number}
+ */
 export const Role = { GUEST: 0, USER: 1, MOD: 2, ADMIN: 3 };
 
-// AFK timing
-const AFK_TIMEOUT = 2 * 60 * 1000;       // 2 minutes
-const AFK_CHECK_INTERVAL = 30 * 1000;    // 30 seconds
+const AFK_TIMEOUT = 2 * 60 * 1000;
+const AFK_CHECK_INTERVAL = 30 * 1000;
 
 /**
- * SessionManager
- *
  * Manages user session indices, user data, and AFK tracking.
- *
- * Responsibilities:
- * - Allocate and free session indices (reuses freed indices for efficiency)
- * - Track user state (position, tool, color, etc.)
- * - AFK detection and broadcasting
- * - Activity updates
  */
 export class SessionManager {
+  /**
+   * @param {function} broadcastCallback - Function to broadcast messages to all users.
+   */
   constructor(broadcastCallback) {
-    this.sessions = new Map();      // oldUserId -> sessionIndex (unused currently, for future multi-tab support)
-    this.users = new Map();         // sessionIndex -> userData
+    this.sessions = new Map();
+    this.users = new Map();
     this.nextSessionIndex = 0;
-    this.freedIndices = [];         // Reusable indices from disconnected users
+    this.freedIndices = [];
     this.broadcastToAll = broadcastCallback;
 
-    // Start AFK checker
     this.afkCheckInterval = setInterval(() => this.checkAfkUsers(), AFK_CHECK_INTERVAL);
   }
 
   /**
-   * Allocate a session index for a new user
-   * Reuses freed indices before incrementing
+   * Allocates a session index for a new user, reusing freed indices if available.
+   * @returns {number} - The allocated session index.
    */
   allocateSessionIndex() {
     if (this.freedIndices.length > 0) {
@@ -42,75 +40,82 @@ export class SessionManager {
   }
 
   /**
-   * Free a session index when user disconnects
-   * Makes it available for reuse
+   * Frees a session index for future reuse.
+   * @param {number} index - The session index to free.
    */
   freeSessionIndex(index) {
     this.freedIndices.push(index);
   }
 
   /**
-   * Create and store a new user record
-   * @param {number} sessionIndex - Assigned session index
-   * @param {string} name - User's display name
-   * @param {number} tool - Initial tool (from Tool enum)
-   * @param {number} color - Packed RGBA color
+   * Creates and stores a new user record.
+   * @param {number} sessionIndex - Assigned session index.
+   * @param {string} [name=''] - User's display name.
+   * @param {number} tool - Initial tool ID.
+   * @param {number} color - Initial packed RGBA color.
+   * @returns {Object} - The created user object.
    */
   createUser(sessionIndex, name = '', tool, color) {
     const newUser = {
       sessionIndex,
       afk: false,
-      cursorHidden: true, // Hidden until user enters the board
+      cursorHidden: true,
       lastActivity: Date.now(),
       x: 0, y: 0, lastx: 0, lasty: 0,
       mousedown: false,
       tool,
       color,
-      size: 1000,      // 10.00 * 100
-      spacing: 10,     // 0.10 * 100
-      smoothing: 15,   // 0-50 integer (default 15/50 = 30%)
-      hardness: 100,   // 0-100 integer (default 100/100 = 100%)
-      pressure: 100,   // 1.00 * 100
-      blurRadius: 5,   // 0-100 integer (default 5px)
+      size: 1000,
+      spacing: 10,
+      smoothing: 15,
+      hardness: 100,
+      pressure: 100,
+      blurRadius: 5,
       name,
       text: '',
-      imageBrush: null, // Stores active GIMP brush data (JSON string or object)
-      role: Role.ADMIN  // TODO: TEMPORARY - All users are admin for testing
+      imageBrush: null,
+      role: Role.ADMIN
     };
     this.users.set(sessionIndex, newUser);
     return newUser;
   }
 
   /**
-   * Get user data by session index
+   * Retrieves user data by session index.
+   * @param {number} sessionIndex - The session index.
+   * @returns {Object|undefined} - The user object or undefined if not found.
    */
   getUser(sessionIndex) {
     return this.users.get(sessionIndex);
   }
 
   /**
-   * Remove user from session
+   * Removes a user record from the manager.
+   * @param {number} sessionIndex - The session index of the user to remove.
    */
   removeUser(sessionIndex) {
     this.users.delete(sessionIndex);
   }
 
   /**
-   * Get all users who have joined (have a name)
+   * Returns all users who have joined the room (i.e., have a name).
+   * @returns {Array<Object>} - A list of joined user objects.
    */
   getJoinedUsers() {
     return Array.from(this.users.values()).filter(u => u.name);
   }
 
   /**
-   * Get total user count
+   * Returns the total number of users currently tracked.
+   * @returns {number} - The user count.
    */
   getUserCount() {
     return this.users.size;
   }
 
   /**
-   * Update user activity timestamp and clear AFK status
+   * Updates a user's activity timestamp and clears their AFK status.
+   * @param {number} sessionIndex - The session index of the user.
    */
   updateUserActivity(sessionIndex) {
     const user = this.users.get(sessionIndex);
@@ -126,13 +131,11 @@ export class SessionManager {
   }
 
   /**
-   * Check all users for AFK timeout
-   * Runs on interval via setInterval
+   * Periodically checks all users for AFK timeouts and broadcasts updates.
    */
   checkAfkUsers() {
     const now = Date.now();
     this.users.forEach((user, sessionIndex) => {
-      // Skip spectators (no name yet)
       if (!user.name) return;
       if (!user.afk && user.lastActivity && (now - user.lastActivity > AFK_TIMEOUT)) {
         user.afk = true;
@@ -143,7 +146,7 @@ export class SessionManager {
   }
 
   /**
-   * Clear AFK check interval (for cleanup)
+   * Cleans up resources, such as clearing the AFK check interval.
    */
   destroy() {
     if (this.afkCheckInterval) {

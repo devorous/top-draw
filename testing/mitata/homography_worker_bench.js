@@ -1,3 +1,5 @@
+/** @fileoverview Benchmark comparing homography warp performance and UI responsiveness between the main thread and a Web Worker. */
+
 import './node_shim.js';
 import { bench, run, group } from 'mitata';
 import { Worker } from 'worker_threads';
@@ -13,31 +15,32 @@ const SOURCE_DATA = new Uint8ClampedArray(WIDTH * HEIGHT * 4).fill(255);
 const SRC_POINTS = [0, 0, WIDTH, 0, 0, HEIGHT, WIDTH, HEIGHT];
 const DST_POINTS = [10, 10, WIDTH-10, 50, 50, HEIGHT-50, WIDTH-5, HEIGHT-10];
 
-// -----------------------------------------------------------------------------
-// RESPONSIIVENESS MONITOR
-// -----------------------------------------------------------------------------
 let maxDrift = 0;
 let driftInterval;
 
+/**
+ * Starts monitoring UI responsiveness by measuring timer drift.
+ * @returns {void}
+ */
 function startMonitor() {
   maxDrift = 0;
   let lastTime = performance.now();
   driftInterval = setInterval(() => {
     const now = performance.now();
-    const drift = now - lastTime - 16.66; // Expected 16.6ms for 60FPS
+    const drift = now - lastTime - 16.66;
     if (drift > maxDrift) maxDrift = drift;
     lastTime = now;
   }, 16);
 }
 
+/**
+ * Stops monitoring and returns the maximum recorded drift.
+ * @returns {number} - The maximum drift in milliseconds.
+ */
 function stopMonitor() {
   clearInterval(driftInterval);
   return maxDrift;
 }
-
-// -----------------------------------------------------------------------------
-// BENCHMARKS
-// -----------------------------------------------------------------------------
 
 console.log('--- Homography Worker vs Main Thread Benchmark ---');
 console.log(`Resolution: ${WIDTH}x${HEIGHT} (1.0 MegaPixels)\n`);

@@ -1,16 +1,21 @@
+/** @fileoverview Handles MongoDB connection and index initialization. */
+
 import 'dotenv/config';
 import { MongoClient, ServerApiVersion } from 'mongodb';
 
-
-const uri = process.env.MONGODB_URI
+const uri = process.env.MONGODB_URI;
 
 let db = null;
 let client = null;
 
+/**
+ * Connects to MongoDB Atlas and initializes the database and indexes.
+ * @returns {Promise<Object>} - The connected database object.
+ * @throws {Error} - If connection fails.
+ */
 export async function connectDB() {
   if (db) return db;
 
-  // Use the modern Stable API settings Atlas gave you
   client = new MongoClient(uri, {
     serverApi: {
       version: ServerApiVersion.v1,
@@ -21,7 +26,6 @@ export async function connectDB() {
 
   try {
     await client.connect();
-    // You can choose your database name here
     db = client.db("Draw"); 
 
     await db.collection('users').createIndex(
@@ -39,6 +43,10 @@ export async function connectDB() {
   }
 }
 
+/**
+ * Returns the current database instance.
+ * @returns {Object|null} - The database object or null if not connected.
+ */
 export function getDB() {
   return db;
 }

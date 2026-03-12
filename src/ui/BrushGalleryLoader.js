@@ -1,11 +1,13 @@
+/** @fileoverview Lazy-loads BrushGallery and parseGimp.js only when first shown. */
+
 /**
- * BrushGalleryLoader
- *
- * Lazy-loads BrushGallery and parseGimp.js only when first shown.
+ * BrushGalleryLoader class
  * This keeps ~40 KB of brush parsing code out of initial bundle.
  */
-
 export class BrushGalleryLoader {
+  /**
+   * @param {Object} options - Configuration options for BrushGallery
+   */
   constructor(options = {}) {
     this.options = options;
     this.realGallery = null;
@@ -13,11 +15,17 @@ export class BrushGalleryLoader {
     this.galleryEl = null;
   }
 
+  /**
+   * Initializes the loader by storing a reference to the gallery element.
+   */
   init() {
-    // Store reference to gallery element but don't load brushes yet
     this.galleryEl = document.getElementById('brushGallery');
   }
 
+  /**
+   * Loads the real BrushGallery module and initializes it.
+   * @returns {Promise<BrushGallery>} - Resolves with the BrushGallery instance
+   */
   async loadRealGallery() {
     if (this.realGallery) {
       return this.realGallery;
@@ -43,8 +51,11 @@ export class BrushGalleryLoader {
     return this.loadingPromise;
   }
 
+  /**
+   * Shows the BrushGallery, loading it first if necessary.
+   * @returns {Promise<void>}
+   */
   async show() {
-    // Lazy load gallery on first show
     if (!this.realGallery) {
       await this.loadRealGallery();
     }
@@ -54,16 +65,21 @@ export class BrushGalleryLoader {
     }
   }
 
+  /**
+   * Hides the BrushGallery.
+   */
   hide() {
-    // Hide immediately if already loaded
     if (this.realGallery) {
       this.realGallery.hide();
     } else if (this.galleryEl) {
-      // Hide even if not loaded yet
       this.galleryEl.style.display = 'none';
     }
   }
 
+  /**
+   * Gets the currently selected brush from the gallery.
+   * @returns {Object|null} - The selected brush or null if not loaded
+   */
   getSelectedBrush() {
     return this.realGallery ? this.realGallery.getSelectedBrush() : null;
   }

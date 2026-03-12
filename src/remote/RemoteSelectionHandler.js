@@ -930,7 +930,6 @@ export class RemoteSelectionHandler {
     const group = lm.layerGroups[layerIdx];
     if (!group) return null;
 
-    // 1. Snapshot the selection area BEFORE erasing (for undo/cancel)
     const layerCanvas = document.createElement('canvas');
     layerCanvas.width = lm.width;
     layerCanvas.height = lm.height;
@@ -959,7 +958,6 @@ export class RemoteSelectionHandler {
 
     const snapshots = [{ groupIdx: layerIdx, canvas: snap, x: s.x, y: s.y }];
 
-    // 2. Apply the erase as a committed stroke
     lm.beginUserStroke(layerIdx, userId, 'destination-out');
     const active = lm.layerGroups[layerIdx]?.activeStrokeByUser.get(userId);
     if (!active) return null;

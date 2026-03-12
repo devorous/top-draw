@@ -1,17 +1,21 @@
+/** @fileoverview Handles pen and flowPen tool rendering for remote users using offscreen canvasing. */
+
 /**
- * RemotePenHandler - Handles pen/flowPen tool rendering for remote users
- * Uses offscreen canvas to avoid opacity stacking
- *
- * IMPORTANT: Position Smoothing
- * - Incoming stamp positions are already EMA-smoothed by sender's InputBufferManager
- * - Pen/flowPen stamps are discrete circles - no additional position smoothing needed
- * - Remote rendering matches sender's visual output exactly
+ * Handles pen/flowPen tool rendering for remote users.
+ * Uses an offscreen canvas to prevent opacity stacking during a single stroke.
  */
 export class RemotePenHandler {
+  /**
+   * @param {Board} board - The main board instance.
+   */
   constructor(board) {
     this.board = board;
   }
 
+  /**
+   * Ensures the user has a valid offscreen canvas for pen rendering.
+   * @param {User} user - The remote user object.
+   */
   ensurePenOffscreen(user) {
     const width = this.board.getWidth();
     const height = this.board.getHeight();
@@ -23,27 +27,28 @@ export class RemotePenHandler {
     }
   }
 
+  /**
+   * Initializes a new pen stroke for a remote user.
+   * @param {User} user - The remote user object.
+   * @param {Object} pos - The starting coordinates {x, y}.
+   */
   handlePenDown(user, pos) {
     this.ensurePenOffscreen(user);
 
-    // Clear offscreen canvas
     user._penOffscreenCtx.clearRect(0, 0, user._penOffscreen.width, user._penOffscreen.height);
 
     const pressure = Math.round(user.pressure * 255) / 255;
     const radius = pressure * user.size;
 
-    // Store color at FULL opacity for offscreen (RGB only)
     const color = user.color.slice(0, 3);
     user._penStrokeColor = `rgb(${color.join(',')})`;
     user._penOffscreenCtx.fillStyle = user._penStrokeColor;
 
-    // Store alpha and hardness for compositing later
     const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     user._penAlpha = colorAlpha * opacitySlider;
     user._penHardness = user.hardness !== undefined ? user.hardness / 100 : 1.0;
 
-    // Draw initial hard stamp
     const ctx = user._penOffscreenCtx;
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, Math.max(0.5, radius), 0, Math.PI * 2);
@@ -53,15 +58,18 @@ export class RemotePenHandler {
     user._penStrokeActive = true;
     user.penPoints = [{ x: pos.x, y: pos.y, radius }];
 
-    // Update preview
     this.updatePenPreview(user);
   }
 
+  /**
+   * Processes incoming stamp points and radii for an active pen stroke.
+   * @param {User} user - The remote user object.
+   * @param {number[]} points - Flat array of [x, y, x, y, ...] coordinates.
+   * @param {number[]} radii - Array of radius values (0-255).
+   */
   handlePenStamps(user, points, radii) {
     if (points.length < 2) return;
 
-    // Lazy-init: if MD arrived before CT (tool change), handlePenDown was never called.
-    // Also clears any junk brush points that handleMouseDown may have added.
     if (!user._penStrokeActive) {
       user.clearLine();
       this.handlePenDown(user, { x: points[0], y: points[1] });
@@ -70,8 +78,6 @@ export class RemotePenHandler {
     const ctx = user._penOffscreenCtx;
     ctx.fillStyle = user._penStrokeColor;
 
-    // Draw hard stamps - blur will be applied globally during composite
-    // Stamp each point — convert pressure (0-255) to pixel radius
     for (let i = 0, ri = 0; i < points.length; i += 2, ri++) {
       const x = points[i];
       const y = points[i + 1];
@@ -80,13 +86,11 @@ export class RemotePenHandler {
       ctx.beginPath();
       ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
       ctx.fill();
-      // Track stamp positions for dirty rect calculation in handlePenUp
       if (user.penPoints) {
         user.penPoints.push({ x, y, radius: r });
       }
     }
 
-    // Update last stamp pos and preview
     const lastPtIdx = points.length - 2;
     const lastPressure = radii[radii.length - 1] / 255;
     const lastR = lastPressure * user.size;
@@ -95,13 +99,17 @@ export class RemotePenHandler {
     this.updatePenPreview(user);
   }
 
+  /**
+   * Handles individual pen movement events and applies adaptive spacing.
+   * @param {User} user - The remote user object.
+   * @param {Object} pos - The new coordinates {x, y}.
+   */
   handlePenMove(user, pos) {
     if (!user._penLastStampPos || !user._penOffscreenCtx) return;
 
     const pressure = Math.round(user.pressure * 255) / 255;
     const radius = pressure * user.size;
 
-    // Adaptive spacing
     const avgRadius = (user._penLastStampPos.radius + radius) / 2;
     const spacing = Math.max(1, avgRadius * 0.2);
     const dx = pos.x - user._penLastStampPos.x;
@@ -109,7 +117,6 @@ export class RemotePenHandler {
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     if (distance >= spacing) {
-      // Draw hard stamps - blur will be applied globally during composite
       const ctx = user._penOffscreenCtx;
       ctx.fillStyle = user._penStrokeColor;
 
@@ -129,11 +136,14 @@ export class RemotePenHandler {
         user.penPoints.push({ x: pos.x, y: pos.y, radius });
       }
 
-      // Update preview
       this.updatePenPreview(user);
     }
   }
 
+  /**
+   * Finalizes and commits a pen stroke to the board layers.
+   * @param {User} user - The remote user object.
+   */
   handlePenUp(user) {
     if (!user._penLastStampPos || !user._penOffscreen) return;
 
@@ -161,13 +171,11 @@ export class RemotePenHandler {
       }
     }
 
-    // Composite offscreen source-over into the sub-layer; blend mode applied at composite time.
     const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);
     if (layerCtx) {
       layerCtx.globalCompositeOperation = 'source-over';
       layerCtx.globalAlpha = user._penAlpha;
 
-      // Apply global blur using shadow injection
       this.compositeWithHardness(layerCtx, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
 
       if (this.board.mirror) {
@@ -180,12 +188,9 @@ export class RemotePenHandler {
       }
 
       layerCtx.globalAlpha = 1.0;
-
-      // Composite all layers to visible canvas
       this.board.requestUpdate();
     }
 
-    // Clean up per-user pen state
     user._penLastStampPos = null;
     user._penStrokeActive = false;
     user._penStrokeColor = null;
@@ -193,14 +198,16 @@ export class RemotePenHandler {
     user.penPoints = [];
   }
 
+  /**
+   * Updates the user's preview canvas with the current pen stroke state.
+   * @param {User} user - The remote user object.
+   */
   updatePenPreview(user) {
     if (!user._penOffscreen) return;
 
-    // Composite offscreen to user.context with alpha for preview
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     user.context.globalAlpha = user._penAlpha;
 
-    // Apply global blur using shadow injection
     this.compositeWithHardness(user.context, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
 
     if (this.board.mirror) {
@@ -215,8 +222,14 @@ export class RemotePenHandler {
   }
 
   /**
-   * Composite offscreen canvas with optional global blur using shadow injection.
-   * Uses hybrid formula: base blur + size scaling for consistent softness across sizes.
+   * Composites an offscreen canvas to a context with hardness/blur application.
+   * @param {CanvasRenderingContext2D} ctx - The destination context.
+   * @param {HTMLCanvasElement} sourceCanvas - The source canvas to composite.
+   * @param {number} size - The stroke size.
+   * @param {number} hardness - The hardness value (0.0 to 1.0).
+   * @param {string} strokeColor - The RGB color string.
+   * @param {number} x - Destination x-coordinate.
+   * @param {number} y - Destination y-coordinate.
    */
   compositeWithHardness(ctx, sourceCanvas, size, hardness, strokeColor, x, y) {
     const blurAmount = (1 - hardness) * (20 + size * 0.2);

@@ -1,9 +1,12 @@
 /**
- * Shared message type and tool enums
+ * @fileoverview Shared message type and tool enums
  * Used by both client and server to ensure consistency
  */
 
-// Message type enum matching proto
+/**
+ * Message type enum matching protobuf definitions
+ * @enum {number}
+ */
 export const T = {
   CONNECT: 0, USERS: 1, SETTINGS: 2, LEFT: 3,
   MM: 10, MD: 11, MU: 12, CP: 13, CS: 14, CT: 15, CC: 16,
@@ -20,17 +23,28 @@ export const T = {
   PING: 69, PONG: 70
 };
 
-// Tool enum matching proto
+/**
+ * Tool enum matching protobuf definitions
+ * @enum {number}
+ */
 export const Tool = {
   BRUSH: 0, TEXT: 1, ERASE: 2, IMAGE_BRUSH: 3,
   SELECT: 4, PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8, INK: 9, INKDROPPER: 10, BLUR: 11, CIRCLE_BLUR: 12, CIRCLE_BLUR_HARD: 13
 };
 
+/**
+ * Array of tool names corresponding to Tool enum indices
+ * @type {string[]}
+ */
 export const ToolNames = [
   'brush', 'text', 'erase', 'imageBrush',
   'select', 'flowPen', 'line', 'rectangle', 'circle', 'ink', 'inkdropper', 'blur', 'circleBlur', 'circleBlurHard'
 ];
 
+/**
+ * Mapping from tool name strings to Tool enum indices
+ * @type {Object.<string, number>}
+ */
 export const ToolToEnum = {
   brush: 0, text: 1, erase: 2, imageBrush: 3,
   select: 4, flowPen: 5, line: 6, rectangle: 7, circle: 8, ink: 9, inkdropper: 10, blur: 11, circleBlur: 12, circleBlurHard: 13

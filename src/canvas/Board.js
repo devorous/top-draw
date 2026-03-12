@@ -1,9 +1,16 @@
 import { LayerManager } from './LayerManager.js';
 
 /**
- * Board class managing canvas elements and viewport
+ * @fileoverview Board class managing canvas elements and viewport
+ */
+
+/**
+ * Manages the drawing boards, viewport transformations, and compositing logic.
  */
 export class Board {
+  /**
+   * @param {Object} [options={}] - Configuration options for the board
+   */
   constructor(options = {}) {
     this.dimensions = options.dimensions || [720, 1280];
     this.zoom = 1;
@@ -15,7 +22,7 @@ export class Board {
     this.rotation = 0;
     this.defaultRotation = 0;
     this.mirror = false;
-    this.backgroundColor = options.backgroundColor || [255, 255, 255, 1]; // Default: white [r, g, b, a]
+    this.backgroundColor = options.backgroundColor || [255, 255, 255, 1];
 
     this.container = null;
     this.boardsWrapper = null;
@@ -28,35 +35,32 @@ export class Board {
     this.cursorsSvg = null;
     this.mirrorLine = null;
 
-    // Layer management
     this.layerManager = null;
-    this.app = null; // Reference to DrawingApp for accessing user state
+    this.app = null;
 
-    // Selection split layer: when >= 0, compositeAllLayers() enters split mode
-    // at this layer index so the floating selection canvas sits correctly between
-    // lower and upper layers. -1 = no active selection.
     this.activeSelectionLayer = -1;
 
-    // Compositing throttle: prevent expensive full-canvas composites on every message
     this._needsComposite = false;
     this._compositeScheduled = false;
 
-    // Multi-rectangle dirty tracking for optimized compositing
-    this._dirtyRects = []; // Array of {x, y, width, height}
+    this._dirtyRects = [];
 
-    // Dirty rect configuration
     this.MAX_DIRTY_RECTS = 20;
     this.DIRTY_RECT_MERGE_DISTANCE = 20;
   }
 
   /**
    * Set reference to the DrawingApp
-   * @param {DrawingApp} app - The main application instance
+   * @param {Object} app - The main application instance
    */
   setApp(app) {
     this.app = app;
   }
 
+  /**
+   * Initialize board elements and layer manager
+   * @param {string} containerSelector - CSS selector for the container element
+   */
   init(containerSelector) {
     this.container = document.querySelector(containerSelector);
     this.boardsWrapper = document.getElementById('boards');
@@ -68,8 +72,6 @@ export class Board {
     this.mainCtx = this.mainCanvas.getContext('2d', { willReadFrequently: true });
     this.topCtx = this.topCanvas.getContext('2d');
 
-    // Create upper layers canvas: renders layers above the active layer so they
-    // appear on top of the topCtx preview stroke during drawing.
     this.upperLayersCanvas = document.createElement('canvas');
     this.upperLayersCanvas.id = 'upperLayersBoard';
     this.upperLayersCanvas.style.position = 'absolute';
@@ -82,7 +84,6 @@ export class Board {
 
     this.setupCanvas();
 
-    // Initialize layer manager after canvas setup
     const [height, width] = this.dimensions;
     this.layerManager = new LayerManager(width, height);
 
@@ -90,6 +91,9 @@ export class Board {
     this.resetView();
   }
 
+  /**
+   * Set up canvas dimensions and initial context states
+   */
   setupCanvas() {
     const [height, width] = this.dimensions;
 
@@ -123,31 +127,35 @@ export class Board {
     this.boardsWrapper.style.transformOrigin = 'top left';
   }
 
+  /**
+   * Calculate default zoom and pan to fit the board in the container
+   */
   calculateDefaultView() {
     const containerWidth = this.container.clientWidth;
-    const containerHeight = this.container.clientHeight - 50; // Account for toolbar
+    const containerHeight = this.container.clientHeight - 50;
     const [height, width] = this.dimensions;
 
-    // Calculate zoom to fit board in container with padding
     const padding = 20;
     const availableWidth = containerWidth - padding * 2;
     const availableHeight = containerHeight - padding * 2;
 
     const zoomX = availableWidth / width;
     const zoomY = availableHeight / height;
-    const zoom = Math.min(zoomX, zoomY, 1); // Don't zoom above 100%
+    const zoom = Math.min(zoomX, zoomY, 1);
 
-    // Center the board in the container
     const scaledWidth = width * zoom;
     const scaledHeight = height * zoom;
     const panX = (containerWidth - scaledWidth) / 2;
-    const panY = (containerHeight - scaledHeight) / 2 + 50; // Offset for toolbar
+    const panY = (containerHeight - scaledHeight) / 2 + 50;
 
     this.defaultZoom = Math.round(zoom * 1000) / 1000;
     this.defaultPanX = panX;
     this.defaultPanY = panY;
   }
 
+  /**
+   * Reset the viewport to default zoom, pan, and rotation
+   */
   resetView() {
     this.zoom = this.defaultZoom;
     this.panX = this.defaultPanX;
@@ -157,22 +165,20 @@ export class Board {
     this.applyTransform();
   }
 
-
+  /**
+   * Apply current pan, zoom, and rotation to the board's DOM wrapper
+   */
   applyTransform() {
-    // Set origin to top-left to simplify math
     this.boardsWrapper.style.transformOrigin = '0 0';
-    
-    // Apply translation, scale, and rotation in a single transform string.
-    // This allows the browser to use GPU acceleration and avoids layout reflows
-    // that occur when changing 'left' and 'top' properties.
     this.boardsWrapper.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom}) rotate(${this.rotation}deg)`;
-
-    // Clear left and top to avoid conflicts with the transform-based panning.
     this.boardsWrapper.style.left = '';
     this.boardsWrapper.style.top = '';
   }
   
-
+  /**
+   * Set board rotation
+   * @param {number} angle - Rotation angle in degrees
+   */
   setRotation(angle) {
     this.rotation = angle;
     this.applyTransform();
@@ -181,19 +187,14 @@ export class Board {
   /**
    * Rotate to a new angle while keeping the given boardContainer-space pivot fixed on screen.
    * @param {number} newAngleDeg - New rotation in degrees
-   * @param {number} pivotX - Pivot X in boardContainer coordinates (same space as panX)
-   * @param {number} pivotY - Pivot Y in boardContainer coordinates (same space as panY)
+   * @param {number} pivotX - Pivot X in boardContainer coordinates
+   * @param {number} pivotY - Pivot Y in boardContainer coordinates
    */
   setRotationAround(newAngleDeg, pivotX, pivotY) {
     const oldRad = this.rotation * Math.PI / 180;
     const newRad = newAngleDeg * Math.PI / 180;
     const { zoom } = this;
 
-    // Find board-space coordinate of the pivot using current transform:
-    //   cx = panX + zoom*(bx*cosθ - by*sinθ)
-    //   cy = panY + zoom*(bx*sinθ + by*cosθ)
-    // Inverting: boardX = ((cx-panX)*cosθ + (cy-panY)*sinθ) / zoom
-    //            boardY = (-(cx-panX)*sinθ + (cy-panY)*cosθ) / zoom
     const dx = pivotX - this.panX;
     const dy = pivotY - this.panY;
     const cosOld = Math.cos(oldRad);
@@ -201,7 +202,6 @@ export class Board {
     const boardX = (dx * cosOld + dy * sinOld) / zoom;
     const boardY = (-dx * sinOld + dy * cosOld) / zoom;
 
-    // Compute new pan so the board point maps back to the same pivot on screen
     const cosNew = Math.cos(newRad);
     const sinNew = Math.sin(newRad);
     this.panX = pivotX - zoom * (boardX * cosNew - boardY * sinNew);
@@ -210,32 +210,42 @@ export class Board {
     this.applyTransform();
   }
 
+  /**
+   * Reset rotation to default
+   */
   resetRotation() {
     this.rotation = this.defaultRotation;
     this.applyTransform();
   }
 
+  /**
+   * Pan the viewport
+   * @param {number} dx - Change in X
+   * @param {number} dy - Change in Y
+   */
   pan(dx, dy) {
     this.panX += dx;
     this.panY += dy;
     this.applyTransform();
   }
 
+  /**
+   * Set viewport zoom level
+   * @param {number} zoom - Zoom level (0.2 to 3)
+   * @param {Object} [cursorPos=null] - Pivot point for zoom {x, y}
+   * @returns {number} The applied zoom level
+   */
   setZoom(zoom, cursorPos = null) {
     const oldZoom = this.zoom;
     this.zoom = Math.max(0.2, Math.min(3, zoom));
 
     if (cursorPos) {
-      // 1. Where is the cursor on the screen?
-      // (Local canvas point * old zoom) + current offset
       const screenX = cursorPos.x * oldZoom + this.panX;
       const screenY = cursorPos.y * oldZoom + this.panY;
 
-      // 2. Adjust pan so that: (cursorPos.x * newZoom) + newPan = screenX
       this.panX = screenX - (cursorPos.x * this.zoom);
       this.panY = screenY - (cursorPos.y * this.zoom);
     } else {
-      // Center zoom logic (using board dimensions)
       const [height, width] = this.dimensions;
       const midX = width / 2;
       const midY = height / 2;
@@ -251,35 +261,61 @@ export class Board {
     return this.zoom;
   }
 
+  /**
+   * Zoom in by a step
+   * @param {number} [step=0.1] - Zoom step
+   * @param {Object} [cursorPos=null] - Pivot point for zoom
+   * @returns {number} The applied zoom level
+   */
   zoomIn(step = 0.1, cursorPos = null) {
     return this.setZoom(Math.round((this.zoom + step) * 10) / 10, cursorPos);
   }
 
+  /**
+   * Zoom out by a step
+   * @param {number} [step=0.1] - Zoom step
+   * @param {Object} [cursorPos=null] - Pivot point for zoom
+   * @returns {number} The applied zoom level
+   */
   zoomOut(step = 0.1, cursorPos = null) {
     return this.setZoom(Math.round((this.zoom - step) * 10) / 10, cursorPos);
   }
 
+  /**
+   * Get zoom percentage string
+   * @returns {string}
+   */
   getZoomPercent() {
     return `${(this.zoom * 100).toFixed(1)}%`;
   }
 
+  /**
+   * Toggle vertical mirror line
+   * @returns {boolean} New mirror state
+   */
   toggleMirror() {
     this.mirror = !this.mirror;
     this.mirrorLine.style.display = this.mirror ? 'block' : 'none';
     return this.mirror;
   }
 
+  /**
+   * Set mirror state
+   * @param {boolean} value - Mirror state
+   */
   setMirror(value) {
     this.mirror = value;
     this.mirrorLine.style.display = this.mirror ? 'block' : 'none';
   }
 
+  /**
+   * Clear all layers and reset canvases
+   */
   clear() {
     const [height, width] = this.dimensions;
     this.mainCtx.beginPath();
     this.topCtx.beginPath();
 
-    // Clear all layers
     if (this.layerManager) {
       this.layerManager.clearAll();
       this.compositeAllLayers();
@@ -292,10 +328,8 @@ export class Board {
 
   /**
    * Get the drawing context for the local user's active sub-layer.
-   * Strokes must always be drawn source-over into this context —
-   * the blend mode is applied at composite time, not at draw time.
-   * @param {string} [createBlendMode='source-over']
-   * @returns {CanvasRenderingContext2D} The active sub-layer's context
+   * @param {string} [createBlendMode='source-over'] - Blend mode if creating new sub-layer
+   * @returns {CanvasRenderingContext2D}
    */
   getActiveLayerContext(createBlendMode = 'source-over') {
     const activeLayer = this.app?.self?.activeLayer ?? 0;
@@ -304,21 +338,18 @@ export class Board {
   }
 
   /**
-   * Get the drawing context for a specific user on a specific layer.
-   * Used by remote user handlers.
-   * @param {number} layerIndex - Layer group index
+   * Get drawing context for a specific user on a specific layer.
+   * @param {number} layerIndex - Layer index
    * @param {number} userId - User ID
-   * @param {string} [createBlendMode='source-over']
-   * @returns {CanvasRenderingContext2D} The sub-layer's context
+   * @param {string} [createBlendMode='source-over'] - Blend mode if creating new sub-layer
+   * @returns {CanvasRenderingContext2D}
    */
   getLayerContext(layerIndex, userId, createBlendMode = 'source-over') {
     return this.layerManager?.getLayerContext(layerIndex, userId, createBlendMode) ?? this.mainCtx;
   }
 
   /**
-   * Get the local user's current blend mode.
-   * This is the sticky blend mode set by the user, used for UI display.
-   * Sub-layers are always drawn source-over internally.
+   * Get local user's current blend mode
    * @returns {string}
    */
   getActiveLayerBlendMode() {
@@ -326,9 +357,8 @@ export class Board {
   }
 
   /**
-   * Begin a new stroke for the local user with the given blend mode.
-   * Called when the user switches blend modes mid-session.
-   * @param {string} blendMode - CSS composite operation
+   * Begin a new sub-layer with a specific blend mode for the local user.
+   * @param {string} blendMode - Canvas composite operation
    */
   createActiveLayerBlendSubLayer(blendMode) {
     const activeLayer = this.app?.self?.activeLayer ?? 0;
@@ -339,10 +369,9 @@ export class Board {
   }
 
   /**
-   * Begin a new stroke for a user. Creates a fresh active-stroke canvas so each
-   * stroke composites independently — required for blend modes like difference/multiply.
-   * @param {Object} user - User object with activeLayer, id, and blendMode
-   * @param {string} [blendModeOverride] - Override user.blendMode (e.g. 'destination-out' for eraser)
+   * Begin a new stroke for a user.
+   * @param {Object} user - User object
+   * @param {string} [blendModeOverride] - Optional blend mode override
    */
   beginStroke(user, blendModeOverride) {
     if (user?.panning) return;
@@ -352,15 +381,13 @@ export class Board {
     if (this.layerManager) {
       this.layerManager.beginUserStroke(activeLayer, userId, blendMode);
     }
-    // Refresh the mainCtx/upperLayersCtx split so the preview (topCtx) sits at the
-    // correct depth between lower and upper layers when drawing begins.
     this.requestUpdate();
   }
 
   /**
-   * Begin a destination-out stroke on every layer simultaneously (erase-all mode).
-   * @param {Object} user - User object with id
-   * @param {string} blendMode - Expected to be 'destination-out'
+   * Begin a stroke on every layer simultaneously (erase-all mode).
+   * @param {Object} user - User object
+   * @param {string} blendMode - Blend mode (usually destination-out)
    */
   beginStrokeAllLayers(user, blendMode) {
     if (user?.panning) return;
@@ -375,8 +402,8 @@ export class Board {
   }
 
   /**
-   * Commit active strokes on every layer for a user (erase-all mode).
-   * @param {Object} user - User object with id
+   * End stroke on every layer for a user (erase-all mode).
+   * @param {Object} user - User object
    */
   endStrokeAllLayers(user) {
     const userId = user?.id ?? this.app?.self?.id ?? 0;
@@ -390,9 +417,8 @@ export class Board {
   }
 
   /**
-   * Return drawing contexts for all layers for a given user.
-   * Lazily creates active stroke canvases if not present.
-   * @param {number} userId
+   * Get drawing contexts for all layers for a user.
+   * @param {number} userId - User ID
    * @returns {CanvasRenderingContext2D[]}
    */
   getAllLayerContexts(userId) {
@@ -407,9 +433,8 @@ export class Board {
   }
 
   /**
-   * End the current stroke for a user. Commits the active stroke canvas to the
-   * stroke history stack and triggers a composite refresh.
-   * @param {Object} user - User object with activeLayer and id
+   * End the current stroke for a user.
+   * @param {Object} user - User object
    */
   endStroke(user) {
     const activeLayer = user?.activeLayer ?? this.app?.self?.activeLayer ?? 0;
@@ -421,12 +446,11 @@ export class Board {
 
   /**
    * Expand the dirty rectangle for a user's active stroke.
-   * Tools should call this after drawing operations to track the drawn region.
-   * @param {Object} user - User object with activeLayer and id
-   * @param {number} x - X coordinate of the drawn region
-   * @param {number} y - Y coordinate of the drawn region
-   * @param {number} width - Width of the drawn region
-   * @param {number} height - Height of the drawn region
+   * @param {Object} user - User object
+   * @param {number} x - X coordinate
+   * @param {number} y - Y coordinate
+   * @param {number} width - Width
+   * @param {number} height - Height
    */
   expandDirtyRect(user, x, y, width, height) {
     if (!this.layerManager) return;
@@ -438,10 +462,8 @@ export class Board {
     if (!active || !active.dirtyRect) return;
     this.layerManager._expandDirtyRect(active.dirtyRect, x, y, width, height);
 
-    // Also add/merge global dirty rect for optimized compositing
     this._addOrMergeDirtyRect(x, y, width, height);
 
-    // Also expand user region in debug overlay (if enabled)
     if (this.app?.debugOverlay) {
       const username = user?.username ?? this.app?.self?.username ?? `User ${userId}`;
       this.app.debugOverlay.expandUserRegion(userId, username, x, y, width, height);
@@ -449,21 +471,19 @@ export class Board {
   }
 
   /**
-   * Expand dirty rects for ALL layers' active strokes for a user.
-   * Used by the erase-all eraser so every layer's stroke has a valid dirty rect
-   * and is not silently discarded by commitUserStroke.
-   * @param {Object} user - User object with id
-   * @param {number} x - X coordinate of the drawn region
-   * @param {number} y - Y coordinate of the drawn region
-   * @param {number} width - Width of the drawn region
-   * @param {number} height - Height of the drawn region
+   * Expand dirty rects for all layers' active strokes for a user.
+   * @param {Object} user - User object
+   * @param {number} x - X coordinate
+   * @param {number} y - Y coordinate
+   * @param {number} width - Width
+   * @param {number} height - Height
    */
   expandDirtyRectAllLayers(user, x, y, width, height) {
     if (!this.layerManager) return;
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     const count = this.layerManager.getLayerCount();
     for (let i = 0; i < count; i++) {
-      const group = this.layerManager.layerGroups[i];
+      const group = this.layerGroups[i];
       if (!group) continue;
       const active = group.activeStrokeByUser.get(userId);
       if (!active || !active.dirtyRect) continue;
@@ -478,19 +498,20 @@ export class Board {
 
   /**
    * Add or merge a dirty rectangle into the global dirty regions array.
-   * Uses intelligent merging to consolidate nearby regions and prevent unbounded growth.
+   * @param {number} x - X coordinate
+   * @param {number} y - Y coordinate
+   * @param {number} width - Width
+   * @param {number} height - Height
    * @private
    */
   _addOrMergeDirtyRect(x, y, width, height) {
     const newRect = { x, y, width, height };
 
-    // Empty array: just add it
     if (this._dirtyRects.length === 0) {
       this._dirtyRects.push(newRect);
       return;
     }
 
-    // Find closest rect and check if we should merge
     let closestIdx = -1;
     let closestDist = Infinity;
 
@@ -502,14 +523,12 @@ export class Board {
       }
     }
 
-    // Merge if close enough (including overlap = distance 0)
     if (closestDist <= this.DIRTY_RECT_MERGE_DISTANCE) {
       this._dirtyRects[closestIdx] = this._unionRects(this._dirtyRects[closestIdx], newRect);
     } else {
       this._dirtyRects.push(newRect);
     }
 
-    // Enforce max limit by merging closest pair until under limit
     while (this._dirtyRects.length > this.MAX_DIRTY_RECTS) {
       this._mergeClosestPair();
     }
@@ -517,17 +536,17 @@ export class Board {
 
   /**
    * Calculate minimum distance between two rectangles.
-   * Returns 0 if they overlap.
+   * @param {Object} r1 - First rectangle
+   * @param {Object} r2 - Second rectangle
+   * @returns {number}
    * @private
    */
   _rectDistance(r1, r2) {
-    // Check for overlap
     const overlapX = !(r1.x + r1.width < r2.x || r2.x + r2.width < r1.x);
     const overlapY = !(r1.y + r1.height < r2.y || r2.y + r2.height < r1.y);
 
-    if (overlapX && overlapY) return 0; // Overlapping
+    if (overlapX && overlapY) return 0;
 
-    // Calculate gap distance (axis-aligned)
     const gapX = overlapX ? 0 : Math.max(0,
       Math.max(r1.x, r2.x) - Math.min(r1.x + r1.width, r2.x + r2.width));
     const gapY = overlapY ? 0 : Math.max(0,
@@ -538,6 +557,9 @@ export class Board {
 
   /**
    * Union two rectangles into their bounding box.
+   * @param {Object} r1 - First rectangle
+   * @param {Object} r2 - Second rectangle
+   * @returns {Object} Union rectangle
    * @private
    */
   _unionRects(r1, r2) {
@@ -550,7 +572,6 @@ export class Board {
 
   /**
    * Find and merge the two closest rectangles in the array.
-   * Mutates _dirtyRects by replacing two entries with their union.
    * @private
    */
   _mergeClosestPair() {
@@ -570,15 +591,13 @@ export class Board {
       }
     }
 
-    // Merge j into i, then remove j
     this._dirtyRects[mergeI] = this._unionRects(this._dirtyRects[mergeI], this._dirtyRects[mergeJ]);
     this._dirtyRects.splice(mergeJ, 1);
   }
 
   /**
-   * Cancel the current stroke for a user. Discards the active stroke canvas
-   * without committing it.
-   * @param {Object} user - User object with activeLayer and id
+   * Cancel the current stroke for a user.
+   * @param {Object} user - User object
    */
   cancelStroke(user) {
     const activeLayer = user?.activeLayer ?? this.app?.self?.activeLayer ?? 0;
@@ -589,17 +608,15 @@ export class Board {
   }
 
   /**
-   * Undo the most recent stroke for userId across all layers (global, timestamp-ordered).
-   * Erase-all batches are removed atomically. The undone batch is pushed onto the redo stack.
-   * @param {number} _layerIndex - Unused; kept for call-site compatibility
-   * @param {number} userId
+   * Undo the most recent stroke for userId across all layers.
+   * @param {number} _layerIndex - Unused; kept for compatibility
+   * @param {number} userId - User ID
    */
   undo(_layerIndex, userId) {
     if (!this.layerManager) return;
     const batch = this.layerManager.undoLastStrokeGlobal(userId);
     if (batch) {
       this.layerManager._pushToRedoStack(userId, batch);
-      // If the undone stroke was a selection paste, restore the erased source area
       for (const { record } of batch) {
         if (record.selectionRestoreData) {
           this._applySelectionRestore(record.selectionRestoreData.snapshots);
@@ -613,11 +630,10 @@ export class Board {
 
   /**
    * Redo the most recently undone stroke batch for userId.
-   * @param {number} userId
+   * @param {number} userId - User ID
    */
   redo(userId) {
     if (!this.layerManager) return;
-    // If the stroke being redone was a selection paste, re-apply the source-area erase
     const redoStack = this.layerManager.redoStackByUser.get(userId);
     if (redoStack && redoStack.length > 0) {
       const batch = redoStack[redoStack.length - 1];
@@ -633,7 +649,11 @@ export class Board {
     this.compositeAllLayers();
   }
 
-  /** Apply pixel snapshots back to baseCanvas (used by undo of a selection paste) */
+  /**
+   * Apply pixel snapshots back to baseCanvas
+   * @param {Array} snapshots - Array of snapshot data
+   * @private
+   */
   _applySelectionRestore(snapshots) {
     if (!snapshots) return;
     const lm = this.layerManager;
@@ -645,7 +665,11 @@ export class Board {
     lm._notifyHistoryPanel();
   }
 
-  /** Re-apply the erase to baseCanvas (used by redo of a selection paste) */
+  /**
+   * Re-apply the erase to baseCanvas
+   * @param {Object} restoreData - Selection restore data
+   * @private
+   */
   _applySelectionReErase(restoreData) {
     const lm = this.layerManager;
     const { snapshots, eraseS: s, eraseLassoPath: lassoPath } = restoreData;
@@ -653,7 +677,6 @@ export class Board {
       const group = lm.layerGroups[groupIdx];
       if (!group) continue;
 
-      // Use eraser canvas if available, or just clear rectangle
       const eraserCanvas = document.createElement('canvas');
       eraserCanvas.width = s.width;
       eraserCanvas.height = s.height;
@@ -667,7 +690,7 @@ export class Board {
   }
 
   /**
-   * Get the full layer group for the active layer (used by eraser)
+   * Get the full layer group for the active layer
    * @returns {Object|undefined}
    */
   getActiveLayerGroup() {
@@ -676,8 +699,8 @@ export class Board {
   }
 
   /**
-   * Get the full layer group for a specific index (used by remote eraser)
-   * @param {number} index - Layer group index
+   * Get the full layer group for a specific index
+   * @param {number} index - Layer index
    * @returns {Object|undefined}
    */
   getLayerGroup(index) {
@@ -686,15 +709,6 @@ export class Board {
 
   /**
    * Composite all visible layers onto the main canvas.
-   *
-   * While the local user has an active in-progress stroke we use a split:
-   *   - mainCtx   → layers 0..activeLayerIdx (with background)
-   *   - upperLayersCtx → layers above activeLayerIdx (transparent)
-   * This lets the topCtx live-preview stroke sit visually between the two canvases.
-   *
-   * At all other times (layer switch, undo, stroke committed, etc.) we do a full
-   * composite of all layers onto mainCtx so that blend modes (overlay, multiply…)
-   * interact correctly with every layer beneath them. upperLayersCtx is cleared.
    */
   compositeAllLayers() {
     if (!this.layerManager) return;
@@ -704,20 +718,14 @@ export class Board {
     const totalLayers = this.layerManager.getLayerCount();
     const [height, width] = this.dimensions;
 
-    // Capture dirty rects for this composite and reset for next frame
-    const dirtyRects = this._dirtyRects.slice(); // Clone array
+    const dirtyRects = this._dirtyRects.slice();
 
-    // Notify debug overlay before resetting (so it can visualize them)
     if (this.app?.debugOverlay) {
       this.app.debugOverlay.captureDirtyRects(dirtyRects);
     }
 
     this._dirtyRects = [];
 
-    // Determine the split layer: either a stroke is in progress (drawing split) or
-    // a selection is being moved (selection split). The split puts lower layers on
-    // mainCtx so the floating selection canvas / topCtx preview sits between lower
-    // and upper layers rather than above everything.
     const activeGroup = this.layerManager.getLayerGroup(activeLayerIdx);
     const isDrawing = activeGroup?.activeStrokeByUser?.has(userId) ?? false;
     const isEraser = this.app?.activeTool === 'erase';
@@ -726,21 +734,15 @@ export class Board {
     const hasActiveSelection = this.activeSelectionLayer >= 0;
     const splitLayer = hasActiveSelection ? this.activeSelectionLayer : activeLayerIdx;
     
-    // Skip split mode if upper layers have blend-mode strokes — CSS canvas stacking
-    // can't handle cross-canvas blend operations.
     const upperLayersHaveBlendModes = this.layerManager.rangeHasBlendModeStrokes(splitLayer + 1, totalLayers);
 
-    // OPTIMIZATION: Global Punch-Through for "Erase All Layers" mode
     if (isDrawing && eraseAll) {
-      // 1. Composite all layers onto a transparent background first
       this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, null, dirtyRects);
       
-      // 2. Punch the hole once through the entire stack using the preview canvas
       this.mainCtx.globalCompositeOperation = 'destination-out';
       this.mainCtx.globalAlpha = this.app?.self?.opacity ?? 1.0;
       this.mainCtx.drawImage(this.topCanvas, 0, 0);
       
-      // 3. Draw the background behind everything
       this.mainCtx.globalCompositeOperation = 'destination-over';
       const [r, g, b, a] = this.backgroundColor;
       this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
@@ -754,25 +756,19 @@ export class Board {
       }
     } 
     else if ((isDrawing || hasActiveSelection) && splitLayer + 1 < totalLayers && !upperLayersHaveBlendModes) {
-      // Split mode: floating canvas / topCtx preview sits between lower and upper layers.
       this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.backgroundColor, dirtyRects);
       
-      // Handle live preview composite
       if (isDrawing) {
         if (isEraser) {
-          // Live eraser preview: punch hole in the layers drawn so far
           this.mainCtx.globalCompositeOperation = 'destination-out';
           this.mainCtx.globalAlpha = this.app?.self?.opacity ?? 1.0;
           this.mainCtx.drawImage(this.topCanvas, 0, 0);
           
-          // Restore the background behind the hole (so only layers are erased)
           this.mainCtx.globalCompositeOperation = 'destination-over';
           const [r, g, b, a] = this.backgroundColor;
           this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
           this.mainCtx.fillRect(0, 0, width, height);
         } else {
-          // Normal tool preview: only composite if using special blend mode
-          // For source-over, the topCtx preview layer is sufficient (prevents double-dot)
           const blendMode = this.getActiveLayerBlendMode();
           if (blendMode !== 'source-over') {
             this.mainCtx.globalCompositeOperation = blendMode;
@@ -787,10 +783,8 @@ export class Board {
         this.layerManager.compositeLayerRange(this.upperLayersCtx, splitLayer + 1, totalLayers, null, dirtyRects);
       }
     } else {
-      // Full composite: all layers together so blend modes resolve correctly.
       this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.backgroundColor, dirtyRects);
       
-      // In full composite mode, also inject the live preview if active
       if (isDrawing) {
         if (isEraser) {
           this.mainCtx.globalCompositeOperation = 'destination-out';
@@ -802,8 +796,6 @@ export class Board {
           this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
           this.mainCtx.fillRect(0, 0, width, height);
         } else {
-          // Normal tool preview: only composite if using special blend mode
-          // For source-over, the topCtx preview layer is sufficient (prevents double-dot)
           const blendMode = this.getActiveLayerBlendMode();
           if (blendMode !== 'source-over') {
             this.mainCtx.globalCompositeOperation = blendMode;
@@ -825,8 +817,6 @@ export class Board {
 
   /**
    * Request a composite update on the next animation frame.
-   * This throttles expensive compositeAllLayers() calls to 60fps max,
-   * preventing hundreds of full-canvas composites from queuing messages.
    */
   requestUpdate() {
     this._needsComposite = true;
@@ -848,19 +838,33 @@ export class Board {
     }
   }
 
+  /**
+   * Clear the preview (top) canvas
+   */
   clearTop() {
     const [height, width] = this.dimensions;
     this.topCtx.clearRect(0, 0, width, height);
   }
 
+  /**
+   * Get board width
+   * @returns {number}
+   */
   getWidth() {
     return this.dimensions[1];
   }
 
+  /**
+   * Get board height
+   * @returns {number}
+   */
   getHeight() {
     return this.dimensions[0];
   }
 
+  /**
+   * Save the main canvas as a PNG image
+   */
   saveAsImage() {
     const dataURL = this.mainCanvas.toDataURL();
     const link = document.createElement('a');

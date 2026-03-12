@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+/** @fileoverview Integration test for verifying stroke synchronization between multiple users using Puppeteer. */
+
 import puppeteer from 'puppeteer';
 
 const TARGET_URL = process.env.TARGET_URL || 'http://localhost:3000/top-draw/';
@@ -8,11 +10,23 @@ const ROOM = `single_stroke_sync_${TOOL}_${Date.now()}`;
 const HEADLESS = process.env.HEADLESS !== 'false';
 const NUM_BOTS = 2;
 
+/**
+ * Class representing a synchronization test with multiple bots.
+ */
 class SingleStrokeSyncTest {
+  /**
+   * Initializes the test with an empty list of bots.
+   */
   constructor() {
     this.bots = [];
   }
 
+  /**
+   * Spawns a new bot instance using Puppeteer.
+   * @async
+   * @param {number} i - The index of the bot.
+   * @returns {Promise<Object>} - The bot name, browser, and page instances.
+   */
   async spawnBot(i) {
     const name = `user_${i}`;
     console.log(`  Spawning ${name}...`);
@@ -48,6 +62,11 @@ class SingleStrokeSyncTest {
     return { name, browser, page };
   }
 
+  /**
+   * Runs the multi-user synchronization test.
+   * @async
+   * @returns {Promise<void>}
+   */
   async run() {
     console.log(`🚀 Starting Single-Stroke Multi-User Sync Test [Bots: ${NUM_BOTS}, Tool: ${TOOL}]`);
     console.log(`🏠 Room: ${ROOM}`);
@@ -70,14 +89,12 @@ class SingleStrokeSyncTest {
     await this.bots[0].page.evaluate(() => window.app.handleClear());
     await new Promise(r => setTimeout(r, 1000));
 
-    // Define colors
     const colors = [
       [255, 0, 0, 1], // Red
       [0, 255, 0, 1], // Green
       [0, 0, 255, 1], // Blue
     ];
 
-    // Fixed coordinates for 1 stroke each
     const strokes = [
       { start: { x: 200, y: 200 }, end: { x: 400, y: 400 } },
       { start: { x: 400, y: 200 }, end: { x: 200, y: 400 } },
@@ -139,7 +156,6 @@ class SingleStrokeSyncTest {
     for (const bot of this.bots) {
       const data = await bot.page.evaluate(() => {
         const lm = window.app.board.layerManager;
-        // Collect detailed stroke metadata
         const strokes = [];
         lm.layerGroups.forEach((g, gIdx) => {
           g.strokeStack.forEach((s, sIdx) => {

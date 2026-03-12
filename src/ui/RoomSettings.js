@@ -1,7 +1,14 @@
+/** @fileoverview UI for managing room settings. */
+
 /**
- * RoomSettings - UI for managing room settings
+ * RoomSettings class
  */
 export class RoomSettings {
+  /**
+   * @param {Object} params
+   * @param {WebSocketClient} params.wsClient - WebSocket client instance
+   * @param {Function} params.onUpdate - Callback for room updates
+   */
   constructor({ wsClient, onUpdate }) {
     this.wsClient = wsClient;
     this.onUpdate = onUpdate;
@@ -10,6 +17,9 @@ export class RoomSettings {
     this.els = {};
   }
 
+  /**
+   * Initializes DOM element references and event listeners.
+   */
   init() {
     this.els = {
       overlay: document.getElementById('roomSettingsOverlay'),
@@ -27,20 +37,19 @@ export class RoomSettings {
     this.setupListeners();
   }
 
+  /**
+   * Sets up event listeners for the settings dialog.
+   */
   setupListeners() {
-    // Close handlers
     this.els.closeBtn?.addEventListener('click', () => this.hide());
     this.els.cancelBtn?.addEventListener('click', () => this.hide());
 
-    // Close on overlay click
     this.els.overlay?.addEventListener('click', (e) => {
       if (e.target === this.els.overlay) this.hide();
     });
 
-    // Save handler
     this.els.saveBtn?.addEventListener('click', () => this.save());
 
-    // Enter to save
     this.els.descInput?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && e.ctrlKey) this.save();
     });
@@ -49,6 +58,8 @@ export class RoomSettings {
   /**
    * Show the room settings dialog
    * @param {Object} roomData - Current room data from server
+   * @param {number} userRole - User's role level
+   * @param {string} userId - User's unique ID
    */
   show(roomData, userRole, userId) {
     if (!roomData) return;
@@ -57,7 +68,6 @@ export class RoomSettings {
     this.userRole = userRole;
     this.userId = userId;
 
-    // Populate fields
     if (this.els.idInput) this.els.idInput.value = roomData.id || '';
     if (this.els.descInput) this.els.descInput.value = roomData.description || '';
     if (this.els.ownerInput) {
@@ -66,17 +76,18 @@ export class RoomSettings {
     if (this.els.lockedCheck) this.els.lockedCheck.checked = !!roomData.locked;
     if (this.els.maxUsersInput) this.els.maxUsersInput.value = roomData.maxUsers || 0;
 
-    // Show overlay
     if (this.els.overlay) {
       this.els.overlay.style.display = 'flex';
     }
 
     this.visible = true;
 
-    // Focus description field
     setTimeout(() => this.els.descInput?.focus(), 100);
   }
 
+  /**
+   * Hides the room settings dialog.
+   */
   hide() {
     if (this.els.overlay) {
       this.els.overlay.style.display = 'none';
@@ -85,6 +96,9 @@ export class RoomSettings {
     this.currentRoom = null;
   }
 
+  /**
+   * Saves room settings and sends updates to the server.
+   */
   save() {
     if (!this.currentRoom) return;
 
@@ -92,7 +106,6 @@ export class RoomSettings {
     const locked = this.els.lockedCheck?.checked || false;
     const maxUsers = parseInt(this.els.maxUsersInput?.value) || 0;
 
-    // Send update to server
     this.wsClient.send({
       t: 66, // T.ROOM_UPDATE
       roomDescription: description,
@@ -115,18 +128,18 @@ export class RoomSettings {
 
   /**
    * Check if user can edit room settings
+   * @param {Object} roomData - Room information
+   * @param {number} userRole - User's role level
+   * @param {string} userId - User's unique ID
+   * @returns {boolean} - True if the user has permission to edit
    */
   canEdit(roomData, userRole, userId) {
-    // Must be logged in
     if (!userId) return false;
 
-    // Room owner can always edit
     if (roomData.ownerId === userId) return true;
 
-    // Mods (role >= 2) can edit any room
     if (userRole >= 2) return true;
 
-    // If room is unclaimed, any logged-in user can claim it
     if (!roomData.ownerId) return true;
 
     return false;

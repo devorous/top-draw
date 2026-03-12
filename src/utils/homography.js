@@ -1,10 +1,9 @@
 /**
+ * @fileoverview Homography class for performing geometrical transformations (Affine, Projective, PiecewiseAffine).
+ * Designed for real-time applications and optimized for performance.
  * @copyright Eric Cañas 2021.
  * @author Eric Cañas <elcorreodeharu@gmail.com>
- * @since 1.0.0
- * @file Homography.js class. It implements the Homography class, designed for implementing image homographies in Javascript.
- *       It is designed to be easy-to-use (even for developers that are not familiar with Computer Vision) lightweight and fast,
- *       in order to execute in real time applications (even in low-spec devices such as budget smartphones).
+ * @license MIT
  */
 
 /**
@@ -14,85 +13,39 @@
 
 /**
  * Equations of the line of each segment of a Triangle
- * @typedef {Object}    LineEquations
- * @property {Number}                   m       m parameter of the equation (y = mx+ b).
- * @property {Number}                   b       b parameter of the equation (y = mx+ b).
- * @property {Number}                   minY    Minimum value of y within the segment.
- * @property {Number}                   maxY    Maximum value of y within the segment. 
+ * @typedef {Object} LineEquations
+ * @property {number} m - Slope of the line (y = mx + b).
+ * @property {number} b - Y-intercept of the line.
+ * @property {number} minY - Minimum y-coordinate of the segment.
+ * @property {number} maxY - Maximum y-coordinate of the segment.
  */
 
-// In NPM
-    import Delaunator from 'delaunator';
-// In JS
-    //import Delaunator from 'https://cdn.skypack.dev/delaunator@5.0.0';
+import Delaunator from 'delaunator';
 
-    
 const availableTransforms = ['auto', 'piecewiseaffine', 'affine', 'projective'];
 const maxCSSDecimal = 5;
 
-// It is thought for 2D
 const dims = 2;
-// Max allowed width/height in normalized coordinates (just for allowing resizes up to x8)
 const normalizedMax = 8.0;
 
 class Homography {
     /**
-     * Summary.           Class for performing geometrical transformations over images.
-     * 
-     * Description.       Homography is in charge of performing: Affine, Projective or PiecewiseAffine transformations over images,
-     *                    in a way that is as transparent and simple to the user as possible. It is lightweight and specially intended
-     *                    for real-time applications. For this purpose, this class keeps an internal state for avoiding redundant operations
-     *                    when reused, therefore, critical performance comes when multiple transformations are done over the same image.
-     * 
-     * @constructs        Homography
-     * @link              https://github.com/Eric-Canas/Homography.js
-     *  
-     * @param {Transform} [transform = "auto"]  String representing the transformation to be done. One of "auto", "affine", "piecewiseaffine" or "projective":
-     *                                           · "auto" : Transformation will be automatically selected depending on the inputs given. Just take "auto" if you
-     *                                                      don't know which kind of transform do you need. This is the default value.
-     * 
-     *                                           · "affine" : A geometrical transformation that ensures that all parallel lines of the input image will be parallel
-     *                                                        in the output image. It will need exactly three source points to be set (and three destiny points). 
-     *                                                        An affine transformation can only be composed by rotations, scales, shearings and reflections.
-     * 
-     *                                           · "piecewiseaffine" : A composition of several affine transforms that allows more complex constructions. This transforms
-     *                                                                 generates a mesh of triangles with the source points and finds an independent affine transformation
-     *                                                                 for each one of them. This way, it allows more complex transformation as, for example, sinusoidal forms.
-     *                                                                 It can take any amount (greater than three) of reference points. When "piecewiseaffine" mode is selected,
-     *                                                                 only the parts of the input image within a triangle will appear on the output image. If you want to ensure
-     *                                                                 that the whole image appears in the output, ensure to set include reference point on each corner of the image.
-     *  
-     *                                            · "projective" : A transformation that shows how the an image change when the point of view of the observer is modified. 
-     *                                                             It takes exactly four source points (and four destiny points). This is the transformation that should
-     *                                                             be used when looking for perspective modifications.
-     * 
-     * @param {Number}              [width]     Optional width of the input image. If given, it will resize the input image to that width. Lower widths will imply faster
-     *                                          transformations at the cost of lower resolution in the output image, while larger widths will produce higher resolution images
-     *                                          at the cost of processing time. If null, it will use the original image width.
-     * 
-     * @param {Number}             [height]     Optional height of the input image. If given, it will resize the input image to that height. Lower heights will imply faster
-     *                                          transformations at the cost of lower resolution in the output image, while larger heights will produce higher resolution images
-     *                                          at the cost of processing time. If null, it will use the original image height.
-     *   
+     * Initializes a new Homography instance.
+     * @param {Transform} [transform="auto"] - The transformation type.
+     * @param {number|null} [width=null] - Optional target width for the input image.
+     * @param {number|null} [height=null] - Optional target height for the input image.
      */
     constructor(transform = 'auto', width=null, height=null){
-        // Width and Height refers to the input image. If width and height are given it will be resized.
         if (width !== null) width = Math.round(width);
         if (height !== null) height = Math.round(height);
-        // Sets the source width and height
         this._width = width;
         this._height = height;
-        // Sets the objective width and height to null since it is unkwnown until source and destiny points are set
         this._objectiveWidth = null;
         this._objectiveHeight = null;
-        // Set the source and destiny points to null
-        this._srcPoints = null; //Internal type: Float32Array
-        this._dstPoints = null; //Internal type: Float32Array
-        // Set the selected transform
+        this._srcPoints = null;
+        this._dstPoints = null;
         this.firstTransformSelected = transform.toLowerCase();
         this.transform = transform.toLowerCase();
-        // Build the hidden canvas that will help to convert HTMLImageElements to flat Uint8 Arrays
-        this._hiddenCanvas = null;
         
         this._hiddenCanvas = document.createElement('canvas');
         this._hiddenCanvas.style.display = 'hidden';
@@ -100,24 +53,18 @@ class Homography {
         this._hiddenCanvas.width = width;
         this._hiddenCanvas.height = height;
         this._hiddenCanvasContext = this._hiddenCanvas.getContext("2d");
-        // Sets the internal variables for the current image to null
         this._HTMLImage = null;
         this._image = null;
-        // Set the auxiliar variables that are used in piecewiseAffine transforms for minimizing the computation performed
         this._maxSrcX = null;
         this._maxSrcY = null;
         this._minSrcX = null;
         this._minSrcY = null;
-        // Sets to default (true) the variables that save the current range of the source and destiny arrays
         this._srcPointsAreNormalized = true;
         this._dstPointsAreNormalized = true;
-        // Sets the auxiliar variable that will save for the source image, to which triangle of the mesh belongs each coord in "piecewiseaffine" 
         this._trianglesCorrespondencesMatrix = null;
         this._triangles = null;
-        // Sets the variables that will save the transform matrices
         this._transformMatrix = null;
         this._piecewiseMatrices = null;
-        // Allocate some auxiliar memory for avoiding to allocate any new memory during the "piecewiseaffine" matrix calculations 
         this._auxSrcTriangle = new Float32Array(3*dims);
         this._auxDstTriangle = new Float32Array(3*dims);
         this._initialTriangles = null;

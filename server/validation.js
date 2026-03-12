@@ -1,7 +1,13 @@
+/** @fileoverview Provides validation and sanitization rules for incoming client messages to ensure data integrity and security. */
+
 import { T, Tool } from '../shared/MessageTypes.js';
 
 /**
- * Clamps a number between min and max inclusive.
+ * Clamps a numeric value between a minimum and maximum range.
+ * @param {number} num - The value to clamp.
+ * @param {number} min - The minimum allowed value.
+ * @param {number} max - The maximum allowed value.
+ * @returns {number} - The clamped value.
  */
 const clamp = (num, min, max) => {
   if (num === undefined || num === null || isNaN(num)) return min;
@@ -9,7 +15,11 @@ const clamp = (num, min, max) => {
 };
 
 /**
- * Sanitizes a string, trimming it (optional) and limiting its length.
+ * Sanitizes a string by optionally trimming and limiting its length.
+ * @param {string} str - The string to sanitize.
+ * @param {number} maxLength - The maximum allowed length.
+ * @param {boolean} [shouldTrim=true] - Whether to trim leading/trailing whitespace.
+ * @returns {string} - The sanitized string.
  */
 const sanitizeString = (str, maxLength, shouldTrim = true) => {
   if (typeof str !== 'string') return '';
@@ -18,59 +28,50 @@ const sanitizeString = (str, maxLength, shouldTrim = true) => {
 };
 
 /**
- * Validation rules for incoming message fields.
- * Each rule returns a sanitized value for the field.
+ * Validation rules for incoming message fields, mapped by message type.
+ * Each rule is a function that returns a sanitized value for a specific field.
+ * @type {Object<number, Object<string, function>>}
  */
 export const VALIDATION_RULES = {
-  // === Tool Settings ===
-  [T.CS]: { // Change Size (s: size * 100)
-    s: (val) => clamp(val, 25, 10000) // 0.25 to 100.0
+  [T.CS]: {
+    s: (val) => clamp(val, 25, 10000)
   },
-  [T.CSP]: { // Change Spacing (sp: spacing * 100)
-    sp: (val) => clamp(val, 0, 2000) // 0 to 20.0
+  [T.CSP]: {
+    sp: (val) => clamp(val, 0, 2000)
   },
-  [T.CSM]: { // Change Smoothing (sm: 0-50 integer)
+  [T.CSM]: {
     sm: (val) => clamp(val, 0, 50)
   },
-  [T.CHD]: { // Change Hardness (hd: 0-100 integer)
+  [T.CHD]: {
     hd: (val) => clamp(val, 0, 100)
   },
-  [T.CBR]: { // Change Blur Radius (br: 0-100 integer)
+  [T.CBR]: {
     br: (val) => clamp(val, 0, 100)
   },
-  [T.CP]: { // Change Pressure (p: pressure * 100)
-    p: (val) => clamp(val, 0, 100) // 0 to 1.0
+  [T.CP]: {
+    p: (val) => clamp(val, 0, 100)
   },
-  [T.CC]: { // Change Color (c: packed uint32)
-    // No easy range check for packed color, but ensure it's a number
+  [T.CC]: {
     c: (val) => (typeof val === 'number' ? val : 0)
   },
-  [T.CT]: { // Change Tool (l: Tool enum)
+  [T.CT]: {
     l: (val) => clamp(val, 0, Object.keys(Tool).length - 1)
   },
-  [T.CL]: { // Change Layer (ly: 0-4)
+  [T.CL]: {
     ly: (val) => clamp(val, 0, 4)
   },
-
-  // === User Identity ===
-  [T.CN]: { // Change Name
+  [T.CN]: {
     n: (val) => sanitizeString(val, 20)
   },
-
-  // === Chat & Text ===
-  [T.MSG]: { // Public Chat Message
+  [T.MSG]: {
     g: (val) => sanitizeString(val, 500)
   },
-  [T.DM]: { // Direct Message
+  [T.DM]: {
     g: (val) => sanitizeString(val, 500)
   },
-  [T.KP]: { // Key Press (for text tool sync)
-    // Keys can be multi-char (e.g. 'Backspace', 'Enter') or single-char
-    // Do NOT trim key presses, as a space is a valid key press.
+  [T.KP]: {
     k: (val) => sanitizeString(val, 20, false)
   },
-
-  // === Selection & Images ===
   [T.SEL_LIFT]: {
     sx: (val) => clamp(val, -10000, 20000),
     sy: (val) => clamp(val, -10000, 20000),
@@ -82,17 +83,18 @@ export const VALIDATION_RULES = {
     sy: (val) => clamp(val, -10000, 20000),
     sw: (val) => clamp(val, 0, 10000),
     sh: (val) => clamp(val, 0, 10000),
-    g: (val) => (typeof val === 'string' && val.length < 2 * 1024 * 1024 ? val : '') // 2MB limit
+    g: (val) => (typeof val === 'string' && val.length < 2 * 1024 * 1024 ? val : '')
   }
 };
 
 /**
- * Sanitizes a message object based on its type (t).
- * Returns a new object with only validated/sanitized fields.
+ * Sanitizes a message object by applying validation rules based on its type.
+ * @param {Object} data - The message data to sanitize.
+ * @returns {Object} - A new object containing only sanitized fields.
  */
 export function sanitizeMessage(data) {
   const rules = VALIDATION_RULES[data.t];
-  if (!rules) return data; // No rules for this type, return as-is
+  if (!rules) return data;
 
   const sanitized = { ...data };
   for (const field in rules) {

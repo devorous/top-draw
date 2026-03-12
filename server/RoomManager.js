@@ -1,10 +1,20 @@
+/** @fileoverview Manages drawing rooms, including their metadata, connected clients, and lifecycle. */
+
 import { SessionManager } from './SessionManager.js';
 import { SyncCoordinator } from './SyncCoordinator.js';
 import { T } from '../shared/MessageTypes.js';
 import { WebSocket } from 'ws';
 import { getDB } from './db.js';
 
+/**
+ * Represents a single drawing room.
+ */
 export class Room {
+  /**
+   * @param {string} id - The unique identifier for the room.
+   * @param {Object} msgProto - The protobuf message type for encoding/decoding.
+   * @param {function} sendToCallback - Callback function to send messages to a specific client.
+   */
   constructor(id, msgProto, sendToCallback) {
     this.id = id;
     this.Msg = msgProto;
@@ -14,10 +24,9 @@ export class Room {
     this.settings = {
       mirror: false,
       locked: false,
-      maxUsers: 0  // 0 = unlimited
+      maxUsers: 0
     };
 
-    // Room metadata (loaded from DB)
     this.description = '';
     this.ownerId = null;
     this.ownerUsername = null;
@@ -25,17 +34,15 @@ export class Room {
     this.lastActivity = Date.now();
     this.dbLoaded = false;
 
-    // Each room has its own managers
     this.sessionManager = new SessionManager(this.broadcastToAll.bind(this));
     this.syncCoordinator = new SyncCoordinator(this.sessionManager, { clients: this.clients }, this.sendTo);
 
-    // Pooled message for broadcasting
     this.POOLED_MSG = this.Msg.create();
   }
 
   /**
-   * Lazy load or create room document from MongoDB
-   * Called on first T.CONNECT to the room
+   * Lazy loads or creates the room document from the database.
+   * @returns {Promise<void>}
    */
   async ensureLoaded() {
     if (this.dbLoaded) return;
@@ -50,7 +57,6 @@ export class Room {
       const doc = await db.collection('rooms').findOne({ _id: this.id });
 
       if (doc) {
-        // Load existing room
         this.description = doc.description || '';
         this.ownerId = doc.ownerId || null;
         this.ownerUsername = doc.ownerUsername || null;
@@ -59,7 +65,6 @@ export class Room {
         this.settings.maxUsers = doc.settings?.maxUsers || 0;
         console.log(`[Room] Loaded "${this.id}" from DB`);
       } else {
-        // Create new room document
         const newDoc = {
           _id: this.id,
           description: '',
@@ -79,12 +84,13 @@ export class Room {
       this.dbLoaded = true;
     } catch (err) {
       console.error(`[Room] DB load error for "${this.id}":`, err);
-      this.dbLoaded = true; // Don't retry
+      this.dbLoaded = true;
     }
   }
 
   /**
-   * Save room metadata to DB (call after changes to description/settings/owner)
+   * Saves the current room metadata and settings to the database.
+   * @returns {Promise<void>}
    */
   async saveToDB() {
     const db = getDB();
@@ -111,20 +117,35 @@ export class Room {
     }
   }
 
+  /**
+   * Returns the number of clients currently in the room.
+   * @returns {number} - The client count.
+   */
   getClientCount() {
     return this.clients.size;
   }
 
+  /**
+   * Adds a WebSocket client to the room.
+   * @param {WebSocket} ws - The WebSocket client to add.
+   */
   addClient(ws) {
     this.clients.add(ws);
     ws.roomId = this.id;
   }
 
+  /**
+   * Removes a WebSocket client from the room.
+   * @param {WebSocket} ws - The WebSocket client to remove.
+   */
   removeClient(ws) {
     this.clients.delete(ws);
-    // ws.roomId = null; // Don't clear yet as we might need it for cleanup
   }
 
+  /**
+   * Broadcasts a payload to all clients in the room.
+   * @param {Object} payload - The message payload to broadcast.
+   */
   broadcastToAll(payload) {
     const message = this.Msg.create(payload);
     const buffer = this.Msg.encode(message).finish();
@@ -137,7 +158,14 @@ export class Room {
   }
 }
 
+/**
+ * Manages the collection of active rooms.
+ */
 export class RoomManager {
+  /**
+   * @param {WebSocketServer} wss - The WebSocket server instance.
+   * @param {function} sendTo - Callback function to send messages to a specific client.
+   */
   constructor(wss, sendTo) {
     this.wss = wss;
     this.sendTo = sendTo;
@@ -146,11 +174,21 @@ export class RoomManager {
     this.createRoomBroadcaster = null;
   }
 
+  /**
+   * Configures the protobuf encoder and room broadcaster factory.
+   * @param {Object} Msg - The protobuf message type.
+   * @param {function} createRoomBroadcaster - Factory function for room broadcasters.
+   */
   setMsgEncoder(Msg, createRoomBroadcaster) {
     this.Msg = Msg;
     this.createRoomBroadcaster = createRoomBroadcaster;
   }
 
+  /**
+   * Retrieves an existing room or creates a new one if it doesn't exist.
+   * @param {string} roomId - The ID of the room.
+   * @returns {Room} - The room instance.
+   */
   getOrCreateRoom(roomId) {
     if (this.rooms.has(roomId)) {
       return this.rooms.get(roomId);
@@ -162,34 +200,42 @@ export class RoomManager {
     return room;
   }
 
+  /**
+   * Finds the room associated with a specific WebSocket client.
+   * @param {WebSocket} ws - The WebSocket client.
+   * @returns {Room|null} - The room instance or null if not found.
+   */
   getRoomByClient(ws) {
     const roomId = ws.roomId;
     if (!roomId) return null;
     return this.rooms.get(roomId);
   }
 
+  /**
+   * Removes a client from their current room.
+   * @param {WebSocket} ws - The WebSocket client to remove.
+   */
   removeClient(ws) {
     const room = this.getRoomByClient(ws);
     if (room) {
       room.removeClient(ws);
-      if (room.getClientCount() === 0 && room.id !== 'default') {
-        // Option to clean up empty rooms (except default)
-        // this.rooms.delete(room.id);
-      }
     }
   }
 
+  /**
+   * Returns a list of all active public rooms.
+   * @returns {Array<Object>} - A list of room summary objects.
+   */
   getRoomList() {
     const list = [];
     for (const room of this.rooms.values()) {
-      // Hide internal discovery room
       if (room.id === '_discovery') continue;
       list.push({
         id: room.id,
         description: room.description || '',
         userCount: room.getClientCount(),
         locked: room.settings.locked,
-        hasPassword: false, // Future feature
+        hasPassword: false,
         ownerId: room.ownerId || '',
         ownerUsername: room.ownerUsername || ''
       });
@@ -198,7 +244,7 @@ export class RoomManager {
   }
 
   /**
-   * Clean up empty rooms (except lobby and discovery)
+   * Cleans up empty rooms from the manager, excluding lobby and discovery rooms.
    */
   cleanupEmptyRooms() {
     for (const [id, room] of this.rooms) {

@@ -1,43 +1,86 @@
 /**
- * Base tool class
+ * @fileoverview Circle Blur tool - averages pixels in a circular area and stamps a circle with that color.
+ */
+
+/**
+ * Base tool class.
  */
 class Tool {
+  /**
+   * @param {string} name - The name of the tool.
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(name, board) {
     this.name = name;
     this.board = board;
   }
 
+  /**
+   * Called when the tool is activated.
+   */
   activate() {}
+
+  /**
+   * Called when the tool is deactivated.
+   */
   deactivate() {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerDown(user, pos, e) {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Object} lastPos - The previous pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerMove(user, pos, lastPos, e) {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerUp(user, pos, e) {}
 }
 
 /**
- * Circle Blur tool - averages pixels in a circular area and stamps a circle with that color.
- *
- * Each gesture is stored as one active stroke: stamps accumulate on the stroke canvas
- * and are committed as a single undoable record on pointerUp.
- * Reads from board.mainCtx so each stamp sees the already-blurred content.
- * Uses distance-based spacing to prevent lag at high TPS.
+ * Circle Blur tool for soft blending using circular stamps.
  */
 export class CircleBlurTool extends Tool {
+  /**
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(board) {
     super('circleBlur', board);
     this.lastStampPos = new Map(); // userId -> {x, y, radius}
   }
 
+  /**
+   * Activates the tool.
+   */
   activate() {}
+
+  /**
+   * Deactivates the tool and cleans up tracking.
+   */
   deactivate() {
     this.lastStampPos.clear();
   }
 
+  /**
+   * Handles pointer down event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   onPointerDown(user, pos) {
     this.board.beginStroke(user);
     const radius = user.pressure * user.size;
 
-    // Stamp first circle immediately
     this.stampBlurredCircle(pos.x, pos.y, radius, user);
 
     if (this.board.mirror) {
@@ -45,10 +88,15 @@ export class CircleBlurTool extends Tool {
       this.stampBlurredCircle(width - pos.x, pos.y, radius, user);
     }
 
-    // Store last stamp position for distance-based spacing
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
   }
 
+  /**
+   * Handles pointer move event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Object} lastPos - The previous pointer position.
+   */
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
@@ -61,11 +109,10 @@ export class CircleBlurTool extends Tool {
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       const avgRadius = (lastStamp.radius + radius) / 2;
-      const spacingPercent = 0.3 + user.spacing * 0.035; // 30% at spacing=0, 100% at spacing=20
+      const spacingPercent = 0.3 + user.spacing * 0.035; 
       const minSpacing = Math.max(5, avgRadius * spacingPercent);
 
       if (distance >= minSpacing) {
-        // Interpolate stamps along the path at even intervals
         const steps = Math.floor(distance / minSpacing);
         for (let i = 1; i <= steps; i++) {
           const t = i / steps;
@@ -85,6 +132,10 @@ export class CircleBlurTool extends Tool {
     }
   }
 
+  /**
+   * Handles pointer up event.
+   * @param {Object} user - The user performing the action.
+   */
   onPointerUp(user) {
     this.board.endStroke(user);
     this.lastStampPos.delete(user.id);
@@ -92,10 +143,10 @@ export class CircleBlurTool extends Tool {
 
   /**
    * Stamp a heavily-blurred circle from board.mainCanvas onto the active stroke canvas.
-   *
-   * Uses CSS filter: blur() (GPU-accelerated) with a blur radius equal to the stamp
-   * radius, which averages all pixels in the region — no getImageData needed.
-   * Clipped to a circular path to produce the round stamp shape.
+   * @param {number} x - Center x-coordinate.
+   * @param {number} y - Center y-coordinate.
+   * @param {number} radius - Stamp radius.
+   * @param {Object} user - The user performing the action.
    */
   stampBlurredCircle(x, y, radius, user) {
     const canvasWidth = this.board.getWidth();
@@ -109,8 +160,6 @@ export class CircleBlurTool extends Tool {
       const strokeCtx = this.board.layerManager?.getUserStrokeContext(activeLayer, userId);
       if (!strokeCtx) return;
 
-      // Expand source region beyond the stamp circle so the blur has enough
-      // surrounding pixels to sample from (prevents edge darkening)
       const blurRadius = radius;
       const margin = Math.ceil(blurRadius * 2);
       const left = Math.max(0, Math.floor(x - radius - margin));
@@ -125,8 +174,6 @@ export class CircleBlurTool extends Tool {
       const hardness = user.hardness !== undefined ? user.hardness / 100 : 1.0;
       const innerR = radius * hardness;
 
-      // Draw blurred + masked stamp into a temp canvas to avoid destination-in
-      // destroying previous stamps on the stroke canvas
       if (!this._stampCanvas) {
         this._stampCanvas = document.createElement('canvas');
         this._stampCtx = this._stampCanvas.getContext('2d');
@@ -135,7 +182,6 @@ export class CircleBlurTool extends Tool {
       this._stampCanvas.height = height;
       this._stampCtx.clearRect(0, 0, width, height);
 
-      // Draw blurred content clipped to circle
       const cx = x - left;
       const cy = y - top;
       this._stampCtx.save();
@@ -147,7 +193,6 @@ export class CircleBlurTool extends Tool {
       this._stampCtx.filter = 'none';
       this._stampCtx.restore();
 
-      // Apply radial gradient alpha mask for feathered edges
       if (hardness < 1.0) {
         const grad = this._stampCtx.createRadialGradient(cx, cy, innerR, cx, cy, radius);
         grad.addColorStop(0, 'rgba(255,255,255,1)');
@@ -158,14 +203,12 @@ export class CircleBlurTool extends Tool {
         this._stampCtx.globalCompositeOperation = 'source-over';
       }
 
-      // Composite temp canvas onto stroke canvas
       strokeCtx.save();
       strokeCtx.globalCompositeOperation = 'source-over';
       strokeCtx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
       strokeCtx.drawImage(this._stampCanvas, left, top);
       strokeCtx.restore();
 
-      // Track dirty rect so commitUserStroke can skip expensive getImageData scan
       const drMargin = Math.ceil(blurRadius) + 2;
       this.board.expandDirtyRect(user,
         Math.floor(x - radius - drMargin), Math.floor(y - radius - drMargin),

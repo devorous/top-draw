@@ -1,36 +1,31 @@
-/**
- * ChatHandlers
- *
- * Handles chat-related events:
- * - Public chat messages
- * - Direct messages (DMs)
- * - Chat images (public and DM)
- */
+/** @fileoverview Handles chat-related WebSocket events including public messages, DMs, and images. */
 
+/**
+ * Sets up WebSocket event handlers for chat functionality.
+ * @param {WebSocketClient} wsClient - The WebSocket client instance.
+ * @param {App} app - The main application instance.
+ */
 export function setupChatHandlers(wsClient, app) {
   const { users, chat } = app;
 
-  // Chat message
   wsClient.on('msg', (data) => {
-    if (data.sessionIndex === app.sessionIndex) return; // Skip self
+    if (data.sessionIndex === app.sessionIndex) return;
     const user = users.get(data.sessionIndex);
     if (user) {
       chat.addMessage(data.message, user);
     }
   });
 
-  // Direct message
   wsClient.on('dm', (data) => {
-    if (data.sessionIndex === app.sessionIndex) return; // Skip self
+    if (data.sessionIndex === app.sessionIndex) return;
     const user = users.get(data.sessionIndex);
     if (user) {
       chat.addDMMessage(data.message, data.sessionIndex, false);
     }
   });
 
-  // Chat image
   wsClient.on('chat_img', (data) => {
-    if (data.sessionIndex === app.sessionIndex) return; // Skip self
+    if (data.sessionIndex === app.sessionIndex) return;
     console.log('[CHAT_IMG] Received image from user', data.sessionIndex);
 
     const user = users.get(data.sessionIndex);

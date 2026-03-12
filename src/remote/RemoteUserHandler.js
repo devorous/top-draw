@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Handles synchronization of remote user drawing actions.
+ * Manages remote cursors, drawing tool routing, and position interpolation.
+ */
+
 import { mirrorLine, drawLineArray, bridgeGap } from '../utils/drawing.js';
 import { SELECTION_MODES, getNextBrushIndex } from '../utils/parseGimp.js';
 import { applySmoothingEMA, resetSmoothingBuffer } from '../utils/smoothing.js';
@@ -6,30 +11,30 @@ import { RemoteInkHandler } from './RemoteInkHandler.js';
 import { RemoteSelectionHandler } from './RemoteSelectionHandler.js';
 
 /**
- * Handles all remote user drawing synchronization
- *
- * IMPORTANT: Position Smoothing vs Visual Smoothing
- * - Incoming points (data.ps) are already EMA-smoothed by the sender's InputBufferManager
- * - This ensures perfect parity: sender sees exactly what gets broadcast
- * - Remote rendering applies NO additional position smoothing
- * - Visual smoothing (e.g., Catmull-Rom curves in drawLineArray) is separate and applied
- *   during rendering, not to the positions themselves
+ * RemoteUserHandler coordinates the rendering of remote users' drawing events.
+ * It manages tool-specific handlers and ensures visual parity between clients.
  */
 export class RemoteUserHandler {
+  /**
+   * @param {App} app - The main application instance.
+   */
   constructor(app) {
     this.app = app;
 
-    // Tool-specific handlers
+    /** @type {RemotePenHandler} */
     this.penHandler = new RemotePenHandler(app.board);
+    /** @type {RemoteInkHandler} */
     this.inkHandler = new RemoteInkHandler(app.board);
+    /** @type {RemoteSelectionHandler} */
     this.selectionHandler = new RemoteSelectionHandler(
       app.board,
       () => this.users,
       () => this.sessionIndex
     );
 
-    // Remote catch-up loop configuration
-    this.catchupInterval = 16; // ~60 FPS
+    /** @type {number} */
+    this.catchupInterval = 16;
+    /** @type {number|null} */
     this.catchupTimer = null;
   }
 
@@ -40,17 +45,20 @@ export class RemoteUserHandler {
   get sessionIndex() { return this.app.sessionIndex; }
   get debugOverlay() { return this.app.debugOverlay; }
 
+  /**
+   * Processes remote mouse movement and updates drawing state.
+   *
+   * @param {User} user - The remote user moving their mouse.
+   * @param {Object} data - Movement data payload containing points and radii.
+   * @returns {void}
+   */
   handleMouseMove(user, data) {
     const points = data.ps;
     if (!points || points.length < 2) return;
 
-    // Track the raw final target for catch-up convergence
     user.remoteTarget = { x: points[points.length - 2], y: points[points.length - 1] };
     this.startCatchupLoop();
 
-    // Apply EMA smoothing to incoming points to match local user experience.
-    // While the sender smooths before broadcasting, the remote catch-up mechanism
-    // ensures the pointer reaches the target even if the broadcast stream ends.
     const smoothedPoints = [];
     const isInk = user._inkStrokeActive || user.tool === 'ink';
     
@@ -59,7 +67,6 @@ export class RemoteUserHandler {
       const ry = points[i + 1];
       
       if (isInk) {
-        // Ink has its own calligraphic smoothing, don't double-smooth positions
         smoothedPoints.push(rx, ry);
       } else {
         const smoothed = applySmoothingEMA(user.smoothBuffer, rx, ry, user.smoothing);
@@ -67,23 +74,19 @@ export class RemoteUserHandler {
       }
     }
 
-    // Flow pen and ink send per-point data in separate rs array
     const radii = data.rs;
     if (!user.panning && user.mousedown && radii && radii.length > 0) {
-      // Route by active stroke flag first (survives CT race), then by tool name
       if (isInk) {
         this.inkHandler.handleInkPoints(user, smoothedPoints, radii);
       } else {
         this.penHandler.handlePenStamps(user, smoothedPoints, radii);
       }
-      // Update cursor from last point pair
       if (smoothedPoints.length >= 2) {
         this.ui.updateRemoteCursor(user.id, smoothedPoints[smoothedPoints.length - 2], smoothedPoints[smoothedPoints.length - 1], user.size);
       }
       return;
     }
 
-    // Process each smoothed point in the batch (pair-based: [x, y, x, y, ...])
     for (let i = 0; i < smoothedPoints.length; i += 2) {
       const x = smoothedPoints[i];
       const y = smoothedPoints[i + 1];
@@ -97,11 +100,8 @@ export class RemoteUserHandler {
       user.setPosition(x, y);
       const pos = { x: user.x, y: user.y };
 
-      // Track drawing point for debug overlay
       if (!user.panning && user.mousedown && this.debugOverlay) {
         this.debugOverlay.addDrawingPoint(pos.x, pos.y, user.size, user.id);
-
-        // Debug: Track each point received for remote user
         this.debugOverlay.addStrokePoint(user.id, pos.x, pos.y, 'mouseMove');
       }
 
@@ -113,7 +113,6 @@ export class RemoteUserHandler {
       user.lasty = y;
     }
 
-    // After processing all points, update cursor and handle shape tools with final position
     const finalX = smoothedPoints[smoothedPoints.length - 2];
     const finalY = smoothedPoints[smoothedPoints.length - 1];
     this.ui.updateRemoteCursor(user.id, finalX, finalY, user.size);
@@ -127,7 +126,8 @@ export class RemoteUserHandler {
   }
 
   /**
-   * Start the global catch-up loop for remote users if not already running
+   * Starts the global catch-up loop to converge remote cursors to their targets.
+   * @returns {void}
    */
   startCatchupLoop() {
     if (this.catchupTimer) return;
@@ -135,28 +135,26 @@ export class RemoteUserHandler {
   }
 
   /**
-   * Process one step of convergence for all active remote users
+   * Performs one tick of the catch-up convergence logic.
+   * Stops the loop when all users have reached their targets.
+   * @returns {void}
    */
   tickCatchup() {
     let anyActive = false;
 
     for (const user of this.users.values()) {
-      // Only catch up while drawing and if we have a target
       if (user.mousedown && !user.panning && user.remoteTarget) {
         const dx = user.remoteTarget.x - user.smoothBuffer.x;
         const dy = user.remoteTarget.y - user.smoothBuffer.y;
         const distSq = dx * dx + dy * dy;
 
-        // Converge if distance > 0.5 pixels
         if (distSq > 0.25) {
           anyActive = true;
           const lastPos = { x: user.x, y: user.y };
           
-          // Smooth towards target
           const isInk = user._inkStrokeActive || user.tool === 'ink';
           let pos;
           if (isInk) {
-            // Ink catch-up: perfect-freehand needs more points to shift the curve
             pos = user.remoteTarget;
           } else {
             pos = applySmoothingEMA(user.smoothBuffer, user.remoteTarget.x, user.remoteTarget.y, user.smoothing);
@@ -169,7 +167,6 @@ export class RemoteUserHandler {
       }
     }
 
-    // Stop loop if no users need catch-up
     if (!anyActive) {
       clearInterval(this.catchupTimer);
       this.catchupTimer = null;
@@ -177,12 +174,16 @@ export class RemoteUserHandler {
   }
 
   /**
-   * Internal router for rendering a single movement step
+   * Internal router to render a single movement step based on the user's active tool.
+   *
+   * @param {User} user - The remote user.
+   * @param {Object} pos - The current {x, y} position.
+   * @param {Object} lastPos - The previous {x, y} position.
+   * @returns {void}
    */
   renderRemoteMove(user, pos, lastPos) {
     switch (user.tool) {
       case 'brush':
-        // Store point for later rendering (whole line drawn in renderRemotePreview)
         user.addToLine(pos);
 
         if (user.pressure !== user.prevpressure) {
@@ -249,12 +250,13 @@ export class RemoteUserHandler {
   }
 
   /**
-   * Internal router for rendering shape previews/lasso
+   * Renders the transient preview of a remote user's drawing (e.g., shapes, brush line).
+   *
+   * @param {User} user - The remote user.
+   * @param {Object} pos - The current {x, y} position.
+   * @returns {void}
    */
   renderRemotePreview(user, pos) {
-    // Shape tools and eraser need their preview canvas cleared.
-    // Brush also needs clear because it redraws the whole line for better quality.
-    // Skip for select tool when a floating selection exists.
     const needsClear = ['brush', 'line', 'rectangle', 'circle', 'select', 'erase', 'text'].includes(user.tool);
     if (needsClear && !(user.tool === 'select' && user.floatingCanvas)) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
@@ -329,17 +331,21 @@ export class RemoteUserHandler {
     }
   }
 
+  /**
+   * Handles remote mouse down events.
+   *
+   * @param {User} user - The remote user.
+   * @param {Object} [data={}] - Event data containing starting points.
+   * @returns {void}
+   */
   handleMouseDown(user, data = {}) {
     user.mousedown = true;
-    user._mainCtxDrawCount = 0; // Reset draw counter for this stroke
-    user.clearLine(); // Ensure fresh line for new stroke
+    user._mainCtxDrawCount = 0;
+    user.clearLine();
 
-    // Reset smoothing buffer for the new stroke
     resetSmoothingBuffer(user.smoothBuffer);
     user.remoteTarget = null;
 
-    // Use broadcast position if provided (already smoothed by sender)
-    // This ensures remote users don't see raw click positions when high smoothing is active
     if (data.ps && data.ps.length >= 2) {
       const rx = data.ps[0];
       const ry = data.ps[1];
@@ -354,11 +360,9 @@ export class RemoteUserHandler {
     user.spaceIndex = 0;
 
     const pos = { x: user.x, y: user.y };
-    // Essential for all shape tools and selection
     user.startPos = pos;
     user.setPosition(pos.x, pos.y);
 
-    // Begin a fresh active stroke for this user so each stroke composites independently
     if (!user.panning) {
       if (user.tool === 'erase' && user.eraseAllLayers) {
         this.board.beginStrokeAllLayers(user, 'destination-out');
@@ -368,11 +372,8 @@ export class RemoteUserHandler {
       }
     }
 
-    // Track region for debug overlay (if not panning)
     if (!user.panning && this.debugOverlay) {
       this.debugOverlay.startDrawing(pos.x, pos.y, user.tool, user.size, user.id, user.username);
-
-      // Debug: Start tracking stroke points for remote user
       this.debugOverlay.startStrokeTracking(user.id, false);
       this.debugOverlay.addStrokePoint(user.id, pos.x, pos.y, 'mouseDown');
     }
@@ -380,7 +381,6 @@ export class RemoteUserHandler {
     switch (user.tool) {
       case 'brush':
         if (!user.panning) {
-          // Add point twice (like local BrushTool) so single-click draws a dot
           user.addToLine(pos);
           user.addToLine(pos);
         }
@@ -416,7 +416,6 @@ export class RemoteUserHandler {
         if (!user.panning) {
           const blurTool = this.toolManager.getTool('blur');
           if (blurTool) {
-            // Initialize blur snapshot and tracking for distance-based spacing
             blurTool.initBlurSnapshot(user);
             user.lastBlurPos = pos;
             blurTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
@@ -451,8 +450,6 @@ export class RemoteUserHandler {
           this.toolManager.getTool('text').drawText(user);
           user.text = '';
           this.ui.updateRemoteText(user.id, '');
-          
-          // Commit to history stack so it can be undone by other clients
           this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
           this.board.requestUpdate();
         }
@@ -460,28 +457,18 @@ export class RemoteUserHandler {
 
       case 'imageBrush':
         if (user.imageBrush && !user.panning) {
-          // Reset GIH brush dimensions on new stroke (like local ImageBrushTool.onPointerDown)
           if (user.imageBrush.type === 'gih' && user.imageBrush.reset) {
             user.imageBrush.reset();
           }
           const imageBrushTool = this.toolManager.getTool('imageBrush');
           if (imageBrushTool) {
-            // Initialize lastStampPos and stamp first image
             imageBrushTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
             imageBrushTool.drawStamp(user, pos);
           }
         }
         break;
 
-      case 'line':
-      case 'rectangle':
-      case 'circle':
-        // These tools primarily use startPos, which we set above.
-        break;
-
       case 'select':
-        // If starting a new selection OUTSIDE pending selection, clear it
-        // If clicking inside, sel_lift will handle the transition
         if (user.pendingSelection && !user.floatingCanvas) {
           const s = user.pendingSelection;
           const clickedInside = pos.x >= s.x && pos.x <= s.x + s.width &&
@@ -492,48 +479,42 @@ export class RemoteUserHandler {
             user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
           }
         }
-        // Initialize lasso points for new selection
         user.lassoPoints = [{ x: pos.x, y: pos.y }];
         break;
     }
   }
 
+  /**
+   * Handles remote mouse up events. Finalizes and commits remote strokes.
+   *
+   * @param {User} user - The remote user.
+   * @returns {void}
+   */
   handleMouseUp(user) {
     if (!user.mousedown) return;
     const pos = { x: user.x, y: user.y };
-    user.remoteTarget = null; // Clear target on release
+    user.remoteTarget = null;
 
-    // Get the ACTIVE sub-layer context for this user's stroke.
-    // Brush uses this for the whole duration of the stroke.
     const activeStrokeCtx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
 
-    // Pen stroke active — composite offscreen and skip the tool switch,
-    // since CT (tool change) may arrive after MD/MM when a new user joins
-    // and user.tool could still be 'brush' despite an active pen stroke
     const hadPenStroke = user._penStrokeActive;
     if (hadPenStroke) {
       this.penHandler.handlePenUp(user);
     }
 
-    // Ink stroke active — composite offscreen and skip tool switch
     const hadInkStroke = user._inkStrokeActive;
     if (hadInkStroke) {
       this.inkHandler.handleInkUp(user);
     }
 
-    // Clear preview canvas FIRST to prevent composite boldness
-    // (otherwise both preview and mainCtx briefly show the same line)
-    // Skip for select tool when a floating selection exists — its rendering
-    // is handled by RemoteSelectionHandler and clearing here would erase it.
     if (!(user.tool === 'select' && user.floatingCanvas)) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
 
     if (hadPenStroke || hadInkStroke) {
-      // Pen/ink stroke was fully handled above — skip tool switch
+      // Handled above
     } else switch (user.tool) {
       case 'brush':
-        // Brush uses non-incremental rendering now. Draw final line to activeStrokeCtx.
         if (activeStrokeCtx && user.currentLine.length >= 2) {
           drawLineArray(user.currentLine, activeStrokeCtx, user);
           if (this.board.mirror) {
@@ -543,10 +524,6 @@ export class RemoteUserHandler {
           }
           this._expandDirtyRectFromPoints(user, user.currentLine, this._brushMargin(user));
         }
-        break;
-
-      case 'flowPen':
-        // Already handled above before clear
         break;
 
       case 'line':
@@ -589,8 +566,6 @@ export class RemoteUserHandler {
         break;
 
       case 'select':
-        // On MouseUp, the remote user has finished defining a selection area.
-        // Store selection info on user (actual lift happens via sel_lift event)
         if (user.startPos) {
           const x = Math.min(user.startPos.x, pos.x);
           const y = Math.min(user.startPos.y, pos.y);
@@ -598,14 +573,12 @@ export class RemoteUserHandler {
           const height = Math.abs(pos.y - user.startPos.y);
           if (width >= 5 && height >= 5) {
             user.pendingSelection = { x, y, width, height };
-            // Preserve lasso points for pending selection display
             user.pendingLassoPath = user.lassoPoints && user.lassoPoints.length >= 2 ? [...user.lassoPoints] : null;
           }
         }
         break;
 
       case 'text':
-        // Handle text tool touch placement on lift
         if (user.text) {
           this.toolManager.getTool('text').drawText(user);
           user.text = '';
@@ -615,40 +588,29 @@ export class RemoteUserHandler {
         break;
     }
 
-    // End drawing tracking for debug overlay
     if (this.debugOverlay) {
       this.debugOverlay.endDrawing(user.id);
-
-      // Debug: End stroke tracking for remote user
       this.debugOverlay.endStrokeTracking(user.id);
     }
 
-    // Synchronously composite all layers to the visible canvas BEFORE clearing the preview.
-    // This ensures there is no frame where the stroke is missing from both.
     this.board.compositeAllLayers();
 
-    // Clear preview canvas ONLY after we are certain the main board has the updated stroke
-    // Skip for select tool when a floating selection exists — its rendering
-    // is handled by RemoteSelectionHandler and clearing here would erase it.
     if (!(user.tool === 'select' && user.floatingCanvas)) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
 
-    // Commit the stroke to the history stack.
     if (user.tool === 'erase' && user.eraseAllLayers) {
       this.board.endStrokeAllLayers(user);
     } else {
       this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
     }
 
-    // Cleanup (preview was already cleared at start of handleMouseUp)
     user.clearLine();
     user.mousedown = false;
     user.startPos = null;
     user.lassoPoints = null;
     user.blurSnapshot = null;
 
-    // Clean up tool-specific tracking maps
     const blurTool = this.toolManager.getTool('blur');
     if (blurTool) blurTool.lastStampPos.delete(user.id);
 
@@ -661,18 +623,22 @@ export class RemoteUserHandler {
     const imageBrushTool = this.toolManager.getTool('imageBrush');
     if (imageBrushTool) imageBrushTool.lastStampPos.delete(user.id);
 
-    // Redraw floating selection if user has one (persists after handle release)
     if (user.floatingCanvas && user.selection) {
       this.selectionHandler.drawFloatingSelection(user);
     }
-    // Draw pending selection rectangle if user just finished creating one
     else if (user.pendingSelection) {
       this.selectionHandler.drawPendingSelection(user);
-      // Start the selection animation loop
       this.selectionHandler.startRemoteSelectionAnimation();
     }
   }
 
+  /**
+   * Updates remote text buffer based on key presses.
+   *
+   * @param {User} user - The remote user typing.
+   * @param {string} key - The character or key name (e.g., 'Enter', 'Backspace').
+   * @returns {void}
+   */
   handleKeyPress(user, key) {
     if (key.length === 1) {
       user.text += key;
@@ -684,13 +650,18 @@ export class RemoteUserHandler {
     this.ui.updateRemoteText(user.id, user.text);
   }
 
+  /**
+   * Loads a brush resource for a remote user.
+   *
+   * @param {User} user - The remote user.
+   * @param {string|Object} brushDataStr - Serialized brush configuration.
+   * @returns {void}
+   */
   handleBrushLoad(user, brushDataStr) {
-    // Parse JSON string from protobuf transport
     const brushData = typeof brushDataStr === 'string' ? JSON.parse(brushDataStr) : brushDataStr;
 
     if (brushData.type === 'gbr' || brushData.type === 'image') {
       const image = new Image();
-      // Wait for image to load before assigning to user
       image.onload = () => {
         brushData.image = image;
         user.imageBrush = brushData;
@@ -701,7 +672,6 @@ export class RemoteUserHandler {
       };
       image.src = brushData.gimpUrl;
     } else if (brushData.type === 'gih' && brushData.gBrushes && brushData.gBrushes.length > 0) {
-      // Track loading progress for all images
       let loadedCount = 0;
       const totalImages = brushData.gBrushes.length;
 
@@ -710,26 +680,19 @@ export class RemoteUserHandler {
         img.onload = () => {
           loadedCount++;
           if (loadedCount === totalImages) {
-            // All images loaded - now safe to assign to user
             brushData.images = images;
             brushData.index = 0;
-            // Ensure ncells matches the actual number of images
             brushData.ncells = images.length;
-            // Ensure cellwidth/cellheight are set (use first brush dimensions as fallback)
             if (!brushData.cellwidth && brushData.gBrushes[0]) {
               brushData.cellwidth = brushData.gBrushes[0].width || 32;
               brushData.cellheight = brushData.gBrushes[0].height || 32;
             }
 
-            // Recreate the getNextBrush and reset functions that were lost during JSON serialization
-            // These are needed for proper animation playback on remote clients
             if (brushData.dimensions && brushData.dimensions.length > 0) {
-              // Reset dimension indices
               for (const dim of brushData.dimensions) {
                 dim.currentIndex = 0;
               }
 
-              // Recreate getNextBrush function using the imported helper
               brushData.getNextBrush = function(context) {
                 const idx = getNextBrushIndex(this, context);
                 return {
@@ -738,7 +701,6 @@ export class RemoteUserHandler {
                 };
               };
 
-              // Recreate reset function
               brushData.reset = function() {
                 for (const dim of this.dimensions) {
                   dim.currentIndex = 0;
@@ -759,16 +721,19 @@ export class RemoteUserHandler {
     }
   }
 
+  /**
+   * Cancels a remote user's active stroke and cleans up state.
+   *
+   * @param {User} user - The remote user whose stroke is being cancelled.
+   * @returns {void}
+   */
   handleCancel(user) {
-    // Cancel debug overlay tracking
     if (this.debugOverlay) {
       this.debugOverlay.cancelDrawing(user.id);
     }
 
-    // Cancel in-progress stroke in LayerManager
     this.board.layerManager.cancelUserStroke(user.activeLayer, user.id);
 
-    // Clear any in-progress drawing
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     user.clearLine();
     user.mousedown = false;
@@ -776,7 +741,6 @@ export class RemoteUserHandler {
     user.pendingSelection = null;
     user.pendingLassoPath = null;
 
-    // Clear per-user pen state
     user.penPoints = [];
     user._penLastStampPos = null;
     user._penStrokeActive = false;
@@ -786,7 +750,6 @@ export class RemoteUserHandler {
       user._penOffscreenCtx.clearRect(0, 0, user._penOffscreen.width, user._penOffscreen.height);
     }
 
-    // Clear per-user ink state
     user._inkPoints = [];
     user._inkStrokeActive = false;
     user._inkStrokeColor = null;
@@ -795,7 +758,6 @@ export class RemoteUserHandler {
       user._inkCtx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
     }
 
-    // Clear blur/circleBlur/imageBrush tracking
     user.blurSnapshot = null;
     user.lastBlurPos = null;
 
@@ -814,11 +776,14 @@ export class RemoteUserHandler {
     this.board.requestUpdate();
   }
 
-  // Drawing utilities
-
   /**
-   * Expand the dirty rect for a remote user based on drawn points and brush size.
-   * Mirrors the logic local tools use (BrushTool, ShapeTools, etc.).
+   * Internal helper to expand the dirty rect for a remote user.
+   *
+   * @private
+   * @param {User} user - The remote user.
+   * @param {Array<Object>} points - Array of {x, y} points.
+   * @param {number} margin - Expansion margin around the points.
+   * @returns {void}
    */
   _expandDirtyRectFromPoints(user, points, margin) {
     if (!points || points.length === 0) return;
@@ -845,7 +810,11 @@ export class RemoteUserHandler {
   }
 
   /**
-   * Compute brush margin for dirty rect expansion (matching BrushTool logic).
+   * Computes the brush margin for dirty rectangle expansion.
+   *
+   * @private
+   * @param {User} user - The remote user.
+   * @returns {number}
    */
   _brushMargin(user) {
     const radius = user.pressure * user.size;
@@ -854,10 +823,18 @@ export class RemoteUserHandler {
     return radius + blurAmount + radius * 0.25 + 2;
   }
 
+  /**
+   * Commits the current line segment to the history and prepares for the next.
+   * Used when remote brush parameters change mid-stroke.
+   *
+   * @param {User} user - The remote user.
+   * @param {number} [newPressure] - New pressure value.
+   * @param {number} [newSize] - New brush size.
+   * @returns {void}
+   */
   commitLine(user, newPressure, newSize) {
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
 
-    // Save last drawn position (where old segment visually ends)
     const lastDrawnPos = user.currentLine.length > 0
       ? user.currentLine[user.currentLine.length - 1]
       : { x: user.x, y: user.y };
@@ -865,10 +842,8 @@ export class RemoteUserHandler {
     const oldRadius = user.pressure * user.size;
     const newRadius = (newPressure ?? user.pressure) * (newSize ?? user.size);
 
-    // Get the ACTIVE sub-layer context for this user's stroke.
     const activeStrokeCtx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
     if (activeStrokeCtx) {
-      // Draw the segment-so-far to the active stroke context before resetting the buffer
       if (user.tool === 'brush' && user.currentLine.length >= 2) {
         drawLineArray(user.currentLine, activeStrokeCtx, user);
         if (this.board.mirror) {
@@ -876,12 +851,9 @@ export class RemoteUserHandler {
           const mirroredLine = mirrorLine(user.currentLine, w);
           drawLineArray(mirroredLine, activeStrokeCtx, user);
         }
-        // Track dirty rect from drawn points
         this._expandDirtyRectFromPoints(user, user.currentLine, this._brushMargin(user));
       }
 
-      // Bridge the gap between old segment end and new segment start when pressure changes
-      // using interpolated filled circles (flow-pen style)
       if (user.currentLine.length > 0 && oldRadius !== newRadius) {
         const from = lastDrawnPos;
         bridgeGap(activeStrokeCtx, from, lastDrawnPos, oldRadius, newRadius, user);

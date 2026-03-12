@@ -1,20 +1,21 @@
+/** @fileoverview Provides utilities for moderation actions, including IP obfuscation, ban/mute checks, and logging. */
+
 import { getDB } from './db.js';
 
 /**
- * Obfuscate an IP address — show first 2 octets, replace last 2 with x.x
- * Handles IPv4, IPv6-mapped IPv4 (::ffff:x.x.x.x)
+ * Obfuscates an IP address by showing only the first two octets or groups.
+ * @param {string} ip - The IP address to obfuscate.
+ * @returns {string} - The obfuscated IP address.
  */
 export function obfuscateIp(ip) {
   if (!ip) return 'unknown';
 
-  // Handle IPv6-mapped IPv4 (::ffff:10.0.1.2 -> 10.0.x.x)
   const v4Match = ip.match(/(?:::ffff:)?(\d+\.\d+\.\d+\.\d+)/i);
   if (v4Match) {
     const parts = v4Match[1].split('.');
     return `${parts[0]}.${parts[1]}.x.x`;
   }
 
-  // IPv6 — show first 2 groups
   const v6Parts = ip.split(':');
   if (v6Parts.length > 2) {
     return `${v6Parts[0]}:${v6Parts[1]}:x:x`;
@@ -24,7 +25,10 @@ export function obfuscateIp(ip) {
 }
 
 /**
- * Check if a user is banned (by userId or IP)
+ * Checks if a user is currently banned.
+ * @param {string|null} userId - The unique ID of the user.
+ * @param {string|null} ip - The IP address of the user.
+ * @returns {Promise<Object|null>} - The ban entry if active, otherwise null.
  */
 export async function checkBan(userId, ip) {
   const db = getDB();
@@ -43,7 +47,10 @@ export async function checkBan(userId, ip) {
 }
 
 /**
- * Check if a user is muted (by userId or IP)
+ * Checks if a user is currently muted.
+ * @param {string|null} userId - The unique ID of the user.
+ * @param {string|null} ip - The IP address of the user.
+ * @returns {Promise<Object|null>} - The mute entry if active, otherwise null.
  */
 export async function checkMute(userId, ip) {
   const db = getDB();
@@ -62,17 +69,18 @@ export async function checkMute(userId, ip) {
 }
 
 /**
- * Issue a moderation action (ban, mute)
- * @param {Object} opts
- * @param {string} opts.type - 'ban' or 'mute'
- * @param {string|null} opts.targetUserId
- * @param {string} opts.targetUsername
- * @param {string} opts.targetIp
- * @param {string} opts.reason
- * @param {string} opts.issuedBy - moderator userId
- * @param {string} opts.issuedByUsername
- * @param {number} opts.duration - minutes, 0 = permanent
- * @param {string} [opts.roomId] - room scope (optional, null = global)
+ * Records a new moderation action in the database.
+ * @param {Object} opts - Action options.
+ * @param {string} opts.type - The type of action ('ban' or 'mute').
+ * @param {string|null} opts.targetUserId - The ID of the target user.
+ * @param {string} opts.targetUsername - The username of the target user.
+ * @param {string} opts.targetIp - The IP of the target user.
+ * @param {string} opts.reason - The reason for the action.
+ * @param {string} opts.issuedBy - The ID of the moderator who issued the action.
+ * @param {string} opts.issuedByUsername - The username of the moderator.
+ * @param {number} opts.duration - Duration in minutes (0 for permanent).
+ * @param {string} [opts.roomId] - Optional room ID to scope the action.
+ * @returns {Promise<Object|null>} - The created moderation entry.
  */
 export async function issueModAction(opts) {
   const db = getDB();
@@ -105,7 +113,10 @@ export async function issueModAction(opts) {
 }
 
 /**
- * Revoke a moderation action
+ * Revokes an existing moderation action.
+ * @param {string} actionId - The ID of the moderation action to revoke.
+ * @param {string} revokedById - The ID of the moderator revoking the action.
+ * @returns {Promise<boolean>} - True if the action was successfully revoked.
  */
 export async function revokeModAction(actionId, revokedById) {
   const db = getDB();
@@ -121,18 +132,11 @@ export async function revokeModAction(actionId, revokedById) {
 }
 
 /**
- * Get all active moderation entries (for mod panel)
- * @deprecated Use getModEntries instead
- */
-export async function getActiveModEntries() {
-  return getModEntries({ showHistory: false, search: '' });
-}
-
-/**
- * Get moderation entries with optional history and search filtering
- * @param {Object} opts
- * @param {boolean} [opts.showHistory=false] - include revoked/expired entries
- * @param {string}  [opts.search='']         - filter by target username prefix
+ * Retrieves moderation entries with optional history and search filters.
+ * @param {Object} [opts] - Filter options.
+ * @param {boolean} [opts.showHistory=false] - Whether to include inactive entries.
+ * @param {string} [opts.search=''] - A prefix to filter target usernames by.
+ * @returns {Promise<Array<Object>>} - A list of moderation entries.
  */
 export async function getModEntries({ showHistory = false, search = '' } = {}) {
   const db = getDB();

@@ -1,7 +1,14 @@
 /**
- * Color Input Menu - Allows manual RGB/HSV color input
+ * @fileoverview Color Input Menu - Allows manual RGB/HSV color input.
+ */
+
+/**
+ * ColorInputMenu class
  */
 export class ColorInputMenu {
+  /**
+   * @param {Object} [options={}] - Configuration options
+   */
   constructor(options = {}) {
     this.onColorChange = options.onColorChange || (() => {});
     this.currentMode = 'rgb'; // 'rgb', 'hsv', or 'hex'
@@ -9,11 +16,17 @@ export class ColorInputMenu {
     this.elements = {};
   }
 
+  /**
+   * Initializes the menu component.
+   */
   init() {
     this.cacheElements();
     this.setupEventListeners();
   }
 
+  /**
+   * Caches DOM element references.
+   */
   cacheElements() {
     this.elements = {
       menu: document.getElementById('colorInputMenu'),
@@ -24,26 +37,25 @@ export class ColorInputMenu {
       hsvMode: document.getElementById('hsvMode'),
       hexMode: document.getElementById('hexMode'),
 
-      // RGB inputs
       inputR: document.getElementById('inputR'),
       inputG: document.getElementById('inputG'),
       inputB: document.getElementById('inputB'),
       inputA: document.getElementById('inputA'),
 
-      // HSV inputs
       inputH: document.getElementById('inputH'),
       inputS: document.getElementById('inputS'),
       inputV: document.getElementById('inputV'),
       inputA_hsv: document.getElementById('inputA_hsv'),
 
-      // HEX inputs
       inputHex: document.getElementById('inputHex'),
       inputA_hex: document.getElementById('inputA_hex')
     };
   }
 
+  /**
+   * Sets up event listeners for inputs and controls.
+   */
   setupEventListeners() {
-    // Open/close buttons
     this.elements.openBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.toggle();
@@ -51,7 +63,6 @@ export class ColorInputMenu {
 
     this.elements.closeBtn.addEventListener('click', () => this.close());
 
-    // Tab switching
     this.elements.tabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const mode = tab.dataset.mode;
@@ -59,25 +70,21 @@ export class ColorInputMenu {
       });
     });
 
-    // RGB input changes
     ['inputR', 'inputG', 'inputB', 'inputA'].forEach(key => {
       this.elements[key].addEventListener('input', () => this.handleRGBChange());
       this.elements[key].addEventListener('change', () => this.handleRGBChange());
     });
 
-    // HSV input changes
     ['inputH', 'inputS', 'inputV', 'inputA_hsv'].forEach(key => {
       this.elements[key].addEventListener('input', () => this.handleHSVChange());
       this.elements[key].addEventListener('change', () => this.handleHSVChange());
     });
 
-    // HEX input changes
     this.elements.inputHex.addEventListener('input', () => this.handleHexChange());
     this.elements.inputHex.addEventListener('change', () => this.handleHexChange());
     this.elements.inputA_hex.addEventListener('input', () => this.handleHexChange());
     this.elements.inputA_hex.addEventListener('change', () => this.handleHexChange());
 
-    // Close on outside click
     document.addEventListener('click', (e) => {
       if (this.isOpen &&
           !this.elements.menu.contains(e.target) &&
@@ -87,6 +94,9 @@ export class ColorInputMenu {
     });
   }
 
+  /**
+   * Toggles the menu visibility.
+   */
   toggle() {
     if (this.isOpen) {
       this.close();
@@ -95,159 +105,156 @@ export class ColorInputMenu {
     }
   }
 
+  /**
+   * Opens the menu.
+   */
   open() {
     this.elements.menu.style.display = 'block';
     this.isOpen = true;
   }
 
+  /**
+   * Closes the menu.
+   */
   close() {
     this.elements.menu.style.display = 'none';
     this.isOpen = false;
   }
 
+  /**
+   * Switches the input mode (RGB, HSV, or HEX).
+   * @param {string} mode - The mode to switch to
+   */
   switchMode(mode) {
     this.currentMode = mode;
 
-    // Update tabs
     this.elements.tabs.forEach(tab => {
       tab.classList.toggle('active', tab.dataset.mode === mode);
     });
 
-    // Show/hide modes
     this.elements.rgbMode.style.display = mode === 'rgb' ? 'flex' : 'none';
     this.elements.hsvMode.style.display = mode === 'hsv' ? 'flex' : 'none';
     this.elements.hexMode.style.display = mode === 'hex' ? 'flex' : 'none';
   }
 
+  /**
+   * Handles changes to RGB input fields.
+   */
   handleRGBChange() {
     const r = this.clamp(parseInt(this.elements.inputR.value) || 0, 0, 255);
     const g = this.clamp(parseInt(this.elements.inputG.value) || 0, 0, 255);
     const b = this.clamp(parseInt(this.elements.inputB.value) || 0, 0, 255);
     const a = this.clamp(parseInt(this.elements.inputA.value) || 100, 0, 100) / 100;
 
-    // Update input fields to clamped values
     this.elements.inputR.value = r;
     this.elements.inputG.value = g;
     this.elements.inputB.value = b;
     this.elements.inputA.value = Math.round(a * 100);
 
-    // Update HSV fields
     const hsv = this.rgbToHsv(r, g, b);
     this.elements.inputH.value = Math.round(hsv.h);
     this.elements.inputS.value = Math.round(hsv.s);
     this.elements.inputV.value = Math.round(hsv.v);
     this.elements.inputA_hsv.value = Math.round(a * 100);
 
-    // Update HEX fields
     const hex = this.rgbToHex(r, g, b);
     this.elements.inputHex.value = hex;
     this.elements.inputA_hex.value = Math.round(a * 100);
 
-    // Trigger callback
     this.onColorChange([r, g, b, a]);
   }
 
+  /**
+   * Handles changes to HSV input fields.
+   */
   handleHSVChange() {
     const h = this.clamp(parseInt(this.elements.inputH.value) || 0, 0, 360);
     const s = this.clamp(parseInt(this.elements.inputS.value) || 0, 0, 100);
     const v = this.clamp(parseInt(this.elements.inputV.value) || 0, 0, 100);
     const a = this.clamp(parseInt(this.elements.inputA_hsv.value) || 100, 0, 100) / 100;
 
-    // Update input fields to clamped values
     this.elements.inputH.value = h;
     this.elements.inputS.value = s;
     this.elements.inputV.value = v;
     this.elements.inputA_hsv.value = Math.round(a * 100);
 
-    // Convert to RGB
     const rgb = this.hsvToRgb(h, s, v);
 
-    // Update RGB fields
     this.elements.inputR.value = rgb.r;
     this.elements.inputG.value = rgb.g;
     this.elements.inputB.value = rgb.b;
     this.elements.inputA.value = Math.round(a * 100);
 
-    // Update HEX fields
     const hex = this.rgbToHex(rgb.r, rgb.g, rgb.b);
     this.elements.inputHex.value = hex;
     this.elements.inputA_hex.value = Math.round(a * 100);
 
-    // Trigger callback
     this.onColorChange([rgb.r, rgb.g, rgb.b, a]);
   }
 
+  /**
+   * Handles changes to HEX input fields.
+   */
   handleHexChange() {
     let hex = this.elements.inputHex.value.replace(/[^0-9A-Fa-f]/g, '');
     const a = this.clamp(parseInt(this.elements.inputA_hex.value) || 100, 0, 100) / 100;
 
-    // Handle 3-digit hex shorthand (e.g., #RGB -> #RRGGBB)
     if (hex.length === 3) {
       hex = hex.split('').map(c => c + c).join('');
     }
 
-    // Pad with zeros if needed
     while (hex.length < 6) {
       hex = '0' + hex;
     }
 
-    // Truncate if too long
     hex = hex.substring(0, 6);
 
-    // Update input field to cleaned value
     this.elements.inputHex.value = hex.toUpperCase();
     this.elements.inputA_hex.value = Math.round(a * 100);
 
-    // Parse hex to RGB
     const r = parseInt(hex.substring(0, 2), 16);
     const g = parseInt(hex.substring(2, 4), 16);
     const b = parseInt(hex.substring(4, 6), 16);
 
-    // Update RGB fields
     this.elements.inputR.value = r;
     this.elements.inputG.value = g;
     this.elements.inputB.value = b;
     this.elements.inputA.value = Math.round(a * 100);
 
-    // Update HSV fields
     const hsv = this.rgbToHsv(r, g, b);
     this.elements.inputH.value = Math.round(hsv.h);
     this.elements.inputS.value = Math.round(hsv.s);
     this.elements.inputV.value = Math.round(hsv.v);
     this.elements.inputA_hsv.value = Math.round(a * 100);
 
-    // Trigger callback
     this.onColorChange([r, g, b, a]);
   }
 
   /**
-   * Update the menu with a new color (from external source like color picker)
+   * Update the menu with a new color from an external source.
    * @param {Array} rgba - [r, g, b, a] where rgb is 0-255 and a is 0-1
    */
   updateColor(rgba) {
     const [r, g, b, a] = rgba;
 
-    // Update RGB fields
     this.elements.inputR.value = Math.round(r);
     this.elements.inputG.value = Math.round(g);
     this.elements.inputB.value = Math.round(b);
     this.elements.inputA.value = Math.round(a * 100);
 
-    // Update HSV fields
     const hsv = this.rgbToHsv(r, g, b);
     this.elements.inputH.value = Math.round(hsv.h);
     this.elements.inputS.value = Math.round(hsv.s);
     this.elements.inputV.value = Math.round(hsv.v);
     this.elements.inputA_hsv.value = Math.round(a * 100);
 
-    // Update HEX fields
     const hex = this.rgbToHex(Math.round(r), Math.round(g), Math.round(b));
     this.elements.inputHex.value = hex;
     this.elements.inputA_hex.value = Math.round(a * 100);
   }
 
   /**
-   * Convert RGB to HSV
+   * Convert RGB to HSV.
    * @param {number} r - Red (0-255)
    * @param {number} g - Green (0-255)
    * @param {number} b - Blue (0-255)
@@ -284,7 +291,7 @@ export class ColorInputMenu {
   }
 
   /**
-   * Convert HSV to RGB
+   * Convert HSV to RGB.
    * @param {number} h - Hue (0-360)
    * @param {number} s - Saturation (0-100)
    * @param {number} v - Value (0-100)
@@ -318,12 +325,19 @@ export class ColorInputMenu {
     };
   }
 
+  /**
+   * Clamps a value between min and max.
+   * @param {number} value - Input value
+   * @param {number} min - Minimum limit
+   * @param {number} max - Maximum limit
+   * @returns {number} - Clamped value
+   */
   clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
   }
 
   /**
-   * Convert RGB to HEX
+   * Convert RGB to HEX.
    * @param {number} r - Red (0-255)
    * @param {number} g - Green (0-255)
    * @param {number} b - Blue (0-255)

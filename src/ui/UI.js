@@ -1,9 +1,12 @@
+/**
+ * @fileoverview Main UI Manager for handling DOM interactions, icons, and specialized sub-UI components.
+ */
 import { EditableValueHandler } from './EditableValueHandler.js';
 import { RemoteUserUI } from './RemoteUserUI.js';
 import { LayerPreview } from './LayerPreview.js';
 
 /**
- * UI Manager for handling DOM interactions
+ * UI Manager class
  */
 export class UI {
   constructor() {
@@ -11,10 +14,13 @@ export class UI {
     this.icons = {};
     this.cursors = new Map();
     this.editableHandler = new EditableValueHandler();
-    this.remoteUserUI = null; // Initialized after icons are created
+    this.remoteUserUI = null;
     this.layerPreview = new LayerPreview();
   }
 
+  /**
+   * Initializes the UI manager and its sub-components.
+   */
   init() {
     this.cacheElements();
     this.createIcons();
@@ -23,7 +29,7 @@ export class UI {
   }
 
   /**
-   * Setup hover listeners for layer buttons to show miniatures
+   * Setup hover listeners for layer buttons to show miniatures.
    * @param {LayerManager} layerManager - Reference to the layer system
    */
   setupLayerPreviewListeners(layerManager) {
@@ -41,6 +47,9 @@ export class UI {
     });
   }
 
+  /**
+   * Caches commonly used DOM element references.
+   */
   cacheElements() {
     this.elements = {
       overlay: document.getElementById('overlay'),
@@ -140,8 +149,6 @@ export class UI {
       brushFileInput: document.getElementById('brush-file-input'),
       brushImage: document.getElementById('brushImage'),
       sizeContainer: document.getElementById('size-container'),
-      pressureContainer: document.getElementById('pressure-container'),
-      smoothingContainer: document.getElementById('smoothing-container'),
       brushSpacing: document.getElementById('brush-spacing'),
       brushHardness: document.getElementById('brush-hardness'),
       opacityContainer: document.getElementById('brush-opacity'),
@@ -156,7 +163,6 @@ export class UI {
       layerPanel: document.getElementById('layerPanel'),
       layerList: document.getElementById('layerList'),
 
-      // Lock buttons
       sizeLock: document.getElementById('sizeLock'),
       pressureLock: document.getElementById('pressureLock'),
       smoothingLock: document.getElementById('smoothingLock'),
@@ -192,6 +198,9 @@ export class UI {
     };
   }
 
+  /**
+   * Populates the internal icons map from image sources.
+   */
   createIcons() {
     this.icons = {
       select: this.createIcon('images/select-icon.svg'),
@@ -214,6 +223,11 @@ export class UI {
     };
   }
 
+  /**
+   * Creates an icon image element.
+   * @param {string} src - Image source path
+   * @returns {HTMLImageElement}
+   */
   createIcon(src) {
     const img = document.createElement('img');
     img.className = 'toolIcon';
@@ -221,23 +235,33 @@ export class UI {
     return img;
   }
 
+  /**
+   * Shows the login interface on the landing page.
+   */
   showLogin() {
     this.elements.landingPage.style.display = 'flex';
     this.elements.login.style.display = 'none';
     this.elements.connecting.style.display = 'none';
   }
 
+  /**
+   * Hides the global overlay.
+   */
   hideOverlay() {
     this.elements.overlay.style.display = 'none';
   }
 
+  /**
+   * Shows the local user's cursor elements.
+   */
   showCursor() {
-    // Show name (cursor div) - cursor shapes managed by updateToolDisplay()
     this.elements.selfCursor.style.display = 'block';
   }
 
+  /**
+   * Hides the local user's cursor elements.
+   */
   hideCursor() {
-    // Hide everything: name and all cursor shapes
     this.elements.selfCursor.style.display = 'none';
     this.elements.selfCircle.style.display = 'none';
     this.elements.selfSquare.style.display = 'none';
@@ -251,6 +275,12 @@ export class UI {
     }
   }
 
+  /**
+   * Updates the position and basic scale of the local user's cursor.
+   * @param {number} x - Board X
+   * @param {number} y - Board Y
+   * @param {number} size - Base tool size
+   */
   updateSelfCursor(x, y, size) {
     const cursor = this.elements.selfCursor;
     const circle = this.elements.selfCircle;
@@ -261,7 +291,6 @@ export class UI {
     const hand = this.elements.selfHand;
     const mutedIndicator = this.elements.selfMutedIndicator;
 
-    // Store cursor position for size change updates
     this._lastCursorX = x;
     this._lastCursorY = y;
 
@@ -277,7 +306,7 @@ export class UI {
     square.setAttribute('y', y - size);
     if (pressureSquare && pressureSquare.style.display !== 'none') {
       const psizeAttr = pressureSquare.getAttribute('width') || 10;
-      const psize = parseFloat(psizeAttr) / 2; // Convert width to radius
+      const psize = parseFloat(psizeAttr) / 2;
       pressureSquare.setAttribute('x', x - psize);
       pressureSquare.setAttribute('y', y - psize);
     }
@@ -290,35 +319,44 @@ export class UI {
     }
   }
 
+  /**
+   * Updates the static radius/dimensions of the local cursor.
+   * @param {number} size - Base tool size
+   */
   updateCursorSize(size) {
     this.elements.selfCircle.setAttribute('r', size);
     this.elements.selfSquare.setAttribute('width', size * 2);
     this.elements.selfSquare.setAttribute('height', size * 2);
   }
 
+  /**
+   * Updates the pressure-sensitive feedback circle radius.
+   * @param {number} r - Pressure-scaled radius
+   * @param {number} baseSize - Unscaled base size
+   */
   updatePressureCursorRadius(r, baseSize) {
     const el = this.elements.selfPressureCircle;
     if (!el) return;
 
-    // Only show the circle if actual pressure has been applied (radius < base size)
-    // baseSize is the unpressured size, r is the pressure-scaled radius
     if (baseSize !== undefined && r < baseSize) {
       el.style.display = 'block';
-      // Show actual pressure-scaled size (0-100% as pressure goes from 0 to 1)
       el.setAttribute('r', Math.max(1, r));
     } else {
       el.style.display = 'none';
     }
   }
 
+  /**
+   * Updates the pressure-sensitive feedback square size.
+   * @param {number} squareSize - Pressure-scaled half-width
+   * @param {number} baseSize - Unscaled base size
+   */
   updatePressureSquareSize(squareSize, baseSize) {
     const el = this.elements.selfPressureSquare;
     if (!el) return;
 
-    // Only show the square if actual pressure has been applied (size < base size)
     if (baseSize !== undefined && squareSize < baseSize) {
       el.style.display = 'block';
-      // Show actual pressure-scaled size (0-100% as pressure goes from 0 to 1)
       const sizeDoubled = Math.max(2, squareSize * 2);
       el.setAttribute('width', sizeDoubled);
       el.setAttribute('height', sizeDoubled);
@@ -327,19 +365,21 @@ export class UI {
     }
   }
 
+  /**
+   * Synchronizes square cursor shapes with the current mouse position.
+   * @param {number} size - Base tool size
+   */
   updateSquarePositions(size) {
     const x = this._lastCursorX || 0;
     const y = this._lastCursorY || 0;
     const square = this.elements.selfSquare;
     const pressureSquare = this.elements.selfPressureSquare;
 
-    // Update main square position
     if (square && square.style.display !== 'none') {
       square.setAttribute('x', x - size);
       square.setAttribute('y', y - size);
     }
 
-    // Update pressure square position
     if (pressureSquare && pressureSquare.style.display !== 'none') {
       const psizeAttr = parseFloat(pressureSquare.getAttribute('width') || 2);
       const psize = psizeAttr / 2;
@@ -348,6 +388,10 @@ export class UI {
     }
   }
 
+  /**
+   * Switches between crosshair and hand for the selection tool.
+   * @param {boolean} isHand - Whether to show the hand icon
+   */
   setSelectCursor(isHand) {
     if (isHand) {
       this.elements.selfCrosshair.style.display = 'none';
@@ -358,6 +402,10 @@ export class UI {
     }
   }
 
+  /**
+   * Updates the muted indicator state on the local cursor.
+   * @param {boolean} muted - Whether the user is muted
+   */
   setMutedState(muted) {
     const indicator = this.elements.selfMutedIndicator;
     const circle = this.elements.selfCircle;
@@ -369,6 +417,11 @@ export class UI {
     }
   }
 
+  /**
+   * Updates the position of the muted indicator.
+   * @param {number} x - Board X
+   * @param {number} y - Board Y
+   */
   updateMutedIndicatorPosition(x, y) {
     const indicator = this.elements.selfMutedIndicator;
     if (indicator) {
@@ -376,6 +429,11 @@ export class UI {
     }
   }
 
+  /**
+   * Updates tool options and cursor shapes based on the current tool.
+   * @param {string} tool - Current tool name
+   * @param {Object} [user=null] - Local user object
+   */
   updateToolDisplay(tool, user = null) {
     const {
       selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText,
@@ -384,7 +442,6 @@ export class UI {
       selectionModeOptions, eraserModeOptions, brushModeOptions, circleBlurModeOptions
     } = this.elements;
 
-    // Reset defaults
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
     selfCrosshair.style.display = 'none';
@@ -395,7 +452,6 @@ export class UI {
     brushSpacing.style.display = 'none';
     brushHardness.style.display = 'none';
 
-    // Options visibility defaults
     sizeContainer.style.display = 'block';
     pressureContainer.style.display = 'block';
     smoothingContainer.style.display = 'block';
@@ -412,7 +468,6 @@ export class UI {
       blendModeOptions.style.display = this.toolSupportsBlendMode(tool) ? 'block' : 'none';
     }
 
-    // Hide pressure indicators by default (only shown for pressure-sensitive tools)
     if (selfPressureCircle) selfPressureCircle.style.display = 'none';
     if (selfPressureSquare) selfPressureSquare.style.display = 'none';
 
@@ -423,9 +478,7 @@ export class UI {
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
         opacityContainer.style.display = 'none';
-        if (selectionModeOptions) {
-          selectionModeOptions.style.display = 'block';
-        }
+        if (selectionModeOptions) selectionModeOptions.style.display = 'block';
         break;
 
       case 'brush':
@@ -454,8 +507,8 @@ export class UI {
 
       case 'erase':
         selfCircle.style.display = 'block';
-        opacityContainer.style.display = 'block'; // Show opacity for eraser
-        brushHardness.style.display = 'block';   // Show hardness for eraser
+        opacityContainer.style.display = 'block';
+        brushHardness.style.display = 'block';
         if (eraserModeOptions) eraserModeOptions.style.display = 'block';
         if (selfPressureCircle) selfPressureCircle.style.display = 'block';
         break;
@@ -513,7 +566,7 @@ export class UI {
   }
 
   /**
-   * Check if a tool supports blend modes
+   * Check if a tool supports blend modes.
    * @param {string} tool - Tool name
    * @returns {boolean}
    */
@@ -522,6 +575,10 @@ export class UI {
     return !noBlendTools.includes(tool);
   }
 
+  /**
+   * Updates the selected state of tool buttons in the toolbar.
+   * @param {string} tool - Selected tool name
+   */
   updateToolButton(tool) {
     const buttons = {
       pan: this.elements.panBtn,
@@ -540,7 +597,6 @@ export class UI {
     };
 
     Object.values(buttons).forEach(btn => btn && btn.classList.remove('selected'));
-    // Map sub-tools to their shared button
     let buttonTool = tool;
     if (tool === 'flowPen' || tool === 'ink') buttonTool = 'brush';
     if (tool === 'circleBlurHard') buttonTool = 'circleBlur';
@@ -558,19 +614,35 @@ export class UI {
     }
   }
 
+  /**
+   * Updates the zoom percentage display.
+   * @param {string} percent - Zoom percentage text
+   */
   updateZoomDisplay(percent) {
     this.elements.zoomPercent.textContent = percent;
   }
 
+  /**
+   * Updates the mirror line toggle display.
+   * @param {boolean} enabled - Whether mirror is enabled
+   */
   updateMirrorDisplay(enabled) {
     this.elements.mirrorText.textContent = enabled ? 'ON' : 'OFF';
   }
 
+  /**
+   * Updates the dev mode toggle display.
+   * @param {boolean} enabled - Whether dev mode is enabled
+   */
   updateDevModeDisplay(enabled) {
     this.elements.devText.textContent = enabled ? 'ON' : 'OFF';
     this.elements.devText.classList.toggle('active', enabled);
   }
 
+  /**
+   * Updates the brush mode radio buttons.
+   * @param {string} mode - Selected brush mode
+   */
   updateBrushModeDisplay(mode) {
     const radios = document.querySelectorAll('input[name="brushMode"]');
     radios.forEach(r => {
@@ -578,6 +650,10 @@ export class UI {
     });
   }
 
+  /**
+   * Updates the circle blur mode radio buttons.
+   * @param {string} tool - Selected circle blur tool
+   */
   updateCircleBlurModeDisplay(tool) {
     const mode = tool === 'circleBlurHard' ? 'hard' : 'soft';
     const radios = document.querySelectorAll('input[name="circleBlurMode"]');
@@ -586,6 +662,10 @@ export class UI {
     });
   }
 
+  /**
+   * Updates the highlighted layer button in the layers panel.
+   * @param {number} layerIndex - Active layer index
+   */
   updateActiveLayerDisplay(layerIndex) {
     const layerButtons = document.querySelectorAll('.layerButton');
     layerButtons.forEach(btn => {
@@ -594,25 +674,27 @@ export class UI {
     });
   }
 
+  /**
+   * Updates the selected blend mode in the dropdown.
+   * @param {string} blendMode - Selected blend mode
+   */
   updateBlendModeDisplay(blendMode) {
     if (this.elements.blendModeSelect) {
-      this._updatingBlendMode = true;  // Set flag to prevent change event
+      this._updatingBlendMode = true;
       this.elements.blendModeSelect.value = blendMode;
-      this._updatingBlendMode = false;  // Clear flag
+      this._updatingBlendMode = false;
     }
   }
 
   /**
-   * Show or hide the blend mode section based on whether the active layer allows
-   * complex blend modes. When hidden, the user's blend mode is reset to Normal.
+   * Updates blend mode section visibility based on layer support.
    * @param {boolean} allowComplex - Whether the active layer allows blend modes
-   * @returns {boolean} Whether a reset to Normal was needed
+   * @returns {boolean} - True if a reset to Normal was performed
    */
   updateBlendModeForLayer(allowComplex) {
     const section = this.elements.blendModeOptions;
     if (!section) return false;
 
-    // Only show if the layer allows it AND the current tool supports it
     const tool = window.app?.self?.tool;
     const toolSupports = tool ? this.toolSupportsBlendMode(tool) : true;
 
@@ -621,31 +703,46 @@ export class UI {
       return false;
     } else {
       section.style.display = 'none';
-      // Reset the select to Normal so the value is consistent
       const select = this.elements.blendModeSelect;
       if (select && select.value !== 'source-over') {
         this._updatingBlendMode = true;
         select.value = 'source-over';
         this._updatingBlendMode = false;
-        return true; // Caller should apply the reset
+        return true;
       }
       return false;
     }
   }
 
+  /**
+   * Updates the local user's color in the user list.
+   * @param {Array} color - [r, g, b, a] color array
+   */
   updateSelfColor(color) {
     this.elements.selfListColor.style.backgroundColor = `rgba(${color.join(',')})`;
   }
 
+  /**
+   * Updates the local text input preview.
+   * @param {string} text - Current text input
+   */
   updateSelfTextInput(text) {
     this.elements.selfTextInput.innerHTML = text;
   }
 
+  /**
+   * Updates the local username display.
+   * @param {string} name - New username
+   */
   updateSelfName(name) {
     this.elements.selfName.textContent = name;
     this.elements.selfListUser.textContent = name;
   }
 
+  /**
+   * Updates the local tool icon in the user list.
+   * @param {string} tool - Current tool name
+   */
   updateSelfToolIcon(tool) {
     const { selfListTool } = this.elements;
     if (selfListTool) {
@@ -655,58 +752,66 @@ export class UI {
     }
   }
 
+  /**
+   * Updates the local floating text cursor style.
+   * @param {number} size - Font size
+   * @param {Array} color - [r, g, b, a] color array
+   */
   updateSelfTextStyle(size, color) {
     this.elements.selfText.style.fontSize = `${size + 5}px`;
-    // Square the alpha to match board rendering (globalAlpha * colorAlpha)
     const [r, g, b, a] = color;
     this.elements.selfText.style.color = `rgba(${r}, ${g}, ${b}, ${a * a})`;
   }
 
   /**
-   * Move and focus the hidden touch input to trigger the virtual keyboard.
-   * Moving it to the touch location makes the trigger more reliable on some OSs.
-   * @param {number} x - Screen X (clientX)
-   * @param {number} y - Screen Y (clientY)
+   * Move and focus the hidden touch input to trigger virtual keyboard.
+   * @param {number} x - Client X
+   * @param {number} y - Client Y
    */
   activateTouchInput(x, y) {
     const input = this.elements.touchInput;
     if (!input) return;
 
-    // Move to touch location
     input.style.left = `${x}px`;
     input.style.top = `${y}px`;
-    
-    // Set a placeholder space so the virtual keyboard enables the backspace key
     input.value = ' ';
-    
-    // Temporarily enable pointer events so the OS sees this as a valid target
     input.style.pointerEvents = 'auto';
     
-    // Use timeout to ensure browser state is settled before requesting keyboard
     setTimeout(() => {
       input.focus();
-      // Keep pointer-events active for a moment to 'bless' the focus
       setTimeout(() => {
         input.style.pointerEvents = 'none';
       }, 500);
     }, 10);
   }
 
+  /**
+   * Sets the image brush preview source.
+   * @param {string} url - Image data URL
+   */
   setBrushPreview(url) {
     this.elements.brushImage.src = url;
     this.elements.brushImage.style.display = 'block';
   }
 
+  /**
+   * Updates the tool size value display.
+   * @param {number} size - Current size
+   */
   updateSizeValue(size) {
     if (this.elements.sizeValue) {
       this.elements.sizeValue.textContent = size;
     }
   }
 
+  /**
+   * Updates the pressure sensitivity range display.
+   * @param {number} min - Minimum pressure scale
+   * @param {number} [max] - Maximum pressure scale
+   */
   updatePressureValue(min, max) {
     if (this.elements.pressureValue) {
       if (max === undefined) {
-        // Legacy single-value call: treat as max with min=0
         this.elements.pressureValue.textContent = `0-${min}`;
       } else {
         this.elements.pressureValue.textContent = `${min}-${max}`;
@@ -714,36 +819,62 @@ export class UI {
     }
   }
 
+  /**
+   * Updates the smoothing factor display.
+   * @param {number} smoothing - Smoothing value
+   */
   updateSmoothingValue(smoothing) {
     if (this.elements.smoothingValue) {
       this.elements.smoothingValue.textContent = Math.round(smoothing);
     }
   }
 
+  /**
+   * Updates the brush spacing factor display.
+   * @param {number} spacing - Spacing value
+   */
   updateSpacingValue(spacing) {
     if (this.elements.spacingValue) {
       this.elements.spacingValue.textContent = spacing;
     }
   }
 
+  /**
+   * Updates the brush hardness factor display.
+   * @param {number} hardness - Hardness value
+   */
   updateHardnessValue(hardness) {
     if (this.elements.hardnessValue) {
       this.elements.hardnessValue.textContent = Math.round(hardness);
     }
   }
 
+  /**
+   * Updates the blur radius value display.
+   * @param {number} radius - Blur radius
+   */
   updateBlurRadiusValue(radius) {
     if (this.elements.blurRadiusValue) {
       this.elements.blurRadiusValue.textContent = radius;
     }
   }
 
+  /**
+   * Updates the tool opacity value display.
+   * @param {number} opacity - Opacity (0-1)
+   */
   updateopacityValue(opacity) {
     if (this.elements.opacityValue) {
       this.elements.opacityValue.textContent = Math.round(opacity * 100);
     }
   }
 
+  /**
+   * Updates the lock/unlock state of a tool property button.
+   * @param {string} property - Property name
+   * @param {boolean} locked - Whether it's locked
+   * @param {boolean} [visible=true] - Whether the lock button should be shown
+   */
   updateLockButton(property, locked, visible = true) {
     const btn = this.elements[`${property}Lock`];
     if (!btn) return;
@@ -755,11 +886,9 @@ export class UI {
   }
 
   /**
-   * Make a slider value span interactive:
-   * - Click: opens a text input for precise editing
-   * - Drag up/down: parameter ladder (scrub to adjust value)
-   * @param {HTMLElement} spanEl - The .sliderValue span element
-   * @param {Object} opts - { min, max, step, suffix, onCommit(val) }
+   * Delegate making an element editable to EditableValueHandler.
+   * @param {HTMLElement} spanEl - Element to make editable
+   * @param {Object} opts - Configuration options
    */
   makeValueEditable(spanEl, opts) {
     return this.editableHandler.makeEditable(spanEl, opts);
@@ -773,6 +902,9 @@ export class UI {
     return this.remoteUserUI.showRemoteCursor(userId);
   }
   
+  /**
+   * Toggles the collapsible toolbar menu.
+   */
   toggleMenu() {
     const menu = this.elements.collapsibleBtns;
     if (menu) {
@@ -780,6 +912,9 @@ export class UI {
     }
   }
 
+  /**
+   * Closes the collapsible toolbar menu.
+   */
   closeMenu() {
     const menu = this.elements.collapsibleBtns;
     if (menu) {
@@ -787,6 +922,10 @@ export class UI {
     }
   }
 
+  /**
+   * Toggles the tool options sidebar.
+   * @returns {boolean} - New collapsed state
+   */
   toggleSidebar() {
     const toolOptions = this.elements.toolOptions;
     const btn = this.elements.sidebarToggleBtn;
@@ -798,6 +937,10 @@ export class UI {
     return false;
   }
 
+  /**
+   * Force sets the sidebar collapsed state.
+   * @param {boolean} collapsed - Target collapsed state
+   */
   setSidebarCollapsed(collapsed) {
     const toolOptions = this.elements.toolOptions;
     const btn = this.elements.sidebarToggleBtn;
@@ -857,15 +1000,15 @@ export class UI {
   }
 
   /**
-   * Show a toast notification
-   * @param {string} message - The message to display
-   * @param {number} duration - How long to show the toast (ms), default 2000
+   * Shows a toast notification.
+   * @param {string} message - Notification message
+   * @param {number} [duration=2000] - Duration in ms
+   * @param {string} [type=''] - Toast type (e.g., 'error')
    */
   showToast(message, duration = 2000, type = '') {
     const toast = this.elements.toast;
     if (!toast) return;
 
-    // Clear any existing timeout
     if (this._toastTimeout) {
       clearTimeout(this._toastTimeout);
     }
@@ -880,6 +1023,10 @@ export class UI {
     }, duration);
   }
   
+  /**
+   * Updates the global connection status indicator.
+   * @param {string} state - Connection state string
+   */
   showConnectionStatus(state) {
     const { connectionStatus, connectionText } = this.elements;
     if (!connectionStatus) return;
@@ -896,6 +1043,9 @@ export class UI {
     connectionText.textContent = labels[state] || state;
   }
 
+  /**
+   * Hides the connection status indicator.
+   */
   hideConnectionStatus() {
     const { connectionStatus } = this.elements;
     if (connectionStatus) {
@@ -903,6 +1053,11 @@ export class UI {
     }
   }
   
+  /**
+   * Updates a user's role badge in the user list.
+   * @param {string} userId - User identifier
+   * @param {number} role - Role level
+   */
   updateUserRoleBadge(userId, role) {
     const id = `u${userId}`;
     const badge = document.querySelector(`.roleBadge.${id}`);

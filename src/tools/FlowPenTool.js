@@ -1,27 +1,63 @@
 /**
- * Base tool class
+ * @fileoverview Flow Pen tool for pressure-sensitive strokes using circle stamping.
+ * Uses an offscreen canvas to prevent opacity stacking when circles overlap.
+ */
+
+/**
+ * Base tool class.
  */
 class Tool {
+  /**
+   * @param {string} name - The name of the tool.
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(name, board) {
     this.name = name;
     this.board = board;
   }
 
+  /**
+   * Called when the tool is activated.
+   */
   activate() {}
+
+  /**
+   * Called when the tool is deactivated.
+   */
   deactivate() {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerDown(user, pos, e) {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Object} lastPos - The previous pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerMove(user, pos, lastPos, e) {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerUp(user, pos, e) {}
 }
 
 /**
- * Flow Pen tool for pressure-sensitive strokes using circle stamping
- * Uses offscreen canvas to prevent opacity stacking when circles overlap
- *
+ * Flow Pen tool for pressure-sensitive strokes using circle stamping.
  * Note: Position smoothing is handled by InputBufferManager before points
- * reach this tool, ensuring perfect parity between local preview and remote rendering.
+ * reach this tool, ensuring parity between local preview and remote rendering.
  */
 export class FlowPenTool extends Tool {
+  /**
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(board) {
     super('flowPen', board);
     this.pressureSteps = 256;
@@ -30,15 +66,19 @@ export class FlowPenTool extends Tool {
     this.lastStampPos = null;
     this.userAlpha = 1.0;
     this.strokeColor = null;
-    // Stamp buffer for remote sync — collects exact stamp positions as interleaved [x, y, r, ...], split on drain
     this.stampBuffer = [];
   }
 
+  /**
+   * Activates the tool and ensures the offscreen canvas is ready.
+   */
   activate() {
-    // Sub-layers always draw source-over; blend mode is applied at composite time.
     this.ensureOffscreenCanvas();
   }
 
+  /**
+   * Ensures the offscreen canvas matches the main canvas dimensions.
+   */
   ensureOffscreenCanvas() {
     const width = this.board.mainCanvas.width;
     const height = this.board.mainCanvas.height;
@@ -53,71 +93,84 @@ export class FlowPenTool extends Tool {
     }
   }
 
+  /**
+   * Quantizes pressure to a fixed number of steps for consistency.
+   * @param {number} pressure - The input pressure (0-1).
+   * @returns {number} - The quantized pressure.
+   */
   quantizePressure(pressure) {
     return Math.round(pressure * (this.pressureSteps - 1)) / (this.pressureSteps - 1);
   }
 
+  /**
+   * Calculates the distance between two points.
+   * @param {Object} p1 - First point.
+   * @param {Object} p2 - Second point.
+   * @returns {number} - The distance between the points.
+   */
   getDistance(p1, p2) {
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
     return Math.sqrt(dx * dx + dy * dy);
   }
 
+  /**
+   * Handles pointer down event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerDown(user, pos, e) {
     this.board.beginStroke(user);
     this.ensureOffscreenCanvas();
 
-    // Clear offscreen canvas
     this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
 
     const pressure = this.quantizePressure(user.pressure);
     const radius = pressure * user.size;
 
-    // Store color at full opacity for offscreen canvas (RGB only)
     const color = user.color.slice(0, 3);
     this.strokeColor = `rgb(${color.join(',')})`;
-    this.color = color; // Store for gradient
+    this.color = color; 
     this.offscreenCtx.fillStyle = this.strokeColor;
 
-    // Store user's alpha and hardness for compositing
     const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     this.userAlpha = colorAlpha * opacitySlider;
     
-    // Standardize hardness: UI uses 0-100, tool expects 0.0-1.0
     const rawHardness = user.hardness !== undefined ? user.hardness : 100;
     this.userHardness = rawHardness > 1.0 ? rawHardness / 100.0 : rawHardness;
-    if (this.userHardness > 1.0) this.userHardness = 1.0; // Cap at 1.0
+    if (this.userHardness > 1.0) this.userHardness = 1.0;
 
-    // Initialize dirty rect tracking before first stamp so the dot's bounds are recorded
     this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
 
-    // Position is already smoothed by InputBufferManager
-    // Stamp first circle
     const pressure255 = Math.round(pressure * 255);
     this.stampCircle(pos.x, pos.y, radius, pressure255);
     this.lastStampPos = { x: pos.x, y: pos.y, radius, pressure255 };
 
-    // Store points for reference
     user.penPoints = [{ x: pos.x, y: pos.y, radius }];
 
     this.drawPreview(user);
   }
 
+  /**
+   * Handles pointer move event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Object} lastPos - The previous pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerMove(user, pos, lastPos, e) {
     if (!user.mousedown || user.panning || !this.lastStampPos) return;
 
-    // Position is already smoothed by InputBufferManager
     const pressure = this.quantizePressure(user.pressure);
     const radius = pressure * user.size;
 
-    // Adaptive spacing: 20% of average radius
     const avgRadius = (this.lastStampPos.radius + radius) / 2;
     const spacing = Math.max(1, avgRadius * 0.2);
     const distance = this.getDistance(this.lastStampPos, pos);
 
     if (distance >= spacing) {
-      // Interpolate circles along the path for smooth coverage
       const pressure255End = Math.round(pressure * 255);
       const steps = Math.ceil(distance / spacing);
       for (let i = 1; i <= steps; i++) {
@@ -136,20 +189,23 @@ export class FlowPenTool extends Tool {
     this.drawPreview(user);
   }
 
+  /**
+   * Handles pointer up event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerUp(user, pos, e) {
     if (user.panning || !this.offscreenCanvas) return;
 
-    // Stamp to the exact final position (unsmoothed) to close any gap
     if (this.lastStampPos) {
       const pressure = this.quantizePressure(user.pressure);
       const radius = pressure * user.size;
 
-      // Calculate spacing for interpolation
       const avgRadius = (this.lastStampPos.radius + radius) / 2;
       const spacing = Math.max(1, avgRadius * 0.2);
       const distance = this.getDistance(this.lastStampPos, pos);
 
-      // Interpolate stamps from last position to exact final position
       if (distance > 0.5) {
         const pressure255End = Math.round(pressure * 255);
         const steps = Math.max(1, Math.ceil(distance / spacing));
@@ -164,13 +220,10 @@ export class FlowPenTool extends Tool {
       }
     }
 
-    // Composite offscreen canvas source-over into the sub-layer.
-    // The sub-layer's blend mode is applied at composite time, not here.
     const ctx = this.board.getActiveLayerContext();
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = this.userAlpha;
 
-    // Apply global blur using shadow injection technique
     this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
 
     if (this.board.mirror) {
@@ -184,13 +237,11 @@ export class FlowPenTool extends Tool {
 
     ctx.globalAlpha = 1.0;
 
-    // Update dirty rect before clearing stroke
     if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
-      // Expand by blur amount with 25% safety margin
       const brushRadius = user.size;
       const blurAmount = (1 - this.userHardness) * (20 + user.size * 0.2);
-      const safetyMargin = brushRadius * 0.25; // 25% additional margin for blur/hardness
-      const margin = blurAmount + safetyMargin + 2; // +2 for anti-aliasing
+      const safetyMargin = brushRadius * 0.25; 
+      const margin = blurAmount + safetyMargin + 2;
 
       const x = Math.floor(this.dirtyBounds.minX - margin);
       const y = Math.floor(this.dirtyBounds.minY - margin);
@@ -199,7 +250,6 @@ export class FlowPenTool extends Tool {
 
       this.board.expandDirtyRect(user, x, y, width, height);
 
-      // Mirror dirty rect if mirror mode is enabled
       if (this.board.mirror) {
         const boardWidth = this.board.getWidth();
         const mirrorX = Math.floor(boardWidth - this.dirtyBounds.maxX - margin);
@@ -210,22 +260,26 @@ export class FlowPenTool extends Tool {
     this.clearStroke();
     user.penPoints = [];
 
-    // Composite all layers to visible canvas
     this.board.compositeAllLayers();
     this.board.endStroke(user);
     this.board.clearTop();
   }
 
+  /**
+   * Stamps a circle onto the offscreen canvas.
+   * @param {number} x - The x-coordinate.
+   * @param {number} y - The y-coordinate.
+   * @param {number} radius - The radius of the circle.
+   * @param {number} pressure255 - The pressure (0-255).
+   */
   stampCircle(x, y, radius, pressure255) {
     const ctx = this.offscreenCtx;
 
-    // Draw hard stamps - blur will be applied globally during composite
     ctx.fillStyle = this.strokeColor;
     ctx.beginPath();
     ctx.arc(x, y, Math.max(0.5, radius), 0, Math.PI * 2);
     ctx.fill();
 
-    // Track dirty bounds
     if (this.dirtyBounds) {
       this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, x - radius);
       this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, y - radius);
@@ -233,17 +287,19 @@ export class FlowPenTool extends Tool {
       this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, y + radius);
     }
 
-    // Collect stamp position for remote sync (pressure as 0-255, not radius)
     this.stampBuffer.push(x, y, pressure255);
   }
 
+  /**
+   * Draws the current stroke preview on the top canvas.
+   * @param {Object} user - The user performing the action.
+   */
   drawPreview(user) {
     if (!this.offscreenCanvas) return;
 
     const ctx = this.board.topCtx;
     ctx.globalAlpha = this.userAlpha;
 
-    // Apply global blur using shadow injection technique
     this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
 
     if (this.board.mirror) {
@@ -258,21 +314,17 @@ export class FlowPenTool extends Tool {
   }
 
   /**
-   * Composite offscreen canvas with optional global blur using shadow injection.
-   * This applies hardness as a post-process effect to the entire stroke buffer.
-   * Uses hybrid formula: base blur + size scaling for consistent softness across sizes.
-   * @param {CanvasRenderingContext2D} ctx - Target context
-   * @param {HTMLCanvasElement} sourceCanvas - Source canvas to composite
-   * @param {number} size - Brush size for blur scaling
-   * @param {number} x - X offset for drawing
-   * @param {number} y - Y offset for drawing
+   * Composites the offscreen canvas with a hardness-based blur effect.
+   * @param {CanvasRenderingContext2D} ctx - The target canvas context.
+   * @param {HTMLCanvasElement} sourceCanvas - The source canvas to composite.
+   * @param {number} size - The stroke size.
+   * @param {number} x - The x-coordinate.
+   * @param {number} y - The y-coordinate.
    */
   compositeWithHardness(ctx, sourceCanvas, size, x, y) {
-    // Hybrid blur: 20px base + 20% of size gives consistent softness across all brush sizes
     const blurAmount = (1 - this.userHardness) * (20 + size * 0.2);
 
     if (blurAmount > 0) {
-      // Shadow injection trick: draw way off-screen so only the shadow appears
       const offset = 100000;
       ctx.save();
       ctx.shadowBlur = blurAmount;
@@ -282,15 +334,17 @@ export class FlowPenTool extends Tool {
       ctx.drawImage(sourceCanvas, x + offset, y);
       ctx.restore();
     } else {
-      // No blur needed - direct composite
       ctx.drawImage(sourceCanvas, x, y);
     }
   }
 
+  /**
+   * Drains the stamp buffer for network synchronization.
+   * @returns {Object} - An object containing ps (positions) and rs (pressures).
+   */
   drainStampBuffer() {
     const buf = this.stampBuffer;
     this.stampBuffer = [];
-    // Split interleaved [x,y,r,...] into separate ps [x,y,...] and rs [r,...] arrays
     const ps = [];
     const rs = [];
     for (let i = 0; i < buf.length; i += 3) {
@@ -300,6 +354,9 @@ export class FlowPenTool extends Tool {
     return { ps, rs };
   }
 
+  /**
+   * Clears the current stroke state and offscreen canvas.
+   */
   clearStroke() {
     if (this.offscreenCtx) {
       this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
@@ -309,5 +366,8 @@ export class FlowPenTool extends Tool {
     this.dirtyBounds = null;
   }
 
+  /**
+   * Deactivates the tool.
+   */
   deactivate() {}
 }

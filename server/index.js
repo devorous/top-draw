@@ -1,3 +1,5 @@
+/** @fileoverview Main entry point for the WebSocket server, handling connections, message routing, and room management. */
+
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
 import protobuf from 'protobufjs';
@@ -19,18 +21,15 @@ const __dirname = path.dirname(__filename);
 const PORT = process.env.PORT || 8000;
 
 const server = createServer((req, res) => {
-  // Handle HTTP requests (health check, debugging)
   if (req.url === '/health') {
     res.writeHead(200);
     res.end('OK');
     return;
   }
-  // For WebSocket upgrade requests, do nothing - ws library handles them
   res.writeHead(200);
   res.end();
 });
 
-// Add error handlers
 server.on('error', (err) => {
   console.error('[HTTP Server] Error:', err);
 });
@@ -45,7 +44,11 @@ let Msg;
 let POOLED_MSG;
 let roomManager;
 
-// Extract client IP, handling X-Forwarded-For for proxies (Koyeb)
+/**
+ * Extracts the client's IP address from the request, handling proxies.
+ * @param {Object} req - The HTTP request object.
+ * @returns {string} - The client's IP address.
+ */
 function getClientIp(req) {
   const forwarded = req.headers['x-forwarded-for'];
   if (forwarded) {
@@ -54,16 +57,22 @@ function getClientIp(req) {
   return req.socket.remoteAddress || '';
 }
 
-// Username validation: 1-20 chars, alphanumeric + underscores (allow single char like 'D')
+/**
+ * Validates a username: 1-20 characters, alphanumeric and underscores.
+ * @param {string} username - The username to validate.
+ * @returns {boolean} - True if valid, false otherwise.
+ */
 function isValidUsername(username) {
   return /^[a-zA-Z0-9_]{1,20}$/.test(username);
 }
 
+/**
+ * Initializes the server, connects to the database, and loads protobuf definitions.
+ * @returns {Promise<void>}
+ */
 async function init() {
-  // Connect to MongoDB (non-fatal if not configured)
-
   const protoPath = path.join(__dirname, '..', 'public', 'messages.proto');
-  const root = await protobuf.load(protoPath); // Assign to a local 'root'
+  const root = await protobuf.load(protoPath);
   Msg = root.lookupType('Msg');
   POOLED_MSG = Msg.create();
 
@@ -74,40 +83,42 @@ async function init() {
     console.log(err);
   }
 
-  // Initialize room manager
   roomManager = new RoomManager(wss, sendTo);
   roomManager.setMsgEncoder(Msg, createRoomBroadcaster);
   console.log('[Server] RoomManager initialized');
 
-  // Start the batched-broadcast flush timer
   startBatchTimer();
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`WebSocket server running on port ${PORT}`);
   });
 }
+
+/**
+ * Broadcasts a payload to all connected clients, optionally excluding one.
+ * @param {Object} payload - The message payload to broadcast.
+ * @param {number|null} [excludeIndex=null] - The session index to exclude from the broadcast.
+ */
 function broadcast(payload, excludeIndex = null) {
-  // Clear old data to prevent "ghost" properties from previous messages
   for (let key in POOLED_MSG) { if (POOLED_MSG.hasOwnProperty(key)) delete POOLED_MSG[key]; }
   Object.assign(POOLED_MSG, payload);
 
   const buffer = Msg.encode(POOLED_MSG).finish();
 
-  let sentCount = 0;
-  let skippedSender = false;
-
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       if (excludeIndex != null && client.sessionIndex == excludeIndex) {
-        skippedSender = true;
         return;
       }
       client.send(buffer);
-      sentCount++;
     }
   });
 }
 
+/**
+ * Broadcasts a payload to all connected clients without exclusion.
+ * @param {Object} payload - The message payload to broadcast.
+ */
 function broadcastToAll(payload) {
   const message = Msg.create(payload);
   const buffer = Msg.encode(message).finish();
@@ -119,7 +130,11 @@ function broadcastToAll(payload) {
   });
 }
 
-// Broadcast to all clients in a specific room (used by SessionManager)
+/**
+ * Creates a broadcaster function for a specific room.
+ * @param {Object} room - The room object.
+ * @returns {function(Object): void} - A function that broadcasts a payload to all clients in the room.
+ */
 function createRoomBroadcaster(room) {
   return (payload) => {
     const message = Msg.create(payload);
@@ -133,6 +148,11 @@ function createRoomBroadcaster(room) {
   };
 }
 
+/**
+ * Sends a payload to a specific WebSocket client.
+ * @param {WebSocket} ws - The WebSocket client.
+ * @param {Object} payload - The message payload to send.
+ */
 function sendTo(ws, payload) {
   if (ws.readyState === WebSocket.OPEN) {
     const message = Msg.create(payload);
@@ -140,23 +160,27 @@ function sendTo(ws, payload) {
   }
 }
 
-
-// Message types blocked for muted users (drawing + chat + cursor movement)
 const MUTED_BLOCKED = new Set([
   T.MM, T.MD, T.MU, T.KP, T.CLR,
   T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL, T.SEL_STAMP, T.SEL_FLIP, T.SEL_CANCEL, T.SEL_TO_BRUSH,
   T.IMG_PASTE, T.MSG, T.DM, T.CHAT_IMG
 ]);
 
+/**
+ * Handles incoming broadcast-type messages, updating user state and relaying to others.
+ * @param {Object} data - The message data.
+ * @param {number} sessionIndex - The session index of the sender.
+ * @param {Object} room - The room object the sender is in.
+ * @returns {Promise<void>}
+ */
 async function handleBroadcast(data, sessionIndex, room) {
   if (!room) return;
   const user = room.sessionManager.getUser(sessionIndex);
   if (!user) return;
 
   switch (data.t) {
-    case T.MM: // Mouse move — data.ps is a flat [x1,y1,x2,y2,...] point stream batched per tick
+    case T.MM:
       if (data.ps && data.ps.length >= 2) {
-        // Track the last position so late-joining clients get accurate cursor placement in USERS list
         const len = data.ps.length;
         user.lastx = user.x;
         user.lasty = user.y;
@@ -166,70 +190,67 @@ async function handleBroadcast(data, sessionIndex, room) {
       room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
-    case T.MD: // Mouse down — marks user as actively drawing
+    case T.MD:
       user.mousedown = true;
       room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
-    case T.MU: // Mouse up — stroke ended; clear text tool buffer (text commits on pointer up)
+    case T.MU:
       user.mousedown = false;
       if (user.tool === Tool.TEXT) {
         user.text = '';
       }
       break;
 
-    case T.CS: // Change size — data.s is size * 100 (e.g. 1000 = 10px)
+    case T.CS:
       user.size = data.s;
       break;
 
-    case T.CSP: // Change spacing — data.sp is spacing * 100 (e.g. 10 = 0.10 = 10% of brush diameter)
+    case T.CSP:
       user.spacing = data.sp;
       break;
 
-    case T.CSM: // Change smoothing — data.sm is 0-50 integer
+    case T.CSM:
       user.smoothing = data.sm;
       break;
 
-    case T.CHD: // Change hardness — data.hd is 0-100 integer
+    case T.CHD:
       user.hardness = data.hd;
       break;
 
-    case T.CBR: // Change blur radius — data.br is 0-100 integer
+    case T.CBR:
       user.blurRadius = data.br;
       break;
 
-    case T.CL: // Change active layer — data.ly is layer index (0-4)
+    case T.CL:
       user.activeLayer = data.ly;
       break;
 
-    case T.CBM: // Change blend mode — data.bm is blend mode string (e.g. 'source-over', 'multiply')
+    case T.CBM:
       user.blendMode = data.bm;
       break;
 
-    case T.CP: // Change pressure — data.p is pressure * 100 (e.g. 100 = 1.0 = full pressure)
+    case T.CP:
       user.pressure = data.p;
       break;
 
-    case T.CT: // Change tool — data.l is the Tool enum value; reset text buffer since tool changed
+    case T.CT:
       user.tool = data.l;
       user.text = '';
       break;
 
-    case T.CC: // Change color — data.c is a packed RGBA fixed32 (see packColor/unpackColor helpers)
+    case T.CC:
       user.color = data.c;
       break;
 
-    case T.CN: // Change name - user is changing their display name (not joining)
-      const oldName = user.name;
+    case T.CN:
       user.name = data.n;
       room.sessionManager.updateUserActivity(sessionIndex);
 
-      console.log(`[CN] Session ${sessionIndex} changing name from "${oldName}" to "${data.n}"`);
+      console.log(`[CN] Session ${sessionIndex} changing name to "${data.n}"`);
 
-      // Broadcast updated USERS list to everyone
-      const roomBroadcaster = createRoomBroadcaster(room);
       const allUsers = room.sessionManager.getJoinedUsers();
-      roomBroadcaster({
+      createRoomBroadcaster(room)({
         t: T.USERS,
         us: allUsers.map(u => ({
           u: u.sessionIndex,
@@ -255,74 +276,64 @@ async function handleBroadcast(data, sessionIndex, room) {
       });
       break;
 
-    case T.KP: // Key press — only relevant to the text tool; server mirrors the text buffer for USERS sync
+    case T.KP:
       const key = data.k;
       if (key && key.length === 1) {
-        user.text = (user.text || '') + key;   // Printable character
+        user.text = (user.text || '') + key;
       }
       if (key === 'Enter') {
-        user.text = '';                          // Enter commits and clears
+        user.text = '';
       } else if (key === 'Backspace' && user.text) {
-        user.text = user.text.slice(0, -1);     // Backspace removes last char
+        user.text = user.text.slice(0, -1);
       }
       room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
-    case T.HIDE_CURSOR: // Cursor left the canvas area — stop rendering this user's cursor on all clients
+    case T.HIDE_CURSOR:
       user.cursorHidden = true;
       break;
 
-    case T.SHOW_CURSOR: // Cursor entered the canvas area — resume rendering
+    case T.SHOW_CURSOR:
       user.cursorHidden = false;
       break;
 
-    case T.MIR: // Toggle mirror mode — server owns this state so late joiners get the correct setting via SETTINGS
+    case T.MIR:
       room.settings.mirror = !room.settings.mirror;
       break;
 
-    case T.MSG: // Chat message — no server-side state change needed, just bump activity timestamp
+    case T.MSG:
       room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
-    case T.GMP: // Image brush load — data.bd is the GIMP brush metadata (JSON string or object)
+    case T.GMP:
       user.imageBrush = data.bd;
       break;
   }
 
-  // Mute enforcement: block drawing + chat from muted users (unless they're mod/admin)
-  // Allow cursor movement (MM) and UI state changes (CT, CC, CS, etc.) through
   if (MUTED_BLOCKED.has(data.t)) {
     for (const client of wss.clients) {
       if (client.sessionIndex === sessionIndex && client.isMuted) {
-        // Moderators and admins bypass mutes
         if (client.userRole >= Role.MOD) {
-          break; // Mute is bypassed, allow the message through
+          break;
         }
-        // Only send error feedback for chat (not every draw attempt)
         if (data.t === T.MSG || data.t === T.DM || data.t === T.CHAT_IMG) {
           sendTo(client, { t: T.MOD_RESULT, a: false, authError: 'You are muted' });
         }
-        return; // Don't relay
+        return;
       }
     }
   }
 
-  // Relay to other clients in the same room
   broadcastToRoom(room, { ...data, u: sessionIndex }, sessionIndex);
 }
 
-// ---------------------------------------------------------------------------
-// Batched broadcast — high-frequency drawing messages are queued per-client
-// and flushed every BATCH_INTERVAL_MS as a single binary frame containing
-// length-delimited protobuf messages.  This dramatically reduces the number
-// of ws.send() calls under heavy load (50 users → ~50× fewer sends).
-// ---------------------------------------------------------------------------
-const BATCH_INTERVAL_MS = 16; // ~60 Hz flush rate
-
-// Per-client outbox: ws → Uint8Array[]
+const BATCH_INTERVAL_MS = 16;
 const clientOutbox = new Map();
 let batchTimerRunning = false;
 
+/**
+ * Starts the timer for flushing batched messages to clients.
+ */
 function startBatchTimer() {
   if (batchTimerRunning) return;
   batchTimerRunning = true;
@@ -330,8 +341,7 @@ function startBatchTimer() {
 }
 
 /**
- * Flush every client's outbox into a single binary frame.
- * Each message in the frame is prefixed with a 4-byte big-endian length.
+ * Flushes all client outboxes, sending concatenated binary frames.
  */
 function flushAllOutboxes() {
   for (const [ws, buffers] of clientOutbox) {
@@ -343,10 +353,8 @@ function flushAllOutboxes() {
     }
 
     if (buffers.length === 1) {
-      // Single message — send raw (no length prefix needed, client handles both)
       ws.send(buffers[0]);
     } else {
-      // Multiple messages — concatenate with 4-byte length prefixes
       let totalLen = 0;
       for (let i = 0; i < buffers.length; i++) totalLen += 4 + buffers[i].length;
 
@@ -361,20 +369,23 @@ function flushAllOutboxes() {
       ws.send(frame);
     }
 
-    buffers.length = 0; // Reset without re-allocating the array
+    buffers.length = 0;
   }
 }
 
-// Message types that should be batched (high-frequency drawing messages)
 const BATCHABLE_TYPES = new Set([
   T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC,
   T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL,
   T.KP, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP, T.AFK
 ]);
 
-// Broadcast to all clients in a specific room
+/**
+ * Broadcasts a payload to all clients in a room, with optional batching for high-frequency messages.
+ * @param {Object} room - The room object.
+ * @param {Object} payload - The message payload.
+ * @param {number|null} [excludeIndex=null] - The session index to exclude.
+ */
 function broadcastToRoom(room, payload, excludeIndex = null) {
-  // Clear old data to prevent "ghost" properties from previous messages
   for (let key in POOLED_MSG) { if (POOLED_MSG.hasOwnProperty(key)) delete POOLED_MSG[key]; }
   Object.assign(POOLED_MSG, payload);
 
@@ -387,15 +398,13 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
         return;
       }
       if (shouldBatch) {
-        // Queue for batched delivery
         let outbox = clientOutbox.get(client);
         if (!outbox) {
           outbox = [];
           clientOutbox.set(client, outbox);
         }
-        outbox.push(buffer.slice()); // slice() since POOLED_MSG reuse mutates backing buffer
+        outbox.push(buffer.slice());
       } else {
-        // Low-frequency / control messages: send immediately
         client.send(buffer);
       }
     }
@@ -412,18 +421,15 @@ wss.on('connection', (ws, req) => {
     ws.username = null;
     ws.isMuted = false;
 
-    // Parse room ID from query parameters
     const url = new URL(req.url, `http://${req.headers.host}`);
     const roomId = url.searchParams.get('room') || 'default';
     console.log(`[Room] Parsed room ID: ${roomId}`);
 
-    // Get or create room
     const room = roomManager.getOrCreateRoom(roomId);
     room.addClient(ws);
 
     console.log(`[Room] Client joined room: ${roomId}, total clients: ${room.getClientCount()}`);
 
-    // Set up ping/pong interval (every 30 seconds)
     ws.pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         sendTo(ws, { t: T.PING });
@@ -437,7 +443,6 @@ wss.on('connection', (ws, req) => {
   }
 
   ws.on('message', async (rawData) => {
-    // Get room for this connection
     const room = roomManager.getRoomByClient(ws);
     if (!room) {
       console.warn('[WS] Message from client not in any room');
@@ -446,7 +451,6 @@ wss.on('connection', (ws, req) => {
 
     try {
       let data;
-
       const firstByte = rawData[0];
 
       if (firstByte === 0x7B || firstByte === 0x22) {
@@ -455,32 +459,16 @@ wss.on('connection', (ws, req) => {
       } else if (firstByte === 0x08) {
         data = Msg.decode(new Uint8Array(rawData));
       } else {
-        // Not JSON, not valid protobuf for our schema — skip
-        console.warn(`[WS] Dropping unknown message: first byte 0x${firstByte.toString(16)}, length ${rawData.length}, from session ${ws.sessionIndex ?? 'unassigned'}`);
+        console.warn(`[WS] Dropping unknown message from session ${ws.sessionIndex ?? 'unassigned'}`);
         return;
       }
 
-      // Sanitize input data
       data = sanitizeMessage(data);
 
-      // Debug: Log message type for CHAT_IMG
-      if (data.t === T.CHAT_IMG || data.t === 40) {
-        console.log('[DEBUG] Received CHAT_IMG message:', {
-          type: data.t,
-          expectedType: T.CHAT_IMG,
-          hasCimg: !!data.cimg,
-          sessionIndex: ws.sessionIndex
-        });
-      }
-
       switch (data.t) {
-        // Client handshake — assign a session index and send the full user list + board settings
         case T.CONNECT:
-          // Lazy load room from DB
           await room.ensureLoaded();
 
-          // IP ban enforcement on connect (before session is created)
-          // Note: Mutes are checked on login, not here, so mods/admins can authenticate first
           if (getDB()) {
             try {
               const ipBan = await getDB().collection('moderation').findOne({
@@ -500,27 +488,20 @@ wss.on('connection', (ws, req) => {
           const sessionIndex = room.sessionManager.allocateSessionIndex();
           ws.sessionIndex = sessionIndex;
 
-          // User joins with their username immediately - no spectator mode
           const username = data.n || '';
           console.log(`[CONNECT] Session ${sessionIndex} joining room ${room.id} as "${username}"`);
 
-          const newUser = room.sessionManager.createUser(
+          room.sessionManager.createUser(
             sessionIndex,
             username,
             Tool.BRUSH,
             packColor([0, 0, 0, 1])
           );
 
-          console.log(`[CONNECT] Room ${room.id} now has ${room.sessionManager.getUserCount()} users`);
-
-          // Send session index and role back to connecting user
           sendTo(ws, { t: T.CONNECT, u: sessionIndex, authRole: ws.userRole });
 
-          // Broadcast complete user list to everyone (including new user)
           const allUsers = room.sessionManager.getJoinedUsers();
           const roomBroadcaster = createRoomBroadcaster(room);
-          console.log(`[CONNECT] Broadcasting user list to all: ${allUsers.length} users:`,
-            allUsers.map(u => `${u.name}(${u.sessionIndex})`).join(', '));
           roomBroadcaster({
             t: T.USERS,
             us: allUsers.map(u => ({
@@ -546,23 +527,17 @@ wss.on('connection', (ws, req) => {
             }))
           });
 
-          // Send board settings to new user
           sendTo(ws, { t: T.SETTINGS, m: room.settings.mirror });
           break;
 
-        // Canvas sync handshake (step 1 of 3) — new client asks for the current canvas state.
-        // Server picks a provider and sends them SYNC_PROVIDE (step 2).
-        // Provider replies with SYNC_CANVAS (step 3), which the server forwards + sends SYNC_COMPLETE.
         case T.SYNC_REQUEST:
           room.syncCoordinator.handleSyncRequest(ws, data);
           break;
 
-        // Canvas sync (step 3, legacy) — provider sends PNG via data.img; server routes it to data.tu
         case T.SYNC_CANVAS:
           room.syncCoordinator.handleSyncCanvas(ws, data);
           break;
 
-        // Structured stroke sync — provider sends metadata, then per-layer base canvases and stroke records
         case T.SYNC_METADATA:
           room.syncCoordinator.handleSyncMetadata(ws, data);
           break;
@@ -583,12 +558,9 @@ wss.on('connection', (ws, req) => {
           room.syncCoordinator.handleSyncStrokesDone(ws, data);
           break;
 
-        // Direct message — data.r is the recipient's session index, data.g is the message text
         case T.DM:
-          // Direct message - send only to the specified recipient
           const recipientId = data.r;
           if (recipientId !== undefined && ws.sessionIndex !== undefined) {
-            // Find the recipient's WebSocket and send the message
             for (const client of wss.clients) {
               if (client.sessionIndex === recipientId && client.readyState === WebSocket.OPEN) {
                 sendTo(client, {
@@ -596,7 +568,6 @@ wss.on('connection', (ws, req) => {
                   u: ws.sessionIndex,
                   g: data.g
                 });
-                console.log(`[DM] User ${ws.sessionIndex} -> User ${recipientId}`);
                 break;
               }
             }
@@ -604,32 +575,20 @@ wss.on('connection', (ws, req) => {
           }
           break;
 
-        // Chat image — data.cimg is raw PNG bytes; data.r (optional) targets a specific user for a DM image.
-        // Protobuf sends bytes as Buffer on Node; we normalise to Uint8Array before re-encoding.
         case T.CHAT_IMG:
-          // Chat image - send to recipient (if DM) or broadcast to all
           if (ws.sessionIndex !== undefined) {
             let imageBytes = data.cimg;
             const imageRecipientId = data.r;
 
-            console.log(`[CHAT_IMG] Raw data.cimg type: ${imageBytes?.constructor?.name}, length: ${imageBytes?.length}`);
+            if (!imageBytes || imageBytes.length === 0) break;
 
-            if (!imageBytes || imageBytes.length === 0) {
-              console.log(`[CHAT_IMG] No image data received from user ${ws.sessionIndex}`);
-              break;
-            }
-
-            // Ensure we have a proper Uint8Array for protobuf encoding
             if (Buffer.isBuffer(imageBytes)) {
               imageBytes = new Uint8Array(imageBytes.buffer, imageBytes.byteOffset, imageBytes.length);
             } else if (!(imageBytes instanceof Uint8Array)) {
               imageBytes = new Uint8Array(imageBytes);
             }
 
-            console.log(`[CHAT_IMG] Processed bytes type: ${imageBytes.constructor.name}, length: ${imageBytes.length}`);
-
             if (imageRecipientId !== undefined) {
-              // DM image - send only to recipient
               for (const client of wss.clients) {
                 if (client.sessionIndex === imageRecipientId && client.readyState === WebSocket.OPEN) {
                   sendTo(client, {
@@ -638,40 +597,31 @@ wss.on('connection', (ws, req) => {
                     cimg: imageBytes,
                     r: imageRecipientId
                   });
-                  console.log(`[CHAT_IMG DM] User ${ws.sessionIndex} -> User ${imageRecipientId}`);
                   break;
                 }
               }
             } else {
-              // Public chat image - broadcast to all in room except sender
               broadcastToRoom(room, {
                 t: T.CHAT_IMG,
                 u: ws.sessionIndex,
                 cimg: imageBytes
               }, ws.sessionIndex);
-              console.log(`[CHAT_IMG] User ${ws.sessionIndex} broadcast image to room`);
             }
             room.sessionManager.updateUserActivity(ws.sessionIndex);
           }
           break;
 
-        // Moderation action — mod_action_type: 0=kick, 1=mute, 2=ban, 3=unmute, 4=unban
-        // mod_target is the session index; mod_target_name, mod_reason, mod_duration are optional context.
-        // Kick/mute/ban are written to the DB (if available) for persistence across reconnects.
         case T.MOD_ACTION: {
-          // Verify requester is mod or admin
           if (ws.userRole < Role.MOD) {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Insufficient permissions' });
             break;
           }
 
-          // Use camelCase - protobufjs converts snake_case proto fields to camelCase
-          const modActionType = data.modActionType; // 0=kick,1=mute,2=ban,3=unmute,4=unban
+          const modActionType = data.modActionType;
           const modTargetIndex = data.modTarget;
           const modReason = data.modReason || '';
           const modDuration = data.modDuration || 0;
 
-          // Find target WebSocket
           let targetWs = null;
           for (const client of wss.clients) {
             if (client.sessionIndex === modTargetIndex && client.readyState === WebSocket.OPEN) {
@@ -699,7 +649,6 @@ wss.on('connection', (ws, req) => {
                 if (targetWs) {
                   targetWs.close(4002, 'Kicked');
                 }
-                console.log(`[Mod] ${ws.username} kicked ${targetName}`);
                 break;
 
               case 1: // Mute
@@ -719,7 +668,6 @@ wss.on('connection', (ws, req) => {
                 if (targetWs) {
                   targetWs.isMuted = true;
                 }
-                // Hide muted user's cursor for everyone
                 roomBroadcaster({ t: T.HIDE_CURSOR, u: modTargetIndex });
                 roomBroadcaster({
                   t: T.MOD_NOTIFY,
@@ -729,7 +677,6 @@ wss.on('connection', (ws, req) => {
                   modIssuerName: ws.username || `User ${ws.sessionIndex}`,
                   modReason: modReason
                 });
-                console.log(`[Mod] ${ws.username} muted ${targetName}`);
                 break;
 
               case 2: // Ban
@@ -757,12 +704,10 @@ wss.on('connection', (ws, req) => {
                 if (targetWs) {
                   targetWs.close(4001, 'Banned');
                 }
-                console.log(`[Mod] ${ws.username} banned ${targetName}`);
                 break;
 
               case 3: // Unmute
                 if (getDB()) {
-                  // Find and revoke active mute for this user
                   const db = getDB();
                   const activeMute = await db.collection('moderation').findOne({
                     type: 'mute',
@@ -776,7 +721,6 @@ wss.on('connection', (ws, req) => {
                 if (targetWs) {
                   targetWs.isMuted = false;
                 }
-                // Restore unmuted user's cursor
                 roomBroadcaster({ t: T.SHOW_CURSOR, u: modTargetIndex });
                 roomBroadcaster({
                   t: T.MOD_NOTIFY,
@@ -786,7 +730,6 @@ wss.on('connection', (ws, req) => {
                   modIssuerName: ws.username || `User ${ws.sessionIndex}`,
                   modReason: modReason
                 });
-                console.log(`[Mod] ${ws.username} unmuted ${targetName}`);
                 break;
 
               case 4: // Unban
@@ -809,7 +752,6 @@ wss.on('connection', (ws, req) => {
                   modIssuerName: ws.username || `User ${ws.sessionIndex}`,
                   modReason: modReason
                 });
-                console.log(`[Mod] ${ws.username} unbanned ${targetName}`);
                 break;
             }
 
@@ -821,7 +763,6 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
-        // Wipe user — remove all strokes from a specific user (mod action)
         case T.MOD_WIPE: {
           if (ws.userRole < Role.MOD) {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Insufficient permissions' });
@@ -831,21 +772,17 @@ wss.on('connection', (ws, req) => {
           const targetIndex = data.modTarget;
           const targetName = data.modTargetName || `User ${targetIndex}`;
 
-          // Broadcast to all clients in the room to wipe this user's strokes
-          const roomBroadcaster = createRoomBroadcaster(room);
-          roomBroadcaster({
+          createRoomBroadcaster(room)({
             t: T.MOD_WIPE,
             modTarget: targetIndex,
             modTargetName: targetName,
             modIssuerName: ws.username || `User ${ws.sessionIndex}`
           });
 
-          console.log(`[Mod] ${ws.username} wiped all strokes from ${targetName}`);
           sendTo(ws, { t: T.MOD_RESULT, a: true });
           break;
         }
 
-        // Room list request — returns list of active rooms
         case T.ROOM_LIST_REQUEST: {
           try {
             const rooms = roomManager.getRoomList();
@@ -867,15 +804,12 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
-        // Room update — change room settings (owner or mod only)
         case T.ROOM_UPDATE: {
-          // Must be logged in
           if (!ws.userId) {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Must be logged in' });
             break;
           }
 
-          // Must be room owner or mod/admin
           const isOwner = room.ownerId === ws.userId;
           const isMod = ws.userRole >= Role.MOD;
 
@@ -885,14 +819,11 @@ wss.on('connection', (ws, req) => {
           }
 
           try {
-            // Claim ownership if room has no owner
             if (!room.ownerId && data.roomOwnerId === ws.userId) {
               room.ownerId = ws.userId;
               room.ownerUsername = ws.username;
-              console.log(`[Room] "${room.id}" claimed by ${ws.username}`);
             }
 
-            // Update settings
             if (data.roomDescription !== undefined) {
               room.description = (data.roomDescription || '').substring(0, 200);
             }
@@ -904,9 +835,7 @@ wss.on('connection', (ws, req) => {
             }
 
             await room.saveToDB();
-
             sendTo(ws, { t: T.MOD_RESULT, a: true });
-            console.log(`[Room] "${room.id}" settings updated by ${ws.username}`);
           } catch (err) {
             console.error('[Room] Update error:', err);
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Failed to update room' });
@@ -914,10 +843,7 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
-        // Mod panel request — returns bans/mutes as a repeated ModEntry list
-        // Supports modShowHistory (bool) and modSearch (string) filter params
         case T.MOD_LIST: {
-          // Verify requester is mod or admin
           if (ws.userRole < Role.MOD) {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Insufficient permissions' });
             break;
@@ -939,17 +865,12 @@ wss.on('connection', (ws, req) => {
         }
 
         case T.PONG:
-          // Acknowledge ping
           break;
 
-        // Register a new account — authUsername + authPassword required.
-        // First ever registration is auto-promoted to admin (Role.ADMIN).
-        // On success replies with AUTH_RESULT containing a JWT (authToken) and the assigned role.
         case T.AUTH_REGISTER: {
           const db = getDB();
           if (!db) {
-            const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Database not available' };
-            sendTo(ws, errorResponse);
+            sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Database not available' });
             break;
           }
 
@@ -957,20 +878,16 @@ wss.on('connection', (ws, req) => {
           const regPassword = data.authPassword || '';
 
           if (!isValidUsername(regUsername)) {
-            const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Username must be 2-20 characters (letters, numbers, underscores)' };
-            sendTo(ws, errorResponse);
+            sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Username must be 2-20 characters (letters, numbers, underscores)' });
             break;
           }
           if (regPassword.length < 6) {
-            const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Password must be at least 6 characters' };
-            sendTo(ws, errorResponse);
+            sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Password must be at least 6 characters' });
             break;
           }
 
           try {
             const passwordHash = await hashPassword(regPassword);
-
-            // Check if this is the first user (auto-promote to admin)
             const userCount = await db.collection('users').countDocuments();
             const role = userCount === 0 ? Role.ADMIN : Role.USER;
 
@@ -985,53 +902,40 @@ wss.on('connection', (ws, req) => {
             };
 
             const result = await db.collection('users').insertOne(newUserDoc);
-
             const token = generateToken({ userId: result.insertedId.toString(), username: regUsername, role });
 
             ws.userId = result.insertedId.toString();
             ws.userRole = role;
             ws.username = regUsername;
 
-            // Update user record with role
             const user = room.sessionManager.getUser(ws.sessionIndex);
             if (user) {
               user.role = role;
               user.name = regUsername;
             }
 
-            console.log(`[Auth] Registered: ${regUsername} (role: ${role}, first user: ${userCount === 0})`);
-
-            const successResponse = {
+            sendTo(ws, {
               t: T.AUTH_RESULT,
               a: true,
               authToken: token,
               authRole: role,
               authUsername: regUsername
-            };
-            sendTo(ws, successResponse);
+            });
           } catch (err) {
             if (err.code === 11000) {
-              const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Username already taken' };
-                sendTo(ws, errorResponse);
+              sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Username already taken' });
             } else {
               console.error('[Auth] Registration error:', err);
-              const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Registration failed' };
-                sendTo(ws, errorResponse);
+              sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Registration failed' });
             }
           }
           break;
         }
 
-        // Login — supports two modes:
-        //   Token mode:    authToken present → verify JWT and look up user by stored ID
-        //   Password mode: authUsername + authPassword → bcrypt verify
-        // After auth: checks active bans (closes socket 4001 if banned), loads mute state,
-        // refreshes lastLoginAt + IP history, and returns a fresh JWT via AUTH_RESULT.
         case T.AUTH_LOGIN: {
           const db = getDB();
           if (!db) {
-            const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Database not available' };
-            sendTo(ws, errorResponse);
+            sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Database not available' });
             break;
           }
 
@@ -1039,45 +943,37 @@ wss.on('connection', (ws, req) => {
             let userDoc = null;
 
             if (data.authToken) {
-              // Token-based login
               const decoded = verifyToken(data.authToken);
               if (!decoded) {
-                const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Invalid or expired token' };
-                    sendTo(ws, errorResponse);
+                sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Invalid or expired token' });
                 break;
               }
 
               const { ObjectId } = await import('mongodb');
               userDoc = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
               if (!userDoc) {
-                const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Account not found' };
-                    sendTo(ws, errorResponse);
+                sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Account not found' });
                 break;
               }
             } else if (data.authUsername && data.authPassword) {
-              // Password-based login
               userDoc = await db.collection('users').findOne(
                 { username: data.authUsername },
                 { collation: { locale: 'en', strength: 2 } }
               );
               if (!userDoc) {
-                const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Invalid username or password' };
-                sendTo(ws, errorResponse);
+                sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Invalid username or password' });
                 break;
               }
               const passwordValid = await verifyPassword(data.authPassword, userDoc.passwordHash);
               if (!passwordValid) {
-                const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Invalid username or password' };
-                sendTo(ws, errorResponse);
+                sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Invalid username or password' });
                 break;
               }
             } else {
-              const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Missing credentials' };
-                sendTo(ws, errorResponse);
+              sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Missing credentials' });
               break;
             }
 
-            // Check for active bans
             const banCheck = await db.collection('moderation').findOne({
               type: 'ban',
               active: true,
@@ -1087,18 +983,13 @@ wss.on('connection', (ws, req) => {
               ]
             });
 
-            // Moderators and admins bypass bans
-            if (banCheck) {
-              console.log(`[Auth] Ban check: user=${userDoc.username}, role=${userDoc.role}, Role.MOD=${Role.MOD}, bypass=${userDoc.role >= Role.MOD}`);
-            }
             if (banCheck && userDoc.role < Role.MOD) {
               const expiry = banCheck.expiresAt ? ` until ${banCheck.expiresAt.toISOString()}` : ' permanently';
-              const errorResponse = { t: T.AUTH_RESULT, a: false, authError: `You are banned${expiry}. Reason: ${banCheck.reason || 'No reason given'}` };
-              sendTo(ws, errorResponse);
+              sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: `You are banned${expiry}. Reason: ${banCheck.reason || 'No reason given'}` });
               ws.close(4001, 'Banned');
               break;
             }
-            // Check for active mutes
+
             const muteCheck = await db.collection('moderation').findOne({
               type: 'mute',
               active: true,
@@ -1107,10 +998,8 @@ wss.on('connection', (ws, req) => {
                 { targetIp: ws.clientIp }
               ]
             });
-            // Moderators and admins bypass mutes
             ws.isMuted = !!muteCheck && userDoc.role < Role.MOD;
 
-            // Update login info
             const ipHistory = userDoc.ipHistory || [];
             if (!ipHistory.includes(ws.clientIp)) {
               ipHistory.push(ws.clientIp);
@@ -1131,25 +1020,20 @@ wss.on('connection', (ws, req) => {
             ws.userRole = userDoc.role;
             ws.username = userDoc.username;
 
-            // Update user record with role
             const user = room.sessionManager.getUser(ws.sessionIndex);
             if (user) {
               user.role = userDoc.role;
               user.name = userDoc.username;
             }
 
-            console.log(`[Auth] Login: ${userDoc.username} (role: ${userDoc.role}${ws.isMuted ? ', muted' : ''})`);
-
-            const successResponse = {
+            sendTo(ws, {
               t: T.AUTH_RESULT,
               a: true,
               authToken: token,
               authRole: userDoc.role,
               authUsername: userDoc.username
-            };
-            sendTo(ws, successResponse);
+            });
 
-            // Notify user if they are muted
             if (ws.isMuted) {
               sendTo(ws, {
                 t: T.MOD_NOTIFY,
@@ -1162,14 +1046,11 @@ wss.on('connection', (ws, req) => {
             }
           } catch (err) {
             console.error('[Auth] Login error:', err);
-            const errorResponse = { t: T.AUTH_RESULT, a: false, authError: 'Login failed' };
-            sendTo(ws, errorResponse);
+            sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Login failed' });
           }
           break;
         }
 
-        // All drawing/tool/cursor messages — relay to other clients after updating server-side user state.
-        // handleBroadcast also enforces mute (blocks draw + chat) and mirrors board state changes.
         default:
           if (ws.sessionIndex !== undefined) {
             handleBroadcast(data, ws.sessionIndex, room);
@@ -1177,18 +1058,14 @@ wss.on('connection', (ws, req) => {
           break;
       }
     } catch (err) {
-      // Log first 32 bytes as hex for diagnosis
       const preview = Buffer.from(rawData).subarray(0, 32);
       console.error(`[WS] Decode error (${rawData.length} bytes, session ${ws.sessionIndex ?? 'unassigned'}): ${err.message}`);
-      console.error(`[WS] Hex: ${preview.toString('hex')} | ASCII: ${preview.toString('ascii').replace(/[^\x20-\x7e]/g, '.')}`);
     }
   });
 
   ws.on('close', () => {
-    // Clean up batched outbox for this client
     clientOutbox.delete(ws);
 
-    // Clear ping interval
     if (ws.pingInterval) {
       clearInterval(ws.pingInterval);
     }
@@ -1197,29 +1074,19 @@ wss.on('connection', (ws, req) => {
     const room = roomManager.getRoomByClient(ws);
 
     if (room) {
-      // Always remove client from room (even if they never got a sessionIndex)
       room.removeClient(ws);
 
-      // Only do session cleanup if they had a session
       if (sessionIndex !== undefined) {
-        console.log('Disconnected:', sessionIndex, 'from room:', room.id);
         room.sessionManager.removeUser(sessionIndex);
         room.sessionManager.freeSessionIndex(sessionIndex);
-
-        // Broadcast to room
         broadcastToRoom(room, { t: T.LEFT, u: sessionIndex });
-
-        console.log('Current users in room', room.id, ':', room.sessionManager.getUserCount());
 
         if (room.sessionManager.getUserCount() === 0) {
           room.settings.mirror = false;
           room.syncCoordinator.clearPendingRequests();
         }
-      } else {
-        console.log('Disconnected: client without session from room:', room.id);
       }
 
-      // Clean up empty rooms (except lobby/_discovery)
       if (room.getClientCount() === 0) {
         roomManager.cleanupEmptyRooms();
       }

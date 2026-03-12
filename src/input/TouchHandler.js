@@ -1,35 +1,42 @@
 /**
- * Handles touch events for pinch-to-zoom, rotation, pan, and touch keyboard support.
- * Uses mode detection: analyzes initial finger movement to determine gesture type,
- * then locks into that mode (pan, zoom, or rotate) for the duration of the gesture.
+ * @fileoverview Touch event handling for mobile gestures.
+ * Manages pinch-to-zoom, rotation, and panning using multi-touch detection.
+ */
+
+/**
+ * TouchHandler detects and processes complex touch gestures like pinch-to-zoom,
+ * two-finger rotation, and panning. It uses a mode-locking mechanism to ensure
+ * gestures are stable once a primary intent (zoom, rotate, or pan) is identified.
  */
 export class TouchHandler {
+  /**
+   * @param {App} app - The main application instance.
+   */
   constructor(app) {
     this.app = app;
+    /** @type {HTMLElement|null} */
     this.element = null;
+    
+    /** @type {Object} */
     this.state = {
       active: false,
-      mode: null, // 'pan', 'zoom', 'rotate', or null (still detecting)
+      mode: null, // 'pan', 'zoom', 'rotate', or null
       gestureStartedWithTwoFingers: false,
-      isPinching: false, // For compatibility with App.js drawing suppression
+      isPinching: false,
 
-      // Initial touch state (captured when two fingers touch)
       initialDistance: null,
       initialAngle: null,
       initialCenter: null,
 
-      // Board state at gesture/mode start
       initialZoom: null,
       initialRotation: null,
       initialPanX: null,
       initialPanY: null,
 
-      // Pivot point in canvas coords (for zoom/rotate centering)
       pivotCanvasX: null,
       pivotCanvasY: null
     };
 
-    // Bind handlers
     this.handleTouchStart = this.handleTouchStart.bind(this);
     this.handleTouchMove = this.handleTouchMove.bind(this);
     this.handleTouchEnd = this.handleTouchEnd.bind(this);
@@ -41,31 +48,50 @@ export class TouchHandler {
   get wsClient() { return this.app.wsClient; }
   get toolManager() { return this.app.toolManager; }
 
+  /**
+   * Initializes the handler with a target element and attaches event listeners.
+   *
+   * @param {HTMLElement} element - The DOM element to listen for touches on.
+   * @returns {void}
+   */
   init(element) {
     this.element = element;
-
-    // Use native touch events for precise control
     element.addEventListener('touchstart', this.handleTouchStart, { passive: false });
     element.addEventListener('touchmove', this.handleTouchMove, { passive: false });
     element.addEventListener('touchend', this.handleTouchEnd, { passive: false });
     element.addEventListener('touchcancel', this.handleTouchEnd, { passive: false });
   }
 
-  // Calculate distance between two touches
+  /**
+   * Calculates the Euclidean distance between two touch points.
+   *
+   * @param {TouchList} touches - The list of active touches.
+   * @returns {number} The distance in pixels.
+   */
   getDistance(touches) {
     const dx = touches[0].clientX - touches[1].clientX;
     const dy = touches[0].clientY - touches[1].clientY;
     return Math.sqrt(dx * dx + dy * dy);
   }
 
-  // Calculate angle between two touches (in degrees)
+  /**
+   * Calculates the angle of the line segment between two touch points.
+   *
+   * @param {TouchList} touches - The list of active touches.
+   * @returns {number} The angle in degrees (-180 to 180).
+   */
   getAngle(touches) {
     const dx = touches[1].clientX - touches[0].clientX;
     const dy = touches[1].clientY - touches[0].clientY;
     return Math.atan2(dy, dx) * (180 / Math.PI);
   }
 
-  // Calculate center point between two touches
+  /**
+   * Calculates the midpoint between two touch points.
+   *
+   * @param {TouchList} touches - The list of active touches.
+   * @returns {Object} The {x, y} screen coordinates of the center.
+   */
   getCenter(touches) {
     return {
       x: (touches[0].clientX + touches[1].clientX) / 2,
@@ -73,52 +99,54 @@ export class TouchHandler {
     };
   }
 
-  // Convert screen coordinates to canvas coordinates
-  // Must produce values consistent with pointer event offsetX/offsetY
+  /**
+   * Converts screen (client) coordinates to canvas-space coordinates.
+   *
+   * @param {number} screenX - Client X coordinate.
+   * @param {number} screenY - Client Y coordinate.
+   * @returns {Object} The converted {x, y} canvas coordinates.
+   */
   screenToCanvas(screenX, screenY) {
     const rect = this.element.getBoundingClientRect();
 
-    // Position within the visual bounding box
     const visualX = screenX - rect.left;
     const visualY = screenY - rect.top;
 
-    // The transform is scale(zoom) around the element's center
-    // Visual center is at rect.width/2, rect.height/2
-    // Canvas center is at element.offsetWidth/2, element.offsetHeight/2
     const zoom = this.board.zoom;
     const canvasCenterX = this.element.offsetWidth / 2;
     const canvasCenterY = this.element.offsetHeight / 2;
     const visualCenterX = rect.width / 2;
     const visualCenterY = rect.height / 2;
 
-    // Position relative to visual center
     const relX = visualX - visualCenterX;
     const relY = visualY - visualCenterY;
 
-    // Scale back to canvas coordinates (inverse of the scale transform)
     const canvasX = canvasCenterX + relX / zoom;
     const canvasY = canvasCenterY + relY / zoom;
 
     return { x: canvasX, y: canvasY };
   }
 
+  /**
+   * Handles the start of a touch gesture.
+   * If two fingers are detected, begins gesture tracking and suppresses drawing.
+   *
+   * @param {TouchEvent} e - The touch event.
+   * @returns {void}
+   */
   handleTouchStart(e) {
-    // Always prevent default on the drawing surface to stop browser gestures (scroll/zoom/long-press)
-    // from cancelling our PointerEvents. touch-action: none is usually enough but this is more robust.
     e.preventDefault();
 
     if (e.touches.length === 2) {
       this.state.active = true;
-      this.state.mode = null; // Start in detection mode
+      this.state.mode = null;
       this.state.gestureStartedWithTwoFingers = true;
       this.state.isPinching = true;
 
-      // Cancel any current drawing stroke
       if (this.app.self && this.app.self.mousedown) {
         this.app.cancelCurrentStroke();
       }
 
-      // Hide cursor during gestures (except for text tool, so user can see what they're typing while zooming)
       if (this.app.self.tool !== 'text') {
         this.ui.hideCursor();
         if (this.wsClient && this.wsClient.connected) {
@@ -126,18 +154,15 @@ export class TouchHandler {
         }
       }
 
-      // Capture initial touch state
       this.state.initialDistance = this.getDistance(e.touches);
       this.state.initialAngle = this.getAngle(e.touches);
       this.state.initialCenter = this.getCenter(e.touches);
 
-      // Capture initial board state
       this.state.initialZoom = this.board.zoom;
       this.state.initialRotation = this.board.rotation;
       this.state.initialPanX = this.board.panX;
       this.state.initialPanY = this.board.panY;
 
-      // Calculate pivot point in canvas coords (center between fingers)
       const pivot = this.screenToCanvas(
         this.state.initialCenter.x,
         this.state.initialCenter.y
@@ -147,6 +172,12 @@ export class TouchHandler {
     }
   }
 
+  /**
+   * Processes touch movement. Performs gesture detection and applies transformations.
+   *
+   * @param {TouchEvent} e - The touch event.
+   * @returns {void}
+   */
   handleTouchMove(e) {
     e.preventDefault();
 
@@ -156,11 +187,9 @@ export class TouchHandler {
     const currentAngle = this.getAngle(e.touches);
     const currentCenter = this.getCenter(e.touches);
 
-    // If mode not yet determined, analyze movement to detect gesture type
     if (this.state.mode === null) {
       const distanceChange = Math.abs(currentDistance - this.state.initialDistance);
 
-      // Handle angle wraparound (-180 to 180)
       let angleChange = currentAngle - this.state.initialAngle;
       if (angleChange > 180) angleChange -= 360;
       if (angleChange < -180) angleChange += 360;
@@ -170,19 +199,15 @@ export class TouchHandler {
       const centerDy = currentCenter.y - this.state.initialCenter.y;
       const centerMove = Math.sqrt(centerDx * centerDx + centerDy * centerDy);
 
-      // Thresholds for gesture detection
-      const ZOOM_THRESHOLD = 30;    // pixels of distance change
-      const ROTATE_THRESHOLD = 8;   // degrees of rotation
-      const PAN_THRESHOLD = 20;     // pixels of center movement
+      const ZOOM_THRESHOLD = 30;
+      const ROTATE_THRESHOLD = 8;
+      const PAN_THRESHOLD = 20;
 
-      // Determine which gesture has the strongest signal
       const zoomStrength = distanceChange / ZOOM_THRESHOLD;
       const rotateStrength = angleChange / ROTATE_THRESHOLD;
       const panStrength = centerMove / PAN_THRESHOLD;
 
-      // Need at least one to exceed threshold
       if (zoomStrength >= 1 || rotateStrength >= 1 || panStrength >= 1) {
-        // Pick the strongest signal
         if (zoomStrength >= rotateStrength && zoomStrength >= panStrength) {
           this.state.mode = 'zoom';
         } else if (rotateStrength >= zoomStrength && rotateStrength >= panStrength) {
@@ -191,7 +216,6 @@ export class TouchHandler {
           this.state.mode = 'pan';
         }
 
-        // Reset initial values now that we've locked into a mode
         this.state.initialDistance = currentDistance;
         this.state.initialAngle = currentAngle;
         this.state.initialCenter = currentCenter;
@@ -200,16 +224,14 @@ export class TouchHandler {
         this.state.initialPanX = this.board.panX;
         this.state.initialPanY = this.board.panY;
 
-        // Recalculate pivot for the current touch center
         const pivot = this.screenToCanvas(currentCenter.x, currentCenter.y);
         this.state.pivotCanvasX = pivot.x;
         this.state.pivotCanvasY = pivot.y;
       }
 
-      return; // Don't apply any transformation until mode is locked
+      return;
     }
 
-    // Apply transformation based on locked mode
     switch (this.state.mode) {
       case 'pan': {
         const dx = currentCenter.x - this.state.initialCenter.x;
@@ -221,61 +243,56 @@ export class TouchHandler {
       }
 
       case 'zoom': {
-  const scale = currentDistance / this.state.initialDistance;
-  const newZoom = Math.max(0.2, Math.min(3, this.state.initialZoom * scale));
+        const scale = currentDistance / this.state.initialDistance;
+        const newZoom = Math.max(0.2, Math.min(3, this.state.initialZoom * scale));
 
-  
-  const px = this.state.pivotCanvasX;
-  const py = this.state.pivotCanvasY;
-  
-  
-  const rad = (this.board.rotation * Math.PI) / 180;
+        const px = this.state.pivotCanvasX;
+        const py = this.state.pivotCanvasY;
+        const rad = (this.board.rotation * Math.PI) / 180;
 
-  
-  const rotatedX = px * Math.cos(rad) - py * Math.sin(rad);
-  const rotatedY = px * Math.sin(rad) + py * Math.cos(rad);
+        const rotatedX = px * Math.cos(rad) - py * Math.sin(rad);
+        const rotatedY = px * Math.sin(rad) + py * Math.cos(rad);
 
-  
-  this.board.zoom = newZoom;
+        this.board.zoom = newZoom;
+        this.board.panX = this.state.initialCenter.x - (rotatedX * newZoom);
+        this.board.panY = this.state.initialCenter.y - (rotatedY * newZoom);
 
-  
-  
-  this.board.panX = this.state.initialCenter.x - (rotatedX * newZoom);
-  this.board.panY = this.state.initialCenter.y - (rotatedY * newZoom);
-
-  this.board.applyTransform();
-  this.ui.updateZoomDisplay(this.board.getZoomPercent());
-  break;
-}
+        this.board.applyTransform();
+        this.ui.updateZoomDisplay(this.board.getZoomPercent());
+        break;
+      }
 
       case 'rotate': {
-    let angleDelta = currentAngle - this.state.initialAngle;
-    // Handle angle wraparound (-180 to 180)
-    if (angleDelta > 180) angleDelta -= 360;
-    if (angleDelta < -180) angleDelta += 360;
+        let angleDelta = currentAngle - this.state.initialAngle;
+        if (angleDelta > 180) angleDelta -= 360;
+        if (angleDelta < -180) angleDelta += 360;
 
-    const newRotation = this.state.initialRotation + angleDelta;
-    const rad = (newRotation * Math.PI) / 180;
-    const zoom = this.board.zoom;
+        const newRotation = this.state.initialRotation + angleDelta;
+        const rad = (newRotation * Math.PI) / 180;
+        const zoom = this.board.zoom;
 
-    const px = this.state.pivotCanvasX;
-    const py = this.state.pivotCanvasY;
+        const px = this.state.pivotCanvasX;
+        const py = this.state.pivotCanvasY;
 
-    const rotatedCanvasX = px * Math.cos(rad) - py * Math.sin(rad);
-    const rotatedCanvasY = px * Math.sin(rad) + py * Math.cos(rad);
+        const rotatedCanvasX = px * Math.cos(rad) - py * Math.sin(rad);
+        const rotatedCanvasY = px * Math.sin(rad) + py * Math.cos(rad);
 
-    this.board.rotation = newRotation;
+        this.board.rotation = newRotation;
+        this.board.panX = this.state.initialCenter.x - (rotatedCanvasX * zoom);
+        this.board.panY = this.state.initialCenter.y - (rotatedCanvasY * zoom);
 
-    this.board.panX = this.state.initialCenter.x - (rotatedCanvasX * zoom);
-    this.board.panY = this.state.initialCenter.y - (rotatedCanvasY * zoom);
-
-
-    this.board.applyTransform();
-    break;
-}
+        this.board.applyTransform();
+        break;
+      }
     }
   }
 
+  /**
+   * Finalizes touch gestures and restores UI state.
+   *
+   * @param {TouchEvent} e - The touch event.
+   * @returns {void}
+   */
   handleTouchEnd(e) {
     if (e.touches.length < 2) {
       this.state.active = false;
@@ -286,7 +303,6 @@ export class TouchHandler {
     if (e.touches.length === 0) {
       this.state.gestureStartedWithTwoFingers = false;
       
-      // Restore cursor visibility if still on board or if using text tool
       if (this.app.isOnBoard || this.app.self.tool === 'text') {
         this.ui.showCursor();
         if (this.wsClient && this.wsClient.connected) {
@@ -296,6 +312,10 @@ export class TouchHandler {
     }
   }
 
+  /**
+   * Cleans up event listeners.
+   * @returns {void}
+   */
   destroy() {
     if (this.element) {
       this.element.removeEventListener('touchstart', this.handleTouchStart);
@@ -305,13 +325,18 @@ export class TouchHandler {
     }
   }
 
-  // Hidden input handlers for touch keyboard (using beforeinput API)
+  /**
+   * Intercepts and processes input events for the touch keyboard.
+   * Maps mobile input types (insert, delete) to text tool actions.
+   *
+   * @param {InputEvent} e - The beforeinput event.
+   * @returns {void}
+   */
   handleTouchBeforeInput(e) {
     if (this.self.tool !== 'text') return;
 
     const textTool = this.toolManager.getTool('text');
 
-    // Handle user intent based on inputType
     switch (e.inputType) {
       case 'insertText':
         if (e.data) {
@@ -324,7 +349,6 @@ export class TouchHandler {
 
       case 'insertLineBreak':
       case 'insertParagraph':
-        // Enter key - clears text as requested
         textTool.onKeyPress(this.self, 'Enter');
         this.wsClient.broadcastKeyPress('Enter');
         break;
@@ -333,8 +357,6 @@ export class TouchHandler {
       case 'deleteContentForward':
       case 'deleteWordBackward':
       case 'deleteWordForward':
-        // All delete variants are treated as Backspace
-        // Only trigger backspace if we have text to delete
         if (this.self.text.length > 0) {
             textTool.onKeyPress(this.self, 'Backspace');
             this.wsClient.broadcastKeyPress('Backspace');
@@ -352,14 +374,9 @@ export class TouchHandler {
     }
 
     this.ui.updateSelfTextInput(this.self.text);
-    
-    // Prevent default browser behavior on the input
     e.preventDefault();
-    
-    // Ensure the input always contains a single space (' ') to keep the backspace key active
     e.target.value = ' ';
     
-    // Re-focus immediately to keep keyboard open
     setTimeout(() => {
       if (this.self.tool === 'text') {
         e.target.focus();
@@ -367,6 +384,10 @@ export class TouchHandler {
     }, 0);
   }
 
+  /**
+   * Handles keyboard focus dismissal.
+   * @returns {void}
+   */
   handleTouchInputBlur() {
     // Optionally handle when keyboard is dismissed
   }

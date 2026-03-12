@@ -1,25 +1,26 @@
 /**
- * Color Picker Manager
- * Handles primary/secondary colors and syncs opacity slider with color picker
+ * @fileoverview Color Picker Manager - Handles primary/secondary colors and syncs opacity slider.
+ */
+
+/**
+ * ColorPickerManager class
  */
 export class ColorPickerManager {
+  /**
+   * @param {Object} [options={}] - Configuration options
+   */
   constructor(options = {}) {
     this.onColorChange = options.onColorChange || (() => {});
     this.onOpacityChange = options.onOpacityChange || (() => {});
 
-    // Primary and secondary colors
     this.primaryColor = [0, 0, 0, 1];
     this.secondaryColor = [255, 255, 255, 1];
     this.isSecondaryActive = false;
 
-    // External reference to opacity slider
     this.opacitySlider = null;
     this.opacityValue = null;
-
-    // Color picker instance
     this.picker = null;
 
-    // DOM elements
     this.elements = {
       container: null,
       primarySwatch: null,
@@ -28,10 +29,19 @@ export class ColorPickerManager {
       pickerContainer: null
     };
 
-    // Track if we're updating programmatically to avoid loops
+    /**
+     * Prevents recursive update loops.
+     * @type {boolean}
+     */
     this.isUpdating = false;
   }
 
+  /**
+   * Initializes the manager with DOM elements and external components.
+   * @param {string} pickerContainerId - ID for the picker container
+   * @param {HTMLElement} opacitySlider - Reference to opacity slider input
+   * @param {HTMLElement} opacityValue - Reference to opacity value display
+   */
   init(pickerContainerId, opacitySlider, opacityValue) {
     this.opacitySlider = opacitySlider;
     this.opacityValue = opacityValue;
@@ -42,14 +52,12 @@ export class ColorPickerManager {
   }
 
   /**
-   * Create the primary/secondary color swatch UI
+   * Create the primary/secondary color swatch UI.
    */
   createColorSwatches() {
-    // Find or create the swatch container before the picker
     const pickerContainer = document.getElementById('pickerContainer');
     if (!pickerContainer) return;
 
-    // Create the swatch container
     const container = document.createElement('div');
     container.id = 'colorSwatches';
     container.className = 'colorSwatches';
@@ -69,27 +77,24 @@ export class ColorPickerManager {
       </div>
     `;
 
-    // Insert before picker container
     pickerContainer.parentNode.insertBefore(container, pickerContainer);
 
-    // Cache elements
     this.elements.container = container;
     this.elements.primarySwatch = document.getElementById('primaryColorSwatch');
     this.elements.secondarySwatch = document.getElementById('secondaryColorSwatch');
     this.elements.swapBtn = document.getElementById('swapColorsBtn');
     this.elements.pickerContainer = pickerContainer;
 
-    // Set initial colors
     this.updateSwatchColors();
 
-    // Setup event listeners
     this.elements.primarySwatch.addEventListener('click', () => this.selectPrimary());
     this.elements.secondarySwatch.addEventListener('click', () => this.selectSecondary());
     this.elements.swapBtn.addEventListener('click', () => this.swapColors());
   }
 
   /**
-   * Setup the vanilla-picker color picker
+   * Setup the vanilla-picker color picker.
+   * @param {string} containerId - Container element ID
    */
   setupPicker(containerId) {
     const container = document.getElementById(containerId);
@@ -104,7 +109,6 @@ export class ColorPickerManager {
       onChange: (color) => {
         if (this.isUpdating) return;
 
-        // Update the active color
         const rgba = color.rgba;
         if (this.isSecondaryActive) {
           this.secondaryColor = [...rgba];
@@ -113,18 +117,14 @@ export class ColorPickerManager {
         }
 
         this.updateSwatchColors();
-
-        // Sync opacity slider with color alpha
         this.syncOpacityFromColor(rgba[3]);
-
-        // Notify callback
         this.onColorChange(rgba);
       }
     });
   }
 
   /**
-   * Setup opacity slider sync
+   * Setup opacity slider sync.
    */
   setupOpacitySync() {
     if (!this.opacitySlider) return;
@@ -134,7 +134,6 @@ export class ColorPickerManager {
 
       const opacity = Number(e.target.value) / 100;
 
-      // Update active color's alpha
       if (this.isSecondaryActive) {
         this.secondaryColor[3] = opacity;
         this.updatePickerColor(this.secondaryColor);
@@ -145,18 +144,17 @@ export class ColorPickerManager {
 
       this.updateSwatchColors();
 
-      // Update the value display
       if (this.opacityValue) {
         this.opacityValue.textContent = `${e.target.value}%`;
       }
 
-      // Notify callback
       this.onOpacityChange(opacity);
     });
   }
 
   /**
-   * Sync opacity slider from color alpha
+   * Sync opacity slider from color alpha.
+   * @param {number} alpha - Alpha value (0-1)
    */
   syncOpacityFromColor(alpha) {
     if (!this.opacitySlider) return;
@@ -174,7 +172,8 @@ export class ColorPickerManager {
   }
 
   /**
-   * Update picker color programmatically
+   * Update picker color programmatically.
+   * @param {Array} color - [r, g, b, a] color array
    */
   updatePickerColor(color) {
     if (!this.picker) return;
@@ -185,7 +184,7 @@ export class ColorPickerManager {
   }
 
   /**
-   * Select primary color
+   * Select primary color.
    */
   selectPrimary() {
     this.isSecondaryActive = false;
@@ -198,7 +197,7 @@ export class ColorPickerManager {
   }
 
   /**
-   * Select secondary color
+   * Select secondary color.
    */
   selectSecondary() {
     this.isSecondaryActive = true;
@@ -211,7 +210,7 @@ export class ColorPickerManager {
   }
 
   /**
-   * Swap primary and secondary colors
+   * Swap primary and secondary colors.
    */
   swapColors() {
     const temp = [...this.primaryColor];
@@ -220,7 +219,6 @@ export class ColorPickerManager {
 
     this.updateSwatchColors();
 
-    // Update picker with new active color
     const activeColor = this.isSecondaryActive ? this.secondaryColor : this.primaryColor;
     this.updatePickerColor(activeColor);
     this.syncOpacityFromColor(activeColor[3]);
@@ -228,7 +226,7 @@ export class ColorPickerManager {
   }
 
   /**
-   * Update swatch background colors
+   * Update swatch background colors.
    */
   updateSwatchColors() {
     if (this.elements.primarySwatch) {
@@ -240,14 +238,16 @@ export class ColorPickerManager {
   }
 
   /**
-   * Get the current active color
+   * Get the current active color.
+   * @returns {Array} - [r, g, b, a] color array
    */
   getActiveColor() {
     return this.isSecondaryActive ? [...this.secondaryColor] : [...this.primaryColor];
   }
 
   /**
-   * Set the current active color externally (e.g., from palette)
+   * Set the current active color externally.
+   * @param {Array} color - [r, g, b, a] color array
    */
   setActiveColor(color) {
     if (this.isSecondaryActive) {
@@ -262,14 +262,18 @@ export class ColorPickerManager {
   }
 
   /**
-   * Convert RGBA array to CSS string
+   * Convert RGBA array to CSS string.
+   * @param {Array} color - [r, g, b, a] color array
+   * @returns {string} - CSS rgba string
    */
   rgbaToString(color) {
     return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3]})`;
   }
 
   /**
-   * Handle keyboard shortcut (X to swap)
+   * Handle keyboard shortcuts.
+   * @param {string} key - Key code
+   * @returns {boolean} - True if shortcut was handled
    */
   handleKeyDown(key) {
     if (key.toLowerCase() === 'x') {

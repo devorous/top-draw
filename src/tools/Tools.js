@@ -14,9 +14,18 @@ import { PanTool } from './PanRotateTool.js';
 import { RotateTool } from './RotateTool.js';
 
 /**
+ * @fileoverview Tool management and base tool definition
+ */
+
+/**
  * Base tool class
+ * @abstract
  */
 class Tool {
+  /**
+   * @param {string} name - Tool name
+   * @param {Object} board - Board instance
+   */
   constructor(name, board) {
     this.name = name;
     this.board = board;
@@ -30,9 +39,12 @@ class Tool {
 }
 
 /**
- * Tool manager
+ * Manages tool instances and switching between them
  */
 export class ToolManager {
+  /**
+   * @param {Object} board - Board instance
+   */
   constructor(board) {
     this.board = board;
     this.tools = {
@@ -56,6 +68,11 @@ export class ToolManager {
     this.currentTool = null;
   }
 
+  /**
+   * Set the active tool by name
+   * @param {string} toolName - Tool name
+   * @returns {Tool} The newly activated tool instance
+   */
   setTool(toolName) {
     if (this.currentTool) {
       this.currentTool.deactivate();
@@ -67,14 +84,22 @@ export class ToolManager {
     return this.currentTool;
   }
 
+  /**
+   * Get a tool instance by name
+   * @param {string} toolName - Tool name
+   * @returns {Tool}
+   */
   getTool(toolName) {
     return this.tools[toolName];
   }
 
+  /**
+   * Get the currently active tool
+   * @returns {Tool|null}
+   */
   getCurrentTool() {
     return this.currentTool;
   }
 }
 
-// Re-export tools for backward compatibility
 export { BrushTool, FlowPenTool, InkTool, ImageBrushTool, LineTool, RectangleTool, CircleTool, EraserTool, TextTool, SelectToolLoader, InkdropperTool, BlurTool };

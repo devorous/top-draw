@@ -144,17 +144,14 @@
 
 /* Staggered Collapse Breakpoints (Lowered by 150px) */
 
-// 1. Movement/Rotation collapses first
 @media (max-height: 800px) {
   #moveGroup { @include collapsed-group; }
 }
 
-// 2. Line/Circle/Rect collapses next
 @media (max-height: 700px) {
   #shapesGroup { @include collapsed-group; }
 }
 
-// 3. Blur tools collapse last
 @media (max-height: 600px) {
   #blurGroup { @include collapsed-group; }
 }

@@ -1,24 +1,19 @@
+/** @fileoverview Handles user-related events including lifecycle, AFK status, and cursor visibility. */
+
 import { User } from '../User.js';
 
 /**
- * UserHandlers
- *
- * Handles user lifecycle events:
- * - User list sync
- * - User join/leave
- * - AFK status changes
- * - Cursor visibility
- * - Board settings
+ * Sets up WebSocket event handlers for user-related actions and state changes.
+ * @param {WebSocketClient} wsClient - The WebSocket client instance.
+ * @param {App} app - The main application instance.
  */
-
 export function setupUserHandlers(wsClient, app) {
   const { users, ui, board, chat } = app;
 
-  // Users list received (initial sync or updates)
   wsClient.on('users', (data) => {
     console.log(`[USERS] Received ${data.users.length} users:`, data.users.map(u => `${u.name || 'unnamed'}(${u.sessionIndex})`).join(', '), `My sessionIndex: ${app.sessionIndex}`);
     
-    // 1. Authoritative Removal: Find users we have locally who are NOT in the new list
+    // Authoritative Removal: Find users we have locally who are NOT in the new list
     const remoteIndices = new Set(data.users.map(u => u.sessionIndex));
     users.forEach((user, sessionIndex) => {
       if (sessionIndex !== app.sessionIndex && !remoteIndices.has(sessionIndex)) {
@@ -28,7 +23,7 @@ export function setupUserHandlers(wsClient, app) {
       }
     });
 
-    // 2. Authoritative Update/Create
+    // Authoritative Update/Create
     data.users.forEach(userData => {
       console.log(`[USERS] Processing user ${userData.name}(${userData.sessionIndex}), self=${app.sessionIndex}`);
       if (userData.sessionIndex !== app.sessionIndex) {
@@ -94,16 +89,13 @@ export function setupUserHandlers(wsClient, app) {
 
           if (userData.role !== undefined && userData.role !== user.role) {
             user.role = userData.role;
-            // Update role badge if needed
           }
         }
 
-        // Apply AFK status
         ui.setRemoteUserAfk(userData.sessionIndex, !!userData.afk);
       }
     });
 
-    // Update chat user list for DM functionality
     app.updateChatUserList();
 
     // Trigger sync on first USERS message after connecting
@@ -111,29 +103,24 @@ export function setupUserHandlers(wsClient, app) {
       app._needsSync = false;
       const otherUsers = data.users.filter(u => u.sessionIndex !== app.sessionIndex);
       if (otherUsers.length > 0) {
-        // Other users exist — request canvas sync
         app.syncClient.requestSync();
       } else {
-        // We're alone — no sync needed, just hide the overlay
         app.syncClient.hideOverlay();
         app.syncClient.hasCompletedSync = true;
       }
     }
   });
 
-  // Board settings
   wsClient.on('settings', (data) => {
     board.setMirror(data.mirror);
     ui.updateMirrorDisplay(data.mirror);
   });
 
-  // User left
   wsClient.on('left', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
       chat.addSystemMessage(`${user.username || 'User'} has left the room`);
 
-      // Clean up any active strokes from this user (e.g., if they disconnected mid-stroke)
       if (board.layerManager) {
         board.layerManager.cleanupUserStrokes(data.sessionIndex);
         board.requestUpdate();
@@ -142,12 +129,10 @@ export function setupUserHandlers(wsClient, app) {
       users.delete(data.sessionIndex);
       ui.removeRemoteUser(data.sessionIndex);
 
-      // Update chat user list
       app.updateChatUserList();
     }
   });
 
-  // AFK status change
   wsClient.on('afk', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -156,9 +141,7 @@ export function setupUserHandlers(wsClient, app) {
     }
   });
 
-  // Name change (user joining)
   wsClient.on('cn', (data) => {
-    // Skip if this is our own session (defensive check)
     if (data.sessionIndex === app.sessionIndex) {
       return;
     }
@@ -168,7 +151,6 @@ export function setupUserHandlers(wsClient, app) {
     const action = !user ? 'joined (new)' : (!hadName ? 'joined (was nameless)' : 'changed name');
     console.log(`[CN] User ${data.name}(${data.sessionIndex}) ${action}`);
     if (!user) {
-      // User wasn't in any users list yet — create from scratch
       const userOptions = {
         username: data.name,
         size: data.size,
@@ -194,7 +176,6 @@ export function setupUserHandlers(wsClient, app) {
       const hadName = !!user.username;
       user.setUsername(data.name);
 
-      // Apply any properties that were bundled with the join message
       if (data.size !== undefined) user.setSize(data.size);
       if (data.tool !== undefined) user.setTool(data.tool);
       if (data.color !== undefined) {
@@ -209,37 +190,30 @@ export function setupUserHandlers(wsClient, app) {
       if (data.blendMode !== undefined) user.setBlendMode(data.blendMode);
 
       if (!hadName) {
-        // User existed but had no UI entry yet (was nameless on connect)
         ui.createRemoteUser(data.sessionIndex, user);
       } else {
         ui.updateRemoteName(data.sessionIndex, data.name);
-        // Refresh UI for properties that might have changed
         if (data.tool !== undefined) ui.updateRemoteToolDisplay(data.sessionIndex, data.tool);
         if (data.color !== undefined) ui.updateRemoteColor(data.sessionIndex, data.color);
         if (data.size !== undefined) ui.updateRemoteSize(data.sessionIndex, data.size);
       }
     }
     chat.addSystemMessage(`${data.name} joined the room`);
-    // Update chat user list
     app.updateChatUserList();
   });
 
-  // Hide cursor
   wsClient.on('hide_cursor', (data) => {
     ui.hideRemoteCursor(data.sessionIndex);
   });
 
-  // Show cursor
   wsClient.on('show_cursor', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
       ui.showRemoteCursor(data.sessionIndex);
-      // Refresh tool display to show correct cursor shape
       ui.updateRemoteToolDisplay(data.sessionIndex, user.tool);
     }
   });
 
-  // Pan mode
   wsClient.on('pan', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {

@@ -1,5 +1,6 @@
 /**
- * Static emoji data - Top 200 emojis
+ * @fileoverview Static emoji data and loader utility.
+ * Provides a list of the top 200 most commonly used emojis.
  */
 
 let emojiDataCache = null;

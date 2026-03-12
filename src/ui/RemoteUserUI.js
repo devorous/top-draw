@@ -1,29 +1,25 @@
 /**
- * RemoteUserUI
- *
- * Manages UI elements for remote users:
- * - Remote cursors (circle, square, crosshair, text)
- * - Remote user boards (per-user canvas layers)
- * - User list entries with tool, color, name, role badge
- * - AFK state visualization
- *
- * Responsibilities:
- * - Create/remove remote user UI elements
- * - Update cursor positions, tool displays, colors, names
- * - Track remote user state in cursors Map
+ * @fileoverview Manages UI elements for remote users (cursors, boards, user list entries).
+ */
+
+/**
+ * RemoteUserUI class
  */
 export class RemoteUserUI {
+  /**
+   * @param {Object} elements - DOM element references
+   * @param {Object} icons - Tool icons map
+   */
   constructor(elements, icons) {
     this.elements = elements;
     this.icons = icons;
-    this.cursors = new Map(); // userId -> { cursor, circle, square, crosshair, text, textInput, name }
+    this.cursors = new Map();
   }
 
   /**
-   * Create all UI elements for a new remote user
-   * - Cursor elements (div + SVG shapes)
-   * - User board canvas
-   * - User list entry
+   * Create all UI elements for a new remote user.
+   * @param {string} userId - User's session ID
+   * @param {Object} userData - User initial state data
    */
   createRemoteUser(userId, userData) {
     const id = `u${userId}`;
@@ -55,7 +51,6 @@ export class RemoteUserUI {
       square.style.display = 'none';
     }
 
-    // Crosshair cursor for select tool
     const crosshair = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     crosshair.setAttribute('class', `crosshair ${id}`);
     crosshair.style.display = userData.tool === 'select' ? 'block' : 'none';
@@ -117,8 +112,9 @@ export class RemoteUserUI {
   }
 
   /**
-   * Create a dedicated canvas layer for a remote user
-   * Each user gets their own board to avoid expensive compositing
+   * Create a dedicated canvas layer for a remote user.
+   * @param {string} userId - User's session ID
+   * @returns {Object} - Board element and context
    */
   createUserBoard(userId) {
     const id = `u${userId}`;
@@ -136,7 +132,9 @@ export class RemoteUserUI {
   }
 
   /**
-   * Create user list entry showing tool icon, color, name, and role badge
+   * Create user list entry showing tool, color, name, and role badge.
+   * @param {string} userId - User's session ID
+   * @param {Object} userData - User state data
    */
   createUserListEntry(userId, userData) {
     const id = `u${userId}`;
@@ -157,7 +155,6 @@ export class RemoteUserUI {
     userEntry.className = `listUser ${id}`;
     userEntry.textContent = userData.username || userId;
 
-    // Role badge (hidden by default, shown when role > 0)
     if (userData.role === 2) {
       userEntry.classList.add('admin');
     } else if (userData.role === 1) {
@@ -167,11 +164,10 @@ export class RemoteUserUI {
     const activeEntry = document.createElement('span');
     activeEntry.className = `listActive ${id}`;
 
-    // Sync button - allow joiners to request sync from specific provider
     const syncBtn = document.createElement('a');
     syncBtn.className = `listSync ${id}`;
     syncBtn.title = 'Request canvas sync from this user';
-    syncBtn.innerHTML = '&#8635;'; // Sync symbol
+    syncBtn.innerHTML = '&#8635;';
     syncBtn.style.cursor = 'pointer';
     syncBtn.style.opacity = '0.6';
     syncBtn.onclick = () => {
@@ -190,7 +186,11 @@ export class RemoteUserUI {
   }
 
   /**
-   * Update remote cursor position
+   * Update remote cursor position.
+   * @param {string} userId - User's session ID
+   * @param {number} x - Target X
+   * @param {number} y - Target Y
+   * @param {number} size - Current tool size
    */
   updateRemoteCursor(userId, x, y, size) {
     const id = `u${userId}`;
@@ -217,8 +217,9 @@ export class RemoteUserUI {
   }
 
   /**
-   * Update remote cursor tool display
-   * Shows/hides circle, square, crosshair, text based on tool
+   * Update remote cursor tool display based on tool type.
+   * @param {string} userId - User's session ID
+   * @param {string} tool - Current tool name
    */
   updateRemoteToolDisplay(userId, tool) {
     const id = `u${userId}`;
@@ -229,7 +230,6 @@ export class RemoteUserUI {
 
     if (!circle || !square || !crosshair || !text) return;
 
-    // Hide all by default
     circle.style.display = 'none';
     square.style.display = 'none';
     crosshair.style.display = 'none';
@@ -261,7 +261,9 @@ export class RemoteUserUI {
   }
 
   /**
-   * Update remote user's brush/tool size
+   * Update remote user's tool size.
+   * @param {string} userId - User's session ID
+   * @param {number} size - Current tool size
    */
   updateRemoteSize(userId, size) {
     const id = `u${userId}`;
@@ -278,7 +280,9 @@ export class RemoteUserUI {
   }
 
   /**
-   * Update remote user's color (stroke for cursor, background for list entry)
+   * Update remote user's color.
+   * @param {string} userId - User's session ID
+   * @param {Array} color - [r, g, b, a] color array
    */
   updateRemoteColor(userId, color) {
     const id = `u${userId}`;
@@ -295,7 +299,9 @@ export class RemoteUserUI {
   }
 
   /**
-   * Update remote user's name
+   * Update remote user's name display.
+   * @param {string} userId - User's session ID
+   * @param {string} name - New username
    */
   updateRemoteName(userId, name) {
     const id = `u${userId}`;
@@ -307,7 +313,9 @@ export class RemoteUserUI {
   }
 
   /**
-   * Update remote user's text input (for text tool)
+   * Update remote user's text input (for text tool).
+   * @param {string} userId - User's session ID
+   * @param {string} textContent - New text content
    */
   updateRemoteText(userId, textContent) {
     const cursorElements = this.cursors.get(userId);
@@ -317,40 +325,29 @@ export class RemoteUserUI {
   }
 
   /**
-   * Set remote user's AFK state (gray out when AFK)
+   * Set remote user's AFK state visualization.
+   * @param {string} userId - User's session ID
+   * @param {boolean} afk - Whether the user is AFK
    */
   setRemoteUserAfk(userId, afk) {
     const id = `u${userId}`;
     const cursor = document.querySelector(`.cursor.${id}`);
     const userEntry = document.querySelector(`.userEntry.${id}`);
-    const activeEntry = document.querySelector(`.listActive.${id}`);
     const circle = document.querySelector(`.circle.${id}`);
     const square = document.querySelector(`.square.${id}`);
     const crosshair = document.querySelector(`.crosshair.${id}`);
 
-    if (afk) {
-      // Gray out cursor elements
-      if (cursor) cursor.style.opacity = '0.5';
-      if (circle) circle.style.opacity = '0.5';
-      if (square) square.style.opacity = '0.5';
-      if (crosshair) crosshair.style.opacity = '0.5';
-
-      // Gray out list entry
-      if (userEntry) userEntry.style.opacity = '0.5';
-    } else {
-      // Restore opacity
-      if (cursor) cursor.style.opacity = '1';
-      if (circle) circle.style.opacity = '1';
-      if (square) square.style.opacity = '1';
-      if (crosshair) crosshair.style.opacity = '1';
-
-      // Restore list entry
-      if (userEntry) userEntry.style.opacity = '1';
-    }
+    const opacity = afk ? '0.5' : '1';
+    if (cursor) cursor.style.opacity = opacity;
+    if (circle) circle.style.opacity = opacity;
+    if (square) square.style.opacity = opacity;
+    if (crosshair) crosshair.style.opacity = opacity;
+    if (userEntry) userEntry.style.opacity = opacity;
   }
 
   /**
-   * Remove all UI elements for a remote user
+   * Remove all UI elements for a remote user.
+   * @param {string} userId - User's session ID
    */
   removeRemoteUser(userId) {
     const id = `u${userId}`;
@@ -364,7 +361,9 @@ export class RemoteUserUI {
   }
 
   /**
-   * Get remote user's canvas board
+   * Get remote user's canvas board elements.
+   * @param {string} userId - User's session ID
+   * @returns {Object|null} - Board and context or null
    */
   getRemoteUserBoard(userId) {
     const id = `u${userId}`;
@@ -377,7 +376,8 @@ export class RemoteUserUI {
   }
 
   /**
-   * Hide remote user's cursor
+   * Hide remote user's cursor elements.
+   * @param {string} userId - User's session ID
    */
   hideRemoteCursor(userId) {
     const cursorElements = this.cursors.get(userId);
@@ -391,19 +391,20 @@ export class RemoteUserUI {
   }
 
   /**
-   * Show remote user's cursor
+   * Show remote user's cursor elements.
+   * @param {string} userId - User's session ID
    */
   showRemoteCursor(userId) {
     const cursorElements = this.cursors.get(userId);
     if (!cursorElements) return;
 
     cursorElements.cursor.style.display = 'block';
-    // Note: circle, square, crosshair, text visibility is managed by updateRemoteToolDisplay()
-    // This will be called after showing to restore the correct cursor shape
   }
 
   /**
-   * Update tool icon in user list
+   * Update tool icon in user list for a remote user.
+   * @param {string} userId - User's session ID
+   * @param {string} tool - Tool name
    */
   updateRemoteToolIcon(userId, tool) {
     const id = `u${userId}`;

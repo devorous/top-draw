@@ -1,51 +1,115 @@
+/**
+ * @fileoverview Brush tool for freehand drawing on the canvas.
+ * Handles stroke lifecycle, preview rendering, and dirty rectangle tracking.
+ */
+
 import { manhattanDistance, mirrorLine, drawLineArray, bridgeGap } from '../utils/drawing.js';
 
 /**
- * Base tool class
+ * Base class for all interactive tools.
+ * Defines the lifecycle methods for pointer interactions.
  */
 class Tool {
+  /**
+   * @param {string} name - The unique name of the tool.
+   * @param {Board} board - The board instance the tool operates on.
+   */
   constructor(name, board) {
     this.name = name;
     this.board = board;
   }
 
+  /**
+   * Called when the tool is selected.
+   * @returns {void}
+   */
   activate() {}
+
+  /**
+   * Called when the tool is deselected.
+   * @returns {void}
+   */
   deactivate() {}
+
+  /**
+   * Handles pointer down events.
+   * @param {User} user - The user performing the action.
+   * @param {Object} pos - The {x, y} coordinate of the event.
+   * @param {PointerEvent} e - The original pointer event.
+   * @returns {void}
+   */
   onPointerDown(user, pos, e) {}
+
+  /**
+   * Handles pointer move events.
+   * @param {User} user - The user performing the action.
+   * @param {Object} pos - The current {x, y} coordinate.
+   * @param {Object} lastPos - The previous {x, y} coordinate.
+   * @param {PointerEvent} e - The original pointer event.
+   * @returns {void}
+   */
   onPointerMove(user, pos, lastPos, e) {}
+
+  /**
+   * Handles pointer up events.
+   * @param {User} user - The user performing the action.
+   * @param {Object} pos - The {x, y} coordinate of the event.
+   * @param {PointerEvent} e - The original pointer event.
+   * @returns {void}
+   */
   onPointerUp(user, pos, e) {}
 }
 
 /**
- * Brush tool for drawing lines
+ * Brush tool for drawing smooth, pressure-sensitive lines.
+ * Position smoothing is handled by InputBufferManager before points reach this tool.
  *
- * Note: Position smoothing is handled by InputBufferManager before points
- * reach this tool, ensuring perfect parity between local preview and remote rendering.
+ * @extends Tool
  */
 export class BrushTool extends Tool {
+  /**
+   * @param {Board} board - The board instance.
+   */
   constructor(board) {
     super('brush', board);
   }
 
+  /**
+   * Activates the brush tool.
+   * @override
+   */
   activate() {
     // Sub-layers always draw source-over; blend mode is applied at composite time.
   }
 
+  /**
+   * Starts a new stroke.
+   *
+   * @param {User} user - The user drawing the stroke.
+   * @param {Object} pos - Starting {x, y} position.
+   * @override
+   */
   onPointerDown(user, pos) {
     this.board.beginStroke(user);
     user.clearLine();
 
-    // Position is already smoothed by InputBufferManager
     // Push twice to ensure dots are rendered (drawLineArray needs at least 2 points)
     user.currentLine.push(pos);
     user.currentLine.push(pos);
     this.drawPreview(user);
   }
 
+  /**
+   * Updates the active stroke with new points.
+   *
+   * @param {User} user - The user drawing the stroke.
+   * @param {Object} pos - Current {x, y} position.
+   * @param {Object} lastPos - Previous {x, y} position.
+   * @override
+   */
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
-    // Position is already smoothed by InputBufferManager
     user.currentLine.push(pos);
     this.board.clearTop();
     this.board.topCtx.beginPath();
@@ -59,13 +123,17 @@ export class BrushTool extends Tool {
     user.lineLength += manhattanDistance(pos, lastPos);
   }
 
+  /**
+   * Finalizes the stroke and commits it to the active layer.
+   *
+   * @param {User} user - The user finishing the stroke.
+   * @override
+   */
   onPointerUp(user) {
     if (user.panning) return;
 
-    // Clear preview FIRST to prevent composite boldness
     this.board.clearTop();
 
-    // Draw to active layer
     const layerCtx = this.board.getActiveLayerContext();
     drawLineArray(user.currentLine, layerCtx, user);
 
@@ -74,22 +142,29 @@ export class BrushTool extends Tool {
       drawLineArray(mirrored, layerCtx, user);
     }
 
-    // Update dirty rect
     this.trackDirtyRect(user, user.currentLine);
-
     user.clearLine();
 
-    // Composite all layers to visible canvas
     this.board.compositeAllLayers();
     this.board.endStroke(user);
   }
 
+  /**
+   * Renders the current line as a preview on the top canvas.
+   *
+   * @param {User} user - The user to render the preview for.
+   * @returns {void}
+   */
   drawPreview(user) {
     drawLineArray(user.currentLine, this.board.topCtx, user);
   }
 
   /**
-   * Calculate and expand the dirty rectangle for a set of points
+   * Calculates and expands the dirty rectangle for a set of points to optimize rendering.
+   *
+   * @param {User} user - The user whose drawing is being tracked.
+   * @param {Array<Object>} points - Array of {x, y} points in the stroke.
+   * @returns {void}
    */
   trackDirtyRect(user, points) {
     if (!points || points.length === 0) return;
@@ -97,7 +172,6 @@ export class BrushTool extends Tool {
     const hardness = user.hardness !== undefined ? user.hardness : 100;
     const hardnessFloat = hardness / 100.0;
 
-    // Calculate bounding box of all points
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const pt of points) {
       if (pt.x < minX) minX = pt.x;
@@ -106,11 +180,10 @@ export class BrushTool extends Tool {
       if (pt.y > maxY) maxY = pt.y;
     }
 
-    // Expand by brush radius plus blur, with 25% safety margin
     const radius = user.pressure * user.size;
     const blurAmount = hardness < 100 ? (1 - hardnessFloat) * (20 + user.size * 0.2) : 0;
-    const safetyMargin = radius * 0.25; // 25% additional margin for blur/hardness
-    const margin = radius + blurAmount + safetyMargin + 2; // +2 for anti-aliasing
+    const safetyMargin = radius * 0.25;
+    const margin = radius + blurAmount + safetyMargin + 2;
 
     const x = Math.floor(minX - margin);
     const y = Math.floor(minY - margin);
@@ -126,16 +199,22 @@ export class BrushTool extends Tool {
     }
   }
 
+  /**
+   * Commits the current line segment to the layer and prepares for the next.
+   * Used when brush parameters change mid-stroke.
+   *
+   * @param {User} user - The user drawing.
+   * @param {number} [newPressure] - New pressure value.
+   * @param {number} [newSize] - New brush size.
+   * @returns {void}
+   */
   commitCurrentLine(user, newPressure, newSize) {
     this.board.clearTop();
     this.board.topCtx.beginPath();
 
-    // Old segment draws with current user.pressure (still the old value
-    // because callers commit BEFORE calling setPressure)
     const oldRadius = user.pressure * user.size;
     const newRadius = (newPressure ?? user.pressure) * (newSize ?? user.size);
 
-    // Draw to active layer
     const layerCtx = this.board.getActiveLayerContext();
     drawLineArray(user.currentLine, layerCtx, user);
 
@@ -144,16 +223,12 @@ export class BrushTool extends Tool {
       drawLineArray(mirrored, layerCtx, user);
     }
 
-    // Update dirty rect for the line
     this.trackDirtyRect(user, user.currentLine);
 
-    // Save last smoothed position (where old segment visually ends)
     const lastSmoothedPos = user.currentLine.length > 0
       ? user.currentLine[user.currentLine.length - 1]
       : { x: user.x, y: user.y };
 
-    // Bridge the gap between old segment end and new segment start
-    // using interpolated filled circles (flow-pen style)
     if (user.currentLine.length > 0) {
       const from = lastSmoothedPos;
       bridgeGap(layerCtx, from, lastSmoothedPos, oldRadius, newRadius, user);
@@ -169,7 +244,6 @@ export class BrushTool extends Tool {
     user.clearLine();
     user.currentLine.push(lastSmoothedPos);
 
-    // Composite all layers to visible canvas
     this.board.compositeAllLayers();
   }
 }

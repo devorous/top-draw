@@ -1,12 +1,21 @@
+/** @fileoverview UI for selecting or creating a drawing room. */
+
 /**
- * RoomSelector - UI for selecting or creating a drawing room
+ * RoomSelector class
  */
 export class RoomSelector {
+  /**
+   * @param {Object} params
+   * @param {Function} params.onRoomSelected - Callback when a room is selected
+   */
   constructor({ onRoomSelected }) {
     this.onRoomSelected = onRoomSelected;
     this.els = {};
   }
 
+  /**
+   * Initializes DOM element references and event listeners.
+   */
   init() {
     this.els = {
       overlay: document.getElementById('overlay'),
@@ -24,45 +33,40 @@ export class RoomSelector {
     this.checkUrlForRoom();
   }
 
+  /**
+   * Sets up event listeners for the room selector UI.
+   */
   setupListeners() {
-    // Create new room
     this.els.createRoomBtn?.addEventListener('click', () => this.createRoom());
-
-    // Join existing room
     this.els.joinRoomBtn?.addEventListener('click', () => this.joinRoom());
-
-    // Generate random room ID
     this.els.randomRoomBtn?.addEventListener('click', () => this.generateRandomRoomId());
 
-    // Enter key on room ID input
     this.els.roomIdInput?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.joinRoom();
     });
 
-    // Refresh room list
     this.els.refreshRoomsBtn?.addEventListener('click', () => this.refreshRoomList());
   }
 
   /**
-   * Check URL for room parameter and auto-join
+   * Check URL for room parameter and auto-join.
+   * @returns {boolean} - True if a room ID was found in the URL
    */
   checkUrlForRoom() {
     const params = new URLSearchParams(window.location.search);
     const roomId = params.get('room');
 
     if (roomId) {
-      // Auto-join room from URL
       this.joinRoomById(roomId);
       return true;
     }
 
-    // No room in URL, show selector
     this.show();
     return false;
   }
 
   /**
-   * Create a new room with random ID
+   * Create a new room with random ID.
    */
   createRoom() {
     const roomId = this.generateRoomId();
@@ -70,7 +74,7 @@ export class RoomSelector {
   }
 
   /**
-   * Join room with ID from input
+   * Join room with ID from input.
    */
   joinRoom() {
     const roomId = this.els.roomIdInput?.value.trim();
@@ -86,14 +90,14 @@ export class RoomSelector {
 
   /**
    * Join a specific room by ID
+   * @param {string} roomId - Room identifier
+   * @param {string} [password] - Optional room password
    */
   joinRoomById(roomId, password = null) {
-    // Update URL without reload
     const url = new URL(window.location);
     url.searchParams.set('room', roomId);
     window.history.pushState({}, '', url);
 
-    // Hide selector and trigger callback
     this.hide();
 
     if (this.onRoomSelected) {
@@ -103,6 +107,7 @@ export class RoomSelector {
 
   /**
    * Generate a random room ID
+   * @returns {string} - Randomly generated room ID
    */
   generateRoomId() {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -114,7 +119,7 @@ export class RoomSelector {
   }
 
   /**
-   * Generate and fill random room ID into input
+   * Generate and fill random room ID into input.
    */
   generateRandomRoomId() {
     if (this.els.roomIdInput) {
@@ -123,18 +128,17 @@ export class RoomSelector {
   }
 
   /**
-   * Refresh the room list (when implemented on backend)
+   * Refresh the room list (placeholder for future implementation).
    */
   refreshRoomList() {
-    // TODO: Fetch room list from server via WebSocket or HTTP
     console.log('[RoomSelector] Room list refresh not yet implemented');
   }
 
   /**
-   * Show error message
+   * Show error message using toast notification or alert.
+   * @param {string} message - Error message to display
    */
   showError(message) {
-    // Use toast notification if available
     const toast = document.getElementById('toast');
     if (toast) {
       toast.textContent = message;
@@ -148,7 +152,7 @@ export class RoomSelector {
   }
 
   /**
-   * Show the room selector
+   * Show the room selector UI.
    */
   show() {
     if (this.els.roomSelector) {
@@ -160,7 +164,7 @@ export class RoomSelector {
   }
 
   /**
-   * Hide the room selector
+   * Hide the room selector UI.
    */
   hide() {
     if (this.els.roomSelector) {
@@ -169,7 +173,8 @@ export class RoomSelector {
   }
 
   /**
-   * Get current room ID from URL
+   * Get current room ID from URL.
+   * @returns {string|null} - Current room ID or null
    */
   getCurrentRoomId() {
     const params = new URLSearchParams(window.location.search);

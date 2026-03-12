@@ -1,12 +1,9 @@
 /**
- * StrokeHistoryPanel - Debug panel for visualizing stroke history
- *
- * Shows thumbnails of:
- * - Baked sequences (chronological compressed history)
- * - Each stroke in the strokeStack (recent history)
- * - Active strokes (in-progress)
- *
- * Only visible when dev mode is enabled.
+ * @fileoverview Debug panel for visualizing stroke history (baked sequences, stroke stack, active strokes).
+ */
+
+/**
+ * StrokeHistoryPanel class
  */
 export class StrokeHistoryPanel {
   constructor() {
@@ -23,7 +20,7 @@ export class StrokeHistoryPanel {
   }
 
   /**
-   * Initialize the panel with DOM elements
+   * Initialize the panel with DOM elements.
    */
   init() {
     this.panel = document.getElementById('strokeHistoryPanel');
@@ -33,16 +30,16 @@ export class StrokeHistoryPanel {
   }
 
   /**
-   * Set the layer manager reference
-   * @param {LayerManager} layerManager
+   * Set the layer manager reference.
+   * @param {LayerManager} layerManager - Reference to LayerManager
    */
   setLayerManager(layerManager) {
     this.layerManager = layerManager;
   }
 
   /**
-   * Set which layer to display
-   * @param {number} index
+   * Set which layer to display.
+   * @param {number} index - Layer index
    */
   setActiveLayer(index) {
     this.activeLayerIndex = index;
@@ -52,8 +49,8 @@ export class StrokeHistoryPanel {
   }
 
   /**
-   * Toggle panel visibility
-   * @param {boolean} enabled
+   * Toggle panel visibility.
+   * @param {boolean} enabled - Whether the panel is enabled
    */
   setEnabled(enabled) {
     this.enabled = enabled;
@@ -66,7 +63,7 @@ export class StrokeHistoryPanel {
   }
 
   /**
-   * Queue an update (debounced to avoid excessive re-renders)
+   * Queue an update (debounced via requestAnimationFrame).
    */
   queueUpdate() {
     if (!this.enabled || this.updateQueued) return;
@@ -78,7 +75,7 @@ export class StrokeHistoryPanel {
   }
 
   /**
-   * Update all thumbnails
+   * Update all thumbnails in the panel.
    */
   update() {
     if (!this.enabled || !this.layerManager || !this.panel) return;
@@ -86,21 +83,19 @@ export class StrokeHistoryPanel {
     const group = this.layerManager.getLayerGroup(this.activeLayerIndex);
     if (!group) return;
 
-    // Base shows compressed history (bakedSequences)
-    // Stack shows undo buffer (strokeStack)
     this.updateBaseThumbnails(group);
     this.updateStackThumbnails(group);
     this.updateActiveThumbnails(group);
   }
 
   /**
-   * Create a scaled thumbnail canvas from a source canvas
-   * @param {HTMLCanvasElement} sourceCanvas
-   * @param {number} [srcX] - Optional crop X
-   * @param {number} [srcY] - Optional crop Y
-   * @param {number} [srcW] - Optional crop width
-   * @param {number} [srcH] - Optional crop height
-   * @returns {HTMLCanvasElement}
+   * Create a scaled thumbnail canvas from a source canvas.
+   * @param {HTMLCanvasElement} sourceCanvas - Source canvas
+   * @param {number} [srcX=0] - Source X
+   * @param {number} [srcY=0] - Source Y
+   * @param {number} [srcW] - Source width
+   * @param {number} [srcH] - Source height
+   * @returns {HTMLCanvasElement} - Thumbnail canvas
    */
   createThumbnail(sourceCanvas, srcX = 0, srcY = 0, srcW, srcH) {
     const thumb = document.createElement('canvas');
@@ -108,10 +103,8 @@ export class StrokeHistoryPanel {
     thumb.height = this.thumbnailHeight;
     const ctx = thumb.getContext('2d');
 
-    // Fill with checkerboard pattern to show transparency
     this.drawCheckerboard(ctx, this.thumbnailWidth, this.thumbnailHeight);
 
-    // Calculate scaling to fit
     const sw = srcW ?? sourceCanvas.width;
     const sh = srcH ?? sourceCanvas.height;
     const scale = Math.min(this.thumbnailWidth / sw, this.thumbnailHeight / sh);
@@ -126,7 +119,10 @@ export class StrokeHistoryPanel {
   }
 
   /**
-   * Draw a checkerboard pattern (for transparency)
+   * Draw a checkerboard pattern for transparency visualization.
+   * @param {CanvasRenderingContext2D} ctx - Canvas context
+   * @param {number} w - Width
+   * @param {number} h - Height
    */
   drawCheckerboard(ctx, w, h) {
     const size = 8;
@@ -143,7 +139,7 @@ export class StrokeHistoryPanel {
   }
 
   /**
-   * Update the base history: baked sequences + compressed stroke groups
+   * Update the base history thumbnails.
    * @param {Object} group - Layer group
    */
   updateBaseThumbnails(group) {
@@ -161,35 +157,29 @@ export class StrokeHistoryPanel {
       return;
     }
 
-    // Render each history item in chronological order
     for (let i = 0; i < bakedSequences.length; i++) {
       const item = bakedSequences[i];
       const container = document.createElement('div');
 
       if (item.type === 'group') {
-        // Compressed non-bakeable stroke group
         container.className = 'strokeThumbnail compressed-group';
 
-        // Create composite thumbnail from all strokes in group
         const compositeThumb = this.createCompositeThumbnail(item.strokes);
         container.appendChild(compositeThumb);
 
-        // Add group label
         const indexLabel = document.createElement('span');
         indexLabel.className = 'indexLabel';
         indexLabel.textContent = `G${i}`;
         indexLabel.title = `Group ${i} - ${item.strokes.length} strokes`;
         container.appendChild(indexLabel);
 
-        // Add blend mode label with count
         const blendLabel = document.createElement('span');
         blendLabel.className = 'blendLabel';
         blendLabel.textContent = `${this.formatBlendMode(item.blendMode)} ×${item.strokes.length}`;
-        blendLabel.style.backgroundColor = 'rgba(255, 152, 0, 0.9)'; // Orange for non-bakeable
+        blendLabel.style.backgroundColor = 'rgba(255, 152, 0, 0.9)';
         container.appendChild(blendLabel);
 
       } else {
-        // Baked sequence
         container.className = 'strokeThumbnail baked-sequence';
 
         const thumb = this.createThumbnail(item.canvas);
@@ -216,7 +206,9 @@ export class StrokeHistoryPanel {
   }
 
   /**
-   * Create a composite thumbnail showing multiple strokes layered together
+   * Create a composite thumbnail showing multiple strokes layered together.
+   * @param {Array} strokes - Array of stroke objects
+   * @returns {HTMLCanvasElement} - Composite thumbnail
    */
   createCompositeThumbnail(strokes) {
     const tempCanvas = document.createElement('canvas');
@@ -224,18 +216,16 @@ export class StrokeHistoryPanel {
     tempCanvas.height = this.layerManager.height;
     const tempCtx = tempCanvas.getContext('2d');
 
-    // Draw all strokes onto temp canvas
     for (const stroke of strokes) {
       tempCtx.globalCompositeOperation = stroke.blendMode;
       tempCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
     }
 
-    // Create thumbnail from composite
     return this.createThumbnail(tempCanvas);
   }
 
   /**
-   * Update stroke stack thumbnails - shows undo buffer
+   * Update stroke stack thumbnails (undo buffer).
    * @param {Object} group - Layer group
    */
   updateStackThumbnails(group) {
@@ -266,24 +256,20 @@ export class StrokeHistoryPanel {
         container.classList.add('non-bakeable');
       }
 
-      // Create thumbnail from the stroke canvas
       const thumb = this.createThumbnail(stroke.canvas, 0, 0, stroke.width, stroke.height);
       container.appendChild(thumb);
 
-      // Add index label (position in undo buffer)
       const indexLabel = document.createElement('span');
       indexLabel.className = 'indexLabel';
       indexLabel.textContent = i.toString();
       indexLabel.title = `Undo position ${i}`;
       container.appendChild(indexLabel);
 
-      // Add blend mode label
       const blendLabel = document.createElement('span');
       blendLabel.className = 'blendLabel';
       blendLabel.textContent = this.formatBlendMode(stroke.blendMode);
       container.appendChild(blendLabel);
 
-      // Add user ID label if not the local user
       if (stroke.userId !== undefined) {
         const userLabel = document.createElement('span');
         userLabel.className = 'userLabel';
@@ -296,7 +282,8 @@ export class StrokeHistoryPanel {
   }
 
   /**
-   * Update active stroke thumbnails
+   * Update active stroke thumbnails.
+   * @param {Object} group - Layer group
    */
   updateActiveThumbnails(group) {
     this.activeContainer.innerHTML = '';
@@ -318,13 +305,11 @@ export class StrokeHistoryPanel {
       const thumb = this.createThumbnail(active.canvas);
       container.appendChild(thumb);
 
-      // Add blend mode label
       const blendLabel = document.createElement('span');
       blendLabel.className = 'blendLabel';
       blendLabel.textContent = this.formatBlendMode(active.blendMode);
       container.appendChild(blendLabel);
 
-      // Add user label
       const userLabel = document.createElement('span');
       userLabel.className = 'userLabel';
       userLabel.textContent = `user ${userId}`;
@@ -335,7 +320,9 @@ export class StrokeHistoryPanel {
   }
 
   /**
-   * Format blend mode for display
+   * Format blend mode for display.
+   * @param {string} blendMode - Blend mode identifier
+   * @returns {string} - Shortened display name
    */
   formatBlendMode(blendMode) {
     const shortNames = {
@@ -355,7 +342,9 @@ export class StrokeHistoryPanel {
   }
 
   /**
-   * Check if a canvas has any non-transparent content
+   * Check if a canvas has any non-transparent content.
+   * @param {HTMLCanvasElement} canvas - Canvas to check
+   * @returns {boolean} - True if content exists
    */
   canvasHasContent(canvas) {
     const ctx = canvas.getContext('2d');

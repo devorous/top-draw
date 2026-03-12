@@ -1,15 +1,22 @@
 /**
- * BlendModeManager - Blend mode utilities and per-layer persistence
- * Blend mode is now a layer property (stored in LayerManager.activeBlendMode).
- * This class provides static utilities and optional localStorage persistence.
+ * @fileoverview BlendModeManager - Blend mode utilities and per-layer persistence
+ */
+
+/**
+ * Manages blend modes and their persistence in localStorage.
+ * Blend mode is a layer property stored in LayerManager.
  */
 export class BlendModeManager {
+  /**
+   * @param {Object} app - The main application instance
+   */
   constructor(app) {
     this.app = app;
   }
 
   /**
    * Available blend modes with display names
+   * @type {Object.<string, string>}
    */
   static BLEND_MODES = {
     'Normal': 'source-over',
@@ -26,7 +33,6 @@ export class BlendModeManager {
 
   /**
    * Convert a Canvas 2D globalCompositeOperation value to a CSS mix-blend-mode value.
-   * Used to apply blend modes to preview canvas DOM elements for real-time visual feedback.
    * @param {string} canvasBlendMode - Canvas 2D blend mode string
    * @returns {string} CSS mix-blend-mode value
    */
@@ -48,8 +54,8 @@ export class BlendModeManager {
       'saturation':     'saturation',
       'color':          'color',
       'luminosity':     'luminosity',
-      'lighter':        'plus-lighter',   // "Add" mode — closest CSS equivalent
-      'destination-out':  'normal',       // Eraser — handled separately
+      'lighter':        'plus-lighter',
+      'destination-out':  'normal'
     };
     return map[canvasBlendMode] || 'normal';
   }
@@ -68,7 +74,7 @@ export class BlendModeManager {
 
   /**
    * Load per-layer blend modes from localStorage
-   * @returns {Object} Layer index to blend mode mapping
+   * @returns {Object.<string, string>} Layer index to blend mode mapping
    */
   loadLayerBlendModes() {
     try {
@@ -82,7 +88,7 @@ export class BlendModeManager {
 
   /**
    * Save per-layer blend modes to localStorage
-   * @param {Object} layerBlendModes - Layer index to blend mode mapping
+   * @param {Object.<string, string>} layerBlendModes - Layer index to blend mode mapping
    */
   saveLayerBlendModes(layerBlendModes) {
     try {

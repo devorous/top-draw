@@ -1,37 +1,82 @@
 /**
- * Base tool class
+ * @fileoverview Hard Circle Blur tool - samples the average color via GPU blur and fills a solid circle.
+ */
+
+/**
+ * Base tool class.
  */
 class Tool {
+  /**
+   * @param {string} name - The name of the tool.
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(name, board) {
     this.name = name;
     this.board = board;
   }
 
+  /**
+   * Called when the tool is activated.
+   */
   activate() {}
+
+  /**
+   * Called when the tool is deactivated.
+   */
   deactivate() {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerDown(user, pos, e) {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Object} lastPos - The previous pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerMove(user, pos, lastPos, e) {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerUp(user, pos, e) {}
 }
 
 /**
- * Hard Circle Blur tool - samples the average color at the stamp center via GPU blur,
- * then fills a solid circle of that color. No per-pixel getImageData needed.
- *
- * Uses a tiny offscreen canvas with CSS filter: blur() to average the region,
- * then reads a single pixel from the center.
+ * Hard Circle Blur tool for solid-color blending based on sampled averages.
  */
 export class HardCircleBlurTool extends Tool {
+  /**
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(board) {
     super('circleBlurHard', board);
     this.lastStampPos = new Map(); // userId -> {x, y, radius}
   }
 
+  /**
+   * Activates the tool.
+   */
   activate() {}
+
+  /**
+   * Deactivates the tool and cleans up tracking.
+   */
   deactivate() {
     this.lastStampPos.clear();
   }
 
+  /**
+   * Handles pointer down event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   onPointerDown(user, pos) {
     this.board.beginStroke(user);
     const radius = user.pressure * user.size;
@@ -46,6 +91,12 @@ export class HardCircleBlurTool extends Tool {
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
   }
 
+  /**
+   * Handles pointer move event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Object} lastPos - The previous pointer position.
+   */
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
@@ -58,11 +109,10 @@ export class HardCircleBlurTool extends Tool {
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       const avgRadius = (lastStamp.radius + radius) / 2;
-      const spacingPercent = 0.3 + user.spacing * 0.035; // 30% at spacing=0, 100% at spacing=20
+      const spacingPercent = 0.3 + user.spacing * 0.035; 
       const minSpacing = Math.max(5, avgRadius * spacingPercent);
 
       if (distance >= minSpacing) {
-        // Interpolate stamps along the path at even intervals
         const steps = Math.floor(distance / minSpacing);
         for (let i = 1; i <= steps; i++) {
           const t = i / steps;
@@ -82,6 +132,10 @@ export class HardCircleBlurTool extends Tool {
     }
   }
 
+  /**
+   * Handles pointer up event.
+   * @param {Object} user - The user performing the action.
+   */
   onPointerUp(user) {
     this.board.endStroke(user);
     this.lastStampPos.delete(user.id);
@@ -90,6 +144,10 @@ export class HardCircleBlurTool extends Tool {
   /**
    * Sample the average color under the stamp via GPU blur into a 1x1 canvas,
    * then fill a solid circle of that color onto the active stroke canvas.
+   * @param {number} x - Center x-coordinate.
+   * @param {number} y - Center y-coordinate.
+   * @param {number} radius - Stamp radius.
+   * @param {Object} user - The user performing the action.
    */
   stampHardCircle(x, y, radius, user) {
     const canvasWidth = this.board.getWidth();
@@ -102,7 +160,6 @@ export class HardCircleBlurTool extends Tool {
       const strokeCtx = this.board.layerManager?.getUserStrokeContext(activeLayer, userId);
       if (!strokeCtx) return;
 
-      // Source region with margin so blur has enough surrounding pixels
       const margin = Math.ceil(radius * 2);
       const left = Math.max(0, Math.floor(x - radius - margin));
       const top = Math.max(0, Math.floor(y - radius - margin));
@@ -112,7 +169,6 @@ export class HardCircleBlurTool extends Tool {
       const height = bottom - top;
       if (width <= 0 || height <= 0) return;
 
-      // Blur the source region down to a 1x1 pixel — GPU-accelerated average
       if (!this._avgCanvas) {
         this._avgCanvas = document.createElement('canvas');
         this._avgCtx = this._avgCanvas.getContext('2d', { willReadFrequently: true });
@@ -120,17 +176,14 @@ export class HardCircleBlurTool extends Tool {
       this._avgCanvas.width = 1;
       this._avgCanvas.height = 1;
       this._avgCtx.filter = `blur(${radius * 0.4}px)`;
-      // Draw the region centered so the blur samples evenly around the stamp center
-      const cx = x - left; // center x within the source region
-      const cy = y - top;  // center y within the source region
+      const cx = x - left; 
+      const cy = y - top;  
       this._avgCtx.drawImage(this.board.mainCanvas, left, top, width, height,
         -cx, -cy, width, height);
       this._avgCtx.filter = 'none';
 
-      // Read the single averaged pixel
       const pixel = this._avgCtx.getImageData(0, 0, 1, 1).data;
 
-      // Blend with background for transparent areas
       let r = pixel[0], g = pixel[1], b = pixel[2];
       const a = pixel[3] / 255;
       if (a < 1) {
@@ -146,7 +199,6 @@ export class HardCircleBlurTool extends Tool {
         b = Math.round(b * a + bgB * (1 - a));
       }
 
-      // Draw solid circle of the averaged color
       strokeCtx.save();
       strokeCtx.globalCompositeOperation = 'source-over';
       strokeCtx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
@@ -177,7 +229,6 @@ export class HardCircleBlurTool extends Tool {
       strokeCtx.shadowOffsetY = 0;
       strokeCtx.restore();
 
-      // Track dirty rect
       const drMargin = Math.ceil(blurAmount) + 2;
       this.board.expandDirtyRect(user,
         Math.floor(x - radius - drMargin), Math.floor(y - radius - drMargin),

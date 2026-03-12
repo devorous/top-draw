@@ -1,8 +1,11 @@
+/** @fileoverview Handles the rendering of ink tool strokes for remote users using perfect-freehand. */
+
 import { getStroke } from 'perfect-freehand';
 
 /**
- * Convert perfect-freehand outline points to an SVG path string for Path2D.
- * Uses quadratic bezier curves through midpoints for smooth results.
+ * Converts perfect-freehand outline points to an SVG path string for Path2D.
+ * @param {Array<number[]>} stroke - Array of points representing the stroke outline.
+ * @returns {string} - The SVG path data string.
  */
 function getSvgPathFromStroke(stroke) {
   if (!stroke.length) return '';
@@ -21,21 +24,21 @@ function getSvgPathFromStroke(stroke) {
 }
 
 /**
- * RemoteInkHandler - Handles ink tool rendering for remote users
- * Uses offscreen canvas with perfect-freehand library for smooth strokes
- *
- * IMPORTANT: Position Smoothing vs Visual Smoothing
- * - Incoming points are already EMA-smoothed by sender's InputBufferManager
- * - The `smoothing: 0.5` parameter in perfect-freehand options is VISUAL curve smoothing
- *   (internal to the library), NOT position smoothing
- * - This visual smoothing is separate from the EMA position smoothing and is applied
- *   during stroke outline generation
+ * Handles ink tool rendering for remote users.
+ * Uses an offscreen canvas and the perfect-freehand library for smooth, tapered strokes.
  */
 export class RemoteInkHandler {
+  /**
+   * @param {Board} board - The main board instance.
+   */
   constructor(board) {
     this.board = board;
   }
 
+  /**
+   * Ensures the user has a valid offscreen canvas for ink rendering.
+   * @param {User} user - The remote user object.
+   */
   ensureInkOffscreen(user) {
     const width = this.board.getWidth();
     const height = this.board.getHeight();
@@ -47,64 +50,68 @@ export class RemoteInkHandler {
     }
   }
 
+  /**
+   * Initializes a new ink stroke for a remote user.
+   * @param {User} user - The remote user object.
+   * @param {Object} pos - The starting coordinates {x, y}.
+   */
   handleInkDown(user, pos) {
     this.ensureInkOffscreen(user);
 
-    // Clear offscreen canvas
     user._inkCtx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
 
-    // Store color at FULL opacity for offscreen (RGB only)
     const color = user.color.slice(0, 3);
     user._inkStrokeColor = `rgb(${color.join(',')})`;
 
-    // Store alpha and hardness for compositing later
     const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     user._inkAlpha = colorAlpha * opacitySlider;
     user._inkHardness = user.hardness !== undefined ? user.hardness / 100 : 1.0;
 
-    // Lock size at stroke start
     user._inkSize = user.size;
 
-    // Initialize points with first point (pressure quantized to 1/255)
     const pressure = Math.round(user.pressure * 255) / 255;
     user._inkPoints = [[pos.x, pos.y, pressure]];
     user._inkStrokeActive = true;
 
-    // Render initial stroke
     this.renderInkStroke(user, false);
     this.updateInkPreview(user);
   }
 
+  /**
+   * Processes incoming points and pressures for an active ink stroke.
+   * @param {User} user - The remote user object.
+   * @param {number[]} points - Flat array of [x, y, x, y, ...] coordinates.
+   * @param {number[]} pressures - Array of pressure values (0-255).
+   */
   handleInkPoints(user, points, pressures) {
     if (points.length < 2) return;
 
-    // Lazy-init if MD arrived before CT
     if (!user._inkStrokeActive) {
       user.clearLine();
       this.handleInkDown(user, { x: points[0], y: points[1] });
     }
 
-    // Add points with pressure — rs values are 0-255, convert back to 0-1
     for (let i = 0, pi = 0; i < points.length; i += 2, pi++) {
       const raw = pressures[pi] !== undefined ? pressures[pi] : user.pressure * 255;
       const pressure = raw / 255;
       user._inkPoints.push([points[i], points[i + 1], pressure]);
     }
 
-    // Re-render the entire stroke
     this.renderInkStroke(user, false);
 
-    // Update position and preview
     const lastIdx = points.length - 2;
     user.setPosition(points[lastIdx], points[lastIdx + 1]);
     this.updateInkPreview(user);
   }
 
+  /**
+   * Finalizes and commits an ink stroke to the board layers.
+   * @param {User} user - The remote user object.
+   */
   handleInkUp(user) {
     if (!user._inkStrokeActive || !user._inkOffscreen) return;
 
-    // Final render with last=true for tapered end
     this.renderInkStroke(user, true);
 
     // Track dirty rect from ink points to avoid expensive getImageData on commit
@@ -114,13 +121,13 @@ export class RemoteInkHandler {
       const blurAmount = (1 - hardness) * (20 + size * 0.2);
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (const pt of user._inkPoints) {
-        const r = pt[2] * size; // pressure * size
+        const r = pt[2] * size;
         if (pt[0] - r < minX) minX = pt[0] - r;
         if (pt[0] + r > maxX) maxX = pt[0] + r;
         if (pt[1] - r < minY) minY = pt[1] - r;
         if (pt[1] + r > maxY) maxY = pt[1] + r;
       }
-      const margin = blurAmount + size * 0.5 + 2; // Extra margin for perfect-freehand outline expansion
+      const margin = blurAmount + size * 0.5 + 2;
       const x = Math.floor(minX - margin);
       const y = Math.floor(minY - margin);
       const w = Math.ceil(maxX - minX + margin * 2);
@@ -132,13 +139,11 @@ export class RemoteInkHandler {
       }
     }
 
-    // Composite offscreen source-over into the sub-layer; blend mode applied at composite time.
     const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);
     if (layerCtx) {
       layerCtx.globalCompositeOperation = 'source-over';
       layerCtx.globalAlpha = user._inkAlpha;
 
-      // Apply global blur using shadow injection
       this.compositeWithHardness(layerCtx, user._inkOffscreen, user._inkSize || user.size, user._inkHardness, user._inkStrokeColor, 0, 0);
 
       if (this.board.mirror) {
@@ -151,33 +156,31 @@ export class RemoteInkHandler {
       }
 
       layerCtx.globalAlpha = 1.0;
-
-      // Composite all layers to visible canvas
       this.board.requestUpdate();
     }
 
-    // Clean up per-user ink state
     user._inkPoints = [];
     user._inkStrokeActive = false;
     user._inkStrokeColor = null;
     user._inkAlpha = null;
   }
 
+  /**
+   * Renders the current ink points to the user's offscreen context.
+   * @param {User} user - The remote user object.
+   * @param {boolean} last - Whether this is the final segment of the stroke.
+   */
   renderInkStroke(user, last) {
     if (!user._inkPoints || user._inkPoints.length < 1) return;
 
     const ctx = user._inkCtx;
     ctx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
 
-    // Size is the base stroke diameter, locked at stroke start.
-    // Per-point pressure modulates width via thinning.
     const allMaxPressure = user._inkPoints.every(p => p[2] === 1);
     const options = {
-      // 1.33x diameter results in a 1.0x visual radius.
-      // Use Math.max to prevent perfect-freehand from collapsing at extremely small sizes.
       size: Math.max(0.1, ((user._inkSize || user.size) * 2) / 1.5),
       thinning: 0.5,
-      smoothing: 0.5,      // perfect-freehand's VISUAL curve smoothing (not position EMA)
+      smoothing: 0.5,
       streamline: 0.5,
       simulatePressure: allMaxPressure,
       last
@@ -195,14 +198,16 @@ export class RemoteInkHandler {
     ctx.fill(path);
   }
 
+  /**
+   * Updates the user's preview canvas with the current ink stroke state.
+   * @param {User} user - The remote user object.
+   */
   updateInkPreview(user) {
     if (!user._inkOffscreen) return;
 
-    // Composite offscreen to user.context with alpha for preview
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     user.context.globalAlpha = user._inkAlpha;
 
-    // Apply global blur using shadow injection
     this.compositeWithHardness(user.context, user._inkOffscreen, user._inkSize || user.size, user._inkHardness, user._inkStrokeColor, 0, 0);
 
     if (this.board.mirror) {
@@ -217,8 +222,14 @@ export class RemoteInkHandler {
   }
 
   /**
-   * Composite offscreen canvas with optional global blur using shadow injection.
-   * Uses hybrid formula: base blur + size scaling for consistent softness across sizes.
+   * Composites an offscreen canvas to a context with hardness/blur application.
+   * @param {CanvasRenderingContext2D} ctx - The destination context.
+   * @param {HTMLCanvasElement} sourceCanvas - The source canvas to composite.
+   * @param {number} size - The stroke size.
+   * @param {number} hardness - The hardness value (0.0 to 1.0).
+   * @param {string} strokeColor - The RGB color string.
+   * @param {number} x - Destination x-coordinate.
+   * @param {number} y - Destination y-coordinate.
    */
   compositeWithHardness(ctx, sourceCanvas, size, hardness, strokeColor, x, y) {
     const blurAmount = (1 - hardness) * (20 + size * 0.2);

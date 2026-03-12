@@ -1,7 +1,16 @@
 /**
+ * @fileoverview Text tool for drawing text on the canvas
+ */
+
+/**
  * Base tool class
+ * @abstract
  */
 class Tool {
+  /**
+   * @param {string} name - Tool name
+   * @param {Object} board - Board instance
+   */
   constructor(name, board) {
     this.name = name;
     this.board = board;
@@ -15,34 +24,44 @@ class Tool {
 }
 
 /**
- * Text tool
+ * Tool for placing and drawing text
  */
 export class TextTool extends Tool {
+  /**
+   * @param {Object} board - Board instance
+   */
   constructor(board) {
     super('text', board);
   }
 
-  activate() {
-    // Sub-layers always draw source-over; blend mode is applied at composite time.
-  }
+  activate() {}
 
+  /**
+   * Handle pointer down: if user has text, draw it; otherwise set text position.
+   * @param {Object} user - User object
+   * @param {Object} pos - Pointer position {x, y}
+   */
   onPointerDown(user, pos) {
     if (user.text) {
       this.board.beginStroke(user);
       this.drawText(user);
       user.text = '';
-      this.board.endStroke(user); // commits stroke and composites
+      this.board.endStroke(user);
 
-      // Clear the hidden touch input value too (reset with one space)
       if (this.board.app?.ui.elements.touchInput) {
         this.board.app.ui.elements.touchInput.value = ' ';
       }
     }
-    // Update user position to the new click/lift location
     user.x = pos.x;
     user.y = pos.y;
   }
 
+  /**
+   * Handle key press for text input
+   * @param {Object} user - User object
+   * @param {string} key - Pressed key
+   * @returns {string} Current user text
+   */
   onKeyPress(user, key) {
     if (key.length === 1) {
       user.text += key;
@@ -54,8 +73,11 @@ export class TextTool extends Tool {
     return user.text;
   }
 
+  /**
+   * Draw the user's text to the active layer
+   * @param {Object} user - User object
+   */
   drawText(user) {
-    // Text drawn source-over into sub-layer; blend mode applied at composite time.
     const ctx = this.board.getLayerContext(user.activeLayer, user.id);
     ctx.globalCompositeOperation = 'source-over';
     const opacity = user.opacity !== undefined ? user.opacity : 1;
@@ -68,20 +90,15 @@ export class TextTool extends Tool {
     ctx.font = `${fontSize}px Newsreader, serif`;
     ctx.textBaseline = 'alphabetic';
     
-    // Calculate metrics for precise dirty rect and positioning
     const metrics = ctx.measureText(text);
     const textWidth = metrics.width;
     
-    // actualBoundingBox metrics provide the exact pixel bounds of the rendered glyphs.
-    // We use these for a tight dirty rect that won't cut off descenders or ascenders.
     const ascent = metrics.actualBoundingBoxAscent || (fontSize * 0.75);
     const descent = metrics.actualBoundingBoxDescent || (fontSize * 0.25);
-
 
     const baselineY = user.y + (fontSize * 0.66) - 3;
     const drawX = user.x + 5;
 
-    // Calculate dirty rect bounds with a generous safety margin (4px)
     const drX = Math.floor(drawX - 4);
     const drY = Math.floor(baselineY - ascent - 4);
     const drW = Math.ceil(textWidth + 8);
@@ -90,10 +107,8 @@ export class TextTool extends Tool {
     ctx.fillText(text, drawX, baselineY);
     this.board.expandDirtyRect(user, drX, drY, drW, drH);
 
-    // Handle mirrored text if mirror mode is enabled
     if (this.board.mirror) {
       const boardWidth = this.board.getWidth();
-      // Mirror the position: the text starts at (boardWidth - drawX - textWidth)
       const mirroredX = boardWidth - drawX - textWidth;
       ctx.fillText(text, mirroredX, baselineY);
       

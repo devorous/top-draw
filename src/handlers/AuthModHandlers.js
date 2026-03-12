@@ -1,24 +1,19 @@
-/**
- * AuthModHandlers
- *
- * Handles authentication and moderation events:
- * - Auth result (login/register success/failure)
- * - Moderation notifications (user kicked/muted/banned)
- * - Moderation results (action feedback)
- * - Moderation list (active bans/mutes)
- */
+/** @fileoverview Handles authentication and moderation events from the WebSocket client. */
 
+/**
+ * Sets up WebSocket event handlers for authentication and moderation.
+ * @param {WebSocketClient} wsClient - The WebSocket client instance.
+ * @param {App} app - The main application instance.
+ */
 export function setupAuthModHandlers(wsClient, app) {
   const { users, ui, chat } = app;
 
-  // Auth result
   wsClient.on('auth_result', (data) => {
     if (app.auth) {
       app.auth.handleAuthResult(data);
     }
   });
 
-  // Moderation notify
   wsClient.on('mod_notify', (data) => {
     const actionNames = ['kicked', 'muted', 'banned', 'unmuted', 'unbanned'];
     const actionName = actionNames[data.actionType] || 'moderated';
@@ -32,7 +27,6 @@ export function setupAuthModHandlers(wsClient, app) {
 
     // Update muted state on target user
     if (data.actionType === 1) {
-      // Muted
       const targetUser = users.get(data.targetSessionIndex);
       if (targetUser) targetUser.isMuted = true;
 
@@ -59,42 +53,35 @@ export function setupAuthModHandlers(wsClient, app) {
       }
     }
 
-    // If we are the target of a kick/ban, show a message
     if (data.targetSessionIndex === app.sessionIndex && (data.actionType === 0 || data.actionType === 2)) {
       ui.showToast(`You have been ${actionName}${data.reason ? ': ' + data.reason : ''}`, 5000);
     }
 
-    // Refresh mod panel if open
     if (app.moderation?.panelVisible) {
       app.moderation._requestList();
     }
   });
 
-  // Moderation result (error feedback)
   wsClient.on('mod_result', (data) => {
     if (!data.success && data.error) {
       ui.showToast(data.error, 3000);
     }
-    // Refresh mod panel after any action
     if (data.success && app.moderation?.panelVisible) {
       app.moderation._requestList();
     }
   });
 
-  // Moderation list (for mod panel)
   wsClient.on('mod_list', (data) => {
     if (app.moderation) {
       app.moderation.updateModEntries(data.entries);
     }
   });
 
-  // Room list response
   wsClient.on('room_list_response', (data) => {
     if (app.landingPage) {
       app.landingPage.handleRoomListResponse(data.rooms);
     }
 
-    // Update current room data if we're in a room
     if (app.currentRoomId && data.rooms) {
       const currentRoom = data.rooms.find(r => r.id === app.currentRoomId);
       if (currentRoom) {
@@ -104,7 +91,6 @@ export function setupAuthModHandlers(wsClient, app) {
     }
   });
 
-  // Wipe user strokes (moderation action)
   wsClient.on('mod_wipe', (data) => {
     const targetIndex = data.targetSessionIndex;
     const targetName = data.targetName || `User ${targetIndex}`;
@@ -114,12 +100,10 @@ export function setupAuthModHandlers(wsClient, app) {
     if (app.board?.layerManager) {
       const removed = app.board.layerManager.wipeUserStrokes(targetIndex);
       if (removed) {
-        // Force a composite to reflect changes
         app.board.composite();
       }
     }
 
-    // Show notification
     chat.addSystemMessage(`All strokes from ${targetName} were removed by ${issuerName}`);
     ui.showToast(`${targetName}'s strokes wiped by ${issuerName}`, 3000);
   });

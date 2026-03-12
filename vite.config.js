@@ -1,5 +1,10 @@
+/** @fileoverview Vite configuration for Top Draw, defining build, server, and proxy settings. */
+
 import { defineConfig } from 'vite';
 
+/**
+ * Defines the Vite project configuration.
+ */
 export default defineConfig({
   root: '.',
   base: '/top-draw/',
@@ -21,14 +26,10 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          // Core vendor - protobufjs (lazy loaded but split for caching)
           'vendor-core': ['protobufjs'],
-          // UI vendor - perfect-freehand
           'vendor-ui': ['perfect-freehand'],
-          // Blur library (lazy loaded)
           'vendor-blur': ['stackblur'],
         },
-        // Use hashed filenames for long-term caching
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash].[ext]',

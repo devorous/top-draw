@@ -1,48 +1,100 @@
 /**
- * Base tool class
+ * @fileoverview Collection of tools for drawing basic shapes like lines, rectangles, and circles.
+ */
+
+/**
+ * Base tool class.
  */
 class Tool {
+  /**
+   * @param {string} name - The name of the tool.
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(name, board) {
     this.name = name;
     this.board = board;
   }
 
+  /**
+   * Called when the tool is activated.
+   */
   activate() {}
+
+  /**
+   * Called when the tool is deactivated.
+   */
   deactivate() {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerDown(user, pos, e) {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Object} lastPos - The previous pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerMove(user, pos, lastPos, e) {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerUp(user, pos, e) {}
 }
 
 /**
- * Line tool for drawing straight lines
+ * Line tool for drawing straight lines.
  */
 export class LineTool extends Tool {
+  /**
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(board) {
     super('line', board);
     this.startPos = null;
   }
 
-  activate() {
-    // Sub-layers always draw source-over; blend mode is applied at composite time.
-  }
+  /**
+   * Activates the tool.
+   */
+  activate() {}
 
+  /**
+   * Handles pointer down event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   onPointerDown(user, pos) {
     this.board.beginStroke(user);
     this.startPos = { x: pos.x, y: pos.y };
-    user.startPos = this.startPos; // Store on user for remote sync
+    user.startPos = this.startPos; 
   }
 
+  /**
+   * Handles pointer move event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   onPointerMove(user, pos) {
     if (!user.mousedown || user.panning || !this.startPos) return;
     this.board.clearTop();
     this.drawPreview(this.board.topCtx, user, this.startPos, pos);
   }
 
+  /**
+   * Handles pointer up event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   onPointerUp(user, pos) {
     if (user.panning || !this.startPos) return;
 
-    // Draw to active layer
     const layerCtx = this.board.getActiveLayerContext();
     this.drawLine(layerCtx, user, this.startPos, pos);
 
@@ -53,11 +105,10 @@ export class LineTool extends Tool {
       this.drawLine(layerCtx, user, mirroredStart, mirroredEnd);
     }
 
-    // Update dirty rect with 25% safety margin
     const radius = user.size;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
     const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
-    const safetyMargin = radius * 0.25; // 25% additional margin for blur/hardness
+    const safetyMargin = radius * 0.25; 
     const margin = radius + blurAmount + safetyMargin + 2;
 
     const minX = Math.min(this.startPos.x, pos.x) - margin;
@@ -86,11 +137,17 @@ export class LineTool extends Tool {
     this.board.clearTop();
     this.startPos = null;
 
-    // Composite all layers to visible canvas
     this.board.compositeAllLayers();
     this.board.endStroke(user);
   }
 
+  /**
+   * Draws a preview of the line.
+   * @param {CanvasRenderingContext2D} ctx - The target context.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} start - Start point.
+   * @param {Object} end - End point.
+   */
   drawPreview(ctx, user, start, end) {
     this.drawLine(ctx, user, start, end);
 
@@ -102,17 +159,22 @@ export class LineTool extends Tool {
     }
   }
 
+  /**
+   * Draws the actual line onto the context.
+   * @param {CanvasRenderingContext2D} ctx - The target context.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} start - Start point.
+   * @param {Object} end - End point.
+   */
   drawLine(ctx, user, start, end) {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
-    // Strokes always drawn source-over into sub-layers; blend applied at composite time.
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.size * 2;
 
-    // Apply softness using shadow blur
     if (hardness < 1.0) {
       const blurAmount = (1 - hardness) * user.size * 1.5;
       const offset = 100000;
@@ -133,7 +195,6 @@ export class LineTool extends Tool {
     ctx.lineTo(end.x, end.y);
     ctx.stroke();
 
-    // Reset shadow and restore context if using soft brush
     if (hardness < 1.0) {
       ctx.restore();
     }
@@ -144,34 +205,52 @@ export class LineTool extends Tool {
 }
 
 /**
- * Rectangle tool for drawing rectangles
+ * Rectangle tool for drawing rectangles.
  */
 export class RectangleTool extends Tool {
+  /**
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(board) {
     super('rectangle', board);
     this.startPos = null;
   }
 
-  activate() {
-    // Sub-layers always draw source-over; blend mode is applied at composite time.
-  }
+  /**
+   * Activates the tool.
+   */
+  activate() {}
 
+  /**
+   * Handles pointer down event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   onPointerDown(user, pos) {
     this.board.beginStroke(user);
     this.startPos = { x: pos.x, y: pos.y };
     this.drawPreview(user, pos);
   }
 
+  /**
+   * Handles pointer move event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   onPointerMove(user, pos) {
     if (!user.mousedown || user.panning || !this.startPos) return;
     this.board.clearTop();
     this.drawPreview(user, pos);
   }
 
+  /**
+   * Handles pointer up event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   onPointerUp(user, pos) {
     if (user.panning || !this.startPos) return;
 
-    // Draw to active layer
     const layerCtx = this.board.getActiveLayerContext();
     this.drawRect(layerCtx, user, this.startPos, pos);
 
@@ -182,11 +261,10 @@ export class RectangleTool extends Tool {
       this.drawRect(layerCtx, user, mirroredStart, mirroredEnd);
     }
 
-    // Update dirty rect with 25% safety margin
     const radius = user.size;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
     const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
-    const safetyMargin = radius * 0.25; // 25% additional margin for blur/hardness
+    const safetyMargin = radius * 0.25; 
     const margin = radius + blurAmount + safetyMargin + 2;
 
     const minX = Math.min(this.startPos.x, pos.x) - margin;
@@ -215,11 +293,15 @@ export class RectangleTool extends Tool {
     this.board.clearTop();
     this.startPos = null;
 
-    // Composite all layers to visible canvas
     this.board.compositeAllLayers();
     this.board.endStroke(user);
   }
 
+  /**
+   * Draws a preview of the rectangle.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   drawPreview(user, pos) {
     this.drawRect(this.board.topCtx, user, this.startPos, pos);
 
@@ -231,6 +313,13 @@ export class RectangleTool extends Tool {
     }
   }
 
+  /**
+   * Draws the actual rectangle onto the context.
+   * @param {CanvasRenderingContext2D} ctx - The target context.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} start - Start point.
+   * @param {Object} end - End point.
+   */
   drawRect(ctx, user, start, end) {
     const x = Math.min(start.x, end.x);
     const y = Math.min(start.y, end.y);
@@ -240,13 +329,11 @@ export class RectangleTool extends Tool {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
-    // Strokes always drawn source-over into sub-layers; blend applied at composite time.
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.size * 2;
 
-    // Apply softness using shadow blur
     if (hardness < 1.0) {
       const blurAmount = (1 - hardness) * user.size * 1.5;
       const offset = 100000;
@@ -266,7 +353,6 @@ export class RectangleTool extends Tool {
     ctx.rect(x, y, w, h);
     ctx.stroke();
 
-    // Reset shadow and restore context if using soft brush
     if (hardness < 1.0) {
       ctx.restore();
     }
@@ -277,34 +363,52 @@ export class RectangleTool extends Tool {
 }
 
 /**
- * Circle tool for drawing circles/ellipses
+ * Circle tool for drawing circles/ellipses.
  */
 export class CircleTool extends Tool {
+  /**
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(board) {
     super('circle', board);
     this.startPos = null;
   }
 
-  activate() {
-    // Sub-layers always draw source-over; blend mode is applied at composite time.
-  }
+  /**
+   * Activates the tool.
+   */
+  activate() {}
 
+  /**
+   * Handles pointer down event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   onPointerDown(user, pos) {
     this.board.beginStroke(user);
     this.startPos = { x: pos.x, y: pos.y };
     this.drawPreview(user, pos);
   }
 
+  /**
+   * Handles pointer move event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   onPointerMove(user, pos) {
     if (!user.mousedown || user.panning || !this.startPos) return;
     this.board.clearTop();
     this.drawPreview(user, pos);
   }
 
+  /**
+   * Handles pointer up event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   onPointerUp(user, pos) {
     if (user.panning || !this.startPos) return;
 
-    // Draw to active layer
     const layerCtx = this.board.getActiveLayerContext();
     this.drawEllipse(layerCtx, user, this.startPos, pos);
 
@@ -315,11 +419,10 @@ export class CircleTool extends Tool {
       this.drawEllipse(layerCtx, user, mirroredStart, mirroredEnd);
     }
 
-    // Update dirty rect with 25% safety margin
     const radius = user.size;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
     const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
-    const safetyMargin = radius * 0.25; // 25% additional margin for blur/hardness
+    const safetyMargin = radius * 0.25; 
     const margin = radius + blurAmount + safetyMargin + 2;
 
     const minX = Math.min(this.startPos.x, pos.x) - margin;
@@ -348,11 +451,15 @@ export class CircleTool extends Tool {
     this.board.clearTop();
     this.startPos = null;
 
-    // Composite all layers to visible canvas
     this.board.compositeAllLayers();
     this.board.endStroke(user);
   }
 
+  /**
+   * Draws a preview of the ellipse.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   drawPreview(user, pos) {
     this.drawEllipse(this.board.topCtx, user, this.startPos, pos);
 
@@ -364,6 +471,13 @@ export class CircleTool extends Tool {
     }
   }
 
+  /**
+   * Draws the actual ellipse onto the context.
+   * @param {CanvasRenderingContext2D} ctx - The target context.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} start - Start point.
+   * @param {Object} end - End point.
+   */
   drawEllipse(ctx, user, start, end) {
     const cx = (start.x + end.x) / 2;
     const cy = (start.y + end.y) / 2;
@@ -373,13 +487,11 @@ export class CircleTool extends Tool {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = user.hardness !== undefined ? user.hardness : 1.0;
 
-    // Strokes always drawn source-over into sub-layers; blend applied at composite time.
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;
     ctx.strokeStyle = user.getColorString();
     ctx.lineWidth = user.size * 2;
 
-    // Apply softness using shadow blur
     if (hardness < 1.0) {
       const blurAmount = (1 - hardness) * user.size * 1.5;
       const offset = 100000;
@@ -399,7 +511,6 @@ export class CircleTool extends Tool {
     ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Reset shadow and restore context if using soft brush
     if (hardness < 1.0) {
       ctx.restore();
     }

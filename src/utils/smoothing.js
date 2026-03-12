@@ -1,37 +1,17 @@
 /**
- * Smoothing utilities for position interpolation
- *
- * This module provides the centralized smoothing logic used throughout the application
- * to ensure perfect parity between local preview and remote rendering.
+ * @fileoverview Smoothing utilities for position interpolation.
+ * Provides Exponential Moving Average (EMA) smoothing for input positions.
  */
 
 /**
- * Apply Exponential Moving Average (EMA) smoothing to a position
- *
- * This is the canonical smoothing implementation used by InputBufferManager
- * to smooth positions before both local rendering and network broadcast.
- *
- * Formula breakdown:
- * - Baseline: 12% (always applied, cannot be disabled)
- * - User factor: userSmoothing * 88% (additive range: 0-88%)
- * - Total range: 12% to 100% smoothing
- * - Lerp factor: 1 - totalSmoothing * 0.9 (higher smoothing = smaller factor = more lag)
- *
- * @param {Object} buffer - Smoothing buffer with {x, y, isFirst} properties
- * @param {number} targetX - Target X position (raw input)
- * @param {number} targetY - Target Y position (raw input)
- * @param {number} userSmoothing - User smoothing setting (0-50 range)
- * @param {number} baseline - Baseline smoothing factor (default: 0.12 = 12%)
- * @returns {Object} Smoothed position {x, y}
- *
- * @example
- * const buffer = { x: 0, y: 0, isFirst: true };
- * const smoothed = applySmoothingEMA(buffer, 100, 50, 15);
- * // buffer.isFirst is now false, buffer.x and buffer.y contain smoothed values
- * console.log(smoothed); // { x: 100, y: 50 } on first call (no smoothing)
- *
- * const smoothed2 = applySmoothingEMA(buffer, 120, 60, 15);
- * console.log(smoothed2); // { x: ~105, y: ~52.5 } with smoothing applied
+ * Applies Exponential Moving Average (EMA) smoothing to a position.
+ * Used by InputBufferManager to smooth positions before local rendering and network broadcast.
+ * @param {Object} buffer - Smoothing buffer with {x, y, isFirst}.
+ * @param {number} targetX - Target X position (raw input).
+ * @param {number} targetY - Target Y position (raw input).
+ * @param {number} userSmoothing - User smoothing setting (0-50).
+ * @param {number} [baseline=0.12] - Baseline smoothing factor (12% default).
+ * @returns {Object} - Smoothed position {x, y}.
  */
 export function applySmoothingEMA(buffer, targetX, targetY, userSmoothing, baseline = 0.12) {
   // Calculate total smoothing: baseline (always on) + user contribution

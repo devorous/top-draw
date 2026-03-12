@@ -1,15 +1,25 @@
 /**
- * ToolLockManager - Manages per-tool locked property values
- * Allows users to lock tool properties (size, pressure, smoothing, etc.) so they persist when switching tools
+ * @fileoverview ToolLockManager - Manages per-tool locked property values
  */
 
+/**
+ * Manages tool properties (size, smoothing, opacity, etc.) and allows locking
+ * values for specific tools or sharing unlocked values globally.
+ */
 export class ToolLockManager {
+  /**
+   * @param {Object} app - The main application instance
+   */
   constructor(app) {
     this.app = app;
     this.toolLocks = this.loadToolLocks();
     this.globalUnlockedValues = this.loadGlobalUnlockedValues();
   }
 
+  /**
+   * Load global unlocked property values from localStorage
+   * @returns {Object} Unlocked values mapping
+   */
   loadGlobalUnlockedValues() {
     const defaults = {
       size: 10,
@@ -26,12 +36,10 @@ export class ToolLockManager {
       if (saved) {
         const parsed = JSON.parse(saved);
 
-        // Migrate percentage values to decimal (0-1) for opacity if needed
         if (parsed.opacity !== undefined && parsed.opacity > 1) {
           parsed.opacity = parsed.opacity / 100;
         }
 
-        // Merge with defaults to ensure all properties exist
         return { ...defaults, ...parsed };
       }
     } catch (e) {
@@ -41,6 +49,9 @@ export class ToolLockManager {
     return defaults;
   }
 
+  /**
+   * Save global unlocked property values to localStorage
+   */
   saveGlobalUnlockedValues() {
     try {
       localStorage.setItem('topDrawGlobalUnlockedValues', JSON.stringify(this.globalUnlockedValues));
@@ -49,21 +60,21 @@ export class ToolLockManager {
     }
   }
 
+  /**
+   * Load tool-specific lock configurations from localStorage
+   * @returns {Object} Tool lock configurations
+   */
   loadToolLocks() {
-    // Always start with defaults to ensure all tools are present
     const defaults = this.getDefaultToolLocks();
 
     try {
       const saved = localStorage.getItem('topDrawToolLocks');
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Migrate old format to new format (with lockedValue/unlockedValue)
         const migrated = this.migrateToolLocks(parsed);
 
-        // Merge migrated data into defaults (preserves any new tools added to codebase)
         for (const [tool, props] of Object.entries(migrated)) {
           if (defaults[tool]) {
-            // Merge properties from migrated data
             for (const [prop, state] of Object.entries(props)) {
               if (defaults[tool][prop]) {
                 defaults[tool][prop] = state;
@@ -79,6 +90,11 @@ export class ToolLockManager {
     return defaults;
   }
 
+  /**
+   * Migrate old tool lock data formats to the current format
+   * @param {Object} oldLocks - Old tool lock configuration
+   * @returns {Object} Migrated configuration
+   */
   migrateToolLocks(oldLocks) {
     const newLocks = {};
 
@@ -86,9 +102,7 @@ export class ToolLockManager {
       newLocks[tool] = {};
 
       for (const [prop, state] of Object.entries(props)) {
-        // Check if already migrated
         if (state.lockedValue !== undefined && state.unlockedValue === undefined) {
-          // Ensure percentage values are converted to decimal for opacity only
           if (prop === 'opacity' && state.lockedValue > 1) {
             state.lockedValue = state.lockedValue / 100;
           }
@@ -96,7 +110,6 @@ export class ToolLockManager {
           continue;
         }
 
-        // Migrate old format
         if (prop === 'pressure') {
           newLocks[tool][prop] = {
             locked: state.locked ?? false,
@@ -109,7 +122,6 @@ export class ToolLockManager {
         } else {
           let value = state.value ?? 0;
 
-          // Convert percentage to decimal for opacity only
           if (prop === 'opacity' && value > 1) {
             value = value / 100;
           }
@@ -125,6 +137,10 @@ export class ToolLockManager {
     return newLocks;
   }
 
+  /**
+   * Get default tool lock configurations for all tools
+   * @returns {Object}
+   */
   getDefaultToolLocks() {
     const tools = {
       brush: ['size', 'pressure', 'smoothing', 'hardness', 'opacity'],
@@ -154,7 +170,6 @@ export class ToolLockManager {
             lockedValue: { min: 0, max: 100, enabled: true }
           };
         } else {
-          // Default values based on property type
           let defaultValue = 0;
           if (prop === 'size') defaultValue = 10;
           if (prop === 'smoothing') defaultValue = 15;
@@ -174,6 +189,9 @@ export class ToolLockManager {
     return locks;
   }
 
+  /**
+   * Save tool-specific lock configurations to localStorage
+   */
   saveToolLocks() {
     try {
       localStorage.setItem('topDrawToolLocks', JSON.stringify(this.toolLocks));
@@ -182,16 +200,18 @@ export class ToolLockManager {
     }
   }
 
+  /**
+   * Save current property values for a tool
+   * @param {string} toolName - Name of the tool
+   */
   saveCurrentValues(toolName) {
     const locks = this.toolLocks[toolName];
     if (!locks) return;
 
     const { self, ui, pressureEnabled } = this.app;
 
-    // Save current values to either tool's lockedValue or global unlocked value
     for (const [prop, state] of Object.entries(locks)) {
       if (state.locked) {
-        // Save to tool's locked value
         if (prop === 'size') {
           state.lockedValue = self.size;
         }
@@ -208,7 +228,6 @@ export class ToolLockManager {
         else if (prop === 'opacity') state.lockedValue = self.opacity;
         else if (prop === 'blurRadius') state.lockedValue = self.blurRadius;
       } else {
-        // Save to global unlocked value
         if (prop === 'size') {
           this.globalUnlockedValues.size = self.size;
         }
@@ -231,6 +250,10 @@ export class ToolLockManager {
     this.saveGlobalUnlockedValues();
   }
 
+  /**
+   * Restore property values for a tool from its locks or global values
+   * @param {string} toolName - Name of the tool
+   */
   restoreToolValues(toolName) {
     const locks = this.toolLocks[toolName];
     if (!locks) return;
@@ -238,7 +261,6 @@ export class ToolLockManager {
     const { self, ui, wsClient, connected, colorPicker } = this.app;
     const { elements } = ui;
 
-    // Restore values from either tool's lockedValue or global unlocked value
     for (const [prop, state] of Object.entries(locks)) {
       const value = state.locked ? state.lockedValue : this.globalUnlockedValues[prop];
 
@@ -312,6 +334,10 @@ export class ToolLockManager {
     }
   }
 
+  /**
+   * Update visibility of lock buttons for a tool
+   * @param {string} toolName - Name of the tool
+   */
   updateAllLockButtons(toolName) {
     const locks = this.toolLocks[toolName];
     if (!locks) return;
@@ -322,13 +348,17 @@ export class ToolLockManager {
     allProps.forEach(prop => {
       const lock = locks[prop];
       if (lock) {
-        ui.updateLockButton(prop, lock.locked, true); // visible
+        ui.updateLockButton(prop, lock.locked, true);
       } else {
-        ui.updateLockButton(prop, false, false); // hidden
+        ui.updateLockButton(prop, false, false);
       }
     });
   }
 
+  /**
+   * Toggle the lock state for a property on the active tool
+   * @param {string} property - Property name to toggle
+   */
   toggleLock(property) {
     const { self, ui, pressureEnabled } = this.app;
     const tool = self.tool;
@@ -338,7 +368,6 @@ export class ToolLockManager {
       return;
     }
 
-    // Only allow toggling if the property is defined for this tool
     if (!(property in this.toolLocks[tool])) {
       console.warn(`Property ${property} is not lockable for tool ${tool}`);
       return;
@@ -346,12 +375,9 @@ export class ToolLockManager {
 
     const lock = this.toolLocks[tool][property];
 
-    // Toggle lock state
     lock.locked = !lock.locked;
 
-    // Save current value to appropriate location
     if (lock.locked) {
-      // Locking: save current value as this tool's locked value
       if (property === 'pressure') {
         lock.lockedValue = {
           min: Number(ui.elements.pressureMinSlider.value),
@@ -364,7 +390,6 @@ export class ToolLockManager {
         lock.lockedValue = self[property];
       }
     } else {
-      // Unlocking: save current value as global unlocked value
       if (property === 'pressure') {
         this.globalUnlockedValues.pressure = {
           min: Number(ui.elements.pressureMinSlider.value),
@@ -378,10 +403,7 @@ export class ToolLockManager {
       }
     }
 
-    // Update UI
     ui.updateLockButton(property, lock.locked, true);
-
-    // Save to localStorage
     this.saveToolLocks();
     this.saveGlobalUnlockedValues();
   }

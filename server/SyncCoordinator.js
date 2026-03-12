@@ -1,45 +1,39 @@
+/** @fileoverview Orchestrates the synchronization of canvas state between existing users and new joiners. */
+
 import { WebSocket } from 'ws';
 import { T } from '../shared/MessageTypes.js';
 
 /**
- * SyncCoordinator
- *
- * Handles canvas synchronization for new users joining the session.
- *
- * Flow:
- * 1. New user sends SYNC_REQUEST
- * 2. Server picks an existing user and sends them SYNC_PROVIDE
- * 3. Provider captures canvas and sends SYNC_CANVAS back to server
- * 4. Server forwards canvas to new user and sends SYNC_COMPLETE
- *
- * If no provider is available, server sends SYNC_COMPLETE immediately (empty canvas).
+ * Handles the multi-step canvas synchronization flow for new users.
  */
 export class SyncCoordinator {
+  /**
+   * @param {SessionManager} sessionManager - The session manager instance.
+   * @param {Object} wss - The WebSocket server or room client set.
+   * @param {function} sendToCallback - Function to send messages to a specific client.
+   */
   constructor(sessionManager, wss, sendToCallback) {
     this.sessionManager = sessionManager;
     this.wss = wss;
     this.sendTo = sendToCallback;
-    this.pendingSyncRequests = new Map(); // requestingUserIndex -> true
+    this.pendingSyncRequests = new Map();
   }
 
   /**
-   * Handle SYNC_REQUEST from new user
-   * Find a provider and ask them to send canvas
-   * @param {WebSocket} ws - Requesting user's WebSocket
-   * @param {Object} data - Message data (may contain tu field for targeted sync)
+   * Handles a sync request from a new user by selecting a provider and initiating the flow.
+   * @param {WebSocket} ws - The WebSocket of the requesting user.
+   * @param {Object} data - The sync request message data.
    */
   handleSyncRequest(ws, data) {
     console.log(`[Sync] User ${ws.sessionIndex} requested sync`);
 
     let providerSessionIndex = null;
 
-    // Check if user requested a specific provider
     if (data.tu !== undefined && data.tu !== null) {
       const requestedProvider = data.tu;
       const providerData = this.sessionManager.users.get(requestedProvider);
 
       if (providerData && providerData.name) {
-        // Requested provider exists and is valid
         providerSessionIndex = requestedProvider;
         console.log(`[Sync] Using requested provider ${providerSessionIndex} (${providerData.name})`);
       } else {
@@ -47,7 +41,6 @@ export class SyncCoordinator {
       }
     }
 
-    // If no valid requested provider, use smart selection
     if (providerSessionIndex === null) {
       providerSessionIndex = this.selectBestProvider(ws.sessionIndex);
       if (providerSessionIndex !== null) {
@@ -56,33 +49,28 @@ export class SyncCoordinator {
       }
     }
 
-    // If we have a provider, ask them to send canvas
     if (providerSessionIndex !== null) {
-      // Track this pending request
       this.pendingSyncRequests.set(ws.sessionIndex, true);
 
-      // Find the provider's WebSocket and send SYNC_PROVIDE
       const providerClient = this._findClient(providerSessionIndex);
       if (providerClient) {
         console.log(`[Sync] Asking user ${providerSessionIndex} to provide canvas for user ${ws.sessionIndex}`);
         this.sendTo(providerClient, {
           t: T.SYNC_PROVIDE,
-          tu: ws.sessionIndex  // Tell provider who needs the canvas
+          tu: ws.sessionIndex
         });
         return;
       }
     }
 
-    // No provider available - send empty sync
     console.log(`[Sync] No provider available, sending empty sync complete to user ${ws.sessionIndex}`);
     this.sendTo(ws, { t: T.SYNC_COMPLETE });
   }
 
   /**
-   * Select best provider using smart selection algorithm
-   * Prefers most recently active users
-   * @param {number} excludeSessionIndex - Don't select this user
-   * @returns {number|null} Selected provider session index, or null if none available
+   * Selects the most suitable user to provide the canvas state.
+   * @param {number} excludeSessionIndex - The session index of the requester.
+   * @returns {number|null} - The session index of the selected provider, or null.
    */
   selectBestProvider(excludeSessionIndex) {
     const candidates = [];
@@ -98,15 +86,15 @@ export class SyncCoordinator {
 
     if (candidates.length === 0) return null;
 
-    // Sort by last activity (most recent first)
     candidates.sort((a, b) => b.lastActivity - a.lastActivity);
 
-    // Return most recently active user
     return candidates[0].sessionIndex;
   }
 
   /**
-   * Handle SYNC_CANVAS from provider (legacy, kept for compatibility)
+   * Handles legacy full-canvas synchronization messages.
+   * @param {WebSocket} ws - The WebSocket of the provider.
+   * @param {Object} data - The sync canvas message data.
    */
   handleSyncCanvas(ws, data) {
     const targetUser = data.tu;
@@ -122,20 +110,23 @@ export class SyncCoordinator {
   }
 
   /**
-   * Relay SYNC_METADATA from provider to target joiner
+   * Relays sync metadata (e.g., total stroke count) to the requesting joiner.
+   * @param {WebSocket} ws - The WebSocket of the provider.
+   * @param {Object} data - The sync metadata message data.
    */
   handleSyncMetadata(ws, data) {
     const targetUser = data.tu;
     console.log(`[Sync] Relaying metadata to user ${targetUser}, count:`, data.syncTotal);
     const client = this._findClient(targetUser);
     if (client) {
-      // protobufjs uses camelCase for JS properties (sync_total proto field → syncTotal JS property)
       this.sendTo(client, { t: T.SYNC_METADATA, syncTotal: data.syncTotal });
     }
   }
 
   /**
-   * Relay SYNC_LAYER_BASE from provider to target joiner
+   * Relays base layer image data to the requesting joiner.
+   * @param {WebSocket} ws - The WebSocket of the provider.
+   * @param {Object} data - The sync layer base message data.
    */
   handleSyncLayerBase(ws, data) {
     const targetUser = data.tu;
@@ -146,7 +137,9 @@ export class SyncCoordinator {
   }
 
   /**
-   * Relay SYNC_STROKE from provider to target joiner
+   * Relays an individual stroke record to the requesting joiner.
+   * @param {WebSocket} ws - The WebSocket of the provider.
+   * @param {Object} data - The sync stroke message data.
    */
   handleSyncStroke(ws, data) {
     const targetUser = data.tu;
@@ -158,8 +151,6 @@ export class SyncCoordinator {
         ly: data.ly,
         sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh,
         bm: data.bm,
-        // protobufjs decodes snake_case proto fields as camelCase JS properties:
-        // stroke_ts → strokeTs, stroke_redo → strokeRedo, stroke_redo_batch → strokeRedoBatch
         strokeTs: data.strokeTs,
         a: data.a,
         strokeRedo: data.strokeRedo,
@@ -170,7 +161,9 @@ export class SyncCoordinator {
   }
 
   /**
-   * Relay SYNC_STROKE_BATCH from provider to target joiner (batched sync)
+   * Relays a batch of stroke records to the requesting joiner.
+   * @param {WebSocket} ws - The WebSocket of the provider.
+   * @param {Object} data - The sync stroke batch message data.
    */
   handleSyncStrokeBatch(ws, data) {
     const targetUser = data.tu;
@@ -186,8 +179,9 @@ export class SyncCoordinator {
   }
 
   /**
-   * Handle SYNC_STROKES_DONE from provider.
-   * Relays done signal to joiner and sends SYNC_COMPLETE.
+   * Handles the signal that all strokes have been sent, completing the sync flow.
+   * @param {WebSocket} ws - The WebSocket of the provider.
+   * @param {Object} data - The sync strokes done message data.
    */
   handleSyncStrokesDone(ws, data) {
     const targetUser = data.tu;
@@ -201,7 +195,12 @@ export class SyncCoordinator {
     }
   }
 
-  /** Find an open WebSocket for the given session index */
+  /**
+   * Finds an open WebSocket client by their session index.
+   * @param {number} sessionIndex - The session index to find.
+   * @returns {WebSocket|null} - The client WebSocket or null.
+   * @private
+   */
   _findClient(sessionIndex) {
     for (const client of this.wss.clients) {
       if (client.sessionIndex === sessionIndex && client.readyState === WebSocket.OPEN) {
@@ -212,8 +211,7 @@ export class SyncCoordinator {
   }
 
   /**
-   * Clear all pending sync requests
-   * Called when all users disconnect
+   * Clears all tracking for pending sync requests.
    */
   clearPendingRequests() {
     this.pendingSyncRequests.clear();

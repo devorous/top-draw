@@ -1,10 +1,12 @@
+/** @fileoverview Benchmark comparing logical operation counts for current versus optimized layer compositing algorithms. */
+
 import { bench, run, group } from 'mitata';
 
-/**
- * SHIM: Mock Canvas for Node.js environments
- * If running in a browser, the real HTMLCanvasElement will be used.
- */
 const isNode = typeof window === 'undefined';
+
+/**
+ * Mock 2D context for simulation.
+ */
 class DummyContext {
   constructor() {
     this.globalCompositeOperation = 'source-over';
@@ -19,18 +21,41 @@ class DummyContext {
   fillRect() {}
   clearRect() {}
   drawImage() {}
+  /**
+   * Mocks getting image data.
+   * @param {number} x - X coordinate.
+   * @param {number} y - Y coordinate.
+   * @param {number} w - Width.
+   * @param {number} h - Height.
+   * @returns {Object} - Mocked image data.
+   */
   getImageData(x, y, w, h) {
     return { data: new Uint8ClampedArray(w * h * 4), width: w, height: h };
   }
   putImageData() {}
 }
 
+/**
+ * Mock canvas for simulation.
+ */
 class DummyCanvas {
+  /**
+   * @param {number} w - Width.
+   * @param {number} h - Height.
+   */
   constructor(w, h) {
     this.width = w;
     this.height = h;
   }
+  /**
+   * Gets the dummy context.
+   * @returns {DummyContext}
+   */
   getContext() { return new DummyContext(); }
+  /**
+   * Mocks toDataURL.
+   * @returns {string}
+   */
   toDataURL() { return ''; }
 }
 
@@ -43,26 +68,19 @@ if (isNode) {
   };
 }
 
-// -----------------------------------------------------------------------------
-// Algorithm Mock-ups for Comparison
-// -----------------------------------------------------------------------------
-
 /**
- * CURRENT ALGORITHM (Sequential Snapshot/Restore)
- * O(N * E) complexity
+ * Simulates the current sequential snapshot/restore compositing algorithm.
+ * @param {Array} strokes - The strokes to composite.
+ * @param {string} [background='white'] - The background color.
+ * @returns {Object} - The count of composite and snapshot operations.
  */
 function currentComposite(strokes, background = 'white') {
   let composites = 0;
   let snapshots = 0;
   
-  // Simulation of: for each stroke { if eraser then snapshot lower layers then restore }
-  const erasers = strokes.filter(s => s.blendMode === 'destination-out');
-  
   for (const stroke of strokes) {
     if (stroke.blendMode === 'destination-out') {
-      // Snapshot lower layers (Expensive!)
       snapshots++;
-      // Draw background into hole
       composites++; 
     } else {
       composites++;
@@ -72,36 +90,30 @@ function currentComposite(strokes, background = 'white') {
 }
 
 /**
- * OPTIMIZED ALGORITHM (Isolated Group Buffering)
- * O(N) complexity
+ * Simulates the optimized isolated group buffering compositing algorithm.
+ * @param {Array} strokes - The strokes to composite.
+ * @param {string} [background='white'] - The background color.
+ * @returns {Object} - The count of composite and snapshot operations.
  */
 function optimizedComposite(strokes, background = 'white') {
   let composites = 0;
   let snapshots = 0;
   
-  // 1. Clear isolated buffer (1 call)
   composites++; 
   
-  // 2. Draw all strokes into buffer (N calls)
   for (const stroke of strokes) {
     composites++;
   }
   
-  // 3. Draw buffer onto target (1 call)
   composites++;
   
   return { composites, snapshots };
 }
 
-// -----------------------------------------------------------------------------
-// Benchmarks
-// -----------------------------------------------------------------------------
-
 const STROKE_COUNTS = [10, 50, 100, 500];
 
 for (const count of STROKE_COUNTS) {
   group(`Layer Compositing: ${count} Strokes (10% Erasers)`, () => {
-    // Generate test data: 90% normal, 10% eraser
     const strokes = Array.from({ length: count }, (_, i) => ({
       blendMode: i % 10 === 0 ? 'destination-out' : 'multiply'
     }));
@@ -116,20 +128,12 @@ for (const count of STROKE_COUNTS) {
   });
 }
 
-/**
- * Note: These benchmarks use logical "operation counts" to demonstrate the 
- * algorithmic difference. In a real environment with a GPU/Canvas, the 
- * "Snapshot" operation is significantly more expensive than a "Composite" 
- * operation (O(W*H) memory copy vs O(Region) draw call).
- */
-
 console.log('--- Logical Performance Comparison ---');
 console.log('Strokes | Current Ops | Optimized Ops | Complexity Ratio');
 for (const count of STROKE_COUNTS) {
   const s = Array.from({ length: count }, (_, i) => ({ blendMode: i % 10 === 0 ? 'destination-out' : 'multiply' }));
   const cur = currentComposite(s);
   const opt = optimizedComposite(s);
-  // Weight snapshots by 10x for rough approximation of memory copy cost
   const curWeight = cur.composites + cur.snapshots * 10;
   const optWeight = opt.composites;
   console.log(`${count.toString().padEnd(7)} | ${curWeight.toString().padEnd(11)} | ${optWeight.toString().padEnd(13)} | ${(curWeight / optWeight).toFixed(1)}x slower`);

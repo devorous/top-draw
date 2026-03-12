@@ -1,7 +1,14 @@
 /**
- * Chat manager for handling chat functionality with tabs and DM support
+ * @fileoverview Chat manager for handling chat functionality with tabs, DM support, and emoji picker.
+ */
+
+/**
+ * Chat class
  */
 export class Chat {
+  /**
+   * @param {Object} [options={}] - Configuration options
+   */
   constructor(options = {}) {
     this.container = null;
     this.messageList = null;
@@ -21,21 +28,21 @@ export class Chat {
       dms: new Map()
     };
 
-    // Emoji picker state
     this.emojiList = [];
     this.emojiPickerInitialized = false;
     this.recentEmojis = this.loadRecentEmojis();
 
-    // Image upload state
     this.pendingImage = null;
     this.isDragging = false;
 
-    // Notification state
     this.unreadCount = 0;
     this.badgeElement = null;
     this.toastContainer = null;
   }
 
+  /**
+   * Initializes the chat component and sets up DOM references.
+   */
   init() {
     this.container = document.getElementById('chat');
     this.messageList = document.getElementById('messageList');
@@ -49,13 +56,14 @@ export class Chat {
     this.makeDraggable();
     this.setupEventListeners();
     this.setupTextareaAutoResize();
-    // Don't setup emoji picker yet - wait until user clicks emoji button
 
-    // Notification elements
     this.badgeElement = document.getElementById('chatBadge');
     this.toastContainer = document.getElementById('chatToastContainer');
   }
 
+  /**
+   * Sets up event listeners for chat interactions.
+   */
   setupEventListeners() {
     this.sendButton.addEventListener('click', () => {
       this.handleSend();
@@ -103,7 +111,6 @@ export class Chat {
       this.handleFileUpload(e);
     });
 
-    // Close emoji picker when clicking outside
     document.addEventListener('click', (e) => {
       if (!this.emojiPicker.contains(e.target) &&
           e.target.id !== 'chatEmojiBtn') {
@@ -112,6 +119,10 @@ export class Chat {
     });
   }
 
+  /**
+   * Switches the active chat tab.
+   * @param {string} tab - Tab identifier ('all' or 'dm')
+   */
   switchTab(tab) {
     this.currentTab = tab;
 
@@ -146,6 +157,9 @@ export class Chat {
     }
   }
 
+  /**
+   * Renders the list of users for direct messaging.
+   */
   renderDMUserList() {
     const userList = document.getElementById('dmUserListContent');
     userList.innerHTML = '';
@@ -177,6 +191,9 @@ export class Chat {
     });
   }
 
+  /**
+   * Renders the message conversation with the current DM recipient.
+   */
   renderDMConversation() {
     if (!this.dmRecipient) return;
 
@@ -241,16 +258,28 @@ export class Chat {
     this.scrollDMToBottom();
   }
 
+  /**
+   * Selects a user as the current DM recipient.
+   * @param {Object} user - User object
+   */
   selectDMRecipient(user) {
     this.dmRecipient = user;
     this.switchTab('dm');
   }
 
+  /**
+   * Gets the number of unread DM messages from a specific user.
+   * @param {string} userId - User identifier
+   * @returns {number}
+   */
   getUnreadCount(userId) {
     const messages = this.messages.dms.get(userId) || [];
     return messages.filter(msg => !msg.fromSelf && !msg.read).length;
   }
 
+  /**
+   * Handles sending a message or image.
+   */
   handleSend() {
     const message = this.input.value.trim();
     const hasImage = this.pendingImage !== null;
@@ -279,6 +308,9 @@ export class Chat {
     this.clearImagePreview();
   }
 
+  /**
+   * Sets up automatic resizing for the message textarea.
+   */
   setupTextareaAutoResize() {
     this.input.addEventListener('input', () => {
       this.input.style.height = 'auto';
@@ -286,32 +318,31 @@ export class Chat {
     });
   }
 
+  /**
+   * Resets the textarea height to default.
+   */
   resetTextareaHeight() {
     this.input.style.height = 'auto';
   }
 
+  /**
+   * Sets up the emoji picker, loading data if necessary.
+   * @returns {Promise<void>}
+   */
   async setupEmojiPicker() {
     if (this.emojiPickerInitialized) {
-      return; // Already initialized
+      return;
     }
 
     try {
-      // Lazy load emoji data
       const emojiData = await loadEmojiData();
-
-      // Filter to ~300 most common emojis from popular groups
-      // Group 0: smileys-emotion, Group 1: people-body, Group 2: component (skin tones, etc)
-      // Group 3: animals-nature, Group 4: food-drink, Group 5: travel-places
-      // Group 6: activities, Group 7: objects, Group 8: symbols
       const popularGroups = [0, 1, 3, 4, 5, 6, 7, 8];
 
       this.emojiList = emojiData
         .filter(e => {
-          // Only include emojis version 11 or older for better browser support (fewer squares)
-          // Skip skin tone variations and gender variants
           return popularGroups.includes(e.group) &&
                  (!e.version || e.version <= 11) &&
-                 e.type !== 5; // Skip components like skin tones
+                 e.type !== 5;
         })
         .slice(0, 300);
 
@@ -320,7 +351,6 @@ export class Chat {
       this.emojiPickerInitialized = true;
     } catch (error) {
       console.error('Failed to setup emoji picker:', error);
-      // Show error to user
       const grid = document.getElementById('emojiPickerGrid');
       if (grid) {
         grid.innerHTML = '<div style="padding: 20px; text-align: center;">Failed to load emojis</div>';
@@ -328,6 +358,9 @@ export class Chat {
     }
   }
 
+  /**
+   * Renders the grid of emojis in the picker.
+   */
   renderEmojiGrid() {
     const grid = document.getElementById('emojiPickerGrid');
     grid.innerHTML = '';
@@ -338,6 +371,11 @@ export class Chat {
     });
   }
 
+  /**
+   * Creates a button element for an emoji.
+   * @param {string} emoji - Unicode emoji character
+   * @returns {HTMLElement}
+   */
   createEmojiButton(emoji) {
     const btn = document.createElement('button');
     btn.className = 'emojiBtn';
@@ -349,6 +387,10 @@ export class Chat {
     return btn;
   }
 
+  /**
+   * Loads recently used emojis from localStorage.
+   * @returns {Array}
+   */
   loadRecentEmojis() {
     try {
       const stored = localStorage.getItem('chatRecentEmojis');
@@ -358,6 +400,9 @@ export class Chat {
     }
   }
 
+  /**
+   * Saves recently used emojis to localStorage.
+   */
   saveRecentEmojis() {
     try {
       localStorage.setItem('chatRecentEmojis', JSON.stringify(this.recentEmojis));
@@ -366,14 +411,14 @@ export class Chat {
     }
   }
 
+  /**
+   * Adds an emoji to the recently used list.
+   * @param {string} emoji - Unicode emoji character
+   */
   addToRecent(emoji) {
-    // Remove if already exists
     this.recentEmojis = this.recentEmojis.filter(e => e !== emoji);
-
-    // Add to front
     this.recentEmojis.unshift(emoji);
 
-    // Limit to 20 emojis
     if (this.recentEmojis.length > 20) {
       this.recentEmojis = this.recentEmojis.slice(0, 20);
     }
@@ -382,6 +427,9 @@ export class Chat {
     this.renderRecentEmojis();
   }
 
+  /**
+   * Renders the row of recently used emojis.
+   */
   renderRecentEmojis() {
     const recentContainer = document.getElementById('emojiRecentRow');
     if (!recentContainer) return;
@@ -393,7 +441,6 @@ export class Chat {
 
     recentContainer.style.display = 'flex';
 
-    // Clear except label
     const label = recentContainer.querySelector('label');
     recentContainer.innerHTML = '';
     if (label) {
@@ -404,21 +451,22 @@ export class Chat {
       recentContainer.appendChild(newLabel);
     }
 
-    // Add up to 14 most recent emojis
     this.recentEmojis.slice(0, 14).forEach(emoji => {
       const btn = this.createEmojiButton(emoji);
       recentContainer.appendChild(btn);
     });
   }
 
+  /**
+   * Toggles the emoji picker visibility.
+   * @returns {Promise<void>}
+   */
   async toggleEmojiPicker() {
     const isVisible = this.emojiPicker.style.display !== 'none';
 
     if (isVisible) {
-      // Just hide if already visible
       this.emojiPicker.style.display = 'none';
     } else {
-      // Show picker and initialize if needed
       this.emojiPicker.style.display = 'block';
 
       if (!this.emojiPickerInitialized) {
@@ -427,6 +475,10 @@ export class Chat {
     }
   }
 
+  /**
+   * Inserts an emoji into the chat input.
+   * @param {string} emoji - Unicode emoji character
+   */
   insertEmoji(emoji) {
     const cursorPos = this.input.selectionStart;
     const textBefore = this.input.value.substring(0, cursorPos);
@@ -436,24 +488,23 @@ export class Chat {
     this.input.selectionStart = this.input.selectionEnd = cursorPos + emoji.length;
     this.input.focus();
 
-    // Trigger resize
     this.input.dispatchEvent(new Event('input'));
-
-    // Track as recently used
     this.addToRecent(emoji);
   }
 
+  /**
+   * Handles file upload for sending images.
+   * @param {Event} e - Change event
+   */
   handleFileUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Check if it's an image
     if (!file.type.startsWith('image/')) {
       this.addSystemMessage('Only image files are supported');
       return;
     }
 
-    // Check file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       this.addSystemMessage('Image too large (max 5MB)');
       return;
@@ -462,20 +513,18 @@ export class Chat {
     const reader = new FileReader();
     reader.onload = (event) => {
       const imageData = event.target.result;
-
-      // Store pending image and show preview
       this.pendingImage = imageData;
       this.showImagePreviewInInput();
     };
 
     reader.readAsDataURL(file);
-
-    // Reset file input
     this.fileInput.value = '';
   }
 
+  /**
+   * Shows a preview of the pending image in the chat UI.
+   */
   showImagePreviewInInput() {
-    // Create or update image preview in chat bottom area
     let previewContainer = document.getElementById('chatImagePreview');
 
     if (!previewContainer) {
@@ -512,6 +561,9 @@ export class Chat {
     previewContainer.appendChild(previewWrapper);
   }
 
+  /**
+   * Clears the pending image preview.
+   */
   clearImagePreview() {
     this.pendingImage = null;
     const previewContainer = document.getElementById('chatImagePreview');
@@ -520,8 +572,11 @@ export class Chat {
     }
   }
 
+  /**
+   * Adds an image preview message to the chat list.
+   * @param {string} imageData - Base64 image data
+   */
   addImagePreview(imageData) {
-    // Add image preview to chat
     const li = document.createElement('li');
     li.className = 'message imageMessage';
 
@@ -537,8 +592,12 @@ export class Chat {
     this.scrollToBottom();
   }
 
+  /**
+   * Adds an image message to the public chat history.
+   * @param {string} imageData - Base64 image data
+   * @param {Object} user - Sending user object
+   */
   addChatImage(imageData, user) {
-    // Add image message to public chat
     const timestamp = Date.now();
     const msg = {
       type: 'image',
@@ -553,7 +612,6 @@ export class Chat {
       this.renderMessages();
     }
 
-    // Show notification if chat is hidden
     if (!this.visible) {
       this.unreadCount++;
       this.updateBadge();
@@ -561,8 +619,13 @@ export class Chat {
     }
   }
 
+  /**
+   * Adds an image to a DM conversation.
+   * @param {string} imageData - Base64 image data
+   * @param {string} userId - Other user ID
+   * @param {boolean} [fromSelf=false] - Whether I am the sender
+   */
   addDMImage(imageData, userId, fromSelf = false) {
-    // Add image to DM conversation
     if (!this.messages.dms.has(userId)) {
       this.messages.dms.set(userId, []);
     }
@@ -583,7 +646,6 @@ export class Chat {
       this.renderDMUserList();
     }
 
-    // Show notification for incoming DM images when chat is hidden
     if (!fromSelf && !this.visible) {
       const user = this.users.get(userId);
       this.unreadCount++;
@@ -596,6 +658,12 @@ export class Chat {
     }
   }
 
+  /**
+   * Adds a text message to public chat history.
+   * @param {string} message - Text message
+   * @param {Object|string} user - Sending user object or 'system'
+   * @param {boolean} [isDM=false] - Whether it's a DM
+   */
   addMessage(message, user, isDM = false) {
     if (!message) return;
 
@@ -617,7 +685,6 @@ export class Chat {
       this.renderMessages();
     }
 
-    // Show notification if chat is hidden and not a system message
     if (!this.visible && user !== 'system') {
       this.unreadCount++;
       this.updateBadge();
@@ -625,6 +692,12 @@ export class Chat {
     }
   }
 
+  /**
+   * Adds a text message to a DM conversation.
+   * @param {string} message - Text message
+   * @param {string} userId - Other user ID
+   * @param {boolean} [fromSelf=false] - Whether I am the sender
+   */
   addDMMessage(message, userId, fromSelf = false) {
     if (!this.messages.dms.has(userId)) {
       this.messages.dms.set(userId, []);
@@ -645,7 +718,6 @@ export class Chat {
       this.renderDMUserList();
     }
 
-    // Show notification for incoming DMs when chat is hidden
     if (!fromSelf && !this.visible) {
       const user = this.users.get(userId);
       this.unreadCount++;
@@ -658,6 +730,9 @@ export class Chat {
     }
   }
 
+  /**
+   * Renders the public chat messages.
+   */
   renderMessages() {
     this.messageList.innerHTML = '';
 
@@ -698,10 +773,18 @@ export class Chat {
     this.scrollToBottom();
   }
 
+  /**
+   * Adds a system notification message.
+   * @param {string} message - Notification text
+   */
   addSystemMessage(message) {
     this.addMessage(message, 'system');
   }
 
+  /**
+   * Updates the internal list of online users for DM selection.
+   * @param {Array} users - Array of online user objects
+   */
   updateUserList(users) {
     this.users.clear();
     users.forEach(user => {
@@ -715,10 +798,16 @@ export class Chat {
     }
   }
 
+  /**
+   * Scrolls the public message container to the bottom.
+   */
   scrollToBottom() {
     this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
   }
 
+  /**
+   * Scrolls the active DM conversation to the bottom.
+   */
   scrollDMToBottom() {
     const dmMessages = document.getElementById('chatDMMessages');
     if (dmMessages) {
@@ -726,12 +815,20 @@ export class Chat {
     }
   }
 
+  /**
+   * Escapes HTML special characters.
+   * @param {string} text - Raw text
+   * @returns {string} - Escaped text
+   */
   escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
   }
 
+  /**
+   * Toggles chat visibility.
+   */
   toggle() {
     this.visible = !this.visible;
     this.container.style.display = this.visible ? 'flex' : 'none';
@@ -741,6 +838,9 @@ export class Chat {
     }
   }
 
+  /**
+   * Shows the chat component.
+   */
   show() {
     this.visible = true;
     this.container.style.display = 'flex';
@@ -748,27 +848,35 @@ export class Chat {
     this.clearUnread();
   }
 
+  /**
+   * Hides the chat component.
+   */
   hide() {
     this.visible = false;
     this.container.style.display = 'none';
   }
 
+  /**
+   * Resets chat position to default.
+   */
   resetPosition() {
     const containerWidth = document.getElementById('boardContainer').clientWidth;
     this.container.style.top = '30px';
     this.container.style.left = `${containerWidth - 200}px`;
   }
 
+  /**
+   * Clears all message history.
+   */
   clearMessages() {
     this.messages.all = [];
     this.messages.dms.clear();
     this.renderMessages();
   }
 
-  // ========================================
-  // Notification Methods
-  // ========================================
-
+  /**
+   * Updates the unread message badge.
+   */
   updateBadge() {
     if (!this.badgeElement) return;
 
@@ -780,13 +888,18 @@ export class Chat {
     }
   }
 
+  /**
+   * Shows a brief toast notification for new messages.
+   * @param {string} username - Sender username
+   * @param {string} message - Message content
+   * @param {string} [color='#888'] - Sender color
+   */
   showChatToast(username, message, color = '#888') {
     if (!this.toastContainer) return;
 
     const toast = document.createElement('div');
     toast.className = 'chatToast';
 
-    // Truncate long messages
     const truncated = message.length > 100 ? message.slice(0, 100) + '...' : message;
 
     toast.innerHTML = `
@@ -794,7 +907,6 @@ export class Chat {
       <span class="chatToastMessage">${this.escapeHtml(truncated)}</span>
     `;
 
-    // Click to open chat
     toast.addEventListener('click', () => {
       this.show();
       toast.remove();
@@ -802,13 +914,11 @@ export class Chat {
 
     this.toastContainer.appendChild(toast);
 
-    // Auto-remove after 4 seconds
     setTimeout(() => {
       toast.classList.add('hiding');
       setTimeout(() => toast.remove(), 300);
     }, 4000);
 
-    // Limit to 3 visible toasts
     const toasts = this.toastContainer.querySelectorAll('.chatToast:not(.hiding)');
     if (toasts.length > 3) {
       toasts[0].classList.add('hiding');
@@ -816,11 +926,17 @@ export class Chat {
     }
   }
 
+  /**
+   * Resets the unread message count.
+   */
   clearUnread() {
     this.unreadCount = 0;
     this.updateBadge();
   }
 
+  /**
+   * Makes the chat window draggable by its header.
+   */
   makeDraggable() {
     let isDragging = false;
     let offsetX = 0;
@@ -830,7 +946,6 @@ export class Chat {
     if (!header) return;
 
     header.addEventListener('mousedown', (e) => {
-      // Allow dragging on header, tabs, and close button (but not input elements)
       if (e.target.tagName !== 'INPUT') {
         isDragging = true;
         offsetX = e.clientX - this.container.offsetLeft;
@@ -841,7 +956,7 @@ export class Chat {
 
     document.addEventListener('mousemove', (e) => {
       if (isDragging) {
-        this.isDragging = true; // Use class property for external access
+        this.isDragging = true;
         this.container.style.left = `${e.clientX - offsetX}px`;
         this.container.style.top = `${e.clientY - offsetY}px`;
       }
@@ -851,7 +966,6 @@ export class Chat {
       if (isDragging) {
         isDragging = false;
         this.container.style.cursor = 'default';
-        // Delay resetting isDragging class property slightly to catch final click events
         setTimeout(() => { this.isDragging = false; }, 50);
       }
     });

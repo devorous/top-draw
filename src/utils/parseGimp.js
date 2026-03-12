@@ -1,7 +1,12 @@
 /**
- * GIMP brush file parser (.gbr and .gih formats)
+ * @fileoverview GIMP brush file parser for .gbr (static) and .gih (animated/multi-dimensional) formats.
  */
 
+/**
+ * Converts a Uint8Array chunk to a string.
+ * @param {Uint8Array} chunk - Data chunk.
+ * @returns {string} - Resulting string.
+ */
 function chunkToString(chunk) {
   let string = '';
   for (let i = 0; i < chunk.length; i++) {
@@ -11,6 +16,11 @@ function chunkToString(chunk) {
   return string;
 }
 
+/**
+ * Concatenates a Uint8Array chunk into a hex string.
+ * @param {Uint8Array} chunk - Data chunk.
+ * @returns {string} - Resulting hex string.
+ */
 function concatChunk(chunk) {
   let hexString = '';
   for (let i = 0; i < chunk.length; i++) {
@@ -23,6 +33,11 @@ function concatChunk(chunk) {
   return hexString;
 }
 
+/**
+ * Parses a GIMP .gbr brush file.
+ * @param {ArrayBuffer} arrayBuffer - File data.
+ * @returns {Object} - Parsed brush object.
+ */
 export function parseGbr(arrayBuffer) {
   const view = new Uint8Array(arrayBuffer);
 
@@ -100,6 +115,12 @@ export function parseGbr(arrayBuffer) {
   return brushObject;
 }
 
+/**
+ * Splits a Uint8Array based on a delimiter.
+ * @param {Uint8Array} array - Input array.
+ * @param {number} delimiter - Byte delimiter.
+ * @returns {Array<Uint8Array>} - Array of chunks.
+ */
 function splitUint8Array(array, delimiter) {
   const chunks = [];
   let chunk = [];
@@ -327,6 +348,11 @@ function getNextBrushIndex(gihObject, context = {}) {
   return calculateBrushIndex(gihObject.dimensions);
 }
 
+/**
+ * Parses a GIMP .gih (GIMP Image Hose) brush file.
+ * @param {ArrayBuffer} arrayBuffer - File data.
+ * @returns {Object|null} - Parsed GIH object or null if failed.
+ */
 export function parseGih(arrayBuffer) {
   const view = new Uint8Array(arrayBuffer);
 
@@ -370,7 +396,11 @@ export function parseGih(arrayBuffer) {
 
   gihObject.gBrushes = brushes;
 
-  // Add helper method for getting next brush
+  /**
+   * Gets the next brush index based on context.
+   * @param {Object} context - Drawing context { angle, pressure, velocity, tiltX, tiltY }.
+   * @returns {Object} - { brush, index }
+   */
   gihObject.getNextBrush = function(context) {
     const idx = getNextBrushIndex(this, context);
     return {
@@ -379,7 +409,9 @@ export function parseGih(arrayBuffer) {
     };
   };
 
-  // Add method to reset dimension indices
+  /**
+   * Resets dimension indices to 0.
+   */
   gihObject.reset = function() {
     for (const dim of this.dimensions) {
       dim.currentIndex = 0;

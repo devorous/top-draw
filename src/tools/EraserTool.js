@@ -1,46 +1,95 @@
 /**
- * Base tool class
+ * @fileoverview Eraser tool.
+ * Each eraser gesture is stored as a single active stroke with blendMode 'destination-out'.
+ */
+
+/**
+ * Base tool class.
  */
 class Tool {
+  /**
+   * @param {string} name - The name of the tool.
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(name, board) {
     this.name = name;
     this.board = board;
   }
 
+  /**
+   * Called when the tool is activated.
+   */
   activate() {}
+
+  /**
+   * Called when the tool is deactivated.
+   */
   deactivate() {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerDown(user, pos, e) {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Object} lastPos - The previous pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerMove(user, pos, lastPos, e) {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerUp(user, pos, e) {}
 }
 
 /**
- * Eraser tool
- *
- * Each eraser gesture is stored as a single active stroke with blendMode
- * 'destination-out'. Eraser circles are drawn source-over into the active stroke
- * canvas; the destination-out effect is applied at composite time when that canvas
- * is drawn onto the target. This makes eraser gestures undoable.
+ * Eraser tool for removing content from layers.
  */
 export class EraserTool extends Tool {
+  /**
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(board) {
     super('erase', board);
     this.userSize = 10;
     this.lastPos = null;
   }
 
+  /**
+   * Activates the tool.
+   */
   activate() {}
+
+  /**
+   * Deactivates the tool.
+   */
   deactivate() {}
 
+  /**
+   * Checks if erasing should apply to all layers.
+   * @private
+   * @returns {boolean} - True if all layers should be erased.
+   */
   _eraseAllLayers() {
     return this.board.app?.eraseAllLayers ?? false;
   }
 
+  /**
+   * Handles pointer down event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   onPointerDown(user, pos) {
     this.userSize = user.size;
     this.lastPos = { x: pos.x, y: pos.y };
 
-    // Eraser always uses 1.0 opacity now
     if (this._eraseAllLayers()) {
       this.board.beginStrokeAllLayers(user, 'destination-out', 1.0);
     } else {
@@ -50,6 +99,12 @@ export class EraserTool extends Tool {
     this._drawSegment(user, pos, pos);
   }
 
+  /**
+   * Handles pointer move event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Object} lastPos - The previous pointer position.
+   */
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
@@ -57,6 +112,10 @@ export class EraserTool extends Tool {
     this.lastPos = { x: pos.x, y: pos.y };
   }
 
+  /**
+   * Handles pointer up event.
+   * @param {Object} user - The user performing the action.
+   */
   onPointerUp(user) {
     if (this._eraseAllLayers()) {
       this.board.endStrokeAllLayers(user);
@@ -68,6 +127,10 @@ export class EraserTool extends Tool {
 
   /**
    * Draw a segment at 100% opacity into the active stroke canvas(es).
+   * @private
+   * @param {Object} user - The user performing the action.
+   * @param {Object} p1 - Start point of the segment.
+   * @param {Object} p2 - End point of the segment.
    */
   _drawSegment(user, p1, p2) {
     const size = user.pressure * this.userSize * 2;
@@ -102,10 +165,9 @@ export class EraserTool extends Tool {
       }
     }
 
-    // Update dirty rect for the drawn segment with 25% safety margin
     const radius = size / 2;
-    const safetyMargin = radius * 0.25; // 25% additional margin
-    const margin = radius + safetyMargin + 2; // +2 for anti-aliasing
+    const safetyMargin = radius * 0.25; 
+    const margin = radius + safetyMargin + 2;
 
     const minX = Math.min(p1.x, p2.x) - margin;
     const minY = Math.min(p1.y, p2.y) - margin;
@@ -123,7 +185,6 @@ export class EraserTool extends Tool {
       this.board.expandDirtyRect(user, x, y, w, h);
     }
 
-    // Also update mirrored dirty rect if mirror mode is enabled
     if (this.board.mirror) {
       const width = this.board.getWidth();
       const mirrorMinX = width - maxX;
@@ -138,6 +199,14 @@ export class EraserTool extends Tool {
     this.board.requestUpdate();
   }
 
+  /**
+   * Renders a segment to the given context.
+   * @private
+   * @param {CanvasRenderingContext2D} ctx - The target context.
+   * @param {Object} p1 - Start point.
+   * @param {Object} p2 - End point.
+   * @param {number} size - Line width.
+   */
   _renderSegmentToCtx(ctx, p1, p2, size) {
     ctx.save();
     ctx.globalAlpha = 1.0;
@@ -154,15 +223,21 @@ export class EraserTool extends Tool {
   }
 
   /**
-   * Remote drawing handler.
-   * Also updates the active stroke's dirtyRect so commitUserStroke doesn't discard it.
+   * Remote drawing handler for erasers.
+   * @param {Object} group - The layer group.
+   * @param {number} x1 - Start x.
+   * @param {number} y1 - Start y.
+   * @param {number} x2 - End x.
+   * @param {number} y2 - End y.
+   * @param {number} size - Eraser size.
+   * @param {number} _opacity - Unused opacity.
+   * @param {string} userId - ID of the user erasing.
    */
   eraseOnGroup(group, x1, y1, x2, y2, size, _opacity, userId) {
     const active = group.activeStrokeByUser?.get(userId);
     if (active?.ctx) {
-      active.opacity = 1.0; // Force 1.0 for remote erasers too
+      active.opacity = 1.0; 
       this._renderSegmentToCtx(active.ctx, { x: x1, y: y1 }, { x: x2, y: y2 }, size);
-      // Track dirty rect so commitUserStroke doesn't discard this stroke as "empty"
       if (active.dirtyRect) {
         const radius = size / 2;
         const margin = radius * 1.25 + 2;

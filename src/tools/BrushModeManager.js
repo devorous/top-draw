@@ -1,28 +1,33 @@
 /**
- * BrushModeManager - Manages brush mode switching between classic, fluid (flowPen), and ink
- * Handles persistence to localStorage and mode synchronization with tool selection
+ * @fileoverview Manages brush mode switching between classic, fluid (flowPen), and ink.
+ * Handles persistence to localStorage and mode synchronization with tool selection.
  */
 
+/**
+ * BrushModeManager handles the brush mode state and transitions.
+ */
 export class BrushModeManager {
+  /**
+   * @param {Object} app - The main application instance.
+   */
   constructor(app) {
     this.app = app;
     this.currentMode = this.loadBrushMode();
   }
 
   /**
-   * Get the current brush mode
-   * @returns {string} - 'classic', 'fluid', or 'ink'
+   * Get the current brush mode.
+   * @returns {string} - 'classic', 'fluid', or 'ink'.
    */
   getMode() {
     return this.currentMode;
   }
 
   /**
-   * Set brush mode and switch to corresponding tool
-   * @param {string} mode - 'classic', 'fluid', or 'ink'
+   * Set brush mode and switch to corresponding tool.
+   * @param {string} mode - 'classic', 'fluid', or 'ink'.
    */
   setMode(mode) {
-    // Don't allow mode change while drawing
     if (this.app.self.mousedown) {
       this.app.ui.updateBrushModeDisplay(this.currentMode);
       return;
@@ -36,8 +41,8 @@ export class BrushModeManager {
   }
 
   /**
-   * Update mode when tool is switched (keeps mode in sync with active brush tool)
-   * @param {string} tool - Tool name
+   * Update mode when tool is switched.
+   * @param {string} tool - Tool name.
    */
   updateModeFromTool(tool) {
     if (tool === 'brush' || tool === 'flowPen' || tool === 'ink') {
@@ -48,16 +53,16 @@ export class BrushModeManager {
   }
 
   /**
-   * Get the tool name for the current brush mode
-   * @returns {string} - 'brush', 'flowPen', or 'ink'
+   * Get the tool name for the current brush mode.
+   * @returns {string} - 'brush', 'flowPen', or 'ink'.
    */
   getCurrentToolName() {
     return this.currentMode === 'fluid' ? 'flowPen' : this.currentMode === 'ink' ? 'ink' : 'brush';
   }
 
   /**
-   * Load brush mode from localStorage
-   * @returns {string} - 'classic', 'fluid', or 'ink'
+   * Load brush mode from localStorage.
+   * @returns {string} - 'classic', 'fluid', or 'ink'.
    */
   loadBrushMode() {
     try {
@@ -68,7 +73,7 @@ export class BrushModeManager {
   }
 
   /**
-   * Save brush mode to localStorage
+   * Save brush mode to localStorage.
    */
   saveBrushMode() {
     try {

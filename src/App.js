@@ -1,3 +1,5 @@
+/** @fileoverview Main entry point for the drawing application, coordinating board, tools, UI, and networking. */
+
 import { ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor } from '../shared/ColorUtils.js';
 import { User } from './User.js';
@@ -24,12 +26,21 @@ import { BrushModeManager } from './tools/BrushModeManager.js';
 import { BlendModeManager } from './canvas/BlendModeManager.js';
 import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js';
 
+/**
+ * Main Drawing Application class.
+ * @class
+ */
 export class DrawingApp {
+  /**
+   * @param {Object} options - Application configuration options.
+   * @param {Array<number>} [options.dimensions=[1080, 1920]] - Board dimensions.
+   * @param {string} [options.serverUrl] - WebSocket server URL.
+   */
   constructor(options = {}) {
-    this.sessionIndex = null;  // Assigned by server on connect
-    this.users = new Map();    // sessionIndex -> User
+    this.sessionIndex = null;
+    this.users = new Map();
     this.connected = false;
-    this.previousTool = null;  // Track previous tool for temporary tool switching (e.g., TAB for inkdropper)
+    this.previousTool = null;
 
     this.board = new Board({
       dimensions: options.dimensions || [1080, 1920]
@@ -64,7 +75,6 @@ export class DrawingApp {
     this.colorPicker = null;
     this.isOnBoard = false;
 
-    // Handlers initialized in init()
     this.remoteUserHandler = null;
     this.touchHandler = null;
     this.debugOverlay = null;
@@ -75,26 +85,20 @@ export class DrawingApp {
     this.landingPage = null;
     this.roomSettings = null;
     this.currentRoomId = null;
-    this.currentRoomData = null; // Full room data from server
-    this.selfRole = 0; // 0=guest
+    this.currentRoomData = null;
+    this.selfRole = 0;
     this.moderation = new Moderation();
 
-    // Input buffer manager - handles tick system, smoothing, point reduction
     this.inputBufferManager = new InputBufferManager(this);
 
-    // Pressure enabled state (checkbox)
     this.pressureEnabled = true;
 
-    // Eraser mode: false = active layer only, true = all layers
     this.eraseAllLayers = false;
 
-    // Brush mode manager - handles classic/fluid/ink brush mode switching
     this.brushModeManager = new BrushModeManager(this);
 
-    // Blend mode manager - handles blend mode per tool
     this.blendModeManager = new BlendModeManager(this);
 
-    // Tool-specific locked values
     this.toolLockManager = new ToolLockManager(this);
 
     // Keyboard handler
@@ -117,50 +121,47 @@ export class DrawingApp {
     this.strokeHistoryPanel = new StrokeHistoryPanel();
   }
 
+  /**
+   * Initializes the application, components, and event listeners.
+   * @async
+   * @returns {Promise<void>}
+   */
   async init() {
     this.ui.init();
     this.board.init('#boardContainer');
-    this.board.setApp(this); // Set app reference for layer/blend mode access
+    this.board.setApp(this);
     this.chat.init();
     this.brushGallery.init();
     this.colorPalette.init();
     this.colorInputMenu.init();
 
     this.createSelf();
-    this.initSelfFromUI(); // Sync self's settings from UI slider values
+    this.initSelfFromUI();
     this.setupColorPicker();
 
-    // Initialize handlers
     this.remoteUserHandler = new RemoteUserHandler(this);
     this.touchHandler = new TouchHandler(this);
     this.touchHandler.init(this.ui.elements.boards);
 
-    // Initialize debug overlay for dev mode
     this.debugOverlay = new DebugOverlay();
     const debugCanvas = document.getElementById('debugOverlay');
-    console.log('[App] Debug overlay canvas element:', debugCanvas);
     this.debugOverlay.init(debugCanvas, this.board.getWidth(), this.board.getHeight());
-    this.debugOverlay.setBoard(this.board); // Connect to board for dirty rect access
+    this.debugOverlay.setBoard(this.board);
 
-    // Initialize stroke history panel (dev mode)
     this.strokeHistoryPanel.init();
     this.strokeHistoryPanel.setLayerManager(this.board.layerManager);
     this.strokeHistoryPanel.setActiveLayer(this.self?.activeLayer ?? 0);
-    // Store reference on layerManager so it can trigger updates
     this.board.layerManager.strokeHistoryPanel = this.strokeHistoryPanel;
     this.board.layerManager.onHistoryChange = () => this.updateUndoRedoHud();
 
-    // Initialize layer preview hover listeners
     this.ui.setupLayerPreviewListeners(this.board.layerManager);
 
-    // Initialize sync client
     this.syncClient = new SyncClient();
     this.syncClient.init({
       wsClient: this.wsClient,
       board: this.board
     });
 
-    // Initialize auth
     this.auth = new Auth({
       wsClient: this.wsClient,
       onSuccess: (token, role, username) => this.handleAuthSuccess(token, role, username),
@@ -168,7 +169,6 @@ export class DrawingApp {
     });
     this.auth.init();
 
-    // Initialize landing page (combines auth + room selection)
     this.landingPage = new LandingPage({
       wsClient: this.wsClient,
       auth: this.auth,
@@ -177,7 +177,6 @@ export class DrawingApp {
     });
     this.landingPage.init();
 
-    // Initialize room settings
     this.roomSettings = new RoomSettings({
       wsClient: this.wsClient,
       onUpdate: (roomData) => {
@@ -186,7 +185,6 @@ export class DrawingApp {
     });
     this.roomSettings.init();
 
-    // Wire moderation callbacks
     this.moderation.onSync = (sessionIndex) => {
       this.syncClient.requestSync();
       this.ui.showToast('Sync requested');
@@ -209,7 +207,6 @@ export class DrawingApp {
       this.wsClient.requestModList({ showHistory, search });
     };
     this.moderation.onRevokeEntry = (entryId, entryType, username) => {
-      // Revoke: unmute=3, unban=4
       const revokeType = entryType === 'mutes' ? 3 : 4;
       this.wsClient.sendModRevoke(revokeType, username);
     };
@@ -217,7 +214,6 @@ export class DrawingApp {
       this.wsClient.sendModWipe(sessionIndex, targetName);
     };
 
-    // Expose app globally for debugging
     window.app = this;
 
     this.setupEventListeners();
@@ -229,33 +225,32 @@ export class DrawingApp {
     this.ui.updateToolDisplay(initialTool, this.self);
     this.ui.updateBrushModeDisplay(this.brushModeManager.getMode());
     this.ui.updateActiveLayerDisplay(this.self.activeLayer);
-    // Apply blend mode visibility for the initial active layer
     this.ui.updateBlendModeForLayer(
       this.board.layerManager.getLayerAllowComplexBlendModes(this.self.activeLayer)
     );
 
-    // Restore tool values for initial tool and update lock button states
     if (this.toolLockManager.toolLocks[initialTool]) {
       this.toolLockManager.restoreToolValues(initialTool);
       this.toolLockManager.updateAllLockButtons(initialTool);
     }
 
-    // Connection flow: Connect to discovery room for room list -> User selects room -> Reconnect to actual room
-    console.log('[App] Landing page ready. Connecting for room discovery...');
     this.connectForRoomDiscovery();
   }
 
+  /**
+   * Creates the local user instance.
+   */
   createSelf() {
-    // Create self with temporary ID, will be updated when server assigns sessionIndex
     this.self = new User(0, {
       context: this.board.topCtx,
       board: this.board.mainCanvas
     });
-    // Username will be set when user clicks JOIN
   }
 
+  /**
+   * Initializes self's settings from UI slider values.
+   */
   initSelfFromUI() {
-    // Initialize self's settings from UI slider values
     const { elements } = this.ui;
 
     if (elements.smoothingSlider) {
@@ -287,6 +282,9 @@ export class DrawingApp {
     }
   }
 
+  /**
+   * Sets up the color picker component.
+   */
   setupColorPicker() {
     if (typeof Picker !== 'undefined') {
       this.colorPicker = new Picker({
@@ -298,18 +296,16 @@ export class DrawingApp {
         onChange: (color) => {
           const rgba = color.rgba;
           this.self.setColor(rgba);
-          this.self.setOpacity(rgba[3]); // Opacity comes from color alpha
+          this.self.setOpacity(rgba[3]);
           this.ui.updateSelfColor(rgba);
           this.ui.updateSelfTextStyle(this.self.size, rgba);
-          this.ui.updateopacityValue(rgba[3]); // Sync with image brush opacity slider
+          this.ui.updateopacityValue(rgba[3]);
 
-          // Update image brush opacity slider position
           const { elements } = this.ui;
           if (elements.opacitySlider) {
             elements.opacitySlider.value = rgba[3] * 100;
           }
 
-          // Update color input menu
           if (this.colorInputMenu) {
             this.colorInputMenu.updateColor(rgba);
           }
@@ -322,6 +318,9 @@ export class DrawingApp {
     }
   }
 
+  /**
+   * Sets up global event listeners for UI and board interactions.
+   */
   setupEventListeners() {
     const { elements } = this.ui;
 
@@ -860,40 +859,38 @@ export class DrawingApp {
 
   // Room selection
 
+  /**
+   * Handles room selection and initiates connection.
+   * @async
+   * @param {string} roomId - The ID of the room to join.
+   * @param {string} [password=null] - The room password, if any.
+   * @returns {Promise<void>}
+   */
   async handleRoomSelected(roomId, password = null) {
     console.log(`[App] Room selected: ${roomId}`);
     this.isOfflineMode = false;
     this.currentRoomId = roomId;
     this.currentRoomPassword = password;
 
-    // Get username from login form if joining as guest
     const usernameInput = this.ui.elements.loginUsername;
     if (usernameInput && usernameInput.value && !this.self.username) {
       const username = usernameInput.value.trim() || 'Guest';
       this.self.setUsername(username);
-      console.log('[App] Set username from login form:', username);
     }
 
-    // Clear user state for fresh room
     this.users.clear();
     this.connected = false;
     this.sessionIndex = null;
     if (this.self) this.self.id = null;
 
-    // Show sync overlay immediately so there's no visual gap between
-    // landing page hiding and the sync overlay appearing
     this.syncClient.showOverlay();
     this.syncClient.updateProgress('Connecting...');
 
-    // Connect to WebSocket with actual room ID
-    // wsClient.connect() handles closing any previous socket cleanly
     try {
       await this.wsClient.connect(this.self.toJSON(), roomId);
-      // handleWSConnect will be called on success
     } catch (err) {
       console.error('Failed to connect to room:', err);
       this.ui.showToast('Failed to connect to room', 3000);
-      // Show landing page again and reconnect to discovery
       if (this.landingPage) {
         this.landingPage.show();
         this.connectForRoomDiscovery();
@@ -901,50 +898,46 @@ export class DrawingApp {
     }
   }
 
+  /**
+   * Starts the application in offline (local-only) mode.
+   */
   handleOffline() {
     console.log('[App] Draw Alone mode - creating local room');
     this.isOfflineMode = true;
     this.connected = false;
     this.currentRoomId = 'offline-' + Date.now();
 
-    // Disconnect from discovery room and cancel any pending reconnect attempts
     if (this.wsClient) {
       this.wsClient.disconnect();
     }
 
-    // Set up local session
     this.sessionIndex = 0;
     this.self.id = 0;
     this.self.setUsername('');
     this.users.set(0, this.self);
 
-    // Hide landing page
     if (this.landingPage) {
       this.landingPage.hide();
     }
 
-    // Show drawing interface
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName('');
     this.ui.showConnectionStatus('offline');
 
-    // Start tick loop for local drawing
     this.inputBufferManager.startTickLoop();
 
-    // Update URL to show offline room
     const url = new URL(window.location);
     url.searchParams.set('room', this.currentRoomId);
     window.history.pushState({}, '', url);
-
-    console.log('[App] Offline mode ready - drawing locally in room:', this.currentRoomId);
   }
 
-  // Discovery connection - connect on page load to enable room discovery
+  /**
+   * Connects to the discovery room to fetch the list of available rooms.
+   * @async
+   * @returns {Promise<void>}
+   */
   async connectForRoomDiscovery() {
-    console.log('[App] Connecting for room discovery...');
-
-    // Clear current room ID to mark this as a discovery connection
     this.currentRoomId = null;
 
     if (this.landingPage) {
@@ -952,10 +945,7 @@ export class DrawingApp {
     }
 
     try {
-      // Connect to a special discovery room that allows room list queries
       await this.wsClient.connect(this.self.toJSON(), '_discovery');
-      console.log('[App] Connected to discovery room');
-      // handleWSConnect will update the status to 'connected'
     } catch (err) {
       console.error('[App] Discovery connection failed:', err);
       if (this.landingPage) {
@@ -964,52 +954,37 @@ export class DrawingApp {
     }
   }
 
-  // Connection lifecycle
-
+  /**
+   * Handles successful WebSocket connection.
+   * @param {number} sessionIndex - The session index assigned by the server.
+   * @param {number} role - The user's role level.
+   */
   handleWSConnect(sessionIndex, role) {
-    // Ignore server connections while drawing alone
-    if (this.isOfflineMode) {
-      console.log('[App] Ignoring server connection - Draw Alone mode active');
-      return;
-    }
+    if (this.isOfflineMode) return;
 
     this.sessionIndex = sessionIndex;
     this.self.id = sessionIndex;
     this.users.set(sessionIndex, this.self);
 
-    // Set role from server
     if (role !== undefined) {
       this.selfRole = role;
       this.self.role = role;
-      console.log('[App] Role assigned from server:', role);
-      // Update moderation UI
       if (this.moderation) {
         this.moderation.setRole(role);
       }
     }
 
-    // Update landing page connection status if still visible
     if (this.landingPage) {
       this.landingPage.updateConnectionStatus('connected');
     }
 
-    // Check if this is a discovery connection (not joining an actual room)
     const isDiscoveryConnection = !this.currentRoomId || this.currentRoomId === '_discovery';
+    if (isDiscoveryConnection) return;
 
-    if (isDiscoveryConnection) {
-      console.log('[App] Discovery connection established - waiting for room selection');
-      // Don't sync, don't show login - just wait for user to select a room
-      return;
-    }
-
-    // Actual room connection - proceed with normal flow
     this.wsClient.broadcastToolChange(this.self.tool);
     this.users.set(sessionIndex, this.self);
-
-    // Request room list to get current room data (for settings button)
     this.wsClient.requestRoomList();
 
-    // Reset sync state on new connection so we sync from scratch
     this.syncClient.hasCompletedSync = false;
     this.syncClient.syncing = false;
     this.syncClient.buffering = false;
@@ -1019,51 +994,42 @@ export class DrawingApp {
       this.syncClient.syncTimeout = null;
     }
 
-    // Sync will be triggered by the USERS handler once we know if we're alone
     this._needsSync = true;
 
-    // If user provided a password, do a login after connecting
     if (this._pendingPassword && this.self.username) {
-      console.log('[App] Logging in with password after connect');
       this.wsClient.sendAuthLogin(this.self.username, this._pendingPassword);
       this._pendingPassword = null;
-      // handleJoinAfterConnect will be called — auth_result callback handles the rest
       this.handleJoinAfterConnect();
       return;
     }
     this._pendingPassword = null;
 
-    // Attempt auto-login with stored token
     if (this.auth && this.auth.attemptAutoLogin()) {
-      // Wait for auth_result callback
       return;
     }
 
-    // If coming from landing page with a username already set, join immediately
     if (this.landingPage && this.self.username) {
-      console.log('[App] Auto-joining with username from landing page:', this.self.username);
       this.handleJoinAfterConnect();
       return;
     }
 
-    // No stored token — show login dialog
     this.ui.showLogin();
     this.ui.elements.overlay.style.display = 'flex';
-    // Pre-fill with current username if reconnecting
     if (this.self.username) {
       this.ui.elements.loginUsername.value = this.self.username;
     }
   }
 
+  /**
+   * Completes the join process after successful connection and authentication.
+   */
   handleJoinAfterConnect() {
-    // Called after WebSocket connect - user is already joined with their username
     this.connected = true;
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(this.self.username);
     this.ui.showConnectionStatus('connected');
 
-    // Broadcast initial settings (username was already sent in CONNECT)
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
@@ -1071,42 +1037,42 @@ export class DrawingApp {
     this.wsClient.broadcastLayerBlendModeChange(this.self.activeLayer, this.self.blendMode);
     this.wsClient.broadcastLayerChange(this.self.activeLayer);
 
-    // Update moderation UI
     this.moderation.setRole(this.selfRole);
-
-    // Start tick loop
     this.inputBufferManager.startTickLoop();
   }
 
+  /**
+   * Handles WebSocket disconnection.
+   * @param {number} code - Disconnection code.
+   * @param {string} reason - Disconnection reason.
+   */
   handleWSDisconnect(code, reason) {
     this.connected = false;
 
-    // Update landing page connection status if visible
     if (this.landingPage && this.landingPage.els.landingPage.style.display !== 'none') {
       this.landingPage.updateConnectionStatus('disconnected');
     }
 
-    // Don't stop the tick loop - drawing should continue locally
     if (this.inputBufferManager.tickTimer) {
       this.ui.showConnectionStatus('disconnected');
     }
 
-    // Handle moderation close codes — show overlay so user can return to room selection
     if (code === 4001 || code === 4002) {
       const label = code === 4001 ? 'Banned' : 'Kicked';
-
-      // Clear stored token so auto-login doesn't repeat the rejection
       if (this.auth) {
         this.auth.clearToken();
         this.auth.setRememberMe(false);
       }
-
       this.showModOverlay(label, reason || '');
     }
   }
 
+  /**
+   * Displays a moderation overlay for kicks or bans.
+   * @param {string} title - Overlay title.
+   * @param {string} reason - Reason for the moderation action.
+   */
   showModOverlay(title, reason) {
-    // Remove any existing mod overlay
     document.getElementById('modOverlay')?.remove();
 
     const overlay = document.createElement('div');
@@ -1128,76 +1094,67 @@ export class DrawingApp {
     });
   }
 
+  /**
+   * Handles successful authentication.
+   * @param {string} token - The authentication token.
+   * @param {number} role - The user's role level.
+   * @param {string} username - The user's verified username.
+   */
   handleAuthSuccess(token, role, username) {
     this.selfRole = role;
     this.self.role = role;
     this.self.setUsername(username);
 
-    // Clear password field
     if (this.ui.elements.loginPassword) this.ui.elements.loginPassword.value = '';
 
-    // Update moderation UI visibility based on role
     if (this.moderation) {
       this.moderation.setRole(role);
     }
 
-    // Update room settings button visibility (role may have changed)
     this.updateRoomSettingsButtonVisibility();
 
-    // If landing page is visible, update its auth state but DON'T auto-join
-    // Let user press Join themselves after seeing they're logged in
     if (this.landingPage && this.landingPage.isVisible) {
       this.landingPage.isAuthenticated = true;
       this.landingPage.authToken = token;
       this.landingPage.username = username;
-      console.log(`[App] Auth success on landing page, waiting for user to press Join`);
       return;
     }
 
-    // If we are already connecting to a room (not on landing page), continue
     if (this.currentRoomId && this.wsClient.connected) {
-      console.log(`[App] Auth success while in room ${this.currentRoomId}`);
-      // If we're already in the room, just update state
-      if (this.connected) {
-        return;
-      }
-      // If we're connecting, continue the join process
+      if (this.connected) return;
       this.handleJoinAfterConnect();
       return;
     }
 
-    // After auth success, user is already joined (username was in CONNECT)
     this.connected = true;
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(username);
     this.ui.showConnectionStatus('connected');
 
-    // Broadcast initial settings (username was already in CONNECT)
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
     this.wsClient.broadcastToolChange(this.self.tool);
-    // Broadcast the user's sticky blend mode and active layer
     const activeLayer = this.self.activeLayer;
     this.wsClient.broadcastLayerBlendModeChange(activeLayer, this.self.blendMode);
     this.wsClient.broadcastLayerChange(activeLayer);
 
-    // Update moderation UI visibility based on role
     this.moderation.setRole(role);
-
     this.inputBufferManager.startTickLoop();
     this.syncClient.requestSync();
 
     const roleNames = ['Guest', 'User', 'Moderator', 'Admin'];
     this.ui.showToast(`Logged in as ${username} (${roleNames[role] || 'Guest'})`, 3000);
-    console.log(`[Auth] Logged in as ${username} (${roleNames[role] || 'Guest'})`);
   }
 
+  /**
+   * Handles authentication errors.
+   * @param {string} error - The error message.
+   */
   handleAuthError(error) {
     this.ui.showToast(error, 4000, 'error');
 
-    // Return to landing page so user can retry
     if (this.landingPage) {
       this.syncClient.hideOverlay();
       this.landingPage.show();
@@ -1205,68 +1162,60 @@ export class DrawingApp {
     }
   }
 
+  /**
+   * Handles the join request from the login dialog.
+   */
   handleJoin() {
-    // Use logged-in username if available, otherwise use input value, otherwise generate guest name
     let name = this.auth?.getJoinUsername();
     if (!name) {
       name = this.ui.elements.loginUsername?.value.trim();
     }
     if (!name) {
-      // Generate unique tab-specific username (persists per tab via sessionStorage)
       let tabId = sessionStorage.getItem('tabId');
       if (!tabId) {
         tabId = Math.random().toString(36).substring(2, 8);
         sessionStorage.setItem('tabId', tabId);
       }
       name = `Guest-${tabId}`;
-      console.log('[App] Generated tab-specific username:', name);
     }
     this.self.setUsername(name);
 
-    // Store password for login after connection (only if not already logged in)
     const password = (!this.auth?.isLoggedIn && this.ui.elements.loginPassword?.value) || '';
     this._pendingPassword = password || null;
 
-    // If landing page is active, read room from input and proceed
     if (this.landingPage && this.landingPage.isVisible) {
       this.landingPage.joinAsGuest();
       return;
     }
 
-    // User is already joined (username was in CONNECT)
     this.connected = true;
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(name);
     this.ui.showConnectionStatus('connected');
 
-    // Broadcast initial settings (username was already in CONNECT)
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
     this.wsClient.broadcastToolChange(this.self.tool);
-    // Broadcast the user's sticky blend mode and active layer
     const activeLayer = this.self.activeLayer;
     this.wsClient.broadcastLayerBlendModeChange(activeLayer, this.self.blendMode);
     this.wsClient.broadcastLayerChange(activeLayer);
 
-    // Set sessionIndex on self user entry for context menu
     if (this.ui.elements.selfUserEntry) {
       this.ui.elements.selfUserEntry.dataset.sessionIndex = this.sessionIndex;
     }
 
-    // Update moderation UI visibility based on role
     this.moderation.setRole(this.selfRole);
-
-    // Start the tick loop (no-op if already running from a reconnect)
     this.inputBufferManager.startTickLoop();
-
-    // Request canvas sync from server
     this.syncClient.requestSync();
   }
 
+  /**
+   * Prompts the user to rename themselves.
+   */
   handleRenameself() {
-    if (!this.inputBufferManager.tickTimer) return; // Not in drawing mode yet
+    if (!this.inputBufferManager.tickTimer) return;
     const name = prompt('Enter your name:', this.self.username);
     if (name !== null && name.trim() !== '') {
       this.self.setUsername(name.trim());
@@ -1275,12 +1224,13 @@ export class DrawingApp {
     }
   }
 
+  /**
+   * Starts local drawing mode without a server connection.
+   */
   startOfflineMode() {
-    // Set up offline mode - no server connection needed
     this.connected = true;
     this.sessionIndex = 1;
     this.self.id = 1;
-    // Use logged-in username if available, otherwise use input field
     const username = this.auth?.getJoinUsername() || this.ui.elements.loginUsername?.value || '';
     this.self.setUsername(username);
 
@@ -1289,32 +1239,36 @@ export class DrawingApp {
     this.ui.updateSelfName(this.self.username);
     this.ui.hideConnectionStatus();
 
-    // Start the tick loop (same behavior as online)
     this.inputBufferManager.startTickLoop();
 
-    // Disconnect WebSocket if it was trying to connect
     if (this.wsClient && this.wsClient.disconnect) {
       this.wsClient.disconnect();
     }
   }
 
+  /**
+   * Attempts to reconnect to the last used room.
+   * @async
+   * @returns {Promise<void>}
+   */
   async reconnect() {
     this.ui.showConnectionStatus('connecting');
 
-    // Clean up old socket before reconnecting
     if (this.wsClient) {
       this.wsClient.disconnect();
     }
 
     try {
       await this.wsClient.connect(this.self.toJSON());
-      // handleWSConnect will show the login dialog on success
     } catch (err) {
       console.error('Reconnect failed:', err);
       this.ui.showConnectionStatus('disconnected');
     }
   }
 
+  /**
+   * Opens the room settings dialog.
+   */
   handleRoomSettings() {
     if (!this.currentRoomData) {
       this.ui.showToast('Room data not loaded yet', 3000);
@@ -1335,17 +1289,18 @@ export class DrawingApp {
     this.roomSettings.show(this.currentRoomData, this.selfRole, this.auth?.userId);
   }
 
+  /**
+   * Updates the visibility of the room settings button based on user permissions.
+   */
   updateRoomSettingsButtonVisibility() {
     const btn = document.getElementById('roomSettingsBtn');
     if (!btn) return;
 
-    // Hide if not connected to a room
     if (!this.connected || !this.currentRoomData) {
       btn.style.display = 'none';
       return;
     }
 
-    // Show if user can edit room settings
     const canEdit = this.roomSettings?.canEdit(
       this.currentRoomData,
       this.selfRole,
@@ -1355,15 +1310,18 @@ export class DrawingApp {
     btn.style.display = canEdit ? 'inline-block' : 'none';
   }
 
+  /**
+   * Disconnects from the current room and returns to the landing page.
+   * @async
+   * @returns {Promise<void>}
+   */
   async disconnect() {
     console.log('[App] Exiting room, returning to lobby...');
 
-    // Stop tick loop
     if (this.inputBufferManager) {
       this.inputBufferManager.stopTickLoop();
     }
 
-    // Clear remote users
     this.users.forEach((user, sessionIndex) => {
       if (sessionIndex !== this.sessionIndex) {
         this.remoteUserHandler.handleCancel(user);
@@ -1380,43 +1338,33 @@ export class DrawingApp {
     if (this.self) this.self.id = null;
     this.currentRoomData = null;
 
-    // Hide room settings button
     this.updateRoomSettingsButtonVisibility();
 
-    // Clear canvas (optional - you might want to keep the drawing)
-    // this.board.clear();
-
-    // Hide drawing UI
     this.ui.hideCursor();
     this.ui.hideConnectionStatus();
 
-    // Disconnect from current room and reconnect to discovery
     if (this.wsClient && this.wsClient.connected) {
       this.wsClient.disconnect();
-      // Wait a moment for clean disconnect
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Reset URL to lobby
     const url = new URL(window.location);
     url.searchParams.delete('room');
     window.history.pushState({}, '', url);
 
-    // Show landing page
     if (this.landingPage) {
       this.landingPage.show();
-      // Reset landing page room input to lobby
       this.landingPage.selectRoom('lobby');
     }
 
-    // Reconnect to discovery room for browsing
     this.connectForRoomDiscovery();
   }
 
-  // Tool management
-
+  /**
+   * Selects a tool and updates application state and UI.
+   * @param {string} tool - The name of the tool to select.
+   */
   selectTool(tool) {
-    // Clean up pan/rotate state when leaving those tools
     if (this.self.tool === 'pan') {
       this.self.panning = false;
     }
@@ -1425,7 +1373,6 @@ export class DrawingApp {
       this._rotatePrevAngle = null;
     }
 
-    // Commit any in-progress stroke before switching tools
     if (this.self.mousedown) {
       if (this.self.tool === 'brush' && this.self.currentLine.length > 0) {
         const brushTool = this.toolManager.getTool('brush');
@@ -1445,25 +1392,18 @@ export class DrawingApp {
 
     const previousTool = this.self.tool;
 
-    // Clear previousTool state when manually switching tools
-    // But preserve it when switching TO inkdropper (TAB key) or when restoring from inkdropper
     if (tool !== 'inkdropper' && previousTool === 'inkdropper' && tool !== this.previousTool) {
-      // User manually switched away from inkdropper without sampling
       this.previousTool = null;
     } else if (previousTool !== 'inkdropper' && tool !== 'inkdropper' && this.previousTool) {
-      // User manually switched to a different tool while previousTool was set
       this.previousTool = null;
     }
 
-    // Save current values for previous tool (locked or unlocked)
     if (previousTool && this.toolLockManager.toolLocks[previousTool]) {
       this.toolLockManager.saveCurrentValues(previousTool);
     }
 
-    // Update brush mode state when switching to brush/flowPen/ink
     this.brushModeManager.updateModeFromTool(tool);
 
-    // Update circle blur mode radio when switching to circleBlur/circleBlurHard
     if (tool === 'circleBlur' || tool === 'circleBlurHard') {
       this.ui.updateCircleBlurModeDisplay(tool);
     }
@@ -1472,12 +1412,10 @@ export class DrawingApp {
     this.toolManager.setTool(tool);
     this.ui.updateToolDisplay(tool, this.self);
 
-    // Sync text cursor style with current size/color when switching to text tool
     if (tool === 'text') {
       this.ui.updateSelfTextStyle(this.self.size, this.self.color);
     }
 
-    // Force smoothing to 100% (value 50) for geometric tools where it's not applicable
     if (tool === 'line' || tool === 'rectangle' || tool === 'circle') {
       this.self.setSmoothing(50);
       this.ui.updateSmoothingValue(50);
@@ -1486,15 +1424,12 @@ export class DrawingApp {
     this.ui.updateSelfToolIcon(tool);
     this.wsClient.broadcastToolChange(tool, tool === 'erase' ? this.eraseAllLayers : false);
 
-    // Update preview canvas mix-blend-mode for live preview.
-    // Eraser uses destination-out internally, so set preview to 'normal'.
     if (tool === 'erase') {
       this.board.topCanvas.style.mixBlendMode = 'normal';
     } else {
       this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
     }
 
-    // Blend mode UI visibility depends on both the tool and the current layer
     const allowComplex = this.board.layerManager.getLayerAllowComplexBlendModes(this.self.activeLayer);
     const wasReset = this.ui.updateBlendModeForLayer(allowComplex);
     if (wasReset) {
@@ -1502,21 +1437,17 @@ export class DrawingApp {
       this.board.topCanvas.style.mixBlendMode = 'normal';
     }
 
-    // Final visibility check for blend modes (handles tool-specific hiding)
     const blendModeOptions = this.ui.elements.blendModeOptions;
     if (blendModeOptions && !this.ui.toolSupportsBlendMode(tool)) {
       blendModeOptions.style.display = 'none';
     }
 
-    // Restore tool values (locked or unlocked)
     if (this.toolLockManager.toolLocks[tool]) {
       this.toolLockManager.restoreToolValues(tool);
     }
 
-    // Update lock button states
     this.toolLockManager.updateAllLockButtons(tool);
 
-    // Show/hide brush gallery for imageBrush tool
     if (tool === 'imageBrush') {
       this.brushGallery.show();
     } else {
@@ -1524,49 +1455,45 @@ export class DrawingApp {
     }
   }
 
+  /**
+   * Handles brush selection from the gallery.
+   * @param {Object} brush - Selected brush configuration.
+   */
   handleBrushSelect(brush) {
-    // Apply the selected brush to self
     this.self.imageBrush = brush;
 
-    // Update the preview image
     if (brush.type === 'gih' && brush.gBrushes && brush.gBrushes.length > 0) {
       this.ui.setBrushPreview(brush.gBrushes[0].gimpUrl);
     } else {
       this.ui.setBrushPreview(brush.gimpUrl);
     }
 
-    // Broadcast brush to other users
     this.wsClient.broadcastBrush(brush);
   }
 
-  // Layer and blend mode management
-
+  /**
+   * Handles layer selection.
+   * @param {number} layerIndex - Index of the layer to select.
+   */
   handleLayerSelect(layerIndex) {
     this.self.setActiveLayer(layerIndex);
     this.ui.updateActiveLayerDisplay(layerIndex);
 
-    // Show/hide blend mode UI based on this layer's restriction
     const allowComplex = this.board.layerManager.getLayerAllowComplexBlendModes(layerIndex);
     const wasReset = this.ui.updateBlendModeForLayer(allowComplex);
     if (wasReset) {
-      // Layer doesn't allow complex blend modes — silently revert user's blend mode to Normal
       this.self.setBlendMode('source-over');
       this.board.topCanvas.style.mixBlendMode = 'normal';
     }
 
-    // Show the user's current sticky blend mode in the dropdown (blend mode is per-user, not per-layer)
     if (allowComplex) {
       this.ui.updateBlendModeDisplay(this.self.blendMode);
     }
 
-    // Update preview canvas mix-blend-mode for live preview
     this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
 
-    // Re-composite with the new active layer so mainCtx/upperLayersCtx split is correct
-    // (upperLayersCtx must show layers above the new active layer before any preview appears)
     this.board.compositeAllLayers();
 
-    // Update stroke history panel to show selected layer
     this.strokeHistoryPanel.setActiveLayer(layerIndex);
 
     if (this.connected) {
@@ -1574,73 +1501,84 @@ export class DrawingApp {
     }
   }
 
+  /**
+   * Handles blend mode change for the active layer.
+   * @param {string} blendMode - The canvas blend mode to apply.
+   */
   handleBlendModeChange(blendMode) {
     const activeLayer = this.self.activeLayer;
 
-    // Enforce layer restriction — guard against programmatic calls on restricted layers
     if (!this.board.layerManager.getLayerAllowComplexBlendModes(activeLayer)) {
       blendMode = 'source-over';
     }
 
-    // Update sticky blend mode on the local user
     this.self.setBlendMode(blendMode);
-
-    // Create a new blend sub-layer for this user on the active layer.
-    // Each blend mode switch creates a fresh sub-layer so effects stack independently.
     this.board.createActiveLayerBlendSubLayer(blendMode);
-
-    // Update preview canvas mix-blend-mode for live preview
     this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(blendMode);
 
-    // Broadcast to other users (include layer index)
     if (this.connected) {
       this.wsClient.broadcastLayerBlendModeChange(activeLayer, blendMode);
     }
   }
 
-  // Canvas controls
-
+  /**
+   * Clears the entire board.
+   */
   handleClear() {
     this.board.clear();
     this.wsClient.broadcastClear();
-    // Also clear debug overlay data
     if (this.debugOverlay) {
       this.debugOverlay.clearAll();
     }
   }
 
+  /**
+   * Resets the board's view transformation (zoom and pan).
+   */
   handleResetBoard() {
     this.board.resetView();
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
   }
 
+  /**
+   * Toggles canvas mirroring.
+   */
   handleToggleMirror() {
     const mirror = this.board.toggleMirror();
     this.ui.updateMirrorDisplay(mirror);
     this.wsClient.broadcastMirror();
   }
 
+  /**
+   * Toggles development mode overlays and panels.
+   */
   handleToggleDevMode() {
-    console.log('[App] handleToggleDevMode called');
     const enabled = this.debugOverlay.toggle();
     this.ui.updateDevModeDisplay(enabled);
-    // Also toggle stroke history panel
     this.strokeHistoryPanel.setEnabled(enabled);
-    console.log('[App] Dev mode now:', enabled);
   }
 
+  /**
+   * Zooms in on the canvas.
+   */
   handleZoomIn() {
     const cursorPos = this.isOnBoard ? { x: this.self.x, y: this.self.y } : null;
     this.board.zoomIn(0.1, cursorPos);
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
   }
 
+  /**
+   * Zooms out on the canvas.
+   */
   handleZoomOut() {
     const cursorPos = this.isOnBoard ? { x: this.self.x, y: this.self.y } : null;
     this.board.zoomOut(0.1, cursorPos);
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
   }
 
+  /**
+   * Resets the canvas rotation to zero.
+   */
   handleResetRotation() {
     this.board.resetRotation();
   }

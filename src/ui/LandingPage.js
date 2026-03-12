@@ -1,7 +1,18 @@
 /**
- * LandingPage - Unified interface for authentication and room selection
+ * @fileoverview Unified interface for authentication and room selection.
+ */
+
+/**
+ * LandingPage class
  */
 export class LandingPage {
+  /**
+   * @param {Object} params
+   * @param {WebSocketClient} params.wsClient - WebSocket client instance
+   * @param {Auth} params.auth - Auth manager instance
+   * @param {Function} params.onRoomSelected - Callback when room is selected
+   * @param {Function} params.onOffline - Callback for offline mode
+   */
   constructor({ wsClient, auth, onRoomSelected, onOffline }) {
     this.wsClient = wsClient;
     this.auth = auth;
@@ -15,6 +26,9 @@ export class LandingPage {
     this.username = null;
   }
 
+  /**
+   * Initializes the landing page component.
+   */
   init() {
     this.els = {
       landingPage: document.getElementById('landingPage'),
@@ -27,11 +41,8 @@ export class LandingPage {
     };
 
     this.setupListeners();
-
-    // Always show landing page - never auto-join
     this.show();
 
-    // Check URL for room parameter to pre-fill room input
     const urlRoom = this.getRoomFromURL();
     if (urlRoom) {
       this.selectedRoom = urlRoom;
@@ -40,36 +51,36 @@ export class LandingPage {
       }
     }
 
-    // Set initial connection status - not connected until user joins
     this.updateConnectionStatus('disconnected');
   }
 
+  /**
+   * Checks if the landing page is currently visible.
+   * @returns {boolean}
+   */
   get isVisible() {
     return this.els.landingPage && this.els.landingPage.style.display !== 'none';
   }
 
+  /**
+   * Sets up event listeners for the landing page.
+   */
   setupListeners() {
-    // Join button is handled by App.handleJoin() which calls proceedToRoom
-
-    // Offline mode
     this.els.loginOfflineBtn?.addEventListener('click', () => {
       if (this.onOffline) this.onOffline();
     });
 
-    // Refresh rooms
     this.els.refreshRoomsBtn?.addEventListener('click', () => this.refreshRooms());
 
-    // Enter key on room ID input joins directly
     this.els.roomIdInput?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.joinAsGuest();
     });
   }
 
   /**
-   * Show the landing page and load rooms
+   * Show the landing page and load rooms.
    */
   show() {
-    // Show the overlay parent but make it transparent (landing page has its own background)
     const overlay = document.getElementById('overlay');
     if (overlay) {
       overlay.style.display = 'flex';
@@ -77,7 +88,6 @@ export class LandingPage {
       overlay.style.backdropFilter = 'none';
     }
 
-    // Show the landing page
     if (this.els.landingPage) {
       this.els.landingPage.style.display = 'flex';
     }
@@ -86,14 +96,13 @@ export class LandingPage {
   }
 
   /**
-   * Hide the landing page
+   * Hide the landing page.
    */
   hide() {
     if (this.els.landingPage) {
       this.els.landingPage.style.display = 'none';
     }
 
-    // Also hide overlay if nothing else is showing
     const overlay = document.getElementById('overlay');
     const login = document.getElementById('login');
     const connecting = document.getElementById('connecting');
@@ -105,11 +114,11 @@ export class LandingPage {
   }
 
   /**
-   * Load room list from server
+   * Load room list from server.
+   * @returns {Promise<void>}
    */
   async loadRooms() {
     try {
-      // Show lobby by default while loading
       const lobbyRoom = {
         id: 'lobby',
         userCount: 0,
@@ -118,8 +127,6 @@ export class LandingPage {
       };
       this.rooms = [lobbyRoom];
       this.renderRooms(this.rooms);
-
-      // Auto-select lobby
       this.selectRoom('lobby');
     } catch (err) {
       console.error('[LandingPage] Failed to load rooms:', err);
@@ -128,7 +135,7 @@ export class LandingPage {
   }
 
   /**
-   * Refresh room list
+   * Refresh room list from the server.
    */
   refreshRooms() {
     if (this.wsClient && this.wsClient.connected) {
@@ -141,19 +148,17 @@ export class LandingPage {
   }
 
   /**
-   * Handle room list response from server
+   * Handle room list response from server.
+   * @param {Array} rooms - List of room objects
    */
   handleRoomListResponse(rooms) {
     this.rooms = rooms || [];
 
-    // Ensure lobby is always at the top of the list
     const lobbyRoom = this.rooms.find(r => r.id === 'lobby');
     if (lobbyRoom) {
-      // Remove lobby from current position and add to front
       this.rooms = this.rooms.filter(r => r.id !== 'lobby');
       this.rooms.unshift(lobbyRoom);
     } else {
-      // Add lobby if not present
       this.rooms.unshift({
         id: 'lobby',
         userCount: 0,
@@ -164,14 +169,14 @@ export class LandingPage {
 
     this.renderRooms(this.rooms);
 
-    // Auto-select lobby if nothing is selected yet
     if (!this.selectedRoom) {
       this.selectRoom('lobby');
     }
   }
 
   /**
-   * Render room list
+   * Render room list in the UI.
+   * @param {Array} rooms - List of room objects
    */
   renderRooms(rooms) {
     if (!this.els.roomList) return;
@@ -196,7 +201,6 @@ export class LandingPage {
       </div>
     `).join('');
 
-    // Add click handlers to room items
     this.els.roomList.querySelectorAll('.roomListItem').forEach(item => {
       item.addEventListener('click', () => {
         const roomId = item.dataset.roomId;
@@ -206,13 +210,11 @@ export class LandingPage {
   }
 
   /**
-   * Join — reads room from input (or uses selected/default), then proceeds
+   * Join a room based on input or selection.
    */
   joinAsGuest() {
-    // Read room from input, fall back to selected room or lobby
     let roomId = this.els.roomIdInput?.value.trim() || this.selectedRoom || 'lobby';
 
-    // Validate room name if user typed one
     if (roomId !== 'lobby') {
       if (!/^[a-zA-Z0-9_-]+$/.test(roomId)) {
         this.showError('Room name can only contain letters, numbers, dashes, and underscores');
@@ -229,32 +231,30 @@ export class LandingPage {
   }
 
   /**
-   * Select a room (stores selection, waits for auth)
+   * Select a room in the UI.
+   * @param {string} roomId - Room identifier
    */
   selectRoom(roomId) {
     this.selectedRoom = roomId;
 
-    // Fill the room input so the user can see what they'll join
     if (this.els.roomIdInput) {
       this.els.roomIdInput.value = roomId;
     }
 
-    // Highlight selected room in list
     this.highlightRoom(roomId);
   }
 
   /**
-   * Highlight selected room in UI
+   * Highlight selected room in UI.
+   * @param {string} roomId - Room identifier
    */
   highlightRoom(roomId) {
     if (!this.els.roomList) return;
 
-    // Remove previous selection
     this.els.roomList.querySelectorAll('.roomListItem').forEach(item => {
       item.classList.remove('selected');
     });
 
-    // Highlight new selection
     const item = this.els.roomList.querySelector(`[data-room-id="${roomId}"]`);
     if (item) {
       item.classList.add('selected');
@@ -262,32 +262,32 @@ export class LandingPage {
   }
 
   /**
-   * Proceed to room (called after auth)
+   * Proceed to join a specific room.
+   * @param {string} roomId - Room identifier
+   * @param {string|null} password - Optional room password
    */
   proceedToRoom(roomId, password = null) {
     console.log(`[LandingPage] Proceeding to room: ${roomId}`);
-
     this.hide();
-
     if (this.onRoomSelected) {
       this.onRoomSelected(roomId, password);
     }
   }
 
   /**
-   * Handle successful authentication
-   * Note: This does NOT auto-proceed to room. User must press Join.
+   * Handle successful authentication.
+   * @param {string} token - Auth token
+   * @param {string} username - Logged-in username
    */
   handleAuthSuccess(token, username) {
     this.isAuthenticated = true;
     this.authToken = token;
     this.username = username;
-    // User will see the logged-in state via Auth module's UI
-    // and can press Join when ready
   }
 
   /**
-   * Generate a random room ID
+   * Generate a random room ID.
+   * @returns {string} - Randomly generated ID
    */
   generateRoomId() {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -299,7 +299,8 @@ export class LandingPage {
   }
 
   /**
-   * Update connection status display
+   * Update connection status display.
+   * @param {string} status - Connection status string
    */
   updateConnectionStatus(status) {
     if (!this.els.landingConnectionStatus) return;
@@ -307,16 +308,13 @@ export class LandingPage {
     const statusEl = this.els.landingConnectionStatus;
     const textEl = statusEl.querySelector('.connectionText');
 
-    // Remove all status classes
     statusEl.classList.remove('connected', 'disconnected', 'connecting');
 
     switch (status) {
       case 'connected':
         statusEl.classList.add('connected');
         textEl.textContent = 'Connected';
-        // Enable room features
         this.setRoomFeaturesEnabled(true);
-        // Auto-load room list
         if (this.wsClient && this.wsClient.connected) {
           this.wsClient.requestRoomList();
         }
@@ -325,7 +323,6 @@ export class LandingPage {
       case 'disconnected':
         statusEl.classList.add('disconnected');
         textEl.textContent = 'Not Connected';
-        // Keep room features enabled - connection happens when joining
         this.setRoomFeaturesEnabled(false);
         break;
 
@@ -339,27 +336,23 @@ export class LandingPage {
   }
 
   /**
-   * Enable/disable room features based on connection
+   * Enable/disable room features based on connection.
+   * @param {boolean} enabled - Whether features should be enabled
    */
   setRoomFeaturesEnabled(enabled) {
-    // Create and Join by ID always work (don't need server connection)
-    // Only refresh requires connection
     if (this.els.refreshRoomsBtn) {
       this.els.refreshRoomsBtn.disabled = !enabled;
       this.els.refreshRoomsBtn.classList.toggle('disabled', !enabled);
     }
-
-    // Room list should still show lobby even when disconnected
-    // Don't change the room list here
   }
 
   /**
-   * Get room ID from URL
+   * Get room ID from URL query parameters.
+   * @returns {string|null} - Room ID or null
    */
   getRoomFromURL() {
     const params = new URLSearchParams(window.location.search);
     const room = params.get('room');
-    // Ignore transient offline room IDs
     if (room && room.startsWith('offline-')) {
       return null;
     }
@@ -367,10 +360,10 @@ export class LandingPage {
   }
 
   /**
-   * Show error message
+   * Show error message.
+   * @param {string} message - Error message
    */
   showError(message) {
-    // Use toast notification if available
     const toast = document.getElementById('toast');
     if (toast) {
       toast.textContent = message;
@@ -384,7 +377,9 @@ export class LandingPage {
   }
 
   /**
-   * Escape HTML to prevent XSS
+   * Escape HTML to prevent XSS.
+   * @param {string} str - Input string
+   * @returns {string} - Escaped string
    */
   escapeHtml(str) {
     const div = document.createElement('div');

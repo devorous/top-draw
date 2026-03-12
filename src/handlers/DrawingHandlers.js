@@ -1,25 +1,19 @@
-/**
- * DrawingHandlers
- *
- * Handles all drawing-related events (buffered during sync):
- * - Mouse events (move, down, up)
- * - Tool/property changes (tool, color, size, pressure, spacing, smoothing, hardness, blur radius)
- * - Brush loading (GIMP brushes)
- * - Canvas operations (clear, mirror, cancel)
- * - Text input (key press)
- */
+/** @fileoverview Handles drawing-related events including tool changes, mouse interactions, and canvas operations. */
 
+/**
+ * Sets up WebSocket event handlers for drawing and canvas operations.
+ * @param {Function} wrapHandler - Function to wrap event handlers for sync buffering.
+ * @param {App} app - The main application instance.
+ */
 export function setupDrawingHandlers(wrapHandler, app) {
   const { users, ui, board, remoteUserHandler } = app;
 
-  // Mouse move
   wrapHandler('mm', (data) => {
     const user = users.get(data.sessionIndex);
     if (!user || !data.ps || data.ps.length < 2) return;
     remoteUserHandler.handleMouseMove(user, data);
   });
 
-  // Mouse down
   wrapHandler('md', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -27,7 +21,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Mouse up
   wrapHandler('mu', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -58,7 +51,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Tool change
   wrapHandler('ct', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -76,7 +68,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Color change
   wrapHandler('cc', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -86,7 +77,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Spacing change
   wrapHandler('csp', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -94,7 +84,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Smoothing change
   wrapHandler('csm', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -102,7 +91,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Hardness change
   wrapHandler('chd', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -110,7 +98,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Blur radius change
   wrapHandler('cbr', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -118,7 +105,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Layer change
   wrapHandler('cl', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -126,7 +112,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Blend mode change (per-layer)
   wrapHandler('cbm', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -147,7 +132,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Key press
   wrapHandler('kp', (data) => {
     const user = users.get(data.sessionIndex);
     if (user && user.tool === 'text') {
@@ -155,18 +139,15 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Clear canvas
   wrapHandler('clr', () => {
     board.clear();
   });
 
-  // Toggle mirror
   wrapHandler('mir', () => {
     const mirror = board.toggleMirror();
     ui.updateMirrorDisplay(mirror);
   });
 
-  // Cancel stroke
   wrapHandler('cancel', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -174,7 +155,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Image brush (GIMP brushes and standard images)
   wrapHandler('gmp', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -182,7 +162,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Undo - remote user undid their last stroke
   wrapHandler('undo', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
@@ -190,7 +169,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Redo - remote user redid their last undone stroke
   wrapHandler('redo', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {

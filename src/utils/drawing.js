@@ -1,7 +1,12 @@
 /**
- * Drawing utility functions for curve interpolation and smoothing
+ * @fileoverview Drawing utility functions for curve interpolation, smoothing, and geometric calculations.
  */
 
+/**
+ * Generates quadratic curve points from a set of points.
+ * @param {Array<{x: number, y: number}>} points - Input points.
+ * @returns {Array<{x: number, y: number}>} - Quadratic curve points including control points.
+ */
 export function quadraticCurve(points) {
   const quadraticPoints = [];
 
@@ -20,6 +25,11 @@ export function quadraticCurve(points) {
   return quadraticPoints;
 }
 
+/**
+ * Draws a quadratic curve on a canvas context.
+ * @param {Array<{x: number, y: number}>} points - Quadratic curve points.
+ * @param {CanvasRenderingContext2D} ctx - Canvas context.
+ */
 export function drawQuadraticCurve(points, ctx) {
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
@@ -34,6 +44,12 @@ export function drawQuadraticCurve(points, ctx) {
   ctx.stroke();
 }
 
+/**
+ * Applies a moving average filter to a set of points for smoothing.
+ * @param {Array<{x: number, y: number}>} points - Input points.
+ * @param {number} windowSize - Smoothing window size.
+ * @returns {Array<{x: number, y: number}>} - Smoothed points.
+ */
 export function movingAverage(points, windowSize) {
   const smoothedPoints = [points[0]];
 
@@ -59,6 +75,12 @@ export function movingAverage(points, windowSize) {
   return smoothedPoints;
 }
 
+/**
+ * Calculates Catmull-Rom spline points for a set of points.
+ * @param {Array<{x: number, y: number}>} points - Input points.
+ * @param {number} tension - Spline tension.
+ * @returns {Array<{x: number, y: number}>} - Points with Catmull-Rom control points.
+ */
 export function calcCatmullRomCurve(points, tension) {
   if (points.length < 2) {
     return points;
@@ -89,6 +111,12 @@ export function calcCatmullRomCurve(points, tension) {
   return smoothedPoints;
 }
 
+/**
+ * Calculates Manhattan distance between two points.
+ * @param {{x: number, y: number}} p1 - First point.
+ * @param {{x: number, y: number}} p2 - Second point.
+ * @returns {number} - Manhattan distance.
+ */
 export function manhattanDistance(p1, p2) {
   if (p1 && p2) {
     return Math.abs(p1.x - p2.x) + Math.abs(p1.y - p2.y);
@@ -96,6 +124,12 @@ export function manhattanDistance(p1, p2) {
   return 0;
 }
 
+/**
+ * Mirrors a set of points horizontally.
+ * @param {Array<{x: number, y: number}>} points - Points to mirror.
+ * @param {number} width - Canvas width.
+ * @returns {Array<{x: number, y: number}>} - Mirrored points.
+ */
 export function mirrorLine(points, width) {
   return points.map(point => ({
     x: width - point.x,
@@ -382,8 +416,15 @@ export function distanceBasedCulling(points, threshold) {
 }
 
 /**
- * Bridge gap between two points with interpolated filled circles.
+ * Bridges the gap between two points with interpolated filled circles.
  * Used for tools that need continuous stamping (Pen, Blur, etc).
+ * @param {CanvasRenderingContext2D} ctx - Canvas context.
+ * @param {{x: number, y: number}} from - Start position.
+ * @param {{x: number, y: number}} to - End position.
+ * @param {number} fromRadius - Start radius.
+ * @param {number} toRadius - End radius.
+ * @param {Object} user - User object with drawing settings.
+ * @param {string} [blendMode='source-over'] - Canvas globalCompositeOperation.
  */
 export function bridgeGap(ctx, from, to, fromRadius, toRadius, user, blendMode = 'source-over') {
   const dx = to.x - from.x;
@@ -414,8 +455,13 @@ export function bridgeGap(ctx, from, to, fromRadius, toRadius, user, blendMode =
 }
 
 /**
- * Draw a line through an array of points.
+ * Draws a line through an array of points.
  * Standard implementation used by BrushTool and RemoteUserHandler.
+ * @param {Array<{x: number, y: number}>} points - Points to draw.
+ * @param {CanvasRenderingContext2D} ctx - Canvas context.
+ * @param {Object} user - User object with drawing settings.
+ * @param {Object|null} [board=null] - Optional board reference.
+ * @param {string} [blendMode='source-over'] - Canvas globalCompositeOperation.
  */
 export function drawLineArray(points, ctx, user, board = null, blendMode = 'source-over') {
   if (!points || points.length === 0) return;

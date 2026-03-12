@@ -1,24 +1,61 @@
+/**
+ * @fileoverview Ink tool using perfect-freehand library.
+ * Produces filled polygon outlines from input points with taper/calligraphy effects.
+ */
+
 import { getStroke } from 'perfect-freehand';
 
 /**
- * Base tool class
+ * Base tool class.
  */
 class Tool {
+  /**
+   * @param {string} name - The name of the tool.
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(name, board) {
     this.name = name;
     this.board = board;
   }
 
+  /**
+   * Called when the tool is activated.
+   */
   activate() {}
+
+  /**
+   * Called when the tool is deactivated.
+   */
   deactivate() {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerDown(user, pos, e) {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Object} lastPos - The previous pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerMove(user, pos, lastPos, e) {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerUp(user, pos, e) {}
 }
 
 /**
  * Convert perfect-freehand outline points to an SVG path string for Path2D.
  * Uses quadratic bezier curves through midpoints for smooth results.
+ * @param {Array<number[]>} stroke - Array of points representing the stroke outline.
+ * @returns {string} - SVG path string.
  */
 function getSvgPathFromStroke(stroke) {
   if (!stroke.length) return '';
@@ -37,14 +74,14 @@ function getSvgPathFromStroke(stroke) {
 }
 
 /**
- * Ink tool using perfect-freehand library
- * Produces filled polygon outlines from input points with taper/calligraphy effects
- * Uses offscreen canvas pattern (like FlowPenTool) to prevent opacity stacking
- *
+ * Ink tool using perfect-freehand library.
  * Note: Position smoothing is handled by InputBufferManager before points
- * reach this tool, ensuring perfect parity between local preview and remote rendering.
+ * reach this tool, ensuring parity between local preview and remote rendering.
  */
 export class InkTool extends Tool {
+  /**
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(board) {
     super('ink', board);
     this.pressureSteps = 256;
@@ -57,10 +94,16 @@ export class InkTool extends Tool {
     this.pointBuffer = [];
   }
 
+  /**
+   * Activates the tool and ensures the offscreen canvas is ready.
+   */
   activate() {
     this.ensureOffscreenCanvas();
   }
 
+  /**
+   * Ensures the offscreen canvas matches the main canvas dimensions.
+   */
   ensureOffscreenCanvas() {
     const width = this.board.mainCanvas.width;
     const height = this.board.mainCanvas.height;
@@ -75,10 +118,21 @@ export class InkTool extends Tool {
     }
   }
 
+  /**
+   * Quantizes pressure to a fixed number of steps for consistency.
+   * @param {number} pressure - The input pressure (0-1).
+   * @returns {number} - The quantized pressure.
+   */
   quantizePressure(pressure) {
     return Math.round(pressure * (this.pressureSteps - 1)) / (this.pressureSteps - 1);
   }
 
+  /**
+   * Handles pointer down event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerDown(user, pos, e) {
     this.board.beginStroke(user);
     this.ensureOffscreenCanvas();
@@ -98,23 +152,27 @@ export class InkTool extends Tool {
 
     const pressure = this.quantizePressure(user.pressure);
 
-    // Position is already smoothed by InputBufferManager
     this.inputPoints = [[pos.x, pos.y, pressure]];
     this.pointBuffer = [pos.x, pos.y, Math.round(pressure * 255)];
 
-    // Initialize dirty rect tracking (center points only)
     this.dirtyBounds = { minX: pos.x, minY: pos.y, maxX: pos.x, maxY: pos.y };
 
     this.renderStroke(false);
     this.drawPreview();
   }
 
+  /**
+   * Handles pointer move event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Object} lastPos - The previous pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerMove(user, pos, lastPos, e) {
     if (!user.mousedown || user.panning || this.inputPoints.length === 0) return;
 
     const pressure = this.quantizePressure(user.pressure);
 
-    // Position is already smoothed by InputBufferManager
     this.inputPoints.push([pos.x, pos.y, pressure]);
     this.pointBuffer.push(pos.x, pos.y, Math.round(pressure * 255));
 
@@ -130,6 +188,12 @@ export class InkTool extends Tool {
     this.drawPreview();
   }
 
+  /**
+   * Handles pointer up event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerUp(user, pos, e) {
     if (user.panning || !this.offscreenCanvas || this.inputPoints.length === 0) return;
 
@@ -165,7 +229,6 @@ export class InkTool extends Tool {
     ctx.globalAlpha = 1.0;
 
     if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
-      // Aggressive margin to prevent ALL clipping.
       const strokeRadius = this._strokeSize;
       const blurAmount = (1 - (this.userHardness / 100.0)) * (20 + this._strokeSize * 0.2);
       const safetyMargin = strokeRadius * 0.5; 
@@ -190,15 +253,17 @@ export class InkTool extends Tool {
     this.board.endStroke(user);
   }
 
+  /**
+   * Renders the stroke into the offscreen canvas.
+   * @param {boolean} last - Whether this is the final segment of the stroke.
+   */
   renderStroke(last) {
     if (this.inputPoints.length < 1) return;
 
     const ctx = this.offscreenCtx;
     ctx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
 
-    // Visual Alignment Fix: 
     // perfect-freehand's visual radius is ~75% of the 'size' parameter.
-    // To get a visual radius of 1.0 * _strokeSize, we need size = (_strokeSize * 2) / 1.5
     const isDot = this.inputPoints.length === 1 || 
                  (this.inputPoints.length === 2 && 
                   Math.abs(this.inputPoints[0][0] - this.inputPoints[1][0]) < 0.1 && 
@@ -208,7 +273,6 @@ export class InkTool extends Tool {
       const [x, y] = this.inputPoints[0];
       ctx.fillStyle = this.strokeColor;
       ctx.beginPath();
-      // Use 1.0 * _strokeSize to match the cursor and the stroke algorithm's result
       ctx.arc(x, y, this._strokeSize, 0, Math.PI * 2);
       ctx.fill();
       return;
@@ -216,7 +280,6 @@ export class InkTool extends Tool {
 
     const allMaxPressure = this.inputPoints.every(p => p[2] === 1);
     const options = {
-      // 1.33x diameter results in a 1.0x visual radius
       size: (this._strokeSize * 2) / 1.5,
       thinning: 0.5,
       smoothing: 0.5,
@@ -236,6 +299,9 @@ export class InkTool extends Tool {
     ctx.fill(path);
   }
 
+  /**
+   * Draws the current stroke preview on the top canvas.
+   */
   drawPreview() {
     if (!this.offscreenCanvas) return;
     const ctx = this.board.topCtx;
@@ -252,6 +318,14 @@ export class InkTool extends Tool {
     ctx.globalAlpha = 1.0;
   }
 
+  /**
+   * Composites the offscreen canvas with a hardness-based blur effect.
+   * @param {CanvasRenderingContext2D} ctx - The target canvas context.
+   * @param {HTMLCanvasElement} sourceCanvas - The source canvas to composite.
+   * @param {number} size - The stroke size.
+   * @param {number} x - The x-coordinate.
+   * @param {number} y - The y-coordinate.
+   */
   compositeWithHardness(ctx, sourceCanvas, size, x, y) {
     const blurAmount = (1 - (this.userHardness / 100.0)) * (20 + size * 0.2);
     if (blurAmount > 0) {
@@ -268,6 +342,10 @@ export class InkTool extends Tool {
     }
   }
 
+  /**
+   * Drains the point buffer for network synchronization.
+   * @returns {Object} - An object containing ps (positions) and rs (pressures).
+   */
   drainPointBuffer() {
     const buf = this.pointBuffer;
     this.pointBuffer = [];
@@ -280,6 +358,9 @@ export class InkTool extends Tool {
     return { ps, rs };
   }
 
+  /**
+   * Clears the current stroke state and offscreen canvas.
+   */
   clearStroke() {
     if (this.offscreenCtx) this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
     this.inputPoints = [];
@@ -287,5 +368,8 @@ export class InkTool extends Tool {
     this.board.clearTop();
   }
 
+  /**
+   * Deactivates the tool.
+   */
   deactivate() {}
 }

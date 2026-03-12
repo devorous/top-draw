@@ -1,42 +1,75 @@
 /**
- * WebSocket client for real-time communication with optimized protobuf
+ * @fileoverview WebSocket client for real-time communication using Protocol Buffers.
+ * Handles connection management, message batching, and binary serialization.
  */
+
 import { T, Tool, ToolNames, ToolToEnum } from '../../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../../shared/ColorUtils.js';
 
+/**
+ * WebSocketClient manages the bidirectional binary communication with the server.
+ * It uses Protocol Buffers for efficient serialization and handles high-frequency
+ * message batching to maintain UI performance.
+ */
 export class WebSocketClient {
+  /**
+   * @param {Object} [options={}] - Configuration options.
+   * @param {Function} [options.onConnect] - Callback for successful connection.
+   * @param {Function} [options.onDisconnect] - Callback for disconnection.
+   * @param {string} [options.serverUrl] - Optional explicit server URL.
+   */
   constructor(options = {}) {
+    /** @type {WebSocket|null} */
     this.socket = null;
-    this.sessionIndex = null;  // Assigned by server
+    /** @type {number|null} */
+    this.sessionIndex = null;
+    /** @type {boolean} */
     this.connected = false;
+    /** @type {Map<string, Function>} */
     this.messageHandlers = new Map();
+    /** @type {Function|null} */
     this.onConnect = options.onConnect || null;
+    /** @type {Function|null} */
     this.onDisconnect = options.onDisconnect || null;
+    /** @type {string|null} */
     this.serverUrl = options.serverUrl || null;
+    /** @type {Object|null} */
     this.Msg = null;
+    /** @type {boolean} */
     this.protoLoaded = false;
 
-    // Message batching to prevent task stacking
+    /**
+     * @private
+     * @type {Array<Object>}
+     */
     this._messageQueue = [];
+    /**
+     * @private
+     * @type {boolean}
+     */
     this._processingScheduled = false;
 
-    // Drawing messages that should be batched (high-frequency)
+    /**
+     * @private
+     * @type {Set<number>}
+     */
     this._batchableMessages = new Set([
       T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC,
       T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL
     ]);
   }
 
+  /**
+   * Lazy-loads the Protocol Buffer schema.
+   * @returns {Promise<void>}
+   */
   async loadProto() {
     if (this.protoLoaded) return;
 
     try {
-      // Lazy load protobufjs
       const protobuf = await import('protobufjs');
-
       const baseUrl = import.meta.env.BASE_URL || '/';
       const protoUrl = `${baseUrl}messages.proto`.replace('//', '/');
-      console.log('Loading protobuf from:', protoUrl);
       const root = await protobuf.default.load(protoUrl);
       this.Msg = root.lookupType('Msg');
       this.protoLoaded = true;
@@ -47,12 +80,17 @@ export class WebSocketClient {
     }
   }
 
+  /**
+   * Establishes a WebSocket connection to the server.
+   *
+   * @param {Object} userData - User identification data.
+   * @param {string|null} [roomId=null] - The room ID to join.
+   * @returns {Promise<void>}
+   */
   async connect(userData, roomId = null) {
     await this.loadProto();
 
-    // Close any existing socket cleanly before reconnecting
     if (this.socket) {
-      // Null out handlers so the old socket's close event doesn't interfere
       this.socket.onclose = null;
       this.socket.onmessage = null;
       this.socket.onerror = null;
@@ -74,6 +112,11 @@ export class WebSocketClient {
     this._tryConnect();
   }
 
+  /**
+   * Internal helper to construct the WebSocket URL based on environment.
+   * @private
+   * @returns {void}
+   */
   _buildUrl() {
     let baseUrl;
     if (this.serverUrl) {
@@ -82,20 +125,13 @@ export class WebSocketClient {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const currentPort = window.location.port;
 
-      console.log('[WS] Current port:', currentPort);
-
       if (currentPort === '3000') {
-        // Dev mode - connect directly to backend on port 8000
         baseUrl = `ws://localhost:8000`;
-        console.log('[WS] Dev mode - direct connection to backend');
       } else {
-        // Production mode
         baseUrl = import.meta.env.VITE_WS_SERVER_URL || `${wsProtocol}://${window.location.host}`;
-        console.log('[WS] Using direct connection');
       }
     }
 
-    // Use URL object to reliably manage query parameters
     try {
       const url = new URL(baseUrl);
       if (this._roomId) {
@@ -103,20 +139,21 @@ export class WebSocketClient {
       }
       this._url = url.toString();
     } catch (err) {
-      // Fallback if baseUrl is not a valid full URL (e.g. just a path or relative URL)
       this._url = baseUrl;
       if (this._roomId) {
         const separator = this._url.includes('?') ? '&' : '?';
         this._url += `${separator}room=${encodeURIComponent(this._roomId)}`;
       }
     }
-
-    console.log('[WS] Final WebSocket URL:', this._url);
   }
 
+  /**
+   * Initiates the connection attempt and sets up event listeners.
+   * @private
+   * @returns {void}
+   */
   _tryConnect() {
     this._connectAttempts++;
-    console.log(`Connecting to WebSocket: ${this._url} (attempt ${this._connectAttempts})`);
     this.socket = new WebSocket(this._url);
     this.socket.binaryType = 'arraybuffer';
 
@@ -124,21 +161,13 @@ export class WebSocketClient {
       this.connected = true;
       this._connectAttempts = 0;
       const username = this._userData.username || this._userData.name || '';
-      console.log('WebSocket connected, sending CONNECT with username:', username);
-      console.log('_userData:', this._userData);
-
-      // Send connect with optional name
       this.send({ t: T.CONNECT, n: username });
     };
 
     this.socket.onmessage = (event) => {
       try {
         const raw = new Uint8Array(event.data);
-        // All Msg protobuf messages start with field 1 (tag byte 0x08).
-        // Batched frames start with a 4-byte BE length prefix — since messages
-        // are always < 16 MB, the first byte of the prefix is 0x00.
         if (raw.length > 4 && raw[0] !== 0x08) {
-          // Length-delimited batch: [4-byte len][msg][4-byte len][msg]...
           this._decodeBatchedFrame(raw);
         } else {
           const data = this.Msg.decode(raw);
@@ -151,12 +180,8 @@ export class WebSocketClient {
 
     this.socket.onclose = (event) => {
       this.connected = false;
-      console.log('WebSocket disconnected:', event.code, event.reason);
-
-      // Auto-retry if we never got a session (server wasn't ready yet)
       if (!this._cancelled && this.sessionIndex === null && this._connectAttempts < 10) {
         const delay = Math.min(1000 * this._connectAttempts, 5000);
-        console.log(`Server not ready, retrying in ${delay}ms...`);
         setTimeout(() => this._tryConnect(), delay);
         return;
       }
@@ -171,21 +196,25 @@ export class WebSocketClient {
     };
   }
 
+  /**
+   * Routes incoming messages to batching or immediate processing.
+   *
+   * @param {Object} data - The decoded message payload.
+   * @returns {void}
+   */
   handleMessage(data) {
-    // Batch high-frequency drawing messages to prevent task stacking
     if (this._batchableMessages.has(data.t)) {
       this._messageQueue.push(data);
       this._scheduleProcessing();
       return;
     }
-
-    // Process non-batchable messages immediately
     this._processMessage(data);
   }
 
   /**
-   * Schedule message queue processing on next animation frame.
+   * Schedules message queue processing on the next animation frame.
    * @private
+   * @returns {void}
    */
   _scheduleProcessing() {
     if (!this._processingScheduled) {
@@ -195,9 +224,10 @@ export class WebSocketClient {
   }
 
   /**
-   * Decode a length-delimited batch frame from the server.
-   * Format: [4-byte BE length][protobuf bytes][4-byte BE length][protobuf bytes]...
+   * Decodes a length-delimited batched frame.
    * @private
+   * @param {Uint8Array} raw - Raw binary data.
+   * @returns {void}
    */
   _decodeBatchedFrame(raw) {
     const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
@@ -205,7 +235,7 @@ export class WebSocketClient {
     while (offset + 4 <= raw.length) {
       const len = view.getUint32(offset);
       offset += 4;
-      if (offset + len > raw.length) break; // Incomplete message (shouldn't happen)
+      if (offset + len > raw.length) break;
       const msgBytes = raw.subarray(offset, offset + len);
       offset += len;
       try {
@@ -218,14 +248,13 @@ export class WebSocketClient {
   }
 
   /**
-   * Process queued messages with a time budget to avoid blocking the main thread.
-   * If messages remain after the budget is exhausted, reschedule for the next frame.
+   * Processes queued messages within a fixed time budget per frame.
    * @private
+   * @returns {void}
    */
   _processMessageQueue() {
     this._processingScheduled = false;
-
-    const BUDGET_MS = 8; // ~half a frame at 60fps — leaves time for rendering
+    const BUDGET_MS = 8;
     const start = performance.now();
     let processed = 0;
 
@@ -234,39 +263,29 @@ export class WebSocketClient {
       this._processMessage(data);
       processed++;
 
-      // Check budget every 10 messages to avoid overhead of performance.now()
       if (processed % 10 === 0 && performance.now() - start > BUDGET_MS) {
         break;
       }
     }
 
-    // If messages remain, schedule another pass
     if (this._messageQueue.length > 0) {
       this._scheduleProcessing();
     }
   }
 
   /**
-   * Process a single message (called directly for immediate messages, or from queue for batched).
+   * Internal router for processing a single message.
+   * Emits application-level events based on message type.
+   *
    * @private
+   * @param {Object} data - Message payload.
+   * @returns {void}
    */
   _processMessage(data) {
-    // Debug: log CHAT_IMG messages
-    if (data.t === T.CHAT_IMG || data.t === 40) {
-      console.log('[_processMessage] Received CHAT_IMG:', {
-        type: data.t,
-        hasCimg: !!data.cimg,
-        cimgLength: data.cimg?.length,
-        fromUser: data.u
-      });
-    }
-
     switch (data.t) {
       case T.CONNECT:
-        // Server assigned us a session index and role
         this.sessionIndex = data.u;
         this.role = data.authRole !== undefined ? data.authRole : 0;
-        console.log('Assigned session index:', this.sessionIndex, 'Role:', this.role);
         if (this.onConnect) {
           this.onConnect(this.sessionIndex, this.role);
         }
@@ -277,7 +296,6 @@ export class WebSocketClient {
         break;
 
       case T.USERS:
-        // Convert users data to app format
         const users = (data.us || []).map(u => ({
           sessionIndex: u.u,
           afk: u.a,
@@ -313,7 +331,6 @@ export class WebSocketClient {
         this.emit('afk', { sessionIndex: data.u, afk: data.a });
         break;
 
-      // Broadcast messages
       case T.MM:
         this.emit('mm', {
           sessionIndex: data.u,
@@ -373,7 +390,7 @@ export class WebSocketClient {
       case T.CBM:
         this.emit('cbm', {
           sessionIndex: data.u,
-          layerIndex: data.ly ?? null,  // null means legacy (per-user, not per-layer)
+          layerIndex: data.ly ?? null,
           blendMode: data.bm || 'source-over'
         });
         break;
@@ -416,15 +433,8 @@ export class WebSocketClient {
 
       case T.CHAT_IMG:
         const rawBytes = data.cimg;
+        if (!rawBytes || rawBytes.length === 0) break;
 
-        if (!rawBytes || rawBytes.length === 0) {
-          console.warn('[CHAT_IMG] No image data received');
-          break;
-        }
-
-        console.log('[CHAT_IMG] Received', rawBytes.length, 'bytes');
-
-        // Convert bytes back to base64 data URL
         const bytes = rawBytes instanceof Uint8Array ? rawBytes : new Uint8Array(rawBytes);
         let binary = '';
         for (let i = 0; i < bytes.length; i++) {
@@ -432,8 +442,7 @@ export class WebSocketClient {
         }
         const base64 = btoa(binary);
 
-        // Detect image type from first bytes (magic numbers)
-        let mimeType = 'image/png'; // default
+        let mimeType = 'image/png';
         if (bytes[0] === 0xFF && bytes[1] === 0xD8) mimeType = 'image/jpeg';
         else if (bytes[0] === 0x47 && bytes[1] === 0x49) mimeType = 'image/gif';
         else if (bytes[0] === 0x52 && bytes[1] === 0x49) mimeType = 'image/webp';
@@ -463,9 +472,8 @@ export class WebSocketClient {
         break;
 
       case T.SEL_LIFT:
-        // Parse lasso path from cr field if present
         let lassoPath = null;
-        if (data.cr && data.cr.length >= 6) { // At least 3 points (6 coordinates)
+        if (data.cr && data.cr.length >= 6) {
           lassoPath = [];
           for (let i = 0; i < data.cr.length; i += 2) {
             lassoPath.push({ x: data.cr[i], y: data.cr[i + 1] });
@@ -479,7 +487,6 @@ export class WebSocketClient {
         break;
 
       case T.SEL_MOVE:
-        // cr is array: [tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y]
         const cr = data.cr || [];
         this.emit('sel_move', {
           sessionIndex: data.u,
@@ -497,9 +504,8 @@ export class WebSocketClient {
         break;
 
       case T.SEL_PENDING: {
-        // Parse lasso path from ps field if present (flat [x1,y1,x2,y2,...])
         let pendingLassoPath = null;
-        if (data.ps && data.ps.length >= 6) { // At least 3 points
+        if (data.ps && data.ps.length >= 6) {
           pendingLassoPath = [];
           for (let i = 0; i < data.ps.length; i += 2) {
             pendingLassoPath.push({ x: data.ps[i], y: data.ps[i + 1] });
@@ -549,22 +555,20 @@ export class WebSocketClient {
           y: data.sy,
           width: data.sw,
           height: data.sh,
-          imageData: data.g  // Base64 data URL
+          imageData: data.g
         });
         break;
 
       case T.SYNC_PROVIDE:
-        // Server is asking us to provide our canvas for a new user
         this.emit('sync_provide', {
-          targetUser: data.tu  // The user who needs the canvas
+          targetUser: data.tu
         });
         break;
 
       case T.SYNC_CANVAS:
-        // Receiving canvas data (either from server forwarding, or direct)
         this.emit('sync_canvas', {
           sessionIndex: data.u,
-          imageData: data.img  // Uint8Array PNG data
+          imageData: data.img
         });
         break;
 
@@ -573,12 +577,6 @@ export class WebSocketClient {
         break;
 
       case T.SYNC_METADATA:
-        console.log('[WebSocketClient] Received SYNC_METADATA:', {
-          raw: data,
-          syncTotal: data.syncTotal,
-          sync_total: data.sync_total,
-          allKeys: Object.keys(data)
-        });
         this.emit('sync_metadata', {
           totalCount: data.syncTotal || data.sync_total || 0
         });
@@ -598,10 +596,6 @@ export class WebSocketClient {
           userId: data.u,
           x: data.sx, y: data.sy, w: data.sw, h: data.sh,
           blendMode: data.bm,
-          // protobufjs decodes snake_case proto fields as camelCase JS properties:
-          // stroke_ts (uint64) → data.strokeTs (Long object; Number() converts safely)
-          // stroke_redo → data.strokeRedo
-          // stroke_redo_batch → data.strokeRedoBatch
           timestamp: data.strokeTs ? Number(data.strokeTs) : 0,
           eraseAll: data.a || false,
           isRedo: data.strokeRedo || false,
@@ -611,7 +605,6 @@ export class WebSocketClient {
         break;
 
       case T.SYNC_STROKE_BATCH:
-        // Emit as a single batch event so it counts as 1 message for progress tracking
         if (data.strokes && data.strokes.length > 0) {
           this.emit('sync_stroke_batch', {
             strokes: data.strokes.map(stroke => ({
@@ -708,6 +701,13 @@ export class WebSocketClient {
     }
   }
 
+  /**
+   * Internal helper to trigger registered message handlers.
+   *
+   * @param {string} event - Event name.
+   * @param {Object} data - Event payload.
+   * @returns {void}
+   */
   emit(event, data) {
     const handler = this.messageHandlers.get(event);
     if (handler) {
@@ -715,140 +715,270 @@ export class WebSocketClient {
     }
   }
 
+  /**
+   * Registers a handler for a specific message event.
+   *
+   * @param {string} event - Event name.
+   * @param {Function} handler - Handler function.
+   * @returns {void}
+   */
   on(event, handler) {
     this.messageHandlers.set(event, handler);
   }
 
+  /**
+   * Encodes and sends a message via WebSocket.
+   *
+   * @param {Object} data - Message payload to be encoded as protobuf.
+   * @returns {void}
+   */
   send(data) {
     if (this.socket && this.socket.readyState === WebSocket.OPEN && this.Msg) {
-      // Use protobuf for ALL messages
       const message = this.Msg.create(data);
       const buffer = this.Msg.encode(message).finish();
       this.socket.send(buffer);
     }
   }
 
-  // Broadcast methods
-
+  /**
+   * Broadcasts freehand movement points.
+   * @param {Array<number>} points - Flattened [x, y, ...] coordinates.
+   * @returns {void}
+   */
   broadcastMove(points) {
-  this.send({ t: T.MM, ps: points });
-}
-
-  broadcastStampMove(points, radii) {
-  this.send({ t: T.MM, ps: points, rs: radii });
-}
-  broadcastMouseMove(x, y, lastx, lasty) {
-    this.send({
-      t: T.MM,
-      ps: [x, y]
-    });
+    this.send({ t: T.MM, ps: points });
   }
 
+  /**
+   * Broadcasts stamped movement (pen/ink) with radii.
+   * @param {Array<number>} points - Flattened coordinates.
+   * @param {Array<number>} radii - Flattened radii.
+   * @returns {void}
+   */
+  broadcastStampMove(points, radii) {
+    this.send({ t: T.MM, ps: points, rs: radii });
+  }
+
+  /**
+   * Broadcasts a legacy single mouse movement.
+   * @param {number} x - X coordinate.
+   * @param {number} y - Y coordinate.
+   * @returns {void}
+   */
+  broadcastMouseMove(x, y) {
+    this.send({ t: T.MM, ps: [x, y] });
+  }
+
+  /**
+   * Broadcasts a mouse down event.
+   * @param {Array<number>} points - Initial points.
+   * @param {Array<number>|null} radii - Initial radii.
+   * @returns {void}
+   */
   broadcastMouseDown(points, radii) {
     this.send({ t: T.MD, ps: points, rs: radii });
   }
 
+  /**
+   * Broadcasts a mouse up event.
+   * @returns {void}
+   */
   broadcastMouseUp() {
     this.send({ t: T.MU });
   }
 
+  /**
+   * Broadcasts a tool change.
+   * @param {string} tool - Tool name.
+   * @param {boolean} [eraseAll=false] - Whether to erase all layers.
+   * @returns {void}
+   */
   broadcastToolChange(tool, eraseAll = false) {
     this.send({ t: T.CT, l: ToolToEnum[tool] || 0, a: eraseAll || false });
   }
 
-  broadcastEraserModeChange(eraseAll) {
-    this.send({ t: T.CT, l: ToolToEnum['erase'], a: eraseAll || false });
-  }
-
+  /**
+   * Broadcasts a color change.
+   * @param {Object} color - {r, g, b, a} color object.
+   * @returns {void}
+   */
   broadcastColorChange(color) {
     this.send({ t: T.CC, c: packColor(color) });
   }
 
+  /**
+   * Broadcasts a brush size change.
+   * @param {number} size - New size.
+   * @returns {void}
+   */
   broadcastSizeChange(size) {
     this.send({ t: T.CS, s: Math.round(size * 100) });
   }
 
+  /**
+   * Broadcasts a spacing change.
+   * @param {number} spacing - New spacing.
+   * @returns {void}
+   */
   broadcastSpacingChange(spacing) {
     this.send({ t: T.CSP, sp: Math.round(spacing * 100) });
   }
 
+  /**
+   * Broadcasts a smoothing value change.
+   * @param {number} smoothing - New smoothing.
+   * @returns {void}
+   */
   broadcastSmoothingChange(smoothing) {
     this.send({ t: T.CSM, sm: Math.round(smoothing) });
   }
 
+  /**
+   * Broadcasts a hardness value change.
+   * @param {number} hardness - New hardness (0-100).
+   * @returns {void}
+   */
   broadcastHardnessChange(hardness) {
     this.send({ t: T.CHD, hd: Math.round(hardness) });
   }
 
+  /**
+   * Broadcasts a blur radius change.
+   * @param {number} radius - New blur radius.
+   * @returns {void}
+   */
   broadcastBlurRadiusChange(radius) {
     this.send({ t: T.CBR, br: Math.round(radius) });
   }
 
+  /**
+   * Broadcasts an active layer change.
+   * @param {number} layerIndex - New layer index.
+   * @returns {void}
+   */
   broadcastLayerChange(layerIndex) {
     this.send({ t: T.CL, ly: layerIndex });
   }
 
-  broadcastBlendModeChange(blendMode) {
-    // Legacy method - broadcasts without layer index
-    console.log(`[WS] Broadcasting blend mode (legacy): ${blendMode}`);
-    this.send({ t: T.CBM, bm: blendMode });
-  }
-
+  /**
+   * Broadcasts a blend mode change for a specific layer.
+   * @param {number} layerIndex - Layer index.
+   * @param {string} blendMode - Canvas composite operation name.
+   * @returns {void}
+   */
   broadcastLayerBlendModeChange(layerIndex, blendMode) {
-    console.log(`[WS] Broadcasting layer ${layerIndex} blend mode: ${blendMode}`);
     this.send({ t: T.CBM, ly: layerIndex, bm: blendMode });
   }
 
+  /**
+   * Broadcasts a pressure change.
+   * @param {number} pressure - New pressure (0.0 - 1.0).
+   * @returns {void}
+   */
   broadcastPressureChange(pressure) {
     this.send({ t: T.CP, p: Math.round(pressure * 100) });
   }
 
+  /**
+   * Broadcasts a username change.
+   * @param {string} name - New username.
+   * @param {Object} [extraProperties={}] - Additional user properties.
+   * @returns {void}
+   */
   broadcastNameChange(name, extraProperties = {}) {
     this.send({ t: T.CN, n: name, ...extraProperties });
   }
 
+  /**
+   * Broadcasts a single key press (for text tool).
+   * @param {string} key - The key pressed.
+   * @returns {void}
+   */
   broadcastKeyPress(key) {
     this.send({ t: T.KP, k: key });
   }
 
+  /**
+   * Broadcasts a pan state change.
+   * @param {boolean} value - True if panning.
+   * @returns {void}
+   */
   broadcastPan(value) {
     this.send({ t: T.PAN, a: value });
   }
 
+  /**
+   * Broadcasts a cancellation of the current stroke.
+   * @returns {void}
+   */
   broadcastCancel() {
     this.send({ t: T.CANCEL });
   }
 
+  /**
+   * Broadcasts a request to hide the local cursor.
+   * @returns {void}
+   */
   broadcastHideCursor() {
     this.send({ t: T.HIDE_CURSOR });
   }
 
+  /**
+   * Broadcasts a request to show the local cursor.
+   * @returns {void}
+   */
   broadcastShowCursor() {
     this.send({ t: T.SHOW_CURSOR });
   }
 
+  /**
+   * Broadcasts a clear canvas request.
+   * @returns {void}
+   */
   broadcastClear() {
     this.send({ t: T.CLR });
   }
 
+  /**
+   * Broadcasts a toggle for the mirror line.
+   * @returns {void}
+   */
   broadcastMirror() {
     this.send({ t: T.MIR });
   }
 
+  /**
+   * Broadcasts an undo request.
+   * @returns {void}
+   */
   broadcastUndo() {
     this.send({ t: T.UNDO });
   }
 
+  /**
+   * Broadcasts a redo request.
+   * @returns {void}
+   */
   broadcastRedo() {
     this.send({ t: T.REDO });
   }
 
+  /**
+   * Broadcasts a public chat message.
+   * @param {string} message - Message text.
+   * @returns {void}
+   */
   broadcastChat(message) {
     this.send({ t: T.MSG, g: message });
   }
 
+  /**
+   * Broadcasts an image to the chat or a specific user.
+   * @param {string} imageData - Base64 encoded image data URL.
+   * @param {number|null} [recipientId=null] - Optional private recipient.
+   * @returns {void}
+   */
   broadcastChatImage(imageData, recipientId = null) {
-    // Convert base64 data URL to bytes
     const base64Data = imageData.split(',')[1];
     const binaryString = atob(base64Data);
     const bytes = new Uint8Array(binaryString.length);
@@ -856,260 +986,286 @@ export class WebSocketClient {
       bytes[i] = binaryString.charCodeAt(i);
     }
 
-    console.log('[CHAT_IMG] Sending', bytes.length, 'bytes, recipientId:', recipientId);
-
     if (recipientId !== null) {
-      // Send as DM with image
       this.send({ t: T.CHAT_IMG, cimg: bytes, r: recipientId });
     } else {
-      // Send to all
       this.send({ t: T.CHAT_IMG, cimg: bytes });
     }
   }
 
+  /**
+   * Broadcasts a private message to a specific user.
+   * @param {string} message - Message text.
+   * @param {number} recipientId - Recipient session index.
+   * @returns {void}
+   */
   broadcastDM(message, recipientId) {
     this.send({ t: T.DM, g: message, r: recipientId });
   }
 
+  /**
+   * Broadcasts a custom brush configuration.
+   * @param {Object} brushData - Brush settings object.
+   * @returns {void}
+   */
   broadcastBrush(brushData) {
     this.send({ t: T.GMP, g: JSON.stringify(brushData) });
   }
 
-/**
- * Tells others to "lift" pixels from their local canvas.
- * @param {Object} rect - Selection rectangle {x, y, width, height}
- * @param {Array<{x: number, y: number}>|null} lassoPath - Optional lasso path for non-rectangular selections
- */
-broadcastSelectionLift(rect, lassoPath = null) {
-  const msg = {
-    t: T.SEL_LIFT,
-    sx: Math.round(rect.x),
-    sy: Math.round(rect.y),
-    sw: Math.round(rect.width),
-    sh: Math.round(rect.height)
-  };
+  /**
+   * Broadcasts a selection lift (extraction) event.
+   * @param {Object} rect - Bounding box {x, y, width, height}.
+   * @param {Array<Object>|null} [lassoPath=null] - Optional freehand path.
+   * @returns {void}
+   */
+  broadcastSelectionLift(rect, lassoPath = null) {
+    const msg = {
+      t: T.SEL_LIFT,
+      sx: Math.round(rect.x),
+      sy: Math.round(rect.y),
+      sw: Math.round(rect.width),
+      sh: Math.round(rect.height)
+    };
 
-  // Send lasso path as flattened coordinates [x1, y1, x2, y2, ...]
-  if (lassoPath && lassoPath.length > 0) {
-    msg.cr = lassoPath.flatMap(p => [Math.round(p.x), Math.round(p.y)]);
+    if (lassoPath && lassoPath.length > 0) {
+      msg.cr = lassoPath.flatMap(p => [Math.round(p.x), Math.round(p.y)]);
+    }
+    this.send(msg);
   }
 
-  this.send(msg);
-}
+  /**
+   * Broadcasts a pending selection marquee.
+   * @param {Object} rect - Bounding box.
+   * @param {Array<Object>|null} [lassoPath=null] - Optional path.
+   * @returns {void}
+   */
+  broadcastSelectionPending(rect, lassoPath = null) {
+    const msg = {
+      t: T.SEL_PENDING,
+      sx: Math.round(rect.x),
+      sy: Math.round(rect.y),
+      sw: Math.round(rect.width),
+      sh: Math.round(rect.height)
+    };
 
-/**
- * Tells others that a selection marquee has been created (not yet moved/lifted).
- * @param {Object} rect - Selection rectangle {x, y, width, height}
- * @param {Array<{x: number, y: number}>|null} lassoPath - Optional lasso path
- */
-broadcastSelectionPending(rect, lassoPath = null) {
-  const msg = {
-    t: T.SEL_PENDING,
-    sx: Math.round(rect.x),
-    sy: Math.round(rect.y),
-    sw: Math.round(rect.width),
-    sh: Math.round(rect.height)
-  };
-
-  if (lassoPath && lassoPath.length > 0) {
-    msg.ps = lassoPath.flatMap(p => [Math.round(p.x), Math.round(p.y)]);
+    if (lassoPath && lassoPath.length > 0) {
+      msg.ps = lassoPath.flatMap(p => [Math.round(p.x), Math.round(p.y)]);
+    }
+    this.send(msg);
   }
 
-  this.send(msg);
-}
-
-/**
- * Sends the 8 corner coordinates for movement/perspective. * @param {Object} corners - { tl: {x,y}, tr: {x,y}, bl: {x,y}, br: {x,y} }
- */
-broadcastSelectionMove(corners) {
-  this.send({
-    t: T.SEL_MOVE,
-    cr: [
-      corners.tl.x, corners.tl.y,
-      corners.tr.x, corners.tr.y,
-      corners.br.x, corners.br.y, 
-      corners.bl.x, corners.bl.y
-    ]
-  });
-}
-
-/*
- Tells others to "bake" the floating layer onto their main canvas.
- */
-broadcastSelectionCommit() {
-  this.send({ t: T.SEL_COMMIT });
-}
-
-broadcastSelectionDelete(layerIndex) {
-  const msg = { t: T.SEL_DELETE };
-  if (layerIndex !== undefined) msg.ly = layerIndex;
-  this.send(msg);
-}
-
-broadcastSelectionFill(color, layerIndex) {
-  const msg = { t: T.SEL_FILL, c: packColor(color) };
-  if (layerIndex !== undefined) msg.ly = layerIndex;
-  this.send(msg);
-}
-
-broadcastSelectionStamp() {
-  this.send({ t: T.SEL_STAMP });
-}
-
-broadcastSelectionFlip() {
-  this.send({ t: T.SEL_FLIP });
-}
-
-broadcastSelectionCancel() {
-  this.send({ t: T.SEL_CANCEL });
-}
-
-broadcastSelectionToBrush(brushData) {
-  this.send({ t: T.SEL_TO_BRUSH, g: JSON.stringify(brushData) });
-}
-
-/**
- * Broadcast pasted image data
- * @param {number} x - X position
- * @param {number} y - Y position
- * @param {number} width - Image width
- * @param {number} height - Image height
- * @param {string} dataUrl - Base64 data URL of the image
- */
-broadcastImagePaste(x, y, width, height, dataUrl) {
-  this.send({
-    t: T.IMG_PASTE,
-    sx: Math.round(x),
-    sy: Math.round(y),
-    sw: Math.round(width),
-    sh: Math.round(height),
-    g: dataUrl
-  });
-}
-
-/**
- * Request canvas sync (sent when joining)
- * @param {number|null} targetUserId - Optional: specific user to sync from
- */
-requestSync(targetUserId = null) {
-  const msg = { t: T.SYNC_REQUEST };
-  if (targetUserId !== null) {
-    msg.tu = targetUserId;
+  /**
+   * Broadcasts a selection movement (perspective transform).
+   * @param {Object} corners - {tl, tr, br, bl} corner coordinates.
+   * @returns {void}
+   */
+  broadcastSelectionMove(corners) {
+    this.send({
+      t: T.SEL_MOVE,
+      cr: [
+        corners.tl.x, corners.tl.y,
+        corners.tr.x, corners.tr.y,
+        corners.br.x, corners.br.y, 
+        corners.bl.x, corners.bl.y
+      ]
+    });
   }
-  this.send(msg);
-}
 
-/**
- * Send full canvas data to server (legacy, in response to SYNC_PROVIDE)
- * @param {Uint8Array} imageData - PNG image data of full canvas
- * @param {number} targetUser - The user who needs the canvas
- */
-sendCanvasData(imageData, targetUser) {
-  this.send({
-    t: T.SYNC_CANVAS,
-    img: imageData,
-    tu: targetUser
-  });
-}
+  /**
+   * Broadcasts a selection commit (baking) event.
+   * @returns {void}
+   */
+  broadcastSelectionCommit() {
+    this.send({ t: T.SEL_COMMIT });
+  }
 
-/**
- * Send a layer group's base canvas PNG during structured sync.
- * @param {Uint8Array} imageData - PNG of the baked base canvas
- * @param {number} layerIdx - Layer group index (0-based)
- * @param {string} blendMode - Blend mode for this layer bin
- * @param {number} targetUser - Joiner's session index
- */
-sendSyncLayerBase(imageData, layerIdx, blendMode, targetUser) {
-  this.send({ t: T.SYNC_LAYER_BASE, ly: layerIdx, bm: blendMode, img: imageData, tu: targetUser });
-}
+  /**
+   * Broadcasts a selection deletion.
+   * @param {number} [layerIndex] - Target layer index.
+   * @returns {void}
+   */
+  broadcastSelectionDelete(layerIndex) {
+    const msg = { t: T.SEL_DELETE };
+    if (layerIndex !== undefined) msg.ly = layerIndex;
+    this.send(msg);
+  }
 
-/**
- * Send a single stroke record during structured sync.
- * @param {Object} opts
- */
-sendSyncStroke({ targetUser, layerIdx, userId, x, y, w, h, blendMode, timestamp, eraseAll, isRedo, redoBatchIdx, imageData }) {
-  this.send({
-    t: T.SYNC_STROKE,
-    tu: targetUser,
-    ly: layerIdx,
-    u: userId,
-    sx: x, sy: y, sw: w, sh: h,
-    bm: blendMode,
-    // protobufjs maps camelCase JS keys to snake_case proto fields:
-    // strokeTs → stroke_ts, strokeRedo → stroke_redo, strokeRedoBatch → stroke_redo_batch
-    strokeTs: timestamp,
-    a: eraseAll || false,
-    strokeRedo: isRedo || false,
-    strokeRedoBatch: redoBatchIdx || 0,
-    img: imageData
-  });
-}
+  /**
+   * Broadcasts a selection fill event.
+   * @param {Object} color - {r, g, b, a} color.
+   * @param {number} [layerIndex] - Target layer index.
+   * @returns {void}
+   */
+  broadcastSelectionFill(color, layerIndex) {
+    const msg = { t: T.SEL_FILL, c: packColor(color) };
+    if (layerIndex !== undefined) msg.ly = layerIndex;
+    this.send(msg);
+  }
 
-/**
- * Send batched strokes for a layer group (new efficient sync).
- * @param {Array} strokeRecords - Array of stroke objects with {img, userId, x, y, width, height, blendMode, timestamp, isRedo, redoBatch}
- * @param {number} layerIdx - Layer group index
- * @param {number} targetUser - Target user session index
- */
-sendSyncStrokeBatch(strokeRecords, layerIdx, targetUser) {
-  // Map stroke records to protobuf StrokeRecord format
-  const strokes = strokeRecords.map(s => ({
-    img: s.img,
-    userId: s.userId,
-    x: s.x,
-    y: s.y,
-    width: s.width,
-    height: s.height,
-    blendMode: s.blendMode,
-    timestamp: s.timestamp,
-    isRedo: s.isRedo || false,
-    redoBatch: s.redoBatch || 0,
-    layerIdx: s.layerIdx  // Include per-stroke layer index
-  }));
+  /**
+   * Broadcasts a selection stamp (bake without clearing) event.
+   * @returns {void}
+   */
+  broadcastSelectionStamp() {
+    this.send({ t: T.SEL_STAMP });
+  }
 
-  this.send({
-    t: T.SYNC_STROKE_BATCH,
-    strokes,
-    layerIdx,  // Kept for backward compat, but strokes now have individual layerIdx
-    tu: targetUser
-  });
-}
+  /**
+   * Broadcasts a selection flip.
+   * @returns {void}
+   */
+  broadcastSelectionFlip() {
+    this.send({ t: T.SEL_FLIP });
+  }
 
-/**
- * Send sync metadata (total message count) to joiner.
- * @param {number} totalCount - Total number of sync messages that will be sent
- * @param {number} targetUser - Joiner's session index
- */
-sendSyncMetadata(totalCount, targetUser) {
-  console.log('[WebSocketClient] Sending SYNC_METADATA:', { totalCount, targetUser });
-  // Use camelCase for protobufjs (it converts sync_total proto field to syncTotal in JS)
-  this.send({ t: T.SYNC_METADATA, syncTotal: totalCount, tu: targetUser });
-}
+  /**
+   * Broadcasts a selection cancellation.
+   * @returns {void}
+   */
+  broadcastSelectionCancel() {
+    this.send({ t: T.SEL_CANCEL });
+  }
 
-/**
- * Signal that all stroke data has been sent.
- * @param {number} targetUser - Joiner's session index
- */
-sendSyncStrokesDone(targetUser) {
-  this.send({ t: T.SYNC_STROKES_DONE, tu: targetUser });
-}
+  /**
+   * Broadcasts a selection-to-brush conversion.
+   * @param {Object} brushData - Brush configuration.
+   * @returns {void}
+   */
+  broadcastSelectionToBrush(brushData) {
+    this.send({ t: T.SEL_TO_BRUSH, g: JSON.stringify(brushData) });
+  }
 
-  // Auth methods
+  /**
+   * Broadcasts a pasted image to the canvas.
+   * @param {number} x - Target X.
+   * @param {number} y - Target Y.
+   * @param {number} width - Display width.
+   * @param {number} height - Display height.
+   * @param {string} dataUrl - Base64 image data URL.
+   * @returns {void}
+   */
+  broadcastImagePaste(x, y, width, height, dataUrl) {
+    this.send({
+      t: T.IMG_PASTE,
+      sx: Math.round(x),
+      sy: Math.round(y),
+      sw: Math.round(width),
+      sh: Math.round(height),
+      g: dataUrl
+    });
+  }
 
+  /**
+   * Requests a canvas synchronization from the server.
+   * @param {number|null} [targetUserId=null] - Specific user ID to sync from.
+   * @returns {void}
+   */
+  requestSync(targetUserId = null) {
+    const msg = { t: T.SYNC_REQUEST };
+    if (targetUserId !== null) {
+      msg.tu = targetUserId;
+    }
+    this.send(msg);
+  }
+
+  /**
+   * Sends a layer group's base canvas bin during sync.
+   * @param {Uint8Array} imageData - PNG binary data.
+   * @param {number} layerIdx - Layer group index.
+   * @param {string} blendMode - Target blend mode.
+   * @param {number} targetUser - Recipient session index.
+   * @returns {void}
+   */
+  sendSyncLayerBase(imageData, layerIdx, blendMode, targetUser) {
+    this.send({ t: T.SYNC_LAYER_BASE, ly: layerIdx, bm: blendMode, img: imageData, tu: targetUser });
+  }
+
+  /**
+   * Sends batched stroke records during sync.
+   * @param {Array<Object>} strokeRecords - Array of serialized stroke data.
+   * @param {number} layerIdx - Target layer index.
+   * @param {number} targetUser - Recipient session index.
+   * @returns {void}
+   */
+  sendSyncStrokeBatch(strokeRecords, layerIdx, targetUser) {
+    const strokes = strokeRecords.map(s => ({
+      img: s.img,
+      userId: s.userId,
+      x: s.x,
+      y: s.y,
+      width: s.width,
+      height: s.height,
+      blendMode: s.blendMode,
+      timestamp: s.timestamp,
+      isRedo: s.isRedo || false,
+      redoBatch: s.redoBatch || 0,
+      layerIdx: s.layerIdx
+    }));
+
+    this.send({
+      t: T.SYNC_STROKE_BATCH,
+      strokes,
+      layerIdx,
+      tu: targetUser
+    });
+  }
+
+  /**
+   * Sends sync metadata (total count) to the joining user.
+   * @param {number} totalCount - Expected message count.
+   * @param {number} targetUser - Recipient session index.
+   * @returns {void}
+   */
+  sendSyncMetadata(totalCount, targetUser) {
+    this.send({ t: T.SYNC_METADATA, syncTotal: totalCount, tu: targetUser });
+  }
+
+  /**
+   * Signals that synchronization message dispatch is complete.
+   * @param {number} targetUser - Recipient session index.
+   * @returns {void}
+   */
+  sendSyncStrokesDone(targetUser) {
+    this.send({ t: T.SYNC_STROKES_DONE, tu: targetUser });
+  }
+
+  /**
+   * Sends a user registration request.
+   * @param {string} username - Chosen username.
+   * @param {string} password - Chosen password.
+   * @returns {void}
+   */
   sendAuthRegister(username, password) {
     this.send({ t: T.AUTH_REGISTER, authUsername: username, authPassword: password });
   }
 
+  /**
+   * Sends a user login request.
+   * @param {string} username - Username.
+   * @param {string} password - Password.
+   * @returns {void}
+   */
   sendAuthLogin(username, password) {
     this.send({ t: T.AUTH_LOGIN, authUsername: username, authPassword: password });
   }
 
+  /**
+   * Sends an authentication token login request.
+   * @param {string} token - JWT or session token.
+   * @returns {void}
+   */
   sendAuthTokenLogin(token) {
     this.send({ t: T.AUTH_LOGIN, authToken: token });
   }
 
-  // Moderation methods
-
+  /**
+   * Sends a moderation action request.
+   * @param {number} actionType - Type of action (BAN, KICK, etc.).
+   * @param {number} targetSessionIndex - Target user ID.
+   * @param {string} reason - Optional reason.
+   * @param {number} duration - Optional duration in seconds.
+   * @returns {void}
+   */
   sendModAction(actionType, targetSessionIndex, reason, duration) {
     this.send({
       t: T.MOD_ACTION,
@@ -1120,20 +1276,21 @@ sendSyncStrokesDone(targetUser) {
     });
   }
 
-  sendModRevoke(actionType, targetName) {
-    this.send({
-      t: T.MOD_ACTION,
-      modActionType: actionType,
-      modTarget: 0,
-      modTargetName: targetName,
-      modReason: ''
-    });
-  }
-
+  /**
+   * Requests the current moderation list (bans/warnings).
+   * @param {Object} [params] - Filtering parameters.
+   * @returns {void}
+   */
   requestModList({ showHistory = false, search = '' } = {}) {
     this.send({ t: T.MOD_LIST, modShowHistory: showHistory, modSearch: search });
   }
 
+  /**
+   * Sends a request to wipe all drawings by a specific user.
+   * @param {number} targetSessionIndex - Target user ID.
+   * @param {string} [targetName] - Target username.
+   * @returns {void}
+   */
   sendModWipe(targetSessionIndex, targetName) {
     this.send({
       t: T.MOD_WIPE,
@@ -1142,10 +1299,18 @@ sendSyncStrokesDone(targetUser) {
     });
   }
 
+  /**
+   * Requests the list of active rooms from the server.
+   * @returns {void}
+   */
   requestRoomList() {
     this.send({ t: T.ROOM_LIST_REQUEST });
   }
 
+  /**
+   * Closes the WebSocket connection.
+   * @returns {void}
+   */
   disconnect() {
     this._cancelled = true;
     if (this.socket) {

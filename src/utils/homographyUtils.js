@@ -1,13 +1,13 @@
+/**
+ * @fileoverview Shared utilities for homography (perspective) transforms.
+ * Used by SelectTool, image paste, and other features that need perspective warping.
+ */
+
 import { Homography } from './homography.js';
 
 /**
- * Shared utilities for homography (perspective) transforms
- * Used by SelectTool, image paste, and other features that need perspective warping
- */
-
-/**
- * Calculate bounding box from four corner points
- * @param {Object} corners - Object with tl, tr, bl, br properties (each has x, y)
+ * Calculates a bounding box from four corner points.
+ * @param {Object} corners - Corner positions { tl, tr, bl, br } where each has {x, y}.
  * @returns {Object} - { minX, minY, maxX, maxY, width, height }
  */
 export function calculateCornerBounds(corners) {

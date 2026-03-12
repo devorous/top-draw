@@ -1,30 +1,17 @@
 /**
- * EditableValueHandler
- *
- * Handles click-to-edit and drag-to-adjust functionality for numeric value displays.
- *
- * Features:
- * - Click to open inline number input editor
- * - Vertical drag to adjust value (up = increase, down = decrease)
- * - Shift = 10x sensitivity, Alt = 0.1x sensitivity
- * - Drag threshold prevents accidental drags on clicks
- * - Enter commits, Escape cancels, blur commits
- * - Dynamic step sizes via dragStep function
- *
- * Usage:
- *   const handler = new EditableValueHandler();
- *   handler.makeEditable(spanElement, {
- *     min: 0,
- *     max: 100,
- *     step: 1,
- *     suffix: 'px',
- *     onCommit: (value) => { ... },
- *     dragStep: (currentVal) => currentVal < 10 ? 0.1 : 1  // optional
- *   });
+ * @fileoverview Handles click-to-edit and drag-to-adjust functionality for numeric value displays.
+ */
+
+/**
+ * EditableValueHandler class
  */
 export class EditableValueHandler {
   constructor() {
-    this.DRAG_THRESHOLD = 3; // px of vertical movement before drag starts
+    /**
+     * Pixels of vertical movement before drag starts.
+     * @type {number}
+     */
+    this.DRAG_THRESHOLD = 3;
   }
 
   /**
@@ -43,6 +30,9 @@ export class EditableValueHandler {
 
     let dragState = null;
 
+    /**
+     * Opens the inline text editor for the value.
+     */
     const openEditor = () => {
       if (spanEl.querySelector('.sliderValueInput')) return;
 
@@ -121,7 +111,6 @@ export class EditableValueHandler {
         document.body.classList.add('parameter-dragging');
       }
 
-      // Use dragStep function for dynamic step sizes, or fall back to fixed step
       const currentStep = dragStep ? dragStep(dragState.lastVal ?? dragState.startVal) : step;
 
       let sensitivity = currentStep;
@@ -130,7 +119,6 @@ export class EditableValueHandler {
 
       let val = dragState.startVal + dy * sensitivity;
       val = Math.max(min, Math.min(max, val));
-      // Snap to the appropriate step for the current value
       const snapStep = dragStep ? dragStep(val) : step;
       val = Math.round(val / snapStep) * snapStep;
       val = parseFloat(val.toFixed(10));
@@ -140,6 +128,10 @@ export class EditableValueHandler {
       onCommit(val);
     });
 
+    /**
+     * Ends the drag operation.
+     * @param {PointerEvent} e - Pointer event
+     */
     const endDrag = (e) => {
       if (!dragState) return;
       const wasDragging = dragState.dragging;
@@ -147,7 +139,6 @@ export class EditableValueHandler {
       document.body.classList.remove('parameter-dragging');
       dragState = null;
 
-      // If it was a click (no drag), open the text editor
       if (!wasDragging) {
         openEditor();
       }

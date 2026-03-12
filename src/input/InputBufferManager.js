@@ -1,6 +1,6 @@
 /**
- * InputBufferManager - Manages input buffering, tick loop, smoothing, and point reduction
- * Runs at 60 TPS (or 30 TPS on low-power devices) to process input and broadcast to server
+ * @fileoverview Manages input buffering, tick loop synchronization, and point optimization.
+ * Orchestrates local drawing feedback and network broadcast rates based on device performance.
  */
 
 import { douglasPeucker, distanceBasedCulling } from '../utils/drawing.js';
@@ -9,28 +9,27 @@ import { applySmoothingEMA, resetSmoothingBuffer } from '../utils/smoothing.js';
 const TPS_NORMAL = 60;
 const TPS_LOW_POWER = 30;
 
-// GPU renderer substrings that indicate low-power hardware
 const LOW_POWER_GPU_PATTERNS = [
   'mali', 'adreno', 'powervr', 'swiftshader', 'llvmpipe',
-  'intel hd graphics', 'intel uhd graphics 6', // Chromebook-tier Intel
+  'intel hd graphics', 'intel uhd graphics 6',
   'vivante', 'videocore', 'tegra',
 ];
 
 /**
- * Detect low-power devices using navigator hints, WebGL GPU info, and GL limits.
- * Runs once at startup to determine the appropriate tick rate.
+ * Detects if the current device is low-power to adjust the tick rate.
+ * Uses hardware concurrency, device memory, and WebGL renderer hints.
+ *
+ * @returns {boolean} True if the device is considered low-power.
  */
 function detectLowPowerDevice() {
-  let score = 0; // positive = evidence of low-power
+  let score = 0;
 
-  // --- Navigator hints ---
   const cores = navigator.hardwareConcurrency || 0;
   if (cores > 0 && cores <= 4) score += 2;
 
-  const memory = navigator.deviceMemory; // Chromium-only
+  const memory = navigator.deviceMemory;
   if (memory !== undefined && memory <= 4) score += 2;
 
-  // --- WebGL GPU info ---
   let renderer = 'unknown';
   let maxTexture = 'N/A';
   let maxVertexUnits = 'N/A';
@@ -67,40 +66,50 @@ function detectLowPowerDevice() {
   return isLowPower;
 }
 
+/**
+ * InputBufferManager handles the accumulation and processing of pointer events.
+ * It ensures smooth local rendering by decoupling input from the animation frame
+ * and optimizes network bandwidth through point reduction algorithms.
+ */
 export class InputBufferManager {
+  /**
+   * @param {App} app - The main application instance.
+   */
   constructor(app) {
     this.app = app;
 
-    // Tick loop configuration — auto-detect device capability
+    /** @type {boolean} */
     this.lowPowerMode = detectLowPowerDevice();
+    /** @type {number} */
     this.tickRate = this.lowPowerMode ? TPS_LOW_POWER : TPS_NORMAL;
+    /** @type {number} */
     this.tickInterval = 1000 / this.tickRate;
+    /** @type {number|null} */
     this.tickTimer = null;
+    /** @type {number|null} */
     this.lastTickTime = null;
 
-    // Input buffer for accumulating pointer events between ticks
+    /** @type {Object} */
     this.inputBuffer = {
-      points: [],        // Flat array: [x1, y1, x2, y2, ...]
-      pressure: 1,       // Current pressure (0-1)
+      points: [],
+      pressure: 1,
       pointerType: 'mouse',
-      position: null,    // Latest { x, y }
-      lastPosition: null, // Previous { x, y }
-      dirty: false       // True if new data since last tick
+      position: null,
+      lastPosition: null,
+      dirty: false
     };
 
-    // Point reduction configuration (Level 1: bandwidth optimization)
+    /** @type {Object} */
     this.pointReduction = {
       enabled: true,
-      algorithm: 'douglas-peucker', // 'douglas-peucker' or 'distance-based'
-      // Douglas-Peucker parameters (epsilon range)
+      algorithm: 'douglas-peucker',
       minEpsilon: 0.1,
       maxEpsilon: 2.0,
-      // Distance-based parameters
       minDistance: 1,
       maxDistance: 5
     };
 
-    // Baseline smoothing configuration
+    /** @type {Object} */
     this.baselineSmoothing = {
       pointReduction: {
         minEpsilon: 0.5,
@@ -108,13 +117,15 @@ export class InputBufferManager {
       }
     };
 
-    // Broadcast smoothing buffer (matches tool smoothing for sync)
+    /** @type {Object} */
     this.broadcastSmoothBuffer = { x: 0, y: 0, isFirst: true };
   }
 
   /**
-   * Change tick rate at runtime. Restarts the loop if already running.
-   * @param {number} tps - New ticks per second (e.g. 30 or 60)
+   * Adjusts the tick rate at runtime.
+   *
+   * @param {number} tps - New ticks per second.
+   * @returns {void}
    */
   setTickRate(tps) {
     this.tickRate = tps;
@@ -126,13 +137,21 @@ export class InputBufferManager {
     }
   }
 
+  /**
+   * Starts the internal tick loop.
+   * @returns {void}
+   */
   startTickLoop() {
-    if (this.tickTimer) return; // Already running
+    if (this.tickTimer) return;
 
     this.lastTickTime = performance.now();
     this.tickTimer = setInterval(() => this.tick(), this.tickInterval);
   }
 
+  /**
+   * Stops the internal tick loop.
+   * @returns {void}
+   */
   stopTickLoop() {
     if (this.tickTimer) {
       clearInterval(this.tickTimer);
@@ -140,24 +159,26 @@ export class InputBufferManager {
     }
   }
 
+  /**
+   * Performs a single tick of input processing.
+   * Processes buffered points, applies smoothing/reduction, and broadcasts to peers.
+   *
+   * @returns {void}
+   */
   tick() {
     const now = performance.now();
     this.lastTickTime = now;
 
     const { app } = this;
 
-    // Skip local drawing while syncing
     if (app.syncClient?.isSyncing()) return;
 
-    // Only process if we have new input data OR need to catch up smoothing
     const needsCatchup = this.needsSmoothingCatchup();
     if (!this.inputBuffer.dirty && !needsCatchup) return;
 
     const { points } = this.inputBuffer;
 
-    // Process drawing if we have position data
     if (points.length >= 2) {
-      // 1. Apply smoothing and reduction for broadcast
       let smoothedPoints;
       let broadcastPoints;
       if (app.self.mousedown && !app.self.panning) {
@@ -168,23 +189,21 @@ export class InputBufferManager {
         broadcastPoints = points;
       }
 
-      // 2. Determine local points based on tool type
       const smoothingTools = ['brush', 'flowPen', 'ink', 'imageBrush', 'erase'];
       const blurTools = ['blur', 'circleBlur', 'circleBlurHard'];
       let localPoints;
       if (app.self.mousedown && !app.self.panning) {
         if (smoothingTools.includes(app.self.tool)) {
-          localPoints = smoothedPoints; // Pre-smoothed by InputBufferManager
+          localPoints = smoothedPoints;
         } else if (blurTools.includes(app.self.tool)) {
-          localPoints = broadcastPoints; // Smoothed + reduced
+          localPoints = broadcastPoints;
         } else {
-          localPoints = points; // Raw
+          localPoints = points;
         }
       } else {
         localPoints = points;
       }
 
-      // 2. Update self state with the LATEST point in the batch
       const lastRawX = points[points.length - 2];
       const lastRawY = points[points.length - 1];
       app.self.setTarget(lastRawX, lastRawY);
@@ -193,27 +212,20 @@ export class InputBufferManager {
       const lastY = localPoints[localPoints.length - 1];
       app.self.setPosition(lastX, lastY);
 
-      // 3. Process locally for immediate feedback
       if (app.self.mousedown && !app.self.panning) {
         const tool = app.toolManager.getCurrentTool();
         if (tool) {
           for (let i = 0; i < localPoints.length; i += 2) {
               const currentPos = { x: localPoints[i], y: localPoints[i+1] };
-              // Important: If lastPosition is null, use currentPos as prevPos to prevent jumping lines
               const prevPos = i === 0 ? (this.inputBuffer.lastPosition || currentPos) : { x: localPoints[i-2], y: localPoints[i-1] };
               
               tool.onPointerMove(app.self, currentPos, prevPos);
-              
-              // Increment draw counter so App.js knows we actually drew something
               app.self._mainCtxDrawCount++;
-
-              // Debug: Track each point processed locally
               app.debugOverlay.addStrokePoint(app.self.id, currentPos.x, currentPos.y, 'tick');
           }
         }
       }
 
-      // 4. Broadcast to remote users
       if (app.self.tool === 'flowPen' && app.self.mousedown && !app.self.panning) {
         const tool = app.toolManager.getCurrentTool();
         const { ps: stampPs, rs: stampRs } = tool.drainStampBuffer();
@@ -235,16 +247,21 @@ export class InputBufferManager {
       this.inputBuffer.lastPosition = { x: lastX, y: lastY };
     }
 
-    // Smoothing catch-up
     if (needsCatchup) {
       this.processSmoothingCatchup();
     }
 
-    // Clear points for next tick
     this.inputBuffer.points = [];
     this.inputBuffer.dirty = false;
   }
 
+  /**
+   * Determines if the smoothing buffer needs to catch up to the target position.
+   * This is true if the user has stopped moving but the smoothed point hasn't
+   * yet converged on the final input position.
+   *
+   * @returns {boolean} True if catch-up is needed.
+   */
   needsSmoothingCatchup() {
     const { app } = this;
     if (!app.self.mousedown || app.self.panning) return false;
@@ -257,6 +274,10 @@ export class InputBufferManager {
     return Math.sqrt(dx * dx + dy * dy) > 0.5;
   }
 
+  /**
+   * Performs a single convergence step for smoothing catch-up.
+   * @returns {void}
+   */
   processSmoothingCatchup() {
     const { app } = this;
     const tool = app.toolManager.getCurrentTool();
@@ -291,6 +312,12 @@ export class InputBufferManager {
     app.debugOverlay.addStrokePoint(app.self.id, targetPos.x, targetPos.y, 'catchup');
   }
 
+  /**
+   * Reduces the number of points in a stroke using Douglas-Peucker.
+   *
+   * @param {Array<number>} points - Flattened point array.
+   * @returns {Array<number>} Optimized point array.
+   */
   applyPointReduction(points) {
     if (!this.pointReduction.enabled || points.length < 4) return points;
     const userSmoothing = this.app.self.smoothing !== undefined ? this.app.self.smoothing : 15;
@@ -306,6 +333,12 @@ export class InputBufferManager {
     return result;
   }
 
+  /**
+   * Applies Exponential Moving Average (EMA) smoothing to a batch of points.
+   *
+   * @param {Array<number>} points - Raw input coordinates.
+   * @returns {Array<number>} Smoothed coordinates.
+   */
   applyBroadcastSmoothing(points) {
     if (points.length < 2) return points;
     const userSmoothing = this.app.self.smoothing || 0;
@@ -317,6 +350,10 @@ export class InputBufferManager {
     return result;
   }
 
+  /**
+   * Resets the smoothing buffers and clears the input buffer.
+   * @returns {void}
+   */
   resetBroadcastSmoothing() {
     resetSmoothingBuffer(this.broadcastSmoothBuffer);
     this.inputBuffer.lastPosition = null;

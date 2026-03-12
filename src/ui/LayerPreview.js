@@ -1,5 +1,7 @@
+/** @fileoverview Handles generating and displaying a miniature preview of a layer. */
+
 /**
- * LayerPreview - Handles generating and displaying a miniature preview of a layer
+ * LayerPreview class
  */
 export class LayerPreview {
   constructor() {
@@ -11,6 +13,9 @@ export class LayerPreview {
     this.isVisible = false;
   }
 
+  /**
+   * Initializes the preview container and canvas.
+   */
   init() {
     this.container = document.createElement('div');
     this.container.className = 'layerPreviewContainer';
@@ -56,7 +61,6 @@ export class LayerPreview {
 
     this.drawCheckerboard(w, h);
 
-    // Draw the layer miniature
     this.ctx.save();
     this.ctx.scale(w / layerManager.width, h / layerManager.height);
     
@@ -71,6 +75,9 @@ export class LayerPreview {
     this.isVisible = true;
   }
 
+  /**
+   * Hides the layer preview.
+   */
   hide() {
     if (this.container) {
       this.container.style.display = 'none';
@@ -78,6 +85,11 @@ export class LayerPreview {
     this.isVisible = false;
   }
 
+  /**
+   * Draws a checkerboard pattern for transparency visualization.
+   * @param {number} w - Width
+   * @param {number} h - Height
+   */
   drawCheckerboard(w, h) {
     const cols = Math.ceil(w / this.checkerSize);
     const rows = Math.ceil(h / this.checkerSize);

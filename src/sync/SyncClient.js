@@ -1,55 +1,69 @@
 /**
- * SyncClient - Client-side canvas sync orchestration
- *
- * Handles full canvas sync between users:
- * - New users request sync on join
- * - Existing users provide their full layer state when asked:
- *     1. Base bins (categorized baked history) for each layer group
- *     2. All stroke stack entries (each as a cropped PNG + metadata)
- *     3. All redo stack entries (same format, with batch index)
- * - Received data reconstructs the LayerManager identically on the joiner
- * - Remote drawing events are buffered during sync and replayed after
+ * @fileoverview Client-side canvas synchronization orchestration.
+ * Handles full canvas state transfer between users, including layers,
+ * stroke history, and redo stacks.
  */
 
+/**
+ * SyncClient manages the complex process of synchronizing the canvas state
+ * from an existing user to a newly joined user.
+ */
 export class SyncClient {
   constructor() {
+    /** @type {WebSocketClient|null} */
     this.wsClient = null;
+    /** @type {Board|null} */
     this.board = null;
+    /** @type {boolean} */
     this.initialized = false;
 
-    // Track sync state
+    /** @type {boolean} */
     this.syncing = false;
+    /** @type {boolean} */
     this.hasCompletedSync = false;
 
-    // Pending async import promises — createImageBitmap is async, and we must
-    // wait for ALL imports to settle before replaying buffered events.
+    /**
+     * Pending async import promises — createImageBitmap is async, and we must
+     * wait for ALL imports to settle before replaying buffered events.
+     * @private
+     * @type {Array<Promise>}
+     */
     this._pendingImports = [];
 
-    // Event buffering during sync
+    /** @type {boolean} */
     this.buffering = false;
+    /** @type {Array<Object>} */
     this.eventBuffer = [];
+    /** @type {Map|null} */
     this.handlerMap = null;
 
-    // Overlay elements
+    /** @type {HTMLElement|null} */
     this.overlayEl = null;
+    /** @type {HTMLElement|null} */
     this.progressTextEl = null;
+    /** @type {HTMLElement|null} */
     this.progressBarEl = null;
+    /** @type {HTMLElement|null} */
     this.progressFillEl = null;
 
-    // Progress tracking
+    /** @type {number} */
     this.expectedMessages = 0;
+    /** @type {number} */
     this.receivedMessages = 0;
+    /** @type {number|null} */
     this.syncTimeout = null;
 
-    // Progressive rendering
+    /** @type {boolean} */
     this.compositeScheduled = false;
   }
 
   /**
-   * Initialize the sync client
-   * @param {Object} options
+   * Initializes the sync client with necessary dependencies.
+   *
+   * @param {Object} options - Configuration options
    * @param {WebSocketClient} options.wsClient - WebSocket client instance
    * @param {Board} options.board - Board instance for canvas operations
+   * @returns {void}
    */
   init({ wsClient, board }) {
     this.wsClient = wsClient;
@@ -63,8 +77,11 @@ export class SyncClient {
   }
 
   /**
-   * Request sync from server (called after joining)
-   * @param {number|null} targetUserId - Optional: specific user to sync from
+   * Requests a full canvas synchronization from the server.
+   * Clears local state and prepares to buffer incoming remote events.
+   *
+   * @param {number|null} [targetUserId=null] - Optional specific user ID to sync from
+   * @returns {void}
    */
   requestSync(targetUserId = null) {
     console.log('[SyncClient] requestSync called, current syncing state:', this.syncing);
@@ -75,19 +92,16 @@ export class SyncClient {
       return;
     }
 
-    // If already syncing, don't start a new sync
     if (this.syncing) {
       console.warn('[SyncClient] Already syncing, ignoring duplicate requestSync call');
       return;
     }
 
-    // If we've already successfully synced, skip unless explicitly requesting from a specific user
     if (this.hasCompletedSync && targetUserId === null) {
       console.log('[SyncClient] Already completed initial sync, ignoring duplicate auto-sync request');
       return;
     }
 
-    // Clear existing canvas before syncing to prevent double-up
     if (this.board?.layerManager) {
       console.log('[SyncClient] Clearing existing canvas before sync...');
       this.board.layerManager.clearAll();
@@ -101,13 +115,12 @@ export class SyncClient {
     this.expectedMessages = 0;
     this.receivedMessages = 0;
 
-    // Set a timeout to prevent indefinite hanging
     this.syncTimeout = setTimeout(() => {
       if (this.syncing) {
         console.warn('[SyncClient] Sync timeout - completing anyway');
         this.handleSyncComplete();
       }
-    }, 30000); // 30 second timeout
+    }, 30000);
 
     this.showOverlay();
     this.updateProgress();
@@ -122,22 +135,22 @@ export class SyncClient {
   }
 
   /**
-   * Request sync from a specific user
+   * Convenience method to request sync from a specific user.
+   *
    * @param {number} userId - User session index to sync from
+   * @returns {void}
    */
   requestSyncFrom(userId) {
     this.requestSync(userId);
   }
 
-  // ---------------------------------------------------------------------------
-  // Provider side — called when another user joins and we must send our state
-  // ---------------------------------------------------------------------------
-
   /**
-   * Handle server asking us to provide our canvas state.
-   * Sends base bins, stroke records, and redo stacks to the joiner.
-   * @param {Object} data
-   * @param {number} data.targetUser - The user who needs the state
+   * Provider side: Handles a request to provide canvas state to a joining user.
+   * Serializes the current layer state, stroke history, and redo stack.
+   *
+   * @param {Object} data - Request payload
+   * @param {number} data.targetUser - The user ID who needs the state
+   * @returns {Promise<void>}
    */
   async handleSyncProvide(data) {
     const { targetUser } = data;
@@ -152,64 +165,47 @@ export class SyncClient {
       const lm = this.board.layerManager;
       const groups = lm.layerGroups;
 
-      // Phase 0: Count total messages to send (batched sync)
       let totalCount = 0;
 
-      // Count flatCanvas for layer 0 (contains all baked content for the base layer)
       if (groups[0]?.flatCanvas) {
         totalCount += 1;
       }
 
-      // Count baked sequences (still sent individually)
       for (let gi = 0; gi < groups.length; gi++) {
         totalCount += groups[gi].bakedSequences.length;
       }
 
-      // Count stroke batches (1 message per layer with strokes)
       for (let gi = 0; gi < groups.length; gi++) {
         if (groups[gi].strokeStack.length > 0) {
-          totalCount += 1; // One batched message per layer
+          totalCount += 1;
         }
       }
 
-      // Count redo batches (1 message per user per batch)
       for (const [userId, batches] of lm.redoStackByUser) {
-        totalCount += batches.length; // One batched message per redo batch
+        totalCount += batches.length;
       }
 
-      // Send metadata with total count
       console.log(`[SyncClient] Sending sync metadata: ${totalCount} total messages (batched)`);
       this.wsClient.sendSyncMetadata(totalCount, targetUser);
 
-      // Small delay to ensure metadata is processed before data starts arriving
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Phase A: send each layer group's baked sequences in chronological order
       for (let gi = 0; gi < groups.length; gi++) {
         const group = groups[gi];
 
-        // Layer 0: send the flatCanvas first (contains all baked content)
         if (group.flatCanvas) {
           const img = await this._captureCanvasElement(group.flatCanvas);
           this.wsClient.sendSyncLayerBase(img, gi, 'source-over', targetUser);
         }
 
-        // Send any additional baked sequences (upper layers use these)
         for (const seq of group.bakedSequences) {
           const img = await this._captureCanvasElement(seq.canvas);
           this.wsClient.sendSyncLayerBase(img, gi, seq.blendMode, targetUser);
         }
       }
 
-      // Phase B: send strokeStack entries batched per layer group
       for (let gi = 0; gi < groups.length; gi++) {
         if (groups[gi].strokeStack.length > 0) {
-          console.log(`[Sync] Layer ${gi} strokeStack:`, groups[gi].strokeStack.map(s => ({
-            userId: s.userId,
-            timestamp: s.timestamp,
-            x: s.x, y: s.y
-          })));
-
           const strokeRecords = [];
           for (const stroke of groups[gi].strokeStack) {
             const img = await this._captureCanvasElement(stroke.canvas);
@@ -228,18 +224,10 @@ export class SyncClient {
               layerIdx: gi
             });
           }
-
-          console.log(`[Sync] Sending batch for layer ${gi}:`, strokeRecords.map(s => ({
-            userId: s.userId,
-            timestamp: s.timestamp,
-            x: s.x, y: s.y
-          })));
-
           this.wsClient.sendSyncStrokeBatch(strokeRecords, gi, targetUser);
         }
       }
 
-      // Phase C: send redo stack entries batched per user per batch
       for (const [userId, batches] of lm.redoStackByUser) {
         for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
           const strokeRecords = [];
@@ -257,15 +245,13 @@ export class SyncClient {
               eraseAll: record.eraseAll || false,
               isRedo: true,
               redoBatch: batchIdx,
-              layerIdx: groupIdx  // Each stroke has its own layer index
+              layerIdx: groupIdx
             });
           }
-          // Use 0 as placeholder since each stroke now has its own layerIdx
           this.wsClient.sendSyncStrokeBatch(strokeRecords, 0, targetUser);
         }
       }
 
-      // Phase D: signal completion
       this.wsClient.sendSyncStrokesDone(targetUser);
       console.log('[SyncClient] Finished sending layer state to user', targetUser);
     } catch (error) {
@@ -273,41 +259,38 @@ export class SyncClient {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Receiver side — called when we are the joiner receiving state
-  // ---------------------------------------------------------------------------
-
   /**
-   * Handle receiving sync metadata (total message count).
-   * Called before receiving any layer/stroke data.
+   * Receives synchronization metadata containing the total message count.
+   *
+   * @param {Object} data - Metadata payload
+   * @param {number} data.totalCount - Total number of messages expected during sync
+   * @returns {void}
    */
   handleSyncMetadata(data) {
     this.expectedMessages = data.totalCount || 0;
-    console.log(`[SyncClient] METADATA RECEIVED - Expecting ${this.expectedMessages} total messages (current received: ${this.receivedMessages})`);
-    console.log('[SyncClient] Progress elements:', {
-      textEl: !!this.progressTextEl,
-      fillEl: !!this.progressFillEl,
-      expectedMessages: this.expectedMessages,
-      receivedMessages: this.receivedMessages
-    });
     this.updateProgress();
   }
 
   /**
-   * Handle receiving a layer group's base bin.
-   * Pushes the async import into _pendingImports so handleSyncComplete
-   * can wait for all of them before replaying buffered events.
+   * Processes an incoming base layer bin.
+   *
+   * @param {Object} data - Layer data payload
+   * @returns {void}
    */
   handleSyncLayerBin(data) {
     const p = this._importLayerBin(data);
     this._pendingImports.push(p);
     this.receivedMessages++;
-    if (this.receivedMessages === 1) {
-      console.log(`[SyncClient] First message received (expected: ${this.expectedMessages})`);
-    }
     this.updateProgress();
   }
 
+  /**
+   * Internal helper to import a layer bin into the LayerManager.
+   *
+   * @private
+   * @param {Object} data - Layer data
+   * @returns {Promise<void>}
+   */
   async _importLayerBin(data) {
     if (!this.board?.layerManager) return;
     try {
@@ -315,7 +298,6 @@ export class SyncClient {
       const bitmap = await createImageBitmap(blob);
       this.board.layerManager.importLayerBin(data.layerIdx, data.blendMode, bitmap);
       bitmap.close();
-      // Schedule progressive render
       this._scheduleComposite();
     } catch (error) {
       console.error('[SyncClient] Failed to apply layer bin', data.layerIdx, data.blendMode, error);
@@ -323,9 +305,10 @@ export class SyncClient {
   }
 
   /**
-   * Handle receiving a stroke record (either strokeStack or redo stack).
-   * Pushes the async import into _pendingImports so handleSyncComplete
-   * can wait for all of them before replaying buffered events.
+   * Processes an individual incoming stroke record.
+   *
+   * @param {Object} data - Stroke data payload
+   * @returns {void}
    */
   handleSyncStroke(data) {
     const p = this._importStroke(data);
@@ -334,11 +317,17 @@ export class SyncClient {
     this.updateProgress();
   }
 
+  /**
+   * Internal helper to decode and import a stroke into the LayerManager.
+   * Includes a 2-second timeout protection.
+   *
+   * @private
+   * @param {Object} data - Stroke record data
+   * @returns {Promise<void>}
+   */
   async _importStroke(data) {
     if (!this.board?.layerManager) return;
 
-    // Protection: skip strokes that take longer than 2 seconds to process
-    // (e.g. extremely large images or browser stalls) to prevent hanging sync.
     const timeout = new Promise((_, reject) => {
       setTimeout(() => reject(new Error('Stroke import timeout (>2s)')), 2000);
     });
@@ -375,7 +364,6 @@ export class SyncClient {
             this.board.layerManager.importRedoStroke(data.userId, data.redoBatchIdx, data.layerIdx, record);
           }
 
-          // Schedule progressive render
           this._scheduleComposite();
         })(),
         timeout
@@ -386,21 +374,53 @@ export class SyncClient {
   }
 
   /**
-   * Handle sync strokes done signal — all messages have been sent by the provider.
-   * The actual work happens in handleSyncComplete once pending imports settle.
+   * Processes a batch of incoming stroke records.
+   *
+   * @param {Object} data - Batched stroke data payload
+   * @returns {void}
+   */
+  handleSyncStrokeBatch(data) {
+    if (!data.strokes || !Array.isArray(data.strokes)) return;
+
+    for (const s of data.strokes) {
+      const mappedStroke = {
+        imageData: s.img,
+        w: s.width,
+        h: s.height,
+        x: s.x,
+        y: s.y,
+        blendMode: s.blendMode,
+        userId: s.userId,
+        timestamp: s.timestamp,
+        eraseAll: s.eraseAll || false,
+        isRedo: s.isRedo || false,
+        redoBatchIdx: s.redoBatch || 0,
+        layerIdx: s.layerIdx ?? data.layerIdx
+      };
+
+      const p = this._importStroke(mappedStroke);
+      this._pendingImports.push(p);
+    }
+
+    this.receivedMessages++;
+    this.updateProgress();
+  }
+
+  /**
+   * Signal that all sync messages have been dispatched by the provider.
+   * @returns {void}
    */
   handleSyncStrokesDone() {
     // No action needed here — handleSyncComplete waits for _pendingImports.
   }
 
   /**
-   * Handle sync complete from server.
-   * Waits for all pending async stroke imports (createImageBitmap calls) to
-   * finish before compositing and replaying buffered events. This guarantees
-   * the stroke stack is fully populated before any UNDO/REDO events are processed.
+   * Finalizes the synchronization process once all pending imports settle.
+   * Composites layers and replays buffered remote events.
+   *
+   * @returns {void}
    */
   handleSyncComplete() {
-    // Clear timeout
     if (this.syncTimeout) {
       clearTimeout(this.syncTimeout);
       this.syncTimeout = null;
@@ -424,28 +444,27 @@ export class SyncClient {
       this.updateProgress('Processing images...');
       Promise.all(pending).then(finalize).catch((err) => {
         console.error('[SyncClient] Error during stroke import:', err);
-        finalize(); // Still finalize so the client isn't stuck
+        finalize();
       });
     } else {
       finalize();
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Event buffering
-  // ---------------------------------------------------------------------------
-
   /**
-   * Buffer a remote event for replay after sync
-   * @param {string} eventName - The event name
-   * @param {Object} data - The event data
+   * Buffers a remote event to be replayed after synchronization is complete.
+   *
+   * @param {string} eventName - Name of the event
+   * @param {Object} data - Event payload
+   * @returns {void}
    */
   bufferEvent(eventName, data) {
     this.eventBuffer.push({ eventName, data });
   }
 
   /**
-   * Replay all buffered events in order
+   * Replays all buffered remote events in their original sequence.
+   * @returns {void}
    */
   replayBuffer() {
     if (!this.handlerMap || this.eventBuffer.length === 0) {
@@ -463,23 +482,29 @@ export class SyncClient {
   }
 
   /**
-   * Set the handler map for event replay
-   * @param {Map} map - Map of eventName -> handler function
+   * Registers the handler map used for replaying buffered events.
+   *
+   * @param {Map} map - Map of event names to handler functions
+   * @returns {void}
    */
   setHandlerMap(map) {
     this.handlerMap = map;
   }
 
-  // ---------------------------------------------------------------------------
-  // Overlay
-  // ---------------------------------------------------------------------------
-
+  /**
+   * Shows the synchronization progress overlay.
+   * @returns {void}
+   */
   showOverlay() {
     if (this.overlayEl) {
       this.overlayEl.classList.add('active');
     }
   }
 
+  /**
+   * Hides the synchronization progress overlay.
+   * @returns {void}
+   */
   hideOverlay() {
     if (this.overlayEl) {
       this.overlayEl.classList.remove('active');
@@ -487,43 +512,35 @@ export class SyncClient {
   }
 
   /**
-   * Update progress display
-   * @param {string} customText - Optional custom text to display
+   * Updates the visual progress indicators in the UI.
+   *
+   * @param {string|null} [customText=null] - Optional override text for the progress message
+   * @returns {void}
    */
   updateProgress(customText = null) {
     if (!this.progressTextEl || !this.progressFillEl) {
-      console.warn('[SyncClient] Progress elements not found:', {
-        textEl: !!this.progressTextEl,
-        fillEl: !!this.progressFillEl
-      });
       return;
     }
 
     if (customText) {
       this.progressTextEl.textContent = customText;
-      // Keep progress bar at 100% when showing custom text
       if (this.progressFillEl) {
         this.progressFillEl.style.width = '100%';
       }
       return;
     }
 
-    // Calculate progress percentage
     let percentage = 0;
     let text = 'Syncing...';
 
     if (this.expectedMessages > 0) {
-      // We know the expected count, show accurate progress
       percentage = Math.min(100, Math.round((this.receivedMessages / this.expectedMessages) * 100));
       text = `Syncing... ${this.receivedMessages}/${this.expectedMessages} (${percentage}%)`;
-      console.log(`[SyncClient] Progress: ${percentage}% (${this.receivedMessages}/${this.expectedMessages})`);
       if (this.progressFillEl) {
         this.progressFillEl.style.width = `${percentage}%`;
       }
     } else {
-      // No expected count yet, start at 0% and wait for metadata
       text = 'Syncing...';
-      console.log('[SyncClient] No expected count yet, waiting for metadata');
       if (this.progressFillEl) {
         this.progressFillEl.style.width = '0%';
       }
@@ -532,13 +549,12 @@ export class SyncClient {
     this.progressTextEl.textContent = text;
   }
 
-  // ---------------------------------------------------------------------------
-  // Internal helpers
-  // ---------------------------------------------------------------------------
-
   /**
-   * Schedule a composite on the next animation frame (throttled)
-   * This allows multiple stroke imports to batch into one composite call
+   * Schedules a canvas composition on the next animation frame.
+   * Throttles multiple calls to prevent redundant compositing.
+   *
+   * @private
+   * @returns {void}
    */
   _scheduleComposite() {
     if (this.compositeScheduled || !this.board) return;
@@ -552,8 +568,10 @@ export class SyncClient {
   }
 
   /**
-   * Capture a canvas element as a PNG Uint8Array.
-   * @param {HTMLCanvasElement} canvas
+   * Captures a canvas element's content as a PNG encoded Uint8Array.
+   *
+   * @private
+   * @param {HTMLCanvasElement} canvas - The canvas to capture
    * @returns {Promise<Uint8Array>}
    */
   _captureCanvasElement(canvas) {
@@ -573,7 +591,8 @@ export class SyncClient {
   }
 
   /**
-   * Check if currently syncing
+   * Checks if a synchronization process is currently active.
+   *
    * @returns {boolean}
    */
   isSyncing() {
@@ -581,7 +600,8 @@ export class SyncClient {
   }
 
   /**
-   * Destroy the sync client
+   * Cleans up resources and resets the sync client state.
+   * @returns {void}
    */
   destroy() {
     this.wsClient = null;

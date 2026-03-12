@@ -1,81 +1,125 @@
+/**
+ * @fileoverview Image brush tool - supports GIMP brushes (.gbr/.gih) and standard images.
+ * Uses distance-based spacing for consistent stamp intervals regardless of cursor speed.
+ */
+
 import { parseGbr, parseGih } from '../utils/parseGimp.js';
 
 /**
- * Base tool class
+ * Base tool class.
  */
 class Tool {
+  /**
+   * @param {string} name - The name of the tool.
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(name, board) {
     this.name = name;
     this.board = board;
   }
 
+  /**
+   * Called when the tool is activated.
+   */
   activate() {}
+
+  /**
+   * Called when the tool is deactivated.
+   */
   deactivate() {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerDown(user, pos, e) {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Object} lastPos - The previous pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerMove(user, pos, lastPos, e) {}
+
+  /**
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerUp(user, pos, e) {}
 }
 
 /**
- * Image brush tool - supports GIMP brushes (.gbr/.gih) and standard images (.png/.jpg/.webp)
- * Uses distance-based spacing for consistent stamp intervals regardless of cursor speed.
+ * Image brush tool - supports GIMP brushes (.gbr/.gih) and standard images.
  */
 export class ImageBrushTool extends Tool {
+  /**
+   * @param {Object} board - The drawing board instance.
+   */
   constructor(board) {
     super('imageBrush', board);
     this.lastPos = null;
     this.lastTime = null;
-    this.lastStampPos = new Map(); // userId -> {x, y} - last stamp position for distance-based spacing
+    this.lastStampPos = new Map(); // userId -> {x, y}
   }
 
-  activate() {
-    // Sub-layers always draw source-over; blend mode is applied at composite time.
-  }
+  /**
+   * Activates the tool.
+   */
+  activate() {}
 
+  /**
+   * Deactivates the tool and cleans up tracking.
+   */
   deactivate() {
     this.lastStampPos.clear();
   }
 
+  /**
+   * Handles pointer down event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   onPointerDown(user, pos) {
     if (user.imageBrush) {
       this.board.beginStroke(user);
       this.lastPos = { x: pos.x, y: pos.y };
       this.lastTime = performance.now();
-      // Reset GIH brush dimensions on new stroke
       if (user.imageBrush.type === 'gih' && user.imageBrush.reset) {
         user.imageBrush.reset();
       }
-      // Initialize dirty rect tracking
       this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-      // Stamp first image immediately and track position
       this.drawStamp(user, pos);
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
     }
   }
 
+  /**
+   * Handles pointer move event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   */
   onPointerMove(user, pos) {
     if (!user.mousedown || user.panning || !user.imageBrush) return;
 
     const lastStamp = this.lastStampPos.get(user.id);
     if (!lastStamp) {
-      // Fallback: stamp and track
       this.drawStamp(user, pos);
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
       this.board.requestUpdate();
       return;
     }
 
-    // Distance-based spacing
     const dx = pos.x - lastStamp.x;
     const dy = pos.y - lastStamp.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
-    // Spacing calculation: 0 = 10% (default), 1-20 = 5%-100% of brush size
     const spacingPercent = user.spacing === 0 ? 0.1 : (user.spacing * 0.05);
     const minSpacing = Math.max(1, user.size * spacingPercent);
 
     if (distance >= minSpacing) {
-      // Interpolate stamps along the path for smooth coverage
       const steps = Math.max(1, Math.floor(distance / minSpacing));
 
       for (let i = 1; i <= steps; i++) {
@@ -85,21 +129,24 @@ export class ImageBrushTool extends Tool {
         this.drawStamp(user, { x: interpX, y: interpY });
       }
 
-      // Update last stamp position to the final interpolated point
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
       this.board.requestUpdate();
     }
   }
 
+  /**
+   * Handles pointer up event.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Event} e - The pointer event.
+   */
   onPointerUp(user, pos, e) {
     if (user.panning || !user.imageBrush) return;
 
-    // Update dirty rect before ending stroke with 25% safety margin
     if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
-      // Add 25% safety margin for image brush edges/anti-aliasing
       const brushRadius = user.size;
       const safetyMargin = brushRadius * 0.25;
-      const margin = safetyMargin + 2; // +2 for anti-aliasing
+      const margin = safetyMargin + 2; 
 
       const x = Math.floor(this.dirtyBounds.minX - margin);
       const y = Math.floor(this.dirtyBounds.minY - margin);
@@ -108,7 +155,6 @@ export class ImageBrushTool extends Tool {
 
       this.board.expandDirtyRect(user, x, y, width, height);
 
-      // Mirror dirty rect if mirror mode is enabled
       if (this.board.mirror) {
         const boardWidth = this.board.getWidth();
         const mirrorX = Math.floor(boardWidth - this.dirtyBounds.maxX - margin);
@@ -116,22 +162,24 @@ export class ImageBrushTool extends Tool {
       }
     }
 
-    // Composite all layers to visible canvas and bake the volatile sub-layer
     this.board.compositeAllLayers();
     this.board.endStroke(user);
 
-    // Clean up tracking
     this.lastStampPos.delete(user.id);
     this.dirtyBounds = null;
   }
 
+  /**
+   * Draws a single brush stamp at the given position.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The position to draw the stamp.
+   */
   drawStamp(user, pos) {
     const brush = user.imageBrush;
     const size = user.size;
-    const pressure = user.pressure ?? 1;  // Use ?? instead of || so 0 doesn't default to 1
+    const pressure = user.pressure ?? 1;
     const scaledSize = size * pressure;
     
-    // Get the volatile stroke context from LayerManager for correct depth sorting
     const ctx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
     if (!ctx) return;
 
@@ -145,26 +193,21 @@ export class ImageBrushTool extends Tool {
       height = brush.cellheight;
       width = brush.cellwidth;
 
-      // Calculate context for selection modes
       const context = this.calculateContext(user, pos);
 
-      // Use the new getNextBrush method if available
       if (brush.getNextBrush) {
         const result = brush.getNextBrush(context);
         image = brush.images[result.index];
       } else {
-        // Fallback to old incremental behavior
         image = brush.images[brush.index];
         brush.index = (brush.index + 1) % brush.ncells;
       }
     } else if (brush.type === 'image') {
-      // Handle standard image formats (PNG, JPG, WebP)
       height = brush.height;
       width = brush.width;
       image = brush.image;
     }
 
-    // Update last position and time for next calculation
     this.lastPos = { x: pos.x, y: pos.y };
     this.lastTime = performance.now();
 
@@ -188,7 +231,6 @@ export class ImageBrushTool extends Tool {
     ctx.stroke();
     ctx.globalAlpha = 1.0;
 
-    // Track dirty bounds (local path uses this in onPointerUp)
     if (this.dirtyBounds) {
       this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, stampX);
       this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, stampY);
@@ -196,13 +238,15 @@ export class ImageBrushTool extends Tool {
       this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, stampY + stampH);
     }
 
-    // Expand dirty rect per-stamp so remote users also get fast commit paths
     this.board.expandDirtyRect(user, Math.floor(stampX), Math.floor(stampY),
       Math.ceil(stampW) + 1, Math.ceil(stampH) + 1);
   }
 
   /**
-   * Calculate context for GIH selection modes
+   * Calculate context for GIH selection modes.
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @returns {Object} - The context object for GIH selection.
    */
   calculateContext(user, pos) {
     const context = {
@@ -213,24 +257,20 @@ export class ImageBrushTool extends Tool {
       tiltY: 0
     };
 
-    // Calculate angle from last position
     if (this.lastPos) {
       const dx = pos.x - this.lastPos.x;
       const dy = pos.y - this.lastPos.y;
 
       if (dx !== 0 || dy !== 0) {
-        // Calculate angle in degrees (0 = up, 90 = right, 180 = down, 270 = left)
-        // Math.atan2 gives angle from positive x-axis, we want from negative y-axis
         let angle = Math.atan2(dx, -dy) * (180 / Math.PI);
         context.angle = ((angle % 360) + 360) % 360;
       }
 
-      // Calculate velocity (pixels per millisecond)
       if (this.lastTime) {
         const dt = performance.now() - this.lastTime;
         if (dt > 0) {
           const distance = Math.sqrt(dx * dx + dy * dy);
-          context.velocity = distance / dt * 16; // Normalize to ~60fps
+          context.velocity = distance / dt * 16; 
         }
       }
     }
@@ -238,11 +278,16 @@ export class ImageBrushTool extends Tool {
     return context;
   }
 
+  /**
+   * Loads a brush from a file.
+   * @param {File} file - The brush file to load.
+   * @param {Object} user - The user associated with the brush.
+   * @returns {Promise<Object>} - A promise that resolves to the loaded brush object.
+   */
   loadBrush(file, user) {
     return new Promise((resolve, reject) => {
       const fileType = file.name.split('.').pop().toLowerCase();
 
-      // Handle standard image formats (PNG, JPG, WebP)
       if (['png', 'jpg', 'jpeg', 'webp'].includes(fileType)) {
         const reader = new FileReader();
         reader.onload = () => {
@@ -272,7 +317,6 @@ export class ImageBrushTool extends Tool {
         return;
       }
 
-      // Handle GIMP brush formats
       const reader = new FileReader();
       reader.onload = () => {
         const arrayBuffer = reader.result;

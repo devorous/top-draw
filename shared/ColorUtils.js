@@ -1,5 +1,5 @@
 /**
- * Shared color packing/unpacking utilities
+ * @fileoverview Shared color packing/unpacking utilities
  * Used by both client and server for RGBA color encoding in protobuf
  */
 
@@ -11,7 +11,7 @@
  */
 export function packColor(rgba) {
   if (!rgba || rgba.length < 4) return 0xFF000000;
-  const alpha = Math.round(rgba[3] * 255); // Convert 0-1 to 0-255
+  const alpha = Math.round(rgba[3] * 255);
   return ((rgba[0] & 0xFF) << 24) | ((rgba[1] & 0xFF) << 16) |
          ((rgba[2] & 0xFF) << 8) | (alpha & 0xFF);
 }
@@ -27,6 +27,6 @@ export function unpackColor(packed) {
     (packed >>> 24) & 0xFF,
     (packed >>> 16) & 0xFF,
     (packed >>> 8) & 0xFF,
-    ((packed & 0xFF) / 255) // Convert 0-255 back to 0-1
+    ((packed & 0xFF) / 255)
   ];
 }

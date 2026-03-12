@@ -1,25 +1,24 @@
-/**
- * RegionStore - In-memory storage for canvas regions
- *
- * Stores finalized regions with their PNG data for sync to new users.
- * Data is ephemeral - cleared when the last user leaves.
- */
+/** @fileoverview In-memory storage for canvas regions, storing finalized PNG data for synchronization. */
 
+/**
+ * Stores finalized regions with their PNG data for sync to new users.
+ * Data is ephemeral and cleared when the last user leaves.
+ */
 export class RegionStore {
   constructor() {
-    // regionId -> { id, userId, hull, bounds, timestamp, imageData }
+    /** @type {Map<string, Object>} */
     this.regions = new Map();
   }
 
   /**
-   * Add a new region to the store
-   * @param {Object} region - Region data
-   * @param {string} region.id - Unique region ID
-   * @param {number} region.userId - User who created the region
-   * @param {Array<number>} region.hull - Hull points [x1, y1, x2, y2, ...]
-   * @param {Object} region.bounds - Bounding box {x, y, width, height}
-   * @param {number} region.timestamp - Creation timestamp
-   * @param {Uint8Array|Buffer} region.imageData - PNG image data
+   * Adds a new region to the store.
+   * @param {Object} region - Region data object.
+   * @param {string} region.id - Unique region ID.
+   * @param {number} region.userId - Session index of the user who created the region.
+   * @param {Array<number>} region.hull - Hull points [x1, y1, x2, y2, ...].
+   * @param {Object} region.bounds - Bounding box {x, y, width, height}.
+   * @param {number} region.timestamp - Creation timestamp.
+   * @param {Uint8Array|Buffer} region.imageData - PNG image data.
    */
   addRegion(region) {
     this.regions.set(region.id, {
@@ -30,66 +29,61 @@ export class RegionStore {
       timestamp: region.timestamp,
       imageData: region.imageData
     });
-
   }
 
   /**
-   * Remove a region by ID
-   * @param {string} regionId - Region ID to remove
-   * @returns {boolean} True if region was removed
+   * Removes a region from the store by its ID.
+   * @param {string} regionId - The ID of the region to remove.
+   * @returns {boolean} - True if the region existed and was removed.
    */
   removeRegion(regionId) {
-    const existed = this.regions.delete(regionId);
-    if (existed) {
-    }
-    return existed;
+    return this.regions.delete(regionId);
   }
 
   /**
-   * Get a region by ID
-   * @param {string} regionId - Region ID
-   * @returns {Object|undefined} Region data or undefined
+   * Retrieves a region by its ID.
+   * @param {string} regionId - The ID of the region.
+   * @returns {Object|undefined} - The region data or undefined if not found.
    */
   getRegion(regionId) {
     return this.regions.get(regionId);
   }
 
   /**
-   * Get all regions
-   * @returns {Array<Object>} Array of all regions
+   * Returns an array of all stored regions.
+   * @returns {Array<Object>} - A list of all regions.
    */
   getAllRegions() {
     return Array.from(this.regions.values());
   }
 
   /**
-   * Get regions created by a specific user
-   * @param {number} userId - User session index
-   * @returns {Array<Object>} Array of user's regions
+   * Returns all regions created by a specific user.
+   * @param {number} userId - The user's session index.
+   * @returns {Array<Object>} - A list of regions created by the user.
    */
   getRegionsByUser(userId) {
     return this.getAllRegions().filter(r => r.userId === userId);
   }
 
   /**
-   * Clear all regions
+   * Clears all regions from the store.
    */
   clear() {
-    const count = this.regions.size;
     this.regions.clear();
   }
 
   /**
-   * Get total number of regions
-   * @returns {number}
+   * Returns the total number of regions in the store.
+   * @returns {number} - The region count.
    */
   getCount() {
     return this.regions.size;
   }
 
   /**
-   * Get total size of stored image data in bytes
-   * @returns {number}
+   * Calculates the total size of all stored image data in bytes.
+   * @returns {number} - The total size in bytes.
    */
   getTotalSize() {
     let total = 0;
