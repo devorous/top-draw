@@ -788,10 +788,11 @@ export class DrawingApp {
     if (elements.opacityLock) elements.opacityLock.addEventListener('click', () => this.toolLockManager.toggleLock('opacity'));
     if (elements.blurRadiusLock) elements.blurRadiusLock.addEventListener('click', () => this.toolLockManager.toggleLock('blurRadius'));
 
-    elements.board.addEventListener('pointermove', (e) => this.handlePointerMove(e));
     elements.board.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
-    elements.board.addEventListener('pointerup', (e) => this.handlePointerUp(e));
-    elements.board.addEventListener('pointercancel', (e) => this.handlePointerUp(e));
+    window.addEventListener('pointermove', (e) => this.handlePointerMove(e));
+    window.addEventListener('pointerup', (e) => this.handlePointerUp(e));
+    window.addEventListener('pointercancel', (e) => this.handlePointerUp(e));
+
     elements.board.addEventListener('pointerenter', () => {
            this.isOnBoard = true;
     
@@ -812,13 +813,6 @@ export class DrawingApp {
     });
     elements.board.addEventListener('pointerleave', (e) => this.handlePointerLeave(e));
 
-    // Also listen for pointerup on document to catch releases outside the board
-    // This ensures eraser regions and other strokes finalize properly
-    document.addEventListener('pointerup', (e) => {
-      if (this.self.mousedown) {
-        this.handlePointerUp(e);
-      }
-    });
     elements.board.addEventListener('wheel', (e) => this.handleWheel(e));
     elements.board.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -1780,8 +1774,9 @@ export class DrawingApp {
       return;
     }
 
-    const x = Math.round(e.offsetX * 100) / 100;
-    const y = Math.round(e.offsetY * 100) / 100;
+    const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
+    const x = pos.x;
+    const y = pos.y;
 
     // Text tool: update pending position for touch drag preview
     if (this.self.tool === 'text' && this.self._pendingTextPos && e.pointerType === 'touch') {
@@ -1969,7 +1964,7 @@ export class DrawingApp {
       this.wsClient.broadcastPressureChange(1);
     }
 
-    const pos = { x: Math.round(e.offsetX * 100) / 100, y: Math.round(e.offsetY * 100) / 100 };
+    const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
 
     // Initialize input buffer for this stroke
     this.inputBufferManager.inputBuffer.position = pos;
@@ -2194,8 +2189,8 @@ export class DrawingApp {
   handlePointerLeave(e) {
     this.isOnBoard = false;
 
-    // Keep cursor visible if text tool is active
-    if (this.self.tool === 'text') {
+    // Keep cursor visible if drawing or if text tool is active
+    if (this.self.mousedown || this.self.tool === 'text') {
       return;
     }
 

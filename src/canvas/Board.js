@@ -174,7 +174,50 @@ export class Board {
     this.boardsWrapper.style.left = '';
     this.boardsWrapper.style.top = '';
   }
-  
+
+  /**
+   * Transforms screen (client) coordinates to board-space coordinates.
+   * Accounts for zoom, pan, and rotation.
+   * @param {number} clientX - Screen X coordinate
+   * @param {number} clientY - Screen Y coordinate
+   * @returns {{x: number, y: number}} - Board-relative coordinates
+   */
+  getBoardRelativePos(clientX, clientY) {
+    const rect = this.boardsWrapper.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+
+    // The rect from getBoundingClientRect accounts for the transform (scale/rotate).
+    // To get back to canonical board space, we need to undo rotation and scale.
+    // The pan (translate) is already handled by being relative to rect.left/top, 
+    // but the rect's top-left is the top-left of the BOUNDING BOX of the transformed element.
+
+    // A more robust way is to use the inverse matrix logic since we know the transform parameters.
+    // client -> boardContainer (pan is here) -> boardsWrapper (zoom and rotate are here)
+
+    // 1. Convert client to boardContainer space
+    const containerRect = this.container.getBoundingClientRect();
+    let bx = clientX - containerRect.left;
+    let by = clientY - containerRect.top;
+
+    // 2. Undo translation (pan)
+    bx -= this.panX;
+    by -= this.panY;
+
+    // 3. Undo rotation
+    const rad = -this.rotation * Math.PI / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const rx = bx * cos - by * sin;
+    const ry = bx * sin + by * cos;
+
+    // 4. Undo scale (zoom)
+    return {
+      x: Math.round((rx / this.zoom) * 100) / 100,
+      y: Math.round((ry / this.zoom) * 100) / 100
+    };
+  }
+
   /**
    * Set board rotation
    * @param {number} angle - Rotation angle in degrees
@@ -259,6 +302,34 @@ export class Board {
 
     this.applyTransform();
     return this.zoom;
+  }
+
+  /**
+   * Set viewport zoom level while keeping a boardContainer-space pivot fixed.
+   * @param {number} newZoom - Target zoom level
+   * @param {number} pivotX - Pivot X in boardContainer coordinates
+   * @param {number} pivotY - Pivot Y in boardContainer coordinates
+   */
+  setZoomAround(newZoom, pivotX, pivotY) {
+    const oldZoom = this.zoom;
+    const rad = this.rotation * Math.PI / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    // Get pivot in board-space
+    const dx = pivotX - this.panX;
+    const dy = pivotY - this.panY;
+    const boardX = (dx * cos + dy * sin) / oldZoom;
+    const boardY = (-dx * sin + dy * cos) / oldZoom;
+
+    // Apply new zoom
+    this.zoom = Math.max(0.2, Math.min(3, newZoom));
+
+    // Calculate new pan to keep pivot fixed
+    this.panX = pivotX - this.zoom * (boardX * cos - boardY * sin);
+    this.panY = pivotY - this.zoom * (boardX * sin + boardY * cos);
+
+    this.applyTransform();
   }
 
   /**

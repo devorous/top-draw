@@ -57,9 +57,9 @@ export class TouchHandler {
   init(element) {
     this.element = element;
     element.addEventListener('touchstart', this.handleTouchStart, { passive: false });
-    element.addEventListener('touchmove', this.handleTouchMove, { passive: false });
-    element.addEventListener('touchend', this.handleTouchEnd, { passive: false });
-    element.addEventListener('touchcancel', this.handleTouchEnd, { passive: false });
+    window.addEventListener('touchmove', this.handleTouchMove, { passive: false });
+    window.addEventListener('touchend', this.handleTouchEnd, { passive: false });
+    window.addEventListener('touchcancel', this.handleTouchEnd, { passive: false });
   }
 
   /**
@@ -107,24 +107,7 @@ export class TouchHandler {
    * @returns {Object} The converted {x, y} canvas coordinates.
    */
   screenToCanvas(screenX, screenY) {
-    const rect = this.element.getBoundingClientRect();
-
-    const visualX = screenX - rect.left;
-    const visualY = screenY - rect.top;
-
-    const zoom = this.board.zoom;
-    const canvasCenterX = this.element.offsetWidth / 2;
-    const canvasCenterY = this.element.offsetHeight / 2;
-    const visualCenterX = rect.width / 2;
-    const visualCenterY = rect.height / 2;
-
-    const relX = visualX - visualCenterX;
-    const relY = visualY - visualCenterY;
-
-    const canvasX = canvasCenterX + relX / zoom;
-    const canvasY = canvasCenterY + relY / zoom;
-
-    return { x: canvasX, y: canvasY };
+    return this.board.getBoardRelativePos(screenX, screenY);
   }
 
   /**
@@ -244,20 +227,8 @@ export class TouchHandler {
 
       case 'zoom': {
         const scale = currentDistance / this.state.initialDistance;
-        const newZoom = Math.max(0.2, Math.min(3, this.state.initialZoom * scale));
-
-        const px = this.state.pivotCanvasX;
-        const py = this.state.pivotCanvasY;
-        const rad = (this.board.rotation * Math.PI) / 180;
-
-        const rotatedX = px * Math.cos(rad) - py * Math.sin(rad);
-        const rotatedY = px * Math.sin(rad) + py * Math.cos(rad);
-
-        this.board.zoom = newZoom;
-        this.board.panX = this.state.initialCenter.x - (rotatedX * newZoom);
-        this.board.panY = this.state.initialCenter.y - (rotatedY * newZoom);
-
-        this.board.applyTransform();
+        const newZoom = this.state.initialZoom * scale;
+        this.board.setZoomAround(newZoom, currentCenter.x, currentCenter.y);
         this.ui.updateZoomDisplay(this.board.getZoomPercent());
         break;
       }
@@ -268,20 +239,7 @@ export class TouchHandler {
         if (angleDelta < -180) angleDelta += 360;
 
         const newRotation = this.state.initialRotation + angleDelta;
-        const rad = (newRotation * Math.PI) / 180;
-        const zoom = this.board.zoom;
-
-        const px = this.state.pivotCanvasX;
-        const py = this.state.pivotCanvasY;
-
-        const rotatedCanvasX = px * Math.cos(rad) - py * Math.sin(rad);
-        const rotatedCanvasY = px * Math.sin(rad) + py * Math.cos(rad);
-
-        this.board.rotation = newRotation;
-        this.board.panX = this.state.initialCenter.x - (rotatedCanvasX * zoom);
-        this.board.panY = this.state.initialCenter.y - (rotatedCanvasY * zoom);
-
-        this.board.applyTransform();
+        this.board.setRotationAround(newRotation, currentCenter.x, currentCenter.y);
         break;
       }
     }

@@ -133,6 +133,7 @@ export class UI {
       pressureEnabled: document.getElementById('pressureEnabled'),
       pressureDualSlider: document.getElementById('pressureDualSlider'),
       pressureContainer: document.getElementById('pressure-container'),
+      smoothingContainer: document.getElementById('smoothing-container'),
       smoothingSlider: document.querySelector('.slider.smoothing'),
       hardnessSlider: document.querySelector('.slider.hardness'),
       opacitySlider: document.querySelector('.slider.opacity'),
