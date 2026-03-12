@@ -14,6 +14,7 @@ export class RemoteUserUI {
     this.elements = elements;
     this.icons = icons;
     this.cursors = new Map();
+    this.userGroups = new Map(); // ipHash -> { element, userIds: Set }
   }
 
   /**
@@ -23,6 +24,8 @@ export class RemoteUserUI {
    */
   createRemoteUser(userId, userData) {
     const id = `u${userId}`;
+    // ... (keep existing cursor/svg creation)
+
     const cursor = document.createElement('div');
     cursor.className = `cursor ${id}`;
     cursor.style.left = `${userData.x}px`;
@@ -133,10 +136,169 @@ export class RemoteUserUI {
 
   /**
    * Create user list entry showing tool, color, name, and role badge.
+   * Groups users by IP hash only if multiple users share the same IP.
    * @param {string} userId - User's session ID
    * @param {Object} userData - User state data
    */
   createUserListEntry(userId, userData) {
+    const ipHash = userData.ipHash || userData.iph;
+
+    // If no IP hash, just add normally to the flat list
+    if (!ipHash) {
+      this._createSingleUserEntry(userId, userData, this.elements.userList);
+      return;
+    }
+
+    // Check if there's ALREADY another user with this IP hash
+    let existingUsersWithSameIp = [];
+    if (window.app && window.app.users) {
+      window.app.users.forEach((u, id) => {
+        if (id !== userId && u.ipHash === ipHash && u.username) {
+          existingUsersWithSameIp.push(id);
+        }
+      });
+    }
+
+    // If no one else has this IP yet, just add as a normal entry
+    if (existingUsersWithSameIp.length === 0) {
+      this._createSingleUserEntry(userId, userData, this.elements.userList);
+      return;
+    }
+
+    // Someone else has this IP. We need a group.
+    let group = this.userGroups.get(ipHash);
+    if (!group) {
+      // Create the group container, using the new user as the initial display user
+      group = this._createGroupContainer(ipHash, userId, userData);
+
+      // CAPTURE the existing user(s) who were previously flat in the list
+      existingUsersWithSameIp.forEach(otherId => {
+        const otherEntry = document.querySelector(`.userEntry.u${otherId}`);
+        if (otherEntry && otherEntry.parentElement === this.elements.userList) {
+          group.usersContainer.appendChild(otherEntry);
+          group.userIds.add(otherId);
+        }
+      });
+    }
+
+    // Add the new user to the group
+    group.userIds.add(userId);
+    this._createSingleUserEntry(userId, userData, group.usersContainer);
+    this._updateGroupSummary(ipHash);
+  }
+
+  /**
+   * Internal helper to create the group UI container.
+   * The header looks like a regular user entry, showing the most recently active user.
+   * @param {string} ipHash - IP hash key for the group
+   * @param {string} displayUserId - User ID to show in the header initially
+   * @param {Object} displayUserData - User data for the header display
+   */
+  _createGroupContainer(ipHash, displayUserId, displayUserData) {
+    const groupEl = document.createElement('div');
+    groupEl.className = 'userGroup';
+    groupEl.dataset.ipHash = ipHash;
+
+    // Header styled like a regular userEntry
+    const groupHeader = document.createElement('div');
+    groupHeader.className = 'userEntry groupHeader';
+    groupHeader.onclick = () => this.toggleGroup(ipHash);
+    groupHeader.oncontextmenu = (e) => {
+      if (window.app && window.app.moderation) {
+        window.app.moderation.showContextMenu(e, null, null, ipHash);
+      }
+    };
+
+    const toolEl = document.createElement('a');
+    toolEl.className = 'listTool groupHeaderTool';
+    const icon = this.icons[displayUserData.tool] || this.icons.brush;
+    toolEl.appendChild(icon.cloneNode(true));
+
+    const colorEl = document.createElement('a');
+    colorEl.className = 'listColor groupHeaderColor';
+    const color = Array.isArray(displayUserData.color) ? displayUserData.color : [0, 0, 0, 1];
+    colorEl.style.backgroundColor = `rgba(${color.join(',')})`;
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'listUser groupHeaderName';
+    nameEl.textContent = displayUserData.name || displayUserData.username || displayUserId;
+
+    const countBadge = document.createElement('span');
+    countBadge.className = 'groupCountBadge';
+    countBadge.textContent = '+1';
+
+    groupHeader.appendChild(toolEl);
+    groupHeader.appendChild(colorEl);
+    groupHeader.appendChild(nameEl);
+    groupHeader.appendChild(countBadge);
+
+    groupEl.appendChild(groupHeader);
+
+    const groupUsers = document.createElement('div');
+    groupUsers.className = 'groupUsers';
+    groupEl.appendChild(groupUsers);
+
+    this.elements.userList.appendChild(groupEl);
+
+    const group = {
+      element: groupEl,
+      usersContainer: groupUsers,
+      userIds: new Set(),
+      displayUserId,
+      headerToolEl: toolEl,
+      headerColorEl: colorEl,
+      headerNameEl: nameEl,
+      headerCountEl: countBadge,
+    };
+    this.userGroups.set(ipHash, group);
+    return group;
+  }
+
+  /**
+   * Update the group header to reflect the given user's current data.
+   * Call this when a user in the group becomes active.
+   * @param {string} ipHash - Group IP hash
+   * @param {string} userId - User ID to show in header
+   */
+  _setGroupDisplayUser(ipHash, userId) {
+    const group = this.userGroups.get(ipHash);
+    if (!group || group.displayUserId === userId) return;
+
+    group.displayUserId = userId;
+    const id = `u${userId}`;
+
+    const srcTool = document.querySelector(`.groupUsers .listTool.${id}`);
+    if (srcTool) group.headerToolEl.innerHTML = srcTool.innerHTML;
+
+    const srcColor = document.querySelector(`.groupUsers .listColor.${id}`);
+    if (srcColor) group.headerColorEl.style.backgroundColor = srcColor.style.backgroundColor;
+
+    const srcName = document.querySelector(`.groupUsers .listUser.${id}`);
+    if (srcName) {
+      group.headerNameEl.textContent = srcName.textContent;
+      group.headerNameEl.className = 'listUser groupHeaderName';
+      if (srcName.classList.contains('admin')) group.headerNameEl.classList.add('admin');
+      else if (srcName.classList.contains('mod')) group.headerNameEl.classList.add('mod');
+    }
+  }
+
+  /**
+   * Notify that a user was active — updates the group header to show their name.
+   * @param {string} userId - User ID
+   */
+  notifyUserActive(userId) {
+    for (const [ipHash, group] of this.userGroups.entries()) {
+      if (group.userIds.has(userId)) {
+        this._setGroupDisplayUser(ipHash, userId);
+        break;
+      }
+    }
+  }
+
+  /**
+   * Internal helper to create a single user entry.
+   */
+  _createSingleUserEntry(userId, userData, container) {
     const id = `u${userId}`;
     const entry = document.createElement('div');
     entry.className = `userEntry ${id}`;
@@ -149,15 +311,17 @@ export class RemoteUserUI {
 
     const colorEntry = document.createElement('a');
     colorEntry.className = `listColor ${id}`;
-    colorEntry.style.backgroundColor = `rgba(${userData.color.join(',')})`;
+    const color = Array.isArray(userData.color) ? userData.color : [0,0,0,1];
+    colorEntry.style.backgroundColor = `rgba(${color.join(',')})`;
 
     const userEntry = document.createElement('span');
     userEntry.className = `listUser ${id}`;
-    userEntry.textContent = userData.username || userId;
+    userEntry.textContent = userData.name || userData.username || userId;
 
-    if (userData.role === 2) {
+    const role = userData.role;
+    if (role === 2) {
       userEntry.classList.add('admin');
-    } else if (userData.role === 1) {
+    } else if (role === 1) {
       userEntry.classList.add('mod');
     }
 
@@ -170,7 +334,8 @@ export class RemoteUserUI {
     syncBtn.innerHTML = '&#8635;';
     syncBtn.style.cursor = 'pointer';
     syncBtn.style.opacity = '0.6';
-    syncBtn.onclick = () => {
+    syncBtn.onclick = (e) => {
+      e.stopPropagation();
       if (window.app && window.app.syncClient) {
         window.app.syncClient.requestSync(userId);
       }
@@ -182,7 +347,20 @@ export class RemoteUserUI {
     entry.appendChild(activeEntry);
     entry.appendChild(syncBtn);
 
-    this.elements.userList.appendChild(entry);
+    container.appendChild(entry);
+  }
+
+  _updateGroupSummary(ipHash) {
+    const group = this.userGroups.get(ipHash);
+    if (!group) return;
+    const extra = group.userIds.size - 1;
+    group.headerCountEl.textContent = `+${extra}`;
+  }
+
+  toggleGroup(ipHash) {
+    const group = this.userGroups.get(ipHash);
+    if (!group) return;
+    group.element.classList.toggle('expanded');
   }
 
   /**
@@ -193,6 +371,7 @@ export class RemoteUserUI {
    * @param {number} size - Current tool size
    */
   updateRemoteCursor(userId, x, y, size) {
+    this.notifyUserActive(userId);
     const id = `u${userId}`;
     const cursor = document.querySelector(`.cursor.${id}`);
     const circle = document.querySelector(`.circle.${id}`);
@@ -296,6 +475,14 @@ export class RemoteUserUI {
       text.style.color = `rgba(${r}, ${g}, ${b}, ${a * a})`;
     }
     if (colorEntry) colorEntry.style.backgroundColor = `rgba(${color.join(',')})`;
+
+    // Propagate to group header if this is the display user
+    for (const [ipHash, group] of this.userGroups.entries()) {
+      if (group.userIds.has(userId) && group.displayUserId === userId) {
+        group.headerColorEl.style.backgroundColor = `rgba(${color.join(',')})`;
+        break;
+      }
+    }
   }
 
   /**
@@ -310,6 +497,14 @@ export class RemoteUserUI {
 
     if (nameEl) nameEl.textContent = name;
     if (userEl) userEl.textContent = name;
+
+    // Propagate to group header if this is the display user
+    for (const [ipHash, group] of this.userGroups.entries()) {
+      if (group.userIds.has(userId) && group.displayUserId === userId) {
+        group.headerNameEl.textContent = name;
+        break;
+      }
+    }
   }
 
   /**
@@ -358,6 +553,39 @@ export class RemoteUserUI {
     document.querySelector(`.userEntry.${id}`)?.remove();
     document.querySelector(`.userBoard.${id}`)?.remove();
     this.cursors.delete(userId);
+    this.removeRemoteUserFromGroup(userId);
+  }
+
+  removeRemoteUserFromGroup(userId) {
+    for (const [ipHash, group] of this.userGroups.entries()) {
+      if (group.userIds.has(userId)) {
+        group.userIds.delete(userId);
+        
+        // If only 1 user left, dissolve the group
+        if (group.userIds.size === 1) {
+          const lastUserId = Array.from(group.userIds)[0];
+          const lastEntry = group.usersContainer.querySelector(`.userEntry.u${lastUserId}`);
+          if (lastEntry) {
+            // Move back to main list (before the group element to maintain rough order)
+            this.elements.userList.insertBefore(lastEntry, group.element);
+          }
+          group.element.remove();
+          this.userGroups.delete(ipHash);
+        } else if (group.userIds.size === 0) {
+          group.element.remove();
+          this.userGroups.delete(ipHash);
+        } else {
+          this._updateGroupSummary(ipHash);
+          // If the display user left, promote another user
+          if (group.displayUserId === userId) {
+            const nextId = Array.from(group.userIds)[0];
+            group.displayUserId = nextId;
+            this._setGroupDisplayUser(ipHash, nextId);
+          }
+        }
+        break;
+      }
+    }
   }
 
   /**
@@ -413,6 +641,16 @@ export class RemoteUserUI {
       toolEntry.innerHTML = '';
       const icon = this.icons[tool] || this.icons.brush;
       toolEntry.appendChild(icon.cloneNode(true));
+    }
+
+    // Propagate to group header if this is the display user
+    for (const [ipHash, group] of this.userGroups.entries()) {
+      if (group.userIds.has(userId) && group.displayUserId === userId) {
+        group.headerToolEl.innerHTML = '';
+        const icon = this.icons[tool] || this.icons.brush;
+        group.headerToolEl.appendChild(icon.cloneNode(true));
+        break;
+      }
     }
   }
 }

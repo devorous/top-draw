@@ -34,7 +34,8 @@ export class Room {
     this.lastActivity = Date.now();
     this.dbLoaded = false;
 
-    this.sessionManager = new SessionManager(this.broadcastToAll.bind(this));
+    const isDiscovery = id === '_discovery' || id === 'default';
+    this.sessionManager = new SessionManager(this.broadcastToAll.bind(this), isDiscovery);
     this.syncCoordinator = new SyncCoordinator(this.sessionManager, { clients: this.clients }, this.sendTo);
 
     this.POOLED_MSG = this.Msg.create();

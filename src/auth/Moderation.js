@@ -17,6 +17,7 @@ export class Moderation {
     // Context menu state
     this.targetSessionIndex = null;
     this.targetUser = null;
+    this.targetIpHash = null;
 
     // Callbacks wired by App.js
     this.onSync = null;
@@ -57,15 +58,23 @@ export class Moderation {
   /**
    * Position and show the user context menu
    */
-  showContextMenu(event, targetSessionIndex, targetUser) {
+  showContextMenu(event, targetSessionIndex, targetUser, ipHash = null) {
     event.preventDefault();
     event.stopPropagation();
 
     this.targetSessionIndex = targetSessionIndex;
     this.targetUser = targetUser;
+    this.targetIpHash = ipHash;
 
     const menu = document.getElementById('userContextMenu');
     if (!menu) return;
+
+    // Show/hide group-specific menu items
+    const groupItems = menu.querySelectorAll('.group-only');
+    const isGroup = ipHash && !targetSessionIndex && targetSessionIndex !== 0;
+    groupItems.forEach(item => {
+      item.style.display = isGroup ? 'block' : 'none';
+    });
 
     // Update mute button text based on whether user is already muted
     if (this.isMod()) {
@@ -99,9 +108,10 @@ export class Moderation {
   handleMenuAction(action) {
     const sessionIndex = this.targetSessionIndex;
     const user = this.targetUser;
+    const ipHash = this.targetIpHash;
     this.hideContextMenu();
 
-    if (!sessionIndex && sessionIndex !== 0) return;
+    if (!sessionIndex && sessionIndex !== 0 && !ipHash) return;
 
     switch (action) {
       case 'sync':
@@ -111,24 +121,29 @@ export class Moderation {
         if (this.onPM) this.onPM(sessionIndex, user);
         break;
       case 'wipe':
-        // Wipe all strokes from this user
-        if (confirm(`Wipe all strokes from ${user?.username || 'User ' + sessionIndex}?`)) {
-          if (this.onModWipe) this.onModWipe(sessionIndex, user?.username || '');
+        // Wipe all strokes from this user or group
+        const targetLabel = ipHash && !sessionIndex ? `all users in IP group ${ipHash}` : (user?.username || 'User ' + sessionIndex);
+        if (confirm(`Wipe all strokes from ${targetLabel}?`)) {
+          if (ipHash && !sessionIndex) {
+            if (this.onModGroupAction) this.onModGroupAction('wipe', ipHash);
+          } else {
+            if (this.onModWipe) this.onModWipe(sessionIndex, user?.username || '');
+          }
         }
         break;
       case 'mute':
-        if (user?.isMuted) {
+        if (user?.isMuted && !ipHash) {
           // Unmute immediately (no dialog needed)
           if (this.onModAction) this.onModAction(3, sessionIndex, '', 0);
         } else {
-          this.showModDialog('mute', sessionIndex, user);
+          this.showModDialog('mute', sessionIndex, user, ipHash);
         }
         break;
       case 'kick':
-        this.showModDialog('kick', sessionIndex, user);
+        this.showModDialog('kick', sessionIndex, user, ipHash);
         break;
       case 'ban':
-        this.showModDialog('ban', sessionIndex, user);
+        this.showModDialog('ban', sessionIndex, user, ipHash);
         break;
     }
   }
@@ -138,11 +153,13 @@ export class Moderation {
   /**
    * Show a dialog to collect reason/duration before executing a mod action
    * @param {'kick'|'mute'|'ban'} action
-   * @param {number} sessionIndex
-   * @param {Object} user
+   * @param {number|null} sessionIndex
+   * @param {Object|null} user
+   * @param {string|null} ipHash
    */
-  showModDialog(action, sessionIndex, user) {
-    const username = user?.username || `User ${sessionIndex}`;
+  showModDialog(action, sessionIndex, user, ipHash = null) {
+    const isGroup = ipHash && !sessionIndex && sessionIndex !== 0;
+    const targetName = isGroup ? `Group ${ipHash}` : (user?.username || `User ${sessionIndex}`);
 
     // Action type codes: 0=kick, 1=mute, 2=ban
     const actionCodes = { kick: 0, mute: 1, ban: 2 };
@@ -153,7 +170,7 @@ export class Moderation {
     const overlay = document.createElement('div');
     overlay.className = 'modDialog-overlay';
 
-    const title = `${action.charAt(0).toUpperCase() + action.slice(1)} ${this.escapeHtml(username)}`;
+    const title = `${action.charAt(0).toUpperCase() + action.slice(1)} ${this.escapeHtml(targetName)}`;
 
     overlay.innerHTML = `
       <div class="modDialog">
@@ -196,8 +213,15 @@ export class Moderation {
       const reason = reasonInput.value.trim();
       const duration = durationSelect ? Number(durationSelect.value) : 0;
       close();
-      if (this.onModAction) {
-        this.onModAction(actionCode, sessionIndex, reason, duration);
+      
+      if (isGroup) {
+        if (this.onModGroupAction) {
+          this.onModGroupAction(action, ipHash, reason, duration);
+        }
+      } else {
+        if (this.onModAction) {
+          this.onModAction(actionCode, sessionIndex, reason, duration);
+        }
       }
     };
 

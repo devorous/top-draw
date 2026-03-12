@@ -17,15 +17,45 @@ const AFK_CHECK_INTERVAL = 30 * 1000;
 export class SessionManager {
   /**
    * @param {function} broadcastCallback - Function to broadcast messages to all users.
+   * @param {boolean} [isDiscovery=false] - Whether this manager is for a discovery/lobby room.
    */
-  constructor(broadcastCallback) {
+  constructor(broadcastCallback, isDiscovery = false) {
     this.sessions = new Map();
     this.users = new Map();
     this.nextSessionIndex = 0;
     this.freedIndices = [];
     this.broadcastToAll = broadcastCallback;
+    this.isDiscovery = isDiscovery;
 
     this.afkCheckInterval = setInterval(() => this.checkAfkUsers(), AFK_CHECK_INTERVAL);
+  }
+
+  /**
+   * Returns a unique name by appending a suffix if the name is already taken.
+   * @param {string} name - The desired name.
+   * @param {number|null} [excludeSessionIndex=null] - The session index to exclude from the check.
+   * @returns {string} - A unique name.
+   */
+  getUniqueName(name, excludeSessionIndex = null) {
+    if (!name) return '';
+    
+    const joinedUsers = this.getJoinedUsers();
+    let uniqueName = name;
+    let suffix = 1;
+
+    const isNameTaken = (n) => {
+      return joinedUsers.some(u => 
+        u.sessionIndex !== excludeSessionIndex && 
+        u.name.toLowerCase() === n.toLowerCase()
+      );
+    };
+
+    while (isNameTaken(uniqueName)) {
+      uniqueName = `${name}-${suffix}`;
+      suffix++;
+    }
+
+    return uniqueName;
   }
 
   /**
@@ -53,9 +83,10 @@ export class SessionManager {
    * @param {string} [name=''] - User's display name.
    * @param {number} tool - Initial tool ID.
    * @param {number} color - Initial packed RGBA color.
+   * @param {string} [ipHash=''] - Obfuscated IP hash.
    * @returns {Object} - The created user object.
    */
-  createUser(sessionIndex, name = '', tool, color) {
+  createUser(sessionIndex, name = '', tool, color, ipHash = '') {
     const newUser = {
       sessionIndex,
       afk: false,
@@ -74,7 +105,8 @@ export class SessionManager {
       name,
       text: '',
       imageBrush: null,
-      role: Role.ADMIN
+      role: Role.ADMIN,
+      ipHash
     };
     this.users.set(sessionIndex, newUser);
     return newUser;
@@ -99,9 +131,11 @@ export class SessionManager {
 
   /**
    * Returns all users who have joined the room (i.e., have a name).
+   * For discovery rooms, this always returns an empty list to prevent ghost users.
    * @returns {Array<Object>} - A list of joined user objects.
    */
   getJoinedUsers() {
+    if (this.isDiscovery) return [];
     return Array.from(this.users.values()).filter(u => u.name);
   }
 

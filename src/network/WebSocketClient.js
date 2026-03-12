@@ -287,7 +287,7 @@ export class WebSocketClient {
         this.sessionIndex = data.u;
         this.role = data.authRole !== undefined ? data.authRole : 0;
         if (this.onConnect) {
-          this.onConnect(this.sessionIndex, this.role);
+          this.onConnect(this.sessionIndex, this.role, data.authUsername, data.iph);
         }
         break;
 
@@ -314,7 +314,9 @@ export class WebSocketClient {
           cursorHidden: u.ch || false,
           blurRadius: (u.br ?? 500),
           activeLayer: u.ly ?? 0,
-          blendMode: u.bm || 'source-over'
+          blendMode: u.bm || 'source-over',
+          imageBrush: u.ib,
+          ipHash: u.iph
         }));
         this.emit('users', { users });
         break;
@@ -399,6 +401,7 @@ export class WebSocketClient {
         this.emit('cn', {
           sessionIndex: data.u,
           name: data.n,
+          message: data.g,
           size: data.s !== undefined ? data.s / 100 : undefined,
           tool: data.l !== undefined ? ToolNames[data.l] : undefined,
           color: data.c !== undefined ? unpackColor(data.c) : undefined,

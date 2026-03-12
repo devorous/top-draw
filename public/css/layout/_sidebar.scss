@@ -347,19 +347,10 @@
   font-weight: 600;
 }
 
-/* Tool Options Panel */
-#toolOptions {
-  display: flex;
-  flex-direction: column;
-  width: 200px;
-  background: var(--bg-tertiary);
-  border-left: 1px solid var(--border-subtle);
-}
-
 #options {
   flex: 1;
   padding: 10px;
-  padding-top:5px;
+  padding-top: 5px;
   overflow-y: auto;
 }
 

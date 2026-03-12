@@ -47,6 +47,7 @@ export class User {
     this.afk = options.afk || false;
     this.role = options.role || 0;
     this.isMuted = options.isMuted || false;
+    this.ipHash = options.ipHash || options.iph || '';
   }
 
   /**

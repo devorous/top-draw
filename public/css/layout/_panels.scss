@@ -110,3 +110,128 @@
   opacity: 1.0 !important;
 }
 
+/* ========================================
+   IP Group (same-IP users collapsed entry)
+   ======================================== */
+
+.userGroup {
+  position: relative;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  margin-bottom: 8px;
+  background: var(--bg-secondary);
+  transition: transform 0.2s ease, margin-bottom 0.3s ease;
+  overflow: visible;
+
+  // Card stack layer 1 — offset down and right
+  &::before {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    top: 4px;
+    left: 4px;
+    right: -4px;
+    bottom: -4px;
+    border: 1.5px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+    pointer-events: none;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+  }
+
+  // Card stack layer 2 — more offset
+  &::after {
+    content: '';
+    position: absolute;
+    z-index: -2;
+    top: 8px;
+    left: 8px;
+    right: -8px;
+    bottom: -8px;
+    border: 1.5px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    pointer-events: none;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+  }
+
+  // When expanded, card stack is replaced by the actual user list
+  &.expanded {
+    margin-bottom: 12px;
+    
+    &::before {
+      transform: translate(2px, 2px);
+      opacity: 0.5;
+    }
+    
+    &::after {
+      transform: translate(4px, 4px);
+      opacity: 0.2;
+    }
+  }
+
+  // Group header styled like a normal userEntry
+  .groupHeader {
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    position: relative;
+    z-index: 2;
+    background: inherit;
+
+    &:hover {
+      background: var(--bg-elevated);
+    }
+  }
+}
+
+.groupCountBadge {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.groupUsers {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+
+  .userEntry {
+    background: transparent;
+    padding: 6px 10px 6px 16px;
+    border-radius: 0;
+    font-size: 12px;
+    opacity: 0.8;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.04);
+      opacity: 1;
+    }
+  }
+}
+
+.userGroup.expanded .groupUsers {
+  max-height: 1000px;
+  opacity: 1;
+  padding: 2px 0;
+}
+
+.group-only {
+  display: none;
+}
+

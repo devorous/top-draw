@@ -1437,6 +1437,125 @@ canvas,
   font-size: 13px;
 }
 
+/* User List Grouping */
+.userGroup {
+  position: relative;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  margin-bottom: 8px;
+  background: var(--bg-secondary);
+  transition: transform 0.2s ease, margin-bottom 0.3s ease;
+  overflow: visible;
+}
+
+/* Card stack strips — offset down and right */
+.userGroup::before,
+.userGroup::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+  border-radius: var(--radius-sm);
+}
+
+/* First card — slightly offset */
+.userGroup::before {
+  z-index: -1;
+  top: 4px;
+  left: 4px;
+  right: -4px;
+  bottom: -4px;
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-tertiary);
+}
+
+/* Second card — more offset */
+.userGroup::after {
+  z-index: -2;
+  top: 8px;
+  left: 8px;
+  right: -8px;
+  bottom: -8px;
+  border: 1.5px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-secondary);
+}
+
+/* When expanded the sub-list replaces the visual */
+.userGroup.expanded {
+  margin-bottom: 12px;
+}
+.userGroup.expanded::before {
+  transform: translate(2px, 2px);
+  opacity: 0.5;
+}
+.userGroup.expanded::after {
+  transform: translate(4px, 4px);
+  opacity: 0.2;
+}
+
+.userGroup .groupHeader {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  position: relative;
+  z-index: 2;
+  background: inherit;
+}
+
+.userGroup .groupHeader:hover {
+  background: var(--bg-elevated);
+}
+
+.groupCountBadge {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.groupUsers {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+.userGroup.expanded .groupUsers {
+  max-height: 1000px;
+  opacity: 1;
+  padding: 2px 0;
+}
+
+.groupUsers .userEntry {
+  background: transparent;
+  padding: 6px 10px 6px 16px;
+  border-radius: 0;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.groupUsers .userEntry:hover {
+  background: rgba(255, 255, 255, 0.04);
+  opacity: 1;
+}
+
+.group-only {
+  display: none;
+}
+
 .listTool {
   display: flex;
   align-items: center;
@@ -2526,30 +2645,31 @@ body.parameter-dragging * {
 
 .contextMenu {
   position: fixed;
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px;
+  z-index: 10000;
   background: var(--surface-glass);
   backdrop-filter: blur(12px);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
+  padding: 6px;
+  min-width: 180px;
   box-shadow: var(--shadow-md);
-  min-width: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .contextMenu .menuItem {
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-primary);
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
   background: transparent;
+  color: var(--text-primary);
   border: none;
   border-radius: var(--radius-sm);
+  text-align: left;
+  font-size: 14px;
   cursor: pointer;
   transition: all var(--transition-fast);
-  text-align: left;
   white-space: nowrap;
 }
 

@@ -144,6 +144,7 @@ message Msg {
     uint32 ly = 17;     // Active layer index
     string bm = 18;     // Blend mode
     string ib = 19;     // Image brush data (JSON)
+    string iph = 20;    // Obfuscated IP hash for grouping
   }
   repeated U us = 17;   // Users array
 

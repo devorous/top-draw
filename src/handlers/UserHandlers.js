@@ -26,74 +26,83 @@ export function setupUserHandlers(wsClient, app) {
     // Authoritative Update/Create
     data.users.forEach(userData => {
       console.log(`[USERS] Processing user ${userData.name}(${userData.sessionIndex}), self=${app.sessionIndex}`);
-      if (userData.sessionIndex !== app.sessionIndex) {
-        let user = users.get(userData.sessionIndex);
-        const username = userData.name || userData.username || '';
+      
+      if (userData.sessionIndex === app.sessionIndex) {
+        // Authoritative update for SELF (e.g. if name was forced unique)
+        if (userData.name && userData.name !== app.self.username) {
+          app.self.setUsername(userData.name);
+          app.ui.updateSelfName(userData.name);
+        }
+        return;
+      }
 
-        if (!user) {
-          // New user
-          const userOptions = {
-            ...userData,
-            username,
-            afk: userData.afk || false,
-            opacity: userData.color ? userData.color[3] : 1,
-            role: userData.role || 0
-          };
+      let user = users.get(userData.sessionIndex);
+      const username = userData.name || userData.username || '';
 
-          user = new User(userData.sessionIndex, userOptions);
-          user.setTool(userData.tool);
-          users.set(userData.sessionIndex, user);
+      if (!user) {
+        // New user
+        const userOptions = {
+          ...userData,
+          username,
+          afk: userData.afk || false,
+          opacity: userData.color ? userData.color[3] : 1,
+          role: userData.role || 0,
+          ipHash: userData.iph || userData.ipHash || ''
+        };
 
-          const brushData = userData.ib || userData.imageBrush;
-          if (brushData && app.remoteUserHandler) {
-            app.remoteUserHandler.handleBrushLoad(user, brushData);
-          }
+        user = new User(userData.sessionIndex, userOptions);
+        user.setTool(userData.tool);
+        users.set(userData.sessionIndex, user);
 
-          const boardData = ui.createUserBoard(userData.sessionIndex);
-          user.board = boardData.board;
-          user.context = boardData.context;
-          user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(user.blendMode);
+        const brushData = userData.ib || userData.imageBrush;
+        if (brushData && app.remoteUserHandler) {
+          app.remoteUserHandler.handleBrushLoad(user, brushData);
+        }
 
-          if (username) {
-            ui.createRemoteUser(userData.sessionIndex, userOptions);
-            if (userData.cursorHidden) ui.hideRemoteCursor(userData.sessionIndex);
-          }
-        } else {
-          // Existing user - Update properties if they changed
-          const hadName = !!user.username;
-          
-          if (username && username !== user.username) {
-            user.setUsername(username);
-            if (!hadName) {
-              // User gained a name - create UI
-              ui.createRemoteUser(userData.sessionIndex, { ...userData, username });
-            } else {
-              ui.updateRemoteName(userData.sessionIndex, username);
-            }
-          }
+        const boardData = ui.createUserBoard(userData.sessionIndex);
+        user.board = boardData.board;
+        user.context = boardData.context;
+        user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(user.blendMode);
 
-          if (userData.tool && userData.tool !== user.tool) {
-            user.setTool(userData.tool);
-            ui.updateRemoteToolDisplay(userData.sessionIndex, userData.tool);
-          }
-
-          if (userData.color && (userData.color[0] !== user.color[0] || userData.color[1] !== user.color[1] || userData.color[2] !== user.color[2])) {
-            user.setColor(userData.color);
-            ui.updateRemoteColor(userData.sessionIndex, userData.color);
-          }
-
-          if (userData.size !== undefined && userData.size !== user.size) {
-            user.setSize(userData.size);
-            ui.updateRemoteSize(userData.sessionIndex, userData.size);
-          }
-
-          if (userData.role !== undefined && userData.role !== user.role) {
-            user.role = userData.role;
+        if (username) {
+          ui.createRemoteUser(userData.sessionIndex, userOptions);
+          if (userData.cursorHidden) ui.hideRemoteCursor(userData.sessionIndex);
+        }
+      } else {
+        // Existing user - Update properties if they changed
+        const hadName = !!user.username;
+        
+        if (username && username !== user.username) {
+          user.setUsername(username);
+          if (!hadName) {
+            // User gained a name - create UI
+            ui.createRemoteUser(userData.sessionIndex, { ...userData, username });
+          } else {
+            ui.updateRemoteName(userData.sessionIndex, username);
           }
         }
 
-        ui.setRemoteUserAfk(userData.sessionIndex, !!userData.afk);
+        if (userData.tool && userData.tool !== user.tool) {
+          user.setTool(userData.tool);
+          ui.updateRemoteToolDisplay(userData.sessionIndex, userData.tool);
+        }
+
+        if (userData.color && (userData.color[0] !== user.color[0] || userData.color[1] !== user.color[1] || userData.color[2] !== user.color[2])) {
+          user.setColor(userData.color);
+          ui.updateRemoteColor(userData.sessionIndex, userData.color);
+        }
+
+        if (userData.size !== undefined && userData.size !== user.size) {
+          user.setSize(userData.size);
+          ui.updateRemoteSize(userData.sessionIndex, userData.size);
+        }
+
+        if (userData.role !== undefined && userData.role !== user.role) {
+          user.role = userData.role;
+        }
       }
+
+      ui.setRemoteUserAfk(userData.sessionIndex, !!userData.afk);
     });
 
     app.updateChatUserList();

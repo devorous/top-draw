@@ -214,6 +214,25 @@ export class DrawingApp {
       this.wsClient.sendModWipe(sessionIndex, targetName);
     };
 
+    this.moderation.onModGroupAction = (action, ipHash, reason, duration) => {
+      const group = this.ui.remoteUserUI.userGroups.get(ipHash);
+      if (!group) return;
+
+      const actionCodes = { kick: 0, mute: 1, ban: 2 };
+      const actionCode = actionCodes[action];
+
+      console.log(`[Mod] Group action "${action}" on IP group ${ipHash} (${group.userIds.size} users)`);
+      
+      group.userIds.forEach(userId => {
+        if (action === 'wipe') {
+          const user = this.users.get(userId);
+          this.wsClient.sendModWipe(userId, user?.name || '');
+        } else {
+          this.wsClient.sendModAction(actionCode, userId, reason, duration);
+        }
+      });
+    };
+
     window.app = this;
 
     this.setupEventListeners();
@@ -952,13 +971,24 @@ export class DrawingApp {
    * Handles successful WebSocket connection.
    * @param {number} sessionIndex - The session index assigned by the server.
    * @param {number} role - The user's role level.
+   * @param {string} [assignedUsername] - Unique username assigned by server.
+   * @param {string} [ipHash] - IP hash for grouping.
    */
-  handleWSConnect(sessionIndex, role) {
+  handleWSConnect(sessionIndex, role, assignedUsername, ipHash) {
     if (this.isOfflineMode) return;
 
     this.sessionIndex = sessionIndex;
     this.self.id = sessionIndex;
     this.users.set(sessionIndex, this.self);
+
+    if (assignedUsername) {
+      this.self.setUsername(assignedUsername);
+      this.ui.updateSelfName(assignedUsername);
+    }
+
+    if (ipHash) {
+      this.self.ipHash = ipHash;
+    }
 
     if (role !== undefined) {
       this.selfRole = role;

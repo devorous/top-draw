@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
 import protobuf from 'protobufjs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { connectDB, getDB } from './db.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
@@ -55,6 +56,47 @@ function getClientIp(req) {
     return forwarded.split(',')[0].trim();
   }
   return req.socket.remoteAddress || '';
+}
+
+/**
+ * Generates an obfuscated hash from an IP address.
+ * @param {string} ip - The IP address.
+ * @returns {string} - The obfuscated hash.
+ */
+function getIpHash(ip) {
+  // We use a salt (you might want to make this persistent/env var)
+  const salt = process.env.IP_SALT || 'top-draw-secret-salt';
+  return crypto.createHash('sha256').update(ip + salt).digest('hex').substring(0, 12);
+}
+
+/**
+ * Maps user objects to a format suitable for the USERS broadcast.
+ * @param {Array<Object>} users - The list of user objects.
+ * @returns {Array<Object>} - The mapped user objects.
+ */
+function mapUsersForBroadcast(users) {
+  return users.map(u => ({
+    u: u.sessionIndex,
+    a: u.afk,
+    x: u.x,
+    y: u.y,
+    l: u.tool,
+    c: u.color,
+    s: u.size,
+    sp: u.spacing,
+    sm: u.smoothing,
+    hd: u.hardness,
+    p: u.pressure,
+    n: u.name,
+    tx: u.text,
+    role: u.role || Role.GUEST,
+    ch: u.cursorHidden || false,
+    br: u.blurRadius || 500,
+    ly: u.activeLayer || 0,
+    bm: u.blendMode || 'source-over',
+    ib: u.imageBrush,
+    iph: u.ipHash
+  }));
 }
 
 /**
@@ -244,36 +286,26 @@ async function handleBroadcast(data, sessionIndex, room) {
       break;
 
     case T.CN:
-      user.name = data.n;
+      const uniqueName = room.sessionManager.getUniqueName(data.n, sessionIndex);
+      user.name = uniqueName;
       room.sessionManager.updateUserActivity(sessionIndex);
 
-      console.log(`[CN] Session ${sessionIndex} changing name to "${data.n}"`);
+      console.log(`[CN] Session ${sessionIndex} changing name to "${data.n}" (unique: "${uniqueName}")`);
 
       const allUsers = room.sessionManager.getJoinedUsers();
-      createRoomBroadcaster(room)({
-        t: T.USERS,
-        us: allUsers.map(u => ({
-          u: u.sessionIndex,
-          a: u.afk,
-          x: u.x,
-          y: u.y,
-          l: u.tool,
-          c: u.color,
-          s: u.size,
-          sp: u.spacing,
-          sm: u.smoothing,
-          hd: u.hardness,
-          p: u.pressure,
-          n: u.name,
-          tx: u.text,
-          role: u.role || Role.GUEST,
-          ch: u.cursorHidden || false,
-          br: u.blurRadius || 500,
-          ly: u.activeLayer || 0,
-          bm: u.blendMode || 'source-over',
-          ib: u.imageBrush
-        }))
-      });
+      const cnBroadcaster = createRoomBroadcaster(room);
+      
+      if (!room.sessionManager.isDiscovery) {
+        cnBroadcaster({
+          t: T.USERS,
+          us: mapUsersForBroadcast(allUsers)
+        });
+      } else {
+        sendTo(ws, {
+          t: T.USERS,
+          us: mapUsersForBroadcast(allUsers)
+        });
+      }
       break;
 
     case T.KP:
@@ -488,44 +520,34 @@ wss.on('connection', (ws, req) => {
           const sessionIndex = room.sessionManager.allocateSessionIndex();
           ws.sessionIndex = sessionIndex;
 
-          const username = data.n || '';
+          const username = room.sessionManager.getUniqueName(data.n || 'Guest');
           console.log(`[CONNECT] Session ${sessionIndex} joining room ${room.id} as "${username}"`);
 
           room.sessionManager.createUser(
             sessionIndex,
             username,
             Tool.BRUSH,
-            packColor([0, 0, 0, 1])
+            packColor([0, 0, 0, 1]),
+            getIpHash(ws.clientIp)
           );
 
-          sendTo(ws, { t: T.CONNECT, u: sessionIndex, authRole: ws.userRole });
+          sendTo(ws, { t: T.CONNECT, u: sessionIndex, authRole: ws.userRole, authUsername: username });
 
           const allUsers = room.sessionManager.getJoinedUsers();
           const roomBroadcaster = createRoomBroadcaster(room);
-          roomBroadcaster({
-            t: T.USERS,
-            us: allUsers.map(u => ({
-              u: u.sessionIndex,
-              a: u.afk,
-              x: u.x,
-              y: u.y,
-              l: u.tool,
-              c: u.color,
-              s: u.size,
-              sp: u.spacing,
-              sm: u.smoothing,
-              hd: u.hardness,
-              p: u.pressure,
-              n: u.name,
-              tx: u.text,
-              role: u.role || Role.GUEST,
-              ch: u.cursorHidden || false,
-              br: u.blurRadius || 500,
-              ly: u.activeLayer || 0,
-              bm: u.blendMode || 'source-over',
-              ib: u.imageBrush
-            }))
-          });
+          
+          if (!room.sessionManager.isDiscovery) {
+            roomBroadcaster({
+              t: T.USERS,
+              us: mapUsersForBroadcast(allUsers)
+            });
+          } else {
+            // In discovery, only send to self, no broadcast
+            sendTo(ws, {
+              t: T.USERS,
+              us: mapUsersForBroadcast(allUsers)
+            });
+          }
 
           sendTo(ws, { t: T.SETTINGS, m: room.settings.mirror });
           break;
@@ -910,8 +932,10 @@ wss.on('connection', (ws, req) => {
 
             const user = room.sessionManager.getUser(ws.sessionIndex);
             if (user) {
+              const uniqueName = room.sessionManager.getUniqueName(regUsername, ws.sessionIndex);
               user.role = role;
-              user.name = regUsername;
+              user.name = uniqueName;
+              // ws.username remains the original registered username for AUTH_RESULT
             }
 
             sendTo(ws, {
@@ -920,6 +944,11 @@ wss.on('connection', (ws, req) => {
               authToken: token,
               authRole: role,
               authUsername: regUsername
+            });
+
+            createRoomBroadcaster(room)({
+              t: T.USERS,
+              us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
             });
           } catch (err) {
             if (err.code === 11000) {
@@ -1022,8 +1051,10 @@ wss.on('connection', (ws, req) => {
 
             const user = room.sessionManager.getUser(ws.sessionIndex);
             if (user) {
+              const uniqueName = room.sessionManager.getUniqueName(userDoc.username, ws.sessionIndex);
               user.role = userDoc.role;
-              user.name = userDoc.username;
+              user.name = uniqueName;
+              // ws.username remains original registered username for AUTH_RESULT
             }
 
             sendTo(ws, {
@@ -1032,6 +1063,11 @@ wss.on('connection', (ws, req) => {
               authToken: token,
               authRole: userDoc.role,
               authUsername: userDoc.username
+            });
+
+            createRoomBroadcaster(room)({
+              t: T.USERS,
+              us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
             });
 
             if (ws.isMuted) {
