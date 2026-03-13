@@ -366,7 +366,8 @@ export class RemoteUserHandler {
     if (!user.panning) {
       if (user.tool === 'erase' && user.eraseAllLayers) {
         this.board.beginStrokeAllLayers(user, 'destination-out');
-      } else {
+      } else if (user.tool !== 'blur') {
+        // Blur tool handles its own stroke creation in onPointerDown with filter metadata
         const blendMode = user.tool === 'erase' ? 'destination-out' : (user.blendMode || 'source-over');
         this.board.layerManager.beginUserStroke(user.activeLayer, user.id, blendMode);
       }
@@ -416,14 +417,7 @@ export class RemoteUserHandler {
         if (!user.panning) {
           const blurTool = this.toolManager.getTool('blur');
           if (blurTool) {
-            blurTool.initBlurSnapshot(user);
-            user.lastBlurPos = pos;
-            blurTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-            blurTool.applyBlur(pos.x, pos.y, user.size, user);
-            if (this.board.mirror) {
-              const width = this.board.getWidth();
-              blurTool.applyBlur(width - pos.x, pos.y, user.size, user);
-            }
+            blurTool.onPointerDown(user, pos);
           }
         }
         break;
@@ -578,6 +572,15 @@ export class RemoteUserHandler {
         }
         break;
 
+      case 'blur':
+        if (!user.panning) {
+          const blurTool = this.toolManager.getTool('blur');
+          if (blurTool) {
+            blurTool.onPointerUp(user, pos);
+          }
+        }
+        break;
+
       case 'text':
         if (user.text) {
           this.toolManager.getTool('text').drawText(user);
@@ -609,10 +612,6 @@ export class RemoteUserHandler {
     user.mousedown = false;
     user.startPos = null;
     user.lassoPoints = null;
-    user.blurSnapshot = null;
-
-    const blurTool = this.toolManager.getTool('blur');
-    if (blurTool) blurTool.lastStampPos.delete(user.id);
 
     const circleBlurTool = this.toolManager.getTool('circleBlur');
     if (circleBlurTool) circleBlurTool.lastStampPos.delete(user.id);
@@ -758,7 +757,7 @@ export class RemoteUserHandler {
       user._inkCtx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
     }
 
-    user.blurSnapshot = null;
+    delete user.blurBounds;
     user.lastBlurPos = null;
 
     const blurTool = this.toolManager.getTool('blur');
