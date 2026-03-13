@@ -86,6 +86,7 @@ export class Board {
 
     const [height, width] = this.dimensions;
     this.layerManager = new LayerManager(width, height);
+    this.layerManager.onNeedsUpdate = () => this.requestUpdate();
 
     this.calculateDefaultView();
     this.resetView();
@@ -506,12 +507,13 @@ export class Board {
   /**
    * End the current stroke for a user.
    * @param {Object} user - User object
+   * @param {Object} [extraProps={}] - Extra properties for the stroke record (e.g., filter metadata)
    */
-  endStroke(user) {
+  endStroke(user, extraProps = {}) {
     const activeLayer = user?.activeLayer ?? this.app?.self?.activeLayer ?? 0;
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     if (!this.layerManager) return;
-    this.layerManager.commitUserStroke(activeLayer, userId);
+    this.layerManager.commitUserStroke(activeLayer, userId, extraProps);
     this.requestUpdate();
   }
 

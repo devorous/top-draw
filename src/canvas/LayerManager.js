@@ -2,6 +2,8 @@
  * @fileoverview LayerManager - Manages multiple off-screen canvas layers with stroke history
  */
 
+import { blurImageData } from '../utils/blurUtils.js';
+
 /**
  * Manages multiple layer groups, each containing baked sequences, a stroke stack,
  * and active strokes for users. Handles compositing and baking of strokes.
@@ -25,6 +27,7 @@ export class LayerManager {
     this._groupBuffer = null;
     this._canvasPool = [];
     this.CANVAS_POOL_MAX = 12;
+    this.onNeedsUpdate = null; // Callback for Board to requestUpdate
 
     this.initLayerGroups(3);
   }
@@ -183,9 +186,10 @@ export class LayerManager {
    * @param {number} groupIdx - Layer index
    * @param {number} userId - User ID
    * @param {string} [createBlendMode='source-over'] - Blend mode if creating new stroke
+   * @param {Object} [metadata={}] - Optional metadata (e.g., filterType, blurRadius)
    * @returns {CanvasRenderingContext2D|undefined}
    */
-  getUserStrokeContext(groupIdx, userId, createBlendMode = 'source-over') {
+  getUserStrokeContext(groupIdx, userId, createBlendMode = 'source-over', metadata = {}) {
     const group = this.layerGroups[groupIdx];
     if (!group) return undefined;
 
@@ -196,8 +200,12 @@ export class LayerManager {
         canvas,
         ctx,
         blendMode: createBlendMode,
-        dirtyRect: { minX: this.width, minY: this.height, maxX: -1, maxY: -1 }
+        dirtyRect: { minX: this.width, minY: this.height, maxX: -1, maxY: -1 },
+        ...metadata
       };
+      if (metadata.filterType === 'blur') {
+        active.maskCanvas = canvas;
+      }
       group.activeStrokeByUser.set(userId, active);
     } else if (createBlendMode !== 'source-over' && active.blendMode !== createBlendMode) {
       active.blendMode = createBlendMode;
@@ -220,6 +228,36 @@ export class LayerManager {
 
     group.activeStrokeByUser.delete(userId);
 
+    // Handle filter strokes (blur) differently - they need metadata and potentially special rendering
+    if (extraProps.filterType === 'blur') {
+      const cropBounds = extraProps.cropBounds || { x: 0, y: 0, width: this.width, height: this.height };
+      const record = {
+        canvas: active.canvas,
+        ctx: active.ctx,
+        x: cropBounds.x,
+        y: cropBounds.y,
+        width: cropBounds.width,
+        height: cropBounds.height,
+        blendMode: active.blendMode,
+        userId,
+        timestamp: Date.now(),
+        filterType: 'blur',
+        blurRadius: extraProps.blurRadius,
+        maskCanvas: active.canvas
+      };
+
+      group.strokeStack.push(record);
+      const prev = group.userStrokeCounts.get(userId) || 0;
+      group.userStrokeCounts.set(userId, prev + 1);
+
+      this._bakeOverflowStrokes(group);
+      this._clearRedoStack(userId);
+      this.needsComposite = true;
+      this._notifyHistoryPanel();
+      return;
+    }
+
+    // Regular stroke handling
     const dr = active.dirtyRect;
     let bounds;
     if (dr && dr.maxX !== -1) {
@@ -243,7 +281,6 @@ export class LayerManager {
     }
 
     const { x, y, width, height } = bounds;
-
     const croppedCanvas = document.createElement('canvas');
     croppedCanvas.width = width;
     croppedCanvas.height = height;
@@ -994,26 +1031,142 @@ export class LayerManager {
     for (const item of group.bakedSequences) {
       if (item.type === 'group') {
         for (const stroke of item.strokes) {
-          ctx.globalCompositeOperation = stroke.blendMode;
-          ctx.drawImage(stroke.canvas, stroke.x, stroke.y);
+          this._compositeStroke(ctx, stroke, false);
         }
       } else {
-        ctx.globalCompositeOperation = item.blendMode;
-        ctx.drawImage(item.canvas, 0, 0);
+        this._compositeStroke(ctx, item, false);
       }
     }
 
     for (const stroke of group.strokeStack) {
-      ctx.globalCompositeOperation = stroke.blendMode;
-      ctx.drawImage(stroke.canvas, stroke.x, stroke.y);
+      this._compositeStroke(ctx, stroke, false);
     }
 
     for (const [, active] of group.activeStrokeByUser) {
-      ctx.globalCompositeOperation = active.blendMode;
-      ctx.drawImage(active.canvas, 0, 0);
+      this._compositeStroke(ctx, active, true);
     }
 
     ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /**
+   * Composite a single stroke, handling both regular and filter strokes
+   * @param {CanvasRenderingContext2D} ctx - Target context
+   * @param {Object} stroke - Stroke object
+   * @param {boolean} [isActive=false] - Whether this is an active (in-progress) stroke
+   * @private
+   */
+  _compositeStroke(ctx, stroke, isActive = false) {
+    if (stroke.filterType === 'blur') {
+      this._applyBlurFilter(ctx, stroke, isActive);
+    } else {
+      ctx.globalCompositeOperation = stroke.blendMode;
+      if (stroke.x !== undefined && stroke.y !== undefined) {
+        ctx.drawImage(stroke.canvas, stroke.x, stroke.y);
+      } else {
+        ctx.drawImage(stroke.canvas, 0, 0);
+      }
+    }
+  }
+
+  /**
+   * Apply a blur filter stroke to the context
+   * For active strokes, use a cheap CSS filter preview.
+   * For committed strokes, use the high-quality cached result.
+   * @param {CanvasRenderingContext2D} ctx - Target context
+   * @param {Object} filterStroke - Filter stroke with mask and blur radius
+   * @param {boolean} isActive - Whether the stroke is in progress
+   * @private
+   */
+  _applyBlurFilter(ctx, filterStroke, isActive) {
+    const { maskCanvas, blurRadius, x, y, width, height } = filterStroke;
+    if (!maskCanvas || !blurRadius) return;
+
+    // Helper to render the fast preview
+    const renderFastPreview = () => {
+      // Use dirtyRect for active strokes and cropBounds for committed ones
+      const bounds = isActive ? filterStroke.dirtyRect : { minX: x, minY: y, maxX: x + width, maxY: y + height };
+      if (!bounds || bounds.maxX === -1) return;
+
+      const previewBlurRadius = blurRadius * 0.5; // Correction factor
+      const margin = Math.ceil(previewBlurRadius * 2);
+
+      const cropX = Math.max(0, bounds.minX - margin);
+      const cropY = Math.max(0, bounds.minY - margin);
+      const cropW = Math.min(this.width - cropX, (bounds.maxX - bounds.minX) + margin * 2);
+      const cropH = Math.min(this.height - cropY, (bounds.maxY - bounds.minY) + margin * 2);
+
+      if (cropW <= 0 || cropH <= 0) return;
+
+      const temp = document.createElement('canvas');
+      temp.width = cropW;
+      temp.height = cropH;
+      const tCtx = temp.getContext('2d');
+
+      tCtx.filter = `blur(${previewBlurRadius}px)`;
+      tCtx.drawImage(ctx.canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+      tCtx.filter = 'none';
+
+      tCtx.globalCompositeOperation = 'destination-in';
+      tCtx.drawImage(maskCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(temp, cropX, cropY);
+      ctx.restore();
+    };
+
+    // If it's an active stroke, just show the preview.
+    if (isActive) {
+      renderFastPreview();
+      return;
+    }
+
+    // --- Logic for COMMITTED strokes ---
+
+    // If the high-quality version is ready, draw it and we're done.
+    if (filterStroke._cachedBlurResult) {
+      ctx.drawImage(filterStroke._cachedBlurResult, x, y);
+      return;
+    }
+
+    // If the high-quality calc hasn't started, kick it off now.
+    if (!filterStroke._isBlurring) {
+      filterStroke._isBlurring = true;
+      
+      const cropX = x;
+      const cropY = y;
+      const cropW = width;
+      const cropH = height;
+
+      const tempForAsync = document.createElement('canvas');
+      tempForAsync.width = cropW;
+      tempForAsync.height = cropH;
+      const tCtxForAsync = tempForAsync.getContext('2d');
+      tCtxForAsync.drawImage(ctx.canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+      const imageData = tCtxForAsync.getImageData(0, 0, cropW, cropH);
+      
+      blurImageData(imageData, cropW, cropH, blurRadius).then(blurred => {
+        tCtxForAsync.putImageData(blurred, 0, 0);
+
+        const composite = document.createElement('canvas');
+        composite.width = cropW;
+        composite.height = cropH;
+        const cCtx = composite.getContext('2d');
+
+        cCtx.drawImage(maskCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        cCtx.globalCompositeOperation = 'source-in';
+        cCtx.drawImage(tempForAsync, 0, 0);
+
+        filterStroke._cachedBlurResult = composite;
+        this.needsComposite = true;
+        if (this.onNeedsUpdate) this.onNeedsUpdate();
+      });
+    }
+
+    // For this frame, draw the fast preview to avoid a flash while the HQ version is processing.
+    renderFastPreview();
   }
 
   /**
@@ -1103,9 +1256,7 @@ export class LayerManager {
     bufferCtx.drawImage(group.flatCanvas, 0, 0);
 
     for (const stroke of group.strokeStack) {
-      bufferCtx.globalCompositeOperation = stroke.blendMode;
-      bufferCtx.globalAlpha = 1.0;
-      bufferCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
+      this._compositeStroke(bufferCtx, stroke, false);
       if (stroke.blendMode === 'destination-out') {
         bufferCtx.globalCompositeOperation = 'destination-over';
         bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
@@ -1115,8 +1266,7 @@ export class LayerManager {
     }
 
     for (const [, active] of group.activeStrokeByUser) {
-      bufferCtx.globalCompositeOperation = active.blendMode;
-      bufferCtx.drawImage(active.canvas, 0, 0);
+      this._compositeStroke(bufferCtx, active, true);
       if (active.blendMode === 'destination-out') {
         bufferCtx.globalCompositeOperation = 'destination-over';
         bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
@@ -1149,19 +1299,19 @@ export class LayerManager {
     for (const item of group.bakedSequences) {
       if (item.type === 'group') {
         for (const stroke of item.strokes) {
-          this._compositeStrokeSequential(targetCtx, stroke, lowerSnap);
+          this._compositeStrokeSequential(targetCtx, stroke, lowerSnap, false);
         }
       } else {
-        this._compositeStrokeSequential(targetCtx, { canvas: item.canvas, blendMode: item.blendMode }, lowerSnap);
+        this._compositeStrokeSequential(targetCtx, { canvas: item.canvas, blendMode: item.blendMode }, lowerSnap, false);
       }
     }
 
     for (const stroke of group.strokeStack) {
-      this._compositeStrokeSequential(targetCtx, stroke, lowerSnap);
+      this._compositeStrokeSequential(targetCtx, stroke, lowerSnap, false);
     }
 
     for (const [, active] of group.activeStrokeByUser) {
-      this._compositeStrokeSequential(targetCtx, active, lowerSnap);
+      this._compositeStrokeSequential(targetCtx, active, lowerSnap, true);
     }
 
     targetCtx.globalCompositeOperation = 'source-over';
@@ -1172,9 +1322,15 @@ export class LayerManager {
    * @param {CanvasRenderingContext2D} ctx - Target context
    * @param {Object} stroke - Stroke record
    * @param {HTMLCanvasElement} lowerSnap - Lower layers snapshot
+   * @param {boolean} [isActive=false] - Whether this is an active stroke
    * @private
    */
-  _compositeStrokeSequential(ctx, stroke, lowerSnap) {
+  _compositeStrokeSequential(ctx, stroke, lowerSnap, isActive = false) {
+    if (stroke.filterType === 'blur') {
+      this._applyBlurFilter(ctx, stroke, isActive);
+      return;
+    }
+
     const x = stroke.x ?? 0;
     const y = stroke.y ?? 0;
 
@@ -1202,23 +1358,19 @@ export class LayerManager {
     for (const item of group.bakedSequences) {
       if (item.type === 'group') {
         for (const stroke of item.strokes) {
-          bufferCtx.globalCompositeOperation = stroke.blendMode;
-          bufferCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
+          this._compositeStroke(bufferCtx, stroke, false);
         }
       } else {
-        bufferCtx.globalCompositeOperation = item.blendMode;
-        bufferCtx.drawImage(item.canvas, 0, 0);
+        this._compositeStroke(bufferCtx, item, false);
       }
     }
 
     for (const stroke of group.strokeStack) {
-      bufferCtx.globalCompositeOperation = stroke.blendMode;
-      bufferCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
+      this._compositeStroke(bufferCtx, stroke, false);
     }
 
     for (const [, active] of group.activeStrokeByUser) {
-      bufferCtx.globalCompositeOperation = active.blendMode;
-      bufferCtx.drawImage(active.canvas, 0, 0);
+      this._compositeStroke(bufferCtx, active, true);
     }
 
     bufferCtx.globalCompositeOperation = 'source-over';

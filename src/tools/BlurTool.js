@@ -1,8 +1,7 @@
 /**
- * @fileoverview Blur tool - applies a GPU-accelerated blur to the area under the circular cursor.
+ * @fileoverview Blur tool - applies a filter-based blur to the area under the circular cursor.
+ * Creates a mask during the stroke and applies blur as a filter at composite time.
  */
-
-import { blurImageData } from '../utils/blurUtils.js';
 
 /**
  * Base tool class.
@@ -51,7 +50,9 @@ class Tool {
 }
 
 /**
- * Blur tool for softening areas of the canvas.
+ * Blur tool that creates filter layers instead of painting pixels.
+ * Builds up an intensity mask during the stroke which is used to blend
+ * between original and blurred content at composite time.
  */
 export class BlurTool extends Tool {
   /**
@@ -59,7 +60,6 @@ export class BlurTool extends Tool {
    */
   constructor(board) {
     super('blur', board);
-    this.pendingBlur = Promise.resolve();
     this.lastStampPos = new Map(); // userId -> {x, y}
   }
 
@@ -76,69 +76,65 @@ export class BlurTool extends Tool {
   }
 
   /**
-   * Capture a snapshot of the committed layer state for this user.
-   * @param {Object} user - The user for whom to initialize the snapshot.
-   */
-  initBlurSnapshot(user) {
-    const activeLayerIdx = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
-    const group = this.board.layerManager?.getLayerGroup(activeLayerIdx);
-    if (!group) {
-      console.warn('BlurTool: No layer group found for snapshot');
-      return;
-    }
-
-    const snapshotCanvas = document.createElement('canvas');
-    snapshotCanvas.width = this.board.getWidth();
-    snapshotCanvas.height = this.board.getHeight();
-    const snapshotCtx = snapshotCanvas.getContext('2d');
-
-    for (const item of group.bakedSequences) {
-      if (item.type === 'group') {
-        for (const stroke of item.strokes) {
-          snapshotCtx.globalCompositeOperation = stroke.blendMode;
-          snapshotCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
-        }
-      } else {
-        snapshotCtx.globalCompositeOperation = item.blendMode;
-        snapshotCtx.drawImage(item.canvas, 0, 0);
-      }
-    }
-
-    for (const stroke of group.strokeStack) {
-      snapshotCtx.globalCompositeOperation = stroke.blendMode;
-      snapshotCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
-    }
-
-    snapshotCtx.globalCompositeOperation = 'source-over';
-    user.blurSnapshot = snapshotCanvas;
-  }
-
-  /**
    * Handles pointer down event.
+   * Begins a filter stroke and starts building the mask.
    * @param {Object} user - The user performing the action.
    * @param {Object} pos - The current pointer position.
    */
   onPointerDown(user, pos) {
-    user.lastBlurPos = pos;
-    this.initBlurSnapshot(user);
-    this.board.beginStroke(user);
+    const activeLayerIdx = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+
+    // Store blur radius for this user
+    user.blurRadius = user.blurRadius || 10;
+
+    // Get the stroke context - this will be our mask canvas
+    // Pass metadata so the active stroke is marked as a blur filter from the start
+    const maskCtx = this.board.layerManager?.getUserStrokeContext(
+      activeLayerIdx,
+      user.id,
+      'source-over',
+      { filterType: 'blur', blurRadius: user.blurRadius }
+    );
+    if (!maskCtx) {
+      console.warn('BlurTool: No stroke context available');
+      return;
+    }
+
+    // Initialize bounds tracking for this stroke
+    user.blurBounds = {
+      minX: Infinity,
+      minY: Infinity,
+      maxX: -Infinity,
+      maxY: -Infinity
+    };
+
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-    this.applyBlur(pos.x, pos.y, user.size, user);
+
+    // Paint the first mask stamp
+    this.paintMask(pos.x, pos.y, user.size, user, maskCtx);
+
     if (this.board.mirror) {
       const width = this.board.getWidth();
-      this.applyBlur(width - pos.x, pos.y, user.size, user);
+      this.paintMask(width - pos.x, pos.y, user.size, user, maskCtx);
     }
+
+    this.board.requestUpdate();
   }
 
   /**
    * Handles pointer move event.
+   * Continues building the mask.
    * @param {Object} user - The user performing the action.
    * @param {Object} pos - The current pointer position.
    * @param {Object} lastPos - The previous pointer position.
    */
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
-    
+
+    const activeLayerIdx = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+    const maskCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, user.id);
+    if (!maskCtx) return;
+
     const prevStamp = this.lastStampPos.get(user.id);
     if (prevStamp) {
       const dx = pos.x - prevStamp.x;
@@ -146,17 +142,18 @@ export class BlurTool extends Tool {
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       const spacingPercent = user.spacing === 0 ? 0.1 : (user.spacing * 0.05);
-      const minSpacing = Math.max(1, user.size * spacingPercent);
+      const minSpacing = Math.max(user.size * spacingPercent, 5); // Min 5px spacing
 
       if (distance >= minSpacing) {
-        this.applyBlur(pos.x, pos.y, user.size, user);
+        this.paintMask(pos.x, pos.y, user.size, user, maskCtx);
 
         if (this.board.mirror) {
           const width = this.board.getWidth();
-          this.applyBlur(width - pos.x, pos.y, user.size, user);
+          this.paintMask(width - pos.x, pos.y, user.size, user, maskCtx);
         }
 
         this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+        this.board.requestUpdate();
       }
     } else {
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
@@ -165,81 +162,82 @@ export class BlurTool extends Tool {
 
   /**
    * Handles pointer up event.
+   * Commits the filter stroke with metadata and accurate bounds.
    * @param {Object} user - The user performing the action.
    * @param {Object} pos - The current pointer position.
    */
-  async onPointerUp(user, pos) {
-    await this.pendingBlur;
-    this.board.clearTop();
-    this.board.endStroke(user);
-    this.pendingBlur = Promise.resolve();
+  onPointerUp(user, pos) {
+    const activeLayerIdx = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+    const blurRadius = user.blurRadius || 10;
 
-    user.blurSnapshot = null;
+    // Get the bounds we tracked during painting
+    const bounds = user.blurBounds || {
+      minX: 0,
+      minY: 0,
+      maxX: this.board.getWidth(),
+      maxY: this.board.getHeight()
+    };
+
+    // Clamp to canvas bounds
+    const x = Math.max(0, Math.floor(bounds.minX));
+    const y = Math.max(0, Math.floor(bounds.minY));
+    const maxX = Math.min(this.board.getWidth(), Math.ceil(bounds.maxX));
+    const maxY = Math.min(this.board.getHeight(), Math.ceil(bounds.maxY));
+    const width = maxX - x;
+    const height = maxY - y;
+
+    // Store blur metadata and bounds on the stroke
+    const extraProps = {
+      filterType: 'blur',
+      blurRadius: blurRadius,
+      // Pass crop bounds for optimized filter application
+      cropBounds: { x, y, width, height }
+    };
+
+    this.board.endStroke(user, extraProps);
     this.lastStampPos.delete(user.id);
+    delete user.blurBounds;
+    this.board.requestUpdate();
   }
 
   /**
-   * Apply blur to a circular region centered at (x, y).
+   * Paint a square mask stamp at the given position.
+   * Square masks work better with edge feathering.
    * @param {number} x - Center x-coordinate.
    * @param {number} y - Center y-coordinate.
-   * @param {number} size - Radius of the blur area.
-   * @param {Object} user - The user performing the blur.
+   * @param {number} size - Radius/half-width of the mask square.
+   * @param {Object} user - The user performing the action.
+   * @param {CanvasRenderingContext2D} maskCtx - The mask context to paint into.
    */
-  applyBlur(x, y, size, user) {
-    const blurAmount = user.blurRadius || 10;
+  paintMask(x, y, size, user, maskCtx) {
     const radius = size;
+    const blurRadius = user.blurRadius || 10;
+    const intensity = user.pressure || 1.0;
 
-    const margin = Math.ceil(blurAmount);
-    const left = Math.max(0, Math.floor(x - radius - margin));
-    const top = Math.max(0, Math.floor(y - radius - margin));
-    const right = Math.min(this.board.getWidth(), Math.ceil(x + radius + margin));
-    const bottom = Math.min(this.board.getHeight(), Math.ceil(y + radius + margin));
+    maskCtx.save();
+    maskCtx.globalCompositeOperation = 'source-over';
+    maskCtx.globalAlpha = intensity;
+    maskCtx.fillStyle = '#ffffff';
 
-    const width = right - left;
-    const height = bottom - top;
+    // Draw a square instead of circle for better feathering
+    maskCtx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
 
-    if (width <= 0 || height <= 0) return;
+    maskCtx.restore();
 
-    try {
-      const activeLayerIdx = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
-      const strokeCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, user.id);
-      if (!strokeCtx) {
-        console.warn('BlurTool: No stroke context available');
-        return;
-      }
-      if (!user.blurSnapshot) {
-        console.warn('BlurTool: No blur snapshot available');
-        return;
-      }
+    // Expand dirty rect (include blur radius margin)
+    const margin = Math.ceil(blurRadius * 2);
+    const left = Math.floor(x - radius - margin);
+    const top = Math.floor(y - radius - margin);
+    const width = Math.ceil((radius + margin) * 2);
+    const height = Math.ceil((radius + margin) * 2);
+    this.board.expandDirtyRect(user, left, top, width, height);
 
-      const temp = document.createElement('canvas');
-      temp.width = width;
-      temp.height = height;
-      const tempCtx = temp.getContext('2d');
-
-      tempCtx.filter = `blur(${blurAmount}px)`;
-      tempCtx.drawImage(user.blurSnapshot,
-        left, top, width, height, 
-        0, 0, width, height     
-      );
-
-      tempCtx.filter = 'none';
-
-      strokeCtx.save();
-      strokeCtx.globalAlpha = 0.5; 
-      strokeCtx.globalCompositeOperation = 'source-over';
-      
-      strokeCtx.beginPath();
-      strokeCtx.arc(x, y, radius, 0, Math.PI * 2);
-      strokeCtx.clip();
-
-      strokeCtx.drawImage(temp, left, top);
-      strokeCtx.restore();
-
-      this.board.expandDirtyRect(user, left, top, width, height);
-      this.board.requestUpdate();
-    } catch (error) {
-      console.error('Blur error:', error);
+    // Update bounds for this blur stroke
+    if (user.blurBounds) {
+      user.blurBounds.minX = Math.min(user.blurBounds.minX, left);
+      user.blurBounds.minY = Math.min(user.blurBounds.minY, top);
+      user.blurBounds.maxX = Math.max(user.blurBounds.maxX, left + width);
+      user.blurBounds.maxY = Math.max(user.blurBounds.maxY, top + height);
     }
   }
 }
