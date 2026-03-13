@@ -671,6 +671,12 @@ export class LayerManager {
    * @private
    */
   _bakeStrokeToBin(group, stroke) {
+    // Handle blur filter strokes specially - resolve to actual pixels
+    if (stroke.filterType === 'blur') {
+      this._bakeBlurStroke(group, stroke);
+      return;
+    }
+
     if (group.flatCanvas) {
       if (stroke.blendMode !== 'source-over' && stroke.blendMode !== 'destination-out') {
         const [r, g, b, a] = this.backgroundColor;
@@ -700,6 +706,102 @@ export class LayerManager {
       : stroke.blendMode;
 
     targetBin.ctx.drawImage(stroke.canvas, stroke.x, stroke.y);
+  }
+
+  /**
+   * Bake a blur filter stroke by resolving it into actual blurred pixels.
+   * Uses the cached HQ result if available, otherwise falls back to CSS filter.
+   * @param {Object} group - Layer group
+   * @param {Object} stroke - Blur filter stroke record
+   * @private
+   */
+  _bakeBlurStroke(group, stroke) {
+    const { maskCanvas, blurRadius, x, y, width, height } = stroke;
+    if (!maskCanvas || !blurRadius || width <= 0 || height <= 0) return;
+
+    // If we have a cached high-quality blur result, use it directly
+    if (stroke._cachedBlurResult) {
+      if (group.flatCanvas) {
+        group.flatCtx.globalCompositeOperation = 'source-over';
+        group.flatCtx.drawImage(stroke._cachedBlurResult, x, y);
+        return;
+      }
+      const lastSeq = group.bakedSequences[group.bakedSequences.length - 1];
+      let targetBin;
+      if (lastSeq && lastSeq.blendMode === 'source-over') {
+        targetBin = lastSeq;
+      } else {
+        targetBin = this._createCanvas();
+        targetBin.blendMode = 'source-over';
+        group.bakedSequences.push(targetBin);
+      }
+      targetBin.ctx.drawImage(stroke._cachedBlurResult, x, y);
+      return;
+    }
+
+    // No cached result - resolve synchronously using CSS filter
+    // Build the source image from current baked state
+    let sourceCanvas;
+    if (group.flatCanvas) {
+      sourceCanvas = group.flatCanvas;
+    } else {
+      // Composite all baked sequences into a temp canvas to get current state
+      const temp = document.createElement('canvas');
+      temp.width = this.width;
+      temp.height = this.height;
+      const tCtx = temp.getContext('2d');
+      for (const seq of group.bakedSequences) {
+        if (seq.type === 'group') {
+          for (const s of seq.strokes) {
+            tCtx.globalCompositeOperation = s.blendMode || 'source-over';
+            tCtx.drawImage(s.canvas, s.x || 0, s.y || 0);
+          }
+        } else {
+          tCtx.globalCompositeOperation = seq.blendMode || 'source-over';
+          tCtx.drawImage(seq.canvas, 0, 0);
+        }
+      }
+      sourceCanvas = temp;
+    }
+
+    // Apply blur using CSS filter (synchronous) with margin for blur bleed
+    const margin = Math.ceil(blurRadius);
+    const cropX = Math.max(0, x - margin);
+    const cropY = Math.max(0, y - margin);
+    const cropW = Math.min(this.width - cropX, width + margin * 2);
+    const cropH = Math.min(this.height - cropY, height + margin * 2);
+    if (cropW <= 0 || cropH <= 0) return;
+
+    const blurred = document.createElement('canvas');
+    blurred.width = cropW;
+    blurred.height = cropH;
+    const bCtx = blurred.getContext('2d');
+
+    // Apply CSS blur filter to the source region
+    bCtx.filter = `blur(${blurRadius * 0.5}px)`;
+    bCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+    bCtx.filter = 'none';
+
+    // Mask with the blur mask to only keep blurred areas where user painted
+    bCtx.globalCompositeOperation = 'destination-in';
+    bCtx.drawImage(maskCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+    // Draw resolved blur pixels into the baked state
+    if (group.flatCanvas) {
+      group.flatCtx.globalCompositeOperation = 'source-over';
+      group.flatCtx.drawImage(blurred, cropX, cropY);
+    } else {
+      const lastSeq = group.bakedSequences[group.bakedSequences.length - 1];
+      let targetBin;
+      if (lastSeq && lastSeq.blendMode === 'source-over') {
+        targetBin = lastSeq;
+      } else {
+        targetBin = this._createCanvas();
+        targetBin.blendMode = 'source-over';
+        group.bakedSequences.push(targetBin);
+      }
+      targetBin.ctx.drawImage(blurred, cropX, cropY);
+    }
   }
 
   /**
