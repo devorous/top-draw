@@ -176,13 +176,15 @@ export class RemoteInkHandler {
     const ctx = user._inkCtx;
     ctx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
 
-    const allMaxPressure = user._inkPoints.every(p => p[2] === 1);
+    const thinning = (user.simulatePressure === false) ? 0 : (user.thinning !== undefined ? user.thinning : 0.5);
+    const simulatePressure = user.simulatePressure !== undefined ? user.simulatePressure : true;
+
     const options = {
       size: Math.max(0.1, ((user._inkSize || user.size) * 2) / 1.5),
-      thinning: 0.5,
+      thinning: thinning,
       smoothing: 0.5,
       streamline: 0.5,
-      simulatePressure: allMaxPressure,
+      simulatePressure: simulatePressure,
       last
     };
 

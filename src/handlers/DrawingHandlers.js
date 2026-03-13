@@ -105,6 +105,26 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
+  wrapHandler('cthn', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      user.setThinning(data.thinning);
+      if (data.sessionIndex === app.sessionIndex) {
+        ui.updateThinningValue(Math.round(data.thinning * 100));
+      }
+    }
+  });
+
+  wrapHandler('csim', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      user.setSimulatePressure(data.simulatePressure);
+      if (data.sessionIndex === app.sessionIndex) {
+        ui.updateSimulatePressure(data.simulatePressure);
+      }
+    }
+  });
+
   wrapHandler('cl', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {

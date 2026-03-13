@@ -157,7 +157,7 @@ export class InkTool extends Tool {
 
     this.dirtyBounds = { minX: pos.x, minY: pos.y, maxX: pos.x, maxY: pos.y };
 
-    this.renderStroke(false);
+    this.renderStroke(false, user);
     this.drawPreview();
   }
 
@@ -183,7 +183,7 @@ export class InkTool extends Tool {
       this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y);
     }
 
-    this.renderStroke(false);
+    this.renderStroke(false, user);
     this.board.clearTop();
     this.drawPreview();
   }
@@ -208,7 +208,7 @@ export class InkTool extends Tool {
       this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y);
     }
 
-    this.renderStroke(true);
+    this.renderStroke(true, user);
     this.board.clearTop();
 
     const ctx = this.board.getActiveLayerContext();
@@ -257,16 +257,16 @@ export class InkTool extends Tool {
    * Renders the stroke into the offscreen canvas.
    * @param {boolean} last - Whether this is the final segment of the stroke.
    */
-  renderStroke(last) {
+  renderStroke(last, user = null) {
     if (this.inputPoints.length < 1) return;
 
     const ctx = this.offscreenCtx;
     ctx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
 
     // perfect-freehand's visual radius is ~75% of the 'size' parameter.
-    const isDot = this.inputPoints.length === 1 || 
-                 (this.inputPoints.length === 2 && 
-                  Math.abs(this.inputPoints[0][0] - this.inputPoints[1][0]) < 0.1 && 
+    const isDot = this.inputPoints.length === 1 ||
+                 (this.inputPoints.length === 2 &&
+                  Math.abs(this.inputPoints[0][0] - this.inputPoints[1][0]) < 0.1 &&
                   Math.abs(this.inputPoints[0][1] - this.inputPoints[1][1]) < 0.1);
 
     if (isDot) {
@@ -278,13 +278,16 @@ export class InkTool extends Tool {
       return;
     }
 
-    const allMaxPressure = this.inputPoints.every(p => p[2] === 1);
+    const activeUser = user || this.self;
+    const thinning = (activeUser.simulatePressure === false) ? 0 : (activeUser.thinning !== undefined ? activeUser.thinning : 0.5);
+    const simulatePressure = activeUser.simulatePressure !== undefined ? activeUser.simulatePressure : true;
+
     const options = {
       size: (this._strokeSize * 2) / 1.5,
-      thinning: 0.5,
+      thinning: thinning,
       smoothing: 0.5,
       streamline: 0.5,
-      simulatePressure: allMaxPressure,
+      simulatePressure: simulatePressure,
       last
     };
 

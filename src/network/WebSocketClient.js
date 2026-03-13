@@ -316,7 +316,9 @@ export class WebSocketClient {
           activeLayer: u.ly ?? 0,
           blendMode: u.bm || 'source-over',
           imageBrush: u.ib,
-          ipHash: u.iph
+          ipHash: u.iph,
+          thinning: u.th ? (u.th - 1) / 100 : undefined,
+          simulatePressure: u.sim !== undefined ? u.sim === 2 : undefined
         }));
         this.emit('users', { users });
         break;
@@ -385,6 +387,15 @@ export class WebSocketClient {
         this.emit('cbr', { sessionIndex: data.u, blurRadius: (data.br ?? 500) });
         break;
 
+      case T.CTHN:
+        this.emit('cthn', { sessionIndex: data.u, thinning: (data.th ? data.th - 1 : 50) / 100 });
+        break;
+
+      case T.CSIM:
+        // Offset encoding: 0=not set, 1=false, 2=true
+        this.emit('csim', { sessionIndex: data.u, simulatePressure: (data.sim ?? 0) === 2 });
+        break;
+
       case T.CL:
         this.emit('cl', { sessionIndex: data.u, layerIndex: data.ly ?? 0 });
         break;
@@ -410,7 +421,9 @@ export class WebSocketClient {
           hardness: data.hd !== undefined ? data.hd : undefined,
           blurRadius: data.br !== undefined ? data.br : undefined,
           activeLayer: data.ly !== undefined ? data.ly : undefined,
-          blendMode: data.bm || undefined
+          blendMode: data.bm || undefined,
+          thinning: data.th ? (data.th - 1) / 100 : undefined,
+          simulatePressure: data.sim !== undefined ? data.sim === 2 : undefined
         });
         break;
 
@@ -852,6 +865,25 @@ export class WebSocketClient {
    */
   broadcastBlurRadiusChange(radius) {
     this.send({ t: T.CBR, br: Math.round(radius) });
+  }
+
+  /**
+   * Broadcasts an ink thinning change.
+   * @param {number} thinning - New thinning value (0-1).
+   * @returns {void}
+   */
+  broadcastThinningChange(thinning) {
+    this.send({ t: T.CTHN, th: Math.round(thinning * 100) + 1 });
+  }
+
+  /**
+   * Broadcasts a simulate pressure change.
+   * @param {boolean} simulate - Whether to simulate pressure.
+   * @returns {void}
+   */
+  broadcastSimulatePressureChange(simulate) {
+    // Offset encoding: 0=not set, 1=false, 2=true (avoids proto3 zero-default ambiguity)
+    this.send({ t: T.CSIM, sim: simulate ? 2 : 1 });
   }
 
   /**

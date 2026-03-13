@@ -29,6 +29,8 @@ export class User {
     this.opacity = options.opacity || 1;
     this.hardness = options.hardness !== undefined ? options.hardness : 100;
     this.blurRadius = options.blurRadius !== undefined ? options.blurRadius : 5;
+    this.thinning = options.thinning !== undefined ? options.thinning : 0.5;
+    this.simulatePressure = options.simulatePressure !== undefined ? options.simulatePressure : true;
     this.spaceIndex = 0;
     this.color = options.color || [0, 0, 0, 1];
     this.tool = options.tool || 'ink';
@@ -196,6 +198,26 @@ export class User {
   }
 
   /**
+   * Sets the ink tool thinning, clamped between 0 and 1.
+   *
+   * @param {number} thinning - The new thinning value (0-1).
+   * @returns {void}
+   */
+  setThinning(thinning) {
+    this.thinning = Math.max(0, Math.min(1, thinning));
+  }
+
+  /**
+   * Sets whether to simulate pressure from velocity for the ink tool.
+   *
+   * @param {boolean} simulate - Whether to simulate pressure.
+   * @returns {void}
+   */
+  setSimulatePressure(simulate) {
+    this.simulatePressure = Boolean(simulate);
+  }
+
+  /**
    * Sets the canvas blend mode (composite operation).
    *
    * @param {string} blendMode - The blend mode name.
@@ -279,6 +301,8 @@ export class User {
       opacity: this.opacity,
       hardness: this.hardness,
       blurRadius: this.blurRadius,
+      thinning: this.thinning,
+      simulatePressure: this.simulatePressure,
       color: this.color,
       tool: this.tool,
       text: this.text,

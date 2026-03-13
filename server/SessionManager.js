@@ -102,6 +102,8 @@ export class SessionManager {
       hardness: 100,
       pressure: 100,
       blurRadius: 5,
+      thinning: 51, // 0.5 with offset (50 + 1)
+      simulatePressure: 2, // true with offset
       name,
       text: '',
       imageBrush: null,

@@ -77,6 +77,8 @@ message Msg {
     SEL_PENDING        = 68;  // Pending selection (marquee only)
     PING               = 69;
     PONG               = 70;
+    CTHN               = 71;  // Change thinning
+    CSIM               = 72;  // Change simulate pressure
   }
 
   // Tool enum
@@ -145,6 +147,8 @@ message Msg {
     string bm = 18;     // Blend mode
     string ib = 19;     // Image brush data (JSON)
     string iph = 20;    // Obfuscated IP hash for grouping
+    uint32 th = 21;     // Thinning * 100
+    uint32 sim = 22;    // Simulate pressure (0 or 1)
   }
   repeated U us = 17;   // Users array
 
@@ -239,4 +243,8 @@ message Msg {
   bool   room_locked      = 56;  // ROOM_UPDATE: locked state
   uint32 room_max_users   = 57;  // ROOM_UPDATE: max users (0 = unlimited)
   string room_owner_id    = 58;  // ROOM_UPDATE: owner userId (for claiming)
+
+  // === Ink Thinning Fields ===
+  uint32 th = 59;               // Thinning * 100 (0-100)
+  uint32 sim = 60;              // Simulate pressure (0 or 1)
 }

@@ -95,7 +95,9 @@ function mapUsersForBroadcast(users) {
     ly: u.activeLayer || 0,
     bm: u.blendMode || 'source-over',
     ib: u.imageBrush,
-    iph: u.ipHash
+    iph: u.ipHash,
+    th: u.thinning,
+    sim: u.simulatePressure
   }));
 }
 
@@ -340,6 +342,14 @@ async function handleBroadcast(data, sessionIndex, room) {
     case T.GMP:
       user.imageBrush = data.bd;
       break;
+
+    case T.CTHN:
+      user.thinning = data.th;
+      break;
+
+    case T.CSIM:
+      user.simulatePressure = data.sim;
+      break;
   }
 
   if (MUTED_BLOCKED.has(data.t)) {
@@ -408,7 +418,8 @@ function flushAllOutboxes() {
 const BATCHABLE_TYPES = new Set([
   T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC,
   T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL,
-  T.KP, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP, T.AFK
+  T.KP, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP, T.AFK,
+  T.CTHN, T.CSIM
 ]);
 
 /**

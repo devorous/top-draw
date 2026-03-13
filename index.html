@@ -561,6 +561,17 @@
                 <input autocomplete="off" type="range" min="0.25" max="100" value="10" step="0.25" class="slider size">
               </div>
 
+              <div class="sliderContainer" id="ink-thinning" style="display: none;">
+                <div class="sliderLabel">
+                  <label class="pressureToggle">
+                    <span>Thinning</span>
+                    <input type="checkbox" id="simulatePressureCheckbox" checked>
+                  </label>
+                  <span class="sliderValue" id="thinningValue">50</span><button class="lock-btn" id="thinningLock" title="Lock thinning for current tool">🔓</button>
+                </div>
+                <input autocomplete="off" type="range" min="0" max="100" value="50" class="slider thinning">
+              </div>
+
               <div class="sliderContainer" id="pressure-container">
                 <div class="sliderLabel">
                   <label class="pressureToggle">

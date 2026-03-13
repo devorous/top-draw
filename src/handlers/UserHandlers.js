@@ -27,17 +27,26 @@ export function setupUserHandlers(wsClient, app) {
     data.users.forEach(userData => {
       console.log(`[USERS] Processing user ${userData.name}(${userData.sessionIndex}), self=${app.sessionIndex}`);
       
+      const username = userData.name || userData.username || '';
+
       if (userData.sessionIndex === app.sessionIndex) {
         // Authoritative update for SELF (e.g. if name was forced unique)
-        if (userData.name && userData.name !== app.self.username) {
-          app.self.setUsername(userData.name);
-          app.ui.updateSelfName(userData.name);
+        if (username && username !== app.self.username) {
+          app.self.setUsername(username);
+          app.ui.updateSelfName(username);
+        }
+        if (userData.thinning !== undefined) {
+          app.self.setThinning(userData.thinning);
+          app.ui.updateThinningValue(Math.round(userData.thinning * 100));
+        }
+        if (userData.simulatePressure !== undefined) {
+          app.self.setSimulatePressure(userData.simulatePressure);
+          app.ui.updateSimulatePressure(userData.simulatePressure);
         }
         return;
       }
 
       let user = users.get(userData.sessionIndex);
-      const username = userData.name || userData.username || '';
 
       if (!user) {
         // New user
@@ -171,7 +180,9 @@ export function setupUserHandlers(wsClient, app) {
         hardness: data.hardness,
         blurRadius: data.blurRadius,
         activeLayer: data.activeLayer,
-        blendMode: data.blendMode
+        blendMode: data.blendMode,
+        thinning: data.thinning,
+        simulatePressure: data.simulatePressure
       };
       user = new User(data.sessionIndex, userOptions);
       users.set(data.sessionIndex, user);
@@ -197,6 +208,8 @@ export function setupUserHandlers(wsClient, app) {
       if (data.blurRadius !== undefined) user.setBlurRadius(data.blurRadius);
       if (data.activeLayer !== undefined) user.setActiveLayer(data.activeLayer);
       if (data.blendMode !== undefined) user.setBlendMode(data.blendMode);
+      if (data.thinning !== undefined) user.setThinning(data.thinning);
+      if (data.simulatePressure !== undefined) user.setSimulatePressure(data.simulatePressure);
 
       if (!hadName) {
         ui.createRemoteUser(data.sessionIndex, user);

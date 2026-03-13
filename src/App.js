@@ -92,6 +92,7 @@ export class DrawingApp {
     this.inputBufferManager = new InputBufferManager(this);
 
     this.pressureEnabled = true;
+    this.tabletDetected = false;
 
     this.eraseAllLayers = false;
 
@@ -492,6 +493,13 @@ export class DrawingApp {
     }
     elements.brushFileInput.addEventListener('change', (e) => this.handleBrushFileLoad(e));
 
+    if (elements.thinningSlider) {
+      elements.thinningSlider.addEventListener('input', (e) => this.handleThinningChange(e));
+    }
+    if (elements.simulatePressureCheckbox) {
+      elements.simulatePressureCheckbox.addEventListener('change', (e) => this.handleSimulatePressureChange(e));
+    }
+
     // Dual pressure slider handlers
     const clampPressureSliders = () => {
       const minVal = Number(elements.pressureMinSlider.value);
@@ -806,6 +814,7 @@ export class DrawingApp {
     if (elements.hardnessLock) elements.hardnessLock.addEventListener('click', () => this.toolLockManager.toggleLock('hardness'));
     if (elements.opacityLock) elements.opacityLock.addEventListener('click', () => this.toolLockManager.toggleLock('opacity'));
     if (elements.blurRadiusLock) elements.blurRadiusLock.addEventListener('click', () => this.toolLockManager.toggleLock('blurRadius'));
+    if (elements.thinningLock) elements.thinningLock.addEventListener('click', () => this.toolLockManager.toggleLock('thinning'));
 
     elements.board.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
     window.addEventListener('pointermove', (e) => this.handlePointerMove(e));
@@ -1060,6 +1069,8 @@ export class DrawingApp {
     this.wsClient.broadcastToolChange(this.self.tool);
     this.wsClient.broadcastLayerBlendModeChange(this.self.activeLayer, this.self.blendMode);
     this.wsClient.broadcastLayerChange(this.self.activeLayer);
+    this.wsClient.broadcastThinningChange(this.self.thinning);
+    this.wsClient.broadcastSimulatePressureChange(this.self.simulatePressure);
 
     this.moderation.setRole(this.selfRole);
     this.inputBufferManager.startTickLoop();
@@ -1163,6 +1174,8 @@ export class DrawingApp {
     const activeLayer = this.self.activeLayer;
     this.wsClient.broadcastLayerBlendModeChange(activeLayer, this.self.blendMode);
     this.wsClient.broadcastLayerChange(activeLayer);
+    this.wsClient.broadcastThinningChange(this.self.thinning);
+    this.wsClient.broadcastSimulatePressureChange(this.self.simulatePressure);
 
     this.moderation.setRole(role);
     this.inputBufferManager.startTickLoop();
@@ -1225,6 +1238,8 @@ export class DrawingApp {
     const activeLayer = this.self.activeLayer;
     this.wsClient.broadcastLayerBlendModeChange(activeLayer, this.self.blendMode);
     this.wsClient.broadcastLayerChange(activeLayer);
+    this.wsClient.broadcastThinningChange(this.self.thinning);
+    this.wsClient.broadcastSimulatePressureChange(this.self.simulatePressure);
 
     if (this.ui.elements.selfUserEntry) {
       this.ui.elements.selfUserEntry.dataset.sessionIndex = this.sessionIndex;
@@ -1677,6 +1692,23 @@ export class DrawingApp {
     }
   }
 
+  handleThinningChange(e) {
+    const thinning = Number(e.target.value) / 100; // Convert to 0-1 range
+    this.self.setThinning(thinning);
+    this.ui.updateThinningValue(Math.round(thinning * 100));
+    if (this.connected) {
+      this.wsClient.broadcastThinningChange(thinning);
+    }
+  }
+
+  handleSimulatePressureChange(e) {
+    const simulate = e.target.checked;
+    this.self.setSimulatePressure(simulate);
+    if (this.connected) {
+      this.wsClient.broadcastSimulatePressureChange(simulate);
+    }
+  }
+
   async handleBrushFileLoad(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -2046,6 +2078,19 @@ export class DrawingApp {
           
           // DO NOT broadcastMouseDown here. We wait until pointerUp for text+touch.
         } else if (e.pointerType === 'pen' && this.pressureEnabled && this.self.tool !== 'text') {
+          // Detect tablet and disable thinning if not locked
+          if (!this.tabletDetected) {
+            this.tabletDetected = true;
+            const thinningLocked = this.toolLockManager?.isToolLocked(this.self.tool, 'thinning');
+            if (!thinningLocked) {
+              this.self.setSimulatePressure(false);
+              this.ui.elements.simulatePressureCheckbox.checked = false;
+              this.ui.showToast('Tablet detected, disabling velocity thinning');
+              if (this.connected) {
+                this.wsClient.broadcastSimulatePressureChange(false);
+              }
+            }
+          }
           // Defer pen stroke start until first pointerMove provides real pressure
           this._pendingPenDown = { pos, event: e };
         } else {

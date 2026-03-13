@@ -138,6 +138,7 @@ export class UI {
       hardnessSlider: document.querySelector('.slider.hardness'),
       opacitySlider: document.querySelector('.slider.opacity'),
       blurRadiusSlider: document.querySelector('.slider.blurRadius'),
+      thinningSlider: document.querySelector('.slider.thinning'),
 
       sizeValue: document.getElementById('sizeValue'),
       pressureValue: document.getElementById('pressureValue'),
@@ -146,6 +147,7 @@ export class UI {
       hardnessValue: document.getElementById('hardnessValue'),
       opacityValue: document.getElementById('opacityValue'),
       blurRadiusValue: document.getElementById('blurRadiusValue'),
+      thinningValue: document.getElementById('thinningValue'),
 
       brushFileInput: document.getElementById('brush-file-input'),
       brushImage: document.getElementById('brushImage'),
@@ -154,6 +156,7 @@ export class UI {
       brushHardness: document.getElementById('brush-hardness'),
       opacityContainer: document.getElementById('brush-opacity'),
       blurRadiusContainer: document.getElementById('blur-radius'),
+      inkThinningContainer: document.getElementById('ink-thinning'),
 
       selectionModeOptions: document.getElementById('selectionModeOptions'),
       eraserModeOptions: document.getElementById('eraserModeOptions'),
@@ -171,6 +174,8 @@ export class UI {
       hardnessLock: document.getElementById('hardnessLock'),
       opacityLock: document.getElementById('opacityLock'),
       blurRadiusLock: document.getElementById('blurRadiusLock'),
+      thinningLock: document.getElementById('thinningLock'),
+      simulatePressureCheckbox: document.getElementById('simulatePressureCheckbox'),
 
       colorPicker: document.getElementById('colorPicker'),
 
@@ -463,6 +468,7 @@ export class UI {
     if (eraserModeOptions) eraserModeOptions.style.display = 'none';
     if (brushModeOptions) brushModeOptions.style.display = 'none';
     if (circleBlurModeOptions) circleBlurModeOptions.style.display = 'none';
+    if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'none';
     
     const { blendModeOptions } = this.elements;
     if (blendModeOptions) {
@@ -484,11 +490,18 @@ export class UI {
 
       case 'brush':
       case 'flowPen':
+        selfCircle.style.display = 'block';
+        brushHardness.style.display = 'block';
+        if (brushModeOptions) brushModeOptions.style.display = 'block';
+        if (selfPressureCircle) selfPressureCircle.style.display = 'block';
+        break;
+
       case 'ink':
         selfCircle.style.display = 'block';
         brushHardness.style.display = 'block';
         if (brushModeOptions) brushModeOptions.style.display = 'block';
         if (selfPressureCircle) selfPressureCircle.style.display = 'block';
+        if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'block';
         break;
 
       case 'line':
@@ -867,6 +880,29 @@ export class UI {
   updateopacityValue(opacity) {
     if (this.elements.opacityValue) {
       this.elements.opacityValue.textContent = Math.round(opacity * 100);
+    }
+  }
+
+  /**
+   * Updates the ink thinning value display.
+   * @param {number} thinning - Thinning value (0-100)
+   */
+  updateThinningValue(thinning) {
+    if (this.elements.thinningValue) {
+      this.elements.thinningValue.textContent = thinning;
+    }
+    if (this.elements.thinningSlider) {
+      this.elements.thinningSlider.value = thinning;
+    }
+  }
+
+  /**
+   * Updates the simulate pressure checkbox state.
+   * @param {boolean} simulate - Whether simulate pressure is enabled.
+   */
+  updateSimulatePressure(simulate) {
+    if (this.elements.simulatePressureCheckbox) {
+      this.elements.simulatePressureCheckbox.checked = simulate;
     }
   }
 
