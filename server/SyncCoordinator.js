@@ -25,24 +25,25 @@ export class SyncCoordinator {
    * @param {Object} data - The sync request message data.
    */
   handleSyncRequest(ws, data) {
-    console.log(`[Sync] User ${ws.sessionIndex} requested sync`);
+    const requesterSessionIndex = Number(ws.sessionIndex);
+    console.log(`[Sync] User ${requesterSessionIndex} requested sync`);
 
     let providerSessionIndex = null;
 
     if (data.tu !== undefined && data.tu !== null) {
-      const requestedProvider = data.tu;
+      const requestedProvider = Number(data.tu);
       const providerData = this.sessionManager.users.get(requestedProvider);
 
-      if (providerData && providerData.name) {
+      if (providerData && providerData.name && requestedProvider !== requesterSessionIndex) {
         providerSessionIndex = requestedProvider;
         console.log(`[Sync] Using requested provider ${providerSessionIndex} (${providerData.name})`);
       } else {
-        console.log(`[Sync] Requested provider ${requestedProvider} not available, using auto-select`);
+        console.log(`[Sync] Requested provider ${requestedProvider} not available or invalid, using auto-select`);
       }
     }
 
     if (providerSessionIndex === null) {
-      providerSessionIndex = this.selectBestProvider(ws.sessionIndex);
+      providerSessionIndex = this.selectBestProvider(ws);
       if (providerSessionIndex !== null) {
         const providerData = this.sessionManager.users.get(providerSessionIndex);
         console.log(`[Sync] Auto-selected provider ${providerSessionIndex} (${providerData.name})`);
@@ -50,37 +51,43 @@ export class SyncCoordinator {
     }
 
     if (providerSessionIndex !== null) {
-      this.pendingSyncRequests.set(ws.sessionIndex, true);
+      this.pendingSyncRequests.set(requesterSessionIndex, true);
 
       const providerClient = this._findClient(providerSessionIndex);
       if (providerClient) {
-        console.log(`[Sync] Asking user ${providerSessionIndex} to provide canvas for user ${ws.sessionIndex}`);
+        console.log(`[Sync] Asking user ${providerSessionIndex} to provide canvas for user ${requesterSessionIndex}`);
         this.sendTo(providerClient, {
           t: T.SYNC_PROVIDE,
-          tu: ws.sessionIndex
+          tu: requesterSessionIndex
         });
         return;
       }
     }
 
-    console.log(`[Sync] No provider available, sending empty sync complete to user ${ws.sessionIndex}`);
+    console.log(`[Sync] No provider available, sending empty sync complete to user ${requesterSessionIndex}`);
     this.sendTo(ws, { t: T.SYNC_COMPLETE });
   }
 
   /**
    * Selects the most suitable user to provide the canvas state.
-   * @param {number} excludeSessionIndex - The session index of the requester.
+   * @param {WebSocket} requesterWs - The WebSocket of the requester to exclude.
    * @returns {number|null} - The session index of the selected provider, or null.
    */
-  selectBestProvider(excludeSessionIndex) {
+  selectBestProvider(requesterWs) {
     const candidates = [];
+    const excludeIdx = Number(requesterWs.sessionIndex);
 
     for (const [sessionIndex, userData] of this.sessionManager.users) {
-      if (sessionIndex !== excludeSessionIndex && userData.name) {
-        candidates.push({
-          sessionIndex,
-          lastActivity: userData.lastActivity || 0,
-        });
+      const idx = Number(sessionIndex);
+      if (idx !== excludeIdx && userData.name) {
+        // Also exclude by WS reference to be ultra-safe against uninitialized sessionIndex
+        const client = this._findClient(idx);
+        if (client && client !== requesterWs) {
+          candidates.push({
+            sessionIndex: idx,
+            lastActivity: userData.lastActivity || 0,
+          });
+        }
       }
     }
 
@@ -115,11 +122,14 @@ export class SyncCoordinator {
    * @param {Object} data - The sync metadata message data.
    */
   handleSyncMetadata(ws, data) {
-    const targetUser = data.tu;
-    console.log(`[Sync] Relaying metadata to user ${targetUser}, count:`, data.syncTotal);
+    const targetUser = Number(data.tu);
+    console.log(`[Sync] Relaying metadata to user ${targetUser}, count:`, data.sync_total || data.syncTotal);
     const client = this._findClient(targetUser);
     if (client) {
-      this.sendTo(client, { t: T.SYNC_METADATA, syncTotal: data.syncTotal });
+      this.sendTo(client, { 
+        t: T.SYNC_METADATA, 
+        sync_total: data.sync_total || data.syncTotal 
+      });
     }
   }
 
@@ -129,10 +139,15 @@ export class SyncCoordinator {
    * @param {Object} data - The sync layer base message data.
    */
   handleSyncLayerBase(ws, data) {
-    const targetUser = data.tu;
+    const targetUser = Number(data.tu);
     const client = this._findClient(targetUser);
     if (client) {
-      this.sendTo(client, { t: T.SYNC_LAYER_BASE, ly: data.ly, bm: data.bm, img: data.img });
+      this.sendTo(client, { 
+        t: T.SYNC_LAYER_BASE, 
+        ly: data.ly, 
+        bm: data.bm, 
+        img: data.img 
+      });
     }
   }
 
@@ -142,19 +157,23 @@ export class SyncCoordinator {
    * @param {Object} data - The sync stroke message data.
    */
   handleSyncStroke(ws, data) {
-    const targetUser = data.tu;
+    const targetUser = Number(data.tu);
     const client = this._findClient(targetUser);
     if (client) {
+      // Use the field names defined in public/messages.proto for SYNC_STROKE
       this.sendTo(client, {
         t: T.SYNC_STROKE,
         u: data.u,
         ly: data.ly,
-        sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh,
+        sx: data.sx, 
+        sy: data.sy, 
+        sw: data.sw, 
+        sh: data.sh,
         bm: data.bm,
-        strokeTs: data.strokeTs,
+        stroke_ts: data.stroke_ts || data.strokeTs,
         a: data.a,
-        strokeRedo: data.strokeRedo,
-        strokeRedoBatch: data.strokeRedoBatch,
+        stroke_redo: data.stroke_redo || data.strokeRedo,
+        stroke_redo_batch: data.stroke_redo_batch || data.strokeRedoBatch,
         img: data.img
       });
     }
@@ -166,14 +185,13 @@ export class SyncCoordinator {
    * @param {Object} data - The sync stroke batch message data.
    */
   handleSyncStrokeBatch(ws, data) {
-    const targetUser = data.tu;
+    const targetUser = Number(data.tu);
     const client = this._findClient(targetUser);
     if (client) {
       this.sendTo(client, {
         t: T.SYNC_STROKE_BATCH,
         strokes: data.strokes,
-        layerIdx: data.layerIdx,
-        tu: data.tu
+        layerIdx: data.layerIdx
       });
     }
   }
@@ -184,7 +202,7 @@ export class SyncCoordinator {
    * @param {Object} data - The sync strokes done message data.
    */
   handleSyncStrokesDone(ws, data) {
-    const targetUser = data.tu;
+    const targetUser = Number(data.tu);
     console.log(`[Sync] User ${ws.sessionIndex} finished sending strokes for user ${targetUser}`);
     const client = this._findClient(targetUser);
     if (client) {
@@ -202,8 +220,9 @@ export class SyncCoordinator {
    * @private
    */
   _findClient(sessionIndex) {
+    const idx = Number(sessionIndex);
     for (const client of this.wss.clients) {
-      if (client.sessionIndex === sessionIndex && client.readyState === WebSocket.OPEN) {
+      if (Number(client.sessionIndex) === idx && client.readyState === WebSocket.OPEN) {
         return client;
       }
     }

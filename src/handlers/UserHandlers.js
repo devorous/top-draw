@@ -119,9 +119,14 @@ export function setupUserHandlers(wsClient, app) {
     // Trigger sync on first USERS message after connecting
     if (app._needsSync) {
       app._needsSync = false;
-      const otherUsers = data.users.filter(u => u.sessionIndex !== app.sessionIndex);
+      const selfIdx = Number(app.sessionIndex);
+      const otherUsers = data.users.filter(u => Number(u.sessionIndex) !== selfIdx);
+      
       if (otherUsers.length > 0) {
-        app.syncClient.requestSync();
+        // Small delay to ensure we're fully joined and ready to receive
+        setTimeout(() => {
+          app.syncClient.requestSync();
+        }, 500);
       } else {
         app.syncClient.hideOverlay();
         app.syncClient.hasCompletedSync = true;

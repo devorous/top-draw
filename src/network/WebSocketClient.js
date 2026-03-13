@@ -612,10 +612,10 @@ export class WebSocketClient {
           userId: data.u,
           x: data.sx, y: data.sy, w: data.sw, h: data.sh,
           blendMode: data.bm,
-          timestamp: data.strokeTs ? Number(data.strokeTs) : 0,
+          timestamp: data.stroke_ts ? Number(data.stroke_ts) : 0,
           eraseAll: data.a || false,
-          isRedo: data.strokeRedo || false,
-          redoBatchIdx: data.strokeRedoBatch || 0,
+          isRedo: data.stroke_redo || false,
+          redoBatchIdx: data.stroke_redo_batch || 0,
           imageData: data.img
         });
         break;
@@ -648,33 +648,33 @@ export class WebSocketClient {
       case T.AUTH_RESULT:
         this.emit('auth_result', {
           success: data.a,
-          token: data.authToken || '',
-          role: data.authRole || 0,
-          username: data.authUsername || '',
-          error: data.authError || ''
+          token: data.auth_token || '',
+          role: data.auth_role || 0,
+          username: data.auth_username || '',
+          error: data.auth_error || ''
         });
         break;
 
       case T.MOD_NOTIFY:
         this.emit('mod_notify', {
-          actionType: data.modActionType,
-          targetName: data.modTargetName || '',
-          issuerName: data.modIssuerName || '',
-          reason: data.modReason || '',
-          targetSessionIndex: data.modTarget
+          actionType: data.mod_action_type,
+          targetName: data.mod_target_name || '',
+          issuerName: data.mod_issuer_name || '',
+          reason: data.mod_reason || '',
+          targetSessionIndex: data.mod_target
         });
         break;
 
       case T.MOD_RESULT:
         this.emit('mod_result', {
           success: data.a,
-          error: data.authError || ''
+          error: data.auth_error || ''
         });
         break;
 
       case T.MOD_LIST:
         this.emit('mod_list', {
-          entries: (data.modEntries || []).map(e => ({
+          entries: (data.mod_entries || []).map(e => ({
             id: e.id,
             type: e.type,
             username: e.username,

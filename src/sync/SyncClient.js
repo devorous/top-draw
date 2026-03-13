@@ -167,11 +167,10 @@ export class SyncClient {
 
       let totalCount = 0;
 
-      if (groups[0]?.flatCanvas) {
-        totalCount += 1;
-      }
-
       for (let gi = 0; gi < groups.length; gi++) {
+        if (groups[gi].flatCanvas) {
+          totalCount += 1;
+        }
         totalCount += groups[gi].bakedSequences.length;
       }
 
@@ -248,7 +247,9 @@ export class SyncClient {
               layerIdx: groupIdx
             });
           }
-          this.wsClient.sendSyncStrokeBatch(strokeRecords, 0, targetUser);
+          // The first record's groupIdx can be used as a representative layerIdx for the batch
+          const batchLayerIdx = batches[batchIdx][0]?.groupIdx ?? 0;
+          this.wsClient.sendSyncStrokeBatch(strokeRecords, batchLayerIdx, targetUser);
         }
       }
 
@@ -383,22 +384,8 @@ export class SyncClient {
     if (!data.strokes || !Array.isArray(data.strokes)) return;
 
     for (const s of data.strokes) {
-      const mappedStroke = {
-        imageData: s.img,
-        w: s.width,
-        h: s.height,
-        x: s.x,
-        y: s.y,
-        blendMode: s.blendMode,
-        userId: s.userId,
-        timestamp: s.timestamp,
-        eraseAll: s.eraseAll || false,
-        isRedo: s.isRedo || false,
-        redoBatchIdx: s.redoBatch || 0,
-        layerIdx: s.layerIdx ?? data.layerIdx
-      };
-
-      const p = this._importStroke(mappedStroke);
+      // Note: s is already mapped by WebSocketClient to have imageData, w, h, etc.
+      const p = this._importStroke(s);
       this._pendingImports.push(p);
     }
 
