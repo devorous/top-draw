@@ -29,6 +29,11 @@ export class DebugOverlay {
     // Per-user persistent regions (array of bounding rects, merges nearby regions)
     this.userRegions = new Map(); // userId -> {username, regions: [{x, y, width, height}, ...]}
     this.USER_REGION_MERGE_DISTANCE = 100; // Merge regions within 100px
+
+    // Individual feature toggles
+    this.showDirtyRects = true;
+    this.showRegions = true;
+    this.showStrokePoints = true;
   }
 
   /**
@@ -102,6 +107,27 @@ export class DebugOverlay {
   }
 
   /**
+   * Toggle dirty rects display
+   */
+  toggleDirtyRects() {
+    this.showDirtyRects = !this.showDirtyRects;
+  }
+
+  /**
+   * Toggle regions display
+   */
+  toggleRegions() {
+    this.showRegions = !this.showRegions;
+  }
+
+  /**
+   * Toggle stroke points display
+   */
+  toggleStrokePoints() {
+    this.showStrokePoints = !this.showStrokePoints;
+  }
+
+  /**
    * Clear the overlay canvas
    */
   clear() {
@@ -160,7 +186,7 @@ export class DebugOverlay {
     const canvasArea = this.canvas.width * this.canvas.height;
 
     // Draw dirty rects with fade-out based on age
-    if (hasDirtyRects) {
+    if (hasDirtyRects && this.showDirtyRects) {
       this.dirtyRectHistory.forEach((entry, historyIdx) => {
         const age = now - entry.timestamp;
         const fadeProgress = age / this.RECT_DISPLAY_DURATION; // 0 to 1
@@ -195,73 +221,77 @@ export class DebugOverlay {
     }
 
     // Draw per-user persistent regions (multiple bounding boxes per user)
-    this.ctx.setLineDash([]);
-    const userColors = [
-      'rgba(78, 205, 196, 0.5)',   // Teal
-      'rgba(255, 230, 109, 0.5)',  // Yellow
-      'rgba(199, 125, 255, 0.5)',  // Purple
-      'rgba(69, 183, 209, 0.5)'    // Blue
-    ];
-    let colorIdx = 0;
-    for (const [userId, userData] of this.userRegions) {
-      const color = userColors[colorIdx % userColors.length];
-      colorIdx++;
+    if (this.showRegions) {
+      this.ctx.setLineDash([]);
+      const userColors = [
+        'rgba(78, 205, 196, 0.5)',   // Teal
+        'rgba(255, 230, 109, 0.5)',  // Yellow
+        'rgba(199, 125, 255, 0.5)',  // Purple
+        'rgba(69, 183, 209, 0.5)'    // Blue
+      ];
+      let colorIdx = 0;
+      for (const [userId, userData] of this.userRegions) {
+        const color = userColors[colorIdx % userColors.length];
+        colorIdx++;
 
-      // Draw each region for this user
-      userData.regions.forEach((region, idx) => {
-        // Draw semi-transparent fill
-        this.ctx.fillStyle = color.replace('0.5', '0.1');
-        this.ctx.fillRect(region.x, region.y, region.width, region.height);
+        // Draw each region for this user
+        userData.regions.forEach((region, idx) => {
+          // Draw semi-transparent fill
+          this.ctx.fillStyle = color.replace('0.5', '0.1');
+          this.ctx.fillRect(region.x, region.y, region.width, region.height);
 
-        // Draw solid border
-        this.ctx.strokeStyle = color;
-        this.ctx.lineWidth = 3;
-        this.ctx.setLineDash([]);
-        this.ctx.strokeRect(region.x, region.y, region.width, region.height);
+          // Draw solid border
+          this.ctx.strokeStyle = color;
+          this.ctx.lineWidth = 3;
+          this.ctx.setLineDash([]);
+          this.ctx.strokeRect(region.x, region.y, region.width, region.height);
 
-        // Draw username label on every region
-        this.ctx.fillStyle = color;
-        this.ctx.font = 'bold 14px monospace';
-        this.ctx.fillText(userData.username || `User ${userId}`, region.x + 8, region.y + 22);
-
-        // Draw region count if multiple regions
-        if (userData.regions.length > 1) {
+          // Draw username label on every region
           this.ctx.fillStyle = color;
-          this.ctx.font = '11px monospace';
-          this.ctx.fillText(`${idx + 1}/${userData.regions.length}`, region.x + 8, region.y + region.height - 8);
-        }
-      });
+          this.ctx.font = 'bold 14px monospace';
+          this.ctx.fillText(userData.username || `User ${userId}`, region.x + 8, region.y + 22);
+
+          // Draw region count if multiple regions
+          if (userData.regions.length > 1) {
+            this.ctx.fillStyle = color;
+            this.ctx.font = '11px monospace';
+            this.ctx.fillText(`${idx + 1}/${userData.regions.length}`, region.x + 8, region.y + region.height - 8);
+          }
+        });
+      }
     }
 
     // Draw stroke points
-    this.ctx.setLineDash([]);
-    for (const [userId, points] of this.strokePoints) {
-      points.forEach((point, idx) => {
-        // Color based on source
-        if (point.source === 'tick') {
-          this.ctx.fillStyle = 'rgba(0, 255, 0, 0.6)'; // Green for tick
-        } else if (point.source === 'catchup') {
-          this.ctx.fillStyle = 'rgba(255, 165, 0, 0.6)'; // Orange for catchup
-        } else {
-          this.ctx.fillStyle = 'rgba(100, 150, 255, 0.6)'; // Blue for other
-        }
+    if (this.showStrokePoints) {
+      this.ctx.setLineDash([]);
+      for (const [userId, points] of this.strokePoints) {
+        points.forEach((point, idx) => {
+          // Color based on source
+          if (point.source === 'tick') {
+            this.ctx.fillStyle = 'rgba(0, 255, 0, 0.6)'; // Green for tick
+          } else if (point.source === 'catchup') {
+            this.ctx.fillStyle = 'rgba(255, 165, 0, 0.6)'; // Orange for catchup
+          } else {
+            this.ctx.fillStyle = 'rgba(100, 150, 255, 0.6)'; // Blue for other
+          }
 
-        // Draw small circle for each point
-        this.ctx.beginPath();
-        this.ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
-        this.ctx.fill();
-
-        // Draw line between consecutive points
-        if (idx > 0) {
-          const prevPoint = points[idx - 1];
-          this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-          this.ctx.lineWidth = 1;
+          // Draw small circle for each point
           this.ctx.beginPath();
-          this.ctx.moveTo(prevPoint.x, prevPoint.y);
-          this.ctx.lineTo(point.x, point.y);
-          this.ctx.stroke();
-        }
-      });
+          this.ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
+          this.ctx.fill();
+
+          // Draw line between consecutive points
+          if (idx > 0) {
+            const prevPoint = points[idx - 1];
+            this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            this.ctx.lineWidth = 1;
+            this.ctx.beginPath();
+            this.ctx.moveTo(prevPoint.x, prevPoint.y);
+            this.ctx.lineTo(point.x, point.y);
+            this.ctx.stroke();
+          }
+        });
+      }
     }
 
     // Draw stats in top-right corner

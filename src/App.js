@@ -25,6 +25,7 @@ import { KeyboardHandler } from './input/KeyboardHandler.js';
 import { BrushModeManager } from './tools/BrushModeManager.js';
 import { BlendModeManager } from './canvas/BlendModeManager.js';
 import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js';
+import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
 
 /**
  * Main Drawing Application class.
@@ -119,6 +120,9 @@ export class DrawingApp {
 
     // Stroke history panel (dev mode)
     this.strokeHistoryPanel = new StrokeHistoryPanel();
+
+    // Performance debug panel
+    this.performanceDebugPanel = new PerformanceDebugPanel(this.inputBufferManager, this);
   }
 
   /**
@@ -153,6 +157,8 @@ export class DrawingApp {
     this.strokeHistoryPanel.setActiveLayer(this.self?.activeLayer ?? 0);
     this.board.layerManager.strokeHistoryPanel = this.strokeHistoryPanel;
     this.board.layerManager.onHistoryChange = () => this.updateUndoRedoHud();
+
+    this.performanceDebugPanel.init();
 
     this.ui.setupLayerPreviewListeners(this.board.layerManager);
 
@@ -1580,6 +1586,11 @@ export class DrawingApp {
     const enabled = this.debugOverlay.toggle();
     this.ui.updateDevModeDisplay(enabled);
     this.strokeHistoryPanel.setEnabled(enabled);
+    // Also show performance debug panel when dev mode is enabled
+    if (enabled && this.performanceDebugPanel && !this.performanceDebugPanel.enabled) {
+      this.performanceDebugPanel.toggle();
+      this.performanceDebugPanel.update();
+    }
   }
 
   /**
