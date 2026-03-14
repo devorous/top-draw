@@ -245,6 +245,7 @@ export class DrawingApp {
     this.ui.updateToolDisplay(initialTool, this.self);
     this.ui.updateBrushModeDisplay(this.brushModeManager.getMode());
     this.ui.updateActiveLayerDisplay(this.self.activeLayer);
+    this.ui.updateBlurToolState(this.self.activeLayer);
     this.ui.updateBlendModeForLayer(
       this.board.layerManager.getLayerAllowComplexBlendModes(this.self.activeLayer)
     );
@@ -1450,6 +1451,7 @@ export class DrawingApp {
     this.self.setTool(tool);
     this.toolManager.setTool(tool);
     this.ui.updateToolDisplay(tool, this.self);
+    this._updateBlurCannotDraw();
 
     if (tool === 'text') {
       this.ui.updateSelfTextStyle(this.self.size, this.self.color);
@@ -1517,6 +1519,8 @@ export class DrawingApp {
   handleLayerSelect(layerIndex) {
     this.self.setActiveLayer(layerIndex);
     this.ui.updateActiveLayerDisplay(layerIndex);
+    this.ui.updateBlurToolState(layerIndex);
+    this._updateBlurCannotDraw();
 
     const allowComplex = this.board.layerManager.getLayerAllowComplexBlendModes(layerIndex);
     const wasReset = this.ui.updateBlendModeForLayer(allowComplex);
@@ -1537,6 +1541,23 @@ export class DrawingApp {
 
     if (this.connected) {
       this.wsClient.broadcastLayerChange(layerIndex);
+    }
+  }
+
+  /**
+   * Show/hide the muted-style cursor indicator when blur is active on a non-zero layer.
+   * @private
+   */
+  _updateBlurCannotDraw() {
+    const cannotDraw = this.self.tool === 'blur' && this.self.activeLayer !== 0;
+    this._blurCannotDraw = cannotDraw;
+    // Reuse the muted indicator visuals (only if not actually muted)
+    if (!this.self.isMuted) {
+      this.ui.setMutedState(cannotDraw);
+    }
+    // Hide the square cursor and show crosshair-style muted indicator instead
+    if (this.self.tool === 'blur') {
+      this.ui.elements.selfSquare.style.display = cannotDraw ? 'none' : 'block';
     }
   }
 
@@ -2016,6 +2037,15 @@ export class DrawingApp {
       if (!this._lastMuteToast || Date.now() - this._lastMuteToast > 3000) {
         this.ui.showToast('You are muted', 2000);
         this._lastMuteToast = Date.now();
+      }
+      return;
+    }
+
+    // Block blur tool on non-base layers (allow panning)
+    if (this._blurCannotDraw && !this.self.panning) {
+      if (!this._lastBlurLayerToast || Date.now() - this._lastBlurLayerToast > 3000) {
+        this.ui.showToast('Blur only works on Layer 1', 2000);
+        this._lastBlurLayerToast = Date.now();
       }
       return;
     }

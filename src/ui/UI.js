@@ -689,6 +689,18 @@ export class UI {
   }
 
   /**
+   * Enable/disable blur tool buttons based on active layer.
+   * Blur only works on layer 0.
+   * @param {number} layerIndex - Active layer index
+   */
+  updateBlurToolState(layerIndex) {
+    const disabled = layerIndex !== 0;
+    if (this.elements.blurBtn) {
+      this.elements.blurBtn.classList.toggle('tool-disabled', disabled);
+    }
+  }
+
+  /**
    * Updates the selected blend mode in the dropdown.
    * @param {string} blendMode - Selected blend mode
    */

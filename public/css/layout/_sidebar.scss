@@ -156,6 +156,11 @@
   #blurGroup { @include collapsed-group; }
 }
 
+.tool.btn.tool-disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
 .tool.btn img {
   width: 100%;
   height: 100%;

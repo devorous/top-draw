@@ -82,7 +82,9 @@ export class BlurTool extends Tool {
    * @param {Object} pos - The current pointer position.
    */
   onPointerDown(user, pos) {
-    const activeLayerIdx = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+    // Blur always targets layer 0 - it reads from the fully composited image
+    // which includes the white background, so it can't work on transparent layers
+    const activeLayerIdx = 0;
 
     // Store blur radius for this user
     user.blurRadius = user.blurRadius || 10;
@@ -131,7 +133,7 @@ export class BlurTool extends Tool {
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
-    const activeLayerIdx = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+    const activeLayerIdx = 0;
     const maskCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, user.id);
     if (!maskCtx) return;
 
@@ -167,7 +169,7 @@ export class BlurTool extends Tool {
    * @param {Object} pos - The current pointer position.
    */
   onPointerUp(user, pos) {
-    const activeLayerIdx = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+    const activeLayerIdx = 0;
     const blurRadius = user.blurRadius || 10;
 
     // Get the bounds we tracked during painting

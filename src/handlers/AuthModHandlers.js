@@ -49,6 +49,7 @@ export function setupAuthModHandlers(wsClient, app) {
       if (data.targetSessionIndex === app.sessionIndex || data.targetName === app.self.username) {
         app.self.isMuted = false;
         ui.setMutedState(false);
+        app._updateBlurCannotDraw();
         ui.showToast('You have been unmuted', 3000);
       }
     }

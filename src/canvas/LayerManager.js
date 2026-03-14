@@ -2,7 +2,7 @@
  * @fileoverview LayerManager - Manages multiple off-screen canvas layers with stroke history
  */
 
-import { blurImageData } from '../utils/blurUtils.js';
+import { blurImageData, getStackblurSync } from '../utils/blurUtils.js';
 
 /**
  * Manages multiple layer groups, each containing baked sequences, a stroke stack,
@@ -739,7 +739,7 @@ export class LayerManager {
       return;
     }
 
-    // No cached result - resolve synchronously using CSS filter
+    // No cached result - resolve synchronously
     // Build the source image from current baked state
     let sourceCanvas;
     if (group.flatCanvas) {
@@ -764,7 +764,7 @@ export class LayerManager {
       sourceCanvas = temp;
     }
 
-    // Apply blur using CSS filter (synchronous) with margin for blur bleed
+    // Crop region with margin for blur bleed
     const margin = Math.ceil(blurRadius);
     const cropX = Math.max(0, x - margin);
     const cropY = Math.max(0, y - margin);
@@ -777,10 +777,14 @@ export class LayerManager {
     blurred.height = cropH;
     const bCtx = blurred.getContext('2d');
 
-    // Apply CSS blur filter to the source region
-    bCtx.filter = `blur(${blurRadius * 0.5}px)`;
+    // Apply stackblur to the source region
     bCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-    bCtx.filter = 'none';
+    const stackblur = getStackblurSync();
+    if (stackblur) {
+      const imageData = bCtx.getImageData(0, 0, cropW, cropH);
+      stackblur(imageData.data, cropW, cropH, blurRadius);
+      bCtx.putImageData(imageData, 0, 0);
+    }
 
     // Mask with the blur mask to only keep blurred areas where user painted
     bCtx.globalCompositeOperation = 'destination-in';

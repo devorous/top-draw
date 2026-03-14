@@ -122,3 +122,11 @@ export async function blurImageData(imageData, width, height, blurRadius) {
 
   return new ImageData(data, width, height);
 }
+
+/**
+ * Returns the cached stackblur function if already loaded, or null.
+ * @returns {Function|null}
+ */
+export function getStackblurSync() {
+  return stackblurCache;
+}
