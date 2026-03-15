@@ -87,6 +87,14 @@ export class KeyboardHandler {
       return;
     }
 
+    // Shift+P to toggle performance debug panel
+    if ((e.shiftKey && e.key === 'P') && app.performanceDebugPanel) {
+      e.preventDefault();
+      app.performanceDebugPanel.toggle();
+      app.performanceDebugPanel.update();
+      return;
+    }
+
     app.wsClient.broadcastKeyPress(e.key);
 
     if (app.self.tool === 'text') {

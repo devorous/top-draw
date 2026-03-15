@@ -1,4 +1,5 @@
 import { LayerManager } from './LayerManager.js';
+import { PerformanceMonitor } from './PerformanceMonitor.js';
 
 /**
  * @fileoverview Board class managing canvas elements and viewport
@@ -47,6 +48,15 @@ export class Board {
 
     this.MAX_DIRTY_RECTS = 20;
     this.DIRTY_RECT_MERGE_DISTANCE = 20;
+
+    /** @type {number} Target render FPS (0 = uncapped/on-demand) */
+    this.targetFPS = 0;
+    /** @type {number} DOMHighResTimeStamp of the last completed composite */
+    this._lastCompositeTime = 0;
+    /** @type {number|null} RAF ID for the persistent render loop */
+    this._rafLoopId = null;
+    /** @type {PerformanceMonitor} */
+    this.performanceMonitor = new PerformanceMonitor();
   }
 
   /**
@@ -785,6 +795,7 @@ export class Board {
    */
   compositeAllLayers() {
     if (!this.layerManager) return;
+    this.performanceMonitor.recordCompositeStart();
 
     const activeLayerIdx = this.app?.self?.activeLayer ?? 0;
     const userId = this.app?.self?.id ?? 0;
@@ -886,27 +897,78 @@ export class Board {
 
     this.layerManager.needsComposite = false;
     this.layerManager._notifyHistoryPanel();
+    this.performanceMonitor.recordCompositeEnd();
   }
 
   /**
    * Request a composite update on the next animation frame.
    */
+  /**
+   * Set the target render FPS.
+   * 0 = uncapped (on-demand RAF, original behaviour).
+   * Any positive value starts a persistent RAF loop capped to that rate.
+   * @param {number} fps
+   */
+  setTargetFPS(fps) {
+    this.targetFPS = fps;
+    if (fps > 0) {
+      this._startRenderLoop();
+    } else {
+      this._stopRenderLoop();
+    }
+  }
+
+  /**
+   * Starts a persistent RAF loop that composites at most targetFPS times/sec.
+   * @private
+   */
+  _startRenderLoop() {
+    if (this._rafLoopId !== null) return;
+    const loop = (time) => {
+      this._rafLoopId = requestAnimationFrame(loop);
+      if (!this._needsComposite) return;
+      const minInterval = 1000 / this.targetFPS;
+      if (time - this._lastCompositeTime < minInterval) return;
+      this._needsComposite = false;
+      this._lastCompositeTime = time;
+      this.compositeAllLayers();
+    };
+    this._rafLoopId = requestAnimationFrame(loop);
+  }
+
+  /**
+   * Stops the persistent RAF loop.
+   * @private
+   */
+  _stopRenderLoop() {
+    if (this._rafLoopId !== null) {
+      cancelAnimationFrame(this._rafLoopId);
+      this._rafLoopId = null;
+    }
+  }
+
+  /**
+   * Request a composite on the next animation frame.
+   * When a target FPS is set the persistent loop handles this automatically.
+   * When uncapped, schedules a one-shot RAF as before.
+   */
   requestUpdate() {
     this._needsComposite = true;
-    if (!this._compositeScheduled) {
+    if (this.targetFPS === 0 && !this._compositeScheduled) {
       this._compositeScheduled = true;
       requestAnimationFrame(() => this._performScheduledComposite());
     }
   }
 
   /**
-   * Internal RAF callback that performs the actual composite if needed.
+   * One-shot RAF callback used in uncapped mode.
    * @private
    */
   _performScheduledComposite() {
     this._compositeScheduled = false;
     if (this._needsComposite) {
       this._needsComposite = false;
+      this._lastCompositeTime = performance.now();
       this.compositeAllLayers();
     }
   }

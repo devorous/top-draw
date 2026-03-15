@@ -57,12 +57,24 @@ function detectLowPowerDevice() {
   }
 
   const isLowPower = score >= 3;
-  console.log(
-    `[Performance] Device score: ${score} → ${isLowPower ? '30' : '60'} TPS`
+  const message = `[Performance] Device score: ${score} → ${isLowPower ? '30' : '60'} TPS`
     + ` | cores: ${cores || 'N/A'}, memory: ${memory ?? 'N/A'}GB`
     + ` | GPU: ${renderer}`
-    + ` | maxTexture: ${maxTexture}, maxVertexUnits: ${maxVertexUnits}`
-  );
+    + ` | maxTexture: ${maxTexture}, maxVertexUnits: ${maxVertexUnits}`;
+  console.log(message);
+
+  // Store for debug display
+  window.__performanceDetection = {
+    score,
+    isLowPower,
+    cores,
+    memory,
+    renderer,
+    maxTexture,
+    maxVertexUnits,
+    message
+  };
+
   return isLowPower;
 }
 
@@ -359,5 +371,25 @@ export class InputBufferManager {
     this.inputBuffer.lastPosition = null;
     this.inputBuffer.points = [];
     this.inputBuffer.dirty = false;
+  }
+
+  /**
+   * Get current TPS for debug/monitoring.
+   * @returns {number}
+   */
+  getCurrentTPS() {
+    return this.tickRate;
+  }
+
+  /**
+   * Get performance detection info for debug display.
+   * @returns {Object}
+   */
+  getPerformanceInfo() {
+    return {
+      tickRate: this.tickRate,
+      lowPowerMode: this.lowPowerMode,
+      detection: window.__performanceDetection || {}
+    };
   }
 }
