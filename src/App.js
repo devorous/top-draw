@@ -26,6 +26,7 @@ import { BrushModeManager } from './tools/BrushModeManager.js';
 import { BlendModeManager } from './canvas/BlendModeManager.js';
 import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js';
 import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
+import { PerformanceSettings } from './ui/PerformanceSettings.js';
 
 /**
  * Main Drawing Application class.
@@ -123,6 +124,9 @@ export class DrawingApp {
 
     // Performance debug panel
     this.performanceDebugPanel = new PerformanceDebugPanel(this.inputBufferManager, this);
+
+    // Performance settings modal
+    this.performanceSettings = new PerformanceSettings();
   }
 
   /**
@@ -159,6 +163,7 @@ export class DrawingApp {
     this.board.layerManager.onHistoryChange = () => this.updateUndoRedoHud();
 
     this.performanceDebugPanel.init();
+    this.performanceSettings.init(this.board);
 
     this.ui.setupLayerPreviewListeners(this.board.layerManager);
 
@@ -404,6 +409,7 @@ export class DrawingApp {
     elements.resetBtn.addEventListener('click', () => this.handleResetBoard());
     elements.mirrorBtn.addEventListener('click', () => this.handleToggleMirror());
     elements.devBtn.addEventListener('click', () => this.handleToggleDevMode());
+    elements.perfSettingsBtn.addEventListener('click', () => this.performanceSettings.show());
     if (elements.undoBtn) elements.undoBtn.addEventListener('click', () => this.handleUndo());
     elements.plusBtn.addEventListener('click', () => this.handleZoomIn());
     elements.minusBtn.addEventListener('click', () => this.handleZoomOut());
@@ -1901,6 +1907,7 @@ export class DrawingApp {
     this.inputBufferManager.inputBuffer.points.push(x, y);
     this.inputBufferManager.inputBuffer.pointerType = e.pointerType;
     this.inputBufferManager.inputBuffer.dirty = true;
+    this.board.performanceMonitor.recordInput();
 
     // Handle panning instantaneously (bypasses input buffer for better responsiveness)
     if (this.self.panning && this.self.mousedown) {

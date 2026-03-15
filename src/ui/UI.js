@@ -122,6 +122,7 @@ export class UI {
       devBtn: document.getElementById('devBtn'),
       devText: document.querySelector('.devOption'),
       debugOverlay: document.getElementById('debugOverlay'),
+      perfSettingsBtn: document.getElementById('perfSettingsBtn'),
 
       chatBtn: document.getElementById('chatBtn'),
       saveBtn: document.getElementById('saveBtn'),
