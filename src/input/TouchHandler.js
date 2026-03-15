@@ -37,6 +37,8 @@ export class TouchHandler {
       pivotCanvasY: null
     };
 
+    this.touchStartedOnBoard = false;
+
     this.handleTouchStart = this.handleTouchStart.bind(this);
     this.handleTouchMove = this.handleTouchMove.bind(this);
     this.handleTouchEnd = this.handleTouchEnd.bind(this);
@@ -118,6 +120,7 @@ export class TouchHandler {
    * @returns {void}
    */
   handleTouchStart(e) {
+    this.touchStartedOnBoard = true;
     e.preventDefault();
 
     if (e.touches.length === 2) {
@@ -162,7 +165,9 @@ export class TouchHandler {
    * @returns {void}
    */
   handleTouchMove(e) {
-    e.preventDefault();
+    if (this.state.active || this.touchStartedOnBoard) {
+      e.preventDefault();
+    }
 
     if (!this.state.active || e.touches.length !== 2) return;
 
@@ -260,6 +265,7 @@ export class TouchHandler {
 
     if (e.touches.length === 0) {
       this.state.gestureStartedWithTwoFingers = false;
+      this.touchStartedOnBoard = false;
       
       if (this.app.isOnBoard || this.app.self.tool === 'text') {
         this.ui.showCursor();
