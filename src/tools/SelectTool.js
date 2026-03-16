@@ -1988,6 +1988,9 @@ export class SelectTool extends Tool {
     this.lassoPath = null;
     this.lassoSimplified = null;
 
+    // Reset active handle to prevent glitches when switching tools mid-drag
+    this.activeHandle = null;
+
     this.hideContextMenu();
     this.board.clearTop();
   }
