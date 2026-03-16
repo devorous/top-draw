@@ -27,6 +27,7 @@ import { BlendModeManager } from './canvas/BlendModeManager.js';
 import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js';
 import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
 import { PerformanceSettings } from './ui/PerformanceSettings.js';
+import { highlight } from './ui/Highlight.js';
 
 /**
  * Main Drawing Application class.
@@ -1511,6 +1512,13 @@ export class DrawingApp {
 
     this.toolLockManager.updateAllLockButtons(tool);
 
+    // Suggest disabling thinning when tablet user selects ink tool
+    if (tool === 'ink' && this.tabletDetected && this.self.thinning > 0) {
+      this.ui.showToast('Tablet detected - consider disabling thinning', 4000);
+      if (this.ui.elements.thinningSlider) highlight(this.ui.elements.thinningSlider, 4000);
+      if (this.ui.elements.simulatePressureCheckbox) highlight(this.ui.elements.simulatePressureCheckbox, 4000);
+    }
+
     if (tool === 'imageBrush') {
       this.brushGallery.show();
     } else {
@@ -2078,6 +2086,22 @@ export class DrawingApp {
       return;
     }
 
+    // Detect tablet on first pen event
+    if (e.pointerType === 'pen' && !this.tabletDetected) {
+      this.tabletDetected = true;
+
+      // Show toast and highlight - defer to not block stroke
+      setTimeout(() => {
+        if (this.self.tool === 'ink' && this.self.thinning > 0) {
+          this.ui.showToast('Tablet detected - consider disabling thinning', 4000);
+          if (this.ui.elements.thinningSlider) highlight(this.ui.elements.thinningSlider, 4000);
+          if (this.ui.elements.simulatePressureCheckbox) highlight(this.ui.elements.simulatePressureCheckbox, 4000);
+        } else {
+          this.ui.showToast('Tablet detected!', 3000);
+        }
+      }, 100);
+    }
+
     if (e.pointerType === 'mouse' || !this.pressureEnabled) {
       this.self.setPressure(1);
       this.inputBufferManager.inputBuffer.pressure = 1;
@@ -2136,19 +2160,6 @@ export class DrawingApp {
           
           // DO NOT broadcastMouseDown here. We wait until pointerUp for text+touch.
         } else if (e.pointerType === 'pen' && this.pressureEnabled && this.self.tool !== 'text') {
-          // Detect tablet and disable thinning if not locked
-          if (!this.tabletDetected) {
-            this.tabletDetected = true;
-            const thinningLocked = this.toolLockManager?.isToolLocked(this.self.tool, 'thinning');
-            if (!thinningLocked) {
-              this.self.setSimulatePressure(false);
-              this.ui.elements.simulatePressureCheckbox.checked = false;
-              this.ui.showToast('Tablet detected, disabling velocity thinning');
-              if (this.connected) {
-                this.wsClient.broadcastSimulatePressureChange(false);
-              }
-            }
-          }
           // Defer pen stroke start until first pointerMove provides real pressure
           this._pendingPenDown = { pos, event: e };
         } else {
