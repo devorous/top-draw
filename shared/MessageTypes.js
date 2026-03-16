@@ -29,7 +29,7 @@ export const T = {
  */
 export const Tool = {
   BRUSH: 0, TEXT: 1, ERASE: 2, IMAGE_BRUSH: 3,
-  SELECT: 4, PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8, INK: 9, INKDROPPER: 10, BLUR: 11, CIRCLE_BLUR: 12, CIRCLE_BLUR_HARD: 13
+  SELECT: 4, PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8, INK: 9, INKDROPPER: 10, BLUR: 11, CIRCLE_BLUR: 12, CIRCLE_BLUR_HARD: 13, PIXEL: 14
 };
 
 /**
@@ -38,7 +38,7 @@ export const Tool = {
  */
 export const ToolNames = [
   'brush', 'text', 'erase', 'imageBrush',
-  'select', 'flowPen', 'line', 'rectangle', 'circle', 'ink', 'inkdropper', 'blur', 'circleBlur', 'circleBlurHard'
+  'select', 'flowPen', 'line', 'rectangle', 'circle', 'ink', 'inkdropper', 'blur', 'circleBlur', 'circleBlurHard', 'pixel'
 ];
 
 /**
@@ -47,5 +47,5 @@ export const ToolNames = [
  */
 export const ToolToEnum = {
   brush: 0, text: 1, erase: 2, imageBrush: 3,
-  select: 4, flowPen: 5, line: 6, rectangle: 7, circle: 8, ink: 9, inkdropper: 10, blur: 11, circleBlur: 12, circleBlurHard: 13
+  select: 4, flowPen: 5, line: 6, rectangle: 7, circle: 8, ink: 9, inkdropper: 10, blur: 11, circleBlur: 12, circleBlurHard: 13, pixel: 14
 };

@@ -1,5 +1,5 @@
 /**
- * @fileoverview Manages brush mode switching between classic, fluid (flowPen), and ink.
+ * @fileoverview Manages brush mode switching between classic, pixel, fluid (flowPen), and ink.
  * Handles persistence to localStorage and mode synchronization with tool selection.
  */
 
@@ -17,7 +17,7 @@ export class BrushModeManager {
 
   /**
    * Get the current brush mode.
-   * @returns {string} - 'classic', 'fluid', or 'ink'.
+   * @returns {string} - 'classic', 'pixel', 'fluid', or 'ink'.
    */
   getMode() {
     return this.currentMode;
@@ -25,7 +25,7 @@ export class BrushModeManager {
 
   /**
    * Set brush mode and switch to corresponding tool.
-   * @param {string} mode - 'classic', 'fluid', or 'ink'.
+   * @param {string} mode - 'classic', 'pixel', 'fluid', or 'ink'.
    */
   setMode(mode) {
     if (this.app.self.mousedown) {
@@ -36,7 +36,7 @@ export class BrushModeManager {
     this.currentMode = mode;
     this.saveBrushMode();
 
-    const toolName = mode === 'fluid' ? 'flowPen' : mode === 'ink' ? 'ink' : 'brush';
+    const toolName = mode === 'pixel' ? 'pixel' : mode === 'fluid' ? 'flowPen' : mode === 'ink' ? 'ink' : 'brush';
     this.app.selectTool(toolName);
   }
 
@@ -45,8 +45,8 @@ export class BrushModeManager {
    * @param {string} tool - Tool name.
    */
   updateModeFromTool(tool) {
-    if (tool === 'brush' || tool === 'flowPen' || tool === 'ink') {
-      this.currentMode = tool === 'flowPen' ? 'fluid' : tool === 'ink' ? 'ink' : 'classic';
+    if (tool === 'brush' || tool === 'pixel' || tool === 'flowPen' || tool === 'ink') {
+      this.currentMode = tool === 'pixel' ? 'pixel' : tool === 'flowPen' ? 'fluid' : tool === 'ink' ? 'ink' : 'classic';
       this.saveBrushMode();
       this.app.ui.updateBrushModeDisplay(this.currentMode);
     }
@@ -54,10 +54,10 @@ export class BrushModeManager {
 
   /**
    * Get the tool name for the current brush mode.
-   * @returns {string} - 'brush', 'flowPen', or 'ink'.
+   * @returns {string} - 'brush', 'pixel', 'flowPen', or 'ink'.
    */
   getCurrentToolName() {
-    return this.currentMode === 'fluid' ? 'flowPen' : this.currentMode === 'ink' ? 'ink' : 'brush';
+    return this.currentMode === 'pixel' ? 'pixel' : this.currentMode === 'fluid' ? 'flowPen' : this.currentMode === 'ink' ? 'ink' : 'brush';
   }
 
   /**

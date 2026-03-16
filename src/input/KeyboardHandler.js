@@ -179,13 +179,13 @@ export class KeyboardHandler {
           app.selectTool(app.brushModeManager.getCurrentToolName());
           break;
         case 'p':
-          if (app.self.tool === 'brush' || app.self.tool === 'flowPen' || app.self.tool === 'ink') {
-            // Cycle: classic -> fluid -> ink -> classic
+          if (app.self.tool === 'brush' || app.self.tool === 'pixel' || app.self.tool === 'flowPen' || app.self.tool === 'ink') {
+            // Cycle: classic -> pixel -> fluid -> ink -> classic
             const currentMode = app.brushModeManager.getMode();
-            const nextMode = currentMode === 'classic' ? 'fluid' : currentMode === 'fluid' ? 'ink' : 'classic';
+            const nextMode = currentMode === 'classic' ? 'pixel' : currentMode === 'pixel' ? 'fluid' : currentMode === 'fluid' ? 'ink' : 'classic';
             app.brushModeManager.setMode(nextMode);
           } else {
-            app.brushModeManager.setMode('fluid');
+            app.brushModeManager.setMode('pixel');
           }
           break;
         case 'l':

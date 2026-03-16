@@ -340,7 +340,7 @@ async function handleBroadcast(data, sessionIndex, room) {
       break;
 
     case T.GMP:
-      user.imageBrush = data.bd;
+      user.imageBrush = data.g;
       break;
 
     case T.CTHN:

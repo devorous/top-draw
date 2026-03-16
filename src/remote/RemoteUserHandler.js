@@ -229,6 +229,14 @@ export class RemoteUserHandler {
         }
         break;
 
+      case 'pixel': {
+        const pixelTool = this.toolManager.getTool('pixel');
+        if (pixelTool) {
+          pixelTool.onPointerMove(user, pos, lastPos);
+        }
+        break;
+      }
+
       case 'circleBlur':
       case 'circleBlurHard': {
         const circleBlurTool = this.toolManager.getTool(user.tool);
@@ -422,6 +430,15 @@ export class RemoteUserHandler {
         }
         break;
 
+      case 'pixel':
+        if (!user.panning) {
+          const pixelTool = this.toolManager.getTool('pixel');
+          if (pixelTool) {
+            pixelTool.onPointerDown(user, pos);
+          }
+        }
+        break;
+
       case 'circleBlur':
       case 'circleBlurHard':
         if (!user.panning) {
@@ -577,6 +594,15 @@ export class RemoteUserHandler {
           const blurTool = this.toolManager.getTool('blur');
           if (blurTool) {
             blurTool.onPointerUp(user, pos);
+          }
+        }
+        break;
+
+      case 'pixel':
+        if (!user.panning) {
+          const pixelTool = this.toolManager.getTool('pixel');
+          if (pixelTool) {
+            pixelTool.onPointerUp(user, pos);
           }
         }
         break;

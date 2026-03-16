@@ -226,7 +226,8 @@ export class UI {
       inkdropper: this.createIcon('images/inkdropper-icon.svg'),
       pan: this.createIcon('images/move-icon.svg'),
       rotate: this.createIcon('images/rotate-icon.svg'),
-      imageBrush: this.createIcon('images/pepper.png')
+      imageBrush: this.createIcon('images/pepper.png'),
+      pixel: this.createIcon('images/brush-icon.svg')
     };
   }
 
@@ -552,6 +553,12 @@ export class UI {
         if (selfPressureSquare) selfPressureSquare.style.display = 'block';
         break;
 
+      case 'pixel':
+        selfSquare.style.display = 'block';
+        brushSpacing.style.display = 'block';
+        if (brushModeOptions) brushModeOptions.style.display = 'block';
+        break;
+
       case 'inkdropper':
         selfCrosshair.style.display = 'block';
         sizeContainer.style.display = 'none';
@@ -600,6 +607,7 @@ export class UI {
       rotate: this.elements.rotateBtn,
       select: this.elements.selectBtn,
       brush: this.elements.brushBtn,
+      pixel: this.elements.brushBtn,
       line: this.elements.lineBtn,
       rectangle: this.elements.rectangleBtn,
       circle: this.elements.circleBtn,

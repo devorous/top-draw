@@ -97,6 +97,7 @@ message Msg {
     BLUR = 11;
     CIRCLE_BLUR = 12;
     CIRCLE_BLUR_HARD = 13;
+    PIXEL = 14;
   }
 
   // === High-frequency fields (1-15 = 1-byte tags) ===

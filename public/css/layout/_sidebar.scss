@@ -217,6 +217,14 @@
   flex-wrap: wrap;
 }
 
+/* Brush Mode 2x2 Grid */
+.brush-mode-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 8px;
+}
+
 .radio-option {
   flex: 1;
   display: flex;
