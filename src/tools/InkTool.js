@@ -269,29 +269,44 @@ export class InkTool extends Tool {
                   Math.abs(this.inputPoints[0][0] - this.inputPoints[1][0]) < 0.1 &&
                   Math.abs(this.inputPoints[0][1] - this.inputPoints[1][1]) < 0.1);
 
+    const activeUser = user || this.self;
+    const simulatePressure = activeUser.simulatePressure !== undefined ? activeUser.simulatePressure : true;
+    const userThinning = activeUser.thinning !== undefined ? activeUser.thinning : 0.5;
+
     if (isDot) {
-      const [x, y] = this.inputPoints[0];
+      const [x, y, pressure] = this.inputPoints[0];
+      const dotPressure = pressure !== undefined ? pressure : 1;
       ctx.fillStyle = this.strokeColor;
       ctx.beginPath();
-      ctx.arc(x, y, this._strokeSize, 0, Math.PI * 2);
+      ctx.arc(x, y, this._strokeSize * dotPressure, 0, Math.PI * 2);
       ctx.fill();
       return;
     }
 
-    const activeUser = user || this.self;
-    const thinning = (activeUser.simulatePressure === false) ? 0 : (activeUser.thinning !== undefined ? activeUser.thinning : 0.5);
-    const simulatePressure = activeUser.simulatePressure !== undefined ? activeUser.simulatePressure : true;
+    // When simulatePressure is disabled (tablet mode), we want full pressure response
+    // Amplify pressure values aggressively to get very thin strokes at low pressure
+    const adjustedPoints = !simulatePressure
+      ? this.inputPoints.map(([x, y, p]) => {
+          const pressure = p !== undefined ? p : 1;
+          // Square the pressure to make low values MUCH lower
+          // 0.5^2 = 0.25, 0.3^2 = 0.09, 0.2^2 = 0.04
+          const amplified = Math.pow(pressure, 2);
+          return [x, y, amplified];
+        })
+      : this.inputPoints;
+
+    const effectiveThinning = simulatePressure ? userThinning : 0.95;
 
     const options = {
       size: (this._strokeSize * 2) / 1.5,
-      thinning: thinning,
+      thinning: effectiveThinning,
       smoothing: 0.5,
       streamline: 0.5,
-      simulatePressure: simulatePressure,
+      simulatePressure: false, // Always false so it uses our pressure values
       last
     };
 
-    const outlinePoints = getStroke(this.inputPoints, options);
+    const outlinePoints = getStroke(adjustedPoints, options);
     if (outlinePoints.length < 3) return;
 
     const pathData = getSvgPathFromStroke(outlinePoints);

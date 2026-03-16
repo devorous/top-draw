@@ -2090,15 +2090,16 @@ export class DrawingApp {
     if (e.pointerType === 'pen' && !this.tabletDetected) {
       this.tabletDetected = true;
 
-      // Show toast and highlight - defer to not block stroke
+      // Auto-disable thinning for tablet users
+      this.self.setSimulatePressure(false);
+      this.ui.elements.simulatePressureCheckbox.checked = false;
+      if (this.connected) {
+        this.wsClient.broadcastSimulatePressureChange(false);
+      }
+
+      // Show toast - defer to not block stroke
       setTimeout(() => {
-        if (this.self.tool === 'ink' && this.self.thinning > 0) {
-          this.ui.showToast('Tablet detected - consider disabling thinning', 4000);
-          if (this.ui.elements.thinningSlider) highlight(this.ui.elements.thinningSlider, 4000);
-          if (this.ui.elements.simulatePressureCheckbox) highlight(this.ui.elements.simulatePressureCheckbox, 4000);
-        } else {
-          this.ui.showToast('Tablet detected!', 3000);
-        }
+        this.ui.showToast('Tablet detected - disabling thinning', 3000);
       }, 100);
     }
 
