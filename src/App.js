@@ -390,6 +390,7 @@ export class DrawingApp {
     elements.rectangleBtn.addEventListener('click', () => this.selectTool('rectangle'));
     elements.circleBtn.addEventListener('click', () => this.selectTool('circle'));
     elements.textBtn.addEventListener('click', () => this.selectTool('text'));
+    elements.fillBtn.addEventListener('click', () => this.selectTool('fill'));
     elements.eraseBtn.addEventListener('click', () => this.selectTool('erase'));
     elements.blurBtn.addEventListener('click', () => this.selectTool('blur'));
     elements.circleBlurBtn.addEventListener('click', () => {

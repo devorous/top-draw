@@ -94,6 +94,7 @@ export class UI {
       rectangleBtn: document.getElementById('rectangleBtn'),
       circleBtn: document.getElementById('circleBtn'),
       textBtn: document.getElementById('textBtn'),
+      fillBtn: document.getElementById('fillBtn'),
       eraseBtn: document.getElementById('eraseBtn'),
       blurBtn: document.getElementById('blurBtn'),
       circleBlurBtn: document.getElementById('circleBlurBtn'),

@@ -13,6 +13,7 @@ import { CircleBlurTool } from './CircleBlurTool.js';
 import { HardCircleBlurTool } from './HardCircleBlurTool.js';
 import { PanTool } from './PanRotateTool.js';
 import { RotateTool } from './RotateTool.js';
+import { FloodFillTool } from './FloodFillTool.js';
 
 /**
  * @fileoverview Tool management and base tool definition
@@ -65,7 +66,8 @@ export class ToolManager {
       circleBlur: new CircleBlurTool(board),
       circleBlurHard: new HardCircleBlurTool(board),
       pan: new PanTool(board),
-      rotate: new RotateTool(board)
+      rotate: new RotateTool(board),
+      fill: new FloodFillTool(board)
     };
     this.currentTool = null;
   }

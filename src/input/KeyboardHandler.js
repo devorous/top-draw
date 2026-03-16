@@ -200,6 +200,9 @@ export class KeyboardHandler {
         case 't':
           app.selectTool('text');
           break;
+        case 'f':
+          app.selectTool('fill');
+          break;
         case 'e':
           app.selectTool('erase');
           break;

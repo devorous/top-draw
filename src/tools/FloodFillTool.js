@@ -3,7 +3,7 @@
  */
 
 /**
- * Flood fill tool using stack-based algorithm
+ * Flood fill tool using optimized scanline algorithm
  * Works best on hard-pixel data with precise boundaries
  */
 export class FloodFillTool {
@@ -11,7 +11,7 @@ export class FloodFillTool {
    * @param {Object} board - Board instance
    */
   constructor(board) {
-    this.name = 'floodfill';
+    this.name = 'fill';
     this.board = board;
   }
 
@@ -29,216 +29,158 @@ export class FloodFillTool {
     const x = Math.floor(pos.x);
     const y = Math.floor(pos.y);
 
-    // Get the active layer context
-    const activeLayer = user?.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
-    const group = this.board.layerManager.getLayerGroup(activeLayer);
-    if (!group) return;
+    const width = this.board.getWidth();
+    const height = this.board.getHeight();
 
-    // Get the current state of the layer by compositing it to a temporary canvas
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = this.board.getWidth();
-    tempCanvas.height = this.board.getHeight();
-    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-
-    // Composite the layer to the temp canvas
-    this.board.layerManager.compositeLayerRange(tempCtx, activeLayer, activeLayer + 1, null, []);
-
-    // Get image data
-    const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+    if (x < 0 || x >= width || y < 0 || y >= height) return;
 
     // Get fill color from user
-    const fillColor = user?.color ?? this.board.app?.self?.color ?? [0, 0, 0, 255];
+    const fillColor = user?.color ?? this.board.app?.self?.color ?? [0, 0, 0, 1];
+    const colorAlpha = fillColor[3];
+    const opacitySlider = user?.opacity !== undefined ? user.opacity : (this.board.app?.self?.opacity !== undefined ? this.board.app.self.opacity : 1);
+    const userOpacity = colorAlpha * opacitySlider;
+    const fillR = Math.round(fillColor[0]);
+    const fillG = Math.round(fillColor[1]);
+    const fillB = Math.round(fillColor[2]);
 
-    // Perform flood fill
-    this.floodFill(imageData, x, y, fillColor);
+    // Get image data from the composite canvas
+    const imageData = this.board.mainCtx.getImageData(0, 0, width, height);
+    const data = imageData.data;
 
-    // Put the filled data back
-    tempCtx.putImageData(imageData, 0, 0);
+    // Read target color at click point
+    const startIdx = (y * width + x) * 4;
+    const tR = data[startIdx];
+    const tG = data[startIdx + 1];
+    const tB = data[startIdx + 2];
+    const tA = data[startIdx + 3];
 
-    // Begin a stroke and draw the filled result
-    this.board.beginStroke(user);
-    const ctx = this.board.layerManager.getUserStrokeContext(activeLayer, user?.id ?? this.board.app?.self?.id ?? 0);
-    if (ctx) {
-      ctx.drawImage(tempCanvas, 0, 0);
-      this.board.expandDirtyRect(user, 0, 0, tempCanvas.width, tempCanvas.height);
+    const fillTransparentOnly = tA < 10;
+    const tolerance = 10;
+    const tolSq = tolerance * tolerance;
+
+    // Don't fill if target color is too close to fill color (with alpha=255 for comparison)
+    if (!fillTransparentOnly) {
+      const dr = tR - fillR;
+      const dg = tG - fillG;
+      const db = tB - fillB;
+      const da = tA - 255;
+      if (dr * dr + dg * dg + db * db + da * da <= tolSq) return;
     }
+
+    // Get user regions for constraint
+    const userId = this.board.app?.self?.id ?? 0;
+    const debugOverlay = this.board.app?.debugOverlay;
+    const userRegions = debugOverlay?.userRegions.get(userId)?.regions || null;
+    const hasRegions = userRegions && userRegions.length > 0;
+
+    // Bitmap for visited pixels — one byte per pixel
+    const visited = new Uint8Array(width * height);
+
+    // Color matching
+    const matchPixel = fillTransparentOnly
+      ? (idx) => data[idx + 3] < 10
+      : (idx) => {
+          const dr = data[idx] - tR;
+          const dg = data[idx + 1] - tG;
+          const db = data[idx + 2] - tB;
+          const da = data[idx + 3] - tA;
+          return dr * dr + dg * dg + db * db + da * da <= tolSq;
+        };
+
+    const inRegion = hasRegions
+      ? (px, py) => {
+          for (let i = 0; i < userRegions.length; i++) {
+            const r = userRegions[i];
+            if (px >= r.x && px < r.x + r.width && py >= r.y && py < r.y + r.height) return true;
+          }
+          return false;
+        }
+      : null;
+
+    const canFill = (px, py) => {
+      if (px < 0 || px >= width || py < 0 || py >= height) return false;
+      const vi = py * width + px;
+      if (visited[vi]) return false;
+      if (inRegion && !inRegion(px, py)) return false;
+      return matchPixel(vi * 4);
+    };
+
+    // Check start pixel
+    if (!canFill(x, y)) return;
+
+    // Begin stroke
+    this.board.beginStroke(user);
+    const activeLayer = user?.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+    const strokeCtx = this.board.layerManager.getUserStrokeContext(activeLayer, user?.id ?? this.board.app?.self?.id ?? 0);
+    if (!strokeCtx) return;
+
+    strokeCtx.fillStyle = `rgba(${fillR}, ${fillG}, ${fillB}, ${userOpacity})`;
+
+    // Track bounds
+    let minX = width, maxX = 0, minY = height, maxY = 0;
+
+    // Scanline flood fill — stack stores (x, y) as flat pairs
+    const stack = new Int32Array(Math.min(width * height, 500000) * 2);
+    let stackPtr = 0;
+
+    stack[stackPtr++] = x;
+    stack[stackPtr++] = y;
+
+    while (stackPtr > 0) {
+      const sy = stack[--stackPtr];
+      const sx = stack[--stackPtr];
+
+      if (visited[sy * width + sx]) continue;
+
+      // Scan left
+      let left = sx;
+      while (left > 0 && canFill(left - 1, sy)) left--;
+
+      // Scan right
+      let right = sx;
+      while (right < width - 1 && canFill(right + 1, sy)) right++;
+
+      // Mark visited and draw this scanline
+      for (let i = left; i <= right; i++) {
+        visited[sy * width + i] = 1;
+      }
+      strokeCtx.fillRect(left, sy, right - left + 1, 1);
+
+      // Update bounds
+      if (left < minX) minX = left;
+      if (right > maxX) maxX = right;
+      if (sy < minY) minY = sy;
+      if (sy > maxY) maxY = sy;
+
+      // Push spans above and below
+      for (let dy = -1; dy <= 1; dy += 2) {
+        const ny = sy + dy;
+        if (ny < 0 || ny >= height) continue;
+
+        let i = left;
+        while (i <= right) {
+          // Skip non-fillable pixels
+          while (i <= right && !canFill(i, ny)) i++;
+          if (i > right) break;
+
+          // Found start of a fillable span — push one seed per span
+          stack[stackPtr++] = i;
+          stack[stackPtr++] = ny;
+
+          // Skip the rest of this fillable span
+          while (i <= right && canFill(i, ny)) i++;
+        }
+      }
+    }
+
+    if (minX > maxX) return; // Nothing filled
+
+    this.board.expandDirtyRect(user, minX, minY, maxX - minX + 1, maxY - minY + 1);
   }
 
   onPointerMove(user, pos, lastPos, e) {}
 
   onPointerUp(user, pos, e) {
-    // Commit the stroke
     this.board.endStroke(user);
-  }
-
-  /**
-   * Stack-based flood fill algorithm
-   * @param {ImageData} imageData - Image data to modify
-   * @param {number} startX - Starting X coordinate
-   * @param {number} startY - Starting Y coordinate
-   * @param {number[]} fillColor - Fill color [r, g, b, a]
-   */
-  floodFill(imageData, startX, startY, fillColor) {
-    const { width, height, data } = imageData;
-
-    // Bounds check
-    if (startX < 0 || startX >= width || startY < 0 || startY >= height) {
-      return;
-    }
-
-    const startIdx = (startY * width + startX) * 4;
-    const targetColor = [
-      data[startIdx],
-      data[startIdx + 1],
-      data[startIdx + 2],
-      data[startIdx + 3]
-    ];
-
-    // Don't fill if target color is the same as fill color
-    if (
-      targetColor[0] === fillColor[0] &&
-      targetColor[1] === fillColor[1] &&
-      targetColor[2] === fillColor[2] &&
-      targetColor[3] === fillColor[3]
-    ) {
-      return;
-    }
-
-    const stack = [[startX, startY]];
-    const visited = new Set();
-
-    const colorMatch = (idx) => {
-      return (
-        data[idx] === targetColor[0] &&
-        data[idx + 1] === targetColor[1] &&
-        data[idx + 2] === targetColor[2] &&
-        data[idx + 3] === targetColor[3]
-      );
-    };
-
-    const setPixel = (x, y) => {
-      const idx = (y * width + x) * 4;
-      data[idx] = fillColor[0];
-      data[idx + 1] = fillColor[1];
-      data[idx + 2] = fillColor[2];
-      data[idx + 3] = fillColor[3];
-    };
-
-    while (stack.length > 0) {
-      const [x, y] = stack.pop();
-      const key = `${x},${y}`;
-
-      if (visited.has(key)) continue;
-      visited.add(key);
-
-      if (x < 0 || x >= width || y < 0 || y >= height) continue;
-
-      const idx = (y * width + x) * 4;
-
-      if (!colorMatch(idx)) continue;
-
-      setPixel(x, y);
-
-      // Add neighbors to stack
-      stack.push([x + 1, y]);
-      stack.push([x - 1, y]);
-      stack.push([x, y + 1]);
-      stack.push([x, y - 1]);
-    }
-  }
-
-  /**
-   * Optimized scanline flood fill (faster for large areas)
-   * @param {ImageData} imageData - Image data to modify
-   * @param {number} startX - Starting X coordinate
-   * @param {number} startY - Starting Y coordinate
-   * @param {number[]} fillColor - Fill color [r, g, b, a]
-   */
-  scanlineFill(imageData, startX, startY, fillColor) {
-    const { width, height, data } = imageData;
-
-    if (startX < 0 || startX >= width || startY < 0 || startY >= height) {
-      return;
-    }
-
-    const startIdx = (startY * width + startX) * 4;
-    const targetColor = [
-      data[startIdx],
-      data[startIdx + 1],
-      data[startIdx + 2],
-      data[startIdx + 3]
-    ];
-
-    if (
-      targetColor[0] === fillColor[0] &&
-      targetColor[1] === fillColor[1] &&
-      targetColor[2] === fillColor[2] &&
-      targetColor[3] === fillColor[3]
-    ) {
-      return;
-    }
-
-    const colorMatch = (idx) => {
-      return (
-        data[idx] === targetColor[0] &&
-        data[idx + 1] === targetColor[1] &&
-        data[idx + 2] === targetColor[2] &&
-        data[idx + 3] === targetColor[3]
-      );
-    };
-
-    const setPixel = (x, y) => {
-      const idx = (y * width + x) * 4;
-      data[idx] = fillColor[0];
-      data[idx + 1] = fillColor[1];
-      data[idx + 2] = fillColor[2];
-      data[idx + 3] = fillColor[3];
-    };
-
-    const stack = [[startX, startY]];
-
-    while (stack.length > 0) {
-      const [x, y] = stack.pop();
-
-      if (y < 0 || y >= height) continue;
-
-      let x1 = x;
-      const idx = (y * width + x) * 4;
-      if (!colorMatch(idx)) continue;
-
-      // Find leftmost pixel in this row
-      while (x1 >= 0 && colorMatch((y * width + x1) * 4)) {
-        x1--;
-      }
-      x1++;
-
-      // Find rightmost pixel in this row
-      let x2 = x + 1;
-      while (x2 < width && colorMatch((y * width + x2) * 4)) {
-        x2++;
-      }
-      x2--;
-
-      // Fill the scanline
-      for (let i = x1; i <= x2; i++) {
-        setPixel(i, y);
-      }
-
-      // Check rows above and below
-      for (let i = x1; i <= x2; i++) {
-        if (y > 0) {
-          const idxAbove = ((y - 1) * width + i) * 4;
-          if (colorMatch(idxAbove)) {
-            stack.push([i, y - 1]);
-          }
-        }
-        if (y < height - 1) {
-          const idxBelow = ((y + 1) * width + i) * 4;
-          if (colorMatch(idxBelow)) {
-            stack.push([i, y + 1]);
-          }
-        }
-      }
-    }
   }
 }
