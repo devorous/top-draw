@@ -1581,6 +1581,12 @@ export class LayerManager {
       this.clear(i);
     }
     this.redoStackByUser.clear();
+
+    // Clear canvas pool to prevent old content from reappearing
+    this._canvasPool = [];
+    // Clear group buffer
+    this._groupBuffer = null;
+
     this._notifyHistoryPanel();
   }
 
