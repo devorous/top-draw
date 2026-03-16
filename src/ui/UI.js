@@ -164,6 +164,7 @@ export class UI {
       eraserModeOptions: document.getElementById('eraserModeOptions'),
       brushModeOptions: document.getElementById('brushModeOptions'),
       circleBlurModeOptions: document.getElementById('circleBlurModeOptions'),
+      fillModeOptions: document.getElementById('fillModeOptions'),
       blendModeOptions: document.getElementById('blendModeOptions'),
       blendModeSelect: document.getElementById('blendModeSelect'),
       layerPanel: document.getElementById('layerPanel'),
@@ -448,7 +449,7 @@ export class UI {
       selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText,
       brushImage, brushFileInput, sizeContainer, pressureContainer, smoothingContainer,
       brushSpacing, brushHardness, opacityContainer, blurRadiusContainer,
-      selectionModeOptions, eraserModeOptions, brushModeOptions, circleBlurModeOptions
+      selectionModeOptions, eraserModeOptions, brushModeOptions, circleBlurModeOptions, fillModeOptions
     } = this.elements;
 
     selfCircle.style.display = 'none';
@@ -471,6 +472,7 @@ export class UI {
     if (eraserModeOptions) eraserModeOptions.style.display = 'none';
     if (brushModeOptions) brushModeOptions.style.display = 'none';
     if (circleBlurModeOptions) circleBlurModeOptions.style.display = 'none';
+    if (this.elements.fillModeOptions) this.elements.fillModeOptions.style.display = 'none';
     if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'none';
     
     const { blendModeOptions } = this.elements;
@@ -558,6 +560,14 @@ export class UI {
         selfSquare.style.display = 'block';
         brushSpacing.style.display = 'block';
         if (brushModeOptions) brushModeOptions.style.display = 'block';
+        break;
+
+      case 'fill':
+        selfCrosshair.style.display = 'block';
+        sizeContainer.style.display = 'none';
+        pressureContainer.style.display = 'none';
+        smoothingContainer.style.display = 'none';
+        if (fillModeOptions) fillModeOptions.style.display = 'block';
         break;
 
       case 'inkdropper':

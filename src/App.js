@@ -563,6 +563,17 @@ export class DrawingApp {
       });
     });
 
+    // Fill advanced mode checkbox
+    const fillAdvancedCheck = document.getElementById('fillAdvancedCheck');
+    const fillAdvancedHint = document.getElementById('fillAdvancedHint');
+    if (fillAdvancedCheck) {
+      fillAdvancedCheck.addEventListener('change', (e) => {
+        const fillTool = this.toolManager.getTool('fill');
+        if (fillTool) fillTool.advancedMode = e.target.checked;
+        if (fillAdvancedHint) fillAdvancedHint.style.display = e.target.checked ? 'block' : 'none';
+      });
+    }
+
     // Blend mode select
     if (elements.blendModeSelect) {
       elements.blendModeSelect.addEventListener('change', (e) => {
