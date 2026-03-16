@@ -1469,6 +1469,15 @@ export class DrawingApp {
       this.ui.updateSelfTextStyle(this.self.size, this.self.color);
     }
 
+    if (tool === 'imageBrush' && this.self.imageBrush) {
+      const brush = this.self.imageBrush;
+      if (brush.type === 'gih' && brush.gBrushes && brush.gBrushes.length > 0) {
+        this.ui.setBrushPreview(brush.gBrushes[0].gimpUrl);
+      } else {
+        this.ui.setBrushPreview(brush.gimpUrl);
+      }
+    }
+
     if (tool === 'line' || tool === 'rectangle' || tool === 'circle') {
       this.self.setSmoothing(50);
       this.ui.updateSmoothingValue(50);
