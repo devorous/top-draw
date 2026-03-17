@@ -1483,6 +1483,7 @@ export class DrawingApp {
 
     if (tool === 'text') {
       this.ui.updateSelfTextStyle(this.self.size, this.self.color);
+      this._updateTextPreview();
     }
 
     if (tool === 'imageBrush' && this.self.imageBrush) {
@@ -1504,8 +1505,11 @@ export class DrawingApp {
 
     if (tool === 'erase') {
       this.board.topCanvas.style.mixBlendMode = 'normal';
+      this.ui.updateTextPreviewBlendMode('normal');
     } else {
-      this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
+      const cssMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
+      this.board.topCanvas.style.mixBlendMode = cssMode;
+      this.ui.updateTextPreviewBlendMode(cssMode);
     }
 
     const allowComplex = this.board.layerManager.getLayerAllowComplexBlendModes(this.self.activeLayer);
@@ -1513,6 +1517,7 @@ export class DrawingApp {
     if (wasReset) {
       this.self.setBlendMode('source-over');
       this.board.topCanvas.style.mixBlendMode = 'normal';
+      this.ui.updateTextPreviewBlendMode('normal');
     }
 
     const blendModeOptions = this.ui.elements.blendModeOptions;
@@ -1571,13 +1576,16 @@ export class DrawingApp {
     if (wasReset) {
       this.self.setBlendMode('source-over');
       this.board.topCanvas.style.mixBlendMode = 'normal';
+      this.ui.updateTextPreviewBlendMode('normal');
     }
 
     if (allowComplex) {
       this.ui.updateBlendModeDisplay(this.self.blendMode);
     }
 
-    this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
+    const cssMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
+    this.board.topCanvas.style.mixBlendMode = cssMode;
+    this.ui.updateTextPreviewBlendMode(cssMode);
 
     this.board.compositeAllLayers();
 
@@ -1618,7 +1626,10 @@ export class DrawingApp {
 
     this.self.setBlendMode(blendMode);
     this.board.createActiveLayerBlendSubLayer(blendMode);
-    this.board.topCanvas.style.mixBlendMode = this.blendModeManager.toCSSBlendMode(blendMode);
+    const cssMode = this.blendModeManager.toCSSBlendMode(blendMode);
+    this.board.topCanvas.style.mixBlendMode = cssMode;
+    this.ui.updateTextPreviewBlendMode(cssMode);
+    this._updateTextPreview();
 
     if (this.connected) {
       this.wsClient.broadcastLayerBlendModeChange(activeLayer, blendMode);
@@ -1925,6 +1936,7 @@ export class DrawingApp {
 
     // Update cursor immediately for visual responsiveness
     this.ui.updateSelfCursor(x, y, this.self.size);
+    if (this.self.tool === 'text') this._updateTextPreview();
 
     // Handle pressure for pen input — default to current pressure so non-pen
     // events (e.g. palm touch) mid-stroke don't slam pressure to 1
@@ -2209,6 +2221,7 @@ export class DrawingApp {
           // If text tool was used to commit text, update UI to clear the text display
           if (this.self.tool === 'text') {
             this.ui.updateSelfTextInput(this.self.text);
+            this._updateTextPreview();
           }
         }
       }
@@ -2459,6 +2472,26 @@ export class DrawingApp {
     this.ui.updateSelfTextStyle(size, this.self.color);
     this.board.mainCtx.lineWidth = size * 2;
     this.wsClient.broadcastSizeChange(size);
+  }
+
+  /**
+   * Updates the text preview, using canvas rendering when a blend mode is active
+   * so that the preview correctly shows the blend effect against the canvas below.
+   */
+  _updateTextPreview() {
+    if (this.self.tool !== 'text') return;
+    const useCanvas = this.self.blendMode && this.self.blendMode !== 'source-over';
+    if (useCanvas) {
+      // Hide DOM element, draw to topCanvas (which already has mixBlendMode CSS applied)
+      this.ui.elements.selfTextInput.style.visibility = 'hidden';
+      this.board.clearTop();
+      const textTool = this.toolManager.getTool('text');
+      if (textTool) textTool.renderPreview(this.self);
+    } else if (this.ui.elements.selfTextInput.style.visibility === 'hidden') {
+      // Restore DOM element when switching back to normal blend mode
+      this.ui.elements.selfTextInput.style.visibility = '';
+      this.board.clearTop();
+    }
   }
 
   // Line utilities

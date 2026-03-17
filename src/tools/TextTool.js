@@ -74,6 +74,27 @@ export class TextTool extends Tool {
   }
 
   /**
+   * Renders a canvas-based text preview to the top canvas.
+   * Used when a blend mode is active, since DOM elements can't blend with canvas layers.
+   * @param {Object} user - User object
+   */
+  renderPreview(user) {
+    if (!user.text) return;
+    const ctx = this.board.topCtx;
+    const fontSize = user.size + 5;
+    const opacity = user.opacity !== undefined ? user.opacity : 1;
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.fillStyle = user.getColorString();
+    ctx.font = `${fontSize}px Newsreader, serif`;
+    ctx.textBaseline = 'alphabetic';
+    const baselineY = user.y + (fontSize * 0.66) - 3;
+    const drawX = user.x + 5;
+    ctx.fillText(user.text, drawX, baselineY);
+    ctx.restore();
+  }
+
+  /**
    * Draw the user's text to the active layer
    * @param {Object} user - User object
    */

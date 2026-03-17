@@ -338,6 +338,7 @@ export class TouchHandler {
     }
 
     this.ui.updateSelfTextInput(this.self.text);
+    this.app._updateTextPreview();
     e.preventDefault();
     e.target.value = ' ';
     

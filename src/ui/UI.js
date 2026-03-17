@@ -811,6 +811,16 @@ export class UI {
   }
 
   /**
+   * Updates the mix-blend-mode on the floating text cursor preview.
+   * @param {string} cssBlendMode - CSS mix-blend-mode value
+   */
+  updateTextPreviewBlendMode(cssBlendMode) {
+    if (this.elements.selfText) {
+      this.elements.selfText.style.mixBlendMode = cssBlendMode;
+    }
+  }
+
+  /**
    * Move and focus the hidden touch input to trigger virtual keyboard.
    * @param {number} x - Client X
    * @param {number} y - Client Y

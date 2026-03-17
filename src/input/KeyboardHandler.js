@@ -100,6 +100,7 @@ export class KeyboardHandler {
       const textTool = app.toolManager.getTool('text');
       const text = textTool.onKeyPress(app.self, e.key);
       app.ui.updateSelfTextInput(text);
+      app._updateTextPreview();
     } else if (app.inputBufferManager.tickTimer) {
       // Handle shortcuts only when in drawing mode (tick loop running)
       const selectTool = app.toolManager.getTool('select');
