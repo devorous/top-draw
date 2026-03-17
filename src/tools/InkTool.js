@@ -302,7 +302,7 @@ export class InkTool extends Tool {
       thinning: effectiveThinning,
       smoothing: 0.5,
       streamline: 0.5,
-      simulatePressure: false, // Always false so it uses our pressure values
+      simulatePressure: simulatePressure,
       last
     };
 

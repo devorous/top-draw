@@ -335,6 +335,13 @@ export class FloodFillTool {
     }
   }
 
+  _broadcastFill(user, x, y, layerIndex, expansion, blurRadius) {
+    const wsClient = this.board.app?.wsClient;
+    if (wsClient && user === this.board.app?.self) {
+      wsClient.broadcastFill(x, y, layerIndex, expansion, blurRadius);
+    }
+  }
+
   _cancelInteractive() {
     if (this._active) {
       this.board.topCtx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
@@ -378,10 +385,27 @@ export class FloodFillTool {
 
       this._renderMask(strokeCtx, result,params.fillR, params.fillG, params.fillB, params.userOpacity, 0, width, height);
       this.board.expandDirtyRect(user, result.minX, result.minY, result.maxX - result.minX + 1, result.maxY - result.minY + 1);
+      this._broadcastFill(user, x, y, params.activeLayer, 0, 0);
       return;
     }
 
-    // ── Advanced mode: start interactive session ──
+    // ── Advanced mode: check fill size first ──
+    const initialResult = this._computeMask(data, width, height, x, y, 10, inRegion);
+    if (!initialResult) return;
+
+    const fillArea = (initialResult.maxX - initialResult.minX + 1) * (initialResult.maxY - initialResult.minY + 1);
+    const canvasArea = width * height;
+    if (fillArea > canvasArea * 0.15) {
+      // Fill is too large for advanced mode — do an immediate standard fill
+      this.board.beginStroke(user);
+      const strokeCtx = this.board.layerManager.getUserStrokeContext(params.activeLayer, params.userId);
+      if (!strokeCtx) return;
+      this._renderMask(strokeCtx, initialResult, params.fillR, params.fillG, params.fillB, params.userOpacity, 0, width, height);
+      this.board.expandDirtyRect(user, initialResult.minX, initialResult.minY, initialResult.maxX - initialResult.minX + 1, initialResult.maxY - initialResult.minY + 1);
+      this._broadcastFill(user, x, y, params.activeLayer, 0, 0);
+      return;
+    }
+
     this._active = true;
     this._startPos = { x: pos.x, y: pos.y };
     this._clickPos = { x, y };
@@ -400,11 +424,11 @@ export class FloodFillTool {
     const dx = pos.x - this._startPos.x;
     const dy = pos.y - this._startPos.y;
 
-    // Horizontal: expansion/dilation (0–60px), 1px drag right = +0.3 expansion
-    this._expansion = Math.max(0, Math.min(60, dx * 0.3));
+    // Horizontal: expansion/dilation (0–20px), 1px drag right = +0.1 expansion
+    this._expansion = Math.max(0, Math.min(20, dx * 0.1));
 
-    // Vertical: edge blur (0–40px), 1px drag down = +0.2 blur
-    this._blurRadius = Math.max(0, Math.min(40, dy * 0.2));
+    // Vertical: edge blur (0–15px), 1px drag down = +0.08 blur
+    this._blurRadius = Math.max(0, Math.min(15, dy * 0.08));
 
     this._updatePreview();
   }
@@ -463,6 +487,7 @@ export class FloodFillTool {
         const bh = Math.min(height, result.maxY + pad + 1) - by;
         this.board.expandDirtyRect(user, bx, by, bw, bh);
       }
+      this._broadcastFill(user, x, y, activeLayer, this._expansion, this._blurRadius);
       this.board.endStroke(user);
     }
 

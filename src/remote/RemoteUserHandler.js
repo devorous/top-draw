@@ -374,8 +374,9 @@ export class RemoteUserHandler {
     if (!user.panning) {
       if (user.tool === 'erase' && user.eraseAllLayers) {
         this.board.beginStrokeAllLayers(user, 'destination-out');
-      } else if (user.tool !== 'blur') {
+      } else if (user.tool !== 'blur' && user.tool !== 'fill') {
         // Blur tool handles its own stroke creation in onPointerDown with filter metadata
+        // Fill tool manages its own stroke lifecycle via the dedicated FILL message handler
         const blendMode = user.tool === 'erase' ? 'destination-out' : (user.blendMode || 'source-over');
         this.board.layerManager.beginUserStroke(user.activeLayer, user.id, blendMode);
       }
@@ -476,6 +477,12 @@ export class RemoteUserHandler {
             imageBrushTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
             imageBrushTool.drawStamp(user, pos);
           }
+        }
+        break;
+
+      case 'fill':
+        if (!user.panning) {
+          this._drawFillPreview(user, pos);
         }
         break;
 
@@ -630,7 +637,8 @@ export class RemoteUserHandler {
 
     if (user.tool === 'erase' && user.eraseAllLayers) {
       this.board.endStrokeAllLayers(user);
-    } else {
+    } else if (user.tool !== 'fill') {
+      // Fill tool commits its own stroke via the dedicated FILL message handler
       this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
     }
 
@@ -810,6 +818,64 @@ export class RemoteUserHandler {
    * @param {number} margin - Expansion margin around the points.
    * @returns {void}
    */
+  /**
+   * Draws a checkerboard fill preview on a remote user's preview canvas.
+   * Shows where the user is performing an advanced fill operation.
+   *
+   * @private
+   * @param {User} user - The remote user.
+   * @param {{x: number, y: number}} pos - The fill seed position.
+   */
+  _drawFillPreview(user, pos) {
+    const fillTool = this.toolManager.getTool('fill');
+    if (!fillTool) return;
+
+    const width = this.board.getWidth();
+    const height = this.board.getHeight();
+    const x = Math.floor(pos.x);
+    const y = Math.floor(pos.y);
+    if (x < 0 || x >= width || y < 0 || y >= height) return;
+
+    const imageData = this.board.mainCtx.getImageData(0, 0, width, height);
+    const result = fillTool._computeMask(imageData.data, width, height, x, y, 10, null);
+    if (!result) return;
+
+    const { mask, minX, minY, maxX, maxY } = result;
+    const regionW = maxX - minX + 1;
+    const regionH = maxY - minY + 1;
+    const imgData = new ImageData(regionW, regionH);
+    const pixels = imgData.data;
+
+    // Use the remote user's fill color with a checkerboard pattern
+    const fillColor = user.color ?? [0, 0, 0, 1];
+    const r = Math.round(fillColor[0]);
+    const g = Math.round(fillColor[1]);
+    const b = Math.round(fillColor[2]);
+    const tileSize = 6;
+
+    for (let py = minY; py <= maxY; py++) {
+      for (let px = minX; px <= maxX; px++) {
+        if (mask[py * width + px]) {
+          const oi = ((py - minY) * regionW + (px - minX)) * 4;
+          const isLight = ((Math.floor(px / tileSize) + Math.floor(py / tileSize)) % 2 === 0);
+          if (isLight) {
+            pixels[oi] = r;
+            pixels[oi + 1] = g;
+            pixels[oi + 2] = b;
+            pixels[oi + 3] = 140;
+          } else {
+            pixels[oi] = Math.round(r * 0.5);
+            pixels[oi + 1] = Math.round(g * 0.5);
+            pixels[oi + 2] = Math.round(b * 0.5);
+            pixels[oi + 3] = 140;
+          }
+        }
+      }
+    }
+
+    user.context.putImageData(imgData, minX, minY);
+  }
+
   _expandDirtyRectFromPoints(user, points, margin) {
     if (!points || points.length === 0) return;
 

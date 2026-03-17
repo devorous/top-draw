@@ -79,6 +79,7 @@ message Msg {
     PONG               = 70;
     CTHN               = 71;  // Change thinning
     CSIM               = 72;  // Change simulate pressure
+    FILL               = 73;  // Flood fill at position
   }
 
   // Tool enum

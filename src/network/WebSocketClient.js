@@ -396,6 +396,17 @@ export class WebSocketClient {
         this.emit('csim', { sessionIndex: data.u, simulatePressure: (data.sim ?? 0) === 2 });
         break;
 
+      case T.FILL:
+        this.emit('fill', {
+          sessionIndex: data.u,
+          x: data.sx,
+          y: data.sy,
+          layerIndex: data.ly ?? 0,
+          expansion: (data.s ?? 0) / 100,
+          blurRadius: (data.br ?? 0) / 100
+        });
+        break;
+
       case T.CL:
         this.emit('cl', { sessionIndex: data.u, layerIndex: data.ly ?? 0 });
         break;
@@ -996,6 +1007,25 @@ export class WebSocketClient {
    */
   broadcastRedo() {
     this.send({ t: T.REDO });
+  }
+
+  /**
+   * Broadcasts a flood fill event.
+   * @param {number} x - Fill seed X position.
+   * @param {number} y - Fill seed Y position.
+   * @param {number} layerIndex - Target layer index.
+   * @param {number} [expansion=0] - Mask expansion in pixels (0-20).
+   * @param {number} [blurRadius=0] - Edge blur radius in pixels (0-15).
+   */
+  broadcastFill(x, y, layerIndex, expansion = 0, blurRadius = 0) {
+    this.send({
+      t: T.FILL,
+      sx: Math.floor(x),
+      sy: Math.floor(y),
+      ly: layerIndex,
+      s: Math.round(expansion * 100),
+      br: Math.round(blurRadius * 100)
+    });
   }
 
   /**

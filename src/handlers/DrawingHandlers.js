@@ -195,4 +195,67 @@ export function setupDrawingHandlers(wrapHandler, app) {
       board.redo(user.id);
     }
   });
+
+  wrapHandler('fill', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (!user) return;
+
+    const fillTool = app.toolManager.getTool('fill');
+    if (!fillTool) return;
+
+    const width = board.getWidth();
+    const height = board.getHeight();
+    const x = data.x;
+    const y = data.y;
+    if (x < 0 || x >= width || y < 0 || y >= height) return;
+
+    const layerIndex = data.layerIndex ?? user.activeLayer ?? 0;
+    const userId = user.id;
+
+    const fillColor = user.color ?? [0, 0, 0, 1];
+    const fillR = Math.round(fillColor[0]);
+    const fillG = Math.round(fillColor[1]);
+    const fillB = Math.round(fillColor[2]);
+    const colorAlpha = fillColor[3];
+    const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
+    const userOpacity = colorAlpha * opacitySlider;
+
+    const imageData = board.mainCtx.getImageData(0, 0, width, height);
+    const imgData = imageData.data;
+
+    // Check target vs fill color similarity (same as local)
+    const startIdx = (y * width + x) * 4;
+    const tR = imgData[startIdx], tG = imgData[startIdx + 1], tB = imgData[startIdx + 2], tA = imgData[startIdx + 3];
+    if (tA >= 10) {
+      const dr = tR - fillR, dg = tG - fillG, db = tB - fillB, da = tA - 255;
+      if (dr * dr + dg * dg + db * db + da * da <= 100) return;
+    }
+
+    let result = fillTool._computeMask(imgData, width, height, x, y, 10, null);
+    if (!result) return;
+
+    const expansion = data.expansion || 0;
+    const blurRadius = data.blurRadius || 0;
+
+    if (expansion > 0) {
+      result = fillTool._dilateMask(result, expansion, width, height);
+    }
+
+    const blendMode = user.blendMode || 'source-over';
+    board.layerManager.beginUserStroke(layerIndex, userId, blendMode);
+    const strokeCtx = board.layerManager.getUserStrokeContext(layerIndex, userId);
+    if (!strokeCtx) return;
+
+    fillTool._renderMask(strokeCtx, result, fillR, fillG, fillB, userOpacity, blurRadius, width, height);
+
+    const pad = Math.ceil(blurRadius * 2) + Math.ceil(expansion);
+    const bx = Math.max(0, result.minX - pad);
+    const by = Math.max(0, result.minY - pad);
+    const bw = Math.min(width, result.maxX + pad + 1) - bx;
+    const bh = Math.min(height, result.maxY + pad + 1) - by;
+    board.expandDirtyRect(user, bx, by, bw, bh);
+
+    board.layerManager.commitUserStroke(layerIndex, userId);
+    board.compositeAllLayers();
+  });
 }
