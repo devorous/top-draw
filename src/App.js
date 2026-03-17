@@ -876,6 +876,9 @@ export class DrawingApp {
     });
     elements.boardContainer.addEventListener('contextmenu', (e) => {
       e.preventDefault();
+      if (this.self.tool !== 'pan' && this.self.tool !== 'rotate') {
+        this.cancelCurrentStroke();
+      }
     });
 
     // boardContainer: middle-click to pan anywhere, and pan/rotate by dragging the background
