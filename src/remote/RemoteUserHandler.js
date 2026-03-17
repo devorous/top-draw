@@ -60,13 +60,13 @@ export class RemoteUserHandler {
     this.startCatchupLoop();
 
     const smoothedPoints = [];
-    const isInk = user._inkStrokeActive || user.tool === 'ink';
-    
+    const skipSmoothing = user._inkStrokeActive || user.tool === 'ink' || user.tool === 'text';
+
     for (let i = 0; i < points.length; i += 2) {
       const rx = points[i];
       const ry = points[i + 1];
       
-      if (isInk) {
+      if (skipSmoothing) {
         smoothedPoints.push(rx, ry);
       } else {
         const smoothed = applySmoothingEMA(user.smoothBuffer, rx, ry, user.smoothing);
@@ -76,7 +76,7 @@ export class RemoteUserHandler {
 
     const radii = data.rs;
     if (!user.panning && user.mousedown && radii && radii.length > 0) {
-      if (isInk) {
+      if (user.tool === 'ink') {
         this.inkHandler.handleInkPoints(user, smoothedPoints, radii);
       } else {
         this.penHandler.handlePenStamps(user, smoothedPoints, radii);
@@ -123,6 +123,11 @@ export class RemoteUserHandler {
         this.board.requestUpdate();
       }
     }
+
+    // Keep canvas text preview in sync with cursor position when blend mode is active
+    if (user.tool === 'text' && user.blendMode && user.blendMode !== 'source-over' && user.text) {
+      this._renderRemoteTextToCanvas(user);
+    }
   }
 
   /**
@@ -152,9 +157,9 @@ export class RemoteUserHandler {
           anyActive = true;
           const lastPos = { x: user.x, y: user.y };
           
-          const isInk = user._inkStrokeActive || user.tool === 'ink';
+          const skipSmoothing = user._inkStrokeActive || user.tool === 'ink' || user.tool === 'text';
           let pos;
-          if (isInk) {
+          if (skipSmoothing) {
             pos = user.remoteTarget;
           } else {
             pos = applySmoothingEMA(user.smoothBuffer, user.remoteTarget.x, user.remoteTarget.y, user.smoothing);
@@ -272,9 +277,7 @@ export class RemoteUserHandler {
 
     switch (user.tool) {
       case 'text':
-        if (user.text) {
-          this.toolManager.getTool('text').drawText(user, user.context);
-        }
+        // DOM text element handles the preview; no canvas drawing needed here
         break;
 
       case 'brush':
@@ -461,6 +464,7 @@ export class RemoteUserHandler {
         if (user.text) {
           this.toolManager.getTool('text').drawText(user);
           user.text = '';
+          this.ui.setRemoteTextDomVisible(user.id, true);
           this.ui.updateRemoteText(user.id, '');
           this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
           this.board.requestUpdate();
@@ -618,6 +622,7 @@ export class RemoteUserHandler {
         if (user.text) {
           this.toolManager.getTool('text').drawText(user);
           user.text = '';
+          this.ui.setRemoteTextDomVisible(user.id, true);
           this.ui.updateRemoteText(user.id, '');
           this.board.requestUpdate();
         }
@@ -680,7 +685,39 @@ export class RemoteUserHandler {
     } else if (key === 'Backspace') {
       user.text = user.text.slice(0, -1);
     }
-    this.ui.updateRemoteText(user.id, user.text);
+    const hasBlendMode = user.blendMode && user.blendMode !== 'source-over';
+    if (hasBlendMode) {
+      this.ui.setRemoteTextDomVisible(user.id, false);
+      this._renderRemoteTextToCanvas(user);
+    } else {
+      this.ui.setRemoteTextDomVisible(user.id, true);
+      this.ui.updateRemoteText(user.id, user.text);
+    }
+  }
+
+  /**
+   * Draws the remote user's current text to their preview canvas.
+   * Used when a non-default blend mode is active — the userBoard canvas already
+   * has CSS mix-blend-mode set, so drawing here achieves the blend effect.
+   *
+   * @private
+   * @param {User} user - The remote user.
+   * @returns {void}
+   */
+  _renderRemoteTextToCanvas(user) {
+    const ctx = user.context;
+    if (!ctx) return;
+    ctx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    if (!user.text) return;
+    const fontSize = user.size + 5;
+    const opacity = user.opacity !== undefined ? user.opacity : 1;
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.fillStyle = user.getColorString();
+    ctx.font = `${fontSize}px Newsreader, serif`;
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(user.text, user.x + 5, user.y + (fontSize * 0.66) - 3);
+    ctx.restore();
   }
 
   /**

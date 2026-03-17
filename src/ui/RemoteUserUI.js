@@ -520,6 +520,19 @@ export class RemoteUserUI {
   }
 
   /**
+   * Show or hide the DOM text element for a remote user.
+   * Used to hide it when blend mode requires canvas rendering instead.
+   * @param {string} userId - User's session ID
+   * @param {boolean} visible - Whether to show the element
+   */
+  setRemoteTextDomVisible(userId, visible) {
+    const cursorElements = this.cursors.get(userId);
+    if (cursorElements && cursorElements.text) {
+      cursorElements.text.style.visibility = visible ? '' : 'hidden';
+    }
+  }
+
+  /**
    * Set remote user's AFK state visualization.
    * @param {string} userId - User's session ID
    * @param {boolean} afk - Whether the user is AFK

@@ -146,6 +146,11 @@ export function setupDrawingHandlers(wrapHandler, app) {
       if (user.board) {
         user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(blendMode);
       }
+      // If user is on text tool, switch preview mode (DOM vs canvas)
+      if (user.tool === 'text') {
+        const hasBlend = blendMode && blendMode !== 'source-over';
+        ui.setRemoteTextDomVisible(user.id, !hasBlend);
+      }
       if (data.layerIndex !== null && data.layerIndex !== undefined) {
         board.compositeAllLayers();
       }

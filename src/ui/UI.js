@@ -1067,6 +1067,10 @@ export class UI {
     return this.remoteUserUI.updateRemoteText(userId, textContent);
   }
 
+  setRemoteTextDomVisible(userId, visible) {
+    return this.remoteUserUI.setRemoteTextDomVisible(userId, visible);
+  }
+
   setRemoteUserAfk(userId, afk) {
     return this.remoteUserUI.setRemoteUserAfk(userId, afk);
   }

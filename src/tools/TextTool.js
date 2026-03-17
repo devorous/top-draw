@@ -110,10 +110,10 @@ export class TextTool extends Tool {
     ctx.fillStyle = user.getColorString();
     ctx.font = `${fontSize}px Newsreader, serif`;
     ctx.textBaseline = 'alphabetic';
-    
+
     const metrics = ctx.measureText(text);
     const textWidth = metrics.width;
-    
+
     const ascent = metrics.actualBoundingBoxAscent || (fontSize * 0.75);
     const descent = metrics.actualBoundingBoxDescent || (fontSize * 0.25);
 
@@ -132,7 +132,7 @@ export class TextTool extends Tool {
       const boardWidth = this.board.getWidth();
       const mirroredX = boardWidth - drawX - textWidth;
       ctx.fillText(text, mirroredX, baselineY);
-      
+
       const mDrX = Math.floor(mirroredX - 4);
       this.board.expandDirtyRect(user, mDrX, drY, drW, drH);
     }
