@@ -1087,7 +1087,7 @@ export class DrawingApp {
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(this.self.username);
-    this.ui.showConnectionStatus('connected');
+    this.ui.showConnectionStatus('connected', this.currentRoomId);
 
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
@@ -1191,7 +1191,7 @@ export class DrawingApp {
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(username);
-    this.ui.showConnectionStatus('connected');
+    this.ui.showConnectionStatus('connected', this.currentRoomId);
 
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
@@ -1255,7 +1255,7 @@ export class DrawingApp {
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(name);
-    this.ui.showConnectionStatus('connected');
+    this.ui.showConnectionStatus('connected', this.currentRoomId);
 
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);

@@ -63,6 +63,23 @@
   50% { opacity: 0.4; }
 }
 
+.connectionRoom {
+  color: var(--text-muted);
+  font-style: italic;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &::before {
+    content: '— ';
+  }
+
+  @media (max-width: 1380px) {
+    display: none;
+  }
+}
+
 .connectionReconnect,
 .connectionDisconnect {
   padding: 3px 8px !important;

@@ -200,6 +200,7 @@ export class UI {
       connectionStatus: document.getElementById('connectionStatus'),
       connectionDot: document.querySelector('.connectionDot'),
       connectionText: document.querySelector('.connectionText'),
+      connectionRoom: document.getElementById('connectionRoom'),
       disconnectBtn: document.getElementById('disconnectBtn'),
       userContextMenu: document.getElementById('userContextMenu'),
       modPanel: document.getElementById('modPanel'),
@@ -1096,8 +1097,8 @@ export class UI {
    * Updates the global connection status indicator.
    * @param {string} state - Connection state string
    */
-  showConnectionStatus(state) {
-    const { connectionStatus, connectionText } = this.elements;
+  showConnectionStatus(state, roomId = null) {
+    const { connectionStatus, connectionText, connectionRoom } = this.elements;
     if (!connectionStatus) return;
 
     connectionStatus.style.display = 'flex';
@@ -1110,6 +1111,15 @@ export class UI {
       offline: 'Drawing Alone'
     };
     connectionText.textContent = labels[state] || state;
+
+    if (connectionRoom) {
+      if (roomId && state === 'connected') {
+        connectionRoom.textContent = roomId;
+        connectionRoom.style.display = 'inline';
+      } else {
+        connectionRoom.style.display = 'none';
+      }
+    }
   }
 
   /**
