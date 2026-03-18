@@ -93,10 +93,9 @@ export class BrushTool extends Tool {
     this.board.beginStroke(user);
     user.clearLine();
 
-    // Push twice to ensure dots are rendered (drawLineArray needs at least 2 points)
+    // Push twice so a click without movement draws a dot on commit
     user.currentLine.push(pos);
     user.currentLine.push(pos);
-    this.drawPreview(user);
   }
 
   /**

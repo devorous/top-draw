@@ -40,8 +40,6 @@ export class PixelBrushTool {
 
     this.drawSquare(user, pos, true);
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-
-    this.drawPreview(user);
   }
 
   /**

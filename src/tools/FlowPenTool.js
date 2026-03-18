@@ -149,8 +149,6 @@ export class FlowPenTool extends Tool {
     this.lastStampPos = { x: pos.x, y: pos.y, radius, pressure255 };
 
     user.penPoints = [{ x: pos.x, y: pos.y, radius }];
-
-    this.drawPreview(user);
   }
 
   /**

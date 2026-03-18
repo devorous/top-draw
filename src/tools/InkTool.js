@@ -158,7 +158,6 @@ export class InkTool extends Tool {
     this.dirtyBounds = { minX: pos.x, minY: pos.y, maxX: pos.x, maxY: pos.y };
 
     this.renderStroke(false, user);
-    this.drawPreview();
   }
 
   /**
