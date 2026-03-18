@@ -214,24 +214,24 @@ export class UI {
    */
   createIcons() {
     this.icons = {
-      select: this.createIcon('images/select-icon.svg'),
-      brush: this.createIcon('images/brush-icon.svg'),
-      pen: this.createIcon('images/brush-icon.svg'),
-      flowPen: this.createIcon('images/brush-icon.svg'),
-      ink: this.createIcon('images/brush-icon.svg'),
-      line: this.createIcon('images/line-icon.svg'),
-      rectangle: this.createIcon('images/rectangle-icon.svg'),
-      circle: this.createIcon('images/circle-icon.svg'),
-      text: this.createIcon('images/text-icon.svg'),
-      erase: this.createIcon('images/eraser-icon.svg'),
-      blur: this.createIcon('images/brush-icon.svg'),
-      circleBlur: this.createIcon('images/circle-blur-icon.svg'),
-      circleBlurHard: this.createIcon('images/circle-blur-icon.svg'),
-      inkdropper: this.createIcon('images/inkdropper-icon.svg'),
-      pan: this.createIcon('images/move-icon.svg'),
-      rotate: this.createIcon('images/rotate-icon.svg'),
-      imageBrush: this.createIcon('images/pepper.png'),
-      pixel: this.createIcon('images/brush-icon.svg')
+      select: this.createIcon('/images/select-icon.svg'),
+      brush: this.createIcon('/images/brush-icon.svg'),
+      pen: this.createIcon('/images/brush-icon.svg'),
+      flowPen: this.createIcon('/images/brush-icon.svg'),
+      ink: this.createIcon('/images/brush-icon.svg'),
+      line: this.createIcon('/images/line-icon.svg'),
+      rectangle: this.createIcon('/images/rectangle-icon.svg'),
+      circle: this.createIcon('/images/circle-icon.svg'),
+      text: this.createIcon('/images/text-icon.svg'),
+      erase: this.createIcon('/images/eraser-icon.svg'),
+      blur: this.createIcon('/images/brush-icon.svg'),
+      circleBlur: this.createIcon('/images/circle-blur-icon.svg'),
+      circleBlurHard: this.createIcon('/images/circle-blur-icon.svg'),
+      inkdropper: this.createIcon('/images/inkdropper-icon.svg'),
+      pan: this.createIcon('/images/move-icon.svg'),
+      rotate: this.createIcon('/images/rotate-icon.svg'),
+      imageBrush: this.createIcon('/images/pepper.png'),
+      pixel: this.createIcon('/images/brush-icon.svg')
     };
   }
 

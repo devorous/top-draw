@@ -16,7 +16,7 @@ export class BrushGallery {
     this.brushes = [];
     this.selectedBrush = null;
     this.onSelect = options.onSelect || (() => {});
-    this.manifestPath = 'brushes/manifest.json';
+    this.manifestPath = '/brushes/manifest.json';
   }
 
   /**
@@ -50,7 +50,7 @@ export class BrushGallery {
 
       for (const entry of manifest.brushes) {
         try {
-          const brush = await this.loadBrush(`brushes/${entry.file}`);
+          const brush = await this.loadBrush(`/brushes/${entry.file}`);
           if (brush) {
             this.brushes.push(brush);
             this.addBrushToGallery(brush);
