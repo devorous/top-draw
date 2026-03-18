@@ -996,6 +996,6 @@ export class RemoteUserHandler {
 
     user.clearLine();
     user.addToLine(lastDrawnPos);
-    this.board.requestUpdate();
+    this.board.compositeAllLayers();
   }
 }
