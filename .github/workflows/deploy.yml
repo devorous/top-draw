@@ -14,17 +14,24 @@ jobs:
   build_site:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-      - name: Install dependencies
-        run: npm install
-      - name: Build
-        run: npm run build
+      - name: Create redirect page
+        run: |
+          mkdir dist
+          cat > dist/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <meta http-equiv="refresh" content="0; url=https://ddraw.ca/go/">
+              <link rel="canonical" href="https://ddraw.ca/go/">
+              <title>Redirecting to ddraw.ca...</title>
+            </head>
+            <body>
+              <p>This page has moved. <a href="https://ddraw.ca/go/">Click here</a> if you are not redirected.</p>
+              <script>window.location.replace("https://ddraw.ca/go/");</script>
+            </body>
+          </html>
+          EOF
       - name: Upload Artifacts
         uses: actions/upload-pages-artifact@v3
         with:
