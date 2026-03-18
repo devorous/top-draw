@@ -127,6 +127,7 @@ export class UI {
 
       chatBtn: document.getElementById('chatBtn'),
       saveBtn: document.getElementById('saveBtn'),
+      galleryBtn: document.getElementById('galleryBtn'),
 
       sizeSlider: document.querySelector('.slider.size'),
       spacingSlider: document.querySelector('.slider.spacing'),

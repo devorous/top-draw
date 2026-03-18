@@ -1,0 +1,10 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/go", "destination": "/go/index.html" },
+    { "source": "/go/(.*)", "destination": "/go/index.html" },
+    { "source": "/gallery", "destination": "/gallery/index.html" },
+    { "source": "/gallery/(.*)", "destination": "/gallery/index.html" }
+  ]
+}

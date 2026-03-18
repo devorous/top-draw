@@ -432,6 +432,7 @@ export class DrawingApp {
     elements.minusBtn.addEventListener('click', () => this.handleZoomOut());
     elements.rotationResetBtn.addEventListener('click', () => this.handleResetBoard());
     elements.saveBtn.addEventListener('click', () => this.board.saveAsImage());
+    if (elements.galleryBtn) elements.galleryBtn.addEventListener('click', () => this.handleSaveToGallery());
 
     // Undo/Redo HUD buttons
     if (elements.hudUndoBtn) elements.hudUndoBtn.addEventListener('click', () => this.handleUndo());
@@ -1189,6 +1190,7 @@ export class DrawingApp {
     }
 
     this.updateRoomSettingsButtonVisibility();
+    this.updateGalleryButtonVisibility(role);
 
     if (this.landingPage && this.landingPage.isVisible) {
       this.landingPage.isAuthenticated = true;
@@ -1389,6 +1391,58 @@ export class DrawingApp {
     );
 
     btn.style.display = canEdit ? 'inline-block' : 'none';
+  }
+
+  /**
+   * Shows or hides the "Save to Gallery" button based on auth role.
+   * @param {number} role - The user's role level.
+   */
+  updateGalleryButtonVisibility(role) {
+    const btn = this.ui.elements.galleryBtn;
+    if (!btn) return;
+    btn.style.display = role >= 1 ? '' : 'none';
+  }
+
+  /**
+   * Exports the current canvas and uploads it to the gallery.
+   * @async
+   */
+  async handleSaveToGallery() {
+    const token = localStorage.getItem('topDrawAuthToken');
+    if (!token) {
+      this.ui.showToast('Log in to save to the gallery');
+      return;
+    }
+
+    const btn = this.ui.elements.galleryBtn;
+    const originalText = btn?.querySelector('.btnText')?.textContent;
+    if (btn?.querySelector('.btnText')) btn.querySelector('.btnText').textContent = 'Saving...';
+
+    try {
+      const imageData = this.board.mainCanvas.toDataURL('image/png');
+      const res = await fetch('/api/gallery/upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ imageData }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Upload failed (${res.status})`);
+      }
+
+      this.ui.showToast('Saved to gallery!');
+    } catch (err) {
+      console.error('[Gallery] Save error:', err);
+      this.ui.showToast(`Gallery save failed: ${err.message}`);
+    } finally {
+      if (btn?.querySelector('.btnText') && originalText) {
+        btn.querySelector('.btnText').textContent = originalText;
+      }
+    }
   }
 
   /**

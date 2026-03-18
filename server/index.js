@@ -7,6 +7,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { connectDB, getDB } from './db.js';
+import { handleGalleryList, handleGalleryUpload, handleGalleryLike } from './gallery.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
 import { issueModAction, revokeModAction, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
@@ -21,13 +22,43 @@ const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 8000;
 
-const server = createServer((req, res) => {
-  if (req.url === '/health') {
+const server = createServer(async (req, res) => {
+  const path = req.url.split('?')[0];
+
+  // CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    });
+    res.end();
+    return;
+  }
+
+  if (path === '/health' && req.method === 'GET') {
     res.writeHead(200);
     res.end('OK');
     return;
   }
-  res.writeHead(200);
+
+  if (path === '/api/gallery' && req.method === 'GET') {
+    await handleGalleryList(req, res);
+    return;
+  }
+
+  if (path === '/api/gallery/upload' && req.method === 'POST') {
+    await handleGalleryUpload(req, res);
+    return;
+  }
+
+  const likeMatch = path.match(/^\/api\/gallery\/([a-f0-9]{24})\/like$/);
+  if (likeMatch && req.method === 'POST') {
+    await handleGalleryLike(req, res, likeMatch[1]);
+    return;
+  }
+
+  res.writeHead(404);
   res.end();
 });
 
