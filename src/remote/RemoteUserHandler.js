@@ -5,7 +5,7 @@
 
 import { mirrorLine, drawLineArray, bridgeGap } from '../utils/drawing.js';
 import { SELECTION_MODES, getNextBrushIndex } from '../utils/parseGimp.js';
-import { applySmoothingEMA, resetSmoothingBuffer } from '../utils/smoothing.js';
+import { resetSmoothingBuffer } from '../utils/smoothing.js';
 import { RemotePenHandler } from './RemotePenHandler.js';
 import { RemoteInkHandler } from './RemoteInkHandler.js';
 import { RemoteSelectionHandler } from './RemoteSelectionHandler.js';
@@ -59,19 +59,20 @@ export class RemoteUserHandler {
     user.remoteTarget = { x: points[points.length - 2], y: points[points.length - 1] };
     this.startCatchupLoop();
 
+    // Points arrive pre-smoothed by the sender's InputBufferManager, so we
+    // use them directly.  Applying EMA again would cause double-smoothing,
+    // making remote strokes visibly shorter / laggier than local ones.
     const smoothedPoints = [];
-    const skipSmoothing = user._inkStrokeActive || user.tool === 'ink' || user.tool === 'text';
-
     for (let i = 0; i < points.length; i += 2) {
-      const rx = points[i];
-      const ry = points[i + 1];
-      
-      if (skipSmoothing) {
-        smoothedPoints.push(rx, ry);
-      } else {
-        const smoothed = applySmoothingEMA(user.smoothBuffer, rx, ry, user.smoothing);
-        smoothedPoints.push(smoothed.x, smoothed.y);
-      }
+      smoothedPoints.push(points[i], points[i + 1]);
+    }
+
+    // Keep the smooth buffer in sync so the catchup loop starts from the
+    // correct position (the last received point, not a stale EMA value).
+    if (smoothedPoints.length >= 2) {
+      user.smoothBuffer.x = smoothedPoints[smoothedPoints.length - 2];
+      user.smoothBuffer.y = smoothedPoints[smoothedPoints.length - 1];
+      user.smoothBuffer.isFirst = false;
     }
 
     const radii = data.rs;
@@ -156,14 +157,12 @@ export class RemoteUserHandler {
         if (distSq > 0.25) {
           anyActive = true;
           const lastPos = { x: user.x, y: user.y };
-          
-          const skipSmoothing = user._inkStrokeActive || user.tool === 'ink' || user.tool === 'text';
-          let pos;
-          if (skipSmoothing) {
-            pos = user.remoteTarget;
-          } else {
-            pos = applySmoothingEMA(user.smoothBuffer, user.remoteTarget.x, user.remoteTarget.y, user.smoothing);
-          }
+
+          // Snap directly to the target — incoming points are already
+          // smoothed by the sender, so additional EMA here would double-smooth.
+          const pos = { x: user.remoteTarget.x, y: user.remoteTarget.y };
+          user.smoothBuffer.x = pos.x;
+          user.smoothBuffer.y = pos.y;
 
           user.setPosition(pos.x, pos.y);
           this.ui.updateRemoteCursor(user.id, pos.x, pos.y, user.size);

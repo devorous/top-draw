@@ -191,28 +191,30 @@ export class InputBufferManager {
     const { points } = this.inputBuffer;
 
     if (points.length >= 2) {
-      let smoothedPoints;
-      let broadcastPoints;
-      if (app.self.mousedown && !app.self.panning) {
-        smoothedPoints = this.applyBroadcastSmoothing(points);
-        broadcastPoints = this.applyPointReduction(smoothedPoints);
-      } else {
-        smoothedPoints = points;
-        broadcastPoints = points;
-      }
-
       const smoothingTools = ['brush', 'flowPen', 'ink', 'imageBrush', 'erase'];
       const blurTools = ['blur', 'circleBlur', 'circleBlurHard'];
+      const useSmoothing = app.self.mousedown && !app.self.panning && smoothingTools.includes(app.self.tool);
+      const useBlur = app.self.mousedown && !app.self.panning && blurTools.includes(app.self.tool);
+
+      let smoothedPoints;
+      let broadcastPoints;
       let localPoints;
-      if (app.self.mousedown && !app.self.panning) {
-        if (smoothingTools.includes(app.self.tool)) {
-          localPoints = smoothedPoints;
-        } else if (blurTools.includes(app.self.tool)) {
-          localPoints = broadcastPoints;
-        } else {
-          localPoints = points;
-        }
+
+      if (useSmoothing) {
+        // Tools that smooth: apply EMA, broadcast the smoothed (+ reduced) result
+        smoothedPoints = this.applyBroadcastSmoothing(points);
+        broadcastPoints = this.applyPointReduction(smoothedPoints);
+        localPoints = smoothedPoints;
+      } else if (useBlur) {
+        // Blur tools: smooth + reduce for both local and broadcast
+        smoothedPoints = this.applyBroadcastSmoothing(points);
+        broadcastPoints = this.applyPointReduction(smoothedPoints);
+        localPoints = broadcastPoints;
       } else {
+        // All other tools (pixel, line, shapes, etc.): no smoothing
+        // Broadcast exactly what is rendered locally so remote matches
+        smoothedPoints = points;
+        broadcastPoints = this.applyPointReduction(points);
         localPoints = points;
       }
 

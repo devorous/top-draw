@@ -188,7 +188,13 @@ export class RemoteInkHandler {
       last
     };
 
-    const outlinePoints = getStroke(user._inkPoints, options);
+    // When simulatePressure is off (tablet mode), square the pressure values
+    // to amplify the effect — matches local InkTool.renderStroke behavior.
+    const strokePoints = !simulatePressure
+      ? user._inkPoints.map(([x, y, p]) => [x, y, Math.pow(p !== undefined ? p : 1, 2)])
+      : user._inkPoints;
+
+    const outlinePoints = getStroke(strokePoints, options);
 
     if (outlinePoints.length < 3) return;
 
