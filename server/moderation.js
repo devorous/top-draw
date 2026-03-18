@@ -113,6 +113,31 @@ export async function issueModAction(opts) {
 }
 
 /**
+ * Updates the reason on the most recent active mute or ban entry for a user.
+ * @param {string|null} targetUserId
+ * @param {string|null} targetIp
+ * @param {'mute'|'ban'} type
+ * @param {string} reason
+ * @returns {Promise<boolean>}
+ */
+export async function updateModActionReason(targetUserId, targetIp, type, reason) {
+  const db = getDB();
+  if (!db) return false;
+
+  const conditions = [];
+  if (targetUserId) conditions.push({ targetUserId });
+  if (targetIp) conditions.push({ targetIp });
+  if (conditions.length === 0) return false;
+
+  const result = await db.collection('moderation').findOneAndUpdate(
+    { type, active: true, $or: conditions },
+    { $set: { reason } },
+    { sort: { createdAt: -1 } }
+  );
+  return !!result;
+}
+
+/**
  * Revokes an existing moderation action.
  * @param {string} actionId - The ID of the moderation action to revoke.
  * @param {string} revokedById - The ID of the moderator revoking the action.

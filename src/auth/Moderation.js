@@ -22,10 +22,12 @@ export class Moderation {
     // Callbacks wired by App.js
     this.onSync = null;
     this.onPM = null;
-    this.onModAction = null;       // (actionType, sessionIndex, reason, duration)
-    this.onRequestModList = null;   // ({ showHistory, search })
-    this.onRevokeEntry = null;      // (entryId, type)
-    this.onModWipe = null;          // (sessionIndex, targetName)
+    this.onModAction = null;         // (actionType, sessionIndex, reason, duration)
+    this.onModUpdateReason = null;   // (originalActionCode, sessionIndex, reason)
+    this.onModGroupUpdateReason = null; // (action, ipHash, reason)
+    this.onRequestModList = null;    // ({ showHistory, search })
+    this.onRevokeEntry = null;       // (entryId, type)
+    this.onModWipe = null;           // (sessionIndex, targetName)
   }
 
   setRole(role) {
@@ -113,6 +115,9 @@ export class Moderation {
 
     if (!sessionIndex && sessionIndex !== 0 && !ipHash) return;
 
+    const isGroup = !!(ipHash && !sessionIndex && sessionIndex !== 0);
+    const targetName = isGroup ? `Group ${ipHash}` : (user?.username || `User ${sessionIndex}`);
+
     switch (action) {
       case 'sync':
         if (this.onSync) this.onSync(sessionIndex);
@@ -120,121 +125,138 @@ export class Moderation {
       case 'pm':
         if (this.onPM) this.onPM(sessionIndex, user);
         break;
-      case 'wipe':
-        // Wipe all strokes from this user or group
-        const targetLabel = ipHash && !sessionIndex ? `all users in IP group ${ipHash}` : (user?.username || 'User ' + sessionIndex);
+      case 'wipe': {
+        const targetLabel = isGroup ? `all users in IP group ${ipHash}` : targetName;
         if (confirm(`Wipe all strokes from ${targetLabel}?`)) {
-          if (ipHash && !sessionIndex) {
+          if (isGroup) {
             if (this.onModGroupAction) this.onModGroupAction('wipe', ipHash);
           } else {
             if (this.onModWipe) this.onModWipe(sessionIndex, user?.username || '');
           }
         }
         break;
+      }
       case 'mute':
         if (user?.isMuted && !ipHash) {
-          // Unmute immediately (no dialog needed)
+          // Unmute immediately
           if (this.onModAction) this.onModAction(3, sessionIndex, '', 0);
         } else {
-          this.showModDialog('mute', sessionIndex, user, ipHash);
+          // Mute immediately with 1hr default, then offer reason
+          if (isGroup) {
+            if (this.onModGroupAction) this.onModGroupAction('mute', ipHash, '', 60);
+          } else {
+            if (this.onModAction) this.onModAction(1, sessionIndex, '', 60);
+          }
+          this.showReasonCard('mute', sessionIndex, targetName, isGroup, ipHash);
         }
         break;
       case 'kick':
-        this.showModDialog('kick', sessionIndex, user, ipHash);
+        // Kick immediately, then offer reason
+        console.log('[Mod] Kick clicked, sessionIndex:', sessionIndex, 'isGroup:', isGroup, 'ipHash:', ipHash, 'onModAction:', !!this.onModAction);
+        if (isGroup) {
+          if (this.onModGroupAction) this.onModGroupAction('kick', ipHash, '', 0);
+        } else {
+          if (this.onModAction) this.onModAction(0, sessionIndex, '', 0);
+        }
+        this.showReasonCard('kick', sessionIndex, targetName, isGroup, ipHash);
         break;
       case 'ban':
-        this.showModDialog('ban', sessionIndex, user, ipHash);
+        // Ban immediately (permanent), then offer reason
+        if (isGroup) {
+          if (this.onModGroupAction) this.onModGroupAction('ban', ipHash, '', 0);
+        } else {
+          if (this.onModAction) this.onModAction(2, sessionIndex, '', 0);
+        }
+        this.showReasonCard('ban', sessionIndex, targetName, isGroup, ipHash);
         break;
     }
   }
 
-  // --- Mod Action Dialog ---
+  // --- Reason Card (non-blocking, shown after instant action) ---
 
   /**
-   * Show a dialog to collect reason/duration before executing a mod action
-   * @param {'kick'|'mute'|'ban'} action
-   * @param {number|null} sessionIndex
-   * @param {Object|null} user
-   * @param {string|null} ipHash
+   * Show a small non-blocking card to optionally add a reason after an instant action.
    */
-  showModDialog(action, sessionIndex, user, ipHash = null) {
-    const isGroup = ipHash && !sessionIndex && sessionIndex !== 0;
-    const targetName = isGroup ? `Group ${ipHash}` : (user?.username || `User ${sessionIndex}`);
+  showReasonCard(action, sessionIndex, targetName, isGroup, ipHash) {
+    const existing = document.getElementById('modReasonCard');
+    if (existing) existing.remove();
 
-    // Action type codes: 0=kick, 1=mute, 2=ban
     const actionCodes = { kick: 0, mute: 1, ban: 2 };
     const actionCode = actionCodes[action];
     const isDanger = action === 'ban';
-    const showDuration = action !== 'kick';
+    const pastTense = { kick: 'Kicked', mute: 'Muted', ban: 'Banned' };
+    const actionLabel = pastTense[action] || action;
 
-    const overlay = document.createElement('div');
-    overlay.className = 'modDialog-overlay';
-
-    const title = `${action.charAt(0).toUpperCase() + action.slice(1)} ${this.escapeHtml(targetName)}`;
-
-    overlay.innerHTML = `
-      <div class="modDialog">
-        <h3 class="${isDanger ? 'danger' : ''}">${title}</h3>
-        <label for="modDialogReason">Reason (optional)</label>
-        <input type="text" id="modDialogReason" placeholder="Enter reason..." maxlength="200" autocomplete="off">
-        ${showDuration ? `
-          <label for="modDialogDuration">Duration</label>
-          <select id="modDialogDuration">
-            <option value="0">Permanent</option>
-            <option value="5">5 minutes</option>
-            <option value="15">15 minutes</option>
-            <option value="30">30 minutes</option>
-            <option value="60" selected>1 hour</option>
-            <option value="1440">1 day</option>
-            <option value="10080">1 week</option>
-          </select>
-        ` : ''}
-        <div class="modDialog-buttons">
-          <a class="btn" id="modDialogCancel">Cancel</a>
-          <a class="btn ${isDanger ? 'danger' : ''}" id="modDialogConfirm">${action.charAt(0).toUpperCase() + action.slice(1)}</a>
-        </div>
+    const card = document.createElement('div');
+    card.id = 'modReasonCard';
+    card.className = `modReasonCard${isDanger ? ' danger' : ''}`;
+    card.innerHTML = `
+      <div class="modReasonCard-header">
+        <span class="modReasonCard-title">✓ ${actionLabel}: <strong>${this.escapeHtml(targetName)}</strong></span>
+        <button class="modReasonCard-close" id="modReasonClose" title="Dismiss">✕</button>
       </div>
+      <div class="modReasonCard-body">
+        <input type="text" id="modReasonInput" class="modReasonCard-input" placeholder="Add a reason... (optional)" maxlength="200" autocomplete="off">
+        <button class="modReasonCard-submit" id="modReasonSubmit">Add</button>
+      </div>
+      <div class="modReasonCard-timer" id="modReasonTimer"></div>
     `;
+    document.body.appendChild(card);
 
-    document.body.appendChild(overlay);
+    requestAnimationFrame(() => card.classList.add('modReasonCard-visible'));
 
-    const reasonInput = overlay.querySelector('#modDialogReason');
-    const durationSelect = overlay.querySelector('#modDialogDuration');
-    const confirmBtn = overlay.querySelector('#modDialogConfirm');
-    const cancelBtn = overlay.querySelector('#modDialogCancel');
+    const input = card.querySelector('#modReasonInput');
+    const submitBtn = card.querySelector('#modReasonSubmit');
+    const closeBtn = card.querySelector('#modReasonClose');
+    const timerBar = card.querySelector('#modReasonTimer');
 
-    reasonInput.focus();
+    input.focus();
 
-    const close = () => {
-      overlay.remove();
+    let dismissed = false;
+    const dismiss = () => {
+      if (dismissed) return;
+      dismissed = true;
+      clearTimeout(autoTimeout);
+      card.classList.remove('modReasonCard-visible');
+      setTimeout(() => card.remove(), 250);
     };
 
-    const confirm = () => {
-      const reason = reasonInput.value.trim();
-      const duration = durationSelect ? Number(durationSelect.value) : 0;
-      close();
-      
-      if (isGroup) {
-        if (this.onModGroupAction) {
-          this.onModGroupAction(action, ipHash, reason, duration);
-        }
-      } else {
-        if (this.onModAction) {
-          this.onModAction(actionCode, sessionIndex, reason, duration);
+    const submit = () => {
+      const reason = input.value.trim();
+      if (reason) {
+        if (isGroup) {
+          if (this.onModGroupUpdateReason) this.onModGroupUpdateReason(action, ipHash, reason);
+        } else {
+          if (this.onModUpdateReason) this.onModUpdateReason(actionCode, sessionIndex, reason);
         }
       }
+      dismiss();
     };
 
-    confirmBtn.addEventListener('click', confirm);
-    cancelBtn.addEventListener('click', close);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) close();
-    });
-    reasonInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') confirm();
-      if (e.key === 'Escape') close();
+    submitBtn.addEventListener('click', submit);
+    closeBtn.addEventListener('click', dismiss);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); submit(); }
+      if (e.key === 'Escape') dismiss();
       e.stopPropagation();
+      // Reset auto-dismiss on typing
+      clearTimeout(autoTimeout);
+      timerBar.style.transition = 'none';
+      timerBar.style.width = '100%';
+      autoTimeout = setTimeout(dismiss, AUTO_DISMISS_MS);
+      requestAnimationFrame(() => {
+        timerBar.style.transition = `width ${AUTO_DISMISS_MS}ms linear`;
+        timerBar.style.width = '0%';
+      });
     });
+
+    // Auto-dismiss timer with progress bar
+    const AUTO_DISMISS_MS = 8000;
+    requestAnimationFrame(() => {
+      timerBar.style.transition = `width ${AUTO_DISMISS_MS}ms linear`;
+      timerBar.style.width = '0%';
+    });
+    let autoTimeout = setTimeout(dismiss, AUTO_DISMISS_MS);
   }
 
   // --- Mod Panel ---

@@ -659,33 +659,33 @@ export class WebSocketClient {
       case T.AUTH_RESULT:
         this.emit('auth_result', {
           success: data.a,
-          token: data.auth_token || '',
-          role: data.auth_role || 0,
-          username: data.auth_username || '',
-          error: data.auth_error || ''
+          token: data.authToken || '',
+          role: data.authRole || 0,
+          username: data.authUsername || '',
+          error: data.authError || ''
         });
         break;
 
       case T.MOD_NOTIFY:
         this.emit('mod_notify', {
-          actionType: data.mod_action_type,
-          targetName: data.mod_target_name || '',
-          issuerName: data.mod_issuer_name || '',
-          reason: data.mod_reason || '',
-          targetSessionIndex: data.mod_target
+          actionType: data.modActionType ?? 0,
+          targetName: data.modTargetName || '',
+          issuerName: data.modIssuerName || '',
+          reason: data.modReason || '',
+          targetSessionIndex: data.modTarget
         });
         break;
 
       case T.MOD_RESULT:
         this.emit('mod_result', {
           success: data.a,
-          error: data.auth_error || ''
+          error: data.authError || ''
         });
         break;
 
       case T.MOD_LIST:
         this.emit('mod_list', {
-          entries: (data.mod_entries || []).map(e => ({
+          entries: (data.modEntries || []).map(e => ({
             id: e.id,
             type: e.type,
             username: e.username,
@@ -1014,8 +1014,8 @@ export class WebSocketClient {
    * @param {number} x - Fill seed X position.
    * @param {number} y - Fill seed Y position.
    * @param {number} layerIndex - Target layer index.
-   * @param {number} [expansion=0] - Mask expansion in pixels (0-20).
-   * @param {number} [blurRadius=0] - Edge blur radius in pixels (0-15).
+   * @param {number} [expansion=0] - Mask expansion in pixels (-40 to 40).
+   * @param {number} [blurRadius=0] - Edge blur radius in pixels (0-30).
    */
   broadcastFill(x, y, layerIndex, expansion = 0, blurRadius = 0) {
     this.send({

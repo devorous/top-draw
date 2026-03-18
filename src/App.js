@@ -216,6 +216,19 @@ export class DrawingApp {
     this.moderation.onModAction = (actionType, sessionIndex, reason, duration) => {
       this.wsClient.sendModAction(actionType, sessionIndex, reason, duration);
     };
+    this.moderation.onModUpdateReason = (originalActionCode, sessionIndex, reason) => {
+      // Reuse modDuration to carry the original action code so server knows which entry to update
+      this.wsClient.sendModAction(5, sessionIndex, reason, originalActionCode);
+    };
+    this.moderation.onModGroupUpdateReason = (action, ipHash, reason) => {
+      const group = this.ui.remoteUserUI.userGroups.get(ipHash);
+      if (!group) return;
+      const actionCodes = { kick: 0, mute: 1, ban: 2 };
+      const actionCode = actionCodes[action];
+      group.userIds.forEach(userId => {
+        this.wsClient.sendModAction(5, userId, reason, actionCode);
+      });
+    };
     this.moderation.onRequestModList = ({ showHistory, search } = {}) => {
       this.wsClient.requestModList({ showHistory, search });
     };

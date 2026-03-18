@@ -8,7 +8,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { connectDB, getDB } from './db.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
-import { issueModAction, revokeModAction, getModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
+import { issueModAction, revokeModAction, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
 import { SessionManager, Role } from './SessionManager.js';
@@ -645,12 +645,14 @@ wss.on('connection', (ws, req) => {
           break;
 
         case T.MOD_ACTION: {
+          console.log(`[MOD] ACTION START - role=${ws.userRole}, required=${Role.MOD}`);
           if (ws.userRole < Role.MOD) {
+            console.log(`[MOD] REJECTED - insufficient role`);
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Insufficient permissions' });
             break;
           }
 
-          const modActionType = data.modActionType;
+          const modActionType = data.modActionType ?? 0;
           const modTargetIndex = data.modTarget;
           const modReason = data.modReason || '';
           const modDuration = data.modDuration || 0;
@@ -669,8 +671,10 @@ wss.on('connection', (ws, req) => {
           try {
             const roomBroadcaster = createRoomBroadcaster(room);
 
+            console.log(`[Mod] MOD_ACTION received: type=${modActionType}, target=${modTargetIndex}, targetWs=${!!targetWs}`);
             switch (modActionType) {
               case 0: // Kick
+                console.log(`[MOD] KICKING sessionIndex=${modTargetIndex}, targetWs=${!!targetWs}`);
                 roomBroadcaster({
                   t: T.MOD_NOTIFY,
                   modActionType: 0,
@@ -680,7 +684,11 @@ wss.on('connection', (ws, req) => {
                   modReason: modReason
                 });
                 if (targetWs) {
+                  console.log(`[MOD] CLOSING ws for sessionIndex=${modTargetIndex}`);
                   targetWs.close(4002, 'Kicked');
+                } else {
+                  console.log(`[MOD] TARGET NOT FOUND for sessionIndex=${modTargetIndex}`);
+                  console.log(`[MOD] All client sessionIndexes:`, [...wss.clients].map(c => c.sessionIndex));
                 }
                 break;
 
@@ -764,6 +772,31 @@ wss.on('connection', (ws, req) => {
                   modReason: modReason
                 });
                 break;
+
+              case 5: { // Update reason for an existing kick/mute/ban
+                // modDuration is repurposed here to carry the original action code (0=kick,1=mute,2=ban)
+                const origActionCode = modDuration;
+                if (origActionCode === 1 || origActionCode === 2) {
+                  const type = origActionCode === 1 ? 'mute' : 'ban';
+                  if (getDB()) {
+                    await updateModActionReason(
+                      targetWs?.userId || null,
+                      targetWs?.clientIp || null,
+                      type,
+                      modReason
+                    );
+                  }
+                }
+                roomBroadcaster({
+                  t: T.MOD_NOTIFY,
+                  modActionType: 5,
+                  modTarget: modTargetIndex,
+                  modTargetName: targetName,
+                  modIssuerName: ws.username || `User ${ws.sessionIndex}`,
+                  modReason: modReason
+                });
+                break;
+              }
 
               case 4: // Unban
                 if (getDB()) {

@@ -15,6 +15,15 @@ export function setupAuthModHandlers(wsClient, app) {
   });
 
   wsClient.on('mod_notify', (data) => {
+    if (data.actionType === 5) {
+      // Reason added after the fact
+      if (data.reason) {
+        chat.addSystemMessage(`Reason for ${data.targetName}: ${data.reason} (by ${data.issuerName})`);
+        ui.showToast(`Reason added for ${data.targetName}`, 2000);
+      }
+      return;
+    }
+
     const actionNames = ['kicked', 'muted', 'banned', 'unmuted', 'unbanned'];
     const actionName = actionNames[data.actionType] || 'moderated';
     const message = `${data.targetName} was ${actionName} by ${data.issuerName}`;

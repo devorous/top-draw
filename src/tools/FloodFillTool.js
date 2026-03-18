@@ -250,6 +250,99 @@ export class FloodFillTool {
   }
 
   /**
+   * Erode (shrink) a mask by `radius` pixels using a two-pass distance transform.
+   * Removes mask pixels that are within `radius` of the nearest non-mask pixel.
+   */
+  _erodeMask(result, radius, width, height) {
+    if (!result || radius <= 0) return result;
+    const { mask, minX, minY, maxX, maxY } = result;
+    const r = Math.ceil(radius);
+
+    // Pad work area by 1px so edge mask pixels see the non-mask boundary
+    const padMinX = Math.max(0, minX - 1);
+    const padMinY = Math.max(0, minY - 1);
+    const padMaxX = Math.min(width - 1, maxX + 1);
+    const padMaxY = Math.min(height - 1, maxY + 1);
+    const rw = padMaxX - padMinX + 1;
+    const rh = padMaxY - padMinY + 1;
+
+    // Distance from nearest non-mask pixel (0 = non-mask, INF = deep interior)
+    const INF = 1e9;
+    const dist = new Float32Array(rw * rh);
+
+    for (let ry = 0; ry < rh; ry++) {
+      const py = ry + padMinY;
+      for (let rx = 0; rx < rw; rx++) {
+        const px = rx + padMinX;
+        dist[ry * rw + rx] = mask[py * width + px] ? INF : 0;
+      }
+    }
+
+    // Horizontal pass
+    for (let ry = 0; ry < rh; ry++) {
+      const row = ry * rw;
+      for (let rx = 1; rx < rw; rx++) {
+        const prev = dist[row + rx - 1];
+        if (prev < INF) {
+          const d = Math.sqrt(prev) + 1;
+          const dSq = d * d;
+          if (dSq < dist[row + rx]) dist[row + rx] = dSq;
+        }
+      }
+      for (let rx = rw - 2; rx >= 0; rx--) {
+        const prev = dist[row + rx + 1];
+        if (prev < INF) {
+          const d = Math.sqrt(prev) + 1;
+          const dSq = d * d;
+          if (dSq < dist[row + rx]) dist[row + rx] = dSq;
+        }
+      }
+    }
+
+    // Vertical pass
+    for (let rx = 0; rx < rw; rx++) {
+      for (let ry = 1; ry < rh; ry++) {
+        const prev = dist[(ry - 1) * rw + rx];
+        if (prev < INF) {
+          const d = Math.sqrt(prev) + 1;
+          const dSq = d * d;
+          if (dSq < dist[ry * rw + rx]) dist[ry * rw + rx] = dSq;
+        }
+      }
+      for (let ry = rh - 2; ry >= 0; ry--) {
+        const prev = dist[(ry + 1) * rw + rx];
+        if (prev < INF) {
+          const d = Math.sqrt(prev) + 1;
+          const dSq = d * d;
+          if (dSq < dist[ry * rw + rx]) dist[ry * rw + rx] = dSq;
+        }
+      }
+    }
+
+    // Keep only mask pixels with distance > radius from boundary
+    const rSq = r * r;
+    const eroded = new Uint8Array(width * height);
+    let eMinX = width, eMaxX = 0, eMinY = height, eMaxY = 0;
+
+    for (let ry = 0; ry < rh; ry++) {
+      const py = ry + padMinY;
+      for (let rx = 0; rx < rw; rx++) {
+        if (dist[ry * rw + rx] > rSq) {
+          const px = rx + padMinX;
+          eroded[py * width + px] = 1;
+          if (px < eMinX) eMinX = px;
+          if (px > eMaxX) eMaxX = px;
+          if (py < eMinY) eMinY = py;
+          if (py > eMaxY) eMaxY = py;
+        }
+      }
+    }
+
+    if (eMinX > eMaxX) return null;
+    return { mask: eroded, minX: eMinX, minY: eMinY, maxX: eMaxX, maxY: eMaxY };
+  }
+
+  /**
    * Render a mask to a target canvas context, optionally blurring edges.
    * Uses stackblur if available, falls back to CSS filter.
    */
@@ -421,14 +514,16 @@ export class FloodFillTool {
   onPointerMove(user, pos, lastPos, e) {
     if (!this._active || !this.advancedMode) return;
 
-    const dx = pos.x - this._startPos.x;
-    const dy = pos.y - this._startPos.y;
+    // Use screen-space drag distance (undo zoom) so sensitivity is consistent at all zoom levels
+    const zoom = this.board.zoom || 1;
+    const dx = (pos.x - this._startPos.x) * zoom;
+    const dy = (pos.y - this._startPos.y) * zoom;
 
-    // Horizontal: expansion/dilation (0–20px), 1px drag right = +0.1 expansion
-    this._expansion = Math.max(0, Math.min(20, dx * 0.1));
+    // Horizontal: expansion/dilation (-40–40px), drag right = grow, drag left = shrink
+    this._expansion = Math.max(-40, Math.min(40, dx * 0.3));
 
-    // Vertical: edge blur (0–15px), 1px drag down = +0.08 blur
-    this._blurRadius = Math.max(0, Math.min(15, dy * 0.08));
+    // Vertical: edge blur (0–20px), 1px screen drag down = +0.12 blur
+    this._blurRadius = Math.max(0, Math.min(20, dy * 0.12));
 
     this._updatePreview();
   }
@@ -442,6 +537,8 @@ export class FloodFillTool {
     let result = this._computeMask(data, width, height, x, y, 10, inRegion);
     if (result && this._expansion > 0) {
       result = this._dilateMask(result, this._expansion, width, height);
+    } else if (result && this._expansion < 0) {
+      result = this._erodeMask(result, -this._expansion, width, height);
     }
 
     // Clear and redraw preview on topCtx
@@ -468,6 +565,8 @@ export class FloodFillTool {
     let result = this._computeMask(data, width, height, x, y, 10, inRegion);
     if (result && this._expansion > 0) {
       result = this._dilateMask(result, this._expansion, width, height);
+    } else if (result && this._expansion < 0) {
+      result = this._erodeMask(result, -this._expansion, width, height);
     }
 
     // Clear preview
@@ -477,17 +576,17 @@ export class FloodFillTool {
       this.board.beginStroke(user);
       const strokeCtx = this.board.layerManager.getUserStrokeContext(activeLayer, userId);
       if (strokeCtx) {
-        this._renderMask(strokeCtx, result,fillR, fillG, fillB, userOpacity, this._blurRadius, width, height);
+        this._renderMask(strokeCtx, result, fillR, fillG, fillB, userOpacity, this._blurRadius, width, height);
 
         // Expand dirty rect accounting for blur + expansion bleed
-        const pad = Math.ceil(this._blurRadius * 2) + Math.ceil(this._expansion);
+        const pad = Math.ceil(this._blurRadius * 2) + Math.ceil(Math.abs(this._expansion));
         const bx = Math.max(0, result.minX - pad);
         const by = Math.max(0, result.minY - pad);
         const bw = Math.min(width, result.maxX + pad + 1) - bx;
         const bh = Math.min(height, result.maxY + pad + 1) - by;
         this.board.expandDirtyRect(user, bx, by, bw, bh);
+        this._broadcastFill(user, x, y, activeLayer, this._expansion, this._blurRadius);
       }
-      this._broadcastFill(user, x, y, activeLayer, this._expansion, this._blurRadius);
       this.board.endStroke(user);
     }
 

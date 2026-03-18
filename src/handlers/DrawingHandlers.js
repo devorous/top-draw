@@ -1,11 +1,15 @@
 /** @fileoverview Handles drawing-related events including tool changes, mouse interactions, and canvas operations. */
 
+import { blurImageData } from '../utils/blurUtils.js';
+
 /**
  * Sets up WebSocket event handlers for drawing and canvas operations.
  * @param {Function} wrapHandler - Function to wrap event handlers for sync buffering.
  * @param {App} app - The main application instance.
  */
 export function setupDrawingHandlers(wrapHandler, app) {
+  // Preload stackblur so remote fill blur uses the same renderer as local
+  blurImageData(new ImageData(1, 1), 1, 1, 1).catch(() => {});
   const { users, ui, board, remoteUserHandler } = app;
 
   wrapHandler('mm', (data) => {
@@ -244,7 +248,10 @@ export function setupDrawingHandlers(wrapHandler, app) {
 
     if (expansion > 0) {
       result = fillTool._dilateMask(result, expansion, width, height);
+    } else if (expansion < 0) {
+      result = fillTool._erodeMask(result, -expansion, width, height);
     }
+    if (!result) return;
 
     const blendMode = user.blendMode || 'source-over';
     board.layerManager.beginUserStroke(layerIndex, userId, blendMode);
@@ -253,7 +260,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
 
     fillTool._renderMask(strokeCtx, result, fillR, fillG, fillB, userOpacity, blurRadius, width, height);
 
-    const pad = Math.ceil(blurRadius * 2) + Math.ceil(expansion);
+    const pad = Math.ceil(blurRadius * 2) + Math.ceil(Math.abs(expansion));
     const bx = Math.max(0, result.minX - pad);
     const by = Math.max(0, result.minY - pad);
     const bw = Math.min(width, result.maxX + pad + 1) - bx;

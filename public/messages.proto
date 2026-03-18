@@ -110,7 +110,7 @@ message Msg {
   repeated float ps = 3; 
 
   uint32 p = 4;         // Pressure * 100 (0-100)
-  uint32 s = 5;         // Size * 100 (allows 0.01 precision)
+  int32 s = 5;          // Size * 100 (allows 0.01 precision) — signed for fill shrink
   Tool l = 6;           // Tool (l for "tool")
   fixed32 c = 7;        // Color as packed RGBA (4 bytes fixed)
   bool a = 8;           // AFK status / boolean flags
