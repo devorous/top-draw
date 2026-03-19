@@ -172,7 +172,6 @@
 
           <!-- Collapsible Controls -->
           <div class="collapsibleBtns" id="collapsibleBtns">
-            <a class="btn modOnly" id="clearBtn">Clear</a>
             <a class="btn" id="resetBtn">Reset View</a>
 
             <div class="mirrorContainer">
@@ -180,13 +179,7 @@
               <span class="mirrorOption">OFF</span>
             </div>
 
-            <div class="devContainer modOnly">
-              <a class="btn" id="devBtn">Dev</a>
-              <span class="devOption">OFF</span>
-            </div>
-
-            <a class="btn modOnly" id="perfSettingsBtn" title="Performance Settings">Perf</a>
-            <a class="btn modOnly" id="modBtn">Mod</a>
+            <!-- Clear / Dev / Perf / Mod buttons injected dynamically by Moderation.injectModUI() -->
           </div>
 
           <!-- Always Visible Controls -->
@@ -412,22 +405,7 @@
       <!-- Side Panel -->
       <div id="sideMenu">
         <!-- Moderation Panel (Floating) -->
-        <div id="modPanel" style="display: none;">
-          <div id="modPanelHeader">
-            <div class="modTabs">
-              <button class="modTab active" data-tab="bans">Bans</button>
-              <button class="modTab" data-tab="mutes">Mutes</button>
-            </div>
-            <button class="chatCloseBtn" id="modPanelCloseBtn">&times;</button>
-          </div>
-          <div class="modPanelControls">
-            <input type="text" id="modSearchInput" class="modSearchInput" placeholder="Search username..." autocomplete="off">
-            <button class="modHistoryToggle" id="modHistoryToggle">Active Only</button>
-          </div>
-          <div id="modEntryList" class="modEntryList">
-            <div class="modNoEntries">No entries</div>
-          </div>
-        </div>
+        <!-- Mod panel injected dynamically by Moderation.injectModUI() -->
 
         <!-- Chat Window (Floating) -->
         <div id="chat">

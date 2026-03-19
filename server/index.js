@@ -16,6 +16,7 @@ import { SessionManager, Role } from './SessionManager.js';
 import { SyncCoordinator } from './SyncCoordinator.js';
 import { RoomManager } from './RoomManager.js';
 import { sanitizeMessage } from './validation.js';
+import { authorize, Action } from './permissions.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -248,7 +249,7 @@ const MUTED_BLOCKED = new Set([
  * @param {Object} room - The room object the sender is in.
  * @returns {Promise<void>}
  */
-async function handleBroadcast(data, sessionIndex, room) {
+async function handleBroadcast(data, sessionIndex, room, ws) {
   if (!room) return;
   const user = room.sessionManager.getUser(sessionIndex);
   if (!user) return;
@@ -381,6 +382,11 @@ async function handleBroadcast(data, sessionIndex, room) {
     case T.CSIM:
       user.simulatePressure = data.sim;
       break;
+  }
+
+  // Permission-gated actions inside the broadcast path
+  if (data.t === T.CLR) {
+    if (!authorize(ws, Action.CLEAR_CANVAS, sendTo, T.MOD_RESULT)) return;
   }
 
   if (MUTED_BLOCKED.has(data.t)) {
@@ -676,14 +682,13 @@ wss.on('connection', (ws, req) => {
           break;
 
         case T.MOD_ACTION: {
-          console.log(`[MOD] ACTION START - role=${ws.userRole}, required=${Role.MOD}`);
-          if (ws.userRole < Role.MOD) {
-            console.log(`[MOD] REJECTED - insufficient role`);
-            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Insufficient permissions' });
+          const modActionType = data.modActionType ?? 0;
+          const MOD_ACTION_MAP = [Action.MOD_KICK, Action.MOD_MUTE, Action.MOD_BAN, Action.MOD_UNMUTE, Action.MOD_UNBAN, Action.MOD_UPDATE];
+          const requiredAction = MOD_ACTION_MAP[modActionType];
+          if (!requiredAction || !authorize(ws, requiredAction, sendTo, T.MOD_RESULT)) {
+            console.log(`[MOD] REJECTED - insufficient role (role=${ws.userRole}, actionType=${modActionType})`);
             break;
           }
-
-          const modActionType = data.modActionType ?? 0;
           const modTargetIndex = data.modTarget;
           const modReason = data.modReason || '';
           const modDuration = data.modDuration || 0;
@@ -861,10 +866,7 @@ wss.on('connection', (ws, req) => {
         }
 
         case T.MOD_WIPE: {
-          if (ws.userRole < Role.MOD) {
-            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Insufficient permissions' });
-            break;
-          }
+          if (!authorize(ws, Action.MOD_WIPE, sendTo, T.MOD_RESULT)) break;
 
           const targetIndex = data.modTarget;
           const targetName = data.modTargetName || `User ${targetIndex}`;
@@ -941,10 +943,7 @@ wss.on('connection', (ws, req) => {
         }
 
         case T.MOD_LIST: {
-          if (ws.userRole < Role.MOD) {
-            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Insufficient permissions' });
-            break;
-          }
+          if (!authorize(ws, Action.MOD_LIST, sendTo, T.MOD_RESULT)) break;
 
           try {
             const entries = await getModEntries({
@@ -1164,7 +1163,7 @@ wss.on('connection', (ws, req) => {
 
         default:
           if (ws.sessionIndex !== undefined) {
-            handleBroadcast(data, ws.sessionIndex, room);
+            handleBroadcast(data, ws.sessionIndex, room, ws);
           }
           break;
       }

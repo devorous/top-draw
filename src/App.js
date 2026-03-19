@@ -26,7 +26,7 @@ import { BrushModeManager } from './tools/BrushModeManager.js';
 import { BlendModeManager } from './canvas/BlendModeManager.js';
 import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js';
 import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
-import { PerformanceSettings } from './ui/PerformanceSettings.js';
+// PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
 
 /**
@@ -127,8 +127,7 @@ export class DrawingApp {
     // Performance debug panel
     this.performanceDebugPanel = new PerformanceDebugPanel(this.inputBufferManager, this);
 
-    // Performance settings modal
-    this.performanceSettings = new PerformanceSettings();
+    // PerformanceSettings lazy-loaded via Moderation when mod role confirmed
   }
 
   /**
@@ -165,7 +164,7 @@ export class DrawingApp {
     this.board.layerManager.onHistoryChange = () => this.updateUndoRedoHud();
 
     this.performanceDebugPanel.init();
-    this.performanceSettings.init(this.board);
+    // PerformanceSettings.init() called lazily by Moderation._showPerformanceSettings()
 
     this.ui.setupLayerPreviewListeners(this.board.layerManager);
 
@@ -258,6 +257,9 @@ export class DrawingApp {
         }
       });
     };
+
+    this.moderation.onClear = () => this.handleClear();
+    this.moderation.onToggleDevMode = () => this.handleToggleDevMode();
 
     window.app = this;
 
@@ -422,11 +424,12 @@ export class DrawingApp {
     });
     elements.inkdropperBtn.addEventListener('click', () => this.selectTool('inkdropper'));
 
-    elements.clearBtn.addEventListener('click', () => this.handleClear());
+    // Clear/Dev/Perf/Mod buttons + mod panel are injected dynamically by
+    // Moderation._injectModUI() when the user's role is confirmed as mod+.
+    // Their event listeners are wired there, not here.
+
     elements.resetBtn.addEventListener('click', () => this.handleResetBoard());
     elements.mirrorBtn.addEventListener('click', () => this.handleToggleMirror());
-    elements.devBtn.addEventListener('click', () => this.handleToggleDevMode());
-    elements.perfSettingsBtn.addEventListener('click', () => this.performanceSettings.show());
     if (elements.undoBtn) elements.undoBtn.addEventListener('click', () => this.handleUndo());
     elements.plusBtn.addEventListener('click', () => this.handleZoomIn());
     elements.minusBtn.addEventListener('click', () => this.handleZoomOut());
@@ -445,41 +448,6 @@ export class DrawingApp {
     const roomSettingsBtn = document.getElementById('roomSettingsBtn');
     if (roomSettingsBtn) {
       roomSettingsBtn.addEventListener('click', () => this.handleRoomSettings());
-    }
-
-    // Mod panel toggle
-    if (elements.modBtn) {
-      elements.modBtn.addEventListener('click', () => this.moderation.togglePanel());
-    }
-
-    // Mod panel close button
-    const modPanelCloseBtn = document.getElementById('modPanelCloseBtn');
-    if (modPanelCloseBtn) {
-      modPanelCloseBtn.addEventListener('click', () => this.moderation.hidePanel());
-    }
-
-    // Mod panel tab clicks
-    document.querySelectorAll('.modTab').forEach(tab => {
-      tab.addEventListener('click', () => this.moderation.setActiveTab(tab.dataset.tab));
-    });
-
-    // Mod panel search
-    const modSearchInput = document.getElementById('modSearchInput');
-    if (modSearchInput) {
-      let searchDebounce = null;
-      modSearchInput.addEventListener('input', () => {
-        clearTimeout(searchDebounce);
-        searchDebounce = setTimeout(() => this.moderation.setSearch(modSearchInput.value.trim()), 300);
-      });
-      modSearchInput.addEventListener('keydown', (e) => e.stopPropagation());
-    }
-
-    // Mod panel history toggle
-    const modHistoryToggle = document.getElementById('modHistoryToggle');
-    if (modHistoryToggle) {
-      modHistoryToggle.addEventListener('click', () => {
-        this.moderation.setShowHistory(!this.moderation.showHistory);
-      });
     }
 
     // Context menu button clicks
@@ -1715,6 +1683,10 @@ export class DrawingApp {
    * Clears the entire board.
    */
   handleClear() {
+    if (!this.moderation || !this.moderation.isMod()) {
+      this.ui.showToast('Only moderators can clear the canvas', 3000, 'error');
+      return;
+    }
     this.board.clear();
     this.wsClient.broadcastClear();
     if (this.debugOverlay) {

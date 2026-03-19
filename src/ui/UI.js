@@ -103,7 +103,7 @@ export class UI {
       imageUploadInput: document.getElementById('imageUploadInput'),
       inkdropperBtn: document.getElementById('inkdropperBtn'),
 
-      clearBtn: document.getElementById('clearBtn'),
+      clearBtn: null, // injected dynamically by Moderation._injectModUI()
       resetBtn: document.getElementById('resetBtn'),
       mirrorBtn: document.getElementById('mirrorBtn'),
       plusBtn: document.getElementById('plusBtn'),
@@ -120,10 +120,10 @@ export class UI {
       sideMenu: document.getElementById('sideMenu'),
       toolOptions: document.getElementById('toolOptions'),
 
-      devBtn: document.getElementById('devBtn'),
-      devText: document.querySelector('.devOption'),
+      devBtn: null, // injected dynamically by Moderation._injectModUI()
+      devText: null, // injected dynamically
       debugOverlay: document.getElementById('debugOverlay'),
-      perfSettingsBtn: document.getElementById('perfSettingsBtn'),
+      perfSettingsBtn: null, // injected dynamically by Moderation._injectModUI()
 
       chatBtn: document.getElementById('chatBtn'),
       saveBtn: document.getElementById('saveBtn'),
@@ -204,8 +204,8 @@ export class UI {
       connectionRoom: document.getElementById('connectionRoom'),
       disconnectBtn: document.getElementById('disconnectBtn'),
       userContextMenu: document.getElementById('userContextMenu'),
-      modPanel: document.getElementById('modPanel'),
-      modBtn: document.getElementById('modBtn')
+      modPanel: null, // injected dynamically by Moderation._injectModUI()
+      modBtn: null // injected dynamically by Moderation._injectModUI()
     };
   }
 
@@ -671,8 +671,13 @@ export class UI {
    * @param {boolean} enabled - Whether dev mode is enabled
    */
   updateDevModeDisplay(enabled) {
-    this.elements.devText.textContent = enabled ? 'ON' : 'OFF';
-    this.elements.devText.classList.toggle('active', enabled);
+    // devText is injected dynamically; re-query in case it was added after init
+    const devText = this.elements.devText || document.querySelector('.devOption');
+    if (devText) {
+      this.elements.devText = devText;
+      devText.textContent = enabled ? 'ON' : 'OFF';
+      devText.classList.toggle('active', enabled);
+    }
   }
 
   /**

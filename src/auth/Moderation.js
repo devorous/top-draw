@@ -14,10 +14,17 @@ export class Moderation {
     this.showHistory = false;
     this.searchQuery = '';
 
+    // Whether mod UI elements have been injected into the DOM
+    this._modUIInjected = false;
+
     // Context menu state
     this.targetSessionIndex = null;
     this.targetUser = null;
     this.targetIpHash = null;
+
+    // Lazy-loaded PerformanceSettings instance
+    this._perfSettings = null;
+    this._perfSettingsLoading = false;
 
     // Callbacks wired by App.js
     this.onSync = null;
@@ -28,6 +35,8 @@ export class Moderation {
     this.onRequestModList = null;    // ({ showHistory, search })
     this.onRevokeEntry = null;       // (entryId, type)
     this.onModWipe = null;           // (sessionIndex, targetName)
+    this.onClear = null;             // ()
+    this.onToggleDevMode = null;     // ()
   }
 
   setRole(role) {
@@ -44,9 +53,14 @@ export class Moderation {
   }
 
   /**
-   * Show/hide .modOnly elements based on current role
+   * Show/hide .modOnly elements based on current role.
+   * Injects mod-only toolbar buttons and panel into the DOM on first mod+ login.
    */
   updateModVisibility() {
+    if (this.isMod() && !this._modUIInjected) {
+      this._injectModUI();
+    }
+
     const elements = document.querySelectorAll('.modOnly');
     elements.forEach(el => {
       if (this.isMod()) {
@@ -55,6 +69,135 @@ export class Moderation {
         el.classList.remove('visible');
       }
     });
+  }
+
+  /**
+   * Dynamically create and inject mod-only toolbar buttons and mod panel.
+   * Called once when user is first confirmed as mod+.
+   */
+  _injectModUI() {
+    if (this._modUIInjected) return;
+    this._modUIInjected = true;
+
+    // --- Toolbar buttons ---
+    const collapsible = document.getElementById('collapsibleBtns');
+    if (collapsible) {
+      const fragment = document.createDocumentFragment();
+
+      // Clear button (inserted at the start of collapsible)
+      const clearBtn = document.createElement('a');
+      clearBtn.className = 'btn modOnly';
+      clearBtn.id = 'clearBtn';
+      clearBtn.textContent = 'Clear';
+      clearBtn.addEventListener('click', () => { if (this.onClear) this.onClear(); });
+      fragment.appendChild(clearBtn);
+
+      // Dev container
+      const devContainer = document.createElement('div');
+      devContainer.className = 'devContainer modOnly';
+      const devBtn = document.createElement('a');
+      devBtn.className = 'btn';
+      devBtn.id = 'devBtn';
+      devBtn.textContent = 'Dev';
+      devBtn.addEventListener('click', () => { if (this.onToggleDevMode) this.onToggleDevMode(); });
+      const devOption = document.createElement('span');
+      devOption.className = 'devOption';
+      devOption.textContent = 'OFF';
+      devContainer.appendChild(devBtn);
+      devContainer.appendChild(devOption);
+      fragment.appendChild(devContainer);
+
+      // Perf button (lazy-loads PerformanceSettings on click)
+      const perfBtn = document.createElement('a');
+      perfBtn.className = 'btn modOnly';
+      perfBtn.id = 'perfSettingsBtn';
+      perfBtn.title = 'Performance Settings';
+      perfBtn.textContent = 'Perf';
+      perfBtn.addEventListener('click', () => this._showPerformanceSettings());
+      fragment.appendChild(perfBtn);
+
+      // Mod button
+      const modBtn = document.createElement('a');
+      modBtn.className = 'btn modOnly';
+      modBtn.id = 'modBtn';
+      modBtn.textContent = 'Mod';
+      modBtn.addEventListener('click', () => this.togglePanel());
+      fragment.appendChild(modBtn);
+
+      // Insert before the first child so Clear appears first
+      collapsible.insertBefore(fragment, collapsible.firstChild);
+    }
+
+    // --- Mod panel ---
+    const boardContainer = document.getElementById('boardContainer');
+    if (boardContainer) {
+      const panel = document.createElement('div');
+      panel.id = 'modPanel';
+      panel.style.display = 'none';
+      panel.innerHTML = `
+        <div id="modPanelHeader">
+          <div class="modTabs">
+            <button class="modTab active" data-tab="bans">Bans</button>
+            <button class="modTab" data-tab="mutes">Mutes</button>
+          </div>
+          <button class="chatCloseBtn" id="modPanelCloseBtn">&times;</button>
+        </div>
+        <div class="modPanelControls">
+          <input type="text" id="modSearchInput" class="modSearchInput" placeholder="Search username..." autocomplete="off">
+          <button class="modHistoryToggle" id="modHistoryToggle">Active Only</button>
+        </div>
+        <div id="modEntryList" class="modEntryList">
+          <div class="modNoEntries">No entries</div>
+        </div>
+      `;
+      boardContainer.appendChild(panel);
+
+      // Wire mod panel event listeners
+      panel.querySelector('#modPanelCloseBtn')?.addEventListener('click', () => this.hidePanel());
+
+      panel.querySelectorAll('.modTab').forEach(tab => {
+        tab.addEventListener('click', () => this.setActiveTab(tab.dataset.tab));
+      });
+
+      const searchInput = panel.querySelector('#modSearchInput');
+      if (searchInput) {
+        let searchDebounce = null;
+        searchInput.addEventListener('input', () => {
+          clearTimeout(searchDebounce);
+          searchDebounce = setTimeout(() => this.setSearch(searchInput.value.trim()), 300);
+        });
+        searchInput.addEventListener('keydown', (e) => e.stopPropagation());
+      }
+
+      const historyToggle = panel.querySelector('#modHistoryToggle');
+      if (historyToggle) {
+        historyToggle.addEventListener('click', () => this.setShowHistory(!this.showHistory));
+      }
+    }
+  }
+
+  /**
+   * Lazy-load and show the PerformanceSettings modal.
+   */
+  async _showPerformanceSettings() {
+    if (this._perfSettings) {
+      this._perfSettings.show();
+      return;
+    }
+    if (this._perfSettingsLoading) return;
+    this._perfSettingsLoading = true;
+
+    try {
+      const { PerformanceSettings } = await import('../ui/PerformanceSettings.js');
+      this._perfSettings = new PerformanceSettings();
+      // board is available on window.app
+      this._perfSettings.init(window.app.board);
+      this._perfSettings.show();
+    } catch (err) {
+      console.error('[Mod] Failed to load PerformanceSettings:', err);
+    } finally {
+      this._perfSettingsLoading = false;
+    }
   }
 
   /**
