@@ -179,11 +179,13 @@ export class RemoteInkHandler {
     const simulatePressure = user.simulatePressure !== undefined ? user.simulatePressure : true;
     const thinning = !simulatePressure ? 0.95 : (user.thinning !== undefined ? user.thinning : 0.5);
 
+    const userSmoothing = user.smoothing !== undefined ? user.smoothing / 50 : 0.5;
+
     const options = {
       size: Math.max(0.1, ((user._inkSize || user.size) * 2) / (1 + thinning)),
       thinning: thinning,
-      smoothing: 0.5,
-      streamline: 0.5,
+      smoothing: userSmoothing,
+      streamline: userSmoothing,
       simulatePressure: simulatePressure,
       last
     };

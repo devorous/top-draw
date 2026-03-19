@@ -296,11 +296,13 @@ export class InkTool extends Tool {
 
     const effectiveThinning = simulatePressure ? userThinning : 0.95;
 
+    const userSmoothing = activeUser.smoothing !== undefined ? activeUser.smoothing / 50 : 0.5;
+
     const options = {
       size: (this._strokeSize * 2) / (1 + effectiveThinning),
       thinning: effectiveThinning,
-      smoothing: 0.5,
-      streamline: 0.5,
+      smoothing: userSmoothing,
+      streamline: userSmoothing,
       simulatePressure: simulatePressure,
       last
     };
