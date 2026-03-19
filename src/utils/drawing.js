@@ -478,21 +478,16 @@ export function drawLineArray(points, ctx, user, board = null, blendMode = 'sour
 
   const colorString = user.getColorString();
 
-  // Apply softness using shadow blur
+  // Apply softness using CSS filter blur. This is GPU-accelerated in all modern
+  // browsers (Chrome/Skia, Firefox/WebRender, Safari/Metal) and avoids the double
+  // render pass that ctx.shadowBlur requires, which stalls Firefox and Safari on
+  // the main thread during realtime drawing at 60 TPS.
+  ctx.strokeStyle = colorString;
   if (hardness < 1.0) {
     const blurAmount = (1 - hardness) * (20 + user.size * 0.2);
-    const offset = 100000;
-
-    ctx.strokeStyle = colorString;
-    ctx.shadowBlur = blurAmount;
-    ctx.shadowColor = colorString;
-    ctx.shadowOffsetX = -offset;
-    ctx.shadowOffsetY = 0;
-
-    ctx.translate(offset, 0);
+    ctx.filter = `blur(${blurAmount}px)`;
   } else {
-    ctx.strokeStyle = colorString;
-    ctx.shadowBlur = 0;
+    ctx.filter = 'none';
   }
 
   ctx.beginPath();

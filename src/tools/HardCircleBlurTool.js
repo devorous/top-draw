@@ -231,27 +231,13 @@ export class HardCircleBlurTool extends Tool {
       const hardness = user.hardness !== undefined ? user.hardness / 100 : 1.0;
       const blurAmount = hardness < 1.0 ? (1 - hardness) * (20 + user.size * 0.2) : 0;
 
+      strokeCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
       if (blurAmount > 0) {
-        const offset = 100000;
-        strokeCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-        strokeCtx.shadowBlur = blurAmount;
-        strokeCtx.shadowColor = `rgb(${r}, ${g}, ${b})`;
-        strokeCtx.shadowOffsetX = -offset;
-        strokeCtx.shadowOffsetY = 0;
-        strokeCtx.translate(offset, 0);
-        strokeCtx.beginPath();
-        strokeCtx.arc(x, y, radius, 0, Math.PI * 2);
-        strokeCtx.fill();
-      } else {
-        strokeCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-        strokeCtx.beginPath();
-        strokeCtx.arc(x, y, radius, 0, Math.PI * 2);
-        strokeCtx.fill();
+        strokeCtx.filter = `blur(${blurAmount}px)`;
       }
-
-      strokeCtx.shadowBlur = 0;
-      strokeCtx.shadowOffsetX = 0;
-      strokeCtx.shadowOffsetY = 0;
+      strokeCtx.beginPath();
+      strokeCtx.arc(x, y, radius, 0, Math.PI * 2);
+      strokeCtx.fill();
       strokeCtx.restore();
 
       const drMargin = Math.ceil(blurAmount) + 2;
