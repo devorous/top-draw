@@ -267,6 +267,23 @@ export function setupDrawingHandlers(wrapHandler, app) {
     const bh = Math.min(height, result.maxY + pad + 1) - by;
     board.expandDirtyRect(user, bx, by, bw, bh);
 
+    if (board.mirror) {
+      const mx = width - 1 - x;
+      if (mx >= 0 && mx < width) {
+        let mResult = fillTool._computeMask(imgData, width, height, mx, y, 10, null);
+        if (mResult && expansion > 0) mResult = fillTool._dilateMask(mResult, expansion, width, height);
+        else if (mResult && expansion < 0) mResult = fillTool._erodeMask(mResult, -expansion, width, height);
+        if (mResult) {
+          fillTool._renderMaskComposite(strokeCtx, mResult, fillR, fillG, fillB, userOpacity, blurRadius, width, height);
+          const mbx = Math.max(0, mResult.minX - pad);
+          const mby = Math.max(0, mResult.minY - pad);
+          const mbw = Math.min(width, mResult.maxX + pad + 1) - mbx;
+          const mbh = Math.min(height, mResult.maxY + pad + 1) - mby;
+          board.expandDirtyRect(user, mbx, mby, mbw, mbh);
+        }
+      }
+    }
+
     board.layerManager.commitUserStroke(layerIndex, userId);
     board.compositeAllLayers();
   });

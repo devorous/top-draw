@@ -128,15 +128,6 @@ export class TextTool extends Tool {
     ctx.fillText(text, drawX, baselineY);
     this.board.expandDirtyRect(user, drX, drY, drW, drH);
 
-    if (this.board.mirror) {
-      const boardWidth = this.board.getWidth();
-      const mirroredX = boardWidth - drawX - textWidth;
-      ctx.fillText(text, mirroredX, baselineY);
-
-      const mDrX = Math.floor(mirroredX - 4);
-      this.board.expandDirtyRect(user, mDrX, drY, drW, drH);
-    }
-
     ctx.globalAlpha = 1.0;
   }
 }

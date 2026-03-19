@@ -232,6 +232,28 @@ export class SelectTool extends Tool {
     ctx.stroke();
 
     ctx.setLineDash([]);
+
+    if (this.board.mirror && points.length >= 2) {
+      const bw = this.board.getWidth();
+      const mPoints = points.map(p => ({ x: bw - p.x, y: p.y }));
+      ctx.save();
+      ctx.globalAlpha = 0.4;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = '#000';
+      ctx.lineDashOffset = -this.marchingAntsOffset;
+      ctx.beginPath();
+      ctx.moveTo(mPoints[0].x, mPoints[0].y);
+      for (let i = 1; i < mPoints.length; i++) ctx.lineTo(mPoints[i].x, mPoints[i].y);
+      ctx.stroke();
+      ctx.strokeStyle = '#fff';
+      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+      ctx.beginPath();
+      ctx.moveTo(mPoints[0].x, mPoints[0].y);
+      for (let i = 1; i < mPoints.length; i++) ctx.lineTo(mPoints[i].x, mPoints[i].y);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   /**
@@ -601,6 +623,78 @@ export class SelectTool extends Tool {
         }
       }
     }
+
+    this._drawMirrorGhost(ctx);
+  }
+
+  /**
+   * Draws a ghost marching-ants outline of the mirrored selection, if mirror is on.
+   * @param {CanvasRenderingContext2D} ctx
+   */
+  _drawMirrorGhost(ctx) {
+    if (!this.board.mirror || !this.selection) return;
+
+    const bw = this.board.getWidth();
+    const s = this.selection;
+
+    ctx.save();
+    ctx.globalAlpha = 0.4;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+
+    if (this.corners && this.hasTransformedCorners()) {
+      const c = this.corners;
+      const mc = {
+        tl: { x: bw - c.tr.x, y: c.tr.y },
+        tr: { x: bw - c.tl.x, y: c.tl.y },
+        bl: { x: bw - c.br.x, y: c.br.y },
+        br: { x: bw - c.bl.x, y: c.bl.y }
+      };
+      ctx.strokeStyle = '#000';
+      ctx.lineDashOffset = -this.marchingAntsOffset;
+      ctx.beginPath();
+      ctx.moveTo(mc.tl.x, mc.tl.y);
+      ctx.lineTo(mc.tr.x, mc.tr.y);
+      ctx.lineTo(mc.br.x, mc.br.y);
+      ctx.lineTo(mc.bl.x, mc.bl.y);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.strokeStyle = '#fff';
+      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+      ctx.beginPath();
+      ctx.moveTo(mc.tl.x, mc.tl.y);
+      ctx.lineTo(mc.tr.x, mc.tr.y);
+      ctx.lineTo(mc.br.x, mc.br.y);
+      ctx.lineTo(mc.bl.x, mc.bl.y);
+      ctx.closePath();
+      ctx.stroke();
+    } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.hasScaledSelection()) {
+      const mLasso = this.lassoSimplified.map(p => ({ x: bw - p.x, y: p.y }));
+      ctx.strokeStyle = '#000';
+      ctx.lineDashOffset = -this.marchingAntsOffset;
+      ctx.beginPath();
+      ctx.moveTo(mLasso[0].x, mLasso[0].y);
+      for (let i = 1; i < mLasso.length; i++) ctx.lineTo(mLasso[i].x, mLasso[i].y);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.strokeStyle = '#fff';
+      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+      ctx.beginPath();
+      ctx.moveTo(mLasso[0].x, mLasso[0].y);
+      for (let i = 1; i < mLasso.length; i++) ctx.lineTo(mLasso[i].x, mLasso[i].y);
+      ctx.closePath();
+      ctx.stroke();
+    } else {
+      const mx = bw - s.x - s.width;
+      ctx.strokeStyle = '#000';
+      ctx.lineDashOffset = -this.marchingAntsOffset;
+      ctx.strokeRect(mx, s.y, s.width, s.height);
+      ctx.strokeStyle = '#fff';
+      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+      ctx.strokeRect(mx, s.y, s.width, s.height);
+    }
+
+    ctx.restore();
   }
 
   /**
@@ -805,6 +899,16 @@ export class SelectTool extends Tool {
       const height = Math.ceil(maxY) - y;
 
       this.drawSelectionBox(this.board.topCtx, { x, y }, { x: x + width, y: y + height });
+
+      if (this.board.mirror) {
+        const bw = this.board.getWidth();
+        const mx = bw - x - width;
+        const ctx = this.board.topCtx;
+        ctx.save();
+        ctx.globalAlpha = 0.4;
+        this.drawSelectionBox(ctx, { x: mx, y }, { x: mx + width, y: y + height });
+        ctx.restore();
+      }
     }
   }
 
@@ -1683,6 +1787,8 @@ export class SelectTool extends Tool {
 
     ctx.setLineDash([]);
 
+    this._drawMirrorGhost(ctx);
+
     // Draw transform handles
     this.updateHandles();
 
@@ -2297,7 +2403,15 @@ export class SelectTool extends Tool {
       this._restoreData = null;
     } else {
       // Not yet lifted — erase now directly
-      this._eraseSelectionDirectly(s, this.mode === 'lasso' ? this.lassoPath : null);
+      const lassoPath = this.mode === 'lasso' ? this.lassoPath : null;
+      this._eraseSelectionDirectly(s, lassoPath);
+
+      if (this.board.mirror) {
+        const bw = this.board.getWidth();
+        const ms = { x: bw - s.x - s.width, y: s.y, width: s.width, height: s.height };
+        const mLassoPath = lassoPath ? lassoPath.map(p => ({ x: bw - p.x, y: p.y })) : null;
+        this._eraseSelectionDirectly(ms, mLassoPath);
+      }
     }
 
     // Broadcast delete to other users
@@ -2408,6 +2522,30 @@ export class SelectTool extends Tool {
 
       // Track the dirty region so the stroke is properly saved
       this.board.expandDirtyRect(app.self, s.x, s.y, s.width, s.height);
+
+      if (this.board.mirror) {
+        const bw = this.board.getWidth();
+        const mx = bw - s.x - s.width;
+        layerCtx.globalAlpha = opacity;
+        layerCtx.fillStyle = color;
+        if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
+          const mLassoPath = this.lassoPath.map(p => ({ x: bw - p.x, y: p.y }));
+          layerCtx.save();
+          layerCtx.beginPath();
+          layerCtx.moveTo(mLassoPath[0].x, mLassoPath[0].y);
+          for (let i = 1; i < mLassoPath.length; i++) {
+            layerCtx.lineTo(mLassoPath[i].x, mLassoPath[i].y);
+          }
+          layerCtx.closePath();
+          layerCtx.clip();
+          layerCtx.fillRect(mx, s.y, s.width, s.height);
+          layerCtx.restore();
+        } else {
+          layerCtx.fillRect(mx, s.y, s.width, s.height);
+        }
+        layerCtx.globalAlpha = 1;
+        this.board.expandDirtyRect(app.self, mx, s.y, s.width, s.height);
+      }
 
       this.board.compositeAllLayers();
       this.board.endStroke(app.self);

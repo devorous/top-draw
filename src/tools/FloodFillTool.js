@@ -428,6 +428,19 @@ export class FloodFillTool {
     }
   }
 
+  /**
+   * Render a mask onto a target context using compositing (drawImage) so existing
+   * pixels are preserved. Needed when two fills share overlapping bounding boxes,
+   * since putImageData writes zeros for non-mask pixels and would erase prior content.
+   */
+  _renderMaskComposite(targetCtx, result, fillR, fillG, fillB, userOpacity, blurRadius, width, height) {
+    const tmp = document.createElement('canvas');
+    tmp.width = width;
+    tmp.height = height;
+    this._renderMask(tmp.getContext('2d'), result, fillR, fillG, fillB, userOpacity, blurRadius, width, height);
+    targetCtx.drawImage(tmp, 0, 0);
+  }
+
   _broadcastFill(user, x, y, layerIndex, expansion, blurRadius) {
     const wsClient = this.board.app?.wsClient;
     if (wsClient && user === this.board.app?.self) {
@@ -476,8 +489,20 @@ export class FloodFillTool {
       const strokeCtx = this.board.layerManager.getUserStrokeContext(params.activeLayer, params.userId);
       if (!strokeCtx) return;
 
-      this._renderMask(strokeCtx, result,params.fillR, params.fillG, params.fillB, params.userOpacity, 0, width, height);
+      this._renderMask(strokeCtx, result, params.fillR, params.fillG, params.fillB, params.userOpacity, 0, width, height);
       this.board.expandDirtyRect(user, result.minX, result.minY, result.maxX - result.minX + 1, result.maxY - result.minY + 1);
+
+      if (this.board.mirror) {
+        const mx = width - 1 - x;
+        if (mx >= 0 && mx < width) {
+          const mResult = this._computeMask(data, width, height, mx, y, 10, inRegion);
+          if (mResult) {
+            this._renderMaskComposite(strokeCtx, mResult, params.fillR, params.fillG, params.fillB, params.userOpacity, 0, width, height);
+            this.board.expandDirtyRect(user, mResult.minX, mResult.minY, mResult.maxX - mResult.minX + 1, mResult.maxY - mResult.minY + 1);
+          }
+        }
+      }
+
       this._broadcastFill(user, x, y, params.activeLayer, 0, 0);
       return;
     }
@@ -495,6 +520,18 @@ export class FloodFillTool {
       if (!strokeCtx) return;
       this._renderMask(strokeCtx, initialResult, params.fillR, params.fillG, params.fillB, params.userOpacity, 0, width, height);
       this.board.expandDirtyRect(user, initialResult.minX, initialResult.minY, initialResult.maxX - initialResult.minX + 1, initialResult.maxY - initialResult.minY + 1);
+
+      if (this.board.mirror) {
+        const mx = width - 1 - x;
+        if (mx >= 0 && mx < width) {
+          const mResult = this._computeMask(data, width, height, mx, y, 10, inRegion);
+          if (mResult) {
+            this._renderMaskComposite(strokeCtx, mResult, params.fillR, params.fillG, params.fillB, params.userOpacity, 0, width, height);
+            this.board.expandDirtyRect(user, mResult.minX, mResult.minY, mResult.maxX - mResult.minX + 1, mResult.maxY - mResult.minY + 1);
+          }
+        }
+      }
+
       this._broadcastFill(user, x, y, params.activeLayer, 0, 0);
       return;
     }
@@ -546,7 +583,17 @@ export class FloodFillTool {
     topCtx.clearRect(0, 0, width, height);
 
     if (result) {
-      this._renderMask(topCtx, result,fillR, fillG, fillB, userOpacity, this._blurRadius, width, height);
+      this._renderMask(topCtx, result, fillR, fillG, fillB, userOpacity, this._blurRadius, width, height);
+
+      if (this.board.mirror) {
+        const mx = width - 1 - x;
+        if (mx >= 0 && mx < width) {
+          let mResult = this._computeMask(data, width, height, mx, y, 10, inRegion);
+          if (mResult && this._expansion > 0) mResult = this._dilateMask(mResult, this._expansion, width, height);
+          else if (mResult && this._expansion < 0) mResult = this._erodeMask(mResult, -this._expansion, width, height);
+          if (mResult) this._renderMaskComposite(topCtx, mResult, fillR, fillG, fillB, userOpacity, this._blurRadius, width, height);
+        }
+      }
     }
   }
 
@@ -585,6 +632,24 @@ export class FloodFillTool {
         const bw = Math.min(width, result.maxX + pad + 1) - bx;
         const bh = Math.min(height, result.maxY + pad + 1) - by;
         this.board.expandDirtyRect(user, bx, by, bw, bh);
+
+        if (this.board.mirror) {
+          const mx = width - 1 - x;
+          if (mx >= 0 && mx < width) {
+            let mResult = this._computeMask(data, width, height, mx, y, 10, inRegion);
+            if (mResult && this._expansion > 0) mResult = this._dilateMask(mResult, this._expansion, width, height);
+            else if (mResult && this._expansion < 0) mResult = this._erodeMask(mResult, -this._expansion, width, height);
+            if (mResult) {
+              this._renderMaskComposite(strokeCtx, mResult, fillR, fillG, fillB, userOpacity, this._blurRadius, width, height);
+              const mbx = Math.max(0, mResult.minX - pad);
+              const mby = Math.max(0, mResult.minY - pad);
+              const mbw = Math.min(width, mResult.maxX + pad + 1) - mbx;
+              const mbh = Math.min(height, mResult.maxY + pad + 1) - mby;
+              this.board.expandDirtyRect(user, mbx, mby, mbw, mbh);
+            }
+          }
+        }
+
         this._broadcastFill(user, x, y, activeLayer, this._expansion, this._blurRadius);
       }
       this.board.endStroke(user);
