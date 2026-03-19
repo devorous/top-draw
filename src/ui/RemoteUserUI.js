@@ -249,6 +249,7 @@ export class RemoteUserUI {
       headerColorEl: colorEl,
       headerNameEl: nameEl,
       headerCountEl: countBadge,
+      pendingDisplayUpdate: null,
     };
     this.userGroups.set(ipHash, group);
     return group;
@@ -264,22 +265,33 @@ export class RemoteUserUI {
     const group = this.userGroups.get(ipHash);
     if (!group || group.displayUserId === userId) return;
 
+    // Record the intended display user immediately so subsequent rapid calls
+    // with the same userId short-circuit via the guard above.
     group.displayUserId = userId;
-    const id = `u${userId}`;
 
-    const srcTool = document.querySelector(`.groupUsers .listTool.${id}`);
-    if (srcTool) group.headerToolEl.innerHTML = srcTool.innerHTML;
+    // Throttle DOM work to ~30fps per group. If an update is already scheduled,
+    // the most-recent userId is already stored on group.displayUserId above, so
+    // the pending flush will use it automatically — no need to reschedule.
+    if (group.pendingDisplayUpdate !== null) return;
 
-    const srcColor = document.querySelector(`.groupUsers .listColor.${id}`);
-    if (srcColor) group.headerColorEl.style.backgroundColor = srcColor.style.backgroundColor;
+    group.pendingDisplayUpdate = setTimeout(() => {
+      group.pendingDisplayUpdate = null;
+      const id = `u${group.displayUserId}`;
 
-    const srcName = document.querySelector(`.groupUsers .listUser.${id}`);
-    if (srcName) {
-      group.headerNameEl.textContent = srcName.textContent;
-      group.headerNameEl.className = 'listUser groupHeaderName';
-      if (srcName.classList.contains('admin')) group.headerNameEl.classList.add('admin');
-      else if (srcName.classList.contains('mod')) group.headerNameEl.classList.add('mod');
-    }
+      const srcTool = group.usersContainer.querySelector(`.listTool.${id}`);
+      if (srcTool) group.headerToolEl.innerHTML = srcTool.innerHTML;
+
+      const srcColor = group.usersContainer.querySelector(`.listColor.${id}`);
+      if (srcColor) group.headerColorEl.style.backgroundColor = srcColor.style.backgroundColor;
+
+      const srcName = group.usersContainer.querySelector(`.listUser.${id}`);
+      if (srcName) {
+        group.headerNameEl.textContent = srcName.textContent;
+        group.headerNameEl.className = 'listUser groupHeaderName';
+        if (srcName.classList.contains('admin')) group.headerNameEl.classList.add('admin');
+        else if (srcName.classList.contains('mod')) group.headerNameEl.classList.add('mod');
+      }
+    }, 33);
   }
 
   /**
@@ -583,9 +595,11 @@ export class RemoteUserUI {
             // Move back to main list (before the group element to maintain rough order)
             this.elements.userList.insertBefore(lastEntry, group.element);
           }
+          if (group.pendingDisplayUpdate !== null) clearTimeout(group.pendingDisplayUpdate);
           group.element.remove();
           this.userGroups.delete(ipHash);
         } else if (group.userIds.size === 0) {
+          if (group.pendingDisplayUpdate !== null) clearTimeout(group.pendingDisplayUpdate);
           group.element.remove();
           this.userGroups.delete(ipHash);
         } else {
