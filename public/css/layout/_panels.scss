@@ -58,7 +58,7 @@
 
 .listUser {
   flex: 1;
-  color: var(--text-primary);
+  color: rgba(255, 255, 255, 0.45);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -66,7 +66,7 @@
 }
 
 .listUser.self {
-  color: var(--accent-primary);
+  color: rgba(255, 255, 255, 0.45);
   cursor: pointer;
 }
 
@@ -87,13 +87,48 @@
   opacity: 0.5;
 }
 
-.listUser.admin,
-.listUser.mod {
-  background-color: var(--accent-primary);
-  color: black;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  margin: -2px -6px; /* Counteract padding to not disrupt flexbox gap */
+/* Rank-based username styling */
+.listUser.rank-helper {
+  color: #8bc34a;
+}
+
+.listUser.rank-mod {
+  color: var(--accent-primary);
+}
+
+.listUser.rank-admin {
+  color: #fbbf24;
+}
+
+.listUser.rank-noble {
+  color: #d4a853;
+  text-shadow: 0 0 6px rgba(212, 168, 83, 0.35);
+}
+
+.listUser.rank-holy {
+  color: #7cb3ff;
+  text-shadow: 0 0 6px rgba(124, 179, 255, 0.4);
+}
+
+.listUser.rank-deity {
+  color: #ffb347;
+  text-shadow: 0 0 8px rgba(255, 179, 71, 0.6);
+}
+
+/* Noble/Holy/Deity border glow on user entry row */
+.userEntry.rank-noble {
+  border: 1px solid rgba(212, 168, 83, 0.25);
+  box-shadow: 0 0 6px rgba(212, 168, 83, 0.15), inset 0 0 6px rgba(212, 168, 83, 0.06);
+}
+
+.userEntry.rank-holy {
+  border: 1px solid rgba(124, 179, 255, 0.3);
+  box-shadow: 0 0 8px rgba(124, 179, 255, 0.2), inset 0 0 6px rgba(124, 179, 255, 0.06);
+}
+
+.userEntry.rank-deity {
+  border: 1px solid rgba(255, 179, 71, 0.35);
+  box-shadow: 0 0 10px rgba(255, 179, 71, 0.25), inset 0 0 8px rgba(255, 179, 71, 0.08);
 }
 
 .listSync {

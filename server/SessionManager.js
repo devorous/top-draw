@@ -6,7 +6,33 @@ import { T } from '../shared/MessageTypes.js';
  * User role constants.
  * @enum {number}
  */
-export const Role = { GUEST: 0, USER: 1, MOD: 2, ADMIN: 3 };
+/**
+ * Permission tiers — higher value = more authority.
+ *
+ * Room-scoped ranks (0–5): expected to exercise powers only in their assigned room.
+ *   GUEST    (0) – Unauthenticated visitor
+ *   USER     (1) – Registered account
+ *   TRUSTED  (2) – Trusted community member
+ *   HELPER   (3) – Can mute in room
+ *   MOD      (4) – Full moderator in room (kick, ban, clear, wipe)
+ *   ADMIN    (5) – Room administrator
+ *
+ * Global ranks (6–8): authority extends across all rooms.
+ *   NOBLE    (6) – Global mute
+ *   HOLY     (7) – Global mute + ban
+ *   DEITY    (8) – All powers everywhere + exclusive abilities
+ */
+export const Role = {
+  GUEST:   0,
+  USER:    1,
+  TRUSTED: 2,
+  HELPER:  3,
+  MOD:     4,
+  ADMIN:   5,
+  NOBLE:   6,
+  HOLY:    7,
+  DEITY:   8,
+};
 
 const AFK_TIMEOUT = 2 * 60 * 1000;
 const AFK_CHECK_INTERVAL = 30 * 1000;
@@ -107,7 +133,7 @@ export class SessionManager {
       name,
       text: '',
       imageBrush: null,
-      role: Role.ADMIN,
+      role: Role.GUEST,
       ipHash
     };
     this.users.set(sessionIndex, newUser);

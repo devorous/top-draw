@@ -34,6 +34,11 @@ export async function connectDB() {
     );
     await db.collection('rooms').createIndex({ lastActiveAt: 1 });
     await db.collection('moderation').createIndex({ active: 1, type: 1, targetIp: 1 });
+    await db.collection('moderation').createIndex({ active: 1, type: 1, roomId: 1, targetUserId: 1 });
+    await db.collection('room_roles').createIndex(
+      { roomId: 1, userId: 1 },
+      { unique: true }
+    );
     await db.collection('gallery').createIndex({ createdAt: -1 });
 
     console.log('Connected to MongoDB Atlas');

@@ -30,7 +30,13 @@ export function obfuscateIp(ip) {
  * @param {string|null} ip - The IP address of the user.
  * @returns {Promise<Object|null>} - The ban entry if active, otherwise null.
  */
-export async function checkBan(userId, ip) {
+/**
+ * @param {string|null} userId
+ * @param {string|null} ip
+ * @param {string|null} [roomId] - When set, matches room-scoped OR global bans.
+ *                                  When null/omitted, matches only global bans.
+ */
+export async function checkBan(userId, ip, roomId = null) {
   const db = getDB();
   if (!db) return null;
 
@@ -39,10 +45,17 @@ export async function checkBan(userId, ip) {
   if (ip) conditions.push({ targetIp: ip });
   if (conditions.length === 0) return null;
 
+  const roomCondition = roomId
+    ? { $or: [{ roomId }, { roomId: null }] }
+    : { roomId: null };
+
   return db.collection('moderation').findOne({
     type: 'ban',
     active: true,
-    $or: conditions
+    $and: [
+      { $or: conditions },
+      roomCondition
+    ]
   });
 }
 
@@ -52,7 +65,12 @@ export async function checkBan(userId, ip) {
  * @param {string|null} ip - The IP address of the user.
  * @returns {Promise<Object|null>} - The mute entry if active, otherwise null.
  */
-export async function checkMute(userId, ip) {
+/**
+ * @param {string|null} userId
+ * @param {string|null} ip
+ * @param {string|null} [roomId] - When set, matches room-scoped OR global mutes.
+ */
+export async function checkMute(userId, ip, roomId = null) {
   const db = getDB();
   if (!db) return null;
 
@@ -61,10 +79,17 @@ export async function checkMute(userId, ip) {
   if (ip) conditions.push({ targetIp: ip });
   if (conditions.length === 0) return null;
 
+  const roomCondition = roomId
+    ? { $or: [{ roomId }, { roomId: null }] }
+    : { roomId: null };
+
   return db.collection('moderation').findOne({
     type: 'mute',
     active: true,
-    $or: conditions
+    $and: [
+      { $or: conditions },
+      roomCondition
+    ]
   });
 }
 
@@ -163,7 +188,13 @@ export async function revokeModAction(actionId, revokedById) {
  * @param {string} [opts.search=''] - A prefix to filter target usernames by.
  * @returns {Promise<Array<Object>>} - A list of moderation entries.
  */
-export async function getModEntries({ showHistory = false, search = '' } = {}) {
+/**
+ * @param {Object} [opts]
+ * @param {boolean} [opts.showHistory=false]
+ * @param {string}  [opts.search='']
+ * @param {string|null} [opts.roomId=null] - Filter to this room + global entries.
+ */
+export async function getModEntries({ showHistory = false, search = '', roomId = null } = {}) {
   const db = getDB();
   if (!db) return [];
 
@@ -173,6 +204,9 @@ export async function getModEntries({ showHistory = false, search = '' } = {}) {
   }
   if (search) {
     query.targetUsername = { $regex: `^${search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, $options: 'i' };
+  }
+  if (roomId) {
+    query.$or = [{ roomId }, { roomId: null }];
   }
 
   const entries = await db.collection('moderation')
@@ -190,6 +224,7 @@ export async function getModEntries({ showHistory = false, search = '' } = {}) {
     issuedBy: e.issuedByUsername || '',
     createdAt: e.createdAt ? e.createdAt.getTime() : 0,
     expiresAt: e.expiresAt ? e.expiresAt.getTime() : 0,
-    active: e.active
+    active: e.active,
+    roomId: e.roomId || null
   }));
 }

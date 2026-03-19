@@ -35,6 +35,12 @@ export function setupUserHandlers(wsClient, app) {
           app.self.setUsername(username);
           app.ui.updateSelfName(username);
         }
+        if (userData.role !== undefined && userData.role !== app.self.role) {
+          app.selfRole = userData.role;
+          app.self.role = userData.role;
+          ui.updateSelfRole(userData.role);
+          if (app.moderation) app.moderation.setRole(userData.role);
+        }
         if (userData.thinning !== undefined) {
           app.self.setThinning(userData.thinning);
           app.ui.updateThinningValue(Math.round(userData.thinning * 100));
@@ -108,6 +114,7 @@ export function setupUserHandlers(wsClient, app) {
 
         if (userData.role !== undefined && userData.role !== user.role) {
           user.role = userData.role;
+          ui.updateRemoteUserRank(userData.sessionIndex, userData.role);
         }
       }
 

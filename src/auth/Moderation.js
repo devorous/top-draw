@@ -37,6 +37,7 @@ export class Moderation {
     this.onModWipe = null;           // (sessionIndex, targetName)
     this.onClear = null;             // ()
     this.onToggleDevMode = null;     // ()
+    this.onRoomRoleSet = null;       // (targetUserId, role)
   }
 
   setRole(role) {
@@ -45,11 +46,15 @@ export class Moderation {
   }
 
   isMod() {
-    return this.localRole >= 2;
+    return this.localRole >= 4;  // MOD(4)+
   }
 
   isAdmin() {
-    return this.localRole >= 3;
+    return this.localRole >= 5;  // ADMIN(5)+
+  }
+
+  isDeity() {
+    return this.localRole >= 8;  // DEITY only
   }
 
   /**
@@ -67,6 +72,16 @@ export class Moderation {
         el.classList.add('visible');
       } else {
         el.classList.remove('visible');
+      }
+    });
+
+    // Admin-only elements (role assignment submenu) need ADMIN(5)+
+    const adminElements = document.querySelectorAll('.adminOnly');
+    adminElements.forEach(el => {
+      if (this.isAdmin()) {
+        el.classList.add('admin-visible');
+      } else {
+        el.classList.remove('admin-visible');
       }
     });
   }
@@ -229,6 +244,12 @@ export class Moderation {
       }
     }
 
+    // Show promote/demote only for registered users (role >= 1)
+    const isRegistered = targetUser && targetUser.role >= 1;
+    menu.querySelectorAll('.registered-only').forEach(el => {
+      el.style.display = isRegistered ? '' : 'none';
+    });
+
     menu.style.display = 'flex';
 
     // Position at click, clamped to viewport
@@ -250,7 +271,7 @@ export class Moderation {
   /**
    * Handle context menu button clicks
    */
-  handleMenuAction(action) {
+  handleMenuAction(action, dataset = {}) {
     const sessionIndex = this.targetSessionIndex;
     const user = this.targetUser;
     const ipHash = this.targetIpHash;
@@ -262,6 +283,20 @@ export class Moderation {
     const targetName = isGroup ? `Group ${ipHash}` : (user?.username || `User ${sessionIndex}`);
 
     switch (action) {
+      case 'promote': {
+        if (user && this.onRoomRoleSet) {
+          const newRole = Math.min((user.role || 0) + 1, 5);
+          this.onRoomRoleSet(sessionIndex, newRole);
+        }
+        return;
+      }
+      case 'demote': {
+        if (user && this.onRoomRoleSet) {
+          const newRole = Math.max((user.role || 0) - 1, 0);
+          this.onRoomRoleSet(sessionIndex, newRole);
+        }
+        return;
+      }
       case 'sync':
         if (this.onSync) this.onSync(sessionIndex);
         break;

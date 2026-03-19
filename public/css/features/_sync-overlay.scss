@@ -83,3 +83,18 @@ div.modOnly.visible {
   display: flex;
 }
 
+/* Admin-only: elements that also require ADMIN(5)+ role */
+.adminOnly {
+  display: none !important;
+}
+
+.adminOnly.admin-visible {
+  display: block !important;
+}
+
+div.adminOnly.admin-visible {
+  display: flex !important;
+}
+
+
+

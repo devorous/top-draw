@@ -260,6 +260,9 @@ export class DrawingApp {
 
     this.moderation.onClear = () => this.handleClear();
     this.moderation.onToggleDevMode = () => this.handleToggleDevMode();
+    this.moderation.onRoomRoleSet = (targetSessionIndex, role) => {
+      this.wsClient.sendRoomRoleSet(targetSessionIndex, role);
+    };
 
     window.app = this;
 
@@ -455,7 +458,7 @@ export class DrawingApp {
       elements.userContextMenu.addEventListener('click', (e) => {
         const btn = e.target.closest('.menuItem');
         if (btn) {
-          this.moderation.handleMenuAction(btn.dataset.action);
+          this.moderation.handleMenuAction(btn.dataset.action, btn.dataset);
         }
       });
     }
@@ -463,7 +466,17 @@ export class DrawingApp {
     // Right-click on user list entries for context menu
     elements.userList.addEventListener('contextmenu', (e) => {
       const entry = e.target.closest('.userEntry');
-      if (entry && entry.dataset.sessionIndex) {
+      if (!entry) return;
+
+      // Self entry — show self context menu with role info
+      if (entry.classList.contains('self')) {
+        e.preventDefault();
+        e.stopPropagation();
+        this._showSelfContextMenu(e);
+        return;
+      }
+
+      if (entry.dataset.sessionIndex) {
         const sessionIndex = Number(entry.dataset.sessionIndex);
         const user = this.users.get(sessionIndex);
         this.moderation.showContextMenu(e, sessionIndex, user);
@@ -472,6 +485,10 @@ export class DrawingApp {
 
     // Click-outside to close context menu and mobile menu
     document.addEventListener('click', (e) => {
+      const selfMenu = document.getElementById('selfContextMenu');
+      if (selfMenu && !selfMenu.contains(e.target)) {
+        selfMenu.style.display = 'none';
+      }
       if (elements.userContextMenu && !elements.userContextMenu.contains(e.target)) {
         this.moderation.hideContextMenu();
       }
@@ -1020,6 +1037,7 @@ export class DrawingApp {
       if (this.moderation) {
         this.moderation.setRole(role);
       }
+      this.ui.updateSelfRole(role);
     }
 
     if (this.landingPage) {
@@ -1163,6 +1181,8 @@ export class DrawingApp {
       this.moderation.setRole(role);
     }
 
+    this.ui.updateSelfRole(role);
+
     this.updateRoomSettingsButtonVisibility();
     this.updateGalleryButtonVisibility(role);
 
@@ -1199,8 +1219,30 @@ export class DrawingApp {
     this.inputBufferManager.startTickLoop();
     this.syncClient.requestSync();
 
-    const roleNames = ['Guest', 'User', 'Moderator', 'Admin'];
+    const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Noble', 'Holy', 'Deity'];
     this.ui.showToast(`Logged in as ${username} (${roleNames[role] || 'Guest'})`, 3000);
+  }
+
+  _showSelfContextMenu(e) {
+    const menu = document.getElementById('selfContextMenu');
+    if (!menu) return;
+
+    const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Noble', 'Holy', 'Deity'];
+    const role = this.selfRole || 0;
+    const nameEl = document.getElementById('selfRoleName');
+    if (nameEl) {
+      nameEl.textContent = roleNames[role] || 'Guest';
+      nameEl.className = 'selfRoleName';
+      const rankClass = role >= 8 ? 'rank-deity' : role >= 7 ? 'rank-holy' : role >= 6 ? 'rank-noble'
+        : role >= 5 ? 'rank-admin' : role >= 4 ? 'rank-mod' : role >= 3 ? 'rank-helper' : '';
+      if (rankClass) nameEl.classList.add(rankClass);
+    }
+
+    menu.style.display = 'flex';
+    const x = Math.min(e.clientX, window.innerWidth - menu.offsetWidth - 10);
+    const y = Math.min(e.clientY, window.innerHeight - menu.offsetHeight - 10);
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
   }
 
   /**

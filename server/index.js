@@ -17,6 +17,7 @@ import { SyncCoordinator } from './SyncCoordinator.js';
 import { RoomManager } from './RoomManager.js';
 import { sanitizeMessage } from './validation.js';
 import { authorize, Action } from './permissions.js';
+import { getRoomRole, setRoomRole, computeEffectiveRole } from './roomRoles.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -392,7 +393,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
   if (MUTED_BLOCKED.has(data.t)) {
     for (const client of wss.clients) {
       if (client.sessionIndex === sessionIndex && client.isMuted) {
-        if (client.userRole >= Role.MOD) {
+        if (client.userRole >= Role.MOD) {  // MOD(4)+ are exempt from mute
           break;
         }
         if (data.t === T.MSG || data.t === T.DM || data.t === T.CHAT_IMG) {
@@ -497,6 +498,8 @@ wss.on('connection', (ws, req) => {
 
     ws.clientIp = getClientIp(req);
     ws.userRole = Role.GUEST;
+    ws.globalRole = Role.GUEST;
+    ws.roomRole = 0;
     ws.userId = null;
     ws.username = null;
     ws.isMuted = false;
@@ -551,9 +554,7 @@ wss.on('connection', (ws, req) => {
 
           if (getDB()) {
             try {
-              const ipBan = await getDB().collection('moderation').findOne({
-                type: 'ban', active: true, targetIp: ws.clientIp
-              });
+              const ipBan = await checkBan(null, ws.clientIp, room.id);
               if (ipBan) {
                 const reason = ipBan.reason || '';
                 sendTo(ws, { t: T.MOD_RESULT, a: false, authError: `You are banned${reason ? ': ' + reason : ''}` });
@@ -728,7 +729,8 @@ wss.on('connection', (ws, req) => {
                 }
                 break;
 
-              case 1: // Mute
+              case 1: { // Mute
+                const isGlobalMute = (ws.globalRole || 0) >= Role.HOLY;
                 if (getDB()) {
                   await issueModAction({
                     type: 'mute',
@@ -739,7 +741,7 @@ wss.on('connection', (ws, req) => {
                     issuedBy: ws.userId || null,
                     issuedByUsername: ws.username || '',
                     duration: modDuration,
-                    roomId: room.id
+                    roomId: isGlobalMute ? null : room.id
                   });
                 }
                 if (targetWs) {
@@ -755,8 +757,19 @@ wss.on('connection', (ws, req) => {
                   modReason: modReason
                 });
                 break;
+              }
 
-              case 2: // Ban
+              case 2: { // Ban
+                // Ban immunity: HOLY(7)+ can't be room-banned; room owner can't be banned from own room
+                if (targetWs?.globalRole >= Role.HOLY) {
+                  sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Cannot ban users with global HOLY+ rank' });
+                  break;
+                }
+                if (room.ownerId && targetWs?.userId === room.ownerId) {
+                  sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Cannot ban the room owner' });
+                  break;
+                }
+                const isGlobalBan = (ws.globalRole || 0) >= Role.HOLY;
                 if (getDB()) {
                   await issueModAction({
                     type: 'ban',
@@ -767,7 +780,7 @@ wss.on('connection', (ws, req) => {
                     issuedBy: ws.userId || null,
                     issuedByUsername: ws.username || '',
                     duration: modDuration,
-                    roomId: room.id
+                    roomId: isGlobalBan ? null : room.id
                   });
                 }
                 roomBroadcaster({
@@ -782,6 +795,7 @@ wss.on('connection', (ws, req) => {
                   targetWs.close(4001, 'Banned');
                 }
                 break;
+              }
 
               case 3: // Unmute
                 if (getDB()) {
@@ -789,7 +803,8 @@ wss.on('connection', (ws, req) => {
                   const activeMute = await db.collection('moderation').findOne({
                     type: 'mute',
                     active: true,
-                    targetUsername: targetName
+                    targetUsername: targetName,
+                    $or: [{ roomId: room.id }, { roomId: null }]
                   });
                   if (activeMute) {
                     await revokeModAction(activeMute._id.toString(), ws.userId);
@@ -840,7 +855,8 @@ wss.on('connection', (ws, req) => {
                   const activeBan = await db.collection('moderation').findOne({
                     type: 'ban',
                     active: true,
-                    targetUsername: targetName
+                    targetUsername: targetName,
+                    $or: [{ roomId: room.id }, { roomId: null }]
                   });
                   if (activeBan) {
                     await revokeModAction(activeBan._id.toString(), ws.userId);
@@ -910,7 +926,7 @@ wss.on('connection', (ws, req) => {
           }
 
           const isOwner = room.ownerId === ws.userId;
-          const isMod = ws.userRole >= Role.MOD;
+          const isMod = ws.userRole >= Role.ADMIN;  // ADMIN(5)+ can update any room
 
           if (!isOwner && !isMod) {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Only room owner or moderators can change settings' });
@@ -948,7 +964,8 @@ wss.on('connection', (ws, req) => {
           try {
             const entries = await getModEntries({
               showHistory: !!data.modShowHistory,
-              search: data.modSearch || ''
+              search: data.modSearch || '',
+              roomId: room.id
             });
             sendTo(ws, {
               t: T.MOD_LIST,
@@ -962,6 +979,85 @@ wss.on('connection', (ws, req) => {
 
         case T.PONG:
           break;
+
+        case T.ROOM_ROLE_SET: {
+          if (!ws.userId) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Must be logged in' });
+            break;
+          }
+
+          const targetSessionIdx = parseInt(data.roomRoleTargetId, 10);
+          const newRole = data.roomRoleValue;
+
+          if (newRole == null || newRole < 0 || newRole > Role.ADMIN) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Invalid role value (0-5)' });
+            break;
+          }
+
+          // Resolve target session index to their ws/userId
+          let targetClient = null;
+          for (const client of room.clients) {
+            if (client.sessionIndex === targetSessionIdx && client.readyState === WebSocket.OPEN) {
+              targetClient = client;
+              break;
+            }
+          }
+
+          if (!targetClient || !targetClient.userId) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Target user not found or not logged in' });
+            break;
+          }
+
+          const targetUserId = targetClient.userId;
+
+          // Permission: room owner, effective ADMIN(5)+ in room, or global DEITY(8)
+          const isOwner = room.ownerId === ws.userId;
+          const isRoomAdmin = ws.userRole >= Role.ADMIN;
+          const isDeity = (ws.globalRole || 0) >= Role.DEITY;
+
+          if (!isOwner && !isRoomAdmin && !isDeity) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Insufficient permissions' });
+            break;
+          }
+
+          // Can't assign role >= your own effective role (unless DEITY)
+          if (!isDeity && newRole >= ws.userRole) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Cannot assign role equal to or higher than your own' });
+            break;
+          }
+
+          try {
+            if (newRole === 0) {
+              const { removeRoomRole } = await import('./roomRoles.js');
+              await removeRoomRole(room.id, targetUserId);
+            } else {
+              await setRoomRole(room.id, targetUserId, newRole, ws.userId);
+            }
+
+            // Update their effective role live
+            targetClient.roomRole = newRole;
+            const effective = computeEffectiveRole(targetClient.globalRole || 0, newRole);
+            targetClient.userRole = effective;
+
+            const targetUser = room.sessionManager.getUser(targetClient.sessionIndex);
+            if (targetUser) targetUser.role = effective;
+
+            // Notify the target user of their new role
+            sendTo(targetClient, { t: T.AUTH_RESULT, a: true, authRole: effective });
+
+            // Re-broadcast user list so all clients see updated role badge
+            createRoomBroadcaster(room)({
+              t: T.USERS,
+              us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+            });
+
+            sendTo(ws, { t: T.MOD_RESULT, a: true });
+          } catch (err) {
+            console.error('[Room] Role set error:', err);
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Failed to set room role' });
+          }
+          break;
+        }
 
         case T.AUTH_REGISTER: {
           const db = getDB();
@@ -985,7 +1081,7 @@ wss.on('connection', (ws, req) => {
           try {
             const passwordHash = await hashPassword(regPassword);
             const userCount = await db.collection('users').countDocuments();
-            const role = userCount === 0 ? Role.ADMIN : Role.USER;
+            const role = userCount === 0 ? Role.DEITY : Role.USER;
 
             const newUserDoc = {
               username: regUsername,
@@ -1001,7 +1097,9 @@ wss.on('connection', (ws, req) => {
             const token = generateToken({ userId: result.insertedId.toString(), username: regUsername, role });
 
             ws.userId = result.insertedId.toString();
-            ws.userRole = role;
+            ws.globalRole = role;
+            ws.roomRole = 0;
+            ws.userRole = role;  // No room role yet for new registration
             ws.username = regUsername;
 
             const user = room.sessionManager.getUser(ws.sessionIndex);
@@ -1036,8 +1134,10 @@ wss.on('connection', (ws, req) => {
         }
 
         case T.AUTH_LOGIN: {
+          console.log(`[Auth] AUTH_LOGIN from session ${ws.sessionIndex} in room ${room.id} (token: ${!!data.authToken}, user/pass: ${!!data.authUsername})`);
           const db = getDB();
           if (!db) {
+            console.log('[Auth] DB not available, rejecting');
             sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Database not available' });
             break;
           }
@@ -1048,6 +1148,7 @@ wss.on('connection', (ws, req) => {
             if (data.authToken) {
               const decoded = verifyToken(data.authToken);
               if (!decoded) {
+                console.log('[Auth] Token invalid/expired');
                 sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Invalid or expired token' });
                 break;
               }
@@ -1077,30 +1178,26 @@ wss.on('connection', (ws, req) => {
               break;
             }
 
-            const banCheck = await db.collection('moderation').findOne({
-              type: 'ban',
-              active: true,
-              $or: [
-                { targetUserId: userDoc._id.toString() },
-                { targetIp: ws.clientIp }
-              ]
-            });
+            // Room-scoped ban check (matches room bans + global bans)
+            const banCheck = await checkBan(userDoc._id.toString(), ws.clientIp, room.id);
 
-            if (banCheck && userDoc.role < Role.MOD) {
-              const expiry = banCheck.expiresAt ? ` until ${banCheck.expiresAt.toISOString()}` : ' permanently';
-              sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: `You are banned${expiry}. Reason: ${banCheck.reason || 'No reason given'}` });
-              ws.close(4001, 'Banned');
-              break;
+            if (banCheck) {
+              const globalRole = userDoc.role;
+              const isRoomBan = banCheck.roomId != null;
+              // HOLY(7)+ are immune to room bans; room owner immune to own-room bans
+              const isImmune = (isRoomBan && globalRole >= Role.HOLY)
+                || (isRoomBan && room.ownerId === userDoc._id.toString());
+
+              if (!isImmune && globalRole < Role.MOD) {
+                const expiry = banCheck.expiresAt ? ` until ${banCheck.expiresAt.toISOString()}` : ' permanently';
+                sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: `You are banned${expiry}. Reason: ${banCheck.reason || 'No reason given'}` });
+                ws.close(4001, 'Banned');
+                break;
+              }
             }
 
-            const muteCheck = await db.collection('moderation').findOne({
-              type: 'mute',
-              active: true,
-              $or: [
-                { targetUserId: userDoc._id.toString() },
-                { targetIp: ws.clientIp }
-              ]
-            });
+            // Room-scoped mute check
+            const muteCheck = await checkMute(userDoc._id.toString(), ws.clientIp, room.id);
             ws.isMuted = !!muteCheck && userDoc.role < Role.MOD;
 
             const ipHistory = userDoc.ipHistory || [];
@@ -1119,23 +1216,30 @@ wss.on('connection', (ws, req) => {
               role: userDoc.role
             });
 
+            // Compute effective role: max(global, room-specific)
+            const roomRoleDoc = await getRoomRole(room.id, userDoc._id.toString());
+            const roomRoleVal = roomRoleDoc?.role || 0;
+            const effectiveRole = computeEffectiveRole(userDoc.role, roomRoleVal);
+
             ws.userId = userDoc._id.toString();
-            ws.userRole = userDoc.role;
+            ws.globalRole = userDoc.role;
+            ws.roomRole = roomRoleVal;
+            ws.userRole = effectiveRole;
             ws.username = userDoc.username;
+            console.log(`[Auth] Login success: ${userDoc.username} (global=${userDoc.role}, room=${roomRoleVal}, effective=${effectiveRole}) in room ${room.id}`);
 
             const user = room.sessionManager.getUser(ws.sessionIndex);
             if (user) {
               const uniqueName = room.sessionManager.getUniqueName(userDoc.username, ws.sessionIndex);
-              user.role = userDoc.role;
+              user.role = effectiveRole;
               user.name = uniqueName;
-              // ws.username remains original registered username for AUTH_RESULT
             }
 
             sendTo(ws, {
               t: T.AUTH_RESULT,
               a: true,
               authToken: token,
-              authRole: userDoc.role,
+              authRole: effectiveRole,
               authUsername: userDoc.username
             });
 

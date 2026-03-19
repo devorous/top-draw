@@ -296,16 +296,16 @@ export class Auth {
   }
 
   attemptAutoLogin() {
-    // Only auto-login if user enabled "Remember me"
-    if (!this.getRememberMe()) {
-      return false;
-    }
-
     const token = this.getStoredToken();
-    if (token) {
+    if (!token) return false;
+
+    // Always re-auth if we're already logged in this session (room switch)
+    // or if "Remember me" was checked (browser restart)
+    if (this.isLoggedIn || this.getRememberMe()) {
       this.wsClient.sendAuthTokenLogin(token);
       return true;
     }
+
     return false;
   }
 

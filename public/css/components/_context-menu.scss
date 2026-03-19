@@ -80,3 +80,48 @@
   color: #fbbf24;
 }
 
+/* ========================================
+   Self Context Menu — Role Info
+   ======================================== */
+
+.selfRoleInfo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 16px;
+}
+
+.selfRoleLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.5;
+  color: var(--text-primary);
+}
+
+.selfRoleName {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+
+  &.rank-helper { color: #8bc34a; }
+  &.rank-mod    { color: var(--accent-primary); }
+  &.rank-admin  { color: #fbbf24; }
+
+  &.rank-noble {
+    color: #d4a853;
+    text-shadow: 0 0 8px rgba(212, 168, 83, 0.4);
+  }
+
+  &.rank-holy {
+    color: #7cb3ff;
+    text-shadow: 0 0 8px rgba(124, 179, 255, 0.5);
+  }
+
+  &.rank-deity {
+    color: #ffb347;
+    text-shadow: 0 0 10px rgba(255, 179, 71, 0.7);
+  }
+}
+

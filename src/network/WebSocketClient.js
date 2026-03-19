@@ -1365,6 +1365,19 @@ export class WebSocketClient {
   }
 
   /**
+   * Sets a user's room-specific role.
+   * @param {string} targetUserId - The target user's ID.
+   * @param {number} role - The role value (0-5).
+   */
+  sendRoomRoleSet(targetSessionIndex, role) {
+    this.send({
+      t: T.ROOM_ROLE_SET,
+      roomRoleTargetId: String(targetSessionIndex),
+      roomRoleValue: role
+    });
+  }
+
+  /**
    * Requests the list of active rooms from the server.
    * @returns {void}
    */

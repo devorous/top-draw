@@ -80,6 +80,7 @@ message Msg {
     CTHN               = 71;  // Change thinning
     CSIM               = 72;  // Change simulate pressure
     FILL               = 73;  // Flood fill at position
+    ROOM_ROLE_SET      = 74;  // Set a user's room-specific role
   }
 
   // Tool enum
@@ -207,6 +208,7 @@ message Msg {
     uint64 createdAt = 7;
     uint64 expiresAt = 8;   // 0=permanent
     bool   active    = 9;
+    string roomId    = 10;  // Room this entry applies to (empty = global)
   }
   repeated ModEntry mod_entries = 42;  // List of active moderation entries
 
@@ -250,4 +252,8 @@ message Msg {
   // === Ink Thinning Fields ===
   uint32 th = 59;               // Thinning * 100 (0-100)
   uint32 sim = 60;              // Simulate pressure (0 or 1)
+
+  // === Room Role Fields (61-62) ===
+  string room_role_target_id = 61;  // Target userId for room role assignment
+  uint32 room_role_value     = 62;  // Role value to assign (0-5)
 }

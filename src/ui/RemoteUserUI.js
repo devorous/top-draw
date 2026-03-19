@@ -319,10 +319,11 @@ export class RemoteUserUI {
     userEntry.textContent = userData.name || userData.username || userId;
 
     const role = userData.role;
-    if (role === 2) {
-      userEntry.classList.add('admin');
-    } else if (role === 1) {
-      userEntry.classList.add('mod');
+    const roleClass = RemoteUserUI.roleToClass(role);
+    if (roleClass) {
+      userEntry.classList.add(roleClass);
+      // Add glow class to entry row for Noble/Holy/Deity
+      if (role >= 6) entry.classList.add(roleClass);
     }
 
     const activeEntry = document.createElement('span');
@@ -665,5 +666,30 @@ export class RemoteUserUI {
         break;
       }
     }
+  }
+
+  /**
+   * Maps a numeric role (0-8) to a CSS class name.
+   * @param {number} role
+   * @returns {string|null}
+   */
+  static roleToClass(role) {
+    if (role >= 8) return 'rank-deity';
+    if (role >= 7) return 'rank-holy';
+    if (role >= 6) return 'rank-noble';
+    if (role >= 5) return 'rank-admin';
+    if (role >= 4) return 'rank-mod';
+    if (role >= 3) return 'rank-helper';
+    return null;
+  }
+
+  /**
+   * Maps a numeric role (0-8) to a display name.
+   * @param {number} role
+   * @returns {string}
+   */
+  static roleName(role) {
+    const names = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Noble', 'Holy', 'Deity'];
+    return names[role] || 'Guest';
   }
 }

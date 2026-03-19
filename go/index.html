@@ -306,6 +306,17 @@
           <button class="menuItem danger modOnly" data-action="kick">Kick</button>
           <button class="menuItem danger modOnly" data-action="ban">Ban</button>
           <button class="menuItem danger modOnly" data-action="wipe">Wipe Strokes</button>
+          <div class="menuDivider modOnly adminOnly registered-only"></div>
+          <button class="menuItem modOnly adminOnly registered-only" data-action="promote">Promote</button>
+          <button class="menuItem modOnly adminOnly registered-only" data-action="demote">Demote</button>
+        </div>
+
+        <!-- Self Context Menu (right-click on own name) -->
+        <div id="selfContextMenu" class="contextMenu" style="display: none;">
+          <div class="selfRoleInfo">
+            <span class="selfRoleLabel">Your Role</span>
+            <span class="selfRoleName" id="selfRoleName">Guest</span>
+          </div>
         </div>
 
         <!-- Canvas Area -->

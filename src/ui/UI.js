@@ -1163,16 +1163,77 @@ export class UI {
     if (!badge) return;
 
     badge.classList.remove('mod', 'admin');
-    if (role === 2) {
+    if (role >= 5) {
       badge.textContent = 'admin';
       badge.classList.add('admin');
       badge.style.display = '';
-    } else if (role === 1) {
+    } else if (role >= 4) {
       badge.textContent = 'mod';
       badge.classList.add('mod');
       badge.style.display = '';
     } else {
       badge.style.display = 'none';
+    }
+  }
+
+  /**
+   * Updates the self user entry's role styling in the user list.
+   * @param {number} role - Role level (0-8)
+   */
+  updateSelfRole(role) {
+    const el = this.elements.selfListUser;
+    if (!el) return;
+
+    // Remove all rank classes
+    const rankClasses = ['rank-helper', 'rank-mod', 'rank-admin', 'rank-noble', 'rank-holy', 'rank-deity'];
+    el.classList.remove(...rankClasses);
+
+    // Import would create circular dependency, so inline the mapping
+    if (role >= 8) el.classList.add('rank-deity');
+    else if (role >= 7) el.classList.add('rank-holy');
+    else if (role >= 6) el.classList.add('rank-noble');
+    else if (role >= 5) el.classList.add('rank-admin');
+    else if (role >= 4) el.classList.add('rank-mod');
+    else if (role >= 3) el.classList.add('rank-helper');
+
+    // Also update the self userEntry glow
+    const entry = el.closest('.userEntry');
+    if (entry) {
+      entry.classList.remove(...rankClasses);
+      if (role >= 8) entry.classList.add('rank-deity');
+      else if (role >= 7) entry.classList.add('rank-holy');
+      else if (role >= 6) entry.classList.add('rank-noble');
+    }
+  }
+
+  /**
+   * Updates a remote user's rank styling in the user list.
+   * @param {number} sessionIndex
+   * @param {number} role - Role level (0-8)
+   */
+  updateRemoteUserRank(sessionIndex, role) {
+    const id = `u${sessionIndex}`;
+    const rankClasses = ['rank-helper', 'rank-mod', 'rank-admin', 'rank-noble', 'rank-holy', 'rank-deity'];
+
+    const listUser = document.querySelector(`.listUser.${id}`);
+    if (listUser) {
+      listUser.classList.remove(...rankClasses);
+      if (role >= 8) listUser.classList.add('rank-deity');
+      else if (role >= 7) listUser.classList.add('rank-holy');
+      else if (role >= 6) listUser.classList.add('rank-noble');
+      else if (role >= 5) listUser.classList.add('rank-admin');
+      else if (role >= 4) listUser.classList.add('rank-mod');
+      else if (role >= 3) listUser.classList.add('rank-helper');
+    }
+
+    const entry = document.querySelector(`.userEntry.${id}`);
+    if (entry) {
+      entry.classList.remove(...rankClasses);
+      if (role >= 6) {
+        if (role >= 8) entry.classList.add('rank-deity');
+        else if (role >= 7) entry.classList.add('rank-holy');
+        else entry.classList.add('rank-noble');
+      }
     }
   }
 }
