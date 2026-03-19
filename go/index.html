@@ -94,6 +94,23 @@
                   </label>
                   <div class="authButtons">
                     <button type="button" class="btn primary large" id="loginJoinBtn">Join</button>
+                    <button type="button" class="btn secondary large" id="registerBtn" style="display: none;">Register</button>
+                  </div>
+                </div>
+
+                <!-- Registration panel (replaces room input when registering) -->
+                <div id="authRegisterPanel" style="display: none;">
+                  <div class="authEditHeader">
+                    <span>Create Account</span>
+                    <button type="button" class="authEditClose" id="registerClose">&times;</button>
+                  </div>
+                  <input autocomplete="username" class="authInput" id="registerUsername" name="reg-username" placeholder="Username" readonly>
+                  <input autocomplete="new-password" type="password" class="authInput" id="registerPassword" name="reg-password" placeholder="Password" readonly>
+                  <input autocomplete="email" type="email" class="authInput" id="registerEmail" name="reg-email" placeholder="Email (optional)">
+                  <input type="text" class="authInput" id="registerSecretQuestion" name="reg-secret-question" placeholder="Secret question (for account recovery)">
+                  <input type="text" class="authInput" id="registerSecretAnswer" name="reg-secret-answer" placeholder="Secret answer">
+                  <div class="authButtons">
+                    <button type="button" class="btn primary large" id="registerSubmitBtn">Create Account</button>
                   </div>
                 </div>
 

@@ -179,12 +179,15 @@ message Msg {
   // === Chat Image Field ===
   bytes cimg = 27;           // Chat image data (raw image bytes)
 
-  // === Auth Fields (29-33) ===
+  // === Auth Fields (29-33, 63-65) ===
   string auth_username  = 29;  // Username for register/login
   string auth_password  = 30;  // Password for register/login
   string auth_token     = 31;  // JWT token (login with token, or returned in AUTH_RESULT)
   string auth_error     = 32;  // Error message in AUTH_RESULT
   uint32 auth_role      = 33;  // Role in AUTH_RESULT: 0=guest, 1=user, 2=mod, 3=admin
+  string auth_email            = 63;  // Email (optional, for registration)
+  string auth_secret_question  = 64;  // Secret question (for registration/recovery)
+  string auth_secret_answer    = 65;  // Secret answer (hashed on server, for registration/recovery)
 
   // === Moderation Fields (34-42) ===
   uint32 mod_action_type  = 34;  // 0=kick, 1=mute, 2=ban, 3=unmute, 4=unban

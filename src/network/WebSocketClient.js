@@ -1300,8 +1300,12 @@ export class WebSocketClient {
    * @param {string} password - Chosen password.
    * @returns {void}
    */
-  sendAuthRegister(username, password) {
-    this.send({ t: T.AUTH_REGISTER, authUsername: username, authPassword: password });
+  sendAuthRegister(username, password, { email = '', secretQuestion = '', secretAnswer = '' } = {}) {
+    const msg = { t: T.AUTH_REGISTER, authUsername: username, authPassword: password };
+    if (email) msg.authEmail = email;
+    if (secretQuestion) msg.authSecretQuestion = secretQuestion;
+    if (secretAnswer) msg.authSecretAnswer = secretAnswer;
+    this.send(msg);
   }
 
   /**

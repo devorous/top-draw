@@ -1068,6 +1068,9 @@ wss.on('connection', (ws, req) => {
 
           const regUsername = (data.authUsername || '').trim();
           const regPassword = data.authPassword || '';
+          const regEmail = (data.authEmail || '').trim();
+          const regSecretQuestion = (data.authSecretQuestion || '').trim();
+          const regSecretAnswer = (data.authSecretAnswer || '').trim();
 
           if (!isValidUsername(regUsername)) {
             sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Username must be 2-20 characters (letters, numbers, underscores)' });
@@ -1077,9 +1080,15 @@ wss.on('connection', (ws, req) => {
             sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Password must be at least 6 characters' });
             break;
           }
+          if (regSecretQuestion && !regSecretAnswer) {
+            sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Secret answer is required when providing a secret question' });
+            break;
+          }
 
           try {
             const passwordHash = await hashPassword(regPassword);
+            // Hash the secret answer the same way as passwords (bcrypt)
+            const secretAnswerHash = regSecretAnswer ? await hashPassword(regSecretAnswer.toLowerCase()) : null;
             const userCount = await db.collection('users').countDocuments();
             const role = userCount === 0 ? Role.DEITY : Role.USER;
 
@@ -1092,6 +1101,11 @@ wss.on('connection', (ws, req) => {
               lastIp: ws.clientIp,
               ipHistory: [ws.clientIp]
             };
+            if (regEmail) newUserDoc.email = regEmail;
+            if (regSecretQuestion) {
+              newUserDoc.secretQuestion = regSecretQuestion;
+              newUserDoc.secretAnswerHash = secretAnswerHash;
+            }
 
             const result = await db.collection('users').insertOne(newUserDoc);
             const token = generateToken({ userId: result.insertedId.toString(), username: regUsername, role });

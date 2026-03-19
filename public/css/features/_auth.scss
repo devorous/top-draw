@@ -264,6 +264,23 @@
   }
 }
 
+/* Registration Panel */
+#authRegisterPanel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+
+  .authInput {
+    margin-bottom: 8px;
+  }
+
+  .authInput[readonly] {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
 /* Auth Error */
 .authError {
   margin-top: 10px;

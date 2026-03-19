@@ -39,7 +39,18 @@ export class Auth {
       authEditClose: document.getElementById('authEditClose'),
       editUsername: document.getElementById('editUsername'),
       editPassword: document.getElementById('editPassword'),
-      editLoginJoinBtn: document.getElementById('editLoginJoinBtn')
+      editLoginJoinBtn: document.getElementById('editLoginJoinBtn'),
+      // Registration
+      registerBtn: document.getElementById('registerBtn'),
+      registerPanel: document.getElementById('authRegisterPanel'),
+      registerClose: document.getElementById('registerClose'),
+      registerUsername: document.getElementById('registerUsername'),
+      registerPassword: document.getElementById('registerPassword'),
+      registerEmail: document.getElementById('registerEmail'),
+      registerSecretQuestion: document.getElementById('registerSecretQuestion'),
+      registerSecretAnswer: document.getElementById('registerSecretAnswer'),
+      registerSubmitBtn: document.getElementById('registerSubmitBtn'),
+      roomIdInput: document.getElementById('roomIdInput')
     };
 
     // Load remember me preference
@@ -54,9 +65,13 @@ export class Auth {
   }
 
   setupListeners() {
-    // Dynamic button text based on password input
+    // Dynamic button text and register button visibility based on password input
     this.els.loginPassword?.addEventListener('input', () => {
       this.updateButtonText(this.els.loginPassword, this.els.loginJoinBtn);
+      // Show register button when password is entered
+      if (this.els.registerBtn) {
+        this.els.registerBtn.style.display = this.els.loginPassword.value ? '' : 'none';
+      }
     });
     this.els.editPassword?.addEventListener('input', () => {
       this.updateButtonText(this.els.editPassword, this.els.editLoginJoinBtn);
@@ -127,6 +142,11 @@ export class Auth {
 
     // Edit credentials panel
     this.els.authEditClose?.addEventListener('click', () => this.hideEditCredentials());
+
+    // Register button — opens registration panel
+    this.els.registerBtn?.addEventListener('click', () => this.showRegisterPanel());
+    this.els.registerClose?.addEventListener('click', () => this.hideRegisterPanel());
+    this.els.registerSubmitBtn?.addEventListener('click', () => this.handleRegister());
   }
 
   /**
@@ -291,8 +311,74 @@ export class Auth {
     return this.els.loginUsername?.value.trim() || null;
   }
 
+  /**
+   * Show the registration panel, hiding the room input
+   */
+  showRegisterPanel() {
+    const username = this.els.loginUsername?.value.trim();
+    const password = this.els.loginPassword?.value;
+    if (!username || !password) {
+      if (this.onError) this.onError('Please enter username and password first');
+      return;
+    }
+    // Pre-fill and lock username/password from the login form
+    if (this.els.registerUsername) {
+      this.els.registerUsername.value = username;
+    }
+    if (this.els.registerPassword) {
+      this.els.registerPassword.value = password;
+    }
+    // Clear optional fields
+    if (this.els.registerEmail) this.els.registerEmail.value = '';
+    if (this.els.registerSecretQuestion) this.els.registerSecretQuestion.value = '';
+    if (this.els.registerSecretAnswer) this.els.registerSecretAnswer.value = '';
+
+    // Hide room input, login form, divider, and offline button; show registration panel
+    if (this.els.roomIdInput) this.els.roomIdInput.style.display = 'none';
+    if (this.els.authNotLoggedIn) this.els.authNotLoggedIn.style.display = 'none';
+    const divider = document.querySelector('.landingDivider');
+    const offlineBtn = document.getElementById('loginOfflineBtn');
+    if (divider) divider.style.display = 'none';
+    if (offlineBtn) offlineBtn.style.display = 'none';
+    if (this.els.registerPanel) this.els.registerPanel.style.display = 'flex';
+  }
+
+  /**
+   * Hide the registration panel, restore the login form
+   */
+  hideRegisterPanel() {
+    if (this.els.registerPanel) this.els.registerPanel.style.display = 'none';
+    if (this.els.roomIdInput) this.els.roomIdInput.style.display = '';
+    if (this.els.authNotLoggedIn) this.els.authNotLoggedIn.style.display = 'flex';
+    const divider = document.querySelector('.landingDivider');
+    const offlineBtn = document.getElementById('loginOfflineBtn');
+    if (divider) divider.style.display = '';
+    if (offlineBtn) offlineBtn.style.display = '';
+  }
+
   handleRegister() {
-    // Deprecated for now, we only use Join/Login
+    if (this._loading) return;
+
+    const username = this.els.registerUsername?.value.trim();
+    const password = this.els.registerPassword?.value;
+    const email = this.els.registerEmail?.value.trim() || '';
+    const secretQuestion = this.els.registerSecretQuestion?.value.trim() || '';
+    const secretAnswer = this.els.registerSecretAnswer?.value.trim() || '';
+
+    if (!username || !password) {
+      if (this.onError) this.onError('Username and password are required');
+      return;
+    }
+
+    if (secretQuestion && !secretAnswer) {
+      if (this.onError) this.onError('Please provide a secret answer for your question');
+      return;
+    }
+
+    this._pendingUsername = username;
+    this._pendingRegister = true;
+    this.setLoading(true);
+    this.wsClient.sendAuthRegister(username, password, { email, secretQuestion, secretAnswer });
   }
 
   attemptAutoLogin() {
@@ -328,6 +414,12 @@ export class Auth {
         }
       }
 
+      // Hide register panel if it was open
+      if (this._pendingRegister) {
+        this._pendingRegister = false;
+        this.hideRegisterPanel();
+      }
+
       // Show logged-in state on landing page
       if (username) {
         this.showLoggedInState(username);
@@ -338,6 +430,7 @@ export class Auth {
       }
     } else {
       this._pendingUsername = null;
+      this._pendingRegister = false;
 
       // If auto-login failed, clear the invalid token and remember me preference
       if (this.getStoredToken()) {
@@ -357,7 +450,7 @@ export class Auth {
 
   setLoading(loading) {
     this._loading = loading;
-    const btns = [this.els.loginJoinBtn, this.els.editLoginJoinBtn];
+    const btns = [this.els.loginJoinBtn, this.els.editLoginJoinBtn, this.els.registerSubmitBtn];
 
     if (loading) {
       btns.forEach(btn => {
