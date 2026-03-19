@@ -21,6 +21,7 @@
 
 .sync-overlay.active {
   display: flex;
+  pointer-events: all;
 }
 
 .sync-content {

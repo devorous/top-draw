@@ -213,6 +213,11 @@ export class LandingPage {
    * Join a room based on input or selection.
    */
   joinAsGuest() {
+    if (!this.wsClient || !this.wsClient.connected) {
+      this.showError('Not connected to server');
+      return;
+    }
+
     let roomId = this.els.roomIdInput?.value.trim() || this.selectedRoom || 'lobby';
 
     if (roomId !== 'lobby') {

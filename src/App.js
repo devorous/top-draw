@@ -972,13 +972,17 @@ export class DrawingApp {
     this.connected = false;
     this.currentRoomId = 'offline-' + Date.now();
 
+    // Cancel any pending auth attempt so it doesn't interrupt offline drawing
+    this.auth?.setLoading(false);
+
     if (this.wsClient) {
       this.wsClient.disconnect();
     }
 
     this.sessionIndex = 0;
     this.self.id = 0;
-    this.self.setUsername('');
+    const offlineUsername = this.auth?.getJoinUsername() || this.ui.elements.loginUsername?.value.trim() || '';
+    this.self.setUsername(offlineUsername);
     this.users.set(0, this.self);
 
     if (this.landingPage) {
@@ -987,7 +991,7 @@ export class DrawingApp {
 
     this.ui.hideOverlay();
     this.ui.showCursor();
-    this.ui.updateSelfName('');
+    this.ui.updateSelfName(offlineUsername);
     this.ui.showConnectionStatus('offline');
 
     this.inputBufferManager.startTickLoop();
@@ -1236,6 +1240,8 @@ export class DrawingApp {
    * @param {string} error - The error message.
    */
   handleAuthError(error) {
+    if (this.isOfflineMode) return;
+
     this.ui.showToast(error, 4000, 'error');
 
     if (this.landingPage) {
@@ -2095,6 +2101,9 @@ export class DrawingApp {
     this.inputBufferManager.resetBroadcastSmoothing();
     this.self._mainCtxDrawCount = 0;
     this.self.mousedown = false;
+
+    // Block local input while not yet connected (connecting overlay is showing)
+    if (!this.connected && !this.isOfflineMode) return;
 
     // Block local input while syncing
     if (this.syncClient?.isSyncing()) return;
