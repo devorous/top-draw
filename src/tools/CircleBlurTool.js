@@ -2,8 +2,6 @@
  * @fileoverview Circle Blur tool - averages pixels in a circular area and stamps a circle with that color.
  */
 
-import { getStackblurSync, blurImageData } from '../utils/blurUtils.js';
-
 /**
  * Base tool class.
  */
@@ -66,10 +64,7 @@ export class CircleBlurTool extends Tool {
   /**
    * Activates the tool.
    */
-  activate() {
-    // Preload stackblur so it is available synchronously from the first stamp.
-    blurImageData(new ImageData(1, 1), 1, 1, 1).catch(() => {});
-  }
+  activate() {}
 
   /**
    * Deactivates the tool and cleans up tracking.
@@ -224,31 +219,14 @@ export class CircleBlurTool extends Tool {
 
       const cx = x - left;
       const cy = y - top;
-      const stackblur = getStackblurSync();
-      if (stackblur) {
-        // CPU path: getImageData + stackblur — O(pixels) regardless of radius,
-        // consistent performance across Chrome, Firefox, and Safari.
-        const imageData = this.board.mainCtx.getImageData(left, top, width, height);
-        stackblur(imageData.data, width, height, Math.round(blurRadius));
-        this._stampCtx.putImageData(imageData, 0, 0);
-        // Clip the blurred pixels to the circle shape.
-        this._stampCtx.save();
-        this._stampCtx.globalCompositeOperation = 'destination-in';
-        this._stampCtx.beginPath();
-        this._stampCtx.arc(cx, cy, radius, 0, Math.PI * 2);
-        this._stampCtx.fill();
-        this._stampCtx.restore();
-      } else {
-        // Fallback: ctx.filter (used on the first stamp before stackblur finishes loading).
-        this._stampCtx.save();
-        this._stampCtx.beginPath();
-        this._stampCtx.arc(cx, cy, radius, 0, Math.PI * 2);
-        this._stampCtx.clip();
-        this._stampCtx.filter = `blur(${blurRadius}px)`;
-        this._stampCtx.drawImage(this.board.mainCanvas, left, top, width, height, 0, 0, width, height);
-        this._stampCtx.filter = 'none';
-        this._stampCtx.restore();
-      }
+      this._stampCtx.save();
+      this._stampCtx.beginPath();
+      this._stampCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+      this._stampCtx.clip();
+      this._stampCtx.filter = `blur(${blurRadius}px)`;
+      this._stampCtx.drawImage(this.board.mainCanvas, left, top, width, height, 0, 0, width, height);
+      this._stampCtx.filter = 'none';
+      this._stampCtx.restore();
 
       if (hardness < 1.0) {
         const grad = this._stampCtx.createRadialGradient(cx, cy, innerR, cx, cy, radius);
