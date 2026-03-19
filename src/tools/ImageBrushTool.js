@@ -63,6 +63,7 @@ export class ImageBrushTool extends Tool {
     this.lastPos = null;
     this.lastTime = null;
     this.lastStampPos = new Map(); // userId -> {x, y}
+    this.stampBuffer = []; // [x, y, x, y, ...] for broadcast
   }
 
   /**
@@ -127,6 +128,7 @@ export class ImageBrushTool extends Tool {
         const interpX = lastStamp.x + dx * t;
         const interpY = lastStamp.y + dy * t;
         this.drawStamp(user, { x: interpX, y: interpY });
+        this.stampBuffer.push(interpX, interpY);
       }
 
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
@@ -167,6 +169,20 @@ export class ImageBrushTool extends Tool {
 
     this.lastStampPos.delete(user.id);
     this.dirtyBounds = null;
+  }
+
+  drainStampBuffer() {
+    const ps = this.stampBuffer;
+    this.stampBuffer = [];
+    const rs = Array(ps.length / 2).fill(0);
+    return { ps, rs };
+  }
+
+  applyStamps(user, ps) {
+    for (let i = 0; i < ps.length; i += 2) {
+      this.drawStamp(user, { x: ps[i], y: ps[i + 1] });
+    }
+    this.board.requestUpdate();
   }
 
   /**

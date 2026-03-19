@@ -240,17 +240,12 @@ export class InputBufferManager {
         }
       }
 
-      if (app.self.tool === 'flowPen' && app.self.mousedown && !app.self.panning) {
+      const stampTools = ['flowPen', 'ink', 'pixel', 'circleBlur', 'circleBlurHard', 'imageBrush'];
+      if (stampTools.includes(app.self.tool) && app.self.mousedown && !app.self.panning) {
         const tool = app.toolManager.getCurrentTool();
-        const { ps: stampPs, rs: stampRs } = tool.drainStampBuffer();
-        if (stampPs.length > 0) {
-          app.wsClient.broadcastStampMove(stampPs, stampRs);
-        }
-      } else if (app.self.tool === 'ink' && app.self.mousedown && !app.self.panning) {
-        const tool = app.toolManager.getCurrentTool();
-        const { ps: fhPs, rs: fhRs } = tool.drainPointBuffer();
-        if (fhPs.length > 0) {
-          app.wsClient.broadcastStampMove(fhPs, fhRs);
+        const drain = app.self.tool === 'ink' ? tool.drainPointBuffer() : tool.drainStampBuffer();
+        if (drain.ps.length > 0) {
+          app.wsClient.broadcastStampMove(drain.ps, drain.rs);
         }
       } else {
         if (broadcastPoints.length > 0) {
@@ -308,15 +303,11 @@ export class InputBufferManager {
     tool.onPointerMove(app.self, smoothedPos, prevPos);
     app.self._mainCtxDrawCount++;
 
-    if (app.self.tool === 'flowPen') {
-      const { ps: stampPs, rs: stampRs } = tool.drainStampBuffer();
-      if (stampPs.length > 0) {
-        app.wsClient.broadcastStampMove(stampPs, stampRs);
-      }
-    } else if (app.self.tool === 'ink') {
-      const { ps: fhPs, rs: fhRs } = tool.drainPointBuffer();
-      if (fhPs.length > 0) {
-        app.wsClient.broadcastStampMove(fhPs, fhRs);
+    const stampTools = ['flowPen', 'ink', 'pixel', 'circleBlur', 'circleBlurHard', 'imageBrush'];
+    if (stampTools.includes(app.self.tool)) {
+      const drain = app.self.tool === 'ink' ? tool.drainPointBuffer() : tool.drainStampBuffer();
+      if (drain.ps.length > 0) {
+        app.wsClient.broadcastStampMove(drain.ps, drain.rs);
       }
     } else {
       const reducedPoints = this.applyPointReduction(smoothedPoints);

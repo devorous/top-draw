@@ -58,6 +58,7 @@ export class CircleBlurTool extends Tool {
   constructor(board) {
     super('circleBlur', board);
     this.lastStampPos = new Map(); // userId -> {x, y, radius}
+    this.stampBuffer = []; // [x, y, radius, x, y, radius, ...] for broadcast
   }
 
   /**
@@ -120,6 +121,7 @@ export class CircleBlurTool extends Tool {
           const sy = lastStamp.y + dy * t;
           const sr = lastStamp.radius + (radius - lastStamp.radius) * t;
           this.stampBlurredCircle(sx, sy, sr, user);
+          this.stampBuffer.push(sx, sy, sr);
 
           if (this.board.mirror) {
             const w = this.board.getWidth();
@@ -139,6 +141,39 @@ export class CircleBlurTool extends Tool {
   onPointerUp(user) {
     this.board.endStroke(user);
     this.lastStampPos.delete(user.id);
+  }
+
+  /**
+   * Drains accumulated stamp positions for network broadcast.
+   * @returns {{ps: number[], rs: number[]}}
+   */
+  drainStampBuffer() {
+    const buf = this.stampBuffer;
+    this.stampBuffer = [];
+    const ps = [];
+    const rs = [];
+    for (let i = 0; i < buf.length; i += 3) {
+      ps.push(buf[i], buf[i + 1]);
+      rs.push(buf[i + 2]);
+    }
+    return { ps, rs };
+  }
+
+  /**
+   * Applies pre-computed stamp positions received from the network (remote users).
+   * @param {Object} user - The remote user.
+   * @param {number[]} ps - Flat [x, y, x, y, ...] stamp positions.
+   * @param {number[]} rs - Radii, one per stamp.
+   */
+  applyStamps(user, ps, rs) {
+    for (let i = 0, j = 0; i < ps.length; i += 2, j++) {
+      const sx = ps[i], sy = ps[i + 1], sr = rs[j];
+      this.stampBlurredCircle(sx, sy, sr, user);
+      if (this.board.mirror) {
+        const w = this.board.getWidth();
+        this.stampBlurredCircle(w - sx, sy, sr, user);
+      }
+    }
   }
 
   /**

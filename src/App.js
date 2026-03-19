@@ -1110,6 +1110,8 @@ export class DrawingApp {
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
     this.wsClient.broadcastToolChange(this.self.tool);
+    this.wsClient.broadcastSpacingChange(this.self.spacing);
+    this.wsClient.broadcastHardnessChange(this.self.hardness);
     this.wsClient.broadcastLayerBlendModeChange(this.self.activeLayer, this.self.blendMode);
     this.wsClient.broadcastLayerChange(this.self.activeLayer);
     this.wsClient.broadcastThinningChange(this.self.thinning);

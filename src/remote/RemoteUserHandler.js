@@ -79,6 +79,12 @@ export class RemoteUserHandler {
     if (!user.panning && user.mousedown && radii && radii.length > 0) {
       if (user.tool === 'ink') {
         this.inkHandler.handleInkPoints(user, smoothedPoints, radii);
+      } else if (user.tool === 'pixel' || user.tool === 'imageBrush') {
+        const tool = this.toolManager.getTool(user.tool);
+        if (tool) tool.applyStamps(user, smoothedPoints);
+      } else if (user.tool === 'circleBlur' || user.tool === 'circleBlurHard') {
+        const tool = this.toolManager.getTool(user.tool);
+        if (tool) tool.applyStamps(user, smoothedPoints, radii);
       } else {
         this.penHandler.handlePenStamps(user, smoothedPoints, radii);
       }

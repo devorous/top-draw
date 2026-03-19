@@ -58,6 +58,7 @@ export class HardCircleBlurTool extends Tool {
   constructor(board) {
     super('circleBlurHard', board);
     this.lastStampPos = new Map(); // userId -> {x, y, radius}
+    this.stampBuffer = []; // [x, y, radius, x, y, radius, ...] for broadcast
   }
 
   /**
@@ -120,6 +121,7 @@ export class HardCircleBlurTool extends Tool {
           const sy = lastStamp.y + dy * t;
           const sr = lastStamp.radius + (radius - lastStamp.radius) * t;
           this.stampHardCircle(sx, sy, sr, user);
+          this.stampBuffer.push(sx, sy, sr);
 
           if (this.board.mirror) {
             const w = this.board.getWidth();
@@ -139,6 +141,29 @@ export class HardCircleBlurTool extends Tool {
   onPointerUp(user) {
     this.board.endStroke(user);
     this.lastStampPos.delete(user.id);
+  }
+
+  drainStampBuffer() {
+    const buf = this.stampBuffer;
+    this.stampBuffer = [];
+    const ps = [];
+    const rs = [];
+    for (let i = 0; i < buf.length; i += 3) {
+      ps.push(buf[i], buf[i + 1]);
+      rs.push(buf[i + 2]);
+    }
+    return { ps, rs };
+  }
+
+  applyStamps(user, ps, rs) {
+    for (let i = 0, j = 0; i < ps.length; i += 2, j++) {
+      const sx = ps[i], sy = ps[i + 1], sr = rs[j];
+      this.stampHardCircle(sx, sy, sr, user);
+      if (this.board.mirror) {
+        const w = this.board.getWidth();
+        this.stampHardCircle(w - sx, sy, sr, user);
+      }
+    }
   }
 
   /**

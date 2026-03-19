@@ -14,6 +14,7 @@ export class PixelBrushTool {
     this.board = board;
     this.lastStampPos = new Map(); // userId -> {x, y}
     this.tempCanvases = new Map(); // userId -> temp canvas for opacity handling
+    this.stampBuffer = []; // [x, y, x, y, ...] accumulated stamp positions for broadcast
   }
 
   activate() {}
@@ -84,12 +85,39 @@ export class PixelBrushTool {
           const interpX = lastStamp.x + dx * t;
           const interpY = lastStamp.y + dy * t;
           this.drawSquare(user, { x: interpX, y: interpY }, true);
+          this.stampBuffer.push(interpX, interpY);
         }
 
         this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
       }
     }
 
+    this.board.clearTop();
+    this.drawPreview(user);
+  }
+
+  /**
+   * Drains accumulated stamp positions for network broadcast.
+   * @returns {{ps: number[], rs: number[]}}
+   */
+  drainStampBuffer() {
+    const ps = this.stampBuffer;
+    this.stampBuffer = [];
+    // rs must be non-empty to trigger stamp mode on the remote side; values unused for pixel
+    const rs = Array(ps.length / 2).fill(0);
+    return { ps, rs };
+  }
+
+  /**
+   * Applies pre-computed stamp positions received from the network (remote users).
+   * Bypasses spacing recomputation entirely.
+   * @param {Object} user - The remote user.
+   * @param {number[]} ps - Flat [x, y, x, y, ...] stamp positions.
+   */
+  applyStamps(user, ps) {
+    for (let i = 0; i < ps.length; i += 2) {
+      this.drawSquare(user, { x: ps[i], y: ps[i + 1] }, true);
+    }
     this.board.clearTop();
     this.drawPreview(user);
   }
