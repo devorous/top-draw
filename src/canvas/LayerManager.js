@@ -129,9 +129,6 @@ export class LayerManager {
 
       if (i === 0) {
         const { canvas, ctx } = this._createCanvas();
-        const [r, g, b, a] = this.backgroundColor;
-        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
         group.flatCanvas = canvas;
         group.flatCtx = ctx;
       }
@@ -1323,7 +1320,7 @@ export class LayerManager {
       if (!group.visible) continue;
 
       if (group.flatCanvas) {
-        this._compositeGroupWithFlatCanvas(targetCtx, group);
+        this._compositeGroupWithFlatCanvas(targetCtx, group, backgroundColor);
       } else if (this._groupHasDestOut(group)) {
         if (this._groupHasComplexBlendModes(group)) {
           this._compositeGroupSequential(targetCtx, group);
@@ -1344,7 +1341,7 @@ export class LayerManager {
    * @param {Object} group - Layer group
    * @private
    */
-  _compositeGroupWithFlatCanvas(targetCtx, group) {
+  _compositeGroupWithFlatCanvas(targetCtx, group, bgColor = null) {
     const hasUnbaked = group.strokeStack.length > 0 || group.activeStrokeByUser.size > 0;
 
     if (!hasUnbaked) {
@@ -1355,15 +1352,20 @@ export class LayerManager {
 
     const { canvas: buffer, ctx: bufferCtx } = this._getGroupBuffer();
     bufferCtx.clearRect(0, 0, this.width, this.height);
-    const [r, g, b, a] = this.backgroundColor;
-    bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-    bufferCtx.fillRect(0, 0, this.width, this.height);
+
+    if (bgColor) {
+      const [r, g, b, a] = bgColor;
+      bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+      bufferCtx.fillRect(0, 0, this.width, this.height);
+    }
+
     bufferCtx.globalCompositeOperation = 'source-over';
     bufferCtx.drawImage(group.flatCanvas, 0, 0);
 
     for (const stroke of group.strokeStack) {
       this._compositeStroke(bufferCtx, stroke, false);
-      if (stroke.blendMode === 'destination-out') {
+      if (stroke.blendMode === 'destination-out' && bgColor) {
+        const [r, g, b, a] = bgColor;
         bufferCtx.globalCompositeOperation = 'destination-over';
         bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
         bufferCtx.fillRect(0, 0, this.width, this.height);
@@ -1373,16 +1375,20 @@ export class LayerManager {
 
     for (const [, active] of group.activeStrokeByUser) {
       this._compositeStroke(bufferCtx, active, true);
-      if (active.blendMode === 'destination-out') {
+      if (active.blendMode === 'destination-out' && bgColor) {
+        const [r, g, b, a] = bgColor;
         bufferCtx.globalCompositeOperation = 'destination-over';
         bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
         bufferCtx.fillRect(0, 0, this.width, this.height);
       }
     }
 
-    bufferCtx.globalCompositeOperation = 'destination-over';
-    bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-    bufferCtx.fillRect(0, 0, this.width, this.height);
+    if (bgColor) {
+      const [r, g, b, a] = bgColor;
+      bufferCtx.globalCompositeOperation = 'destination-over';
+      bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+      bufferCtx.fillRect(0, 0, this.width, this.height);
+    }
 
     bufferCtx.globalCompositeOperation = 'source-over';
 
@@ -1564,9 +1570,6 @@ export class LayerManager {
       group.activeStrokeByUser.clear();
       if (group.flatCanvas) {
         group.flatCtx.clearRect(0, 0, this.width, this.height);
-        const [r, g, b, a] = this.backgroundColor;
-        group.flatCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-        group.flatCtx.fillRect(0, 0, this.width, this.height);
       }
       this.needsComposite = true;
       this._notifyHistoryPanel();
@@ -1632,9 +1635,6 @@ export class LayerManager {
         tempFlat.getContext('2d').drawImage(group.flatCanvas, 0, 0);
         group.flatCanvas.width = width;
         group.flatCanvas.height = height;
-        const [r, g, b, a] = this.backgroundColor;
-        group.flatCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-        group.flatCtx.fillRect(0, 0, width, height);
         group.flatCtx.drawImage(tempFlat, 0, 0);
       }
     }
