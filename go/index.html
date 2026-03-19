@@ -218,18 +218,14 @@
 
             <div class="saveUploadGroup">
               <a class="btn" id="uploadBtn" title="Upload Image">
-                <span class="btnText">Upload Image</span>
+                <span class="btnText">Upload</span>
                 <span class="btnIcon" style="display: none;"><img src="/images/upload-icon.svg" alt="Upload"></span>
               </a>
               <input type="file" id="imageUploadInput" accept="image/*" style="display: none;">
 
               <a class="btn" id="saveBtn" title="Save Image">
-                <span class="btnText">Save Image</span>
+                <span class="btnText">Save</span>
                 <span class="btnIcon" style="display: none;"><img src="/images/download-icon.svg" alt="Save"></span>
-              </a>
-
-              <a class="btn authOnly" id="galleryBtn" title="Save to Gallery" style="display: none;">
-                <span class="btnText">To Gallery</span>
               </a>
             </div>
 
@@ -279,6 +275,46 @@
             <div class="roomSettingsFooter">
               <button class="btn secondary" id="roomSettingsCancelBtn">Cancel</button>
               <button class="btn primary" id="roomSettingsSaveBtn">Save</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Save Mode Overlay -->
+        <div id="saveModeOverlay" class="saveModeOverlay" style="display: none;">
+          <div class="saveModePanel">
+            <div class="saveModePanelHeader">
+              <span>Save Image</span>
+              <button class="closeBtn" id="saveModeCloseBtn">&times;</button>
+            </div>
+            <div class="saveModePanelBody">
+              <div class="saveModeSection">
+                <span class="saveModeSectionLabel">Area</span>
+                <div class="saveModeRadioGroup">
+                  <label class="saveModeRadio">
+                    <input type="radio" name="saveArea" id="saveAreaBoard" value="board" checked>
+                    <span>Entire Canvas</span>
+                  </label>
+                  <label class="saveModeRadio" id="saveAreaSelectionLabel">
+                    <input type="radio" name="saveArea" id="saveAreaSelection" value="selection">
+                    <span>Selection</span>
+                  </label>
+                </div>
+              </div>
+              <div class="saveModeSection">
+                <label class="saveModeCheckbox">
+                  <input type="checkbox" id="saveTransparent">
+                  <span>Transparent Background</span>
+                </label>
+              </div>
+            </div>
+            <div class="saveModePanelFooter">
+              <div class="saveModeGallery" id="saveModeGallery" style="display: none;">
+                <button class="btn secondary" id="saveToGalleryBtn">Save to Gallery</button>
+              </div>
+              <div class="saveModeActions">
+                <button class="btn secondary" id="saveModeCancelBtn">Cancel</button>
+                <button class="btn primary" id="saveLocallyBtn">Save Locally</button>
+              </div>
             </div>
           </div>
         </div>

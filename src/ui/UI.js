@@ -127,7 +127,17 @@ export class UI {
 
       chatBtn: document.getElementById('chatBtn'),
       saveBtn: document.getElementById('saveBtn'),
-      galleryBtn: document.getElementById('galleryBtn'),
+
+      saveModeOverlay: document.getElementById('saveModeOverlay'),
+      saveModeCloseBtn: document.getElementById('saveModeCloseBtn'),
+      saveModeCancelBtn: document.getElementById('saveModeCancelBtn'),
+      saveAreaBoard: document.getElementById('saveAreaBoard'),
+      saveAreaSelection: document.getElementById('saveAreaSelection'),
+      saveAreaSelectionLabel: document.getElementById('saveAreaSelectionLabel'),
+      saveTransparent: document.getElementById('saveTransparent'),
+      saveModeGallery: document.getElementById('saveModeGallery'),
+      saveToGalleryBtn: document.getElementById('saveToGalleryBtn'),
+      saveLocallyBtn: document.getElementById('saveLocallyBtn'),
 
       sizeSlider: document.querySelector('.slider.size'),
       spacingSlider: document.querySelector('.slider.spacing'),

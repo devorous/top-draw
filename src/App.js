@@ -437,8 +437,14 @@ export class DrawingApp {
     elements.plusBtn.addEventListener('click', () => this.handleZoomIn());
     elements.minusBtn.addEventListener('click', () => this.handleZoomOut());
     elements.rotationResetBtn.addEventListener('click', () => this.handleResetBoard());
-    elements.saveBtn.addEventListener('click', () => this.board.saveAsImage());
-    if (elements.galleryBtn) elements.galleryBtn.addEventListener('click', () => this.handleSaveToGallery());
+    elements.saveBtn.addEventListener('click', () => this.openSaveDialog());
+    if (elements.saveModeCloseBtn) elements.saveModeCloseBtn.addEventListener('click', () => this.closeSaveDialog());
+    if (elements.saveModeCancelBtn) elements.saveModeCancelBtn.addEventListener('click', () => this.closeSaveDialog());
+    if (elements.saveModeOverlay) elements.saveModeOverlay.addEventListener('click', (e) => {
+      if (e.target === elements.saveModeOverlay) this.closeSaveDialog();
+    });
+    if (elements.saveLocallyBtn) elements.saveLocallyBtn.addEventListener('click', () => this.performSave(true));
+    if (elements.saveToGalleryBtn) elements.saveToGalleryBtn.addEventListener('click', () => this.performSave(false));
 
     // Undo/Redo HUD buttons
     if (elements.hudUndoBtn) elements.hudUndoBtn.addEventListener('click', () => this.handleUndo());
@@ -1412,32 +1418,103 @@ export class DrawingApp {
   }
 
   /**
-   * Shows or hides the "Save to Gallery" button based on auth role.
+   * Shows or hides the "Save to Gallery" section in the save overlay based on auth role.
    * @param {number} role - The user's role level.
    */
   updateGalleryButtonVisibility(role) {
-    const btn = this.ui.elements.galleryBtn;
-    if (!btn) return;
-    btn.style.display = role >= 1 ? '' : 'none';
+    const el = this.ui.elements.saveModeGallery;
+    if (!el) return;
+    el.style.display = role >= 1 ? '' : 'none';
+  }
+
+  /** Opens the save mode overlay, enabling the selection option only if a selection is active. */
+  openSaveDialog() {
+    const { saveModeOverlay, saveAreaBoard, saveAreaSelection, saveAreaSelectionLabel } = this.ui.elements;
+    if (!saveModeOverlay) return;
+    const hasSelection = !!this.toolManager.tools.select?.selection;
+    if (saveAreaSelection) saveAreaSelection.disabled = !hasSelection;
+    if (saveAreaSelectionLabel) saveAreaSelectionLabel.style.opacity = hasSelection ? '' : '0.4';
+    if (saveAreaSelectionLabel) saveAreaSelectionLabel.style.cursor = hasSelection ? '' : 'not-allowed';
+    if (!hasSelection && saveAreaBoard) saveAreaBoard.checked = true;
+    saveModeOverlay.style.display = 'flex';
+  }
+
+  /** Closes the save mode overlay. */
+  closeSaveDialog() {
+    const { saveModeOverlay } = this.ui.elements;
+    if (saveModeOverlay) saveModeOverlay.style.display = 'none';
   }
 
   /**
-   * Exports the current canvas and uploads it to the gallery.
+   * Performs the save action from the save mode overlay.
+   * @param {boolean} locally - If true, downloads the file. If false, uploads to gallery.
+   */
+  async performSave(locally) {
+    const { saveAreaSelection, saveTransparent } = this.ui.elements;
+    const isSelection = saveAreaSelection?.checked;
+    const transparent = saveTransparent?.checked ?? false;
+
+    if (isSelection) {
+      const selectTool = this.toolManager.tools.select;
+      let canvas = selectTool?.getSelectionExportCanvas();
+      if (!canvas) { this.ui.showToast('No active selection'); return; }
+
+      if (!transparent) {
+        const out = document.createElement('canvas');
+        out.width = canvas.width;
+        out.height = canvas.height;
+        const ctx = out.getContext('2d');
+        const [r, g, b, a] = this.board.backgroundColor;
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+        ctx.fillRect(0, 0, out.width, out.height);
+        ctx.drawImage(canvas, 0, 0);
+        canvas = out;
+      }
+
+      if (locally) {
+        const link = document.createElement('a');
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+        link.download = `selection-${ts}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        this.ui.showToast('Selection saved!');
+      } else {
+        await this.handleSaveToGallery(canvas);
+      }
+    } else {
+      const canvas = this.board.getExportCanvas(transparent);
+
+      if (locally) {
+        const link = document.createElement('a');
+        link.download = `${new Date().toString().slice(0, 24)}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      } else {
+        await this.handleSaveToGallery(canvas);
+      }
+    }
+
+    this.closeSaveDialog();
+  }
+
+  /**
+   * Uploads a canvas to the gallery. Uses mainCanvas if no canvas is provided.
+   * @param {HTMLCanvasElement} [canvas]
    * @async
    */
-  async handleSaveToGallery() {
+  async handleSaveToGallery(canvas) {
     const token = localStorage.getItem('topDrawAuthToken');
     if (!token) {
       this.ui.showToast('Log in to save to the gallery');
       return;
     }
 
-    const btn = this.ui.elements.galleryBtn;
-    const originalText = btn?.querySelector('.btnText')?.textContent;
-    if (btn?.querySelector('.btnText')) btn.querySelector('.btnText').textContent = 'Saving...';
+    const btn = this.ui.elements.saveToGalleryBtn;
+    const originalText = btn?.textContent;
+    if (btn) btn.textContent = 'Saving...';
 
     try {
-      const imageData = this.board.mainCanvas.toDataURL('image/png');
+      const imageData = (canvas ?? this.board.mainCanvas).toDataURL('image/png');
       const res = await fetch('/api/gallery/upload', {
         method: 'POST',
         headers: {
@@ -1457,9 +1534,7 @@ export class DrawingApp {
       console.error('[Gallery] Save error:', err);
       this.ui.showToast(`Gallery save failed: ${err.message}`);
     } finally {
-      if (btn?.querySelector('.btnText') && originalText) {
-        btn.querySelector('.btnText').textContent = originalText;
-      }
+      if (btn && originalText) btn.textContent = originalText;
     }
   }
 

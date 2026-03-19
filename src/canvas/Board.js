@@ -998,6 +998,21 @@ export class Board {
   }
 
   /**
+   * Returns a canvas representing the full board for export.
+   * @param {boolean} transparent - If true, omits the background fill (transparent PNG).
+   * @returns {HTMLCanvasElement}
+   */
+  getExportCanvas(transparent) {
+    if (!transparent) return this.mainCanvas;
+    const [height, width] = this.dimensions;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    this.layerManager.compositeLayerRange(canvas.getContext('2d'), 0, this.layerManager.getLayerCount(), null);
+    return canvas;
+  }
+
+  /**
    * Save the main canvas as a PNG image
    */
   saveAsImage() {

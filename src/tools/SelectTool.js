@@ -2710,35 +2710,31 @@ export class SelectTool extends Tool {
     return true;
   }
 
-  // Save selection as image file
-  saveSelection() {
-    if (!this.selection) return false;
+  // Returns a canvas of the current selection content (transparent background).
+  // Returns null if no selection is active.
+  getSelectionExportCanvas() {
+    if (!this.selection) return null;
 
-    let canvas;
-
-    // Get the selection image
     if (this.floatingCanvas) {
-      // If transformed/warped, get the transformed version
       if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
-        canvas = this.getTransformedCanvas();
-      } else {
-        // Use floating canvas as-is
-        canvas = this.floatingCanvas;
+        return this.getTransformedCanvas();
       }
-    } else {
-      // Selection not lifted yet - copy from canvas
-      const s = this.selection;
-      canvas = this._flattenSelectionToCanvas(s);
-
-      // Apply lasso mask if in lasso mode
-      if (this.mode === 'lasso' && this.lassoPath) {
-        this.applyLassoMask(canvas.getContext('2d'), s.x, s.y, this.lassoPath);
-      }
+      return this.floatingCanvas;
     }
 
+    const s = this.selection;
+    const canvas = this._flattenSelectionToCanvas(s);
+    if (this.mode === 'lasso' && this.lassoPath) {
+      this.applyLassoMask(canvas.getContext('2d'), s.x, s.y, this.lassoPath);
+    }
+    return canvas;
+  }
+
+  // Save selection as image file
+  saveSelection() {
+    const canvas = this.getSelectionExportCanvas();
     if (!canvas) return false;
 
-    // Convert to data URL and trigger download
     const dataURL = canvas.toDataURL('image/png');
     const link = document.createElement('a');
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
@@ -2746,7 +2742,6 @@ export class SelectTool extends Tool {
     link.href = dataURL;
     link.click();
 
-    // Show toast notification
     if (this.board.app?.ui) {
       this.board.app.ui.showToast('Selection saved!');
     }
