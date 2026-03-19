@@ -1,5 +1,6 @@
 import { LayerManager } from './LayerManager.js';
 import { PerformanceMonitor } from './PerformanceMonitor.js';
+import { TileGrid } from './TileGrid.js';
 
 /**
  * @fileoverview Board class managing canvas elements and viewport
@@ -49,6 +50,9 @@ export class Board {
     this.MAX_DIRTY_RECTS = 20;
     this.DIRTY_RECT_MERGE_DISTANCE = 20;
 
+    /** @type {TileGrid|null} Tile-based dirty tracking (initialized in init()) */
+    this.tileGrid = null;
+
     /** @type {number} Target render FPS (0 = uncapped/on-demand) */
     this.targetFPS = 0;
     /** @type {number} DOMHighResTimeStamp of the last completed composite */
@@ -97,6 +101,8 @@ export class Board {
     const [height, width] = this.dimensions;
     this.layerManager = new LayerManager(width, height);
     this.layerManager.onNeedsUpdate = () => this.requestUpdate();
+
+    this.tileGrid = new TileGrid(width, height);
 
     this.calculateDefaultView();
     this.resetView();
@@ -400,6 +406,7 @@ export class Board {
 
     if (this.layerManager) {
       this.layerManager.clearAll();
+      if (this.tileGrid) this.tileGrid.markAllDirty();
       this.compositeAllLayers();
     } else {
       this.mainCtx.clearRect(0, 0, width, height);
@@ -546,6 +553,7 @@ export class Board {
     this.layerManager._expandDirtyRect(active.dirtyRect, x, y, width, height);
 
     this._addOrMergeDirtyRect(x, y, width, height);
+    if (this.tileGrid) this.tileGrid.markDirty(x, y, width, height);
 
     if (this.app?.debugOverlay) {
       const username = user?.username ?? this.app?.self?.username ?? `User ${userId}`;
@@ -573,6 +581,7 @@ export class Board {
       this.layerManager._expandDirtyRect(active.dirtyRect, x, y, width, height);
     }
     this._addOrMergeDirtyRect(x, y, width, height);
+    if (this.tileGrid) this.tileGrid.markDirty(x, y, width, height);
     if (this.app?.debugOverlay) {
       const username = user?.username ?? this.app?.self?.username ?? `User ${userId}`;
       this.app.debugOverlay.expandUserRegion(userId, username, x, y, width, height);
@@ -707,6 +716,7 @@ export class Board {
         }
       }
     }
+    if (this.tileGrid) this.tileGrid.markAllDirty();
     this.clearTop();
     this.compositeAllLayers();
   }
@@ -728,6 +738,7 @@ export class Board {
       }
     }
     this.layerManager.redoLastStroke(userId);
+    if (this.tileGrid) this.tileGrid.markAllDirty();
     this.clearTop();
     this.compositeAllLayers();
   }
@@ -802,13 +813,21 @@ export class Board {
     const totalLayers = this.layerManager.getLayerCount();
     const [height, width] = this.dimensions;
 
-    const dirtyRects = this._dirtyRects.slice();
+    // Prefer tile grid rects; fall back to legacy bounding-box array
+    let dirtyRects;
+    if (this.tileGrid && this.tileGrid.isDirty()) {
+      dirtyRects = this.tileGrid.getDirtyRects();
+      this.tileGrid.clear();
+      // Also drain the legacy array so it doesn't accumulate
+      this._dirtyRects = [];
+    } else {
+      dirtyRects = this._dirtyRects.slice();
+      this._dirtyRects = [];
+    }
 
     if (this.app?.debugOverlay) {
       this.app.debugOverlay.captureDirtyRects(dirtyRects);
     }
-
-    this._dirtyRects = [];
 
     const activeGroup = this.layerManager.getLayerGroup(activeLayerIdx);
     const isDrawing = activeGroup?.activeStrokeByUser?.has(userId) ?? false;

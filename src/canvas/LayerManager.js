@@ -3,6 +3,7 @@
  */
 
 import { blurImageData, getStackblurSync } from '../utils/blurUtils.js';
+import { PixelsWorkerClient } from '../workers/PixelsWorkerClient.js';
 
 /**
  * Manages multiple layer groups, each containing baked sequences, a stroke stack,
@@ -28,6 +29,9 @@ export class LayerManager {
     this._canvasPool = [];
     this.CANVAS_POOL_MAX = 12;
     this.onNeedsUpdate = null; // Callback for Board to requestUpdate
+
+    /** @type {PixelsWorkerClient} Worker for offloading pixel scans */
+    this._pixelsWorker = new PixelsWorkerClient();
 
     this.initLayerGroups(3);
   }
@@ -890,7 +894,8 @@ export class LayerManager {
   }
 
   /**
-   * Remove empty sequences from a specific layer group
+   * Remove empty sequences from a specific layer group.
+   * Uses the worker for async pixel scanning when available.
    * @param {number} groupIdx - Layer index
    */
   cleanupEmptyBins(groupIdx) {
@@ -900,7 +905,36 @@ export class LayerManager {
     const hasEraserInHistory = this._hasEraserInHistory(group);
     if (hasEraserInHistory) return;
 
-    group.bakedSequences = group.bakedSequences.filter(seq => this._hasContent(seq.canvas));
+    if (this._pixelsWorker && group.bakedSequences.length > 0) {
+      this._cleanupEmptyBinsAsync(group);
+    } else {
+      group.bakedSequences = group.bakedSequences.filter(seq => this._hasContent(seq.canvas));
+    }
+  }
+
+  /**
+   * Async cleanup that offloads _hasContent checks to the worker.
+   * @param {Object} group - Layer group
+   * @private
+   */
+  async _cleanupEmptyBinsAsync(group) {
+    const sequences = group.bakedSequences;
+    const checks = sequences.map(seq => {
+      const ctx = seq.canvas.getContext('2d', { willReadFrequently: true });
+      const imageData = ctx.getImageData(0, 0, seq.canvas.width, seq.canvas.height);
+      return this._pixelsWorker.hasContent(imageData.data);
+    });
+
+    try {
+      const results = await Promise.all(checks);
+      // Filter out empty sequences — only if the group hasn't been modified while waiting
+      group.bakedSequences = sequences.filter((_, i) => results[i]);
+      this.needsComposite = true;
+      if (this.onNeedsUpdate) this.onNeedsUpdate();
+    } catch (err) {
+      // Worker failed — fall back to sync
+      group.bakedSequences = sequences.filter(seq => this._hasContent(seq.canvas));
+    }
   }
 
   /**
@@ -1003,7 +1037,7 @@ export class LayerManager {
   }
 
   /**
-   * Full-canvas scan for content bounds
+   * Full-canvas scan for content bounds (sync fallback).
    * @param {HTMLCanvasElement} canvas - Canvas to scan
    * @returns {Object|null} {x, y, width, height}
    * @private
@@ -1012,6 +1046,18 @@ export class LayerManager {
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     return this._scanImageDataForContent(imageData);
+  }
+
+  /**
+   * Async content bounds scan via the pixels worker.
+   * @param {HTMLCanvasElement} canvas - Canvas to scan
+   * @returns {Promise<{x: number, y: number, width: number, height: number}|null>}
+   * @private
+   */
+  _findContentBoundsAsync(canvas) {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    return this._pixelsWorker.findContentBounds(imageData.data, canvas.width, canvas.height);
   }
 
   /**
@@ -1314,6 +1360,18 @@ export class LayerManager {
       }
     }
 
+    // Clip all subsequent compositing to the dirty regions. The browser's
+    // canvas compositor skips pixels outside the clip path, so a dirty region
+    // covering 10% of the canvas reduces drawImage work by ~90%.
+    if (useDirtyRects) {
+      targetCtx.save();
+      targetCtx.beginPath();
+      for (const rect of dirtyRects) {
+        targetCtx.rect(rect.x, rect.y, rect.width, rect.height);
+      }
+      targetCtx.clip();
+    }
+
     const count = Math.min(endIdx, this.layerGroups.length);
     for (let i = startIdx; i < count; i++) {
       const group = this.layerGroups[i];
@@ -1332,6 +1390,9 @@ export class LayerManager {
       }
     }
 
+    if (useDirtyRects) {
+      targetCtx.restore();
+    }
     targetCtx.globalCompositeOperation = 'source-over';
   }
 

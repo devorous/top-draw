@@ -12,6 +12,7 @@
     "server": "node server/index.js",
     "start": "node server/index.js",
     "brushes": "node scripts/generate-brush-manifest.js",
+    "build:wasm": "bash wasm/build.sh",
     "docs": "jsdoc -r src server shared -d docs/jsdocs"
   },
   "devDependencies": {
