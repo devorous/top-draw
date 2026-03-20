@@ -11,6 +11,7 @@ import { InkdropperTool } from './InkdropperTool.js';
 import { BlurTool } from './BlurTool.js';
 import { CircleBlurTool } from './CircleBlurTool.js';
 import { HardCircleBlurTool } from './HardCircleBlurTool.js';
+import { GlitchBlurTool } from './GlitchBlurTool.js';
 import { PanTool } from './PanRotateTool.js';
 import { RotateTool } from './RotateTool.js';
 import { FloodFillTool } from './FloodFillTool.js';
@@ -65,6 +66,7 @@ export class ToolManager {
       blur: new BlurTool(board),
       circleBlur: new CircleBlurTool(board),
       circleBlurHard: new HardCircleBlurTool(board),
+      glitchBlur: new GlitchBlurTool(board),
       pan: new PanTool(board),
       rotate: new RotateTool(board),
       fill: new FloodFillTool(board)

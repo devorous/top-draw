@@ -418,6 +418,7 @@ export class DrawingApp {
       const tool = checked && checked.value === 'hard' ? 'circleBlurHard' : 'circleBlur';
       this.selectTool(tool);
     });
+    elements.glitchBlurBtn.addEventListener('click', () => this.selectTool('glitchBlur'));
     elements.imageBrushBtn.addEventListener('click', () => this.selectTool('imageBrush'));
     elements.uploadBtn.addEventListener('click', () => elements.imageUploadInput.click());
     elements.imageUploadInput.addEventListener('change', (e) => {
@@ -511,6 +512,7 @@ export class DrawingApp {
     if (elements.blurRadiusSlider) {
       elements.blurRadiusSlider.addEventListener('input', (e) => this.handleBlurRadiusChange(e));
     }
+
     elements.brushFileInput.addEventListener('change', (e) => this.handleBrushFileLoad(e));
 
     if (elements.thinningSlider) {
@@ -1767,14 +1769,14 @@ export class DrawingApp {
    * @private
    */
   _updateBlurCannotDraw() {
-    const cannotDraw = this.self.tool === 'blur' && this.self.activeLayer !== 0;
+    const cannotDraw = (this.self.tool === 'blur' || this.self.tool === 'glitchBlur') && this.self.activeLayer !== 0;
     this._blurCannotDraw = cannotDraw;
     // Reuse the muted indicator visuals (only if not actually muted)
     if (!this.self.isMuted) {
       this.ui.setMutedState(cannotDraw);
     }
     // Hide the square cursor and show crosshair-style muted indicator instead
-    if (this.self.tool === 'blur') {
+    if (this.self.tool === 'blur' || this.self.tool === 'glitchBlur') {
       this.ui.elements.selfSquare.style.display = cannotDraw ? 'none' : 'block';
     }
   }
@@ -1881,7 +1883,7 @@ export class DrawingApp {
     this.ui.updateCursorSize(size);
     this.ui.updateSquarePositions(size);
     // Update pressure indicators only for tools that use pressure
-    const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'circleBlurHard'];
+    const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'circleBlurHard', 'glitchBlur'];
     if (pressureTools.includes(this.self.tool)) {
       this.ui.updatePressureCursorRadius(this.self.pressure * size, size);
     }
@@ -2125,7 +2127,7 @@ export class DrawingApp {
       }
 
       // Update pressure indicators only for tools that use pressure
-      const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'circleBlurHard'];
+      const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'circleBlurHard', 'glitchBlur'];
       if (pressureTools.includes(this.self.tool)) {
         this.ui.updatePressureCursorRadius(pressure * this.self.size, this.self.size);
       }

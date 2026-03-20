@@ -56,7 +56,7 @@ static const uint8_t shg_table[256] = {
  * @param height Image height in pixels
  * @param radius Blur radius (1-255)
  */
-void stackblur_rgba(uint8_t* data, int width, int height, int radius) {
+void stackblur_rgba_glitch(uint8_t* data, int width, int height, int radius) {
     if (radius < 1 || radius > 255) return;
 
     const int div = radius + radius + 1;
@@ -249,11 +249,9 @@ void stackblur_rgba(uint8_t* data, int width, int height, int radius) {
             stack_a[i] = pa;
         }
 
+        yp = width;
         for (i = 1; i <= radius; i++) {
-            int y_coord = i;
-            if (y_coord > heightMinus1) y_coord = heightMinus1;
-            yi = (y_coord * width + x) << 2;
-            
+            yi = (yp + x) << 2;
             pr = data[yi];
             pg = data[yi + 1];
             pb = data[yi + 2];
@@ -274,6 +272,10 @@ void stackblur_rgba(uint8_t* data, int width, int height, int radius) {
             stack_g[i + radius] = pg;
             stack_b[i + radius] = pb;
             stack_a[i + radius] = pa;
+
+            if (i < heightMinus1) {
+                yp += width;
+            }
         }
 
         yi = x;

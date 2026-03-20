@@ -82,11 +82,12 @@ export class CircleBlurTool extends Tool {
     this.board.beginStroke(user);
     const radius = user.pressure * user.size;
 
-    this.stampBlurredCircle(pos.x, pos.y, radius, user);
+    // Fire async blur without blocking
+    this.stampBlurredCircle(pos.x, pos.y, radius, user).catch(err => console.error('Blur failed:', err));
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
-      this.stampBlurredCircle(width - pos.x, pos.y, radius, user);
+      this.stampBlurredCircle(width - pos.x, pos.y, radius, user).catch(err => console.error('Blur failed:', err));
     }
 
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
@@ -110,7 +111,7 @@ export class CircleBlurTool extends Tool {
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       const avgRadius = (lastStamp.radius + radius) / 2;
-      const spacingPercent = 0.3 + user.spacing * 0.035; 
+      const spacingPercent = 0.3 + user.spacing * 0.035;
       const minSpacing = Math.max(5, avgRadius * spacingPercent);
 
       if (distance >= minSpacing) {
@@ -120,12 +121,13 @@ export class CircleBlurTool extends Tool {
           const sx = lastStamp.x + dx * t;
           const sy = lastStamp.y + dy * t;
           const sr = lastStamp.radius + (radius - lastStamp.radius) * t;
-          this.stampBlurredCircle(sx, sy, sr, user);
+          // Fire async blur without blocking the drawing loop
+          this.stampBlurredCircle(sx, sy, sr, user).catch(err => console.error('Blur failed:', err));
           this.stampBuffer.push(sx, sy, sr);
 
           if (this.board.mirror) {
             const w = this.board.getWidth();
-            this.stampBlurredCircle(w - sx, sy, sr, user);
+            this.stampBlurredCircle(w - sx, sy, sr, user).catch(err => console.error('Blur failed:', err));
           }
         }
 
@@ -168,22 +170,24 @@ export class CircleBlurTool extends Tool {
   applyStamps(user, ps, rs) {
     for (let i = 0, j = 0; i < ps.length; i += 2, j++) {
       const sx = ps[i], sy = ps[i + 1], sr = rs[j];
-      this.stampBlurredCircle(sx, sy, sr, user);
+      // Fire async blur without blocking
+      this.stampBlurredCircle(sx, sy, sr, user).catch(err => console.error('Blur failed:', err));
       if (this.board.mirror) {
         const w = this.board.getWidth();
-        this.stampBlurredCircle(w - sx, sy, sr, user);
+        this.stampBlurredCircle(w - sx, sy, sr, user).catch(err => console.error('Blur failed:', err));
       }
     }
   }
 
   /**
    * Stamp a heavily-blurred circle from board.mainCanvas onto the active stroke canvas.
+   * Uses WASM blur for Firefox performance. Falls back to CSS filter if needed.
    * @param {number} x - Center x-coordinate.
    * @param {number} y - Center y-coordinate.
    * @param {number} radius - Stamp radius.
    * @param {Object} user - The user performing the action.
    */
-  stampBlurredCircle(x, y, radius, user) {
+  async stampBlurredCircle(x, y, radius, user) {
     const canvasWidth = this.board.getWidth();
     const canvasHeight = this.board.getHeight();
 
@@ -211,7 +215,7 @@ export class CircleBlurTool extends Tool {
 
       if (!this._stampCanvas) {
         this._stampCanvas = document.createElement('canvas');
-        this._stampCtx = this._stampCanvas.getContext('2d');
+        this._stampCtx = this._stampCanvas.getContext('2d', { willReadFrequently: true });
       }
       this._stampCanvas.width = width;
       this._stampCanvas.height = height;
@@ -223,9 +227,34 @@ export class CircleBlurTool extends Tool {
       this._stampCtx.beginPath();
       this._stampCtx.arc(cx, cy, radius, 0, Math.PI * 2);
       this._stampCtx.clip();
-      this._stampCtx.filter = `blur(${blurRadius}px)`;
+
+      // Draw source image to canvas
       this._stampCtx.drawImage(this.board.mainCanvas, left, top, width, height, 0, 0, width, height);
-      this._stampCtx.filter = 'none';
+
+      // Apply WASM blur if available, otherwise fall back to CSS filter
+      const layerManager = this.board.layerManager;
+      if (layerManager && layerManager._pixelsWorker) {
+        try {
+          const imageData = this._stampCtx.getImageData(0, 0, width, height);
+          const blurred = await layerManager._pixelsWorker.blur(imageData.data, width, height, Math.ceil(blurRadius));
+          if (blurred) {
+            imageData.data.set(blurred);
+            this._stampCtx.putImageData(imageData, 0, 0);
+          }
+        } catch (err) {
+          console.warn('WASM blur failed, falling back to CSS filter:', err);
+          // Fallback: use CSS filter
+          this._stampCtx.filter = `blur(${blurRadius}px)`;
+          this._stampCtx.drawImage(this.board.mainCanvas, left, top, width, height, 0, 0, width, height);
+          this._stampCtx.filter = 'none';
+        }
+      } else {
+        // No WASM available, use CSS filter
+        this._stampCtx.filter = `blur(${blurRadius}px)`;
+        this._stampCtx.drawImage(this.board.mainCanvas, left, top, width, height, 0, 0, width, height);
+        this._stampCtx.filter = 'none';
+      }
+
       this._stampCtx.restore();
 
       if (hardness < 1.0) {

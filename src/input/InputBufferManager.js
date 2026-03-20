@@ -192,7 +192,7 @@ export class InputBufferManager {
 
     if (points.length >= 2) {
       const smoothingTools = ['brush', 'flowPen', 'ink', 'imageBrush', 'erase'];
-      const blurTools = ['blur', 'circleBlur', 'circleBlurHard'];
+      const blurTools = ['blur', 'circleBlur', 'circleBlurHard', 'glitchBlur'];
       const useSmoothing = app.self.mousedown && !app.self.panning && smoothingTools.includes(app.self.tool);
       const useBlur = app.self.mousedown && !app.self.panning && blurTools.includes(app.self.tool);
 

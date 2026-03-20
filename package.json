@@ -13,7 +13,8 @@
     "start": "node server/index.js",
     "brushes": "node scripts/generate-brush-manifest.js",
     "build:wasm": "bash wasm/build.sh",
-    "docs": "jsdoc -r src server shared -d docs/jsdocs"
+    "docs": "jsdoc -r src server shared -d docs/jsdocs",
+    "wasm": "wasm-pack build wasm_src --target web --out-dir ../src/wasm_output/"
   },
   "devDependencies": {
     "concurrently": "^8.2.0",

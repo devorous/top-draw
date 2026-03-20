@@ -2,8 +2,9 @@
  * @fileoverview LayerManager - Manages multiple off-screen canvas layers with stroke history
  */
 
-import { blurImageData, getStackblurSync } from '../utils/blurUtils.js';
 import { PixelsWorkerClient } from '../workers/PixelsWorkerClient.js';
+import { blurImageData, getStackblurSync } from '../utils/blurUtils.js';
+
 
 /**
  * Manages multiple layer groups, each containing baked sequences, a stroke stack,
@@ -29,9 +30,10 @@ export class LayerManager {
     this._canvasPool = [];
     this.CANVAS_POOL_MAX = 12;
     this.onNeedsUpdate = null; // Callback for Board to requestUpdate
-
-    /** @type {PixelsWorkerClient} Worker for offloading pixel scans */
     this._pixelsWorker = new PixelsWorkerClient();
+    
+
+
 
     this.initLayerGroups(3);
   }
@@ -204,7 +206,7 @@ export class LayerManager {
         dirtyRect: { minX: this.width, minY: this.height, maxX: -1, maxY: -1 },
         ...metadata
       };
-      if (metadata.filterType === 'blur') {
+      if (metadata.filterType === 'blur' || metadata.filterType === 'glitchBlur') {
         active.maskCanvas = canvas;
       }
       group.activeStrokeByUser.set(userId, active);
@@ -230,7 +232,7 @@ export class LayerManager {
     group.activeStrokeByUser.delete(userId);
 
     // Handle filter strokes (blur) differently - they need metadata and potentially special rendering
-    if (extraProps.filterType === 'blur') {
+    if (extraProps.filterType === 'blur' || extraProps.filterType === 'glitchBlur') {
       const cropBounds = extraProps.cropBounds || { x: 0, y: 0, width: this.width, height: this.height };
       const record = {
         canvas: active.canvas,
@@ -242,7 +244,7 @@ export class LayerManager {
         blendMode: active.blendMode,
         userId,
         timestamp: Date.now(),
-        filterType: 'blur',
+        filterType: extraProps.filterType,
         blurRadius: extraProps.blurRadius,
         maskCanvas: active.canvas
       };
@@ -673,7 +675,7 @@ export class LayerManager {
    */
   _bakeStrokeToBin(group, stroke) {
     // Handle blur filter strokes specially - resolve to actual pixels
-    if (stroke.filterType === 'blur') {
+    if (stroke.filterType === 'blur' || stroke.filterType === 'glitchBlur') {
       this._bakeBlurStroke(group, stroke);
       return;
     }
@@ -1237,7 +1239,7 @@ export class LayerManager {
    * @private
    */
   _compositeStroke(ctx, stroke, isActive = false) {
-    if (stroke.filterType === 'blur') {
+    if (stroke.filterType === 'blur' || stroke.filterType === 'glitchBlur') {
       this._applyBlurFilter(ctx, stroke, isActive);
     } else {
       ctx.globalCompositeOperation = stroke.blendMode;
@@ -1327,9 +1329,11 @@ export class LayerManager {
 
       const imageData = tCtxForAsync.getImageData(0, 0, cropW, cropH);
 
+      const useGlitch = filterStroke.filterType === 'glitchBlur';
+
       // Offload blur to the pixels worker (runs stackblur off the main thread)
-      this._pixelsWorker.blur(imageData.data, cropW, cropH, blurRadius).then(blurredData => {
-        tCtxForAsync.putImageData(new ImageData(blurredData, cropW, cropH), 0, 0);
+      this._pixelsWorker.blur(imageData.data, cropW, cropH, blurRadius, useGlitch).then(blurredData => {
+        tCtxForAsync.putImageData(new ImageData(new Uint8ClampedArray(blurredData.buffer), cropW, cropH), 0, 0);
 
         const composite = document.createElement('canvas');
         composite.width = cropW;
@@ -1345,7 +1349,7 @@ export class LayerManager {
         if (this.onNeedsUpdate) this.onNeedsUpdate();
       }).catch(() => {
         // Fallback to main-thread blur if worker fails
-        blurImageData(imageData, cropW, cropH, blurRadius).then(blurred => {
+        blurImageData(imageData, cropW, cropH, blurRadius, useGlitch).then(blurred => {
           tCtxForAsync.putImageData(blurred, 0, 0);
 
           const composite = document.createElement('canvas');
@@ -1553,7 +1557,7 @@ export class LayerManager {
    * @private
    */
   _compositeStrokeSequential(ctx, stroke, lowerSnap, isActive = false) {
-    if (stroke.filterType === 'blur') {
+    if (stroke.filterType === 'blur' || stroke.filterType === 'glitchBlur') {
       this._applyBlurFilter(ctx, stroke, isActive);
       return;
     }

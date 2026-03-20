@@ -98,6 +98,7 @@ export class UI {
       eraseBtn: document.getElementById('eraseBtn'),
       blurBtn: document.getElementById('blurBtn'),
       circleBlurBtn: document.getElementById('circleBlurBtn'),
+      glitchBlurBtn: document.getElementById('glitchBlurBtn'),
       imageBrushBtn: document.getElementById('imageBrushBtn'),
       uploadBtn: document.getElementById('uploadBtn'),
       imageUploadInput: document.getElementById('imageUploadInput'),
@@ -237,6 +238,7 @@ export class UI {
       blur: this.createIcon('/images/brush-icon.svg'),
       circleBlur: this.createIcon('/images/circle-blur-icon.svg'),
       circleBlurHard: this.createIcon('/images/circle-blur-icon.svg'),
+      glitchBlur: this.createIcon('/images/circle-blur-icon.svg'),
       inkdropper: this.createIcon('/images/inkdropper-icon.svg'),
       pan: this.createIcon('/images/move-icon.svg'),
       rotate: this.createIcon('/images/rotate-icon.svg'),
@@ -556,6 +558,13 @@ export class UI {
         if (selfPressureCircle) selfPressureCircle.style.display = 'block';
         break;
 
+      case 'glitchBlur':
+        selfSquare.style.display = 'block';
+        brushSpacing.style.display = 'block';
+        smoothingContainer.style.display = 'none';
+        if (blurRadiusContainer) blurRadiusContainer.style.display = 'block';
+        break;
+
       case 'blur':
         selfSquare.style.display = 'block';
         brushSpacing.style.display = 'block';
@@ -641,6 +650,7 @@ export class UI {
       erase: this.elements.eraseBtn,
       blur: this.elements.blurBtn,
       circleBlur: this.elements.circleBlurBtn,
+      glitchBlur: this.elements.glitchBlurBtn,
       imageBrush: this.elements.imageBrushBtn,
       inkdropper: this.elements.inkdropperBtn
     };
