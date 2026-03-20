@@ -489,7 +489,10 @@ export class UI {
     
     const { blendModeOptions } = this.elements;
     if (blendModeOptions) {
-      blendModeOptions.style.display = this.toolSupportsBlendMode(tool) ? 'block' : 'none';
+      const layerManager = window.app?.board?.layerManager;
+      const activeLayer = window.app?.self?.activeLayer ?? 0;
+      const allowComplex = layerManager ? layerManager.getLayerAllowComplexBlendModes(activeLayer) : true;
+      blendModeOptions.style.display = (this.toolSupportsBlendMode(tool) && allowComplex) ? 'block' : 'none';
     }
 
     if (selfPressureCircle) selfPressureCircle.style.display = 'none';

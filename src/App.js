@@ -572,6 +572,12 @@ export class DrawingApp {
     const fillAdvancedCheck = document.getElementById('fillAdvancedCheck');
     const fillAdvancedHint = document.getElementById('fillAdvancedHint');
     if (fillAdvancedCheck) {
+      // Sync checkbox to tool's default (advanced on by default)
+      const fillTool = this.toolManager.getTool('fill');
+      if (fillTool) {
+        fillAdvancedCheck.checked = fillTool.advancedMode;
+        if (fillAdvancedHint) fillAdvancedHint.style.display = fillTool.advancedMode ? 'block' : 'none';
+      }
       fillAdvancedCheck.addEventListener('change', (e) => {
         const fillTool = this.toolManager.getTool('fill');
         if (fillTool) fillTool.advancedMode = e.target.checked;

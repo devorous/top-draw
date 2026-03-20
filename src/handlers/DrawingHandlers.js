@@ -205,7 +205,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  wrapHandler('fill', (data) => {
+  wrapHandler('fill', async (data) => {
     const user = users.get(data.sessionIndex);
     if (!user) return;
 
@@ -240,17 +240,12 @@ export function setupDrawingHandlers(wrapHandler, app) {
       if (dr * dr + dg * dg + db * db + da * da <= 100) return;
     }
 
-    let result = fillTool._computeMask(imgData, width, height, x, y, 10, null);
-    if (!result) return;
-
     const expansion = data.expansion || 0;
     const blurRadius = data.blurRadius || 0;
 
-    if (expansion > 0) {
-      result = fillTool._dilateMask(result, expansion, width, height);
-    } else if (expansion < 0) {
-      result = fillTool._erodeMask(result, -expansion, width, height);
-    }
+    const result = await fillTool._fillWorker.computeFill(
+      imgData, width, height, x, y, 10, expansion, null
+    );
     if (!result) return;
 
     const blendMode = user.blendMode || 'source-over';
@@ -270,9 +265,10 @@ export function setupDrawingHandlers(wrapHandler, app) {
     if (board.mirror) {
       const mx = width - 1 - x;
       if (mx >= 0 && mx < width) {
-        let mResult = fillTool._computeMask(imgData, width, height, mx, y, 10, null);
-        if (mResult && expansion > 0) mResult = fillTool._dilateMask(mResult, expansion, width, height);
-        else if (mResult && expansion < 0) mResult = fillTool._erodeMask(mResult, -expansion, width, height);
+        const mirrorData = board.mainCtx.getImageData(0, 0, width, height).data;
+        const mResult = await fillTool._fillWorker.computeFill(
+          mirrorData, width, height, mx, y, 10, expansion, null
+        );
         if (mResult) {
           fillTool._renderMaskComposite(strokeCtx, mResult, fillR, fillG, fillB, userOpacity, blurRadius, width, height);
           const mbx = Math.max(0, mResult.minX - pad);

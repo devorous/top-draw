@@ -986,6 +986,37 @@ export class LayerManager {
   }
 
   /**
+   * Apply a clip region from dirty rects to a context.
+   * @param {CanvasRenderingContext2D} ctx - Context to clip
+   * @param {Array} dirtyRects - Array of {x, y, width, height}
+   * @private
+   */
+  _applyDirtyClip(ctx, dirtyRects) {
+    ctx.save();
+    ctx.beginPath();
+    for (const r of dirtyRects) {
+      ctx.rect(r.x, r.y, r.width, r.height);
+    }
+    ctx.clip();
+  }
+
+  /**
+   * Clear only the dirty regions of a context.
+   * @param {CanvasRenderingContext2D} ctx - Context to clear
+   * @param {Array|null} dirtyRects - Array of {x, y, width, height}, or null for full clear
+   * @private
+   */
+  _clearDirtyRegion(ctx, dirtyRects) {
+    if (dirtyRects) {
+      for (const r of dirtyRects) {
+        ctx.clearRect(r.x, r.y, r.width, r.height);
+      }
+    } else {
+      ctx.clearRect(0, 0, this.width, this.height);
+    }
+  }
+
+  /**
    * Expand a dirty rectangle to include new bounds
    * @param {Object} dirtyRect - {minX, minY, maxX, maxY}
    * @param {number} x - X coordinate
@@ -1282,7 +1313,7 @@ export class LayerManager {
     // If the high-quality calc hasn't started, kick it off now.
     if (!filterStroke._isBlurring) {
       filterStroke._isBlurring = true;
-      
+
       const cropX = x;
       const cropY = y;
       const cropW = width;
@@ -1295,9 +1326,10 @@ export class LayerManager {
       tCtxForAsync.drawImage(ctx.canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
       const imageData = tCtxForAsync.getImageData(0, 0, cropW, cropH);
-      
-      blurImageData(imageData, cropW, cropH, blurRadius).then(blurred => {
-        tCtxForAsync.putImageData(blurred, 0, 0);
+
+      // Offload blur to the pixels worker (runs stackblur off the main thread)
+      this._pixelsWorker.blur(imageData.data, cropW, cropH, blurRadius).then(blurredData => {
+        tCtxForAsync.putImageData(new ImageData(blurredData, cropW, cropH), 0, 0);
 
         const composite = document.createElement('canvas');
         composite.width = cropW;
@@ -1311,6 +1343,24 @@ export class LayerManager {
         filterStroke._cachedBlurResult = composite;
         this.needsComposite = true;
         if (this.onNeedsUpdate) this.onNeedsUpdate();
+      }).catch(() => {
+        // Fallback to main-thread blur if worker fails
+        blurImageData(imageData, cropW, cropH, blurRadius).then(blurred => {
+          tCtxForAsync.putImageData(blurred, 0, 0);
+
+          const composite = document.createElement('canvas');
+          composite.width = cropW;
+          composite.height = cropH;
+          const cCtx = composite.getContext('2d');
+
+          cCtx.drawImage(maskCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+          cCtx.globalCompositeOperation = 'source-in';
+          cCtx.drawImage(tempForAsync, 0, 0);
+
+          filterStroke._cachedBlurResult = composite;
+          this.needsComposite = true;
+          if (this.onNeedsUpdate) this.onNeedsUpdate();
+        });
       });
     }
 
@@ -1363,13 +1413,9 @@ export class LayerManager {
     // Clip all subsequent compositing to the dirty regions. The browser's
     // canvas compositor skips pixels outside the clip path, so a dirty region
     // covering 10% of the canvas reduces drawImage work by ~90%.
-    if (useDirtyRects) {
-      targetCtx.save();
-      targetCtx.beginPath();
-      for (const rect of dirtyRects) {
-        targetCtx.rect(rect.x, rect.y, rect.width, rect.height);
-      }
-      targetCtx.clip();
+    const activeRects = useDirtyRects ? dirtyRects : null;
+    if (activeRects) {
+      this._applyDirtyClip(targetCtx, activeRects);
     }
 
     const count = Math.min(endIdx, this.layerGroups.length);
@@ -1378,19 +1424,19 @@ export class LayerManager {
       if (!group.visible) continue;
 
       if (group.flatCanvas) {
-        this._compositeGroupWithFlatCanvas(targetCtx, group, backgroundColor);
+        this._compositeGroupWithFlatCanvas(targetCtx, group, backgroundColor, activeRects);
       } else if (this._groupHasDestOut(group)) {
         if (this._groupHasComplexBlendModes(group)) {
-          this._compositeGroupSequential(targetCtx, group);
+          this._compositeGroupSequential(targetCtx, group, activeRects);
         } else {
-          this._compositeGroupIsolated(targetCtx, group);
+          this._compositeGroupIsolated(targetCtx, group, activeRects);
         }
       } else {
         this._compositeGroupInto(targetCtx, group);
       }
     }
 
-    if (useDirtyRects) {
+    if (activeRects) {
       targetCtx.restore();
     }
     targetCtx.globalCompositeOperation = 'source-over';
@@ -1402,7 +1448,7 @@ export class LayerManager {
    * @param {Object} group - Layer group
    * @private
    */
-  _compositeGroupWithFlatCanvas(targetCtx, group, bgColor = null) {
+  _compositeGroupWithFlatCanvas(targetCtx, group, bgColor = null, dirtyRects = null) {
     const hasUnbaked = group.strokeStack.length > 0 || group.activeStrokeByUser.size > 0;
 
     if (!hasUnbaked) {
@@ -1412,7 +1458,9 @@ export class LayerManager {
     }
 
     const { canvas: buffer, ctx: bufferCtx } = this._getGroupBuffer();
-    bufferCtx.clearRect(0, 0, this.width, this.height);
+    this._clearDirtyRegion(bufferCtx, dirtyRects);
+
+    if (dirtyRects) this._applyDirtyClip(bufferCtx, dirtyRects);
 
     if (bgColor) {
       const [r, g, b, a] = bgColor;
@@ -1452,6 +1500,7 @@ export class LayerManager {
     }
 
     bufferCtx.globalCompositeOperation = 'source-over';
+    if (dirtyRects) bufferCtx.restore();
 
     targetCtx.globalCompositeOperation = 'source-over';
     targetCtx.drawImage(buffer, 0, 0);
@@ -1463,11 +1512,16 @@ export class LayerManager {
    * @param {Object} group - Layer group
    * @private
    */
-  _compositeGroupSequential(targetCtx, group) {
+  _compositeGroupSequential(targetCtx, group, dirtyRects = null) {
     const lowerSnap = document.createElement('canvas');
     lowerSnap.width = this.width;
     lowerSnap.height = this.height;
-    lowerSnap.getContext('2d').drawImage(targetCtx.canvas, 0, 0);
+    const lowerCtx = lowerSnap.getContext('2d');
+    if (dirtyRects) {
+      this._applyDirtyClip(lowerCtx, dirtyRects);
+    }
+    lowerCtx.drawImage(targetCtx.canvas, 0, 0);
+    if (dirtyRects) lowerCtx.restore();
 
     for (const item of group.bakedSequences) {
       if (item.type === 'group') {
@@ -1524,9 +1578,11 @@ export class LayerManager {
    * @param {Object} group - Layer group
    * @private
    */
-  _compositeGroupIsolated(targetCtx, group) {
+  _compositeGroupIsolated(targetCtx, group, dirtyRects = null) {
     const { canvas: buffer, ctx: bufferCtx } = this._getGroupBuffer();
-    bufferCtx.clearRect(0, 0, this.width, this.height);
+    this._clearDirtyRegion(bufferCtx, dirtyRects);
+
+    if (dirtyRects) this._applyDirtyClip(bufferCtx, dirtyRects);
 
     for (const item of group.bakedSequences) {
       if (item.type === 'group') {
@@ -1547,6 +1603,7 @@ export class LayerManager {
     }
 
     bufferCtx.globalCompositeOperation = 'source-over';
+    if (dirtyRects) bufferCtx.restore();
 
     targetCtx.globalCompositeOperation = 'source-over';
     targetCtx.drawImage(buffer, 0, 0);

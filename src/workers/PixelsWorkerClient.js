@@ -1,7 +1,7 @@
 /**
  * @fileoverview PixelsWorkerClient - Main-thread wrapper for the pixels web worker.
  *
- * Provides a promise-based API for offloading pixel scanning to the worker.
+ * Provides a promise-based API for offloading pixel scanning and blur to the worker.
  * All ArrayBuffer transfers are zero-copy (transferred, not cloned).
  */
 
@@ -9,13 +9,13 @@ export class PixelsWorkerClient {
   constructor() {
     this._worker = new Worker(
       new URL('./pixels.worker.js', import.meta.url),
-      { type: 'classic' }
+      { type: 'module' }
     );
     this._nextId = 0;
     this._pending = new Map();
 
     this._worker.onmessage = (e) => {
-      const { id, result, error } = e.data;
+      const { id, result, error, buffer } = e.data;
       const pending = this._pending.get(id);
       if (!pending) return;
       this._pending.delete(id);
@@ -23,7 +23,7 @@ export class PixelsWorkerClient {
       if (error) {
         pending.reject(new Error(error));
       } else {
-        pending.resolve(result);
+        pending.resolve(result, buffer);
       }
     };
 
@@ -50,8 +50,6 @@ export class PixelsWorkerClient {
 
   /**
    * Check if a canvas has any non-transparent pixels.
-   * The buffer is transferred to the worker (zero-copy) and cannot be used
-   * by the caller after this call.
    *
    * @param {Uint8ClampedArray} pixelData - RGBA pixel data (from getImageData().data)
    * @returns {Promise<boolean>}
@@ -83,7 +81,6 @@ export class PixelsWorkerClient {
 
   /**
    * Find content bounds within a specific region of a canvas.
-   * The returned coordinates are in full-canvas space (region offset applied).
    *
    * @param {Uint8ClampedArray} pixelData - RGBA pixel data of the region
    * @param {number} width - Region width
@@ -103,6 +100,31 @@ export class PixelsWorkerClient {
       regionW: width,
       regionH: height
     }, [buffer]);
+  }
+
+  /**
+   * Blur pixel data off the main thread using pre-multiplied alpha stackblur.
+   * The buffer is transferred (zero-copy). Returns blurred pixel data in a
+   * new Uint8ClampedArray backed by the transferred-back buffer.
+   *
+   * @param {Uint8ClampedArray} pixelData - RGBA pixel data
+   * @param {number} width - Image width
+   * @param {number} height - Image height
+   * @param {number} radius - Blur radius
+   * @returns {Promise<Uint8ClampedArray>} Blurred pixel data
+   */
+  blur(pixelData, width, height, radius) {
+    const buffer = pixelData.buffer.slice(0);
+    const id = this._nextId++;
+    return new Promise((resolve, reject) => {
+      this._pending.set(id, {
+        resolve: (_result, returnedBuffer) => {
+          resolve(new Uint8ClampedArray(returnedBuffer));
+        },
+        reject
+      });
+      this._worker.postMessage({ id, type: 'blur', buffer, width, height, radius }, [buffer]);
+    });
   }
 
   /**

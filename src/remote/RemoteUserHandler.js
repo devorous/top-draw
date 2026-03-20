@@ -868,7 +868,7 @@ export class RemoteUserHandler {
    * @param {User} user - The remote user.
    * @param {{x: number, y: number}} pos - The fill seed position.
    */
-  _drawFillPreview(user, pos) {
+  async _drawFillPreview(user, pos) {
     const fillTool = this.toolManager.getTool('fill');
     if (!fillTool) return;
 
@@ -879,7 +879,9 @@ export class RemoteUserHandler {
     if (x < 0 || x >= width || y < 0 || y >= height) return;
 
     const imageData = this.board.mainCtx.getImageData(0, 0, width, height);
-    const result = fillTool._computeMask(imageData.data, width, height, x, y, 10, null);
+    const result = await fillTool._fillWorker.computeFill(
+      imageData.data, width, height, x, y, 10, 0, null
+    );
     if (!result) return;
 
     const { mask, minX, minY, maxX, maxY } = result;
