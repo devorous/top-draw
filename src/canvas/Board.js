@@ -562,6 +562,35 @@ export class Board {
   }
 
   /**
+   * Mark tiles dirty along a path (for line-based strokes).
+   * More efficient than bounding box for diagonal lines.
+   * @param {Object} user - User object
+   * @param {Array<{x: number, y: number}>} points - Array of points
+   * @param {number} radius - Brush radius
+   */
+  markDirtyPath(user, points, radius) {
+    if (!this.layerManager || !points || points.length === 0) return;
+
+    const activeLayer = user?.activeLayer ?? this.app?.self?.activeLayer ?? 0;
+    const userId = user?.id ?? this.app?.self?.id ?? 0;
+    const group = this.layerManager.layerGroups[activeLayer];
+    if (!group) return;
+
+    const active = group.activeStrokeByUser.get(userId);
+    if (active?.dirtyRect) {
+      // Still expand the per-stroke bounding box for content bounds detection
+      for (const pt of points) {
+        this.layerManager._expandDirtyRect(active.dirtyRect, pt.x - radius, pt.y - radius, radius * 2, radius * 2);
+      }
+    }
+
+    // Use line-based tile marking
+    if (this.tileGrid) {
+      this.tileGrid.markDirtyPath(points, radius);
+    }
+  }
+
+  /**
    * Expand dirty rects for all layers' active strokes for a user.
    * @param {Object} user - User object
    * @param {number} x - X coordinate
@@ -815,7 +844,12 @@ export class Board {
 
     // Prefer tile grid rects; fall back to legacy bounding-box array
     let dirtyRects;
+    let tileSnapshot = null;
     if (this.tileGrid && this.tileGrid.isDirty()) {
+      // Capture tile state for debug overlay BEFORE clearing
+      if (this.app?.debugOverlay?.enabled) {
+        tileSnapshot = this.tileGrid.getTileSnapshot();
+      }
       dirtyRects = this.tileGrid.getDirtyRects();
       this.tileGrid.clear();
       // Also drain the legacy array so it doesn't accumulate
@@ -826,6 +860,7 @@ export class Board {
     }
 
     if (this.app?.debugOverlay) {
+      this.app.debugOverlay.captureDirtyTiles(tileSnapshot, this.tileGrid);
       this.app.debugOverlay.captureDirtyRects(dirtyRects);
     }
 

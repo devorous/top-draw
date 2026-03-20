@@ -156,6 +156,7 @@ export class DrawingApp {
     const debugCanvas = document.getElementById('debugOverlay');
     this.debugOverlay.init(debugCanvas, this.board.getWidth(), this.board.getHeight());
     this.debugOverlay.setBoard(this.board);
+    this.debugOverlay.setPixelsWorker(this.board.layerManager._pixelsWorker);
 
     this.strokeHistoryPanel.init();
     this.strokeHistoryPanel.setLayerManager(this.board.layerManager);

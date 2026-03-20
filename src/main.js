@@ -2,7 +2,7 @@
 
 import '../public/css/main.scss';
 import { DrawingApp } from './App.js';
-import initWasm from './wasm_output/ddraw_wasm.js';
+import initWasm from './wasm/ddraw_wasm.js';
 
 // Auto-reload once when a dynamically imported chunk fails to load (stale cache after deploy)
 window.addEventListener('unhandledrejection', (event) => {

@@ -53,6 +53,74 @@ export class TileGrid {
   }
 
   /**
+   * Mark tiles along a line path with given radius.
+   * More efficient than bounding box for diagonal lines.
+   * @param {number} x0 - Start X
+   * @param {number} y0 - Start Y
+   * @param {number} x1 - End X
+   * @param {number} y1 - End Y
+   * @param {number} radius - Brush radius (half the stroke width)
+   */
+  markDirtyLine(x0, y0, x1, y1, radius) {
+    const ts = this.tileSize;
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len = Math.sqrt(dx * dx + dy * dy);
+
+    // Step size: half tile size for good coverage
+    const step = ts * 0.5;
+    const steps = Math.max(1, Math.ceil(len / step));
+
+    for (let i = 0; i <= steps; i++) {
+      const t = steps > 0 ? i / steps : 0;
+      const px = x0 + dx * t;
+      const py = y0 + dy * t;
+
+      // Mark tiles touched by circle at this point
+      const minX = px - radius;
+      const minY = py - radius;
+      const maxX = px + radius;
+      const maxY = py + radius;
+
+      let startCol = (minX / ts) | 0;
+      let startRow = (minY / ts) | 0;
+      let endCol = (maxX / ts) | 0;
+      let endRow = (maxY / ts) | 0;
+
+      if (startCol < 0) startCol = 0;
+      if (startRow < 0) startRow = 0;
+      if (endCol >= this.cols) endCol = this.cols - 1;
+      if (endRow >= this.rows) endRow = this.rows - 1;
+
+      for (let r = startRow; r <= endRow; r++) {
+        const rowOffset = r * this.cols;
+        for (let c = startCol; c <= endCol; c++) {
+          this.tiles[rowOffset + c] = 1;
+        }
+      }
+    }
+  }
+
+  /**
+   * Mark tiles along a polyline path with given radius.
+   * @param {Array<{x: number, y: number}>} points - Array of points
+   * @param {number} radius - Brush radius
+   */
+  markDirtyPath(points, radius) {
+    if (!points || points.length === 0) return;
+
+    if (points.length === 1) {
+      const p = points[0];
+      this.markDirty(p.x - radius, p.y - radius, radius * 2, radius * 2);
+      return;
+    }
+
+    for (let i = 0; i < points.length - 1; i++) {
+      this.markDirtyLine(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y, radius);
+    }
+  }
+
+  /**
    * Mark the entire grid as dirty (e.g. after undo/redo or full redraw).
    */
   markAllDirty() {
@@ -85,6 +153,14 @@ export class TileGrid {
       if (this.tiles[i]) count++;
     }
     return count;
+  }
+
+  /**
+   * Get a snapshot of the current tile state (for debug visualization).
+   * @returns {Uint8Array} Copy of tile flags
+   */
+  getTileSnapshot() {
+    return new Uint8Array(this.tiles);
   }
 
   /**
