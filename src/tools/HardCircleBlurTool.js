@@ -59,6 +59,7 @@ export class HardCircleBlurTool extends Tool {
     super('circleBlurHard', board);
     this.lastStampPos = new Map(); // userId -> {x, y, radius}
     this.stampBuffer = []; // [x, y, radius, x, y, radius, ...] for broadcast
+    this.strokePoints = []; // Track points for tile ownership
   }
 
   /**
@@ -81,6 +82,8 @@ export class HardCircleBlurTool extends Tool {
   onPointerDown(user, pos) {
     this.board.beginStroke(user);
     const radius = user.pressure * user.size;
+
+    this.strokePoints = [{ x: pos.x, y: pos.y }];
 
     this.stampHardCircle(pos.x, pos.y, radius, user);
 
@@ -122,6 +125,7 @@ export class HardCircleBlurTool extends Tool {
           const sr = lastStamp.radius + (radius - lastStamp.radius) * t;
           this.stampHardCircle(sx, sy, sr, user);
           this.stampBuffer.push(sx, sy, sr);
+          this.strokePoints.push({ x: sx, y: sy });
 
           if (this.board.mirror) {
             const w = this.board.getWidth();
@@ -139,6 +143,18 @@ export class HardCircleBlurTool extends Tool {
    * @param {Object} user - The user performing the action.
    */
   onPointerUp(user) {
+    // Track tile ownership
+    if (this.strokePoints.length > 0) {
+      const radius = user.size;
+      this.board.markDirtyPath(user, this.strokePoints, radius);
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirroredPoints = this.strokePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+        this.board.markDirtyPath(user, mirroredPoints, radius);
+      }
+    }
+    this.strokePoints = [];
+
     this.board.endStroke(user);
     this.lastStampPos.delete(user.id);
   }

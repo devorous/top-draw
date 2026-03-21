@@ -218,6 +218,30 @@ export class FloodFillTool {
       const mbh = Math.min(height, mirrorResult.maxY + pad + 1) - mby;
       this.board.expandDirtyRect(user, mbx, mby, mbw, mbh);
     }
+
+    // Track tile ownership for filled region
+    const fillRadius = Math.max(bw, bh) / 2;
+    const fillPoints = [
+      { x: bx, y: by },
+      { x: bx + bw, y: by },
+      { x: bx + bw, y: by + bh },
+      { x: bx, y: by + bh },
+      { x: bx, y: by }
+    ];
+    this.board.markDirtyPath(user, fillPoints, fillRadius);
+    if (mirrorResult) {
+      const mbx = Math.max(0, mirrorResult.minX - pad);
+      const mby = Math.max(0, mirrorResult.minY - pad);
+      const mbw = Math.min(width, mirrorResult.maxX + pad + 1) - mbx;
+      const mirrorPoints = [
+        { x: mbx, y: mby },
+        { x: mbx + mbw, y: mby },
+        { x: mbx + mbw, y: mby + (Math.min(height, mirrorResult.maxY + pad + 1) - mby) },
+        { x: mbx, y: mby + (Math.min(height, mirrorResult.maxY + pad + 1) - mby) },
+        { x: mbx, y: mby }
+      ];
+      this.board.markDirtyPath(user, mirrorPoints, fillRadius);
+    }
   }
 
   // -- pointer events --

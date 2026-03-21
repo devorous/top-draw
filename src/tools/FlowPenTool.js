@@ -238,7 +238,7 @@ export class FlowPenTool extends Tool {
     if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
       const brushRadius = user.size;
       const blurAmount = (1 - this.userHardness) * (20 + user.size * 0.2);
-      const safetyMargin = brushRadius * 0.25; 
+      const safetyMargin = brushRadius * 0.25;
       const margin = blurAmount + safetyMargin + 2;
 
       const x = Math.floor(this.dirtyBounds.minX - margin);
@@ -252,6 +252,17 @@ export class FlowPenTool extends Tool {
         const boardWidth = this.board.getWidth();
         const mirrorX = Math.floor(boardWidth - this.dirtyBounds.maxX - margin);
         this.board.expandDirtyRect(user, mirrorX, y, width, height);
+      }
+    }
+
+    // Track tile ownership
+    if (user.penPoints && user.penPoints.length > 0) {
+      const maxRadius = Math.max(...user.penPoints.map(p => p.radius || user.size));
+      this.board.markDirtyPath(user, user.penPoints, maxRadius);
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirroredPoints = user.penPoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+        this.board.markDirtyPath(user, mirroredPoints, maxRadius);
       }
     }
 

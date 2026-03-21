@@ -134,6 +134,15 @@ export class LineTool extends Tool {
       this.board.expandDirtyRect(user, x_mirrored, y_mirrored, width_mirrored, height_mirrored);
     }
 
+    // Track tile ownership for the line
+    const linePoints = [this.startPos, pos];
+    this.board.markDirtyPath(user, linePoints, user.size);
+    if (this.board.mirror) {
+      const boardWidth = this.board.getWidth();
+      const mirroredPoints = linePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+      this.board.markDirtyPath(user, mirroredPoints, user.size);
+    }
+
     this.board.clearTop();
     this.startPos = null;
 
@@ -288,6 +297,21 @@ export class RectangleTool extends Tool {
       const height_mirrored = Math.ceil(maxY) - y_mirrored;
 
       this.board.expandDirtyRect(user, x_mirrored, y_mirrored, width_mirrored, height_mirrored);
+    }
+
+    // Track tile ownership for the rectangle perimeter
+    const rectPoints = [
+      this.startPos,
+      { x: pos.x, y: this.startPos.y },
+      pos,
+      { x: this.startPos.x, y: pos.y },
+      this.startPos
+    ];
+    this.board.markDirtyPath(user, rectPoints, user.size);
+    if (this.board.mirror) {
+      const boardWidth = this.board.getWidth();
+      const mirroredPoints = rectPoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+      this.board.markDirtyPath(user, mirroredPoints, user.size);
     }
 
     this.board.clearTop();
@@ -446,6 +470,24 @@ export class CircleTool extends Tool {
       const height_mirrored = Math.ceil(maxY) - y_mirrored;
 
       this.board.expandDirtyRect(user, x_mirrored, y_mirrored, width_mirrored, height_mirrored);
+    }
+
+    // Track tile ownership for the ellipse perimeter
+    const cx = (this.startPos.x + pos.x) / 2;
+    const cy = (this.startPos.y + pos.y) / 2;
+    const rx = Math.abs(pos.x - this.startPos.x) / 2;
+    const ry = Math.abs(pos.y - this.startPos.y) / 2;
+    const ellipsePoints = [];
+    const steps = Math.max(16, Math.ceil(Math.max(rx, ry) / 8));
+    for (let i = 0; i <= steps; i++) {
+      const angle = (i / steps) * Math.PI * 2;
+      ellipsePoints.push({ x: cx + rx * Math.cos(angle), y: cy + ry * Math.sin(angle) });
+    }
+    this.board.markDirtyPath(user, ellipsePoints, user.size);
+    if (this.board.mirror) {
+      const boardWidth = this.board.getWidth();
+      const mirroredPoints = ellipsePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+      this.board.markDirtyPath(user, mirroredPoints, user.size);
     }
 
     this.board.clearTop();

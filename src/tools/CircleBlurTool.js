@@ -1,5 +1,6 @@
 /**
- * @fileoverview Circle Blur tool - averages pixels in a circular area and stamps a circle with that color.
+ * @fileoverview Circle Blur tool - samples and averages pixels in a circular area,
+ * then stamps a solid circle with that averaged color. Much more efficient than true blur.
  */
 
 /**
@@ -49,7 +50,8 @@ class Tool {
 }
 
 /**
- * Circle Blur tool for soft blending using circular stamps.
+ * Circle Blur tool - samples pixels and stamps averaged color circles.
+ * Uses sparse sampling for efficiency (no expensive blur operations).
  */
 export class CircleBlurTool extends Tool {
   /**
@@ -59,6 +61,7 @@ export class CircleBlurTool extends Tool {
     super('circleBlur', board);
     this.lastStampPos = new Map(); // userId -> {x, y, radius}
     this.stampBuffer = []; // [x, y, radius, x, y, radius, ...] for broadcast
+    this.strokePoints = []; // Track points for tile ownership
   }
 
   /**
@@ -82,12 +85,14 @@ export class CircleBlurTool extends Tool {
     this.board.beginStroke(user);
     const radius = user.pressure * user.size;
 
-    // Fire async blur without blocking
-    this.stampBlurredCircle(pos.x, pos.y, radius, user).catch(err => console.error('Blur failed:', err));
+    this.strokePoints = [{ x: pos.x, y: pos.y }];
+
+    // Stamp averaged circle (now synchronous and fast)
+    this.stampBlurredCircle(pos.x, pos.y, radius, user);
 
     if (this.board.mirror) {
       const width = this.board.getWidth();
-      this.stampBlurredCircle(width - pos.x, pos.y, radius, user).catch(err => console.error('Blur failed:', err));
+      this.stampBlurredCircle(width - pos.x, pos.y, radius, user);
     }
 
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
@@ -95,6 +100,7 @@ export class CircleBlurTool extends Tool {
 
   /**
    * Handles pointer move event.
+   * Uses batched getImageData for performance - fetches pixel data once for all stamps.
    * @param {Object} user - The user performing the action.
    * @param {Object} pos - The current pointer position.
    * @param {Object} lastPos - The previous pointer position.
@@ -116,18 +122,59 @@ export class CircleBlurTool extends Tool {
 
       if (distance >= minSpacing) {
         const steps = Math.floor(distance / minSpacing);
+
+        // Pre-calculate all stamp positions
+        const stamps = [];
         for (let i = 1; i <= steps; i++) {
           const t = i / steps;
           const sx = lastStamp.x + dx * t;
           const sy = lastStamp.y + dy * t;
           const sr = lastStamp.radius + (radius - lastStamp.radius) * t;
-          // Fire async blur without blocking the drawing loop
-          this.stampBlurredCircle(sx, sy, sr, user).catch(err => console.error('Blur failed:', err));
-          this.stampBuffer.push(sx, sy, sr);
+          stamps.push({ x: sx, y: sy, r: sr });
+        }
+
+        // Calculate bounding box for all stamps (with sample radius padding)
+        const canvasWidth = this.board.getWidth();
+        const canvasHeight = this.board.getHeight();
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+        for (const stamp of stamps) {
+          const sampleRadius = Math.min(stamp.r * 1.2, stamp.r + 10);
+          minX = Math.min(minX, stamp.x - sampleRadius);
+          minY = Math.min(minY, stamp.y - sampleRadius);
+          maxX = Math.max(maxX, stamp.x + sampleRadius);
+          maxY = Math.max(maxY, stamp.y + sampleRadius);
+
+          // Include mirrored stamps in bbox calculation
+          if (this.board.mirror) {
+            const mx = canvasWidth - stamp.x;
+            minX = Math.min(minX, mx - sampleRadius);
+            maxX = Math.max(maxX, mx + sampleRadius);
+          }
+        }
+
+        // Clamp to canvas bounds
+        const left = Math.max(0, Math.floor(minX));
+        const top = Math.max(0, Math.floor(minY));
+        const right = Math.min(canvasWidth, Math.ceil(maxX));
+        const bottom = Math.min(canvasHeight, Math.ceil(maxY));
+        const width = right - left;
+        const height = bottom - top;
+
+        // Fetch imageData once for the entire batch
+        let cachedImageData = null;
+        if (width > 0 && height > 0) {
+          cachedImageData = this.board.mainCtx.getImageData(left, top, width, height);
+        }
+
+        // Now stamp using cached data
+        for (const stamp of stamps) {
+          this.stampBlurredCircleFromCache(stamp.x, stamp.y, stamp.r, user, cachedImageData, left, top);
+          this.stampBuffer.push(stamp.x, stamp.y, stamp.r);
+          this.strokePoints.push({ x: stamp.x, y: stamp.y });
 
           if (this.board.mirror) {
-            const w = this.board.getWidth();
-            this.stampBlurredCircle(w - sx, sy, sr, user).catch(err => console.error('Blur failed:', err));
+            this.stampBlurredCircleFromCache(canvasWidth - stamp.x, stamp.y, stamp.r, user, cachedImageData, left, top);
           }
         }
 
@@ -141,6 +188,18 @@ export class CircleBlurTool extends Tool {
    * @param {Object} user - The user performing the action.
    */
   onPointerUp(user) {
+    // Track tile ownership
+    if (this.strokePoints.length > 0) {
+      const radius = user.size;
+      this.board.markDirtyPath(user, this.strokePoints, radius);
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirroredPoints = this.strokePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+        this.board.markDirtyPath(user, mirroredPoints, radius);
+      }
+    }
+    this.strokePoints = [];
+
     this.board.endStroke(user);
     this.lastStampPos.delete(user.id);
   }
@@ -163,124 +222,240 @@ export class CircleBlurTool extends Tool {
 
   /**
    * Applies pre-computed stamp positions received from the network (remote users).
+   * Uses batched getImageData for performance.
    * @param {Object} user - The remote user.
    * @param {number[]} ps - Flat [x, y, x, y, ...] stamp positions.
    * @param {number[]} rs - Radii, one per stamp.
    */
   applyStamps(user, ps, rs) {
+    if (ps.length === 0) return;
+
+    const canvasWidth = this.board.getWidth();
+    const canvasHeight = this.board.getHeight();
+
+    // Build stamp list and calculate bounding box
+    const stamps = [];
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
     for (let i = 0, j = 0; i < ps.length; i += 2, j++) {
       const sx = ps[i], sy = ps[i + 1], sr = rs[j];
-      // Fire async blur without blocking
-      this.stampBlurredCircle(sx, sy, sr, user).catch(err => console.error('Blur failed:', err));
+      stamps.push({ x: sx, y: sy, r: sr });
+
+      const sampleRadius = Math.min(sr * 1.2, sr + 10);
+      minX = Math.min(minX, sx - sampleRadius);
+      minY = Math.min(minY, sy - sampleRadius);
+      maxX = Math.max(maxX, sx + sampleRadius);
+      maxY = Math.max(maxY, sy + sampleRadius);
+
       if (this.board.mirror) {
-        const w = this.board.getWidth();
-        this.stampBlurredCircle(w - sx, sy, sr, user).catch(err => console.error('Blur failed:', err));
+        const mx = canvasWidth - sx;
+        minX = Math.min(minX, mx - sampleRadius);
+        maxX = Math.max(maxX, mx + sampleRadius);
+      }
+    }
+
+    // Clamp to canvas bounds
+    const left = Math.max(0, Math.floor(minX));
+    const top = Math.max(0, Math.floor(minY));
+    const right = Math.min(canvasWidth, Math.ceil(maxX));
+    const bottom = Math.min(canvasHeight, Math.ceil(maxY));
+    const width = right - left;
+    const height = bottom - top;
+
+    // Fetch imageData once
+    let cachedImageData = null;
+    if (width > 0 && height > 0) {
+      cachedImageData = this.board.mainCtx.getImageData(left, top, width, height);
+    }
+
+    // Apply all stamps
+    for (const stamp of stamps) {
+      this.stampBlurredCircleFromCache(stamp.x, stamp.y, stamp.r, user, cachedImageData, left, top);
+      if (this.board.mirror) {
+        this.stampBlurredCircleFromCache(canvasWidth - stamp.x, stamp.y, stamp.r, user, cachedImageData, left, top);
       }
     }
   }
 
   /**
-   * Stamp a heavily-blurred circle from board.mainCanvas onto the active stroke canvas.
-   * Uses WASM blur for Firefox performance. Falls back to CSS filter if needed.
+   * Stamp a circle with the average color sampled from the canvas area.
+   * Much more efficient than blur - samples pixels sparsely and averages them.
    * @param {number} x - Center x-coordinate.
    * @param {number} y - Center y-coordinate.
    * @param {number} radius - Stamp radius.
    * @param {Object} user - The user performing the action.
    */
-  async stampBlurredCircle(x, y, radius, user) {
+  stampBlurredCircle(x, y, radius, user) {
     const canvasWidth = this.board.getWidth();
     const canvasHeight = this.board.getHeight();
 
     if (radius <= 0) return;
 
-    try {
-      const activeLayer = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
-      const userId = user.id ?? this.board.app?.self?.id ?? 0;
-      const strokeCtx = this.board.layerManager?.getUserStrokeContext(activeLayer, userId);
-      if (!strokeCtx) return;
+    const activeLayer = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+    const userId = user.id ?? this.board.app?.self?.id ?? 0;
+    const strokeCtx = this.board.layerManager?.getUserStrokeContext(activeLayer, userId);
+    if (!strokeCtx) return;
 
-      const blurRadius = radius;
-      const margin = Math.ceil(blurRadius * 2);
-      const left = Math.max(0, Math.floor(x - radius - margin));
-      const top = Math.max(0, Math.floor(y - radius - margin));
-      const right = Math.min(canvasWidth, Math.ceil(x + radius + margin));
-      const bottom = Math.min(canvasHeight, Math.ceil(y + radius + margin));
-      const width = right - left;
-      const height = bottom - top;
+    // Sample area slightly larger than the circle for better averaging
+    const sampleRadius = Math.min(radius * 1.2, radius + 10);
+    const left = Math.max(0, Math.floor(x - sampleRadius));
+    const top = Math.max(0, Math.floor(y - sampleRadius));
+    const right = Math.min(canvasWidth, Math.ceil(x + sampleRadius));
+    const bottom = Math.min(canvasHeight, Math.ceil(y + sampleRadius));
+    const width = right - left;
+    const height = bottom - top;
 
-      if (width <= 0 || height <= 0) return;
+    if (width <= 0 || height <= 0) return;
 
-      const hardness = user.hardness !== undefined ? user.hardness / 100 : 1.0;
-      const innerR = radius * hardness;
+    // Get pixel data from the main canvas
+    const imageData = this.board.mainCtx.getImageData(left, top, width, height);
 
-      if (!this._stampCanvas) {
-        this._stampCanvas = document.createElement('canvas');
-        this._stampCtx = this._stampCanvas.getContext('2d', { willReadFrequently: true });
-      }
-      this._stampCanvas.width = width;
-      this._stampCanvas.height = height;
-      this._stampCtx.clearRect(0, 0, width, height);
+    // Use shared sampling logic
+    const color = this._sampleAverageColor(imageData.data, width, height, x - left, y - top, sampleRadius, radius);
+    if (!color) return;
 
-      const cx = x - left;
-      const cy = y - top;
-      this._stampCtx.save();
-      this._stampCtx.beginPath();
-      this._stampCtx.arc(cx, cy, radius, 0, Math.PI * 2);
-      this._stampCtx.clip();
+    this._drawBlurCircle(strokeCtx, x, y, radius, color, user);
 
-      // Draw source image to canvas
-      this._stampCtx.drawImage(this.board.mainCanvas, left, top, width, height, 0, 0, width, height);
+    // Mark dirty rect
+    this.board.expandDirtyRect(user,
+      Math.floor(x - radius - 2), Math.floor(y - radius - 2),
+      Math.ceil(radius * 2 + 4), Math.ceil(radius * 2 + 4));
 
-      // Apply WASM blur if available, otherwise fall back to CSS filter
-      const layerManager = this.board.layerManager;
-      if (layerManager && layerManager._pixelsWorker) {
-        try {
-          const imageData = this._stampCtx.getImageData(0, 0, width, height);
-          const blurred = await layerManager._pixelsWorker.blur(imageData.data, width, height, Math.ceil(blurRadius));
-          if (blurred) {
-            imageData.data.set(blurred);
-            this._stampCtx.putImageData(imageData, 0, 0);
+    this.board.requestUpdate();
+  }
+
+  /**
+   * Stamp a circle using pre-fetched cached imageData.
+   * Avoids repeated getImageData calls when processing multiple stamps.
+   * @param {number} x - Center x-coordinate.
+   * @param {number} y - Center y-coordinate.
+   * @param {number} radius - Stamp radius.
+   * @param {Object} user - The user performing the action.
+   * @param {ImageData} cachedImageData - Pre-fetched pixel data.
+   * @param {number} cacheLeft - Left offset of cached region.
+   * @param {number} cacheTop - Top offset of cached region.
+   */
+  stampBlurredCircleFromCache(x, y, radius, user, cachedImageData, cacheLeft, cacheTop) {
+    if (radius <= 0 || !cachedImageData) return;
+
+    const activeLayer = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+    const userId = user.id ?? this.board.app?.self?.id ?? 0;
+    const strokeCtx = this.board.layerManager?.getUserStrokeContext(activeLayer, userId);
+    if (!strokeCtx) return;
+
+    const sampleRadius = Math.min(radius * 1.2, radius + 10);
+
+    // Calculate position within the cached data
+    const localCx = x - cacheLeft;
+    const localCy = y - cacheTop;
+
+    // Use shared sampling logic
+    const color = this._sampleAverageColor(
+      cachedImageData.data,
+      cachedImageData.width,
+      cachedImageData.height,
+      localCx,
+      localCy,
+      sampleRadius,
+      radius
+    );
+    if (!color) return;
+
+    this._drawBlurCircle(strokeCtx, x, y, radius, color, user);
+
+    // Mark dirty rect
+    this.board.expandDirtyRect(user,
+      Math.floor(x - radius - 2), Math.floor(y - radius - 2),
+      Math.ceil(radius * 2 + 4), Math.ceil(radius * 2 + 4));
+
+    this.board.requestUpdate();
+  }
+
+  /**
+   * Sample average color from pixel data within a circular region.
+   * @param {Uint8ClampedArray} data - RGBA pixel data.
+   * @param {number} width - Data width.
+   * @param {number} height - Data height.
+   * @param {number} cx - Center x in local coords.
+   * @param {number} cy - Center y in local coords.
+   * @param {number} sampleRadius - Radius to sample within.
+   * @param {number} stampRadius - Stamp radius (for adaptive sampling).
+   * @returns {{r: number, g: number, b: number, a: number}|null}
+   * @private
+   */
+  _sampleAverageColor(data, width, height, cx, cy, sampleRadius, stampRadius) {
+    const sampleStep = Math.max(2, Math.floor(stampRadius / 10));
+    let r = 0, g = 0, b = 0, a = 0;
+    let count = 0;
+    const rSquared = sampleRadius * sampleRadius;
+
+    // Calculate bounds to sample within
+    const startX = Math.max(0, Math.floor(cx - sampleRadius));
+    const startY = Math.max(0, Math.floor(cy - sampleRadius));
+    const endX = Math.min(width, Math.ceil(cx + sampleRadius));
+    const endY = Math.min(height, Math.ceil(cy + sampleRadius));
+
+    for (let py = startY; py < endY; py += sampleStep) {
+      for (let px = startX; px < endX; px += sampleStep) {
+        const dx = px - cx;
+        const dy = py - cy;
+        if (dx * dx + dy * dy <= rSquared) {
+          const idx = (py * width + px) * 4;
+          const pixelAlpha = data[idx + 3] / 255;
+          if (pixelAlpha > 0.01) {
+            r += data[idx] * pixelAlpha;
+            g += data[idx + 1] * pixelAlpha;
+            b += data[idx + 2] * pixelAlpha;
+            a += pixelAlpha;
+            count++;
           }
-        } catch (err) {
-          console.warn('WASM blur failed, falling back to CSS filter:', err);
-          // Fallback: use CSS filter
-          this._stampCtx.filter = `blur(${blurRadius}px)`;
-          this._stampCtx.drawImage(this.board.mainCanvas, left, top, width, height, 0, 0, width, height);
-          this._stampCtx.filter = 'none';
         }
-      } else {
-        // No WASM available, use CSS filter
-        this._stampCtx.filter = `blur(${blurRadius}px)`;
-        this._stampCtx.drawImage(this.board.mainCanvas, left, top, width, height, 0, 0, width, height);
-        this._stampCtx.filter = 'none';
       }
-
-      this._stampCtx.restore();
-
-      if (hardness < 1.0) {
-        const grad = this._stampCtx.createRadialGradient(cx, cy, innerR, cx, cy, radius);
-        grad.addColorStop(0, 'rgba(255,255,255,1)');
-        grad.addColorStop(1, 'rgba(255,255,255,0)');
-        this._stampCtx.globalCompositeOperation = 'destination-in';
-        this._stampCtx.fillStyle = grad;
-        this._stampCtx.fillRect(0, 0, width, height);
-        this._stampCtx.globalCompositeOperation = 'source-over';
-      }
-
-      strokeCtx.save();
-      strokeCtx.globalCompositeOperation = 'source-over';
-      strokeCtx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
-      strokeCtx.drawImage(this._stampCanvas, left, top);
-      strokeCtx.restore();
-
-      const drMargin = Math.ceil(blurRadius) + 2;
-      this.board.expandDirtyRect(user,
-        Math.floor(x - radius - drMargin), Math.floor(y - radius - drMargin),
-        Math.ceil(radius * 2 + drMargin * 2), Math.ceil(radius * 2 + drMargin * 2));
-
-      this.board.requestUpdate();
-    } catch (error) {
-      console.error('Circle blur error:', error);
     }
+
+    if (count === 0) return null;
+
+    return {
+      r: Math.round(r / a),
+      g: Math.round(g / a),
+      b: Math.round(b / a),
+      a: a / count
+    };
+  }
+
+  /**
+   * Draw the blur circle with the computed color.
+   * @param {CanvasRenderingContext2D} ctx - Drawing context.
+   * @param {number} x - Center x.
+   * @param {number} y - Center y.
+   * @param {number} radius - Circle radius.
+   * @param {{r: number, g: number, b: number, a: number}} color - Averaged color.
+   * @param {Object} user - User object for opacity/hardness.
+   * @private
+   */
+  _drawBlurCircle(ctx, x, y, radius, color, user) {
+    const { r, g, b, a } = color;
+    const hardness = user.hardness !== undefined ? user.hardness / 100 : 1.0;
+
+    ctx.save();
+    ctx.globalAlpha = (user.opacity !== undefined ? user.opacity : 1) * a;
+
+    if (hardness < 1.0) {
+      const innerR = radius * hardness;
+      const grad = ctx.createRadialGradient(x, y, innerR, x, y, radius);
+      grad.addColorStop(0, `rgb(${r}, ${g}, ${b})`);
+      grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
   }
 }

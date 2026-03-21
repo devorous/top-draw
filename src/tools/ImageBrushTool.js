@@ -64,6 +64,7 @@ export class ImageBrushTool extends Tool {
     this.lastTime = null;
     this.lastStampPos = new Map(); // userId -> {x, y}
     this.stampBuffer = []; // [x, y, x, y, ...] for broadcast
+    this.strokePoints = []; // Track points for tile ownership
   }
 
   /**
@@ -92,6 +93,7 @@ export class ImageBrushTool extends Tool {
         user.imageBrush.reset();
       }
       this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+      this.strokePoints = [{ x: pos.x, y: pos.y }];
       this.drawStamp(user, pos);
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
     }
@@ -129,6 +131,7 @@ export class ImageBrushTool extends Tool {
         const interpY = lastStamp.y + dy * t;
         this.drawStamp(user, { x: interpX, y: interpY });
         this.stampBuffer.push(interpX, interpY);
+        this.strokePoints.push({ x: interpX, y: interpY });
       }
 
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
@@ -163,6 +166,17 @@ export class ImageBrushTool extends Tool {
         this.board.expandDirtyRect(user, mirrorX, y, width, height);
       }
     }
+
+    // Track tile ownership
+    if (this.strokePoints.length > 0) {
+      this.board.markDirtyPath(user, this.strokePoints, user.size);
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirroredPoints = this.strokePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+        this.board.markDirtyPath(user, mirroredPoints, user.size);
+      }
+    }
+    this.strokePoints = [];
 
     this.board.compositeAllLayers();
     this.board.endStroke(user);

@@ -157,6 +157,7 @@ export class DrawingApp {
     this.debugOverlay.init(debugCanvas, this.board.getWidth(), this.board.getHeight());
     this.debugOverlay.setBoard(this.board);
     this.debugOverlay.setPixelsWorker(this.board.layerManager._pixelsWorker);
+    this.debugOverlay.setTileOwnershipManager(this.board.tileOwnershipManager);
 
     this.strokeHistoryPanel.init();
     this.strokeHistoryPanel.setLayerManager(this.board.layerManager);
@@ -933,6 +934,13 @@ export class DrawingApp {
    */
   async handleRoomSelected(roomId, password = null) {
     console.log(`[App] Room selected: ${roomId}`);
+
+    // Handle /go/offline as draw alone mode
+    if (roomId === 'offline') {
+      this.handleOffline();
+      return;
+    }
+
     this.isOfflineMode = false;
     this.currentRoomId = roomId;
     this.currentRoomPassword = password;
@@ -996,9 +1004,10 @@ export class DrawingApp {
 
     this.inputBufferManager.startTickLoop();
 
-    const url = new URL(window.location);
-    url.searchParams.set('room', this.currentRoomId);
-    window.history.pushState({}, '', url);
+    // Update URL to /go/offline
+    if (window.location.pathname !== '/go/offline') {
+      window.history.pushState({ room: 'offline' }, '', '/go/offline');
+    }
   }
 
   /**
@@ -1571,6 +1580,7 @@ export class DrawingApp {
     }
 
     this.connected = false;
+    this.isOfflineMode = false;
     this.sessionIndex = null;
     if (this.self) this.self.id = null;
     this.currentRoomData = null;
@@ -1585,13 +1595,10 @@ export class DrawingApp {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    const url = new URL(window.location);
-    url.searchParams.delete('room');
-    window.history.pushState({}, '', url);
-
     if (this.landingPage) {
       this.landingPage.show();
-      this.landingPage.selectRoom('lobby');
+      const urlRoom = this.landingPage.getRoomFromURL();
+      this.landingPage.selectRoom(urlRoom || 'lobby');
     }
 
     this.connectForRoomDiscovery();
@@ -1814,6 +1821,7 @@ export class DrawingApp {
       return;
     }
     this.board.clear();
+    this.board.tileOwnershipManager?.clear();
     this.wsClient.broadcastClear();
     if (this.debugOverlay) {
       this.debugOverlay.clearAll();

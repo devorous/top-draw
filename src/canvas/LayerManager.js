@@ -178,7 +178,8 @@ export class LayerManager {
       canvas,
       ctx,
       blendMode,
-      dirtyRect: { minX: this.width, minY: this.height, maxX: -1, maxY: -1 }
+      dirtyRect: { minX: this.width, minY: this.height, maxX: -1, maxY: -1 },
+      affectedTiles: new Set()
     });
     this.needsComposite = true;
     this._notifyHistoryPanel();
@@ -231,6 +232,9 @@ export class LayerManager {
 
     group.activeStrokeByUser.delete(userId);
 
+    // Capture affected tiles before releasing active stroke
+    const affectedTiles = active.affectedTiles ? Array.from(active.affectedTiles) : [];
+
     // Handle filter strokes (blur) differently - they need metadata and potentially special rendering
     if (extraProps.filterType === 'blur' || extraProps.filterType === 'glitchBlur') {
       const cropBounds = extraProps.cropBounds || { x: 0, y: 0, width: this.width, height: this.height };
@@ -246,7 +250,8 @@ export class LayerManager {
         timestamp: Date.now(),
         filterType: extraProps.filterType,
         blurRadius: extraProps.blurRadius,
-        maskCanvas: active.canvas
+        maskCanvas: active.canvas,
+        affectedTiles
       };
 
       group.strokeStack.push(record);
@@ -292,7 +297,7 @@ export class LayerManager {
 
     this._releaseCanvas(active);
 
-    const record = { canvas: croppedCanvas, ctx: croppedCtx, x, y, width, height, blendMode: active.blendMode, userId, timestamp: Date.now(), ...extraProps };
+    const record = { canvas: croppedCanvas, ctx: croppedCtx, x, y, width, height, blendMode: active.blendMode, userId, timestamp: Date.now(), affectedTiles, ...extraProps };
     group.strokeStack.push(record);
 
     const prev = group.userStrokeCounts.get(userId) || 0;
@@ -1312,6 +1317,12 @@ export class LayerManager {
       return;
     }
 
+    // If we already have a cached preview, use it instead of re-rendering.
+    if (filterStroke._cachedPreview) {
+      ctx.drawImage(filterStroke._cachedPreview, x, y);
+      return;
+    }
+
     // If the high-quality calc hasn't started, kick it off now.
     if (!filterStroke._isBlurring) {
       filterStroke._isBlurring = true;
@@ -1345,6 +1356,7 @@ export class LayerManager {
         cCtx.drawImage(tempForAsync, 0, 0);
 
         filterStroke._cachedBlurResult = composite;
+        delete filterStroke._cachedPreview; // Clear preview once HQ is ready
         this.needsComposite = true;
         if (this.onNeedsUpdate) this.onNeedsUpdate();
       }).catch(() => {
@@ -1362,14 +1374,37 @@ export class LayerManager {
           cCtx.drawImage(tempForAsync, 0, 0);
 
           filterStroke._cachedBlurResult = composite;
+          delete filterStroke._cachedPreview; // Clear preview once HQ is ready
           this.needsComposite = true;
           if (this.onNeedsUpdate) this.onNeedsUpdate();
         });
       });
-    }
 
-    // For this frame, draw the fast preview to avoid a flash while the HQ version is processing.
-    renderFastPreview();
+      // Render the fast preview ONCE and cache it
+      const previewCanvas = document.createElement('canvas');
+      previewCanvas.width = width;
+      previewCanvas.height = height;
+      const pCtx = previewCanvas.getContext('2d');
+
+      const previewBlurRadius = blurRadius * 0.5;
+      const margin = Math.ceil(previewBlurRadius * 2);
+      const pCropX = Math.max(0, x - margin);
+      const pCropY = Math.max(0, y - margin);
+      const pCropW = Math.min(this.width - pCropX, width + margin * 2);
+      const pCropH = Math.min(this.height - pCropY, height + margin * 2);
+
+      if (pCropW > 0 && pCropH > 0) {
+        pCtx.filter = `blur(${previewBlurRadius}px)`;
+        pCtx.drawImage(ctx.canvas, pCropX, pCropY, pCropW, pCropH, pCropX - x, pCropY - y, pCropW, pCropH);
+        pCtx.filter = 'none';
+
+        pCtx.globalCompositeOperation = 'destination-in';
+        pCtx.drawImage(maskCanvas, 0, 0);
+
+        filterStroke._cachedPreview = previewCanvas;
+        ctx.drawImage(previewCanvas, x, y);
+      }
+    }
   }
 
   /**

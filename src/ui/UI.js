@@ -552,9 +552,8 @@ export class UI {
       case 'circleBlur':
       case 'circleBlurHard':
         selfCircle.style.display = 'block';
-        brushHardness.style.display = 'block';
         brushSpacing.style.display = 'block';
-        if (circleBlurModeOptions) circleBlurModeOptions.style.display = 'block';
+        brushHardness.style.display = 'block';
         if (selfPressureCircle) selfPressureCircle.style.display = 'block';
         break;
 
@@ -717,13 +716,10 @@ export class UI {
   /**
    * Updates the circle blur mode radio buttons.
    * @param {string} tool - Selected circle blur tool
+   * @deprecated Circle blur no longer has soft/hard modes
    */
   updateCircleBlurModeDisplay(tool) {
-    const mode = tool === 'circleBlurHard' ? 'hard' : 'soft';
-    const radios = document.querySelectorAll('input[name="circleBlurMode"]');
-    radios.forEach(r => {
-      r.checked = (r.value === mode);
-    });
+    // No-op: Circle blur now only has one mode (averaged color circles)
   }
 
   /**

@@ -20,6 +20,22 @@ export class DebugOverlay {
 
     this.showGridLines = true;
     this.wasmStatus = { mode: 'checking...', wasmReady: false };
+
+    // Ownership visualization
+    this.tileOwnershipManager = null;
+    this.showOwnership = true;
+    this.showDirtyTiles = false; // Dirty tiles now off by default
+    this.userColors = new Map(); // userId -> color
+    this.colorPalette = [
+      'rgba(255, 100, 100, 0.35)', // red
+      'rgba(100, 255, 100, 0.35)', // green
+      'rgba(100, 100, 255, 0.35)', // blue
+      'rgba(255, 255, 100, 0.35)', // yellow
+      'rgba(255, 100, 255, 0.35)', // magenta
+      'rgba(100, 255, 255, 0.35)', // cyan
+      'rgba(255, 180, 100, 0.35)', // orange
+      'rgba(180, 100, 255, 0.35)', // purple
+    ];
   }
 
   init(canvas, width, height) {
@@ -37,6 +53,28 @@ export class DebugOverlay {
   setPixelsWorker(pixelsWorker) {
     this.pixelsWorker = pixelsWorker;
     this._queryWasmStatus();
+  }
+
+  setTileOwnershipManager(manager) {
+    this.tileOwnershipManager = manager;
+  }
+
+  _getUserColor(userId) {
+    if (!this.userColors.has(userId)) {
+      const idx = this.userColors.size % this.colorPalette.length;
+      this.userColors.set(userId, this.colorPalette[idx]);
+    }
+    return this.userColors.get(userId);
+  }
+
+  toggleOwnership() {
+    this.showOwnership = !this.showOwnership;
+    return this.showOwnership;
+  }
+
+  toggleDirtyTiles() {
+    this.showDirtyTiles = !this.showDirtyTiles;
+    return this.showDirtyTiles;
   }
 
   async _queryWasmStatus() {
@@ -161,47 +199,75 @@ export class DebugOverlay {
       }
     }
 
-    // Draw dirty tiles
-    let latestCount = 0;
-    for (const entry of this.tileHistory) {
-      const age = now - entry.timestamp;
-      const opacity = 1 - (age / this.TILE_DISPLAY_DURATION);
-      if (opacity <= 0) continue;
+    // Draw owned tiles (permanent)
+    let ownedCount = 0;
+    if (this.showOwnership && this.tileOwnershipManager) {
+      const ownershipMap = this.tileOwnershipManager.tileOwnershipMap;
+      for (const [tileIdx, owners] of ownershipMap) {
+        if (owners.size === 0) continue;
+        ownedCount++;
 
-      const isNewest = entry === this.tileHistory[this.tileHistory.length - 1];
-      if (isNewest) latestCount = entry.count;
+        const col = tileIdx % cols;
+        const row = Math.floor(tileIdx / cols);
+        const x = col * tileSize;
+        const y = row * tileSize;
 
-      const tiles = entry.tiles;
-      const ts = entry.tileSize;
+        // Use color from first owner (tiles can have multiple owners)
+        const firstOwner = owners.values().next().value;
+        this.ctx.fillStyle = this._getUserColor(firstOwner);
+        this.ctx.fillRect(x, y, tileSize, tileSize);
 
-      for (let i = 0; i < tiles.length; i++) {
-        if (!tiles[i]) continue;
-
-        const col = i % entry.cols;
-        const row = Math.floor(i / entry.cols);
-        const x = col * ts;
-        const y = row * ts;
-
-        // Fill
-        const alpha = (isNewest ? 0.35 : 0.15) * opacity;
-        this.ctx.fillStyle = `rgba(255, 80, 80, ${alpha})`;
-        this.ctx.fillRect(x, y, ts, ts);
-
-        // Border for newest
-        if (isNewest) {
-          this.ctx.strokeStyle = `rgba(255, 80, 80, ${0.9 * opacity})`;
-          this.ctx.lineWidth = 2;
-          this.ctx.setLineDash([4, 4]);
-          this.ctx.lineDashOffset = -this.dashOffset;
-          this.ctx.strokeRect(x + 1, y + 1, ts - 2, ts - 2);
+        // If multiple owners, show a small indicator
+        if (owners.size > 1) {
+          this.ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+          this.ctx.fillRect(x + tileSize - 6, y + 1, 5, 5);
         }
       }
     }
 
-    this._drawStats(latestCount, cols * rows);
+    // Draw dirty tiles (temporary, fading)
+    let latestCount = 0;
+    if (this.showDirtyTiles) {
+      for (const entry of this.tileHistory) {
+        const age = now - entry.timestamp;
+        const opacity = 1 - (age / this.TILE_DISPLAY_DURATION);
+        if (opacity <= 0) continue;
+
+        const isNewest = entry === this.tileHistory[this.tileHistory.length - 1];
+        if (isNewest) latestCount = entry.count;
+
+        const tiles = entry.tiles;
+        const ts = entry.tileSize;
+
+        for (let i = 0; i < tiles.length; i++) {
+          if (!tiles[i]) continue;
+
+          const col = i % entry.cols;
+          const row = Math.floor(i / entry.cols);
+          const x = col * ts;
+          const y = row * ts;
+
+          // Fill
+          const alpha = (isNewest ? 0.35 : 0.15) * opacity;
+          this.ctx.fillStyle = `rgba(255, 80, 80, ${alpha})`;
+          this.ctx.fillRect(x, y, ts, ts);
+
+          // Border for newest
+          if (isNewest) {
+            this.ctx.strokeStyle = `rgba(255, 80, 80, ${0.9 * opacity})`;
+            this.ctx.lineWidth = 2;
+            this.ctx.setLineDash([4, 4]);
+            this.ctx.lineDashOffset = -this.dashOffset;
+            this.ctx.strokeRect(x + 1, y + 1, ts - 2, ts - 2);
+          }
+        }
+      }
+    }
+
+    this._drawStats(latestCount, cols * rows, ownedCount);
   }
 
-  _drawStats(dirtyCount, totalTiles) {
+  _drawStats(dirtyCount, totalTiles, ownedCount = 0) {
     const tileGrid = this.board?.tileGrid;
     const tileSize = tileGrid?.tileSize ?? 32;
     const cols = tileGrid?.cols ?? 0;
@@ -209,7 +275,7 @@ export class DebugOverlay {
 
     this.ctx.setLineDash([]);
     this.ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-    this.ctx.fillRect(this.canvas.width - 180, 10, 170, 110);
+    this.ctx.fillRect(this.canvas.width - 180, 10, 170, 130);
 
     this.ctx.fillStyle = '#fff';
     this.ctx.font = 'bold 13px monospace';
@@ -224,13 +290,21 @@ export class DebugOverlay {
     this.ctx.fillText(`Tiles: ${tileSize}×${tileSize}px`, this.canvas.width - 170, 62);
     this.ctx.fillText(`Grid: ${cols}×${rows}`, this.canvas.width - 170, 78);
 
-    const pct = totalTiles > 0 ? ((dirtyCount / totalTiles) * 100).toFixed(1) : '0.0';
-    this.ctx.fillStyle = dirtyCount > 0 ? '#ff6b6b' : '#fff';
-    this.ctx.fillText(`Dirty: ${dirtyCount} (${pct}%)`, this.canvas.width - 170, 96);
+    // Owned tiles
+    const ownedPct = totalTiles > 0 ? ((ownedCount / totalTiles) * 100).toFixed(1) : '0.0';
+    this.ctx.fillStyle = ownedCount > 0 ? '#4ade80' : '#fff';
+    this.ctx.fillText(`Owned: ${ownedCount} (${ownedPct}%)`, this.canvas.width - 170, 96);
+
+    // Dirty tiles (if enabled)
+    if (this.showDirtyTiles) {
+      const pct = totalTiles > 0 ? ((dirtyCount / totalTiles) * 100).toFixed(1) : '0.0';
+      this.ctx.fillStyle = dirtyCount > 0 ? '#ff6b6b' : '#fff';
+      this.ctx.fillText(`Dirty: ${dirtyCount} (${pct}%)`, this.canvas.width - 170, 112);
+    }
 
     this.ctx.fillStyle = 'rgba(255,255,255,0.4)';
     this.ctx.font = '9px monospace';
-    this.ctx.fillText('.toggleGridLines()', this.canvas.width - 170, 112);
+    this.ctx.fillText('.toggleOwnership()', this.canvas.width - 170, 128);
   }
 
   clearAll() {
@@ -257,7 +331,7 @@ export class DebugOverlay {
   endDrawing() {}
   cancelDrawing() {}
   addRegion() {}
-  toggleDirtyRects() {}
+  toggleDirtyRects() { return this.toggleDirtyTiles(); }
   toggleRegions() {}
   toggleStrokePoints() {}
 }

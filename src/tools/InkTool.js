@@ -247,6 +247,17 @@ export class InkTool extends Tool {
       }
     }
 
+    // Track tile ownership
+    if (this.inputPoints.length > 0) {
+      const points = this.inputPoints.map(([x, y]) => ({ x, y }));
+      this.board.markDirtyPath(user, points, this._strokeSize);
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirroredPoints = points.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+        this.board.markDirtyPath(user, mirroredPoints, this._strokeSize);
+      }
+    }
+
     this.clearStroke();
     this.board.compositeAllLayers();
     this.board.endStroke(user);

@@ -11,7 +11,22 @@ export default defineConfig({
   root: '.',
   base: '/',
   publicDir: 'public',
-  plugins: [svelte()],
+  appType: 'mpa',
+  plugins: [
+    svelte(),
+    {
+      name: 'go-spa-fallback',
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          // Serve go/index.html for /go/* paths (SPA fallback)
+          if (req.url.startsWith('/go/') && !req.url.includes('.')) {
+            req.url = '/go/index.html';
+          }
+          next();
+        });
+      },
+    },
+  ],
   server: {
     port: 3000,
     open: '/go',
