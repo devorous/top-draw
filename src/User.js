@@ -50,6 +50,12 @@ export class User {
     this.role = options.role || 0;
     this.isMuted = options.isMuted || false;
     this.ipHash = options.ipHash || options.iph || '';
+
+    // Tile ownership tracking for griefing detection
+    /** @type {Set<number>} Set of tile indices this user owns */
+    this.ownedTiles = new Set();
+    /** @type {Array<{timestamp: number, tileIndex: number, previousOwners: number[]}>} */
+    this.eraseHistory = [];
   }
 
   /**

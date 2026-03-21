@@ -210,11 +210,9 @@ export class KeyboardHandler {
         case 'u':
           app.selectTool('blur');
           break;
-        case 'y': {
-          const checked = document.querySelector('input[name="circleBlurMode"]:checked');
-          app.selectTool(checked && checked.value === 'hard' ? 'circleBlurHard' : 'circleBlur');
+        case 'y':
+          app.selectTool('circleBlur');
           break;
-        }
         case 'g':
           app.selectTool('imageBrush');
           break;

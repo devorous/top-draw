@@ -28,6 +28,7 @@ import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js';
 import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
+import { SaveMode } from './ui/SaveMode.js';
 
 /**
  * Main Drawing Application class.
@@ -128,6 +129,9 @@ export class DrawingApp {
     this.performanceDebugPanel = new PerformanceDebugPanel(this.inputBufferManager, this);
 
     // PerformanceSettings lazy-loaded via Moderation when mod role confirmed
+
+    // Save mode (initialized in init() after board is ready)
+    this.saveMode = null;
   }
 
   /**
@@ -151,11 +155,14 @@ export class DrawingApp {
     this.remoteUserHandler = new RemoteUserHandler(this);
     this.touchHandler = new TouchHandler(this);
     this.touchHandler.init(this.ui.elements.boards);
+    this.saveMode = new SaveMode(this);
 
     this.debugOverlay = new DebugOverlay();
     const debugCanvas = document.getElementById('debugOverlay');
     this.debugOverlay.init(debugCanvas, this.board.getWidth(), this.board.getHeight());
     this.debugOverlay.setBoard(this.board);
+    this.debugOverlay.setPixelsWorker(this.board.layerManager._pixelsWorker);
+    this.debugOverlay.setTileOwnershipManager(this.board.tileOwnershipManager);
 
     this.strokeHistoryPanel.init();
     this.strokeHistoryPanel.setLayerManager(this.board.layerManager);
@@ -412,12 +419,8 @@ export class DrawingApp {
     elements.fillBtn.addEventListener('click', () => this.selectTool('fill'));
     elements.eraseBtn.addEventListener('click', () => this.selectTool('erase'));
     elements.blurBtn.addEventListener('click', () => this.selectTool('blur'));
-    elements.circleBlurBtn.addEventListener('click', () => {
-      // Select whichever circle blur mode is currently active
-      const checked = document.querySelector('input[name="circleBlurMode"]:checked');
-      const tool = checked && checked.value === 'hard' ? 'circleBlurHard' : 'circleBlur';
-      this.selectTool(tool);
-    });
+    elements.circleBlurBtn.addEventListener('click', () => this.selectTool('circleBlur'));
+    elements.glitchBlurBtn.addEventListener('click', () => this.selectTool('glitchBlur'));
     elements.imageBrushBtn.addEventListener('click', () => this.selectTool('imageBrush'));
     elements.uploadBtn.addEventListener('click', () => elements.imageUploadInput.click());
     elements.imageUploadInput.addEventListener('change', (e) => {
@@ -511,6 +514,7 @@ export class DrawingApp {
     if (elements.blurRadiusSlider) {
       elements.blurRadiusSlider.addEventListener('input', (e) => this.handleBlurRadiusChange(e));
     }
+
     elements.brushFileInput.addEventListener('change', (e) => this.handleBrushFileLoad(e));
 
     if (elements.thinningSlider) {
@@ -559,19 +563,17 @@ export class DrawingApp {
       });
     });
 
-    // Circle blur mode radio buttons
-    const circleBlurModeRadios = document.querySelectorAll('input[name="circleBlurMode"]');
-    circleBlurModeRadios.forEach(radio => {
-      radio.addEventListener('change', (e) => {
-        const tool = e.target.value === 'hard' ? 'circleBlurHard' : 'circleBlur';
-        this.selectTool(tool);
-      });
-    });
 
     // Fill advanced mode checkbox
     const fillAdvancedCheck = document.getElementById('fillAdvancedCheck');
     const fillAdvancedHint = document.getElementById('fillAdvancedHint');
     if (fillAdvancedCheck) {
+      // Sync checkbox to tool's default (advanced on by default)
+      const fillTool = this.toolManager.getTool('fill');
+      if (fillTool) {
+        fillAdvancedCheck.checked = fillTool.advancedMode;
+        if (fillAdvancedHint) fillAdvancedHint.style.display = fillTool.advancedMode ? 'block' : 'none';
+      }
       fillAdvancedCheck.addEventListener('change', (e) => {
         const fillTool = this.toolManager.getTool('fill');
         if (fillTool) fillTool.advancedMode = e.target.checked;
@@ -924,6 +926,13 @@ export class DrawingApp {
    */
   async handleRoomSelected(roomId, password = null) {
     console.log(`[App] Room selected: ${roomId}`);
+
+    // Handle /go/offline as draw alone mode
+    if (roomId === 'offline') {
+      this.handleOffline();
+      return;
+    }
+
     this.isOfflineMode = false;
     this.currentRoomId = roomId;
     this.currentRoomPassword = password;
@@ -987,9 +996,10 @@ export class DrawingApp {
 
     this.inputBufferManager.startTickLoop();
 
-    const url = new URL(window.location);
-    url.searchParams.set('room', this.currentRoomId);
-    window.history.pushState({}, '', url);
+    // Update URL to /go/offline
+    if (window.location.pathname !== '/go/offline') {
+      window.history.pushState({ room: 'offline' }, '', '/go/offline');
+    }
   }
 
   /**
@@ -1427,22 +1437,18 @@ export class DrawingApp {
     el.style.display = role >= 1 ? '' : 'none';
   }
 
-  /** Opens the save mode overlay, enabling the selection option only if a selection is active. */
+  /** Opens the interactive save mode with visual selection. */
   openSaveDialog() {
-    const { saveModeOverlay, saveAreaBoard, saveAreaSelection, saveAreaSelectionLabel } = this.ui.elements;
-    if (!saveModeOverlay) return;
-    const hasSelection = !!this.toolManager.tools.select?.selection;
-    if (saveAreaSelection) saveAreaSelection.disabled = !hasSelection;
-    if (saveAreaSelectionLabel) saveAreaSelectionLabel.style.opacity = hasSelection ? '' : '0.4';
-    if (saveAreaSelectionLabel) saveAreaSelectionLabel.style.cursor = hasSelection ? '' : 'not-allowed';
-    if (!hasSelection && saveAreaBoard) saveAreaBoard.checked = true;
-    saveModeOverlay.style.display = 'flex';
+    if (this.saveMode) {
+      this.saveMode.open();
+    }
   }
 
-  /** Closes the save mode overlay. */
+  /** Closes the interactive save mode. */
   closeSaveDialog() {
-    const { saveModeOverlay } = this.ui.elements;
-    if (saveModeOverlay) saveModeOverlay.style.display = 'none';
+    if (this.saveMode) {
+      this.saveMode.close();
+    }
   }
 
   /**
@@ -1562,6 +1568,7 @@ export class DrawingApp {
     }
 
     this.connected = false;
+    this.isOfflineMode = false;
     this.sessionIndex = null;
     if (this.self) this.self.id = null;
     this.currentRoomData = null;
@@ -1576,13 +1583,10 @@ export class DrawingApp {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    const url = new URL(window.location);
-    url.searchParams.delete('room');
-    window.history.pushState({}, '', url);
-
     if (this.landingPage) {
       this.landingPage.show();
-      this.landingPage.selectRoom('lobby');
+      const urlRoom = this.landingPage.getRoomFromURL();
+      this.landingPage.selectRoom(urlRoom || 'lobby');
     }
 
     this.connectForRoomDiscovery();
@@ -1632,9 +1636,6 @@ export class DrawingApp {
 
     this.brushModeManager.updateModeFromTool(tool);
 
-    if (tool === 'circleBlur' || tool === 'circleBlurHard') {
-      this.ui.updateCircleBlurModeDisplay(tool);
-    }
 
     this.self.setTool(tool);
     this.toolManager.setTool(tool);
@@ -1761,14 +1762,14 @@ export class DrawingApp {
    * @private
    */
   _updateBlurCannotDraw() {
-    const cannotDraw = this.self.tool === 'blur' && this.self.activeLayer !== 0;
+    const cannotDraw = (this.self.tool === 'blur' || this.self.tool === 'glitchBlur') && this.self.activeLayer !== 0;
     this._blurCannotDraw = cannotDraw;
     // Reuse the muted indicator visuals (only if not actually muted)
     if (!this.self.isMuted) {
       this.ui.setMutedState(cannotDraw);
     }
     // Hide the square cursor and show crosshair-style muted indicator instead
-    if (this.self.tool === 'blur') {
+    if (this.self.tool === 'blur' || this.self.tool === 'glitchBlur') {
       this.ui.elements.selfSquare.style.display = cannotDraw ? 'none' : 'block';
     }
   }
@@ -1805,6 +1806,7 @@ export class DrawingApp {
       return;
     }
     this.board.clear();
+    this.board.tileOwnershipManager?.clear();
     this.wsClient.broadcastClear();
     if (this.debugOverlay) {
       this.debugOverlay.clearAll();
@@ -1875,7 +1877,7 @@ export class DrawingApp {
     this.ui.updateCursorSize(size);
     this.ui.updateSquarePositions(size);
     // Update pressure indicators only for tools that use pressure
-    const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'circleBlurHard'];
+    const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur'];
     if (pressureTools.includes(this.self.tool)) {
       this.ui.updatePressureCursorRadius(this.self.pressure * size, size);
     }
@@ -2119,7 +2121,7 @@ export class DrawingApp {
       }
 
       // Update pressure indicators only for tools that use pressure
-      const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'circleBlurHard'];
+      const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur'];
       if (pressureTools.includes(this.self.tool)) {
         this.ui.updatePressureCursorRadius(pressure * this.self.size, this.self.size);
       }

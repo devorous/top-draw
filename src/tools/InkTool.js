@@ -247,6 +247,17 @@ export class InkTool extends Tool {
       }
     }
 
+    // Track tile ownership
+    if (this.inputPoints.length > 0) {
+      const points = this.inputPoints.map(([x, y]) => ({ x, y }));
+      this.board.markDirtyPath(user, points, this._strokeSize);
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirroredPoints = points.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+        this.board.markDirtyPath(user, mirroredPoints, this._strokeSize);
+      }
+    }
+
     this.clearStroke();
     this.board.compositeAllLayers();
     this.board.endStroke(user);
@@ -346,19 +357,12 @@ export class InkTool extends Tool {
    * @param {number} y - The y-coordinate.
    */
   compositeWithHardness(ctx, sourceCanvas, size, x, y) {
-    const blurAmount = (1 - (this.userHardness / 100.0)) * (20 + size * 0.2);
-    if (blurAmount > 0) {
-      const offset = 100000;
-      ctx.save();
-      ctx.shadowBlur = blurAmount;
-      ctx.shadowColor = this.strokeColor;
-      ctx.shadowOffsetX = -offset;
-      ctx.shadowOffsetY = 0;
-      ctx.drawImage(sourceCanvas, x + offset, y);
-      ctx.restore();
-    } else {
-      ctx.drawImage(sourceCanvas, x, y);
+    const blurRadius = Math.ceil((1 - this.userHardness / 100) * (20 + size * 0.2));
+    if (blurRadius > 0) {
+      ctx.filter = `blur(${blurRadius}px)`;
     }
+    ctx.drawImage(sourceCanvas, x, y);
+    ctx.filter = 'none';
   }
 
   /**

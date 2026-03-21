@@ -7,7 +7,9 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { connectDB, getDB } from './db.js';
-import { handleGalleryList, handleGalleryUpload, handleGalleryLike } from './gallery.js';
+import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentDelete, handleGalleryDelete } from './gallery.js';
+import { handleAuthLogin, handleAuthRegister, handleAuthMe } from './authRoutes.js';
+import { handleUserProfile } from './userRoutes.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
 import { issueModAction, revokeModAction, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
@@ -31,7 +33,7 @@ const server = createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     });
     res.end();
@@ -57,6 +59,73 @@ const server = createServer(async (req, res) => {
   const likeMatch = path.match(/^\/api\/gallery\/([a-f0-9]{24})\/like$/);
   if (likeMatch && req.method === 'POST') {
     await handleGalleryLike(req, res, likeMatch[1]);
+    return;
+  }
+
+  // Single item route (must be after more specific routes)
+  const itemMatch = path.match(/^\/api\/gallery\/([a-f0-9]{24})$/);
+  if (itemMatch && req.method === 'GET') {
+    await handleGalleryItem(req, res, itemMatch[1]);
+    return;
+  }
+  if (itemMatch && req.method === 'DELETE') {
+    await handleGalleryDelete(req, res, itemMatch[1]);
+    return;
+  }
+
+  // Favorites routes
+  if (path === '/api/gallery/favorites' && req.method === 'GET') {
+    await handleGalleryFavorites(req, res);
+    return;
+  }
+
+  const favMatch = path.match(/^\/api\/gallery\/([a-f0-9]{24})\/favorite$/);
+  if (favMatch && req.method === 'POST') {
+    await handleGalleryFavorite(req, res, favMatch[1]);
+    return;
+  }
+  if (favMatch && req.method === 'GET') {
+    await handleGalleryFavoriteCheck(req, res, favMatch[1]);
+    return;
+  }
+
+  // Comment routes
+  const commentsMatch = path.match(/^\/api\/gallery\/([a-f0-9]{24})\/comments$/);
+  if (commentsMatch && req.method === 'GET') {
+    await handleGalleryCommentsList(req, res, commentsMatch[1]);
+    return;
+  }
+  if (commentsMatch && req.method === 'POST') {
+    await handleGalleryCommentCreate(req, res, commentsMatch[1]);
+    return;
+  }
+
+  const commentDeleteMatch = path.match(/^\/api\/gallery\/comments\/([a-f0-9]{24})$/);
+  if (commentDeleteMatch && req.method === 'DELETE') {
+    await handleGalleryCommentDelete(req, res, commentDeleteMatch[1]);
+    return;
+  }
+
+  // Auth routes (HTTP for gallery/non-WebSocket clients)
+  if (path === '/api/auth/login' && req.method === 'POST') {
+    await handleAuthLogin(req, res);
+    return;
+  }
+
+  if (path === '/api/auth/register' && req.method === 'POST') {
+    await handleAuthRegister(req, res);
+    return;
+  }
+
+  if (path === '/api/auth/me' && req.method === 'GET') {
+    await handleAuthMe(req, res);
+    return;
+  }
+
+  // User profile route
+  const userMatch = path.match(/^\/api\/users\/([a-zA-Z0-9_-]+)$/);
+  if (userMatch && req.method === 'GET') {
+    await handleUserProfile(req, res, userMatch[1]);
     return;
   }
 

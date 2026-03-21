@@ -192,7 +192,7 @@ export class InputBufferManager {
 
     if (points.length >= 2) {
       const smoothingTools = ['brush', 'flowPen', 'ink', 'imageBrush', 'erase'];
-      const blurTools = ['blur', 'circleBlur', 'circleBlurHard'];
+      const blurTools = ['blur', 'circleBlur', 'glitchBlur'];
       const useSmoothing = app.self.mousedown && !app.self.panning && smoothingTools.includes(app.self.tool);
       const useBlur = app.self.mousedown && !app.self.panning && blurTools.includes(app.self.tool);
 
@@ -240,7 +240,7 @@ export class InputBufferManager {
         }
       }
 
-      const stampTools = ['flowPen', 'ink', 'pixel', 'circleBlur', 'circleBlurHard', 'imageBrush'];
+      const stampTools = ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush'];
       if (stampTools.includes(app.self.tool) && app.self.mousedown && !app.self.panning) {
         const tool = app.toolManager.getCurrentTool();
         const drain = app.self.tool === 'ink' ? tool.drainPointBuffer() : tool.drainStampBuffer();
@@ -303,7 +303,7 @@ export class InputBufferManager {
     tool.onPointerMove(app.self, smoothedPos, prevPos);
     app.self._mainCtxDrawCount++;
 
-    const stampTools = ['flowPen', 'ink', 'pixel', 'circleBlur', 'circleBlurHard', 'imageBrush'];
+    const stampTools = ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush'];
     if (stampTools.includes(app.self.tool)) {
       const drain = app.self.tool === 'ink' ? tool.drainPointBuffer() : tool.drainStampBuffer();
       if (drain.ps.length > 0) {

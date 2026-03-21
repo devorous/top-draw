@@ -17,3 +17,7 @@ NOTES.md
 docs/
 TODO.txt
 testing/legacy
+
+
+#WASM output
+wasm_src/target/

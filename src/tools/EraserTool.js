@@ -60,6 +60,8 @@ export class EraserTool extends Tool {
     super('erase', board);
     this.userSize = 10;
     this.lastPos = null;
+    // Track erased tile indices for ownership checking
+    this._erasedTiles = null;
   }
 
   /**
@@ -89,13 +91,15 @@ export class EraserTool extends Tool {
   onPointerDown(user, pos) {
     this.userSize = user.size;
     this.lastPos = { x: pos.x, y: pos.y };
+    // Initialize erased tiles tracking
+    this._erasedTiles = new Set();
 
     if (this._eraseAllLayers()) {
       this.board.beginStrokeAllLayers(user, 'destination-out', 1.0);
     } else {
       this.board.beginStroke(user, 'destination-out', 1.0);
     }
-    
+
     this._drawSegment(user, pos, pos);
   }
 
@@ -117,12 +121,47 @@ export class EraserTool extends Tool {
    * @param {Object} user - The user performing the action.
    */
   onPointerUp(user) {
+    // Copy erased tiles to active stroke's affectedTiles before committing
+    if (this._erasedTiles && this._erasedTiles.size > 0) {
+      const activeLayer = user?.activeLayer ?? 0;
+      const userId = user?.id ?? 0;
+
+      if (this._eraseAllLayers()) {
+        // For erase-all, add to all layers' active strokes
+        const lm = this.board.layerManager;
+        if (lm) {
+          for (const group of lm.layerGroups) {
+            const active = group.activeStrokeByUser.get(userId);
+            if (active?.affectedTiles) {
+              for (const idx of this._erasedTiles) active.affectedTiles.add(idx);
+            }
+          }
+        }
+      } else {
+        const group = this.board.layerManager?.layerGroups[activeLayer];
+        const active = group?.activeStrokeByUser.get(userId);
+        if (active?.affectedTiles) {
+          for (const idx of this._erasedTiles) active.affectedTiles.add(idx);
+        }
+      }
+    }
+
     if (this._eraseAllLayers()) {
       this.board.endStrokeAllLayers(user);
     } else {
       this.board.endStroke(user);
     }
+
+    // Check tile ownership after erase
+    if (this._erasedTiles && this._erasedTiles.size > 0) {
+      // Force composite so mainCtx reflects the erased state before checking
+      this.board.compositeAllLayers();
+
+      this.board.checkErasedTilesForOwnershipByIndices(this._erasedTiles);
+    }
+
     this.lastPos = null;
+    this._erasedTiles = null;
   }
 
   /**
@@ -166,7 +205,7 @@ export class EraserTool extends Tool {
     }
 
     const radius = size / 2;
-    const safetyMargin = radius * 0.25; 
+    const safetyMargin = radius * 0.25;
     const margin = radius + safetyMargin + 2;
 
     const minX = Math.min(p1.x, p2.x) - margin;
@@ -178,6 +217,11 @@ export class EraserTool extends Tool {
     const y = Math.floor(minY);
     const w = Math.ceil(maxX) - x;
     const h = Math.ceil(maxY) - y;
+
+    // Track erased tiles along the stroke path
+    if (this._erasedTiles && this.board.tileOwnershipManager) {
+      this.board.tileOwnershipManager.collectTilesFromPath([p1, p2], radius, this._erasedTiles);
+    }
 
     if (this._eraseAllLayers()) {
       this.board.expandDirtyRectAllLayers(user, x, y, w, h);
@@ -193,6 +237,12 @@ export class EraserTool extends Tool {
         this.board.expandDirtyRectAllLayers(user, mirrorX, y, w, h);
       } else {
         this.board.expandDirtyRect(user, mirrorX, y, w, h);
+      }
+      // Track mirror tiles
+      if (this._erasedTiles && this.board.tileOwnershipManager) {
+        const m1 = { x: width - p1.x, y: p1.y };
+        const m2 = { x: width - p2.x, y: p2.y };
+        this.board.tileOwnershipManager.collectTilesFromPath([m1, m2], radius, this._erasedTiles);
       }
     }
 

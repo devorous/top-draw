@@ -439,7 +439,6 @@ export class RemoteUserUI {
       case 'circle':
       case 'erase':
       case 'circleBlur':
-      case 'circleBlurHard':
         circle.style.display = 'block';
         break;
       case 'text':

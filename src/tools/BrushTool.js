@@ -159,7 +159,7 @@ export class BrushTool extends Tool {
   }
 
   /**
-   * Calculates and expands the dirty rectangle for a set of points to optimize rendering.
+   * Marks dirty tiles along the stroke path for efficient compositing.
    *
    * @param {User} user - The user whose drawing is being tracked.
    * @param {Array<Object>} points - Array of {x, y} points in the stroke.
@@ -171,30 +171,18 @@ export class BrushTool extends Tool {
     const hardness = user.hardness !== undefined ? user.hardness : 100;
     const hardnessFloat = hardness / 100.0;
 
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const pt of points) {
-      if (pt.x < minX) minX = pt.x;
-      if (pt.x > maxX) maxX = pt.x;
-      if (pt.y < minY) minY = pt.y;
-      if (pt.y > maxY) maxY = pt.y;
-    }
-
     const radius = user.pressure * user.size;
     const blurAmount = hardness < 100 ? (1 - hardnessFloat) * (20 + user.size * 0.2) : 0;
     const safetyMargin = radius * 0.25;
-    const margin = radius + blurAmount + safetyMargin + 2;
+    const totalRadius = radius + blurAmount + safetyMargin + 2;
 
-    const x = Math.floor(minX - margin);
-    const y = Math.floor(minY - margin);
-    const width = Math.ceil(maxX - minX + margin * 2);
-    const height = Math.ceil(maxY - minY + margin * 2);
-
-    this.board.expandDirtyRect(user, x, y, width, height);
+    // Use line-based tile marking for efficiency
+    this.board.markDirtyPath(user, points, totalRadius);
 
     if (this.board.mirror) {
       const boardWidth = this.board.getWidth();
-      const mirrorX = Math.floor(boardWidth - maxX - margin);
-      this.board.expandDirtyRect(user, mirrorX, y, width, height);
+      const mirroredPoints = points.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+      this.board.markDirtyPath(user, mirroredPoints, totalRadius);
     }
   }
 

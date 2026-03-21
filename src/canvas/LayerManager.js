@@ -2,7 +2,9 @@
  * @fileoverview LayerManager - Manages multiple off-screen canvas layers with stroke history
  */
 
+import { PixelsWorkerClient } from '../workers/PixelsWorkerClient.js';
 import { blurImageData, getStackblurSync } from '../utils/blurUtils.js';
+
 
 /**
  * Manages multiple layer groups, each containing baked sequences, a stroke stack,
@@ -28,6 +30,10 @@ export class LayerManager {
     this._canvasPool = [];
     this.CANVAS_POOL_MAX = 12;
     this.onNeedsUpdate = null; // Callback for Board to requestUpdate
+    this._pixelsWorker = new PixelsWorkerClient();
+    
+
+
 
     this.initLayerGroups(3);
   }
@@ -172,7 +178,8 @@ export class LayerManager {
       canvas,
       ctx,
       blendMode,
-      dirtyRect: { minX: this.width, minY: this.height, maxX: -1, maxY: -1 }
+      dirtyRect: { minX: this.width, minY: this.height, maxX: -1, maxY: -1 },
+      affectedTiles: new Set()
     });
     this.needsComposite = true;
     this._notifyHistoryPanel();
@@ -200,7 +207,7 @@ export class LayerManager {
         dirtyRect: { minX: this.width, minY: this.height, maxX: -1, maxY: -1 },
         ...metadata
       };
-      if (metadata.filterType === 'blur') {
+      if (metadata.filterType === 'blur' || metadata.filterType === 'glitchBlur') {
         active.maskCanvas = canvas;
       }
       group.activeStrokeByUser.set(userId, active);
@@ -208,6 +215,18 @@ export class LayerManager {
       active.blendMode = createBlendMode;
     }
     return active.ctx;
+  }
+
+  /**
+   * Get the active stroke object for a user (for tracking affected tiles, etc.)
+   * @param {number} groupIdx - Layer index
+   * @param {number} userId - User ID
+   * @returns {Object|undefined} The active stroke object or undefined
+   */
+  getActiveStroke(groupIdx, userId) {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return undefined;
+    return group.activeStrokeByUser.get(userId);
   }
 
   /**
@@ -225,8 +244,11 @@ export class LayerManager {
 
     group.activeStrokeByUser.delete(userId);
 
+    // Capture affected tiles before releasing active stroke
+    const affectedTiles = active.affectedTiles ? Array.from(active.affectedTiles) : [];
+
     // Handle filter strokes (blur) differently - they need metadata and potentially special rendering
-    if (extraProps.filterType === 'blur') {
+    if (extraProps.filterType === 'blur' || extraProps.filterType === 'glitchBlur') {
       const cropBounds = extraProps.cropBounds || { x: 0, y: 0, width: this.width, height: this.height };
       const record = {
         canvas: active.canvas,
@@ -238,9 +260,10 @@ export class LayerManager {
         blendMode: active.blendMode,
         userId,
         timestamp: Date.now(),
-        filterType: 'blur',
+        filterType: extraProps.filterType,
         blurRadius: extraProps.blurRadius,
-        maskCanvas: active.canvas
+        maskCanvas: active.canvas,
+        affectedTiles
       };
 
       group.strokeStack.push(record);
@@ -286,7 +309,7 @@ export class LayerManager {
 
     this._releaseCanvas(active);
 
-    const record = { canvas: croppedCanvas, ctx: croppedCtx, x, y, width, height, blendMode: active.blendMode, userId, timestamp: Date.now(), ...extraProps };
+    const record = { canvas: croppedCanvas, ctx: croppedCtx, x, y, width, height, blendMode: active.blendMode, userId, timestamp: Date.now(), affectedTiles, ...extraProps };
     group.strokeStack.push(record);
 
     const prev = group.userStrokeCounts.get(userId) || 0;
@@ -669,7 +692,7 @@ export class LayerManager {
    */
   _bakeStrokeToBin(group, stroke) {
     // Handle blur filter strokes specially - resolve to actual pixels
-    if (stroke.filterType === 'blur') {
+    if (stroke.filterType === 'blur' || stroke.filterType === 'glitchBlur') {
       this._bakeBlurStroke(group, stroke);
       return;
     }
@@ -890,7 +913,8 @@ export class LayerManager {
   }
 
   /**
-   * Remove empty sequences from a specific layer group
+   * Remove empty sequences from a specific layer group.
+   * Uses the worker for async pixel scanning when available.
    * @param {number} groupIdx - Layer index
    */
   cleanupEmptyBins(groupIdx) {
@@ -900,7 +924,36 @@ export class LayerManager {
     const hasEraserInHistory = this._hasEraserInHistory(group);
     if (hasEraserInHistory) return;
 
-    group.bakedSequences = group.bakedSequences.filter(seq => this._hasContent(seq.canvas));
+    if (this._pixelsWorker && group.bakedSequences.length > 0) {
+      this._cleanupEmptyBinsAsync(group);
+    } else {
+      group.bakedSequences = group.bakedSequences.filter(seq => this._hasContent(seq.canvas));
+    }
+  }
+
+  /**
+   * Async cleanup that offloads _hasContent checks to the worker.
+   * @param {Object} group - Layer group
+   * @private
+   */
+  async _cleanupEmptyBinsAsync(group) {
+    const sequences = group.bakedSequences;
+    const checks = sequences.map(seq => {
+      const ctx = seq.canvas.getContext('2d', { willReadFrequently: true });
+      const imageData = ctx.getImageData(0, 0, seq.canvas.width, seq.canvas.height);
+      return this._pixelsWorker.hasContent(imageData.data);
+    });
+
+    try {
+      const results = await Promise.all(checks);
+      // Filter out empty sequences — only if the group hasn't been modified while waiting
+      group.bakedSequences = sequences.filter((_, i) => results[i]);
+      this.needsComposite = true;
+      if (this.onNeedsUpdate) this.onNeedsUpdate();
+    } catch (err) {
+      // Worker failed — fall back to sync
+      group.bakedSequences = sequences.filter(seq => this._hasContent(seq.canvas));
+    }
   }
 
   /**
@@ -949,6 +1002,37 @@ export class LayerManager {
       if (data[i] > 0) return true;
     }
     return false;
+  }
+
+  /**
+   * Apply a clip region from dirty rects to a context.
+   * @param {CanvasRenderingContext2D} ctx - Context to clip
+   * @param {Array} dirtyRects - Array of {x, y, width, height}
+   * @private
+   */
+  _applyDirtyClip(ctx, dirtyRects) {
+    ctx.save();
+    ctx.beginPath();
+    for (const r of dirtyRects) {
+      ctx.rect(r.x, r.y, r.width, r.height);
+    }
+    ctx.clip();
+  }
+
+  /**
+   * Clear only the dirty regions of a context.
+   * @param {CanvasRenderingContext2D} ctx - Context to clear
+   * @param {Array|null} dirtyRects - Array of {x, y, width, height}, or null for full clear
+   * @private
+   */
+  _clearDirtyRegion(ctx, dirtyRects) {
+    if (dirtyRects) {
+      for (const r of dirtyRects) {
+        ctx.clearRect(r.x, r.y, r.width, r.height);
+      }
+    } else {
+      ctx.clearRect(0, 0, this.width, this.height);
+    }
   }
 
   /**
@@ -1003,7 +1087,7 @@ export class LayerManager {
   }
 
   /**
-   * Full-canvas scan for content bounds
+   * Full-canvas scan for content bounds (sync fallback).
    * @param {HTMLCanvasElement} canvas - Canvas to scan
    * @returns {Object|null} {x, y, width, height}
    * @private
@@ -1012,6 +1096,18 @@ export class LayerManager {
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     return this._scanImageDataForContent(imageData);
+  }
+
+  /**
+   * Async content bounds scan via the pixels worker.
+   * @param {HTMLCanvasElement} canvas - Canvas to scan
+   * @returns {Promise<{x: number, y: number, width: number, height: number}|null>}
+   * @private
+   */
+  _findContentBoundsAsync(canvas) {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    return this._pixelsWorker.findContentBounds(imageData.data, canvas.width, canvas.height);
   }
 
   /**
@@ -1160,7 +1256,7 @@ export class LayerManager {
    * @private
    */
   _compositeStroke(ctx, stroke, isActive = false) {
-    if (stroke.filterType === 'blur') {
+    if (stroke.filterType === 'blur' || stroke.filterType === 'glitchBlur') {
       this._applyBlurFilter(ctx, stroke, isActive);
     } else {
       ctx.globalCompositeOperation = stroke.blendMode;
@@ -1233,10 +1329,16 @@ export class LayerManager {
       return;
     }
 
+    // If we already have a cached preview, use it instead of re-rendering.
+    if (filterStroke._cachedPreview) {
+      ctx.drawImage(filterStroke._cachedPreview, x, y);
+      return;
+    }
+
     // If the high-quality calc hasn't started, kick it off now.
     if (!filterStroke._isBlurring) {
       filterStroke._isBlurring = true;
-      
+
       const cropX = x;
       const cropY = y;
       const cropW = width;
@@ -1249,9 +1351,12 @@ export class LayerManager {
       tCtxForAsync.drawImage(ctx.canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
       const imageData = tCtxForAsync.getImageData(0, 0, cropW, cropH);
-      
-      blurImageData(imageData, cropW, cropH, blurRadius).then(blurred => {
-        tCtxForAsync.putImageData(blurred, 0, 0);
+
+      const useGlitch = filterStroke.filterType === 'glitchBlur';
+
+      // Offload blur to the pixels worker (runs stackblur off the main thread)
+      this._pixelsWorker.blur(imageData.data, cropW, cropH, blurRadius, useGlitch).then(blurredData => {
+        tCtxForAsync.putImageData(new ImageData(new Uint8ClampedArray(blurredData.buffer), cropW, cropH), 0, 0);
 
         const composite = document.createElement('canvas');
         composite.width = cropW;
@@ -1263,13 +1368,55 @@ export class LayerManager {
         cCtx.drawImage(tempForAsync, 0, 0);
 
         filterStroke._cachedBlurResult = composite;
+        delete filterStroke._cachedPreview; // Clear preview once HQ is ready
         this.needsComposite = true;
         if (this.onNeedsUpdate) this.onNeedsUpdate();
-      });
-    }
+      }).catch(() => {
+        // Fallback to main-thread blur if worker fails
+        blurImageData(imageData, cropW, cropH, blurRadius, useGlitch).then(blurred => {
+          tCtxForAsync.putImageData(blurred, 0, 0);
 
-    // For this frame, draw the fast preview to avoid a flash while the HQ version is processing.
-    renderFastPreview();
+          const composite = document.createElement('canvas');
+          composite.width = cropW;
+          composite.height = cropH;
+          const cCtx = composite.getContext('2d');
+
+          cCtx.drawImage(maskCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+          cCtx.globalCompositeOperation = 'source-in';
+          cCtx.drawImage(tempForAsync, 0, 0);
+
+          filterStroke._cachedBlurResult = composite;
+          delete filterStroke._cachedPreview; // Clear preview once HQ is ready
+          this.needsComposite = true;
+          if (this.onNeedsUpdate) this.onNeedsUpdate();
+        });
+      });
+
+      // Render the fast preview ONCE and cache it
+      const previewCanvas = document.createElement('canvas');
+      previewCanvas.width = width;
+      previewCanvas.height = height;
+      const pCtx = previewCanvas.getContext('2d');
+
+      const previewBlurRadius = blurRadius * 0.5;
+      const margin = Math.ceil(previewBlurRadius * 2);
+      const pCropX = Math.max(0, x - margin);
+      const pCropY = Math.max(0, y - margin);
+      const pCropW = Math.min(this.width - pCropX, width + margin * 2);
+      const pCropH = Math.min(this.height - pCropY, height + margin * 2);
+
+      if (pCropW > 0 && pCropH > 0) {
+        pCtx.filter = `blur(${previewBlurRadius}px)`;
+        pCtx.drawImage(ctx.canvas, pCropX, pCropY, pCropW, pCropH, pCropX - x, pCropY - y, pCropW, pCropH);
+        pCtx.filter = 'none';
+
+        pCtx.globalCompositeOperation = 'destination-in';
+        pCtx.drawImage(maskCanvas, 0, 0);
+
+        filterStroke._cachedPreview = previewCanvas;
+        ctx.drawImage(previewCanvas, x, y);
+      }
+    }
   }
 
   /**
@@ -1314,24 +1461,35 @@ export class LayerManager {
       }
     }
 
+    // Clip all subsequent compositing to the dirty regions. The browser's
+    // canvas compositor skips pixels outside the clip path, so a dirty region
+    // covering 10% of the canvas reduces drawImage work by ~90%.
+    const activeRects = useDirtyRects ? dirtyRects : null;
+    if (activeRects) {
+      this._applyDirtyClip(targetCtx, activeRects);
+    }
+
     const count = Math.min(endIdx, this.layerGroups.length);
     for (let i = startIdx; i < count; i++) {
       const group = this.layerGroups[i];
       if (!group.visible) continue;
 
       if (group.flatCanvas) {
-        this._compositeGroupWithFlatCanvas(targetCtx, group, backgroundColor);
+        this._compositeGroupWithFlatCanvas(targetCtx, group, backgroundColor, activeRects);
       } else if (this._groupHasDestOut(group)) {
         if (this._groupHasComplexBlendModes(group)) {
-          this._compositeGroupSequential(targetCtx, group);
+          this._compositeGroupSequential(targetCtx, group, activeRects);
         } else {
-          this._compositeGroupIsolated(targetCtx, group);
+          this._compositeGroupIsolated(targetCtx, group, activeRects);
         }
       } else {
         this._compositeGroupInto(targetCtx, group);
       }
     }
 
+    if (activeRects) {
+      targetCtx.restore();
+    }
     targetCtx.globalCompositeOperation = 'source-over';
   }
 
@@ -1341,7 +1499,7 @@ export class LayerManager {
    * @param {Object} group - Layer group
    * @private
    */
-  _compositeGroupWithFlatCanvas(targetCtx, group, bgColor = null) {
+  _compositeGroupWithFlatCanvas(targetCtx, group, bgColor = null, dirtyRects = null) {
     const hasUnbaked = group.strokeStack.length > 0 || group.activeStrokeByUser.size > 0;
 
     if (!hasUnbaked) {
@@ -1351,7 +1509,9 @@ export class LayerManager {
     }
 
     const { canvas: buffer, ctx: bufferCtx } = this._getGroupBuffer();
-    bufferCtx.clearRect(0, 0, this.width, this.height);
+    this._clearDirtyRegion(bufferCtx, dirtyRects);
+
+    if (dirtyRects) this._applyDirtyClip(bufferCtx, dirtyRects);
 
     if (bgColor) {
       const [r, g, b, a] = bgColor;
@@ -1391,6 +1551,7 @@ export class LayerManager {
     }
 
     bufferCtx.globalCompositeOperation = 'source-over';
+    if (dirtyRects) bufferCtx.restore();
 
     targetCtx.globalCompositeOperation = 'source-over';
     targetCtx.drawImage(buffer, 0, 0);
@@ -1402,11 +1563,16 @@ export class LayerManager {
    * @param {Object} group - Layer group
    * @private
    */
-  _compositeGroupSequential(targetCtx, group) {
+  _compositeGroupSequential(targetCtx, group, dirtyRects = null) {
     const lowerSnap = document.createElement('canvas');
     lowerSnap.width = this.width;
     lowerSnap.height = this.height;
-    lowerSnap.getContext('2d').drawImage(targetCtx.canvas, 0, 0);
+    const lowerCtx = lowerSnap.getContext('2d');
+    if (dirtyRects) {
+      this._applyDirtyClip(lowerCtx, dirtyRects);
+    }
+    lowerCtx.drawImage(targetCtx.canvas, 0, 0);
+    if (dirtyRects) lowerCtx.restore();
 
     for (const item of group.bakedSequences) {
       if (item.type === 'group') {
@@ -1438,7 +1604,7 @@ export class LayerManager {
    * @private
    */
   _compositeStrokeSequential(ctx, stroke, lowerSnap, isActive = false) {
-    if (stroke.filterType === 'blur') {
+    if (stroke.filterType === 'blur' || stroke.filterType === 'glitchBlur') {
       this._applyBlurFilter(ctx, stroke, isActive);
       return;
     }
@@ -1463,9 +1629,11 @@ export class LayerManager {
    * @param {Object} group - Layer group
    * @private
    */
-  _compositeGroupIsolated(targetCtx, group) {
+  _compositeGroupIsolated(targetCtx, group, dirtyRects = null) {
     const { canvas: buffer, ctx: bufferCtx } = this._getGroupBuffer();
-    bufferCtx.clearRect(0, 0, this.width, this.height);
+    this._clearDirtyRegion(bufferCtx, dirtyRects);
+
+    if (dirtyRects) this._applyDirtyClip(bufferCtx, dirtyRects);
 
     for (const item of group.bakedSequences) {
       if (item.type === 'group') {
@@ -1486,6 +1654,7 @@ export class LayerManager {
     }
 
     bufferCtx.globalCompositeOperation = 'source-over';
+    if (dirtyRects) bufferCtx.restore();
 
     targetCtx.globalCompositeOperation = 'source-over';
     targetCtx.drawImage(buffer, 0, 0);

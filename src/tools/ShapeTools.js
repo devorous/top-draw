@@ -106,9 +106,9 @@ export class LineTool extends Tool {
     }
 
     const radius = user.size;
-    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
-    const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
-    const safetyMargin = radius * 0.25; 
+    const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
+    const blurAmount = hardnessFloat < 1.0 ? (1 - hardnessFloat) * user.size * 1.5 : 0;
+    const safetyMargin = radius * 0.25;
     const margin = radius + blurAmount + safetyMargin + 2;
 
     const minX = Math.min(this.startPos.x, pos.x) - margin;
@@ -132,6 +132,15 @@ export class LineTool extends Tool {
       const height_mirrored = Math.ceil(maxY) - y_mirrored;
 
       this.board.expandDirtyRect(user, x_mirrored, y_mirrored, width_mirrored, height_mirrored);
+    }
+
+    // Track tile ownership for the line
+    const linePoints = [this.startPos, pos];
+    this.board.markDirtyPath(user, linePoints, user.size);
+    if (this.board.mirror) {
+      const boardWidth = this.board.getWidth();
+      const mirroredPoints = linePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+      this.board.markDirtyPath(user, mirroredPoints, user.size);
     }
 
     this.board.clearTop();
@@ -168,7 +177,7 @@ export class LineTool extends Tool {
    */
   drawLine(ctx, user, start, end) {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
-    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
+    const hardness = (user.hardness !== undefined ? user.hardness : 100) / 100;
 
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;
@@ -262,9 +271,9 @@ export class RectangleTool extends Tool {
     }
 
     const radius = user.size;
-    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
-    const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
-    const safetyMargin = radius * 0.25; 
+    const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
+    const blurAmount = hardnessFloat < 1.0 ? (1 - hardnessFloat) * user.size * 1.5 : 0;
+    const safetyMargin = radius * 0.25;
     const margin = radius + blurAmount + safetyMargin + 2;
 
     const minX = Math.min(this.startPos.x, pos.x) - margin;
@@ -288,6 +297,21 @@ export class RectangleTool extends Tool {
       const height_mirrored = Math.ceil(maxY) - y_mirrored;
 
       this.board.expandDirtyRect(user, x_mirrored, y_mirrored, width_mirrored, height_mirrored);
+    }
+
+    // Track tile ownership for the rectangle perimeter
+    const rectPoints = [
+      this.startPos,
+      { x: pos.x, y: this.startPos.y },
+      pos,
+      { x: this.startPos.x, y: pos.y },
+      this.startPos
+    ];
+    this.board.markDirtyPath(user, rectPoints, user.size);
+    if (this.board.mirror) {
+      const boardWidth = this.board.getWidth();
+      const mirroredPoints = rectPoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+      this.board.markDirtyPath(user, mirroredPoints, user.size);
     }
 
     this.board.clearTop();
@@ -327,7 +351,7 @@ export class RectangleTool extends Tool {
     const h = Math.abs(end.y - start.y);
 
     const opacity = user.opacity !== undefined ? user.opacity : 1;
-    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
+    const hardness = (user.hardness !== undefined ? user.hardness : 100) / 100;
 
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;
@@ -420,9 +444,9 @@ export class CircleTool extends Tool {
     }
 
     const radius = user.size;
-    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
-    const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
-    const safetyMargin = radius * 0.25; 
+    const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
+    const blurAmount = hardnessFloat < 1.0 ? (1 - hardnessFloat) * user.size * 1.5 : 0;
+    const safetyMargin = radius * 0.25;
     const margin = radius + blurAmount + safetyMargin + 2;
 
     const minX = Math.min(this.startPos.x, pos.x) - margin;
@@ -446,6 +470,24 @@ export class CircleTool extends Tool {
       const height_mirrored = Math.ceil(maxY) - y_mirrored;
 
       this.board.expandDirtyRect(user, x_mirrored, y_mirrored, width_mirrored, height_mirrored);
+    }
+
+    // Track tile ownership for the ellipse perimeter
+    const cx = (this.startPos.x + pos.x) / 2;
+    const cy = (this.startPos.y + pos.y) / 2;
+    const rx = Math.abs(pos.x - this.startPos.x) / 2;
+    const ry = Math.abs(pos.y - this.startPos.y) / 2;
+    const ellipsePoints = [];
+    const steps = Math.max(16, Math.ceil(Math.max(rx, ry) / 8));
+    for (let i = 0; i <= steps; i++) {
+      const angle = (i / steps) * Math.PI * 2;
+      ellipsePoints.push({ x: cx + rx * Math.cos(angle), y: cy + ry * Math.sin(angle) });
+    }
+    this.board.markDirtyPath(user, ellipsePoints, user.size);
+    if (this.board.mirror) {
+      const boardWidth = this.board.getWidth();
+      const mirroredPoints = ellipsePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+      this.board.markDirtyPath(user, mirroredPoints, user.size);
     }
 
     this.board.clearTop();
@@ -485,7 +527,7 @@ export class CircleTool extends Tool {
     const ry = Math.abs(end.y - start.y) / 2;
 
     const opacity = user.opacity !== undefined ? user.opacity : 1;
-    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
+    const hardness = (user.hardness !== undefined ? user.hardness : 100) / 100;
 
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;

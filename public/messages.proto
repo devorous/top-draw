@@ -98,7 +98,7 @@ message Msg {
     INKDROPPER = 10;
     BLUR = 11;
     CIRCLE_BLUR = 12;
-    CIRCLE_BLUR_HARD = 13;
+    GLITCH_BLUR = 13;
     PIXEL = 14;
     FLOODFILL = 15;
   }

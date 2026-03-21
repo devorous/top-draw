@@ -41,16 +41,14 @@ export class LandingPage {
     };
 
     this.setupListeners();
-    this.show();
 
-    const urlRoom = this.getRoomFromURL();
-    if (urlRoom) {
-      this.selectedRoom = urlRoom;
-      if (this.els.roomIdInput) {
-        this.els.roomIdInput.value = urlRoom;
-      }
+    // Auto-trigger offline mode if URL is /go/offline
+    if (this.getRoomFromURL() === 'offline') {
+      if (this.onOffline) this.onOffline();
+      return;
     }
 
+    this.show();
     this.updateConnectionStatus('disconnected');
   }
 
@@ -127,7 +125,9 @@ export class LandingPage {
       };
       this.rooms = [lobbyRoom];
       this.renderRooms(this.rooms);
-      this.selectRoom('lobby');
+      if (!this.selectedRoom) {
+        this.selectRoom(this.getRoomFromURL() || 'lobby');
+      }
     } catch (err) {
       console.error('[LandingPage] Failed to load rooms:', err);
       this.showError('Failed to load rooms');
@@ -273,6 +273,13 @@ export class LandingPage {
    */
   proceedToRoom(roomId, password = null) {
     console.log(`[LandingPage] Proceeding to room: ${roomId}`);
+
+    // Update URL to /go/roomName
+    const newPath = `/go/${roomId}`;
+    if (window.location.pathname !== newPath) {
+      window.history.pushState({ room: roomId }, '', newPath);
+    }
+
     this.hide();
     if (this.onRoomSelected) {
       this.onRoomSelected(roomId, password);
@@ -352,16 +359,20 @@ export class LandingPage {
   }
 
   /**
-   * Get room ID from URL query parameters.
+   * Get room ID from URL path (/go/roomName).
    * @returns {string|null} - Room ID or null
    */
   getRoomFromURL() {
-    const params = new URLSearchParams(window.location.search);
-    const room = params.get('room');
-    if (room && room.startsWith('offline-')) {
-      return null;
+    const path = window.location.pathname;
+    const match = path.match(/^\/go\/([a-zA-Z0-9_-]+)$/);
+    if (match) {
+      const room = match[1];
+      if (room.startsWith('offline-')) {
+        return null;
+      }
+      return room;
     }
-    return room;
+    return null;
   }
 
   /**

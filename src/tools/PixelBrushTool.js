@@ -15,6 +15,7 @@ export class PixelBrushTool {
     this.lastStampPos = new Map(); // userId -> {x, y}
     this.tempCanvases = new Map(); // userId -> temp canvas for opacity handling
     this.stampBuffer = []; // [x, y, x, y, ...] accumulated stamp positions for broadcast
+    this.strokePoints = []; // Track points for tile ownership
   }
 
   activate() {}
@@ -39,6 +40,7 @@ export class PixelBrushTool {
     tempCanvas.height = this.board.getHeight();
     this.tempCanvases.set(user.id, tempCanvas);
 
+    this.strokePoints = [{ x: pos.x, y: pos.y }];
     this.drawSquare(user, pos, true);
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
   }
@@ -67,6 +69,7 @@ export class PixelBrushTool {
     if (size === 1) {
       this.drawPixelLine(user, lastStamp, pos, true);
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+      this.strokePoints.push({ x: pos.x, y: pos.y });
     } else {
       const dx = pos.x - lastStamp.x;
       const dy = pos.y - lastStamp.y;
@@ -86,6 +89,7 @@ export class PixelBrushTool {
           const interpY = lastStamp.y + dy * t;
           this.drawSquare(user, { x: interpX, y: interpY }, true);
           this.stampBuffer.push(interpX, interpY);
+          this.strokePoints.push({ x: interpX, y: interpY });
         }
 
         this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
@@ -195,6 +199,18 @@ export class PixelBrushTool {
       }
       this.tempCanvases.delete(user.id);
     }
+
+    // Track tile ownership
+    if (this.strokePoints.length > 0) {
+      const size = Math.max(1, Math.round((user.size || 5) * 2));
+      this.board.markDirtyPath(user, this.strokePoints, size / 2);
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirroredPoints = this.strokePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+        this.board.markDirtyPath(user, mirroredPoints, size / 2);
+      }
+    }
+    this.strokePoints = [];
 
     this.board.clearTop();
     this.board.compositeAllLayers();

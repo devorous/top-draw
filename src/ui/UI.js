@@ -98,6 +98,7 @@ export class UI {
       eraseBtn: document.getElementById('eraseBtn'),
       blurBtn: document.getElementById('blurBtn'),
       circleBlurBtn: document.getElementById('circleBlurBtn'),
+      glitchBlurBtn: document.getElementById('glitchBlurBtn'),
       imageBrushBtn: document.getElementById('imageBrushBtn'),
       uploadBtn: document.getElementById('uploadBtn'),
       imageUploadInput: document.getElementById('imageUploadInput'),
@@ -236,7 +237,7 @@ export class UI {
       erase: this.createIcon('/images/eraser-icon.svg'),
       blur: this.createIcon('/images/brush-icon.svg'),
       circleBlur: this.createIcon('/images/circle-blur-icon.svg'),
-      circleBlurHard: this.createIcon('/images/circle-blur-icon.svg'),
+      glitchBlur: this.createIcon('/images/circle-blur-icon.svg'),
       inkdropper: this.createIcon('/images/inkdropper-icon.svg'),
       pan: this.createIcon('/images/move-icon.svg'),
       rotate: this.createIcon('/images/rotate-icon.svg'),
@@ -489,7 +490,10 @@ export class UI {
     
     const { blendModeOptions } = this.elements;
     if (blendModeOptions) {
-      blendModeOptions.style.display = this.toolSupportsBlendMode(tool) ? 'block' : 'none';
+      const layerManager = window.app?.board?.layerManager;
+      const activeLayer = window.app?.self?.activeLayer ?? 0;
+      const allowComplex = layerManager ? layerManager.getLayerAllowComplexBlendModes(activeLayer) : true;
+      blendModeOptions.style.display = (this.toolSupportsBlendMode(tool) && allowComplex) ? 'block' : 'none';
     }
 
     if (selfPressureCircle) selfPressureCircle.style.display = 'none';
@@ -545,12 +549,17 @@ export class UI {
         break;
 
       case 'circleBlur':
-      case 'circleBlurHard':
         selfCircle.style.display = 'block';
-        brushHardness.style.display = 'block';
         brushSpacing.style.display = 'block';
-        if (circleBlurModeOptions) circleBlurModeOptions.style.display = 'block';
+        brushHardness.style.display = 'block';
         if (selfPressureCircle) selfPressureCircle.style.display = 'block';
+        break;
+
+      case 'glitchBlur':
+        selfSquare.style.display = 'block';
+        brushSpacing.style.display = 'block';
+        smoothingContainer.style.display = 'none';
+        if (blurRadiusContainer) blurRadiusContainer.style.display = 'block';
         break;
 
       case 'blur':
@@ -638,6 +647,7 @@ export class UI {
       erase: this.elements.eraseBtn,
       blur: this.elements.blurBtn,
       circleBlur: this.elements.circleBlurBtn,
+      glitchBlur: this.elements.glitchBlurBtn,
       imageBrush: this.elements.imageBrushBtn,
       inkdropper: this.elements.inkdropperBtn
     };
@@ -645,7 +655,6 @@ export class UI {
     Object.values(buttons).forEach(btn => btn && btn.classList.remove('selected'));
     let buttonTool = tool;
     if (tool === 'flowPen' || tool === 'ink') buttonTool = 'brush';
-    if (tool === 'circleBlurHard') buttonTool = 'circleBlur';
     if (buttons[buttonTool]) {
       buttons[buttonTool].classList.add('selected');
     }
@@ -704,13 +713,10 @@ export class UI {
   /**
    * Updates the circle blur mode radio buttons.
    * @param {string} tool - Selected circle blur tool
+   * @deprecated Circle blur no longer has soft/hard modes
    */
   updateCircleBlurModeDisplay(tool) {
-    const mode = tool === 'circleBlurHard' ? 'hard' : 'soft';
-    const radios = document.querySelectorAll('input[name="circleBlurMode"]');
-    radios.forEach(r => {
-      r.checked = (r.value === mode);
-    });
+    // No-op: Circle blur now only has one mode (averaged color circles)
   }
 
   /**

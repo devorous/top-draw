@@ -2,6 +2,7 @@
 
 import '../public/css/main.scss';
 import { DrawingApp } from './App.js';
+import initWasm from './wasm/ddraw_wasm.js';
 
 // Auto-reload once when a dynamically imported chunk fails to load (stale cache after deploy)
 window.addEventListener('unhandledrejection', (event) => {
@@ -23,13 +24,20 @@ sessionStorage.removeItem('chunk-reload');
  */
 async function init() {
   const wsServerUrl = import.meta.env.VITE_WS_SERVER_URL || null;
-
-  const app = new DrawingApp({
-    dimensions: [1080, 1920],
-    serverUrl: wsServerUrl
-  });
+  
+  // Keep this let here so it's accessible to window.app at the bottom
+  let app; 
 
   try {
+
+    await initWasm(); 
+    console.log("WASM Module Initialized");
+
+    app = new DrawingApp({
+      dimensions: [1080, 1920],
+      serverUrl: wsServerUrl
+    });
+
     await app.init();
 
     const loadingScreen = document.getElementById('app-loading-screen');

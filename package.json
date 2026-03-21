@@ -12,7 +12,8 @@
     "server": "node server/index.js",
     "start": "node server/index.js",
     "brushes": "node scripts/generate-brush-manifest.js",
-    "docs": "jsdoc -r src server shared -d docs/jsdocs"
+    "docs": "jsdoc -r src server shared -d docs/jsdocs",
+    "wasm": "wasm-pack build wasm_src --target web --out-dir ../src/wasm/"
   },
   "devDependencies": {
     "concurrently": "^8.2.0",
@@ -32,6 +33,7 @@
     "mongodb": "^7.1.0",
     "perfect-freehand": "^1.2.3",
     "protobufjs": "^8.0.0",
+    "sharp": "^0.34.5",
     "stackblur": "^1.0.0",
     "svelte": "^4.2.20",
     "ws": "^8.14.0"
