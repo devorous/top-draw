@@ -1,6 +1,6 @@
 /** @fileoverview Gallery API handlers — upload to R2, store metadata in MongoDB. */
 
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import crypto from 'crypto';
 import { getDB } from './db.js';
 import { verifyToken } from './auth.js';
@@ -36,7 +36,7 @@ const PUBLIC_URL = (process.env.R2_PUBLIC_URL || 'https://gallery.ddraw.ca').rep
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
@@ -545,5 +545,63 @@ export async function handleGalleryCommentDelete(req, res, commentId) {
   } catch (err) {
     console.error('[Gallery] Comment delete error:', err);
     json(res, 500, { error: 'Failed to delete comment' });
+  }
+}
+
+/**
+ * DELETE /api/gallery/:id — delete own gallery item.
+ * Requires Authorization: Bearer <token>
+ */
+export async function handleGalleryDelete(req, res, id) {
+  const authHeader = req.headers['authorization'] || '';
+  if (!authHeader.startsWith('Bearer ')) {
+    return json(res, 401, { error: 'Authentication required' });
+  }
+  const decoded = verifyToken(authHeader.slice(7));
+  if (!decoded) return json(res, 401, { error: 'Invalid or expired token' });
+
+  const db = getDB();
+  if (!db) return json(res, 503, { error: 'Database not available' });
+  if (!/^[a-f0-9]{24}$/.test(id)) return json(res, 400, { error: 'Invalid id' });
+
+  try {
+    const { ObjectId } = await import('mongodb');
+    const item = await db.collection('gallery').findOne({ _id: new ObjectId(id) });
+
+    if (!item) {
+      return json(res, 404, { error: 'Item not found' });
+    }
+
+    // Only allow author or admin (role >= 5) to delete
+    if (item.authorId !== decoded.userId && decoded.role < 5) {
+      return json(res, 403, { error: 'Not authorized to delete this item' });
+    }
+
+    // Delete from R2 if configured
+    if (r2 && item.url) {
+      try {
+        const filename = item.url.split('/').pop();
+        await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: filename }));
+        // Also delete thumbnail if exists
+        if (item.thumbUrl && item.thumbUrl !== item.url) {
+          const thumbFilename = item.thumbUrl.split('/').pop();
+          await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: thumbFilename }));
+        }
+      } catch (err) {
+        console.warn('[Gallery] R2 delete failed (continuing):', err.message);
+      }
+    }
+
+    // Delete associated comments and favorites
+    await Promise.all([
+      db.collection('gallery').deleteOne({ _id: new ObjectId(id) }),
+      db.collection('comments').deleteMany({ galleryId: id }),
+      db.collection('favorites').deleteMany({ galleryId: id }),
+    ]);
+
+    json(res, 200, { deleted: true });
+  } catch (err) {
+    console.error('[Gallery] Delete error:', err);
+    json(res, 500, { error: 'Failed to delete item' });
   }
 }

@@ -85,6 +85,25 @@
     fetchGallery();
   }
 
+  async function downloadImage(url, filename) {
+    try {
+      const response = await fetch(url, { cache: 'no-store' });
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename || url.split('/').pop() || 'image.png';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('Download failed:', err);
+      // Fallback: open in new tab
+      window.open(url, '_blank');
+    }
+  }
+
   async function fetchFavorites() {
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) return;
@@ -229,6 +248,31 @@
         comments = comments.filter(c => c.id !== commentId);
       }
     } catch {}
+  }
+
+  async function deleteImage(item) {
+    if (!confirm('Are you sure you want to delete this image? This cannot be undone.')) return;
+
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) return;
+
+    try {
+      const res = await fetch(`/api/gallery/${item.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        // Remove from items list
+        items = items.filter(i => i.id !== item.id);
+        // Close lightbox
+        closeLightbox();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to delete image');
+      }
+    } catch {
+      alert('Failed to delete image');
+    }
   }
 
   async function checkAuth() {
@@ -572,7 +616,10 @@
               ★
             </button>
           {/if}
-          <a href={lightbox.url} download target="_blank" rel="noopener" class="btn-ghost small">Download</a>
+          <button class="btn-ghost small" on:click={() => downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)}>Download</button>
+          {#if user && (user.username === lightbox.author || user.role >= 5)}
+            <button class="btn-danger small" on:click={() => deleteImage(lightbox)}>Delete</button>
+          {/if}
         </div>
 
         <!-- Comments Section -->
@@ -957,6 +1004,20 @@
   .btn-ghost:hover { border-color: var(--text-dim); color: var(--text); }
   .btn-ghost:disabled { opacity: 0.3; cursor: default; }
   .btn-ghost.small { padding: 0.45rem 0.9rem; font-size: 0.8rem; }
+
+  .btn-danger {
+    background: transparent;
+    border: 1px solid #c53030;
+    color: #fc8181;
+    padding: 0.6rem 1.2rem;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+  }
+  .btn-danger:hover { background: #c53030; color: #fff; }
+  .btn-danger.small { padding: 0.45rem 0.9rem; font-size: 0.8rem; }
 
   .btn-link {
     background: none;

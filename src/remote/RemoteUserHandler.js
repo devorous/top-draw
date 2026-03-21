@@ -82,7 +82,7 @@ export class RemoteUserHandler {
       } else if (user.tool === 'pixel' || user.tool === 'imageBrush') {
         const tool = this.toolManager.getTool(user.tool);
         if (tool) tool.applyStamps(user, smoothedPoints);
-      } else if (user.tool === 'circleBlur' || user.tool === 'circleBlurHard') {
+      } else if (user.tool === 'circleBlur') {
         const tool = this.toolManager.getTool(user.tool);
         if (tool) tool.applyStamps(user, smoothedPoints, radii);
       } else {
@@ -239,6 +239,13 @@ export class RemoteUserHandler {
         }
         break;
 
+      case 'glitchBlur':
+        const glitchBlurToolMove = this.toolManager.getTool('glitchBlur');
+        if (glitchBlurToolMove) {
+          glitchBlurToolMove.onPointerMove(user, pos, lastPos);
+        }
+        break;
+
       case 'pixel': {
         const pixelTool = this.toolManager.getTool('pixel');
         if (pixelTool) {
@@ -247,8 +254,7 @@ export class RemoteUserHandler {
         break;
       }
 
-      case 'circleBlur':
-      case 'circleBlurHard': {
+      case 'circleBlur': {
         const circleBlurTool = this.toolManager.getTool(user.tool);
         if (circleBlurTool) {
           circleBlurTool.onPointerMove(user, pos, lastPos);
@@ -439,6 +445,15 @@ export class RemoteUserHandler {
         }
         break;
 
+      case 'glitchBlur':
+        if (!user.panning) {
+          const glitchBlurTool = this.toolManager.getTool('glitchBlur');
+          if (glitchBlurTool) {
+            glitchBlurTool.onPointerDown(user, pos);
+          }
+        }
+        break;
+
       case 'pixel':
         if (!user.panning) {
           const pixelTool = this.toolManager.getTool('pixel');
@@ -449,17 +464,15 @@ export class RemoteUserHandler {
         break;
 
       case 'circleBlur':
-      case 'circleBlurHard':
         if (!user.panning) {
           const circleBlurTool = this.toolManager.getTool(user.tool);
           if (circleBlurTool) {
             const radius = user.pressure * user.size;
             circleBlurTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
-            const stampMethod = user.tool === 'circleBlurHard' ? 'stampHardCircle' : 'stampBlurredCircle';
-            circleBlurTool[stampMethod](pos.x, pos.y, radius, user);
+            circleBlurTool.stampBlurredCircle(pos.x, pos.y, radius, user);
             if (this.board.mirror) {
               const width = this.board.getWidth();
-              circleBlurTool[stampMethod](width - pos.x, pos.y, radius, user);
+              circleBlurTool.stampBlurredCircle(width - pos.x, pos.y, radius, user);
             }
           }
         }
@@ -614,6 +627,15 @@ export class RemoteUserHandler {
         }
         break;
 
+      case 'glitchBlur':
+        if (!user.panning) {
+          const glitchBlurToolUp = this.toolManager.getTool('glitchBlur');
+          if (glitchBlurToolUp) {
+            glitchBlurToolUp.onPointerUp(user, pos);
+          }
+        }
+        break;
+
       case 'pixel':
         if (!user.panning) {
           const pixelTool = this.toolManager.getTool('pixel');
@@ -660,8 +682,8 @@ export class RemoteUserHandler {
     const circleBlurTool = this.toolManager.getTool('circleBlur');
     if (circleBlurTool) circleBlurTool.lastStampPos.delete(user.id);
 
-    const circleBlurHardTool = this.toolManager.getTool('circleBlurHard');
-    if (circleBlurHardTool) circleBlurHardTool.lastStampPos.delete(user.id);
+    const glitchBlurTool = this.toolManager.getTool('glitchBlur');
+    if (glitchBlurTool) glitchBlurTool.lastStampPos.delete(user.id);
 
     const imageBrushTool = this.toolManager.getTool('imageBrush');
     if (imageBrushTool) imageBrushTool.lastStampPos.delete(user.id);
@@ -842,8 +864,8 @@ export class RemoteUserHandler {
     const circleBlurTool = this.toolManager.getTool('circleBlur');
     if (circleBlurTool) circleBlurTool.lastStampPos.delete(user.id);
 
-    const circleBlurHardTool2 = this.toolManager.getTool('circleBlurHard');
-    if (circleBlurHardTool2) circleBlurHardTool2.lastStampPos.delete(user.id);
+    const glitchBlurTool2 = this.toolManager.getTool('glitchBlur');
+    if (glitchBlurTool2) glitchBlurTool2.lastStampPos.delete(user.id);
 
     const imageBrushTool = this.toolManager.getTool('imageBrush');
     if (imageBrushTool) imageBrushTool.lastStampPos.delete(user.id);

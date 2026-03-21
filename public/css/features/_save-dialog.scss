@@ -183,3 +183,207 @@
     }
   }
 }
+
+// ========================================
+// Interactive Save Mode (fullscreen selection)
+// ========================================
+
+.saveModeInteractive {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-primary);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.saveModeSnapshot,
+.saveModeSelection {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.saveModeSnapshot {
+  image-rendering: auto;
+}
+
+.saveModeSelection {
+  cursor: crosshair;
+  pointer-events: auto;
+}
+
+.saveModeModeToggle {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  box-shadow: var(--shadow-md);
+}
+
+.saveModeToggleBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+  }
+
+  &.active {
+    background: var(--accent-primary);
+    color: #000;
+  }
+
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+.saveModeCloseBtn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: var(--shadow-md);
+
+  &:hover {
+    background: var(--bg-elevated);
+    border-color: var(--border-active);
+    color: var(--text-primary);
+  }
+}
+
+.saveModeOptionsPanel {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  min-width: 320px;
+  max-width: 90vw;
+  overflow: hidden;
+}
+
+.saveModeOptionsPanelHeader {
+  padding: 14px 18px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.saveModeOptionsTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.saveModeOptionsHint {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.saveModeOptionsPanelBody {
+  padding: 14px 18px;
+}
+
+.saveModeOptionsCheckbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+
+  input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-primary);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  span {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+}
+
+.saveModeOptionsPanelFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 14px 18px;
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border-subtle);
+  gap: 8px;
+
+  .btn {
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+
+    &.secondary {
+      background: transparent;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+
+      &:hover {
+        background: var(--bg-elevated);
+        border-color: var(--border-active);
+        color: var(--text-primary);
+      }
+    }
+
+    &.primary {
+      background: var(--accent-primary);
+      border: 1px solid var(--accent-primary);
+      color: #000;
+
+      &:hover {
+        background: var(--accent-hover);
+        border-color: var(--accent-hover);
+      }
+    }
+  }
+}

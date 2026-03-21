@@ -237,7 +237,6 @@ export class UI {
       erase: this.createIcon('/images/eraser-icon.svg'),
       blur: this.createIcon('/images/brush-icon.svg'),
       circleBlur: this.createIcon('/images/circle-blur-icon.svg'),
-      circleBlurHard: this.createIcon('/images/circle-blur-icon.svg'),
       glitchBlur: this.createIcon('/images/circle-blur-icon.svg'),
       inkdropper: this.createIcon('/images/inkdropper-icon.svg'),
       pan: this.createIcon('/images/move-icon.svg'),
@@ -550,7 +549,6 @@ export class UI {
         break;
 
       case 'circleBlur':
-      case 'circleBlurHard':
         selfCircle.style.display = 'block';
         brushSpacing.style.display = 'block';
         brushHardness.style.display = 'block';
@@ -657,7 +655,6 @@ export class UI {
     Object.values(buttons).forEach(btn => btn && btn.classList.remove('selected'));
     let buttonTool = tool;
     if (tool === 'flowPen' || tool === 'ink') buttonTool = 'brush';
-    if (tool === 'circleBlurHard') buttonTool = 'circleBlur';
     if (buttons[buttonTool]) {
       buttons[buttonTool].classList.add('selected');
     }

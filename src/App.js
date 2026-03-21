@@ -28,6 +28,7 @@ import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js';
 import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
+import { SaveMode } from './ui/SaveMode.js';
 
 /**
  * Main Drawing Application class.
@@ -128,6 +129,9 @@ export class DrawingApp {
     this.performanceDebugPanel = new PerformanceDebugPanel(this.inputBufferManager, this);
 
     // PerformanceSettings lazy-loaded via Moderation when mod role confirmed
+
+    // Save mode (initialized in init() after board is ready)
+    this.saveMode = null;
   }
 
   /**
@@ -151,6 +155,7 @@ export class DrawingApp {
     this.remoteUserHandler = new RemoteUserHandler(this);
     this.touchHandler = new TouchHandler(this);
     this.touchHandler.init(this.ui.elements.boards);
+    this.saveMode = new SaveMode(this);
 
     this.debugOverlay = new DebugOverlay();
     const debugCanvas = document.getElementById('debugOverlay');
@@ -414,12 +419,7 @@ export class DrawingApp {
     elements.fillBtn.addEventListener('click', () => this.selectTool('fill'));
     elements.eraseBtn.addEventListener('click', () => this.selectTool('erase'));
     elements.blurBtn.addEventListener('click', () => this.selectTool('blur'));
-    elements.circleBlurBtn.addEventListener('click', () => {
-      // Select whichever circle blur mode is currently active
-      const checked = document.querySelector('input[name="circleBlurMode"]:checked');
-      const tool = checked && checked.value === 'hard' ? 'circleBlurHard' : 'circleBlur';
-      this.selectTool(tool);
-    });
+    elements.circleBlurBtn.addEventListener('click', () => this.selectTool('circleBlur'));
     elements.glitchBlurBtn.addEventListener('click', () => this.selectTool('glitchBlur'));
     elements.imageBrushBtn.addEventListener('click', () => this.selectTool('imageBrush'));
     elements.uploadBtn.addEventListener('click', () => elements.imageUploadInput.click());
@@ -563,14 +563,6 @@ export class DrawingApp {
       });
     });
 
-    // Circle blur mode radio buttons
-    const circleBlurModeRadios = document.querySelectorAll('input[name="circleBlurMode"]');
-    circleBlurModeRadios.forEach(radio => {
-      radio.addEventListener('change', (e) => {
-        const tool = e.target.value === 'hard' ? 'circleBlurHard' : 'circleBlur';
-        this.selectTool(tool);
-      });
-    });
 
     // Fill advanced mode checkbox
     const fillAdvancedCheck = document.getElementById('fillAdvancedCheck');
@@ -1445,22 +1437,18 @@ export class DrawingApp {
     el.style.display = role >= 1 ? '' : 'none';
   }
 
-  /** Opens the save mode overlay, enabling the selection option only if a selection is active. */
+  /** Opens the interactive save mode with visual selection. */
   openSaveDialog() {
-    const { saveModeOverlay, saveAreaBoard, saveAreaSelection, saveAreaSelectionLabel } = this.ui.elements;
-    if (!saveModeOverlay) return;
-    const hasSelection = !!this.toolManager.tools.select?.selection;
-    if (saveAreaSelection) saveAreaSelection.disabled = !hasSelection;
-    if (saveAreaSelectionLabel) saveAreaSelectionLabel.style.opacity = hasSelection ? '' : '0.4';
-    if (saveAreaSelectionLabel) saveAreaSelectionLabel.style.cursor = hasSelection ? '' : 'not-allowed';
-    if (!hasSelection && saveAreaBoard) saveAreaBoard.checked = true;
-    saveModeOverlay.style.display = 'flex';
+    if (this.saveMode) {
+      this.saveMode.open();
+    }
   }
 
-  /** Closes the save mode overlay. */
+  /** Closes the interactive save mode. */
   closeSaveDialog() {
-    const { saveModeOverlay } = this.ui.elements;
-    if (saveModeOverlay) saveModeOverlay.style.display = 'none';
+    if (this.saveMode) {
+      this.saveMode.close();
+    }
   }
 
   /**
@@ -1648,9 +1636,6 @@ export class DrawingApp {
 
     this.brushModeManager.updateModeFromTool(tool);
 
-    if (tool === 'circleBlur' || tool === 'circleBlurHard') {
-      this.ui.updateCircleBlurModeDisplay(tool);
-    }
 
     this.self.setTool(tool);
     this.toolManager.setTool(tool);
@@ -1892,7 +1877,7 @@ export class DrawingApp {
     this.ui.updateCursorSize(size);
     this.ui.updateSquarePositions(size);
     // Update pressure indicators only for tools that use pressure
-    const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'circleBlurHard', 'glitchBlur'];
+    const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur'];
     if (pressureTools.includes(this.self.tool)) {
       this.ui.updatePressureCursorRadius(this.self.pressure * size, size);
     }
@@ -2136,7 +2121,7 @@ export class DrawingApp {
       }
 
       // Update pressure indicators only for tools that use pressure
-      const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'circleBlurHard', 'glitchBlur'];
+      const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur'];
       if (pressureTools.includes(this.self.tool)) {
         this.ui.updatePressureCursorRadius(pressure * this.self.size, this.self.size);
       }
