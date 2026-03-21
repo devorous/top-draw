@@ -218,6 +218,18 @@ export class LayerManager {
   }
 
   /**
+   * Get the active stroke object for a user (for tracking affected tiles, etc.)
+   * @param {number} groupIdx - Layer index
+   * @param {number} userId - User ID
+   * @returns {Object|undefined} The active stroke object or undefined
+   */
+  getActiveStroke(groupIdx, userId) {
+    const group = this.layerGroups[groupIdx];
+    if (!group) return undefined;
+    return group.activeStrokeByUser.get(userId);
+  }
+
+  /**
    * Commit a completed stroke
    * @param {number} groupIdx - Layer index
    * @param {number} userId - User ID
