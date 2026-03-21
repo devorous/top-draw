@@ -1098,7 +1098,7 @@
   .lb-img-wrap {
     flex: 1;
     overflow: hidden;
-    background: #0a0908;
+    background: #2a2a2a;
     display: flex;
     align-items: center;
     justify-content: center;
