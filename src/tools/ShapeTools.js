@@ -106,9 +106,9 @@ export class LineTool extends Tool {
     }
 
     const radius = user.size;
-    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
-    const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
-    const safetyMargin = radius * 0.25; 
+    const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
+    const blurAmount = hardnessFloat < 1.0 ? (1 - hardnessFloat) * user.size * 1.5 : 0;
+    const safetyMargin = radius * 0.25;
     const margin = radius + blurAmount + safetyMargin + 2;
 
     const minX = Math.min(this.startPos.x, pos.x) - margin;
@@ -177,7 +177,7 @@ export class LineTool extends Tool {
    */
   drawLine(ctx, user, start, end) {
     const opacity = user.opacity !== undefined ? user.opacity : 1;
-    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
+    const hardness = (user.hardness !== undefined ? user.hardness : 100) / 100;
 
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;
@@ -271,9 +271,9 @@ export class RectangleTool extends Tool {
     }
 
     const radius = user.size;
-    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
-    const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
-    const safetyMargin = radius * 0.25; 
+    const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
+    const blurAmount = hardnessFloat < 1.0 ? (1 - hardnessFloat) * user.size * 1.5 : 0;
+    const safetyMargin = radius * 0.25;
     const margin = radius + blurAmount + safetyMargin + 2;
 
     const minX = Math.min(this.startPos.x, pos.x) - margin;
@@ -351,7 +351,7 @@ export class RectangleTool extends Tool {
     const h = Math.abs(end.y - start.y);
 
     const opacity = user.opacity !== undefined ? user.opacity : 1;
-    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
+    const hardness = (user.hardness !== undefined ? user.hardness : 100) / 100;
 
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;
@@ -444,9 +444,9 @@ export class CircleTool extends Tool {
     }
 
     const radius = user.size;
-    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
-    const blurAmount = hardness < 1.0 ? (1 - hardness) * user.size * 1.5 : 0;
-    const safetyMargin = radius * 0.25; 
+    const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
+    const blurAmount = hardnessFloat < 1.0 ? (1 - hardnessFloat) * user.size * 1.5 : 0;
+    const safetyMargin = radius * 0.25;
     const margin = radius + blurAmount + safetyMargin + 2;
 
     const minX = Math.min(this.startPos.x, pos.x) - margin;
@@ -527,7 +527,7 @@ export class CircleTool extends Tool {
     const ry = Math.abs(end.y - start.y) / 2;
 
     const opacity = user.opacity !== undefined ? user.opacity : 1;
-    const hardness = user.hardness !== undefined ? user.hardness : 1.0;
+    const hardness = (user.hardness !== undefined ? user.hardness : 100) / 100;
 
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = opacity;
