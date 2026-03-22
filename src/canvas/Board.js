@@ -1182,6 +1182,16 @@ export class Board {
   }
 
   /**
+   * Get composited image data for layers 0 through maxLayerIndex (inclusive).
+   * Useful for fill tool to only "see" content on the active layer and below.
+   * @param {number} maxLayerIndex - The highest layer index to include
+   * @returns {ImageData}
+   */
+  getImageDataUpToLayer(maxLayerIndex) {
+    return this.layerManager.getCompositedImageDataUpTo(maxLayerIndex, this.backgroundColor);
+  }
+
+  /**
    * Returns a canvas representing the full board for export.
    * @param {boolean} transparent - If true, omits the background fill (transparent PNG).
    * @returns {HTMLCanvasElement}

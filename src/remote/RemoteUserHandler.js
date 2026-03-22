@@ -935,7 +935,9 @@ export class RemoteUserHandler {
     const y = Math.floor(pos.y);
     if (x < 0 || x >= width || y < 0 || y >= height) return;
 
-    const imageData = this.board.mainCtx.getImageData(0, 0, width, height);
+    // Only sample pixels from layers 0 through the user's active layer
+    const layerIndex = user.activeLayer ?? 0;
+    const imageData = this.board.getImageDataUpToLayer(layerIndex);
     let result = await fillTool._fillWorker.computeFill(
       imageData.data, width, height, x, y, 10, 0, null
     );
@@ -946,7 +948,7 @@ export class RemoteUserHandler {
       const tileRects = fillTool._getOwnedTileRects(x, y, user.id);
       if (tileRects) {
         const constrainedResult = await fillTool._fillWorker.computeFill(
-          this.board.mainCtx.getImageData(0, 0, width, height).data,
+          this.board.getImageDataUpToLayer(layerIndex).data,
           width, height, x, y, 10, 0, tileRects
         );
         if (constrainedResult) {
