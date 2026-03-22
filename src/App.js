@@ -1521,7 +1521,8 @@ export class DrawingApp {
 
     try {
       const imageData = (canvas ?? this.board.mainCanvas).toDataURL('image/png');
-      const res = await fetch('/api/gallery/upload', {
+      const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+      const res = await fetch(`${apiBase}/api/gallery/upload`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

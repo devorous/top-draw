@@ -179,7 +179,7 @@ export class ColorPalette {
    * @param {Array} color - [r, g, b, a] color array
    */
   removeCustomColor(color) {
-    this.customColors = this.customColors.filter(c => !this.colorsEqual(color));
+    this.customColors = this.customColors.filter(c => !this.colorsEqual(c, color));
     this.saveCustomColors();
     this.renderCustom();
   }
