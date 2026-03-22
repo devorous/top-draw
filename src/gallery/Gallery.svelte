@@ -2,6 +2,9 @@
   import { onMount } from 'svelte';
   import { ProfileDialog } from '../ui/ProfileDialog.js';
 
+  // API base URL - defaults to relative (dev proxy) or can be set via env var for production
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
   const TOKEN_KEY = 'topDrawAuthToken';
   const USERNAME_KEY = 'topDrawUsername';
 
@@ -52,7 +55,7 @@
     loading = true;
     error = null;
     try {
-      let url = `/api/gallery?page=${page}&limit=24&sort=${sort}`;
+      let url = `${API_BASE}/api/gallery?page=${page}&limit=24&sort=${sort}`;
       if (authorFilter) url += `&author=${encodeURIComponent(authorFilter)}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error('Failed to fetch');
@@ -111,7 +114,7 @@
     loading = true;
     error = null;
     try {
-      const res = await fetch(`/api/gallery/favorites?page=${page}&limit=24`, {
+      const res = await fetch(`${API_BASE}/api/gallery/favorites?page=${page}&limit=24`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!res.ok) throw new Error('Failed to fetch');
@@ -161,7 +164,7 @@
     favoritedIds = favoritedIds;
 
     try {
-      await fetch(`/api/gallery/${item.id}/favorite`, {
+      await fetch(`${API_BASE}/api/gallery/${item.id}/favorite`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -185,7 +188,7 @@
     if (!token) return;
 
     try {
-      const res = await fetch(`/api/gallery/${id}/favorite`, {
+      const res = await fetch(`${API_BASE}/api/gallery/${id}/favorite`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -202,7 +205,7 @@
     commentsLoading = true;
     comments = [];
     try {
-      const res = await fetch(`/api/gallery/${galleryId}/comments`);
+      const res = await fetch(`${API_BASE}/api/gallery/${galleryId}/comments`);
       if (res.ok) {
         const data = await res.json();
         comments = data.comments || [];
@@ -218,7 +221,7 @@
 
     commentSubmitting = true;
     try {
-      const res = await fetch(`/api/gallery/${lightbox.id}/comments`, {
+      const res = await fetch(`${API_BASE}/api/gallery/${lightbox.id}/comments`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -240,7 +243,7 @@
     if (!token) return;
 
     try {
-      const res = await fetch(`/api/gallery/comments/${commentId}`, {
+      const res = await fetch(`${API_BASE}/api/gallery/comments/${commentId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -257,7 +260,7 @@
     if (!token) return;
 
     try {
-      const res = await fetch(`/api/gallery/${item.id}`, {
+      const res = await fetch(`${API_BASE}/api/gallery/${item.id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -280,7 +283,7 @@
     if (!token) return;
 
     try {
-      const res = await fetch('/api/auth/me', {
+      const res = await fetch(`${API_BASE}/api/auth/me`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -307,7 +310,7 @@
 
     authLoading = true;
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: authForm.username, password: authForm.password })
@@ -340,7 +343,7 @@
 
     authLoading = true;
     try {
-      const res = await fetch('/api/auth/register', {
+      const res = await fetch(`${API_BASE}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -394,7 +397,7 @@
     items = items;
 
     try {
-      await fetch(`/api/gallery/${item.id}/like`, { method: 'POST' });
+      await fetch(`${API_BASE}/api/gallery/${item.id}/like`, { method: 'POST' });
     } catch {}
   }
 
@@ -455,7 +458,7 @@
     const itemId = params.get('id');
     if (itemId) {
       try {
-        const res = await fetch(`/api/gallery/${itemId}`);
+        const res = await fetch(`${API_BASE}/api/gallery/${itemId}`);
         if (res.ok) {
           const item = await res.json();
           openLightbox(item);

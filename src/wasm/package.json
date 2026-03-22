@@ -1,0 +1,15 @@
+{
+  "name": "ddraw_wasm",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "ddraw_wasm_bg.wasm",
+    "ddraw_wasm.js",
+    "ddraw_wasm.d.ts"
+  ],
+  "main": "ddraw_wasm.js",
+  "types": "ddraw_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
