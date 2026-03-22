@@ -1,0 +1,18 @@
+# Koyeb configuration file
+# For more information, see: https://www.koyeb.com/docs/deploy/koyeb-yaml
+name: top-draw
+services:
+  - name: main
+    type: web
+    docker:
+      dockerfile: Dockerfile
+    ports:
+      - port: 8000
+        protocol: http
+    regions:
+      - fra # Change to your preferred region if needed
+    env:
+      - key: PORT
+        value: "8000"
+      - key: NODE_ENV
+        value: "production"
