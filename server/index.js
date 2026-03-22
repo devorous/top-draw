@@ -1457,6 +1457,10 @@ wss.on('connection', (ws, req) => {
         if (room.sessionManager.getUserCount() === 0) {
           room.settings.mirror = false;
           room.syncCoordinator.clearPendingRequests();
+          // Clear tile ownership when room empties - stale data shouldn't persist
+          if (room.tileOwnershipMap) {
+            room.tileOwnershipMap.clear();
+          }
         }
       }
 

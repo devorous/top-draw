@@ -1979,6 +1979,15 @@ export class SelectTool extends Tool {
     // Erase source area directly from baseCanvas (no stroke record created)
     this._restoreData = this._eraseSelectionDirectly(s, this.mode === 'lasso' ? this.lassoPath : null);
 
+    // Check affected tiles for emptiness and clear ownership from empty ones
+    const tileOwnership = this.board.tileOwnershipManager;
+    if (tileOwnership) {
+      const affectedTiles = tileOwnership.getTileIndicesForRect(s.x, s.y, s.width, s.height);
+      if (affectedTiles.length > 0) {
+        this.board.checkErasedTilesForOwnershipByIndices(new Set(affectedTiles));
+      }
+    }
+
     // Create reusable homography instances for this selection
     this.homography = new Homography('projective');
     this.previewHomography = new Homography('projective');
@@ -2005,6 +2014,26 @@ export class SelectTool extends Tool {
 
     // All-layers mode: run the exact same commit logic as single-layer, once per layer
     if (this.copyAllLayers && this.floatingLayers && this.floatingLayers.length > 0) {
+      // Compute actual bounds once (may differ from selection if transformed)
+      let dirtyX = this.selection.x;
+      let dirtyY = this.selection.y;
+      let dirtyW = this.selection.width;
+      let dirtyH = this.selection.height;
+
+      if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners) {
+        const bounds = calculateCornerBounds(this.corners);
+        dirtyX = bounds.minX;
+        dirtyY = bounds.minY;
+        dirtyW = bounds.width;
+        dirtyH = bounds.height;
+      }
+
+      // Get affected tile indices for undo tracking
+      const tileOwnership = this.board.tileOwnershipManager;
+      const commitTileIndices = tileOwnership
+        ? tileOwnership.getTileIndicesForRect(dirtyX, dirtyY, dirtyW, dirtyH)
+        : [];
+
       for (const { canvas, groupIdx } of this.floatingLayers) {
         lm.beginUserStroke(groupIdx, userId, 'source-over');
         const active = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(userId);
@@ -2012,10 +2041,17 @@ export class SelectTool extends Tool {
 
         // Expand dirty rect directly on this layer's active stroke
         if (active.dirtyRect) {
-          active.dirtyRect.minX = this.selection.x;
-          active.dirtyRect.minY = this.selection.y;
-          active.dirtyRect.maxX = this.selection.x + this.selection.width;
-          active.dirtyRect.maxY = this.selection.y + this.selection.height;
+          active.dirtyRect.minX = dirtyX;
+          active.dirtyRect.minY = dirtyY;
+          active.dirtyRect.maxX = dirtyX + dirtyW;
+          active.dirtyRect.maxY = dirtyY + dirtyH;
+        }
+
+        // Store affected tiles in the stroke record for undo
+        if (active.affectedTiles) {
+          for (const idx of commitTileIndices) {
+            active.affectedTiles.add(idx);
+          }
         }
 
         if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
@@ -2041,7 +2077,17 @@ export class SelectTool extends Tool {
       }
 
       this.board.compositeAllLayers();
-      if (this.board.app?.wsClient) this.board.app.wsClient.broadcastSelectionCommit();
+
+      // Add tile ownership for visible tiles in the pasted region (must be after composite)
+      this.board.addOwnershipForVisibleTilesInRect(userId, dirtyX, dirtyY, dirtyW, dirtyH);
+
+      // Broadcast tile ownership update and selection commit
+      if (this.board.app?.wsClient) {
+        if (commitTileIndices.length > 0) {
+          this.board.app.wsClient.broadcastTileUpdate(commitTileIndices);
+        }
+        this.board.app.wsClient.broadcastSelectionCommit();
+      }
 
       this.floatingCanvas = null;
       this.floatingCtx = null;
@@ -2105,12 +2151,30 @@ export class SelectTool extends Tool {
     // Track the dirty region so the stroke is properly saved
     this.board.expandDirtyRect(this.board.app?.self, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
 
+    // Store affected tiles in the stroke record for undo and collect for broadcast
+    const tileOwnership = this.board.tileOwnershipManager;
+    let tilesToBroadcast = [];
+    if (tileOwnership && active.affectedTiles) {
+      const tileIndices = tileOwnership.getTileIndicesForRect(dirtyX, dirtyY, dirtyWidth, dirtyHeight);
+      for (const idx of tileIndices) {
+        active.affectedTiles.add(idx);
+      }
+      tilesToBroadcast = tileIndices;
+    }
+
     // Commit as an undoable stroke record.
     // Attach restore data so Board.undo/redo can also reverse the source-area erase.
     lm.commitUserStroke(activeLayer, userId, { selectionRestoreData: this._restoreData });
     this.board.compositeAllLayers();
 
+    // Add tile ownership for visible tiles in the pasted region (must be after composite)
+    this.board.addOwnershipForVisibleTilesInRect(userId, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
+
+    // Broadcast tile ownership update and selection commit
     if (this.board.app && this.board.app.wsClient) {
+      if (tilesToBroadcast.length > 0) {
+        this.board.app.wsClient.broadcastTileUpdate(tilesToBroadcast);
+      }
       this.board.app.wsClient.broadcastSelectionCommit();
     }
 
@@ -2498,11 +2562,28 @@ export class SelectTool extends Tool {
       const lassoPath = this.mode === 'lasso' ? this.lassoPath : null;
       this._eraseSelectionDirectly(s, lassoPath);
 
+      // Check affected tiles for emptiness and clear ownership
+      const tileOwnership = this.board.tileOwnershipManager;
+      if (tileOwnership) {
+        const affectedTiles = tileOwnership.getTileIndicesForRect(s.x, s.y, s.width, s.height);
+        if (affectedTiles.length > 0) {
+          this.board.checkErasedTilesForOwnershipByIndices(new Set(affectedTiles));
+        }
+      }
+
       if (this.board.mirror) {
         const bw = this.board.getWidth();
         const ms = { x: bw - s.x - s.width, y: s.y, width: s.width, height: s.height };
         const mLassoPath = lassoPath ? lassoPath.map(p => ({ x: bw - p.x, y: p.y })) : null;
         this._eraseSelectionDirectly(ms, mLassoPath);
+
+        // Also check mirrored tiles
+        if (tileOwnership) {
+          const mirrorTiles = tileOwnership.getTileIndicesForRect(ms.x, ms.y, ms.width, ms.height);
+          if (mirrorTiles.length > 0) {
+            this.board.checkErasedTilesForOwnershipByIndices(new Set(mirrorTiles));
+          }
+        }
       }
     }
 
@@ -2615,6 +2696,20 @@ export class SelectTool extends Tool {
       // Track the dirty region so the stroke is properly saved
       this.board.expandDirtyRect(app.self, s.x, s.y, s.width, s.height);
 
+      // Store affected tiles in the stroke record for undo
+      const userId = app.self?.id ?? 0;
+      const activeLayer = app.self?.activeLayer ?? 0;
+      const tileOwnership = this.board.tileOwnershipManager;
+      const lm = this.board.layerManager;
+      const active = lm?.layerGroups[activeLayer]?.activeStrokeByUser.get(userId);
+
+      if (tileOwnership && active?.affectedTiles) {
+        const tileIndices = tileOwnership.getTileIndicesForRect(s.x, s.y, s.width, s.height);
+        for (const idx of tileIndices) {
+          active.affectedTiles.add(idx);
+        }
+      }
+
       if (this.board.mirror) {
         const bw = this.board.getWidth();
         const mx = bw - s.x - s.width;
@@ -2637,10 +2732,26 @@ export class SelectTool extends Tool {
         }
         layerCtx.globalAlpha = 1;
         this.board.expandDirtyRect(app.self, mx, s.y, s.width, s.height);
+
+        // Also add mirror tiles for undo
+        if (tileOwnership && active?.affectedTiles) {
+          const mirrorTileIndices = tileOwnership.getTileIndicesForRect(mx, s.y, s.width, s.height);
+          for (const idx of mirrorTileIndices) {
+            active.affectedTiles.add(idx);
+          }
+        }
       }
 
       this.board.compositeAllLayers();
       this.board.endStroke(app.self);
+
+      // Add tile ownership for visible filled tiles (after composite)
+      this.board.addOwnershipForVisibleTilesInRect(userId, s.x, s.y, s.width, s.height);
+      if (this.board.mirror) {
+        const bw = this.board.getWidth();
+        const mx = bw - s.x - s.width;
+        this.board.addOwnershipForVisibleTilesInRect(userId, mx, s.y, s.width, s.height);
+      }
     }
 
     // Broadcast fill to other users
@@ -2669,16 +2780,43 @@ export class SelectTool extends Tool {
       ? this.floatingLayers
       : [{ canvas: this.floatingCanvas, groupIdx: app.self?.activeLayer ?? 0 }];
 
+    // Compute actual bounds once (may differ from selection if transformed)
+    let dirtyX = this.selection.x;
+    let dirtyY = this.selection.y;
+    let dirtyW = this.selection.width;
+    let dirtyH = this.selection.height;
+
+    if (hasTransform && this.corners) {
+      const bounds = calculateCornerBounds(this.corners);
+      dirtyX = bounds.minX;
+      dirtyY = bounds.minY;
+      dirtyW = bounds.width;
+      dirtyH = bounds.height;
+    }
+
+    // Get affected tile indices for undo tracking
+    const tileOwnership = this.board.tileOwnershipManager;
+    const stampTileIndices = tileOwnership
+      ? tileOwnership.getTileIndicesForRect(dirtyX, dirtyY, dirtyW, dirtyH)
+      : [];
+
     for (const { canvas, groupIdx } of layers) {
       lm.beginUserStroke(groupIdx, userId, 'source-over');
       const active = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(userId);
       if (!active) continue;
 
       if (active.dirtyRect) {
-        active.dirtyRect.minX = this.selection.x;
-        active.dirtyRect.minY = this.selection.y;
-        active.dirtyRect.maxX = this.selection.x + this.selection.width;
-        active.dirtyRect.maxY = this.selection.y + this.selection.height;
+        active.dirtyRect.minX = dirtyX;
+        active.dirtyRect.minY = dirtyY;
+        active.dirtyRect.maxX = dirtyX + dirtyW;
+        active.dirtyRect.maxY = dirtyY + dirtyH;
+      }
+
+      // Store affected tiles in the stroke record for undo
+      if (active.affectedTiles) {
+        for (const idx of stampTileIndices) {
+          active.affectedTiles.add(idx);
+        }
       }
 
       if (hasTransform) {
@@ -2706,8 +2844,14 @@ export class SelectTool extends Tool {
     // Composite and commit the stroke
     this.board.compositeAllLayers();
 
-    // Broadcast stamp but keep selection active
+    // Add tile ownership for visible stamped tiles (after composite)
+    this.board.addOwnershipForVisibleTilesInRect(userId, dirtyX, dirtyY, dirtyW, dirtyH);
+
+    // Broadcast tile ownership update and stamp
     if (this.board.app?.wsClient) {
+      if (stampTileIndices.length > 0) {
+        this.board.app.wsClient.broadcastTileUpdate(stampTileIndices);
+      }
       this.board.app.wsClient.broadcastSelectionStamp();
     }
 
