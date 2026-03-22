@@ -169,6 +169,16 @@ export class RemotePenHandler {
         const boardW = this.board.getWidth();
         this.board.expandDirtyRect(user, Math.floor(boardW - maxX - margin), y, w, h);
       }
+
+      // Track tile ownership for remote user
+      const points = user.penPoints.map(pt => ({ x: pt.x, y: pt.y }));
+      const maxRadius = Math.max(...user.penPoints.map(p => p.radius || user.size));
+      this.board.markDirtyPath(user, points, maxRadius);
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirroredPoints = points.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+        this.board.markDirtyPath(user, mirroredPoints, maxRadius);
+      }
     }
 
     const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);

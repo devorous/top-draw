@@ -119,8 +119,21 @@ export class PixelBrushTool {
    * @param {number[]} ps - Flat [x, y, x, y, ...] stamp positions.
    */
   applyStamps(user, ps) {
+    const points = [];
     for (let i = 0; i < ps.length; i += 2) {
-      this.drawSquare(user, { x: ps[i], y: ps[i + 1] }, true);
+      const pos = { x: ps[i], y: ps[i + 1] };
+      this.drawSquare(user, pos, true);
+      points.push(pos);
+    }
+    // Track tile ownership for remote user
+    if (points.length > 0) {
+      const size = Math.max(1, Math.round((user.size || 5) * 2));
+      this.board.markDirtyPath(user, points, size / 2);
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirroredPoints = points.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+        this.board.markDirtyPath(user, mirroredPoints, size / 2);
+      }
     }
     this.board.clearTop();
     this.drawPreview(user);

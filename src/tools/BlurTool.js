@@ -61,6 +61,7 @@ export class BlurTool extends Tool {
   constructor(board) {
     super('blur', board);
     this.lastStampPos = new Map(); // userId -> {x, y}
+    this.strokePoints = new Map(); // userId -> [{x, y}, ...]
   }
 
   /**
@@ -111,6 +112,7 @@ export class BlurTool extends Tool {
     };
 
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+    this.strokePoints.set(user.id, [{ x: pos.x, y: pos.y }]);
 
     // Paint the first mask stamp
     this.paintMask(pos.x, pos.y, user.size, user, maskCtx);
@@ -155,6 +157,8 @@ export class BlurTool extends Tool {
         }
 
         this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+        const points = this.strokePoints.get(user.id);
+        if (points) points.push({ x: pos.x, y: pos.y });
         this.board.requestUpdate();
       }
     } else {
@@ -195,6 +199,18 @@ export class BlurTool extends Tool {
       // Pass crop bounds for optimized filter application
       cropBounds: { x, y, width, height }
     };
+
+    // Track tile ownership
+    const points = this.strokePoints.get(user.id);
+    if (points && points.length > 0) {
+      this.board.markDirtyPath(user, points, user.size);
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirroredPoints = points.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+        this.board.markDirtyPath(user, mirroredPoints, user.size);
+      }
+    }
+    this.strokePoints.delete(user.id);
 
     this.board.endStroke(user, extraProps);
     this.lastStampPos.delete(user.id);

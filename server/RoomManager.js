@@ -36,9 +36,53 @@ export class Room {
 
     const isDiscovery = id === '_discovery' || id === 'default';
     this.sessionManager = new SessionManager(this.broadcastToAll.bind(this), isDiscovery);
-    this.syncCoordinator = new SyncCoordinator(this.sessionManager, { clients: this.clients }, this.sendTo);
+    this.syncCoordinator = new SyncCoordinator(this.sessionManager, { clients: this.clients }, this.sendTo, this);
 
     this.POOLED_MSG = this.Msg.create();
+
+    /** @type {Map<number, Set<number>>} Map<tileIndex, Set<userId>> */
+    this.tileOwnershipMap = new Map();
+  }
+
+  /**
+   * Updates tile ownership for a user.
+   * @param {number} userId - The user who owns these tiles.
+   * @param {Array<number>} tileIndices - Array of tile indices.
+   */
+  updateTileOwnership(userId, tileIndices) {
+    for (const idx of tileIndices) {
+      if (!this.tileOwnershipMap.has(idx)) {
+        this.tileOwnershipMap.set(idx, new Set());
+      }
+      this.tileOwnershipMap.get(idx).add(userId);
+    }
+  }
+
+  /**
+   * Gets the full tile ownership map for sync.
+   * @returns {Array<{idx: number, users: number[]}>}
+   */
+  getTileOwnershipForSync() {
+    const tiles = [];
+    for (const [idx, owners] of this.tileOwnershipMap) {
+      if (owners.size > 0) {
+        tiles.push({ idx, users: Array.from(owners) });
+      }
+    }
+    return tiles;
+  }
+
+  /**
+   * Clears tile ownership for a user (when they disconnect or clear).
+   * @param {number} userId - The user ID to remove ownership from.
+   */
+  clearUserTileOwnership(userId) {
+    for (const [idx, owners] of this.tileOwnershipMap) {
+      owners.delete(userId);
+      if (owners.size === 0) {
+        this.tileOwnershipMap.delete(idx);
+      }
+    }
   }
 
   /**

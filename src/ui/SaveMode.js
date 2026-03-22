@@ -211,18 +211,6 @@ export class SaveMode {
   }
 
   /**
-   * Closes the save mode.
-   */
-  close() {
-    if (!this.isActive) return;
-    this.isActive = false;
-    this.overlay.style.display = 'none';
-    this._stopMarchingAnts();
-    this.selection = null;
-    this.lassoPoints = [];
-  }
-
-  /**
    * Sets the selection mode.
    * @param {string} mode - 'rectangle' or 'lasso'
    */
@@ -255,6 +243,12 @@ export class SaveMode {
    * Draws the board snapshot with dark overlay on non-selected areas.
    */
   _drawSnapshot() {
+    // If we have a pre-existing canvas, use that instead
+    if (this.preExistingCanvas) {
+      this._drawPreExistingSnapshot();
+      return;
+    }
+
     const ctx = this.snapshotCtx;
     const [height, width] = this.board.dimensions;
 
@@ -601,7 +595,22 @@ export class SaveMode {
   async _performSave(locally) {
     let canvas;
 
-    if (this.mode === 'lasso' && this.lassoPoints.length > 2) {
+    if (this.preExistingCanvas) {
+      // Use the pre-existing canvas (from SelectTool)
+      if (this.transparent) {
+        canvas = this.preExistingCanvas;
+      } else {
+        // Add board background behind the selection
+        canvas = document.createElement('canvas');
+        canvas.width = this.preExistingCanvas.width;
+        canvas.height = this.preExistingCanvas.height;
+        const ctx = canvas.getContext('2d');
+        const [r, g, b, a] = this.board.backgroundColor;
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(this.preExistingCanvas, 0, 0);
+      }
+    } else if (this.mode === 'lasso' && this.lassoPoints.length > 2) {
       // Lasso selection - create masked canvas
       canvas = this._createLassoExportCanvas();
     } else if (this.selection && this.selection.width > 0 && this.selection.height > 0) {
@@ -615,7 +624,7 @@ export class SaveMode {
     if (locally) {
       const link = document.createElement('a');
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-      const prefix = (this.selection || this.lassoPoints.length > 2) ? 'selection' : 'board';
+      const prefix = (this.preExistingCanvas || this.selection || this.lassoPoints.length > 2) ? 'selection' : 'board';
       link.download = `${prefix}-${ts}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
@@ -713,6 +722,128 @@ export class SaveMode {
     ctx.fill();
 
     return canvas;
+  }
+
+  /**
+   * Opens save mode with a pre-existing canvas (e.g., from SelectTool).
+   * Shows the canvas centered with options to save locally or to gallery.
+   * @param {HTMLCanvasElement} canvas - The canvas to save
+   */
+  openWithCanvas(canvas) {
+    if (this.isActive) return;
+    this.isActive = true;
+
+    // Store the pre-existing canvas
+    this.preExistingCanvas = canvas;
+
+    // Ensure overlay is in DOM
+    if (!this.overlay.parentNode) {
+      const boardContainer = document.getElementById('boardContainer');
+      if (boardContainer) {
+        boardContainer.appendChild(this.overlay);
+      }
+    }
+
+    // Reset state
+    this.lassoPoints = [];
+    this.transparent = false;
+    this.optionsPanel.querySelector('#saveModeTransparent').checked = false;
+
+    // Size canvases to match the pre-existing canvas
+    this.snapshotCanvas.width = canvas.width;
+    this.snapshotCanvas.height = canvas.height;
+    this.selectionCanvas.width = canvas.width;
+    this.selectionCanvas.height = canvas.height;
+
+    // Set selection to cover the full canvas (it's already cropped)
+    this.selection = { x: 0, y: 0, width: canvas.width, height: canvas.height };
+
+    // Draw the canvas as the snapshot
+    this._drawPreExistingSnapshot();
+
+    // Show overlay
+    this.overlay.style.display = 'flex';
+
+    // Hide mode toggle (selection is fixed)
+    this.modeToggle.style.display = 'none';
+
+    // Update options hint
+    const hint = this.optionsPanel.querySelector('.saveModeOptionsHint');
+    if (hint) {
+      hint.textContent = 'Save selection to file or gallery';
+    }
+
+    // Center the canvas in the viewport
+    this._centerPreExistingCanvas();
+  }
+
+  /**
+   * Draws the pre-existing canvas snapshot.
+   */
+  _drawPreExistingSnapshot() {
+    if (!this.preExistingCanvas) return;
+
+    const ctx = this.snapshotCtx;
+    const w = this.snapshotCanvas.width;
+    const h = this.snapshotCanvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    if (this.transparent) {
+      // Show checkerboard to indicate transparency
+      this._drawCheckerboard(ctx, 0, 0, w, h);
+    } else {
+      // Draw board background color first
+      const [r, g, b, a] = this.board.backgroundColor;
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    // Draw the selection on top
+    ctx.drawImage(this.preExistingCanvas, 0, 0);
+  }
+
+  /**
+   * Centers the pre-existing canvas in the viewport.
+   */
+  _centerPreExistingCanvas() {
+    const overlayRect = this.overlay.getBoundingClientRect();
+    const canvasWidth = this.snapshotCanvas.width;
+    const canvasHeight = this.snapshotCanvas.height;
+
+    // Calculate scale to fit in viewport with padding
+    const maxWidth = overlayRect.width * 0.8;
+    const maxHeight = overlayRect.height * 0.7;
+    const scale = Math.min(1, maxWidth / canvasWidth, maxHeight / canvasHeight);
+
+    // Calculate centered position
+    const panX = (overlayRect.width - canvasWidth * scale) / 2;
+    const panY = (overlayRect.height - canvasHeight * scale) / 2 - 30; // Offset for options panel
+
+    const transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+    this.snapshotCanvas.style.transform = transform;
+    this.selectionCanvas.style.transform = transform;
+  }
+
+  /**
+   * Closes the save mode.
+   */
+  close() {
+    if (!this.isActive) return;
+    this.isActive = false;
+    this.overlay.style.display = 'none';
+    this._stopMarchingAnts();
+    this.selection = null;
+    this.lassoPoints = [];
+    this.preExistingCanvas = null;
+
+    // Restore mode toggle visibility
+    this.modeToggle.style.display = '';
+
+    // Restore hint text
+    const hint = this.optionsPanel.querySelector('.saveModeOptionsHint');
+    if (hint) {
+      hint.textContent = 'Draw a selection or save the entire canvas';
+    }
   }
 
   /**

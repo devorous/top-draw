@@ -417,6 +417,11 @@ export class Board {
       this.mainCtx.clearRect(0, 0, width, height);
     }
 
+    // Clear tile ownership when board is cleared
+    if (this.tileOwnershipManager) {
+      this.tileOwnershipManager.clear();
+    }
+
     this.topCtx.clearRect(0, 0, width, height);
   }
 
@@ -535,8 +540,25 @@ export class Board {
     const activeLayer = user?.activeLayer ?? this.app?.self?.activeLayer ?? 0;
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     if (!this.layerManager) return;
+
+    // Get affected tiles before committing (for broadcasting local user's tiles)
+    // Skip for erasers - they use TILE_CLEAR instead of TILE_UPDATE
+    let tilesToBroadcast = null;
+    const isLocalUser = userId === this.app?.self?.id;
+    if (isLocalUser && this.app?.wsClient && this.app?.connected) {
+      const active = this.layerManager.getActiveStroke(activeLayer, userId);
+      if (active?.affectedTiles?.size > 0 && active.blendMode !== 'destination-out') {
+        tilesToBroadcast = Array.from(active.affectedTiles);
+      }
+    }
+
     this.layerManager.commitUserStroke(activeLayer, userId, extraProps);
     this.requestUpdate();
+
+    // Broadcast tile ownership update for local user
+    if (tilesToBroadcast && tilesToBroadcast.length > 0) {
+      this.app.wsClient.broadcastTileUpdate(tilesToBroadcast);
+    }
   }
 
   /**
@@ -1198,12 +1220,13 @@ export class Board {
   /**
    * Check erased tiles by indices and clear ownership if empty.
    * @param {Set<number>} tileIndices - Set of tile indices to check
+   * @param {boolean} [broadcast=true] - Whether to broadcast TILE_CLEAR to other clients
    */
-  checkErasedTilesForOwnershipByIndices(tileIndices) {
+  checkErasedTilesForOwnershipByIndices(tileIndices, broadcast = true) {
     if (!this.tileOwnershipManager || tileIndices.size === 0) return;
 
     const tileSize = this.tileOwnershipManager.tileSize;
-    let cleared = 0;
+    const clearedTiles = [];
 
     for (const tileIdx of tileIndices) {
       // Only check tiles that are actually owned
@@ -1225,8 +1248,13 @@ export class Board {
 
       if (this._checkTileEmpty(imageData.data)) {
         this.tileOwnershipManager.clearTile(tileIdx);
-        cleared++;
+        clearedTiles.push(tileIdx);
       }
+    }
+
+    // Broadcast cleared tiles to other clients (only for local user's erases)
+    if (broadcast && clearedTiles.length > 0 && this.app?.wsClient && this.app?.connected) {
+      this.app.wsClient.broadcastTileClear(clearedTiles);
     }
   }
 

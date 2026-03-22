@@ -273,9 +273,25 @@ export class DebugOverlay {
     const cols = tileGrid?.cols ?? 0;
     const rows = tileGrid?.rows ?? 0;
 
+    // Count tiles per user
+    const userTileCounts = new Map();
+    if (this.showOwnership && this.tileOwnershipManager) {
+      for (const [, owners] of this.tileOwnershipManager.tileOwnershipMap) {
+        for (const userId of owners) {
+          userTileCounts.set(userId, (userTileCounts.get(userId) || 0) + 1);
+        }
+      }
+    }
+
+    // Calculate panel height based on user count
+    const userCount = userTileCounts.size;
+    const baseHeight = 100;
+    const userLegendHeight = userCount > 0 ? (userCount * 14) + 10 : 0;
+    const panelHeight = baseHeight + userLegendHeight;
+
     this.ctx.setLineDash([]);
     this.ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-    this.ctx.fillRect(this.canvas.width - 180, 10, 170, 130);
+    this.ctx.fillRect(this.canvas.width - 180, 10, 170, panelHeight);
 
     this.ctx.fillStyle = '#fff';
     this.ctx.font = 'bold 13px monospace';
@@ -295,16 +311,23 @@ export class DebugOverlay {
     this.ctx.fillStyle = ownedCount > 0 ? '#4ade80' : '#fff';
     this.ctx.fillText(`Owned: ${ownedCount} (${ownedPct}%)`, this.canvas.width - 170, 96);
 
-    // Dirty tiles (if enabled)
-    if (this.showDirtyTiles) {
-      const pct = totalTiles > 0 ? ((dirtyCount / totalTiles) * 100).toFixed(1) : '0.0';
-      this.ctx.fillStyle = dirtyCount > 0 ? '#ff6b6b' : '#fff';
-      this.ctx.fillText(`Dirty: ${dirtyCount} (${pct}%)`, this.canvas.width - 170, 112);
+    // User legend with colors
+    if (userCount > 0) {
+      let y = 114;
+      const users = this.board?.app?.users;
+      for (const [userId, count] of userTileCounts) {
+        const color = this._getUserColor(userId);
+        const username = users?.get(userId)?.username || `User ${userId}`;
+        // Draw color swatch
+        this.ctx.fillStyle = color;
+        this.ctx.fillRect(this.canvas.width - 170, y - 8, 10, 10);
+        // Draw user info
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = '10px monospace';
+        this.ctx.fillText(`${username}: ${count}`, this.canvas.width - 155, y);
+        y += 14;
+      }
     }
-
-    this.ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    this.ctx.font = '9px monospace';
-    this.ctx.fillText('.toggleOwnership()', this.canvas.width - 170, 128);
   }
 
   clearAll() {

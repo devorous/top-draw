@@ -311,11 +311,13 @@ export class SelectTool extends Tool {
 
   /**
    * Displays the selection context menu.
+   * @param {boolean} skipReposition - If true, skip repositioning when menu is already visible
    */
-  showContextMenu() {
+  showContextMenu(skipReposition = false) {
     if (!this.menuElements?.menu || !this.selection) return;
 
     const menu = this.menuElements.menu;
+    const wasVisible = menu.style.display !== 'none';
     const hasMoved = this.hasBeenMoved();
 
     this.menuElements.clear.classList.toggle('hidden', hasMoved);
@@ -326,6 +328,10 @@ export class SelectTool extends Tool {
     this.menuElements.cancel.classList.toggle('hidden', !hasMoved);
 
     menu.classList.toggle('grid', hasMoved);
+    menu.style.display = '';
+
+    // Skip repositioning if menu was already visible and we're just updating buttons
+    if (skipReposition && wasVisible) return;
 
     let canvasX, canvasY;
 
@@ -351,7 +357,6 @@ export class SelectTool extends Tool {
     const screenX = canvasX * zoom + panX;
     const screenY = canvasY * zoom + panY;
 
-    menu.style.display = '';
     const menuWidth = menu.offsetWidth;
     const menuHeight = menu.offsetHeight;
 
@@ -2556,8 +2561,8 @@ export class SelectTool extends Tool {
       this.board.app.wsClient.broadcastSelectionFill(app.self.color, app.self.activeLayer);
     }
 
-    // Keep selection active, update menu position
-    this.showContextMenu();
+    // Keep selection active, update menu buttons only (don't reposition)
+    this.showContextMenu(true);
 
     return true;
   }
@@ -2643,7 +2648,7 @@ export class SelectTool extends Tool {
     // Redraw the floating selection on top canvas
     this.board.clearTop();
     this.drawSelectionUI();
-    this.showContextMenu();
+    this.showContextMenu(true);
 
     return true;
   }
@@ -2705,7 +2710,7 @@ export class SelectTool extends Tool {
     // Redraw the selection with flipped content
     this.board.clearTop();
     this.drawSelectionUI();
-    this.showContextMenu();
+    this.showContextMenu(true);
 
     return true;
   }
@@ -2730,23 +2735,31 @@ export class SelectTool extends Tool {
     return canvas;
   }
 
-  // Save selection as image file
+  // Save selection as image file - opens save dialog with selection highlighted
   saveSelection() {
     const canvas = this.getSelectionExportCanvas();
     if (!canvas) return false;
 
-    const dataURL = canvas.toDataURL('image/png');
-    const link = document.createElement('a');
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-    link.download = `selection-${timestamp}.png`;
-    link.href = dataURL;
-    link.click();
+    const app = this.board.app;
+    if (app?.saveMode) {
+      // Open save dialog with the selection canvas
+      this.hideContextMenu();
+      app.saveMode.openWithCanvas(canvas);
+    } else {
+      // Fallback to direct download if SaveMode not available
+      const dataURL = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      link.download = `selection-${timestamp}.png`;
+      link.href = dataURL;
+      link.click();
 
-    if (this.board.app?.ui) {
-      this.board.app.ui.showToast('Selection saved!');
+      if (this.board.app?.ui) {
+        this.board.app.ui.showToast('Selection saved!');
+      }
+      this.hideContextMenu();
     }
 
-    this.hideContextMenu();
     return true;
   }
 

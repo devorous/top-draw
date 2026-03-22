@@ -11,12 +11,14 @@ export class SyncCoordinator {
    * @param {SessionManager} sessionManager - The session manager instance.
    * @param {Object} wss - The WebSocket server or room client set.
    * @param {function} sendToCallback - Function to send messages to a specific client.
+   * @param {Object} [room=null] - The room object (for accessing tile ownership).
    */
-  constructor(sessionManager, wss, sendToCallback) {
+  constructor(sessionManager, wss, sendToCallback, room = null) {
     this.sessionManager = sessionManager;
     this.wss = wss;
     this.sendTo = sendToCallback;
     this.pendingSyncRequests = new Map();
+    this.room = room;
   }
 
   /**
@@ -207,9 +209,35 @@ export class SyncCoordinator {
     const client = this._findClient(targetUser);
     if (client) {
       this.sendTo(client, { t: T.SYNC_STROKES_DONE });
+
+      // Send server's authoritative tile ownership data
+      if (this.room?.tileOwnershipMap?.size > 0) {
+        const tiles = this.room.getTileOwnershipForSync();
+        if (tiles.length > 0) {
+          this.sendTo(client, { t: T.SYNC_TILE_OWNERSHIP, tiles });
+          console.log(`[Sync] Sent ${tiles.length} tile ownership entries to user ${targetUser}`);
+        }
+      }
+
       this.sendTo(client, { t: T.SYNC_COMPLETE });
       this.pendingSyncRequests.delete(targetUser);
       console.log(`[Sync] Stroke sync complete for user ${targetUser}`);
+    }
+  }
+
+  /**
+   * Relays tile ownership data to the requesting joiner.
+   * @param {WebSocket} ws - The WebSocket of the provider.
+   * @param {Object} data - The tile ownership sync message data.
+   */
+  handleSyncTileOwnership(ws, data) {
+    const targetUser = Number(data.tu);
+    const client = this._findClient(targetUser);
+    if (client) {
+      this.sendTo(client, {
+        t: T.SYNC_TILE_OWNERSHIP,
+        tiles: data.tiles
+      });
     }
   }
 

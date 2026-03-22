@@ -286,16 +286,22 @@ export class EraserTool extends Tool {
   eraseOnGroup(group, x1, y1, x2, y2, size, _opacity, userId) {
     const active = group.activeStrokeByUser?.get(userId);
     if (active?.ctx) {
-      active.opacity = 1.0; 
+      active.opacity = 1.0;
       this._renderSegmentToCtx(active.ctx, { x: x1, y: y1 }, { x: x2, y: y2 }, size);
+      const radius = size / 2;
       if (active.dirtyRect) {
-        const radius = size / 2;
         const margin = radius * 1.25 + 2;
         const dr = active.dirtyRect;
         dr.minX = Math.min(dr.minX, Math.floor(Math.min(x1, x2) - margin));
         dr.minY = Math.min(dr.minY, Math.floor(Math.min(y1, y2) - margin));
         dr.maxX = Math.max(dr.maxX, Math.ceil(Math.max(x1, x2) + margin));
         dr.maxY = Math.max(dr.maxY, Math.ceil(Math.max(y1, y2) + margin));
+      }
+      // Track erased tiles for remote users (same as local eraser)
+      if (active.affectedTiles && this.board.tileOwnershipManager) {
+        this.board.tileOwnershipManager.collectTilesFromPath(
+          [{ x: x1, y: y1 }, { x: x2, y: y2 }], radius, active.affectedTiles
+        );
       }
     }
   }

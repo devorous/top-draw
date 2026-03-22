@@ -81,6 +81,9 @@ message Msg {
     CSIM               = 72;  // Change simulate pressure
     FILL               = 73;  // Flood fill at position
     ROOM_ROLE_SET      = 74;  // Set a user's room-specific role
+    SYNC_TILE_OWNERSHIP = 75; // Tile ownership data (initial sync + real-time updates)
+    TILE_UPDATE        = 76;  // Real-time tile ownership update (broadcast)
+    TILE_CLEAR         = 77;  // Tiles that are now empty (ownership should be cleared)
   }
 
   // Tool enum
@@ -228,6 +231,8 @@ message Msg {
     bool isRedo      = 9;   // true = redo stack entry
     uint32 redoBatch = 10;  // Redo batch index (if isRedo)
     uint32 layerIdx  = 11;  // Layer group index (needed for redo batches with mixed layers)
+    repeated uint32 affectedTiles = 12;  // Tile indices affected by this stroke (for undo/redo tile tracking)
+    bool eraseAll    = 13;  // true = erase-all-layers stroke
   }
 
   // === Batched Sync Fields ===
@@ -259,4 +264,12 @@ message Msg {
   // === Room Role Fields (61-62) ===
   string room_role_target_id = 61;  // Target userId for room role assignment
   uint32 room_role_value     = 62;  // Role value to assign (0-5)
+
+  // === Tile Ownership Fields ===
+  message TileEntry {
+    uint32 idx   = 1;           // Tile index
+    repeated uint32 users = 2;  // User IDs who own this tile
+  }
+  repeated TileEntry tiles = 66;  // Tile ownership entries (for SYNC_TILE_OWNERSHIP and TILE_UPDATE)
+  repeated uint32 clearedTiles = 67;  // Tile indices that are now empty (for TILE_CLEAR)
 }

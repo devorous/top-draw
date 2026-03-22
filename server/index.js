@@ -457,6 +457,10 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
   // Permission-gated actions inside the broadcast path
   if (data.t === T.CLR) {
     if (!authorize(ws, Action.CLEAR_CANVAS, sendTo, T.MOD_RESULT)) return;
+    // Clear all tile ownership when canvas is cleared
+    if (room.tileOwnershipMap) {
+      room.tileOwnershipMap.clear();
+    }
   }
 
   if (MUTED_BLOCKED.has(data.t)) {
@@ -696,6 +700,47 @@ wss.on('connection', (ws, req) => {
 
         case T.SYNC_STROKES_DONE:
           room.syncCoordinator.handleSyncStrokesDone(ws, data);
+          break;
+
+        case T.SYNC_TILE_OWNERSHIP:
+          room.syncCoordinator.handleSyncTileOwnership(ws, data);
+          break;
+
+        case T.TILE_UPDATE:
+          // Real-time tile ownership update - store and relay to others
+          if (data.tiles && Array.isArray(data.tiles)) {
+            const tileIndices = data.tiles.map(t => t.idx);
+            room.updateTileOwnership(ws.sessionIndex, tileIndices);
+            // Relay to other clients with sender's user ID
+            for (const client of room.clients) {
+              if (client !== ws && client.readyState === WebSocket.OPEN) {
+                sendTo(client, {
+                  t: T.TILE_UPDATE,
+                  u: ws.sessionIndex,
+                  tiles: data.tiles
+                });
+              }
+            }
+          }
+          break;
+
+        case T.TILE_CLEAR:
+          // Tiles that are now empty - clear from server and relay to all clients
+          if (data.clearedTiles && Array.isArray(data.clearedTiles)) {
+            // Clear from server's tile ownership map
+            for (const tileIdx of data.clearedTiles) {
+              room.tileOwnershipMap.delete(tileIdx);
+            }
+            // Relay to other clients
+            for (const client of room.clients) {
+              if (client !== ws && client.readyState === WebSocket.OPEN) {
+                sendTo(client, {
+                  t: T.TILE_CLEAR,
+                  clearedTiles: data.clearedTiles
+                });
+              }
+            }
+          }
           break;
 
         case T.DM:

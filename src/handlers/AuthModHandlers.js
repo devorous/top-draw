@@ -114,6 +114,11 @@ export function setupAuthModHandlers(wsClient, app) {
       }
     }
 
+    // Clear tile ownership for wiped user
+    if (app.board?.tileOwnershipManager) {
+      app.board.tileOwnershipManager.clearUserOwnership(targetIndex);
+    }
+
     chat.addSystemMessage(`All strokes from ${targetName} were removed by ${issuerName}`);
     ui.showToast(`${targetName}'s strokes wiped by ${issuerName}`, 3000);
   });

@@ -193,8 +193,20 @@ export class ImageBrushTool extends Tool {
   }
 
   applyStamps(user, ps) {
+    const points = [];
     for (let i = 0; i < ps.length; i += 2) {
-      this.drawStamp(user, { x: ps[i], y: ps[i + 1] });
+      const pos = { x: ps[i], y: ps[i + 1] };
+      this.drawStamp(user, pos);
+      points.push(pos);
+    }
+    // Track tile ownership for remote user
+    if (points.length > 0) {
+      this.board.markDirtyPath(user, points, user.size);
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirroredPoints = points.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+        this.board.markDirtyPath(user, mirroredPoints, user.size);
+      }
     }
     this.board.requestUpdate();
   }

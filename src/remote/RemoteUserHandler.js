@@ -281,7 +281,7 @@ export class RemoteUserHandler {
    * @returns {void}
    */
   renderRemotePreview(user, pos) {
-    const needsClear = ['brush', 'line', 'rectangle', 'circle', 'select', 'erase', 'text'].includes(user.tool);
+    const needsClear = ['brush', 'line', 'rectangle', 'circle', 'select', 'erase', 'text', 'glitchBlur'].includes(user.tool);
     if (needsClear && !(user.tool === 'select' && user.floatingCanvas)) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
@@ -348,6 +348,13 @@ export class RemoteUserHandler {
           } else {
             selectTool.drawSelectionBox(user.context, user.startPos, pos);
           }
+        }
+        break;
+
+      case 'glitchBlur':
+        const glitchBlurTool = this.toolManager.getTool('glitchBlur');
+        if (glitchBlurTool) {
+          glitchBlurTool.drawPreview(user, user.context);
         }
         break;
     }
@@ -667,11 +674,39 @@ export class RemoteUserHandler {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
 
+    // Collect erased tiles before committing (for tile ownership check)
+    let erasedTiles = null;
+    if (user.tool === 'erase') {
+      erasedTiles = new Set();
+      if (user.eraseAllLayers) {
+        const count = this.board.layerManager.getLayerCount();
+        for (let i = 0; i < count; i++) {
+          const group = this.board.layerManager.getLayerGroup(i);
+          const active = group?.activeStrokeByUser?.get(user.id);
+          if (active?.affectedTiles) {
+            for (const idx of active.affectedTiles) erasedTiles.add(idx);
+          }
+        }
+      } else {
+        const group = this.board.layerManager.getLayerGroup(user.activeLayer);
+        const active = group?.activeStrokeByUser?.get(user.id);
+        if (active?.affectedTiles) {
+          for (const idx of active.affectedTiles) erasedTiles.add(idx);
+        }
+      }
+    }
+
     if (user.tool === 'erase' && user.eraseAllLayers) {
       this.board.endStrokeAllLayers(user);
     } else if (user.tool !== 'fill') {
       // Fill tool commits its own stroke via the dedicated FILL message handler
       this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
+    }
+
+    // Check erased tiles and clear ownership for empty ones (don't broadcast - remote user handles that)
+    if (erasedTiles && erasedTiles.size > 0) {
+      this.board.compositeAllLayers();
+      this.board.checkErasedTilesForOwnershipByIndices(erasedTiles, false);
     }
 
     user.clearLine();
@@ -901,10 +936,28 @@ export class RemoteUserHandler {
     if (x < 0 || x >= width || y < 0 || y >= height) return;
 
     const imageData = this.board.mainCtx.getImageData(0, 0, width, height);
-    const result = await fillTool._fillWorker.computeFill(
+    let result = await fillTool._fillWorker.computeFill(
       imageData.data, width, height, x, y, 10, 0, null
     );
     if (!result) return;
+
+    // Apply tile constraint if fill is too large (same logic as local FloodFillTool)
+    if (fillTool._isFillTooLarge(result, width, height)) {
+      const tileRects = fillTool._getOwnedTileRects(x, y, user.id);
+      if (tileRects) {
+        const constrainedResult = await fillTool._fillWorker.computeFill(
+          this.board.mainCtx.getImageData(0, 0, width, height).data,
+          width, height, x, y, 10, 0, tileRects
+        );
+        if (constrainedResult) {
+          result = constrainedResult;
+        } else {
+          return; // Can't constrain a too-large fill
+        }
+      } else {
+        return; // No tiles owned, can't allow huge fill
+      }
+    }
 
     const { mask, minX, minY, maxX, maxY } = result;
     const regionW = maxX - minX + 1;
@@ -963,6 +1016,26 @@ export class RemoteUserHandler {
     if (this.board.mirror) {
       const boardW = this.board.getWidth();
       this.board.expandDirtyRect(user, Math.floor(boardW - maxX - margin), y, w, h);
+    }
+
+    // Track tile ownership for remote users (non-erase operations)
+    const tom = this.board.tileOwnershipManager;
+    if (tom && user.tool !== 'erase') {
+      const userId = user.id;
+      const radius = user.size || margin;
+
+      // Get the active stroke to collect affectedTiles (same as local implementation)
+      const group = this.board.layerManager?.layerGroups[user.activeLayer];
+      const active = group?.activeStrokeByUser?.get(userId);
+
+      tom.addOwnershipFromPath(userId, points, radius, active?.affectedTiles);
+
+      // Also track mirrored tiles
+      if (this.board.mirror) {
+        const boardW = this.board.getWidth();
+        const mirroredPoints = points.map(pt => ({ x: boardW - pt.x, y: pt.y }));
+        tom.addOwnershipFromPath(userId, mirroredPoints, radius, active?.affectedTiles);
+      }
     }
   }
 

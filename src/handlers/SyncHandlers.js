@@ -59,4 +59,33 @@ export function setupSyncHandlers(wsClient, app) {
       app.syncClient.handleSyncComplete();
     }
   });
+
+  wsClient.on('sync_tile_ownership', (data) => {
+    if (app.syncClient) {
+      app.syncClient.handleSyncTileOwnership(data);
+    }
+  });
+
+  // Real-time tile ownership updates from other users
+  wsClient.on('tile_update', (data) => {
+    const tom = app.board?.tileOwnershipManager;
+    if (!tom || !data.tiles) return;
+
+    const userId = data.userId;
+    for (const tile of data.tiles) {
+      if (typeof tile.idx === 'number') {
+        tom.addOwnership(tile.idx, userId);
+      }
+    }
+  });
+
+  // Tiles cleared by erasing (remove ownership on all clients)
+  wsClient.on('tile_clear', (data) => {
+    const tom = app.board?.tileOwnershipManager;
+    if (!tom || !data.clearedTiles) return;
+
+    for (const tileIdx of data.clearedTiles) {
+      tom.clearTile(tileIdx);
+    }
+  });
 }

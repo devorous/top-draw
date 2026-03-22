@@ -137,6 +137,15 @@ export class RemoteInkHandler {
         const boardW = this.board.getWidth();
         this.board.expandDirtyRect(user, Math.floor(boardW - maxX - margin), y, w, h);
       }
+
+      // Track tile ownership for remote user
+      const points = user._inkPoints.map(pt => ({ x: pt[0], y: pt[1] }));
+      this.board.markDirtyPath(user, points, size);
+      if (this.board.mirror) {
+        const boardWidth = this.board.getWidth();
+        const mirroredPoints = points.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+        this.board.markDirtyPath(user, mirroredPoints, size);
+      }
     }
 
     const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);

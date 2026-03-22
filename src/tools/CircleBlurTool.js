@@ -235,11 +235,13 @@ export class CircleBlurTool extends Tool {
 
     // Build stamp list and calculate bounding box
     const stamps = [];
+    const points = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
     for (let i = 0, j = 0; i < ps.length; i += 2, j++) {
       const sx = ps[i], sy = ps[i + 1], sr = rs[j];
       stamps.push({ x: sx, y: sy, r: sr });
+      points.push({ x: sx, y: sy });
 
       const sampleRadius = Math.min(sr * 1.2, sr + 10);
       minX = Math.min(minX, sx - sampleRadius);
@@ -273,6 +275,16 @@ export class CircleBlurTool extends Tool {
       this.stampBlurredCircleFromCache(stamp.x, stamp.y, stamp.r, user, cachedImageData, left, top);
       if (this.board.mirror) {
         this.stampBlurredCircleFromCache(canvasWidth - stamp.x, stamp.y, stamp.r, user, cachedImageData, left, top);
+      }
+    }
+
+    // Track tile ownership for remote user
+    if (points.length > 0) {
+      const radius = user.size;
+      this.board.markDirtyPath(user, points, radius);
+      if (this.board.mirror) {
+        const mirroredPoints = points.map(pt => ({ x: canvasWidth - pt.x, y: pt.y }));
+        this.board.markDirtyPath(user, mirroredPoints, radius);
       }
     }
   }

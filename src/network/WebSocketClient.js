@@ -646,7 +646,8 @@ export class WebSocketClient {
               eraseAll: stroke.eraseAll || false,
               isRedo: stroke.isRedo || false,
               redoBatchIdx: stroke.redoBatch || 0,
-              imageData: stroke.img
+              imageData: stroke.img,
+              affectedTiles: stroke.affectedTiles || []
             }))
           });
         }
@@ -654,6 +655,18 @@ export class WebSocketClient {
 
       case T.SYNC_STROKES_DONE:
         this.emit('sync_strokes_done', {});
+        break;
+
+      case T.SYNC_TILE_OWNERSHIP:
+        this.emit('sync_tile_ownership', { tiles: data.tiles || [] });
+        break;
+
+      case T.TILE_UPDATE:
+        this.emit('tile_update', { userId: data.u, tiles: data.tiles || [] });
+        break;
+
+      case T.TILE_CLEAR:
+        this.emit('tile_clear', { clearedTiles: data.clearedTiles || [] });
         break;
 
       case T.AUTH_RESULT:
@@ -1264,7 +1277,9 @@ export class WebSocketClient {
       timestamp: s.timestamp,
       isRedo: s.isRedo || false,
       redoBatch: s.redoBatch || 0,
-      layerIdx: s.layerIdx
+      layerIdx: s.layerIdx,
+      affectedTiles: s.affectedTiles || [],
+      eraseAll: s.eraseAll || false
     }));
 
     this.send({
@@ -1292,6 +1307,38 @@ export class WebSocketClient {
    */
   sendSyncStrokesDone(targetUser) {
     this.send({ t: T.SYNC_STROKES_DONE, tu: targetUser });
+  }
+
+  /**
+   * Sends tile ownership data during sync.
+   * @param {Array} tiles - Array of {idx, users} objects.
+   * @param {number} targetUser - Recipient session index.
+   * @returns {void}
+   */
+  sendSyncTileOwnership(tiles, targetUser) {
+    this.send({ t: T.SYNC_TILE_OWNERSHIP, tiles, tu: targetUser });
+  }
+
+  /**
+   * Broadcasts real-time tile ownership updates as user draws.
+   * @param {Array<number>} tileIndices - Array of tile indices the user now owns.
+   * @returns {void}
+   */
+  broadcastTileUpdate(tileIndices) {
+    if (!tileIndices || tileIndices.length === 0) return;
+    // Send tiles as array of {idx, users} where users is just [self]
+    const tiles = tileIndices.map(idx => ({ idx, users: [] }));
+    this.send({ t: T.TILE_UPDATE, tiles });
+  }
+
+  /**
+   * Broadcasts tiles that are now empty (ownership should be cleared).
+   * @param {Array<number>} tileIndices - Array of tile indices that are now empty.
+   * @returns {void}
+   */
+  broadcastTileClear(tileIndices) {
+    if (!tileIndices || tileIndices.length === 0) return;
+    this.send({ t: T.TILE_CLEAR, clearedTiles: tileIndices });
   }
 
   /**

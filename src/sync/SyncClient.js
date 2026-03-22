@@ -220,7 +220,8 @@ export class SyncClient {
               eraseAll: stroke.eraseAll || false,
               isRedo: false,
               redoBatch: 0,
-              layerIdx: gi
+              layerIdx: gi,
+              affectedTiles: stroke.affectedTiles ? Array.from(stroke.affectedTiles) : []
             });
           }
           this.wsClient.sendSyncStrokeBatch(strokeRecords, gi, targetUser);
@@ -244,7 +245,8 @@ export class SyncClient {
               eraseAll: record.eraseAll || false,
               isRedo: true,
               redoBatch: batchIdx,
-              layerIdx: groupIdx
+              layerIdx: groupIdx,
+              affectedTiles: record.affectedTiles ? Array.from(record.affectedTiles) : []
             });
           }
           // The first record's groupIdx can be used as a representative layerIdx for the batch
@@ -253,6 +255,7 @@ export class SyncClient {
         }
       }
 
+      // Tile ownership is now sent by the server (authoritative) after SYNC_STROKES_DONE
       this.wsClient.sendSyncStrokesDone(targetUser);
       console.log('[SyncClient] Finished sending layer state to user', targetUser);
     } catch (error) {
@@ -355,7 +358,8 @@ export class SyncClient {
             height: data.h,
             blendMode: data.blendMode,
             userId: data.userId,
-            timestamp: data.timestamp
+            timestamp: data.timestamp,
+            affectedTiles: data.affectedTiles || []
           };
           if (data.eraseAll) record.eraseAll = true;
 
@@ -399,6 +403,27 @@ export class SyncClient {
    */
   handleSyncStrokesDone() {
     // No action needed here — handleSyncComplete waits for _pendingImports.
+  }
+
+  /**
+   * Applies tile ownership data received from sync provider.
+   * @param {Object} data - Tile ownership payload
+   * @param {Array} data.tiles - Array of {idx, users} objects
+   * @returns {void}
+   */
+  handleSyncTileOwnership(data) {
+    if (!this.board?.tileOwnershipManager || !data.tiles) return;
+
+    const tom = this.board.tileOwnershipManager;
+    console.log(`[SyncClient] Applying ${data.tiles.length} tile ownership entries`);
+
+    for (const tile of data.tiles) {
+      if (tile.users && Array.isArray(tile.users)) {
+        for (const userId of tile.users) {
+          tom.addOwnership(tile.idx, userId);
+        }
+      }
+    }
   }
 
   /**
