@@ -1992,7 +1992,8 @@ export class SelectTool extends Tool {
 
     // Send the data via the websocket client
     if (this.board.app?.wsClient) {
-      this.board.app.wsClient.broadcastSelectionLift(this.selection, this.lassoPath);
+      const imageData = this.floatingCanvas ? this.floatingCanvas.toDataURL('image/png') : null;
+      this.board.app.wsClient.broadcastSelectionLift(this.selection, this.lassoPath, imageData);
     }
   }
 

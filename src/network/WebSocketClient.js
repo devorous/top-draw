@@ -1096,7 +1096,7 @@ export class WebSocketClient {
    * @param {Array<Object>|null} [lassoPath=null] - Optional freehand path.
    * @returns {void}
    */
-  broadcastSelectionLift(rect, lassoPath = null) {
+  broadcastSelectionLift(rect, lassoPath = null, imageData = null) {
     const msg = {
       t: T.SEL_LIFT,
       sx: Math.round(rect.x),
@@ -1107,6 +1107,9 @@ export class WebSocketClient {
 
     if (lassoPath && lassoPath.length > 0) {
       msg.cr = lassoPath.flatMap(p => [Math.round(p.x), Math.round(p.y)]);
+    }
+    if (imageData) {
+      msg.g = imageData;
     }
     this.send(msg);
   }

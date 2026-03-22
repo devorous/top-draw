@@ -445,6 +445,37 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       user.imageBrush = data.g;
       break;
 
+    case T.IMG_PASTE:
+      user.activeImage = { sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, g: data.g };
+      user.activeSelectionCorners = null;
+      break;
+
+    case T.SEL_LIFT:
+      if (data.g) {
+        user.activeImage = { sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, g: data.g };
+        user.activeSelectionCorners = null;
+        // Strip image data from relay — existing users reconstruct the floating image from their canvas
+        broadcastToRoom(room, { t: T.SEL_LIFT, u: sessionIndex, sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, cr: data.cr }, sessionIndex);
+        return;
+      }
+      break;
+
+    case T.SEL_MOVE:
+      if (data.cr) {
+        user.activeSelectionCorners = Array.from(data.cr);
+      }
+      break;
+
+    case T.SEL_COMMIT:
+    case T.SEL_CANCEL:
+    case T.SEL_STAMP:
+    case T.SEL_DELETE:
+    case T.SEL_FILL:
+    case T.SEL_TO_BRUSH:
+      user.activeImage = null;
+      user.activeSelectionCorners = null;
+      break;
+
     case T.CTHN:
       user.thinning = data.th;
       break;

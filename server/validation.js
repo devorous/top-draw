@@ -76,7 +76,8 @@ export const VALIDATION_RULES = {
     sx: (val) => clamp(val, -10000, 20000),
     sy: (val) => clamp(val, -10000, 20000),
     sw: (val) => clamp(val, 0, 10000),
-    sh: (val) => clamp(val, 0, 10000)
+    sh: (val) => clamp(val, 0, 10000),
+    g: (val) => (typeof val === 'string' && val.length < 2 * 1024 * 1024 ? val : '')
   },
   [T.IMG_PASTE]: {
     sx: (val) => clamp(val, -10000, 20000),
