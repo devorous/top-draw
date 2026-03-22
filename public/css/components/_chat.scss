@@ -137,6 +137,19 @@
 
 .messageText {
   color: var(--text-primary);
+  user-select: text;
+}
+
+.messageText a,
+.dmMessageContent a {
+  color: var(--accent-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.messageText a:hover,
+.dmMessageContent a:hover {
+  color: var(--accent-hover);
 }
 
 /* DM User List */
@@ -277,6 +290,7 @@
   word-wrap: break-word;
   overflow-wrap: break-word;
   color: var(--text-primary);
+  user-select: text;
 }
 
 .dmMessage.self .dmMessageContent {

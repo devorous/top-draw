@@ -243,7 +243,7 @@ export class Chat {
         li.appendChild(timeDiv);
       } else {
         li.innerHTML = `
-          <div class="dmMessageContent">${this.escapeHtml(msg.message)}</div>
+          <div class="dmMessageContent">${this.linkifyText(msg.message)}</div>
           <div class="dmMessageTime">${time}</div>
         `;
       }
@@ -763,7 +763,7 @@ export class Chat {
         const userColor = msg.user?.color || '#888';
         li.innerHTML = `
           <span class='messageName' style='color: ${userColor}'>${this.escapeHtml(username)}: </span>
-          <span class='messageText'>${this.escapeHtml(msg.message)}</span>
+          <span class='messageText'>${this.linkifyText(msg.message)}</span>
         `;
       }
 
@@ -824,6 +824,21 @@ export class Chat {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  /**
+   * Converts URLs in text to clickable links (after escaping HTML).
+   * @param {string} text - Raw text
+   * @returns {string} - HTML with clickable links
+   */
+  linkifyText(text) {
+    const escaped = this.escapeHtml(text);
+    // Match URLs starting with http://, https://, or www.
+    const urlPattern = /(\bhttps?:\/\/[^\s<]+)|(\bwww\.[^\s<]+)/gi;
+    return escaped.replace(urlPattern, (match) => {
+      const href = match.startsWith('www.') ? 'https://' + match : match;
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer">${match}</a>`;
+    });
   }
 
   /**
