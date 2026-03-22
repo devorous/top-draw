@@ -229,8 +229,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
     const userOpacity = colorAlpha * opacitySlider;
 
-    // Only sample pixels from layers 0 through the active layer (not higher layers)
-    const imageData = board.getImageDataUpToLayer(layerIndex);
+    const imageData = board.mainCtx.getImageData(0, 0, width, height);
     const imgData = imageData.data;
 
     // Check target vs fill color similarity (same as local)
@@ -255,7 +254,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
       const tileRects = fillTool._getOwnedTileRects(x, y, userId);
       if (tileRects) {
         const constrainedResult = await fillTool._fillWorker.computeFill(
-          board.getImageDataUpToLayer(layerIndex).data,
+          board.mainCtx.getImageData(0, 0, width, height).data,
           width, height, x, y, 10, expansion, tileRects
         );
         if (constrainedResult) {
@@ -288,7 +287,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     if (board.mirror) {
       const mx = width - 1 - x;
       if (mx >= 0 && mx < width) {
-        const mirrorData = board.getImageDataUpToLayer(layerIndex).data;
+        const mirrorData = board.mainCtx.getImageData(0, 0, width, height).data;
         let mResult = await fillTool._fillWorker.computeFill(
           mirrorData, width, height, mx, y, 10, expansion, null
         );
@@ -297,7 +296,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
           const mirrorTileRects = fillTool._getOwnedTileRects(mx, y, userId);
           if (mirrorTileRects) {
             mResult = await fillTool._fillWorker.computeFill(
-              board.getImageDataUpToLayer(layerIndex).data,
+              board.mainCtx.getImageData(0, 0, width, height).data,
               width, height, mx, y, 10, expansion, mirrorTileRects
             );
           } else {

@@ -412,8 +412,7 @@ export class FloodFillTool {
 
     const params = this._getFillParams(user);
 
-    // Only sample pixels from layers 0 through the active layer (not higher layers)
-    const imageData = this.board.getImageDataUpToLayer(params.activeLayer);
+    const imageData = this.board.mainCtx.getImageData(0, 0, width, height);
     const data = imageData.data;
 
     // Check target vs fill color similarity
@@ -436,7 +435,7 @@ export class FloodFillTool {
         const tileRects = this._getOwnedTileRects(x, y, params.userId);
         if (tileRects) {
           const constrainedResult = await this._fillWorker.computeFill(
-            this.board.getImageDataUpToLayer(params.activeLayer).data,
+            this.board.mainCtx.getImageData(0, 0, width, height).data,
             width, height, x, y, 10, 0, tileRects
           );
           if (constrainedResult) result = constrainedResult;
@@ -450,7 +449,7 @@ export class FloodFillTool {
       if (this.board.mirror) {
         const mx = width - 1 - x;
         if (mx >= 0 && mx < width) {
-          const mirrorData = this.board.getImageDataUpToLayer(params.activeLayer).data;
+          const mirrorData = this.board.mainCtx.getImageData(0, 0, width, height).data;
           mirrorResult = await this._fillWorker.computeFill(
             mirrorData, width, height, mx, y, 10, 0, null
           );
@@ -459,7 +458,7 @@ export class FloodFillTool {
             const mirrorTileRects = this._getOwnedTileRects(mx, y, params.userId);
             if (mirrorTileRects && !this._isFillWithinTileBounds(mirrorResult, mirrorTileRects)) {
               const constrainedMirror = await this._fillWorker.computeFill(
-                this.board.getImageDataUpToLayer(params.activeLayer).data,
+                this.board.mainCtx.getImageData(0, 0, width, height).data,
                 width, height, mx, y, 10, 0, mirrorTileRects
               );
               if (constrainedMirror) mirrorResult = constrainedMirror;
@@ -481,8 +480,7 @@ export class FloodFillTool {
     this._clickPos = { x, y };
     this._expansion = 0;
     this._blurRadius = 0;
-    // Store image data from layers up to active layer (not higher layers)
-    this._imageData = this.board.getImageDataUpToLayer(params.activeLayer);
+    this._imageData = this.board.mainCtx.getImageData(0, 0, width, height);
 
     // Get owned tile rects for fallback constraint (used if fill is too large)
     const tileRects = this._getOwnedTileRects(x, y, params.userId);
@@ -498,7 +496,7 @@ export class FloodFillTool {
     if (this._isFillTooLarge(initialResult, width, height)) {
       if (tileRects) {
         const constrained = await this._fillWorker.computeFill(
-          this.board.getImageDataUpToLayer(params.activeLayer).data,
+          this.board.mainCtx.getImageData(0, 0, width, height).data,
           width, height, x, y, 10, 0, tileRects
         );
         if (constrained) initialResult = constrained;

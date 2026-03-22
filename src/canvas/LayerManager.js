@@ -1825,23 +1825,6 @@ export class LayerManager {
   }
 
   /**
-   * Get composited image data of layers 0 through maxLayerIndex (inclusive).
-   * Useful for fill tool to only "see" content on the active layer and below.
-   * @param {number} maxLayerIndex - The highest layer index to include
-   * @param {Array} [backgroundColor] - Optional background color [r, g, b, a]
-   * @returns {ImageData}
-   */
-  getCompositedImageDataUpTo(maxLayerIndex, backgroundColor = null) {
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = this.width;
-    tempCanvas.height = this.height;
-    const tempCtx = tempCanvas.getContext('2d');
-    // Composite from layer 0 to maxLayerIndex (exclusive end, so +1)
-    this.compositeLayerRange(tempCtx, 0, maxLayerIndex + 1, backgroundColor);
-    return tempCtx.getImageData(0, 0, this.width, this.height);
-  }
-
-  /**
    * Get basic metadata for all layer groups
    * @returns {Array}
    */
