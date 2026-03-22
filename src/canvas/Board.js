@@ -32,9 +32,12 @@ export class Board {
     this.mainCanvas = null;
     this.topCanvas = null;
     this.upperLayersCanvas = null;
+    this.selectionOverlay = null;
+    this.selectionOverlayPadding = 500;
     this.mainCtx = null;
     this.topCtx = null;
     this.upperLayersCtx = null;
+    this.selectionCtx = null;
     this.cursorsSvg = null;
     this.mirrorLine = null;
 
@@ -90,6 +93,12 @@ export class Board {
     this.mainCtx = this.mainCanvas.getContext('2d', { willReadFrequently: true });
     this.topCtx = this.topCanvas.getContext('2d');
 
+    // Create selection overlay canvas with padding to allow handles to extend beyond board
+    this.selectionOverlay = document.createElement('canvas');
+    this.selectionOverlay.id = 'selectionOverlay';
+    this.boardsWrapper.appendChild(this.selectionOverlay);
+    this.selectionCtx = this.selectionOverlay.getContext('2d');
+
     this.upperLayersCanvas = document.createElement('canvas');
     this.upperLayersCanvas.id = 'upperLayersBoard';
     this.upperLayersCanvas.style.position = 'absolute';
@@ -129,6 +138,13 @@ export class Board {
     if (this.upperLayersCanvas) {
       this.upperLayersCanvas.height = height;
       this.upperLayersCanvas.width = width;
+    }
+    if (this.selectionOverlay) {
+      const pad = this.selectionOverlayPadding;
+      this.selectionOverlay.width = width + pad * 2;
+      this.selectionOverlay.height = height + pad * 2;
+      this.selectionOverlay.style.left = `${-pad}px`;
+      this.selectionOverlay.style.top = `${-pad}px`;
     }
 
     this.mainCtx.globalCompositeOperation = 'source-over';
@@ -1158,11 +1174,43 @@ export class Board {
   }
 
   /**
-   * Clear the preview (top) canvas
+   * Clear the preview (top) canvas and selection overlay
    */
   clearTop() {
     const [height, width] = this.dimensions;
     this.topCtx.clearRect(0, 0, width, height);
+    this.clearSelectionOverlay();
+  }
+
+  /**
+   * Clear the selection overlay canvas
+   */
+  clearSelectionOverlay() {
+    if (this.selectionCtx) {
+      const pad = this.selectionOverlayPadding;
+      this.selectionCtx.clearRect(0, 0, this.dimensions[1] + pad * 2, this.dimensions[0] + pad * 2);
+    }
+  }
+
+  /**
+   * Get the selection overlay context with padding offset applied.
+   * Call save() before and restore() after drawing.
+   * @returns {CanvasRenderingContext2D|null}
+   */
+  getSelectionCtx() {
+    if (!this.selectionCtx) return null;
+    this.selectionCtx.save();
+    this.selectionCtx.translate(this.selectionOverlayPadding, this.selectionOverlayPadding);
+    return this.selectionCtx;
+  }
+
+  /**
+   * Restore the selection overlay context after drawing
+   */
+  restoreSelectionCtx() {
+    if (this.selectionCtx) {
+      this.selectionCtx.restore();
+    }
   }
 
   /**

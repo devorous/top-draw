@@ -2549,6 +2549,21 @@ export class DrawingApp {
     // Only handle events on the boardContainer background itself (not bubbled from canvas/children)
     if (e.target !== this.ui.elements.boardContainer) return;
 
+    // Check if select tool is active and has a handle at this position
+    if (e.button === 0 && this.self.tool === 'select' && !this.self.panning) {
+      const selectToolLoader = this.toolManager.tools.select;
+      const selectTool = selectToolLoader?.realTool;
+      if (selectTool && selectTool.selection) {
+        const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
+        const handle = selectTool.getHandleAtPoint(pos);
+        if (handle) {
+          // Forward to handlePointerDown - treat it as if clicked on the canvas
+          this.handlePointerDown(e);
+          return;
+        }
+      }
+    }
+
     // Middle-click: enable panning
     if (e.button === 1) {
       e.preventDefault();
@@ -2573,6 +2588,16 @@ export class DrawingApp {
   }
 
   handleBoardContainerPointerMove(e) {
+    // Update select tool cursor when hovering over handles in the gray area
+    if (this.self.tool === 'select' && !this._containerPanActive) {
+      const selectToolLoader = this.toolManager.tools.select;
+      const selectTool = selectToolLoader?.realTool;
+      if (selectTool && selectTool.selection) {
+        const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
+        selectTool.updateCursor(pos);
+      }
+    }
+
     if (!this._containerPanActive) return;
     const dx = e.clientX - this._lastPanPointerX;
     const dy = e.clientY - this._lastPanPointerY;

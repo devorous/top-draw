@@ -463,173 +463,127 @@ export class SelectTool extends Tool {
     if (!this.selection) return;
 
     const ctx = this.board.topCtx;
+    // Use selection overlay for outline and handles (can extend beyond canvas edge)
+    const overlayCtx = this.board.getSelectionCtx() || ctx;
 
     if (this.corners && this.hasTransformedCorners()) {
-      this.drawTransformOutline(ctx);
-      this.drawTransformHandles(ctx);
+      this.drawTransformOutline(overlayCtx);
+      this.drawTransformHandles(overlayCtx);
     } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.hasScaledSelection()) {
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.lineDashOffset = -this.marchingAntsOffset;
-      ctx.beginPath();
-      ctx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
+      overlayCtx.strokeStyle = '#000';
+      overlayCtx.lineWidth = 1;
+      overlayCtx.setLineDash([4, 4]);
+      overlayCtx.lineDashOffset = -this.marchingAntsOffset;
+      overlayCtx.beginPath();
+      overlayCtx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
       for (let i = 1; i < this.lassoSimplified.length; i++) {
-        ctx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
+        overlayCtx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
       }
-      ctx.closePath();
-      ctx.stroke();
+      overlayCtx.closePath();
+      overlayCtx.stroke();
 
-      ctx.strokeStyle = '#fff';
-      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
-      ctx.beginPath();
-      ctx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
+      overlayCtx.strokeStyle = '#fff';
+      overlayCtx.lineDashOffset = -this.marchingAntsOffset + 4;
+      overlayCtx.beginPath();
+      overlayCtx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
       for (let i = 1; i < this.lassoSimplified.length; i++) {
-        ctx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
+        overlayCtx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
       }
-      ctx.closePath();
-      ctx.stroke();
-      ctx.setLineDash([]);
+      overlayCtx.closePath();
+      overlayCtx.stroke();
+      overlayCtx.setLineDash([]);
 
       const s = this.selection;
-      ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(s.x, s.y, s.width, s.height);
+      overlayCtx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+      overlayCtx.lineWidth = 1;
+      overlayCtx.strokeRect(s.x, s.y, s.width, s.height);
 
       this.updateHandles();
-      for (const handle of this.handles) {
-        if (handle.isRotation) {
-          const tm = this.handles.find(h => h.id === 'tm');
-          if (tm) {
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(tm.x, tm.y);
-            ctx.lineTo(handle.x, handle.y);
-            ctx.stroke();
-          }
-
-          ctx.fillStyle = '#fff';
-          ctx.strokeStyle = '#000';
-          ctx.beginPath();
-          ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-        } else if (handle.isPerspective) {
-          const cornerMap = { ptl: 'tl', ptr: 'tr', pbl: 'bl', pbr: 'br' };
-          const cornerId = cornerMap[handle.id];
-          const corner = this.corners[cornerId];
-
-          if (corner) {
-            ctx.strokeStyle = '#222';
-            ctx.lineWidth = 0.75;
-            ctx.setLineDash([]);
-            ctx.beginPath();
-            ctx.moveTo(corner.x, corner.y);
-            ctx.lineTo(handle.x, handle.y);
-            ctx.stroke();
-
-            ctx.fillStyle = '#88CCCC';
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-          }
-        } else {
-          ctx.fillStyle = '#fff';
-          ctx.strokeStyle = '#000';
-          ctx.lineWidth = 1;
-          ctx.fillRect(
-            handle.x - this.handleSize / 2,
-            handle.y - this.handleSize / 2,
-            this.handleSize,
-            this.handleSize
-          );
-          ctx.strokeRect(
-            handle.x - this.handleSize / 2,
-            handle.y - this.handleSize / 2,
-            this.handleSize,
-            this.handleSize
-          );
-        }
-      }
+      this._drawHandles(overlayCtx);
     } else {
       const s = this.selection;
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.lineDashOffset = -this.marchingAntsOffset;
-      ctx.strokeRect(s.x, s.y, s.width, s.height);
+      overlayCtx.strokeStyle = '#000';
+      overlayCtx.lineWidth = 1;
+      overlayCtx.setLineDash([4, 4]);
+      overlayCtx.lineDashOffset = -this.marchingAntsOffset;
+      overlayCtx.strokeRect(s.x, s.y, s.width, s.height);
 
-      ctx.strokeStyle = '#fff';
-      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
-      ctx.strokeRect(s.x, s.y, s.width, s.height);
-      ctx.setLineDash([]);
+      overlayCtx.strokeStyle = '#fff';
+      overlayCtx.lineDashOffset = -this.marchingAntsOffset + 4;
+      overlayCtx.strokeRect(s.x, s.y, s.width, s.height);
+      overlayCtx.setLineDash([]);
 
       this.updateHandles();
-      for (const handle of this.handles) {
-        if (handle.isRotation) {
-          const tm = this.handles.find(h => h.id === 'tm');
-          if (tm) {
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(tm.x, tm.y);
-            ctx.lineTo(handle.x, handle.y);
-            ctx.stroke();
-          }
+      this._drawHandles(overlayCtx);
+    }
 
-          ctx.fillStyle = '#fff';
+    this.board.restoreSelectionCtx();
+    this._drawMirrorGhost(ctx);
+  }
+
+  /**
+   * Draws all handles on the given context.
+   * @param {CanvasRenderingContext2D} ctx
+   */
+  _drawHandles(ctx) {
+    for (const handle of this.handles) {
+      if (handle.isRotation) {
+        const tm = this.handles.find(h => h.id === 'tm');
+        if (tm) {
           ctx.strokeStyle = '#000';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(tm.x, tm.y);
+          ctx.lineTo(handle.x, handle.y);
+          ctx.stroke();
+        }
+
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      } else if (handle.isPerspective) {
+        const cornerMap = { ptl: 'tl', ptr: 'tr', pbl: 'bl', pbr: 'br' };
+        const cornerId = cornerMap[handle.id];
+        const corner = this.corners[cornerId];
+
+        if (corner) {
+          ctx.strokeStyle = '#222';
+          ctx.lineWidth = 0.75;
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(corner.x, corner.y);
+          ctx.lineTo(handle.x, handle.y);
+          ctx.stroke();
+
+          ctx.fillStyle = '#88CCCC';
+          ctx.strokeStyle = '#000';
+          ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
-        } else if (handle.isPerspective) {
-          const cornerMap = { ptl: 'tl', ptr: 'tr', pbl: 'bl', pbr: 'br' };
-          const cornerId = cornerMap[handle.id];
-          const corner = this.corners[cornerId];
-
-          if (corner) {
-            ctx.strokeStyle = '#222';
-            ctx.lineWidth = 0.75;
-            ctx.setLineDash([]);
-            ctx.beginPath();
-            ctx.moveTo(corner.x, corner.y);
-            ctx.lineTo(handle.x, handle.y);
-            ctx.stroke();
-
-            ctx.fillStyle = '#88CCCC';
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-          }
-        } else {
-          ctx.fillStyle = '#fff';
-          ctx.strokeStyle = '#000';
-          ctx.lineWidth = 1;
-          ctx.fillRect(
-            handle.x - this.handleSize / 2,
-            handle.y - this.handleSize / 2,
-            this.handleSize,
-            this.handleSize
-          );
-          ctx.strokeRect(
-            handle.x - this.handleSize / 2,
-            handle.y - this.handleSize / 2,
-            this.handleSize,
-            this.handleSize
-          );
         }
+      } else {
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        ctx.fillRect(
+          handle.x - this.handleSize / 2,
+          handle.y - this.handleSize / 2,
+          this.handleSize,
+          this.handleSize
+        );
+        ctx.strokeRect(
+          handle.x - this.handleSize / 2,
+          handle.y - this.handleSize / 2,
+          this.handleSize,
+          this.handleSize
+        );
       }
     }
-
-    this._drawMirrorGhost(ctx);
   }
 
   /**
@@ -1278,11 +1232,11 @@ export class SelectTool extends Tool {
       }
     }
 
-    // Draw the quadrilateral outline
-    this.drawTransformOutline(ctx);
-
-    // Draw handles at corners
-    this.drawTransformHandles(ctx);
+    // Draw the quadrilateral outline and handles (on selection overlay so they can extend beyond canvas)
+    const handleCtx = this.board.getSelectionCtx() || ctx;
+    this.drawTransformOutline(handleCtx);
+    this.drawTransformHandles(handleCtx);
+    this.board.restoreSelectionCtx();
   }
 
   drawTransformOutline(ctx) {
@@ -1717,86 +1671,107 @@ export class SelectTool extends Tool {
     ctx.setLineDash([4, 4]);
 
     if (this.corners && this.hasTransformedCorners()) {
-      // Transformed selection - draw quadrilateral
+      // Transformed selection - draw quadrilateral on selection overlay (can extend beyond canvas)
+      const overlayCtx = this.board.getSelectionCtx() || ctx;
       const c = this.corners;
 
-      ctx.strokeStyle = '#000';
-      ctx.lineDashOffset = -this.marchingAntsOffset;
-      ctx.beginPath();
-      ctx.moveTo(c.tl.x, c.tl.y);
-      ctx.lineTo(c.tr.x, c.tr.y);
-      ctx.lineTo(c.br.x, c.br.y);
-      ctx.lineTo(c.bl.x, c.bl.y);
-      ctx.closePath();
-      ctx.stroke();
+      overlayCtx.lineWidth = 1;
+      overlayCtx.setLineDash([4, 4]);
+      overlayCtx.strokeStyle = '#000';
+      overlayCtx.lineDashOffset = -this.marchingAntsOffset;
+      overlayCtx.beginPath();
+      overlayCtx.moveTo(c.tl.x, c.tl.y);
+      overlayCtx.lineTo(c.tr.x, c.tr.y);
+      overlayCtx.lineTo(c.br.x, c.br.y);
+      overlayCtx.lineTo(c.bl.x, c.bl.y);
+      overlayCtx.closePath();
+      overlayCtx.stroke();
 
-      ctx.strokeStyle = '#fff';
-      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
-      ctx.beginPath();
-      ctx.moveTo(c.tl.x, c.tl.y);
-      ctx.lineTo(c.tr.x, c.tr.y);
-      ctx.lineTo(c.br.x, c.br.y);
-      ctx.lineTo(c.bl.x, c.bl.y);
-      ctx.closePath();
-      ctx.stroke();
+      overlayCtx.strokeStyle = '#fff';
+      overlayCtx.lineDashOffset = -this.marchingAntsOffset + 4;
+      overlayCtx.beginPath();
+      overlayCtx.moveTo(c.tl.x, c.tl.y);
+      overlayCtx.lineTo(c.tr.x, c.tr.y);
+      overlayCtx.lineTo(c.br.x, c.br.y);
+      overlayCtx.lineTo(c.bl.x, c.bl.y);
+      overlayCtx.closePath();
+      overlayCtx.stroke();
 
       // Draw bounding box
-      ctx.setLineDash([]);
+      overlayCtx.setLineDash([]);
       const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
       const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
       const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
       const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
-      ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
-      ctx.setLineDash([4, 4]); // Keep dashed for cleanup
-    } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.hasScaledSelection()) {
-      // Lasso mode - draw simplified polygon (only if not scaled)
-      ctx.strokeStyle = '#000';
-      ctx.lineDashOffset = -this.marchingAntsOffset;
-      ctx.beginPath();
-      ctx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
-      for (let i = 1; i < this.lassoSimplified.length; i++) {
-        ctx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
-      }
-      ctx.closePath();
-      ctx.stroke();
+      overlayCtx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+      overlayCtx.lineWidth = 1;
+      overlayCtx.setLineDash([4, 4]);
+      overlayCtx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+      overlayCtx.setLineDash([]);
 
-      ctx.strokeStyle = '#fff';
-      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
-      ctx.beginPath();
-      ctx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
-      for (let i = 1; i < this.lassoSimplified.length; i++) {
-        ctx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
-      }
-      ctx.closePath();
-      ctx.stroke();
-
-      // Also draw a subtle bounding rectangle (no animation)
-      ctx.setLineDash([]);
-      ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(s.x, s.y, s.width, s.height);
-      ctx.setLineDash([4, 4]); // Restore for cleanup below
+      // Draw handles on the same overlay context
+      this.updateHandles();
+      this._drawSelectionUIHandles(overlayCtx);
+      this.board.restoreSelectionCtx();
     } else {
-      // Rectangle mode OR lasso after lifting - draw bounding box
-      ctx.strokeStyle = '#000';
-      ctx.lineDashOffset = -this.marchingAntsOffset;
-      ctx.strokeRect(s.x, s.y, s.width, s.height);
+      // Lasso or Rectangle mode - draw on overlay so it can extend beyond canvas
+      const overlayCtx = this.board.getSelectionCtx() || ctx;
+      overlayCtx.lineWidth = 1;
+      overlayCtx.setLineDash([4, 4]);
 
-      ctx.strokeStyle = '#fff';
-      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
-      ctx.strokeRect(s.x, s.y, s.width, s.height);
+      if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.hasScaledSelection()) {
+        // Lasso mode - draw simplified polygon (only if not scaled)
+        overlayCtx.strokeStyle = '#000';
+        overlayCtx.lineDashOffset = -this.marchingAntsOffset;
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
+        for (let i = 1; i < this.lassoSimplified.length; i++) {
+          overlayCtx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
+        }
+        overlayCtx.closePath();
+        overlayCtx.stroke();
+
+        overlayCtx.strokeStyle = '#fff';
+        overlayCtx.lineDashOffset = -this.marchingAntsOffset + 4;
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(this.lassoSimplified[0].x, this.lassoSimplified[0].y);
+        for (let i = 1; i < this.lassoSimplified.length; i++) {
+          overlayCtx.lineTo(this.lassoSimplified[i].x, this.lassoSimplified[i].y);
+        }
+        overlayCtx.closePath();
+        overlayCtx.stroke();
+
+        // Also draw a subtle bounding rectangle
+        overlayCtx.setLineDash([]);
+        overlayCtx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+        overlayCtx.strokeRect(s.x, s.y, s.width, s.height);
+      } else {
+        // Rectangle mode OR lasso after lifting - draw bounding box
+        overlayCtx.strokeStyle = '#000';
+        overlayCtx.lineDashOffset = -this.marchingAntsOffset;
+        overlayCtx.strokeRect(s.x, s.y, s.width, s.height);
+
+        overlayCtx.strokeStyle = '#fff';
+        overlayCtx.lineDashOffset = -this.marchingAntsOffset + 4;
+        overlayCtx.strokeRect(s.x, s.y, s.width, s.height);
+      }
+
+      overlayCtx.setLineDash([]);
+
+      // Draw handles on the same overlay context
+      this.updateHandles();
+      this._drawSelectionUIHandles(overlayCtx);
+      this.board.restoreSelectionCtx();
     }
 
-    ctx.setLineDash([]);
-
     this._drawMirrorGhost(ctx);
+  }
 
-    // Draw transform handles
-    this.updateHandles();
-
+  /**
+   * Draws all selection handles (perspective, corner, rotation) on the given context.
+   * @param {CanvasRenderingContext2D} ctx
+   */
+  _drawSelectionUIHandles(ctx) {
     // PASS 1: Draw perspective handle connecting lines first (so corner handles appear on top)
     for (const handle of this.handles) {
       if (handle.isPerspective) {

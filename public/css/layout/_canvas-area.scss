@@ -27,6 +27,12 @@
   pointer-events: none;
 }
 
+#selectionOverlay {
+  position: absolute;
+  z-index: 100;
+  pointer-events: none;
+}
+
 .userBoard {
   pointer-events: none;
   position: absolute;
