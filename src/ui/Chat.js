@@ -51,8 +51,10 @@ export class Chat {
     this.sendButton = document.getElementById('sendMessageBtn');
     this.emojiPicker = document.getElementById('chatEmojiPicker');
     this.fileInput = document.getElementById('chatFileInput');
+    this.chatBtn = document.getElementById('chatBtn');
 
     this.container.style.display = 'none';
+    if (this.chatBtn) this.chatBtn.style.display = 'none'; // Hidden until others join
     this.makeDraggable();
     this.setupEventListeners();
     this.setupTextareaAutoResize();
@@ -109,6 +111,27 @@ export class Chat {
 
     this.fileInput?.addEventListener('change', (e) => {
       this.handleFileUpload(e);
+    });
+
+    // Drag and drop images into chat
+    this.container.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      this.container.classList.add('chat-dragover');
+    });
+    this.container.addEventListener('dragleave', (e) => {
+      if (!this.container.contains(e.relatedTarget)) {
+        this.container.classList.remove('chat-dragover');
+      }
+    });
+    this.container.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.container.classList.remove('chat-dragover');
+      const file = e.dataTransfer.files?.[0];
+      if (file) {
+        this.handleFileUpload({ target: { files: [file] } });
+      }
     });
 
     document.addEventListener('click', (e) => {
@@ -792,6 +815,13 @@ export class Chat {
         this.users.set(user.id, user);
       }
     });
+
+    // Hide chat button and close chat when alone
+    if (this.chatBtn) {
+      const hasOthers = this.users.size > 0;
+      this.chatBtn.style.display = hasOthers ? '' : 'none';
+      if (!hasOthers && this.visible) this.hide();
+    }
 
     if (this.currentTab === 'dm' && !this.dmRecipient) {
       this.renderDMUserList();

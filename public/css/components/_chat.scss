@@ -23,6 +23,11 @@
   box-shadow: var(--shadow-lg);
   overflow: hidden;
   z-index: 50;
+
+  &.chat-dragover {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent), var(--shadow-lg);
+  }
 }
 
 /* Chat Header with Tabs */
