@@ -828,16 +828,15 @@ export class DrawingApp {
       });
     });
 
-    // All layers toggle for select tool
-    const selAllLayersCheck = document.getElementById('selAllLayersCheck');
-    if (selAllLayersCheck) {
-      selAllLayersCheck.addEventListener('change', (e) => {
+    // Layer mode radio buttons for select tool
+    document.querySelectorAll('input[name="selectionLayerMode"]').forEach(radio => {
+      radio.addEventListener('change', (e) => {
         const selectTool = this.toolManager.getTool('select');
         if (selectTool) {
-          selectTool.toggleCopyAllLayers(e.target.checked);
+          selectTool.toggleCopyAllLayers(e.target.value === 'all');
         }
       });
-    }
+    });
 
     // Lock button event listeners
     if (elements.sizeLock) elements.sizeLock.addEventListener('click', () => this.toolLockManager.toggleLock('size'));

@@ -300,11 +300,30 @@ export class SelectToolLoader extends Tool {
   }
 
   /**
+   * Toggles all-layers copy/cut mode.
+   * @param {boolean} [value]
+   */
+  toggleCopyAllLayers(value) {
+    if (this.realTool) {
+      this.realTool.toggleCopyAllLayers(value);
+    }
+  }
+
+  /**
    * Gets the current selection mode.
    * @returns {string}
    */
   getMode() {
     return this.realTool ? this.realTool.mode : 'lasso';
+  }
+
+  /**
+   * Deselects the current selection.
+   */
+  deselect() {
+    if (this.realTool) {
+      this.realTool.deselect?.();
+    }
   }
 
   /**

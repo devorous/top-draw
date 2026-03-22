@@ -40,6 +40,7 @@ export class SelectTool extends Tool {
     this.mode = 'lasso'; // 'rectangle' or 'lasso'
     this.copyAllLayers = false; // Toggle: copy/cut all visible layers vs active layer only
     this._restoreData = null; // Snapshot of erased area
+    this.floatingLayers = null; // Per-layer canvases when copyAllLayers is active
     this.isSelecting = false;
     this.isDragging = false;
     this.startPos = null;
@@ -1934,6 +1935,30 @@ export class SelectTool extends Tool {
     this.floatingCanvas.height = s.height;
     this.floatingCtx = this.floatingCanvas.getContext('2d');
 
+    // In all-layers mode, capture each layer's content independently BEFORE erasing
+    if (this.copyAllLayers) {
+      const lm = this.board.layerManager;
+      this.floatingLayers = [];
+      const lassoPath = this.mode === 'lasso' ? this.lassoPath : null;
+      for (let i = 0; i < lm.layerGroups.length; i++) {
+        const group = lm.layerGroups[i];
+        if (!group || !group.visible) continue;
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = lm.width;
+        tempCanvas.height = lm.height;
+        lm.compositeLayerRange(tempCanvas.getContext('2d'), i, i + 1, null);
+        const layerCanvas = document.createElement('canvas');
+        layerCanvas.width = s.width;
+        layerCanvas.height = s.height;
+        const layerCtx = layerCanvas.getContext('2d');
+        layerCtx.drawImage(tempCanvas, -s.x, -s.y);
+        if (lassoPath) {
+          this.applyLassoMask(layerCtx, s.x, s.y, lassoPath);
+        }
+        this.floatingLayers.push({ canvas: layerCanvas, groupIdx: i });
+      }
+    }
+
     // Copy from flattened layer(s) with transparent background
     const flatCanvas = this._flattenSelectionToCanvas(s);
 
@@ -1976,6 +2001,56 @@ export class SelectTool extends Tool {
 
     const lm = this.board.layerManager;
     const userId = this.board.app?.self?.id ?? 0;
+
+    // All-layers mode: run the exact same commit logic as single-layer, once per layer
+    if (this.copyAllLayers && this.floatingLayers && this.floatingLayers.length > 0) {
+      for (const { canvas, groupIdx } of this.floatingLayers) {
+        lm.beginUserStroke(groupIdx, userId, 'source-over');
+        const active = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(userId);
+        if (!active) continue;
+
+        // Expand dirty rect directly on this layer's active stroke
+        if (active.dirtyRect) {
+          active.dirtyRect.minX = this.selection.x;
+          active.dirtyRect.minY = this.selection.y;
+          active.dirtyRect.maxX = this.selection.x + this.selection.width;
+          active.dirtyRect.maxY = this.selection.y + this.selection.height;
+        }
+
+        if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
+          if (!this.homography) this.homography = new Homography('projective');
+          const result = performHomographyTransform({
+            sourceCanvas: canvas,
+            sourceCorners: this.originalCorners,
+            destCorners: this.corners,
+            scale: 1,
+            homographyInstance: this.homography
+          });
+          if (result) {
+            const tempCanvas = imageDataToCanvas(result.imageData);
+            active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
+          } else {
+            active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
+          }
+        } else {
+          active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
+        }
+
+        lm.commitUserStroke(groupIdx, userId, { selectionRestoreData: this._restoreData });
+      }
+
+      this.board.compositeAllLayers();
+      if (this.board.app?.wsClient) this.board.app.wsClient.broadcastSelectionCommit();
+
+      this.floatingCanvas = null;
+      this.floatingCtx = null;
+      this.floatingLayers = null;
+      this.selectedImageData = null;
+      this._restoreData = null;
+      this.board.clearTop();
+      return;
+    }
+
     const activeLayer = this.board.app?.self?.activeLayer ?? 0;
 
     // Begin a new stroke on the active layer so this paste is undoable
@@ -2056,6 +2131,7 @@ export class SelectTool extends Tool {
     this.originalSelectionPos = null;
     this.floatingCanvas = null;
     this.floatingCtx = null;
+    this.floatingLayers = null;
     this.selectedImageData = null;
     this.isTransforming = false;
     this.rotation = 0;
@@ -2097,11 +2173,13 @@ export class SelectTool extends Tool {
     const selCtx = selCanvas.getContext('2d');
 
     if (this.copyAllLayers) {
-      // Composite all layers into the selection canvas
-      lm.compositeLayerRange(selCtx, 0, lm.layerGroups.length, {
-        offsetX: -s.x,
-        offsetY: -s.y
-      });
+      // Composite all layers to a full-size temp canvas, then crop to the selection area
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = lm.width;
+      tempCanvas.height = lm.height;
+      const tempCtx = tempCanvas.getContext('2d');
+      lm.compositeLayerRange(tempCtx, 0, lm.layerGroups.length, null);
+      selCtx.drawImage(tempCanvas, -s.x, -s.y);
     } else {
       // Composite just the active layer with transparent background
       const tempCanvas = document.createElement('canvas');
@@ -2129,12 +2207,12 @@ export class SelectTool extends Tool {
       const group = lm.layerGroups[groupIdx];
       if (!group || !group.visible) return;
 
-      // We need to composite the group to a temp canvas to see what we're about to erase
+      // Composite the group via the full compositeLayerRange path (handles isolated/flatCanvas groups)
       const layerCanvas = document.createElement('canvas');
       layerCanvas.width = lm.width;
       layerCanvas.height = lm.height;
       const layerCtx = layerCanvas.getContext('2d');
-      lm._compositeGroupInto(layerCtx, group);
+      lm.compositeLayerRange(layerCtx, groupIdx, groupIdx + 1, null);
 
       const snap = document.createElement('canvas');
       snap.width = s.width;
@@ -2160,6 +2238,15 @@ export class SelectTool extends Tool {
 
       lm.beginUserStroke(groupIdx, userId, 'destination-out');
       const ctx = lm.getUserStrokeContext(groupIdx, userId);
+
+      // Expand dirty rect directly on this layer's stroke so commitUserStroke doesn't drop it
+      const eraseStroke = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(userId);
+      if (eraseStroke && eraseStroke.dirtyRect) {
+        eraseStroke.dirtyRect.minX = s.x;
+        eraseStroke.dirtyRect.minY = s.y;
+        eraseStroke.dirtyRect.maxX = s.x + s.width;
+        eraseStroke.dirtyRect.maxY = s.y + s.height;
+      }
 
       if (lassoPath && lassoPath.length >= 3) {
         ctx.fillStyle = 'white';
@@ -2573,71 +2660,50 @@ export class SelectTool extends Tool {
     const app = this.board.app;
     if (!app) return false;
 
-    // Begin stroke for the stamp operation
-    this.board.beginStroke(app.self);
+    const lm = this.board.layerManager;
+    const userId = app.self?.id ?? 0;
+    const hasTransform = (this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners;
 
-    // Get layer context instead of mainCtx
-    const layerCtx = this.board.getActiveLayerContext();
+    const layers = (this.copyAllLayers && this.floatingLayers && this.floatingLayers.length > 0)
+      ? this.floatingLayers
+      : [{ canvas: this.floatingCanvas, groupIdx: app.self?.activeLayer ?? 0 }];
 
-    // Calculate dirty rect bounds for tracking
-    let dirtyX, dirtyY, dirtyWidth, dirtyHeight;
+    for (const { canvas, groupIdx } of layers) {
+      lm.beginUserStroke(groupIdx, userId, 'source-over');
+      const active = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(userId);
+      if (!active) continue;
 
-    // Same logic as commitSelection but don't clear the floating canvas
-    if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
-      // Reuse or create homography instance for full-resolution stamp
-      if (!this.homography) {
-        this.homography = new Homography('projective');
+      if (active.dirtyRect) {
+        active.dirtyRect.minX = this.selection.x;
+        active.dirtyRect.minY = this.selection.y;
+        active.dirtyRect.maxX = this.selection.x + this.selection.width;
+        active.dirtyRect.maxY = this.selection.y + this.selection.height;
       }
 
-      // Perform the transform using shared utility
-      const result = performHomographyTransform({
-        sourceCanvas: this.floatingCanvas,
-        sourceCorners: this.originalCorners,
-        destCorners: this.corners,
-        scale: 1, // Full resolution
-        homographyInstance: this.homography
-      });
-
-      if (result) {
-        const tempCanvas = imageDataToCanvas(result.imageData);
-        layerCtx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
-        dirtyX = result.bounds.minX;
-        dirtyY = result.bounds.minY;
-        dirtyWidth = result.bounds.width;
-        dirtyHeight = result.bounds.height;
+      if (hasTransform) {
+        if (!this.homography) this.homography = new Homography('projective');
+        const result = performHomographyTransform({
+          sourceCanvas: canvas,
+          sourceCorners: this.originalCorners,
+          destCorners: this.corners,
+          scale: 1,
+          homographyInstance: this.homography
+        });
+        if (result) {
+          const tempCanvas = imageDataToCanvas(result.imageData);
+          active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
+        } else {
+          active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
+        }
       } else {
-        layerCtx.drawImage(
-          this.floatingCanvas,
-          this.selection.x,
-          this.selection.y,
-          this.selection.width,
-          this.selection.height
-        );
-        dirtyX = this.selection.x;
-        dirtyY = this.selection.y;
-        dirtyWidth = this.selection.width;
-        dirtyHeight = this.selection.height;
+        active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
       }
-    } else {
-      layerCtx.drawImage(
-        this.floatingCanvas,
-        this.selection.x,
-        this.selection.y,
-        this.selection.width,
-        this.selection.height
-      );
-      dirtyX = this.selection.x;
-      dirtyY = this.selection.y;
-      dirtyWidth = this.selection.width;
-      dirtyHeight = this.selection.height;
-    }
 
-    // Track the dirty region so the stroke is properly saved
-    this.board.expandDirtyRect(app.self, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
+      lm.commitUserStroke(groupIdx, userId, {});
+    }
 
     // Composite and commit the stroke
     this.board.compositeAllLayers();
-    this.board.endStroke(app.self);
 
     // Broadcast stamp but keep selection active
     if (this.board.app?.wsClient) {
