@@ -29,6 +29,7 @@ import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
 import { SaveMode } from './ui/SaveMode.js';
+import { ProfileDialog } from './ui/ProfileDialog.js';
 
 /**
  * Main Drawing Application class.
@@ -92,6 +93,7 @@ export class DrawingApp {
     this.currentRoomData = null;
     this.selfRole = 0;
     this.moderation = new Moderation();
+    this.profileDialog = new ProfileDialog();
 
     this.inputBufferManager = new InputBufferManager(this);
 
@@ -204,6 +206,9 @@ export class DrawingApp {
     });
     this.roomSettings.init();
 
+    this.moderation.onProfile = (username) => {
+      this.profileDialog.show(username);
+    };
     this.moderation.onSync = (sessionIndex) => {
       this.syncClient.requestSync();
       this.ui.showToast('Sync requested');
@@ -1251,6 +1256,16 @@ export class DrawingApp {
       const rankClass = role >= 8 ? 'rank-deity' : role >= 7 ? 'rank-holy' : role >= 6 ? 'rank-noble'
         : role >= 5 ? 'rank-admin' : role >= 4 ? 'rank-mod' : role >= 3 ? 'rank-helper' : '';
       if (rankClass) nameEl.classList.add(rankClass);
+    }
+
+    const profileBtn = document.getElementById('selfProfileBtn');
+    if (profileBtn) {
+      const canShowProfile = this.selfRole >= 1 && this.self.username;
+      profileBtn.style.display = canShowProfile ? '' : 'none';
+      profileBtn.onclick = () => {
+        menu.style.display = 'none';
+        this.profileDialog.show(this.self.username);
+      };
     }
 
     menu.style.display = 'flex';

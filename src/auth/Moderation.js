@@ -27,6 +27,7 @@ export class Moderation {
     this._perfSettingsLoading = false;
 
     // Callbacks wired by App.js
+    this.onProfile = null;
     this.onSync = null;
     this.onPM = null;
     this.onModAction = null;         // (actionType, sessionIndex, reason, duration)
@@ -283,6 +284,9 @@ export class Moderation {
     const targetName = isGroup ? `Group ${ipHash}` : (user?.username || `User ${sessionIndex}`);
 
     switch (action) {
+      case 'profile':
+        if (user?.username && this.onProfile) this.onProfile(user.username);
+        return;
       case 'promote': {
         if (user && this.onRoomRoleSet) {
           const newRole = Math.min((user.role || 0) + 1, 5);
