@@ -2308,22 +2308,41 @@ export class SelectTool extends Tool {
     this.commitSelection();
     this.clearSelection();
 
-    let width, height;
+    let origWidth, origHeight;
     if (imageSource instanceof ImageData) {
-      width = imageSource.width;
-      height = imageSource.height;
+      origWidth = imageSource.width;
+      origHeight = imageSource.height;
     } else {
-      width = imageSource.width;
-      height = imageSource.height;
+      origWidth = imageSource.width;
+      origHeight = imageSource.height;
     }
 
-    // Paste at user's current cursor position (centered on cursor)
-    const app = this.board.app;
-    const x = app?.self?.x || this.board.mainCanvas.width / 2;
-    const y = app?.self?.y || this.board.mainCanvas.height / 2;
+    // Calculate the visible viewport in canvas coordinates
+    const container = this.board.container;
+    const containerWidth = container?.clientWidth || 800;
+    const containerHeight = container?.clientHeight || 600;
+    const zoom = this.board.zoom || 1;
+    const panX = this.board.panX || 0;
+    const panY = this.board.panY || 0;
 
-    const pasteX = x - width / 2;
-    const pasteY = y - height / 2;
+    // Viewport dimensions in canvas space
+    const viewportWidth = containerWidth / zoom;
+    const viewportHeight = containerHeight / zoom;
+
+    // Viewport center in canvas coordinates
+    const viewCenterX = (containerWidth / 2 - panX) / zoom;
+    const viewCenterY = (containerHeight / 2 - panY) / zoom;
+
+    // Scale image to fit within 80% of viewport
+    const maxWidth = viewportWidth * 0.8;
+    const maxHeight = viewportHeight * 0.8;
+    const scale = Math.min(1, maxWidth / origWidth, maxHeight / origHeight);
+    const width = Math.round(origWidth * scale);
+    const height = Math.round(origHeight * scale);
+
+    // Center on viewport
+    const pasteX = viewCenterX - width / 2;
+    const pasteY = viewCenterY - height / 2;
 
     this.selection = {
       x: pasteX,
@@ -2332,16 +2351,21 @@ export class SelectTool extends Tool {
       height: height
     };
 
-    // Create floating canvas with the image content
+    // Create floating canvas with the scaled image content
     this.floatingCanvas = document.createElement('canvas');
     this.floatingCanvas.width = width;
     this.floatingCanvas.height = height;
     this.floatingCtx = this.floatingCanvas.getContext('2d');
-    
+
     if (imageSource instanceof ImageData) {
-      this.floatingCtx.putImageData(imageSource, 0, 0);
+      // ImageData can't be scaled directly - draw to temp canvas first
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = origWidth;
+      tempCanvas.height = origHeight;
+      tempCanvas.getContext('2d').putImageData(imageSource, 0, 0);
+      this.floatingCtx.drawImage(tempCanvas, 0, 0, origWidth, origHeight, 0, 0, width, height);
     } else {
-      this.floatingCtx.drawImage(imageSource, 0, 0);
+      this.floatingCtx.drawImage(imageSource, 0, 0, origWidth, origHeight, 0, 0, width, height);
     }
 
     // Store original position - pasted content is considered "moved"
