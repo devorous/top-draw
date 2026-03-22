@@ -14,6 +14,7 @@
 
   // Profile dialog instance
   const profileDialog = new ProfileDialog({
+    apiBaseUrl: API_BASE,
     onViewGallery: (username) => {
       filterByAuthor(username);
     },

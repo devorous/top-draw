@@ -211,6 +211,7 @@ export class ProfileDialog {
     this.onViewGallery = options.onViewGallery || null;
     this.onImageClick = options.onImageClick || null;
     this.galleryBaseUrl = options.galleryBaseUrl || '/gallery';
+    this.apiBaseUrl = options.apiBaseUrl || '';
 
     this._backdrop = null;
     this._stylesInjected = false;
@@ -261,7 +262,7 @@ export class ProfileDialog {
 
     // Fetch profile
     try {
-      const res = await fetch(`/api/users/${encodeURIComponent(username)}`);
+      const res = await fetch(`${this.apiBaseUrl}/api/users/${encodeURIComponent(username)}`);
       const data = await res.json();
 
       if (!res.ok) {
