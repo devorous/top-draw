@@ -3,6 +3,7 @@ import { BrushTool } from './BrushTool.js';
 import { FlowPenTool } from './FlowPenTool.js';
 import { InkTool } from './InkTool.js';
 import { ImageBrushTool } from './ImageBrushTool.js';
+import { PatternTool } from './PatternTool.js';
 import { PixelBrushTool } from './PixelBrushTool.js';
 import { LineTool, RectangleTool, CircleTool } from './ShapeTools.js';
 import { EraserTool } from './EraserTool.js';
@@ -61,6 +62,7 @@ export class ToolManager {
       erase: new EraserTool(board),
       text: new TextTool(board),
       imageBrush: new ImageBrushTool(board),
+      pattern: new PatternTool(board),
       inkdropper: new InkdropperTool(board),
       blur: new BlurTool(board),
       circleBlur: new CircleBlurTool(board),

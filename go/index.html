@@ -604,6 +604,9 @@
           <a class="tool btn" id="imageBrushBtn" title="Image Brush (G)">
             <img src="/images/pepper.png" alt="Image Brush">
           </a>
+          <a class="tool btn" id="patternBtn" title="Pattern Tool (O)">
+            <img src="/images/brush-icon.svg" alt="Pattern">
+          </a>
         </div>
 
         <!-- Tool Options Panel -->
@@ -772,6 +775,42 @@
                   Click to fill, then drag:<br>
                   ← → Expand &nbsp; ↓ Edge Blur
                 </div>
+              </div>
+            </div>
+
+            <!-- Pattern Mode Options -->
+            <div id="patternModeOptions" style="display: none;">
+              <div class="selection-mode-container">
+                <label class="modeLabel">Pattern Preview</label>
+                <div style="display: flex; justify-content: center; margin: 8px 0;">
+                  <canvas id="patternPreview" width="120" height="60" style="border: 1px solid #444; background: #111; border-radius: 4px;"></canvas>
+                </div>
+              </div>
+
+              <div class="selection-mode-container">
+                <label class="modeLabel">Select Grid Image</label>
+                <div id="patternBrushList" class="brushList wide" style="max-height: 120px; overflow-y: auto; margin-bottom: 8px;">
+                  <!-- Circle, Square, Pepper, etc -->
+                </div>
+                <div class="file-input-wrapper">
+                  <a class="btn secondary small" id="patternImageBtn" style="width: 100%; text-align: center;">Choose File</a>
+                  <input type="file" id="patternImageUploadInput" accept="image/*" style="display: none;">
+                </div>
+              </div>
+
+              <div class="sliderContainer" id="pattern-scale" style="margin-top: 16px; margin-bottom: 20px;">
+                <div class="sliderLabel">Image Scale <span class="sliderValue" id="patternScaleValue">100%</span></div>
+                <input autocomplete="off" type="range" min="5" max="500" value="100" class="slider patternScale">
+              </div>
+
+              <div class="sliderContainer" id="pattern-rotation" style="margin-bottom: 20px;">
+                <div class="sliderLabel">Grid Rotation <span class="sliderValue" id="patternRotationValue">0°</span></div>
+                <input autocomplete="off" type="range" min="0" max="360" value="0" class="slider patternRotation">
+              </div>
+
+              <div class="sliderContainer" id="pattern-spacing" style="margin-bottom: 20px;">
+                <div class="sliderLabel">Grid Spacing <span class="sliderValue" id="patternSpacingValue">0</span></div>
+                <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider patternSpacing">
               </div>
             </div>
 

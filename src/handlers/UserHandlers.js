@@ -25,7 +25,6 @@ export function setupUserHandlers(wsClient, app) {
 
     // Authoritative Update/Create
     data.users.forEach(userData => {
-      console.log(`[USERS] Processing user ${userData.name}(${userData.sessionIndex}), self=${app.sessionIndex}`);
       
       const username = userData.name || userData.username || '';
 

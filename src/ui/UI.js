@@ -100,6 +100,7 @@ export class UI {
       circleBlurBtn: document.getElementById('circleBlurBtn'),
       glitchBlurBtn: document.getElementById('glitchBlurBtn'),
       imageBrushBtn: document.getElementById('imageBrushBtn'),
+      patternBtn: document.getElementById('patternBtn'),
       uploadBtn: document.getElementById('uploadBtn'),
       imageUploadInput: document.getElementById('imageUploadInput'),
       inkdropperBtn: document.getElementById('inkdropperBtn'),
@@ -153,6 +154,9 @@ export class UI {
       opacitySlider: document.querySelector('.slider.opacity'),
       blurRadiusSlider: document.querySelector('.slider.blurRadius'),
       thinningSlider: document.querySelector('.slider.thinning'),
+      patternScaleSlider: document.querySelector('.slider.patternScale'),
+      patternRotationSlider: document.querySelector('.slider.patternRotation'),
+      patternSpacingSlider: document.querySelector('.slider.patternSpacing'),
 
       sizeValue: document.getElementById('sizeValue'),
       pressureValue: document.getElementById('pressureValue'),
@@ -162,6 +166,9 @@ export class UI {
       opacityValue: document.getElementById('opacityValue'),
       blurRadiusValue: document.getElementById('blurRadiusValue'),
       thinningValue: document.getElementById('thinningValue'),
+      patternScaleValue: document.getElementById('patternScaleValue'),
+      patternRotationValue: document.getElementById('patternRotationValue'),
+      patternSpacingValue: document.getElementById('patternSpacingValue'),
 
       brushFileInput: document.getElementById('brush-file-input'),
       brushImage: document.getElementById('brushImage'),
@@ -177,6 +184,13 @@ export class UI {
       brushModeOptions: document.getElementById('brushModeOptions'),
       circleBlurModeOptions: document.getElementById('circleBlurModeOptions'),
       fillModeOptions: document.getElementById('fillModeOptions'),
+      patternModeOptions: document.getElementById('patternModeOptions'),
+      patternBrushList: document.getElementById('patternBrushList'),
+      patternImageBtn: document.getElementById('patternImageBtn'),
+      patternImageUploadInput: document.getElementById('patternImageUploadInput'),
+      patternShapeSelect: document.getElementById('patternShapeSelect'),
+      patternShapeUploadBtn: document.getElementById('patternShapeUploadBtn'),
+      patternShapeUploadInput: document.getElementById('patternShapeUploadInput'),
       blendModeOptions: document.getElementById('blendModeOptions'),
       blendModeSelect: document.getElementById('blendModeSelect'),
       layerPanel: document.getElementById('layerPanel'),
@@ -462,7 +476,7 @@ export class UI {
       selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText,
       brushImage, brushFileInput, sizeContainer, pressureContainer, smoothingContainer,
       brushSpacing, brushHardness, opacityContainer, blurRadiusContainer,
-      selectionModeOptions, eraserModeOptions, brushModeOptions, circleBlurModeOptions, fillModeOptions
+      selectionModeOptions, eraserModeOptions, brushModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions
     } = this.elements;
 
     selfCircle.style.display = 'none';
@@ -486,6 +500,7 @@ export class UI {
     if (brushModeOptions) brushModeOptions.style.display = 'none';
     if (circleBlurModeOptions) circleBlurModeOptions.style.display = 'none';
     if (this.elements.fillModeOptions) this.elements.fillModeOptions.style.display = 'none';
+    if (patternModeOptions) patternModeOptions.style.display = 'none';
     if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'none';
     
     const { blendModeOptions } = this.elements;
@@ -577,6 +592,18 @@ export class UI {
         if (selfPressureSquare) selfPressureSquare.style.display = 'block';
         break;
 
+      case 'pattern':
+        if (user && user.patternShape === 'square') {
+          selfSquare.style.display = 'block';
+          if (selfPressureSquare) selfPressureSquare.style.display = 'block';
+        } else {
+          selfCircle.style.display = 'block';
+          if (selfPressureCircle) selfPressureCircle.style.display = 'block';
+        }
+        brushSpacing.style.display = 'block';
+        if (patternModeOptions) patternModeOptions.style.display = 'block';
+        break;
+
       case 'pixel':
         selfSquare.style.display = 'block';
         brushSpacing.style.display = 'block';
@@ -649,6 +676,7 @@ export class UI {
       circleBlur: this.elements.circleBlurBtn,
       glitchBlur: this.elements.glitchBlurBtn,
       imageBrush: this.elements.imageBrushBtn,
+      pattern: this.elements.patternBtn,
       inkdropper: this.elements.inkdropperBtn
     };
 

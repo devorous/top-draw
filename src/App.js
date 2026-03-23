@@ -9,6 +9,7 @@ import { WebSocketClient } from './network/WebSocketClient.js';
 import { Chat } from './ui/Chat.js';
 import { UI, ColorPalette } from './ui/index.js';
 import { BrushGalleryLoader } from './ui/BrushGalleryLoader.js';
+import { PatternBrushGallery } from './ui/PatternBrushGallery.js';
 import { RemoteUserHandler } from './remote/RemoteUserHandler.js';
 import { TouchHandler } from './input/TouchHandler.js';
 import { setupWebSocketHandlers } from './network/WebSocketHandlers.js';
@@ -60,6 +61,9 @@ export class DrawingApp {
     });
     this.brushGallery = new BrushGalleryLoader({
       onSelect: (brush) => this.handleBrushSelect(brush)
+    });
+    this.patternGallery = new PatternBrushGallery({
+      onSelect: (brush) => this.handlePatternBrushSelect(brush)
     });
     this.colorPalette = new ColorPalette({
       onColorSelect: (colorOrCallback) => this.handlePaletteColorSelect(colorOrCallback)
@@ -143,14 +147,15 @@ export class DrawingApp {
    */
   async init() {
     this.ui.init();
+    this.createSelf();
     this.board.init('#boardContainer');
     this.board.setApp(this);
     this.chat.init();
     this.brushGallery.init();
+    this.patternGallery.init();
     this.colorPalette.init();
     this.colorInputMenu.init();
 
-    this.createSelf();
     this.initSelfFromUI();
     this.setupColorPicker();
 
@@ -440,6 +445,9 @@ export class DrawingApp {
     elements.circleBlurBtn.addEventListener('click', () => this.selectTool('circleBlur'));
     elements.glitchBlurBtn.addEventListener('click', () => this.selectTool('glitchBlur'));
     elements.imageBrushBtn.addEventListener('click', () => this.selectTool('imageBrush'));
+    if (elements.patternBtn) {
+      elements.patternBtn.addEventListener('click', () => this.selectTool('pattern'));
+    }
     elements.uploadBtn.addEventListener('click', () => elements.imageUploadInput.click());
     elements.imageUploadInput.addEventListener('change', (e) => {
       if (e.target.files && e.target.files[0]) {
@@ -936,6 +944,123 @@ export class DrawingApp {
     elements.boardContainer.addEventListener('drop', (e) => this.handleImageDrop(e));
 
     window.addEventListener('resize', () => this.handleResize());
+
+    // Pattern options listeners
+    if (elements.patternScaleSlider) {
+      elements.patternScaleSlider.addEventListener('input', (e) => this.handlePatternScaleChange(e));
+    }
+    if (elements.patternTypeSelect) {
+      elements.patternTypeSelect.addEventListener('change', (e) => this.handlePatternTypeChange(e));
+    }
+    if (elements.patternImageBtn) {
+      elements.patternImageBtn.addEventListener('click', () => this.handlePatternImageBtnClick());
+    }
+    if (elements.patternImageUploadInput) {
+      elements.patternImageUploadInput.addEventListener('change', (e) => this.handlePatternImageUpload(e));
+    }
+    if (elements.patternShapeUploadBtn) {
+      elements.patternShapeUploadBtn.addEventListener('click', () => this.handlePatternShapeUploadBtnClick());
+    }
+    if (elements.patternShapeUploadInput) {
+      elements.patternShapeUploadInput.addEventListener('change', (e) => this.handlePatternShapeUpload(e));
+    }
+    if (elements.patternRotationSlider) {
+      elements.patternRotationSlider.addEventListener('input', (e) => this.handlePatternRotationChange(e));
+    }
+    if (elements.patternSpacingSlider) {
+      elements.patternSpacingSlider.addEventListener('input', (e) => this.handlePatternSpacingChange(e));
+    }
+  }
+
+  handlePatternScaleChange(e) {
+    const scale = Number(e.target.value);
+    this.self.patternScale = scale;
+    if (this.ui.elements.patternScaleValue) {
+      this.ui.elements.patternScaleValue.textContent = `${scale}%`;
+    }
+    
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool && patternTool.updatePreview) {
+      patternTool.updatePreview();
+    }
+
+    if (this.connected) {
+      this.wsClient.broadcastNameChange(this.self.username, { patternScale: scale });
+    }
+  }
+
+  handlePatternImageBtnClick() {
+    this.ui.elements.patternImageUploadInput?.click();
+  }
+
+  handlePatternImageUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const customBrush = {
+          type: 'image',
+          image: img,
+          gimpUrl: event.target.result,
+          brushName: 'Uploaded Image'
+        };
+        this.handlePatternBrushSelect(customBrush);
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  handlePatternRotationChange(e) {
+    const rotation = Number(e.target.value);
+    this.self.patternRotation = rotation;
+    if (this.ui.elements.patternRotationValue) {
+      this.ui.elements.patternRotationValue.textContent = `${rotation}°`;
+    }
+    
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool && patternTool.updatePreview) {
+      patternTool.updatePreview();
+    }
+
+    if (this.connected) {
+      this.wsClient.broadcastNameChange(this.self.username, { patternRotation: rotation });
+    }
+  }
+
+  handlePatternSpacingChange(e) {
+    const spacing = Number(e.target.value);
+    this.self.patternSpacing = spacing;
+    if (this.ui.elements.patternSpacingValue) {
+      this.ui.elements.patternSpacingValue.textContent = spacing;
+    }
+    
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool && patternTool.updatePreview) {
+      patternTool.updatePreview();
+    }
+
+    if (this.connected) {
+      this.wsClient.broadcastNameChange(this.self.username, { patternSpacing: spacing });
+    }
+  }
+
+  handlePatternBrushSelect(brush) {
+    this.self.patternBrush = brush;
+    
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool && patternTool.updatePreview) {
+      patternTool.updatePreview();
+    }
+
+    if (this.connected) {
+      this.wsClient.broadcastNameChange(this.self.username, { 
+        patternBrush: brush
+      });
+    }
   }
 
   // Room selection

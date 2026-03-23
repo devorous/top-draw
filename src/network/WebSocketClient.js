@@ -318,7 +318,10 @@ export class WebSocketClient {
           imageBrush: u.ib,
           ipHash: u.iph,
           thinning: u.th ? (u.th - 1) / 100 : undefined,
-          simulatePressure: u.sim !== undefined ? u.sim === 2 : undefined
+          simulatePressure: u.sim !== undefined ? u.sim === 2 : undefined,
+          patternScale: u.patternScale,
+          patternShape: u.patternShape,
+          patternName: u.patternName
         }));
         this.emit('users', { users });
         break;
@@ -439,7 +442,10 @@ export class WebSocketClient {
           activeLayer: data.ly !== undefined ? data.ly : undefined,
           blendMode: data.bm || undefined,
           thinning: data.th ? (data.th - 1) / 100 : undefined,
-          simulatePressure: data.sim !== undefined ? data.sim === 2 : undefined
+          simulatePressure: data.sim !== undefined ? data.sim === 2 : undefined,
+          patternScale: data.patternScale,
+          patternShape: data.patternShape,
+          patternName: data.patternName
         });
         break;
 
