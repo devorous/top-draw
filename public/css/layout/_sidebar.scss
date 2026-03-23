@@ -458,3 +458,90 @@
   gap: 6px;
 }
 
+/* Fill Pattern Gallery - matching Pattern Gallery */
+#fillPatternGallery {
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+#fillPatternGallery label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+
+#fillPatternBrushList {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+/* Fill Pattern Settings - matching Pattern Mode Options */
+#fillPatternSettings {
+  .patternPreviewContainer {
+    display: flex;
+    justify-content: center;
+    margin: 4px 0 6px 0;
+  }
+
+  #fillPatternPreview {
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-primary);
+    border-radius: 4px;
+    display: block;
+  }
+
+  .sliderContainer {
+    &#fill-pattern-scale {
+      margin-top: 8px;
+    }
+  }
+
+  .dual-offset-container {
+    .sliderLabel {
+      text-align: center;
+      justify-content: center;
+      margin-bottom: 8px;
+    }
+
+    .dual-offset-sliders {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .offset-slider-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .offset-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .slider {
+      width: 100%;
+      max-width: 80px;
+    }
+
+    .offset-value {
+      font-size: 10px;
+      min-width: 28px;
+      padding: 1px 4px;
+    }
+  }
+}
+

@@ -12,6 +12,7 @@ export class PatternBrushGallery extends BrushGallery {
   init() {
     this.galleryEl = null;
     this.brushListEl = document.getElementById('patternBrushList');
+    this.fillBrushListEl = document.getElementById('fillPatternBrushList');
 
     if (!this.brushListEl) {
       console.warn('Pattern brush list element not found');
@@ -111,6 +112,21 @@ export class PatternBrushGallery extends BrushGallery {
     item.appendChild(img);
     item.addEventListener('click', () => this.selectBrush(brush, item));
     this.brushListEl.appendChild(item);
+
+    // Also add to fill pattern brush list if it exists
+    if (this.fillBrushListEl) {
+      const fillItem = document.createElement('div');
+      fillItem.className = 'brushItem';
+      fillItem.title = brush.brushName || brush.name || brush.fileName;
+
+      const fillImg = document.createElement('img');
+      fillImg.src = brush.gimpUrl;
+      fillImg.alt = brush.brushName || brush.name || 'Brush';
+
+      fillItem.appendChild(fillImg);
+      fillItem.addEventListener('click', () => this.selectBrush(brush, fillItem));
+      this.fillBrushListEl.appendChild(fillItem);
+    }
 
     // Default selection
     if (brush.brushName === 'Circle' && !this.selectedBrush) {

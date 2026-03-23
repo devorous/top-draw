@@ -198,12 +198,89 @@ export class FloodFillTool {
   }
 
   /**
+   * Get pattern tile for fill (reuses PatternTool's tile generation logic).
+   * @private
+   */
+  _getPatternTile(user) {
+    const brush = user.patternBrush;
+    if (!brush) return null;
+
+    let img = brush.image;
+    if (brush.type === 'gih' && brush.images) img = brush.images[0];
+    if (!img) return null;
+
+    const colorMode = user.patternColorMode || 'original';
+    const colorKey = colorMode === 'tinted' ? user.color.join(',') : 'original';
+    const spacing = user.patternSpacing || 0;
+    const key = `${brush.brushName || brush.fileName}_${colorKey}_${spacing}_${colorMode}`;
+
+    if (!this._patternTileCache) this._patternTileCache = new Map();
+    if (this._patternTileCache.has(key)) return this._patternTileCache.get(key);
+
+    const maxDim = 40;
+    const imgWidth = img.width || img.naturalWidth;
+    const imgHeight = img.height || img.naturalHeight;
+    const aspectRatio = imgWidth / imgHeight;
+
+    let tileWidth, tileHeight;
+    if (aspectRatio > 1) {
+      tileWidth = maxDim;
+      tileHeight = maxDim / aspectRatio;
+    } else {
+      tileWidth = maxDim * aspectRatio;
+      tileHeight = maxDim;
+    }
+
+    const padding = spacing;
+    const tileCanvas = document.createElement('canvas');
+    tileCanvas.width = tileWidth + padding;
+    tileCanvas.height = tileHeight + padding;
+
+    const tctx = tileCanvas.getContext('2d');
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = tileWidth;
+    tempCanvas.height = tileHeight;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.drawImage(img, 0, 0, tileWidth, tileHeight);
+
+    if (brush.type === 'gbr' && brush.colorDepth === 1) {
+      const imageData = tempCtx.getImageData(0, 0, tileWidth, tileHeight);
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const brightness = (data[i] + data[i+1] + data[i+2]) / 3;
+        data[i+3] = 255 - brightness;
+        data[i] = data[i+1] = data[i+2] = 0;
+      }
+      tempCtx.putImageData(imageData, 0, 0);
+    }
+
+    tctx.save();
+    tctx.drawImage(tempCanvas, padding/2, padding/2, tileWidth, tileHeight);
+
+    if (colorMode === 'tinted') {
+      tctx.globalCompositeOperation = 'source-in';
+      tctx.fillStyle = `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3]})`;
+      tctx.fillRect(0, 0, tileCanvas.width, tileCanvas.height);
+    }
+
+    tctx.restore();
+    this._patternTileCache.set(key, tileCanvas);
+    return tileCanvas;
+  }
+
+  /**
    * Render a mask to a target canvas context, optionally blurring edges.
    * Runs on main thread (needs canvas context).
    */
-  _renderMask(ctx, result, fillR, fillG, fillB, userOpacity, blurRadius, width, height) {
+  _renderMask(ctx, result, fillR, fillG, fillB, userOpacity, blurRadius, width, height, user = null) {
     if (!result) return;
     const { mask, minX, minY, maxX, maxY } = result;
+
+    // If pattern mode is enabled and user has a pattern brush, use pattern fill
+    if (user && this.patternMode && user.patternBrush) {
+      return this._renderMaskPattern(ctx, result, userOpacity, blurRadius, width, height, user);
+    }
+
     const a = Math.round(userOpacity * 255);
 
     if (blurRadius <= 0) {
@@ -278,11 +355,97 @@ export class FloodFillTool {
     }
   }
 
-  _renderMaskComposite(targetCtx, result, fillR, fillG, fillB, userOpacity, blurRadius, width, height) {
+  /**
+   * Render a mask with pattern fill instead of solid color.
+   * Works like pattern brush: black fill acts as mask over pattern.
+   * @private
+   */
+  _renderMaskPattern(ctx, result, userOpacity, blurRadius, width, height, user) {
+    const { mask, minX, minY, maxX, maxY } = result;
+
+    const tile = this._getPatternTile(user);
+    if (!tile) {
+      // Fallback to solid color if no pattern
+      const [r, g, b] = user.color;
+      return this._renderMask(ctx, result, r, g, b, userOpacity, blurRadius, width, height, null);
+    }
+
+    const scale = (user.patternScale || 100) / 100;
+    const offsetX = user.patternOffsetX || 0;
+    const offsetY = user.patternOffsetY || 0;
+    const rotation = user.patternRotation || 0;
+
+    const br = blurRadius > 0 ? Math.ceil(blurRadius) : 0;
+    const padMinX = Math.max(0, minX - br * 2);
+    const padMinY = Math.max(0, minY - br * 2);
+    const padMaxX = Math.min(width - 1, maxX + br * 2);
+    const padMaxY = Math.min(height - 1, maxY + br * 2);
+    const padW = padMaxX - padMinX + 1;
+    const padH = padMaxY - padMinY + 1;
+
+    // Create temp canvas for the mask
+    const tmpCanvas = document.createElement('canvas');
+    tmpCanvas.width = padW;
+    tmpCanvas.height = padH;
+    const tmpCtx = tmpCanvas.getContext('2d');
+
+    // Step 1: Render black mask (using regular render with black)
+    const regionW = maxX - minX + 1;
+    const regionH = maxY - minY + 1;
+    const imgData = new ImageData(regionW, regionH);
+    const pixels = imgData.data;
+
+    // Fill mask pixels as black
+    for (let py = minY; py <= maxY; py++) {
+      for (let px = minX; px <= maxX; px++) {
+        if (mask[py * width + px]) {
+          const oi = ((py - minY) * regionW + (px - minX)) * 4;
+          pixels[oi] = 0;     // R
+          pixels[oi + 1] = 0; // G
+          pixels[oi + 2] = 0; // B
+          pixels[oi + 3] = 255; // A (full opacity for mask)
+        }
+      }
+    }
+
+    tmpCtx.putImageData(imgData, minX - padMinX, minY - padMinY);
+
+    // Apply blur to mask if needed
+    if (blurRadius > 0) {
+      const blurCanvas = document.createElement('canvas');
+      blurCanvas.width = padW;
+      blurCanvas.height = padH;
+      const blurCtx = blurCanvas.getContext('2d');
+      blurCtx.filter = `blur(${blurRadius}px)`;
+      blurCtx.drawImage(tmpCanvas, 0, 0);
+      tmpCtx.clearRect(0, 0, padW, padH);
+      tmpCtx.drawImage(blurCanvas, 0, 0);
+    }
+
+    // Step 2: Fill with pattern
+    const pattern = tmpCtx.createPattern(tile, 'repeat');
+    if (pattern.setTransform) {
+      const matrix = new DOMMatrix()
+        .translate(offsetX - padMinX, offsetY - padMinY)
+        .rotate(rotation)
+        .scale(scale);
+      pattern.setTransform(matrix);
+    }
+
+    tmpCtx.globalCompositeOperation = 'source-in';
+    tmpCtx.globalAlpha = userOpacity;
+    tmpCtx.fillStyle = pattern;
+    tmpCtx.fillRect(0, 0, padW, padH);
+
+    // Step 3: Draw result to target context
+    ctx.drawImage(tmpCanvas, padMinX, padMinY);
+  }
+
+  _renderMaskComposite(targetCtx, result, fillR, fillG, fillB, userOpacity, blurRadius, width, height, user = null) {
     const tmp = document.createElement('canvas');
     tmp.width = width;
     tmp.height = height;
-    this._renderMask(tmp.getContext('2d'), result, fillR, fillG, fillB, userOpacity, blurRadius, width, height);
+    this._renderMask(tmp.getContext('2d'), result, fillR, fillG, fillB, userOpacity, blurRadius, width, height, user);
     targetCtx.drawImage(tmp, 0, 0);
   }
 
@@ -319,7 +482,7 @@ export class FloodFillTool {
     const strokeCtx = this.board.layerManager.getUserStrokeContext(params.activeLayer, params.userId);
     if (!strokeCtx) return;
 
-    this._renderMask(strokeCtx, result, params.fillR, params.fillG, params.fillB, params.userOpacity, this._blurRadius, width, height);
+    this._renderMask(strokeCtx, result, params.fillR, params.fillG, params.fillB, params.userOpacity, this._blurRadius, width, height, user);
 
     const pad = Math.ceil(this._blurRadius * 2) + Math.ceil(Math.abs(this._expansion));
     const bx = Math.max(0, result.minX - pad);
@@ -329,7 +492,7 @@ export class FloodFillTool {
     this.board.expandDirtyRect(user, bx, by, bw, bh);
 
     if (mirrorResult) {
-      this._renderMaskComposite(strokeCtx, mirrorResult, params.fillR, params.fillG, params.fillB, params.userOpacity, this._blurRadius, width, height);
+      this._renderMaskComposite(strokeCtx, mirrorResult, params.fillR, params.fillG, params.fillB, params.userOpacity, this._blurRadius, width, height, user);
       const mbx = Math.max(0, mirrorResult.minX - pad);
       const mby = Math.max(0, mirrorResult.minY - pad);
       const mbw = Math.min(width, mirrorResult.maxX + pad + 1) - mbx;
@@ -546,7 +709,7 @@ export class FloodFillTool {
   async _updatePreviewAsync() {
     if (!this._active || !this._fillParams) return;
 
-    const { width, height, userId, tileRects } = this._fillParams;
+    const { width, height, userId, tileRects, user } = this._fillParams;
     const { fillR, fillG, fillB, userOpacity } = this._fillParams;
     const { x, y } = this._clickPos;
 
@@ -576,7 +739,7 @@ export class FloodFillTool {
     topCtx.clearRect(0, 0, width, height);
 
     if (result) {
-      this._renderMask(topCtx, result, fillR, fillG, fillB, userOpacity, this._blurRadius, width, height);
+      this._renderMask(topCtx, result, fillR, fillG, fillB, userOpacity, this._blurRadius, width, height, user);
 
       if (this.board.mirror) {
         const mx = width - 1 - x;
@@ -598,7 +761,7 @@ export class FloodFillTool {
             }
           }
           if (mResult && this._active) {
-            this._renderMaskComposite(topCtx, mResult, fillR, fillG, fillB, userOpacity, this._blurRadius, width, height);
+            this._renderMaskComposite(topCtx, mResult, fillR, fillG, fillB, userOpacity, this._blurRadius, width, height, user);
           }
         }
       }
@@ -611,11 +774,11 @@ export class FloodFillTool {
    */
   _showPreviewResult(result) {
     if (!result || !this._fillParams) return;
-    const { width, height } = this._fillParams;
+    const { width, height, user } = this._fillParams;
     const { fillR, fillG, fillB, userOpacity } = this._fillParams;
     const topCtx = this.board.topCtx;
     topCtx.clearRect(0, 0, width, height);
-    this._renderMask(topCtx, result, fillR, fillG, fillB, userOpacity, 0, width, height);
+    this._renderMask(topCtx, result, fillR, fillG, fillB, userOpacity, 0, width, height, user);
   }
 
   async onPointerUp(user, pos, e) {

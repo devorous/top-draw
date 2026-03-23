@@ -770,10 +770,76 @@
                     <input type="checkbox" id="fillAdvancedCheck">
                     <span>Advanced</span>
                   </label>
+                  <label class="radio-option">
+                    <input type="checkbox" id="fillPatternCheck">
+                    <span>Pattern</span>
+                  </label>
                 </div>
                 <div id="fillAdvancedHint" style="display: none; font-size: 11px; color: #888; margin-top: 4px; padding: 0 4px;">
                   Click to fill, then drag:<br>
                   ← → Expand &nbsp; ↓ Edge Blur
+                </div>
+              </div>
+
+              <!-- Fill Pattern Settings (shown when Pattern is checked) -->
+              <div id="fillPatternSettings" style="display: none;">
+                <div class="selection-mode-container">
+                  <label class="modeLabel">Pattern Preview</label>
+                  <div class="patternPreviewContainer">
+                    <canvas id="fillPatternPreview" width="120" height="60"></canvas>
+                  </div>
+                </div>
+
+                <div class="selection-mode-container">
+                  <label class="modeLabel">Color Mode</label>
+                  <div class="radio-group">
+                    <label class="radio-option">
+                      <input type="radio" name="fillPatternColorMode" value="original" checked>
+                      <span>Original</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" name="fillPatternColorMode" value="tinted">
+                      <span>User Color</span>
+                    </label>
+                  </div>
+                </div>
+
+                <input type="file" id="fillPatternImageUploadInput" accept="image/*" style="display: none;">
+
+                <div id="fillPatternGallery">
+                  <label>Grid Image</label>
+                  <div id="fillPatternBrushList"></div>
+                </div>
+
+                <div class="sliderContainer" id="fill-pattern-scale">
+                  <div class="sliderLabel">Image Scale <span class="sliderValue" id="fillPatternScaleValue">100%</span></div>
+                  <input autocomplete="off" type="range" min="5" max="500" value="100" class="slider fillPatternScale">
+                </div>
+
+                <div class="sliderContainer" id="fill-pattern-rotation">
+                  <div class="sliderLabel">Grid Rotation <span class="sliderValue" id="fillPatternRotationValue">0°</span></div>
+                  <input autocomplete="off" type="range" min="0" max="360" value="0" class="slider fillPatternRotation">
+                </div>
+
+                <div class="sliderContainer" id="fill-pattern-spacing">
+                  <div class="sliderLabel">Grid Spacing <span class="sliderValue" id="fillPatternSpacingValue">0</span></div>
+                  <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider fillPatternSpacing">
+                </div>
+
+                <div class="sliderContainer dual-offset-container">
+                  <div class="sliderLabel">Offset</div>
+                  <div class="dual-offset-sliders">
+                    <div class="offset-slider-group">
+                      <label class="offset-label">X</label>
+                      <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider fillPatternOffsetX">
+                      <span class="sliderValue offset-value" id="fillPatternOffsetXValue">0</span>
+                    </div>
+                    <div class="offset-slider-group">
+                      <label class="offset-label">Y</label>
+                      <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider fillPatternOffsetY">
+                      <span class="sliderValue offset-value" id="fillPatternOffsetYValue">0</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
