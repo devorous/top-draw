@@ -13,6 +13,7 @@ export class PatternBrushGallery extends BrushGallery {
     this.galleryEl = null;
     this.brushListEl = document.getElementById('patternBrushList');
     this.fillBrushListEl = document.getElementById('fillPatternBrushList');
+    this.selectionBrushListEl = document.getElementById('selectionPatternBrushList');
 
     if (!this.brushListEl) {
       console.warn('Pattern brush list element not found');
@@ -128,9 +129,52 @@ export class PatternBrushGallery extends BrushGallery {
       this.fillBrushListEl.appendChild(fillItem);
     }
 
+    // Also add to selection pattern brush list if it exists
+    if (this.selectionBrushListEl) {
+      const selectionItem = document.createElement('div');
+      selectionItem.className = 'brushItem';
+      selectionItem.title = brush.brushName || brush.name || brush.fileName;
+
+      const selectionImg = document.createElement('img');
+      selectionImg.src = brush.gimpUrl;
+      selectionImg.alt = brush.brushName || brush.name || 'Brush';
+
+      selectionItem.appendChild(selectionImg);
+      selectionItem.addEventListener('click', () => this.selectBrush(brush, selectionItem));
+      this.selectionBrushListEl.appendChild(selectionItem);
+    }
+
     // Default selection
     if (brush.brushName === 'Circle' && !this.selectedBrush) {
       this.selectBrush(brush, item);
     }
+  }
+
+  /**
+   * Override selectBrush to handle all three galleries (pattern, fill pattern, selection pattern).
+   * @param {Object} brush - Brush data object
+   * @param {HTMLElement} itemEl - The gallery item element that was clicked
+   */
+  selectBrush(brush, itemEl) {
+    // Clear selection from all three galleries
+    if (this.brushListEl) {
+      const prevSelected = this.brushListEl.querySelector('.brushItem.selected');
+      if (prevSelected) prevSelected.classList.remove('selected');
+    }
+    if (this.fillBrushListEl) {
+      const prevSelected = this.fillBrushListEl.querySelector('.brushItem.selected');
+      if (prevSelected) prevSelected.classList.remove('selected');
+    }
+    if (this.selectionBrushListEl) {
+      const prevSelected = this.selectionBrushListEl.querySelector('.brushItem.selected');
+      if (prevSelected) prevSelected.classList.remove('selected');
+    }
+
+    // Add selection to the clicked item
+    itemEl.classList.add('selected');
+    this.selectedBrush = brush;
+
+    // Call onSelect callback
+    this.onSelect(brush);
   }
 }

@@ -642,6 +642,35 @@ export class DrawingApp {
       });
     }
 
+    // Selection pattern mode checkbox
+    const selectionPatternCheck = document.getElementById('selectionPatternCheck');
+    const selectionPatternSettings = document.getElementById('selectionPatternSettings');
+    if (selectionPatternCheck) {
+      const selectTool = this.toolManager.getTool('select');
+      if (selectTool) {
+        selectionPatternCheck.checked = selectTool.patternMode || false;
+        if (selectionPatternSettings) selectionPatternSettings.style.display = selectTool.patternMode ? 'block' : 'none';
+      }
+      selectionPatternCheck.addEventListener('change', (e) => {
+        const selectTool = this.toolManager.getTool('select');
+        if (selectTool) selectTool.patternMode = e.target.checked;
+        if (selectionPatternSettings) selectionPatternSettings.style.display = e.target.checked ? 'block' : 'none';
+
+        // Update preview if pattern tool exists
+        const patternTool = this.toolManager.getTool('pattern');
+        if (patternTool && e.target.checked) {
+          // Also update selection pattern preview
+          const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+          if (selectionPatternPreview) {
+            const oldPreview = patternTool.previewCanvas;
+            patternTool.previewCanvas = selectionPatternPreview;
+            patternTool.updatePreview(this.self);
+            patternTool.previewCanvas = oldPreview;
+          }
+        }
+      });
+    }
+
     // Blend mode select
     if (elements.blendModeSelect) {
       elements.blendModeSelect.addEventListener('change', (e) => {
@@ -1032,6 +1061,28 @@ export class DrawingApp {
         radio.addEventListener('change', (e) => this.handlePatternColorModeChange(e));
       });
     }
+
+    // Selection pattern settings (reuse same handlers as pattern tool since they share user properties)
+    if (elements.selectionPatternScaleSlider) {
+      elements.selectionPatternScaleSlider.addEventListener('input', (e) => this.handlePatternScaleChange(e));
+    }
+    if (elements.selectionPatternRotationSlider) {
+      elements.selectionPatternRotationSlider.addEventListener('input', (e) => this.handlePatternRotationChange(e));
+    }
+    if (elements.selectionPatternSpacingSlider) {
+      elements.selectionPatternSpacingSlider.addEventListener('input', (e) => this.handlePatternSpacingChange(e));
+    }
+    if (elements.selectionPatternOffsetXSlider) {
+      elements.selectionPatternOffsetXSlider.addEventListener('input', (e) => this.handlePatternOffsetXChange(e));
+    }
+    if (elements.selectionPatternOffsetYSlider) {
+      elements.selectionPatternOffsetYSlider.addEventListener('input', (e) => this.handlePatternOffsetYChange(e));
+    }
+    if (elements.selectionPatternColorModeRadios) {
+      elements.selectionPatternColorModeRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => this.handlePatternColorModeChange(e));
+      });
+    }
   }
 
   handlePatternScaleChange(e) {
@@ -1042,6 +1093,9 @@ export class DrawingApp {
     }
     if (this.ui.elements.fillPatternScaleValue) {
       this.ui.elements.fillPatternScaleValue.textContent = `${scale}%`;
+    }
+    if (this.ui.elements.selectionPatternScaleValue) {
+      this.ui.elements.selectionPatternScaleValue.textContent = `${scale}%`;
     }
 
     const patternTool = this.toolManager.getTool('pattern');
@@ -1054,6 +1108,16 @@ export class DrawingApp {
       if (fillTool?.patternMode && fillPatternPreview) {
         const oldPreview = patternTool.previewCanvas;
         patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview if select tool has pattern mode enabled
+      const selectTool = this.toolManager.getTool('select');
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectTool?.patternMode && selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
         patternTool.updatePreview(this.self);
         patternTool.previewCanvas = oldPreview;
       }
@@ -1098,6 +1162,9 @@ export class DrawingApp {
     if (this.ui.elements.fillPatternRotationValue) {
       this.ui.elements.fillPatternRotationValue.textContent = `${rotation}°`;
     }
+    if (this.ui.elements.selectionPatternRotationValue) {
+      this.ui.elements.selectionPatternRotationValue.textContent = `${rotation}°`;
+    }
 
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
@@ -1109,6 +1176,16 @@ export class DrawingApp {
       if (fillTool?.patternMode && fillPatternPreview) {
         const oldPreview = patternTool.previewCanvas;
         patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview if select tool has pattern mode enabled
+      const selectTool = this.toolManager.getTool('select');
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectTool?.patternMode && selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
         patternTool.updatePreview(this.self);
         patternTool.previewCanvas = oldPreview;
       }
@@ -1128,6 +1205,9 @@ export class DrawingApp {
     if (this.ui.elements.fillPatternSpacingValue) {
       this.ui.elements.fillPatternSpacingValue.textContent = spacing;
     }
+    if (this.ui.elements.selectionPatternSpacingValue) {
+      this.ui.elements.selectionPatternSpacingValue.textContent = spacing;
+    }
 
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
@@ -1139,6 +1219,16 @@ export class DrawingApp {
       if (fillTool?.patternMode && fillPatternPreview) {
         const oldPreview = patternTool.previewCanvas;
         patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview if select tool has pattern mode enabled
+      const selectTool = this.toolManager.getTool('select');
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectTool?.patternMode && selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
         patternTool.updatePreview(this.self);
         patternTool.previewCanvas = oldPreview;
       }
@@ -1158,6 +1248,9 @@ export class DrawingApp {
     if (this.ui.elements.fillPatternOffsetXValue) {
       this.ui.elements.fillPatternOffsetXValue.textContent = offsetX;
     }
+    if (this.ui.elements.selectionPatternOffsetXValue) {
+      this.ui.elements.selectionPatternOffsetXValue.textContent = offsetX;
+    }
 
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
@@ -1169,6 +1262,16 @@ export class DrawingApp {
       if (fillTool?.patternMode && fillPatternPreview) {
         const oldPreview = patternTool.previewCanvas;
         patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview if select tool has pattern mode enabled
+      const selectTool = this.toolManager.getTool('select');
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectTool?.patternMode && selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
         patternTool.updatePreview(this.self);
         patternTool.previewCanvas = oldPreview;
       }
@@ -1188,6 +1291,9 @@ export class DrawingApp {
     if (this.ui.elements.fillPatternOffsetYValue) {
       this.ui.elements.fillPatternOffsetYValue.textContent = offsetY;
     }
+    if (this.ui.elements.selectionPatternOffsetYValue) {
+      this.ui.elements.selectionPatternOffsetYValue.textContent = offsetY;
+    }
 
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
@@ -1199,6 +1305,16 @@ export class DrawingApp {
       if (fillTool?.patternMode && fillPatternPreview) {
         const oldPreview = patternTool.previewCanvas;
         patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview if select tool has pattern mode enabled
+      const selectTool = this.toolManager.getTool('select');
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectTool?.patternMode && selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
         patternTool.updatePreview(this.self);
         patternTool.previewCanvas = oldPreview;
       }
@@ -1230,10 +1346,20 @@ export class DrawingApp {
         patternTool.updatePreview(this.self);
         patternTool.previewCanvas = oldPreview;
       }
+
+      // Also update selection pattern preview if select tool has pattern mode enabled
+      const selectTool = this.toolManager.getTool('select');
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectTool?.patternMode && selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
     }
 
-    // Sync all radio groups (pattern and fill pattern)
-    document.querySelectorAll('input[name="patternColorMode"], input[name="fillPatternColorMode"]').forEach(r => r.checked = r.value === colorMode);
+    // Sync all radio groups (pattern, fill pattern, and selection pattern)
+    document.querySelectorAll('input[name="patternColorMode"], input[name="fillPatternColorMode"], input[name="selectionPatternColorMode"]').forEach(r => r.checked = r.value === colorMode);
 
     if (this.connected) {
       this.wsClient.broadcastNameChange(this.self.username, { patternColorMode: colorMode });
@@ -1242,14 +1368,34 @@ export class DrawingApp {
 
   handlePatternBrushSelect(brush) {
     this.self.patternBrush = brush;
-    
+
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
       patternTool.updatePreview(this.self);
+
+      // Also update fill pattern preview if fill tool has pattern mode enabled
+      const fillTool = this.toolManager.getTool('fill');
+      const fillPatternPreview = document.getElementById('fillPatternPreview');
+      if (fillTool?.patternMode && fillPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview if select tool has pattern mode enabled
+      const selectTool = this.toolManager.getTool('select');
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectTool?.patternMode && selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
     }
 
     if (this.connected) {
-      this.wsClient.broadcastNameChange(this.self.username, { 
+      this.wsClient.broadcastNameChange(this.self.username, {
         patternBrush: brush
       });
     }

@@ -60,6 +60,26 @@ export class SelectToolLoader extends Tool {
     super('select', board);
     this.realTool = null;
     this.loadingPromise = null;
+    this._patternMode = false; // Store pattern mode even before real tool loads
+  }
+
+  /**
+   * Gets the pattern mode.
+   * @returns {boolean}
+   */
+  get patternMode() {
+    return this.realTool ? this.realTool.patternMode : this._patternMode;
+  }
+
+  /**
+   * Sets the pattern mode.
+   * @param {boolean} value
+   */
+  set patternMode(value) {
+    this._patternMode = value;
+    if (this.realTool) {
+      this.realTool.patternMode = value;
+    }
   }
 
   /**
@@ -78,6 +98,10 @@ export class SelectToolLoader extends Tool {
     this.loadingPromise = import('./SelectTool.js')
       .then(module => {
         this.realTool = new module.SelectTool(this.board);
+        // Transfer stored pattern mode to real tool
+        if (this._patternMode !== undefined) {
+          this.realTool.patternMode = this._patternMode;
+        }
         this.loadingPromise = null;
         return this.realTool;
       })
