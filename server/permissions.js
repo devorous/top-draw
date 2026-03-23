@@ -2,8 +2,8 @@
  * Centralized permission system for server-side action authorization.
  *
  * Role tiers (see SessionManager.js):
- *   Room-scoped: GUEST(0) USER(1) TRUSTED(2) HELPER(3) MOD(4) ADMIN(5)
- *   Global:      NOBLE(6) HOLY(7) DEITY(8)
+ *   Room-scoped: GUEST(0) USER(1) TRUSTED(2) HELPER(3) MOD(4) ADMIN(5) OWNER(6)
+ *   Global:      NOBLE(7) HOLY(8) DEITY(9)
  *
  * To reassign an action to a different tier, change the value in ACTION_MIN_ROLE.
  * To add a new action, add it to Action and ACTION_MIN_ROLE — no other changes needed.

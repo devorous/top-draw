@@ -1,6 +1,6 @@
 /** @fileoverview Main entry point for the drawing application, coordinating board, tools, UI, and networking. */
 
-import { ToolToEnum } from '../shared/MessageTypes.js';
+import { T, ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor } from '../shared/ColorUtils.js';
 import { User } from './User.js';
 import { Board } from './canvas/Board.js';
@@ -202,6 +202,17 @@ export class DrawingApp {
       wsClient: this.wsClient,
       onUpdate: (roomData) => {
         this.currentRoomData = roomData;
+      },
+      onUnregister: () => {
+        // Clear owner info from local data
+        if (this.currentRoomData) {
+          this.currentRoomData.ownerId = null;
+          this.currentRoomData.ownerUsername = null;
+        }
+        this.updateRoomSettingsButtonVisibility();
+        // Request updated room list
+        setTimeout(() => this.wsClient.requestRoomList(), 500);
+        this.ui.showToast('Room unregistered');
       }
     });
     this.roomSettings.init();
@@ -465,6 +476,12 @@ export class DrawingApp {
     const roomSettingsBtn = document.getElementById('roomSettingsBtn');
     if (roomSettingsBtn) {
       roomSettingsBtn.addEventListener('click', () => this.handleRoomSettings());
+    }
+
+    // Register room button
+    const registerRoomBtn = document.getElementById('registerRoomBtn');
+    if (registerRoomBtn) {
+      registerRoomBtn.addEventListener('click', () => this.handleRegisterRoom());
     }
 
     // Context menu button clicks
@@ -1406,39 +1423,84 @@ export class DrawingApp {
       return;
     }
 
-    const canEdit = this.roomSettings.canEdit(
-      this.currentRoomData,
-      this.selfRole,
-      this.auth?.userId
-    );
+    const canEdit = this.roomSettings.canEdit(this.currentRoomData, this.selfRole);
 
     if (!canEdit) {
       this.ui.showToast('Only room owner or moderators can edit settings', 3000);
       return;
     }
 
-    this.roomSettings.show(this.currentRoomData, this.selfRole, this.auth?.userId);
+    this.roomSettings.show(this.currentRoomData, this.selfRole, this.self?.username);
   }
 
   /**
-   * Updates the visibility of the room settings button based on user permissions.
+   * Registers the current user as room owner.
    */
-  updateRoomSettingsButtonVisibility() {
-    const btn = document.getElementById('roomSettingsBtn');
-    if (!btn) return;
-
-    if (!this.connected || !this.currentRoomData) {
-      btn.style.display = 'none';
+  handleRegisterRoom() {
+    if (this.selfRole < 1) {
+      this.ui.showToast('You must be logged in to register a room', 3000);
       return;
     }
 
-    const canEdit = this.roomSettings?.canEdit(
-      this.currentRoomData,
-      this.selfRole,
-      this.auth?.userId
-    );
+    if (this.currentRoomData?.ownerId) {
+      this.ui.showToast('This room already has an owner', 3000);
+      return;
+    }
 
-    btn.style.display = canEdit ? 'inline-block' : 'none';
+    this.wsClient.send({ t: T.ROOM_REGISTER });
+
+    // Optimistically update local room data
+    if (this.self?.username) {
+      if (!this.currentRoomData) {
+        this.currentRoomData = { id: this.currentRoomId };
+      }
+      this.currentRoomData.ownerId = 'self';
+      this.currentRoomData.ownerUsername = this.self.username;
+      this.updateRoomSettingsButtonVisibility();
+    }
+
+    this.ui.showToast('Registering room...');
+  }
+
+  /**
+   * Updates the visibility of room settings and register buttons based on user permissions.
+   */
+  updateRoomSettingsButtonVisibility() {
+    const settingsBtn = document.getElementById('roomSettingsBtn');
+    const registerBtn = document.getElementById('registerRoomBtn');
+
+    // Use wsClient.connected instead of this.connected since this.connected
+    // may not be set yet when auth completes
+    const isConnected = this.wsClient?.connected && this.currentRoomId;
+
+    if (!isConnected) {
+      if (settingsBtn) settingsBtn.style.display = 'none';
+      if (registerBtn) registerBtn.style.display = 'none';
+      return;
+    }
+
+    const isLoggedIn = this.selfRole >= 1;
+
+    // If we don't have room data yet, show register button for logged-in users
+    // (assumes room is likely unregistered if data hasn't loaded)
+    if (!this.currentRoomData) {
+      if (settingsBtn) settingsBtn.style.display = 'none';
+      if (registerBtn) registerBtn.style.display = isLoggedIn ? 'inline-block' : 'none';
+      return;
+    }
+
+    const hasOwner = !!this.currentRoomData.ownerId;
+    const canEdit = this.roomSettings?.canEdit(this.currentRoomData, this.selfRole);
+
+    // Show Register Room button if room is unregistered and user is logged in
+    if (registerBtn) {
+      registerBtn.style.display = (!hasOwner && isLoggedIn) ? 'inline-block' : 'none';
+    }
+
+    // Show Room Settings button only if room is registered and user can edit
+    if (settingsBtn) {
+      settingsBtn.style.display = (hasOwner && canEdit) ? 'inline-block' : 'none';
+    }
   }
 
   /**

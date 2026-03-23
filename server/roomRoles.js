@@ -24,7 +24,7 @@ export async function getRoomRole(roomId, userId) {
  * Set (upsert) a user's room-specific role.
  * @param {string} roomId
  * @param {string} userId
- * @param {number} role - 0-5 (room-scoped tiers only)
+ * @param {number} role - 0-6 (room-scoped tiers, including OWNER)
  * @param {string} assignedBy - userId of the assigner
  */
 export async function setRoomRole(roomId, userId, role, assignedBy) {

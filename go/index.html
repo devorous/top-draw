@@ -234,6 +234,7 @@
               <span class="btnIcon" style="display: none;"><img src="/images/chat-icon.svg" alt="Chat"></span>
               <span class="chatBadge" id="chatBadge" style="display: none;"></span>
             </a>
+            <a class="btn accent" id="registerRoomBtn" style="display: none;">Register Room</a>
             <a class="btn" id="roomSettingsBtn" style="display: none;">Room Settings</a>
             <a class="btn" id="disconnectBtn" title="Exit Room">
               <span class="btnText">Exit Room</span>
@@ -273,8 +274,11 @@
               </div>
             </div>
             <div class="roomSettingsFooter">
-              <button class="btn secondary" id="roomSettingsCancelBtn">Cancel</button>
-              <button class="btn primary" id="roomSettingsSaveBtn">Save</button>
+              <button class="btn danger" id="roomSettingsUnregisterBtn" style="display: none;">Unregister Room</button>
+              <div class="roomSettingsFooterRight">
+                <button class="btn secondary" id="roomSettingsCancelBtn">Cancel</button>
+                <button class="btn primary" id="roomSettingsSaveBtn">Save</button>
+              </div>
             </div>
           </div>
         </div>

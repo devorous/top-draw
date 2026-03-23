@@ -1103,6 +1103,122 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
+        case T.ROOM_REGISTER: {
+          // Claim ownership of an unowned room
+          if (!ws.userId) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Must be logged in to register a room' });
+            break;
+          }
+
+          if (room.ownerId) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'This room already has an owner' });
+            break;
+          }
+
+          // Prevent registering lobby or discovery rooms
+          if (room.id === 'lobby' || room.id === '_discovery') {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Cannot register this room' });
+            break;
+          }
+
+          try {
+            room.ownerId = ws.userId;
+            room.ownerUsername = ws.username;
+            await room.saveToDB();
+
+            // Update the registering user's effective role to OWNER(6)
+            ws.roomRole = Role.OWNER;
+            ws.userRole = computeEffectiveRole(ws.globalRole || 0, Role.OWNER);
+
+            const user = room.sessionManager.getUser(ws.sessionIndex);
+            if (user) user.role = ws.userRole;
+
+            // Notify the user of their new role
+            sendTo(ws, { t: T.AUTH_RESULT, a: true, authRole: ws.userRole });
+
+            // Broadcast updated user list so everyone sees the new role
+            createRoomBroadcaster(room)({
+              t: T.USERS,
+              us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+            });
+
+            // Broadcast ownership change to all clients in the room
+            createRoomBroadcaster(room)({
+              t: T.ROOM_OWNERSHIP,
+              ownerId: room.ownerId,
+              ownerUsername: room.ownerUsername
+            });
+
+            sendTo(ws, { t: T.MOD_RESULT, a: true });
+            console.log(`[Room] ${ws.username} registered as owner of room "${room.id}"`);
+          } catch (err) {
+            console.error('[Room] Register error:', err);
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Failed to register room' });
+          }
+          break;
+        }
+
+        case T.ROOM_UNREGISTER: {
+          // Release ownership of a room (owner or DEITY only)
+          if (!ws.userId) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Must be logged in' });
+            break;
+          }
+
+          if (!room.ownerId) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'This room is not registered' });
+            break;
+          }
+
+          // Only room owner or DEITY can unregister
+          const isRoomOwner = room.ownerId === ws.userId;
+          const isDeity = (ws.globalRole || 0) >= Role.DEITY;
+
+          if (!isRoomOwner && !isDeity) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Only room owner or DEITY can unregister a room' });
+            break;
+          }
+
+          try {
+            const previousOwnerId = room.ownerId;
+            room.ownerId = null;
+            room.ownerUsername = null;
+            await room.saveToDB();
+
+            // If the unregistering user was the owner, reset their room role
+            if (isRoomOwner) {
+              ws.roomRole = 0;
+              ws.userRole = computeEffectiveRole(ws.globalRole || 0, 0);
+
+              const user = room.sessionManager.getUser(ws.sessionIndex);
+              if (user) user.role = ws.userRole;
+
+              // Notify the user of their new role
+              sendTo(ws, { t: T.AUTH_RESULT, a: true, authRole: ws.userRole });
+            }
+
+            // Broadcast updated user list
+            createRoomBroadcaster(room)({
+              t: T.USERS,
+              us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+            });
+
+            // Broadcast ownership change to all clients in the room
+            createRoomBroadcaster(room)({
+              t: T.ROOM_OWNERSHIP,
+              ownerId: null,
+              ownerUsername: null
+            });
+
+            sendTo(ws, { t: T.MOD_RESULT, a: true });
+            console.log(`[Room] ${ws.username} unregistered room "${room.id}" (previous owner: ${previousOwnerId})`);
+          } catch (err) {
+            console.error('[Room] Unregister error:', err);
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Failed to unregister room' });
+          }
+          break;
+        }
+
         case T.MOD_LIST: {
           if (!authorize(ws, Action.MOD_LIST, sendTo, T.MOD_RESULT)) break;
 
@@ -1155,7 +1271,7 @@ wss.on('connection', (ws, req) => {
 
           const targetUserId = targetClient.userId;
 
-          // Permission: room owner, effective ADMIN(5)+ in room, or global DEITY(8)
+          // Permission: room owner, effective ADMIN(5)+ in room, or global DEITY(9)
           const isOwner = room.ownerId === ws.userId;
           const isRoomAdmin = ws.userRole >= Role.ADMIN;
           const isDeity = (ws.globalRole || 0) >= Role.DEITY;
@@ -1375,9 +1491,13 @@ wss.on('connection', (ws, req) => {
               role: userDoc.role
             });
 
-            // Compute effective role: max(global, room-specific)
+            // Compute effective role: max(global, room-specific, owner status)
             const roomRoleDoc = await getRoomRole(room.id, userDoc._id.toString());
-            const roomRoleVal = roomRoleDoc?.role || 0;
+            let roomRoleVal = roomRoleDoc?.role || 0;
+            // Room owner automatically gets OWNER(6) role in their room
+            if (room.ownerId === userDoc._id.toString()) {
+              roomRoleVal = Math.max(roomRoleVal, Role.OWNER);
+            }
             const effectiveRole = computeEffectiveRole(userDoc.role, roomRoleVal);
 
             ws.userId = userDoc._id.toString();

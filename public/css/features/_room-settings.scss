@@ -144,11 +144,17 @@
 
 .roomSettingsFooter {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   gap: 10px;
   padding: 16px 20px;
   background: var(--bg-tertiary);
   border-top: 1px solid var(--border-subtle);
+
+  .roomSettingsFooterRight {
+    display: flex;
+    gap: 10px;
+  }
 
   .btn {
     padding: 10px 20px;
@@ -178,6 +184,29 @@
       &:hover {
         background: var(--accent-hover);
         border-color: var(--accent-hover);
+      }
+    }
+
+    &.accent {
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      border: 1px solid #7c3aed;
+      color: #fff;
+      margin-right: auto; // Push to left side
+
+      &:hover {
+        background: linear-gradient(135deg, #6d28d9, #9333ea);
+        border-color: #6d28d9;
+      }
+    }
+
+    &.danger {
+      background: #dc2626;
+      border: 1px solid #dc2626;
+      color: #fff;
+
+      &:hover {
+        background: #b91c1c;
+        border-color: #b91c1c;
       }
     }
   }

@@ -734,8 +734,18 @@ export class WebSocketClient {
             id: r.id,
             userCount: r.userCount || 0,
             locked: r.locked || false,
-            hasPassword: r.hasPassword || false
+            hasPassword: r.hasPassword || false,
+            description: r.description || '',
+            ownerId: r.ownerId || null,
+            ownerUsername: r.ownerUsername || null
           }))
+        });
+        break;
+
+      case T.ROOM_OWNERSHIP:
+        this.emit('room_ownership', {
+          ownerId: data.ownerId || null,
+          ownerUsername: data.ownerUsername || null
         });
         break;
     }

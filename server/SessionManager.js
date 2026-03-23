@@ -9,18 +9,19 @@ import { T } from '../shared/MessageTypes.js';
 /**
  * Permission tiers — higher value = more authority.
  *
- * Room-scoped ranks (0–5): expected to exercise powers only in their assigned room.
+ * Room-scoped ranks (0–6): expected to exercise powers only in their assigned room.
  *   GUEST    (0) – Unauthenticated visitor
  *   USER     (1) – Registered account
  *   TRUSTED  (2) – Trusted community member
  *   HELPER   (3) – Can mute in room
  *   MOD      (4) – Full moderator in room (kick, ban, clear, wipe)
  *   ADMIN    (5) – Room administrator
+ *   OWNER    (6) – Room owner (only one per room, ultimate room authority)
  *
- * Global ranks (6–8): authority extends across all rooms.
- *   NOBLE    (6) – Global mute
- *   HOLY     (7) – Global mute + ban
- *   DEITY    (8) – All powers everywhere + exclusive abilities
+ * Global ranks (7–9): authority extends across all rooms.
+ *   NOBLE    (7) – Global mute
+ *   HOLY     (8) – Global mute + ban
+ *   DEITY    (9) – All powers everywhere + exclusive abilities
  */
 export const Role = {
   GUEST:   0,
@@ -29,9 +30,10 @@ export const Role = {
   HELPER:  3,
   MOD:     4,
   ADMIN:   5,
-  NOBLE:   6,
-  HOLY:    7,
-  DEITY:   8,
+  OWNER:   6,
+  NOBLE:   7,
+  HOLY:    8,
+  DEITY:   9,
 };
 
 const AFK_TIMEOUT = 2 * 60 * 1000;

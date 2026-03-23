@@ -54,8 +54,12 @@ export class Moderation {
     return this.localRole >= 5;  // ADMIN(5)+
   }
 
+  isOwner() {
+    return this.localRole >= 6;  // OWNER(6)+
+  }
+
   isDeity() {
-    return this.localRole >= 8;  // DEITY only
+    return this.localRole >= 9;  // DEITY(9) only
   }
 
   /**
