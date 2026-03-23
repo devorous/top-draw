@@ -170,17 +170,23 @@ export class InkTool extends Tool {
   onPointerMove(user, pos, lastPos, e) {
     if (!user.mousedown || user.panning || this.inputPoints.length === 0) return;
 
+    // Skip points too close to the last point to prevent velocity calculation noise
+    // in perfect-freehand when simulatePressure is enabled
+    const lastPoint = this.inputPoints[this.inputPoints.length - 1];
+    const dx = pos.x - lastPoint[0];
+    const dy = pos.y - lastPoint[1];
+    const distSq = dx * dx + dy * dy;
+    if (distSq < 4) return; // Min 2px distance
+
     const pressure = this.quantizePressure(user.pressure);
 
     this.inputPoints.push([pos.x, pos.y, pressure]);
     this.pointBuffer.push(pos.x, pos.y, Math.round(pressure * 255));
 
-    if (this.dirtyBounds) {
-      this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, pos.x);
-      this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, pos.y);
-      this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, pos.x);
-      this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y);
-    }
+    this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, pos.x);
+    this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, pos.y);
+    this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, pos.x);
+    this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y);
 
     this.renderStroke(false, user);
     this.board.clearTop();
