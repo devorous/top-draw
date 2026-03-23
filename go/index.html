@@ -180,6 +180,9 @@
 
       <!-- Main Drawing Area -->
       <div id="boardContainer">
+        <!-- Svelte Board Menu (top-right: blend mode + layers) -->
+        <div id="boardMenu"></div>
+
         <!-- Top Toolbar -->
         <div class="boardBtns">
           <!-- Mobile Menu Toggle -->
@@ -1035,19 +1038,8 @@
             <div class="scroll-indicator" id="optionsScrollIndicator"></div>
           </div>
 
-          <!-- Color Palette -->
-          <div id="colorPalette">
-            <div class="paletteSection">
-              <label>Recent</label>
-              <div class="swatchGrid" id="recentSwatches"></div>
-            </div>
-            <div class="paletteSection">
-              <label>Custom <span class="paletteHint">(click + to save)</span></label>
-              <div class="swatchGrid" id="customSwatches">
-                <button class="swatch addSwatch" id="addCustomSwatch" title="Save current color">+</button>
-              </div>
-            </div>
-          </div>
+          <!-- Color Palette (Svelte) -->
+          <div id="colorPaletteMount"></div>
 
           <!-- Color Picker -->
           <div id="pickerContainer">
@@ -1126,6 +1118,11 @@
         </div>
       </div>
     </div>
+
+    <!-- Svelte Component Mount Points -->
+    <div id="profileDialogMount"></div>
+    <div id="roomSettingsMount"></div>
+    <div id="chatMount"></div>
 
     <script type="module" src="/src/main.js"></script>
   </body>

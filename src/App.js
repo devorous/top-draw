@@ -6,8 +6,7 @@ import { User } from './User.js';
 import { Board } from './canvas/Board.js';
 import { ToolManager, BrushTool } from './tools/Tools.js';
 import { WebSocketClient } from './network/WebSocketClient.js';
-import { Chat } from './ui/Chat.js';
-import { UI, ColorPalette } from './ui/index.js';
+import { UI } from './ui/index.js';
 import { BrushGalleryLoader } from './ui/BrushGalleryLoader.js';
 import { PatternBrushGallery } from './ui/PatternBrushGallery.js';
 import { RemoteUserHandler } from './remote/RemoteUserHandler.js';
@@ -19,7 +18,6 @@ import { Auth } from './auth/Auth.js';
 import { Moderation } from './auth/Moderation.js';
 import { ColorInputMenu } from './ui/ColorInputMenu.js';
 import { LandingPage } from './ui/LandingPage.js';
-import { RoomSettings } from './ui/RoomSettings.js';
 import { ToolLockManager } from './tools/ToolLockManager.js';
 import { InputBufferManager } from './input/InputBufferManager.js';
 import { KeyboardHandler } from './input/KeyboardHandler.js';
@@ -30,7 +28,21 @@ import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
 import { SaveMode } from './ui/SaveMode.js';
-import { ProfileDialog } from './ui/ProfileDialog.js';
+
+// Svelte UI Components
+import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } from './ui/svelte/AppUI.js';
+import {
+  currentColor,
+  blendMode,
+  activeLayer,
+  currentRoomData as currentRoomDataStore,
+  selfRole as selfRoleStore,
+  username as usernameStore,
+  roomSettingsVisible,
+  chatVisible,
+  addRecentColor,
+  users as usersStore
+} from './stores.js';
 
 /**
  * Main Drawing Application class.
@@ -54,20 +66,22 @@ export class DrawingApp {
 
     this.toolManager = new ToolManager(this.board);
     this.ui = new UI();
-    this.chat = new Chat({
-      onSend: (message) => this.handleChatSend(message),
-      onDM: (message, recipientId) => this.handleDMSend(message, recipientId),
-      onSendImage: (imageData, recipientId) => this.handleChatImageSend(imageData, recipientId)
-    });
+
+    // Vanilla JS components (to be replaced by Svelte)
+    // this.chat = new Chat({...});
+    // this.colorPalette = new ColorPalette({...});
+    // NOTE: Chat and ColorPalette now managed by Svelte components
+
     this.brushGallery = new BrushGalleryLoader({
       onSelect: (brush) => this.handleBrushSelect(brush)
     });
     this.patternGallery = new PatternBrushGallery({
       onSelect: (brush) => this.handlePatternBrushSelect(brush)
     });
-    this.colorPalette = new ColorPalette({
-      onColorSelect: (colorOrCallback) => this.handlePaletteColorSelect(colorOrCallback)
-    });
+
+    // Svelte components will be initialized in init()
+    this.svelteComponents = null;
+
     this.colorInputMenu = new ColorInputMenu({
       onColorChange: (rgba) => this.handleColorInputChange(rgba)
     });
@@ -97,7 +111,7 @@ export class DrawingApp {
     this.currentRoomData = null;
     this.selfRole = 0;
     this.moderation = new Moderation();
-    this.profileDialog = new ProfileDialog();
+    // this.profileDialog = new ProfileDialog(); // Now Svelte component
 
     this.inputBufferManager = new InputBufferManager(this);
 
@@ -150,10 +164,15 @@ export class DrawingApp {
     this.createSelf();
     this.board.init('#boardContainer');
     this.board.setApp(this);
-    this.chat.init();
+
+    // Initialize Svelte UI components
+    this.svelteComponents = initSvelteUI(this);
+
+    // Legacy components (still vanilla JS)
+    // this.chat.init(); // Now Svelte
+    // this.colorPalette.init(); // Now Svelte
     this.brushGallery.init();
     this.patternGallery.init();
-    this.colorPalette.init();
     this.colorInputMenu.init();
 
     this.initSelfFromUI();
@@ -182,6 +201,9 @@ export class DrawingApp {
 
     this.ui.setupLayerPreviewListeners(this.board.layerManager);
 
+    // Sync initial app state to Svelte stores
+    syncStoresFromApp(this);
+
     this.syncClient = new SyncClient();
     this.syncClient.init({
       wsClient: this.wsClient,
@@ -203,43 +225,21 @@ export class DrawingApp {
     });
     this.landingPage.init();
 
-    this.roomSettings = new RoomSettings({
-      wsClient: this.wsClient,
-      board: this.board,
-      ui: this.ui,
-      onUpdate: (roomData) => {
-        this.currentRoomData = roomData;
-      },
-      onUnregister: () => {
-        // Clear owner info from local data
-        if (this.currentRoomData) {
-          this.currentRoomData.ownerId = null;
-          this.currentRoomData.ownerUsername = null;
-        }
-        this.updateRoomSettingsButtonVisibility();
-        // Request updated room list
-        setTimeout(() => this.wsClient.requestRoomList(), 500);
-        this.ui.showToast('Room unregistered');
-      }
-    });
-    this.roomSettings.init();
+    // RoomSettings now Svelte component (initialized in initSvelteUI)
+    // this.roomSettings = new RoomSettings({...});
+    // this.roomSettings.init();
 
     this.moderation.onProfile = (username) => {
-      this.profileDialog.show(username);
+      showProfileDialog(username);
     };
     this.moderation.onSync = (sessionIndex) => {
       this.syncClient.requestSync();
       this.ui.showToast('Sync requested');
     };
     this.moderation.onPM = (sessionIndex, user) => {
-      if (user) {
-        this.chat.selectDMRecipient({
-          id: sessionIndex,
-          username: user.username,
-          color: `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3]})`,
-          isSelf: sessionIndex === this.sessionIndex
-        });
-        this.chat.show();
+      if (user && this.svelteComponents?.chat) {
+        // TODO: Implement DM recipient selection in Svelte Chat
+        chatVisible.set(true);
       }
     };
     this.moderation.onModAction = (actionType, sessionIndex, reason, duration) => {
@@ -479,7 +479,7 @@ export class DrawingApp {
     if (elements.hudUndoBtn) elements.hudUndoBtn.addEventListener('click', () => this.handleUndo());
     if (elements.hudRedoBtn) elements.hudRedoBtn.addEventListener('click', () => this.handleRedo());
 
-    elements.chatBtn.addEventListener('click', () => this.chat.toggle());
+    elements.chatBtn.addEventListener('click', () => chatVisible.update(v => !v));
     elements.selfListUser.addEventListener('click', () => this.handleRenameself());
 
     // Room settings button
@@ -1746,7 +1746,7 @@ export class DrawingApp {
       profileBtn.style.display = canShowProfile ? '' : 'none';
       profileBtn.onclick = () => {
         menu.style.display = 'none';
-        this.profileDialog.show(this.self.username);
+        showProfileDialog(this.self.username);
       };
     }
 
@@ -1888,14 +1888,20 @@ export class DrawingApp {
       return;
     }
 
-    const canEdit = this.roomSettings.canEdit(this.currentRoomData, this.selfRole);
+    // Check permissions before opening settings
+    const hasOwner = !!this.currentRoomData?.ownerId;
+    const canEdit = hasOwner && (this.selfRole >= 5); // ADMIN+ or higher
 
     if (!canEdit) {
       this.ui.showToast('Only room owner or moderators can edit settings', 3000);
       return;
     }
 
-    this.roomSettings.show(this.currentRoomData, this.selfRole, this.self?.username);
+    // Update stores and show dialog
+    currentRoomDataStore.set(this.currentRoomData);
+    selfRoleStore.set(this.selfRole);
+    usernameStore.set(this.self?.username || '');
+    roomSettingsVisible.set(true);
   }
 
   /**
@@ -2512,7 +2518,14 @@ export class DrawingApp {
   }
 
   handleChatSend(message) {
-    this.chat.addMessage(message, this.self);
+    // Show immediately in chat (Svelte component handles its own state)
+    if (this.svelteComponents?.chat) {
+      this.svelteComponents.chat.addChatMessage(
+        this.self.name,
+        message,
+        `rgba(${this.self.color[0]}, ${this.self.color[1]}, ${this.self.color[2]}, ${this.self.color[3] / 255})`
+      );
+    }
     this.wsClient.broadcastChat(message);
   }
 
@@ -2524,25 +2537,33 @@ export class DrawingApp {
 
   handleChatImageSend(imageData, recipientId = null) {
     if (this.connected) {
-      if (recipientId) {
-        // DM image
-        this.chat.addDMImage(imageData, recipientId, true);
-      } else {
-        // Public chat image
-        this.chat.addChatImage(imageData, this.self);
-      }
+      // TODO: Implement image messages in Svelte Chat
+      // if (recipientId) {
+      //   this.svelteComponents.chat?.addDMImage(imageData, recipientId, true);
+      // } else {
+      //   this.svelteComponents.chat?.addChatImage(imageData, this.self);
+      // }
+      console.log('[Chat] Image messages not yet implemented in Svelte Chat');
       this.wsClient.broadcastChatImage(imageData, recipientId);
     }
   }
 
   updateChatUserList() {
-    const userList = Array.from(this.users.values()).map(user => ({
-      id: user.id,
-      username: user.username,
-      color: `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3]})`,
-      isSelf: user.id === this.sessionIndex
-    }));
-    this.chat.updateUserList(userList);
+    // Update the users store for Svelte Chat component
+    const userMap = new Map();
+    this.users.forEach((user, id) => {
+      if (id !== this.sessionIndex) { // Exclude self
+        userMap.set(id, {
+          id,
+          username: user.name,
+          color: `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
+          isSelf: false
+        });
+      }
+    });
+
+    // Update the users store
+    usersStore.set(userMap);
   }
 
   handlePaletteColorSelect(colorOrCallback) {
@@ -2587,10 +2608,8 @@ export class DrawingApp {
       this.wsClient.broadcastColorChange(rgba);
     }
 
-    // Add to recent colors
-    if (this.colorPalette) {
-      this.colorPalette.addRecentColor(rgba);
-    }
+    // Add to recent colors (Svelte store)
+    addRecentColor(rgba);
   }
 
   // Pointer event handlers
@@ -2939,7 +2958,7 @@ export class DrawingApp {
 
       // Add current color to recent colors when starting to draw
       if (this.self.tool !== 'erase' && this.self.tool !== 'select') {
-        this.colorPalette.addRecentColor(this.self.color);
+        addRecentColor(this.self.color);
       }
 
       // Start tracking for debug overlay (pass tool type, brush size, and user info)

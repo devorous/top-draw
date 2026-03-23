@@ -26,8 +26,8 @@ export class PatternBrushGallery extends BrushGallery {
 
   async loadBrushes() {
     try {
-      const apiBase = import.meta.env.VITE_API_BASE_URL || '';
-      const response = await fetch(`${apiBase}/api/brushes`);
+      // Fetch from public/brushes/manifest.json (served by Vite)
+      const response = await fetch('/brushes/manifest.json');
       if (!response.ok) throw new Error('Failed to fetch brushes');
 
       const manifest = await response.json();
@@ -37,7 +37,7 @@ export class PatternBrushGallery extends BrushGallery {
         if (entry.file.endsWith('.gih')) continue;
 
         try {
-          const brush = await this.loadBrush(`${apiBase}/brushes/${entry.file}`);
+          const brush = await this.loadBrush(`/brushes/${entry.file}`);
           if (brush) {
             this.brushes.push(brush);
             this.addBrushToGallery(brush);
