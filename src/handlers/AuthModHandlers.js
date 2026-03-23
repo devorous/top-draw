@@ -97,7 +97,11 @@ export function setupAuthModHandlers(wsClient, app) {
     if (app.currentRoomId && data.rooms) {
       const currentRoom = data.rooms.find(r => r.id === app.currentRoomId);
       if (currentRoom) {
-        app.currentRoomData = currentRoom;
+        // Merge room list data with existing currentRoomData to preserve settings from SETTINGS message
+        app.currentRoomData = {
+          ...(app.currentRoomData || {}),
+          ...currentRoom
+        };
         app.updateRoomSettingsButtonVisibility();
       }
     }

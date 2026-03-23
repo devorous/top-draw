@@ -9,11 +9,15 @@ export class RoomSettings {
   /**
    * @param {Object} params
    * @param {WebSocketClient} params.wsClient - WebSocket client instance
+   * @param {Board} params.board - Board instance
+   * @param {UI} params.ui - UI instance
    * @param {Function} params.onUpdate - Callback for room updates
    * @param {Function} [params.onUnregister] - Callback when room is unregistered
    */
-  constructor({ wsClient, onUpdate, onUnregister }) {
+  constructor({ wsClient, board, ui, onUpdate, onUnregister }) {
     this.wsClient = wsClient;
+    this.board = board;
+    this.ui = ui;
     this.onUpdate = onUpdate;
     this.onUnregister = onUnregister;
     this.visible = false;
@@ -32,14 +36,17 @@ export class RoomSettings {
       cancelBtn: document.getElementById('roomSettingsCancelBtn'),
       saveBtn: document.getElementById('roomSettingsSaveBtn'),
       unregisterBtn: document.getElementById('roomSettingsUnregisterBtn'),
+      message: document.getElementById('roomSettingsMessage'),
       idInput: document.getElementById('roomSettingsId'),
       descInput: document.getElementById('roomSettingsDescription'),
       ownerInput: document.getElementById('roomSettingsOwner'),
+      backgroundColorInput: document.getElementById('roomSettingsBackgroundColor'),
       lockedCheck: document.getElementById('roomSettingsLocked'),
       maxUsersInput: document.getElementById('roomSettingsMaxUsers')
     };
 
     this.setupListeners();
+    this.setupModResultListener();
   }
 
   /**
@@ -62,6 +69,57 @@ export class RoomSettings {
   }
 
   /**
+   * Sets up listener for MOD_RESULT responses from server.
+   */
+  setupModResultListener() {
+    // Track if we're waiting for a save response
+    this._waitingForSave = false;
+
+    this.wsClient.on('mod_result', (data) => {
+      // Only respond if we initiated a save from this dialog
+      if (!this._waitingForSave) return;
+
+      this._waitingForSave = false;
+
+      if (data.success) {
+        this.showMessage('Settings saved!', 'success');
+      } else {
+        this.showMessage(data.error || 'Failed to save settings', 'error');
+      }
+    });
+
+    // Listen for settings updates to refresh the dialog
+    this.wsClient.on('settings', (data) => {
+      if (!this.visible || !this.currentRoom) return;
+
+      // Update displayed values if dialog is open
+      if (data.backgroundColor && this.els.backgroundColorInput) {
+        this.els.backgroundColorInput.value = data.backgroundColor;
+        this.currentRoom.backgroundColor = data.backgroundColor;
+      }
+    });
+  }
+
+  /**
+   * Shows a temporary message in the settings dialog.
+   * @param {string} text - Message text
+   * @param {string} type - Message type ('success' or 'error')
+   */
+  showMessage(text, type = 'success') {
+    if (!this.els.message) return;
+
+    this.els.message.textContent = text;
+    this.els.message.className = `roomSettingsMessage ${type}`;
+    this.els.message.style.display = 'block';
+
+    setTimeout(() => {
+      if (this.els.message) {
+        this.els.message.style.display = 'none';
+      }
+    }, 3000);
+  }
+
+  /**
    * Show the room settings dialog
    * @param {Object} roomData - Current room data from server
    * @param {number} userRole - User's role level
@@ -69,6 +127,8 @@ export class RoomSettings {
    */
   show(roomData, userRole, username) {
     if (!roomData) return;
+
+    console.log('[RoomSettings] Opening with roomData:', roomData);
 
     this.currentRoom = roomData;
     this.userRole = userRole;
@@ -79,8 +139,18 @@ export class RoomSettings {
     if (this.els.ownerInput) {
       this.els.ownerInput.value = roomData.ownerUsername || 'Unregistered';
     }
+    if (this.els.backgroundColorInput) {
+      // Get current background color from Board (convert RGBA array to hex)
+      const [r, g, b] = this.board.backgroundColor;
+      const bgColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+      this.els.backgroundColorInput.value = bgColor;
+    }
     if (this.els.lockedCheck) this.els.lockedCheck.checked = !!roomData.locked;
-    if (this.els.maxUsersInput) this.els.maxUsersInput.value = roomData.maxUsers || 0;
+    if (this.els.maxUsersInput) {
+      const maxUsers = roomData.maxUsers !== undefined ? roomData.maxUsers : 40;
+      console.log('[RoomSettings] Setting maxUsers to:', maxUsers, 'from roomData.maxUsers:', roomData.maxUsers);
+      this.els.maxUsersInput.value = maxUsers;
+    }
 
     // Show unregister button only for room owner (by username) or DEITY (role 9+)
     // and only if the room is registered
@@ -118,22 +188,34 @@ export class RoomSettings {
     if (!this.currentRoom) return;
 
     const description = this.els.descInput?.value.trim() || '';
+    const backgroundColor = this.els.backgroundColorInput?.value || '#ffffff';
     const locked = this.els.lockedCheck?.checked || false;
-    const maxUsers = parseInt(this.els.maxUsersInput?.value) || 0;
+    let maxUsers = parseInt(this.els.maxUsersInput?.value) || 40;
+
+    // Clamp max users to 2-60 range
+    maxUsers = Math.max(2, Math.min(60, maxUsers));
+
+    // Update the input to show clamped value
+    if (this.els.maxUsersInput) {
+      this.els.maxUsersInput.value = maxUsers;
+    }
 
     this.wsClient.send({
       t: T.ROOM_UPDATE,
       roomDescription: description,
+      roomBackgroundColor: backgroundColor,
       roomLocked: locked,
       roomMaxUsers: maxUsers
     });
 
-    this.hide();
+    // Show floating toast
+    this.ui.showToast('Settings saved!');
 
     if (this.onUpdate) {
       this.onUpdate({
         ...this.currentRoom,
         description,
+        backgroundColor,
         locked,
         maxUsers
       });

@@ -79,6 +79,19 @@ export class Board {
   }
 
   /**
+   * Set the canvas background color from a hex string
+   * @param {string} hex - Hex color string (e.g., "#ffffff")
+   */
+  setBackgroundColor(hex) {
+    // Convert hex to RGBA array
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    this.backgroundColor = [r, g, b, 1];
+    this.requestUpdate();
+  }
+
+  /**
    * Initialize board elements and layer manager
    * @param {string} containerSelector - CSS selector for the container element
    */

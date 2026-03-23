@@ -670,6 +670,16 @@ wss.on('connection', (ws, req) => {
             }
           }
 
+          // Check room capacity
+          if (room.settings.maxUsers > 0) {
+            const currentCount = room.getClientCount();
+            if (currentCount >= room.settings.maxUsers) {
+              sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Room is full' });
+              ws.close(4003, 'Room full');
+              return;
+            }
+          }
+
           const sessionIndex = room.sessionManager.allocateSessionIndex();
           ws.sessionIndex = sessionIndex;
 
@@ -702,7 +712,13 @@ wss.on('connection', (ws, req) => {
             });
           }
 
-          sendTo(ws, { t: T.SETTINGS, m: room.settings.mirror });
+          sendTo(ws, {
+            t: T.SETTINGS,
+            m: room.settings.mirror,
+            roomBackgroundColor: room.settings.backgroundColor,
+            roomLocked: room.settings.locked,
+            roomMaxUsers: room.settings.maxUsers
+          });
           break;
 
         case T.SYNC_REQUEST:
@@ -1091,10 +1107,27 @@ wss.on('connection', (ws, req) => {
               room.settings.locked = !!data.roomLocked;
             }
             if (data.roomMaxUsers !== undefined) {
-              room.settings.maxUsers = Math.max(0, Math.min(100, data.roomMaxUsers || 0));
+              room.settings.maxUsers = Math.max(2, Math.min(60, data.roomMaxUsers || 40));
+            }
+            if (data.roomBackgroundColor !== undefined) {
+              const hex = data.roomBackgroundColor;
+              if (hex && /^#[0-9A-Fa-f]{6}$/.test(hex)) {
+                room.settings.backgroundColor = hex;
+              }
             }
 
             await room.saveToDB();
+
+            // Broadcast updated settings to all clients in the room
+            const roomBroadcaster = createRoomBroadcaster(room);
+            roomBroadcaster({
+              t: T.SETTINGS,
+              m: room.settings.mirror,
+              roomBackgroundColor: room.settings.backgroundColor,
+              roomLocked: room.settings.locked,
+              roomMaxUsers: room.settings.maxUsers
+            });
+
             sendTo(ws, { t: T.MOD_RESULT, a: true });
           } catch (err) {
             console.error('[Room] Update error:', err);

@@ -24,7 +24,8 @@ export class Room {
     this.settings = {
       mirror: false,
       locked: false,
-      maxUsers: 0
+      maxUsers: 40,
+      backgroundColor: '#ffffff'
     };
 
     this.description = '';
@@ -107,7 +108,8 @@ export class Room {
         this.ownerUsername = doc.ownerUsername || null;
         this.createdAt = doc.createdAt ? doc.createdAt.getTime() : this.createdAt;
         this.settings.locked = doc.settings?.locked || false;
-        this.settings.maxUsers = doc.settings?.maxUsers || 0;
+        this.settings.maxUsers = doc.settings?.maxUsers !== undefined ? doc.settings.maxUsers : 40;
+        this.settings.backgroundColor = doc.settings?.backgroundColor || '#ffffff';
         console.log(`[Room] Loaded "${this.id}" from DB`);
       } else {
         const newDoc = {
@@ -119,7 +121,8 @@ export class Room {
           lastActiveAt: new Date(),
           settings: {
             locked: false,
-            maxUsers: 0
+            maxUsers: 40,
+            backgroundColor: '#ffffff'
           }
         };
         await db.collection('rooms').insertOne(newDoc);
@@ -152,7 +155,8 @@ export class Room {
             lastActiveAt: new Date(),
             settings: {
               locked: this.settings.locked,
-              maxUsers: this.settings.maxUsers
+              maxUsers: this.settings.maxUsers,
+              backgroundColor: this.settings.backgroundColor
             }
           }
         }

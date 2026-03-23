@@ -324,7 +324,12 @@ export class WebSocketClient {
         break;
 
       case T.SETTINGS:
-        this.emit('settings', { mirror: data.m });
+        this.emit('settings', {
+          mirror: data.m,
+          backgroundColor: data.roomBackgroundColor,
+          locked: data.roomLocked,
+          maxUsers: data.roomMaxUsers
+        });
         break;
 
       case T.LEFT:

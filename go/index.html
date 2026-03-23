@@ -262,6 +262,10 @@
                 <label>Owner</label>
                 <input type="text" id="roomSettingsOwner" readonly disabled>
               </div>
+              <div class="formGroup">
+                <label>Background Color</label>
+                <input type="color" id="roomSettingsBackgroundColor" value="#ffffff">
+              </div>
               <div class="formGroup formGroupCheckbox">
                 <label>
                   <input type="checkbox" id="roomSettingsLocked">
@@ -269,10 +273,11 @@
                 </label>
               </div>
               <div class="formGroup">
-                <label>Max Users (0 = unlimited)</label>
-                <input type="number" id="roomSettingsMaxUsers" min="0" max="100" value="0">
+                <label>Max Users (2-60, default: 40)</label>
+                <input type="number" id="roomSettingsMaxUsers" min="2" max="60" value="40">
               </div>
             </div>
+            <div id="roomSettingsMessage" class="roomSettingsMessage" style="display: none;"></div>
             <div class="roomSettingsFooter">
               <button class="btn danger" id="roomSettingsUnregisterBtn" style="display: none;">Unregister Room</button>
               <div class="roomSettingsFooterRight">

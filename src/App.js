@@ -200,6 +200,8 @@ export class DrawingApp {
 
     this.roomSettings = new RoomSettings({
       wsClient: this.wsClient,
+      board: this.board,
+      ui: this.ui,
       onUpdate: (roomData) => {
         this.currentRoomData = roomData;
       },
