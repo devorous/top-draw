@@ -84,6 +84,9 @@ message Msg {
     SYNC_TILE_OWNERSHIP = 75; // Tile ownership data (initial sync + real-time updates)
     TILE_UPDATE        = 76;  // Real-time tile ownership update (broadcast)
     TILE_CLEAR         = 77;  // Tiles that are now empty (ownership should be cleared)
+    ROOM_REGISTER      = 78;  // Claim ownership of an unclaimed room
+    ROOM_UNREGISTER    = 79;  // Release ownership of a room (owner/deity only)
+    ROOM_OWNERSHIP     = 80;  // Broadcast room ownership change
   }
 
   // Tool enum
@@ -257,6 +260,9 @@ message Msg {
   uint32 room_max_users   = 57;  // ROOM_UPDATE: max users (0 = unlimited)
   string room_owner_id    = 58;  // ROOM_UPDATE: owner userId (for claiming)
 
+  // === Extended Room Settings Fields (90+) ===
+  string room_background_color = 90;  // ROOM_UPDATE: canvas background color (hex "#ffffff")
+
   // === Ink Thinning Fields ===
   uint32 th = 59;               // Thinning * 100 (0-100)
   uint32 sim = 60;              // Simulate pressure (0 or 1)
@@ -272,4 +278,8 @@ message Msg {
   }
   repeated TileEntry tiles = 66;  // Tile ownership entries (for SYNC_TILE_OWNERSHIP and TILE_UPDATE)
   repeated uint32 clearedTiles = 67;  // Tile indices that are now empty (for TILE_CLEAR)
+
+  // === Room Ownership Broadcast Fields (68-69) ===
+  string ownerId       = 68;  // ROOM_OWNERSHIP: room owner's userId (null if unregistered)
+  string ownerUsername = 69;  // ROOM_OWNERSHIP: room owner's username
 }

@@ -126,6 +126,15 @@ export class RemoteSelectionHandler {
     // Store restore data so commitSelection can make this undoable for remote users.
     user._selectionRestoreData = this._eraseSelectionFromLayer(s, user.activeLayer ?? 0, lassoPath && lassoPath.length >= 3 ? lassoPath : null, user.id);
 
+    // Check affected tiles for emptiness and clear ownership from empty ones
+    const tileOwnership = this.board.tileOwnershipManager;
+    if (tileOwnership) {
+      const affectedTiles = tileOwnership.getTileIndicesForRect(s.x, s.y, s.width, s.height);
+      if (affectedTiles.length > 0) {
+        this.board.checkErasedTilesForOwnershipByIndices(new Set(affectedTiles));
+      }
+    }
+
     // Activate split-composite mode so upper layers render above the floating selection
     this.board.activeSelectionLayer = user.activeLayer ?? 0;
 
@@ -325,10 +334,23 @@ export class RemoteSelectionHandler {
     // Track the dirty region so the stroke is properly saved
     this.board.expandDirtyRect(user, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
 
+    // Store affected tiles in the stroke record for undo
+    const tileOwnership = this.board.tileOwnershipManager;
+    if (tileOwnership && active.affectedTiles) {
+      const tileIndices = tileOwnership.getTileIndicesForRect(dirtyX, dirtyY, dirtyWidth, dirtyHeight);
+      for (const idx of tileIndices) {
+        active.affectedTiles.add(idx);
+      }
+    }
+
     // Pass the restore data captured during lift so Board.undo can reverse the erase
     lm.commitUserStroke(layerIdx, user.id, { selectionRestoreData: user._selectionRestoreData });
     this.board.activeSelectionLayer = -1;
     this.board.compositeAllLayers();
+
+    // Add tile ownership for visible tiles in the pasted region (must be after composite)
+    this.board.addOwnershipForVisibleTilesInRect(user.id, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
+
     this._cleanupUserSelection(user);
   }
 
@@ -351,6 +373,15 @@ export class RemoteSelectionHandler {
         user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null,
         user.id
       );
+
+      // Check affected tiles for emptiness and clear ownership from empty ones
+      const tileOwnership = this.board.tileOwnershipManager;
+      if (tileOwnership) {
+        const affectedTiles = tileOwnership.getTileIndicesForRect(intS.x, intS.y, intS.width, intS.height);
+        if (affectedTiles.length > 0) {
+          this.board.checkErasedTilesForOwnershipByIndices(new Set(affectedTiles));
+        }
+      }
     }
 
     this.board.activeSelectionLayer = -1;
@@ -434,8 +465,21 @@ export class RemoteSelectionHandler {
       }
 
       this.board.expandDirtyRect(user, ix, iy, iw, ih);
+
+      // Store affected tiles in the stroke record for undo
+      const tileOwnership = this.board.tileOwnershipManager;
+      if (tileOwnership && active.affectedTiles) {
+        const tileIndices = tileOwnership.getTileIndicesForRect(ix, iy, iw, ih);
+        for (const idx of tileIndices) {
+          active.affectedTiles.add(idx);
+        }
+      }
+
       lm.commitUserStroke(layerIdx, user.id);
       this.board.compositeAllLayers();
+
+      // Add tile ownership for visible filled tiles (after composite)
+      this.board.addOwnershipForVisibleTilesInRect(user.id, ix, iy, iw, ih);
     }
   }
 
@@ -504,8 +548,20 @@ export class RemoteSelectionHandler {
     // Track the dirty region so the stroke is properly saved
     this.board.expandDirtyRect(user, dirtyX, dirtyY, dirtyWidth, dirtyHeight, layerIdx);
 
+    // Store affected tiles in the stroke record for undo
+    const tileOwnership = this.board.tileOwnershipManager;
+    if (tileOwnership && active.affectedTiles) {
+      const tileIndices = tileOwnership.getTileIndicesForRect(dirtyX, dirtyY, dirtyWidth, dirtyHeight);
+      for (const idx of tileIndices) {
+        active.affectedTiles.add(idx);
+      }
+    }
+
     lm.commitUserStroke(layerIdx, user.id);
     this.board.compositeAllLayers();
+
+    // Add tile ownership for visible stamped tiles (after composite)
+    this.board.addOwnershipForVisibleTilesInRect(user.id, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
 
     // Keep selection active — redraw floating selection on user's overlay layer
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
@@ -610,35 +666,43 @@ export class RemoteSelectionHandler {
     user.floatingCanvas.height = height;
     user.floatingCtx = user.floatingCanvas.getContext('2d');
 
-    // Load the image from data URL
+    // Set up selection state synchronously so that a replayed SEL_MOVE (e.g. on join)
+    // can apply the current transform corners before the image finishes loading.
+    user.selection = { x, y, width, height };
+    user.selectionCorners = {
+      tl: { x, y },
+      tr: { x: x + width, y },
+      bl: { x, y: y + height },
+      br: { x: x + width, y: y + height }
+    };
+    user.originalCorners = {
+      tl: { x: 0, y: 0 },
+      tr: { x: width, y: 0 },
+      bl: { x: 0, y: height },
+      br: { x: width, y: height }
+    };
+    user.originalSelectionPos = { x: -1, y: -1 }; // Pasted content is "moved"
+
+    // Create reusable homography instances for this user's selection
+    user.homography = new Homography('projective');
+    user.previewHomography = new Homography('projective');
+
+    // Activate split-composite mode for the pasted floating selection
+    this.board.activeSelectionLayer = user.activeLayer ?? 0;
+
+    // Load the image and draw once ready — by then SEL_MOVE may have already updated
+    // selectionCorners, so drawFloatingSelection will render at the correct position.
     const img = new Image();
     img.onload = () => {
       user.floatingCtx.drawImage(img, 0, 0);
-
-      // Set up selection state
-      user.selection = { x, y, width, height };
-      user.selectionCorners = {
-        tl: { x, y },
-        tr: { x: x + width, y },
-        bl: { x, y: y + height },
-        br: { x: x + width, y: y + height }
-      };
-      user.originalCorners = {
-        tl: { x: 0, y: 0 },
-        tr: { x: width, y: 0 },
-        bl: { x: 0, y: height },
-        br: { x: width, y: height }
-      };
-      user.originalSelectionPos = { x: -1, y: -1 }; // Pasted content is "moved"
-
-      // Create reusable homography instances for this user's selection
-      user.homography = new Homography('projective');
-      user.previewHomography = new Homography('projective');
-
-      // Activate split-composite mode for the pasted floating selection
-      this.board.activeSelectionLayer = user.activeLayer ?? 0;
-
-      // Draw the floating selection
+      // A SEL_MOVE replay may have already run _regeneratePreviewCache on the empty
+      // canvas, producing a stale (blank) cached preview. Invalidate and rebuild now
+      // that the actual image data is available.
+      user._cachedPreviewCanvas = null;
+      user._cachedPreviewBounds = null;
+      if (this.hasTransformedCorners(user)) {
+        this._regeneratePreviewCache(user);
+      }
       this.drawFloatingSelection(user);
       this.startRemoteSelectionAnimation();
     };

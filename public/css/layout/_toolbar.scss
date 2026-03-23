@@ -28,6 +28,18 @@
   }
 }
 
+// Accent button style (e.g., Register Room)
+.btn.accent {
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  border: 1px solid #7c3aed;
+  color: #fff;
+
+  &:hover {
+    background: linear-gradient(135deg, #6d28d9, #9333ea);
+    border-color: #6d28d9;
+  }
+}
+
 .btn.menuBtn {
   display: none; // Hidden by default on desktop
   font-size: 18px;

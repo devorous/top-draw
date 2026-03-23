@@ -76,6 +76,8 @@ export function setupAuthModHandlers(wsClient, app) {
     if (!data.success && data.error) {
       ui.showToast(data.error, 3000);
     }
+    // Always refresh room list to sync ownership state after any mod action
+    wsClient.requestRoomList();
     if (data.success && app.moderation?.panelVisible) {
       app.moderation._requestList();
     }
@@ -95,9 +97,31 @@ export function setupAuthModHandlers(wsClient, app) {
     if (app.currentRoomId && data.rooms) {
       const currentRoom = data.rooms.find(r => r.id === app.currentRoomId);
       if (currentRoom) {
-        app.currentRoomData = currentRoom;
+        // Merge room list data with existing currentRoomData to preserve settings from SETTINGS message
+        app.currentRoomData = {
+          ...(app.currentRoomData || {}),
+          ...currentRoom
+        };
         app.updateRoomSettingsButtonVisibility();
       }
+    }
+  });
+
+  wsClient.on('room_ownership', (data) => {
+    console.log('[room_ownership] received:', data);
+    // Update local room data when ownership changes
+    if (app.currentRoomData) {
+      app.currentRoomData.ownerId = data.ownerId || null;
+      app.currentRoomData.ownerUsername = data.ownerUsername || null;
+    }
+    app.updateRoomSettingsButtonVisibility();
+
+    // Show notification based on current room state after update
+    if (app.currentRoomData?.ownerId) {
+      const ownerName = app.currentRoomData.ownerUsername || 'Someone';
+      ui.showToast(`${ownerName} registered this room`, 3000);
+    } else {
+      ui.showToast('This room has been unregistered', 3000);
     }
   });
 

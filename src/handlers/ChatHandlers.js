@@ -6,21 +6,25 @@
  * @param {App} app - The main application instance.
  */
 export function setupChatHandlers(wsClient, app) {
-  const { users, chat } = app;
+  const { users } = app;
 
   wsClient.on('msg', (data) => {
     if (data.sessionIndex === app.sessionIndex) return;
     const user = users.get(data.sessionIndex);
-    if (user) {
-      chat.addMessage(data.message, user);
+    if (user && app.svelteComponents?.chat) {
+      app.svelteComponents.chat.addChatMessage(
+        user.name,
+        data.message,
+        `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`
+      );
     }
   });
 
   wsClient.on('dm', (data) => {
     if (data.sessionIndex === app.sessionIndex) return;
     const user = users.get(data.sessionIndex);
-    if (user) {
-      chat.addDMMessage(data.message, data.sessionIndex, false);
+    if (user && app.svelteComponents?.chat) {
+      app.svelteComponents.chat.addChatDM(data.message, data.sessionIndex, false);
     }
   });
 
@@ -30,13 +34,13 @@ export function setupChatHandlers(wsClient, app) {
 
     const user = users.get(data.sessionIndex);
     if (user) {
-      if (data.recipientId) {
-        // DM image - add to DM conversation
-        chat.addDMImage(data.imageData, data.sessionIndex, false);
-      } else {
-        // Public chat image
-        chat.addChatImage(data.imageData, user);
-      }
+      // TODO: Implement image messages in Svelte Chat
+      console.log('[Chat] Image messages not yet implemented in Svelte Chat');
+      // if (data.recipientId) {
+      //   app.svelteComponents.chat?.addDMImage(data.imageData, data.sessionIndex, false);
+      // } else {
+      //   app.svelteComponents.chat?.addChatImage(data.imageData, user);
+      // }
     } else {
       console.warn('[CHAT_IMG] User not found for sessionIndex:', data.sessionIndex);
     }

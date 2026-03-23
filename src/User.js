@@ -31,6 +31,15 @@ export class User {
     this.blurRadius = options.blurRadius !== undefined ? options.blurRadius : 5;
     this.thinning = options.thinning !== undefined ? options.thinning : 0.5;
     this.simulatePressure = options.simulatePressure !== undefined ? options.simulatePressure : true;
+    this.patternScale = options.patternScale || 100;
+    this.patternShape = options.patternShape || 'circle';
+    this.patternName = options.patternName || 'dots';
+    this.patternRotation = options.patternRotation || 0;
+    this.patternSpacing = options.patternSpacing || 0;
+    this.patternOffsetX = options.patternOffsetX || 0;
+    this.patternOffsetY = options.patternOffsetY || 0;
+    this.patternColorMode = options.patternColorMode || 'original';
+    this.patternBrush = options.patternBrush || null;
     this.spaceIndex = 0;
     this.color = options.color || [0, 0, 0, 1];
     this.tool = options.tool || 'ink';
@@ -314,7 +323,15 @@ export class User {
       text: this.text,
       username: this.username,
       blendMode: this.blendMode,
-      activeLayer: this.activeLayer
+      activeLayer: this.activeLayer,
+      patternScale: this.patternScale,
+      patternShape: this.patternShape,
+      patternName: this.patternName,
+      patternRotation: this.patternRotation,
+      patternSpacing: this.patternSpacing,
+      patternOffsetX: this.patternOffsetX,
+      patternOffsetY: this.patternOffsetY,
+      patternColorMode: this.patternColorMode
     };
   }
 
@@ -325,7 +342,7 @@ export class User {
    * @returns {void}
    */
   updateFrom(data) {
-    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'username', 'blendMode', 'activeLayer'];
+    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'username', 'blendMode', 'activeLayer', 'patternScale', 'patternShape', 'patternName', 'patternRotation', 'patternSpacing'];
     fields.forEach(field => {
       if (data[field] !== undefined) {
         this[field] = data[field];

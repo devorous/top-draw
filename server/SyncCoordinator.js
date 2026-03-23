@@ -111,6 +111,7 @@ export class SyncCoordinator {
     for (const client of this.wss.clients) {
       if (client.sessionIndex === targetUser && client.readyState === WebSocket.OPEN) {
         this.sendTo(client, { t: T.SYNC_CANVAS, u: ws.sessionIndex, img: data.img });
+        this._sendActiveImagesToJoiner(client);
         this.sendTo(client, { t: T.SYNC_COMPLETE });
         this.pendingSyncRequests.delete(targetUser);
         break;
@@ -219,6 +220,7 @@ export class SyncCoordinator {
         }
       }
 
+      this._sendActiveImagesToJoiner(client);
       this.sendTo(client, { t: T.SYNC_COMPLETE });
       this.pendingSyncRequests.delete(targetUser);
       console.log(`[Sync] Stroke sync complete for user ${targetUser}`);
@@ -238,6 +240,24 @@ export class SyncCoordinator {
         t: T.SYNC_TILE_OWNERSHIP,
         tiles: data.tiles
       });
+    }
+  }
+
+  /**
+   * Sends active floating selection images to a newly joined user.
+   * Called just before SYNC_COMPLETE so the new user's canvas is already built.
+   * @param {WebSocket} joinerWs - The WebSocket of the new user.
+   * @private
+   */
+  _sendActiveImagesToJoiner(joinerWs) {
+    for (const [sessionIndex, userData] of this.sessionManager.users) {
+      if (!userData.activeImage) continue;
+      const { sx, sy, sw, sh, g } = userData.activeImage;
+      this.sendTo(joinerWs, { t: T.IMG_PASTE, u: sessionIndex, sx, sy, sw, sh, g });
+      // If the selection has been moved from its initial position, send current corners
+      if (userData.activeSelectionCorners) {
+        this.sendTo(joinerWs, { t: T.SEL_MOVE, u: sessionIndex, cr: userData.activeSelectionCorners });
+      }
     }
   }
 

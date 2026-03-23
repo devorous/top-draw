@@ -1,14 +1,14 @@
 /** @fileoverview Main entry point for the drawing application, coordinating board, tools, UI, and networking. */
 
-import { ToolToEnum } from '../shared/MessageTypes.js';
+import { T, ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor } from '../shared/ColorUtils.js';
 import { User } from './User.js';
 import { Board } from './canvas/Board.js';
 import { ToolManager, BrushTool } from './tools/Tools.js';
 import { WebSocketClient } from './network/WebSocketClient.js';
-import { Chat } from './ui/Chat.js';
-import { UI, ColorPalette } from './ui/index.js';
+import { UI } from './ui/index.js';
 import { BrushGalleryLoader } from './ui/BrushGalleryLoader.js';
+import { PatternBrushGallery } from './ui/PatternBrushGallery.js';
 import { RemoteUserHandler } from './remote/RemoteUserHandler.js';
 import { TouchHandler } from './input/TouchHandler.js';
 import { setupWebSocketHandlers } from './network/WebSocketHandlers.js';
@@ -18,7 +18,6 @@ import { Auth } from './auth/Auth.js';
 import { Moderation } from './auth/Moderation.js';
 import { ColorInputMenu } from './ui/ColorInputMenu.js';
 import { LandingPage } from './ui/LandingPage.js';
-import { RoomSettings } from './ui/RoomSettings.js';
 import { ToolLockManager } from './tools/ToolLockManager.js';
 import { InputBufferManager } from './input/InputBufferManager.js';
 import { KeyboardHandler } from './input/KeyboardHandler.js';
@@ -29,6 +28,21 @@ import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
 import { SaveMode } from './ui/SaveMode.js';
+
+// Svelte UI Components
+import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } from './ui/svelte/AppUI.js';
+import {
+  currentColor,
+  blendMode,
+  activeLayer,
+  currentRoomData as currentRoomDataStore,
+  selfRole as selfRoleStore,
+  username as usernameStore,
+  roomSettingsVisible,
+  chatVisible,
+  addRecentColor,
+  users as usersStore
+} from './stores.js';
 
 /**
  * Main Drawing Application class.
@@ -52,17 +66,22 @@ export class DrawingApp {
 
     this.toolManager = new ToolManager(this.board);
     this.ui = new UI();
-    this.chat = new Chat({
-      onSend: (message) => this.handleChatSend(message),
-      onDM: (message, recipientId) => this.handleDMSend(message, recipientId),
-      onSendImage: (imageData, recipientId) => this.handleChatImageSend(imageData, recipientId)
-    });
+
+    // Vanilla JS components (to be replaced by Svelte)
+    // this.chat = new Chat({...});
+    // this.colorPalette = new ColorPalette({...});
+    // NOTE: Chat and ColorPalette now managed by Svelte components
+
     this.brushGallery = new BrushGalleryLoader({
       onSelect: (brush) => this.handleBrushSelect(brush)
     });
-    this.colorPalette = new ColorPalette({
-      onColorSelect: (colorOrCallback) => this.handlePaletteColorSelect(colorOrCallback)
+    this.patternGallery = new PatternBrushGallery({
+      onSelect: (brush) => this.handlePatternBrushSelect(brush)
     });
+
+    // Svelte components will be initialized in init()
+    this.svelteComponents = null;
+
     this.colorInputMenu = new ColorInputMenu({
       onColorChange: (rgba) => this.handleColorInputChange(rgba)
     });
@@ -92,6 +111,7 @@ export class DrawingApp {
     this.currentRoomData = null;
     this.selfRole = 0;
     this.moderation = new Moderation();
+    // this.profileDialog = new ProfileDialog(); // Now Svelte component
 
     this.inputBufferManager = new InputBufferManager(this);
 
@@ -141,14 +161,20 @@ export class DrawingApp {
    */
   async init() {
     this.ui.init();
+    this.createSelf();
     this.board.init('#boardContainer');
     this.board.setApp(this);
-    this.chat.init();
+
+    // Initialize Svelte UI components
+    this.svelteComponents = initSvelteUI(this);
+
+    // Legacy components (still vanilla JS)
+    // this.chat.init(); // Now Svelte
+    // this.colorPalette.init(); // Now Svelte
     this.brushGallery.init();
-    this.colorPalette.init();
+    this.patternGallery.init();
     this.colorInputMenu.init();
 
-    this.createSelf();
     this.initSelfFromUI();
     this.setupColorPicker();
 
@@ -175,6 +201,9 @@ export class DrawingApp {
 
     this.ui.setupLayerPreviewListeners(this.board.layerManager);
 
+    // Sync initial app state to Svelte stores
+    syncStoresFromApp(this);
+
     this.syncClient = new SyncClient();
     this.syncClient.init({
       wsClient: this.wsClient,
@@ -196,27 +225,21 @@ export class DrawingApp {
     });
     this.landingPage.init();
 
-    this.roomSettings = new RoomSettings({
-      wsClient: this.wsClient,
-      onUpdate: (roomData) => {
-        this.currentRoomData = roomData;
-      }
-    });
-    this.roomSettings.init();
+    // RoomSettings now Svelte component (initialized in initSvelteUI)
+    // this.roomSettings = new RoomSettings({...});
+    // this.roomSettings.init();
 
+    this.moderation.onProfile = (username) => {
+      showProfileDialog(username);
+    };
     this.moderation.onSync = (sessionIndex) => {
       this.syncClient.requestSync();
       this.ui.showToast('Sync requested');
     };
     this.moderation.onPM = (sessionIndex, user) => {
-      if (user) {
-        this.chat.selectDMRecipient({
-          id: sessionIndex,
-          username: user.username,
-          color: `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3]})`,
-          isSelf: sessionIndex === this.sessionIndex
-        });
-        this.chat.show();
+      if (user && this.svelteComponents?.chat) {
+        // TODO: Implement DM recipient selection in Svelte Chat
+        chatVisible.set(true);
       }
     };
     this.moderation.onModAction = (actionType, sessionIndex, reason, duration) => {
@@ -422,6 +445,9 @@ export class DrawingApp {
     elements.circleBlurBtn.addEventListener('click', () => this.selectTool('circleBlur'));
     elements.glitchBlurBtn.addEventListener('click', () => this.selectTool('glitchBlur'));
     elements.imageBrushBtn.addEventListener('click', () => this.selectTool('imageBrush'));
+    if (elements.patternBtn) {
+      elements.patternBtn.addEventListener('click', () => this.selectTool('pattern'));
+    }
     elements.uploadBtn.addEventListener('click', () => elements.imageUploadInput.click());
     elements.imageUploadInput.addEventListener('change', (e) => {
       if (e.target.files && e.target.files[0]) {
@@ -453,13 +479,19 @@ export class DrawingApp {
     if (elements.hudUndoBtn) elements.hudUndoBtn.addEventListener('click', () => this.handleUndo());
     if (elements.hudRedoBtn) elements.hudRedoBtn.addEventListener('click', () => this.handleRedo());
 
-    elements.chatBtn.addEventListener('click', () => this.chat.toggle());
+    elements.chatBtn.addEventListener('click', () => chatVisible.update(v => !v));
     elements.selfListUser.addEventListener('click', () => this.handleRenameself());
 
     // Room settings button
     const roomSettingsBtn = document.getElementById('roomSettingsBtn');
     if (roomSettingsBtn) {
       roomSettingsBtn.addEventListener('click', () => this.handleRoomSettings());
+    }
+
+    // Register room button
+    const registerRoomBtn = document.getElementById('registerRoomBtn');
+    if (registerRoomBtn) {
+      registerRoomBtn.addEventListener('click', () => this.handleRegisterRoom());
     }
 
     // Context menu button clicks
@@ -578,6 +610,64 @@ export class DrawingApp {
         const fillTool = this.toolManager.getTool('fill');
         if (fillTool) fillTool.advancedMode = e.target.checked;
         if (fillAdvancedHint) fillAdvancedHint.style.display = e.target.checked ? 'block' : 'none';
+      });
+    }
+
+    // Fill pattern mode checkbox
+    const fillPatternCheck = document.getElementById('fillPatternCheck');
+    const fillPatternSettings = document.getElementById('fillPatternSettings');
+    if (fillPatternCheck) {
+      const fillTool = this.toolManager.getTool('fill');
+      if (fillTool) {
+        fillPatternCheck.checked = fillTool.patternMode || false;
+        if (fillPatternSettings) fillPatternSettings.style.display = fillTool.patternMode ? 'block' : 'none';
+      }
+      fillPatternCheck.addEventListener('change', (e) => {
+        const fillTool = this.toolManager.getTool('fill');
+        if (fillTool) fillTool.patternMode = e.target.checked;
+        if (fillPatternSettings) fillPatternSettings.style.display = e.target.checked ? 'block' : 'none';
+
+        // Update preview if pattern tool exists
+        const patternTool = this.toolManager.getTool('pattern');
+        if (patternTool && e.target.checked) {
+          // Also update fill pattern preview
+          const fillPatternPreview = document.getElementById('fillPatternPreview');
+          if (fillPatternPreview) {
+            const oldPreview = patternTool.previewCanvas;
+            patternTool.previewCanvas = fillPatternPreview;
+            patternTool.updatePreview(this.self);
+            patternTool.previewCanvas = oldPreview;
+          }
+        }
+      });
+    }
+
+    // Selection pattern mode checkbox
+    const selectionPatternCheck = document.getElementById('selectionPatternCheck');
+    const selectionPatternSettings = document.getElementById('selectionPatternSettings');
+    if (selectionPatternCheck) {
+      const selectTool = this.toolManager.getTool('select');
+      if (selectTool) {
+        selectionPatternCheck.checked = selectTool.patternMode || false;
+        if (selectionPatternSettings) selectionPatternSettings.style.display = selectTool.patternMode ? 'block' : 'none';
+      }
+      selectionPatternCheck.addEventListener('change', (e) => {
+        const selectTool = this.toolManager.getTool('select');
+        if (selectTool) selectTool.patternMode = e.target.checked;
+        if (selectionPatternSettings) selectionPatternSettings.style.display = e.target.checked ? 'block' : 'none';
+
+        // Update preview if pattern tool exists
+        const patternTool = this.toolManager.getTool('pattern');
+        if (patternTool && e.target.checked) {
+          // Also update selection pattern preview
+          const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+          if (selectionPatternPreview) {
+            const oldPreview = patternTool.previewCanvas;
+            patternTool.previewCanvas = selectionPatternPreview;
+            patternTool.updatePreview(this.self);
+            patternTool.previewCanvas = oldPreview;
+          }
+        }
       });
     }
 
@@ -912,6 +1002,403 @@ export class DrawingApp {
     elements.boardContainer.addEventListener('drop', (e) => this.handleImageDrop(e));
 
     window.addEventListener('resize', () => this.handleResize());
+
+    // Pattern options listeners
+    if (elements.patternScaleSlider) {
+      elements.patternScaleSlider.addEventListener('input', (e) => this.handlePatternScaleChange(e));
+    }
+    if (elements.patternTypeSelect) {
+      elements.patternTypeSelect.addEventListener('change', (e) => this.handlePatternTypeChange(e));
+    }
+    if (elements.patternImageBtn) {
+      elements.patternImageBtn.addEventListener('click', () => this.handlePatternImageBtnClick());
+    }
+    if (elements.patternImageUploadInput) {
+      elements.patternImageUploadInput.addEventListener('change', (e) => this.handlePatternImageUpload(e));
+    }
+    if (elements.patternShapeUploadBtn) {
+      elements.patternShapeUploadBtn.addEventListener('click', () => this.handlePatternShapeUploadBtnClick());
+    }
+    if (elements.patternShapeUploadInput) {
+      elements.patternShapeUploadInput.addEventListener('change', (e) => this.handlePatternShapeUpload(e));
+    }
+    if (elements.patternRotationSlider) {
+      elements.patternRotationSlider.addEventListener('input', (e) => this.handlePatternRotationChange(e));
+    }
+    if (elements.patternSpacingSlider) {
+      elements.patternSpacingSlider.addEventListener('input', (e) => this.handlePatternSpacingChange(e));
+    }
+    if (elements.patternOffsetXSlider) {
+      elements.patternOffsetXSlider.addEventListener('input', (e) => this.handlePatternOffsetXChange(e));
+    }
+    if (elements.patternOffsetYSlider) {
+      elements.patternOffsetYSlider.addEventListener('input', (e) => this.handlePatternOffsetYChange(e));
+    }
+    if (elements.patternColorModeRadios) {
+      elements.patternColorModeRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => this.handlePatternColorModeChange(e));
+      });
+    }
+
+    // Fill pattern settings (reuse same handlers as pattern tool since they share user properties)
+    if (elements.fillPatternScaleSlider) {
+      elements.fillPatternScaleSlider.addEventListener('input', (e) => this.handlePatternScaleChange(e));
+    }
+    if (elements.fillPatternRotationSlider) {
+      elements.fillPatternRotationSlider.addEventListener('input', (e) => this.handlePatternRotationChange(e));
+    }
+    if (elements.fillPatternSpacingSlider) {
+      elements.fillPatternSpacingSlider.addEventListener('input', (e) => this.handlePatternSpacingChange(e));
+    }
+    if (elements.fillPatternOffsetXSlider) {
+      elements.fillPatternOffsetXSlider.addEventListener('input', (e) => this.handlePatternOffsetXChange(e));
+    }
+    if (elements.fillPatternOffsetYSlider) {
+      elements.fillPatternOffsetYSlider.addEventListener('input', (e) => this.handlePatternOffsetYChange(e));
+    }
+    if (elements.fillPatternColorModeRadios) {
+      elements.fillPatternColorModeRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => this.handlePatternColorModeChange(e));
+      });
+    }
+
+    // Selection pattern settings (reuse same handlers as pattern tool since they share user properties)
+    if (elements.selectionPatternScaleSlider) {
+      elements.selectionPatternScaleSlider.addEventListener('input', (e) => this.handlePatternScaleChange(e));
+    }
+    if (elements.selectionPatternRotationSlider) {
+      elements.selectionPatternRotationSlider.addEventListener('input', (e) => this.handlePatternRotationChange(e));
+    }
+    if (elements.selectionPatternSpacingSlider) {
+      elements.selectionPatternSpacingSlider.addEventListener('input', (e) => this.handlePatternSpacingChange(e));
+    }
+    if (elements.selectionPatternOffsetXSlider) {
+      elements.selectionPatternOffsetXSlider.addEventListener('input', (e) => this.handlePatternOffsetXChange(e));
+    }
+    if (elements.selectionPatternOffsetYSlider) {
+      elements.selectionPatternOffsetYSlider.addEventListener('input', (e) => this.handlePatternOffsetYChange(e));
+    }
+    if (elements.selectionPatternColorModeRadios) {
+      elements.selectionPatternColorModeRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => this.handlePatternColorModeChange(e));
+      });
+    }
+  }
+
+  handlePatternScaleChange(e) {
+    const scale = Number(e.target.value);
+    this.self.patternScale = scale;
+    if (this.ui.elements.patternScaleValue) {
+      this.ui.elements.patternScaleValue.textContent = `${scale}%`;
+    }
+    if (this.ui.elements.fillPatternScaleValue) {
+      this.ui.elements.fillPatternScaleValue.textContent = `${scale}%`;
+    }
+    if (this.ui.elements.selectionPatternScaleValue) {
+      this.ui.elements.selectionPatternScaleValue.textContent = `${scale}%`;
+    }
+
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool && patternTool.updatePreview) {
+      patternTool.updatePreview(this.self);
+
+      // Also update fill pattern preview if fill tool has pattern mode enabled
+      const fillTool = this.toolManager.getTool('fill');
+      const fillPatternPreview = document.getElementById('fillPatternPreview');
+      if (fillTool?.patternMode && fillPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview if select tool has pattern mode enabled
+      const selectTool = this.toolManager.getTool('select');
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectTool?.patternMode && selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+    }
+
+    if (this.connected) {
+      this.wsClient.broadcastNameChange(this.self.username, { patternScale: scale });
+    }
+  }
+
+  handlePatternImageBtnClick() {
+    this.ui.elements.patternImageUploadInput?.click();
+  }
+
+  handlePatternImageUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const customBrush = {
+          type: 'image',
+          image: img,
+          gimpUrl: event.target.result,
+          brushName: 'Uploaded Image'
+        };
+        this.handlePatternBrushSelect(customBrush);
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  handlePatternRotationChange(e) {
+    const rotation = Number(e.target.value);
+    this.self.patternRotation = rotation;
+    if (this.ui.elements.patternRotationValue) {
+      this.ui.elements.patternRotationValue.textContent = `${rotation}°`;
+    }
+    if (this.ui.elements.fillPatternRotationValue) {
+      this.ui.elements.fillPatternRotationValue.textContent = `${rotation}°`;
+    }
+    if (this.ui.elements.selectionPatternRotationValue) {
+      this.ui.elements.selectionPatternRotationValue.textContent = `${rotation}°`;
+    }
+
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool && patternTool.updatePreview) {
+      patternTool.updatePreview(this.self);
+
+      // Also update fill pattern preview if fill tool has pattern mode enabled
+      const fillTool = this.toolManager.getTool('fill');
+      const fillPatternPreview = document.getElementById('fillPatternPreview');
+      if (fillTool?.patternMode && fillPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview if select tool has pattern mode enabled
+      const selectTool = this.toolManager.getTool('select');
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectTool?.patternMode && selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+    }
+
+    if (this.connected) {
+      this.wsClient.broadcastNameChange(this.self.username, { patternRotation: rotation });
+    }
+  }
+
+  handlePatternSpacingChange(e) {
+    const spacing = Number(e.target.value);
+    this.self.patternSpacing = spacing;
+    if (this.ui.elements.patternSpacingValue) {
+      this.ui.elements.patternSpacingValue.textContent = spacing;
+    }
+    if (this.ui.elements.fillPatternSpacingValue) {
+      this.ui.elements.fillPatternSpacingValue.textContent = spacing;
+    }
+    if (this.ui.elements.selectionPatternSpacingValue) {
+      this.ui.elements.selectionPatternSpacingValue.textContent = spacing;
+    }
+
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool && patternTool.updatePreview) {
+      patternTool.updatePreview(this.self);
+
+      // Also update fill pattern preview if fill tool has pattern mode enabled
+      const fillTool = this.toolManager.getTool('fill');
+      const fillPatternPreview = document.getElementById('fillPatternPreview');
+      if (fillTool?.patternMode && fillPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview if select tool has pattern mode enabled
+      const selectTool = this.toolManager.getTool('select');
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectTool?.patternMode && selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+    }
+
+    if (this.connected) {
+      this.wsClient.broadcastNameChange(this.self.username, { patternSpacing: spacing });
+    }
+  }
+
+  handlePatternOffsetXChange(e) {
+    const offsetX = Number(e.target.value);
+    this.self.patternOffsetX = offsetX;
+    if (this.ui.elements.patternOffsetXValue) {
+      this.ui.elements.patternOffsetXValue.textContent = offsetX;
+    }
+    if (this.ui.elements.fillPatternOffsetXValue) {
+      this.ui.elements.fillPatternOffsetXValue.textContent = offsetX;
+    }
+    if (this.ui.elements.selectionPatternOffsetXValue) {
+      this.ui.elements.selectionPatternOffsetXValue.textContent = offsetX;
+    }
+
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool && patternTool.updatePreview) {
+      patternTool.updatePreview(this.self);
+
+      // Also update fill pattern preview if fill tool has pattern mode enabled
+      const fillTool = this.toolManager.getTool('fill');
+      const fillPatternPreview = document.getElementById('fillPatternPreview');
+      if (fillTool?.patternMode && fillPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview if select tool has pattern mode enabled
+      const selectTool = this.toolManager.getTool('select');
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectTool?.patternMode && selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+    }
+
+    if (this.connected) {
+      this.wsClient.broadcastNameChange(this.self.username, { patternOffsetX: offsetX });
+    }
+  }
+
+  handlePatternOffsetYChange(e) {
+    const offsetY = Number(e.target.value);
+    this.self.patternOffsetY = offsetY;
+    if (this.ui.elements.patternOffsetYValue) {
+      this.ui.elements.patternOffsetYValue.textContent = offsetY;
+    }
+    if (this.ui.elements.fillPatternOffsetYValue) {
+      this.ui.elements.fillPatternOffsetYValue.textContent = offsetY;
+    }
+    if (this.ui.elements.selectionPatternOffsetYValue) {
+      this.ui.elements.selectionPatternOffsetYValue.textContent = offsetY;
+    }
+
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool && patternTool.updatePreview) {
+      patternTool.updatePreview(this.self);
+
+      // Also update fill pattern preview if fill tool has pattern mode enabled
+      const fillTool = this.toolManager.getTool('fill');
+      const fillPatternPreview = document.getElementById('fillPatternPreview');
+      if (fillTool?.patternMode && fillPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview if select tool has pattern mode enabled
+      const selectTool = this.toolManager.getTool('select');
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectTool?.patternMode && selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+    }
+
+    if (this.connected) {
+      this.wsClient.broadcastNameChange(this.self.username, { patternOffsetY: offsetY });
+    }
+  }
+
+  handlePatternColorModeChange(e) {
+    const colorMode = e.target.value;
+    this.self.patternColorMode = colorMode;
+
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool) {
+      // Clear cache so tiles are regenerated with new color mode
+      patternTool._tileCache.clear();
+      if (patternTool.updatePreview) {
+        patternTool.updatePreview(this.self);
+      }
+
+      // Also update fill pattern preview if fill tool has pattern mode enabled
+      const fillTool = this.toolManager.getTool('fill');
+      const fillPatternPreview = document.getElementById('fillPatternPreview');
+      if (fillTool?.patternMode && fillPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview if select tool has pattern mode enabled
+      const selectTool = this.toolManager.getTool('select');
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectTool?.patternMode && selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+    }
+
+    // Sync all radio groups (pattern, fill pattern, and selection pattern)
+    document.querySelectorAll('input[name="patternColorMode"], input[name="fillPatternColorMode"], input[name="selectionPatternColorMode"]').forEach(r => r.checked = r.value === colorMode);
+
+    if (this.connected) {
+      this.wsClient.broadcastNameChange(this.self.username, { patternColorMode: colorMode });
+    }
+  }
+
+  handlePatternBrushSelect(brush) {
+    this.self.patternBrush = brush;
+
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool && patternTool.updatePreview) {
+      patternTool.updatePreview(this.self);
+
+      // Also update fill pattern preview if fill tool has pattern mode enabled
+      const fillTool = this.toolManager.getTool('fill');
+      const fillPatternPreview = document.getElementById('fillPatternPreview');
+      if (fillTool?.patternMode && fillPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview if select tool has pattern mode enabled
+      const selectTool = this.toolManager.getTool('select');
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectTool?.patternMode && selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+    }
+
+    if (this.connected) {
+      this.wsClient.broadcastNameChange(this.self.username, {
+        patternBrush: brush
+      });
+    }
   }
 
   // Room selection
@@ -1253,6 +1740,16 @@ export class DrawingApp {
       if (rankClass) nameEl.classList.add(rankClass);
     }
 
+    const profileBtn = document.getElementById('selfProfileBtn');
+    if (profileBtn) {
+      const canShowProfile = this.selfRole >= 1 && this.self.username;
+      profileBtn.style.display = canShowProfile ? '' : 'none';
+      profileBtn.onclick = () => {
+        menu.style.display = 'none';
+        showProfileDialog(this.self.username);
+      };
+    }
+
     menu.style.display = 'flex';
     const x = Math.min(e.clientX, window.innerWidth - menu.offsetWidth - 10);
     const y = Math.min(e.clientY, window.innerHeight - menu.offsetHeight - 10);
@@ -1391,39 +1888,90 @@ export class DrawingApp {
       return;
     }
 
-    const canEdit = this.roomSettings.canEdit(
-      this.currentRoomData,
-      this.selfRole,
-      this.auth?.userId
-    );
+    // Check permissions before opening settings
+    const hasOwner = !!this.currentRoomData?.ownerId;
+    const canEdit = hasOwner && (this.selfRole >= 5); // ADMIN+ or higher
 
     if (!canEdit) {
       this.ui.showToast('Only room owner or moderators can edit settings', 3000);
       return;
     }
 
-    this.roomSettings.show(this.currentRoomData, this.selfRole, this.auth?.userId);
+    // Update stores and show dialog
+    currentRoomDataStore.set(this.currentRoomData);
+    selfRoleStore.set(this.selfRole);
+    usernameStore.set(this.self?.username || '');
+    roomSettingsVisible.set(true);
   }
 
   /**
-   * Updates the visibility of the room settings button based on user permissions.
+   * Registers the current user as room owner.
    */
-  updateRoomSettingsButtonVisibility() {
-    const btn = document.getElementById('roomSettingsBtn');
-    if (!btn) return;
-
-    if (!this.connected || !this.currentRoomData) {
-      btn.style.display = 'none';
+  handleRegisterRoom() {
+    if (this.selfRole < 1) {
+      this.ui.showToast('You must be logged in to register a room', 3000);
       return;
     }
 
-    const canEdit = this.roomSettings?.canEdit(
-      this.currentRoomData,
-      this.selfRole,
-      this.auth?.userId
-    );
+    if (this.currentRoomData?.ownerId) {
+      this.ui.showToast('This room already has an owner', 3000);
+      return;
+    }
 
-    btn.style.display = canEdit ? 'inline-block' : 'none';
+    this.wsClient.send({ t: T.ROOM_REGISTER });
+
+    // Optimistically update local room data
+    if (this.self?.username) {
+      if (!this.currentRoomData) {
+        this.currentRoomData = { id: this.currentRoomId };
+      }
+      this.currentRoomData.ownerId = 'self';
+      this.currentRoomData.ownerUsername = this.self.username;
+      this.updateRoomSettingsButtonVisibility();
+    }
+
+    this.ui.showToast('Registering room...');
+  }
+
+  /**
+   * Updates the visibility of room settings and register buttons based on user permissions.
+   */
+  updateRoomSettingsButtonVisibility() {
+    const settingsBtn = document.getElementById('roomSettingsBtn');
+    const registerBtn = document.getElementById('registerRoomBtn');
+
+    // Use wsClient.connected instead of this.connected since this.connected
+    // may not be set yet when auth completes
+    const isConnected = this.wsClient?.connected && this.currentRoomId;
+
+    if (!isConnected) {
+      if (settingsBtn) settingsBtn.style.display = 'none';
+      if (registerBtn) registerBtn.style.display = 'none';
+      return;
+    }
+
+    const isLoggedIn = this.selfRole >= 1;
+
+    // If we don't have room data yet, show register button for logged-in users
+    // (assumes room is likely unregistered if data hasn't loaded)
+    if (!this.currentRoomData) {
+      if (settingsBtn) settingsBtn.style.display = 'none';
+      if (registerBtn) registerBtn.style.display = isLoggedIn ? 'inline-block' : 'none';
+      return;
+    }
+
+    const hasOwner = !!this.currentRoomData.ownerId;
+    const canEdit = this.roomSettings?.canEdit(this.currentRoomData, this.selfRole);
+
+    // Show Register Room button if room is unregistered and user is logged in
+    if (registerBtn) {
+      registerBtn.style.display = (!hasOwner && isLoggedIn) ? 'inline-block' : 'none';
+    }
+
+    // Show Room Settings button only if room is registered and user can edit
+    if (settingsBtn) {
+      settingsBtn.style.display = (hasOwner && canEdit) ? 'inline-block' : 'none';
+    }
   }
 
   /**
@@ -1970,7 +2518,14 @@ export class DrawingApp {
   }
 
   handleChatSend(message) {
-    this.chat.addMessage(message, this.self);
+    // Show immediately in chat (Svelte component handles its own state)
+    if (this.svelteComponents?.chat) {
+      this.svelteComponents.chat.addChatMessage(
+        this.self.name,
+        message,
+        `rgba(${this.self.color[0]}, ${this.self.color[1]}, ${this.self.color[2]}, ${this.self.color[3] / 255})`
+      );
+    }
     this.wsClient.broadcastChat(message);
   }
 
@@ -1982,25 +2537,33 @@ export class DrawingApp {
 
   handleChatImageSend(imageData, recipientId = null) {
     if (this.connected) {
-      if (recipientId) {
-        // DM image
-        this.chat.addDMImage(imageData, recipientId, true);
-      } else {
-        // Public chat image
-        this.chat.addChatImage(imageData, this.self);
-      }
+      // TODO: Implement image messages in Svelte Chat
+      // if (recipientId) {
+      //   this.svelteComponents.chat?.addDMImage(imageData, recipientId, true);
+      // } else {
+      //   this.svelteComponents.chat?.addChatImage(imageData, this.self);
+      // }
+      console.log('[Chat] Image messages not yet implemented in Svelte Chat');
       this.wsClient.broadcastChatImage(imageData, recipientId);
     }
   }
 
   updateChatUserList() {
-    const userList = Array.from(this.users.values()).map(user => ({
-      id: user.id,
-      username: user.username,
-      color: `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3]})`,
-      isSelf: user.id === this.sessionIndex
-    }));
-    this.chat.updateUserList(userList);
+    // Update the users store for Svelte Chat component
+    const userMap = new Map();
+    this.users.forEach((user, id) => {
+      if (id !== this.sessionIndex) { // Exclude self
+        userMap.set(id, {
+          id,
+          username: user.name,
+          color: `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
+          isSelf: false
+        });
+      }
+    });
+
+    // Update the users store
+    usersStore.set(userMap);
   }
 
   handlePaletteColorSelect(colorOrCallback) {
@@ -2045,10 +2608,8 @@ export class DrawingApp {
       this.wsClient.broadcastColorChange(rgba);
     }
 
-    // Add to recent colors
-    if (this.colorPalette) {
-      this.colorPalette.addRecentColor(rgba);
-    }
+    // Add to recent colors (Svelte store)
+    addRecentColor(rgba);
   }
 
   // Pointer event handlers
@@ -2397,7 +2958,7 @@ export class DrawingApp {
 
       // Add current color to recent colors when starting to draw
       if (this.self.tool !== 'erase' && this.self.tool !== 'select') {
-        this.colorPalette.addRecentColor(this.self.color);
+        addRecentColor(this.self.color);
       }
 
       // Start tracking for debug overlay (pass tool type, brush size, and user info)
@@ -2710,6 +3271,12 @@ export class DrawingApp {
     const inkTool = this.toolManager.getTool('ink');
     if (inkTool && inkTool.clearStroke) {
       inkTool.clearStroke();
+    }
+
+    // Clear pixel brush stroke data
+    const pixelTool = this.toolManager.getTool('pixel');
+    if (pixelTool && pixelTool.clearStroke) {
+      pixelTool.clearStroke(this.self);
     }
 
     // Clear shape tool data

@@ -25,7 +25,6 @@ export function setupUserHandlers(wsClient, app) {
 
     // Authoritative Update/Create
     data.users.forEach(userData => {
-      console.log(`[USERS] Processing user ${userData.name}(${userData.sessionIndex}), self=${app.sessionIndex}`);
       
       const username = userData.name || userData.username || '';
 
@@ -142,8 +141,32 @@ export function setupUserHandlers(wsClient, app) {
   });
 
   wsClient.on('settings', (data) => {
+    console.log('[UserHandlers] SETTINGS received:', data);
+
     board.setMirror(data.mirror);
     ui.updateMirrorDisplay(data.mirror);
+    if (data.backgroundColor) {
+      board.setBackgroundColor(data.backgroundColor);
+    }
+
+    // Initialize currentRoomData if it doesn't exist
+    if (!app.currentRoomData) {
+      app.currentRoomData = { id: app.currentRoomId };
+    }
+
+    // Update currentRoomData with new settings
+    if (data.backgroundColor) {
+      app.currentRoomData.backgroundColor = data.backgroundColor;
+    }
+    if (data.locked !== undefined) {
+      app.currentRoomData.locked = data.locked;
+    }
+    if (data.maxUsers !== undefined) {
+      app.currentRoomData.maxUsers = data.maxUsers;
+      console.log('[UserHandlers] Updated currentRoomData.maxUsers to:', app.currentRoomData.maxUsers);
+    }
+    // Mirror is not persisted to DB, but update it locally
+    app.currentRoomData.mirror = data.mirror;
   });
 
   wsClient.on('left', (data) => {

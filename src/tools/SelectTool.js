@@ -94,6 +94,10 @@ export class SelectTool extends Tool {
     // Menu positioning
     this.lastPointerUpPos = null;
 
+    // Pattern mode
+    this.patternMode = false;
+    this._patternTileCache = new Map();
+
     // Throttling for selection move broadcasts (30 TPS)
     this.selectionMoveThrottleRate = 30;
     this.selectionMoveThrottleInterval = 1000 / this.selectionMoveThrottleRate;
@@ -104,6 +108,133 @@ export class SelectTool extends Tool {
     this.lassoPoints = [];
     this.lassoSimplified = null;
     this.lassoPath = null;
+  }
+
+  /**
+   * Get pattern tile for selection fill (reuses PatternTool's tile generation logic).
+   * @private
+   */
+  _getPatternTile(user) {
+    const brush = user.patternBrush;
+    if (!brush) return null;
+
+    let img = brush.image;
+    if (brush.type === 'gih' && brush.images) img = brush.images[0];
+    if (!img) return null;
+
+    const colorMode = user.patternColorMode || 'original';
+    const colorKey = colorMode === 'tinted' ? user.color.join(',') : 'original';
+    const spacing = user.patternSpacing || 0;
+    const key = `${brush.brushName || brush.fileName}_${colorKey}_${spacing}_${colorMode}`;
+
+    if (this._patternTileCache.has(key)) return this._patternTileCache.get(key);
+
+    const maxDim = 40;
+    const imgWidth = img.width || img.naturalWidth;
+    const imgHeight = img.height || img.naturalHeight;
+    const aspectRatio = imgWidth / imgHeight;
+
+    let tileWidth, tileHeight;
+    if (aspectRatio > 1) {
+      tileWidth = maxDim;
+      tileHeight = maxDim / aspectRatio;
+    } else {
+      tileWidth = maxDim * aspectRatio;
+      tileHeight = maxDim;
+    }
+
+    const padding = spacing;
+    const tileCanvas = document.createElement('canvas');
+    tileCanvas.width = tileWidth + padding;
+    tileCanvas.height = tileHeight + padding;
+
+    const tctx = tileCanvas.getContext('2d');
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = tileWidth;
+    tempCanvas.height = tileHeight;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.drawImage(img, 0, 0, tileWidth, tileHeight);
+
+    if (brush.type === 'gbr' && brush.colorDepth === 1) {
+      const imageData = tempCtx.getImageData(0, 0, tileWidth, tileHeight);
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const brightness = (data[i] + data[i+1] + data[i+2]) / 3;
+        data[i+3] = 255 - brightness;
+        data[i] = data[i+1] = data[i+2] = 0;
+      }
+      tempCtx.putImageData(imageData, 0, 0);
+    }
+
+    tctx.save();
+    tctx.drawImage(tempCanvas, padding/2, padding/2, tileWidth, tileHeight);
+
+    if (colorMode === 'tinted') {
+      tctx.globalCompositeOperation = 'source-in';
+      tctx.fillStyle = `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3]})`;
+      tctx.fillRect(0, 0, tileCanvas.width, tileCanvas.height);
+    }
+
+    tctx.restore();
+    this._patternTileCache.set(key, tileCanvas);
+    return tileCanvas;
+  }
+
+  /**
+   * Draw a canvas with pattern fill (uses canvas as alpha mask).
+   * @private
+   */
+  _drawWithPattern(targetCtx, sourceCanvas, x, y, user) {
+    const tile = this._getPatternTile(user);
+    if (!tile) {
+      // Fallback to normal draw if no pattern
+      targetCtx.drawImage(sourceCanvas, x, y);
+      return;
+    }
+
+    const scale = (user.patternScale || 100) / 100;
+    const offsetX = user.patternOffsetX || 0;
+    const offsetY = user.patternOffsetY || 0;
+    const rotation = user.patternRotation || 0;
+
+    // Create temp canvas for pattern fill
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = sourceCanvas.width;
+    tempCanvas.height = sourceCanvas.height;
+    const tempCtx = tempCanvas.getContext('2d');
+
+    // Step 1: Draw source canvas as black mask
+    tempCtx.drawImage(sourceCanvas, 0, 0);
+
+    // Convert to black mask (preserve alpha)
+    const imgData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+    const data = imgData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] > 0) {
+        data[i] = 0;     // R = black
+        data[i + 1] = 0; // G = black
+        data[i + 2] = 0; // B = black
+        // Keep alpha as-is
+      }
+    }
+    tempCtx.putImageData(imgData, 0, 0);
+
+    // Step 2: Create pattern and fill
+    const pattern = tempCtx.createPattern(tile, 'repeat');
+    if (pattern.setTransform) {
+      const matrix = new DOMMatrix()
+        .translate(offsetX, offsetY)
+        .rotate(rotation)
+        .scale(scale);
+      pattern.setTransform(matrix);
+    }
+
+    tempCtx.globalCompositeOperation = 'source-in';
+    tempCtx.fillStyle = pattern;
+    tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+    // Step 3: Draw result to target
+    targetCtx.drawImage(tempCanvas, x, y);
   }
 
   /**
@@ -1979,6 +2110,15 @@ export class SelectTool extends Tool {
     // Erase source area directly from baseCanvas (no stroke record created)
     this._restoreData = this._eraseSelectionDirectly(s, this.mode === 'lasso' ? this.lassoPath : null);
 
+    // Check affected tiles for emptiness and clear ownership from empty ones
+    const tileOwnership = this.board.tileOwnershipManager;
+    if (tileOwnership) {
+      const affectedTiles = tileOwnership.getTileIndicesForRect(s.x, s.y, s.width, s.height);
+      if (affectedTiles.length > 0) {
+        this.board.checkErasedTilesForOwnershipByIndices(new Set(affectedTiles));
+      }
+    }
+
     // Create reusable homography instances for this selection
     this.homography = new Homography('projective');
     this.previewHomography = new Homography('projective');
@@ -1992,7 +2132,8 @@ export class SelectTool extends Tool {
 
     // Send the data via the websocket client
     if (this.board.app?.wsClient) {
-      this.board.app.wsClient.broadcastSelectionLift(this.selection, this.lassoPath);
+      const imageData = this.floatingCanvas ? this.floatingCanvas.toDataURL('image/png') : null;
+      this.board.app.wsClient.broadcastSelectionLift(this.selection, this.lassoPath, imageData);
     }
   }
 
@@ -2004,6 +2145,26 @@ export class SelectTool extends Tool {
 
     // All-layers mode: run the exact same commit logic as single-layer, once per layer
     if (this.copyAllLayers && this.floatingLayers && this.floatingLayers.length > 0) {
+      // Compute actual bounds once (may differ from selection if transformed)
+      let dirtyX = this.selection.x;
+      let dirtyY = this.selection.y;
+      let dirtyW = this.selection.width;
+      let dirtyH = this.selection.height;
+
+      if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners) {
+        const bounds = calculateCornerBounds(this.corners);
+        dirtyX = bounds.minX;
+        dirtyY = bounds.minY;
+        dirtyW = bounds.width;
+        dirtyH = bounds.height;
+      }
+
+      // Get affected tile indices for undo tracking
+      const tileOwnership = this.board.tileOwnershipManager;
+      const commitTileIndices = tileOwnership
+        ? tileOwnership.getTileIndicesForRect(dirtyX, dirtyY, dirtyW, dirtyH)
+        : [];
+
       for (const { canvas, groupIdx } of this.floatingLayers) {
         lm.beginUserStroke(groupIdx, userId, 'source-over');
         const active = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(userId);
@@ -2011,10 +2172,17 @@ export class SelectTool extends Tool {
 
         // Expand dirty rect directly on this layer's active stroke
         if (active.dirtyRect) {
-          active.dirtyRect.minX = this.selection.x;
-          active.dirtyRect.minY = this.selection.y;
-          active.dirtyRect.maxX = this.selection.x + this.selection.width;
-          active.dirtyRect.maxY = this.selection.y + this.selection.height;
+          active.dirtyRect.minX = dirtyX;
+          active.dirtyRect.minY = dirtyY;
+          active.dirtyRect.maxX = dirtyX + dirtyW;
+          active.dirtyRect.maxY = dirtyY + dirtyH;
+        }
+
+        // Store affected tiles in the stroke record for undo
+        if (active.affectedTiles) {
+          for (const idx of commitTileIndices) {
+            active.affectedTiles.add(idx);
+          }
         }
 
         if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
@@ -2028,19 +2196,41 @@ export class SelectTool extends Tool {
           });
           if (result) {
             const tempCanvas = imageDataToCanvas(result.imageData);
-            active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
+            if (this.patternMode && this.board.app?.self) {
+              this._drawWithPattern(active.ctx, tempCanvas, result.bounds.minX, result.bounds.minY, this.board.app.self);
+            } else {
+              active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
+            }
+          } else {
+            if (this.patternMode && this.board.app?.self) {
+              this._drawWithPattern(active.ctx, canvas, this.selection.x, this.selection.y, this.board.app.self);
+            } else {
+              active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
+            }
+          }
+        } else {
+          if (this.patternMode && this.board.app?.self) {
+            this._drawWithPattern(active.ctx, canvas, this.selection.x, this.selection.y, this.board.app.self);
           } else {
             active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
           }
-        } else {
-          active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
         }
 
         lm.commitUserStroke(groupIdx, userId, { selectionRestoreData: this._restoreData });
       }
 
       this.board.compositeAllLayers();
-      if (this.board.app?.wsClient) this.board.app.wsClient.broadcastSelectionCommit();
+
+      // Add tile ownership for visible tiles in the pasted region (must be after composite)
+      this.board.addOwnershipForVisibleTilesInRect(userId, dirtyX, dirtyY, dirtyW, dirtyH);
+
+      // Broadcast tile ownership update and selection commit
+      if (this.board.app?.wsClient) {
+        if (commitTileIndices.length > 0) {
+          this.board.app.wsClient.broadcastTileUpdate(commitTileIndices);
+        }
+        this.board.app.wsClient.broadcastSelectionCommit();
+      }
 
       this.floatingCanvas = null;
       this.floatingCtx = null;
@@ -2081,20 +2271,32 @@ export class SelectTool extends Tool {
 
       if (result) {
         const tempCanvas = imageDataToCanvas(result.imageData);
-        active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
+        if (this.patternMode && this.board.app?.self) {
+          this._drawWithPattern(active.ctx, tempCanvas, result.bounds.minX, result.bounds.minY, this.board.app.self);
+        } else {
+          active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
+        }
         dirtyX = result.bounds.minX;
         dirtyY = result.bounds.minY;
         dirtyWidth = result.bounds.width;
         dirtyHeight = result.bounds.height;
       } else {
-        active.ctx.drawImage(this.floatingCanvas, this.selection.x, this.selection.y, this.selection.width, this.selection.height);
+        if (this.patternMode && this.board.app?.self) {
+          this._drawWithPattern(active.ctx, this.floatingCanvas, this.selection.x, this.selection.y, this.board.app.self);
+        } else {
+          active.ctx.drawImage(this.floatingCanvas, this.selection.x, this.selection.y, this.selection.width, this.selection.height);
+        }
         dirtyX = this.selection.x;
         dirtyY = this.selection.y;
         dirtyWidth = this.selection.width;
         dirtyHeight = this.selection.height;
       }
     } else {
-      active.ctx.drawImage(this.floatingCanvas, this.selection.x, this.selection.y, this.selection.width, this.selection.height);
+      if (this.patternMode && this.board.app?.self) {
+        this._drawWithPattern(active.ctx, this.floatingCanvas, this.selection.x, this.selection.y, this.board.app.self);
+      } else {
+        active.ctx.drawImage(this.floatingCanvas, this.selection.x, this.selection.y, this.selection.width, this.selection.height);
+      }
       dirtyX = this.selection.x;
       dirtyY = this.selection.y;
       dirtyWidth = this.selection.width;
@@ -2104,12 +2306,30 @@ export class SelectTool extends Tool {
     // Track the dirty region so the stroke is properly saved
     this.board.expandDirtyRect(this.board.app?.self, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
 
+    // Store affected tiles in the stroke record for undo and collect for broadcast
+    const tileOwnership = this.board.tileOwnershipManager;
+    let tilesToBroadcast = [];
+    if (tileOwnership && active.affectedTiles) {
+      const tileIndices = tileOwnership.getTileIndicesForRect(dirtyX, dirtyY, dirtyWidth, dirtyHeight);
+      for (const idx of tileIndices) {
+        active.affectedTiles.add(idx);
+      }
+      tilesToBroadcast = tileIndices;
+    }
+
     // Commit as an undoable stroke record.
     // Attach restore data so Board.undo/redo can also reverse the source-area erase.
     lm.commitUserStroke(activeLayer, userId, { selectionRestoreData: this._restoreData });
     this.board.compositeAllLayers();
 
+    // Add tile ownership for visible tiles in the pasted region (must be after composite)
+    this.board.addOwnershipForVisibleTilesInRect(userId, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
+
+    // Broadcast tile ownership update and selection commit
     if (this.board.app && this.board.app.wsClient) {
+      if (tilesToBroadcast.length > 0) {
+        this.board.app.wsClient.broadcastTileUpdate(tilesToBroadcast);
+      }
       this.board.app.wsClient.broadcastSelectionCommit();
     }
 
@@ -2497,11 +2717,28 @@ export class SelectTool extends Tool {
       const lassoPath = this.mode === 'lasso' ? this.lassoPath : null;
       this._eraseSelectionDirectly(s, lassoPath);
 
+      // Check affected tiles for emptiness and clear ownership
+      const tileOwnership = this.board.tileOwnershipManager;
+      if (tileOwnership) {
+        const affectedTiles = tileOwnership.getTileIndicesForRect(s.x, s.y, s.width, s.height);
+        if (affectedTiles.length > 0) {
+          this.board.checkErasedTilesForOwnershipByIndices(new Set(affectedTiles));
+        }
+      }
+
       if (this.board.mirror) {
         const bw = this.board.getWidth();
         const ms = { x: bw - s.x - s.width, y: s.y, width: s.width, height: s.height };
         const mLassoPath = lassoPath ? lassoPath.map(p => ({ x: bw - p.x, y: p.y })) : null;
         this._eraseSelectionDirectly(ms, mLassoPath);
+
+        // Also check mirrored tiles
+        if (tileOwnership) {
+          const mirrorTiles = tileOwnership.getTileIndicesForRect(ms.x, ms.y, ms.width, ms.height);
+          if (mirrorTiles.length > 0) {
+            this.board.checkErasedTilesForOwnershipByIndices(new Set(mirrorTiles));
+          }
+        }
       }
     }
 
@@ -2561,27 +2798,88 @@ export class SelectTool extends Tool {
 
     // If floating, fill the floating canvas
     if (this.floatingCanvas) {
-      this.floatingCtx.globalAlpha = opacity;
-      this.floatingCtx.fillStyle = color;
+      if (this.patternMode) {
+        // Pattern fill: black mask + pattern with source-in
+        const tile = this._getPatternTile(app.self);
+        if (tile) {
+          // Step 1: Create black mask
+          this.floatingCtx.save();
+          this.floatingCtx.fillStyle = '#000000';
+          this.floatingCtx.globalAlpha = 1;
 
-      if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
-        // Use lasso path as clipping region (translate to floating canvas coordinates)
-        this.floatingCtx.save();
-        this.floatingCtx.beginPath();
-        this.floatingCtx.moveTo(this.lassoPath[0].x - s.x, this.lassoPath[0].y - s.y);
-        for (let i = 1; i < this.lassoPath.length; i++) {
-          this.floatingCtx.lineTo(this.lassoPath[i].x - s.x, this.lassoPath[i].y - s.y);
+          if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
+            this.floatingCtx.beginPath();
+            this.floatingCtx.moveTo(this.lassoPath[0].x - s.x, this.lassoPath[0].y - s.y);
+            for (let i = 1; i < this.lassoPath.length; i++) {
+              this.floatingCtx.lineTo(this.lassoPath[i].x - s.x, this.lassoPath[i].y - s.y);
+            }
+            this.floatingCtx.closePath();
+            this.floatingCtx.fill();
+          } else {
+            this.floatingCtx.fillRect(0, 0, s.width, s.height);
+          }
+
+          // Step 2: Apply pattern with source-in
+          const pattern = this.floatingCtx.createPattern(tile, 'repeat');
+          if (pattern && pattern.setTransform) {
+            const scale = (app.self.patternScale || 100) / 100;
+            const offsetX = app.self.patternOffsetX || 0;
+            const offsetY = app.self.patternOffsetY || 0;
+            const rotation = app.self.patternRotation || 0;
+            const matrix = new DOMMatrix()
+              .translate(offsetX, offsetY)
+              .rotate(rotation)
+              .scale(scale);
+            pattern.setTransform(matrix);
+          }
+
+          this.floatingCtx.globalCompositeOperation = 'source-in';
+          this.floatingCtx.globalAlpha = opacity;
+          this.floatingCtx.fillStyle = pattern;
+          this.floatingCtx.fillRect(0, 0, s.width, s.height);
+          this.floatingCtx.restore();
+        } else {
+          // Fallback to solid color
+          this.floatingCtx.globalAlpha = opacity;
+          this.floatingCtx.fillStyle = color;
+          if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
+            this.floatingCtx.save();
+            this.floatingCtx.beginPath();
+            this.floatingCtx.moveTo(this.lassoPath[0].x - s.x, this.lassoPath[0].y - s.y);
+            for (let i = 1; i < this.lassoPath.length; i++) {
+              this.floatingCtx.lineTo(this.lassoPath[i].x - s.x, this.lassoPath[i].y - s.y);
+            }
+            this.floatingCtx.closePath();
+            this.floatingCtx.clip();
+            this.floatingCtx.fillRect(0, 0, s.width, s.height);
+            this.floatingCtx.restore();
+          } else {
+            this.floatingCtx.fillRect(0, 0, s.width, s.height);
+          }
+          this.floatingCtx.globalAlpha = 1;
         }
-        this.floatingCtx.closePath();
-        this.floatingCtx.clip();
-        this.floatingCtx.fillRect(0, 0, s.width, s.height);
-        this.floatingCtx.restore();
       } else {
-        // Rectangle mode - fill entire selection
-        this.floatingCtx.fillRect(0, 0, s.width, s.height);
+        // Normal solid color fill
+        this.floatingCtx.globalAlpha = opacity;
+        this.floatingCtx.fillStyle = color;
+
+        if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
+          this.floatingCtx.save();
+          this.floatingCtx.beginPath();
+          this.floatingCtx.moveTo(this.lassoPath[0].x - s.x, this.lassoPath[0].y - s.y);
+          for (let i = 1; i < this.lassoPath.length; i++) {
+            this.floatingCtx.lineTo(this.lassoPath[i].x - s.x, this.lassoPath[i].y - s.y);
+          }
+          this.floatingCtx.closePath();
+          this.floatingCtx.clip();
+          this.floatingCtx.fillRect(0, 0, s.width, s.height);
+          this.floatingCtx.restore();
+        } else {
+          this.floatingCtx.fillRect(0, 0, s.width, s.height);
+        }
+        this.floatingCtx.globalAlpha = 1;
       }
 
-      this.floatingCtx.globalAlpha = 1;
       this.board.clearTop();
       this.drawSelectionUI();
     } else {
@@ -2589,57 +2887,227 @@ export class SelectTool extends Tool {
       this.board.beginStroke(app.self);
 
       const layerCtx = this.board.getActiveLayerContext();
-      layerCtx.globalAlpha = opacity;
-      layerCtx.fillStyle = color;
 
-      if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
-        // Use lasso path as clipping region
-        layerCtx.save();
-        layerCtx.beginPath();
-        layerCtx.moveTo(this.lassoPath[0].x, this.lassoPath[0].y);
-        for (let i = 1; i < this.lassoPath.length; i++) {
-          layerCtx.lineTo(this.lassoPath[i].x, this.lassoPath[i].y);
+      if (this.patternMode) {
+        // Pattern fill: black mask + pattern with source-in
+        const tile = this._getPatternTile(app.self);
+        if (tile) {
+          // Create temp canvas for mask + pattern
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = s.width;
+          tempCanvas.height = s.height;
+          const tempCtx = tempCanvas.getContext('2d');
+
+          // Step 1: Create black mask
+          tempCtx.fillStyle = '#000000';
+          tempCtx.globalAlpha = 1;
+
+          if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
+            tempCtx.beginPath();
+            tempCtx.moveTo(this.lassoPath[0].x - s.x, this.lassoPath[0].y - s.y);
+            for (let i = 1; i < this.lassoPath.length; i++) {
+              tempCtx.lineTo(this.lassoPath[i].x - s.x, this.lassoPath[i].y - s.y);
+            }
+            tempCtx.closePath();
+            tempCtx.fill();
+          } else {
+            tempCtx.fillRect(0, 0, s.width, s.height);
+          }
+
+          // Step 2: Apply pattern with source-in
+          const pattern = tempCtx.createPattern(tile, 'repeat');
+          if (pattern && pattern.setTransform) {
+            const scale = (app.self.patternScale || 100) / 100;
+            const offsetX = app.self.patternOffsetX || 0;
+            const offsetY = app.self.patternOffsetY || 0;
+            const rotation = app.self.patternRotation || 0;
+            const matrix = new DOMMatrix()
+              .translate(offsetX - s.x, offsetY - s.y)
+              .rotate(rotation)
+              .scale(scale);
+            pattern.setTransform(matrix);
+          }
+
+          tempCtx.globalCompositeOperation = 'source-in';
+          tempCtx.globalAlpha = opacity;
+          tempCtx.fillStyle = pattern;
+          tempCtx.fillRect(0, 0, s.width, s.height);
+
+          // Step 3: Draw to layer
+          layerCtx.drawImage(tempCanvas, s.x, s.y);
+        } else {
+          // Fallback to solid color
+          layerCtx.globalAlpha = opacity;
+          layerCtx.fillStyle = color;
+          if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
+            layerCtx.save();
+            layerCtx.beginPath();
+            layerCtx.moveTo(this.lassoPath[0].x, this.lassoPath[0].y);
+            for (let i = 1; i < this.lassoPath.length; i++) {
+              layerCtx.lineTo(this.lassoPath[i].x, this.lassoPath[i].y);
+            }
+            layerCtx.closePath();
+            layerCtx.clip();
+            layerCtx.fillRect(s.x, s.y, s.width, s.height);
+            layerCtx.restore();
+          } else {
+            layerCtx.fillRect(s.x, s.y, s.width, s.height);
+          }
+          layerCtx.globalAlpha = 1;
         }
-        layerCtx.closePath();
-        layerCtx.clip();
-        layerCtx.fillRect(s.x, s.y, s.width, s.height);
-        layerCtx.restore();
       } else {
-        // Rectangle mode - fill entire selection
-        layerCtx.fillRect(s.x, s.y, s.width, s.height);
-      }
+        // Normal solid color fill
+        layerCtx.globalAlpha = opacity;
+        layerCtx.fillStyle = color;
 
-      layerCtx.globalAlpha = 1;
+        if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
+          layerCtx.save();
+          layerCtx.beginPath();
+          layerCtx.moveTo(this.lassoPath[0].x, this.lassoPath[0].y);
+          for (let i = 1; i < this.lassoPath.length; i++) {
+            layerCtx.lineTo(this.lassoPath[i].x, this.lassoPath[i].y);
+          }
+          layerCtx.closePath();
+          layerCtx.clip();
+          layerCtx.fillRect(s.x, s.y, s.width, s.height);
+          layerCtx.restore();
+        } else {
+          layerCtx.fillRect(s.x, s.y, s.width, s.height);
+        }
+        layerCtx.globalAlpha = 1;
+      }
 
       // Track the dirty region so the stroke is properly saved
       this.board.expandDirtyRect(app.self, s.x, s.y, s.width, s.height);
 
+      // Store affected tiles in the stroke record for undo
+      const userId = app.self?.id ?? 0;
+      const activeLayer = app.self?.activeLayer ?? 0;
+      const tileOwnership = this.board.tileOwnershipManager;
+      const lm = this.board.layerManager;
+      const active = lm?.layerGroups[activeLayer]?.activeStrokeByUser.get(userId);
+
+      if (tileOwnership && active?.affectedTiles) {
+        const tileIndices = tileOwnership.getTileIndicesForRect(s.x, s.y, s.width, s.height);
+        for (const idx of tileIndices) {
+          active.affectedTiles.add(idx);
+        }
+      }
+
       if (this.board.mirror) {
         const bw = this.board.getWidth();
         const mx = bw - s.x - s.width;
-        layerCtx.globalAlpha = opacity;
-        layerCtx.fillStyle = color;
-        if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
-          const mLassoPath = this.lassoPath.map(p => ({ x: bw - p.x, y: p.y }));
-          layerCtx.save();
-          layerCtx.beginPath();
-          layerCtx.moveTo(mLassoPath[0].x, mLassoPath[0].y);
-          for (let i = 1; i < mLassoPath.length; i++) {
-            layerCtx.lineTo(mLassoPath[i].x, mLassoPath[i].y);
+
+        if (this.patternMode) {
+          // Pattern fill for mirror
+          const tile = this._getPatternTile(app.self);
+          if (tile) {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = s.width;
+            tempCanvas.height = s.height;
+            const tempCtx = tempCanvas.getContext('2d');
+
+            // Step 1: Create black mask
+            tempCtx.fillStyle = '#000000';
+            tempCtx.globalAlpha = 1;
+
+            if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
+              const mLassoPath = this.lassoPath.map(p => ({ x: bw - p.x - mx, y: p.y - s.y }));
+              tempCtx.beginPath();
+              tempCtx.moveTo(mLassoPath[0].x, mLassoPath[0].y);
+              for (let i = 1; i < mLassoPath.length; i++) {
+                tempCtx.lineTo(mLassoPath[i].x, mLassoPath[i].y);
+              }
+              tempCtx.closePath();
+              tempCtx.fill();
+            } else {
+              tempCtx.fillRect(0, 0, s.width, s.height);
+            }
+
+            // Step 2: Apply pattern with source-in
+            const pattern = tempCtx.createPattern(tile, 'repeat');
+            if (pattern && pattern.setTransform) {
+              const scale = (app.self.patternScale || 100) / 100;
+              const offsetX = app.self.patternOffsetX || 0;
+              const offsetY = app.self.patternOffsetY || 0;
+              const rotation = app.self.patternRotation || 0;
+              const matrix = new DOMMatrix()
+                .translate(offsetX - mx, offsetY - s.y)
+                .rotate(rotation)
+                .scale(scale);
+              pattern.setTransform(matrix);
+            }
+
+            tempCtx.globalCompositeOperation = 'source-in';
+            tempCtx.globalAlpha = opacity;
+            tempCtx.fillStyle = pattern;
+            tempCtx.fillRect(0, 0, s.width, s.height);
+
+            // Step 3: Draw to layer
+            layerCtx.drawImage(tempCanvas, mx, s.y);
+          } else {
+            // Fallback to solid color
+            layerCtx.globalAlpha = opacity;
+            layerCtx.fillStyle = color;
+            if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
+              const mLassoPath = this.lassoPath.map(p => ({ x: bw - p.x, y: p.y }));
+              layerCtx.save();
+              layerCtx.beginPath();
+              layerCtx.moveTo(mLassoPath[0].x, mLassoPath[0].y);
+              for (let i = 1; i < mLassoPath.length; i++) {
+                layerCtx.lineTo(mLassoPath[i].x, mLassoPath[i].y);
+              }
+              layerCtx.closePath();
+              layerCtx.clip();
+              layerCtx.fillRect(mx, s.y, s.width, s.height);
+              layerCtx.restore();
+            } else {
+              layerCtx.fillRect(mx, s.y, s.width, s.height);
+            }
+            layerCtx.globalAlpha = 1;
           }
-          layerCtx.closePath();
-          layerCtx.clip();
-          layerCtx.fillRect(mx, s.y, s.width, s.height);
-          layerCtx.restore();
         } else {
-          layerCtx.fillRect(mx, s.y, s.width, s.height);
+          // Normal solid color fill for mirror
+          layerCtx.globalAlpha = opacity;
+          layerCtx.fillStyle = color;
+          if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
+            const mLassoPath = this.lassoPath.map(p => ({ x: bw - p.x, y: p.y }));
+            layerCtx.save();
+            layerCtx.beginPath();
+            layerCtx.moveTo(mLassoPath[0].x, mLassoPath[0].y);
+            for (let i = 1; i < mLassoPath.length; i++) {
+              layerCtx.lineTo(mLassoPath[i].x, mLassoPath[i].y);
+            }
+            layerCtx.closePath();
+            layerCtx.clip();
+            layerCtx.fillRect(mx, s.y, s.width, s.height);
+            layerCtx.restore();
+          } else {
+            layerCtx.fillRect(mx, s.y, s.width, s.height);
+          }
+          layerCtx.globalAlpha = 1;
         }
-        layerCtx.globalAlpha = 1;
         this.board.expandDirtyRect(app.self, mx, s.y, s.width, s.height);
+
+        // Also add mirror tiles for undo
+        if (tileOwnership && active?.affectedTiles) {
+          const mirrorTileIndices = tileOwnership.getTileIndicesForRect(mx, s.y, s.width, s.height);
+          for (const idx of mirrorTileIndices) {
+            active.affectedTiles.add(idx);
+          }
+        }
       }
 
       this.board.compositeAllLayers();
       this.board.endStroke(app.self);
+
+      // Add tile ownership for visible filled tiles (after composite)
+      this.board.addOwnershipForVisibleTilesInRect(userId, s.x, s.y, s.width, s.height);
+      if (this.board.mirror) {
+        const bw = this.board.getWidth();
+        const mx = bw - s.x - s.width;
+        this.board.addOwnershipForVisibleTilesInRect(userId, mx, s.y, s.width, s.height);
+      }
     }
 
     // Broadcast fill to other users
@@ -2668,16 +3136,43 @@ export class SelectTool extends Tool {
       ? this.floatingLayers
       : [{ canvas: this.floatingCanvas, groupIdx: app.self?.activeLayer ?? 0 }];
 
+    // Compute actual bounds once (may differ from selection if transformed)
+    let dirtyX = this.selection.x;
+    let dirtyY = this.selection.y;
+    let dirtyW = this.selection.width;
+    let dirtyH = this.selection.height;
+
+    if (hasTransform && this.corners) {
+      const bounds = calculateCornerBounds(this.corners);
+      dirtyX = bounds.minX;
+      dirtyY = bounds.minY;
+      dirtyW = bounds.width;
+      dirtyH = bounds.height;
+    }
+
+    // Get affected tile indices for undo tracking
+    const tileOwnership = this.board.tileOwnershipManager;
+    const stampTileIndices = tileOwnership
+      ? tileOwnership.getTileIndicesForRect(dirtyX, dirtyY, dirtyW, dirtyH)
+      : [];
+
     for (const { canvas, groupIdx } of layers) {
       lm.beginUserStroke(groupIdx, userId, 'source-over');
       const active = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(userId);
       if (!active) continue;
 
       if (active.dirtyRect) {
-        active.dirtyRect.minX = this.selection.x;
-        active.dirtyRect.minY = this.selection.y;
-        active.dirtyRect.maxX = this.selection.x + this.selection.width;
-        active.dirtyRect.maxY = this.selection.y + this.selection.height;
+        active.dirtyRect.minX = dirtyX;
+        active.dirtyRect.minY = dirtyY;
+        active.dirtyRect.maxX = dirtyX + dirtyW;
+        active.dirtyRect.maxY = dirtyY + dirtyH;
+      }
+
+      // Store affected tiles in the stroke record for undo
+      if (active.affectedTiles) {
+        for (const idx of stampTileIndices) {
+          active.affectedTiles.add(idx);
+        }
       }
 
       if (hasTransform) {
@@ -2705,8 +3200,14 @@ export class SelectTool extends Tool {
     // Composite and commit the stroke
     this.board.compositeAllLayers();
 
-    // Broadcast stamp but keep selection active
+    // Add tile ownership for visible stamped tiles (after composite)
+    this.board.addOwnershipForVisibleTilesInRect(userId, dirtyX, dirtyY, dirtyW, dirtyH);
+
+    // Broadcast tile ownership update and stamp
     if (this.board.app?.wsClient) {
+      if (stampTileIndices.length > 0) {
+        this.board.app.wsClient.broadcastTileUpdate(stampTileIndices);
+      }
       this.board.app.wsClient.broadcastSelectionStamp();
     }
 

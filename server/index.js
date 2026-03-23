@@ -445,6 +445,37 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       user.imageBrush = data.g;
       break;
 
+    case T.IMG_PASTE:
+      user.activeImage = { sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, g: data.g };
+      user.activeSelectionCorners = null;
+      break;
+
+    case T.SEL_LIFT:
+      if (data.g) {
+        user.activeImage = { sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, g: data.g };
+        user.activeSelectionCorners = null;
+        // Strip image data from relay — existing users reconstruct the floating image from their canvas
+        broadcastToRoom(room, { t: T.SEL_LIFT, u: sessionIndex, sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, cr: data.cr }, sessionIndex);
+        return;
+      }
+      break;
+
+    case T.SEL_MOVE:
+      if (data.cr) {
+        user.activeSelectionCorners = Array.from(data.cr);
+      }
+      break;
+
+    case T.SEL_COMMIT:
+    case T.SEL_CANCEL:
+    case T.SEL_STAMP:
+    case T.SEL_DELETE:
+    case T.SEL_FILL:
+    case T.SEL_TO_BRUSH:
+      user.activeImage = null;
+      user.activeSelectionCorners = null;
+      break;
+
     case T.CTHN:
       user.thinning = data.th;
       break;
@@ -639,6 +670,16 @@ wss.on('connection', (ws, req) => {
             }
           }
 
+          // Check room capacity
+          if (room.settings.maxUsers > 0) {
+            const currentCount = room.getClientCount();
+            if (currentCount >= room.settings.maxUsers) {
+              sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Room is full' });
+              ws.close(4003, 'Room full');
+              return;
+            }
+          }
+
           const sessionIndex = room.sessionManager.allocateSessionIndex();
           ws.sessionIndex = sessionIndex;
 
@@ -671,7 +712,13 @@ wss.on('connection', (ws, req) => {
             });
           }
 
-          sendTo(ws, { t: T.SETTINGS, m: room.settings.mirror });
+          sendTo(ws, {
+            t: T.SETTINGS,
+            m: room.settings.mirror,
+            roomBackgroundColor: room.settings.backgroundColor,
+            roomLocked: room.settings.locked,
+            roomMaxUsers: room.settings.maxUsers
+          });
           break;
 
         case T.SYNC_REQUEST:
@@ -1060,14 +1107,147 @@ wss.on('connection', (ws, req) => {
               room.settings.locked = !!data.roomLocked;
             }
             if (data.roomMaxUsers !== undefined) {
-              room.settings.maxUsers = Math.max(0, Math.min(100, data.roomMaxUsers || 0));
+              room.settings.maxUsers = Math.max(2, Math.min(60, data.roomMaxUsers || 40));
+            }
+            if (data.roomBackgroundColor !== undefined) {
+              const hex = data.roomBackgroundColor;
+              if (hex && /^#[0-9A-Fa-f]{6}$/.test(hex)) {
+                room.settings.backgroundColor = hex;
+              }
             }
 
             await room.saveToDB();
+
+            // Broadcast updated settings to all clients in the room
+            const roomBroadcaster = createRoomBroadcaster(room);
+            roomBroadcaster({
+              t: T.SETTINGS,
+              m: room.settings.mirror,
+              roomBackgroundColor: room.settings.backgroundColor,
+              roomLocked: room.settings.locked,
+              roomMaxUsers: room.settings.maxUsers
+            });
+
             sendTo(ws, { t: T.MOD_RESULT, a: true });
           } catch (err) {
             console.error('[Room] Update error:', err);
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Failed to update room' });
+          }
+          break;
+        }
+
+        case T.ROOM_REGISTER: {
+          // Claim ownership of an unowned room
+          if (!ws.userId) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Must be logged in to register a room' });
+            break;
+          }
+
+          if (room.ownerId) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'This room already has an owner' });
+            break;
+          }
+
+          // Prevent registering lobby or discovery rooms
+          if (room.id === 'lobby' || room.id === '_discovery') {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Cannot register this room' });
+            break;
+          }
+
+          try {
+            room.ownerId = ws.userId;
+            room.ownerUsername = ws.username;
+            await room.saveToDB();
+
+            // Update the registering user's effective role to OWNER(6)
+            ws.roomRole = Role.OWNER;
+            ws.userRole = computeEffectiveRole(ws.globalRole || 0, Role.OWNER);
+
+            const user = room.sessionManager.getUser(ws.sessionIndex);
+            if (user) user.role = ws.userRole;
+
+            // Notify the user of their new role
+            sendTo(ws, { t: T.AUTH_RESULT, a: true, authRole: ws.userRole });
+
+            // Broadcast updated user list so everyone sees the new role
+            createRoomBroadcaster(room)({
+              t: T.USERS,
+              us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+            });
+
+            // Broadcast ownership change to all clients in the room
+            createRoomBroadcaster(room)({
+              t: T.ROOM_OWNERSHIP,
+              ownerId: room.ownerId,
+              ownerUsername: room.ownerUsername
+            });
+
+            sendTo(ws, { t: T.MOD_RESULT, a: true });
+            console.log(`[Room] ${ws.username} registered as owner of room "${room.id}"`);
+          } catch (err) {
+            console.error('[Room] Register error:', err);
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Failed to register room' });
+          }
+          break;
+        }
+
+        case T.ROOM_UNREGISTER: {
+          // Release ownership of a room (owner or DEITY only)
+          if (!ws.userId) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Must be logged in' });
+            break;
+          }
+
+          if (!room.ownerId) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'This room is not registered' });
+            break;
+          }
+
+          // Only room owner or DEITY can unregister
+          const isRoomOwner = room.ownerId === ws.userId;
+          const isDeity = (ws.globalRole || 0) >= Role.DEITY;
+
+          if (!isRoomOwner && !isDeity) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Only room owner or DEITY can unregister a room' });
+            break;
+          }
+
+          try {
+            const previousOwnerId = room.ownerId;
+            room.ownerId = null;
+            room.ownerUsername = null;
+            await room.saveToDB();
+
+            // If the unregistering user was the owner, reset their room role
+            if (isRoomOwner) {
+              ws.roomRole = 0;
+              ws.userRole = computeEffectiveRole(ws.globalRole || 0, 0);
+
+              const user = room.sessionManager.getUser(ws.sessionIndex);
+              if (user) user.role = ws.userRole;
+
+              // Notify the user of their new role
+              sendTo(ws, { t: T.AUTH_RESULT, a: true, authRole: ws.userRole });
+            }
+
+            // Broadcast updated user list
+            createRoomBroadcaster(room)({
+              t: T.USERS,
+              us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+            });
+
+            // Broadcast ownership change to all clients in the room
+            createRoomBroadcaster(room)({
+              t: T.ROOM_OWNERSHIP,
+              ownerId: null,
+              ownerUsername: null
+            });
+
+            sendTo(ws, { t: T.MOD_RESULT, a: true });
+            console.log(`[Room] ${ws.username} unregistered room "${room.id}" (previous owner: ${previousOwnerId})`);
+          } catch (err) {
+            console.error('[Room] Unregister error:', err);
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Failed to unregister room' });
           }
           break;
         }
@@ -1124,7 +1304,7 @@ wss.on('connection', (ws, req) => {
 
           const targetUserId = targetClient.userId;
 
-          // Permission: room owner, effective ADMIN(5)+ in room, or global DEITY(8)
+          // Permission: room owner, effective ADMIN(5)+ in room, or global DEITY(9)
           const isOwner = room.ownerId === ws.userId;
           const isRoomAdmin = ws.userRole >= Role.ADMIN;
           const isDeity = (ws.globalRole || 0) >= Role.DEITY;
@@ -1344,9 +1524,13 @@ wss.on('connection', (ws, req) => {
               role: userDoc.role
             });
 
-            // Compute effective role: max(global, room-specific)
+            // Compute effective role: max(global, room-specific, owner status)
             const roomRoleDoc = await getRoomRole(room.id, userDoc._id.toString());
-            const roomRoleVal = roomRoleDoc?.role || 0;
+            let roomRoleVal = roomRoleDoc?.role || 0;
+            // Room owner automatically gets OWNER(6) role in their room
+            if (room.ownerId === userDoc._id.toString()) {
+              roomRoleVal = Math.max(roomRoleVal, Role.OWNER);
+            }
             const effectiveRole = computeEffectiveRole(userDoc.role, roomRoleVal);
 
             ws.userId = userDoc._id.toString();
@@ -1426,6 +1610,10 @@ wss.on('connection', (ws, req) => {
         if (room.sessionManager.getUserCount() === 0) {
           room.settings.mirror = false;
           room.syncCoordinator.clearPendingRequests();
+          // Clear tile ownership when room empties - stale data shouldn't persist
+          if (room.tileOwnershipMap) {
+            room.tileOwnershipMap.clear();
+          }
         }
       }
 

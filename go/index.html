@@ -180,6 +180,9 @@
 
       <!-- Main Drawing Area -->
       <div id="boardContainer">
+        <!-- Svelte Board Menu (top-right: blend mode + layers) -->
+        <div id="boardMenu"></div>
+
         <!-- Top Toolbar -->
         <div class="boardBtns">
           <!-- Mobile Menu Toggle -->
@@ -234,6 +237,7 @@
               <span class="btnIcon" style="display: none;"><img src="/images/chat-icon.svg" alt="Chat"></span>
               <span class="chatBadge" id="chatBadge" style="display: none;"></span>
             </a>
+            <a class="btn accent" id="registerRoomBtn" style="display: none;">Register Room</a>
             <a class="btn" id="roomSettingsBtn" style="display: none;">Room Settings</a>
             <a class="btn" id="disconnectBtn" title="Exit Room">
               <span class="btnText">Exit Room</span>
@@ -261,6 +265,10 @@
                 <label>Owner</label>
                 <input type="text" id="roomSettingsOwner" readonly disabled>
               </div>
+              <div class="formGroup">
+                <label>Background Color</label>
+                <input type="color" id="roomSettingsBackgroundColor" value="#ffffff">
+              </div>
               <div class="formGroup formGroupCheckbox">
                 <label>
                   <input type="checkbox" id="roomSettingsLocked">
@@ -268,13 +276,17 @@
                 </label>
               </div>
               <div class="formGroup">
-                <label>Max Users (0 = unlimited)</label>
-                <input type="number" id="roomSettingsMaxUsers" min="0" max="100" value="0">
+                <label>Max Users (2-60, default: 40)</label>
+                <input type="number" id="roomSettingsMaxUsers" min="2" max="60" value="40">
               </div>
             </div>
+            <div id="roomSettingsMessage" class="roomSettingsMessage" style="display: none;"></div>
             <div class="roomSettingsFooter">
-              <button class="btn secondary" id="roomSettingsCancelBtn">Cancel</button>
-              <button class="btn primary" id="roomSettingsSaveBtn">Save</button>
+              <button class="btn danger" id="roomSettingsUnregisterBtn" style="display: none;">Unregister Room</button>
+              <div class="roomSettingsFooterRight">
+                <button class="btn secondary" id="roomSettingsCancelBtn">Cancel</button>
+                <button class="btn primary" id="roomSettingsSaveBtn">Save</button>
+              </div>
             </div>
           </div>
         </div>
@@ -351,6 +363,7 @@
 
         <!-- User Context Menu (right-click on user list) -->
         <div id="userContextMenu" class="contextMenu" style="display: none;">
+          <button class="menuItem registered-only" data-action="profile">View Profile</button>
           <button class="menuItem" data-action="pm">Private Message</button>
           <div class="menuDivider modOnly"></div>
           <button class="menuItem danger modOnly group-only" data-action="kick">Kick Group</button>
@@ -370,6 +383,7 @@
             <span class="selfRoleLabel">Your Role</span>
             <span class="selfRoleName" id="selfRoleName">Guest</span>
           </div>
+          <button class="menuItem" id="selfProfileBtn" style="display:none">View Profile</button>
         </div>
 
         <!-- Canvas Area -->
@@ -593,6 +607,9 @@
           <a class="tool btn" id="imageBrushBtn" title="Image Brush (G)">
             <img src="/images/pepper.png" alt="Image Brush">
           </a>
+          <a class="tool btn" id="patternBtn" title="Pattern Tool (O)">
+            <img src="/images/pattern-icon.svg" alt="Pattern">
+          </a>
         </div>
 
         <!-- Tool Options Panel -->
@@ -703,6 +720,77 @@
                   </label>
                 </div>
               </div>
+              <div class="selection-mode-container">
+                <label class="modeLabel">Fill Mode</label>
+                <div class="radio-group">
+                  <label class="radio-option">
+                    <input type="checkbox" id="selectionPatternCheck">
+                    <span>Pattern</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Selection Pattern Settings (shown when Pattern is checked) -->
+              <div id="selectionPatternSettings" style="display: none;">
+                <div class="selection-mode-container">
+                  <label class="modeLabel">Pattern Preview</label>
+                  <div class="patternPreviewContainer">
+                    <canvas id="selectionPatternPreview" width="120" height="60"></canvas>
+                  </div>
+                </div>
+
+                <div class="selection-mode-container">
+                  <label class="modeLabel">Color Mode</label>
+                  <div class="radio-group">
+                    <label class="radio-option">
+                      <input type="radio" name="selectionPatternColorMode" value="original" checked>
+                      <span>Original</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" name="selectionPatternColorMode" value="tinted">
+                      <span>User Color</span>
+                    </label>
+                  </div>
+                </div>
+
+                <input type="file" id="selectionPatternImageUploadInput" accept="image/*" style="display: none;">
+
+                <div id="selectionPatternGallery">
+                  <label>Grid Image</label>
+                  <div id="selectionPatternBrushList"></div>
+                </div>
+
+                <div class="sliderContainer" id="selection-pattern-scale">
+                  <div class="sliderLabel">Image Scale <span class="sliderValue" id="selectionPatternScaleValue">100%</span></div>
+                  <input autocomplete="off" type="range" min="5" max="500" value="100" class="slider selectionPatternScale">
+                </div>
+
+                <div class="sliderContainer" id="selection-pattern-rotation">
+                  <div class="sliderLabel">Grid Rotation <span class="sliderValue" id="selectionPatternRotationValue">0°</span></div>
+                  <input autocomplete="off" type="range" min="0" max="360" value="0" class="slider selectionPatternRotation">
+                </div>
+
+                <div class="sliderContainer" id="selection-pattern-spacing">
+                  <div class="sliderLabel">Grid Spacing <span class="sliderValue" id="selectionPatternSpacingValue">0</span></div>
+                  <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider selectionPatternSpacing">
+                </div>
+
+                <div class="sliderContainer dual-offset-container">
+                  <div class="sliderLabel">Offset</div>
+                  <div class="dual-offset-sliders">
+                    <div class="offset-slider-group">
+                      <label class="offset-label">X</label>
+                      <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider selectionPatternOffsetX">
+                      <span class="sliderValue offset-value" id="selectionPatternOffsetXValue">0</span>
+                    </div>
+                    <div class="offset-slider-group">
+                      <label class="offset-label">Y</label>
+                      <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider selectionPatternOffsetY">
+                      <span class="sliderValue offset-value" id="selectionPatternOffsetYValue">0</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- Eraser Mode Options -->
@@ -756,10 +844,138 @@
                     <input type="checkbox" id="fillAdvancedCheck">
                     <span>Advanced</span>
                   </label>
+                  <label class="radio-option">
+                    <input type="checkbox" id="fillPatternCheck">
+                    <span>Pattern</span>
+                  </label>
                 </div>
                 <div id="fillAdvancedHint" style="display: none; font-size: 11px; color: #888; margin-top: 4px; padding: 0 4px;">
                   Click to fill, then drag:<br>
                   ← → Expand &nbsp; ↓ Edge Blur
+                </div>
+              </div>
+
+              <!-- Fill Pattern Settings (shown when Pattern is checked) -->
+              <div id="fillPatternSettings" style="display: none;">
+                <div class="selection-mode-container">
+                  <label class="modeLabel">Pattern Preview</label>
+                  <div class="patternPreviewContainer">
+                    <canvas id="fillPatternPreview" width="120" height="60"></canvas>
+                  </div>
+                </div>
+
+                <div class="selection-mode-container">
+                  <label class="modeLabel">Color Mode</label>
+                  <div class="radio-group">
+                    <label class="radio-option">
+                      <input type="radio" name="fillPatternColorMode" value="original" checked>
+                      <span>Original</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" name="fillPatternColorMode" value="tinted">
+                      <span>User Color</span>
+                    </label>
+                  </div>
+                </div>
+
+                <input type="file" id="fillPatternImageUploadInput" accept="image/*" style="display: none;">
+
+                <div id="fillPatternGallery">
+                  <label>Grid Image</label>
+                  <div id="fillPatternBrushList"></div>
+                </div>
+
+                <div class="sliderContainer" id="fill-pattern-scale">
+                  <div class="sliderLabel">Image Scale <span class="sliderValue" id="fillPatternScaleValue">100%</span></div>
+                  <input autocomplete="off" type="range" min="5" max="500" value="100" class="slider fillPatternScale">
+                </div>
+
+                <div class="sliderContainer" id="fill-pattern-rotation">
+                  <div class="sliderLabel">Grid Rotation <span class="sliderValue" id="fillPatternRotationValue">0°</span></div>
+                  <input autocomplete="off" type="range" min="0" max="360" value="0" class="slider fillPatternRotation">
+                </div>
+
+                <div class="sliderContainer" id="fill-pattern-spacing">
+                  <div class="sliderLabel">Grid Spacing <span class="sliderValue" id="fillPatternSpacingValue">0</span></div>
+                  <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider fillPatternSpacing">
+                </div>
+
+                <div class="sliderContainer dual-offset-container">
+                  <div class="sliderLabel">Offset</div>
+                  <div class="dual-offset-sliders">
+                    <div class="offset-slider-group">
+                      <label class="offset-label">X</label>
+                      <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider fillPatternOffsetX">
+                      <span class="sliderValue offset-value" id="fillPatternOffsetXValue">0</span>
+                    </div>
+                    <div class="offset-slider-group">
+                      <label class="offset-label">Y</label>
+                      <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider fillPatternOffsetY">
+                      <span class="sliderValue offset-value" id="fillPatternOffsetYValue">0</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pattern Mode Options -->
+            <div id="patternModeOptions" style="display: none;">
+              <div class="selection-mode-container">
+                <label class="modeLabel">Pattern Preview</label>
+                <div class="patternPreviewContainer">
+                  <canvas id="patternPreview" width="120" height="60"></canvas>
+                </div>
+              </div>
+
+              <div class="selection-mode-container">
+                <label class="modeLabel">Color Mode</label>
+                <div class="radio-group">
+                  <label class="radio-option">
+                    <input type="radio" name="patternColorMode" value="original" checked>
+                    <span>Original</span>
+                  </label>
+                  <label class="radio-option">
+                    <input type="radio" name="patternColorMode" value="tinted">
+                    <span>User Color</span>
+                  </label>
+                </div>
+              </div>
+
+              <input type="file" id="patternImageUploadInput" accept="image/*" style="display: none;">
+
+              <div id="patternGallery">
+                <label>Grid Image</label>
+                <div id="patternBrushList"></div>
+              </div>
+
+              <div class="sliderContainer" id="pattern-scale">
+                <div class="sliderLabel">Image Scale <span class="sliderValue" id="patternScaleValue">100%</span></div>
+                <input autocomplete="off" type="range" min="5" max="500" value="100" class="slider patternScale">
+              </div>
+
+              <div class="sliderContainer" id="pattern-rotation">
+                <div class="sliderLabel">Grid Rotation <span class="sliderValue" id="patternRotationValue">0°</span></div>
+                <input autocomplete="off" type="range" min="0" max="360" value="0" class="slider patternRotation">
+              </div>
+
+              <div class="sliderContainer" id="pattern-spacing">
+                <div class="sliderLabel">Grid Spacing <span class="sliderValue" id="patternSpacingValue">0</span></div>
+                <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider patternSpacing">
+              </div>
+
+              <div class="sliderContainer dual-offset-container">
+                <div class="sliderLabel">Offset</div>
+                <div class="dual-offset-sliders">
+                  <div class="offset-slider-group">
+                    <label class="offset-label">X</label>
+                    <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider patternOffsetX">
+                    <span class="sliderValue offset-value" id="patternOffsetXValue">0</span>
+                  </div>
+                  <div class="offset-slider-group">
+                    <label class="offset-label">Y</label>
+                    <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider patternOffsetY">
+                    <span class="sliderValue offset-value" id="patternOffsetYValue">0</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -819,21 +1035,11 @@
                 </div>
               </div>
             </div>
+            <div class="scroll-indicator" id="optionsScrollIndicator"></div>
           </div>
 
-          <!-- Color Palette -->
-          <div id="colorPalette">
-            <div class="paletteSection">
-              <label>Recent</label>
-              <div class="swatchGrid" id="recentSwatches"></div>
-            </div>
-            <div class="paletteSection">
-              <label>Custom <span class="paletteHint">(click + to save)</span></label>
-              <div class="swatchGrid" id="customSwatches">
-                <button class="swatch addSwatch" id="addCustomSwatch" title="Save current color">+</button>
-              </div>
-            </div>
-          </div>
+          <!-- Color Palette (Svelte) -->
+          <div id="colorPaletteMount"></div>
 
           <!-- Color Picker -->
           <div id="pickerContainer">
@@ -912,6 +1118,11 @@
         </div>
       </div>
     </div>
+
+    <!-- Svelte Component Mount Points -->
+    <div id="profileDialogMount"></div>
+    <div id="roomSettingsMount"></div>
+    <div id="chatMount"></div>
 
     <script type="module" src="/src/main.js"></script>
   </body>

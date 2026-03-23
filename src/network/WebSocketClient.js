@@ -318,13 +318,21 @@ export class WebSocketClient {
           imageBrush: u.ib,
           ipHash: u.iph,
           thinning: u.th ? (u.th - 1) / 100 : undefined,
-          simulatePressure: u.sim !== undefined ? u.sim === 2 : undefined
+          simulatePressure: u.sim !== undefined ? u.sim === 2 : undefined,
+          patternScale: u.patternScale,
+          patternShape: u.patternShape,
+          patternName: u.patternName
         }));
         this.emit('users', { users });
         break;
 
       case T.SETTINGS:
-        this.emit('settings', { mirror: data.m });
+        this.emit('settings', {
+          mirror: data.m,
+          backgroundColor: data.roomBackgroundColor,
+          locked: data.roomLocked,
+          maxUsers: data.roomMaxUsers
+        });
         break;
 
       case T.LEFT:
@@ -434,7 +442,10 @@ export class WebSocketClient {
           activeLayer: data.ly !== undefined ? data.ly : undefined,
           blendMode: data.bm || undefined,
           thinning: data.th ? (data.th - 1) / 100 : undefined,
-          simulatePressure: data.sim !== undefined ? data.sim === 2 : undefined
+          simulatePressure: data.sim !== undefined ? data.sim === 2 : undefined,
+          patternScale: data.patternScale,
+          patternShape: data.patternShape,
+          patternName: data.patternName
         });
         break;
 
@@ -734,8 +745,18 @@ export class WebSocketClient {
             id: r.id,
             userCount: r.userCount || 0,
             locked: r.locked || false,
-            hasPassword: r.hasPassword || false
+            hasPassword: r.hasPassword || false,
+            description: r.description || '',
+            ownerId: r.ownerId || null,
+            ownerUsername: r.ownerUsername || null
           }))
+        });
+        break;
+
+      case T.ROOM_OWNERSHIP:
+        this.emit('room_ownership', {
+          ownerId: data.ownerId || null,
+          ownerUsername: data.ownerUsername || null
         });
         break;
     }
@@ -1096,7 +1117,7 @@ export class WebSocketClient {
    * @param {Array<Object>|null} [lassoPath=null] - Optional freehand path.
    * @returns {void}
    */
-  broadcastSelectionLift(rect, lassoPath = null) {
+  broadcastSelectionLift(rect, lassoPath = null, imageData = null) {
     const msg = {
       t: T.SEL_LIFT,
       sx: Math.round(rect.x),
@@ -1107,6 +1128,9 @@ export class WebSocketClient {
 
     if (lassoPath && lassoPath.length > 0) {
       msg.cr = lassoPath.flatMap(p => [Math.round(p.x), Math.round(p.y)]);
+    }
+    if (imageData) {
+      msg.g = imageData;
     }
     this.send(msg);
   }
