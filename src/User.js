@@ -36,6 +36,9 @@ export class User {
     this.patternName = options.patternName || 'dots';
     this.patternRotation = options.patternRotation || 0;
     this.patternSpacing = options.patternSpacing || 0;
+    this.patternOffsetX = options.patternOffsetX || 0;
+    this.patternOffsetY = options.patternOffsetY || 0;
+    this.patternColorMode = options.patternColorMode || 'original';
     this.spaceIndex = 0;
     this.color = options.color || [0, 0, 0, 1];
     this.tool = options.tool || 'ink';
@@ -324,7 +327,10 @@ export class User {
       patternShape: this.patternShape,
       patternName: this.patternName,
       patternRotation: this.patternRotation,
-      patternSpacing: this.patternSpacing
+      patternSpacing: this.patternSpacing,
+      patternOffsetX: this.patternOffsetX,
+      patternOffsetY: this.patternOffsetY,
+      patternColorMode: this.patternColorMode
     };
   }
 

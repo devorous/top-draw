@@ -970,6 +970,17 @@ export class DrawingApp {
     if (elements.patternSpacingSlider) {
       elements.patternSpacingSlider.addEventListener('input', (e) => this.handlePatternSpacingChange(e));
     }
+    if (elements.patternOffsetXSlider) {
+      elements.patternOffsetXSlider.addEventListener('input', (e) => this.handlePatternOffsetXChange(e));
+    }
+    if (elements.patternOffsetYSlider) {
+      elements.patternOffsetYSlider.addEventListener('input', (e) => this.handlePatternOffsetYChange(e));
+    }
+    if (elements.patternColorModeRadios) {
+      elements.patternColorModeRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => this.handlePatternColorModeChange(e));
+      });
+    }
   }
 
   handlePatternScaleChange(e) {
@@ -981,7 +992,7 @@ export class DrawingApp {
     
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
-      patternTool.updatePreview();
+      patternTool.updatePreview(this.self);
     }
 
     if (this.connected) {
@@ -1020,10 +1031,10 @@ export class DrawingApp {
     if (this.ui.elements.patternRotationValue) {
       this.ui.elements.patternRotationValue.textContent = `${rotation}°`;
     }
-    
+
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
-      patternTool.updatePreview();
+      patternTool.updatePreview(this.self);
     }
 
     if (this.connected) {
@@ -1037,14 +1048,66 @@ export class DrawingApp {
     if (this.ui.elements.patternSpacingValue) {
       this.ui.elements.patternSpacingValue.textContent = spacing;
     }
-    
+
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
-      patternTool.updatePreview();
+      patternTool.updatePreview(this.self);
     }
 
     if (this.connected) {
       this.wsClient.broadcastNameChange(this.self.username, { patternSpacing: spacing });
+    }
+  }
+
+  handlePatternOffsetXChange(e) {
+    const offsetX = Number(e.target.value);
+    this.self.patternOffsetX = offsetX;
+    if (this.ui.elements.patternOffsetXValue) {
+      this.ui.elements.patternOffsetXValue.textContent = offsetX;
+    }
+
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool && patternTool.updatePreview) {
+      patternTool.updatePreview(this.self);
+    }
+
+    if (this.connected) {
+      this.wsClient.broadcastNameChange(this.self.username, { patternOffsetX: offsetX });
+    }
+  }
+
+  handlePatternOffsetYChange(e) {
+    const offsetY = Number(e.target.value);
+    this.self.patternOffsetY = offsetY;
+    if (this.ui.elements.patternOffsetYValue) {
+      this.ui.elements.patternOffsetYValue.textContent = offsetY;
+    }
+
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool && patternTool.updatePreview) {
+      patternTool.updatePreview(this.self);
+    }
+
+    if (this.connected) {
+      this.wsClient.broadcastNameChange(this.self.username, { patternOffsetY: offsetY });
+    }
+  }
+
+  handlePatternColorModeChange(e) {
+    const colorMode = e.target.value;
+    this.self.patternColorMode = colorMode;
+
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool) {
+      // Clear cache so tiles are regenerated with new color mode
+      patternTool._tileCache.clear();
+      if (patternTool.updatePreview) {
+        patternTool.updatePreview(this.self);
+      }
+    }
+
+    if (this.connected) {
+      this.wsClient.broadcastNameChange(this.self.username, { patternColorMode: colorMode });
     }
   }
 
@@ -1053,7 +1116,7 @@ export class DrawingApp {
     
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
-      patternTool.updatePreview();
+      patternTool.updatePreview(this.self);
     }
 
     if (this.connected) {
@@ -2914,6 +2977,12 @@ export class DrawingApp {
     const inkTool = this.toolManager.getTool('ink');
     if (inkTool && inkTool.clearStroke) {
       inkTool.clearStroke();
+    }
+
+    // Clear pixel brush stroke data
+    const pixelTool = this.toolManager.getTool('pixel');
+    if (pixelTool && pixelTool.clearStroke) {
+      pixelTool.clearStroke(this.self);
     }
 
     // Clear shape tool data

@@ -28,6 +28,7 @@ export class PatternTool extends Tool {
   }
 
   activate() {
+    // updatePreview will auto-detect user from board
     this.updatePreview();
   }
   
@@ -97,33 +98,51 @@ export class PatternTool extends Tool {
 
     let img = brush.image;
     if (brush.type === 'gih' && brush.images) img = brush.images[0];
-    
+
     if (!img) return null;
 
-    const colorKey = user.color.join(',');
+    const colorMode = user.patternColorMode || 'original';
+    const colorKey = colorMode === 'tinted' ? user.color.join(',') : 'original';
     const spacing = user.patternSpacing || 0;
-    const key = `${brush.brushName || brush.fileName}_${colorKey}_${spacing}`;
-    
+    const key = `${brush.brushName || brush.fileName}_${colorKey}_${spacing}_${colorMode}`;
+
     if (this._tileCache.has(key)) return this._tileCache.get(key);
 
-    const tileCanvas = document.createElement('canvas');
-    const baseDim = 40; 
+    // Preserve aspect ratio
+    const maxDim = 40;
+    const imgWidth = img.width || img.naturalWidth;
+    const imgHeight = img.height || img.naturalHeight;
+    const aspectRatio = imgWidth / imgHeight;
+
+    let tileWidth, tileHeight;
+    if (aspectRatio > 1) {
+      // Wider than tall
+      tileWidth = maxDim;
+      tileHeight = maxDim / aspectRatio;
+    } else {
+      // Taller than wide or square
+      tileWidth = maxDim * aspectRatio;
+      tileHeight = maxDim;
+    }
+
     const padding = spacing;
-    tileCanvas.width = tileCanvas.height = baseDim + padding;
-    
+    const tileCanvas = document.createElement('canvas');
+    tileCanvas.width = tileWidth + padding;
+    tileCanvas.height = tileHeight + padding;
+
     const tctx = tileCanvas.getContext('2d');
-    
+
     // Create an intermediate canvas to handle greyscale transparency
     const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = baseDim;
-    tempCanvas.height = baseDim;
+    tempCanvas.width = tileWidth;
+    tempCanvas.height = tileHeight;
     const tempCtx = tempCanvas.getContext('2d');
-    tempCtx.drawImage(img, 0, 0, baseDim, baseDim);
+    tempCtx.drawImage(img, 0, 0, tileWidth, tileHeight);
 
     // If it's a GIMP greyscale brush, it's often black-on-white.
     // We want white to be transparent.
     if (brush.type === 'gbr' && brush.colorDepth === 1) {
-        const imageData = tempCtx.getImageData(0, 0, baseDim, baseDim);
+        const imageData = tempCtx.getImageData(0, 0, tileWidth, tileHeight);
         const data = imageData.data;
         for (let i = 0; i < data.length; i += 4) {
             const r = data[i];
@@ -137,13 +156,18 @@ export class PatternTool extends Tool {
         }
         tempCtx.putImageData(imageData, 0, 0);
     }
-    
-    // Draw centered and tinted
+
+    // Draw centered and optionally tinted
     tctx.save();
-    tctx.drawImage(tempCanvas, padding/2, padding/2, baseDim, baseDim);
-    tctx.globalCompositeOperation = 'source-in';
-    tctx.fillStyle = `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3]})`;
-    tctx.fillRect(0, 0, tileCanvas.width, tileCanvas.height);
+    tctx.drawImage(tempCanvas, padding/2, padding/2, tileWidth, tileHeight);
+
+    // Only apply color tinting if colorMode is 'tinted'
+    if (colorMode === 'tinted') {
+      tctx.globalCompositeOperation = 'source-in';
+      tctx.fillStyle = `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3]})`;
+      tctx.fillRect(0, 0, tileCanvas.width, tileCanvas.height);
+    }
+
     tctx.restore();
 
     this._tileCache.set(key, tileCanvas);
@@ -159,13 +183,16 @@ export class PatternTool extends Tool {
 
     const size = user.size * (user.pressure || 1);
     const scale = (user.patternScale || 100) / 100;
-    
+    const offsetX = user.patternOffsetX || 0;
+    const offsetY = user.patternOffsetY || 0;
+
     ctx.save();
-    
+
     // Create the repeating grid wallpaper
     const pattern = ctx.createPattern(tile, 'repeat');
     if (pattern.setTransform) {
       const matrix = new DOMMatrix()
+        .translate(offsetX, offsetY)
         .rotate(user.patternRotation || 0)
         .scale(scale);
       pattern.setTransform(matrix);
@@ -185,26 +212,42 @@ export class PatternTool extends Tool {
     this.board.requestUpdate();
   }
 
-  updatePreview() {
+  updatePreview(user) {
     if (!this.previewCanvas) {
       this.previewCanvas = document.getElementById('patternPreview');
     }
-    if (!this.previewCanvas) return;
+    if (!this.previewCanvas) {
+      console.warn('Pattern preview canvas not found');
+      return;
+    }
 
     const ctx = this.previewCanvas.getContext('2d');
-    const user = this.board.self;
-    if (!user) return;
+
+    // Get user from parameter, board, or app
+    if (!user) {
+      user = this.board.self || this.board.app?.self;
+    }
+    if (!user) {
+      console.warn('No user available for pattern preview');
+      return;
+    }
 
     ctx.clearRect(0, 0, this.previewCanvas.width, this.previewCanvas.height);
-    
+
     const tile = this._getPatternTile(user);
-    if (!tile) return;
+    if (!tile) {
+      // No pattern selected yet - show blank preview
+      return;
+    }
 
     const pattern = ctx.createPattern(tile, 'repeat');
     const scale = (user.patternScale || 100) / 100;
-    
+    const offsetX = user.patternOffsetX || 0;
+    const offsetY = user.patternOffsetY || 0;
+
     if (pattern.setTransform) {
       const matrix = new DOMMatrix()
+        .translate(offsetX, offsetY)
         .rotate(user.patternRotation || 0)
         .scale(scale);
       pattern.setTransform(matrix);

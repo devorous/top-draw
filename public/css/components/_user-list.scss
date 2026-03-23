@@ -11,14 +11,14 @@
 .sliders {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .sliderContainer {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 .sliderContainer label,
@@ -66,7 +66,7 @@
   width: 16px;
   height: 16px;
   background: var(--accent-primary);
-  border-radius: 50%;
+  border-radius: 4px;
   cursor: pointer;
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
 }
@@ -81,7 +81,7 @@
   height: 16px;
   background: var(--accent-primary);
   border: none;
-  border-radius: 50%;
+  border-radius: 4px;
   cursor: pointer;
 }
 

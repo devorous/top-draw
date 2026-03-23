@@ -26,6 +26,43 @@ export class UI {
     this.createIcons();
     this.remoteUserUI = new RemoteUserUI(this.elements, this.icons);
     this.layerPreview.init();
+    this.setupScrollIndicator();
+  }
+
+  /**
+   * Sets up the scroll indicator for the options panel
+   */
+  setupScrollIndicator() {
+    const optionsPanel = document.getElementById('options');
+    const scrollIndicator = document.getElementById('optionsScrollIndicator');
+
+    if (!optionsPanel || !scrollIndicator) return;
+
+    const updateScrollIndicator = () => {
+      const hasScroll = optionsPanel.scrollHeight > optionsPanel.clientHeight;
+      const scrollTop = optionsPanel.scrollTop;
+      const isNearBottom = optionsPanel.scrollHeight - scrollTop <= optionsPanel.clientHeight + 20;
+
+      // Show only when: has scroll, at top (not scrolled), and not at bottom
+      if (hasScroll && scrollTop < 10 && !isNearBottom) {
+        scrollIndicator.classList.add('visible');
+      } else {
+        scrollIndicator.classList.remove('visible');
+      }
+    };
+
+    // Initial check
+    updateScrollIndicator();
+
+    // Update on scroll
+    optionsPanel.addEventListener('scroll', updateScrollIndicator);
+
+    // Update when window resizes or content changes
+    const resizeObserver = new ResizeObserver(updateScrollIndicator);
+    resizeObserver.observe(optionsPanel);
+
+    // Also check after a short delay (for dynamic content)
+    setTimeout(updateScrollIndicator, 500);
   }
 
   /**
@@ -157,6 +194,9 @@ export class UI {
       patternScaleSlider: document.querySelector('.slider.patternScale'),
       patternRotationSlider: document.querySelector('.slider.patternRotation'),
       patternSpacingSlider: document.querySelector('.slider.patternSpacing'),
+      patternOffsetXSlider: document.querySelector('.slider.patternOffsetX'),
+      patternOffsetYSlider: document.querySelector('.slider.patternOffsetY'),
+      patternColorModeRadios: document.querySelectorAll('input[name="patternColorMode"]'),
 
       sizeValue: document.getElementById('sizeValue'),
       pressureValue: document.getElementById('pressureValue'),
@@ -169,6 +209,8 @@ export class UI {
       patternScaleValue: document.getElementById('patternScaleValue'),
       patternRotationValue: document.getElementById('patternRotationValue'),
       patternSpacingValue: document.getElementById('patternSpacingValue'),
+      patternOffsetXValue: document.getElementById('patternOffsetXValue'),
+      patternOffsetYValue: document.getElementById('patternOffsetYValue'),
 
       brushFileInput: document.getElementById('brush-file-input'),
       brushImage: document.getElementById('brushImage'),
@@ -600,7 +642,8 @@ export class UI {
           selfCircle.style.display = 'block';
           if (selfPressureCircle) selfPressureCircle.style.display = 'block';
         }
-        brushSpacing.style.display = 'block';
+        brushSpacing.style.display = 'none';
+        smoothingContainer.style.display = 'none';
         if (patternModeOptions) patternModeOptions.style.display = 'block';
         break;
 

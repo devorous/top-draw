@@ -178,6 +178,23 @@ export class PixelBrushTool {
   }
 
   /**
+   * Clear the current stroke state (for cancellation)
+   * @param {Object} user - User object (optional, defaults to clearing all)
+   */
+  clearStroke(user) {
+    if (user) {
+      this.tempCanvases.delete(user.id);
+      this.lastStampPos.delete(user.id);
+    } else {
+      this.tempCanvases.clear();
+      this.lastStampPos.clear();
+    }
+    this.strokePoints = [];
+    this.stampBuffer = [];
+    this.board.clearTop();
+  }
+
+  /**
    * End drawing
    * @param {Object} user - User object
    * @param {Object} pos - Position {x, y}
