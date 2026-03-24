@@ -9,8 +9,8 @@
    ======================================== */
 
 #colorPalette {
-  padding: 12px;
-  border-top: 1px solid var(--border-subtle);
+  padding: 5px;
+  border-top: 2px solid var(--border-subtle);
 }
 
 .paletteSection {
@@ -44,7 +44,7 @@
 .swatchGrid {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 2px;
 }
 
 .swatch {

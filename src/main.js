@@ -1,6 +1,6 @@
 /** @fileoverview Main entry point for the Top Draw application. Sets up error handling and initializes the DrawingApp. */
 
-import '../public/css/main.scss';
+import './css/main.scss';
 import { DrawingApp } from './App.js';
 import initWasm from './wasm/ddraw_wasm.js';
 
