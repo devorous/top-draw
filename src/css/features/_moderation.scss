@@ -462,7 +462,7 @@
 .colorInputBtn {
   position: absolute;
   bottom: 8px;
-  right: 8px;
+  right: 12px;
   width: 28px;
   height: 28px;
   background: var(--bg-tertiary);
@@ -491,6 +491,7 @@
   bottom: 45px;
   right: 8px;
   width: 200px;
+  height:200px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
@@ -618,6 +619,7 @@
 /* Hex field styling - wider input for hex code */
 .colorInputField.hexField input {
   flex: 1;
+  width: 50%;
   font-family: 'Courier New', monospace;
   letter-spacing: 0.5px;
 }

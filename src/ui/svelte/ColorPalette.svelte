@@ -99,8 +99,9 @@
   .color-palette {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    padding: 0.5rem 0.625rem;
+    border-top: 2px solid var(--bg-secondary);
+    gap: 0.2rem;
+    padding: 0.25rem 0.675rem;
   }
 
   .palette-section {
@@ -114,7 +115,7 @@
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: rgba(255, 255, 255, 0.5);
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.15rem;
   }
 
   .palette-hint {
@@ -152,7 +153,7 @@
   }
 
   .swatch.empty {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.25);
     border-color: rgba(255, 255, 255, 0.05);
     cursor: default;
   }
