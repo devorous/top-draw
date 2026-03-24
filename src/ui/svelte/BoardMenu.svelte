@@ -163,7 +163,7 @@
     flex-direction: column;
     align-items: flex-end;
     gap: 1px;
-    z-index: 200;
+    z-index: 50;
     pointer-events: all;
   }
 

@@ -1,9 +1,8 @@
 <script>
-  import { onMount } from 'svelte';
   import { getStroke } from 'perfect-freehand';
 
-  let canvasEl;
-  let mounted = false;
+  let canvasEl = $state(null);
+  let mounted = $state(false);
 
   // Virtual canvas space — coordinates defined here, scaled to display
   const VW = 480, VH = 300;
@@ -71,7 +70,7 @@
     return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
   }
 
-  onMount(() => {
+  $effect(() => {
     mounted = true;
     const canvas = canvasEl;
     if (!canvas) return;

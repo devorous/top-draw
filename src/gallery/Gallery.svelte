@@ -9,8 +9,8 @@
   const USERNAME_KEY = 'topDrawUsername';
 
   // Track if lightbox was opened from a profile (to return to it)
-  let openedFromProfile = null;
-  let lightboxInstant = false; // Skip fade animation when opening from profile
+  let openedFromProfile = $state(null);
+  let lightboxInstant = $state(false); // Skip fade animation when opening from profile
 
   // Profile dialog instance
   const profileDialog = new ProfileDialog({
@@ -26,31 +26,31 @@
   });
 
   // Gallery state
-  let items = [];
-  let loading = true;
-  let error = null;
-  let page = 1;
-  let totalPages = 1;
-  let lightbox = null;
-  let likedIds = new Set(JSON.parse(localStorage.getItem('ddraw_liked') || '[]'));
-  let sort = 'newest'; // 'newest' | 'top' | 'views'
-  let authorFilter = null; // username string or null
-  let showFavorites = false; // viewing favorites mode
-  let favoritedIds = new Set(); // ids user has favorited
+  let items = $state([]);
+  let loading = $state(true);
+  let error = $state(null);
+  let page = $state(1);
+  let totalPages = $state(1);
+  let lightbox = $state(null);
+  let likedIds = $state(new Set(JSON.parse(localStorage.getItem('ddraw_liked') || '[]')));
+  let sort = $state('newest'); // 'newest' | 'top' | 'views'
+  let authorFilter = $state(null); // username string or null
+  let showFavorites = $state(false); // viewing favorites mode
+  let favoritedIds = $state(new Set()); // ids user has favorited
 
   // Comments state
-  let comments = [];
-  let commentsLoading = false;
-  let newComment = '';
-  let commentSubmitting = false;
+  let comments = $state([]);
+  let commentsLoading = $state(false);
+  let newComment = $state('');
+  let commentSubmitting = $state(false);
 
   // Auth state
-  let user = null; // { username, role, userId }
-  let authLoading = false;
-  let authError = null;
-  let showAuthModal = false;
-  let authMode = 'login'; // 'login' | 'register'
-  let authForm = { username: '', password: '', email: '' };
+  let user = $state(null); // { username, role, userId }
+  let authLoading = $state(false);
+  let authError = $state(null);
+  let showAuthModal = $state(false);
+  let authMode = $state('login'); // 'login' | 'register'
+  let authForm = $state({ username: '', password: '', email: '' });
 
   async function fetchGallery() {
     loading = true;
@@ -483,7 +483,7 @@
   });
 </script>
 
-<svelte:window on:keydown={handleKeydown}/>
+<svelte:window onkeydown={handleKeydown}/>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
@@ -497,11 +497,11 @@
       <a href="/go/" class="nav-cta">draw →</a>
       <span class="nav-divider">|</span>
       {#if user}
-        <button class="btn-text" class:active={showFavorites} on:click={toggleFavoritesView}>favorites</button>
-        <button class="nav-user" on:click={() => profileDialog.show(user.username)}>{user.username}</button>
-        <button class="btn-text" on:click={logout}>logout</button>
+        <button class="btn-text" class:active={showFavorites} onclick={toggleFavoritesView}>favorites</button>
+        <button class="nav-user" onclick={() => profileDialog.show(user.username)}>{user.username}</button>
+        <button class="btn-text" onclick={logout}>logout</button>
       {:else}
-        <button class="btn-text" on:click={() => openAuthModal('login')}>login</button>
+        <button class="btn-text" onclick={() => openAuthModal('login')}>login</button>
       {/if}
     </div>
   </nav>
@@ -512,9 +512,9 @@
         <h1>{showFavorites ? 'My Favorites' : (authorFilter ? `${authorFilter}'s Art` : 'Gallery')}</h1>
         <p>
           {#if showFavorites}
-            <button class="btn-link" on:click={toggleFavoritesView}>← back to all</button>
+            <button class="btn-link" onclick={toggleFavoritesView}>← back to all</button>
           {:else if authorFilter}
-            <button class="btn-link" on:click={clearAuthorFilter}>← back to all</button>
+            <button class="btn-link" onclick={clearAuthorFilter}>← back to all</button>
           {:else}
             Artwork made by the ddraw community
           {/if}
@@ -522,9 +522,9 @@
       </div>
       {#if !showFavorites}
         <div class="sort-controls">
-          <button class="sort-btn" class:active={sort === 'newest'} on:click={() => setSort('newest')}>Newest</button>
-          <button class="sort-btn" class:active={sort === 'top'} on:click={() => setSort('top')}>Top</button>
-          <button class="sort-btn" class:active={sort === 'views'} on:click={() => setSort('views')}>Views</button>
+          <button class="sort-btn" class:active={sort === 'newest'} onclick={() => setSort('newest')}>Newest</button>
+          <button class="sort-btn" class:active={sort === 'top'} onclick={() => setSort('top')}>Top</button>
+          <button class="sort-btn" class:active={sort === 'views'} onclick={() => setSort('views')}>Views</button>
         </div>
       {/if}
     </div>
@@ -538,7 +538,7 @@
     {:else if error}
       <div class="state-center">
         <p class="error-msg">{error}</p>
-        <button class="btn-ghost" on:click={fetchGallery}>Retry</button>
+        <button class="btn-ghost" onclick={fetchGallery}>Retry</button>
       </div>
     {:else if items.length === 0}
       <div class="state-center empty">
@@ -550,30 +550,30 @@
     {:else}
       <div class="grid">
         {#each items as item (item.id)}
-          <button class="card" on:click={() => openLightbox(item)}>
+          <div class="card" role="button" tabindex="0" onclick={() => openLightbox(item)} onkeydown={(e) => e.key === 'Enter' && openLightbox(item)}>
             <div class="card-img">
               <img src={item.thumbUrl || item.url} alt={item.title || 'artwork'} loading="lazy">
             </div>
             <div class="card-meta">
-              <button class="card-author" on:click|stopPropagation={() => profileDialog.show(item.author)}>{item.author}</button>
+              <button class="card-author" onclick={(e) => { e.stopPropagation(); profileDialog.show(item.author); }}>{item.author}</button>
               <button
                 class="like-btn"
                 class:liked={likedIds.has(item.id)}
-                on:click|stopPropagation={() => like(item)}
+                onclick={(e) => { e.stopPropagation(); like(item); }}
                 aria-label="Like"
               >
                 ♥ {item.likes || 0}
               </button>
             </div>
-          </button>
+          </div>
         {/each}
       </div>
 
       {#if totalPages > 1}
         <div class="pagination">
-          <button class="btn-ghost small" disabled={page <= 1} on:click={() => { page--; fetchGallery(); }}>← Prev</button>
+          <button class="btn-ghost small" disabled={page <= 1} onclick={() => { page--; fetchGallery(); }}>← Prev</button>
           <span>{page} / {totalPages}</span>
-          <button class="btn-ghost small" disabled={page >= totalPages} on:click={() => { page++; fetchGallery(); }}>Next →</button>
+          <button class="btn-ghost small" disabled={page >= totalPages} onclick={() => { page++; fetchGallery(); }}>Next →</button>
         </div>
       {/if}
     {/if}
@@ -588,9 +588,9 @@
 {#if lightbox}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="lightbox-backdrop" class:instant={lightboxInstant} on:click={closeLightbox}>
-    <div class="lightbox" on:click|stopPropagation>
-      <button class="lb-close" on:click={closeLightbox}>×</button>
+  <div class="lightbox-backdrop" class:instant={lightboxInstant} onclick={closeLightbox}>
+    <div class="lightbox" onclick={(e) => e.stopPropagation()}>
+      <button class="lb-close" onclick={closeLightbox}>×</button>
       <div class="lb-img-wrap">
         <img src={lightbox.url} alt={lightbox.title || 'artwork'}>
       </div>
@@ -599,14 +599,14 @@
           <h3>{lightbox.title}</h3>
         {/if}
         <div class="lb-meta">
-          <button class="lb-author" on:click={() => profileDialog.show(lightbox.author)}>by {lightbox.author}</button>
+          <button class="lb-author" onclick={() => profileDialog.show(lightbox.author)}>by {lightbox.author}</button>
           <span class="lb-date">{formatDate(lightbox.createdAt)}</span>
         </div>
         <div class="lb-actions">
           <button
             class="like-btn large"
             class:liked={likedIds.has(lightbox.id)}
-            on:click={() => like(lightbox)}
+            onclick={() => like(lightbox)}
           >
             ♥ {lightbox.likes || 0}
           </button>
@@ -614,15 +614,15 @@
             <button
               class="fav-btn"
               class:favorited={favoritedIds.has(lightbox.id)}
-              on:click={() => toggleFavorite(lightbox)}
+              onclick={() => toggleFavorite(lightbox)}
               title={favoritedIds.has(lightbox.id) ? 'Remove from favorites' : 'Add to favorites'}
             >
               ★
             </button>
           {/if}
-          <button class="btn-ghost small" on:click={() => downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)}>Download</button>
+          <button class="btn-ghost small" onclick={() => downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)}>Download</button>
           {#if user && (user.username === lightbox.author || user.role >= 5)}
-            <button class="btn-danger small" on:click={() => deleteImage(lightbox)}>Delete</button>
+            <button class="btn-danger small" onclick={() => deleteImage(lightbox)}>Delete</button>
           {/if}
         </div>
 
@@ -638,10 +638,10 @@
               {#each comments as comment (comment.id)}
                 <div class="comment">
                   <div class="comment-header">
-                    <button class="comment-author" on:click={() => profileDialog.show(comment.author)}>{comment.author}</button>
+                    <button class="comment-author" onclick={() => profileDialog.show(comment.author)}>{comment.author}</button>
                     <span class="comment-date">{formatDate(comment.createdAt)}</span>
                     {#if user && (user.userId === comment.authorId || user.role >= 5)}
-                      <button class="comment-delete" on:click={() => deleteComment(comment.id)} title="Delete">×</button>
+                      <button class="comment-delete" onclick={() => deleteComment(comment.id)} title="Delete">×</button>
                     {/if}
                   </div>
                   <p class="comment-text">{comment.text}</p>
@@ -651,7 +651,7 @@
           {/if}
 
           {#if user}
-            <form class="comment-form" on:submit|preventDefault={submitComment}>
+            <form class="comment-form" onsubmit={(e) => { e.preventDefault(); submitComment(); }}>
               <input
                 type="text"
                 bind:value={newComment}
@@ -665,7 +665,7 @@
             </form>
           {:else}
             <p class="comments-login-hint">
-              <button class="btn-link" on:click={() => openAuthModal('login')}>Log in</button> to comment
+              <button class="btn-link" onclick={() => openAuthModal('login')}>Log in</button> to comment
             </p>
           {/if}
         </div>
@@ -677,12 +677,12 @@
 {#if showAuthModal}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="modal-backdrop" on:click={closeAuthModal}>
-    <div class="modal" on:click|stopPropagation>
-      <button class="modal-close" on:click={closeAuthModal}>×</button>
+  <div class="modal-backdrop" onclick={closeAuthModal}>
+    <div class="modal" onclick={(e) => e.stopPropagation()}>
+      <button class="modal-close" onclick={closeAuthModal}>×</button>
       <h2>{authMode === 'login' ? 'Login' : 'Register'}</h2>
 
-      <form on:submit|preventDefault={authMode === 'login' ? handleLogin : handleRegister}>
+      <form onsubmit={(e) => { e.preventDefault(); authMode === 'login' ? handleLogin() : handleRegister(); }}>
         <label>
           <span>Username</span>
           <input type="text" bind:value={authForm.username} autocomplete="username" />
@@ -709,9 +709,9 @@
 
       <p class="auth-switch">
         {#if authMode === 'login'}
-          Don't have an account? <button class="btn-link" on:click={() => authMode = 'register'}>Register</button>
+          Don't have an account? <button class="btn-link" onclick={() => authMode = 'register'}>Register</button>
         {:else}
-          Already have an account? <button class="btn-link" on:click={() => authMode = 'login'}>Login</button>
+          Already have an account? <button class="btn-link" onclick={() => authMode = 'login'}>Login</button>
         {/if}
       </p>
     </div>
