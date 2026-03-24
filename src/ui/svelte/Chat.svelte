@@ -1,33 +1,29 @@
 <script>
-  import { chatVisible, chatUnreadCount, dmRecipient, users } from '../../stores.js';
-  import { onMount } from 'svelte';
+  import { appState } from '../../state.svelte.js';
 
-  export let onSend = null;
-  export let onDM = null;
-  export let onSendImage = null;
+  let { onSend = null, onDM = null, onSendImage = null } = $props();
 
-  let currentTab = 'all';
-  let messageInput = '';
-  let messages = {
+  let currentTab = $state('all');
+  let messageInput = $state('');
+  let messages = $state({
     all: [],
     dms: new Map()
-  };
+  });
 
-  let draggable = false;
   let dragX = 0;
   let dragY = 0;
-  let isDragging = false;
+  let isDragging = $state(false);
 
-  $: visible = $chatVisible;
-  $: recipient = $dmRecipient;
+  let visible = $derived(appState.chatVisible);
+  let recipient = $derived(appState.dmRecipient);
 
   function show() {
-    chatVisible.set(true);
-    chatUnreadCount.set(0);
+    appState.chatVisible = true;
+    appState.chatUnreadCount = 0;
   }
 
   function hide() {
-    chatVisible.set(false);
+    appState.chatVisible = false;
   }
 
   function switchTab(tab) {
@@ -36,12 +32,12 @@
   }
 
   function selectDMRecipient(user) {
-    dmRecipient.set(user);
+    appState.dmRecipient = user;
     currentTab = 'dm';
   }
 
   function backToDMList() {
-    dmRecipient.set(null);
+    appState.dmRecipient = null;
   }
 
   function handleSend() {
@@ -61,7 +57,7 @@
   function addMessage(username, message, color, timestamp = Date.now()) {
     messages.all = [...messages.all, { username, message, color, timestamp }];
     if (!visible) {
-      chatUnreadCount.update(n => n + 1);
+      appState.chatUnreadCount++;
     }
   }
 
@@ -101,7 +97,8 @@
   }
 
   // Make draggable
-  let chatEl;
+  let chatEl = $state(null);
+
   function startDrag(e) {
     if (e.target.closest('.chat-tabs') || e.target.closest('.chat-content')) {
       return;
@@ -124,7 +121,7 @@
     isDragging = false;
   }
 
-  onMount(() => {
+  $effect(() => {
     document.addEventListener('mousemove', onDrag);
     document.addEventListener('mouseup', endDrag);
     return () => {
@@ -139,22 +136,22 @@
     class="chat"
     class:dragging={isDragging}
     bind:this={chatEl}
-    on:mousedown={startDrag}
+    onmousedown={startDrag}
   >
     <div class="chat-header">
       <div class="chat-tabs">
         <button
           class="chat-tab"
           class:active={currentTab === 'all'}
-          on:click={() => switchTab('all')}
+          onclick={() => switchTab('all')}
         >All</button>
         <button
           class="chat-tab"
           class:active={currentTab === 'dm'}
-          on:click={() => switchTab('dm')}
+          onclick={() => switchTab('dm')}
         >DM</button>
       </div>
-      <button class="chat-close" on:click={hide}>&times;</button>
+      <button class="chat-close" onclick={hide}>&times;</button>
     </div>
 
     <div class="chat-content">
@@ -172,7 +169,7 @@
         </div>
       {:else if recipient}
         <div class="dm-header">
-          <button class="dm-back" on:click={backToDMList}>←</button>
+          <button class="dm-back" onclick={backToDMList}>←</button>
           <div class="dm-user-color" style="background-color: {recipient.color}"></div>
           <span class="dm-username">{recipient.username}</span>
         </div>
@@ -186,11 +183,11 @@
         </div>
       {:else}
         <div class="dm-user-list">
-          {#if $users.size === 0}
+          {#if appState.users.size === 0}
             <div class="dm-no-users">No other users online</div>
           {:else}
-            {#each [...$users.values()] as user}
-              <div class="dm-user-item" on:click={() => selectDMRecipient(user)}>
+            {#each [...appState.users.values()] as user}
+              <div class="dm-user-item" onclick={() => selectDMRecipient(user)}>
                 <div class="dm-user-color" style="background-color: {user.color}"></div>
                 <span class="dm-user-name">{user.username}</span>
               </div>
@@ -204,11 +201,11 @@
       <textarea
         class="chat-input"
         bind:value={messageInput}
-        on:keydown={handleKeydown}
+        onkeydown={handleKeydown}
         placeholder={currentTab === 'all' ? 'Type a message...' : `Message ${recipient?.username || '...'}...`}
         rows="1"
       ></textarea>
-      <button class="chat-send" on:click={handleSend}>Send</button>
+      <button class="chat-send" onclick={handleSend}>Send</button>
     </div>
   </div>
 {/if}

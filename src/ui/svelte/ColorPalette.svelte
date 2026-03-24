@@ -1,8 +1,7 @@
 <script>
-  import { recentColors, customColors, currentColor } from '../../stores.js';
-  import { addCustomColor as addCustomColorToStore, removeCustomColor as removeCustomColorFromStore } from '../../stores.js';
+  import { appState, addCustomColor, removeCustomColor } from '../../state.svelte.js';
 
-  export let onColorSelect = null;
+  let { onColorSelect = null } = $props();
 
   const maxRecentColors = 6;
   const maxCustomColors = 12;
@@ -19,32 +18,34 @@
   }
 
   function selectColor(color) {
-    currentColor.set([...color]);
+    appState.currentColor = [...color];
     if (onColorSelect) {
       onColorSelect(color);
     }
   }
 
   function handleAddCustom() {
-    const current = $currentColor;
+    const current = appState.currentColor;
     if (onColorSelect) {
       onColorSelect((currentColor) => {
-        addCustomColorToStore(currentColor);
+        addCustomColor(currentColor);
       });
     } else {
-      addCustomColorToStore(current);
+      addCustomColor(current);
     }
   }
 
   function handleRemoveCustom(color, event) {
     event.preventDefault();
     event.stopPropagation();
-    removeCustomColorFromStore(color);
+    removeCustomColor(color);
   }
 
   // Fill empty slots for recent colors
-  $: recentSlots = Array.from({ length: maxRecentColors }, (_, i) =>
-    i < $recentColors.length ? $recentColors[i] : null
+  let recentSlots = $derived(
+    Array.from({ length: maxRecentColors }, (_, i) =>
+      i < appState.recentColors.length ? appState.recentColors[i] : null
+    )
   );
 </script>
 
@@ -59,7 +60,7 @@
             class="swatch"
             style="background-color: {colorToRgba(color)}"
             title={colorToHex(color)}
-            on:click={() => selectColor(color)}
+            onclick={() => selectColor(color)}
           ></button>
         {:else}
           <div class="swatch empty"></div>
@@ -74,20 +75,20 @@
       Custom <span class="palette-hint">(click + to save)</span>
     </label>
     <div class="swatch-grid">
-      {#each $customColors as color}
+      {#each appState.customColors as color}
         <button
           class="swatch"
           style="background-color: {colorToRgba(color)}"
           title="{colorToHex(color)} (right-click to remove)"
-          on:click={() => selectColor(color)}
-          on:contextmenu={(e) => handleRemoveCustom(color, e)}
+          onclick={() => selectColor(color)}
+          oncontextmenu={(e) => handleRemoveCustom(color, e)}
         ></button>
       {/each}
-      {#if $customColors.length < maxCustomColors}
+      {#if appState.customColors.length < maxCustomColors}
         <button
           class="swatch add-swatch"
           title="Save current color"
-          on:click={handleAddCustom}
+          onclick={handleAddCustom}
         >+</button>
       {/if}
     </div>

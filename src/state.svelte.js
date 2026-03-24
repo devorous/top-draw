@@ -1,0 +1,113 @@
+class DrawingState {
+  // Tool & Drawing
+  currentTool = $state('brush');
+  currentColor = $state([0, 0, 0, 255]);
+  currentSize = $state(10);
+  currentPressure = $state(1.0);
+  pressureEnabled = $state(true);
+  blendMode = $state('source-over');
+
+  // Layer
+  activeLayer = $state(2);
+  layerVisibility = $state({ 0: true, 1: true, 2: true });
+  layerManager = $state(null);
+
+  // User
+  users = $state(new Map());
+  self = $state(null);
+  sessionIndex = $state(null);
+  selfRole = $state(0);
+  username = $state('');
+
+  // Room
+  currentRoomId = $state(null);
+  currentRoomData = $state(null);
+  connected = $state(false);
+
+  // Chat
+  chatUnreadCount = $state(0);
+  chatVisible = $state(false);
+  dmRecipient = $state(null);
+
+  // Color Palette
+  recentColors = $state([]);
+  customColors = $state([]);
+
+  // UI
+  boardMenuOpen = $state(null); // null | 'blend' | 'layers'
+  profileDialog = $state({ visible: false, username: null, data: null, loading: false, error: null });
+  roomSettingsVisible = $state(false);
+  colorPaletteVisible = $state(true);
+  toastState = $state({ text: '', visible: false });
+  connectionState = $state({ connected: false, roomId: null, text: '' });
+
+  // Derived
+  get currentColorRgba() {
+    const [r, g, b, a] = this.currentColor;
+    return `rgba(${r}, ${g}, ${b}, ${a / 255})`;
+  }
+
+  get currentColorHex() {
+    const [r, g, b] = this.currentColor;
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  }
+
+  get isModerator() {
+    return this.selfRole >= 4;
+  }
+
+  get userCount() {
+    return this.users.size;
+  }
+}
+
+export const appState = new DrawingState();
+
+// ============================================================================
+// Helper functions
+// ============================================================================
+
+function colorsEqual(a, b) {
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+}
+
+export function addRecentColor(color) {
+  appState.recentColors = [
+    [...color],
+    ...appState.recentColors.filter(c => !colorsEqual(c, color))
+  ].slice(0, 6);
+}
+
+export function addCustomColor(color) {
+  const exists = appState.customColors.some(c => colorsEqual(c, color));
+  if (exists || appState.customColors.length >= 12) return;
+  appState.customColors = [...appState.customColors, [...color]];
+}
+
+export function removeCustomColor(color) {
+  appState.customColors = appState.customColors.filter(c => !colorsEqual(c, color));
+}
+
+export function toggleLayerVisibility(layerIndex) {
+  appState.layerVisibility = {
+    ...appState.layerVisibility,
+    [layerIndex]: !appState.layerVisibility[layerIndex]
+  };
+}
+
+export function showProfile(username) {
+  appState.profileDialog = { visible: true, username, data: null, loading: true, error: null };
+
+  fetch(`/api/users/${encodeURIComponent(username)}`)
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        appState.profileDialog = { ...appState.profileDialog, loading: false, error: data.error };
+      } else {
+        appState.profileDialog = { ...appState.profileDialog, loading: false, data };
+      }
+    })
+    .catch(() => {
+      appState.profileDialog = { ...appState.profileDialog, loading: false, error: 'Connection error' };
+    });
+}

@@ -1,31 +1,29 @@
 <script>
-  import { roomSettingsVisible, currentRoomData, selfRole, username } from '../../stores.js';
-  import { onMount } from 'svelte';
+  import { appState } from '../../state.svelte.js';
 
-  export let wsClient = null;
-  export let board = null;
-  export let onUpdate = null;
-  export let onUnregister = null;
+  let { wsClient = null, board = null, onUpdate = null, onUnregister = null } = $props();
 
-  let roomId = '';
-  let description = '';
-  let ownerUsername = '';
-  let backgroundColor = '#ffffff';
-  let locked = false;
-  let maxUsers = 40;
-  let message = '';
-  let messageType = 'success';
-  let showMessage = false;
+  let roomId = $state('');
+  let description = $state('');
+  let ownerUsername = $state('');
+  let backgroundColor = $state('#ffffff');
+  let locked = $state(false);
+  let maxUsers = $state(40);
+  let message = $state('');
+  let messageType = $state('success');
+  let showMessage = $state(false);
 
-  $: visible = $roomSettingsVisible;
-  $: roomData = $currentRoomData;
-  $: userRole = $selfRole;
-  $: currentUsername = $username;
+  let visible = $derived(appState.roomSettingsVisible);
+  let roomData = $derived(appState.currentRoomData);
+  let userRole = $derived(appState.selfRole);
+  let currentUsername = $derived(appState.username);
 
   // Update form when room data changes
-  $: if (visible && roomData) {
-    loadRoomData(roomData);
-  }
+  $effect(() => {
+    if (visible && roomData) {
+      loadRoomData(roomData);
+    }
+  });
 
   function loadRoomData(data) {
     roomId = data.id || '';
@@ -34,29 +32,21 @@
     locked = !!data.locked;
     maxUsers = data.maxUsers !== undefined ? data.maxUsers : 40;
 
-    // Get background color from board
     if (board) {
       const [r, g, b] = board.backgroundColor;
       backgroundColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
     }
   }
 
-  function show() {
-    roomSettingsVisible.set(true);
-  }
-
   function hide() {
-    roomSettingsVisible.set(false);
+    appState.roomSettingsVisible = false;
   }
 
   function displayMessage(text, type = 'success') {
     message = text;
     messageType = type;
     showMessage = true;
-
-    setTimeout(() => {
-      showMessage = false;
-    }, 3000);
+    setTimeout(() => { showMessage = false; }, 3000);
   }
 
   function save() {
@@ -111,14 +101,6 @@
     }
   }
 
-  function handleKeydown(e) {
-    if (e.key === 'Escape' && visible) {
-      hide();
-    } else if (e.key === 'Enter' && e.ctrlKey && visible) {
-      save();
-    }
-  }
-
   function handleBackdropClick(e) {
     if (e.target === e.currentTarget) {
       hide();
@@ -132,26 +114,31 @@
     return isOwner || isDeity;
   }
 
-  onMount(() => {
+  $effect(() => {
+    function handleKeydown(e) {
+      if (e.key === 'Escape' && appState.roomSettingsVisible) {
+        hide();
+      } else if (e.key === 'Enter' && e.ctrlKey && appState.roomSettingsVisible) {
+        save();
+      }
+    }
     document.addEventListener('keydown', handleKeydown);
-    return () => {
-      document.removeEventListener('keydown', handleKeydown);
-    };
+    return () => document.removeEventListener('keydown', handleKeydown);
   });
 </script>
 
 {#if visible}
   <div
     class="room-settings-overlay"
-    on:click={handleBackdropClick}
+    onclick={handleBackdropClick}
     role="presentation"
   >
-    <div class="room-settings-dialog" on:click|stopPropagation>
+    <div class="room-settings-dialog" onclick={(e) => e.stopPropagation()}>
       <div class="room-settings-header">
         <h3>Room Settings</h3>
         <button
           class="room-settings-close"
-          on:click={hide}
+          onclick={hide}
           title="Close"
         >&times;</button>
       </div>
@@ -208,7 +195,7 @@
             <input
               type="text"
               value={backgroundColor}
-              on:input={(e) => backgroundColor = e.target.value}
+              oninput={(e) => backgroundColor = e.target.value}
               class="room-input color-text"
             />
           </div>
@@ -238,13 +225,13 @@
       </div>
 
       <div class="room-settings-footer">
-        <button class="btn secondary" on:click={hide}>Cancel</button>
+        <button class="btn secondary" onclick={hide}>Cancel</button>
         {#if canShowUnregister()}
-          <button class="btn danger" on:click={confirmUnregister}>
+          <button class="btn danger" onclick={confirmUnregister}>
             Unregister
           </button>
         {/if}
-        <button class="btn primary" on:click={save}>Save</button>
+        <button class="btn primary" onclick={save}>Save</button>
       </div>
     </div>
   </div>

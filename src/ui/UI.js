@@ -259,10 +259,6 @@ export class UI {
       patternShapeSelect: document.getElementById('patternShapeSelect'),
       patternShapeUploadBtn: document.getElementById('patternShapeUploadBtn'),
       patternShapeUploadInput: document.getElementById('patternShapeUploadInput'),
-      blendModeOptions: document.getElementById('blendModeOptions'),
-      blendModeSelect: document.getElementById('blendModeSelect'),
-      layerPanel: document.getElementById('layerPanel'),
-      layerList: document.getElementById('layerList'),
 
       sizeLock: document.getElementById('sizeLock'),
       pressureLock: document.getElementById('pressureLock'),

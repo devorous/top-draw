@@ -1,34 +1,23 @@
 <script>
-  import { profileDialogState } from '../../stores.js';
-  import { onMount } from 'svelte';
+  import { appState } from '../../state.svelte.js';
 
-  export let galleryBaseUrl = '/gallery';
-  export let apiBaseUrl = '';
-  export let onViewGallery = null;
-  export let onImageClick = null;
+  let { galleryBaseUrl = '/gallery', apiBaseUrl = '', onViewGallery = null, onImageClick = null } = $props();
 
-  let recentUploads = [];
-
-  $: visible = $profileDialogState.visible;
-  $: username = $profileDialogState.username;
-  $: data = $profileDialogState.data;
-  $: loading = $profileDialogState.loading;
-  $: error = $profileDialogState.error;
+  let visible = $derived(appState.profileDialog.visible);
+  let username = $derived(appState.profileDialog.username);
+  let data = $derived(appState.profileDialog.data);
+  let loading = $derived(appState.profileDialog.loading);
+  let error = $derived(appState.profileDialog.error);
+  let recentUploads = $derived(data?.recentUploads || []);
 
   function close() {
-    profileDialogState.set({
+    appState.profileDialog = {
       visible: false,
       username: null,
       data: null,
       loading: false,
       error: null
-    });
-  }
-
-  function handleKeydown(e) {
-    if (e.key === 'Escape' && visible) {
-      close();
-    }
+    };
   }
 
   function handleBackdropClick(e) {
@@ -63,29 +52,29 @@
     });
   }
 
-  onMount(() => {
+  $effect(() => {
+    function handleKeydown(e) {
+      if (e.key === 'Escape' && appState.profileDialog.visible) {
+        close();
+      }
+    }
     document.addEventListener('keydown', handleKeydown);
-    return () => {
-      document.removeEventListener('keydown', handleKeydown);
-    };
+    return () => document.removeEventListener('keydown', handleKeydown);
   });
-
-  // Update recent uploads when data changes
-  $: recentUploads = data?.recentUploads || [];
 </script>
 
 {#if visible}
   <div
     class="profile-dialog-backdrop"
-    on:click={handleBackdropClick}
+    onclick={handleBackdropClick}
     role="presentation"
   >
-    <div class="profile-dialog" on:click|stopPropagation>
+    <div class="profile-dialog" onclick={(e) => e.stopPropagation()}>
       <div class="profile-dialog-header">
         <span></span>
         <button
           class="profile-dialog-close"
-          on:click={close}
+          onclick={close}
           title="Close"
         >&times;</button>
       </div>
@@ -117,7 +106,7 @@
                 {#each recentUploads as item}
                   <button
                     class="profile-recent-item"
-                    on:click={() => handleImageClick(item)}
+                    onclick={() => handleImageClick(item)}
                     title={item.title || 'View'}
                   >
                     <img src={item.thumbUrl} alt={item.title || 'artwork'} loading="lazy">
@@ -133,7 +122,7 @@
             <a
               href="{galleryBaseUrl}?author={encodeURIComponent(data.username)}"
               class="profile-btn profile-btn-primary"
-              on:click={handleViewAll}
+              onclick={handleViewAll}
             >
               View All Art
             </a>

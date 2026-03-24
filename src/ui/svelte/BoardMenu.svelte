@@ -1,11 +1,10 @@
 <script>
-  import { boardMenuOpen, blendMode, activeLayer, layerVisibility, layerManager } from '../../stores.js';
-  import { onMount } from 'svelte';
+  import { appState } from '../../state.svelte.js';
   import { LayerPreview } from '../LayerPreview.js';
 
-  let layerPreviewInstance = null;
-  let hoveredLayer = null;
-  let hoveredLayerBtn = null;
+  let layerPreviewInstance = $state(null);
+  let hoveredLayer = $state(null);
+  let hoveredLayerBtn = $state(null);
 
   const blendModes = [
     { value: 'source-over', label: 'Normal' },
@@ -26,43 +25,50 @@
     { index: 0, label: 'Layer 1' }
   ];
 
-  onMount(() => {
+  $effect(() => {
     layerPreviewInstance = new LayerPreview();
   });
 
-  function toggleMenu(menuType) {
-    if ($boardMenuOpen === menuType) {
-      boardMenuOpen.set(null);
-    } else {
-      boardMenuOpen.set(menuType);
+  $effect(() => {
+    function handleClickOutside(event) {
+      const target = event.target;
+      if (!target.closest('.board-menu') && appState.boardMenuOpen) {
+        appState.boardMenuOpen = null;
+      }
     }
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  });
+
+  function toggleMenu(menuType) {
+    appState.boardMenuOpen = appState.boardMenuOpen === menuType ? null : menuType;
   }
 
   function selectBlendMode(mode) {
-    blendMode.set(mode);
-    boardMenuOpen.set(null);
+    appState.blendMode = mode;
+    appState.boardMenuOpen = null;
   }
 
   function selectLayer(layerIdx) {
-    activeLayer.set(layerIdx);
+    appState.activeLayer = layerIdx;
   }
 
   function toggleLayerVis(layerIdx, event) {
     event.stopPropagation();
-    layerVisibility.update(vis => ({
-      ...vis,
-      [layerIdx]: !vis[layerIdx]
-    }));
+    appState.layerVisibility = {
+      ...appState.layerVisibility,
+      [layerIdx]: !appState.layerVisibility[layerIdx]
+    };
   }
 
   function handleLayerHover(layerIdx, event) {
-    if (!$layerManager || !layerPreviewInstance) return;
+    if (!appState.layerManager || !layerPreviewInstance) return;
 
     hoveredLayer = layerIdx;
     hoveredLayerBtn = event.currentTarget;
 
     const rect = event.currentTarget.getBoundingClientRect();
-    layerPreviewInstance.show(layerIdx, $layerManager, rect.left - 10, rect.top + rect.height / 2);
+    layerPreviewInstance.show(layerIdx, appState.layerManager, rect.left - 10, rect.top + rect.height / 2);
   }
 
   function handleLayerLeave() {
@@ -72,33 +78,14 @@
       layerPreviewInstance.hide();
     }
   }
-
-  function closeMenu() {
-    boardMenuOpen.set(null);
-  }
-
-  // Close menu when clicking outside
-  function handleClickOutside(event) {
-    const target = event.target;
-    if (!target.closest('.board-menu') && $boardMenuOpen) {
-      closeMenu();
-    }
-  }
-
-  onMount(() => {
-    document.addEventListener('click', handleClickOutside);
-    return () => {
-      document.removeEventListener('click', handleClickOutside);
-    };
-  });
 </script>
 
 <div class="board-menu">
   <!-- Blend Mode Button -->
   <button
     class="menu-square"
-    class:active={$boardMenuOpen === 'blend'}
-    on:click={() => toggleMenu('blend')}
+    class:active={appState.boardMenuOpen === 'blend'}
+    onclick={() => toggleMenu('blend')}
     title="Blend Mode"
   >
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -110,8 +97,8 @@
   <!-- Layers Button -->
   <button
     class="menu-square"
-    class:active={$boardMenuOpen === 'layers'}
-    on:click={() => toggleMenu('layers')}
+    class:active={appState.boardMenuOpen === 'layers'}
+    onclick={() => toggleMenu('layers')}
     title="Layers"
   >
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -122,15 +109,15 @@
   </button>
 
   <!-- Blend Mode Panel -->
-  {#if $boardMenuOpen === 'blend'}
+  {#if appState.boardMenuOpen === 'blend'}
     <div class="menu-panel blend-panel">
       <div class="panel-header">Blend Mode</div>
       <div class="blend-mode-list">
         {#each blendModes as mode}
           <button
             class="blend-mode-option"
-            class:active={$blendMode === mode.value}
-            on:click={() => selectBlendMode(mode.value)}
+            class:active={appState.blendMode === mode.value}
+            onclick={() => selectBlendMode(mode.value)}
           >
             {mode.label}
           </button>
@@ -140,7 +127,7 @@
   {/if}
 
   <!-- Layers Panel -->
-  {#if $boardMenuOpen === 'layers'}
+  {#if appState.boardMenuOpen === 'layers'}
     <div class="menu-panel layers-panel">
       <div class="panel-header">Layers</div>
       <div class="layer-list">
@@ -148,18 +135,18 @@
           <div class="layer-entry" data-layer={layer.index}>
             <button
               class="layer-visibility"
-              class:hidden={!$layerVisibility[layer.index]}
-              on:click={(e) => toggleLayerVis(layer.index, e)}
+              class:hidden={!appState.layerVisibility[layer.index]}
+              onclick={(e) => toggleLayerVis(layer.index, e)}
               title="Toggle visibility"
             >
-              {$layerVisibility[layer.index] ? '👁' : '👁‍🗨'}
+              {appState.layerVisibility[layer.index] ? '👁' : '👁‍🗨'}
             </button>
             <button
               class="layer-button"
-              class:active={$activeLayer === layer.index}
-              on:click={() => selectLayer(layer.index)}
-              on:mouseenter={(e) => handleLayerHover(layer.index, e)}
-              on:mouseleave={handleLayerLeave}
+              class:active={appState.activeLayer === layer.index}
+              onclick={() => selectLayer(layer.index)}
+              onmouseenter={(e) => handleLayerHover(layer.index, e)}
+              onmouseleave={handleLayerLeave}
             >
               {layer.label}
             </button>

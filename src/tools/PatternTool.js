@@ -112,6 +112,7 @@ export class PatternTool extends Tool {
     const maxDim = 40;
     const imgWidth = img.width || img.naturalWidth;
     const imgHeight = img.height || img.naturalHeight;
+    if (!imgWidth || !imgHeight) return null;
     const aspectRatio = imgWidth / imgHeight;
 
     let tileWidth, tileHeight;

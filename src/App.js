@@ -31,18 +31,7 @@ import { SaveMode } from './ui/SaveMode.js';
 
 // Svelte UI Components
 import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } from './ui/svelte/AppUI.js';
-import {
-  currentColor,
-  blendMode,
-  activeLayer,
-  currentRoomData as currentRoomDataStore,
-  selfRole as selfRoleStore,
-  username as usernameStore,
-  roomSettingsVisible,
-  chatVisible,
-  addRecentColor,
-  users as usersStore
-} from './stores.js';
+import { appState, addRecentColor } from './state.svelte.js';
 
 /**
  * Main Drawing Application class.
@@ -239,7 +228,7 @@ export class DrawingApp {
     this.moderation.onPM = (sessionIndex, user) => {
       if (user && this.svelteComponents?.chat) {
         // TODO: Implement DM recipient selection in Svelte Chat
-        chatVisible.set(true);
+        appState.chatVisible = true;
       }
     };
     this.moderation.onModAction = (actionType, sessionIndex, reason, duration) => {
@@ -479,7 +468,7 @@ export class DrawingApp {
     if (elements.hudUndoBtn) elements.hudUndoBtn.addEventListener('click', () => this.handleUndo());
     if (elements.hudRedoBtn) elements.hudRedoBtn.addEventListener('click', () => this.handleRedo());
 
-    elements.chatBtn.addEventListener('click', () => chatVisible.update(v => !v));
+    elements.chatBtn.addEventListener('click', () => { appState.chatVisible = !appState.chatVisible; });
     elements.selfListUser.addEventListener('click', () => this.handleRenameself());
 
     // Room settings button
@@ -1898,10 +1887,10 @@ export class DrawingApp {
     }
 
     // Update stores and show dialog
-    currentRoomDataStore.set(this.currentRoomData);
-    selfRoleStore.set(this.selfRole);
-    usernameStore.set(this.self?.username || '');
-    roomSettingsVisible.set(true);
+    appState.currentRoomData = this.currentRoomData;
+    appState.selfRole = this.selfRole;
+    appState.username = this.self?.username || '';
+    appState.roomSettingsVisible = true;
   }
 
   /**
@@ -2563,7 +2552,7 @@ export class DrawingApp {
     });
 
     // Update the users store
-    usersStore.set(userMap);
+    appState.users = userMap;
   }
 
   handlePaletteColorSelect(colorOrCallback) {

@@ -2,24 +2,14 @@
  * @fileoverview Mounts and manages Svelte UI components for the drawing app
  */
 
+import { mount } from 'svelte';
 import BoardMenu from './BoardMenu.svelte';
 import ProfileDialog from './ProfileDialog.svelte';
 import RoomSettings from './RoomSettings.svelte';
 import ColorPalette from './ColorPalette.svelte';
 import Chat from './Chat.svelte';
 
-import {
-  layerManager,
-  currentColor,
-  blendMode,
-  activeLayer,
-  currentRoomData,
-  username,
-  selfRole,
-  profileDialogState,
-  users,
-  chatVisible
-} from '../../stores.js';
+import { appState, showProfile as showProfileFromState } from '../../state.svelte.js';
 
 /**
  * Initialize and mount all Svelte UI components
@@ -31,15 +21,13 @@ export function initSvelteUI(app) {
   // Mount BoardMenu (top-right of board)
   const boardMenuTarget = document.getElementById('boardMenu');
   if (boardMenuTarget) {
-    components.boardMenu = new BoardMenu({
-      target: boardMenuTarget
-    });
+    components.boardMenu = mount(BoardMenu, { target: boardMenuTarget });
   }
 
   // Mount ProfileDialog (modal)
   const profileDialogTarget = document.getElementById('profileDialogMount');
   if (profileDialogTarget) {
-    components.profileDialog = new ProfileDialog({
+    components.profileDialog = mount(ProfileDialog, {
       target: profileDialogTarget,
       props: {
         galleryBaseUrl: '/gallery',
@@ -57,14 +45,14 @@ export function initSvelteUI(app) {
   // Mount RoomSettings (modal)
   const roomSettingsTarget = document.getElementById('roomSettingsMount');
   if (roomSettingsTarget) {
-    components.roomSettings = new RoomSettings({
+    components.roomSettings = mount(RoomSettings, {
       target: roomSettingsTarget,
       props: {
         wsClient: app.wsClient,
         board: app.board,
         onUpdate: (roomData) => {
           app.currentRoomData = roomData;
-          currentRoomData.set(roomData);
+          appState.currentRoomData = roomData;
         },
         onUnregister: () => {
           if (app.currentRoomData) {
@@ -82,7 +70,7 @@ export function initSvelteUI(app) {
   // Mount ColorPalette
   const colorPaletteTarget = document.getElementById('colorPaletteMount');
   if (colorPaletteTarget) {
-    components.colorPalette = new ColorPalette({
+    components.colorPalette = mount(ColorPalette, {
       target: colorPaletteTarget,
       props: {
         onColorSelect: (colorOrCallback) => {
@@ -99,7 +87,7 @@ export function initSvelteUI(app) {
   // Mount Chat
   const chatTarget = document.getElementById('chatMount');
   if (chatTarget) {
-    components.chat = new Chat({
+    components.chat = mount(Chat, {
       target: chatTarget,
       props: {
         onSend: (message) => app.handleChatSend?.(message),
@@ -117,76 +105,39 @@ export function initSvelteUI(app) {
  * @param {string} username - Username to show profile for
  */
 export function showProfile(username) {
-  profileDialogState.update(state => ({
-    ...state,
-    visible: true,
-    username,
-    loading: true,
-    error: null
-  }));
-
-  // Fetch profile data
-  fetch(`/api/users/${encodeURIComponent(username)}`)
-    .then(res => res.json())
-    .then(data => {
-      if (data.error) {
-        profileDialogState.update(state => ({
-          ...state,
-          loading: false,
-          error: data.error
-        }));
-      } else {
-        profileDialogState.update(state => ({
-          ...state,
-          loading: false,
-          data
-        }));
-      }
-    })
-    .catch(err => {
-      profileDialogState.update(state => ({
-        ...state,
-        loading: false,
-        error: 'Connection error'
-      }));
-    });
+  showProfileFromState(username);
 }
 
 /**
- * Helper to toggle chat visibility
+ * Toggle chat visibility
  */
 export function toggleChat() {
-  chatVisible.update(v => !v);
+  appState.chatVisible = !appState.chatVisible;
 }
 
 /**
- * Sync store values from App instance
+ * Sync state values from App instance
  * @param {Object} app - DrawingApp instance
  */
 export function syncStoresFromApp(app) {
-  // Sync layer manager reference
   if (app.board?.layerManager) {
-    layerManager.set(app.board.layerManager);
+    appState.layerManager = app.board.layerManager;
   }
 
-  // Sync self data
   if (app.self) {
-    currentColor.set(app.self.color || [0, 0, 0, 255]);
-    activeLayer.set(app.self.activeLayer ?? 2);
-    username.set(app.self.name || '');
+    appState.currentColor = app.self.color || [0, 0, 0, 255];
+    appState.activeLayer = app.self.activeLayer ?? 2;
+    appState.username = app.self.name || '';
   }
 
-  // Sync room data
   if (app.currentRoomData) {
-    currentRoomData.set(app.currentRoomData);
+    appState.currentRoomData = app.currentRoomData;
   }
 
-  // Sync role
   if (app.selfRole !== undefined) {
-    selfRole.set(app.selfRole);
+    appState.selfRole = app.selfRole;
   }
 
-  // Sync users
   if (app.users) {
     const userMap = new Map();
     app.users.forEach((user, id) => {
@@ -197,6 +148,6 @@ export function syncStoresFromApp(app) {
         isSelf: id === app.sessionIndex
       });
     });
-    users.set(userMap);
+    appState.users = userMap;
   }
 }

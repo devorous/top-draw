@@ -245,52 +245,6 @@
             </a>
             </div>        </div>
 
-        <!-- Room Settings Dialog -->
-        <div id="roomSettingsOverlay" class="roomSettingsOverlay" style="display: none;">
-          <div class="roomSettingsDialog">
-            <div class="roomSettingsHeader">
-              <h3>Room Settings</h3>
-              <button class="closeBtn" id="roomSettingsCloseBtn">&times;</button>
-            </div>
-            <div class="roomSettingsBody">
-              <div class="formGroup">
-                <label>Room ID</label>
-                <input type="text" id="roomSettingsId" readonly disabled>
-              </div>
-              <div class="formGroup">
-                <label>Description</label>
-                <textarea id="roomSettingsDescription" placeholder="Optional description for this room..." rows="3"></textarea>
-              </div>
-              <div class="formGroup">
-                <label>Owner</label>
-                <input type="text" id="roomSettingsOwner" readonly disabled>
-              </div>
-              <div class="formGroup">
-                <label>Background Color</label>
-                <input type="color" id="roomSettingsBackgroundColor" value="#ffffff">
-              </div>
-              <div class="formGroup formGroupCheckbox">
-                <label>
-                  <input type="checkbox" id="roomSettingsLocked">
-                  <span>Lock room (prevent new users from joining)</span>
-                </label>
-              </div>
-              <div class="formGroup">
-                <label>Max Users (2-60, default: 40)</label>
-                <input type="number" id="roomSettingsMaxUsers" min="2" max="60" value="40">
-              </div>
-            </div>
-            <div id="roomSettingsMessage" class="roomSettingsMessage" style="display: none;"></div>
-            <div class="roomSettingsFooter">
-              <button class="btn danger" id="roomSettingsUnregisterBtn" style="display: none;">Unregister Room</button>
-              <div class="roomSettingsFooterRight">
-                <button class="btn secondary" id="roomSettingsCancelBtn">Cancel</button>
-                <button class="btn primary" id="roomSettingsSaveBtn">Save</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <!-- Save Mode Overlay -->
         <div id="saveModeOverlay" class="saveModeOverlay" style="display: none;">
           <div class="saveModePanel">
@@ -484,57 +438,6 @@
       <div id="sideMenu">
         <!-- Moderation Panel (Floating) -->
         <!-- Mod panel injected dynamically by Moderation.injectModUI() -->
-
-        <!-- Chat Window (Floating) -->
-        <div id="chat">
-          <div id="chatHeader">
-            <div class="chatTabs">
-              <button class="chatTab active" id="chatTabAll">Public</button>
-              <button class="chatTab" id="chatTabDM">Private</button>
-            </div>
-            <button class="chatCloseBtn" id="chatCloseBtn">×</button>
-          </div>
-
-          <!-- All Messages Tab -->
-          <div id="chatMessages">
-            <ul id="messageList"></ul>
-          </div>
-
-          <!-- DM User List -->
-          <div id="chatDMUserList" style="display: none;">
-            <div id="dmUserListContent"></div>
-          </div>
-
-          <!-- DM Conversation -->
-          <div id="chatDMConversation" style="display: none;">
-            <div id="chatDMHeader"></div>
-            <div id="chatDMMessages">
-              <ul id="dmMessageList"></ul>
-            </div>
-          </div>
-
-          <div class="chatBottom">
-            <textarea autocomplete="off" id="chatInput" placeholder="Type a message..." rows="1"></textarea>
-            <div class="chatActions">
-              <div class="chatActionBtns">
-                <button class="chatActionBtn" id="chatAttachBtn" title="Attach image">📎</button>
-                <button class="chatActionBtn" id="chatEmojiBtn" title="Emoji">😊</button>
-              </div>
-              <a class="btn" id="sendMessageBtn">Send</a>
-            </div>
-          </div>
-
-          <!-- Emoji Picker Popup -->
-          <div id="chatEmojiPicker" class="chatEmojiPicker" style="display: none;">
-            <div class="emojiRecentRow" id="emojiRecentRow" style="display: none;">
-              <label>Recently Used</label>
-            </div>
-            <div class="emojiPickerGrid" id="emojiPickerGrid"></div>
-          </div>
-
-          <!-- Hidden File Input -->
-          <input type="file" id="chatFileInput" accept="image/*" style="display: none;">
-        </div>
 
         <!-- Tool Buttons -->
         <div class="tools">
@@ -976,43 +879,6 @@
                     <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider patternOffsetY">
                     <span class="sliderValue offset-value" id="patternOffsetYValue">0</span>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Blend Mode Options -->
-            <div id="blendModeOptions">
-              <div class="selection-mode-container">
-                <label class="modeLabel">Blend Mode</label>
-                <select id="blendModeSelect" class="blendModeSelect">
-                  <option value="source-over">Normal</option>
-                  <option value="multiply">Multiply</option>
-                  <option value="screen">Screen</option>
-                  <option value="lighter">Add</option>
-                  <option value="overlay">Overlay</option>
-                  <option value="darken">Darken</option>
-                  <option value="lighten">Lighten</option>
-                  <option value="difference">Difference</option>
-                  <option value="color-dodge">Color Dodge</option>
-                  <option value="color-burn">Color Burn</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- Layer Panel -->
-            <div id="layerPanel">
-              <div id="layerList">
-                <div class="layerEntry" data-layer="2">
-                  <button class="layerVisibility" data-layer="2" title="Toggle visibility">👁</button>
-                  <button class="layerButton active" data-layer="2">Layer 3</button>
-                </div>
-                <div class="layerEntry" data-layer="1">
-                  <button class="layerVisibility" data-layer="1" title="Toggle visibility">👁</button>
-                  <button class="layerButton" data-layer="1">Layer 2</button>
-                </div>
-                <div class="layerEntry" data-layer="0">
-                  <button class="layerVisibility" data-layer="0" title="Toggle visibility">👁</button>
-                  <button class="layerButton" data-layer="0">Layer 1</button>
                 </div>
               </div>
             </div>
