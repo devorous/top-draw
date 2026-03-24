@@ -1710,7 +1710,7 @@ export class DrawingApp {
     this.inputBufferManager.startTickLoop();
     this.syncClient.requestSync();
 
-    const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Noble', 'Holy', 'Deity'];
+    const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
     this.ui.showToast(`Logged in as ${username} (${roleNames[role] || 'Guest'})`, 3000);
   }
 
@@ -1718,13 +1718,13 @@ export class DrawingApp {
     const menu = document.getElementById('selfContextMenu');
     if (!menu) return;
 
-    const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Noble', 'Holy', 'Deity'];
+    const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
     const role = this.selfRole || 0;
     const nameEl = document.getElementById('selfRoleName');
     if (nameEl) {
       nameEl.textContent = roleNames[role] || 'Guest';
       nameEl.className = 'selfRoleName';
-      const rankClass = role >= 8 ? 'rank-deity' : role >= 7 ? 'rank-holy' : role >= 6 ? 'rank-noble'
+      const rankClass = role >= 9 ? 'rank-deity' : role >= 8 ? 'rank-holy' : role >= 7 ? 'rank-noble'
         : role >= 5 ? 'rank-admin' : role >= 4 ? 'rank-mod' : role >= 3 ? 'rank-helper' : '';
       if (rankClass) nameEl.classList.add(rankClass);
     }
@@ -1950,7 +1950,7 @@ export class DrawingApp {
     }
 
     const hasOwner = !!this.currentRoomData.ownerId;
-    const canEdit = this.roomSettings?.canEdit(this.currentRoomData, this.selfRole);
+    const canEdit = hasOwner && this.selfRole >= 5;
 
     // Show Register Room button if room is unregistered and user is logged in
     if (registerBtn) {

@@ -38,8 +38,9 @@
   function handleViewAll(e) {
     if (onViewGallery && data) {
       e.preventDefault();
+      const username = data.username;
       close();
-      onViewGallery(data.username);
+      onViewGallery(username);
     }
   }
 

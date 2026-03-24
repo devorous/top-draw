@@ -335,7 +335,7 @@ export class RemoteUserUI {
     if (roleClass) {
       userEntry.classList.add(roleClass);
       // Add glow class to entry row for Noble/Holy/Deity
-      if (role >= 6) entry.classList.add(roleClass);
+      if (role >= 7) entry.classList.add(roleClass);
     }
 
     const activeEntry = document.createElement('span');
@@ -687,9 +687,9 @@ export class RemoteUserUI {
    * @returns {string|null}
    */
   static roleToClass(role) {
-    if (role >= 8) return 'rank-deity';
-    if (role >= 7) return 'rank-holy';
-    if (role >= 6) return 'rank-noble';
+    if (role >= 9) return 'rank-deity';
+    if (role >= 8) return 'rank-holy';
+    if (role >= 7) return 'rank-noble';
     if (role >= 5) return 'rank-admin';
     if (role >= 4) return 'rank-mod';
     if (role >= 3) return 'rank-helper';
@@ -702,7 +702,7 @@ export class RemoteUserUI {
    * @returns {string}
    */
   static roleName(role) {
-    const names = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Noble', 'Holy', 'Deity'];
+    const names = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
     return names[role] || 'Guest';
   }
 }

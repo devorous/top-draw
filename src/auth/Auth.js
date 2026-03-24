@@ -171,14 +171,10 @@ export class Auth {
    * Check if user has stored login credentials
    */
   checkStoredLogin() {
-    // We only auto-LOGIN if user enabled "Remember me"
-    // This will update the UI to show they are logged in, 
-    // but they still need to click JOIN to enter a room.
-    if (this.getRememberMe() && this.getStoredToken()) {
+    // Show logged-in UI if we have a stored token and username
+    if (this.getStoredToken()) {
       const storedUsername = this.getStoredUsername();
       if (storedUsername) {
-        // Just show the logged-in UI state (username button, etc)
-        // We don't call handleLogin or anything that auto-joins.
         this.showLoggedInState(storedUsername);
       }
     }
@@ -385,14 +381,10 @@ export class Auth {
     const token = this.getStoredToken();
     if (!token) return false;
 
-    // Always re-auth if we're already logged in this session (room switch)
-    // or if "Remember me" was checked (browser restart)
-    if (this.isLoggedIn || this.getRememberMe()) {
-      this.wsClient.sendAuthTokenLogin(token);
-      return true;
-    }
-
-    return false;
+    // Send token if we have one — covers room switches within a session,
+    // "remember me" across page reloads, and page refreshes with a stored token
+    this.wsClient.sendAuthTokenLogin(token);
+    return true;
   }
 
   handleAuthResult(data) {

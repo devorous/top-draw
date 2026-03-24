@@ -121,7 +121,7 @@ export async function handleAuthRegister(req, res) {
 
     // Check if this is the first user (auto-promote to DEITY)
     const userCount = await db.collection('users').countDocuments();
-    const role = userCount === 0 ? 8 : 1; // DEITY(8) for first user, USER(1) otherwise
+    const role = userCount === 0 ? 9 : 1; // DEITY(9) for first user, USER(1) otherwise
 
     const doc = {
       username,

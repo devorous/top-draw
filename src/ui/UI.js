@@ -1298,9 +1298,9 @@ export class UI {
     el.classList.remove(...rankClasses);
 
     // Import would create circular dependency, so inline the mapping
-    if (role >= 8) el.classList.add('rank-deity');
-    else if (role >= 7) el.classList.add('rank-holy');
-    else if (role >= 6) el.classList.add('rank-noble');
+    if (role >= 9) el.classList.add('rank-deity');
+    else if (role >= 8) el.classList.add('rank-holy');
+    else if (role >= 7) el.classList.add('rank-noble');
     else if (role >= 5) el.classList.add('rank-admin');
     else if (role >= 4) el.classList.add('rank-mod');
     else if (role >= 3) el.classList.add('rank-helper');
@@ -1309,9 +1309,9 @@ export class UI {
     const entry = el.closest('.userEntry');
     if (entry) {
       entry.classList.remove(...rankClasses);
-      if (role >= 8) entry.classList.add('rank-deity');
-      else if (role >= 7) entry.classList.add('rank-holy');
-      else if (role >= 6) entry.classList.add('rank-noble');
+      if (role >= 9) entry.classList.add('rank-deity');
+      else if (role >= 8) entry.classList.add('rank-holy');
+      else if (role >= 7) entry.classList.add('rank-noble');
     }
   }
 
@@ -1327,9 +1327,9 @@ export class UI {
     const listUser = document.querySelector(`.listUser.${id}`);
     if (listUser) {
       listUser.classList.remove(...rankClasses);
-      if (role >= 8) listUser.classList.add('rank-deity');
-      else if (role >= 7) listUser.classList.add('rank-holy');
-      else if (role >= 6) listUser.classList.add('rank-noble');
+      if (role >= 9) listUser.classList.add('rank-deity');
+      else if (role >= 8) listUser.classList.add('rank-holy');
+      else if (role >= 7) listUser.classList.add('rank-noble');
       else if (role >= 5) listUser.classList.add('rank-admin');
       else if (role >= 4) listUser.classList.add('rank-mod');
       else if (role >= 3) listUser.classList.add('rank-helper');
@@ -1338,9 +1338,9 @@ export class UI {
     const entry = document.querySelector(`.userEntry.${id}`);
     if (entry) {
       entry.classList.remove(...rankClasses);
-      if (role >= 6) {
-        if (role >= 8) entry.classList.add('rank-deity');
-        else if (role >= 7) entry.classList.add('rank-holy');
+      if (role >= 7) {
+        if (role >= 9) entry.classList.add('rank-deity');
+        else if (role >= 8) entry.classList.add('rank-holy');
         else entry.classList.add('rank-noble');
       }
     }
