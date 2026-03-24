@@ -7,7 +7,7 @@
   const maxCustomColors = 12;
 
   function colorToRgba(color) {
-    return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3] / 255})`;
+    return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3]})`;
   }
 
   function colorToHex(color) {
@@ -99,7 +99,8 @@
   .color-palette {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
+    padding: 0.5rem 0.625rem;
   }
 
   .palette-section {
@@ -127,7 +128,7 @@
   .swatch-grid {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
-    gap: 0.375rem;
+    gap: 2px;
   }
 
   .swatch {

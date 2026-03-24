@@ -2568,15 +2568,18 @@ export class DrawingApp {
     this.self.setOpacity(color[3]);
     this.ui.updateSelfColor(color);
     this.ui.updateSelfTextStyle(this.self.size, color);
+    this.ui.updateopacityValue(color[3]);
 
     // Update the color picker to match
     if (this.colorPicker) {
-      this.colorPicker.setColor(color);
+      this.colorPicker.setColor(`rgba(${color.join(',')})`);
     }
 
     if (this.connected) {
       this.wsClient.broadcastColorChange(color);
     }
+
+    addRecentColor(color);
   }
 
   handleColorInputChange(rgba) {

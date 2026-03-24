@@ -69,7 +69,7 @@ export class LayerPreview {
     
     this.ctx.restore();
 
-    this.container.style.left = `${x - w - 140}px`;
+    this.container.style.left = `${x - w - 8}px`;
     this.container.style.top = `${y - h / 2}px`;
     this.container.style.display = 'block';
     this.isVisible = true;

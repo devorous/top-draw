@@ -21,7 +21,14 @@ export function initSvelteUI(app) {
   // Mount BoardMenu (top-right of board)
   const boardMenuTarget = document.getElementById('boardMenu');
   if (boardMenuTarget) {
-    components.boardMenu = mount(BoardMenu, { target: boardMenuTarget });
+    components.boardMenu = mount(BoardMenu, {
+      target: boardMenuTarget,
+      props: {
+        onBlendModeChange: (mode) => app.handleBlendModeChange(mode),
+        onLayerSelect: (layerIdx) => app.handleLayerSelect(layerIdx),
+        onLayerVisibilityToggle: (layerIdx) => app.board.layerManager.toggleLayerVisibility(layerIdx),
+      }
+    });
   }
 
   // Mount ProfileDialog (modal)
@@ -77,7 +84,7 @@ export function initSvelteUI(app) {
           if (typeof colorOrCallback === 'function') {
             colorOrCallback(app.self?.color || [0, 0, 0, 255]);
           } else {
-            app.handleColorChange(colorOrCallback);
+            app.handlePaletteColorSelect(colorOrCallback);
           }
         }
       }
