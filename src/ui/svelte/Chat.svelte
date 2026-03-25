@@ -222,14 +222,14 @@
     right: 20px;
     width: 360px;
     height: 480px;
-    background: rgba(26, 26, 26, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    backdrop-filter: blur(12px);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
     display: flex;
     flex-direction: column;
     z-index: 1000;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
   }
 
   .chat.dragging {
@@ -242,7 +242,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.75rem 1rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-subtle);
     cursor: move;
   }
 
@@ -254,45 +255,54 @@
   .chat-tab {
     padding: 0.375rem 0.875rem;
     background: none;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 4px;
-    color: rgba(255, 255, 255, 0.6);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
     font-size: 0.8125rem;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
   }
 
   .chat-tab:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.9);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
   }
 
   .chat-tab.active {
-    background: rgba(0, 212, 170, 0.15);
-    border-color: rgba(0, 212, 170, 0.3);
-    color: #00d4aa;
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
   }
 
   .chat-close {
-    background: none;
-    border: none;
-    color: rgba(255, 255, 255, 0.4);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
     font-size: 1.5rem;
-    cursor: pointer;
-    padding: 0;
     line-height: 1;
-    width: 24px;
-    height: 24px;
+    padding-bottom: 2px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
   }
 
   .chat-close:hover {
-    color: #fff;
+    background: #ff4d4d;
+    color: white;
+    border-color: #ff4d4d;
+    transform: scale(1.1);
   }
 
   .chat-content {
     flex: 1;
     overflow-y: auto;
     padding: 0.75rem;
+    background: var(--bg-primary);
   }
 
   .chat-messages,
@@ -303,9 +313,9 @@
   }
 
   .chat-message {
-    padding: 0.5rem;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-elevated);
+    border-radius: var(--radius-md);
     font-size: 0.875rem;
   }
 
@@ -315,12 +325,12 @@
   }
 
   .chat-text {
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--text-primary);
   }
 
   .chat-time {
     font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--text-muted);
     margin-left: 0.5rem;
   }
 
@@ -328,19 +338,24 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-elevated);
+    border-radius: var(--radius-md);
     margin-bottom: 0.75rem;
   }
 
   .dm-back {
     background: none;
     border: none;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--text-secondary);
     font-size: 1.25rem;
     cursor: pointer;
     padding: 0.25rem;
+    transition: color var(--transition-fast);
+  }
+
+  .dm-back:hover {
+    color: var(--accent-primary);
   }
 
   .dm-user-color {
@@ -351,30 +366,40 @@
 
   .dm-username {
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--text-primary);
   }
 
   .dm-message {
     padding: 0.5rem 0.75rem;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 6px;
+    background: var(--bg-elevated);
+    border-radius: var(--radius-md) var(--radius-md) var(--radius-md) 2px;
     max-width: 80%;
+    box-shadow: var(--shadow-sm);
   }
 
   .dm-message.self {
-    background: rgba(0, 212, 170, 0.15);
+    background: var(--accent-primary);
     align-self: flex-end;
+    border-radius: var(--radius-md) var(--radius-md) 2px var(--radius-md);
   }
 
   .dm-content {
     font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--text-primary);
+  }
+
+  .dm-message.self .dm-content {
+    color: var(--bg-primary);
   }
 
   .dm-time {
     font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--text-muted);
     margin-top: 0.25rem;
+  }
+
+  .dm-message.self .dm-time {
+    color: rgba(0, 0, 0, 0.5);
   }
 
   .dm-user-list {
@@ -387,67 +412,74 @@
     display: flex;
     align-items: center;
     gap: 0.625rem;
-    padding: 0.625rem;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 4px;
+    padding: 0.625rem 0.75rem;
+    background: none;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
+    width: 100%;
+    text-align: left;
   }
 
   .dm-user-item:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--bg-tertiary);
   }
 
   .dm-user-name {
     font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--text-primary);
+    font-weight: 500;
   }
 
   .dm-no-users {
     text-align: center;
     padding: 2rem;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--text-muted);
     font-size: 0.875rem;
+    font-style: italic;
   }
 
   .chat-input-container {
     display: flex;
-    gap: 0.5rem;
-    padding: 0.75rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--border-subtle);
+    background: var(--bg-secondary);
   }
 
   .chat-input {
     flex: 1;
-    padding: 0.5rem;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 4px;
-    color: #e8e2d5;
+    padding: 0.5rem 1rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 30px;
+    color: var(--text-primary);
     font-family: inherit;
     font-size: 0.875rem;
     resize: none;
     max-height: 100px;
+    outline: none;
   }
 
   .chat-input:focus {
-    outline: none;
-    border-color: rgba(0, 212, 170, 0.4);
+    border-color: var(--accent-primary);
   }
 
   .chat-send {
-    padding: 0.5rem 1rem;
-    background: #00d4aa;
+    padding: 0.5rem 1.25rem;
+    background: var(--accent-primary);
     border: none;
-    border-radius: 4px;
-    color: #121212;
+    border-radius: 30px;
+    color: var(--bg-primary);
     font-size: 0.875rem;
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
+    white-space: nowrap;
   }
 
   .chat-send:hover {
-    background: #00f0c3;
+    background: var(--accent-hover);
   }
 </style>

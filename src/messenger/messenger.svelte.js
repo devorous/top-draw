@@ -3,6 +3,7 @@ import { getRoomId, encryptMessage, decryptMessage, getMessageKey } from '../uti
 class MessengerState {
   messages = $state([]);
   inbox = $state([]); // [{ roomId, lastMessage, otherUserId }]
+  unreadCounts = $state({}); // { [room_id]: number }
   isConnected = $state(false);
   activeChat = $state(null); // User object { id, name }
   ws = null;
@@ -49,7 +50,19 @@ class MessengerState {
       const { type, payload } = JSON.parse(event.data);
       
       if (type === 'inbox') {
-        this.inbox = payload;
+        const decryptedInbox = await Promise.all(payload.map(async m => {
+          const roomId = m.room_id;
+          const key = await getMessageKey(roomId);
+          try {
+            return {
+              ...m,
+              content: await decryptMessage(m.encrypted_content, m.iv, key)
+            };
+          } catch (e) {
+            return { ...m, content: "[Decryption Failed]" };
+          }
+        }));
+        this.inbox = decryptedInbox;
       } else if (type === 'history') {
         const decryptedHistory = await Promise.all(payload.map(async m => ({
           ...m,
@@ -65,6 +78,12 @@ class MessengerState {
             content: await decryptMessage(payload.encrypted_content, payload.iv, this.key)
           };
           this.messages.push(decrypted);
+        } else if (payload.sender_id !== this.currentUserId) {
+          // Incoming message from a different conversation — increment unread
+          this.unreadCounts = {
+            ...this.unreadCounts,
+            [payload.room_id]: (this.unreadCounts[payload.room_id] ?? 0) + 1
+          };
         }
         // Refresh inbox in all cases to update last message
         this.fetchInbox();
@@ -85,6 +104,11 @@ class MessengerState {
     this.view = 'chat';
     const roomId = getRoomId(this.currentUserId, user.id);
     this.key = await getMessageKey(roomId);
+    // Clear unread count for this conversation
+    if (this.unreadCounts[roomId]) {
+      const { [roomId]: _, ...rest } = this.unreadCounts;
+      this.unreadCounts = rest;
+    }
     this.messages = []; // Clear for new chat
     
     if (this.ws && this.isConnected) {

@@ -120,10 +120,17 @@
             <div class="avatar">{getOtherUserId(msg)[0].toUpperCase()}</div>
             <div class="details">
               <div class="top-row">
-                <span class="name">{getOtherUserId(msg)}</span>
+                <span class="conv-name">{getOtherUserId(msg)}</span>
                 <span class="date">{new Date(msg.timestamp).toLocaleDateString()}</span>
               </div>
-              <p class="last-msg">Encrypted Message</p>
+              <div class="bottom-row">
+                <p class="last-msg">
+                  {#if msg.sender_id === username}<span class="you-prefix">You:&nbsp;</span>{/if}{msg.content ?? '…'}
+                </p>
+                {#if messenger.unreadCounts[msg.room_id]}
+                  <span class="unread-badge">({messenger.unreadCounts[msg.room_id]})</span>
+                {/if}
+              </div>
             </div>
           </button>
         {/each}
@@ -374,6 +381,7 @@
     .conversation-item {
       width: 100%;
       display: flex;
+      align-items: center;
       padding: var(--space-4);
       gap: var(--space-3);
       border: none;
@@ -408,17 +416,35 @@
           display: flex;
           justify-content: space-between;
           margin-bottom: var(--space-1);
-          .name { font-weight: 600; color: var(--text-primary); }
-          .date { font-size: var(--text-xs); color: var(--text-muted); }
+          .conv-name { font-weight: 600; color: var(--text-primary); font-size: var(--text-xl); }
+          .date { font-size: var(--text-base); color: var(--text-muted); }
+        }
+
+        .bottom-row {
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
+          min-width: 0;
         }
 
         .last-msg {
           margin: 0;
-          font-size: var(--text-xs);
+          font-size: var(--text-base);
           color: var(--text-secondary);
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+          flex: 1;
+          min-width: 0;
+
+          .you-prefix { color: var(--text-muted); }
+        }
+
+        .unread-badge {
+          font-size: var(--text-sm);
+          color: var(--accent-primary);
+          font-weight: 600;
+          flex-shrink: 0;
         }
       }
     }
