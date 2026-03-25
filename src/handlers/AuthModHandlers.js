@@ -73,6 +73,13 @@ export function setupAuthModHandlers(wsClient, app) {
   });
 
   wsClient.on('mod_result', (data) => {
+    if (wsClient._roomSettingsResultHandler) {
+      const handler = wsClient._roomSettingsResultHandler;
+      wsClient._roomSettingsResultHandler = null;
+      handler(data);
+      wsClient.requestRoomList();
+      return;
+    }
     if (!data.success && data.error) {
       ui.showToast(data.error, 3000);
     }

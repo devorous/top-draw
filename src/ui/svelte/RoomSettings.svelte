@@ -1,7 +1,8 @@
 <script>
   import { appState } from '../../state.svelte.js';
+  import { T } from '../../../shared/MessageTypes.js';
 
-  let { wsClient = null, board = null, onUpdate = null, onUnregister = null } = $props();
+  let { wsClient = null, board = null, ui = null, onUpdate = null, onUnregister = null } = $props();
 
   let roomId = $state('');
   let description = $state('');
@@ -12,6 +13,7 @@
   let message = $state('');
   let messageType = $state('success');
   let showMessage = $state(false);
+  let saving = $state(false);
 
   let visible = $derived(appState.roomSettingsVisible);
   let roomData = $derived(appState.currentRoomData);
@@ -50,31 +52,41 @@
   }
 
   function save() {
-    if (!roomData || !wsClient) return;
+    if (!roomData || !wsClient || saving) return;
 
     const trimmedDesc = description.trim();
     let clampedMaxUsers = Math.max(2, Math.min(60, maxUsers));
     maxUsers = clampedMaxUsers;
 
+    saving = true;
+    showMessage = false;
+
+    wsClient._roomSettingsResultHandler = (result) => {
+      saving = false;
+      if (result.success) {
+        displayMessage('Settings saved!', 'success');
+        ui?.showToast('Room settings saved', 2000);
+        if (onUpdate) {
+          onUpdate({
+            ...roomData,
+            description: trimmedDesc,
+            backgroundColor,
+            locked,
+            maxUsers: clampedMaxUsers
+          });
+        }
+      } else {
+        displayMessage(result.error || 'Failed to save settings', 'error');
+      }
+    };
+
     wsClient.send({
-      t: 30, // T.ROOM_UPDATE
+      t: T.ROOM_UPDATE,
       roomDescription: trimmedDesc,
       roomBackgroundColor: backgroundColor,
       roomLocked: locked,
       roomMaxUsers: clampedMaxUsers
     });
-
-    displayMessage('Settings saved!', 'success');
-
-    if (onUpdate) {
-      onUpdate({
-        ...roomData,
-        description: trimmedDesc,
-        backgroundColor,
-        locked,
-        maxUsers: clampedMaxUsers
-      });
-    }
   }
 
   function confirmUnregister() {
@@ -93,7 +105,7 @@
   function unregisterRoom() {
     if (!roomData || !wsClient) return;
 
-    wsClient.send({ t: 31 }); // T.ROOM_UNREGISTER
+    wsClient.send({ t: T.ROOM_UNREGISTER });
     hide();
 
     if (onUnregister) {
@@ -231,7 +243,7 @@
             Unregister
           </button>
         {/if}
-        <button class="btn primary" onclick={save}>Save</button>
+        <button class="btn primary" onclick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
       </div>
     </div>
   </div>

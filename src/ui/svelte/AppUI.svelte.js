@@ -109,6 +109,7 @@ export function initSvelteUI(app) {
       props: {
         wsClient: app.wsClient,
         board: app.board,
+        ui: app.ui,
         onUpdate: (roomData) => {
           app.currentRoomData = roomData;
           appState.currentRoomData = roomData;
