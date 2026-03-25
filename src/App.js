@@ -30,7 +30,7 @@ import { highlight } from './ui/Highlight.js';
 import { SaveMode } from './ui/SaveMode.js';
 
 // Svelte UI Components
-import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } from './ui/svelte/AppUI.js';
+import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } from './ui/svelte/AppUI.svelte.js';
 import { appState, addRecentColor } from './state.svelte.js';
 
 /**
@@ -469,6 +469,12 @@ export class DrawingApp {
     if (elements.hudRedoBtn) elements.hudRedoBtn.addEventListener('click', () => this.handleRedo());
 
     elements.chatBtn.addEventListener('click', () => { appState.chatVisible = !appState.chatVisible; });
+    elements.inboxBtn.addEventListener('click', () => { 
+      if (!appState.messengerTargetUser) {
+        appState.messengerTargetUser = { id: 'system', name: 'Global Inbox' };
+      }
+      appState.messengerVisible = !appState.messengerVisible; 
+    });
     elements.selfListUser.addEventListener('click', () => this.handleRenameself());
 
     // Room settings button

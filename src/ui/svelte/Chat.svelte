@@ -137,6 +137,7 @@
     class:dragging={isDragging}
     bind:this={chatEl}
     onmousedown={startDrag}
+    role="presentation"
   >
     <div class="chat-header">
       <div class="chat-tabs">
@@ -187,10 +188,14 @@
             <div class="dm-no-users">No other users online</div>
           {:else}
             {#each [...appState.users.values()] as user}
-              <div class="dm-user-item" onclick={() => selectDMRecipient(user)}>
+              <button 
+                class="dm-user-item" 
+                onclick={() => selectDMRecipient(user)}
+                onkeydown={(e) => e.key === 'Enter' && selectDMRecipient(user)}
+              >
                 <div class="dm-user-color" style="background-color: {user.color}"></div>
                 <span class="dm-user-name">{user.username}</span>
-              </div>
+              </button>
             {/each}
           {/if}
         </div>

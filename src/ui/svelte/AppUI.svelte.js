@@ -2,14 +2,59 @@
  * @fileoverview Mounts and manages Svelte UI components for the drawing app
  */
 
-import { mount } from 'svelte';
+import { mount, unmount } from 'svelte';
 import BoardMenu from './BoardMenu.svelte';
 import ProfileDialog from './ProfileDialog.svelte';
 import RoomSettings from './RoomSettings.svelte';
 import ColorPalette from './ColorPalette.svelte';
 import Chat from './Chat.svelte';
+import Messenger from '../../messenger/Messenger.svelte';
 
-import { appState, showProfile as showProfileFromState } from '../../state.svelte.js';
+import { appState, showProfile as showProfileFromState, toggleMessenger } from '../../state.svelte.js';
+
+// Internal wrapper to handle conditional rendering of Messenger based on appState
+const MessengerWrapper = (function() {
+  return class {
+    constructor({ target, props }) {
+      this.target = target;
+      this.app = props.app;
+      
+      this.effect = $effect.root(() => {
+        $effect(() => {
+          const visible = appState.messengerVisible;
+          const targetUser = appState.messengerTargetUser;
+          
+          console.log('MessengerWrapper effect:', { visible, targetUser });
+
+          if (visible && targetUser) {
+            if (!this.instance) {
+              console.log('Mounting Messenger');
+              this.instance = mount(Messenger, {
+                target: this.target,
+                props: {
+                  currentUser: { id: this.app.sessionIndex, name: appState.username },
+                  initialTargetUser: targetUser,
+                  isFloating: true
+                }
+              });
+            }
+          } else {
+            if (this.instance) {
+              console.log('Unmounting Messenger');
+              unmount(this.instance);
+              this.instance = null;
+            }
+          }
+        });
+      });
+    }
+    
+    destroy() {
+      if (this.instance) unmount(this.instance);
+      this.effect();
+    }
+  };
+})();
 
 /**
  * Initialize and mount all Svelte UI components
@@ -17,6 +62,15 @@ import { appState, showProfile as showProfileFromState } from '../../state.svelt
  */
 export function initSvelteUI(app) {
   const components = {};
+
+  // Mount Messenger (1-1 E2EE)
+  const messengerTarget = document.getElementById('messengerMount');
+  if (messengerTarget) {
+    components.messenger = new MessengerWrapper({
+      target: messengerTarget,
+      props: { app }
+    });
+  }
 
   // Mount BoardMenu (top-right of board)
   const boardMenuTarget = document.getElementById('boardMenu');

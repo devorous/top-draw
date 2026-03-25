@@ -165,6 +165,7 @@ export class UI {
       perfSettingsBtn: null, // injected dynamically by Moderation._injectModUI()
 
       chatBtn: document.getElementById('chatBtn'),
+      inboxBtn: document.getElementById('inboxBtn'),
       saveBtn: document.getElementById('saveBtn'),
 
       saveModeOverlay: document.getElementById('saveModeOverlay'),

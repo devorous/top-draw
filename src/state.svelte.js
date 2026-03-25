@@ -29,6 +29,10 @@ class DrawingState {
   chatVisible = $state(false);
   dmRecipient = $state(null);
 
+  // Messenger (1-1 E2EE)
+  messengerVisible = $state(false);
+  messengerTargetUser = $state(null); // { id, name }
+
   // Color Palette
   recentColors = $state([]);
   customColors = $state([]);
@@ -110,4 +114,14 @@ export function showProfile(username) {
     .catch(() => {
       appState.profileDialog = { ...appState.profileDialog, loading: false, error: 'Connection error' };
     });
+}
+
+export function toggleMessenger() {
+  appState.messengerVisible = !appState.messengerVisible;
+  console.log('Messenger visible:', appState.messengerVisible);
+}
+
+export function openMessengerWithUser(id, name) {
+  appState.messengerTargetUser = { id, name };
+  appState.messengerVisible = true;
 }

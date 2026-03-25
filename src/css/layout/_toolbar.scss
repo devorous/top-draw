@@ -171,7 +171,7 @@
 
 // Breakpoint for condensing text to icons (e.g., Save/Upload/Chat/Exit)
 @include respond-below(lg) {
-  .saveUploadGroup .btn, #chatBtn, #disconnectBtn {
+  .saveUploadGroup .btn, #chatBtn, #inboxBtn, #disconnectBtn {
     .btnText {
       display: none;
     }
@@ -197,8 +197,8 @@
     }
   }
 
-  // Specific sizing for chat icon (increase by ~50% from 16px -> 24px)
-  #chatBtn .btnIcon img {
+  // Specific sizing for chat/inbox icon (increase by ~50% from 16px -> 24px)
+  #chatBtn .btnIcon img, #inboxBtn .btnIcon img {
     width: 24px;
     height: 24px;
   }
