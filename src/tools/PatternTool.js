@@ -25,23 +25,44 @@ export class PatternTool extends Tool {
     this.strokePoints = [];
     this._tileCache = new Map();
     this.previewCanvas = null;
+    this.offscreenCanvas = null;
+    this.offscreenCtx = null;
+    this.dirtyBounds = null;
   }
 
   activate() {
-    // updatePreview will auto-detect user from board
+    this.ensureOffscreenCanvas();
     this.updatePreview();
   }
-  
+
   deactivate() {
     this.lastStampPos.clear();
     this._tileCache.clear();
   }
 
+  ensureOffscreenCanvas() {
+    const width = this.board.mainCanvas.width;
+    const height = this.board.mainCanvas.height;
+    if (!this.offscreenCanvas ||
+        this.offscreenCanvas.width !== width ||
+        this.offscreenCanvas.height !== height) {
+      this.offscreenCanvas = document.createElement('canvas');
+      this.offscreenCanvas.width = width;
+      this.offscreenCanvas.height = height;
+      this.offscreenCtx = this.offscreenCanvas.getContext('2d');
+    }
+  }
+
   onPointerDown(user, pos) {
     this.board.beginStroke(user);
+    this.ensureOffscreenCanvas();
+    this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
+    this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
     this.strokePoints = [pos];
-    this.drawStamp(user, pos);
+    this._stampMask(pos, user.size * (user.pressure || 1));
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+    this.board.clearTop();
+    this._drawPreview(user);
   }
 
   onPointerMove(user, pos) {
@@ -49,43 +70,124 @@ export class PatternTool extends Tool {
 
     const lastStamp = this.lastStampPos.get(user.id);
     if (!lastStamp) {
-      this.drawStamp(user, pos);
+      this._stampMask(pos, user.size * (user.pressure || 1));
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+      this.board.clearTop();
+      this._drawPreview(user);
       return;
     }
 
     const dx = pos.x - lastStamp.x;
     const dy = pos.y - lastStamp.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
-
-    // Continuous stroke spacing
     const minSpacing = Math.max(1, user.size * 0.1);
 
     if (distance >= minSpacing) {
       const steps = Math.max(1, Math.floor(distance / minSpacing));
       for (let i = 1; i <= steps; i++) {
         const t = i / steps;
-        const interpX = lastStamp.x + dx * t;
-        const interpY = lastStamp.y + dy * t;
-        const interpPos = { x: interpX, y: interpY };
-        this.drawStamp(user, interpPos);
-        this.stampBuffer.push(interpX, interpY);
+        const interpPos = { x: lastStamp.x + dx * t, y: lastStamp.y + dy * t };
+        this._stampMask(interpPos, user.size * (user.pressure || 1));
+        this.stampBuffer.push(interpPos.x, interpPos.y);
         this.strokePoints.push(interpPos);
       }
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-      this.board.requestUpdate();
     }
+
+    this.board.clearTop();
+    this._drawPreview(user);
   }
 
   onPointerUp(user) {
-    if (user.panning) return;
+    if (user.panning || !user.mousedown) return;
+
+    const ctx = this.board.getActiveLayerContext();
+    if (ctx) {
+      const composite = this._buildPatternComposite(user);
+      if (composite) {
+        ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
+        ctx.drawImage(composite, 0, 0);
+        ctx.globalAlpha = 1.0;
+      }
+    }
+
     if (this.strokePoints.length > 0) {
       this.board.markDirtyPath(user, this.strokePoints, user.size);
     }
+
+    if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
+      const x = Math.floor(this.dirtyBounds.minX) - 2;
+      const y = Math.floor(this.dirtyBounds.minY) - 2;
+      const w = Math.ceil(this.dirtyBounds.maxX) - x + 2;
+      const h = Math.ceil(this.dirtyBounds.maxY) - y + 2;
+      this.board.expandDirtyRect(user, x, y, w, h);
+    }
+
     this.strokePoints = [];
+    this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
+    this.dirtyBounds = null;
     this.board.compositeAllLayers();
     this.board.endStroke(user);
     this.lastStampPos.delete(user.id);
+    this.board.clearTop();
+  }
+
+  _stampMask(pos, radius) {
+    const ctx = this.offscreenCtx;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, Math.max(0.5, radius), 0, Math.PI * 2);
+    ctx.fill();
+
+    if (this.dirtyBounds) {
+      this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, pos.x - radius);
+      this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, pos.y - radius);
+      this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, pos.x + radius);
+      this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y + radius);
+    }
+  }
+
+  _buildPatternComposite(user) {
+    if (!this.offscreenCanvas) return null;
+    const tile = this._getPatternTile(user);
+    if (!tile) return null;
+
+    const w = this.offscreenCanvas.width;
+    const h = this.offscreenCanvas.height;
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = w;
+    tempCanvas.height = h;
+    const tempCtx = tempCanvas.getContext('2d');
+
+    const scale = (user.patternScale || 100) / 100;
+    const offsetX = user.patternOffsetX || 0;
+    const offsetY = user.patternOffsetY || 0;
+    const pattern = tempCtx.createPattern(tile, 'repeat');
+    if (pattern.setTransform) {
+      const matrix = new DOMMatrix()
+        .translate(offsetX, offsetY)
+        .rotate(user.patternRotation || 0)
+        .scale(scale);
+      pattern.setTransform(matrix);
+    }
+    tempCtx.fillStyle = pattern;
+    tempCtx.fillRect(0, 0, w, h);
+
+    // Clip pattern to the stroke mask
+    tempCtx.globalCompositeOperation = 'destination-in';
+    tempCtx.drawImage(this.offscreenCanvas, 0, 0);
+    tempCtx.globalCompositeOperation = 'source-over';
+
+    return tempCanvas;
+  }
+
+  _drawPreview(user) {
+    const composite = this._buildPatternComposite(user);
+    if (!composite) return;
+
+    const ctx = this.board.topCtx;
+    ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
+    ctx.drawImage(composite, 0, 0);
+    ctx.globalAlpha = 1.0;
   }
 
   /**
@@ -185,6 +287,7 @@ export class PatternTool extends Tool {
   }
 
   drawStamp(user, pos) {
+    // Legacy method: stamp directly to layer (used by applyStamps for remote rendering).
     const ctx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
     if (!ctx) return;
 
@@ -197,8 +300,6 @@ export class PatternTool extends Tool {
     const offsetY = user.patternOffsetY || 0;
 
     ctx.save();
-
-    // Create the repeating grid wallpaper
     const pattern = ctx.createPattern(tile, 'repeat');
     if (pattern.setTransform) {
       const matrix = new DOMMatrix()
@@ -207,15 +308,11 @@ export class PatternTool extends Tool {
         .scale(scale);
       pattern.setTransform(matrix);
     }
-
     ctx.fillStyle = pattern;
     ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
-    
-    // Revel the wallpaper through a circle (the brush mask)
     ctx.beginPath();
     ctx.arc(pos.x, pos.y, size, 0, Math.PI * 2);
     ctx.fill();
-    
     ctx.restore();
 
     this.board.expandDirtyRect(user, pos.x - size - 2, pos.y - size - 2, size * 2 + 4, size * 2 + 4);

@@ -323,7 +323,8 @@ export class UI {
       pan: this.createIcon('/images/move-icon.svg'),
       rotate: this.createIcon('/images/rotate-icon.svg'),
       imageBrush: this.createIcon('/images/pepper.png'),
-      pixel: this.createIcon('/images/brush-icon.svg')
+      pixel: this.createIcon('/images/brush-icon.svg'),
+      pattern: this.createIcon('/images/pattern-icon.svg')
     };
   }
 

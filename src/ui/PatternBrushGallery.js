@@ -76,14 +76,6 @@ export class PatternBrushGallery extends BrushGallery {
     this.brushes.push(squareBrush);
     this.addBrushToGallery(squareBrush);
 
-    // Pepper preset
-    const apiBase = import.meta.env.VITE_API_BASE_URL || '';
-    this.loadBrush(`${apiBase}/brushes/pepper.gbr`).then(brush => {
-      if (brush) {
-        this.brushes.push(brush);
-        this.addBrushToGallery(brush);
-      }
-    }).catch(err => console.warn('Failed to load pepper preset:', err));
   }
 
   _createDefaultIcon(shape) {

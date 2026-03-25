@@ -448,6 +448,9 @@ export class RemoteUserUI {
       case 'imageBrush':
         square.style.display = 'block';
         break;
+      case 'pattern':
+        circle.style.display = 'block';
+        break;
     }
   }
 
