@@ -469,12 +469,7 @@ export class DrawingApp {
     if (elements.hudRedoBtn) elements.hudRedoBtn.addEventListener('click', () => this.handleRedo());
 
     elements.chatBtn.addEventListener('click', () => { appState.chatVisible = !appState.chatVisible; });
-    elements.inboxBtn.addEventListener('click', () => { 
-      if (!appState.messengerTargetUser) {
-        appState.messengerTargetUser = { id: 'system', name: 'Global Inbox' };
-      }
-      appState.messengerVisible = !appState.messengerVisible; 
-    });
+    elements.inboxBtn.addEventListener('click', () => { appState.messengerVisible = !appState.messengerVisible; });
     elements.selfListUser.addEventListener('click', () => this.handleRenameself());
 
     // Room settings button
@@ -1683,6 +1678,7 @@ export class DrawingApp {
     this.selfRole = role;
     this.self.role = role;
     this.self.setUsername(username);
+    appState.username = username;
 
     if (this.ui.elements.loginPassword) this.ui.elements.loginPassword.value = '';
 

@@ -26,14 +26,12 @@ const MessengerWrapper = (function() {
           
           console.log('MessengerWrapper effect:', { visible, targetUser });
 
-          if (visible && targetUser) {
+          if (visible) {
             if (!this.instance) {
-              console.log('Mounting Messenger');
               this.instance = mount(Messenger, {
                 target: this.target,
                 props: {
-                  currentUser: { id: this.app.sessionIndex, name: appState.username },
-                  initialTargetUser: targetUser,
+                  initialTargetUser: targetUser || null,
                   isFloating: true
                 }
               });

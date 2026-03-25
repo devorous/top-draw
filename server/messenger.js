@@ -5,9 +5,11 @@ const http = require('http');
 const PORT = process.env.PORT || 3001;
 const MONGODB_URI = process.env.MONGODB_URI; // MongoDB Atlas connection string
 const DB_NAME = 'ddraw_messenger';
+const USERS_DB_NAME = 'Draw'; // Main app DB for user lookup
 
 let db;
-const clients = new Map(); // userId -> WebSocket connection
+let usersDb;
+const clients = new Map(); // username -> WebSocket connection
 
 async function initDB() {
   if (!MONGODB_URI) {
@@ -17,10 +19,39 @@ async function initDB() {
   const client = new MongoClient(MONGODB_URI);
   await client.connect();
   db = client.db(DB_NAME);
+  usersDb = client.db(USERS_DB_NAME);
   console.log('Connected to MongoDB Atlas');
 }
 
-const server = http.createServer();
+const server = http.createServer(async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  if (url.pathname === '/check-user' && req.method === 'GET') {
+    const username = url.searchParams.get('username');
+    if (!username) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ exists: false }));
+      return;
+    }
+    try {
+      const user = await usersDb.collection('users').findOne(
+        { username: { $regex: new RegExp(`^${username}$`, 'i') } },
+        { projection: { username: 1 } }
+      );
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ exists: !!user, username: user?.username || null }));
+    } catch (err) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ exists: false }));
+    }
+    return;
+  }
+
+  res.writeHead(404);
+  res.end();
+});
+
 const wss = new WebSocket.Server({ server });
 
 wss.on('connection', async (ws, req) => {

@@ -318,7 +318,7 @@ export class UI {
       erase: this.createIcon('/images/eraser-icon.svg'),
       blur: this.createIcon('/images/brush-icon.svg'),
       circleBlur: this.createIcon('/images/circle-blur-icon.svg'),
-      glitchBlur: this.createIcon('/images/circle-blur-icon.svg'),
+      glitchBlur: this.createIcon('/images/glitch-icon.svg'),
       inkdropper: this.createIcon('/images/inkdropper-icon.svg'),
       pan: this.createIcon('/images/move-icon.svg'),
       rotate: this.createIcon('/images/rotate-icon.svg'),

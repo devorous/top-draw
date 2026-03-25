@@ -4,7 +4,7 @@
   "description": "A multiplayer drawing application with WebSocket support",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run server\" \"npm run messenger\" \"vite --open /go/\"",
+    "dev": "concurrently \"npm run server\" \"vite --open /go/\"",
     "build": "npm run brushes && vite build",
     "build:preview": "npm run build && npm run preview",
     "vite": "vite",

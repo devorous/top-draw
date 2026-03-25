@@ -3,25 +3,34 @@
   import { onMount, onDestroy } from 'svelte';
   import { appState, toggleMessenger } from '../state.svelte.js';
 
-  let { currentUser, initialTargetUser = null, isFloating = false } = $props();
+  let { initialTargetUser = null, isFloating = false } = $props();
   let newMessageText = $state("");
   let searchQuery = $state("");
   let isStartingNewChat = $state(false);
   let newChatUsername = $state("");
+  let newChatError = $state("");
+  let newChatChecking = $state(false);
+  let initialized = $state(false);
 
-  onMount(() => {
-    if (currentUser) {
-      messenger.init(currentUser.id, initialTargetUser);
+  // Read username reactively from shared state so it's always current
+  const username = $derived(appState.username);
+  const isLoggedIn = $derived(!!username);
+
+  $effect(() => {
+    if (username && !initialized) {
+      initialized = true;
+      messenger.init(username, initialTargetUser);
     }
   });
 
   onDestroy(() => {
     messenger.cleanup();
+    initialized = false;
   });
 
   const filteredInbox = $derived(() => {
     return messenger.inbox.filter(item => {
-      const otherId = item.sender_id === currentUser.id ? item.receiver_id : item.sender_id;
+      const otherId = item.sender_id === username ? item.receiver_id : item.sender_id;
       return otherId.toLowerCase().includes(searchQuery.toLowerCase());
     });
   });
@@ -39,29 +48,50 @@
     messenger.activeChat = null;
   }
 
-  function handleCreateChat(event) {
+  async function handleCreateChat(event) {
     if (event) event.preventDefault();
-    if (newChatUsername.trim()) {
-      const username = newChatUsername.trim();
-      messenger.openChat({ id: username, name: username });
+    const username = newChatUsername.trim();
+    if (!username) return;
+
+    newChatError = "";
+    newChatChecking = true;
+    try {
+      const result = await messenger.checkUser(username);
+      if (!result.exists) {
+        newChatError = `No account found for "${username}"`;
+        return;
+      }
+      messenger.openChat({ id: result.username, name: result.username });
       isStartingNewChat = false;
       newChatUsername = "";
+    } catch {
+      newChatError = "Could not reach server. Try again.";
+    } finally {
+      newChatChecking = false;
     }
   }
 
   function selectConversation(msg) {
-    const otherId = msg.sender_id === currentUser.id ? msg.receiver_id : msg.sender_id;
+    const otherId = msg.sender_id === username ? msg.receiver_id : msg.sender_id;
     messenger.openChat({ id: otherId, name: otherId });
     isStartingNewChat = false;
   }
 
   function getOtherUserId(msg) {
-    return msg.sender_id === currentUser.id ? msg.receiver_id : msg.sender_id;
+    return msg.sender_id === username ? msg.receiver_id : msg.sender_id;
   }
 </script>
 
 <div class="messenger-app" class:floating={isFloating}>
   <button class="global-close-btn" onclick={toggleMessenger} title="Close Messenger">&times;</button>
+
+  {#if !isLoggedIn}
+    <div class="no-selection" style="flex: 1;">
+      <div class="icon">🔒</div>
+      <h3>Sign in to use Messenger</h3>
+      <p>You need a registered account to send and receive messages.</p>
+    </div>
+  {:else}
 
   <!-- Sidebar: Inbox / Conversation List (Always Visible) -->
   <aside class="sidebar">
@@ -112,17 +142,21 @@
           <form onsubmit={handleCreateChat} class="compose-form">
             <div class="to-row">
               <label for="username">To:</label>
-              <input 
+              <input
                 id="username"
-                bind:value={newChatUsername} 
-                placeholder="Type a username..." 
+                bind:value={newChatUsername}
+                oninput={() => newChatError = ""}
+                placeholder="Type a username..."
                 autocomplete="off"
                 autofocus
               />
             </div>
             <p class="hint">Starting a secure, end-to-end encrypted chat.</p>
-            <button type="submit" class="primary-btn wide" disabled={!newChatUsername.trim()}>
-              Start Chatting
+            {#if newChatError}
+              <p class="error-msg">{newChatError}</p>
+            {/if}
+            <button type="submit" class="primary-btn wide" disabled={!newChatUsername.trim() || newChatChecking}>
+              {newChatChecking ? 'Checking...' : 'Start Chatting'}
             </button>
           </form>
           
@@ -130,8 +164,8 @@
             <h4>Suggested (Online)</h4>
             <div class="user-chips">
               {#each [...appState.users.values()] as user}
-                {#if user.id !== currentUser.id}
-                  <button class="user-chip" onclick={() => { newChatUsername = user.username; handleCreateChat(); }}>
+                {#if user.id !== username}
+                  <button class="user-chip" onclick={() => { messenger.openChat({ id: user.username, name: user.username }); isStartingNewChat = false; newChatUsername = ""; newChatError = ""; }}>
                     <div class="chip-color" style="background: {user.color}"></div>
                     {user.username}
                   </button>
@@ -158,7 +192,7 @@
         {#each Object.entries(messenger.groupedMessages()) as [date, msgs]}
           <div class="date-divider"><span>{date}</span></div>
           {#each msgs as msg}
-            <div class="message-wrapper" class:own={msg.sender_id === currentUser.id}>
+            <div class="message-wrapper" class:own={msg.sender_id === username}>
               <div class="message">
                 <p>{msg.content}</p>
                 <span class="time">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -188,6 +222,7 @@
       </div>
     {/if}
   </main>
+  {/if}
 </div>
 
 <style lang="scss">
@@ -434,6 +469,7 @@
           }
           
           .hint { font-size: var(--text-xs); color: var(--text-muted); margin: 0; text-align: center; }
+          .error-msg { font-size: var(--text-xs); color: #ff4d4d; margin: 0; text-align: center; }
         }
 
         .recent-users {

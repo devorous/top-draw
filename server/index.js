@@ -129,6 +129,23 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // Messenger: check if a username exists
+  if (path === '/api/messenger/check-user' && req.method === 'GET') {
+    const username = new URL(req.url, `http://${req.headers.host}`).searchParams.get('username');
+    const corsHeaders = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    if (!username) { res.writeHead(400, corsHeaders); res.end(JSON.stringify({ exists: false })); return; }
+    try {
+      const db = getDB();
+      const user = await db.collection('users').findOne(
+        { username: { $regex: new RegExp(`^${username}$`, 'i') } },
+        { projection: { username: 1 } }
+      );
+      res.writeHead(200, corsHeaders);
+      res.end(JSON.stringify({ exists: !!user, username: user?.username || null }));
+    } catch { res.writeHead(500, corsHeaders); res.end(JSON.stringify({ exists: false })); }
+    return;
+  }
+
   res.writeHead(404);
   res.end();
 });
@@ -146,6 +163,9 @@ wss.on('error', (err) => {
 let Msg;
 let POOLED_MSG;
 let roomManager;
+
+// Messenger: username -> WebSocket
+const messengerClients = new Map();
 
 /**
  * Extracts the client's IP address from the request, handling proxies.
@@ -597,6 +617,60 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
 }
 
 wss.on('connection', (ws, req) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+
+  // Fork: messenger connections use /messenger path
+  if (url.pathname === '/messenger') {
+    const userId = url.searchParams.get('userId');
+    if (!userId) { ws.close(); return; }
+
+    messengerClients.set(userId, ws);
+    console.log(`[Messenger] ${userId} connected`);
+
+    ws.on('message', async (data) => {
+      try {
+        const { type, payload } = JSON.parse(data);
+        const db = getDB();
+
+        if (type === 'init_chat') {
+          const history = await db.collection('messages')
+            .find({ room_id: payload.roomId })
+            .sort({ timestamp: -1 }).limit(50).toArray();
+          ws.send(JSON.stringify({ type: 'history', payload: history.reverse() }));
+
+        } else if (type === 'get_inbox') {
+          const inbox = await db.collection('messages').aggregate([
+            { $match: { $or: [{ sender_id: payload.userId }, { receiver_id: payload.userId }] } },
+            { $sort: { timestamp: -1 } },
+            { $group: { _id: '$room_id', latestMessage: { $first: '$$ROOT' } } },
+            { $sort: { 'latestMessage.timestamp': -1 } }
+          ]).toArray();
+          ws.send(JSON.stringify({ type: 'inbox', payload: inbox.map(i => i.latestMessage) }));
+
+        } else if (type === 'send_message') {
+          const { room_id, sender_id, receiver_id, encrypted_content, iv } = payload;
+          const msgDoc = { room_id, sender_id, receiver_id, encrypted_content, iv, timestamp: Date.now() };
+          await db.collection('messages').insertOne(msgDoc);
+
+          if (messengerClients.has(receiver_id)) {
+            messengerClients.get(receiver_id).send(JSON.stringify({ type: 'new_message', payload: msgDoc }));
+          }
+          ws.send(JSON.stringify({ type: 'new_message', payload: msgDoc }));
+        }
+      } catch (err) {
+        console.error('[Messenger] Message error:', err);
+      }
+    });
+
+    ws.on('close', () => {
+      messengerClients.delete(userId);
+      console.log(`[Messenger] ${userId} disconnected`);
+    });
+
+    return;
+  }
+
+  // Drawing server connection
   try {
     console.log(`[WS] New connection attempt from ${req.socket.remoteAddress}`);
 
@@ -608,7 +682,6 @@ wss.on('connection', (ws, req) => {
     ws.username = null;
     ws.isMuted = false;
 
-    const url = new URL(req.url, `http://${req.headers.host}`);
     const roomId = url.searchParams.get('room') || 'default';
     console.log(`[Room] Parsed room ID: ${roomId}`);
 
