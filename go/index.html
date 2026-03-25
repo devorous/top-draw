@@ -539,11 +539,13 @@
                 <div class="sliderLabel">
                   <label class="pressureToggle">
                     <span>Thinning</span>
-                    <input type="checkbox" id="simulatePressureCheckbox" checked>
+                    <input type="checkbox" id="thinningEnabled" checked>
                   </label>
                   <span class="sliderValue" id="thinningValue">50</span><button class="lock-btn" id="thinningLock" title="Lock thinning for current tool">🔓</button>
                 </div>
-                <input autocomplete="off" type="range" min="0" max="100" value="50" class="slider thinning">
+                <div id="thinningSlider">
+                  <input autocomplete="off" type="range" min="0" max="100" value="50" class="slider thinning">
+                </div>
               </div>
 
               <div class="sliderContainer" id="pressure-container">

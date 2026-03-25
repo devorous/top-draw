@@ -567,6 +567,18 @@ export class DrawingApp {
       elements.pressureValue.style.display = this.pressureEnabled ? '' : 'none';
     });
 
+    // Thinning enable/disable checkbox
+    if (elements.thinningEnabled) {
+      elements.thinningEnabled.addEventListener('change', () => {
+        if (elements.thinningSliderContainer) {
+          elements.thinningSliderContainer.style.display = elements.thinningEnabled.checked ? '' : 'none';
+        }
+        if (elements.thinningValue) {
+          elements.thinningValue.style.display = elements.thinningEnabled.checked ? '' : 'none';
+        }
+      });
+    }
+
     // Eraser mode radio buttons
     const eraserModeRadios = document.querySelectorAll('input[name="eraserMode"]');
     eraserModeRadios.forEach(radio => {
@@ -2575,6 +2587,41 @@ export class DrawingApp {
       this.colorPicker.setColor(`rgba(${color.join(',')})`);
     }
 
+    // Update pattern tools when color changes (for tinted color modes)
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool) {
+      patternTool._tileCache.clear();
+      patternTool.updatePreview(this.self);
+
+      // Also update fill pattern preview
+      const fillPatternPreview = document.getElementById('fillPatternPreview');
+      if (fillPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+    }
+
+    const fillTool = this.toolManager.getTool('fill');
+    if (fillTool && fillTool._tileCache) {
+      fillTool._tileCache.clear();
+    }
+
+    const selectTool = this.toolManager.getTool('select');
+    if (selectTool && selectTool._tileCache) {
+      selectTool._tileCache.clear();
+    }
+
     if (this.connected) {
       this.wsClient.broadcastColorChange(color);
     }
@@ -2593,6 +2640,41 @@ export class DrawingApp {
     // Update the color picker to match
     if (this.colorPicker) {
       this.colorPicker.setColor(rgba);
+    }
+
+    // Update pattern tools when color changes (for tinted color modes)
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool) {
+      patternTool._tileCache.clear();
+      patternTool.updatePreview(this.self);
+
+      // Also update fill pattern preview
+      const fillPatternPreview = document.getElementById('fillPatternPreview');
+      if (fillPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = fillPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+
+      // Also update selection pattern preview
+      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
+      if (selectionPatternPreview) {
+        const oldPreview = patternTool.previewCanvas;
+        patternTool.previewCanvas = selectionPatternPreview;
+        patternTool.updatePreview(this.self);
+        patternTool.previewCanvas = oldPreview;
+      }
+    }
+
+    const fillTool = this.toolManager.getTool('fill');
+    if (fillTool && fillTool._tileCache) {
+      fillTool._tileCache.clear();
+    }
+
+    const selectTool = this.toolManager.getTool('select');
+    if (selectTool && selectTool._tileCache) {
+      selectTool._tileCache.clear();
     }
 
     // Broadcast to other users if connected

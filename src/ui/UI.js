@@ -268,6 +268,8 @@ export class UI {
       opacityLock: document.getElementById('opacityLock'),
       blurRadiusLock: document.getElementById('blurRadiusLock'),
       thinningLock: document.getElementById('thinningLock'),
+      thinningEnabled: document.getElementById('thinningEnabled'),
+      thinningSliderContainer: document.getElementById('thinningSlider'),
       simulatePressureCheckbox: document.getElementById('simulatePressureCheckbox'),
 
       colorPicker: document.getElementById('colorPicker'),
