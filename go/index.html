@@ -759,9 +759,18 @@
                     <span>Pattern</span>
                   </label>
                 </div>
-                <div id="fillAdvancedHint" style="display: none; font-size: 11px; color: #888; margin-top: 4px; padding: 0 4px;">
-                  Click to fill, then drag:<br>
-                  ← → Expand &nbsp; ↓ Edge Blur
+                <div id="fillAdvancedSettings" style="display: none;">
+                  <div class="sliderContainer">
+                    <div class="sliderLabel">Offset <span class="sliderValue" id="fillExpansionValue">0</span></div>
+                    <input autocomplete="off" type="range" id="fillExpansionSlider" min="-50" max="50" step="1" value="0" class="slider">
+                  </div>
+                  <div class="sliderContainer">
+                    <div class="sliderLabel">Blur <span class="sliderValue" id="fillBlurValue">0</span></div>
+                    <input autocomplete="off" type="range" id="fillBlurSlider" min="0" max="25" step="1" value="0" class="slider">
+                  </div>
+                  <div style="font-size: 11px; color: #888; margin-top: 2px; padding: 0 4px;">
+                    Drag after click to adjust
+                  </div>
                 </div>
               </div>
 

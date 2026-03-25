@@ -20,14 +20,18 @@ export class FloodFillTool {
   constructor(board) {
     this.name = 'fill';
     this.board = board;
-    this.advancedMode = true;
+    this._advancedMode = true;
+
+    // Persistent values — maintained between fills, driven by sliders
+    this._expansion = 0;
+    this._blurRadius = 0;
 
     // Interactive state (used only in advanced mode)
     this._active = false;
     this._startPos = null;
     this._clickPos = null;
-    this._expansion = 0;
-    this._blurRadius = 0;
+    this._dragStartExpansion = 0;
+    this._dragStartBlur = 0;
     this._imageData = null;
     this._fillParams = null;
 
@@ -40,6 +44,29 @@ export class FloodFillTool {
     // Debounce timer for advanced mode preview updates
     this._previewTimer = null;
     this._pendingPreview = false;
+  }
+
+  get advancedMode() { return this._advancedMode; }
+  set advancedMode(val) {
+    this._advancedMode = val;
+    if (!val) {
+      // Reset persistent fill settings when advanced mode is disabled
+      this._expansion = 0;
+      this._blurRadius = 0;
+      this._updateSliders();
+    }
+  }
+
+  /** Sync slider DOM elements to current persistent values. */
+  _updateSliders() {
+    const expSlider = document.getElementById('fillExpansionSlider');
+    const expValue = document.getElementById('fillExpansionValue');
+    const blurSlider = document.getElementById('fillBlurSlider');
+    const blurValue = document.getElementById('fillBlurValue');
+    if (expSlider) expSlider.value = this._expansion;
+    if (expValue) expValue.textContent = this._expansion;
+    if (blurSlider) blurSlider.value = this._blurRadius;
+    if (blurValue) blurValue.textContent = this._blurRadius;
   }
 
   activate() {
@@ -475,16 +502,16 @@ export class FloodFillTool {
    * Commit a fill result to the stroke canvas.
    * @private
    */
-  _commitFillResult(user, result, params, width, height, mirrorResult) {
+  _commitFillResult(user, result, params, width, height, mirrorResult, blurRadius = this._blurRadius, expansion = this._expansion) {
     if (!result) return;
 
     this.board.beginStroke(user);
     const strokeCtx = this.board.layerManager.getUserStrokeContext(params.activeLayer, params.userId);
     if (!strokeCtx) return;
 
-    this._renderMask(strokeCtx, result, params.fillR, params.fillG, params.fillB, params.userOpacity, this._blurRadius, width, height, user);
+    this._renderMask(strokeCtx, result, params.fillR, params.fillG, params.fillB, params.userOpacity, blurRadius, width, height, user);
 
-    const pad = Math.ceil(this._blurRadius * 2) + Math.ceil(Math.abs(this._expansion));
+    const pad = Math.ceil(blurRadius * 2) + Math.ceil(Math.abs(expansion));
     const bx = Math.max(0, result.minX - pad);
     const by = Math.max(0, result.minY - pad);
     const bw = Math.min(width, result.maxX + pad + 1) - bx;
@@ -492,7 +519,7 @@ export class FloodFillTool {
     this.board.expandDirtyRect(user, bx, by, bw, bh);
 
     if (mirrorResult) {
-      this._renderMaskComposite(strokeCtx, mirrorResult, params.fillR, params.fillG, params.fillB, params.userOpacity, this._blurRadius, width, height, user);
+      this._renderMaskComposite(strokeCtx, mirrorResult, params.fillR, params.fillG, params.fillB, params.userOpacity, blurRadius, width, height, user);
       const mbx = Math.max(0, mirrorResult.minX - pad);
       const mby = Math.max(0, mirrorResult.minY - pad);
       const mbw = Math.min(width, mirrorResult.maxX + pad + 1) - mbx;
@@ -630,7 +657,7 @@ export class FloodFillTool {
         }
       }
 
-      this._commitFillResult(user, result, params, width, height, mirrorResult);
+      this._commitFillResult(user, result, params, width, height, mirrorResult, 0, 0);
       this._broadcastFill(user, x, y, params.activeLayer, 0, 0);
       this.board.endStroke(user);
       this._committed = true;
@@ -641,8 +668,8 @@ export class FloodFillTool {
     this._active = true;
     this._startPos = { x: pos.x, y: pos.y };
     this._clickPos = { x, y };
-    this._expansion = 0;
-    this._blurRadius = 0;
+    this._dragStartExpansion = this._expansion;
+    this._dragStartBlur = this._blurRadius;
     this._imageData = this.board.mainCtx.getImageData(0, 0, width, height);
 
     // Get owned tile rects for fallback constraint (used if fill is too large)
@@ -684,8 +711,9 @@ export class FloodFillTool {
     const dx = (pos.x - this._startPos.x) * zoom;
     const dy = (pos.y - this._startPos.y) * zoom;
 
-    this._expansion = Math.max(-40, Math.min(40, dx * 0.3));
-    this._blurRadius = Math.max(0, Math.min(20, dy * 0.12));
+    this._expansion = Math.round(Math.max(-50, Math.min(50, this._dragStartExpansion + dx * 0.3)) * 10) / 10;
+    this._blurRadius = Math.max(0, Math.min(25, this._dragStartBlur + dy * 0.12));
+    this._updateSliders();
 
     this._requestPreviewUpdate();
   }

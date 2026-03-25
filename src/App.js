@@ -600,18 +600,39 @@ export class DrawingApp {
 
     // Fill advanced mode checkbox
     const fillAdvancedCheck = document.getElementById('fillAdvancedCheck');
-    const fillAdvancedHint = document.getElementById('fillAdvancedHint');
+    const fillAdvancedSettings = document.getElementById('fillAdvancedSettings');
     if (fillAdvancedCheck) {
       // Sync checkbox to tool's default (advanced on by default)
       const fillTool = this.toolManager.getTool('fill');
       if (fillTool) {
         fillAdvancedCheck.checked = fillTool.advancedMode;
-        if (fillAdvancedHint) fillAdvancedHint.style.display = fillTool.advancedMode ? 'block' : 'none';
+        if (fillAdvancedSettings) fillAdvancedSettings.style.display = fillTool.advancedMode ? 'block' : 'none';
       }
       fillAdvancedCheck.addEventListener('change', (e) => {
         const fillTool = this.toolManager.getTool('fill');
-        if (fillTool) fillTool.advancedMode = e.target.checked;
-        if (fillAdvancedHint) fillAdvancedHint.style.display = e.target.checked ? 'block' : 'none';
+        if (fillTool) fillTool.advancedMode = e.target.checked; // setter resets values when disabled
+        if (fillAdvancedSettings) fillAdvancedSettings.style.display = e.target.checked ? 'block' : 'none';
+      });
+    }
+
+    // Fill advanced sliders
+    const fillExpansionSlider = document.getElementById('fillExpansionSlider');
+    const fillExpansionValue = document.getElementById('fillExpansionValue');
+    if (fillExpansionSlider) {
+      fillExpansionSlider.addEventListener('input', (e) => {
+        const fillTool = this.toolManager.getTool('fill');
+        const val = Math.round(Number(e.target.value) * 10) / 10;
+        if (fillTool) fillTool._expansion = val;
+        if (fillExpansionValue) fillExpansionValue.textContent = val;
+      });
+    }
+    const fillBlurSlider = document.getElementById('fillBlurSlider');
+    const fillBlurValue = document.getElementById('fillBlurValue');
+    if (fillBlurSlider) {
+      fillBlurSlider.addEventListener('input', (e) => {
+        const fillTool = this.toolManager.getTool('fill');
+        if (fillTool) fillTool._blurRadius = Number(e.target.value);
+        if (fillBlurValue) fillBlurValue.textContent = e.target.value;
       });
     }
 
