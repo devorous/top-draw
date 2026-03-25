@@ -3021,7 +3021,7 @@ export class DrawingApp {
           
           // For tools that use smoothing, send the smoothed initial point instead of raw click.
           // This ensures remote users see perfect parity with the sender.
-          const smoothingTools = ['brush', 'flowPen', 'ink', 'imageBrush', 'erase'];
+          const smoothingTools = ['brush', 'flowPen', 'ink', 'imageBrush'];
           let broadcastPos = [pos.x, pos.y];
           if (smoothingTools.includes(this.self.tool)) {
             const smoothed = this.inputBufferManager.applyBroadcastSmoothing([pos.x, pos.y]);

@@ -625,8 +625,9 @@ export class UI {
 
       case 'erase':
         selfCircle.style.display = 'block';
-        opacityContainer.style.display = 'block';
-        brushHardness.style.display = 'block';
+        opacityContainer.style.display = 'none';
+        smoothingContainer.style.display = 'none';
+        brushHardness.style.display = 'none';
         if (eraserModeOptions) eraserModeOptions.style.display = 'block';
         if (selfPressureCircle) selfPressureCircle.style.display = 'block';
         break;
