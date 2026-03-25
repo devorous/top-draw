@@ -667,7 +667,7 @@ export class Board {
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     const count = this.layerManager.getLayerCount();
     for (let i = 0; i < count; i++) {
-      const group = this.layerGroups[i];
+      const group = this.layerManager.layerGroups[i];
       if (!group) continue;
       const active = group.activeStrokeByUser.get(userId);
       if (!active || !active.dirtyRect) continue;
