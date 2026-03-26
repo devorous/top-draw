@@ -1,7 +1,7 @@
 import { LayerManager } from './LayerManager.js';
 import { PerformanceMonitor } from './PerformanceMonitor.js';
 import { TileGrid } from './TileGrid.js';
-import { TileOwnershipManager } from './TileOwnershipManager.js';
+import { TileTracker } from './TileTracker.js';
 
 /**
  * @fileoverview Board class managing canvas elements and viewport
@@ -57,8 +57,8 @@ export class Board {
     /** @type {TileGrid|null} Tile-based dirty tracking (initialized in init()) */
     this.tileGrid = null;
 
-    /** @type {TileOwnershipManager|null} Tile ownership for griefing detection */
-    this.tileOwnershipManager = null;
+    /** @type {TileTracker|null} Tracks occupied tiles */
+    this.tileTracker = null;
 
     /** @type {number} Target render FPS (0 = uncapped/on-demand) */
     this.targetFPS = 0;
@@ -129,7 +129,7 @@ export class Board {
     this.layerManager.onNeedsUpdate = () => this.requestUpdate();
 
     this.tileGrid = new TileGrid(width, height);
-    this.tileOwnershipManager = new TileOwnershipManager(width, height);
+    this.tileTracker = new TileTracker(width, height);
 
     this.calculateDefaultView();
     this.resetView();
@@ -446,9 +446,9 @@ export class Board {
       this.mainCtx.clearRect(0, 0, width, height);
     }
 
-    // Clear tile ownership when board is cleared
-    if (this.tileOwnershipManager) {
-      this.tileOwnershipManager.clear();
+    // Clear tile tracker when board is cleared
+    if (this.tileTracker) {
+      this.tileTracker.clear();
     }
 
     this.topCtx.clearRect(0, 0, width, height);
@@ -620,7 +620,7 @@ export class Board {
   /**
    * Mark tiles dirty along a path (for line-based strokes).
    * More efficient than bounding box for diagonal lines.
-   * Also tracks tile ownership for griefing detection.
+   * Tracks occupied tiles for efficient synchronization.
    * @param {Object} user - User object
    * @param {Array<{x: number, y: number}>} points - Array of points
    * @param {number} radius - Brush radius
@@ -642,15 +642,15 @@ export class Board {
       }
     }
 
-    // Use line-based tile marking
+    // Use line-based tile marking for immediate redraw
     if (this.tileGrid) {
       this.tileGrid.markDirtyPath(points, radius);
     }
 
-    // Track tile ownership for drawing (not erasing)
-    if (this.tileOwnershipManager && !isErase) {
-      // Pass active stroke's affectedTiles to collect indices using the same logic
-      this.tileOwnershipManager.addOwnershipFromPath(userId, points, radius, active?.affectedTiles);
+    // Track occupied tiles for drawing (not erasing)
+    if (this.tileTracker && !isErase) {
+      // Mark tiles as occupied along the path
+      this.tileTracker.markPathDirty(points, radius, active?.affectedTiles);
     }
   }
 
@@ -800,7 +800,7 @@ export class Board {
   undo(_layerIndex, userId) {
     if (!this.layerManager) return;
     const batch = this.layerManager.undoLastStrokeGlobal(userId);
-    let drawTilesToCheck = null;
+    let tilesToRecheck = null;
 
     if (batch) {
       this.layerManager._pushToRedoStack(userId, batch);
@@ -809,9 +809,9 @@ export class Board {
           this._applySelectionRestore(record.selectionRestoreData.snapshots);
           break;
         }
-        // Track tiles from draw strokes to check after composite
-        if (record.affectedTiles && record.blendMode !== 'destination-out') {
-          drawTilesToCheck = record.affectedTiles;
+        if (record.affectedTiles) {
+          if (!tilesToRecheck) tilesToRecheck = new Set();
+          for (const idx of record.affectedTiles) tilesToRecheck.add(idx);
         }
       }
     }
@@ -819,129 +819,42 @@ export class Board {
     this.clearTop();
     this.compositeAllLayers();
 
-    // After composite, check affected tiles and remove ownership only from empty ones
-    if (batch && this.tileOwnershipManager) {
-      for (const { record } of batch) {
-        if (record.affectedTiles && record.blendMode === 'destination-out') {
-          // Erase undo - content is back, restore ownership
-          this._restoreOwnershipForVisibleTiles(record.affectedTiles, userId);
-        }
-      }
-      // Draw undo - only remove ownership from tiles that are now empty
-      if (drawTilesToCheck) {
-        this._removeOwnershipFromEmptyTiles(drawTilesToCheck, userId);
-      }
+    // After composite, check affected tiles and update tracker state based on current pixels
+    if (tilesToRecheck && this.tileTracker) {
+      this.checkErasedTilesByIndices(tilesToRecheck, userId === this.app?.self?.id);
     }
   }
 
   /**
-   * Remove ownership from tiles that are now empty.
-   * @param {Array<number>} tileIndices - Tile indices to check
-   * @param {number} userId - User to remove ownership from
-   * @private
-   */
-  _removeOwnershipFromEmptyTiles(tileIndices, userId) {
-    if (!this.tileOwnershipManager) return;
-
-    const tileSize = this.tileOwnershipManager.tileSize;
-
-    for (const tileIdx of tileIndices) {
-      const col = tileIdx % this.tileOwnershipManager.cols;
-      const row = Math.floor(tileIdx / this.tileOwnershipManager.cols);
-      const tileX = col * tileSize;
-      const tileY = row * tileSize;
-
-      const tileW = Math.min(tileSize, this.dimensions[1] - tileX);
-      const tileH = Math.min(tileSize, this.dimensions[0] - tileY);
-
-      if (tileW <= 0 || tileH <= 0) continue;
-
-      const imageData = this.mainCtx.getImageData(tileX, tileY, tileW, tileH);
-      if (this._checkTileEmpty(imageData.data)) {
-        this.tileOwnershipManager.removeOwnership(tileIdx, userId);
-      }
-    }
-  }
-
-  /**
-   * Restore ownership for tiles that now have visible content (async).
-   * @param {Array<number>} tileIndices - Tile indices to check
-   * @param {number} userId - User to assign ownership to
-   * @private
-   */
-  _restoreOwnershipForVisibleTiles(tileIndices, userId) {
-    if (!this.tileOwnershipManager || tileIndices.length === 0) return;
-
-    const BATCH_SIZE = 16;
-    let index = 0;
-
-    const processNextBatch = () => {
-      const tileSize = this.tileOwnershipManager.tileSize;
-      const endIndex = Math.min(index + BATCH_SIZE, tileIndices.length);
-
-      for (; index < endIndex; index++) {
-        const tileIdx = tileIndices[index];
-        const col = tileIdx % this.tileOwnershipManager.cols;
-        const row = Math.floor(tileIdx / this.tileOwnershipManager.cols);
-        const tileX = col * tileSize;
-        const tileY = row * tileSize;
-
-        const tileW = Math.min(tileSize, this.dimensions[1] - tileX);
-        const tileH = Math.min(tileSize, this.dimensions[0] - tileY);
-
-        if (tileW <= 0 || tileH <= 0) continue;
-
-        const imageData = this.mainCtx.getImageData(tileX, tileY, tileW, tileH);
-        if (!this._checkTileEmpty(imageData.data)) {
-          this.tileOwnershipManager.addOwnership(tileIdx, userId);
-        }
-      }
-
-      if (index < tileIndices.length) {
-        if (typeof requestIdleCallback !== 'undefined') {
-          requestIdleCallback(processNextBatch, { timeout: 50 });
-        } else {
-          setTimeout(processNextBatch, 0);
-        }
-      }
-    };
-
-    processNextBatch();
-  }
-
-  /**
-   * Add ownership to tiles within a rectangular region (no empty check).
+   * Add occupancy to tiles within a rectangular region (no empty check).
    * Use this for paste/commit/stamp/fill operations where we're adding content.
-   * @param {number} userId - User ID to assign ownership to
    * @param {number} x - Left edge (pixels)
    * @param {number} y - Top edge (pixels)
    * @param {number} width - Width (pixels)
    * @param {number} height - Height (pixels)
    */
-  addOwnershipForTilesInRect(userId, x, y, width, height) {
-    if (!this.tileOwnershipManager) return;
+  addOccupancyForTilesInRect(x, y, width, height) {
+    if (!this.tileTracker) return;
 
-    const tileIndices = this.tileOwnershipManager.getTileIndicesForRect(x, y, width, height);
+    const tileIndices = this.tileTracker.getTileIndicesForRect(x, y, width, height);
     for (const idx of tileIndices) {
-      this.tileOwnershipManager.addOwnership(idx, userId);
+      this.tileTracker.markTileDirty(idx);
     }
   }
 
   /**
-   * Add ownership to visible (non-empty) tiles within a rectangular region.
+   * Add occupancy to visible (non-empty) tiles within a rectangular region.
    * Should be called AFTER compositing so mainCtx has current pixel data.
-   * More expensive than addOwnershipForTilesInRect - use only when needed.
-   * @param {number} userId - User ID to assign ownership to
    * @param {number} x - Left edge (pixels)
    * @param {number} y - Top edge (pixels)
    * @param {number} width - Width (pixels)
    * @param {number} height - Height (pixels)
    */
-  addOwnershipForVisibleTilesInRect(userId, x, y, width, height) {
-    if (!this.tileOwnershipManager) return;
+  addOccupancyForVisibleTilesInRect(x, y, width, height) {
+    if (!this.tileTracker) return;
 
-    const tileIndices = this.tileOwnershipManager.getTileIndicesForRect(x, y, width, height);
-    this._restoreOwnershipForVisibleTiles(tileIndices, userId);
+    const tileIndices = this.tileTracker.getTileIndicesForRect(x, y, width, height);
+    this.checkErasedTilesByIndices(new Set(tileIndices), true);
   }
 
   /**
@@ -951,7 +864,7 @@ export class Board {
   redo(userId) {
     if (!this.layerManager) return;
     const redoStack = this.layerManager.redoStackByUser.get(userId);
-    let eraserTiles = null;
+    let tilesToRecheck = null;
 
     if (redoStack && redoStack.length > 0) {
       const batch = redoStack[redoStack.length - 1];
@@ -960,15 +873,9 @@ export class Board {
           this._applySelectionReErase(record.selectionRestoreData);
           break;
         }
-        // Restore tile ownership for redone draw strokes
-        if (record.affectedTiles && record.blendMode !== 'destination-out' && this.tileOwnershipManager) {
-          for (const tileIdx of record.affectedTiles) {
-            this.tileOwnershipManager.addOwnership(tileIdx, userId);
-          }
-        }
-        // Track eraser tiles to re-check after composite
-        if (record.affectedTiles && record.blendMode === 'destination-out') {
-          eraserTiles = record.affectedTiles;
+        if (record.affectedTiles) {
+          if (!tilesToRecheck) tilesToRecheck = new Set();
+          for (const idx of record.affectedTiles) tilesToRecheck.add(idx);
         }
       }
     }
@@ -977,9 +884,9 @@ export class Board {
     this.clearTop();
     this.compositeAllLayers();
 
-    // For erase redos, re-check and clear empty tiles
-    if (eraserTiles && this.tileOwnershipManager) {
-      this.checkErasedTilesForOwnershipByIndices(new Set(eraserTiles));
+    // Re-check tiles to update tracker state
+    if (tilesToRecheck && this.tileTracker) {
+      this.checkErasedTilesByIndices(tilesToRecheck, userId === this.app?.self?.id);
     }
   }
 
@@ -1321,65 +1228,64 @@ export class Board {
   }
 
   /**
-   * Check erased tiles by indices and clear ownership if empty.
+   * Check erased tiles by indices and clear tracker if empty, or mark dirty if not.
    * Processes tiles asynchronously in batches to avoid blocking the main thread.
    * @param {Set<number>} tileIndices - Set of tile indices to check
-   * @param {boolean} [broadcast=true] - Whether to broadcast TILE_CLEAR to other clients
+   * @param {boolean} [broadcast=true] - Whether to broadcast updates to other clients
    */
-  checkErasedTilesForOwnershipByIndices(tileIndices, broadcast = true) {
-    if (!this.tileOwnershipManager || tileIndices.size === 0) return;
+  checkErasedTilesByIndices(tileIndices, broadcast = true) {
+    if (!this.tileTracker || tileIndices.size === 0) return;
 
-    const BATCH_SIZE = 16; // Process 16 tiles per frame
+    const BATCH_SIZE = 16;
     const tileArray = Array.from(tileIndices);
     const clearedTiles = [];
+    const dirtiedTiles = [];
     let index = 0;
 
     const processNextBatch = () => {
-      const tileSize = this.tileOwnershipManager.tileSize;
+      const tileSize = this.tileTracker.tileSize;
       const endIndex = Math.min(index + BATCH_SIZE, tileArray.length);
 
       for (; index < endIndex; index++) {
         const tileIdx = tileArray[index];
-
-        // Only check tiles that are actually owned
-        if (!this.tileOwnershipManager.tileOwnershipMap.has(tileIdx)) continue;
-
-        const col = tileIdx % this.tileOwnershipManager.cols;
-        const row = Math.floor(tileIdx / this.tileOwnershipManager.cols);
+        const col = tileIdx % this.tileTracker.cols;
+        const row = Math.floor(tileIdx / this.tileTracker.cols);
         const tileX = col * tileSize;
         const tileY = row * tileSize;
 
-        // Clamp to canvas bounds
         const tileW = Math.min(tileSize, this.dimensions[1] - tileX);
         const tileH = Math.min(tileSize, this.dimensions[0] - tileY);
 
         if (tileW <= 0 || tileH <= 0) continue;
 
-        // Get pixel data from composited canvas
         const imageData = this.mainCtx.getImageData(tileX, tileY, tileW, tileH);
+        const isEmpty = this._checkTileEmpty(imageData.data);
 
-        if (this._checkTileEmpty(imageData.data)) {
-          this.tileOwnershipManager.clearTile(tileIdx);
-          clearedTiles.push(tileIdx);
+        if (isEmpty) {
+          if (this.tileTracker.clearTile(tileIdx)) {
+            clearedTiles.push(tileIdx);
+          }
+        } else {
+          if (this.tileTracker.markTileDirty(tileIdx)) {
+            dirtiedTiles.push(tileIdx);
+          }
         }
       }
 
       if (index < tileArray.length) {
-        // More tiles to process - schedule next batch
         if (typeof requestIdleCallback !== 'undefined') {
           requestIdleCallback(processNextBatch, { timeout: 50 });
         } else {
           setTimeout(processNextBatch, 0);
         }
       } else {
-        // All done - broadcast cleared tiles
-        if (broadcast && clearedTiles.length > 0 && this.app?.wsClient && this.app?.connected) {
-          this.app.wsClient.broadcastTileClear(clearedTiles);
+        if (broadcast && this.app?.wsClient && this.app?.connected) {
+          if (clearedTiles.length > 0) this.app.wsClient.broadcastTileClear(clearedTiles);
+          if (dirtiedTiles.length > 0) this.app.wsClient.broadcastTileUpdate(dirtiedTiles);
         }
       }
     };
 
-    // Start processing
     processNextBatch();
   }
 

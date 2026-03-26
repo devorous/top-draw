@@ -62,30 +62,30 @@ export function setupSyncHandlers(wsClient, app) {
 
   wsClient.on('sync_tile_ownership', (data) => {
     if (app.syncClient) {
-      app.syncClient.handleSyncTileOwnership(data);
+      app.syncClient.handleSyncDirtyTiles(data);
     }
   });
 
-  // Real-time tile ownership updates from other users
+  // Real-time tile updates from other users
   wsClient.on('tile_update', (data) => {
-    const tom = app.board?.tileOwnershipManager;
-    if (!tom || !data.tiles) return;
+    const tt = app.board?.tileTracker;
+    if (!tt || !data.tiles) return;
 
-    const userId = data.userId;
     for (const tile of data.tiles) {
-      if (typeof tile.idx === 'number') {
-        tom.addOwnership(tile.idx, userId);
+      const idx = typeof tile === 'number' ? tile : tile.idx;
+      if (typeof idx === 'number') {
+        tt.markTileDirty(idx);
       }
     }
   });
 
-  // Tiles cleared by erasing (remove ownership on all clients)
+  // Tiles cleared by erasing (remove from tracker on all clients)
   wsClient.on('tile_clear', (data) => {
-    const tom = app.board?.tileOwnershipManager;
-    if (!tom || !data.clearedTiles) return;
+    const tt = app.board?.tileTracker;
+    if (!tt || !data.clearedTiles) return;
 
     for (const tileIdx of data.clearedTiles) {
-      tom.clearTile(tileIdx);
+      tt.clearTile(tileIdx);
     }
   });
 }

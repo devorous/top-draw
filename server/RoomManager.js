@@ -41,49 +41,46 @@ export class Room {
 
     this.POOLED_MSG = this.Msg.create();
 
-    /** @type {Map<number, Set<number>>} Map<tileIndex, Set<userId>> */
-    this.tileOwnershipMap = new Map();
+    /** @type {Set<number>} Set of occupied tile indices */
+    this.tileDirtySet = new Set();
   }
 
   /**
-   * Updates tile ownership for a user.
-   * @param {number} userId - The user who owns these tiles.
+   * Marks tiles as occupied.
+   * @param {number} userId - Unused; kept for signature compatibility
    * @param {Array<number>} tileIndices - Array of tile indices.
    */
-  updateTileOwnership(userId, tileIndices) {
+  markTilesDirty(userId, tileIndices) {
+    if (!tileIndices || !Array.isArray(tileIndices)) return;
     for (const idx of tileIndices) {
-      if (!this.tileOwnershipMap.has(idx)) {
-        this.tileOwnershipMap.set(idx, new Set());
-      }
-      this.tileOwnershipMap.get(idx).add(userId);
+      this.tileDirtySet.add(idx);
     }
   }
 
   /**
-   * Gets the full tile ownership map for sync.
-   * @returns {Array<{idx: number, users: number[]}>}
+   * Clears tiles from the dirty set.
+   * @param {Array<number>} tileIndices - Array of tile indices to clear.
    */
-  getTileOwnershipForSync() {
-    const tiles = [];
-    for (const [idx, owners] of this.tileOwnershipMap) {
-      if (owners.size > 0) {
-        tiles.push({ idx, users: Array.from(owners) });
-      }
+  clearTiles(tileIndices) {
+    if (!tileIndices || !Array.isArray(tileIndices)) return;
+    for (const idx of tileIndices) {
+      this.tileDirtySet.delete(idx);
     }
-    return tiles;
   }
 
   /**
-   * Clears tile ownership for a user (when they disconnect or clear).
-   * @param {number} userId - The user ID to remove ownership from.
+   * Gets the full list of occupied tiles for sync.
+   * @returns {Array<number>}
    */
-  clearUserTileOwnership(userId) {
-    for (const [idx, owners] of this.tileOwnershipMap) {
-      owners.delete(userId);
-      if (owners.size === 0) {
-        this.tileOwnershipMap.delete(idx);
-      }
-    }
+  getDirtyTilesForSync() {
+    return Array.from(this.tileDirtySet);
+  }
+
+  /**
+   * Reset all tile data.
+   */
+  clearAllTiles() {
+    this.tileDirtySet.clear();
   }
 
   /**
