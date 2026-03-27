@@ -28,12 +28,22 @@ export class LayerPreview {
     this.container.style.overflow = 'hidden';
     this.container.style.boxShadow = 'var(--shadow-lg)';
     this.container.style.background = 'var(--bg-secondary)';
+    this.container.style.opacity = '0';
+    this.container.style.transition = 'opacity 0.3s ease';
 
     this.canvas = document.createElement('canvas');
     this.ctx = this.canvas.getContext('2d');
     this.container.appendChild(this.canvas);
 
     document.body.appendChild(this.container);
+
+    const cancelTouch = () => {
+      clearTimeout(this._longPressTimer);
+      this._longPressTimer = null;
+      this.hide();
+    };
+    document.addEventListener('touchend', cancelTouch, { passive: true });
+    document.addEventListener('touchcancel', cancelTouch, { passive: true });
   }
 
   /**
@@ -71,6 +81,9 @@ export class LayerPreview {
 
     this.container.style.left = `${x - w - 8}px`;
     this.container.style.top = `${y - h / 2}px`;
+    clearTimeout(this._hideTimer);
+    this.container.style.transition = 'none';
+    this.container.style.opacity = '1';
     this.container.style.display = 'block';
     this.isVisible = true;
   }
@@ -79,9 +92,13 @@ export class LayerPreview {
    * Hides the layer preview.
    */
   hide() {
-    if (this.container) {
+    if (!this.container) return;
+    this.container.style.transition = 'opacity 0.3s ease';
+    this.container.style.opacity = '0';
+    clearTimeout(this._hideTimer);
+    this._hideTimer = setTimeout(() => {
       this.container.style.display = 'none';
-    }
+    }, 300);
     this.isVisible = false;
   }
 
