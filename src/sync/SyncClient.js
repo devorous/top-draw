@@ -53,6 +53,9 @@ export class SyncClient {
     /** @type {number|null} */
     this.syncTimeout = null;
 
+    /** @type {Function|null} */
+    this.onSyncComplete = null;
+
     /** @type {boolean} */
     this.compositeScheduled = false;
   }
@@ -449,6 +452,10 @@ export class SyncClient {
       this.hasCompletedSync = true;
       this.expectedMessages = 0;
       this.receivedMessages = 0;
+
+      if (this.onSyncComplete) {
+        this.onSyncComplete();
+      }
     };
 
     if (pending.length > 0) {

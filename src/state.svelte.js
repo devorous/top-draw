@@ -23,6 +23,7 @@ class DrawingState {
   currentRoomId = $state(null);
   currentRoomData = $state(null);
   connected = $state(false);
+  board = $state(null);
 
   // Chat
   chatUnreadCount = $state(0);

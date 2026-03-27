@@ -25,6 +25,7 @@ import { BrushModeManager } from './tools/BrushModeManager.js';
 import { BlendModeManager } from './canvas/BlendModeManager.js';
 import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js';
 import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
+import { TimeMachine } from './timebar/TimeMachine.svelte.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
 import { SaveMode } from './ui/SaveMode.js';
@@ -153,6 +154,8 @@ export class DrawingApp {
     this.createSelf();
     this.board.init('#boardContainer');
     this.board.setApp(this);
+    appState.board = this.board;
+    TimeMachine.init(this.board, this.wsClient);
 
     // Initialize Svelte UI components
     this.svelteComponents = initSvelteUI(this);
@@ -198,6 +201,10 @@ export class DrawingApp {
       wsClient: this.wsClient,
       board: this.board
     });
+    this.syncClient.onSyncComplete = () => {
+      console.log('[App] Sync complete, starting TimeMachine');
+      TimeMachine.start();
+    };
 
     this.auth = new Auth({
       wsClient: this.wsClient,
@@ -1503,6 +1510,8 @@ export class DrawingApp {
     this.ui.updateSelfName(offlineUsername);
     this.ui.showConnectionStatus('offline');
 
+    TimeMachine.start();
+
     this.inputBufferManager.startTickLoop();
 
     // Update URL to /go/offline
@@ -1518,6 +1527,7 @@ export class DrawingApp {
    */
   async connectForRoomDiscovery() {
     this.currentRoomId = null;
+    TimeMachine.stop();
 
     if (this.landingPage) {
       this.landingPage.updateConnectionStatus('connecting');

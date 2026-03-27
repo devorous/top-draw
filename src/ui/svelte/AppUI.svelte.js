@@ -9,6 +9,7 @@ import RoomSettings from './RoomSettings.svelte';
 import ColorPalette from './ColorPalette.svelte';
 import Chat from './Chat.svelte';
 import Messenger from '../../messenger/Messenger.svelte';
+import Timebar from '../../timebar/Timebar.svelte';
 
 import { appState, showProfile as showProfileFromState, toggleMessenger } from '../../state.svelte.js';
 
@@ -153,6 +154,17 @@ export function initSvelteUI(app) {
         onSend: (message) => app.handleChatSend?.(message),
         onDM: (message, recipientId) => app.handleDMSend?.(message, recipientId),
         onSendImage: (imageData, recipientId) => app.handleChatImageSend?.(imageData, recipientId)
+      }
+    });
+  }
+
+  // Mount Timebar
+  const timebarTarget = document.getElementById('timebarMount');
+  if (timebarTarget) {
+    components.timebar = mount(Timebar, {
+      target: timebarTarget,
+      props: {
+        wsClient: app.wsClient
       }
     });
   }

@@ -92,6 +92,10 @@
     addMessage(username, message, color);
   }
 
+  export function addSystemMessage(message) {
+    addMessage('System', message, '#00d4aa'); // Using a teal system color
+  }
+
   export function addChatDM(message, senderId, fromSelf) {
     addDMMessage(message, senderId, fromSelf);
   }

@@ -167,6 +167,16 @@ export class WebSocketClient {
     this.socket.onmessage = (event) => {
       try {
         const raw = new Uint8Array(event.data);
+        
+        // Record all incoming messages for TimeMachine
+        if (window.app && window.app.TimeMachine) {
+          window.app.TimeMachine.recordAction(raw);
+        } else {
+          // Fallback if app/TimeMachine not yet on window
+          const { TimeMachine } = import.meta.glob('./timebar/TimeMachine.svelte.js', { eager: true })['./timebar/TimeMachine.svelte.js'] || {};
+          if (TimeMachine) TimeMachine.recordAction(raw);
+        }
+
         if (raw.length > 4 && raw[0] !== 0x08) {
           this._decodeBatchedFrame(raw);
         } else {
@@ -798,6 +808,11 @@ export class WebSocketClient {
       const message = this.Msg.create(data);
       const buffer = this.Msg.encode(message).finish();
       this.socket.send(buffer);
+
+      // Record all outgoing messages for TimeMachine
+      if (window.app && window.app.TimeMachine) {
+        window.app.TimeMachine.recordAction(new Uint8Array(buffer));
+      }
     }
   }
 

@@ -172,7 +172,9 @@ export function setupUserHandlers(wsClient, app) {
   wsClient.on('left', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      chat.addSystemMessage(`${user.username || 'User'} has left the room`);
+      if (app.svelteComponents?.chat) {
+        app.svelteComponents.chat.addSystemMessage(`${user.username || 'User'} has left the room`);
+      }
 
       if (board.layerManager) {
         board.layerManager.cleanupUserStrokes(data.sessionIndex);
@@ -255,7 +257,9 @@ export function setupUserHandlers(wsClient, app) {
         if (data.size !== undefined) ui.updateRemoteSize(data.sessionIndex, data.size);
       }
     }
-    chat.addSystemMessage(`${data.name} joined the room`);
+    if (app.svelteComponents?.chat) {
+      app.svelteComponents.chat.addSystemMessage(`${data.name} joined the room`);
+    }
     app.updateChatUserList();
   });
 

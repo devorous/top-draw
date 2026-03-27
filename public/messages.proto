@@ -87,6 +87,7 @@ message Msg {
     ROOM_REGISTER      = 78;  // Claim ownership of an unclaimed room
     ROOM_UNREGISTER    = 79;  // Release ownership of a room (owner/deity only)
     ROOM_OWNERSHIP     = 80;  // Broadcast room ownership change
+    MOD_UNDO_TO_STATE  = 81;  // UNDO board to a specific timestamp
   }
 
   // Tool enum
@@ -282,4 +283,5 @@ message Msg {
   // === Room Ownership Broadcast Fields (68-69) ===
   string ownerId       = 68;  // ROOM_OWNERSHIP: room owner's userId (null if unregistered)
   string ownerUsername = 69;  // ROOM_OWNERSHIP: room owner's username
+  uint64 mod_undo_ts   = 82;  // MOD_UNDO_TO_STATE: target timestamp
 }
