@@ -508,10 +508,8 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
   // Permission-gated actions inside the broadcast path
   if (data.t === T.CLR) {
     if (!authorize(ws, Action.CLEAR_CANVAS, sendTo, T.MOD_RESULT)) return;
-    // Clear all tile ownership when canvas is cleared
-    if (room.tileOwnershipMap) {
-      room.tileOwnershipMap.clear();
-    }
+    // Clear all tile data when canvas is cleared
+    room.clearAllTiles();
   }
 
   if (MUTED_BLOCKED.has(data.t)) {
@@ -827,10 +825,10 @@ wss.on('connection', (ws, req) => {
           break;
 
         case T.TILE_UPDATE:
-          // Real-time tile ownership update - store and relay to others
+          // Real-time tile update - server tracks which tiles are now occupied
           if (data.tiles && Array.isArray(data.tiles)) {
-            const tileIndices = data.tiles.map(t => t.idx);
-            room.updateTileOwnership(ws.sessionIndex, tileIndices);
+            const tileIndices = data.tiles.map(t => typeof t === 'number' ? t : t.idx);
+            room.markTilesDirty(ws.sessionIndex, tileIndices);
             // Relay to other clients with sender's user ID
             for (const client of room.clients) {
               if (client !== ws && client.readyState === WebSocket.OPEN) {
@@ -847,10 +845,9 @@ wss.on('connection', (ws, req) => {
         case T.TILE_CLEAR:
           // Tiles that are now empty - clear from server and relay to all clients
           if (data.clearedTiles && Array.isArray(data.clearedTiles)) {
-            // Clear from server's tile ownership map
-            for (const tileIdx of data.clearedTiles) {
-              room.tileOwnershipMap.delete(tileIdx);
-            }
+            // Clear from server's tile dirty set
+            room.clearTiles(data.clearedTiles);
+            
             // Relay to other clients
             for (const client of room.clients) {
               if (client !== ws && client.readyState === WebSocket.OPEN) {
@@ -1680,14 +1677,12 @@ wss.on('connection', (ws, req) => {
         room.sessionManager.freeSessionIndex(sessionIndex);
         broadcastToRoom(room, { t: T.LEFT, u: sessionIndex });
 
-        if (room.sessionManager.getUserCount() === 0) {
-          room.settings.mirror = false;
-          room.syncCoordinator.clearPendingRequests();
-          // Clear tile ownership when room empties - stale data shouldn't persist
-          if (room.tileOwnershipMap) {
-            room.tileOwnershipMap.clear();
+          if (room.sessionManager.getUserCount() === 0) {
+            room.settings.mirror = false;
+            room.syncCoordinator.clearPendingRequests();
+            // Clear tile data when room empties - stale data shouldn't persist
+            room.clearAllTiles();
           }
-        }
       }
 
       if (room.getClientCount() === 0) {

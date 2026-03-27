@@ -127,11 +127,11 @@ export class RemoteSelectionHandler {
     user._selectionRestoreData = this._eraseSelectionFromLayer(s, user.activeLayer ?? 0, lassoPath && lassoPath.length >= 3 ? lassoPath : null, user.id);
 
     // Check affected tiles for emptiness and clear ownership from empty ones
-    const tileOwnership = this.board.tileOwnershipManager;
-    if (tileOwnership) {
-      const affectedTiles = tileOwnership.getTileIndicesForRect(s.x, s.y, s.width, s.height);
+    const tt = this.board.tileTracker;
+    if (tt) {
+      const affectedTiles = tt.getTileIndicesForRect(s.x, s.y, s.width, s.height);
       if (affectedTiles.length > 0) {
-        this.board.checkErasedTilesForOwnershipByIndices(new Set(affectedTiles));
+        this.board.checkErasedTilesByIndices(new Set(affectedTiles), false);
       }
     }
 
@@ -335,9 +335,9 @@ export class RemoteSelectionHandler {
     this.board.expandDirtyRect(user, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
 
     // Store affected tiles in the stroke record for undo
-    const tileOwnership = this.board.tileOwnershipManager;
-    if (tileOwnership && active.affectedTiles) {
-      const tileIndices = tileOwnership.getTileIndicesForRect(dirtyX, dirtyY, dirtyWidth, dirtyHeight);
+    const tt = this.board.tileTracker;
+    if (tt && active.affectedTiles) {
+      const tileIndices = tt.getTileIndicesForRect(dirtyX, dirtyY, dirtyWidth, dirtyHeight);
       for (const idx of tileIndices) {
         active.affectedTiles.add(idx);
       }
@@ -349,7 +349,7 @@ export class RemoteSelectionHandler {
     this.board.compositeAllLayers();
 
     // Add tile ownership for visible tiles in the pasted region (must be after composite)
-    this.board.addOwnershipForVisibleTilesInRect(user.id, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
+    this.board.addOccupancyForVisibleTilesInRect(user.id, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
 
     this._cleanupUserSelection(user);
   }
@@ -375,11 +375,11 @@ export class RemoteSelectionHandler {
       );
 
       // Check affected tiles for emptiness and clear ownership from empty ones
-      const tileOwnership = this.board.tileOwnershipManager;
-      if (tileOwnership) {
-        const affectedTiles = tileOwnership.getTileIndicesForRect(intS.x, intS.y, intS.width, intS.height);
+      const tt = this.board.tileTracker;
+      if (tt) {
+        const affectedTiles = tt.getTileIndicesForRect(s.x, s.y, s.width, s.height);
         if (affectedTiles.length > 0) {
-          this.board.checkErasedTilesForOwnershipByIndices(new Set(affectedTiles));
+          this.board.checkErasedTilesByIndices(new Set(affectedTiles), false);
         }
       }
     }
@@ -467,7 +467,7 @@ export class RemoteSelectionHandler {
       this.board.expandDirtyRect(user, ix, iy, iw, ih);
 
       // Store affected tiles in the stroke record for undo
-      const tileOwnership = this.board.tileOwnershipManager;
+      const tileOwnership = this.board.tileTracker;
       if (tileOwnership && active.affectedTiles) {
         const tileIndices = tileOwnership.getTileIndicesForRect(ix, iy, iw, ih);
         for (const idx of tileIndices) {
@@ -479,7 +479,7 @@ export class RemoteSelectionHandler {
       this.board.compositeAllLayers();
 
       // Add tile ownership for visible filled tiles (after composite)
-      this.board.addOwnershipForVisibleTilesInRect(user.id, ix, iy, iw, ih);
+      this.board.addOccupancyForVisibleTilesInRect(user.id, ix, iy, iw, ih);
     }
   }
 
@@ -549,9 +549,9 @@ export class RemoteSelectionHandler {
     this.board.expandDirtyRect(user, dirtyX, dirtyY, dirtyWidth, dirtyHeight, layerIdx);
 
     // Store affected tiles in the stroke record for undo
-    const tileOwnership = this.board.tileOwnershipManager;
-    if (tileOwnership && active.affectedTiles) {
-      const tileIndices = tileOwnership.getTileIndicesForRect(dirtyX, dirtyY, dirtyWidth, dirtyHeight);
+    const tt = this.board.tileTracker;
+    if (tt && active.affectedTiles) {
+      const tileIndices = tt.getTileIndicesForRect(dirtyX, dirtyY, dirtyWidth, dirtyHeight);
       for (const idx of tileIndices) {
         active.affectedTiles.add(idx);
       }
@@ -561,7 +561,7 @@ export class RemoteSelectionHandler {
     this.board.compositeAllLayers();
 
     // Add tile ownership for visible stamped tiles (after composite)
-    this.board.addOwnershipForVisibleTilesInRect(user.id, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
+    this.board.addOccupancyForVisibleTilesInRect(user.id, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
 
     // Keep selection active — redraw floating selection on user's overlay layer
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());

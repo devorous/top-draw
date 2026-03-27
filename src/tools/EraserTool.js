@@ -157,7 +157,7 @@ export class EraserTool extends Tool {
       // Force composite so mainCtx reflects the erased state before checking
       this.board.compositeAllLayers();
 
-      this.board.checkErasedTilesForOwnershipByIndices(this._erasedTiles);
+      this.board.checkErasedTilesByIndices(this._erasedTiles);
     }
 
     this.lastPos = null;
@@ -219,8 +219,8 @@ export class EraserTool extends Tool {
     const h = Math.ceil(maxY) - y;
 
     // Track erased tiles along the stroke path
-    if (this._erasedTiles && this.board.tileOwnershipManager) {
-      this.board.tileOwnershipManager.collectTilesFromPath([p1, p2], radius, this._erasedTiles);
+    if (this._erasedTiles && this.board.tileTracker) {
+      this.board.tileTracker.collectTilesFromPath([p1, p2], radius, this._erasedTiles);
     }
 
     if (this._eraseAllLayers()) {
@@ -239,10 +239,10 @@ export class EraserTool extends Tool {
         this.board.expandDirtyRect(user, mirrorX, y, w, h);
       }
       // Track mirror tiles
-      if (this._erasedTiles && this.board.tileOwnershipManager) {
+      if (this._erasedTiles && this.board.tileTracker) {
         const m1 = { x: width - p1.x, y: p1.y };
         const m2 = { x: width - p2.x, y: p2.y };
-        this.board.tileOwnershipManager.collectTilesFromPath([m1, m2], radius, this._erasedTiles);
+        this.board.tileTracker.collectTilesFromPath([m1, m2], radius, this._erasedTiles);
       }
     }
 
@@ -298,8 +298,8 @@ export class EraserTool extends Tool {
         dr.maxY = Math.max(dr.maxY, Math.ceil(Math.max(y1, y2) + margin));
       }
       // Track erased tiles for remote users (same as local eraser)
-      if (active.affectedTiles && this.board.tileOwnershipManager) {
-        this.board.tileOwnershipManager.collectTilesFromPath(
+      if (active.affectedTiles && this.board.tileTracker) {
+        this.board.tileTracker.collectTilesFromPath(
           [{ x: x1, y: y1 }, { x: x2, y: y2 }], radius, active.affectedTiles
         );
       }

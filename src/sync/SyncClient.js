@@ -406,23 +406,22 @@ export class SyncClient {
   }
 
   /**
-   * Applies tile ownership data received from sync provider.
-   * @param {Object} data - Tile ownership payload
-   * @param {Array} data.tiles - Array of {idx, users} objects
+   * Applies dirty tile data received from sync provider.
+   * @param {Object} data - Tile occupancy payload
+   * @param {Array} data.dirtyTiles - Array of dirty tile indices
    * @returns {void}
    */
-  handleSyncTileOwnership(data) {
-    if (!this.board?.tileOwnershipManager || !data.tiles) return;
+  handleSyncDirtyTiles(data) {
+    const tiles = data.dirtyTiles || data.tiles;
+    if (!this.board?.tileTracker || !tiles) return;
 
-    const tom = this.board.tileOwnershipManager;
-    console.log(`[SyncClient] Applying ${data.tiles.length} tile ownership entries`);
+    const tt = this.board.tileTracker;
+    console.log(`[SyncClient] Applying ${tiles.length} dirty tile entries`);
 
-    for (const tile of data.tiles) {
-      if (tile.users && Array.isArray(tile.users)) {
-        for (const userId of tile.users) {
-          tom.addOwnership(tile.idx, userId);
-        }
-      }
+    for (const tileIdx of tiles) {
+      // Handle both formats: simple index or legacy {idx, users}
+      const idx = typeof tileIdx === 'number' ? tileIdx : tileIdx.idx;
+      tt.markTileDirty(idx);
     }
   }
 

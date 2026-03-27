@@ -21,21 +21,11 @@ export class DebugOverlay {
     this.showGridLines = true;
     this.wasmStatus = { mode: 'checking...', wasmReady: false };
 
-    // Ownership visualization
-    this.tileOwnershipManager = null;
-    this.showOwnership = true;
-    this.showDirtyTiles = false; // Dirty tiles now off by default
-    this.userColors = new Map(); // userId -> color
-    this.colorPalette = [
-      'rgba(255, 100, 100, 0.35)', // red
-      'rgba(100, 255, 100, 0.35)', // green
-      'rgba(100, 100, 255, 0.35)', // blue
-      'rgba(255, 255, 100, 0.35)', // yellow
-      'rgba(255, 100, 255, 0.35)', // magenta
-      'rgba(100, 255, 255, 0.35)', // cyan
-      'rgba(255, 180, 100, 0.35)', // orange
-      'rgba(180, 100, 255, 0.35)', // purple
-    ];
+    // Occupancy visualization
+    this.tileTracker = null;
+    this.showOccupied = true;
+    this.showDirtyTiles = false; // Dirty tiles (recent redraws) now off by default
+    this.occupiedColor = 'rgba(100, 255, 100, 0.2)';
   }
 
   init(canvas, width, height) {
@@ -55,21 +45,17 @@ export class DebugOverlay {
     this._queryWasmStatus();
   }
 
-  setTileOwnershipManager(manager) {
-    this.tileOwnershipManager = manager;
+  setTileTracker(tracker) {
+    this.tileTracker = tracker;
   }
 
-  _getUserColor(userId) {
-    if (!this.userColors.has(userId)) {
-      const idx = this.userColors.size % this.colorPalette.length;
-      this.userColors.set(userId, this.colorPalette[idx]);
-    }
-    return this.userColors.get(userId);
+  toggleOccupied() {
+    this.showOccupied = !this.showOccupied;
+    return this.showOccupied;
   }
 
   toggleOwnership() {
-    this.showOwnership = !this.showOwnership;
-    return this.showOwnership;
+    return this.toggleOccupied();
   }
 
   toggleDirtyTiles() {
@@ -199,28 +185,16 @@ export class DebugOverlay {
       }
     }
 
-    // Draw owned tiles (permanent)
-    let ownedCount = 0;
-    if (this.showOwnership && this.tileOwnershipManager) {
-      const ownershipMap = this.tileOwnershipManager.tileOwnershipMap;
-      for (const [tileIdx, owners] of ownershipMap) {
-        if (owners.size === 0) continue;
-        ownedCount++;
-
-        const col = tileIdx % cols;
-        const row = Math.floor(tileIdx / cols);
-        const x = col * tileSize;
-        const y = row * tileSize;
-
-        // Use color from first owner (tiles can have multiple owners)
-        const firstOwner = owners.values().next().value;
-        this.ctx.fillStyle = this._getUserColor(firstOwner);
-        this.ctx.fillRect(x, y, tileSize, tileSize);
-
-        // If multiple owners, show a small indicator
-        if (owners.size > 1) {
-          this.ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-          this.ctx.fillRect(x + tileSize - 6, y + 1, 5, 5);
+    // Draw occupied tiles (permanent)
+    let occupiedCount = 0;
+    if (this.showOccupied && this.tileTracker) {
+      this.ctx.fillStyle = this.occupiedColor;
+      for (let i = 0; i < this.tileTracker.tiles.length; i++) {
+        if (this.tileTracker.tiles[i] === 1) {
+          occupiedCount++;
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          this.ctx.fillRect(col * tileSize, row * tileSize, tileSize, tileSize);
         }
       }
     }
@@ -264,30 +238,16 @@ export class DebugOverlay {
       }
     }
 
-    this._drawStats(latestCount, cols * rows, ownedCount);
+    this._drawStats(latestCount, cols * rows, occupiedCount);
   }
 
-  _drawStats(dirtyCount, totalTiles, ownedCount = 0) {
+  _drawStats(dirtyCount, totalTiles, occupiedCount = 0) {
     const tileGrid = this.board?.tileGrid;
     const tileSize = tileGrid?.tileSize ?? 32;
     const cols = tileGrid?.cols ?? 0;
     const rows = tileGrid?.rows ?? 0;
 
-    // Count tiles per user
-    const userTileCounts = new Map();
-    if (this.showOwnership && this.tileOwnershipManager) {
-      for (const [, owners] of this.tileOwnershipManager.tileOwnershipMap) {
-        for (const userId of owners) {
-          userTileCounts.set(userId, (userTileCounts.get(userId) || 0) + 1);
-        }
-      }
-    }
-
-    // Calculate panel height based on user count
-    const userCount = userTileCounts.size;
-    const baseHeight = 100;
-    const userLegendHeight = userCount > 0 ? (userCount * 14) + 10 : 0;
-    const panelHeight = baseHeight + userLegendHeight;
+    const panelHeight = 110;
 
     this.ctx.setLineDash([]);
     this.ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
@@ -306,28 +266,10 @@ export class DebugOverlay {
     this.ctx.fillText(`Tiles: ${tileSize}×${tileSize}px`, this.canvas.width - 170, 62);
     this.ctx.fillText(`Grid: ${cols}×${rows}`, this.canvas.width - 170, 78);
 
-    // Owned tiles
-    const ownedPct = totalTiles > 0 ? ((ownedCount / totalTiles) * 100).toFixed(1) : '0.0';
-    this.ctx.fillStyle = ownedCount > 0 ? '#4ade80' : '#fff';
-    this.ctx.fillText(`Owned: ${ownedCount} (${ownedPct}%)`, this.canvas.width - 170, 96);
-
-    // User legend with colors
-    if (userCount > 0) {
-      let y = 114;
-      const users = this.board?.app?.users;
-      for (const [userId, count] of userTileCounts) {
-        const color = this._getUserColor(userId);
-        const username = users?.get(userId)?.username || `User ${userId}`;
-        // Draw color swatch
-        this.ctx.fillStyle = color;
-        this.ctx.fillRect(this.canvas.width - 170, y - 8, 10, 10);
-        // Draw user info
-        this.ctx.fillStyle = '#fff';
-        this.ctx.font = '10px monospace';
-        this.ctx.fillText(`${username}: ${count}`, this.canvas.width - 155, y);
-        y += 14;
-      }
-    }
+    // Occupied tiles
+    const occupiedPct = totalTiles > 0 ? ((occupiedCount / totalTiles) * 100).toFixed(1) : '0.0';
+    this.ctx.fillStyle = occupiedCount > 0 ? '#4ade80' : '#fff';
+    this.ctx.fillText(`Occupied: ${occupiedCount} (${occupiedPct}%)`, this.canvas.width - 170, 96);
   }
 
   clearAll() {

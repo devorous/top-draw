@@ -211,13 +211,11 @@ export class SyncCoordinator {
     if (client) {
       this.sendTo(client, { t: T.SYNC_STROKES_DONE });
 
-      // Send server's authoritative tile ownership data
-      if (this.room?.tileOwnershipMap?.size > 0) {
-        const tiles = this.room.getTileOwnershipForSync();
-        if (tiles.length > 0) {
-          this.sendTo(client, { t: T.SYNC_TILE_OWNERSHIP, tiles });
-          console.log(`[Sync] Sent ${tiles.length} tile ownership entries to user ${targetUser}`);
-        }
+      // Send server's authoritative dirty tile data
+      const dirtyTiles = this.room?.getDirtyTilesForSync();
+      if (dirtyTiles && dirtyTiles.length > 0) {
+        this.sendTo(client, { t: T.SYNC_TILE_OWNERSHIP, dirtyTiles });
+        console.log(`[Sync] Sent ${dirtyTiles.length} dirty tile entries to user ${targetUser}`);
       }
 
       this._sendActiveImagesToJoiner(client);
@@ -228,17 +226,17 @@ export class SyncCoordinator {
   }
 
   /**
-   * Relays tile ownership data to the requesting joiner.
+   * Relays dirty tile data to the requesting joiner.
    * @param {WebSocket} ws - The WebSocket of the provider.
-   * @param {Object} data - The tile ownership sync message data.
+   * @param {Object} data - The tile sync message data.
    */
-  handleSyncTileOwnership(ws, data) {
+  handleSyncDirtyTiles(ws, data) {
     const targetUser = Number(data.tu);
     const client = this._findClient(targetUser);
     if (client) {
       this.sendTo(client, {
         t: T.SYNC_TILE_OWNERSHIP,
-        tiles: data.tiles
+        dirtyTiles: data.dirtyTiles || data.tiles
       });
     }
   }

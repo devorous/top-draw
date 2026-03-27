@@ -706,7 +706,7 @@ export class RemoteUserHandler {
     // Check erased tiles and clear ownership for empty ones (don't broadcast - remote user handles that)
     if (erasedTiles && erasedTiles.size > 0) {
       this.board.compositeAllLayers();
-      this.board.checkErasedTilesForOwnershipByIndices(erasedTiles, false);
+      this.board.checkErasedTilesByIndices(erasedTiles, false);
     }
 
     user.clearLine();
@@ -943,7 +943,7 @@ export class RemoteUserHandler {
 
     // Apply tile constraint if fill is too large (same logic as local FloodFillTool)
     if (fillTool._isFillTooLarge(result, width, height)) {
-      const tileRects = fillTool._getOwnedTileRects(x, y, user.id);
+      const tileRects = fillTool._getOccupiedTileRects(x, y);
       if (tileRects) {
         const constrainedResult = await fillTool._fillWorker.computeFill(
           this.board.mainCtx.getImageData(0, 0, width, height).data,
@@ -955,7 +955,7 @@ export class RemoteUserHandler {
           return; // Can't constrain a too-large fill
         }
       } else {
-        return; // No tiles owned, can't allow huge fill
+        return; // No tiles occupied, can't allow huge fill
       }
     }
 
@@ -1018,9 +1018,9 @@ export class RemoteUserHandler {
       this.board.expandDirtyRect(user, Math.floor(boardW - maxX - margin), y, w, h);
     }
 
-    // Track tile ownership for remote users (non-erase operations)
-    const tom = this.board.tileOwnershipManager;
-    if (tom && user.tool !== 'erase') {
+    // Track occupied tiles for remote users (non-erase operations)
+    const tt = this.board.tileTracker;
+    if (tt && user.tool !== 'erase') {
       const userId = user.id;
       const radius = user.size || margin;
 
@@ -1028,13 +1028,13 @@ export class RemoteUserHandler {
       const group = this.board.layerManager?.layerGroups[user.activeLayer];
       const active = group?.activeStrokeByUser?.get(userId);
 
-      tom.addOwnershipFromPath(userId, points, radius, active?.affectedTiles);
+      tt.markPathDirty(points, radius, active?.affectedTiles);
 
       // Also track mirrored tiles
       if (this.board.mirror) {
         const boardW = this.board.getWidth();
         const mirroredPoints = points.map(pt => ({ x: boardW - pt.x, y: pt.y }));
-        tom.addOwnershipFromPath(userId, mirroredPoints, radius, active?.affectedTiles);
+        tt.markPathDirty(mirroredPoints, radius, active?.affectedTiles);
       }
     }
   }

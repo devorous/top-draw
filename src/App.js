@@ -177,7 +177,7 @@ export class DrawingApp {
     this.debugOverlay.init(debugCanvas, this.board.getWidth(), this.board.getHeight());
     this.debugOverlay.setBoard(this.board);
     this.debugOverlay.setPixelsWorker(this.board.layerManager._pixelsWorker);
-    this.debugOverlay.setTileOwnershipManager(this.board.tileOwnershipManager);
+    this.debugOverlay.setTileTracker(this.board.tileTracker);
 
     this.strokeHistoryPanel.init();
     this.strokeHistoryPanel.setLayerManager(this.board.layerManager);
@@ -2378,7 +2378,7 @@ export class DrawingApp {
       return;
     }
     this.board.clear();
-    this.board.tileOwnershipManager?.clear();
+    this.board.tileTracker?.clear();
     this.wsClient.broadcastClear();
     if (this.debugOverlay) {
       this.debugOverlay.clearAll();
@@ -3021,7 +3021,7 @@ export class DrawingApp {
           
           // For tools that use smoothing, send the smoothed initial point instead of raw click.
           // This ensures remote users see perfect parity with the sender.
-          const smoothingTools = ['brush', 'flowPen', 'ink', 'imageBrush', 'erase'];
+          const smoothingTools = ['brush', 'flowPen', 'ink', 'imageBrush'];
           let broadcastPos = [pos.x, pos.y];
           if (smoothingTools.includes(this.self.tool)) {
             const smoothed = this.inputBufferManager.applyBroadcastSmoothing([pos.x, pos.y]);

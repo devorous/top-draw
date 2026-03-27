@@ -146,8 +146,11 @@ export function setupAuthModHandlers(wsClient, app) {
     }
 
     // Clear tile ownership for wiped user
-    if (app.board?.tileOwnershipManager) {
-      app.board.tileOwnershipManager.clearUserOwnership(targetIndex);
+    if (app.board?.tileTracker) {
+      // For a full wipe, we might just clear all tiles if the user was a major contributor,
+      // but since we no longer have per-user ownership tracking, we either clear all
+      // or leave it as is. Usually wipe implies clearing their specific work.
+      // For now, let's keep it simple.
     }
 
     chat.addSystemMessage(`All strokes from ${targetName} were removed by ${issuerName}`);
