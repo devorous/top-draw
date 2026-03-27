@@ -72,13 +72,23 @@ export class UI {
   setupLayerPreviewListeners(layerManager) {
     const layerButtons = document.querySelectorAll('.layerButton');
     layerButtons.forEach(btn => {
-      btn.addEventListener('mouseenter', (e) => {
+      btn.addEventListener('touchstart', () => {
+        this.layerPreview._longPressTimer = setTimeout(() => {
+          const layerIdx = parseInt(btn.dataset.layer);
+          const rect = btn.getBoundingClientRect();
+          this.layerPreview.show(layerIdx, layerManager, rect.right, rect.top + rect.height / 2);
+        }, 400);
+      }, { passive: true });
+
+      btn.addEventListener('pointerenter', (e) => {
+        if (e.pointerType !== 'mouse') return;
         const layerIdx = parseInt(btn.dataset.layer);
         const rect = btn.getBoundingClientRect();
         this.layerPreview.show(layerIdx, layerManager, rect.right, rect.top + rect.height / 2);
       });
 
-      btn.addEventListener('mouseleave', () => {
+      btn.addEventListener('pointerleave', (e) => {
+        if (e.pointerType !== 'mouse') return;
         this.layerPreview.hide();
       });
     });
