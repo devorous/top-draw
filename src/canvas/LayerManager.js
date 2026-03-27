@@ -32,9 +32,6 @@ export class LayerManager {
     this.onNeedsUpdate = null; // Callback for Board to requestUpdate
     this._pixelsWorker = new PixelsWorkerClient();
     
-
-
-
     this.initLayerGroups(3);
   }
 

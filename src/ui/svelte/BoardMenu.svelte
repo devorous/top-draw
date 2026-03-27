@@ -107,7 +107,13 @@
           class:faded={!appState.layerVisibility[layer.index]}
           onclick={(e) => toggleLayerVis(layer.index, e)}
           title="Toggle visibility"
-        >👁</button>
+        >
+          {#if appState.layerVisibility[layer.index]}
+            <img src="/images/eye-open.svg" alt="Visible" width="14" height="14" style="filter: invert(1) brightness(1.5);" />
+          {:else}
+            <img src="/images/eye-closed.svg" alt="Hidden" width="14" height="14" />
+          {/if}
+        </button>
         <button
           class="layer-btn"
           class:active={appState.activeLayer === layer.index}
