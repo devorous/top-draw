@@ -224,10 +224,11 @@ export class ImageBrushTool extends Tool {
    */
   drawStamp(user, pos) {
     const brush = user.imageBrush;
+    if (!brush) return;
     const size = user.size;
     const pressure = user.pressure ?? 1;
     const scaledSize = size * pressure;
-    
+
     const ctx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
     if (!ctx) return;
 

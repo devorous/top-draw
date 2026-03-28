@@ -62,19 +62,21 @@
 {/if}
 
 {#if TimeMachine.isStarted}
-<div class="timebar-container" class:hidden={!TimeMachine.isVisible} class:reviewing={TimeMachine.isReviewing}>
-  <button 
-    class="toggle-btn" 
-    onclick={() => TimeMachine.isVisible = !TimeMachine.isVisible}
-    title={TimeMachine.isVisible ? 'Hide Timeline' : 'Show Timeline'}
-  >
-    {#if TimeMachine.isVisible}
-      <svg viewBox="0 0 24 24" width="24" height="24"><path d="M7 10l5 5 5-5z" fill="currentColor"/></svg>
-    {:else}
-      <svg viewBox="0 0 24 24" width="24" height="24"><path d="M7 14l5-5 5 5z" fill="currentColor"/></svg>
-    {/if}
-  </button>
+<button
+  class="toggle-btn"
+  class:bar-visible={TimeMachine.isVisible}
+  class:bar-hidden={!TimeMachine.isVisible}
+  onclick={() => TimeMachine.isVisible = !TimeMachine.isVisible}
+  title={TimeMachine.isVisible ? 'Hide Timeline' : 'Show Timeline'}
+>
+  {#if TimeMachine.isVisible}
+    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M7 10l5 5 5-5z" fill="currentColor"/></svg>
+  {:else}
+    <svg viewBox="0 0 24 24" width="24" height="24"><path d="M7 14l5-5 5 5z" fill="currentColor"/></svg>
+  {/if}
+</button>
 
+<div class="timebar-container" class:hidden={!TimeMachine.isVisible} class:reviewing={TimeMachine.isReviewing}>
   <div class="timebar">
     <div class="controls">
       <button class="icon-btn play-pause" onclick={togglePlay} title={TimeMachine.isPlaying ? 'Pause' : 'Play'}>
@@ -179,15 +181,8 @@
     transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 
     &.hidden {
-      // Slide down so only the toggle button and a small sliver is visible
-      transform: translateX(-50%) translateY(calc(100% - 10px));
-      
-      .toggle-btn {
-        opacity: 0.9;
-        background: rgba(30, 41, 59, 0.9);
-        border: 2px solid #3b82f6;
-        box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
-      }
+      transform: translateX(-50%) translateY(calc(100% + 20px));
+      pointer-events: none;
     }
 
     &.reviewing .timebar {
@@ -198,15 +193,14 @@
   }
 
   .toggle-btn {
-    position: absolute;
-    bottom: 100%;
+    position: fixed;
+    bottom: 6px;
     left: 50%;
     transform: translateX(-50%);
     background: rgba(30, 41, 59, 0.8);
     backdrop-filter: blur(8px);
-    border-radius: 12px 12px 0 0;
+    border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.2);
-    border-bottom: none;
     color: white;
     cursor: pointer;
     display: flex;
@@ -215,12 +209,24 @@
     padding: 6px 20px;
     opacity: 0.7;
     transition: all 0.3s ease;
-    z-index: 1001;
+    z-index: 10002;
 
     &:hover {
       opacity: 1;
       background: rgba(30, 41, 59, 1);
       transform: translateX(-50%) translateY(-2px);
+    }
+
+    &.bar-visible {
+      bottom: 100px;
+      opacity: 0.5;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    &.bar-hidden {
+      border: 2px solid #3b82f6;
+      box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+      opacity: 0.9;
     }
   }
 

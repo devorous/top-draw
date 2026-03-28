@@ -1368,9 +1368,12 @@ export class LayerManager {
         delete filterStroke._cachedPreview; // Clear preview once HQ is ready
         this.needsComposite = true;
         if (this.onNeedsUpdate) this.onNeedsUpdate();
-      }).catch(() => {
+      }).catch((err) => {
         // Fallback to main-thread blur if worker fails
-        blurImageData(imageData, cropW, cropH, blurRadius, useGlitch).then(blurred => {
+        console.warn('[LayerManager] Blur worker failed, using fallback:', err?.message || err, useGlitch ? '(glitch)' : '(normal)');
+        // Re-read imageData since the original buffer was transferred to the worker
+        const fallbackImageData = tCtxForAsync.getImageData(0, 0, cropW, cropH);
+        blurImageData(fallbackImageData, cropW, cropH, blurRadius).then(blurred => {
           tCtxForAsync.putImageData(blurred, 0, 0);
 
           const composite = document.createElement('canvas');
@@ -1408,7 +1411,7 @@ export class LayerManager {
         pCtx.filter = 'none';
 
         pCtx.globalCompositeOperation = 'destination-in';
-        pCtx.drawImage(maskCanvas, 0, 0);
+        pCtx.drawImage(maskCanvas, x, y, width, height, 0, 0, width, height);
 
         filterStroke._cachedPreview = previewCanvas;
         ctx.drawImage(previewCanvas, x, y);

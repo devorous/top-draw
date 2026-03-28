@@ -55,6 +55,16 @@ class TimeMachineState {
     this._replayEngine = new ReplayEngine();
     this._replayEngine.init(board.getWidth(), board.getHeight(), wsClient);
 
+    // When async blur worker finishes, refresh the visible replay canvas
+    this._replayEngine.onOutputUpdate = () => {
+      if (this._replayCtx && this._replayEngine.outputCanvas && this.isReviewing) {
+        const bgColor = this._board?.backgroundColor || [255, 255, 255, 1];
+        this._replayCtx.fillStyle = `rgba(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]}, ${bgColor[3]})`;
+        this._replayCtx.fillRect(0, 0, this._replayCanvas.width, this._replayCanvas.height);
+        this._replayCtx.drawImage(this._replayEngine.outputCanvas, 0, 0);
+      }
+    };
+
     // Create and inject replay canvas into #boards wrapper
     this._createReplayCanvas();
   }
@@ -354,7 +364,7 @@ class TimeMachineState {
     console.log('[TimeMachine] Replaying', actionsToReplay.length, 'actions');
 
     // 4. Process actions through replay engine
-    this._replayEngine.processActions(actionsToReplay, timestamp);
+    await this._replayEngine.processActions(actionsToReplay, timestamp);
 
     // 5. Draw replay result to the replay canvas
     if (this._replayCtx && this._replayEngine.outputCanvas) {
@@ -456,10 +466,11 @@ class TimeMachineState {
         if (listEntry) listEntry.style.display = 'none';
       }
 
-      // Update cursor position
+      // Update cursor position and size
       if (user.x !== undefined && user.y !== undefined) {
         ui.updateRemoteCursor(botId, user.x, user.y, user.size || 10);
       }
+      ui.updateRemoteSize(botId, user.size || 10);
 
       // Update tool display
       ui.updateRemoteToolDisplay(botId, user.tool || 'brush');

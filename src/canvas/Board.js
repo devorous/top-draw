@@ -566,7 +566,9 @@ export class Board {
    * @param {Object} [extraProps={}] - Extra properties for the stroke record (e.g., filter metadata)
    */
   endStroke(user, extraProps = {}) {
-    const activeLayer = user?.activeLayer ?? this.app?.self?.activeLayer ?? 0;
+    // Blur/glitch blur tools always create their stroke on layer 0
+    const isBlurFilter = extraProps.filterType === 'blur' || extraProps.filterType === 'glitchBlur';
+    const activeLayer = isBlurFilter ? 0 : (user?.activeLayer ?? this.app?.self?.activeLayer ?? 0);
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     if (!this.layerManager) return;
 

@@ -39,7 +39,9 @@ class ReplayBoard {
 
     // Real LayerManager for stroke management
     this.layerManager = new LayerManager(width, height);
-    this.layerManager.onNeedsUpdate = () => {}; // no-op
+    this.layerManager.onNeedsUpdate = () => {
+      if (this._onLayerUpdate) this._onLayerUpdate();
+    };
 
     // Stub tile tracking (not needed for replay)
     this.tileGrid = {
@@ -86,10 +88,12 @@ class ReplayBoard {
     }
   }
 
-  endStroke(user) {
-    const activeLayer = user?.activeLayer ?? 0;
+  endStroke(user, extraProps = {}) {
+    // Blur/glitch blur tools always create their stroke on layer 0
+    const isBlurFilter = extraProps.filterType === 'blur' || extraProps.filterType === 'glitchBlur';
+    const activeLayer = isBlurFilter ? 0 : (user?.activeLayer ?? 0);
     const userId = user?.id ?? 0;
-    this.layerManager.commitUserStroke(activeLayer, userId);
+    this.layerManager.commitUserStroke(activeLayer, userId, extraProps);
   }
 
   endStrokeAllLayers(user) {
@@ -113,6 +117,10 @@ class ReplayBoard {
 
   getLayerGroup(index) {
     return this.layerManager?.getLayerGroup(index);
+  }
+
+  getLayerContext(layerIndex, userId, createBlendMode = 'source-over') {
+    return this.layerManager?.getLayerContext(layerIndex, userId, createBlendMode) ?? this.mainCtx;
   }
 
   // Dirty rect tracking — must update active stroke bounds or commits get discarded
@@ -153,8 +161,13 @@ class ReplayBoard {
 
   checkErasedTilesByIndices() {}
 
-  // Compositing — simplified for replay (no split layer logic, no upper layers)
-  compositeAllLayers() {
+  // Compositing — no-op during action processing.
+  // The real composite is driven by _compositeOutput() after all actions finish,
+  // which ensures the snapshot is in place so blur filters have source content.
+  compositeAllLayers() {}
+
+  // Called by _compositeOutput when the snapshot base is ready.
+  _doComposite() {
     if (!this.layerManager) return;
     const totalLayers = this.layerManager.getLayerCount();
     this.layerManager.compositeLayerRange(
@@ -223,6 +236,9 @@ export class ReplayEngine {
     /** @type {HTMLCanvasElement} Holds loaded snapshot image */
     this._snapshotCanvas = null;
     this._snapshotCtx = null;
+
+    /** @type {Function|null} Called when async operations (blur worker) update the output */
+    this.onOutputUpdate = null;
   }
 
   /**
@@ -441,7 +457,31 @@ export class ReplayEngine {
    * @param {Array<{timestamp: number, msg: Object}>} actions - Actions to replay (JSON messages)
    * @param {number} [upToTimestamp] - Only process actions up to this timestamp
    */
-  processActions(actions, upToTimestamp = Infinity) {
+  async processActions(actions, upToTimestamp = Infinity) {
+    // Bake the snapshot into layer 0's flatCanvas BEFORE action processing
+    // so that: (a) tools that read pixels (CircleBlur) can sample from mainCtx,
+    // (b) overflow strokes baked during processing are drawn ON TOP of the snapshot
+    //     rather than being wiped when _compositeOutput runs.
+    if (this._snapshotCanvas) {
+      const layer0 = this._replayBoard.layerManager.layerGroups[0];
+      if (layer0) {
+        if (!layer0.flatCanvas) {
+          layer0.flatCanvas = document.createElement('canvas');
+          layer0.flatCanvas.width = this.width;
+          layer0.flatCanvas.height = this.height;
+          layer0.flatCtx = layer0.flatCanvas.getContext('2d');
+        }
+        layer0.flatCtx.clearRect(0, 0, this.width, this.height);
+        layer0.flatCtx.drawImage(this._snapshotCanvas, 0, 0);
+      }
+      // Also populate mainCtx so pixel-sampling tools work during processing
+      this._replayBoard.mainCtx.drawImage(this._snapshotCanvas, 0, 0);
+    }
+
+    // Pre-load all brush images before processing actions so that
+    // imageBrush stamps don't execute before the Image objects are ready.
+    await this._preloadBrushImages(actions, upToTimestamp);
+
     for (const action of actions) {
       if (action.timestamp > upToTimestamp) break;
       this._processAction(action.msg);
@@ -605,6 +645,18 @@ export class ReplayEngine {
             user.setPosition(msg.ps[0], msg.ps[1]);
           }
           break;
+
+        case T.GMP:
+          // Brush images were pre-loaded into _brushCache by _preloadBrushImages().
+          // Apply the cached brush to the user synchronously.
+          if (msg.g) {
+            const brushKey = typeof msg.g === 'string' ? msg.g : JSON.stringify(msg.g);
+            const cached = this._brushCache?.get(brushKey);
+            if (cached) {
+              user.imageBrush = cached;
+            }
+          }
+          break;
       }
     } catch (err) {
       console.warn(`[ReplayEngine] Error processing action t=${msg.t} for user ${userId}:`, err);
@@ -619,40 +671,28 @@ export class ReplayEngine {
     const ctx = this.outputCtx;
     if (!ctx) return;
 
-    // 1. Clear output
+    // 1. Snapshot is already baked into layer 0's flatCanvas in processActions()
+    //    before action processing starts. Any overflow strokes baked during
+    //    processing are preserved on top of the snapshot.
+
+    // 2. Clear any stale blur caches so filters re-read from the correct content
+    this._clearBlurCaches();
+
+    // 3. Composite all layers (background + snapshot base + strokes + filters)
+    //    into the replay board's mainCtx. Blur filters will now read from
+    //    mainCtx which contains the snapshot content beneath them.
+    this._replayBoard._doComposite();
+
+    // 3. Copy the fully composited result to the output canvas
     ctx.clearRect(0, 0, this.width, this.height);
+    ctx.drawImage(this._replayBoard.mainCanvas, 0, 0);
 
-    // 2. Draw background color
-    const [r, g, b, a] = this._replayBoard.backgroundColor;
-    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-    ctx.fillRect(0, 0, this.width, this.height);
-
-    // 3. Draw the snapshot (base state before replayed actions)
-    if (this._snapshotCanvas) {
-      ctx.drawImage(this._snapshotCanvas, 0, 0);
-    }
-
-    // 4. Composite LayerManager strokes on top (these are the replayed actions)
-    //    Use a temporary canvas so we can layer it properly
-    this._replayBoard.compositeAllLayers();
-    // The board's mainCtx now has background + all strokes composited.
-    // But we already drew the snapshot as background, so we need just the strokes.
-    // Composite the board output with transparent background to get only strokes.
-    const strokeCanvas = document.createElement('canvas');
-    strokeCanvas.width = this.width;
-    strokeCanvas.height = this.height;
-    const strokeCtx = strokeCanvas.getContext('2d');
-    this._replayBoard.layerManager.compositeLayerRange(
-      strokeCtx, 0, this._replayBoard.layerManager.getLayerCount(), null, []
-    );
-    ctx.drawImage(strokeCanvas, 0, 0);
-
-    // 5. Draw the replay board's topCanvas (pixel brush preview, etc.)
+    // 4. Draw the replay board's topCanvas (pixel brush preview, etc.)
     if (this._replayBoard.topCanvas) {
       ctx.drawImage(this._replayBoard.topCanvas, 0, 0);
     }
 
-    // 6. Draw per-user preview canvases (in-progress strokes / shape previews)
+    // 5. Draw per-user preview canvases (in-progress strokes / shape previews)
     for (const user of this.botUsers.values()) {
       if (user.board) {
         const blendMode = user.blendMode || 'source-over';
@@ -667,9 +707,139 @@ export class ReplayEngine {
       }
     }
 
-    // 7. Draw the snapshot's top canvas overlay (active strokes at snapshot time)
+    // 6. Draw the snapshot's top canvas overlay (active strokes at snapshot time)
     if (this.topCanvas) {
       ctx.drawImage(this.topCanvas, 0, 0);
+    }
+
+    // 7. Set up callback so that when async blur worker finishes,
+    //    we re-composite and update the replay canvas automatically.
+    this._replayBoard._onLayerUpdate = () => {
+      this._replayBoard._doComposite();
+      ctx.clearRect(0, 0, this.width, this.height);
+      ctx.drawImage(this._replayBoard.mainCanvas, 0, 0);
+      if (this._replayBoard.topCanvas) {
+        ctx.drawImage(this._replayBoard.topCanvas, 0, 0);
+      }
+      for (const user of this.botUsers.values()) {
+        if (user.board) {
+          ctx.save();
+          ctx.globalCompositeOperation = user.blendMode || 'source-over';
+          ctx.drawImage(user.board, 0, 0);
+          ctx.restore();
+        }
+      }
+      if (this.topCanvas) {
+        ctx.drawImage(this.topCanvas, 0, 0);
+      }
+      // Notify TimeMachine to refresh the visible replay canvas
+      if (this.onOutputUpdate) this.onOutputUpdate();
+    };
+  }
+
+  /**
+   * Clear cached blur results from all stroke stacks so they are
+   * re-computed against the current canvas content on the next composite.
+   * @private
+   */
+  _clearBlurCaches() {
+    const lm = this._replayBoard?.layerManager;
+    if (!lm) return;
+    for (const group of lm.layerGroups) {
+      for (const stroke of group.strokeStack) {
+        if (stroke.filterType) {
+          delete stroke._cachedBlurResult;
+          delete stroke._cachedPreview;
+          delete stroke._isBlurring;
+        }
+      }
+    }
+  }
+
+  /**
+   * Pre-load all brush images from T.GMP messages into a cache so they
+   * can be applied synchronously when the T.GMP action is processed.
+   * @param {Array} actions - Actions to scan
+   * @param {number} upToTimestamp - Only consider actions up to this time
+   * @private
+   */
+  async _preloadBrushImages(actions, upToTimestamp) {
+    this._brushCache = new Map();
+    const loadPromises = [];
+
+    for (const action of actions) {
+      if (action.timestamp > upToTimestamp) break;
+      if (action.msg?.t !== T.GMP || !action.msg.g) continue;
+
+      const raw = action.msg.g;
+      const brushKey = typeof raw === 'string' ? raw : JSON.stringify(raw);
+      if (this._brushCache.has(brushKey)) continue; // already queued
+
+      const brushData = typeof raw === 'string' ? JSON.parse(raw) : { ...raw };
+
+      if (brushData.type === 'gbr' || brushData.type === 'image') {
+        // Reserve slot immediately so duplicates are skipped
+        this._brushCache.set(brushKey, null);
+        loadPromises.push(new Promise((resolve) => {
+          const image = new Image();
+          image.onload = () => {
+            brushData.image = image;
+            this._brushCache.set(brushKey, brushData);
+            resolve();
+          };
+          image.onerror = () => resolve();
+          image.src = brushData.gimpUrl;
+        }));
+      } else if (brushData.type === 'gih' && brushData.gBrushes?.length > 0) {
+        this._brushCache.set(brushKey, null);
+        loadPromises.push(new Promise((resolve) => {
+          let loadedCount = 0;
+          const totalImages = brushData.gBrushes.length;
+          const images = brushData.gBrushes.map((brush) => {
+            const img = new Image();
+            img.onload = () => {
+              loadedCount++;
+              if (loadedCount === totalImages) {
+                brushData.images = images;
+                brushData.index = 0;
+                brushData.ncells = images.length;
+                if (!brushData.cellwidth && brushData.gBrushes[0]) {
+                  brushData.cellwidth = brushData.gBrushes[0].width || 32;
+                  brushData.cellheight = brushData.gBrushes[0].height || 32;
+                }
+                if (brushData.dimensions?.length > 0) {
+                  for (const dim of brushData.dimensions) {
+                    dim.currentIndex = 0;
+                  }
+                  brushData.getNextBrush = function(context) {
+                    let idx = 0;
+                    for (const dim of this.dimensions) {
+                      idx = dim.currentIndex;
+                      dim.currentIndex = (dim.currentIndex + 1) % (dim.size || this.ncells);
+                    }
+                    return { brush: this.gBrushes[idx], index: idx };
+                  };
+                  brushData.reset = function() {
+                    for (const dim of this.dimensions) dim.currentIndex = 0;
+                  };
+                }
+                this._brushCache.set(brushKey, brushData);
+                resolve();
+              }
+            };
+            img.onerror = () => {
+              loadedCount++;
+              if (loadedCount === totalImages) resolve();
+            };
+            img.src = brush.gimpUrl;
+            return img;
+          });
+        }));
+      }
+    }
+
+    if (loadPromises.length > 0) {
+      await Promise.all(loadPromises);
     }
   }
 

@@ -6,9 +6,13 @@ export class PixelsWorkerClient {
         this.msgId = 0;
 
         this.worker.onmessage = (e) => {
-            const { id, result } = e.data;
+            const { id, result, type, error } = e.data;
             if (this.promises.has(id)) {
-                this.promises.get(id).resolve(result);
+                if (type && type.endsWith('_ERROR')) {
+                    this.promises.get(id).reject(new Error(error || 'Worker error'));
+                } else {
+                    this.promises.get(id).resolve(result);
+                }
                 this.promises.delete(id);
             }
         };

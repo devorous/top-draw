@@ -33,10 +33,18 @@ self.onmessage = async (e) => {
     await ensureWasm();
 
     if (type === 'BLUR') {
-        const result = useGlitch
-            ? stackblur_rgba_glitch(data, width, height, radius)
-            : stackblur_rgba(data, width, height, radius);
-        self.postMessage({ id, type: 'BLUR_RESULT', result }, [result.buffer]);
+        if (!wasmReady) {
+            self.postMessage({ id, type: 'BLUR_ERROR', error: 'WASM not initialized' });
+            return;
+        }
+        try {
+            const result = useGlitch
+                ? stackblur_rgba_glitch(data, width, height, radius)
+                : stackblur_rgba(data, width, height, radius);
+            self.postMessage({ id, type: 'BLUR_RESULT', result }, [result.buffer]);
+        } catch (err) {
+            self.postMessage({ id, type: 'BLUR_ERROR', error: err.message || 'WASM blur failed' });
+        }
 
     } else if (type === 'CHECK_CONTENT') {
         const result = has_content(data);

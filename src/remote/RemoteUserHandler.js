@@ -398,7 +398,7 @@ export class RemoteUserHandler {
     if (!user.panning) {
       if (user.tool === 'erase' && user.eraseAllLayers) {
         this.board.beginStrokeAllLayers(user, 'destination-out');
-      } else if (user.tool !== 'blur' && user.tool !== 'fill') {
+      } else if (user.tool !== 'blur' && user.tool !== 'glitchBlur' && user.tool !== 'fill') {
         // Blur tool handles its own stroke creation in onPointerDown with filter metadata
         // Fill tool manages its own stroke lifecycle via the dedicated FILL message handler
         const blendMode = user.tool === 'erase' ? 'destination-out' : (user.blendMode || 'source-over');
