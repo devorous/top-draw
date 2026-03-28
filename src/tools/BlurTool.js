@@ -73,7 +73,14 @@ export class BlurTool extends Tool {
    * Deactivates the tool and cleans up tracking.
    */
   deactivate() {
+    if (this._activeUser) {
+      const lastPos = this.lastStampPos.get(this._activeUser.id);
+      if (lastPos) {
+        this.onPointerUp(this._activeUser, lastPos);
+      }
+    }
     this.lastStampPos.clear();
+    this._activeUser = null;
   }
 
   /**
@@ -83,6 +90,7 @@ export class BlurTool extends Tool {
    * @param {Object} pos - The current pointer position.
    */
   onPointerDown(user, pos) {
+    this._activeUser = user;
     // Blur always targets layer 0 - it reads from the fully composited image
     // which includes the white background, so it can't work on transparent layers
     const activeLayerIdx = 0;

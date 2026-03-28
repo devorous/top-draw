@@ -121,6 +121,7 @@ export class FlowPenTool extends Tool {
    * @param {Event} e - The pointer event.
    */
   onPointerDown(user, pos, e) {
+    this._activeUser = user;
     this.board.beginStroke(user);
     this.ensureOffscreenCanvas();
 
@@ -378,5 +379,10 @@ export class FlowPenTool extends Tool {
   /**
    * Deactivates the tool.
    */
-  deactivate() {}
+  deactivate() {
+    if (this.lastStampPos && this._activeUser) {
+      this.onPointerUp(this._activeUser, this.lastStampPos);
+    }
+    this._activeUser = null;
+  }
 }

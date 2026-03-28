@@ -134,6 +134,7 @@ export class InkTool extends Tool {
    * @param {Event} e - The pointer event.
    */
   onPointerDown(user, pos, e) {
+    this._activeUser = user;
     this.board.beginStroke(user);
     this.ensureOffscreenCanvas();
 
@@ -403,5 +404,11 @@ export class InkTool extends Tool {
   /**
    * Deactivates the tool.
    */
-  deactivate() {}
+  deactivate() {
+    if (this.inputPoints.length > 0 && this._activeUser) {
+      const lastPoint = this.inputPoints[this.inputPoints.length - 1];
+      this.onPointerUp(this._activeUser, { x: lastPoint[0], y: lastPoint[1] });
+    }
+    this._activeUser = null;
+  }
 }

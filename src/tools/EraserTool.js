@@ -72,7 +72,12 @@ export class EraserTool extends Tool {
   /**
    * Deactivates the tool.
    */
-  deactivate() {}
+  deactivate() {
+    if (this.lastPos && this._activeUser) {
+      this.onPointerUp(this._activeUser);
+    }
+    this._activeUser = null;
+  }
 
   /**
    * Checks if erasing should apply to all layers.
@@ -89,6 +94,7 @@ export class EraserTool extends Tool {
    * @param {Object} pos - The current pointer position.
    */
   onPointerDown(user, pos) {
+    this._activeUser = user;
     this.userSize = user.size;
     this.lastPos = { x: pos.x, y: pos.y };
     // Initialize erased tiles tracking

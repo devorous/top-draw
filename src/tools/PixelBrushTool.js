@@ -21,8 +21,13 @@ export class PixelBrushTool {
   activate() {}
 
   deactivate() {
+    if (this._activeUser && this.tempCanvases.has(this._activeUser.id)) {
+      const lastStamp = this.lastStampPos.get(this._activeUser.id);
+      this.onPointerUp(this._activeUser, lastStamp || { x: 0, y: 0 });
+    }
     this.lastStampPos.clear();
     this.tempCanvases.clear();
+    this._activeUser = null;
   }
 
   /**
@@ -32,6 +37,7 @@ export class PixelBrushTool {
    * @param {Event} e - Pointer event
    */
   onPointerDown(user, pos, e) {
+    this._activeUser = user;
     this.board.beginStroke(user);
 
     // Create temp canvas for this stroke (prevents opacity stacking)

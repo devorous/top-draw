@@ -36,8 +36,12 @@ export class PatternTool extends Tool {
   }
 
   deactivate() {
+    if (this._activeUser && this.lastStampPos.has(this._activeUser.id)) {
+      this.onPointerUp(this._activeUser);
+    }
     this.lastStampPos.clear();
     this._tileCache.clear();
+    this._activeUser = null;
   }
 
   ensureOffscreenCanvas() {
@@ -54,6 +58,7 @@ export class PatternTool extends Tool {
   }
 
   onPointerDown(user, pos) {
+    this._activeUser = user;
     this.board.beginStroke(user);
     this.ensureOffscreenCanvas();
     this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);

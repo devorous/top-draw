@@ -73,7 +73,11 @@ export class CircleBlurTool extends Tool {
    * Deactivates the tool and cleans up tracking.
    */
   deactivate() {
+    if (this._activeUser && this.lastStampPos.has(this._activeUser.id)) {
+      this.onPointerUp(this._activeUser);
+    }
     this.lastStampPos.clear();
+    this._activeUser = null;
   }
 
   /**
@@ -82,6 +86,7 @@ export class CircleBlurTool extends Tool {
    * @param {Object} pos - The current pointer position.
    */
   onPointerDown(user, pos) {
+    this._activeUser = user;
     this.board.beginStroke(user);
     const radius = user.pressure * user.size;
 

@@ -75,6 +75,13 @@ export class FloodFillTool {
   }
 
   deactivate() {
+    if (this._active && this._fillParams) {
+      // Finalize the current interactive fill before deactivating
+      const user = this._fillParams.user || this.board.app?.self;
+      if (user) {
+        this.onPointerUp(user, this.board.lastMousePos || this._clickPos);
+      }
+    }
     this._cancelInteractive();
   }
 

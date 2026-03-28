@@ -76,7 +76,12 @@ export class ImageBrushTool extends Tool {
    * Deactivates the tool and cleans up tracking.
    */
   deactivate() {
+    if (this._activeUser && this.lastStampPos.has(this._activeUser.id)) {
+      const lastPos = this.lastStampPos.get(this._activeUser.id);
+      this.onPointerUp(this._activeUser, lastPos);
+    }
     this.lastStampPos.clear();
+    this._activeUser = null;
   }
 
   /**
@@ -86,6 +91,7 @@ export class ImageBrushTool extends Tool {
    */
   onPointerDown(user, pos) {
     if (user.imageBrush) {
+      this._activeUser = user;
       this.board.beginStroke(user);
       this.lastPos = { x: pos.x, y: pos.y };
       this.lastTime = performance.now();

@@ -61,9 +61,15 @@ export class LineTool extends Tool {
   }
 
   /**
-   * Activates the tool.
+   * Deactivates the tool.
    */
-  activate() {}
+  deactivate() {
+    if (this._activeUser && this.startPos) {
+      this.onPointerUp(this._activeUser, this.board.lastMousePos || this.startPos);
+    }
+    this.startPos = null;
+    this._activeUser = null;
+  }
 
   /**
    * Handles pointer down event.
@@ -71,6 +77,7 @@ export class LineTool extends Tool {
    * @param {Object} pos - The current pointer position.
    */
   onPointerDown(user, pos) {
+    this._activeUser = user;
     this.board.beginStroke(user);
     this.startPos = { x: pos.x, y: pos.y };
     user.startPos = this.startPos; 
@@ -226,9 +233,15 @@ export class RectangleTool extends Tool {
   }
 
   /**
-   * Activates the tool.
+   * Deactivates the tool.
    */
-  activate() {}
+  deactivate() {
+    if (this._activeUser && this.startPos) {
+      this.onPointerUp(this._activeUser, this.board.lastMousePos || this.startPos);
+    }
+    this.startPos = null;
+    this._activeUser = null;
+  }
 
   /**
    * Handles pointer down event.
@@ -236,6 +249,7 @@ export class RectangleTool extends Tool {
    * @param {Object} pos - The current pointer position.
    */
   onPointerDown(user, pos) {
+    this._activeUser = user;
     this.board.beginStroke(user);
     this.startPos = { x: pos.x, y: pos.y };
     this.drawPreview(user, pos);
@@ -399,9 +413,15 @@ export class CircleTool extends Tool {
   }
 
   /**
-   * Activates the tool.
+   * Deactivates the tool.
    */
-  activate() {}
+  deactivate() {
+    if (this._activeUser && this.startPos) {
+      this.onPointerUp(this._activeUser, this.board.lastMousePos || this.startPos);
+    }
+    this.startPos = null;
+    this._activeUser = null;
+  }
 
   /**
    * Handles pointer down event.
@@ -409,6 +429,7 @@ export class CircleTool extends Tool {
    * @param {Object} pos - The current pointer position.
    */
   onPointerDown(user, pos) {
+    this._activeUser = user;
     this.board.beginStroke(user);
     this.startPos = { x: pos.x, y: pos.y };
     this.drawPreview(user, pos);

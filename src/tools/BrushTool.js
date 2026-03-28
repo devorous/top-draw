@@ -29,7 +29,12 @@ class Tool {
    * Called when the tool is deselected.
    * @returns {void}
    */
-  deactivate() {}
+  deactivate() {
+    if (this._activeUser && this._activeUser.currentLine && this._activeUser.currentLine.length > 0) {
+      this.onPointerUp(this._activeUser);
+    }
+    this._activeUser = null;
+  }
 
   /**
    * Handles pointer down events.
@@ -90,6 +95,7 @@ export class BrushTool extends Tool {
    * @override
    */
   onPointerDown(user, pos) {
+    this._activeUser = user;
     this.board.beginStroke(user);
     user.clearLine();
 

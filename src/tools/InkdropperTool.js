@@ -23,7 +23,11 @@ export class InkdropperTool {
    * Deactivates the tool and clears the top canvas.
    */
   deactivate() {
+    if (this._active) {
+      this.sampleColor(this.board.lastMousePos || { x: 0, y: 0 });
+    }
     this.board.clearTop();
+    this._active = false;
   }
 
   /**
@@ -32,7 +36,9 @@ export class InkdropperTool {
    * @param {Object} pos - The current pointer position.
    * @param {Event} e - The pointer event.
    */
-  onPointerDown(user, pos, e) {}
+  onPointerDown(user, pos, e) {
+    this._active = true;
+  }
 
   /**
    * Handles pointer move event.
@@ -52,6 +58,7 @@ export class InkdropperTool {
    * @param {Event} e - The pointer event.
    */
   onPointerUp(user, pos, e) {
+    this._active = false;
     this.sampleColor(pos);
   }
 

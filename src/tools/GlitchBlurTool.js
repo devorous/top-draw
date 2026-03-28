@@ -26,14 +26,22 @@ export class GlitchBlurTool extends Tool {
   activate() {}
 
   deactivate() {
+    if (this._activeUser) {
+      const lastPos = this.lastStampPos.get(this._activeUser.id);
+      if (lastPos) {
+        this.onPointerUp(this._activeUser, lastPos);
+      }
+    }
     this.lastStampPos.clear();
     // Clear any lingering preview
     if (this.board.topCtx) {
       this.board.topCtx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
+    this._activeUser = null;
   }
 
   onPointerDown(user, pos) {
+    this._activeUser = user;
     const activeLayerIdx = 0;
     user.blurRadius = user.blurRadius || 10;
 
