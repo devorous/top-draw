@@ -107,6 +107,7 @@ export class DrawingApp {
 
     this.pressureEnabled = true;
     this.tabletDetected = false;
+    this.tabletThinningWarningShown = false;
 
     this.eraseAllLayers = false;
 
@@ -2275,11 +2276,21 @@ export class DrawingApp {
 
     this.toolLockManager.updateAllLockButtons(tool);
 
-    // Suggest disabling thinning when tablet user selects ink tool
-    if (tool === 'ink' && this.tabletDetected && this.self.thinning > 0) {
-      this.ui.showToast('Tablet detected - consider disabling thinning', 4000);
-      if (this.ui.elements.thinningSlider) highlight(this.ui.elements.thinningSlider, 4000);
-      if (this.ui.elements.simulatePressureCheckbox) highlight(this.ui.elements.simulatePressureCheckbox, 4000);
+    // Auto-disable thinning when tablet user selects ink tool (only if using real pressure)
+    // Only warn once and only when simulatePressure is false (tablet mode where thinning still applies)
+    if (tool === 'ink' && this.tabletDetected && !this.tabletThinningWarningShown && !this.self.simulatePressure) {
+      const elements = this.ui.elements;
+      if (elements.thinningEnabled && elements.thinningEnabled.checked) {
+        elements.thinningEnabled.checked = false;
+        if (elements.thinningSliderContainer) {
+          elements.thinningSliderContainer.style.display = 'none';
+        }
+        if (elements.thinningValue) {
+          elements.thinningValue.style.display = 'none';
+        }
+        this.ui.showToast('Tablet detected - thinning disabled', 3000);
+        this.tabletThinningWarningShown = true;
+      }
     }
 
     if (tool === 'imageBrush') {

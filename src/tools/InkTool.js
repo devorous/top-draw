@@ -287,6 +287,9 @@ export class InkTool extends Tool {
 
     const activeUser = user || this.self;
     const simulatePressure = activeUser.simulatePressure !== undefined ? activeUser.simulatePressure : true;
+
+    // Check if thinning is enabled via checkbox (only for local user)
+    const thinningEnabled = !user && this.ui.elements.thinningEnabled ? this.ui.elements.thinningEnabled.checked : true;
     const userThinning = activeUser.thinning !== undefined ? activeUser.thinning : 0.5;
 
     if (isDot) {
@@ -311,7 +314,7 @@ export class InkTool extends Tool {
         })
       : this.inputPoints;
 
-    const effectiveThinning = simulatePressure ? userThinning : 0.95;
+    const effectiveThinning = (simulatePressure && thinningEnabled) ? userThinning : 0.95;
 
     const userSmoothing = activeUser.smoothing !== undefined ? activeUser.smoothing / 50 : 0.5;
 
