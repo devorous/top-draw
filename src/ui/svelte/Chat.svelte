@@ -54,10 +54,34 @@
     messageInput = '';
   }
 
+  // Toasts
+  let toasts = $state([]);
+  let toastIdCounter = 0;
+
+  function showToast(username, message, color) {
+    const id = ++toastIdCounter;
+    const truncated = message.length > 80 ? message.slice(0, 80) + '...' : message;
+    toasts = [...toasts, { id, username, message: truncated, color }];
+    setTimeout(() => dismissToast(id), 4000);
+    if (toasts.length > 3) {
+      toasts = toasts.slice(toasts.length - 3);
+    }
+  }
+
+  function dismissToast(id) {
+    toasts = toasts.filter(t => t.id !== id);
+  }
+
+  function openFromToast(id) {
+    dismissToast(id);
+    show();
+  }
+
   function addMessage(username, message, color, timestamp = Date.now()) {
     messages.all = [...messages.all, { username, message, color, timestamp }];
     if (!visible) {
       appState.chatUnreadCount++;
+      showToast(username, message, color);
     }
   }
 
@@ -163,6 +187,17 @@
     };
   });
 </script>
+
+{#if toasts.length > 0}
+  <div class="chat-toasts">
+    {#each toasts as toast (toast.id)}
+      <button class="chat-toast" onclick={() => openFromToast(toast.id)}>
+        <span class="chat-toast-username">{toast.username}:</span>
+        <span class="chat-toast-message">{toast.message}</span>
+      </button>
+    {/each}
+  </div>
+{/if}
 
 {#if visible}
   <div
@@ -536,5 +571,59 @@
 
   .chat-send:hover {
     background: var(--accent-hover);
+  }
+
+  .chat-toasts {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    z-index: 1100;
+    pointer-events: none;
+  }
+
+  .chat-toast {
+    pointer-events: all;
+    display: flex;
+    gap: 0.375rem;
+    align-items: baseline;
+    padding: 0.6rem 0.9rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    max-width: 280px;
+    text-align: left;
+    color: var(--text-primary);
+    transition: background var(--transition-fast), transform var(--transition-fast);
+    animation: toast-in 0.2s ease;
+  }
+
+  .chat-toast:hover {
+    background: var(--bg-tertiary);
+    transform: translateY(-1px);
+  }
+
+  .chat-toast-username {
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+    color: var(--text-primary) !important;
+  }
+
+  .chat-toast-message {
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 </style>
