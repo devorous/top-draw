@@ -28,6 +28,11 @@ export class SaveMode {
     this.selection = null; // { x, y, width, height }
     this.lassoPoints = [];
 
+    // Pan/zoom state
+    this._isPanning = false;
+    this._lastPanX = 0;
+    this._lastPanY = 0;
+
     // Marching ants animation
     this.marchingAntsOffset = 0;
     this.animationId = null;
@@ -145,6 +150,9 @@ export class SaveMode {
     this.selectionCanvas.addEventListener('pointermove', (e) => this._onPointerMove(e));
     this.selectionCanvas.addEventListener('pointerup', (e) => this._onPointerUp(e));
     this.selectionCanvas.addEventListener('pointerleave', (e) => this._onPointerUp(e));
+
+    // Wheel events for zooming
+    this.selectionCanvas.addEventListener('wheel', (e) => this._onWheel(e));
 
     // Close button
     this.closeBtn.addEventListener('click', () => this.close());
@@ -500,10 +508,49 @@ export class SaveMode {
   }
 
   /**
+   * Handles wheel events for zooming.
+   * @param {WheelEvent} e
+   */
+  _onWheel(e) {
+    e.preventDefault();
+
+    // Get cursor position for zoom center
+    const overlayRect = this.overlay.getBoundingClientRect();
+    const cursorX = e.clientX - overlayRect.left;
+    const cursorY = e.clientY - overlayRect.top;
+
+    // Zoom in or out
+    const zoomDelta = 0.1;
+    if (e.deltaY > 0) {
+      this.board.zoomOut(zoomDelta, { x: cursorX, y: cursorY });
+    } else {
+      this.board.zoomIn(zoomDelta, { x: cursorX, y: cursorY });
+    }
+
+    // Update canvas transform to match new zoom/pan
+    this._updateCanvasTransform();
+
+    // Update UI zoom display
+    this.ui.updateZoomDisplay(this.board.getZoomPercent());
+  }
+
+  /**
    * Handles pointer down events on the selection canvas.
    * @param {PointerEvent} e
    */
   _onPointerDown(e) {
+    // Check if we're in pan mode (Space held or middle-click)
+    const isPanning = this.app.self.panning || e.button === 1;
+
+    if (isPanning) {
+      // Start pan mode
+      this._isPanning = true;
+      this._lastPanX = e.clientX;
+      this._lastPanY = e.clientY;
+      this.selectionCanvas.setPointerCapture(e.pointerId);
+      return;
+    }
+
     const pos = this._getCanvasPos(e);
     this.isSelecting = true;
     this.startPos = pos;
@@ -522,6 +569,17 @@ export class SaveMode {
    * @param {PointerEvent} e
    */
   _onPointerMove(e) {
+    // Handle panning
+    if (this._isPanning) {
+      const dx = e.clientX - this._lastPanX;
+      const dy = e.clientY - this._lastPanY;
+      this.board.pan(dx, dy);
+      this._lastPanX = e.clientX;
+      this._lastPanY = e.clientY;
+      this._updateCanvasTransform();
+      return;
+    }
+
     if (!this.isSelecting) return;
 
     const pos = this._getCanvasPos(e);
@@ -551,6 +609,12 @@ export class SaveMode {
    * @param {PointerEvent} e
    */
   _onPointerUp(e) {
+    // End panning
+    if (this._isPanning) {
+      this._isPanning = false;
+      return;
+    }
+
     if (!this.isSelecting) return;
     this.isSelecting = false;
 
@@ -835,6 +899,9 @@ export class SaveMode {
     this.selection = null;
     this.lassoPoints = [];
     this.preExistingCanvas = null;
+
+    // Reset pan/zoom state
+    this._isPanning = false;
 
     // Restore mode toggle visibility
     this.modeToggle.style.display = '';

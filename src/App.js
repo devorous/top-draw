@@ -2982,6 +2982,10 @@ export class DrawingApp {
       this.self.setPressure(1);
       this.inputBufferManager.inputBuffer.pressure = 1;
       this.wsClient.broadcastPressureChange(1);
+    } else if (e.pointerType === 'pen' && this.pressureEnabled) {
+      // Start pen input at 0 pressure until real pressure data arrives
+      this.self.setPressure(0);
+      this.inputBufferManager.inputBuffer.pressure = 0;
     }
 
     const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
@@ -2997,7 +3001,19 @@ export class DrawingApp {
 
     // Fully reset self position state for new stroke to prevent jumping
     this.self.resetPosition(pos.x, pos.y);
-    this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);
+    // For pen input that will be deferred, update cursor with estimated pressure to avoid showing full-size dot
+    if (e.pointerType === 'pen' && this.pressureEnabled && this.self.tool !== 'text') {
+      const estimatedPressure = 0.5; // Reasonable default for initial pen pressure
+      const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur'];
+      if (pressureTools.includes(this.self.tool)) {
+        this.ui.updatePressureCursorRadius(estimatedPressure * this.self.size, this.self.size);
+      } else if (this.self.tool === 'imageBrush') {
+        this.ui.updatePressureSquareSize(estimatedPressure * this.self.size, this.self.size);
+      }
+      this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);
+    } else {
+      this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);
+    }
     this.self.mousedown = true;
     this.self.spaceIndex = 0;
     this.self._mainCtxDrawCount = 0; // Reset draw counter for this stroke
@@ -3136,15 +3152,11 @@ export class DrawingApp {
       // For pen deactivation, we need to manually start the stroke now.
       // For touch/mouse, the stroke already started in handlePointerDown.
       if (pending) {
-        // Use a small default pressure for taps (pen didn't move, so no pressure data)
-        const tapPressure = 0.5;
-        this.self.setPressure(tapPressure);
-        this.inputBufferManager.inputBuffer.pressure = tapPressure;
-        this.wsClient.broadcastPressureChange(tapPressure);
-        this.wsClient.broadcastMouseDown();
-
+        // Pen was lifted without moving - pressure starts at 0, so tap will be invisible or tiny
+        // This is correct behavior: dots should only appear with intentional pen pressure
         const tool = this.toolManager.getCurrentTool();
         if (tool) {
+          this.wsClient.broadcastMouseDown();
           tool.onPointerDown(this.self, pending.pos, pending.event);
         }
       }
