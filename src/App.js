@@ -156,6 +156,7 @@ export class DrawingApp {
     this.board.setApp(this);
     appState.board = this.board;
     TimeMachine.init(this.board, this.wsClient);
+    this.TimeMachine = TimeMachine; // Expose for WebSocketClient recording
 
     // Initialize Svelte UI components
     this.svelteComponents = initSvelteUI(this);

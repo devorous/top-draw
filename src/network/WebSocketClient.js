@@ -167,20 +167,17 @@ export class WebSocketClient {
     this.socket.onmessage = (event) => {
       try {
         const raw = new Uint8Array(event.data);
-        
-        // Record all incoming messages for TimeMachine
-        if (window.app && window.app.TimeMachine) {
-          window.app.TimeMachine.recordAction(raw);
-        } else {
-          // Fallback if app/TimeMachine not yet on window
-          const { TimeMachine } = import.meta.glob('./timebar/TimeMachine.svelte.js', { eager: true })['./timebar/TimeMachine.svelte.js'] || {};
-          if (TimeMachine) TimeMachine.recordAction(raw);
-        }
 
         if (raw.length > 4 && raw[0] !== 0x08) {
           this._decodeBatchedFrame(raw);
         } else {
           const data = this.Msg.decode(raw);
+
+          // Record decoded message for TimeMachine (JSON, not protobuf)
+          if (window.app?.TimeMachine) {
+            window.app.TimeMachine.recordAction(data);
+          }
+
           this.handleMessage(data);
         }
       } catch (err) {
@@ -250,6 +247,12 @@ export class WebSocketClient {
       offset += len;
       try {
         const data = this.Msg.decode(msgBytes);
+
+        // Record decoded message for TimeMachine (JSON, not protobuf)
+        if (window.app?.TimeMachine) {
+          window.app.TimeMachine.recordAction(data);
+        }
+
         this.handleMessage(data);
       } catch (err) {
         console.error('Failed to decode batched message:', err);
@@ -809,9 +812,9 @@ export class WebSocketClient {
       const buffer = this.Msg.encode(message).finish();
       this.socket.send(buffer);
 
-      // Record all outgoing messages for TimeMachine
-      if (window.app && window.app.TimeMachine) {
-        window.app.TimeMachine.recordAction(new Uint8Array(buffer));
+      // Record outgoing messages for TimeMachine (JSON with sessionIndex)
+      if (window.app?.TimeMachine && this.sessionIndex != null) {
+        window.app.TimeMachine.recordAction({ ...data, u: this.sessionIndex });
       }
     }
   }

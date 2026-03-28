@@ -52,23 +52,12 @@
     });
   });
 
-  // Reactive transform string from appState.board (if available)
-  let boardTransform = $derived.by(() => {
-    const board = appState.board;
-    if (!board) return 'translate(0px, 0px) scale(1) rotate(0deg)';
-    return `translate(${board.panX}px, ${board.panY}px) scale(${board.zoom}) rotate(${board.rotation}deg)`;
-  });
 </script>
 
-{#if TimeMachine.isReviewing && TimeMachine.previewData}
-  <div class="history-overlay-container">
-    <div class="history-overlay" style="transform: {boardTransform}; transform-origin: 0 0;">
-      <img src={TimeMachine.previewData} alt="History Preview" />
-    </div>
-    <div class="history-badge">
-      <span class="pulse"></span>
-      VIEWING HISTORY
-    </div>
+{#if TimeMachine.isReviewing}
+  <div class="history-badge">
+    <span class="pulse"></span>
+    VIEWING HISTORY
   </div>
 {/if}
 
@@ -132,27 +121,6 @@
 {/if}
 
 <style lang="scss">
-  .history-overlay-container {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    z-index: 90; // Just below the timebar and menus, but above the main boards
-    pointer-events: none;
-    background: rgba(0, 0, 0, 0.2);
-  }
-
-  .history-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    
-    img {
-      display: block;
-    }
-  }
-
   .history-badge {
     position: fixed;
     top: 80px;

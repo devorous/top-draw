@@ -1,5 +1,5 @@
 import { appState } from '../state.svelte.js';
-import { T } from '../../shared/MessageTypes.js';
+import { ReplayEngine } from './ReplayEngine.js';
 
 /**
  * Snapshot structure to store board and application state at a point in time.
@@ -31,9 +31,15 @@ class TimeMachineState {
   _tickInterval = null;
   _playbackInterval = null;
   _board = null;
-  _offscreenCanvas = null;
-  _offscreenCtx = null;
   _wsClient = null;
+  _replayEngine = null;
+
+  /** @type {HTMLCanvasElement} Replay overlay canvas injected into #boards */
+  _replayCanvas = null;
+  _replayCtx = null;
+
+  /** @type {Set<number>} IDs of bot cursors we've created in the UI */
+  _botCursorIds = new Set();
 
   /**
    * Initialize the TimeMachine with a reference to the board and wsClient.
@@ -43,12 +49,42 @@ class TimeMachineState {
   init(board, wsClient) {
     this._board = board;
     this._wsClient = wsClient;
-    
-    // Create off-screen canvas for scrubbing
-    this._offscreenCanvas = document.createElement('canvas');
-    this._offscreenCanvas.width = board.getWidth();
-    this._offscreenCanvas.height = board.getHeight();
-    this._offscreenCtx = this._offscreenCanvas.getContext('2d');
+
+    // Create replay engine with full layer simulation
+    this._replayEngine = new ReplayEngine();
+    this._replayEngine.init(board.getWidth(), board.getHeight(), wsClient);
+
+    // Create and inject replay canvas into #boards wrapper
+    this._createReplayCanvas();
+  }
+
+  /**
+   * Create the replay canvas and inject it into the boards wrapper.
+   * @private
+   */
+  _createReplayCanvas() {
+    const boardsWrapper = document.getElementById('boards');
+    if (!boardsWrapper) {
+      console.warn('[TimeMachine] #boards wrapper not found');
+      return;
+    }
+
+    this._replayCanvas = document.createElement('canvas');
+    this._replayCanvas.id = 'replayCanvas';
+    this._replayCanvas.width = this._board.getWidth();
+    this._replayCanvas.height = this._board.getHeight();
+    this._replayCanvas.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      display: none;
+      z-index: 2;
+    `;
+    this._replayCtx = this._replayCanvas.getContext('2d');
+
+    // Insert at the top of the stack (after other canvases)
+    boardsWrapper.appendChild(this._replayCanvas);
   }
 
   /**
@@ -74,6 +110,8 @@ class TimeMachineState {
     this.currentTime = 0;
     this.maxTime = 0;
     this.previewData = null;
+    this._showReplayCanvas(false);
+    this._removeBotCursors();
 
     if (this._snapshotInterval) {
       clearInterval(this._snapshotInterval);
@@ -144,8 +182,33 @@ class TimeMachineState {
     })) || [];
 
     // Capture relevant app state data (simplified for snapshot)
+    // Capture full per-user drawing state for accurate replay
+    const userDrawingStates = {};
+    if (window.app?.users) {
+      window.app.users.forEach((user, id) => {
+        userDrawingStates[id] = {
+          username: user.username || `User ${id}`,
+          role: user.role ?? 0,
+          color: user.color ? [...user.color] : [0, 0, 0, 255],
+          size: user.size ?? 10,
+          x: user.x ?? 0,
+          y: user.y ?? 0,
+          tool: user.tool || 'brush',
+          pressure: user.pressure ?? 1,
+          thinning: user.thinning ?? 0.5,
+          simulatePressure: user.simulatePressure ?? true,
+          blendMode: user.blendMode || 'source-over',
+          activeLayer: user.activeLayer ?? 2,
+          spacing: user.spacing ?? 0,
+          smoothing: user.smoothing ?? 15,
+          hardness: user.hardness ?? 100
+        };
+      });
+    }
+
     const appStateData = {
       users: Array.from(appState.users.entries()),
+      userDrawingStates,
       currentRoomData: appState.currentRoomData,
       activeLayer: appState.activeLayer
     };
@@ -169,22 +232,22 @@ class TimeMachineState {
   }
 
   /**
-   * Record an incoming or outgoing protobuf action.
-   * @param {Uint8Array} actionBuffer - Raw protobuf message buffer
+   * Record an incoming or outgoing action as JSON.
+   * @param {Object} msg - Decoded message object
    */
-  recordAction(actionBuffer) {
+  recordAction(msg) {
     if (!this.isStarted || this.recordingBuffer.length === 0) return;
 
     const timestamp = Date.now();
     const latestSnapshot = this.recordingBuffer[this.recordingBuffer.length - 1];
-    
+
     latestSnapshot.actions.push({
       timestamp,
-      buffer: actionBuffer
+      msg // Store decoded JSON directly
     });
-    
+
     this.maxTime = timestamp;
-    
+
     // If we're not reviewing, keep currentTime synced with maxTime
     if (!this.isReviewing) {
       this.currentTime = this.maxTime;
@@ -195,172 +258,120 @@ class TimeMachineState {
    * Seek to a specific timestamp in the history.
    * @param {number} timestamp - The target timestamp
    */
-  seek(timestamp) {
+  async seek(timestamp) {
     if (!this.isStarted) return;
 
     this.currentTime = Math.max(
       this.recordingBuffer[0]?.timestamp || 0,
       Math.min(timestamp, this.maxTime)
     );
-    
+
     this.isReviewing = this.currentTime < (this.maxTime - 500); // 500ms threshold
-    
+
     if (this.isReviewing) {
-      this._applyStateAt(this.currentTime);
+      await this._applyStateAt(this.currentTime);
+      this._showReplayCanvas(true);
+      this._updateBotCursors();
     } else {
+      this._showReplayCanvas(false);
+      this._removeBotCursors();
       this.previewData = null;
     }
   }
 
   /**
-   * Internal method to apply state and actions to the off-screen canvas.
+   * Show or hide the replay canvas overlay.
+   * @param {boolean} show
+   * @private
+   */
+  _showReplayCanvas(show) {
+    if (this._replayCanvas) {
+      this._replayCanvas.style.display = show ? 'block' : 'none';
+    }
+
+    // Hide/show the real board canvases to prevent them showing through
+    if (this._board) {
+      const visibility = show ? 'hidden' : 'visible';
+      if (this._board.mainCanvas) this._board.mainCanvas.style.visibility = visibility;
+      if (this._board.topCanvas) this._board.topCanvas.style.visibility = visibility;
+      if (this._board.upperLayersCanvas) this._board.upperLayersCanvas.style.visibility = visibility;
+
+      // Also hide user boards (remote user canvases)
+      const userBoards = document.getElementById('userBoards');
+      if (userBoards) userBoards.style.visibility = visibility;
+    }
+  }
+
+  /**
+   * Internal method to apply state and actions using the ReplayEngine.
    * @param {number} timestamp - Target timestamp
    * @private
    */
-  _applyStateAt(timestamp) {
+  async _applyStateAt(timestamp) {
+    if (!this._replayEngine) {
+      console.warn('[TimeMachine] No replay engine');
+      return;
+    }
+
     // 1. Find the snapshot closest to, but not exceeding, the target timestamp
     let snapshot = null;
+    let snapshotIndex = -1;
     for (let i = this.recordingBuffer.length - 1; i >= 0; i--) {
       if (this.recordingBuffer[i].timestamp <= timestamp) {
         snapshot = this.recordingBuffer[i];
+        snapshotIndex = i;
         break;
       }
     }
 
-    if (!snapshot) return;
-
-    // 2. Restore base state to off-screen canvas (both layers)
-    const imgMain = new Image();
-    const imgTop = new Image();
-    let loadedCount = 0;
-
-    const onLayerLoaded = () => {
-      loadedCount++;
-      if (loadedCount === 2) {
-        this._offscreenCtx.clearRect(0, 0, this._offscreenCanvas.width, this._offscreenCanvas.height);
-        this._offscreenCtx.drawImage(imgMain, 0, 0);
-        this._offscreenCtx.drawImage(imgTop, 0, 0);
-
-        // 3. Replay actions forward from snapshot to target timestamp
-        const actionsToReplay = snapshot.actions.filter(a => a.timestamp > snapshot.timestamp && a.timestamp <= timestamp);
-        
-        // Track per-user state during this replay run
-        const replayUserStates = new Map();
-
-        for (const action of actionsToReplay) {
-          this._replayAction(action.buffer, this._offscreenCtx, replayUserStates);
-        }
-
-        // 4. Update preview data URL
-        this.previewData = this._offscreenCanvas.toDataURL('image/png');
-      }
-    };
-
-    imgMain.onload = onLayerLoaded;
-    imgTop.onload = onLayerLoaded;
-    
-    imgMain.src = snapshot.canvasData;
-    imgTop.src = snapshot.topCanvasData;
-  }
-
-  /**
-   * Replay a single protobuf action onto a context.
-   * @param {Uint8Array} buffer - Action buffer
-   * @param {CanvasRenderingContext2D} ctx - Target context
-   * @param {Map} userStates - Map of sessionIndex -> { lastX, lastY, color, size, etc }
-   * @private
-   */
-  _replayAction(buffer, ctx, userStates) {
-    if (!this._wsClient || !this._wsClient.Msg) return;
-
-    try {
-      const msg = this._wsClient.Msg.decode(buffer);
-      const userId = msg.sessionIndex;
-      
-      // Get or create user state for replay
-      if (!userStates.has(userId)) {
-        userStates.set(userId, {
-          x: 0, y: 0, color: [0, 0, 0, 1], size: 10, mousedown: false
-        });
-      }
-      const state = userStates.get(userId);
-
-      switch (msg.t) {
-        case T.MD:
-          state.mousedown = true;
-          if (msg.ps && msg.ps.length >= 2) {
-            state.x = msg.ps[0];
-            state.y = msg.ps[1];
-            // Draw a dot for MD
-            this._drawSegment(ctx, state.x, state.y, state.x, state.y, state.color, state.size);
-            // Draw subsequent points if any
-            for (let i = 2; i < msg.ps.length; i += 2) {
-              const nx = msg.ps[i];
-              const ny = msg.ps[i+1];
-              this._drawSegment(ctx, state.x, state.y, nx, ny, state.color, state.size);
-              state.x = nx;
-              state.y = ny;
-            }
-          }
-          break;
-
-        case T.MM:
-          if (msg.ps && msg.ps.length >= 2) {
-            for (let i = 0; i < msg.ps.length; i += 2) {
-              const nx = msg.ps[i];
-              const ny = msg.ps[i+1];
-              if (state.mousedown) {
-                this._drawSegment(ctx, state.x, state.y, nx, ny, state.color, state.size);
-              }
-              state.x = nx;
-              state.y = ny;
-            }
-          }
-          break;
-
-        case T.MU:
-          state.mousedown = false;
-          break;
-
-        case T.CC: // Color Change
-          if (msg.c !== undefined) {
-            const color = msg.c;
-            const r = (color >> 24) & 0xFF;
-            const g = (color >> 16) & 0xFF;
-            const b = (color >> 8) & 0xFF;
-            const a = (color & 0xFF) / 255;
-            state.color = [r, g, b, a];
-          }
-          break;
-
-        case T.CS: // Size Change
-          if (msg.s !== undefined) {
-            state.size = msg.s / 100;
-          }
-          break;
-
-        case T.CLR:
-          ctx.clearRect(0, 0, this._offscreenCanvas.width, this._offscreenCanvas.height);
-          break;
-      }
-    } catch (err) {
-      // Ignore decode errors for non-drawing messages
+    if (!snapshot) {
+      console.warn('[TimeMachine] No snapshot found for timestamp', timestamp);
+      return;
     }
-  }
 
-  /**
-   * Helper to draw a line segment.
-   * @private
-   */
-  _drawSegment(ctx, x1, y1, x2, y2, color, size) {
-    ctx.beginPath();
-    ctx.strokeStyle = `rgba(${color[0]},${color[1]},${color[2]},${color[3]})`;
-    ctx.lineWidth = size * 2; // Matches board.js line width
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
+    console.log('[TimeMachine] Applying state at', new Date(timestamp).toLocaleTimeString(),
+      'using snapshot from', new Date(snapshot.timestamp).toLocaleTimeString());
+
+    // 2. Load snapshot into replay engine
+    await this._replayEngine.loadSnapshot(snapshot);
+
+    // 3. Gather all actions from snapshot to target timestamp
+    const actionsToReplay = [];
+
+    for (let i = snapshotIndex; i < this.recordingBuffer.length; i++) {
+      const snap = this.recordingBuffer[i];
+      for (const action of snap.actions) {
+        if (action.timestamp > snapshot.timestamp && action.timestamp <= timestamp) {
+          actionsToReplay.push(action);
+        }
+      }
+    }
+
+    // Sort by timestamp to ensure correct order
+    actionsToReplay.sort((a, b) => a.timestamp - b.timestamp);
+
+    console.log('[TimeMachine] Replaying', actionsToReplay.length, 'actions');
+
+    // 4. Process actions through replay engine
+    this._replayEngine.processActions(actionsToReplay, timestamp);
+
+    // 5. Draw replay result to the replay canvas
+    if (this._replayCtx && this._replayEngine.outputCanvas) {
+      // Fill with background color first to prevent real board showing through
+      const bgColor = this._board?.backgroundColor || [255, 255, 255, 1];
+      this._replayCtx.fillStyle = `rgba(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]}, ${bgColor[3]})`;
+      this._replayCtx.fillRect(0, 0, this._replayCanvas.width, this._replayCanvas.height);
+
+      this._replayCtx.drawImage(this._replayEngine.outputCanvas, 0, 0);
+      // Also draw topCanvas for any in-progress strokes at snapshot time
+      if (this._replayEngine.topCanvas) {
+        this._replayCtx.drawImage(this._replayEngine.topCanvas, 0, 0);
+      }
+    }
+
+    // Also update previewData for the badge/UI (optional, can be removed if not needed)
+    this.previewData = true; // Just a flag that we have preview data
+    console.log('[TimeMachine] Replay canvas updated, isReviewing:', this.isReviewing);
   }
 
   play() {
@@ -395,6 +406,7 @@ class TimeMachineState {
    * Catch up to the present live state.
    */
   catchUp() {
+    this.pause();
     this.seek(this.maxTime);
   }
 
@@ -410,6 +422,66 @@ class TimeMachineState {
       t: T.MOD_UNDO_TO_STATE,
       mod_undo_ts: timestamp
     });
+  }
+
+  /**
+   * Create or update UI cursors for bot users during replay.
+   * @private
+   */
+  _updateBotCursors() {
+    const ui = window.app?.ui;
+    if (!ui || !this._replayEngine) return;
+
+    for (const [id, user] of this._replayEngine.botUsers) {
+      // Use negative IDs for bots to avoid collision with real users
+      const botId = -1000 - id;
+
+      if (!this._botCursorIds.has(botId)) {
+        // Create cursor for this bot using real username from snapshot
+        const userData = {
+          username: user.username || `User ${id}`,
+          role: user.role ?? 0,
+          color: user.color || [100, 100, 100, 1],
+          size: user.size || 10,
+          tool: user.tool || 'brush',
+          x: user.x ?? 0,
+          y: user.y ?? 0
+        };
+        ui.createRemoteUser(botId, userData);
+        this._botCursorIds.add(botId);
+
+        // Hide the user list entry for bot users (keep only the cursor)
+        const listEntry = document.querySelector(`.userListEntry.u${botId}`);
+        if (listEntry) listEntry.style.display = 'none';
+      }
+
+      // Update cursor position
+      if (user.x !== undefined && user.y !== undefined) {
+        ui.updateRemoteCursor(botId, user.x, user.y, user.size || 10);
+      }
+
+      // Update tool display
+      ui.updateRemoteToolDisplay(botId, user.tool || 'brush');
+
+      // Update color
+      if (user.color) {
+        ui.updateRemoteColor(botId, user.color);
+      }
+    }
+  }
+
+  /**
+   * Remove all bot cursors from the UI.
+   * @private
+   */
+  _removeBotCursors() {
+    const ui = window.app?.ui;
+    if (!ui) return;
+
+    for (const botId of this._botCursorIds) {
+      ui.removeRemoteUser(botId);
+    }
+    this._botCursorIds.clear();
   }
 }
 

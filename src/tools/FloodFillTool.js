@@ -548,8 +548,8 @@ export class FloodFillTool {
         }
 
         if (hasFill) {
-          const tileIdx = row * tt.cols + col;
-          tt.markTileDirty(tileIdx);
+          const tileIdx = row * tom.cols + col;
+          tom.markTileDirty(tileIdx);
           // Track for undo
           if (active?.affectedTiles) {
             active.affectedTiles.add(tileIdx);
