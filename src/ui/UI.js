@@ -1101,7 +1101,7 @@ export class UI {
     if (!btn) return;
 
     btn.style.display = visible ? 'inline-block' : 'none';
-    btn.textContent = locked ? '🔒' : '🔓';
+    btn.innerHTML = locked ? '<img src="/images/lock-closed.svg" alt="lock">' : '<img src="/images/lock-open.svg" alt="unlock">';
     btn.classList.toggle('locked', locked);
     btn.title = locked ? `Unlock ${property} for current tool` : `Lock ${property} for current tool`;
   }

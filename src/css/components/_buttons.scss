@@ -60,6 +60,13 @@
   align-items: center;
   justify-content: center;
   color: inherit;
+
+  img {
+    width: 14px;
+    height: 14px;
+    filter: invert(1);
+    display: block;
+  }
 }
 
 .sliderLabel .lock-btn:hover {
