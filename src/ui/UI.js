@@ -1078,8 +1078,15 @@ export class UI {
    * @param {boolean} simulate - Whether simulate pressure is enabled.
    */
   updateSimulatePressure(simulate) {
-    if (this.elements.simulatePressureCheckbox) {
-      this.elements.simulatePressureCheckbox.checked = simulate;
+    if (this.elements.thinningEnabled) {
+      this.elements.thinningEnabled.checked = simulate;
+      // Update visibility to match checkbox state
+      if (this.elements.thinningSliderContainer) {
+        this.elements.thinningSliderContainer.style.display = simulate ? '' : 'none';
+      }
+      if (this.elements.thinningValue) {
+        this.elements.thinningValue.style.display = simulate ? '' : 'none';
+      }
     }
   }
 

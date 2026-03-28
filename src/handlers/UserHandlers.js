@@ -12,8 +12,6 @@ export function setupUserHandlers(wsClient, app) {
   const { users, ui, board, chat } = app;
 
   wsClient.on('users', (data) => {
-    console.log(`[USERS] Received ${data.users.length} users:`, data.users.map(u => `${u.name || 'unnamed'}(${u.sessionIndex})`).join(', '), `My sessionIndex: ${app.sessionIndex}`);
-    
     // Authoritative Removal: Find users we have locally who are NOT in the new list
     const remoteIndices = new Set(data.users.map(u => u.sessionIndex));
     users.forEach((user, sessionIndex) => {
@@ -45,7 +43,9 @@ export function setupUserHandlers(wsClient, app) {
           app.self.setThinning(userData.thinning);
           app.ui.updateThinningValue(Math.round(userData.thinning * 100));
         }
-        if (userData.simulatePressure !== undefined) {
+        // Only apply server's simulatePressure if we don't have a localStorage preference
+        const savedSimulatePressure = localStorage.getItem('topDrawSimulatePressure');
+        if (userData.simulatePressure !== undefined && savedSimulatePressure === null) {
           app.self.setSimulatePressure(userData.simulatePressure);
           app.ui.updateSimulatePressure(userData.simulatePressure);
         }
@@ -148,8 +148,6 @@ export function setupUserHandlers(wsClient, app) {
   });
 
   wsClient.on('settings', (data) => {
-    console.log('[UserHandlers] SETTINGS received:', data);
-
     board.setMirror(data.mirror);
     ui.updateMirrorDisplay(data.mirror);
     if (data.backgroundColor) {
@@ -170,7 +168,6 @@ export function setupUserHandlers(wsClient, app) {
     }
     if (data.maxUsers !== undefined) {
       app.currentRoomData.maxUsers = data.maxUsers;
-      console.log('[UserHandlers] Updated currentRoomData.maxUsers to:', app.currentRoomData.maxUsers);
     }
     // Mirror is not persisted to DB, but update it locally
     app.currentRoomData.mirror = data.mirror;

@@ -49,6 +49,7 @@ export class DrawingApp {
     this.users = new Map();
     this.connected = false;
     this.previousTool = null;
+    this.intentionalDisconnect = false;
 
     this.board = new Board({
       dimensions: options.dimensions || [1080, 1920]
@@ -359,6 +360,14 @@ export class DrawingApp {
     if (elements.hardnessSlider) {
       this.self.setHardness(Number(elements.hardnessSlider.value));
     }
+
+    // Load thinning (simulate pressure) preference from localStorage
+    const savedSimulatePressure = localStorage.getItem('topDrawSimulatePressure');
+    if (savedSimulatePressure !== null) {
+      const simulate = savedSimulatePressure === 'true';
+      this.self.setSimulatePressure(simulate);
+      this.ui.updateSimulatePressure(simulate);
+    }
   }
 
   /**
@@ -587,12 +596,20 @@ export class DrawingApp {
 
     // Thinning enable/disable checkbox
     if (elements.thinningEnabled) {
-      elements.thinningEnabled.addEventListener('change', () => {
+      elements.thinningEnabled.addEventListener('change', (e) => {
+        // Update visibility
         if (elements.thinningSliderContainer) {
           elements.thinningSliderContainer.style.display = elements.thinningEnabled.checked ? '' : 'none';
         }
         if (elements.thinningValue) {
           elements.thinningValue.style.display = elements.thinningEnabled.checked ? '' : 'none';
+        }
+        // Update simulate pressure state
+        const simulate = e.target.checked;
+        this.self.setSimulatePressure(simulate);
+        localStorage.setItem('topDrawSimulatePressure', simulate);
+        if (this.connected) {
+          this.wsClient.broadcastSimulatePressureChange(simulate);
         }
       });
     }
@@ -1451,8 +1468,6 @@ export class DrawingApp {
    * @returns {Promise<void>}
    */
   async handleRoomSelected(roomId, password = null) {
-    console.log(`[App] Room selected: ${roomId}`);
-
     // Handle /go/offline as draw alone mode
     if (roomId === 'offline') {
       this.handleOffline();
@@ -1663,8 +1678,13 @@ export class DrawingApp {
    * @param {string} reason - Disconnection reason.
    */
   handleWSDisconnect(code, reason) {
-    console.log('[App] WebSocket disconnected', { code, reason, wasConnected: this.connected });
     this.connected = false;
+
+    // Don't show disconnection UI if disconnect was intentional
+    if (this.intentionalDisconnect) {
+      this.intentionalDisconnect = false;
+      return;
+    }
 
     // Don't show disconnection UI if we're in offline mode
     if (this.isOfflineMode) {
@@ -2182,8 +2202,6 @@ export class DrawingApp {
    * @returns {Promise<void>}
    */
   async disconnect() {
-    console.log('[App] Exiting room, returning to lobby...');
-
     if (this.inputBufferManager) {
       this.inputBufferManager.stopTickLoop();
     }
@@ -2212,6 +2230,7 @@ export class DrawingApp {
     this.ui.hideDisconnectionBanner();
 
     if (this.wsClient && this.wsClient.connected) {
+      this.intentionalDisconnect = true;
       this.wsClient.disconnect();
       await new Promise(resolve => setTimeout(resolve, 100));
     }
@@ -3016,7 +3035,10 @@ export class DrawingApp {
 
       // Auto-disable thinning for tablet users
       this.self.setSimulatePressure(false);
-      this.ui.elements.simulatePressureCheckbox.checked = false;
+      localStorage.setItem('topDrawSimulatePressure', 'false');
+      if (this.ui.elements.thinningEnabled) {
+        this.ui.elements.thinningEnabled.checked = false;
+      }
       if (this.connected) {
         this.wsClient.broadcastSimulatePressureChange(false);
       }

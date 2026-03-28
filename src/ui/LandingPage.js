@@ -272,8 +272,6 @@ export class LandingPage {
    * @param {string|null} password - Optional room password
    */
   proceedToRoom(roomId, password = null) {
-    console.log(`[LandingPage] Proceeding to room: ${roomId}`);
-
     // Update URL to /go/roomName
     const newPath = `/go/${roomId}`;
     if (window.location.pathname !== newPath) {
