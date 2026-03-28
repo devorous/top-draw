@@ -208,13 +208,9 @@ export class PatternTool extends Tool {
     const spacing = user.patternSpacing || 0;
     const key = `${brush.brushName || brush.fileName}_${colorKey}_${spacing}_${colorMode}`;
 
-    console.debug('PatternTool._getPatternTile:', { colorMode, colorKey, cacheKey: key, cacheSize: this._tileCache.size });
-
     if (this._tileCache.has(key)) {
-      console.debug('PatternTool: Using cached tile for key:', key);
       return this._tileCache.get(key);
     }
-    console.debug('PatternTool: Generating new tile for key:', key);
 
     // Preserve aspect ratio
     const maxDim = 40;
@@ -344,11 +340,8 @@ export class PatternTool extends Tool {
     const tile = this._getPatternTile(user);
     if (!tile) {
       // No pattern selected yet - show blank preview
-      console.debug('PatternTool: No tile available for preview');
       return;
     }
-
-    console.debug('PatternTool: Updating preview with color:', user.color, 'colorMode:', user.patternColorMode);
 
     const pattern = ctx.createPattern(tile, 'repeat');
     const scale = (user.patternScale || 100) / 100;

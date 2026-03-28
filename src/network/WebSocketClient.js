@@ -73,7 +73,6 @@ export class WebSocketClient {
       const root = await protobuf.default.load(protoUrl);
       this.Msg = root.lookupType('Msg');
       this.protoLoaded = true;
-      console.log('Protobuf loaded on client');
     } catch (err) {
       console.error('Failed to load protobuf:', err);
       throw err;

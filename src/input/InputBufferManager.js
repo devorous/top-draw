@@ -57,11 +57,6 @@ function detectLowPowerDevice() {
   }
 
   const isLowPower = score >= 3;
-  const message = `[Performance] Device score: ${score} → ${isLowPower ? '30' : '60'} TPS`
-    + ` | cores: ${cores || 'N/A'}, memory: ${memory ?? 'N/A'}GB`
-    + ` | GPU: ${renderer}`
-    + ` | maxTexture: ${maxTexture}, maxVertexUnits: ${maxVertexUnits}`;
-  console.log(message);
 
   // Store for debug display
   window.__performanceDetection = {
@@ -71,8 +66,7 @@ function detectLowPowerDevice() {
     memory,
     renderer,
     maxTexture,
-    maxVertexUnits,
-    message
+    maxVertexUnits
   };
 
   return isLowPower;

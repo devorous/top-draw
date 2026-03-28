@@ -76,7 +76,6 @@ export class SyncClient {
     this.progressBarEl = this.overlayEl?.querySelector('.sync-progress-bar');
     this.progressFillEl = this.overlayEl?.querySelector('.sync-progress-fill');
     this.initialized = true;
-    console.log('[SyncClient] Initialized');
   }
 
   /**

@@ -24,8 +24,6 @@ const MessengerWrapper = (function() {
         $effect(() => {
           const visible = appState.messengerVisible;
           const targetUser = appState.messengerTargetUser;
-          
-          console.log('MessengerWrapper effect:', { visible, targetUser });
 
           if (visible) {
             if (!this.instance) {
