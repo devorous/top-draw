@@ -191,12 +191,14 @@ export class RemoteInkHandler {
     const thinning = !simulatePressure ? 0.95 : Math.min(0.99, rawThinning * Math.max(1, inkSize / 10));
 
     const userSmoothing = user.smoothing !== undefined ? user.smoothing / 50 : 0.5;
+    // We use a baseline streamline even at 0 smoothing to stabilize velocity calculation in perfect-freehand
+    const streamline = 0.3 + (userSmoothing * 0.7); // Scale 0.3 to 1.0
 
     const options = {
       size: Math.max(0.1, (inkSize * 2) / (1 + rawThinning)),
       thinning: thinning,
       smoothing: userSmoothing,
-      streamline: userSmoothing,
+      streamline: streamline,
       simulatePressure: simulatePressure,
       last
     };

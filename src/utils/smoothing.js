@@ -4,26 +4,28 @@
  */
 
 /**
- * Applies Exponential Moving Average (EMA) smoothing to a position.
- * Used by InputBufferManager to smooth positions before local rendering and network broadcast.
- * @param {Object} buffer - Smoothing buffer with {x, y, isFirst}.
+ * Applies Exponential Moving Average (EMA) smoothing to a position and pressure.
+ * Used by InputBufferManager to smooth inputs before local rendering and network broadcast.
+ * @param {Object} buffer - Smoothing buffer with {x, y, p, isFirst}.
  * @param {number} targetX - Target X position (raw input).
  * @param {number} targetY - Target Y position (raw input).
+ * @param {number} targetP - Target pressure (0-1).
  * @param {number} userSmoothing - User smoothing setting (0-50).
  * @param {number} [baseline=0.12] - Baseline smoothing factor (12% default).
- * @returns {Object} - Smoothed position {x, y}.
+ * @returns {Object} - Smoothed position and pressure {x, y, p}.
  */
-export function applySmoothingEMA(buffer, targetX, targetY, userSmoothing, baseline = 0.12) {
+export function applySmoothingEMA(buffer, targetX, targetY, targetP, userSmoothing, baseline = 0.12) {
   // Calculate total smoothing: baseline (always on) + user contribution
   // userSmoothing is now 0-50 integer, so divide by 50.0 to get 0-1 range
   const totalSmoothing = baseline + (userSmoothing / 50.0) * (1 - baseline);
 
-  // First point: initialize buffer with target position (no smoothing)
+  // First point: initialize buffer with target (no smoothing)
   if (buffer.isFirst || totalSmoothing === 0) {
     buffer.x = targetX;
     buffer.y = targetY;
+    buffer.p = targetP !== undefined ? targetP : 1;
     buffer.isFirst = false;
-    return { x: targetX, y: targetY };
+    return { x: targetX, y: targetY, p: buffer.p };
   }
 
   // Calculate interpolation factor
@@ -33,6 +35,7 @@ export function applySmoothingEMA(buffer, targetX, targetY, userSmoothing, basel
   // Apply exponential moving average: new = old + (target - old) * factor
   const dx = (targetX - buffer.x) * factor;
   const dy = (targetY - buffer.y) * factor;
+  const dp = ((targetP !== undefined ? targetP : 1) - (buffer.p !== undefined ? buffer.p : 1)) * factor;
 
   // Convergence: snap to target if the step is very small to prevent infinite approach
   if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) {
@@ -43,7 +46,13 @@ export function applySmoothingEMA(buffer, targetX, targetY, userSmoothing, basel
     buffer.y += dy;
   }
 
-  return { x: buffer.x, y: buffer.y };
+  if (Math.abs(dp) < 0.001) {
+    buffer.p = targetP !== undefined ? targetP : 1;
+  } else {
+    buffer.p = (buffer.p !== undefined ? buffer.p : 1) + dp;
+  }
+
+  return { x: buffer.x, y: buffer.y, p: buffer.p };
 }
 
 /**

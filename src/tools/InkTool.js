@@ -163,35 +163,52 @@ export class InkTool extends Tool {
 
   /**
    * Handles pointer move event.
+   * Note: Position smoothing is handled by InputBufferManager.
+   *
    * @param {Object} user - The user performing the action.
    * @param {Object} pos - The current pointer position.
    * @param {Object} lastPos - The previous pointer position.
    * @param {Event} e - The pointer event.
    */
   onPointerMove(user, pos, lastPos, e) {
+    this.onPointerMoveNoRender(user, pos, lastPos, e);
+    this.renderStroke(false, user);
+    this.board.clearTop();
+    this.drawPreview();
+  }
+
+  /**
+   * Internal version of onPointerMove that skips rendering.
+   * Used by InputBufferManager to batch points within a single tick.
+   *
+   * @param {Object} user - The user performing the action.
+   * @param {Object} pos - The current pointer position.
+   * @param {Object} lastPos - The previous pointer position.
+   * @param {Event} e - The pointer event.
+   */
+  onPointerMoveNoRender(user, pos, lastPos, e) {
     if (!user.mousedown || user.panning || this.inputPoints.length === 0) return;
 
     // Skip points too close to the last point to prevent velocity calculation noise
-    // in perfect-freehand when simulatePressure is enabled
+    // in perfect-freehand when simulatePressure is enabled.
+    // We use a smaller threshold now that input is EMA-smoothed.
     const lastPoint = this.inputPoints[this.inputPoints.length - 1];
     const dx = pos.x - lastPoint[0];
     const dy = pos.y - lastPoint[1];
     const distSq = dx * dx + dy * dy;
-    if (distSq < 4) return; // Min 2px distance
+    if (distSq < 1) return; // Min 1px distance (was 2px)
 
     const pressure = this.quantizePressure(user.pressure);
 
     this.inputPoints.push([pos.x, pos.y, pressure]);
     this.pointBuffer.push(pos.x, pos.y, Math.round(pressure * 255));
 
-    this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, pos.x);
-    this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, pos.y);
-    this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, pos.x);
-    this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y);
-
-    this.renderStroke(false, user);
-    this.board.clearTop();
-    this.drawPreview();
+    if (this.dirtyBounds) {
+      this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, pos.x);
+      this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, pos.y);
+      this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, pos.x);
+      this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y);
+    }
   }
 
   /**
@@ -330,12 +347,14 @@ export class InkTool extends Tool {
     const effectiveThinning = (simulatePressure && thinningEnabled) ? Math.min(0.99, sizeScaledThinning) : 0.95;
 
     const userSmoothing = activeUser.smoothing !== undefined ? activeUser.smoothing / 50 : 0.5;
+    // We use a baseline streamline even at 0 smoothing to stabilize velocity calculation in perfect-freehand
+    const streamline = 0.3 + (userSmoothing * 0.7); // Scale 0.3 to 1.0
 
     const options = {
       size: (this._strokeSize * 2) / (1 + userThinning),
       thinning: effectiveThinning,
       smoothing: userSmoothing,
-      streamline: userSmoothing,
+      streamline: streamline,
       simulatePressure: simulatePressure,
       last
     };

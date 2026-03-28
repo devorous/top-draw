@@ -124,7 +124,7 @@ export class InputBufferManager {
     };
 
     /** @type {Object} */
-    this.broadcastSmoothBuffer = { x: 0, y: 0, isFirst: true };
+    this.broadcastSmoothBuffer = { x: 0, y: 0, p: 1, isFirst: true };
   }
 
   /**
@@ -184,10 +184,9 @@ export class InputBufferManager {
 
     const { points } = this.inputBuffer;
 
-    if (points.length >= 2) {
-      const smoothingTools = ['brush', 'flowPen', 'imageBrush'];
+    if (points.length >= 3) {
+      const smoothingTools = ['brush', 'flowPen', 'imageBrush', 'ink'];
       const blurTools = ['blur', 'circleBlur', 'glitchBlur'];
-      const inkTool = app.self.tool === 'ink';
       const useSmoothing = app.self.mousedown && !app.self.panning && smoothingTools.includes(app.self.tool);
       const useBlur = app.self.mousedown && !app.self.panning && blurTools.includes(app.self.tool);
 
@@ -205,12 +204,6 @@ export class InputBufferManager {
         smoothedPoints = this.applyBroadcastSmoothing(points);
         broadcastPoints = this.applyPointReduction(smoothedPoints);
         localPoints = broadcastPoints;
-      } else if (inkTool) {
-        // Ink tool: no EMA smoothing here as perfect-freehand handles it internally.
-        // Broadcast raw points (with reduction) to ensure remote users receive the same data.
-        smoothedPoints = points;
-        broadcastPoints = this.applyPointReduction(points);
-        localPoints = points;
       } else {
         // All other tools (pixel, line, shapes, etc.): no smoothing
         // Broadcast exactly what is rendered locally so remote matches
@@ -219,24 +212,48 @@ export class InputBufferManager {
         localPoints = points;
       }
 
-      const lastRawX = points[points.length - 2];
-      const lastRawY = points[points.length - 1];
+      const lastRawX = points[points.length - 3];
+      const lastRawY = points[points.length - 2];
       app.self.setTarget(lastRawX, lastRawY);
 
-      const lastX = localPoints[localPoints.length - 2];
-      const lastY = localPoints[localPoints.length - 1];
+      const lastX = localPoints[localPoints.length - 3];
+      const lastY = localPoints[localPoints.length - 2];
+      const lastP = localPoints[localPoints.length - 1];
       app.self.setPosition(lastX, lastY);
+      app.self.setPressure(lastP);
 
       if (app.self.mousedown && !app.self.panning) {
         const tool = app.toolManager.getCurrentTool();
         if (tool) {
-          for (let i = 0; i < localPoints.length; i += 2) {
+          // Track whether we need to flush rendering (for tools like InkTool that render globally)
+          const isInk = app.self.tool === 'ink';
+          
+          for (let i = 0; i < localPoints.length; i += 3) {
               const currentPos = { x: localPoints[i], y: localPoints[i+1] };
-              const prevPos = i === 0 ? (this.inputBuffer.lastPosition || currentPos) : { x: localPoints[i-2], y: localPoints[i-1] };
+              const currentPressure = localPoints[i+2];
+              const prevPos = i === 0 ? (this.inputBuffer.lastPosition || currentPos) : { x: localPoints[i-3], y: localPoints[i-2] };
               
-              tool.onPointerMove(app.self, currentPos, prevPos);
+              // Update user pressure before each move to ensure smooth thickness transitions
+              app.self.setPressure(currentPressure);
+
+              // Ink tool: buffer points but defer rendering until end of tick for performance
+              if (isInk && tool.onPointerMoveNoRender) {
+                tool.onPointerMoveNoRender(app.self, currentPos, prevPos);
+              } else {
+                tool.onPointerMove(app.self, currentPos, prevPos);
+              }
+              
               app.self._mainCtxDrawCount++;
               app.debugOverlay.addStrokePoint(app.self.id, currentPos.x, currentPos.y, 'tick');
+          }
+
+          // Final flush for tools that deferred rendering
+          if (isInk && tool.renderStroke) {
+            tool.renderStroke(false, app.self);
+            if (app.board) {
+              app.board.clearTop();
+              if (tool.drawPreview) tool.drawPreview();
+            }
           }
         }
       }
@@ -250,7 +267,12 @@ export class InputBufferManager {
         }
       } else {
         if (broadcastPoints.length > 0) {
-          app.wsClient.broadcastMove(broadcastPoints);
+          // Strip pressure for standard broadcastMove (which doesn't support per-point pressure yet)
+          const xyPoints = [];
+          for (let i = 0; i < broadcastPoints.length; i += 3) {
+            xyPoints.push(broadcastPoints[i], broadcastPoints[i+1]);
+          }
+          app.wsClient.broadcastMove(xyPoints);
         }
       }
 
@@ -294,13 +316,17 @@ export class InputBufferManager {
     if (!tool) return;
 
     const targetPos = { x: app.self.targetX, y: app.self.targetY };
+    const targetP = app.self.pressure;
     let prevPos = { x: this.broadcastSmoothBuffer.x, y: this.broadcastSmoothBuffer.y };
 
-    const points = [targetPos.x, targetPos.y];
+    const points = [targetPos.x, targetPos.y, targetP];
     const smoothedPoints = this.applyBroadcastSmoothing(points);
     const smoothedPos = { x: smoothedPoints[0], y: smoothedPoints[1] };
+    const smoothedP = smoothedPoints[2];
 
     app.self.setPosition(smoothedPos.x, smoothedPos.y);
+    app.self.setPressure(smoothedP);
+    
     tool.onPointerMove(app.self, smoothedPos, prevPos);
     app.self._mainCtxDrawCount++;
 
@@ -312,7 +338,12 @@ export class InputBufferManager {
       }
     } else {
       const reducedPoints = this.applyPointReduction(smoothedPoints);
-      app.wsClient.broadcastMove(reducedPoints);
+      // Strip pressure for standard broadcastMove
+      const xyPoints = [];
+      for (let i = 0; i < reducedPoints.length; i += 3) {
+        xyPoints.push(reducedPoints[i], reducedPoints[i+1]);
+      }
+      app.wsClient.broadcastMove(xyPoints);
     }
 
     app.debugOverlay.addStrokePoint(app.self.id, targetPos.x, targetPos.y, 'catchup');
@@ -321,37 +352,37 @@ export class InputBufferManager {
   /**
    * Reduces the number of points in a stroke using Douglas-Peucker.
    *
-   * @param {Array<number>} points - Flattened point array.
+   * @param {Array<number>} points - Flattened point array (x, y, p triples).
    * @returns {Array<number>} Optimized point array.
    */
   applyPointReduction(points) {
-    if (!this.pointReduction.enabled || points.length < 4) return points;
+    if (!this.pointReduction.enabled || points.length < 6) return points;
     const userSmoothing = this.app.self.smoothing !== undefined ? this.app.self.smoothing : 15;
     const baseline = this.baselineSmoothing.pointReduction;
     const pointObjects = [];
-    for (let i = 0; i < points.length; i += 2) {
-      pointObjects.push({ x: points[i], y: points[i + 1] });
+    for (let i = 0; i < points.length; i += 3) {
+      pointObjects.push({ x: points[i], y: points[i + 1], p: points[i + 2] });
     }
     const epsilon = baseline.minEpsilon + (baseline.maxEpsilon - baseline.minEpsilon) * (userSmoothing / 50);
     const reduced = douglasPeucker(pointObjects, epsilon);
     const result = [];
-    for (const p of reduced) result.push(p.x, p.y);
+    for (const p of reduced) result.push(p.x, p.y, p.p);
     return result;
   }
 
   /**
    * Applies Exponential Moving Average (EMA) smoothing to a batch of points.
    *
-   * @param {Array<number>} points - Raw input coordinates.
+   * @param {Array<number>} points - Raw input coordinates (x, y, p triples).
    * @returns {Array<number>} Smoothed coordinates.
    */
   applyBroadcastSmoothing(points) {
-    if (points.length < 2) return points;
+    if (points.length < 3) return points;
     const userSmoothing = this.app.self.smoothing || 0;
     const result = [];
-    for (let i = 0; i < points.length; i += 2) {
-      const smoothed = applySmoothingEMA(this.broadcastSmoothBuffer, points[i], points[i+1], userSmoothing);
-      result.push(smoothed.x, smoothed.y);
+    for (let i = 0; i < points.length; i += 3) {
+      const smoothed = applySmoothingEMA(this.broadcastSmoothBuffer, points[i], points[i+1], points[i+2], userSmoothing);
+      result.push(smoothed.x, smoothed.y, smoothed.p);
     }
     return result;
   }

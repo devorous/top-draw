@@ -2931,8 +2931,8 @@ export class DrawingApp {
       }
     }
 
-    // Buffer the input for processing
-    this.inputBufferManager.inputBuffer.points.push(x, y);
+    // Buffer the input for processing (x, y, pressure)
+    this.inputBufferManager.inputBuffer.points.push(x, y, pressure);
     this.inputBufferManager.inputBuffer.pointerType = e.pointerType;
     this.inputBufferManager.inputBuffer.dirty = true;
     this.board.performanceMonitor.recordInput();
