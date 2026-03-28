@@ -13,7 +13,7 @@ export function setupChatHandlers(wsClient, app) {
     const user = users.get(data.sessionIndex);
     if (user && app.svelteComponents?.chat) {
       app.svelteComponents.chat.addChatMessage(
-        user.name,
+        user.username,
         data.message,
         `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`
       );

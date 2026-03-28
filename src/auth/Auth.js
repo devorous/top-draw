@@ -18,6 +18,7 @@ export class Auth {
     // Current logged in state
     this.isLoggedIn = false;
     this.loggedInUsername = null;
+
   }
 
   init() {
@@ -265,6 +266,11 @@ export class Auth {
   handleSaveCredentials() {
     if (this._loading) return;
 
+    if (!this.wsClient?.connected) {
+      if (this.onError) this.onError('Not currently connected');
+      return;
+    }
+
     const username = this.els.editUsername?.value.trim();
     const password = this.els.editPassword?.value;
 
@@ -281,6 +287,11 @@ export class Auth {
 
   handleLogin() {
     if (this._loading) return;
+
+    if (!this.wsClient?.connected) {
+      if (this.onError) this.onError('Not currently connected');
+      return;
+    }
 
     const username = this.els.loginUsername?.value.trim();
     const password = this.els.loginPassword?.value;

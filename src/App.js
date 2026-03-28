@@ -2635,7 +2635,7 @@ export class DrawingApp {
     // Show immediately in chat (Svelte component handles its own state)
     if (this.svelteComponents?.chat) {
       this.svelteComponents.chat.addChatMessage(
-        this.self.name,
+        this.self.username,
         message,
         `rgba(${this.self.color[0]}, ${this.self.color[1]}, ${this.self.color[2]}, ${this.self.color[3] / 255})`
       );

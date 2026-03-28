@@ -80,6 +80,14 @@
     }
   }
 
+  function linkify(text) {
+    const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return escaped.replace(
+      /https?:\/\/[^\s<>"]+/g,
+      (url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" class="chat-link">${url}</a>`
+    );
+  }
+
   function formatTime(timestamp) {
     return new Date(timestamp).toLocaleTimeString([], {
       hour: '2-digit',
@@ -99,6 +107,27 @@
   export function addChatDM(message, senderId, fromSelf) {
     addDMMessage(message, senderId, fromSelf);
   }
+
+  // Auto-scroll
+  let messagesEl = $state(null);
+  let isAtBottom = true;
+
+  function onMessagesScroll() {
+    if (!messagesEl) return;
+    const { scrollTop, scrollHeight, clientHeight } = messagesEl;
+    isAtBottom = scrollHeight - scrollTop - clientHeight < 30;
+  }
+
+  $effect(() => {
+    // Re-run when messages change
+    messages.all.length;
+    if (isAtBottom && messagesEl) {
+      // Use microtask to let DOM update first
+      Promise.resolve().then(() => {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      });
+    }
+  });
 
   // Make draggable
   let chatEl = $state(null);
@@ -159,15 +188,15 @@
       <button class="chat-close" onclick={hide}>&times;</button>
     </div>
 
-    <div class="chat-content">
+    <div class="chat-content" bind:this={messagesEl} onscroll={onMessagesScroll}>
       {#if currentTab === 'all'}
         <div class="chat-messages">
           {#each messages.all as msg}
             <div class="chat-message">
-              <span class="chat-username" style="color: {msg.color}">
-                {msg.username}:
+              <span class="chat-username">
+                <span class="chat-user-dot" style="background: {msg.color}"></span>{msg.username}:
               </span>
-              <span class="chat-text">{msg.message}</span>
+              <span class="chat-text">{@html linkify(msg.message)}</span>
               <span class="chat-time">{formatTime(msg.timestamp)}</span>
             </div>
           {/each}
@@ -326,6 +355,18 @@
   .chat-username {
     font-weight: 500;
     margin-right: 0.375rem;
+    color: var(--text-primary);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .chat-user-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
   }
 
   .chat-text {
@@ -336,6 +377,16 @@
     font-size: 0.7rem;
     color: var(--text-muted);
     margin-left: 0.5rem;
+  }
+
+  :global(.chat-link) {
+    color: var(--accent-primary);
+    text-decoration: underline;
+    word-break: break-all;
+  }
+
+  :global(.chat-link:hover) {
+    color: var(--accent-hover);
   }
 
   .dm-header {
