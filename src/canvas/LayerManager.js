@@ -278,10 +278,10 @@ export class LayerManager {
     const dr = active.dirtyRect;
     let bounds;
     if (dr && dr.maxX !== -1) {
-      const bx = Math.max(0, dr.minX);
-      const by = Math.max(0, dr.minY);
-      const bw = Math.min(active.canvas.width, dr.maxX + 1) - bx;
-      const bh = Math.min(active.canvas.height, dr.maxY + 1) - by;
+      const bx = Math.floor(Math.max(0, dr.minX));
+      const by = Math.floor(Math.max(0, dr.minY));
+      const bw = Math.ceil(Math.min(active.canvas.width, dr.maxX + 1)) - bx;
+      const bh = Math.ceil(Math.min(active.canvas.height, dr.maxY + 1)) - by;
       if (bw > 0 && bh > 0) {
         bounds = { x: bx, y: by, width: bw, height: bh };
       } else {
