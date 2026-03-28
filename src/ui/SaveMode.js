@@ -710,14 +710,8 @@ export class SaveMode {
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
-
-    if (!this.transparent) {
-      const [r, g, b, a] = this.board.backgroundColor;
-      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-      ctx.fillRect(0, 0, width, height);
-    }
-
-    this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.getLayerCount(), null);
+    const bgColor = this.transparent ? null : this.board.backgroundColor;
+    this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.getLayerCount(), bgColor);
     return canvas;
   }
 
@@ -731,17 +725,12 @@ export class SaveMode {
     canvas.width = Math.max(1, Math.round(s.width));
     canvas.height = Math.max(1, Math.round(s.height));
     const ctx = canvas.getContext('2d');
-
-    if (!this.transparent) {
-      const [r, g, b, a] = this.board.backgroundColor;
-      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
+    const bgColor = this.transparent ? null : this.board.backgroundColor;
 
     // Draw the full board offset by the selection position
     ctx.save();
     ctx.translate(-Math.round(s.x), -Math.round(s.y));
-    this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.getLayerCount(), null);
+    this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.getLayerCount(), bgColor);
     ctx.restore();
 
     return canvas;
@@ -763,16 +752,11 @@ export class SaveMode {
       y: p.y - bounds.y
     }));
 
-    // Draw content first (background + layers)
-    if (!this.transparent) {
-      const [r, g, b, a] = this.board.backgroundColor;
-      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
+    const bgColor = this.transparent ? null : this.board.backgroundColor;
 
     ctx.save();
     ctx.translate(-bounds.x, -bounds.y);
-    this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.getLayerCount(), null);
+    this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.getLayerCount(), bgColor);
     ctx.restore();
 
     // Apply lasso mask using destination-in (keeps content only where mask is drawn)
