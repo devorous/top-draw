@@ -300,6 +300,10 @@ export class UI {
 
       toast: document.getElementById('toast'),
 
+      disconnectionBanner: document.getElementById('disconnectionBanner'),
+      retryConnectionBtn: document.getElementById('retryConnectionBtn'),
+      switchToOfflineBtn: document.getElementById('switchToOfflineBtn'),
+
       connectionStatus: document.getElementById('connectionStatus'),
       connectionDot: document.querySelector('.connectionDot'),
       connectionText: document.querySelector('.connectionText'),
@@ -1273,6 +1277,52 @@ export class UI {
     const { connectionStatus } = this.elements;
     if (connectionStatus) {
       connectionStatus.style.display = 'none';
+    }
+  }
+
+  /**
+   * Shows the disconnection warning banner.
+   */
+  showDisconnectionBanner() {
+    const { disconnectionBanner } = this.elements;
+    console.log('[UI] showDisconnectionBanner called', { exists: !!disconnectionBanner });
+    if (!disconnectionBanner) {
+      console.error('[UI] disconnectionBanner element not found in DOM!');
+      return;
+    }
+
+    disconnectionBanner.classList.add('show');
+    this.setRetryButtonState(false); // Reset to normal state
+    console.log('[UI] Banner should now be visible');
+  }
+
+  /**
+   * Hides the disconnection warning banner.
+   */
+  hideDisconnectionBanner() {
+    const { disconnectionBanner } = this.elements;
+    if (!disconnectionBanner) return;
+
+    disconnectionBanner.classList.remove('show');
+    this.setRetryButtonState(false); // Reset state when hiding
+  }
+
+  /**
+   * Sets the retry button to loading or normal state.
+   * @param {boolean} isRetrying - Whether currently retrying
+   */
+  setRetryButtonState(isRetrying) {
+    const { retryConnectionBtn } = this.elements;
+    if (!retryConnectionBtn) return;
+
+    if (isRetrying) {
+      retryConnectionBtn.textContent = 'Retrying...';
+      retryConnectionBtn.disabled = true;
+      retryConnectionBtn.classList.add('loading');
+    } else {
+      retryConnectionBtn.textContent = 'Retry Connection';
+      retryConnectionBtn.disabled = false;
+      retryConnectionBtn.classList.remove('loading');
     }
   }
   

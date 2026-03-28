@@ -411,6 +411,14 @@ export class DrawingApp {
 
     elements.disconnectBtn.addEventListener('click', () => this.disconnect());
 
+    // Disconnection banner buttons
+    if (elements.retryConnectionBtn) {
+      elements.retryConnectionBtn.addEventListener('click', () => this.handleRetryConnection());
+    }
+    if (elements.switchToOfflineBtn) {
+      elements.switchToOfflineBtn.addEventListener('click', () => this.handleSwitchToOffline());
+    }
+
     if (elements.menuBtn) {
       elements.menuBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1632,6 +1640,7 @@ export class DrawingApp {
     this.ui.showCursor();
     this.ui.updateSelfName(this.self.username);
     this.ui.showConnectionStatus('connected', this.currentRoomId);
+    this.ui.hideDisconnectionBanner();
 
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
@@ -1654,15 +1663,22 @@ export class DrawingApp {
    * @param {string} reason - Disconnection reason.
    */
   handleWSDisconnect(code, reason) {
+    console.log('[App] WebSocket disconnected', { code, reason, wasConnected: this.connected });
     this.connected = false;
+
+    // Don't show disconnection UI if we're in offline mode
+    if (this.isOfflineMode) {
+      console.log('[App] Already in offline mode, ignoring disconnect');
+      return;
+    }
 
     if (this.landingPage && this.landingPage.els.landingPage.style.display !== 'none') {
       this.landingPage.updateConnectionStatus('disconnected');
+      // Don't show banner on landing page
+      return;
     }
 
-    if (this.inputBufferManager.tickTimer) {
-      this.ui.showConnectionStatus('disconnected');
-    }
+    this.ui.showConnectionStatus('disconnected');
 
     if (code === 4001 || code === 4002) {
       const label = code === 4001 ? 'Banned' : 'Kicked';
@@ -1671,6 +1687,10 @@ export class DrawingApp {
         this.auth.setRememberMe(false);
       }
       this.showModOverlay(label, reason || '');
+    } else {
+      // Show disconnection banner if we're in a room (not on landing page)
+      console.log('[App] Showing disconnection banner');
+      this.ui.showDisconnectionBanner();
     }
   }
 
@@ -1742,6 +1762,7 @@ export class DrawingApp {
     this.ui.showCursor();
     this.ui.updateSelfName(username);
     this.ui.showConnectionStatus('connected', this.currentRoomId);
+    this.ui.hideDisconnectionBanner();
 
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
@@ -1840,6 +1861,7 @@ export class DrawingApp {
     this.ui.showCursor();
     this.ui.updateSelfName(name);
     this.ui.showConnectionStatus('connected', this.currentRoomId);
+    this.ui.hideDisconnectionBanner();
 
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
@@ -1909,10 +1931,36 @@ export class DrawingApp {
 
     try {
       await this.wsClient.connect(this.self.toJSON());
+      // Connection successful - banner will be hidden by handleJoinAfterConnect
     } catch (err) {
       console.error('Reconnect failed:', err);
       this.ui.showConnectionStatus('disconnected');
+      this.ui.setRetryButtonState(false);
+      throw err; // Re-throw so handleRetryConnection knows it failed
     }
+  }
+
+  /**
+   * Handles retry connection button click from disconnection banner.
+   */
+  async handleRetryConnection() {
+    this.ui.setRetryButtonState(true);
+
+    try {
+      await this.reconnect();
+      // On success, banner will be hidden by handleJoinAfterConnect
+    } catch (err) {
+      // reconnect() already resets button state on error
+      console.log('[App] Retry connection failed, user can try again');
+    }
+  }
+
+  /**
+   * Handles switch to offline mode button click from disconnection banner.
+   */
+  handleSwitchToOffline() {
+    this.ui.hideDisconnectionBanner();
+    this.handleOffline();
   }
 
   /**
@@ -2161,6 +2209,7 @@ export class DrawingApp {
 
     this.ui.hideCursor();
     this.ui.hideConnectionStatus();
+    this.ui.hideDisconnectionBanner();
 
     if (this.wsClient && this.wsClient.connected) {
       this.wsClient.disconnect();
