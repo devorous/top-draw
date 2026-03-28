@@ -185,8 +185,9 @@ export class InputBufferManager {
     const { points } = this.inputBuffer;
 
     if (points.length >= 2) {
-      const smoothingTools = ['brush', 'flowPen', 'ink', 'imageBrush'];
+      const smoothingTools = ['brush', 'flowPen', 'imageBrush'];
       const blurTools = ['blur', 'circleBlur', 'glitchBlur'];
+      const inkTool = app.self.tool === 'ink';
       const useSmoothing = app.self.mousedown && !app.self.panning && smoothingTools.includes(app.self.tool);
       const useBlur = app.self.mousedown && !app.self.panning && blurTools.includes(app.self.tool);
 
@@ -204,6 +205,12 @@ export class InputBufferManager {
         smoothedPoints = this.applyBroadcastSmoothing(points);
         broadcastPoints = this.applyPointReduction(smoothedPoints);
         localPoints = broadcastPoints;
+      } else if (inkTool) {
+        // Ink tool: no EMA smoothing here as perfect-freehand handles it internally.
+        // Broadcast raw points (with reduction) to ensure remote users receive the same data.
+        smoothedPoints = points;
+        broadcastPoints = this.applyPointReduction(points);
+        localPoints = points;
       } else {
         // All other tools (pixel, line, shapes, etc.): no smoothing
         // Broadcast exactly what is rendered locally so remote matches
