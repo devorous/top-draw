@@ -4,7 +4,7 @@
   left: 0;
   width: 100%;
   height: 0; // The component inside will have actual height
-  z-index: 1000;
+  z-index: 10000;
   pointer-events: none; // Let events pass through unless clicking the component
 
   & > * {

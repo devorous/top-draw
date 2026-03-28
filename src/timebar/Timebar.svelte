@@ -62,60 +62,74 @@
 {/if}
 
 {#if TimeMachine.isStarted}
-<div class="timebar" class:reviewing={TimeMachine.isReviewing}>
-  <div class="controls">
-    <button class="icon-btn play-pause" onclick={togglePlay} title={TimeMachine.isPlaying ? 'Pause' : 'Play'}>
-      {#if TimeMachine.isPlaying}
-        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" fill="currentColor"/></svg>
-      {:else}
-        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
-      {/if}
-    </button>
-
-    <div class="scrubber-container">
-      <div class="markers">
-        {#each markers as marker}
-          <div 
-            class="marker" 
-            class:initial={marker.index === 0}
-            style="left: {marker.position}%"
-            title={marker.index === 0 ? 'Recording Start' : `Snapshot ${marker.index}`}
-          >
-            {#if marker.index === 0}
-              <div class="flag">
-                <img src={marker.data} alt="Start Preview" />
-              </div>
-            {/if}
-          </div>
-        {/each}
-      </div>
-      <input
-        type="range"
-        min={TimeMachine.recordingBuffer[0]?.timestamp || 0}
-        max={TimeMachine.maxTime}
-        value={TimeMachine.currentTime}
-        oninput={handleScrub}
-        class="scrubber"
-        style="--progress: {progressPercent}%"
-      />
-      <div class="time-display">
-        <span class="current">{formatRelativeTime(TimeMachine.currentTime)}</span>
-        <span class="separator">/</span>
-        <span class="max">Live</span>
-      </div>
-    </div>
-
-    {#if TimeMachine.isReviewing}
-      <button class="catch-up-btn" onclick={() => TimeMachine.catchUp()}>
-        Catch Up
-      </button>
-      
-      {#if appState.isModerator}
-        <button class="mod-undo-btn" onclick={handleUndoToState}>
-          Restore to here
-        </button>
-      {/if}
+<div class="timebar-container" class:hidden={!TimeMachine.isVisible} class:reviewing={TimeMachine.isReviewing}>
+  <button 
+    class="toggle-btn" 
+    onclick={() => TimeMachine.isVisible = !TimeMachine.isVisible}
+    title={TimeMachine.isVisible ? 'Hide Timeline' : 'Show Timeline'}
+  >
+    {#if TimeMachine.isVisible}
+      <svg viewBox="0 0 24 24" width="24" height="24"><path d="M7 10l5 5 5-5z" fill="currentColor"/></svg>
+    {:else}
+      <svg viewBox="0 0 24 24" width="24" height="24"><path d="M7 14l5-5 5 5z" fill="currentColor"/></svg>
     {/if}
+  </button>
+
+  <div class="timebar">
+    <div class="controls">
+      <button class="icon-btn play-pause" onclick={togglePlay} title={TimeMachine.isPlaying ? 'Pause' : 'Play'}>
+        {#if TimeMachine.isPlaying}
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" fill="currentColor"/></svg>
+        {:else}
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+        {/if}
+      </button>
+
+      <div class="scrubber-container">
+        <div class="markers">
+          {#each markers as marker}
+            <div 
+              class="marker" 
+              class:initial={marker.index === 0}
+              style="left: {marker.position}%"
+              title={marker.index === 0 ? 'Recording Start' : `Snapshot ${marker.index}`}
+            >
+              {#if marker.index === 0}
+                <div class="flag">
+                  <img src={marker.data} alt="Start Preview" />
+                </div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+        <input
+          type="range"
+          min={TimeMachine.recordingBuffer[0]?.timestamp || 0}
+          max={TimeMachine.maxTime}
+          value={TimeMachine.currentTime}
+          oninput={handleScrub}
+          class="scrubber"
+          style="--progress: {progressPercent}%"
+        />
+        <div class="time-display">
+          <span class="current">{formatRelativeTime(TimeMachine.currentTime)}</span>
+          <span class="separator">/</span>
+          <span class="max">Live</span>
+        </div>
+      </div>
+
+      {#if TimeMachine.isReviewing}
+        <button class="catch-up-btn" onclick={() => TimeMachine.catchUp()}>
+          Catch Up
+        </button>
+        
+        {#if appState.isModerator}
+          <button class="mod-undo-btn" onclick={handleUndoToState}>
+            Restore to here
+          </button>
+        {/if}
+      {/if}
+    </div>
   </div>
 </div>
 {/if}
@@ -154,27 +168,70 @@
     100% { transform: scale(0.95); opacity: 0.7; }
   }
 
-  .timebar {
+  .timebar-container {
     position: fixed;
     bottom: 20px;
     left: 50%;
     transform: translateX(-50%);
     width: 90%;
     max-width: 800px;
+    z-index: 10001;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+
+    &.hidden {
+      // Slide down so only the toggle button and a small sliver is visible
+      transform: translateX(-50%) translateY(calc(100% - 10px));
+      
+      .toggle-btn {
+        opacity: 0.9;
+        background: rgba(30, 41, 59, 0.9);
+        border: 2px solid #3b82f6;
+        box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+      }
+    }
+
+    &.reviewing .timebar {
+      border-color: #3b82f6;
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+      background: rgba(15, 20, 30, 0.98);
+    }
+  }
+
+  .toggle-btn {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(30, 41, 59, 0.8);
+    backdrop-filter: blur(8px);
+    border-radius: 12px 12px 0 0;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-bottom: none;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 20px;
+    opacity: 0.7;
+    transition: all 0.3s ease;
+    z-index: 1001;
+
+    &:hover {
+      opacity: 1;
+      background: rgba(30, 41, 59, 1);
+      transform: translateX(-50%) translateY(-2px);
+    }
+  }
+
+  .timebar {
     background: rgba(15, 15, 20, 0.95);
     backdrop-filter: blur(12px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 12px;
     padding: 12px 24px;
-    z-index: 1000;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-
-    &.reviewing {
-      border-color: #3b82f6;
-      box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
-      background: rgba(15, 20, 30, 0.98);
-    }
+    transition: all 0.3s ease;
 
     .controls {
       display: flex;

@@ -25,6 +25,7 @@ class TimeMachineState {
   isPlaying = $state(false);
   isReviewing = $state(false); // True when currentTime < maxTime
   isStarted = $state(false); // True when recording has actually started
+  isVisible = $state(false); // UI toggle for showing/hiding the timebar
   previewData = $state(null); // The current historical view as a data URL
 
   _snapshotInterval = null;
