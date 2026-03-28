@@ -294,14 +294,25 @@ export class InkTool extends Tool {
     const userThinning = activeUser.thinning !== undefined ? activeUser.thinning : 0.5;
 
     if (isDot) {
+      // During mid-stroke preview, don't render the dot — it would flash for 1 frame
+      // before being replaced by the real stroke. Only render on final commit (tap/click).
+      if (!last) return;
+
       const [x, y, pressure] = this.inputPoints[0];
-      const dotPressure = pressure !== undefined ? pressure : 1;
+      let dotPressure = pressure !== undefined ? pressure : 1;
+      // Match the stroke's pressure transformation: square pressure in tablet mode
+      if (!simulatePressure) {
+        dotPressure = Math.pow(dotPressure, 2);
+      }
       ctx.fillStyle = this.strokeColor;
       ctx.beginPath();
       ctx.arc(x, y, this._strokeSize * dotPressure, 0, Math.PI * 2);
       ctx.fill();
       return;
     }
+
+    // Require at least 3 points for a smooth preview stroke to avoid "dot" flashes at the start
+    if (!last && this.inputPoints.length < 3) return;
 
     // When simulatePressure is disabled (tablet mode), we want full pressure response
     // Amplify pressure values aggressively to get very thin strokes at low pressure
