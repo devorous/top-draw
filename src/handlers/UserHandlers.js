@@ -74,6 +74,11 @@ export function setupUserHandlers(wsClient, app) {
           app.remoteUserHandler.handleBrushLoad(user, brushData);
         }
 
+        const patternData = userData.patternBrush || userData.pb;
+        if (patternData && app.remoteUserHandler) {
+          app.remoteUserHandler.handlePatternBrushLoad(user, patternData);
+        }
+
         const boardData = ui.createUserBoard(userData.sessionIndex);
         user.board = boardData.board;
         user.context = boardData.context;

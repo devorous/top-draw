@@ -191,6 +191,13 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
+  wrapHandler('gpt', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handlePatternBrushLoad(user, data.patternData);
+    }
+  });
+
   wrapHandler('undo', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {

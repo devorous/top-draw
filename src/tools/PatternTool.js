@@ -28,6 +28,7 @@ export class PatternTool extends Tool {
     this.offscreenCanvas = null;
     this.offscreenCtx = null;
     this.dirtyBounds = null;
+    this.remoteOffscreens = new Map(); // userId -> { canvas, ctx, strokePoints }
   }
 
   activate() {
@@ -151,13 +152,14 @@ export class PatternTool extends Tool {
     }
   }
 
-  _buildPatternComposite(user) {
-    if (!this.offscreenCanvas) return null;
+  _buildPatternComposite(user, maskCanvas = null) {
+    const mask = maskCanvas ?? this.offscreenCanvas;
+    if (!mask) return null;
     const tile = this._getPatternTile(user);
     if (!tile) return null;
 
-    const w = this.offscreenCanvas.width;
-    const h = this.offscreenCanvas.height;
+    const w = mask.width;
+    const h = mask.height;
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = w;
     tempCanvas.height = h;
@@ -179,7 +181,7 @@ export class PatternTool extends Tool {
 
     // Clip pattern to the stroke mask
     tempCtx.globalCompositeOperation = 'destination-in';
-    tempCtx.drawImage(this.offscreenCanvas, 0, 0);
+    tempCtx.drawImage(mask, 0, 0);
     tempCtx.globalCompositeOperation = 'source-over';
 
     return tempCanvas;
@@ -370,8 +372,63 @@ export class PatternTool extends Tool {
   drainStampBuffer() {
     const ps = this.stampBuffer;
     this.stampBuffer = [];
-    const rs = Array(ps.length / 2).fill(0); 
+    const rs = Array(ps.length / 2).fill(0);
     return { ps, rs };
+  }
+
+  remoteBeginStroke(user, pos) {
+    const w = this.board.mainCanvas.width;
+    const h = this.board.mainCanvas.height;
+    let offscreen = this.remoteOffscreens.get(user.id);
+    if (!offscreen || offscreen.canvas.width !== w || offscreen.canvas.height !== h) {
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      offscreen = { canvas, ctx: canvas.getContext('2d'), strokePoints: [] };
+      this.remoteOffscreens.set(user.id, offscreen);
+    }
+    offscreen.ctx.clearRect(0, 0, w, h);
+    offscreen.strokePoints = [pos];
+    const radius = user.size * (user.pressure || 1);
+    offscreen.ctx.beginPath();
+    offscreen.ctx.arc(pos.x, pos.y, Math.max(0.5, radius), 0, Math.PI * 2);
+    offscreen.ctx.fill();
+    this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+  }
+
+  remoteStampMask(user, ps) {
+    const offscreen = this.remoteOffscreens.get(user.id);
+    if (!offscreen) return;
+    const radius = user.size * (user.pressure || 1);
+    for (let i = 0; i < ps.length; i += 2) {
+      const pos = { x: ps[i], y: ps[i + 1] };
+      offscreen.ctx.beginPath();
+      offscreen.ctx.arc(pos.x, pos.y, Math.max(0.5, radius), 0, Math.PI * 2);
+      offscreen.ctx.fill();
+      offscreen.strokePoints.push(pos);
+    }
+  }
+
+  remoteEndStroke(user) {
+    const offscreen = this.remoteOffscreens.get(user.id);
+    if (!offscreen) return;
+
+    const composite = this._buildPatternComposite(user, offscreen.canvas);
+    if (composite) {
+      const ctx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
+      if (ctx) {
+        ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
+        ctx.drawImage(composite, 0, 0);
+        ctx.globalAlpha = 1.0;
+      }
+    }
+
+    if (offscreen.strokePoints.length > 0) {
+      this.board.markDirtyPath(user, offscreen.strokePoints, user.size);
+    }
+
+    this.remoteOffscreens.delete(user.id);
+    this.lastStampPos.delete(user.id);
   }
 
   applyStamps(user, ps) {

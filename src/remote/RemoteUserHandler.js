@@ -82,6 +82,9 @@ export class RemoteUserHandler {
       } else if (user.tool === 'pixel' || user.tool === 'imageBrush') {
         const tool = this.toolManager.getTool(user.tool);
         if (tool) tool.applyStamps(user, smoothedPoints);
+      } else if (user.tool === 'pattern') {
+        const tool = this.toolManager.getTool('pattern');
+        if (tool) tool.remoteStampMask(user, smoothedPoints);
       } else if (user.tool === 'circleBlur') {
         const tool = this.toolManager.getTool(user.tool);
         if (tool) tool.applyStamps(user, smoothedPoints, radii);
@@ -509,6 +512,15 @@ export class RemoteUserHandler {
         }
         break;
 
+      case 'pattern':
+        if (user.patternBrush && !user.panning) {
+          const patternTool = this.toolManager.getTool('pattern');
+          if (patternTool) {
+            patternTool.remoteBeginStroke(user, pos);
+          }
+        }
+        break;
+
       case 'fill':
         if (!user.panning) {
           this._drawFillPreview(user, pos);
@@ -661,6 +673,13 @@ export class RemoteUserHandler {
           this.board.requestUpdate();
         }
         break;
+
+      case 'pattern':
+        if (!user.panning) {
+          const patternTool = this.toolManager.getTool('pattern');
+          if (patternTool) patternTool.remoteEndStroke(user);
+        }
+        break;
     }
 
     if (this.debugOverlay) {
@@ -722,6 +741,9 @@ export class RemoteUserHandler {
 
     const imageBrushTool = this.toolManager.getTool('imageBrush');
     if (imageBrushTool) imageBrushTool.lastStampPos.delete(user.id);
+
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool) patternTool.lastStampPos.delete(user.id);
 
     if (user.floatingCanvas && user.selection) {
       this.selectionHandler.drawFloatingSelection(user);
@@ -853,6 +875,54 @@ export class RemoteUserHandler {
     }
   }
 
+  handlePatternBrushLoad(user, patternDataStr) {
+    const patternData = typeof patternDataStr === 'string' ? JSON.parse(patternDataStr) : patternDataStr;
+    const brushData = patternData.brush;
+    if (!brushData) return;
+
+    // Apply settings immediately so they're ready when stamps arrive
+    user.patternScale = patternData.scale ?? 100;
+    user.patternRotation = patternData.rotation ?? 0;
+    user.patternSpacing = patternData.spacing ?? 0;
+    user.patternOffsetX = patternData.offsetX ?? 0;
+    user.patternOffsetY = patternData.offsetY ?? 0;
+    user.patternColorMode = patternData.colorMode ?? 'original';
+
+    // Clear tile cache so it rebuilds with new brush/settings
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool) patternTool._tileCache.clear();
+
+    if (brushData.type === 'gbr' || brushData.type === 'image') {
+      const image = new Image();
+      image.onload = () => {
+        brushData.image = image;
+        user.patternBrush = brushData;
+      };
+      image.onerror = () => {
+        console.error(`[PatternBrush] Failed to load brush image for remote user ${user.id}`);
+      };
+      image.src = brushData.gimpUrl;
+    } else if (brushData.type === 'gih' && brushData.gBrushes && brushData.gBrushes.length > 0) {
+      let loadedCount = 0;
+      const totalImages = brushData.gBrushes.length;
+      const images = brushData.gBrushes.map((brush, idx) => {
+        const img = new Image();
+        img.onload = () => {
+          loadedCount++;
+          if (loadedCount === totalImages) {
+            brushData.images = images;
+            user.patternBrush = brushData;
+          }
+        };
+        img.onerror = () => {
+          console.error(`[PatternBrush] Failed to load GIH image ${idx} for remote user ${user.id}`);
+        };
+        img.src = brush.gimpUrl;
+        return img;
+      });
+    }
+  }
+
   /**
    * Cancels a remote user's active stroke and cleans up state.
    *
@@ -904,6 +974,12 @@ export class RemoteUserHandler {
 
     const imageBrushTool = this.toolManager.getTool('imageBrush');
     if (imageBrushTool) imageBrushTool.lastStampPos.delete(user.id);
+
+    const patternTool2 = this.toolManager.getTool('pattern');
+    if (patternTool2) {
+      patternTool2.lastStampPos.delete(user.id);
+      patternTool2.remoteOffscreens.delete(user.id);
+    }
 
     this.board.requestUpdate();
   }

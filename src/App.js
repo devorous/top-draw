@@ -1180,8 +1180,8 @@ export class DrawingApp {
       }
     }
 
-    if (this.connected) {
-      this.wsClient.broadcastNameChange(this.self.username, { patternScale: scale });
+    if (this.connected && this.self.patternBrush) {
+      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
     }
   }
 
@@ -1248,8 +1248,8 @@ export class DrawingApp {
       }
     }
 
-    if (this.connected) {
-      this.wsClient.broadcastNameChange(this.self.username, { patternRotation: rotation });
+    if (this.connected && this.self.patternBrush) {
+      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
     }
   }
 
@@ -1291,8 +1291,8 @@ export class DrawingApp {
       }
     }
 
-    if (this.connected) {
-      this.wsClient.broadcastNameChange(this.self.username, { patternSpacing: spacing });
+    if (this.connected && this.self.patternBrush) {
+      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
     }
   }
 
@@ -1334,8 +1334,8 @@ export class DrawingApp {
       }
     }
 
-    if (this.connected) {
-      this.wsClient.broadcastNameChange(this.self.username, { patternOffsetX: offsetX });
+    if (this.connected && this.self.patternBrush) {
+      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
     }
   }
 
@@ -1377,8 +1377,8 @@ export class DrawingApp {
       }
     }
 
-    if (this.connected) {
-      this.wsClient.broadcastNameChange(this.self.username, { patternOffsetY: offsetY });
+    if (this.connected && this.self.patternBrush) {
+      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
     }
   }
 
@@ -1418,9 +1418,28 @@ export class DrawingApp {
     // Sync all radio groups (pattern, fill pattern, and selection pattern)
     document.querySelectorAll('input[name="patternColorMode"], input[name="fillPatternColorMode"], input[name="selectionPatternColorMode"]').forEach(r => r.checked = r.value === colorMode);
 
-    if (this.connected) {
-      this.wsClient.broadcastNameChange(this.self.username, { patternColorMode: colorMode });
+    if (this.connected && this.self.patternBrush) {
+      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
     }
+  }
+
+  _buildPatternPayload() {
+    const brush = this.self.patternBrush;
+    if (!brush) return null;
+    // Strip non-serializable Image/HTMLImageElement references, keep data URLs
+    const brushData = { type: brush.type, brushName: brush.brushName, fileName: brush.fileName, width: brush.width, height: brush.height };
+    if (brush.gimpUrl) brushData.gimpUrl = brush.gimpUrl;
+    if (brush.colorDepth !== undefined) brushData.colorDepth = brush.colorDepth;
+    if (brush.gBrushes) brushData.gBrushes = brush.gBrushes.map(b => ({ gimpUrl: b.gimpUrl, width: b.width, height: b.height }));
+    return {
+      brush: brushData,
+      scale: this.self.patternScale ?? 100,
+      rotation: this.self.patternRotation ?? 0,
+      spacing: this.self.patternSpacing ?? 0,
+      offsetX: this.self.patternOffsetX ?? 0,
+      offsetY: this.self.patternOffsetY ?? 0,
+      colorMode: this.self.patternColorMode ?? 'original'
+    };
   }
 
   handlePatternBrushSelect(brush) {
@@ -1452,9 +1471,7 @@ export class DrawingApp {
     }
 
     if (this.connected) {
-      this.wsClient.broadcastNameChange(this.self.username, {
-        patternBrush: brush
-      });
+      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
     }
   }
 

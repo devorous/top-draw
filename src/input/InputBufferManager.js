@@ -234,7 +234,7 @@ export class InputBufferManager {
         }
       }
 
-      const stampTools = ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush'];
+      const stampTools = ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush', 'pattern'];
       if (stampTools.includes(app.self.tool) && app.self.mousedown && !app.self.panning) {
         const tool = app.toolManager.getCurrentTool();
         const drain = app.self.tool === 'ink' ? tool.drainPointBuffer() : tool.drainStampBuffer();
@@ -297,7 +297,7 @@ export class InputBufferManager {
     tool.onPointerMove(app.self, smoothedPos, prevPos);
     app.self._mainCtxDrawCount++;
 
-    const stampTools = ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush'];
+    const stampTools = ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush', 'pattern'];
     if (stampTools.includes(app.self.tool)) {
       const drain = app.self.tool === 'ink' ? tool.drainPointBuffer() : tool.drainStampBuffer();
       if (drain.ps.length > 0) {

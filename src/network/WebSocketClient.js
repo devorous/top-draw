@@ -331,6 +331,7 @@ export class WebSocketClient {
           ipHash: u.iph,
           thinning: u.th ? (u.th - 1) / 100 : undefined,
           simulatePressure: u.sim !== undefined ? u.sim === 2 : undefined,
+          patternBrush: u.pb,
           patternScale: u.patternScale,
           patternShape: u.patternShape,
           patternName: u.patternName
@@ -503,6 +504,10 @@ export class WebSocketClient {
 
       case T.GMP:
         this.emit('gmp', { sessionIndex: data.u, brushData: data.g });
+        break;
+
+      case T.GPT:
+        this.emit('gpt', { sessionIndex: data.u, patternData: data.g });
         break;
 
       case T.PAN:
@@ -1126,6 +1131,10 @@ export class WebSocketClient {
    */
   broadcastBrush(brushData) {
     this.send({ t: T.GMP, g: JSON.stringify(brushData) });
+  }
+
+  broadcastPatternBrush(patternData) {
+    this.send({ t: T.GPT, g: JSON.stringify(patternData) });
   }
 
   /**

@@ -217,6 +217,7 @@ function mapUsersForBroadcast(users) {
     ly: u.activeLayer || 0,
     bm: u.blendMode || 'source-over',
     ib: u.imageBrush,
+    pb: u.patternBrush,
     iph: u.ipHash,
     th: u.thinning,
     sim: u.simulatePressure
@@ -465,6 +466,10 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       user.imageBrush = data.g;
       break;
 
+    case T.GPT:
+      user.patternBrush = data.g;
+      break;
+
     case T.IMG_PASTE:
       user.activeImage = { sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, g: data.g };
       user.activeSelectionCorners = null;
@@ -578,7 +583,7 @@ function flushAllOutboxes() {
 const BATCHABLE_TYPES = new Set([
   T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC,
   T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL,
-  T.KP, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP, T.AFK,
+  T.KP, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP, T.GPT, T.AFK,
   T.CTHN, T.CSIM, T.FILL
 ]);
 
