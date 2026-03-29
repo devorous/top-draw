@@ -127,6 +127,7 @@ export class Board {
     const [height, width] = this.dimensions;
     this.layerManager = new LayerManager(width, height);
     this.layerManager.onNeedsUpdate = () => this.requestUpdate();
+    this.layerManager.onGlitchBlurReady = (result) => this._handleGlitchBlurReady(result);
 
     this.tileGrid = new TileGrid(width, height);
     this.tileTracker = new TileTracker(width, height);
@@ -572,6 +573,9 @@ export class Board {
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     if (!this.layerManager) return;
 
+    // Keep localUserId current so LayerManager can distinguish local vs remote strokes
+    this.layerManager.localUserId = this.app?.self?.id ?? null;
+
     // Get affected tiles before committing (for broadcasting local user's tiles)
     // Skip for erasers - they use TILE_CLEAR instead of TILE_UPDATE
     let tilesToBroadcast = null;
@@ -590,6 +594,18 @@ export class Board {
     if (tilesToBroadcast && tilesToBroadcast.length > 0) {
       this.app.wsClient.broadcastTileUpdate(tilesToBroadcast);
     }
+  }
+
+  /**
+   * Called when the local user's glitch blur WASM computation completes.
+   * Converts the result to a data URL and broadcasts it to other clients.
+   * @param {Object} result - { userId, x, y, width, height, canvas }
+   * @private
+   */
+  _handleGlitchBlurReady(result) {
+    if (!this.app?.wsClient || !this.app?.connected) return;
+    const dataUrl = result.canvas.toDataURL('image/png');
+    this.app.wsClient.broadcastGlitchResult(result.x, result.y, result.width, result.height, dataUrl);
   }
 
   /**

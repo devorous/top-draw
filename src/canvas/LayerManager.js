@@ -30,6 +30,8 @@ export class LayerManager {
     this._canvasPool = [];
     this.CANVAS_POOL_MAX = 12;
     this.onNeedsUpdate = null; // Callback for Board to requestUpdate
+    this.onGlitchBlurReady = null; // Callback fired when local user's glitch blur completes: ({userId, x, y, width, height, canvas})
+    this.localUserId = null; // Set by Board/App so we can distinguish local vs remote strokes
     this._pixelsWorker = new PixelsWorkerClient();
     
     this.initLayerGroups(3);
@@ -266,6 +268,9 @@ export class LayerManager {
       group.strokeStack.push(record);
       const prev = group.userStrokeCounts.get(userId) || 0;
       group.userStrokeCounts.set(userId, prev + 1);
+
+      // Check for a buffered GLITCH_RESULT that arrived before this stroke was committed
+      this._consumePendingGlitchResult(record);
 
       this._bakeOverflowStrokes(group);
       this._clearRedoStack(userId);
@@ -1341,40 +1346,26 @@ export class LayerManager {
       const cropW = width;
       const cropH = height;
 
-      const tempForAsync = document.createElement('canvas');
-      tempForAsync.width = cropW;
-      tempForAsync.height = cropH;
-      const tCtxForAsync = tempForAsync.getContext('2d');
-      tCtxForAsync.drawImage(ctx.canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-
-      const imageData = tCtxForAsync.getImageData(0, 0, cropW, cropH);
-
       const useGlitch = filterStroke.filterType === 'glitchBlur';
+      const isRemoteGlitch = useGlitch && this.localUserId != null && filterStroke.userId !== this.localUserId;
 
-      // Offload blur to the pixels worker (runs stackblur off the main thread)
-      this._pixelsWorker.blur(imageData.data, cropW, cropH, blurRadius, useGlitch).then(blurredData => {
-        tCtxForAsync.putImageData(new ImageData(new Uint8ClampedArray(blurredData.buffer), cropW, cropH), 0, 0);
+      // For remote users' glitch blur strokes, skip WASM — we'll receive the
+      // pre-computed result via GLITCH_RESULT message from the drawing user.
+      if (isRemoteGlitch) {
+        filterStroke._awaitingRemoteResult = true;
+        // Fall through to render a fast CSS preview below
+      } else {
+        const tempForAsync = document.createElement('canvas');
+        tempForAsync.width = cropW;
+        tempForAsync.height = cropH;
+        const tCtxForAsync = tempForAsync.getContext('2d');
+        tCtxForAsync.drawImage(ctx.canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
-        const composite = document.createElement('canvas');
-        composite.width = cropW;
-        composite.height = cropH;
-        const cCtx = composite.getContext('2d');
+        const imageData = tCtxForAsync.getImageData(0, 0, cropW, cropH);
 
-        cCtx.drawImage(maskCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-        cCtx.globalCompositeOperation = 'source-in';
-        cCtx.drawImage(tempForAsync, 0, 0);
-
-        filterStroke._cachedBlurResult = composite;
-        delete filterStroke._cachedPreview; // Clear preview once HQ is ready
-        this.needsComposite = true;
-        if (this.onNeedsUpdate) this.onNeedsUpdate();
-      }).catch((err) => {
-        // Fallback to main-thread blur if worker fails
-        console.warn('[LayerManager] Blur worker failed, using fallback:', err?.message || err, useGlitch ? '(glitch)' : '(normal)');
-        // Re-read imageData since the original buffer was transferred to the worker
-        const fallbackImageData = tCtxForAsync.getImageData(0, 0, cropW, cropH);
-        blurImageData(fallbackImageData, cropW, cropH, blurRadius).then(blurred => {
-          tCtxForAsync.putImageData(blurred, 0, 0);
+        // Offload blur to the pixels worker (runs stackblur off the main thread)
+        this._pixelsWorker.blur(imageData.data, cropW, cropH, blurRadius, useGlitch).then(blurredData => {
+          tCtxForAsync.putImageData(new ImageData(new Uint8ClampedArray(blurredData.buffer), cropW, cropH), 0, 0);
 
           const composite = document.createElement('canvas');
           composite.width = cropW;
@@ -1389,8 +1380,54 @@ export class LayerManager {
           delete filterStroke._cachedPreview; // Clear preview once HQ is ready
           this.needsComposite = true;
           if (this.onNeedsUpdate) this.onNeedsUpdate();
+
+          // For local user's glitch blur, broadcast the result to other clients
+          if (useGlitch && this.onGlitchBlurReady) {
+            this.onGlitchBlurReady({
+              userId: filterStroke.userId,
+              x: cropX,
+              y: cropY,
+              width: cropW,
+              height: cropH,
+              canvas: composite
+            });
+          }
+        }).catch((err) => {
+          // Fallback to main-thread blur if worker fails
+          console.warn('[LayerManager] Blur worker failed, using fallback:', err?.message || err, useGlitch ? '(glitch)' : '(normal)');
+          // Re-read imageData since the original buffer was transferred to the worker
+          const fallbackImageData = tCtxForAsync.getImageData(0, 0, cropW, cropH);
+          blurImageData(fallbackImageData, cropW, cropH, blurRadius).then(blurred => {
+            tCtxForAsync.putImageData(blurred, 0, 0);
+
+            const composite = document.createElement('canvas');
+            composite.width = cropW;
+            composite.height = cropH;
+            const cCtx = composite.getContext('2d');
+
+            cCtx.drawImage(maskCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+            cCtx.globalCompositeOperation = 'source-in';
+            cCtx.drawImage(tempForAsync, 0, 0);
+
+            filterStroke._cachedBlurResult = composite;
+            delete filterStroke._cachedPreview; // Clear preview once HQ is ready
+            this.needsComposite = true;
+            if (this.onNeedsUpdate) this.onNeedsUpdate();
+
+            // Fallback path also broadcasts for local glitch blur
+            if (useGlitch && this.onGlitchBlurReady) {
+              this.onGlitchBlurReady({
+                userId: filterStroke.userId,
+                x: cropX,
+                y: cropY,
+                width: cropW,
+                height: cropH,
+                canvas: composite
+              });
+            }
+          });
         });
-      });
+      }
 
       // Render the fast preview ONCE and cache it
       const previewCanvas = document.createElement('canvas');
@@ -1416,6 +1453,82 @@ export class LayerManager {
         filterStroke._cachedPreview = previewCanvas;
         ctx.drawImage(previewCanvas, x, y);
       }
+    }
+  }
+
+  /**
+   * Apply a remotely-computed glitch blur result image to the most recent
+   * glitchBlur stroke for the given user. Called when a GLITCH_RESULT message
+   * is received from the network.
+   *
+   * Handles a race condition where GLITCH_RESULT (unbatched) can arrive before
+   * MU (batched every 16ms), meaning the stroke may not exist yet. In that
+   * case the result is buffered in _pendingGlitchResults and applied when the
+   * stroke is committed via commitUserStroke.
+   *
+   * @param {number} userId - The remote user who drew the glitch blur
+   * @param {HTMLCanvasElement|HTMLImageElement} resultImage - The pre-computed blur result
+   * @param {{x: number, y: number, width: number, height: number}} bounds - Sender's crop bounds
+   */
+  applyRemoteGlitchResult(userId, resultImage, bounds) {
+    const group = this.layerGroups[0];
+    if (!group) {
+      this._bufferGlitchResult(userId, resultImage, bounds);
+      return;
+    }
+
+    // Find the most recent glitchBlur stroke for this user that hasn't
+    // received its result yet (either awaiting or not yet composited).
+    for (let i = group.strokeStack.length - 1; i >= 0; i--) {
+      const stroke = group.strokeStack[i];
+      if (stroke.userId === userId && stroke.filterType === 'glitchBlur' && !stroke._cachedBlurResult) {
+        this._applyGlitchResultToStroke(stroke, resultImage, bounds);
+        return;
+      }
+    }
+
+    // Stroke not committed yet — buffer the result for when it arrives
+    this._bufferGlitchResult(userId, resultImage, bounds);
+  }
+
+  /** @private */
+  _bufferGlitchResult(userId, resultImage, bounds) {
+    if (!this._pendingGlitchResults) this._pendingGlitchResults = new Map();
+    const pending = this._pendingGlitchResults.get(userId) || [];
+    pending.push({ resultImage, bounds });
+    this._pendingGlitchResults.set(userId, pending);
+  }
+
+  /** @private */
+  _applyGlitchResultToStroke(stroke, resultImage, bounds) {
+    stroke._cachedBlurResult = resultImage;
+    stroke._isBlurring = true; // Prevent WASM from kicking off
+    stroke._awaitingRemoteResult = false;
+    delete stroke._cachedPreview;
+    // Override position/size with the sender's crop bounds so the image
+    // is drawn at the correct location (remote mask stamps may differ).
+    if (bounds) {
+      stroke.x = bounds.x;
+      stroke.y = bounds.y;
+      stroke.width = bounds.width;
+      stroke.height = bounds.height;
+    }
+    this.needsComposite = true;
+    if (this.onNeedsUpdate) this.onNeedsUpdate();
+  }
+
+  /**
+   * Check for and apply any buffered glitch blur results for a newly committed stroke.
+   * @param {Object} stroke - The just-committed stroke record
+   * @private
+   */
+  _consumePendingGlitchResult(stroke) {
+    if (!this._pendingGlitchResults || stroke.filterType !== 'glitchBlur') return;
+    const pending = this._pendingGlitchResults.get(stroke.userId);
+    if (pending && pending.length > 0) {
+      const { resultImage, bounds } = pending.shift();
+      if (pending.length === 0) this._pendingGlitchResults.delete(stroke.userId);
+      this._applyGlitchResultToStroke(stroke, resultImage, bounds);
     }
   }
 

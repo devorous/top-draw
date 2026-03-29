@@ -614,6 +614,17 @@ export class WebSocketClient {
         });
         break;
 
+      case T.GLITCH_RESULT:
+        this.emit('glitch_result', {
+          sessionIndex: data.u,
+          x: data.sx,
+          y: data.sy,
+          width: data.sw,
+          height: data.sh,
+          imageData: data.g
+        });
+        break;
+
       case T.SYNC_PROVIDE:
         this.emit('sync_provide', {
           targetUser: data.tu
@@ -1275,6 +1286,25 @@ export class WebSocketClient {
   broadcastImagePaste(x, y, width, height, dataUrl) {
     this.send({
       t: T.IMG_PASTE,
+      sx: Math.round(x),
+      sy: Math.round(y),
+      sw: Math.round(width),
+      sh: Math.round(height),
+      g: dataUrl
+    });
+  }
+
+  /**
+   * Broadcasts a computed glitch blur result image for deterministic sync.
+   * @param {number} x - Top-left X of the blur region.
+   * @param {number} y - Top-left Y of the blur region.
+   * @param {number} width - Width of the blur region.
+   * @param {number} height - Height of the blur region.
+   * @param {string} dataUrl - Base64 PNG data URL of the blur result.
+   */
+  broadcastGlitchResult(x, y, width, height, dataUrl) {
+    this.send({
+      t: T.GLITCH_RESULT,
       sx: Math.round(x),
       sy: Math.round(y),
       sw: Math.round(width),

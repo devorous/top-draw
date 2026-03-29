@@ -89,6 +89,7 @@ message Msg {
     ROOM_OWNERSHIP     = 80;  // Broadcast room ownership change
     MOD_UNDO_TO_STATE  = 81;  // UNDO board to a specific timestamp
     GPT                = 82;  // Pattern brush (GIMP Pattern Tool)
+    GLITCH_RESULT      = 83;  // Glitch blur result image (sender-computed, for deterministic sync)
   }
 
   // Tool enum

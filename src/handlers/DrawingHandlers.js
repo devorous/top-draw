@@ -198,6 +198,24 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
+  wrapHandler('glitch_result', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (!user || !data.imageData) return;
+
+    const img = new Image();
+    img.onload = () => {
+      // Convert to canvas for use as _cachedBlurResult
+      const canvas = document.createElement('canvas');
+      canvas.width = data.width;
+      canvas.height = data.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, data.width, data.height);
+      const bounds = { x: data.x, y: data.y, width: data.width, height: data.height };
+      board.layerManager?.applyRemoteGlitchResult(user.id, canvas, bounds);
+    };
+    img.src = data.imageData;
+  });
+
   wrapHandler('undo', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
