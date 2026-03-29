@@ -15,6 +15,81 @@ export class RemoteSelectionHandler {
 
     // Preview downscaling settings (same as SelectTool)
     this.previewMaxSize = 256; // Max dimension for preview warps
+
+    // Pattern tile cache for pattern fills
+    this._patternTileCache = new Map();
+  }
+
+  /**
+   * Generate a pattern tile from a user's pattern brush settings.
+   * @private
+   */
+  _getPatternTile(user) {
+    const brush = user.patternBrush;
+    if (!brush) return null;
+
+    let img = brush.image;
+    if (brush.type === 'gih' && brush.images) img = brush.images[0];
+    if (!img) return null;
+
+    const colorMode = user.patternColorMode || 'original';
+    const colorKey = colorMode === 'tinted' ? user.color.join(',') : 'original';
+    const spacing = user.patternSpacing || 0;
+    const key = `${brush.brushName || brush.fileName}_${colorKey}_${spacing}_${colorMode}`;
+
+    if (this._patternTileCache.has(key)) return this._patternTileCache.get(key);
+
+    const maxDim = 40;
+    const imgWidth = img.width || img.naturalWidth;
+    const imgHeight = img.height || img.naturalHeight;
+    if (!imgWidth || !imgHeight) return null;
+
+    const aspectRatio = imgWidth / imgHeight;
+    let tileWidth, tileHeight;
+    if (aspectRatio > 1) {
+      tileWidth = maxDim;
+      tileHeight = maxDim / aspectRatio;
+    } else {
+      tileWidth = maxDim * aspectRatio;
+      tileHeight = maxDim;
+    }
+
+    const padding = spacing;
+    const tileCanvas = document.createElement('canvas');
+    tileCanvas.width = tileWidth + padding;
+    tileCanvas.height = tileHeight + padding;
+
+    const tctx = tileCanvas.getContext('2d');
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = tileWidth;
+    tempCanvas.height = tileHeight;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.drawImage(img, 0, 0, tileWidth, tileHeight);
+
+    // Handle GIMP greyscale brushes
+    if (brush.type === 'gbr' && brush.colorDepth === 1) {
+      const imageData = tempCtx.getImageData(0, 0, tileWidth, tileHeight);
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+        data[i + 3] = 255 - brightness;
+        data[i] = data[i + 1] = data[i + 2] = 0;
+      }
+      tempCtx.putImageData(imageData, 0, 0);
+    }
+
+    tctx.save();
+    tctx.drawImage(tempCanvas, padding / 2, padding / 2, tileWidth, tileHeight);
+
+    if (colorMode === 'tinted') {
+      tctx.globalCompositeOperation = 'source-in';
+      tctx.fillStyle = `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3]})`;
+      tctx.fillRect(0, 0, tileCanvas.width, tileCanvas.height);
+    }
+
+    tctx.restore();
+    this._patternTileCache.set(key, tileCanvas);
+    return tileCanvas;
   }
 
   /**
@@ -394,6 +469,13 @@ export class RemoteSelectionHandler {
     if (!s) return;
     const colorString = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3]})`;
 
+    // Check for pattern mode
+    const usePattern = user.patternMode && user.patternBrush;
+    let patternTile = null;
+    if (usePattern) {
+      patternTile = this._getPatternTile(user);
+    }
+
     // Ensure integer coordinates for consistent filling
     let ix = Math.floor(s.x);
     let iy = Math.floor(s.y);
@@ -403,7 +485,25 @@ export class RemoteSelectionHandler {
     if (user.floatingCanvas && user.floatingCtx) {
       user.floatingCtx.save();
       user.floatingCtx.setTransform(1, 0, 0, 1, 0, 0); // Ensure clean coordinate space
-      user.floatingCtx.fillStyle = colorString;
+
+      // Set fill style (pattern or solid color)
+      if (usePattern && patternTile) {
+        const pattern = user.floatingCtx.createPattern(patternTile, 'repeat');
+        if (pattern.setTransform) {
+          const scale = (user.patternScale || 100) / 100;
+          const offsetX = (user.patternOffsetX || 0) - s.x;
+          const offsetY = (user.patternOffsetY || 0) - s.y;
+          const rotation = user.patternRotation || 0;
+          const matrix = new DOMMatrix()
+            .translate(offsetX, offsetY)
+            .rotate(rotation)
+            .scale(scale);
+          pattern.setTransform(matrix);
+        }
+        user.floatingCtx.fillStyle = pattern;
+      } else {
+        user.floatingCtx.fillStyle = colorString;
+      }
       user.floatingCtx.globalCompositeOperation = 'source-over';
 
       const path = user.lassoPath || (user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null);
@@ -430,7 +530,25 @@ export class RemoteSelectionHandler {
       if (!active) return;
 
       const layerCtx = active.ctx;
-      layerCtx.fillStyle = colorString;
+
+      // Set fill style (pattern or solid color)
+      if (usePattern && patternTile) {
+        const pattern = layerCtx.createPattern(patternTile, 'repeat');
+        if (pattern.setTransform) {
+          const scale = (user.patternScale || 100) / 100;
+          const offsetX = user.patternOffsetX || 0;
+          const offsetY = user.patternOffsetY || 0;
+          const rotation = user.patternRotation || 0;
+          const matrix = new DOMMatrix()
+            .translate(offsetX, offsetY)
+            .rotate(rotation)
+            .scale(scale);
+          pattern.setTransform(matrix);
+        }
+        layerCtx.fillStyle = pattern;
+      } else {
+        layerCtx.fillStyle = colorString;
+      }
 
       const path = user.lassoPath || (user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null);
       if (path) {
@@ -443,7 +561,7 @@ export class RemoteSelectionHandler {
           if (p.y < minY) minY = p.y;
           if (p.y > maxY) maxY = p.y;
         }
-        
+
         // Update variables for fill and dirty rect
         ix = Math.floor(minX);
         iy = Math.floor(minY);

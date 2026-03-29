@@ -90,6 +90,7 @@ message Msg {
     MOD_UNDO_TO_STATE  = 81;  // UNDO board to a specific timestamp
     GPT                = 82;  // Pattern brush (GIMP Pattern Tool)
     GLITCH_RESULT      = 83;  // Glitch blur result image (sender-computed, for deterministic sync)
+    CPM                = 84;  // Change pattern mode (fill/select pattern toggle)
   }
 
   // Tool enum
@@ -110,6 +111,7 @@ message Msg {
     GLITCH_BLUR = 13;
     PIXEL = 14;
     FLOODFILL = 15;
+    PATTERN = 16;
   }
 
   // === High-frequency fields (1-15 = 1-byte tags) ===
@@ -163,6 +165,7 @@ message Msg {
     uint32 th = 21;     // Thinning * 100
     uint32 sim = 22;    // Simulate pressure (0 or 1)
     string pb = 23;     // Pattern brush data (JSON)
+    bool   pm = 24;     // Pattern mode enabled
   }
   repeated U us = 17;   // Users array
 
@@ -288,4 +291,5 @@ message Msg {
   string ownerUsername = 69;  // ROOM_OWNERSHIP: room owner's username
   uint64 mod_undo_ts   = 82;  // MOD_UNDO_TO_STATE: target timestamp
   string pb            = 83;  // Pattern brush data JSON (for GPT message)
+  bool   pm            = 84;  // Pattern mode enabled (for fill/select tools)
 }

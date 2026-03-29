@@ -510,6 +510,10 @@ export class WebSocketClient {
         this.emit('gpt', { sessionIndex: data.u, patternData: data.g });
         break;
 
+      case T.CPM:
+        this.emit('cpm', { sessionIndex: data.u, patternMode: data.pm });
+        break;
+
       case T.PAN:
         this.emit('pan', { sessionIndex: data.u, panning: data.a });
         break;
@@ -1146,6 +1150,15 @@ export class WebSocketClient {
 
   broadcastPatternBrush(patternData) {
     this.send({ t: T.GPT, g: JSON.stringify(patternData) });
+  }
+
+  /**
+   * Broadcasts pattern mode toggle (for fill/select pattern fills).
+   * @param {boolean} enabled - Whether pattern mode is enabled.
+   * @returns {void}
+   */
+  broadcastPatternMode(enabled) {
+    this.send({ t: T.CPM, pm: enabled });
   }
 
   /**

@@ -23,7 +23,7 @@ export const T = {
   PING: 69, PONG: 70, CTHN: 71, CSIM: 72, FILL: 73,
   ROOM_ROLE_SET: 74, SYNC_TILE_OWNERSHIP: 75, TILE_UPDATE: 76, TILE_CLEAR: 77,
   ROOM_REGISTER: 78, ROOM_UNREGISTER: 79, ROOM_OWNERSHIP: 80,
-  MOD_UNDO_TO_STATE: 81, GPT: 82, GLITCH_RESULT: 83
+  MOD_UNDO_TO_STATE: 81, GPT: 82, GLITCH_RESULT: 83, CPM: 84
 };
 
 /**
@@ -32,7 +32,7 @@ export const T = {
  */
 export const Tool = {
   BRUSH: 0, TEXT: 1, ERASE: 2, IMAGE_BRUSH: 3,
-  SELECT: 4, PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8, INK: 9, INKDROPPER: 10, BLUR: 11, CIRCLE_BLUR: 12, GLITCH_BLUR: 13, PIXEL: 14, FLOODFILL: 15
+  SELECT: 4, PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8, INK: 9, INKDROPPER: 10, BLUR: 11, CIRCLE_BLUR: 12, GLITCH_BLUR: 13, PIXEL: 14, FLOODFILL: 15, PATTERN: 16
 };
 
 /**
@@ -41,7 +41,7 @@ export const Tool = {
  */
 export const ToolNames = [
   'brush', 'text', 'erase', 'imageBrush',
-  'select', 'flowPen', 'line', 'rectangle', 'circle', 'ink', 'inkdropper', 'blur', 'circleBlur', 'glitchBlur', 'pixel', 'fill'
+  'select', 'flowPen', 'line', 'rectangle', 'circle', 'ink', 'inkdropper', 'blur', 'circleBlur', 'glitchBlur', 'pixel', 'fill', 'pattern'
 ];
 
 /**
@@ -50,5 +50,5 @@ export const ToolNames = [
  */
 export const ToolToEnum = {
   brush: 0, text: 1, erase: 2, imageBrush: 3,
-  select: 4, flowPen: 5, line: 6, rectangle: 7, circle: 8, ink: 9, inkdropper: 10, blur: 11, circleBlur: 12, glitchBlur: 13, pixel: 14, fill: 15
+  select: 4, flowPen: 5, line: 6, rectangle: 7, circle: 8, ink: 9, inkdropper: 10, blur: 11, circleBlur: 12, glitchBlur: 13, pixel: 14, fill: 15, pattern: 16
 };

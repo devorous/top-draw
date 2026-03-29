@@ -76,15 +76,23 @@ export class RemoteUserHandler {
     }
 
     const radii = data.rs;
+
+    // Pattern tool doesn't depend on radii - handle separately
+    if (!user.panning && user.mousedown && user.tool === 'pattern') {
+      const tool = this.toolManager.getTool('pattern');
+      if (tool) tool.remoteStampMask(user, smoothedPoints);
+      if (smoothedPoints.length >= 2) {
+        this.ui.updateRemoteCursor(user.id, smoothedPoints[smoothedPoints.length - 2], smoothedPoints[smoothedPoints.length - 1], user.size);
+      }
+      return;
+    }
+
     if (!user.panning && user.mousedown && radii && radii.length > 0) {
       if (user.tool === 'ink') {
         this.inkHandler.handleInkPoints(user, smoothedPoints, radii);
       } else if (user.tool === 'pixel' || user.tool === 'imageBrush') {
         const tool = this.toolManager.getTool(user.tool);
         if (tool) tool.applyStamps(user, smoothedPoints);
-      } else if (user.tool === 'pattern') {
-        const tool = this.toolManager.getTool('pattern');
-        if (tool) tool.remoteStampMask(user, smoothedPoints);
       } else if (user.tool === 'circleBlur') {
         const tool = this.toolManager.getTool(user.tool);
         if (tool) tool.applyStamps(user, smoothedPoints, radii);
@@ -513,7 +521,7 @@ export class RemoteUserHandler {
         break;
 
       case 'pattern':
-        if (user.patternBrush && !user.panning) {
+        if (!user.panning) {
           const patternTool = this.toolManager.getTool('pattern');
           if (patternTool) {
             patternTool.remoteBeginStroke(user, pos);

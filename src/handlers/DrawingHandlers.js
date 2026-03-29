@@ -198,6 +198,13 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
+  wrapHandler('cpm', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      user.patternMode = data.patternMode || false;
+    }
+  });
+
   wrapHandler('glitch_result', (data) => {
     const user = users.get(data.sessionIndex);
     if (!user || !data.imageData) return;
@@ -297,7 +304,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     const strokeCtx = board.layerManager.getUserStrokeContext(layerIndex, userId);
     if (!strokeCtx) return;
 
-    fillTool._renderMask(strokeCtx, result, fillR, fillG, fillB, userOpacity, blurRadius, width, height);
+    fillTool._renderMask(strokeCtx, result, fillR, fillG, fillB, userOpacity, blurRadius, width, height, user);
 
     const pad = Math.ceil(blurRadius * 2) + Math.ceil(Math.abs(expansion));
     const bx = Math.max(0, result.minX - pad);
@@ -329,7 +336,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
           }
         }
         if (mResult) {
-          fillTool._renderMaskComposite(strokeCtx, mResult, fillR, fillG, fillB, userOpacity, blurRadius, width, height);
+          fillTool._renderMaskComposite(strokeCtx, mResult, fillR, fillG, fillB, userOpacity, blurRadius, width, height, user);
           const mbx = Math.max(0, mResult.minX - pad);
           const mby = Math.max(0, mResult.minY - pad);
           const mbw = Math.min(width, mResult.maxX + pad + 1) - mbx;

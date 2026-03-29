@@ -62,7 +62,8 @@ export function setupUserHandlers(wsClient, app) {
           afk: userData.afk || false,
           opacity: userData.color ? userData.color[3] : 1,
           role: userData.role || 0,
-          ipHash: userData.iph || userData.ipHash || ''
+          ipHash: userData.iph || userData.ipHash || '',
+          patternMode: userData.pm || userData.patternMode || false
         };
 
         user = new User(userData.sessionIndex, userOptions);

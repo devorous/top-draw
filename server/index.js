@@ -218,6 +218,7 @@ function mapUsersForBroadcast(users) {
     bm: u.blendMode || 'source-over',
     ib: u.imageBrush,
     pb: u.patternBrush,
+    pm: u.patternMode || false,
     iph: u.ipHash,
     th: u.thinning,
     sim: u.simulatePressure
@@ -468,6 +469,10 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
 
     case T.GPT:
       user.patternBrush = data.g;
+      break;
+
+    case T.CPM:
+      user.patternMode = data.pm || false;
       break;
 
     case T.IMG_PASTE:

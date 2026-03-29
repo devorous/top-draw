@@ -684,6 +684,12 @@ export class DrawingApp {
         if (fillTool) fillTool.patternMode = e.target.checked;
         if (fillPatternSettings) fillPatternSettings.style.display = e.target.checked ? 'block' : 'none';
 
+        // Sync pattern mode to user object and broadcast
+        this.self.patternMode = e.target.checked;
+        if (this.connected && this.wsClient) {
+          this.wsClient.broadcastPatternMode(e.target.checked);
+        }
+
         // Update preview if pattern tool exists
         const patternTool = this.toolManager.getTool('pattern');
         if (patternTool && e.target.checked) {
@@ -712,6 +718,12 @@ export class DrawingApp {
         const selectTool = this.toolManager.getTool('select');
         if (selectTool) selectTool.patternMode = e.target.checked;
         if (selectionPatternSettings) selectionPatternSettings.style.display = e.target.checked ? 'block' : 'none';
+
+        // Sync pattern mode to user object and broadcast
+        this.self.patternMode = e.target.checked;
+        if (this.connected && this.wsClient) {
+          this.wsClient.broadcastPatternMode(e.target.checked);
+        }
 
         // Update preview if pattern tool exists
         const patternTool = this.toolManager.getTool('pattern');
