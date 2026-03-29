@@ -91,6 +91,7 @@ message Msg {
     GPT                = 82;  // Pattern brush (GIMP Pattern Tool)
     GLITCH_RESULT      = 83;  // Glitch blur result image (sender-computed, for deterministic sync)
     CPM                = 84;  // Change pattern mode (fill/select pattern toggle)
+    ROOM_PREVIEW       = 85;  // Room canvas preview (1/4 scale thumbnail)
   }
 
   // Tool enum
@@ -258,6 +259,7 @@ message Msg {
     string description = 5;
     string ownerId     = 6;
     string ownerUsername = 7;
+    bytes preview      = 8;   // 1/4 scale PNG preview of canvas
   }
   repeated RoomInfo rooms = 52;
 

@@ -780,7 +780,8 @@ export class WebSocketClient {
             hasPassword: r.hasPassword || false,
             description: r.description || '',
             ownerId: r.ownerId || null,
-            ownerUsername: r.ownerUsername || null
+            ownerUsername: r.ownerUsername || null,
+            preview: r.preview || null
           }))
         });
         break;
@@ -1527,6 +1528,15 @@ export class WebSocketClient {
    */
   requestRoomList() {
     this.send({ t: T.ROOM_LIST_REQUEST });
+  }
+
+  /**
+   * Sends a room preview image to the server.
+   * @param {Uint8Array} imageData - PNG image data at 1/4 scale
+   * @returns {void}
+   */
+  broadcastRoomPreview(imageData) {
+    this.send({ t: T.ROOM_PREVIEW, img: imageData });
   }
 
   /**

@@ -144,6 +144,10 @@ export class DrawingApp {
 
     // Save mode (initialized in init() after board is ready)
     this.saveMode = null;
+
+    // Room preview interval (sends 1/4 scale preview to server every 30s)
+    this._previewInterval = null;
+    this._previewIntervalMs = 30000;
   }
 
   /**
@@ -1697,6 +1701,9 @@ export class DrawingApp {
 
     this.moderation.setRole(this.selfRole);
     this.inputBufferManager.startTickLoop();
+
+    // Start sending room previews
+    this.startPreviewInterval();
   }
 
   /**
@@ -1706,6 +1713,7 @@ export class DrawingApp {
    */
   handleWSDisconnect(code, reason) {
     this.connected = false;
+    this.stopPreviewInterval();
 
     // Don't show disconnection UI if disconnect was intentional
     if (this.intentionalDisconnect) {
@@ -3620,4 +3628,69 @@ export class DrawingApp {
 
   // Tool Locks Management
 
+  // Room Preview
+
+  /**
+   * Starts the periodic room preview capture and broadcast.
+   * Sends a 1/4 scale canvas preview to the server every 30 seconds.
+   */
+  startPreviewInterval() {
+    this.stopPreviewInterval();
+
+    // Send initial preview after a short delay to ensure canvas is rendered
+    setTimeout(() => this.captureAndSendPreview(), 2000);
+
+    this._previewInterval = setInterval(() => {
+      this.captureAndSendPreview();
+    }, this._previewIntervalMs);
+  }
+
+  /**
+   * Stops the periodic room preview capture.
+   */
+  stopPreviewInterval() {
+    if (this._previewInterval) {
+      clearInterval(this._previewInterval);
+      this._previewInterval = null;
+    }
+  }
+
+  /**
+   * Captures the current board at 1/4 scale and sends it to the server.
+   */
+  captureAndSendPreview() {
+    if (!this.connected || !this.wsClient || this.isOfflineMode) return;
+
+    try {
+      const mainCanvas = this.board.mainCanvas;
+      if (!mainCanvas) return;
+
+      // Create a 1/4 scale canvas
+      const scale = 0.25;
+      const previewCanvas = document.createElement('canvas');
+      previewCanvas.width = Math.floor(mainCanvas.width * scale);
+      previewCanvas.height = Math.floor(mainCanvas.height * scale);
+
+      const ctx = previewCanvas.getContext('2d');
+
+      // Fill with background color
+      const [r, g, b] = this.board.backgroundColor;
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+      ctx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+
+      // Draw scaled main canvas
+      ctx.drawImage(mainCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
+
+      // Convert to PNG blob and send
+      previewCanvas.toBlob((blob) => {
+        if (blob && blob.size <= 100 * 1024) { // Limit to 100KB
+          blob.arrayBuffer().then((buffer) => {
+            this.wsClient.broadcastRoomPreview(new Uint8Array(buffer));
+          });
+        }
+      }, 'image/png', 0.7);
+    } catch (err) {
+      console.error('[App] Preview capture error:', err);
+    }
+  }
 }

@@ -35,6 +35,11 @@ export class Room {
     this.lastActivity = Date.now();
     this.dbLoaded = false;
 
+    /** @type {Buffer|null} PNG preview image at 1/4 scale */
+    this.preview = null;
+    /** @type {number} Timestamp of last preview update */
+    this.previewUpdatedAt = 0;
+
     const isDiscovery = id === '_discovery' || id === 'default';
     this.sessionManager = new SessionManager(this.broadcastToAll.bind(this), isDiscovery);
     this.syncCoordinator = new SyncCoordinator(this.sessionManager, { clients: this.clients }, this.sendTo, this);
@@ -164,6 +169,16 @@ export class Room {
   }
 
   /**
+   * Updates the room preview image.
+   * @param {Buffer} previewData - PNG image data at 1/4 scale
+   */
+  setPreview(previewData) {
+    this.preview = previewData;
+    this.previewUpdatedAt = Date.now();
+    this.lastActivity = Date.now();
+  }
+
+  /**
    * Returns the number of clients currently in the room.
    * @returns {number} - The client count.
    */
@@ -270,13 +285,14 @@ export class RoomManager {
 
   /**
    * Returns a list of all active public rooms.
+   * @param {boolean} [includePreview=true] - Whether to include preview images
    * @returns {Array<Object>} - A list of room summary objects.
    */
-  getRoomList() {
+  getRoomList(includePreview = true) {
     const list = [];
     for (const room of this.rooms.values()) {
       if (room.id === '_discovery') continue;
-      list.push({
+      const roomInfo = {
         id: room.id,
         description: room.description || '',
         userCount: room.getClientCount(),
@@ -284,7 +300,11 @@ export class RoomManager {
         hasPassword: false,
         ownerId: room.ownerId || '',
         ownerUsername: room.ownerUsername || ''
-      });
+      };
+      if (includePreview && room.preview) {
+        roomInfo.preview = room.preview;
+      }
+      list.push(roomInfo);
     }
     return list;
   }

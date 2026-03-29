@@ -175,19 +175,53 @@ export class LandingPage {
   }
 
   /**
+   * Converts preview bytes to a data URL.
+   * @param {Uint8Array|null} preview - Preview image bytes
+   * @returns {string|null} - Data URL or null
+   */
+  previewToDataUrl(preview) {
+    if (!preview || preview.length === 0) return null;
+    try {
+      const blob = new Blob([preview], { type: 'image/png' });
+      return URL.createObjectURL(blob);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Render room list in the UI.
    * @param {Array} rooms - List of room objects
    */
   renderRooms(rooms) {
     if (!this.els.roomList) return;
 
+    // Clean up old preview URLs
+    if (this._previewUrls) {
+      this._previewUrls.forEach(url => URL.revokeObjectURL(url));
+    }
+    this._previewUrls = [];
+
     if (rooms.length === 0) {
       this.els.roomList.innerHTML = '<div class="roomListEmpty">No active rooms. Create one to get started!</div>';
       return;
     }
 
-    this.els.roomList.innerHTML = rooms.map(room => `
+    this.els.roomList.innerHTML = rooms.map(room => {
+      const previewUrl = this.previewToDataUrl(room.preview);
+      if (previewUrl) this._previewUrls.push(previewUrl);
+
+      return `
       <div class="roomListItem ${this.selectedRoom === room.id ? 'selected' : ''}" data-room-id="${room.id}">
+        ${previewUrl ? `
+          <div class="roomPreview">
+            <img src="${previewUrl}" alt="Room preview" loading="lazy" />
+          </div>
+        ` : `
+          <div class="roomPreview roomPreviewEmpty">
+            <span>No preview</span>
+          </div>
+        `}
         <div class="roomInfo">
           <div class="roomId">${room.id}</div>
           ${room.description ? `<div class="roomDescription">${this.escapeHtml(room.description)}</div>` : ''}
@@ -199,13 +233,85 @@ export class LandingPage {
           </div>
         </div>
       </div>
-    `).join('');
+    `}).join('');
 
     this.els.roomList.querySelectorAll('.roomListItem').forEach(item => {
       item.addEventListener('click', () => {
         const roomId = item.dataset.roomId;
         this.selectRoom(roomId);
       });
+    });
+
+    // Setup preview expansion on hover/tap
+    this.setupPreviewExpansion();
+  }
+
+  /**
+   * Sets up hover/tap expansion for room previews.
+   */
+  setupPreviewExpansion() {
+    const previews = this.els.roomList.querySelectorAll('.roomPreview img');
+
+    previews.forEach(img => {
+      // Create expanded preview container (reuse existing or create new)
+      let expandedPreview = document.getElementById('expandedRoomPreview');
+      if (!expandedPreview) {
+        expandedPreview = document.createElement('div');
+        expandedPreview.id = 'expandedRoomPreview';
+        expandedPreview.className = 'expandedRoomPreview';
+        document.body.appendChild(expandedPreview);
+      }
+
+      const showExpanded = (e) => {
+        const rect = img.getBoundingClientRect();
+        expandedPreview.innerHTML = `<img src="${img.src}" alt="Expanded preview" />`;
+        expandedPreview.style.display = 'block';
+
+        // Position above or below the thumbnail depending on available space
+        const previewHeight = Math.min(window.innerHeight * 0.4, 400);
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const spaceAbove = rect.top;
+
+        if (spaceBelow >= previewHeight + 20 || spaceBelow > spaceAbove) {
+          expandedPreview.style.top = `${rect.bottom + 8}px`;
+          expandedPreview.style.bottom = 'auto';
+        } else {
+          expandedPreview.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+          expandedPreview.style.top = 'auto';
+        }
+
+        // Center horizontally relative to thumbnail
+        const previewWidth = Math.min(window.innerWidth * 0.8, 600);
+        let left = rect.left + rect.width / 2 - previewWidth / 2;
+        left = Math.max(10, Math.min(left, window.innerWidth - previewWidth - 10));
+        expandedPreview.style.left = `${left}px`;
+      };
+
+      const hideExpanded = () => {
+        expandedPreview.style.display = 'none';
+      };
+
+      // Desktop: hover
+      img.addEventListener('mouseenter', showExpanded);
+      img.addEventListener('mouseleave', hideExpanded);
+
+      // Mobile: tap to toggle
+      img.addEventListener('touchstart', (e) => {
+        e.stopPropagation();
+        if (expandedPreview.style.display === 'block') {
+          hideExpanded();
+        } else {
+          showExpanded(e);
+        }
+      });
+    });
+
+    // Hide expanded preview when clicking elsewhere
+    document.addEventListener('click', (e) => {
+      const expandedPreview = document.getElementById('expandedRoomPreview');
+      if (expandedPreview && !e.target.closest('.roomPreview')) {
+        expandedPreview.style.display = 'none';
+      }
     });
   }
 

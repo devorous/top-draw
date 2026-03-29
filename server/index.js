@@ -1161,11 +1161,23 @@ wss.on('connection', (ws, req) => {
                 hasPassword: r.hasPassword,
                 description: r.description || '',
                 ownerId: r.ownerId || '',
-                ownerUsername: r.ownerUsername || ''
+                ownerUsername: r.ownerUsername || '',
+                preview: r.preview || null
               }))
             });
           } catch (err) {
             console.error('[Room] List error:', err);
+          }
+          break;
+        }
+
+        case T.ROOM_PREVIEW: {
+          // Store preview image for this room (sent by any user in the room)
+          if (data.img && data.img.length > 0) {
+            // Limit preview size to 100KB to prevent abuse
+            if (data.img.length <= 100 * 1024) {
+              room.setPreview(Buffer.from(data.img));
+            }
           }
           break;
         }
