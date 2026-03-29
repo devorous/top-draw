@@ -368,34 +368,42 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       if (user.tool === Tool.TEXT) {
         user.text = '';
       }
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CS:
       user.size = data.s;
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CSP:
       user.spacing = data.sp;
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CSM:
       user.smoothing = data.sm;
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CHD:
       user.hardness = data.hd;
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CBR:
       user.blurRadius = data.br;
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CL:
       user.activeLayer = data.ly;
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CBM:
       user.blendMode = data.bm;
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CP:
@@ -405,10 +413,12 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
     case T.CT:
       user.tool = data.l;
       user.text = '';
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CC:
       user.color = data.c;
+      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CN:
