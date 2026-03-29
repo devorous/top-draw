@@ -1,6 +1,9 @@
 import { appState } from '../state.svelte.js';
 import { ReplayEngine } from './ReplayEngine.js';
 
+/** How long a user can be in replay mode before we stop recording and require resync (1 minute) */
+const REPLAY_TIMEOUT_MS = 60 * 1000;
+
 /**
  * Snapshot structure to store board and application state at a point in time.
  */
@@ -27,8 +30,12 @@ class TimeMachineState {
   isStarted = $state(false); // True when recording has actually started
   isVisible = $state(false); // UI toggle for showing/hiding the timebar
   previewData = $state(null); // The current historical view as a data URL
+  needsResync = $state(false); // True when user has been in replay too long and needs resync
+  isRecordingPaused = $state(false); // True when we've stopped recording due to replay timeout
 
   _snapshotInterval = null;
+  _replayTimeoutId = null; // Timer for replay mode timeout
+  _reviewStartTime = null; // When user entered replay mode
   _tickInterval = null;
   _playbackInterval = null;
   _board = null;
@@ -110,7 +117,6 @@ class TimeMachineState {
   start() {
     if (this.isStarted) return;
     
-    console.log('[TimeMachine] Starting recording...');
     this.isStarted = true;
     this.startRecording();
   }
@@ -126,8 +132,11 @@ class TimeMachineState {
     this.currentTime = 0;
     this.maxTime = 0;
     this.previewData = null;
+    this.needsResync = false;
+    this.isRecordingPaused = false;
     this._showReplayCanvas(false);
     this._removeBotCursors();
+    this._clearReplayTimeout();
 
     if (this._snapshotInterval) {
       clearInterval(this._snapshotInterval);
@@ -169,8 +178,11 @@ class TimeMachineState {
   _tick() {
     if (!this.isStarted || this.recordingBuffer.length === 0) return;
 
+    // Don't update maxTime if recording is paused
+    if (this.isRecordingPaused) return;
+
     this.maxTime = Date.now();
-    
+
     // If we're not reviewing, keep currentTime synced with maxTime
     if (!this.isReviewing) {
       this.currentTime = this.maxTime;
@@ -181,7 +193,7 @@ class TimeMachineState {
    * Take a simultaneous snapshot of the board and application state.
    */
   takeSnapshot() {
-    if (!this._board || !this.isStarted) return;
+    if (!this._board || !this.isStarted || this.isRecordingPaused) return;
 
     const timestamp = Date.now();
     console.log(`[TimeMachine] Taking snapshot at ${new Date(timestamp).toLocaleTimeString()}`);
@@ -254,6 +266,9 @@ class TimeMachineState {
   recordAction(msg) {
     if (!this.isStarted || this.recordingBuffer.length === 0) return;
 
+    // Stop recording if we've been in replay mode too long
+    if (this.isRecordingPaused) return;
+
     const timestamp = Date.now();
     const latestSnapshot = this.recordingBuffer[this.recordingBuffer.length - 1];
 
@@ -282,7 +297,15 @@ class TimeMachineState {
       Math.min(timestamp, this.maxTime)
     );
 
+    const wasReviewing = this.isReviewing;
     this.isReviewing = this.currentTime < (this.maxTime - 500); // 500ms threshold
+
+    // Track transitions in/out of replay mode for timeout handling
+    if (this.isReviewing && !wasReviewing) {
+      this._startReplayTimeout();
+    } else if (!this.isReviewing && wasReviewing) {
+      this._clearReplayTimeout();
+    }
 
     if (this.isReviewing) {
       if (this._isSeeking) {
@@ -308,6 +331,33 @@ class TimeMachineState {
       this._removeBotCursors();
       this.previewData = null;
     }
+  }
+
+  /**
+   * Start the replay timeout timer. After REPLAY_TIMEOUT_MS, stop recording
+   * and require a resync when returning to live.
+   * @private
+   */
+  _startReplayTimeout() {
+    this._clearReplayTimeout();
+    this._reviewStartTime = Date.now();
+
+    this._replayTimeoutId = setTimeout(() => {
+      this.isRecordingPaused = true;
+      this.needsResync = true;
+    }, REPLAY_TIMEOUT_MS);
+  }
+
+  /**
+   * Clear the replay timeout timer.
+   * @private
+   */
+  _clearReplayTimeout() {
+    if (this._replayTimeoutId) {
+      clearTimeout(this._replayTimeoutId);
+      this._replayTimeoutId = null;
+    }
+    this._reviewStartTime = null;
   }
 
   /**
@@ -344,7 +394,7 @@ class TimeMachineState {
       return;
     }
 
-    // 1. Find the snapshot closest to, but not exceeding, the target timestamp
+    //  Find the snapshot closest to, but not exceeding, the target timestamp
     let snapshot = null;
     let snapshotIndex = -1;
     for (let i = this.recordingBuffer.length - 1; i >= 0; i--) {
@@ -360,13 +410,10 @@ class TimeMachineState {
       return;
     }
 
-    console.log('[TimeMachine] Applying state at', new Date(timestamp).toLocaleTimeString(),
-      'using snapshot from', new Date(snapshot.timestamp).toLocaleTimeString());
 
-    // 2. Load snapshot into replay engine
     await this._replayEngine.loadSnapshot(snapshot);
 
-    // 3. Gather all actions from snapshot to target timestamp
+
     const actionsToReplay = [];
 
     for (let i = snapshotIndex; i < this.recordingBuffer.length; i++) {
@@ -381,12 +428,8 @@ class TimeMachineState {
     // Sort by timestamp to ensure correct order
     actionsToReplay.sort((a, b) => a.timestamp - b.timestamp);
 
-    console.log('[TimeMachine] Replaying', actionsToReplay.length, 'actions');
-
-    // 4. Process actions through replay engine
     await this._replayEngine.processActions(actionsToReplay, timestamp);
 
-    // 5. Draw replay result to the replay canvas
     if (this._replayCtx && this._replayEngine.outputCanvas) {
       // Fill with background color first to prevent real board showing through
       const bgColor = this._board?.backgroundColor || [255, 255, 255, 1];
@@ -431,10 +474,47 @@ class TimeMachineState {
 
   /**
    * Catch up to the present live state.
+   * If user was in replay too long, triggers a full resync instead of seeking.
    */
   catchUp() {
     this.pause();
+    this._clearReplayTimeout();
+
+    if (this.needsResync) {
+      this._triggerResync();
+      return;
+    }
+
     this.seek(this.maxTime);
+  }
+
+  /**
+   * Triggers a full resync via SyncClient. This clears the current recording
+   * buffer and restarts from fresh state.
+   * @private
+   */
+  _triggerResync() {
+    // Reset TimeMachine state
+    this._showReplayCanvas(false);
+    this._removeBotCursors();
+    this.stop();
+
+    // Trigger resync via app's syncClient
+    const syncClient = window.app?.syncClient;
+    if (syncClient) {
+      // Reset sync state to allow a new sync
+      syncClient.hasCompletedSync = false;
+      syncClient.requestSync();
+
+      // Restart recording after sync completes
+      syncClient.onSyncComplete = () => {
+        this.start();
+      };
+    } else {
+      console.warn('[TimeMachine] No syncClient available, cannot resync');
+      // Fallback: just restart recording with current state
+      this.start();
+    }
   }
 
   /**

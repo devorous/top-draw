@@ -756,8 +756,14 @@ wss.on('connection', (ws, req) => {
                 ws.close(4001, 'Banned');
                 return;
               }
+
+              // Check for IP-based mute (guests)
+              const ipMute = await checkMute(null, ws.clientIp, room.id);
+              if (ipMute) {
+                ws.isMuted = true;
+              }
             } catch (err) {
-              console.error('[Mod] IP ban check error:', err);
+              console.error('[Mod] IP ban/mute check error:', err);
             }
           }
 
@@ -789,7 +795,7 @@ wss.on('connection', (ws, req) => {
 
           const allUsers = room.sessionManager.getJoinedUsers();
           const roomBroadcaster = createRoomBroadcaster(room);
-          
+
           if (!room.sessionManager.isDiscovery) {
             roomBroadcaster({
               t: T.USERS,
@@ -810,6 +816,11 @@ wss.on('connection', (ws, req) => {
             roomLocked: room.settings.locked,
             roomMaxUsers: room.settings.maxUsers
           });
+
+          // If user is muted (IP-based for guests), hide their cursor for everyone
+          if (ws.isMuted) {
+            roomBroadcaster({ t: T.HIDE_CURSOR, u: sessionIndex });
+          }
           break;
 
         case T.SYNC_REQUEST:
@@ -1663,6 +1674,10 @@ wss.on('connection', (ws, req) => {
             });
 
             if (ws.isMuted) {
+              // Hide cursor for all other users
+              createRoomBroadcaster(room)({ t: T.HIDE_CURSOR, u: ws.sessionIndex });
+
+              // Notify the muted user
               sendTo(ws, {
                 t: T.MOD_NOTIFY,
                 modActionType: 1,

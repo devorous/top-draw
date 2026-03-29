@@ -774,15 +774,15 @@ export class ReplayEngine {
   _compositeOutput() {
     if (!this.outputCtx) return;
 
-    // 1. Composite all layers (background + snapshot base + strokes + filters)
+    //    Composite all layers (background + snapshot base + strokes + filters)
     //    into the replay board's mainCtx. Blur filters will now read from
     //    mainCtx which contains the snapshot content beneath them.
     this._replayBoard._doComposite();
 
-    // 2. Render everything to the output canvas
+    //    Render everything to the output canvas
     this._renderToOutput();
 
-    // 3. Set up callback so that when async blur worker finishes,
+    //    Set up callback so that when async blur worker finishes,
     //    we re-composite and update the replay canvas automatically.
     //    We check needsComposite to avoid infinite loops if nothing changed.
     this._replayBoard._onLayerUpdate = () => {
@@ -803,16 +803,16 @@ export class ReplayEngine {
     const ctx = this.outputCtx;
     if (!ctx) return;
 
-    // 1. Copy the fully composited result (snapshot base + strokes + filters)
+    //  Copy the fully composited result (snapshot base + strokes + filters)
     ctx.clearRect(0, 0, this.width, this.height);
     ctx.drawImage(this._replayBoard.mainCanvas, 0, 0);
 
-    // 2. Draw the replay board's topCanvas (pixel brush preview, etc.)
+    //  Draw the replay board's topCanvas (pixel brush preview, etc.)
     if (this._replayBoard.topCanvas) {
       ctx.drawImage(this._replayBoard.topCanvas, 0, 0);
     }
 
-    // 3. Draw per-user preview canvases (in-progress strokes / shape previews)
+    //  Draw per-user preview canvases (in-progress strokes / shape previews)
     for (const user of this.botUsers.values()) {
       if (user.board) {
         const blendMode = user.blendMode || 'source-over';

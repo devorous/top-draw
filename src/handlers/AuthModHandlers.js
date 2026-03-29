@@ -6,7 +6,7 @@
  * @param {App} app - The main application instance.
  */
 export function setupAuthModHandlers(wsClient, app) {
-  const { users, ui, chat } = app;
+  const { users, ui } = app;
 
   wsClient.on('auth_result', (data) => {
     if (app.auth) {
@@ -18,7 +18,7 @@ export function setupAuthModHandlers(wsClient, app) {
     if (data.actionType === 5) {
       // Reason added after the fact
       if (data.reason) {
-        chat.addSystemMessage(`Reason for ${data.targetName}: ${data.reason} (by ${data.issuerName})`);
+        app.svelteComponents?.chat?.addSystemMessage(`Reason for ${data.targetName}: ${data.reason} (by ${data.issuerName})`);
         ui.showToast(`Reason added for ${data.targetName}`, 2000);
       }
       return;
@@ -28,9 +28,9 @@ export function setupAuthModHandlers(wsClient, app) {
     const actionName = actionNames[data.actionType] || 'moderated';
     const message = `${data.targetName} was ${actionName} by ${data.issuerName}`;
     if (data.reason) {
-      chat.addSystemMessage(`${message} — ${data.reason}`);
+      app.svelteComponents?.chat?.addSystemMessage(`${message} — ${data.reason}`);
     } else {
-      chat.addSystemMessage(message);
+      app.svelteComponents?.chat?.addSystemMessage(message);
     }
     ui.showToast(message, 3000);
 
@@ -153,7 +153,7 @@ export function setupAuthModHandlers(wsClient, app) {
       // For now, let's keep it simple.
     }
 
-    chat.addSystemMessage(`All strokes from ${targetName} were removed by ${issuerName}`);
+    app.svelteComponents?.chat?.addSystemMessage(`All strokes from ${targetName} were removed by ${issuerName}`);
     ui.showToast(`${targetName}'s strokes wiped by ${issuerName}`, 3000);
   });
 }

@@ -16,7 +16,7 @@
   inset: 0;
   background: var(--surface-overlay);
   backdrop-filter: blur(3px);
-  z-index: 101;
+  z-index: 9999;
 }
 
 .overlayWindow {
@@ -570,6 +570,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  height: 80px;
   padding: 12px 14px;
   margin-bottom: 8px;
   background: var(--bg-tertiary);
@@ -596,8 +597,7 @@
 }
 
 .roomPreview {
-  width: 60px;
-  height: 45px;
+  height: 120%;
   flex-shrink: 0;
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -615,9 +615,6 @@
     transition: transform var(--transition-fast);
   }
 
-  &:hover img {
-    transform: scale(1.05);
-  }
 
   &.roomPreviewEmpty {
     span {

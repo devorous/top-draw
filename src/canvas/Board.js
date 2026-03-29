@@ -247,23 +247,23 @@ export class Board {
     // A more robust way is to use the inverse matrix logic since we know the transform parameters.
     // client -> boardContainer (pan is here) -> boardsWrapper (zoom and rotate are here)
 
-    // 1. Convert client to boardContainer space
+
     const containerRect = this.container.getBoundingClientRect();
     let bx = clientX - containerRect.left;
     let by = clientY - containerRect.top;
 
-    // 2. Undo translation (pan)
+
     bx -= this.panX;
     by -= this.panY;
 
-    // 3. Undo rotation
+
     const rad = -this.rotation * Math.PI / 180;
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
     const rx = bx * cos - by * sin;
     const ry = bx * sin + by * cos;
 
-    // 4. Undo scale (zoom)
+
     return {
       x: Math.round((rx / this.zoom) * 100) / 100,
       y: Math.round((ry / this.zoom) * 100) / 100

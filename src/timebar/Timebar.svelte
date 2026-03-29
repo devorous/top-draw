@@ -55,9 +55,13 @@
 </script>
 
 {#if TimeMachine.isReviewing}
-  <div class="history-badge">
+  <div class="history-badge" class:needs-resync={TimeMachine.needsResync}>
     <span class="pulse"></span>
-    VIEWING HISTORY
+    {#if TimeMachine.needsResync}
+      RESYNC REQUIRED
+    {:else}
+      VIEWING HISTORY
+    {/if}
   </div>
 {/if}
 
@@ -121,8 +125,12 @@
       </div>
 
       {#if TimeMachine.isReviewing}
-        <button class="catch-up-btn" onclick={() => TimeMachine.catchUp()}>
-          Catch Up
+        <button class="catch-up-btn" class:needs-resync={TimeMachine.needsResync} onclick={() => TimeMachine.catchUp()}>
+          {#if TimeMachine.needsResync}
+            Resync
+          {:else}
+            Catch Up
+          {/if}
         </button>
         
         {#if appState.isModerator}
@@ -154,6 +162,12 @@
     gap: 8px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     z-index: 100;
+    transition: background 0.3s ease;
+
+    &.needs-resync {
+      background: rgba(239, 68, 68, 0.9);
+      animation: badge-pulse 1s infinite;
+    }
 
     .pulse {
       width: 8px;
@@ -162,6 +176,11 @@
       border-radius: 50%;
       animation: pulse 1.5s infinite;
     }
+  }
+
+  @keyframes badge-pulse {
+    0%, 100% { transform: translateX(-50%) scale(1); }
+    50% { transform: translateX(-50%) scale(1.05); }
   }
 
   @keyframes pulse {
@@ -393,6 +412,21 @@
         transform: translateY(-1px);
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
       }
+
+      &.needs-resync {
+        background: #ef4444;
+        animation: btn-pulse 1s infinite;
+
+        &:hover {
+          background: #dc2626;
+          box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+        }
+      }
+    }
+
+    @keyframes btn-pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.02); }
     }
 
     .mod-undo-btn {
