@@ -95,6 +95,9 @@ export class CircleBlurTool extends Tool {
     // Stamp averaged circle (now synchronous and fast)
     this.stampBlurredCircle(pos.x, pos.y, radius, user);
 
+    // Store for broadcasting (fixes missing first point in remote/replay)
+    this.stampBuffer.push(pos.x, pos.y, radius);
+
     if (this.board.mirror) {
       const width = this.board.getWidth();
       this.stampBlurredCircle(width - pos.x, pos.y, radius, user);
@@ -244,7 +247,11 @@ export class CircleBlurTool extends Tool {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
     for (let i = 0, j = 0; i < ps.length; i += 2, j++) {
-      const sx = ps[i], sy = ps[i + 1], sr = rs[j];
+      const sx = Number(ps[i]), sy = Number(ps[i + 1]), sr = Number(rs[j]);
+      
+      // Skip stamps with invalid or NaN coordinates/radius
+      if (isNaN(sx) || isNaN(sy) || isNaN(sr) || sr <= 0) continue;
+
       stamps.push({ x: sx, y: sy, r: sr });
       points.push({ x: sx, y: sy });
 

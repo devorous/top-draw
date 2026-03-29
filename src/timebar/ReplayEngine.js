@@ -497,11 +497,52 @@ export class ReplayEngine {
 
     for (const action of actions) {
       if (action.timestamp > upToTimestamp) break;
+
+      // Force a composite update BEFORE any sampling tool (like circleBlur)
+      // processes its stamps, otherwise it will sample from a stale or empty mainCtx.
+      const msg = action.msg;
+      if (msg && msg.u != null && (msg.t === T.MD || msg.t === T.MM)) {
+        const user = this._getOrCreateBot(msg.u);
+        if (user.tool === 'circleBlur' || user.tool === 'inkdropper' || user.tool === 'fill') {
+          this._replayBoard._doComposite();
+        }
+      }
+
       this._processAction(action.msg);
     }
 
     // Composite the final result
     this._compositeOutput();
+  }
+
+  /**
+   * Internal helper to ensure a value is a standard array of numbers.
+   * Handles cases where TypedArrays might have been serialized to JSON as objects.
+   * @param {*} val - Value to check
+   * @returns {number[]}
+   * @private
+   */
+  _ensureArray(val) {
+    if (!val) return [];
+    if (Array.isArray(val)) return val;
+    
+    // Check for typed array or object-like serialization: {"0": 1, "1": 2}
+    if (typeof val === 'object') {
+      const keys = Object.keys(val).filter(k => !isNaN(k));
+      if (keys.length > 0) {
+        const arr = new Array(keys.length);
+        for (const k of keys) {
+          arr[parseInt(k, 10)] = Number(val[k]);
+        }
+        return arr;
+      }
+      
+      // Handle TypedArrays directly if they aren't standard arrays
+      if (val.length !== undefined) {
+        return Array.from(val);
+      }
+    }
+    return [Number(val)];
   }
 
   /**
@@ -520,11 +561,17 @@ export class ReplayEngine {
     try {
       switch (msg.t) {
         case T.MD:
-          this._remoteHandler.handleMouseDown(user, { ps: msg.ps || [], rs: msg.rs || [] });
+          this._remoteHandler.handleMouseDown(user, { 
+            ps: this._ensureArray(msg.ps), 
+            rs: this._ensureArray(msg.rs) 
+          });
           break;
 
         case T.MM:
-          this._remoteHandler.handleMouseMove(user, { ps: msg.ps || [], rs: msg.rs || [] });
+          this._remoteHandler.handleMouseMove(user, { 
+            ps: this._ensureArray(msg.ps), 
+            rs: this._ensureArray(msg.rs) 
+          });
           break;
 
         case T.MU:
