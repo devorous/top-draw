@@ -255,6 +255,8 @@ export class SelectTool extends Tool {
     this.clearSelection();
     this.hideContextMenu();
     this.board.container.style.cursor = 'none';
+    // Reset topCtx line dash to prevent dotted lines bleeding into other tools
+    this.board.topCtx.setLineDash([]);
     if (this.board.app?.ui) {
       this.board.app.ui.setSelectCursor(false);
     }

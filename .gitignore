@@ -9,7 +9,7 @@ dist/
 tmpclaude-*
 CLAUDE.md
 .claude/
-
+.aider*
 # Personal notes
 NOTES.md
 
