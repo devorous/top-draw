@@ -1552,8 +1552,6 @@ export class DrawingApp {
     this.ui.updateSelfName(offlineUsername);
     this.ui.showConnectionStatus('offline');
 
-    TimeMachine.start();
-
     this.inputBufferManager.startTickLoop();
 
     // Update URL to /go/offline
