@@ -42,6 +42,11 @@ class TimeMachineState {
   /** @type {Set<number>} IDs of bot cursors we've created in the UI */
   _botCursorIds = new Set();
 
+  /** @type {boolean} Prevents overlapping seeks */
+  _isSeeking = false;
+  /** @type {number|null} Pending seek timestamp */
+  _pendingSeekTimestamp = null;
+
   /**
    * Initialize the TimeMachine with a reference to the board and wsClient.
    * @param {Board} board - The main drawing board instance
@@ -280,9 +285,24 @@ class TimeMachineState {
     this.isReviewing = this.currentTime < (this.maxTime - 500); // 500ms threshold
 
     if (this.isReviewing) {
-      await this._applyStateAt(this.currentTime);
-      this._showReplayCanvas(true);
-      this._updateBotCursors();
+      if (this._isSeeking) {
+        this._pendingSeekTimestamp = this.currentTime;
+        return;
+      }
+
+      this._isSeeking = true;
+      try {
+        await this._applyStateAt(this.currentTime);
+        this._showReplayCanvas(true);
+        this._updateBotCursors();
+      } finally {
+        this._isSeeking = false;
+        if (this._pendingSeekTimestamp !== null) {
+          const next = this._pendingSeekTimestamp;
+          this._pendingSeekTimestamp = null;
+          this.seek(next);
+        }
+      }
     } else {
       this._showReplayCanvas(false);
       this._removeBotCursors();
@@ -302,14 +322,14 @@ class TimeMachineState {
 
     // Hide/show the real board canvases to prevent them showing through
     if (this._board) {
-      const visibility = show ? 'hidden' : 'visible';
-      if (this._board.mainCanvas) this._board.mainCanvas.style.visibility = visibility;
-      if (this._board.topCanvas) this._board.topCanvas.style.visibility = visibility;
-      if (this._board.upperLayersCanvas) this._board.upperLayersCanvas.style.visibility = visibility;
+      const display = show ? 'none' : 'block';
+      if (this._board.mainCanvas) this._board.mainCanvas.style.display = display;
+      if (this._board.topCanvas) this._board.topCanvas.style.display = display;
+      if (this._board.upperLayersCanvas) this._board.upperLayersCanvas.style.display = display;
 
       // Also hide user boards (remote user canvases)
       const userBoards = document.getElementById('userBoards');
-      if (userBoards) userBoards.style.visibility = visibility;
+      if (userBoards) userBoards.style.display = display;
     }
   }
 
@@ -374,10 +394,6 @@ class TimeMachineState {
       this._replayCtx.fillRect(0, 0, this._replayCanvas.width, this._replayCanvas.height);
 
       this._replayCtx.drawImage(this._replayEngine.outputCanvas, 0, 0);
-      // Also draw topCanvas for any in-progress strokes at snapshot time
-      if (this._replayEngine.topCanvas) {
-        this._replayCtx.drawImage(this._replayEngine.topCanvas, 0, 0);
-      }
     }
 
     // Also update previewData for the badge/UI (optional, can be removed if not needed)

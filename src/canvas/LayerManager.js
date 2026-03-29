@@ -1327,13 +1327,19 @@ export class LayerManager {
 
     // If the high-quality version is ready, draw it and we're done.
     if (filterStroke._cachedBlurResult) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
       ctx.drawImage(filterStroke._cachedBlurResult, x, y);
+      ctx.restore();
       return;
     }
 
     // If we already have a cached preview, use it instead of re-rendering.
     if (filterStroke._cachedPreview) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
       ctx.drawImage(filterStroke._cachedPreview, x, y);
+      ctx.restore();
       return;
     }
 
@@ -1481,7 +1487,7 @@ export class LayerManager {
     // received its result yet (either awaiting or not yet composited).
     for (let i = group.strokeStack.length - 1; i >= 0; i--) {
       const stroke = group.strokeStack[i];
-      if (stroke.userId === userId && stroke.filterType === 'glitchBlur' && !stroke._cachedBlurResult) {
+      if (stroke.userId == userId && stroke.filterType === 'glitchBlur' && !stroke._cachedBlurResult) {
         this._applyGlitchResultToStroke(stroke, resultImage, bounds);
         return;
       }
@@ -1541,6 +1547,7 @@ export class LayerManager {
    * @param {Array|null} [dirtyRects=null] - Array of dirty rectangles
    */
   compositeLayerRange(targetCtx, startIdx, endIdx, backgroundColor = null, dirtyRects = null) {
+    this.needsComposite = false;
     if (backgroundColor) this.backgroundColor = backgroundColor;
 
     let useDirtyRects = false;

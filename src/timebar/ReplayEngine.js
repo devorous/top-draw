@@ -233,6 +233,9 @@ export class ReplayEngine {
     /** @type {Object} Fake app for RemoteUserHandler */
     this._fakeApp = null;
 
+    /** @type {Map<string, Object>} Cache for pattern brush images */
+    this._patternCache = new Map();
+
     /** @type {HTMLCanvasElement} Holds loaded snapshot image */
     this._snapshotCanvas = null;
     this._snapshotCtx = null;
@@ -280,6 +283,10 @@ export class ReplayEngine {
   _initReplaySystem() {
     // Real board facade with real LayerManager
     this._replayBoard = new ReplayBoard(this.width, this.height);
+
+    // Set localUserId to a non-matching value so all glitchBlur strokes are
+    // treated as "remote" and wait for GLITCH_RESULT instead of computing WASM
+    this._replayBoard.layerManager.localUserId = -9999;
 
     // Real ToolManager with all tool instances
     this._toolManager = new ToolManager(this._replayBoard);
@@ -405,8 +412,9 @@ export class ReplayEngine {
       color[0],
       color[1],
       color[2],
-      color[3] > 1 ? color[3] / 255 : color[3]
+      1 // Set color alpha to 1, use user.opacity for the actual transparency
     ];
+    const botOpacity = color[3] > 1 ? color[3] / 255 : color[3];
 
     const bot = new User(id, {
       username: state.username || `User ${id}`,
@@ -414,7 +422,7 @@ export class ReplayEngine {
       x: state.x || 0,
       y: state.y || 0,
       color: normalizedColor,
-      opacity: normalizedColor[3],
+      opacity: botOpacity,
       size: state.size || 10,
       tool: state.tool || 'brush',
       pressure: state.pressure ?? 1,
@@ -480,7 +488,12 @@ export class ReplayEngine {
 
     // Pre-load all brush images before processing actions so that
     // imageBrush stamps don't execute before the Image objects are ready.
-    await this._preloadBrushImages(actions, upToTimestamp);
+    // Also pre-load glitch result images for deterministic replay.
+    await Promise.all([
+      this._preloadBrushImages(actions, upToTimestamp),
+      this._preloadPatternImages(actions, upToTimestamp),
+      this._preloadGlitchResults(actions, upToTimestamp)
+    ]);
 
     for (const action of actions) {
       if (action.timestamp > upToTimestamp) break;
@@ -500,7 +513,7 @@ export class ReplayEngine {
     if (!msg) return;
 
     const userId = msg.u;
-    if (userId === undefined) return;
+    if (userId == null) return;
 
     const user = this._getOrCreateBot(userId);
 
@@ -532,10 +545,10 @@ export class ReplayEngine {
           if (msg.c !== undefined) {
             const c = msg.c;
             user.setColor([
-              (c >> 24) & 0xFF,
-              (c >> 16) & 0xFF,
-              (c >> 8) & 0xFF,
-              ((c & 0xFF) / 255)
+              (c >>> 24) & 0xFF,
+              (c >>> 16) & 0xFF,
+              (c >>> 8) & 0xFF,
+              1 // Set color alpha to 1, use user.opacity for the actual transparency
             ]);
             user.setOpacity((c & 0xFF) / 255);
           }
@@ -640,9 +653,9 @@ export class ReplayEngine {
           break;
 
         case T.FILL:
-          // Flood fill — update position; actual pixels are in the snapshot
           if (msg.ps && msg.ps.length >= 2) {
             user.setPosition(msg.ps[0], msg.ps[1]);
+            this._remoteHandler.handleFloodFill(user, msg.ps[0], msg.ps[1], msg.c, msg.ly);
           }
           break;
 
@@ -657,6 +670,50 @@ export class ReplayEngine {
             }
           }
           break;
+
+        case T.GPT:
+          // Pattern images were pre-loaded into _patternCache by _preloadPatternImages().
+          if (msg.pb) {
+            const cached = this._patternCache?.get(msg.pb);
+            if (cached) {
+              user.patternBrush = cached;
+              this._remoteHandler.handlePatternBrushLoad(user, msg.pb);
+            }
+          }
+          break;
+
+        case T.GLITCH_RESULT:
+          // Glitch result images were pre-loaded into _glitchResultCache by _preloadGlitchResults().
+          // Apply the cached result to the user's most recent glitchBlur stroke.
+          if (msg.g) {
+            const glitchKey = `${userId}_${msg.sx}_${msg.sy}_${msg.sw}_${msg.sh}`;
+            const cached = this._glitchResultCache?.get(glitchKey);
+            console.log('[ReplayEngine] GLITCH_RESULT:', { userId, bounds: { x: msg.sx, y: msg.sy, w: msg.sw, h: msg.sh }, hasCached: !!cached });
+            if (cached) {
+              const bounds = { x: Number(msg.sx), y: Number(msg.sy), width: Number(msg.sw), height: Number(msg.sh) };
+              this._replayBoard.layerManager?.applyRemoteGlitchResult(userId, cached, bounds);
+            }
+          }
+          break;
+
+        case T.SEL_START:
+          this._remoteHandler.selectionHandler.handleSelectionStart(user, { x: msg.x, y: msg.y });
+          break;
+        case T.SEL_UPDATE:
+          this._remoteHandler.selectionHandler.handleSelectionUpdate(user, { x: msg.x, y: msg.y });
+          break;
+        case T.SEL_END:
+          this._remoteHandler.selectionHandler.handleSelectionEnd(user);
+          break;
+        case T.SEL_MOVE:
+          this._remoteHandler.selectionHandler.handleSelectionMove(user, { x: msg.x, y: msg.y });
+          break;
+        case T.SEL_PASTE:
+          this._remoteHandler.selectionHandler.handleSelectionPaste(user);
+          break;
+        case T.SEL_CLEAR:
+          this._remoteHandler.selectionHandler.handleSelectionClear(user);
+          break;
       }
     } catch (err) {
       console.warn(`[ReplayEngine] Error processing action t=${msg.t} for user ${userId}:`, err);
@@ -668,73 +725,73 @@ export class ReplayEngine {
    * @private
    */
   _compositeOutput() {
-    const ctx = this.outputCtx;
-    if (!ctx) return;
+    if (!this.outputCtx) return;
 
-    // 1. Snapshot is already baked into layer 0's flatCanvas in processActions()
-    //    before action processing starts. Any overflow strokes baked during
-    //    processing are preserved on top of the snapshot.
-
-    // 2. Clear any stale blur caches so filters re-read from the correct content
-    this._clearBlurCaches();
-
-    // 3. Composite all layers (background + snapshot base + strokes + filters)
+    // 1. Composite all layers (background + snapshot base + strokes + filters)
     //    into the replay board's mainCtx. Blur filters will now read from
     //    mainCtx which contains the snapshot content beneath them.
     this._replayBoard._doComposite();
 
-    // 3. Copy the fully composited result to the output canvas
+    // 2. Render everything to the output canvas
+    this._renderToOutput();
+
+    // 3. Set up callback so that when async blur worker finishes,
+    //    we re-composite and update the replay canvas automatically.
+    //    We check needsComposite to avoid infinite loops if nothing changed.
+    this._replayBoard._onLayerUpdate = () => {
+      if (this._replayBoard.layerManager?.needsComposite) {
+        this._replayBoard._doComposite();
+        this._renderToOutput();
+        // Notify TimeMachine to refresh the visible replay canvas
+        if (this.onOutputUpdate) this.onOutputUpdate();
+      }
+    };
+  }
+
+  /**
+   * Internal helper to draw the current board state and user previews to the output canvas.
+   * @private
+   */
+  _renderToOutput() {
+    const ctx = this.outputCtx;
+    if (!ctx) return;
+
+    // 1. Copy the fully composited result (snapshot base + strokes + filters)
     ctx.clearRect(0, 0, this.width, this.height);
     ctx.drawImage(this._replayBoard.mainCanvas, 0, 0);
 
-    // 4. Draw the replay board's topCanvas (pixel brush preview, etc.)
+    // 2. Draw the replay board's topCanvas (pixel brush preview, etc.)
     if (this._replayBoard.topCanvas) {
       ctx.drawImage(this._replayBoard.topCanvas, 0, 0);
     }
 
-    // 5. Draw per-user preview canvases (in-progress strokes / shape previews)
+    // 3. Draw per-user preview canvases (in-progress strokes / shape previews)
     for (const user of this.botUsers.values()) {
       if (user.board) {
         const blendMode = user.blendMode || 'source-over';
         ctx.save();
-        if (user.board.style?.mixBlendMode) {
+        
+        // Handle CSS filter for blur tools to avoid showing raw mask stamps
+        if (user.tool === 'blur' || user.tool === 'glitchBlur') {
+          const radius = user.blurRadius || 5;
+          ctx.filter = `blur(${radius * 0.5}px)`;
+        }
+
+        if (user.board.style?.mixBlendMode && user.board.style.mixBlendMode !== 'normal') {
           ctx.globalCompositeOperation = user.board.style.mixBlendMode;
         } else {
           ctx.globalCompositeOperation = blendMode === 'source-over' ? 'source-over' : blendMode;
         }
+        
         ctx.drawImage(user.board, 0, 0);
         ctx.restore();
       }
     }
 
-    // 6. Draw the snapshot's top canvas overlay (active strokes at snapshot time)
+    // 4. Draw the snapshot's top canvas overlay (active strokes at snapshot time)
     if (this.topCanvas) {
       ctx.drawImage(this.topCanvas, 0, 0);
     }
-
-    // 7. Set up callback so that when async blur worker finishes,
-    //    we re-composite and update the replay canvas automatically.
-    this._replayBoard._onLayerUpdate = () => {
-      this._replayBoard._doComposite();
-      ctx.clearRect(0, 0, this.width, this.height);
-      ctx.drawImage(this._replayBoard.mainCanvas, 0, 0);
-      if (this._replayBoard.topCanvas) {
-        ctx.drawImage(this._replayBoard.topCanvas, 0, 0);
-      }
-      for (const user of this.botUsers.values()) {
-        if (user.board) {
-          ctx.save();
-          ctx.globalCompositeOperation = user.blendMode || 'source-over';
-          ctx.drawImage(user.board, 0, 0);
-          ctx.restore();
-        }
-      }
-      if (this.topCanvas) {
-        ctx.drawImage(this.topCanvas, 0, 0);
-      }
-      // Notify TimeMachine to refresh the visible replay canvas
-      if (this.onOutputUpdate) this.onOutputUpdate();
-    };
   }
 
   /**
@@ -841,6 +898,98 @@ export class ReplayEngine {
     if (loadPromises.length > 0) {
       await Promise.all(loadPromises);
     }
+  }
+
+  /**
+   * Pre-load all pattern images from T.GPT messages.
+   * @param {Array} actions - Actions to scan
+   * @param {number} upToTimestamp - Only consider actions up to this time
+   * @private
+   */
+  async _preloadPatternImages(actions, upToTimestamp) {
+    this._patternCache = new Map();
+    const loadPromises = [];
+
+    for (const action of actions) {
+      if (action.timestamp > upToTimestamp) break;
+      if (action.msg?.t !== T.GPT || !action.msg.pb) continue;
+
+      const patternDataStr = action.msg.pb;
+      if (this._patternCache.has(patternDataStr)) continue;
+
+      let patternData;
+      try {
+        patternData = JSON.parse(patternDataStr);
+      } catch (e) {
+        continue;
+      }
+
+      if (patternData.url) {
+        this._patternCache.set(patternDataStr, null);
+        loadPromises.push(new Promise((resolve) => {
+          const image = new Image();
+          image.onload = () => {
+            patternData.image = image;
+            this._patternCache.set(patternDataStr, patternData);
+            resolve();
+          };
+          image.onerror = () => resolve();
+          image.src = patternData.url;
+        }));
+      }
+    }
+
+    if (loadPromises.length > 0) {
+      await Promise.all(loadPromises);
+    }
+  }
+
+  /**
+   * Pre-load all glitch result images from T.GLITCH_RESULT messages into a cache
+   * so they can be applied synchronously when the action is processed.
+   * @param {Array} actions - Actions to scan
+   * @param {number} upToTimestamp - Only consider actions up to this time
+   * @private
+   */
+  async _preloadGlitchResults(actions, upToTimestamp) {
+    this._glitchResultCache = new Map();
+    const loadPromises = [];
+    let glitchResultCount = 0;
+
+    for (const action of actions) {
+      if (action.timestamp > upToTimestamp) break;
+      if (action.msg?.t !== T.GLITCH_RESULT || !action.msg.g) continue;
+
+      glitchResultCount++;
+      const msg = action.msg;
+      const glitchKey = `${msg.u}_${msg.sx}_${msg.sy}_${msg.sw}_${msg.sh}`;
+      if (this._glitchResultCache.has(glitchKey)) continue;
+
+      // Reserve slot immediately so duplicates are skipped
+      this._glitchResultCache.set(glitchKey, null);
+
+      loadPromises.push(new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          // Convert to canvas for use as _cachedBlurResult
+          const canvas = document.createElement('canvas');
+          canvas.width = msg.sw;
+          canvas.height = msg.sh;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, msg.sw, msg.sh);
+          this._glitchResultCache.set(glitchKey, canvas);
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = msg.g;
+      }));
+    }
+
+    if (loadPromises.length > 0) {
+      await Promise.all(loadPromises);
+    }
+
+    console.log('[ReplayEngine] Pre-loaded glitch results:', glitchResultCount, 'unique:', this._glitchResultCache.size);
   }
 
   /**
