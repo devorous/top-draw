@@ -114,8 +114,8 @@ export class LineTool extends Tool {
 
     const radius = user.size;
     const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
-    const blurAmount = hardnessFloat < 1.0 ? (1 - hardnessFloat) * user.size * 1.5 : 0;
-    const safetyMargin = radius * 0.25;
+    const blurAmount = hardnessFloat < 1.0 ? (1 - hardnessFloat) * (20 + user.size * 0.2) : 0;
+    const safetyMargin = radius * 0.1;
     const margin = radius + blurAmount + safetyMargin + 2;
 
     const minX = Math.min(this.startPos.x, pos.x) - margin;
@@ -143,11 +143,11 @@ export class LineTool extends Tool {
 
     // Track tile ownership for the line
     const linePoints = [this.startPos, pos];
-    this.board.markDirtyPath(user, linePoints, user.size);
+    this.board.markDirtyPath(user, linePoints, margin);
     if (this.board.mirror) {
       const boardWidth = this.board.getWidth();
       const mirroredPoints = linePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
-      this.board.markDirtyPath(user, mirroredPoints, user.size);
+      this.board.markDirtyPath(user, mirroredPoints, margin);
     }
 
     this.board.clearTop();
@@ -192,7 +192,7 @@ export class LineTool extends Tool {
     ctx.lineWidth = user.size * 2;
 
     if (hardness < 1.0) {
-      const blurAmount = (1 - hardness) * user.size * 1.5;
+      const blurAmount = (1 - hardness) * (20 + user.size * 0.2);
       const offset = 100000;
 
       ctx.shadowBlur = blurAmount;
@@ -286,8 +286,8 @@ export class RectangleTool extends Tool {
 
     const radius = user.size;
     const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
-    const blurAmount = hardnessFloat < 1.0 ? (1 - hardnessFloat) * user.size * 1.5 : 0;
-    const safetyMargin = radius * 0.25;
+    const blurAmount = hardnessFloat < 1.0 ? (1 - hardnessFloat) * (20 + user.size * 0.2) : 0;
+    const safetyMargin = radius * 0.1;
     const margin = radius + blurAmount + safetyMargin + 2;
 
     const minX = Math.min(this.startPos.x, pos.x) - margin;
@@ -321,11 +321,11 @@ export class RectangleTool extends Tool {
       { x: this.startPos.x, y: pos.y },
       this.startPos
     ];
-    this.board.markDirtyPath(user, rectPoints, user.size);
+    this.board.markDirtyPath(user, rectPoints, margin);
     if (this.board.mirror) {
       const boardWidth = this.board.getWidth();
       const mirroredPoints = rectPoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
-      this.board.markDirtyPath(user, mirroredPoints, user.size);
+      this.board.markDirtyPath(user, mirroredPoints, margin);
     }
 
     this.board.clearTop();
@@ -373,7 +373,7 @@ export class RectangleTool extends Tool {
     ctx.lineWidth = user.size * 2;
 
     if (hardness < 1.0) {
-      const blurAmount = (1 - hardness) * user.size * 1.5;
+      const blurAmount = (1 - hardness) * (20 + user.size * 0.2);
       const offset = 100000;
 
       ctx.shadowBlur = blurAmount;
@@ -466,8 +466,8 @@ export class CircleTool extends Tool {
 
     const radius = user.size;
     const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
-    const blurAmount = hardnessFloat < 1.0 ? (1 - hardnessFloat) * user.size * 1.5 : 0;
-    const safetyMargin = radius * 0.25;
+    const blurAmount = hardnessFloat < 1.0 ? (1 - hardnessFloat) * (20 + user.size * 0.2) : 0;
+    const safetyMargin = radius * 0.1;
     const margin = radius + blurAmount + safetyMargin + 2;
 
     const minX = Math.min(this.startPos.x, pos.x) - margin;
@@ -504,11 +504,11 @@ export class CircleTool extends Tool {
       const angle = (i / steps) * Math.PI * 2;
       ellipsePoints.push({ x: cx + rx * Math.cos(angle), y: cy + ry * Math.sin(angle) });
     }
-    this.board.markDirtyPath(user, ellipsePoints, user.size);
+    this.board.markDirtyPath(user, ellipsePoints, margin);
     if (this.board.mirror) {
       const boardWidth = this.board.getWidth();
       const mirroredPoints = ellipsePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
-      this.board.markDirtyPath(user, mirroredPoints, user.size);
+      this.board.markDirtyPath(user, mirroredPoints, margin);
     }
 
     this.board.clearTop();
@@ -556,7 +556,7 @@ export class CircleTool extends Tool {
     ctx.lineWidth = user.size * 2;
 
     if (hardness < 1.0) {
-      const blurAmount = (1 - hardness) * user.size * 1.5;
+      const blurAmount = (1 - hardness) * (20 + user.size * 0.2);
       const offset = 100000;
 
       ctx.shadowBlur = blurAmount;
