@@ -34,6 +34,7 @@ class TimeMachineState {
   previewData = $state(null); // The current historical view as a data URL
   needsResync = $state(false); // True when user has been in replay too long and needs resync
   isRecordingPaused = $state(false); // True when we've stopped recording due to replay timeout
+  frozenMaxTime = $state(null); // The maxTime captured when starting review mode
 
   _snapshotInterval = null;
   _replayTimeoutId = null; // Timer for replay mode timeout
@@ -167,10 +168,10 @@ class TimeMachineState {
       this.takeSnapshot();
     }, 30000);
 
-    // Tick every second to update maxTime even if no actions occur
+    // Tick every 50ms to update maxTime smoothly
     this._tickInterval = setInterval(() => {
       this._tick();
-    }, 1000);
+    }, 50);
   }
 
   /**
@@ -363,8 +364,10 @@ class TimeMachineState {
 
     // Track transitions in/out of replay mode for timeout handling
     if (this.isReviewing && !wasReviewing) {
+      this.frozenMaxTime = this.maxTime; // Capture the end of the timeline
       this._startReplayTimeout();
     } else if (!this.isReviewing && wasReviewing) {
+      this.frozenMaxTime = null; // Resume timeline expansion
       this._clearReplayTimeout();
     }
 

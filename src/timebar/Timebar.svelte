@@ -1,19 +1,16 @@
 <script>
   import { TimeMachine } from './TimeMachine.svelte.js';
   import { appState } from '../state.svelte.js';
+  import { onMount, onDestroy } from 'svelte'; // Added import
 
   // Format timestamp relative to the current live time
   function formatRelativeTime(timestamp) {
     if (!timestamp) return '0:00';
-    const secondsAgo = Math.floor((TimeMachine.maxTime - timestamp) / 1000);
+    const referenceTime = TimeMachine.frozenMaxTime || TimeMachine.maxTime;
+    const secondsAgo = Math.floor((referenceTime - timestamp) / 1000);
     const mins = Math.floor(secondsAgo / 60);
     const secs = secondsAgo % 60;
     return `-${mins}:${secs.toString().padStart(2, '0')}`;
-  }
-
-  function handleScrub(event) {
-    const scrubTime = parseInt(event.target.value);
-    TimeMachine.seek(scrubTime);
   }
 
   function togglePlay() {
@@ -30,12 +27,82 @@
     }
   }
 
+  let isScrubbing = false;
+  let scrubberElement; // Will be assigned to the .custom-scrubber div
+
+  function calculateScrubTime(event, element) {
+    const rect = element.getBoundingClientRect();
+    const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+    const offsetX = clientX - rect.left;
+    const percentage = Math.max(0, Math.min(1, offsetX / rect.width));
+
+    const firstTimestamp = TimeMachine.recordingBuffer[0]?.timestamp;
+    if (!firstTimestamp) return 0;
+    
+    const maxTime = TimeMachine.frozenMaxTime || TimeMachine.maxTime;
+    const range = maxTime - firstTimestamp;
+    const scrubTime = firstTimestamp + (percentage * range);
+    return scrubTime;
+  }
+
+  function handleScrubberMouseDown(event) {
+    isScrubbing = true;
+    if (scrubberElement) {
+      TimeMachine.seek(calculateScrubTime(event, scrubberElement));
+    }
+    // Prevent default to avoid text selection or other native browser behaviors
+    event.preventDefault(); 
+  }
+
+  function handleGlobalMouseMove(event) { // Added global handler
+    if (isScrubbing && scrubberElement) {
+      TimeMachine.seek(calculateScrubTime(event, scrubberElement));
+    }
+  }
+
+  function handleGlobalMouseUp() { // Added global handler
+    isScrubbing = false;
+  }
+
+  function handleScrubberTouchStart(event) {
+    isScrubbing = true;
+    if (scrubberElement) {
+      TimeMachine.seek(calculateScrubTime(event, scrubberElement));
+    }
+    event.preventDefault(); // Prevent scrolling
+  }
+
+  function handleGlobalTouchMove(event) { // Added global handler
+    if (isScrubbing && scrubberElement) {
+      TimeMachine.seek(calculateScrubTime(event, scrubberElement));
+    }
+  }
+
+  function handleGlobalTouchEnd() { // Added global handler
+    isScrubbing = false;
+  }
+
+  onMount(() => { // Added onMount
+    document.addEventListener('mousemove', handleGlobalMouseMove);
+    document.addEventListener('mouseup', handleGlobalMouseUp);
+    document.addEventListener('touchmove', handleGlobalTouchMove);
+    document.addEventListener('touchend', handleGlobalTouchEnd);
+  });
+
+  onDestroy(() => { // Added onDestroy
+    document.removeEventListener('mousemove', handleGlobalMouseMove);
+    document.removeEventListener('mouseup', handleGlobalMouseUp);
+    document.removeEventListener('touchmove', handleGlobalTouchMove);
+    document.removeEventListener('touchend', handleGlobalTouchEnd);
+  });
+
   // Calculate percentage for slider background
   let progressPercent = $derived.by(() => {
     const firstTimestamp = TimeMachine.recordingBuffer[0]?.timestamp;
-    if (!firstTimestamp || TimeMachine.maxTime === firstTimestamp) return 0;
+    const maxTime = TimeMachine.frozenMaxTime || TimeMachine.maxTime;
+    if (!firstTimestamp || maxTime === firstTimestamp) return 0;
     
-    const range = TimeMachine.maxTime - firstTimestamp;
+    const range = maxTime - firstTimestamp;
     const progress = TimeMachine.currentTime - firstTimestamp;
     return (progress / range) * 100;
   });
@@ -43,13 +110,82 @@
   // Calculate marker positions
   let markers = $derived.by(() => {
     const firstTimestamp = TimeMachine.recordingBuffer[0]?.timestamp;
-    if (!firstTimestamp || TimeMachine.maxTime === firstTimestamp) return [];
+    const maxTime = TimeMachine.frozenMaxTime || TimeMachine.maxTime;
+    if (!firstTimestamp || maxTime === firstTimestamp) return [];
     
-    const range = TimeMachine.maxTime - firstTimestamp;
+    const range = maxTime - firstTimestamp;
     return TimeMachine.recordingBuffer.map((snapshot, index) => {
       const position = ((snapshot.timestamp - firstTimestamp) / range) * 100;
-      return { position, index, data: snapshot.canvasData };
+      return { position, type: 'snapshot', index, data: snapshot.canvasData, timestamp: snapshot.timestamp };
     });
+  });
+
+  // Calculate all tick marks and labels for the timeline
+  let allTickMarks = $derived.by(() => {
+    const firstTimestamp = TimeMachine.recordingBuffer[0]?.timestamp;
+    const maxTime = TimeMachine.frozenMaxTime || TimeMachine.maxTime;
+    if (!firstTimestamp || maxTime === firstTimestamp) return [];
+
+    const duration = maxTime - firstTimestamp; // in milliseconds
+    const tickMarks = [];
+
+    // Determine interval for major ticks (e.g., every 15, 60, 300 seconds)
+    let majorInterval = 1000 * 15; // 15 seconds
+    if (duration > 1000 * 60 * 5) majorInterval = 1000 * 60; // 1 minute for longer recordings
+    if (duration > 1000 * 60 * 30) majorInterval = 1000 * 60 * 5; // 5 minutes for very long recordings
+
+    // Generate major ticks with labels
+    for (let time = firstTimestamp; time <= maxTime; time += majorInterval) {
+      const position = ((time - firstTimestamp) / duration) * 100;
+      tickMarks.push({
+        position: position,
+        type: 'major',
+        label: formatRelativeTime(time),
+        timestamp: time
+      });
+    }
+
+    // Add existing snapshot markers
+    markers.forEach(marker => {
+      // Avoid duplicate labels if a snapshot aligns exactly with a major tick's label
+      const existingLabelTick = tickMarks.find(
+        (tick) => tick.type === 'major' && Math.abs(tick.position - marker.position) < 0.5
+      );
+      if (existingLabelTick) {
+        existingLabelTick.type = 'major-snapshot'; // Indicate it's both
+      } else if (marker.position <= 100) { // Only add if it fits in frozen range
+        tickMarks.push({
+          position: marker.position,
+          type: 'snapshot',
+          index: marker.index,
+          data: marker.data,
+          timestamp: marker.timestamp
+        });
+      }
+    });
+
+    // Add activity markers (user actions)
+    TimeMachine.recordingBuffer.forEach(snap => {
+      snap.actions.forEach(action => {
+        const position = ((action.timestamp - firstTimestamp) / duration) * 100;
+        if (position >= 0 && position <= 100) {
+          // Check if we already have an activity tick very close to this one to reduce clutter
+          const exists = tickMarks.some(t => t.type === 'activity' && Math.abs(t.position - position) < 0.2);
+          if (!exists) {
+            tickMarks.push({
+              position,
+              type: 'activity',
+              timestamp: action.timestamp
+            });
+          }
+        }
+      });
+    });
+
+    // Sort by position and filter out anything beyond 100%
+    return tickMarks
+      .filter(t => t.position <= 100)
+      .sort((a, b) => a.position - b.position);
   });
 
 </script>
@@ -92,35 +228,51 @@
       </button>
 
       <div class="scrubber-container">
-        <div class="markers">
-          {#each markers as marker}
-            <div 
-              class="marker" 
-              class:initial={marker.index === 0}
-              style="left: {marker.position}%"
-              title={marker.index === 0 ? 'Recording Start' : `Snapshot ${marker.index}`}
-            >
-              {#if marker.index === 0}
-                <div class="flag">
-                  <img src={marker.data} alt="Start Preview" />
+        <div
+          class="custom-scrubber"
+          bind:this={scrubberElement}
+          onmousedown={handleScrubberMouseDown}
+          ontouchstart={handleScrubberTouchStart}
+        >
+          <div class="scrubber-track">
+            <div class="scrubber-progress" style="width: {progressPercent}%"></div>
+            <div class="scrubber-thumb" style="left: {progressPercent}%"></div>
+            {#each allTickMarks as tick}
+              {#if tick.type === 'major' || tick.type === 'major-snapshot'}
+                <div 
+                  class="tick-mark major-tick" 
+                  style="left: {tick.position}%"
+                  title="Recorded state at {formatRelativeTime(tick.timestamp)}"
+                ></div>
+              {:else if tick.type === 'snapshot'}
+                <div 
+                  class="tick-mark snapshot-tick" 
+                  style="left: {tick.position}%"
+                  title="Snapshot {tick.index}"
+                >
+                  {#if tick.index === 0}
+                    <div class="flag">
+                      <img src={tick.data} alt="Start Preview" />
+                    </div>
+                  {/if}
                 </div>
+              {:else if tick.type === 'activity'}
+                <div 
+                  class="tick-mark activity-tick" 
+                  style="left: {tick.position}%"
+                ></div>
               {/if}
-            </div>
-          {/each}
+            {/each}
+          </div>
         </div>
-        <input
-          type="range"
-          min={TimeMachine.recordingBuffer[0]?.timestamp || 0}
-          max={TimeMachine.maxTime}
-          value={TimeMachine.currentTime}
-          oninput={handleScrub}
-          class="scrubber"
-          style="--progress: {progressPercent}%"
-        />
-        <div class="time-display">
-          <span class="current">{formatRelativeTime(TimeMachine.currentTime)}</span>
-          <span class="separator">/</span>
-          <span class="max">Live</span>
+        <div class="time-labels-container">
+          {#each allTickMarks as tick}
+            {#if tick.label && (tick.type === 'major' || tick.type === 'major-snapshot')}
+              <div class="time-label" style="left: {tick.position}%">
+                {tick.label}
+              </div>
+            {/if}
+          {/each}
         </div>
       </div>
 
@@ -150,7 +302,7 @@
     top: 80px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(59, 130, 246, 0.9);
+    background: rgba(160, 174, 192, 0.9);
     color: white;
     padding: 6px 16px;
     border-radius: 20px;
@@ -205,8 +357,8 @@
     }
 
     &.reviewing .timebar {
-      border-color: #3b82f6;
-      box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+      border-color: #a0aec0;
+      box-shadow: 0 0 20px rgba(160, 174, 192, 0.3);
       background: rgba(15, 20, 30, 0.98);
     }
   }
@@ -243,8 +395,8 @@
     }
 
     &.bar-hidden {
-      border: 2px solid #3b82f6;
-      box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+      border: 2px solid #a0aec0;
+      box-shadow: 0 0 15px rgba(160, 174, 192, 0.4);
       opacity: 0.9;
     }
   }
@@ -254,7 +406,7 @@
     backdrop-filter: blur(12px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 12px;
-    padding: 12px 24px;
+    padding: 8px 20px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
     transition: all 0.3s ease;
 
@@ -288,116 +440,130 @@
       position: relative;
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      padding-top: 10px;
+      gap: 0;
+      padding-top: 2px;
+      padding-bottom: 10px;
     }
 
-    .markers {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-    }
-
-    .marker {
-      position: absolute;
-      top: 10px;
-      width: 2px;
-      height: 8px;
-      background: rgba(255, 255, 255, 0.3);
-      border-radius: 1px;
-      transform: translateX(-50%);
-
-      &.initial {
-        height: 12px;
-        background: #3b82f6;
-        z-index: 2;
-
-        .flag {
-          position: absolute;
-          bottom: 100%;
-          left: 50%;
-          transform: translateX(-50%) translateY(-5px);
-          width: 48px;
-          height: 32px;
-          background: #1e293b;
-          border: 2px solid #3b82f6;
-          border-radius: 4px;
-          overflow: hidden;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-          
-          img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-          }
-
-          &::after {
-            content: '';
-            position: absolute;
-            top: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            border-left: 5px solid transparent;
-            border-right: 5px solid transparent;
-            border-top: 5px solid #3b82f6;
-          }
-        }
-      }
-    }
-
-    .scrubber {
-      -webkit-appearance: none;
-      width: 100%;
-      height: 6px;
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 3px;
-      outline: none;
-      cursor: pointer;
+    .custom-scrubber {
       position: relative;
-      z-index: 1;
+      width: 100%;
+      height: 36px; /* Increased height by 1.5x from 24px */
+      cursor: grab;
+      display: flex;
+      align-items: center;
 
-      &::-webkit-slider-runnable-track {
-        background: linear-gradient(to right, #3b82f6 var(--progress), transparent var(--progress));
-        height: 6px;
-        border-radius: 3px;
+      .scrubber-track {
+        width: 100%;
+        height: 27px; /* Increased height by 1.5x from 18px */
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 0;
+        position: relative;
+        overflow: hidden; /* Keep ticks inside if needed */
       }
 
-      &::-webkit-slider-thumb {
-        -webkit-appearance: none;
-        height: 18px;
-        width: 18px;
-        border-radius: 50%;
-        background: #fff;
-        border: 3px solid #3b82f6;
-        cursor: pointer;
-        margin-top: -6px;
-        box-shadow: 0 0 15px rgba(59, 130, 246, 0.6);
-        transition: transform 0.1s;
+      .scrubber-progress {
+        height: 100%;
+        background: rgba(160, 174, 192, 0.3); /* Subtle fill */
+        position: absolute;
+        left: 0;
+        top: 0;
+      }
 
-        &:active {
-          transform: scale(1.2);
+      .scrubber-thumb {
+        position: absolute;
+        top: 0;
+        width: 2px;
+        height: 36px; /* Increased height by 1.5x from 24px */
+        background: #fff;
+        border-radius: 1px;
+        transform: translateX(-50%);
+        box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+        z-index: 5;
+        pointer-events: none;
+      }
+
+      .tick-mark {
+        position: absolute;
+        bottom: 0;
+        width: 1px;
+        background: rgba(255, 255, 255, 0.2);
+        transform: translateX(-50%);
+        pointer-events: none;
+
+        &.major-tick {
+          height: 100%; /* Tick takes full height of track */
+          background: rgba(255, 255, 255, 0.4);
+          width: 1px;
+        }
+
+        &.snapshot-tick {
+          height: 100%;
+          background: #2dd4bf; /* Prominent Teal */
+          width: 3px; /* Slightly wider */
+          z-index: 2;
+
+          .flag {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%) translateY(-5px);
+            width: 48px;
+            height: 32px;
+            background: #1e293b;
+            border: 2px solid #2dd4bf; /* Teal border */
+            border-radius: 4px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            
+            img {
+              width: 100%;
+              height: 100%;
+              object-fit: cover;
+            }
+
+            &::after {
+              content: '';
+              position: absolute;
+              top: 100%;
+              left: 50%;
+              transform: translateX(-50%);
+              border-left: 5px solid transparent;
+              border-right: 5px solid transparent;
+              border-top: 5px solid #2dd4bf; /* Teal arrow */
+            }
+          }
+        }
+
+        &.activity-tick {
+          height: 100%; /* Same height as major ticks */
+          width: 0.5px; /* Very thin */
+          background: rgba(255, 255, 255, 0.15); /* Faint */
+          bottom: 0;
+          z-index: 0;
         }
       }
     }
 
-    .time-display {
-      display: flex;
-      gap: 6px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      font-weight: 500;
-      color: #64748b;
+    .time-labels-container {
+      position: relative;
+      width: 100%;
+      height: 14px;
+      margin-top: 4px;
 
-      .current {
-        color: #3b82f6;
+      .time-label {
+        position: absolute;
+        top: 0;
+        transform: translateX(-50%);
+        font-size: 9px;
+        color: #64748b;
+        white-space: nowrap;
+        pointer-events: none;
       }
     }
 
     .catch-up-btn {
-      background: #3b82f6;
+      background: #a0aec0;
       color: white;
       border: none;
       padding: 8px 16px;
@@ -408,9 +574,9 @@
       transition: all 0.2s;
 
       &:hover {
-        background: #2563eb;
+        background: #718096;
         transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+        box-shadow: 0 4px 12px rgba(113, 128, 150, 0.4);
       }
 
       &.needs-resync {
