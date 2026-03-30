@@ -991,7 +991,9 @@ export class UI {
    */
   updateSizeValue(size) {
     if (this.elements.sizeValue) {
-      this.elements.sizeValue.textContent = size;
+      // Display whole numbers for sizes >= 4, keep decimals below 4
+      const displaySize = size >= 4 ? Math.round(size) : size;
+      this.elements.sizeValue.textContent = displaySize;
     }
   }
 
