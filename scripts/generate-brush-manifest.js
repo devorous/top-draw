@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-/** @fileoverview Generates a manifest of all brush files in public/brushes. Supports: .gbr, .gih, .png, .jpg, .jpeg, .webp. */
+/** @fileoverview Generates a manifest of all brush files in public/brushes. Supports: .gbr, .gih, .png, .jpg, .jpeg, .webp, .svg. */
 
 import fs from 'fs';
 import path from 'path';
@@ -22,10 +22,13 @@ function generateManifest() {
     process.exit(1);
   }
 
+  // Define supported extensions in an array for better readability and easier maintenance
+  const supportedExtensions = ['.gbr', '.gih', '.png', '.jpg', '.jpeg', '.webp', '.svg'];
+
   const files = fs.readdirSync(BRUSHES_DIR)
     .filter(file => {
       const ext = path.extname(file).toLowerCase();
-      return ext === '.gbr' || ext === '.gih' || ext === '.png' || ext === '.jpg' || ext === '.jpeg' || ext === '.webp';
+      return supportedExtensions.includes(ext);
     })
     .sort();
 
@@ -42,7 +45,7 @@ function generateManifest() {
 
   console.log(`Brush manifest generated: ${MANIFEST_PATH}`);
   console.log(`Found ${files.length} brush(es):`);
-  files.forEach(f => console.log(`  - ${f}`));
+  files.forEach(f => console.log(`   - ${f}`));
 }
 
 generateManifest();

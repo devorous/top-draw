@@ -209,7 +209,10 @@ export class SyncClient {
         if (groups[gi].strokeStack.length > 0) {
           const strokeRecords = [];
           for (const stroke of groups[gi].strokeStack) {
-            const img = await this._captureCanvasElement(stroke.canvas);
+            // For blur/glitchBlur strokes, send the computed result instead of the mask
+            const isFilter = stroke.filterType === 'blur' || stroke.filterType === 'glitchBlur';
+            const sourceCanvas = (isFilter && stroke._cachedBlurResult) ? stroke._cachedBlurResult : stroke.canvas;
+            const img = await this._captureCanvasElement(sourceCanvas);
             strokeRecords.push({
               img,
               userId: stroke.userId,
@@ -234,7 +237,9 @@ export class SyncClient {
         for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
           const strokeRecords = [];
           for (const { groupIdx, record } of batches[batchIdx]) {
-            const img = await this._captureCanvasElement(record.canvas);
+            const isFilter = record.filterType === 'blur' || record.filterType === 'glitchBlur';
+            const sourceCanvas = (isFilter && record._cachedBlurResult) ? record._cachedBlurResult : record.canvas;
+            const img = await this._captureCanvasElement(sourceCanvas);
             strokeRecords.push({
               img,
               userId: record.userId,

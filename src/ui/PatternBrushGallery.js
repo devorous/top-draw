@@ -29,7 +29,7 @@ export class PatternBrushGallery extends BrushGallery {
       // Fetch from public/brushes/manifest.json (served by Vite)
       const response = await fetch('/brushes/manifest.json');
       if (!response.ok) throw new Error('Failed to fetch brushes');
-
+      
       const manifest = await response.json();
       if (!manifest.brushes) return;
 
