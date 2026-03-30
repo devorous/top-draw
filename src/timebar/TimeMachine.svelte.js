@@ -8,12 +8,14 @@ const REPLAY_TIMEOUT_MS = 60 * 1000;
  * Snapshot structure to store board and application state at a point in time.
  */
 class Snapshot {
-  constructor(timestamp, appStateData, canvasData, topCanvasData, layerStates) {
+  constructor(timestamp, appStateData, canvasData, topCanvasData, layerStates, history = [], redoHistory = {}) {
     this.timestamp = timestamp;
     this.appState = JSON.parse(JSON.stringify(appStateData));
-    this.canvasData = canvasData; // base64 PNG of main board
+    this.canvasData = canvasData; // base64 PNG of main board (baked content only)
     this.topCanvasData = topCanvasData; // base64 PNG of active strokes
     this.layerStates = JSON.parse(JSON.stringify(layerStates));
+    this.history = history; // Array of per-layer stroke stacks
+    this.redoHistory = redoHistory; // Map of userId -> redo batches
     this.actions = []; // Array of { timestamp, buffer }
   }
 }
@@ -198,8 +200,67 @@ class TimeMachineState {
     const timestamp = Date.now();
     console.log(`[TimeMachine] Taking snapshot at ${new Date(timestamp).toLocaleTimeString()}`);
     
-    // Capture both main board and active strokes canvas
+    // Capture stroke history for each layer
+    const history = this._board.layerManager?.layerGroups.map(group => {
+      return group.strokeStack.map(stroke => ({
+        imageData: stroke.canvas.toDataURL('image/png'),
+        x: stroke.x,
+        y: stroke.y,
+        width: stroke.width,
+        height: stroke.height,
+        blendMode: stroke.blendMode,
+        userId: stroke.userId,
+        timestamp: stroke.timestamp,
+        eraseAll: stroke.eraseAll || false,
+        filterType: stroke.filterType,
+        blurRadius: stroke.blurRadius,
+        affectedTiles: stroke.affectedTiles ? Array.from(stroke.affectedTiles) : []
+      }));
+    }) || [];
+
+    // Capture redo stacks
+    const redoHistory = {};
+    if (this._board.layerManager) {
+      for (const [userId, batches] of this._board.layerManager.redoStackByUser) {
+        redoHistory[userId] = batches.map(batch => {
+          return batch.map(({ groupIdx, record }) => ({
+            groupIdx,
+            record: {
+              imageData: record.canvas.toDataURL('image/png'),
+              x: record.x,
+              y: record.y,
+              width: record.width,
+              height: record.height,
+              blendMode: record.blendMode,
+              userId: record.userId,
+              timestamp: record.timestamp,
+              eraseAll: record.eraseAll || false,
+              filterType: record.filterType,
+              blurRadius: record.blurRadius,
+              affectedTiles: record.affectedTiles ? Array.from(record.affectedTiles) : []
+            }
+          }));
+        });
+      }
+    }
+
+    // Capture the main board (baked content only) by temporarily clearing stroke stacks
+    const lm = this._board.layerManager;
+    const originalStacks = lm?.layerGroups.map(g => g.strokeStack) || [];
+    if (lm) {
+      lm.layerGroups.forEach(g => g.strokeStack = []);
+      this._board.compositeAllLayers();
+    }
+    
     const canvasData = this._board.mainCanvas.toDataURL('image/png');
+
+    // Restore original stacks and composite again to restore visible state
+    if (lm) {
+      lm.layerGroups.forEach((g, i) => g.strokeStack = originalStacks[i]);
+      this._board.compositeAllLayers();
+    }
+
+    // Capture active strokes canvas (live previews)
     const topCanvasData = this._board.topCanvas.toDataURL('image/png');
     
     // Capture relevant layer states

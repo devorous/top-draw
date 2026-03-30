@@ -48,7 +48,8 @@ class ReplayBoard {
       isDirty: () => false,
       getDirtyRects: () => [],
       clear: () => {},
-      markDirtyPath: () => {}
+      markDirtyPath: () => {},
+      markAllDirty: () => {}
     };
     this.tileTracker = null;
 
@@ -102,6 +103,88 @@ class ReplayBoard {
     const count = this.layerManager.getLayerCount();
     for (let i = 0; i < count; i++) {
       this.layerManager.commitUserStroke(i, userId, { eraseAll: true, timestamp: batchTimestamp });
+    }
+  }
+
+  /**
+   * Undo the most recent stroke for userId across all layers.
+   * @param {number} _layerIndex - Unused; kept for compatibility
+   * @param {number} userId - User ID
+   */
+  undo(_layerIndex, userId) {
+    if (!this.layerManager) return;
+    const batch = this.layerManager.undoLastStrokeGlobal(userId);
+
+    if (batch) {
+      this.layerManager._pushToRedoStack(userId, batch);
+      for (const { record } of batch) {
+        if (record.selectionRestoreData) {
+          this._applySelectionRestore(record.selectionRestoreData.snapshots);
+          break;
+        }
+      }
+    }
+    if (this.tileGrid) this.tileGrid.markAllDirty();
+    this.clearTop();
+  }
+
+  /**
+   * Redo the most recently undone stroke batch for userId.
+   * @param {number} userId - User ID
+   */
+  redo(userId) {
+    if (!this.layerManager) return;
+    const redoStack = this.layerManager.redoStackByUser.get(userId);
+
+    if (redoStack && redoStack.length > 0) {
+      const batch = redoStack[redoStack.length - 1];
+      for (const { record } of batch) {
+        if (record.selectionRestoreData) {
+          this._applySelectionReErase(record.selectionRestoreData);
+          break;
+        }
+      }
+    }
+    this.layerManager.redoLastStroke(userId);
+    if (this.tileGrid) this.tileGrid.markAllDirty();
+    this.clearTop();
+  }
+
+  /**
+   * Apply pixel snapshots back to baseCanvas
+   * @param {Array} snapshots - Array of snapshot data
+   * @private
+   */
+  _applySelectionRestore(snapshots) {
+    if (!snapshots) return;
+    const lm = this.layerManager;
+    for (const { groupIdx, canvas, x, y } of snapshots) {
+      const group = lm.layerGroups[groupIdx];
+      if (!group) continue;
+      lm.addToBaseBin(groupIdx, canvas, x, y, 'source-over');
+    }
+  }
+
+  /**
+   * Re-apply the erase to baseCanvas
+   * @param {Object} restoreData - Selection restore data
+   * @private
+   */
+  _applySelectionReErase(restoreData) {
+    const lm = this.layerManager;
+    const { snapshots, eraseS: s, eraseLassoPath: lassoPath } = restoreData;
+    for (const { groupIdx } of snapshots) {
+      const group = lm.layerGroups[groupIdx];
+      if (!group) continue;
+
+      const eraserCanvas = document.createElement('canvas');
+      eraserCanvas.width = s.width;
+      eraserCanvas.height = s.height;
+      const eCtx = eraserCanvas.getContext('2d');
+      eCtx.fillStyle = 'white';
+      eCtx.fillRect(0, 0, s.width, s.height);
+
+      lm.eraseFromAllBaseBins(groupIdx, eraserCanvas, s.x, s.y, lassoPath);
     }
   }
 
@@ -373,11 +456,82 @@ export class ReplayEngine {
       await this._loadImageToCanvas(this.topCtx, snapshot.topCanvasData);
     }
 
+    // Import history if available
+    if (snapshot.history) {
+      for (let gi = 0; gi < snapshot.history.length; gi++) {
+        for (const strokeData of snapshot.history[gi]) {
+          await this._importStrokeData(gi, strokeData);
+        }
+      }
+    }
+
+    // Import redo history if available
+    if (snapshot.redoHistory) {
+      for (const [userIdStr, batches] of Object.entries(snapshot.redoHistory)) {
+        const userId = Number(userIdStr);
+        for (let bi = 0; bi < batches.length; bi++) {
+          for (const item of batches[bi]) {
+            await this._importRedoStrokeData(userId, bi, item.groupIdx, item.record);
+          }
+        }
+      }
+    }
+
     // Create bot users from snapshot's user drawing states
     const userStates = snapshot.appState?.userDrawingStates || {};
     for (const [idStr, state] of Object.entries(userStates)) {
       this._createBotUser(Number(idStr), state);
     }
+  }
+
+  /**
+   * Internal helper to import a stroke from a snapshot data object.
+   * @private
+   */
+  async _importStrokeData(groupIdx, data) {
+    const canvas = await this._loadImageToNewCanvas(data.imageData, data.width, data.height);
+    if (!canvas) return;
+
+    const record = {
+      canvas,
+      x: data.x,
+      y: data.y,
+      width: data.width,
+      height: data.height,
+      blendMode: data.blendMode,
+      userId: data.userId,
+      timestamp: data.timestamp,
+      eraseAll: data.eraseAll || false,
+      filterType: data.filterType,
+      blurRadius: data.blurRadius,
+      affectedTiles: data.affectedTiles
+    };
+    this._replayBoard.layerManager.importStroke(groupIdx, record);
+  }
+
+  /**
+   * Internal helper to import a redo stroke from a snapshot data object.
+   * @private
+   */
+  async _importRedoStrokeData(userId, batchIdx, groupIdx, data) {
+    const canvas = await this._loadImageToNewCanvas(data.imageData, data.width, data.height);
+    if (!canvas) return;
+
+    const record = {
+      canvas,
+      x: data.x,
+      y: data.y,
+      width: data.width,
+      height: data.height,
+      blendMode: data.blendMode,
+      userId: data.userId,
+      timestamp: data.timestamp,
+      eraseAll: data.eraseAll || false,
+      filterType: data.filterType,
+      blurRadius: data.blurRadius,
+      affectedTiles: data.affectedTiles
+    };
+    this._replayBoard.layerManager.importRedoStroke(userId, batchIdx, groupIdx, record);
   }
 
   /**
@@ -396,6 +550,30 @@ export class ReplayEngine {
         resolve();
       };
       img.onerror = () => resolve();
+      img.src = dataUrl;
+    });
+  }
+
+  /**
+   * Load an image into a new canvas and return it.
+   * @private
+   */
+  _loadImageToNewCanvas(dataUrl, width, height) {
+    return new Promise((resolve) => {
+      if (!dataUrl) {
+        resolve(null);
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas);
+      };
+      img.onerror = () => resolve(null);
       img.src = dataUrl;
     });
   }
@@ -760,6 +938,14 @@ export class ReplayEngine {
           break;
         case T.SEL_CLEAR:
           this._remoteHandler.selectionHandler.handleSelectionClear(user);
+          break;
+
+        case T.UNDO:
+          this._replayBoard.undo(user.activeLayer, userId);
+          break;
+
+        case T.REDO:
+          this._replayBoard.redo(userId);
           break;
       }
     } catch (err) {
