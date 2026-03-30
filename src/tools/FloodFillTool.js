@@ -280,7 +280,7 @@ export class FloodFillTool {
     const { mask, minX, minY, maxX, maxY } = result;
 
     // If pattern mode is enabled and user has a pattern brush, use pattern fill
-    if (user && this.patternMode && user.patternBrush) {
+    if (user && user.patternMode && user.patternBrush) {
       return this._renderMaskPattern(ctx, result, userOpacity, blurRadius, width, height, user);
     }
 

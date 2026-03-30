@@ -133,6 +133,7 @@ export class SessionManager {
       thinning: 51, // 0.5 with offset (50 + 1)
       simulatePressure: 2, // true with offset
       name,
+      registeredName: '',
       text: '',
       imageBrush: null,
       activeImage: null,           // { sx, sy, sw, sh, g } — active floating selection for sync replay

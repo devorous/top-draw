@@ -9,6 +9,9 @@ export function setupAuthModHandlers(wsClient, app) {
   const { users, ui } = app;
 
   wsClient.on('auth_result', (data) => {
+    if (data.success && data.username) {
+      app.self.registeredName = data.username;
+    }
     if (app.auth) {
       app.auth.handleAuthResult(data);
     }

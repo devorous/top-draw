@@ -1698,6 +1698,9 @@ export class DrawingApp {
     this.wsClient.broadcastLayerChange(this.self.activeLayer);
     this.wsClient.broadcastThinningChange(this.self.thinning);
     this.wsClient.broadcastSimulatePressureChange(this.self.simulatePressure);
+    if (this.self.patternBrush) {
+      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
+    }
 
     this.moderation.setRole(this.selfRole);
     this.inputBufferManager.startTickLoop();
@@ -1828,6 +1831,9 @@ export class DrawingApp {
     this.wsClient.broadcastLayerChange(activeLayer);
     this.wsClient.broadcastThinningChange(this.self.thinning);
     this.wsClient.broadcastSimulatePressureChange(this.self.simulatePressure);
+    if (this.self.patternBrush) {
+      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
+    }
 
     this.moderation.setRole(role);
     this.inputBufferManager.startTickLoop();
@@ -1854,11 +1860,11 @@ export class DrawingApp {
 
     const profileBtn = document.getElementById('selfProfileBtn');
     if (profileBtn) {
-      const canShowProfile = this.selfRole >= 1 && this.self.username;
+      const canShowProfile = this.selfRole >= 1 && (this.self.registeredName || this.self.username);
       profileBtn.style.display = canShowProfile ? '' : 'none';
       profileBtn.onclick = () => {
         menu.style.display = 'none';
-        showProfileDialog(this.self.username);
+        showProfileDialog(this.self.registeredName || this.self.username);
       };
     }
 
@@ -1927,6 +1933,9 @@ export class DrawingApp {
     this.wsClient.broadcastLayerChange(activeLayer);
     this.wsClient.broadcastThinningChange(this.self.thinning);
     this.wsClient.broadcastSimulatePressureChange(this.self.simulatePressure);
+    if (this.self.patternBrush) {
+      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
+    }
 
     if (this.ui.elements.selfUserEntry) {
       this.ui.elements.selfUserEntry.dataset.sessionIndex = this.sessionIndex;

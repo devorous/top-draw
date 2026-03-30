@@ -482,6 +482,8 @@ export class RemoteSelectionHandler {
     let iw = Math.ceil(s.x + s.width) - ix;
     let ih = Math.ceil(s.y + s.height) - iy;
 
+    const userOpacity = user.opacity !== undefined ? user.opacity : 1;
+
     if (user.floatingCanvas && user.floatingCtx) {
       user.floatingCtx.save();
       user.floatingCtx.setTransform(1, 0, 0, 1, 0, 0); // Ensure clean coordinate space
@@ -505,6 +507,7 @@ export class RemoteSelectionHandler {
         user.floatingCtx.fillStyle = colorString;
       }
       user.floatingCtx.globalCompositeOperation = 'source-over';
+      user.floatingCtx.globalAlpha = userOpacity;
 
       const path = user.lassoPath || (user.pendingLassoPath && user.pendingLassoPath.length >= 3 ? user.pendingLassoPath : null);
       if (path) {
@@ -530,6 +533,7 @@ export class RemoteSelectionHandler {
       if (!active) return;
 
       const layerCtx = active.ctx;
+      layerCtx.globalAlpha = userOpacity;
 
       // Set fill style (pattern or solid color)
       if (usePattern && patternTile) {
@@ -581,6 +585,7 @@ export class RemoteSelectionHandler {
       } else {
         layerCtx.fillRect(ix, iy, iw, ih);
       }
+      layerCtx.globalAlpha = 1.0;
 
       this.board.expandDirtyRect(user, ix, iy, iw, ih);
 

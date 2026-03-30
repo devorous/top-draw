@@ -167,6 +167,7 @@ message Msg {
     uint32 sim = 22;    // Simulate pressure (0 or 1)
     string pb = 23;     // Pattern brush data (JSON)
     bool   pm = 24;     // Pattern mode enabled
+    string rn = 25;     // Registered name (original, without dedup suffix)
   }
   repeated U us = 17;   // Users array
 

@@ -269,10 +269,10 @@
   }
 
   .room-settings-dialog {
-    background: #1a1a1a;
+    background: #242830;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
-    max-width: 480px;
+    max-width: 680px;
     width: 100%;
     max-height: 90vh;
     overflow: hidden;
@@ -280,7 +280,7 @@
     flex-direction: column;
     animation: slideUp 0.2s ease;
     font-family: 'Inter', -apple-system, sans-serif;
-    color: #e8e2d5;
+    color: #f0f2f5;
   }
 
   @keyframes slideUp {
@@ -290,6 +290,7 @@
 
   .room-settings-header {
     padding: 1.25rem 1.5rem;
+    background: #2d323c;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     display: flex;
     align-items: center;
@@ -305,7 +306,7 @@
   .room-settings-close {
     background: none;
     border: none;
-    color: rgba(255, 255, 255, 0.4);
+    color: #6b7280;
     font-size: 1.5rem;
     cursor: pointer;
     padding: 0;
@@ -318,8 +319,8 @@
     border-radius: 50%;
   }
   .room-settings-close:hover {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.1);
+    color: #f0f2f5;
+    background: #363c4a;
   }
 
   .room-settings-body {
@@ -355,17 +356,17 @@
     display: block;
     margin-bottom: 0.5rem;
     font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.7);
+    color: #a0a8b8;
   }
 
   .room-input,
   .room-textarea {
     width: 100%;
     padding: 0.625rem 0.875rem;
-    background: rgba(255, 255, 255, 0.03);
+    background: #1a1d23;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 6px;
-    color: #e8e2d5;
+    color: #f0f2f5;
     font-family: inherit;
     font-size: 0.875rem;
     transition: border-color 0.15s;
@@ -397,7 +398,7 @@
     width: 48px;
     height: 40px;
     padding: 4px;
-    background: rgba(255, 255, 255, 0.03);
+    background: #1a1d23;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 6px;
     cursor: pointer;
@@ -422,11 +423,12 @@
 
   .checkbox-group span {
     font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.7);
+    color: #a0a8b8;
   }
 
   .room-settings-footer {
     padding: 1rem 1.5rem;
+    background: #2d323c;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     display: flex;
     gap: 0.75rem;
@@ -454,12 +456,13 @@
 
   .btn.secondary {
     background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.7);
+    color: #a0a8b8;
     border: 1px solid rgba(255, 255, 255, 0.08);
   }
   .btn.secondary:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #fff;
+    background: #363c4a;
+    color: #f0f2f5;
+    border-color: rgba(255, 255, 255, 0.12);
   }
 
   .btn.danger {

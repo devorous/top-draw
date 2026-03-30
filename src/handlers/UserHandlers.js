@@ -33,6 +33,9 @@ export function setupUserHandlers(wsClient, app) {
           app.self.setUsername(username);
           app.ui.updateSelfName(username);
         }
+        if (userData.registeredName) {
+          app.self.registeredName = userData.registeredName;
+        }
         if (userData.role !== undefined && userData.role !== app.self.role) {
           app.selfRole = userData.role;
           app.self.role = userData.role;
@@ -121,6 +124,10 @@ export function setupUserHandlers(wsClient, app) {
         if (userData.role !== undefined && userData.role !== user.role) {
           user.role = userData.role;
           ui.updateRemoteUserRank(userData.sessionIndex, userData.role);
+        }
+
+        if (userData.registeredName) {
+          user.registeredName = userData.registeredName;
         }
       }
 

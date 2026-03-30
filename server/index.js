@@ -221,7 +221,8 @@ function mapUsersForBroadcast(users) {
     pm: u.patternMode || false,
     iph: u.ipHash,
     th: u.thinning,
-    sim: u.simulatePressure
+    sim: u.simulatePressure,
+    rn: u.registeredName || ''
   }));
 }
 
@@ -1528,6 +1529,7 @@ wss.on('connection', (ws, req) => {
               const uniqueName = room.sessionManager.getUniqueName(regUsername, ws.sessionIndex);
               user.role = role;
               user.name = uniqueName;
+              user.registeredName = regUsername;
               // ws.username remains the original registered username for AUTH_RESULT
             }
 
@@ -1658,6 +1660,7 @@ wss.on('connection', (ws, req) => {
               const uniqueName = room.sessionManager.getUniqueName(userDoc.username, ws.sessionIndex);
               user.role = effectiveRole;
               user.name = uniqueName;
+              user.registeredName = userDoc.username;
             }
 
             sendTo(ws, {

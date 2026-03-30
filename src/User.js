@@ -48,6 +48,7 @@ export class User {
     this.mousedown = false;
     this.panning = false;
     this.username = options.username || '';
+    this.registeredName = options.registeredName || '';
     this.context = options.context || null;
     this.board = options.board || null;
     this.imageBrush = null;

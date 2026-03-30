@@ -249,8 +249,8 @@ export class Moderation {
       }
     }
 
-    // Show promote/demote only for registered users (role >= 1)
-    const isRegistered = targetUser && targetUser.role >= 1;
+    // Show promote/demote and profile only for registered users
+    const isRegistered = targetUser && (targetUser.registeredName || targetUser.role >= 1);
     menu.querySelectorAll('.registered-only').forEach(el => {
       el.style.display = isRegistered ? '' : 'none';
     });
@@ -289,7 +289,10 @@ export class Moderation {
 
     switch (action) {
       case 'profile':
-        if (user?.username && this.onProfile) this.onProfile(user.username);
+        if (this.onProfile) {
+          const profileName = user?.registeredName || user?.username;
+          if (profileName) this.onProfile(profileName);
+        }
         return;
       case 'promote': {
         if (user && this.onRoomRoleSet) {

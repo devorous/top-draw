@@ -334,7 +334,8 @@ export class WebSocketClient {
           patternBrush: u.pb,
           patternScale: u.patternScale,
           patternShape: u.patternShape,
-          patternName: u.patternName
+          patternName: u.patternName,
+          registeredName: u.rn || ''
         }));
         this.emit('users', { users });
         break;
