@@ -93,7 +93,7 @@ export class FloodFillTool {
     const opacitySlider = user?.opacity !== undefined
       ? user.opacity
       : (this.board.app?.self?.opacity !== undefined ? this.board.app.self.opacity : 1);
-    const userOpacity = colorAlpha * opacitySlider;
+    const userOpacity = opacitySlider;
     return {
       fillR: Math.round(fillColor[0]),
       fillG: Math.round(fillColor[1]),
@@ -262,7 +262,7 @@ export class FloodFillTool {
 
     if (colorMode === 'tinted') {
       tctx.globalCompositeOperation = 'source-in';
-      tctx.fillStyle = `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3]})`;
+      tctx.fillStyle = `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, 1.0)`;
       tctx.fillRect(0, 0, tileCanvas.width, tileCanvas.height);
     }
 

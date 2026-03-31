@@ -83,7 +83,7 @@ export class RemoteSelectionHandler {
 
     if (colorMode === 'tinted') {
       tctx.globalCompositeOperation = 'source-in';
-      tctx.fillStyle = `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3]})`;
+      tctx.fillStyle = `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, 1.0)`;
       tctx.fillRect(0, 0, tileCanvas.width, tileCanvas.height);
     }
 

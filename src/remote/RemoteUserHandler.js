@@ -633,16 +633,10 @@ export class RemoteUserHandler {
         break;
 
       case 'select':
-        if (user.startPos) {
-          const x = Math.min(user.startPos.x, pos.x);
-          const y = Math.min(user.startPos.y, pos.y);
-          const width = Math.abs(pos.x - user.startPos.x);
-          const height = Math.abs(pos.y - user.startPos.y);
-          if (width >= 5 && height >= 5) {
-            user.pendingSelection = { x, y, width, height };
-            user.pendingLassoPath = user.lassoPoints && user.lassoPoints.length >= 2 ? [...user.lassoPoints] : null;
-          }
-        }
+        // Don't set pendingSelection or pendingLassoPath here — the authoritative
+        // selection data comes via SEL_PENDING which provides the correctly simplified
+        // lasso path. Setting it here from user.lassoPoints would overwrite the correct
+        // path with an incomplete one (live preview only captures ~1 point per message batch).
         break;
 
       case 'blur':
