@@ -165,7 +165,11 @@ export class PatternTool extends Tool {
     tempCanvas.height = h;
     const tempCtx = tempCanvas.getContext('2d');
 
-    const scale = (user.patternScale || 100) / 100;
+    let scale = (user.patternScale || 100) / 100;
+    // SVGs are rendered at 200px but should display as 40px at 100% scale
+    if (user.patternBrush && user.patternBrush.type === 'svg') {
+      scale *= 0.2; // 200px / 40px = 5, so multiply by 1/5
+    }
     const offsetX = user.patternOffsetX || 0;
     const offsetY = user.patternOffsetY || 0;
     const pattern = tempCtx.createPattern(tile, 'repeat');
@@ -220,7 +224,8 @@ export class PatternTool extends Tool {
     }
 
     // Preserve aspect ratio
-    const maxDim = 40;
+    // Render SVGs at higher resolution (200px) to avoid pixelation when scaled
+    const maxDim = (brush.type === 'svg') ? 200 : 40;
     const imgWidth = img.width || img.naturalWidth;
     const imgHeight = img.height || img.naturalHeight;
 
@@ -247,11 +252,21 @@ export class PatternTool extends Tool {
 
     const tctx = tileCanvas.getContext('2d');
 
+    // Disable image smoothing for SVGs to keep them crisp when scaled
+    if (brush.type === 'svg') {
+      tctx.imageSmoothingEnabled = false;
+    }
+
     // Create an intermediate canvas to handle greyscale transparency
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = tileWidth;
     tempCanvas.height = tileHeight;
     const tempCtx = tempCanvas.getContext('2d');
+
+    if (brush.type === 'svg') {
+      tempCtx.imageSmoothingEnabled = false;
+    }
+
     tempCtx.drawImage(img, 0, 0, tileWidth, tileHeight);
 
     // If it's a GIMP greyscale brush, it's often black-on-white.
@@ -351,7 +366,11 @@ export class PatternTool extends Tool {
     }
 
     const pattern = ctx.createPattern(tile, 'repeat');
-    const scale = (user.patternScale || 100) / 100;
+    let scale = (user.patternScale || 100) / 100;
+    // SVGs are rendered at 200px but should display as 40px at 100% scale
+    if (user.patternBrush && user.patternBrush.type === 'svg') {
+      scale *= 0.2; // 200px / 40px = 5, so multiply by 1/5
+    }
     const offsetX = user.patternOffsetX || 0;
     const offsetY = user.patternOffsetY || 0;
 

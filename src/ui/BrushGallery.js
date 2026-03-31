@@ -50,7 +50,8 @@ export class BrushGallery {
 
       for (const entry of manifest.brushes) {
         try {
-          const brush = await this.loadBrush(`/brushes/${entry.file}`);
+          const brushPath = entry.path || `/brushes/${entry.file}`;
+          const brush = await this.loadBrush(brushPath);
           if (brush) {
             this.brushes.push(brush);
             this.addBrushToGallery(brush);
@@ -126,6 +127,27 @@ export class BrushGallery {
         };
         image.onerror = reject;
         image.src = imageUrl;
+      });
+      brushData.image = image;
+    } else if (fileType === 'svg') {
+      brushData = {
+        type: 'svg',
+        fileName: fileName,
+        brushName: fileName.replace(/\.[^/.]+$/, ''),
+        gimpUrl: filePath,
+        width: 0,
+        height: 0
+      };
+
+      const image = new Image();
+      await new Promise((resolve, reject) => {
+        image.onload = () => {
+          brushData.width = image.naturalWidth || image.width;
+          brushData.height = image.naturalHeight || image.height;
+          resolve();
+        };
+        image.onerror = reject;
+        image.src = filePath;
       });
       brushData.image = image;
     }

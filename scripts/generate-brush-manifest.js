@@ -10,10 +10,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const BRUSHES_DIR = path.join(__dirname, '..', 'public', 'brushes');
+const SVGS_DIR = path.join(__dirname, '..', 'public', 'svgs');
 const MANIFEST_PATH = path.join(BRUSHES_DIR, 'manifest.json');
 
 /**
- * Scans the brushes directory for supported image and GIMP brush formats and generates a manifest.json file.
+ * Scans the brushes and svgs directories for supported image and GIMP brush formats and generates a manifest.json file.
  * @returns {void}
  */
 function generateManifest() {
@@ -32,20 +33,38 @@ function generateManifest() {
     })
     .sort();
 
+  // Scan SVGs directory if it exists
+  const svgFiles = fs.existsSync(SVGS_DIR)
+    ? fs.readdirSync(SVGS_DIR)
+      .filter(file => path.extname(file).toLowerCase() === '.svg')
+      .sort()
+    : [];
+
+  const brushManifests = files.map(file => ({
+    file: file,
+    path: `/brushes/${file}`,
+    type: path.extname(file).toLowerCase().slice(1)
+  }));
+
+  const svgManifests = svgFiles.map(file => ({
+    file: file,
+    path: `/svgs/${file}`,
+    type: 'svg'
+  }));
+
+  const allBrushes = [...brushManifests, ...svgManifests];
+
   const manifest = {
     generated: new Date().toISOString(),
-    count: files.length,
-    brushes: files.map(file => ({
-      file: file,
-      type: path.extname(file).toLowerCase().slice(1)
-    }))
+    count: allBrushes.length,
+    brushes: allBrushes
   };
 
   fs.writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
 
   console.log(`Brush manifest generated: ${MANIFEST_PATH}`);
-  console.log(`Found ${files.length} brush(es):`);
-  files.forEach(f => console.log(`   - ${f}`));
+  console.log(`Found ${allBrushes.length} brush(es):`);
+  allBrushes.forEach(b => console.log(`   - ${b.file}`));
 }
 
 generateManifest();

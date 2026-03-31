@@ -29,7 +29,7 @@ export class PatternBrushGallery extends BrushGallery {
       // Fetch from public/brushes/manifest.json (served by Vite)
       const response = await fetch('/brushes/manifest.json');
       if (!response.ok) throw new Error('Failed to fetch brushes');
-      
+
       const manifest = await response.json();
       if (!manifest.brushes) return;
 
@@ -37,7 +37,8 @@ export class PatternBrushGallery extends BrushGallery {
         if (entry.file.endsWith('.gih')) continue;
 
         try {
-          const brush = await this.loadBrush(`/brushes/${entry.file}`);
+          const brushPath = entry.path || `/brushes/${entry.file}`;
+          const brush = await this.loadBrush(brushPath);
           if (brush) {
             this.brushes.push(brush);
             this.addBrushToGallery(brush);

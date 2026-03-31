@@ -129,7 +129,8 @@ export class SelectTool extends Tool {
 
     if (this._patternTileCache.has(key)) return this._patternTileCache.get(key);
 
-    const maxDim = 40;
+    // Render SVGs at higher resolution (200px) to avoid pixelation when scaled
+    const maxDim = (brush.type === 'svg') ? 200 : 40;
     const imgWidth = img.width || img.naturalWidth;
     const imgHeight = img.height || img.naturalHeight;
     const aspectRatio = imgWidth / imgHeight;
@@ -149,10 +150,21 @@ export class SelectTool extends Tool {
     tileCanvas.height = tileHeight + padding;
 
     const tctx = tileCanvas.getContext('2d');
+
+    // Disable image smoothing for SVGs to keep them crisp when scaled
+    if (brush.type === 'svg') {
+      tctx.imageSmoothingEnabled = false;
+    }
+
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = tileWidth;
     tempCanvas.height = tileHeight;
     const tempCtx = tempCanvas.getContext('2d');
+
+    if (brush.type === 'svg') {
+      tempCtx.imageSmoothingEnabled = false;
+    }
+
     tempCtx.drawImage(img, 0, 0, tileWidth, tileHeight);
 
     if (brush.type === 'gbr' && brush.colorDepth === 1) {
@@ -192,7 +204,11 @@ export class SelectTool extends Tool {
       return;
     }
 
-    const scale = (user.patternScale || 100) / 100;
+    let scale = (user.patternScale || 100) / 100;
+    // SVGs are rendered at 200px but should display as 40px at 100% scale
+    if (user.patternBrush && user.patternBrush.type === 'svg') {
+      scale *= 0.2;
+    }
     const offsetX = user.patternOffsetX || 0;
     const offsetY = user.patternOffsetY || 0;
     const rotation = user.patternRotation || 0;
@@ -2824,7 +2840,11 @@ export class SelectTool extends Tool {
           // Step 2: Apply pattern with source-in
           const pattern = this.floatingCtx.createPattern(tile, 'repeat');
           if (pattern && pattern.setTransform) {
-            const scale = (app.self.patternScale || 100) / 100;
+            let scale = (app.self.patternScale || 100) / 100;
+            // SVGs are rendered at 200px but should display as 40px at 100% scale
+            if (app.self.patternBrush && app.self.patternBrush.type === 'svg') {
+              scale *= 0.2;
+            }
             const offsetX = app.self.patternOffsetX || 0;
             const offsetY = app.self.patternOffsetY || 0;
             const rotation = app.self.patternRotation || 0;
@@ -2919,7 +2939,11 @@ export class SelectTool extends Tool {
           // Step 2: Apply pattern with source-in
           const pattern = tempCtx.createPattern(tile, 'repeat');
           if (pattern && pattern.setTransform) {
-            const scale = (app.self.patternScale || 100) / 100;
+            let scale = (app.self.patternScale || 100) / 100;
+            // SVGs are rendered at 200px but should display as 40px at 100% scale
+            if (app.self.patternBrush && app.self.patternBrush.type === 'svg') {
+              scale *= 0.2;
+            }
             const offsetX = app.self.patternOffsetX || 0;
             const offsetY = app.self.patternOffsetY || 0;
             const rotation = app.self.patternRotation || 0;
@@ -3029,7 +3053,11 @@ export class SelectTool extends Tool {
             // Step 2: Apply pattern with source-in
             const pattern = tempCtx.createPattern(tile, 'repeat');
             if (pattern && pattern.setTransform) {
-              const scale = (app.self.patternScale || 100) / 100;
+              let scale = (app.self.patternScale || 100) / 100;
+              // SVGs are rendered at 200px but should display as 40px at 100% scale
+              if (app.self.patternBrush && app.self.patternBrush.type === 'svg') {
+                scale *= 0.2;
+              }
               const offsetX = app.self.patternOffsetX || 0;
               const offsetY = app.self.patternOffsetY || 0;
               const rotation = app.self.patternRotation || 0;

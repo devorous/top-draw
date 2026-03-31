@@ -816,7 +816,7 @@ export class RemoteUserHandler {
   handleBrushLoad(user, brushDataStr) {
     const brushData = typeof brushDataStr === 'string' ? JSON.parse(brushDataStr) : brushDataStr;
 
-    if (brushData.type === 'gbr' || brushData.type === 'image') {
+    if (brushData.type === 'gbr' || brushData.type === 'image' || brushData.type === 'svg') {
       const image = new Image();
       image.onload = () => {
         brushData.image = image;
@@ -894,7 +894,7 @@ export class RemoteUserHandler {
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool) patternTool._tileCache.clear();
 
-    if (brushData.type === 'gbr' || brushData.type === 'image') {
+    if (brushData.type === 'gbr' || brushData.type === 'image' || brushData.type === 'svg') {
       const image = new Image();
       image.onload = () => {
         brushData.image = image;

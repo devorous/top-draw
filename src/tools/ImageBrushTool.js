@@ -251,7 +251,7 @@ export class ImageBrushTool extends Tool {
         image = brush.images[brush.index];
         brush.index = (brush.index + 1) % brush.ncells;
       }
-    } else if (brush.type === 'image') {
+    } else if (brush.type === 'image' || brush.type === 'svg') {
       height = brush.height;
       width = brush.width;
       image = brush.image;
@@ -276,9 +276,16 @@ export class ImageBrushTool extends Tool {
     const stampW = scaledSize * 2 * ratioX;
     const stampH = scaledSize * 2 * ratioY;
 
+    // Disable image smoothing for SVGs to keep them crisp when scaled
+    const prevSmoothing = ctx.imageSmoothingEnabled;
+    if (brush.type === 'svg') {
+      ctx.imageSmoothingEnabled = false;
+    }
+
     ctx.drawImage(image, stampX, stampY, stampW, stampH);
     ctx.stroke();
     ctx.globalAlpha = 1.0;
+    ctx.imageSmoothingEnabled = prevSmoothing;
 
     if (this.dirtyBounds) {
       this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, stampX);

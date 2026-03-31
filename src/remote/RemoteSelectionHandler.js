@@ -39,7 +39,8 @@ export class RemoteSelectionHandler {
 
     if (this._patternTileCache.has(key)) return this._patternTileCache.get(key);
 
-    const maxDim = 40;
+    // Render SVGs at higher resolution (200px) to avoid pixelation when scaled
+    const maxDim = (brush.type === 'svg') ? 200 : 40;
     const imgWidth = img.width || img.naturalWidth;
     const imgHeight = img.height || img.naturalHeight;
     if (!imgWidth || !imgHeight) return null;
@@ -60,10 +61,21 @@ export class RemoteSelectionHandler {
     tileCanvas.height = tileHeight + padding;
 
     const tctx = tileCanvas.getContext('2d');
+
+    // Disable image smoothing for SVGs to keep them crisp when scaled
+    if (brush.type === 'svg') {
+      tctx.imageSmoothingEnabled = false;
+    }
+
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = tileWidth;
     tempCanvas.height = tileHeight;
     const tempCtx = tempCanvas.getContext('2d');
+
+    if (brush.type === 'svg') {
+      tempCtx.imageSmoothingEnabled = false;
+    }
+
     tempCtx.drawImage(img, 0, 0, tileWidth, tileHeight);
 
     // Handle GIMP greyscale brushes
@@ -492,7 +504,11 @@ export class RemoteSelectionHandler {
       if (usePattern && patternTile) {
         const pattern = user.floatingCtx.createPattern(patternTile, 'repeat');
         if (pattern.setTransform) {
-          const scale = (user.patternScale || 100) / 100;
+          let scale = (user.patternScale || 100) / 100;
+          // SVGs are rendered at 200px but should display as 40px at 100% scale
+          if (user.patternBrush && user.patternBrush.type === 'svg') {
+            scale *= 0.2;
+          }
           const offsetX = (user.patternOffsetX || 0) - s.x;
           const offsetY = (user.patternOffsetY || 0) - s.y;
           const rotation = user.patternRotation || 0;
@@ -539,7 +555,11 @@ export class RemoteSelectionHandler {
       if (usePattern && patternTile) {
         const pattern = layerCtx.createPattern(patternTile, 'repeat');
         if (pattern.setTransform) {
-          const scale = (user.patternScale || 100) / 100;
+          let scale = (user.patternScale || 100) / 100;
+          // SVGs are rendered at 200px but should display as 40px at 100% scale
+          if (user.patternBrush && user.patternBrush.type === 'svg') {
+            scale *= 0.2;
+          }
           const offsetX = user.patternOffsetX || 0;
           const offsetY = user.patternOffsetY || 0;
           const rotation = user.patternRotation || 0;
