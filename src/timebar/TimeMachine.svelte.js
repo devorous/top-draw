@@ -8,7 +8,7 @@ const REPLAY_TIMEOUT_MS = 60 * 1000;
  * Snapshot structure to store board and application state at a point in time.
  */
 class Snapshot {
-  constructor(timestamp, appStateData, canvasData, topCanvasData, layerStates, history = [], redoHistory = {}) {
+  constructor(timestamp, appStateData, canvasData, topCanvasData, layerStates, history = [], redoHistory = {}, activeStrokes = []) {
     this.timestamp = timestamp;
     this.appState = JSON.parse(JSON.stringify(appStateData));
     this.canvasData = canvasData; // base64 PNG of main board (baked content only)
@@ -16,8 +16,21 @@ class Snapshot {
     this.layerStates = JSON.parse(JSON.stringify(layerStates));
     this.history = history; // Array of per-layer stroke stacks
     this.redoHistory = redoHistory; // Map of userId -> redo batches
+    this.activeStrokes = activeStrokes; // Array of per-layer active in-progress strokes
     this.actions = []; // Array of { timestamp, buffer }
   }
+}
+
+function serializeCanvasData(canvas) {
+  return canvas ? canvas.toDataURL('image/png') : null;
+}
+
+function clonePoints(points) {
+  if (!Array.isArray(points)) return null;
+  return points.map((pt) => {
+    if (Array.isArray(pt)) return [...pt];
+    return pt && typeof pt === 'object' ? { ...pt } : pt;
+  });
 }
 
 function serializePatternBrushState(user) {
@@ -39,6 +52,23 @@ function serializePatternBrushState(user) {
     offsetX: user.patternOffsetX ?? 0,
     offsetY: user.patternOffsetY ?? 0,
     colorMode: user.patternColorMode ?? 'original'
+  };
+}
+
+function serializeActiveStroke(active, userId) {
+  if (!active?.canvas) return null;
+
+  return {
+    userId,
+    blendMode: active.blendMode ?? 'source-over',
+    dirtyRect: active.dirtyRect ? { ...active.dirtyRect } : null,
+    affectedTiles: active.affectedTiles ? Array.from(active.affectedTiles) : [],
+    filterType: active.filterType,
+    blurRadius: active.blurRadius,
+    canvasData: serializeCanvasData(active.canvas),
+    maskCanvasData: active.maskCanvas && active.maskCanvas !== active.canvas
+      ? serializeCanvasData(active.maskCanvas)
+      : null
   };
 }
 
@@ -267,11 +297,24 @@ class TimeMachineState {
       }
     }
 
+    const activeStrokes = this._board.layerManager?.layerGroups.map(group => {
+      const strokes = [];
+      for (const [userId, active] of group.activeStrokeByUser) {
+        const serialized = serializeActiveStroke(active, userId);
+        if (serialized) strokes.push(serialized);
+      }
+      return strokes;
+    }) || [];
+
     // Capture the main board (baked content only) by temporarily clearing stroke stacks
     const lm = this._board.layerManager;
     const originalStacks = lm?.layerGroups.map(g => g.strokeStack) || [];
+    const originalActiveStrokes = lm?.layerGroups.map(g => g.activeStrokeByUser) || [];
     if (lm) {
-      lm.layerGroups.forEach(g => g.strokeStack = []);
+      lm.layerGroups.forEach(g => {
+        g.strokeStack = [];
+        g.activeStrokeByUser = new Map();
+      });
       this._board.compositeAllLayers();
     }
     
@@ -279,7 +322,10 @@ class TimeMachineState {
 
     // Restore original stacks and composite again to restore visible state
     if (lm) {
-      lm.layerGroups.forEach((g, i) => g.strokeStack = originalStacks[i]);
+      lm.layerGroups.forEach((g, i) => {
+        g.strokeStack = originalStacks[i];
+        g.activeStrokeByUser = originalActiveStrokes[i];
+      });
       this._board.compositeAllLayers();
     }
 
@@ -296,8 +342,20 @@ class TimeMachineState {
     // Capture relevant app state data (simplified for snapshot)
     // Capture full per-user drawing state for accurate replay
     const userDrawingStates = {};
+    const toolManager = window.app?.toolManager;
+    const patternTool = toolManager?.getTool?.('pattern');
     if (window.app?.users) {
       window.app.users.forEach((user, id) => {
+        const toolLastStampPositions = {};
+        for (const toolName of ['imageBrush', 'pixel', 'blur', 'glitchBlur', 'circleBlur', 'pattern']) {
+          const tool = toolManager?.getTool?.(toolName);
+          const lastStampPos = tool?.lastStampPos?.get?.(id);
+          if (lastStampPos) {
+            toolLastStampPositions[toolName] = { ...lastStampPos };
+          }
+        }
+
+        const patternRemoteOffscreen = patternTool?.remoteOffscreens?.get?.(id);
         userDrawingStates[id] = {
           username: user.username || `User ${id}`,
           role: user.role ?? 0,
@@ -311,6 +369,37 @@ class TimeMachineState {
           simulatePressure: user.simulatePressure ?? true,
           blendMode: user.blendMode || 'source-over',
           activeLayer: user.activeLayer ?? 2,
+          mousedown: !!user.mousedown,
+          panning: !!user.panning,
+          startPos: user.startPos ? { ...user.startPos } : null,
+          currentLine: clonePoints(user.currentLine),
+          lineLength: user.lineLength ?? 0,
+          smoothBuffer: user.smoothBuffer ? { ...user.smoothBuffer } : null,
+          remoteTarget: user.remoteTarget ? { ...user.remoteTarget } : null,
+          lassoPoints: clonePoints(user.lassoPoints),
+          lastx: user.lastx,
+          lasty: user.lasty,
+          prevpressure: user.prevpressure,
+          previewCanvasData: serializeCanvasData(user.board),
+          penStrokeActive: !!user._penStrokeActive,
+          penOffscreenData: serializeCanvasData(user._penOffscreen),
+          penStrokeColor: user._penStrokeColor ?? null,
+          penAlpha: user._penAlpha ?? null,
+          penHardness: user._penHardness ?? null,
+          penLastStampPos: user._penLastStampPos ? { ...user._penLastStampPos } : null,
+          penPoints: clonePoints(user.penPoints),
+          inkStrokeActive: !!user._inkStrokeActive,
+          inkOffscreenData: serializeCanvasData(user._inkOffscreen),
+          inkStrokeColor: user._inkStrokeColor ?? null,
+          inkAlpha: user._inkAlpha ?? null,
+          inkHardness: user._inkHardness ?? null,
+          inkSize: user._inkSize ?? null,
+          inkPoints: clonePoints(user._inkPoints),
+          toolLastStampPositions,
+          patternRemoteOffscreen: patternRemoteOffscreen ? {
+            canvasData: serializeCanvasData(patternRemoteOffscreen.canvas),
+            strokePoints: clonePoints(patternRemoteOffscreen.strokePoints)
+          } : null,
           patternMode: user.patternMode ?? false,
           patternBrush: serializePatternBrushState(user),
           patternScale: user.patternScale ?? 100,
@@ -333,7 +422,7 @@ class TimeMachineState {
       activeLayer: appState.activeLayer
     };
 
-    const snapshot = new Snapshot(timestamp, appStateData, canvasData, topCanvasData, layerStates);
+    const snapshot = new Snapshot(timestamp, appStateData, canvasData, topCanvasData, layerStates, history, redoHistory, activeStrokes);
     
     this.recordingBuffer.push(snapshot);
     console.log(`[TimeMachine] Buffer size: ${this.recordingBuffer.length}`);

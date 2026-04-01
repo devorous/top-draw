@@ -511,6 +511,11 @@ export class ReplayEngine {
         const loadedPattern = await this._loadPatternData(state.patternBrush);
         this._applyPatternDataToUser(bot, loadedPattern);
       }
+      await this._restoreBotTransientState(bot, state);
+    }
+
+    if (snapshot.activeStrokes) {
+      await this._restoreActiveStrokes(snapshot.activeStrokes);
     }
   }
 
@@ -766,6 +771,151 @@ export class ReplayEngine {
 
     this.botUsers.set(id, bot);
     return bot;
+  }
+
+  /**
+   * Restore transient per-user replay state from a snapshot.
+   * @param {User} bot
+   * @param {Object} state
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _restoreBotTransientState(bot, state = {}) {
+    if (!bot || !state) return;
+
+    bot.mousedown = !!state.mousedown;
+    bot.panning = !!state.panning;
+    bot.startPos = state.startPos ? { ...state.startPos } : null;
+    bot.currentLine = Array.isArray(state.currentLine) ? state.currentLine.map((pt) => ({ ...pt })) : [];
+    bot.lineLength = state.lineLength ?? 0;
+    bot.remoteTarget = state.remoteTarget ? { ...state.remoteTarget } : null;
+    bot.lassoPoints = Array.isArray(state.lassoPoints) ? state.lassoPoints.map((pt) => ({ ...pt })) : null;
+    if (state.lastx !== undefined) bot.lastx = state.lastx;
+    if (state.lasty !== undefined) bot.lasty = state.lasty;
+    if (state.prevpressure !== undefined) bot.prevpressure = state.prevpressure;
+    if (state.smoothBuffer) {
+      bot.smoothBuffer = {
+        x: state.smoothBuffer.x ?? 0,
+        y: state.smoothBuffer.y ?? 0,
+        isFirst: state.smoothBuffer.isFirst ?? true
+      };
+    }
+
+    if (bot.board?.style) {
+      bot.board.style.mixBlendMode = bot.blendMode && bot.blendMode !== 'source-over' ? bot.blendMode : 'normal';
+    }
+
+    if (state.previewCanvasData && bot.context) {
+      await this._loadImageToCanvas(bot.context, state.previewCanvasData);
+    }
+
+    if (state.penOffscreenData) {
+      const canvas = document.createElement('canvas');
+      canvas.width = this.width;
+      canvas.height = this.height;
+      const ctx = canvas.getContext('2d');
+      await this._loadImageToCanvas(ctx, state.penOffscreenData);
+      bot._penOffscreen = canvas;
+      bot._penOffscreenCtx = ctx;
+      bot._penStrokeActive = !!state.penStrokeActive;
+      bot._penStrokeColor = state.penStrokeColor ?? null;
+      bot._penAlpha = state.penAlpha ?? null;
+      bot._penHardness = state.penHardness ?? null;
+      bot._penLastStampPos = state.penLastStampPos ? { ...state.penLastStampPos } : null;
+      bot.penPoints = Array.isArray(state.penPoints) ? state.penPoints.map((pt) => ({ ...pt })) : [];
+    }
+
+    if (state.inkOffscreenData) {
+      const canvas = document.createElement('canvas');
+      canvas.width = this.width;
+      canvas.height = this.height;
+      const ctx = canvas.getContext('2d');
+      await this._loadImageToCanvas(ctx, state.inkOffscreenData);
+      bot._inkOffscreen = canvas;
+      bot._inkCtx = ctx;
+      bot._inkStrokeActive = !!state.inkStrokeActive;
+      bot._inkStrokeColor = state.inkStrokeColor ?? null;
+      bot._inkAlpha = state.inkAlpha ?? null;
+      bot._inkHardness = state.inkHardness ?? null;
+      bot._inkSize = state.inkSize ?? null;
+      bot._inkPoints = Array.isArray(state.inkPoints) ? state.inkPoints.map((pt) => Array.isArray(pt) ? [...pt] : pt) : [];
+    }
+
+    const toolLastStampPositions = state.toolLastStampPositions || {};
+    for (const [toolName, lastStampPos] of Object.entries(toolLastStampPositions)) {
+      const tool = this._toolManager?.getTool(toolName);
+      if (tool?.lastStampPos) {
+        tool.lastStampPos.set(bot.id, { ...lastStampPos });
+      }
+    }
+
+    if (state.patternRemoteOffscreen) {
+      const patternTool = this._toolManager?.getTool('pattern');
+      if (patternTool) {
+        const canvas = document.createElement('canvas');
+        canvas.width = this.width;
+        canvas.height = this.height;
+        const ctx = canvas.getContext('2d');
+        await this._loadImageToCanvas(ctx, state.patternRemoteOffscreen.canvasData);
+        patternTool.remoteOffscreens.set(bot.id, {
+          canvas,
+          ctx,
+          strokePoints: Array.isArray(state.patternRemoteOffscreen.strokePoints)
+            ? state.patternRemoteOffscreen.strokePoints.map((pt) => ({ ...pt }))
+            : []
+        });
+      }
+    }
+  }
+
+  /**
+   * Restore in-progress LayerManager strokes from a snapshot.
+   * @param {Array<Array<Object>>} activeStrokeGroups
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _restoreActiveStrokes(activeStrokeGroups = []) {
+    for (let groupIdx = 0; groupIdx < activeStrokeGroups.length; groupIdx++) {
+      const group = this._replayBoard.layerManager.layerGroups[groupIdx];
+      if (!group) continue;
+
+      for (const strokeData of activeStrokeGroups[groupIdx] || []) {
+        const canvas = document.createElement('canvas');
+        canvas.width = this.width;
+        canvas.height = this.height;
+        const ctx = canvas.getContext('2d');
+        await this._loadImageToCanvas(ctx, strokeData.canvasData);
+
+        const active = {
+          canvas,
+          ctx,
+          blendMode: strokeData.blendMode ?? 'source-over',
+          dirtyRect: strokeData.dirtyRect
+            ? { ...strokeData.dirtyRect }
+            : { minX: this.width, minY: this.height, maxX: -1, maxY: -1 },
+          affectedTiles: new Set(strokeData.affectedTiles || [])
+        };
+
+        if (strokeData.filterType) {
+          active.filterType = strokeData.filterType;
+          active.blurRadius = strokeData.blurRadius;
+          if (strokeData.maskCanvasData) {
+            const maskCanvas = document.createElement('canvas');
+            maskCanvas.width = this.width;
+            maskCanvas.height = this.height;
+            const maskCtx = maskCanvas.getContext('2d');
+            await this._loadImageToCanvas(maskCtx, strokeData.maskCanvasData);
+            active.maskCanvas = maskCanvas;
+          } else {
+            active.maskCanvas = canvas;
+          }
+        }
+
+        group.activeStrokeByUser.set(strokeData.userId, active);
+      }
+    }
+
+    this._replayBoard.layerManager.needsComposite = true;
   }
 
   /**
