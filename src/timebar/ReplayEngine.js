@@ -27,16 +27,19 @@ class ReplayBoard {
     this.mainCanvas.width = width;
     this.mainCanvas.height = height;
     this.mainCtx = this.mainCanvas.getContext('2d', { willReadFrequently: true });
+    this._configureContext(this.mainCtx);
 
     this.topCanvas = document.createElement('canvas');
     this.topCanvas.width = width;
     this.topCanvas.height = height;
     this.topCtx = this.topCanvas.getContext('2d');
+    this._configureContext(this.topCtx);
 
     this.upperLayersCanvas = document.createElement('canvas');
     this.upperLayersCanvas.width = width;
     this.upperLayersCanvas.height = height;
     this.upperLayersCtx = this.upperLayersCanvas.getContext('2d');
+    this._configureContext(this.upperLayersCtx);
 
     // Real LayerManager for stroke management
     this.layerManager = new LayerManager(width, height);
@@ -66,6 +69,13 @@ class ReplayBoard {
     this.selectionCtx = this.selectionOverlay.getContext('2d');
     this.cursorsSvg = null;
     this.mirrorLine = null;
+  }
+
+  _configureContext(ctx) {
+    if (!ctx) return;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
   }
 
   getWidth() { return this.dimensions[1]; }
@@ -379,6 +389,8 @@ export class ReplayEngine {
     /** @type {HTMLCanvasElement} Holds loaded snapshot image */
     this._snapshotCanvas = null;
     this._snapshotCtx = null;
+    /** @type {boolean} True when the snapshot restored full layer/stroke state */
+    this._snapshotHasLayerState = false;
 
     /** @type {Function|null} Called when async operations (blur worker) update the output */
     this.onOutputUpdate = null;
@@ -548,11 +560,16 @@ export class ReplayEngine {
    */
   _syncReplayTextPreview(user) {
     if (!user?.context) return;
-    user.context.clearRect(0, 0, this.width, this.height);
+
+    if (user._replayTextPreviewActive) {
+      user.context.clearRect(0, 0, this.width, this.height);
+      user._replayTextPreviewActive = false;
+    }
 
     const hasBlendMode = user.blendMode && user.blendMode !== 'source-over';
     if (user.tool !== 'text' || !user.text || !hasBlendMode) return;
     this._remoteHandler?._renderRemoteTextToCanvas?.(user);
+    user._replayTextPreviewActive = true;
   }
 
   /**
@@ -561,6 +578,7 @@ export class ReplayEngine {
   reset() {
     this.botUsers.clear();
     this._patternStateByUser.clear();
+    this._snapshotHasLayerState = false;
     this.outputCtx?.clearRect(0, 0, this.width, this.height);
     this.topCtx?.clearRect(0, 0, this.width, this.height);
     this._snapshotCtx?.clearRect(0, 0, this.width, this.height);
@@ -577,8 +595,15 @@ export class ReplayEngine {
   async loadSnapshot(snapshot) {
     this.reset();
 
-    // Load the snapshot's composited canvas image to the snapshot canvas
-    if (snapshot.canvasData) {
+    const hasHistory = Array.isArray(snapshot.history) && snapshot.history.some((layerHistory) => Array.isArray(layerHistory) && layerHistory.length > 0);
+    const hasRedoHistory = !!snapshot.redoHistory && Object.values(snapshot.redoHistory).some((batches) => Array.isArray(batches) && batches.length > 0);
+    const hasActiveStrokes = Array.isArray(snapshot.activeStrokes) && snapshot.activeStrokes.length > 0;
+    this._snapshotHasLayerState = hasHistory || hasRedoHistory || hasActiveStrokes;
+
+    // Load the snapshot's composited canvas image only when we are not also
+    // reconstructing the canvas from stroke/layer state. Otherwise the replay
+    // would draw the same historical strokes twice.
+    if (snapshot.canvasData && !this._snapshotHasLayerState) {
       await this._loadImageToCanvas(this._snapshotCtx, snapshot.canvasData);
     }
 
@@ -1185,14 +1210,13 @@ export class ReplayEngine {
    */
   _createBotUser(id, state = {}) {
     const color = state.color || [0, 0, 0, 255];
-    // Normalize color alpha to 0-1 range if needed
+    const botOpacity = color[3] > 1 ? color[3] / 255 : color[3];
     const normalizedColor = [
       color[0],
       color[1],
       color[2],
-      1 // Set color alpha to 1, use user.opacity for the actual transparency
+      botOpacity
     ];
-    const botOpacity = color[3] > 1 ? color[3] / 255 : color[3];
 
     const bot = new User(id, {
       username: state.username || `User ${id}`,
@@ -1227,6 +1251,11 @@ export class ReplayEngine {
     previewCanvas.height = this.height;
     bot.board = previewCanvas;
     bot.context = previewCanvas.getContext('2d');
+    if (bot.context) {
+      bot.context.imageSmoothingQuality = 'high';
+      bot.context.lineCap = 'round';
+      bot.context.lineJoin = 'round';
+    }
 
     // Initialize smoothBuffer for handlers
     bot.smoothBuffer = { x: 0, y: 0, isFirst: true };
@@ -1501,7 +1530,7 @@ export class ReplayEngine {
    * @private
    */
   async _runActionBatch(actions, upToTimestamp, { rebaseSnapshot }) {
-    if (rebaseSnapshot && this._snapshotCanvas) {
+    if (rebaseSnapshot && this._snapshotCanvas && !this._snapshotHasLayerState) {
       const layer0 = this._replayBoard.layerManager.layerGroups[0];
       if (layer0) {
         if (!layer0.flatCanvas) {
@@ -1621,13 +1650,14 @@ export class ReplayEngine {
         case T.CC:
           if (msg.c !== undefined) {
             const c = msg.c;
+            const opacity = (c & 0xFF) / 255;
             user.setColor([
               (c >>> 24) & 0xFF,
               (c >>> 16) & 0xFF,
               (c >>> 8) & 0xFF,
-              1 // Set color alpha to 1, use user.opacity for the actual transparency
+              opacity
             ]);
-            user.setOpacity((c & 0xFF) / 255);
+            user.setOpacity(opacity);
             this._syncReplayTextPreview(user);
           }
           break;

@@ -93,7 +93,7 @@ export class FloodFillTool {
     const opacitySlider = user?.opacity !== undefined
       ? user.opacity
       : (this.board.app?.self?.opacity !== undefined ? this.board.app.self.opacity : 1);
-    const userOpacity = opacitySlider;
+    const userOpacity = colorAlpha * opacitySlider;
     return {
       fillR: Math.round(fillColor[0]),
       fillG: Math.round(fillColor[1]),
