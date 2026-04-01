@@ -254,6 +254,77 @@ export class SelectTool extends Tool {
   }
 
   /**
+   * Build the canvas path for the current selection shape (lasso polygon or rect).
+   * All coordinates are in the local space of ctx: lasso points are shifted by offsetX/offsetY.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {{width: number, height: number}} rect
+   * @param {number} [offsetX=0] - Canvas-space X origin of this context (subtracted from lasso coords).
+   * @param {number} [offsetY=0] - Canvas-space Y origin of this context.
+   * @returns {boolean} true if a lasso path was built, false for a simple rect.
+   * @private
+   */
+  _applyPath(ctx, rect, offsetX = 0, offsetY = 0) {
+    if (this.mode === 'lasso' && this.lassoPath?.length >= 3) {
+      ctx.beginPath();
+      ctx.moveTo(this.lassoPath[0].x - offsetX, this.lassoPath[0].y - offsetY);
+      for (let i = 1; i < this.lassoPath.length; i++) {
+        ctx.lineTo(this.lassoPath[i].x - offsetX, this.lassoPath[i].y - offsetY);
+      }
+      ctx.closePath();
+      return true;
+    }
+    ctx.rect(0, 0, rect.width, rect.height);
+    return false;
+  }
+
+  /**
+   * Fill ctx with the current color or pattern, clipped to the selection shape.
+   * ctx is assumed to be in local space (0,0 = top-left of the selection rect).
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {{width: number, height: number}} rect
+   * @param {Object} user - User state (color, patternBrush, etc.)
+   * @param {number} opacity
+   * @param {number} [offsetX=0] - Canvas-space X origin used to align lasso coords and pattern tile.
+   * @param {number} [offsetY=0]
+   * @private
+   */
+  _executeFill(ctx, rect, user, opacity, offsetX = 0, offsetY = 0) {
+    ctx.save();
+    const isLasso = this._applyPath(ctx, rect, offsetX, offsetY);
+
+    if (this.patternMode) {
+      const tile = this._getPatternTile(user);
+      if (tile) {
+        let scale = (user.patternScale || 100) / 100;
+        if (user.patternBrush?.type === 'svg') scale *= 0.2;
+        const pattern = ctx.createPattern(tile, 'repeat');
+        const matrix = new DOMMatrix()
+          .translate((user.patternOffsetX || 0) - offsetX, (user.patternOffsetY || 0) - offsetY)
+          .rotate(user.patternRotation || 0)
+          .scale(scale);
+        pattern.setTransform(matrix);
+
+        ctx.clip();
+        ctx.globalAlpha = opacity;
+        ctx.fillStyle = pattern;
+        ctx.fillRect(0, 0, rect.width, rect.height);
+        ctx.restore();
+        return;
+      }
+    }
+
+    // Solid color (also pattern fallback when no tile is loaded)
+    ctx.globalAlpha = opacity;
+    ctx.fillStyle = user.getColorString();
+    if (isLasso) {
+      ctx.fill();
+    } else {
+      ctx.fillRect(0, 0, rect.width, rect.height);
+    }
+    ctx.restore();
+  }
+
+  /**
    * Activates the tool.
    */
   activate() {
@@ -2803,7 +2874,7 @@ export class SelectTool extends Tool {
     return this.clipboard !== null;
   }
 
-  // Fill selection with current color
+  // Fill selection with current color or pattern
   fillSelection() {
     if (!this.selection) return false;
 
@@ -2811,211 +2882,41 @@ export class SelectTool extends Tool {
     const app = this.board.app;
     if (!app) return false;
 
-    const color = app.self.getColorString();
     const opacity = app.self.opacity !== undefined ? app.self.opacity : 1;
 
-    // If floating, fill the floating canvas
     if (this.floatingCanvas) {
-      if (this.patternMode) {
-        // Pattern fill: black mask + pattern with source-in
-        const tile = this._getPatternTile(app.self);
-        if (tile) {
-          // Step 1: Create black mask
-          this.floatingCtx.save();
-          this.floatingCtx.fillStyle = '#000000';
-          this.floatingCtx.globalAlpha = 1;
-
-          if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
-            this.floatingCtx.beginPath();
-            this.floatingCtx.moveTo(this.lassoPath[0].x - s.x, this.lassoPath[0].y - s.y);
-            for (let i = 1; i < this.lassoPath.length; i++) {
-              this.floatingCtx.lineTo(this.lassoPath[i].x - s.x, this.lassoPath[i].y - s.y);
-            }
-            this.floatingCtx.closePath();
-            this.floatingCtx.fill();
-          } else {
-            this.floatingCtx.fillRect(0, 0, s.width, s.height);
-          }
-
-          // Step 2: Apply pattern with source-in
-          const pattern = this.floatingCtx.createPattern(tile, 'repeat');
-          if (pattern && pattern.setTransform) {
-            let scale = (app.self.patternScale || 100) / 100;
-            // SVGs are rendered at 200px but should display as 40px at 100% scale
-            if (app.self.patternBrush && app.self.patternBrush.type === 'svg') {
-              scale *= 0.2;
-            }
-            const offsetX = app.self.patternOffsetX || 0;
-            const offsetY = app.self.patternOffsetY || 0;
-            const rotation = app.self.patternRotation || 0;
-            const matrix = new DOMMatrix()
-              .translate(offsetX, offsetY)
-              .rotate(rotation)
-              .scale(scale);
-            pattern.setTransform(matrix);
-          }
-
-          this.floatingCtx.globalCompositeOperation = 'source-in';
-          this.floatingCtx.globalAlpha = opacity;
-          this.floatingCtx.fillStyle = pattern;
-          this.floatingCtx.fillRect(0, 0, s.width, s.height);
-          this.floatingCtx.restore();
-        } else {
-          // Fallback to solid color
-          this.floatingCtx.globalAlpha = opacity;
-          this.floatingCtx.fillStyle = color;
-          if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
-            this.floatingCtx.save();
-            this.floatingCtx.beginPath();
-            this.floatingCtx.moveTo(this.lassoPath[0].x - s.x, this.lassoPath[0].y - s.y);
-            for (let i = 1; i < this.lassoPath.length; i++) {
-              this.floatingCtx.lineTo(this.lassoPath[i].x - s.x, this.lassoPath[i].y - s.y);
-            }
-            this.floatingCtx.closePath();
-            this.floatingCtx.clip();
-            this.floatingCtx.fillRect(0, 0, s.width, s.height);
-            this.floatingCtx.restore();
-          } else {
-            this.floatingCtx.fillRect(0, 0, s.width, s.height);
-          }
-          this.floatingCtx.globalAlpha = 1;
-        }
-      } else {
-        // Normal solid color fill
-        this.floatingCtx.globalAlpha = opacity;
-        this.floatingCtx.fillStyle = color;
-
-        if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
-          this.floatingCtx.save();
-          this.floatingCtx.beginPath();
-          this.floatingCtx.moveTo(this.lassoPath[0].x - s.x, this.lassoPath[0].y - s.y);
-          for (let i = 1; i < this.lassoPath.length; i++) {
-            this.floatingCtx.lineTo(this.lassoPath[i].x - s.x, this.lassoPath[i].y - s.y);
-          }
-          this.floatingCtx.closePath();
-          this.floatingCtx.clip();
-          this.floatingCtx.fillRect(0, 0, s.width, s.height);
-          this.floatingCtx.restore();
-        } else {
-          this.floatingCtx.fillRect(0, 0, s.width, s.height);
-        }
-        this.floatingCtx.globalAlpha = 1;
-      }
-
+      // Fill directly into the floating canvas (local coords: offsetX/Y = selection origin)
+      this._executeFill(this.floatingCtx, s, app.self, opacity, s.x, s.y);
       this.board.clearTop();
       this.drawSelectionUI();
     } else {
-      // Fill on active layer using layer system
+      // Fill on the active layer via a temp canvas, then blit to layer coords.
+      // _fillToLayer temporarily swaps this.lassoPath to support mirror path overrides.
       this.board.beginStroke(app.self);
-
       const layerCtx = this.board.getActiveLayerContext();
 
-      if (this.patternMode) {
-        // Pattern fill: black mask + pattern with source-in
-        const tile = this._getPatternTile(app.self);
-        if (tile) {
-          // Create temp canvas for mask + pattern
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = s.width;
-          tempCanvas.height = s.height;
-          const tempCtx = tempCanvas.getContext('2d');
+      const _fillToLayer = (rect, lassoOverride) => {
+        const temp = document.createElement('canvas');
+        temp.width = rect.width;
+        temp.height = rect.height;
+        const origLasso = this.lassoPath;
+        if (lassoOverride !== undefined) this.lassoPath = lassoOverride;
+        this._executeFill(temp.getContext('2d'), rect, app.self, opacity, rect.x, rect.y);
+        this.lassoPath = origLasso;
+        layerCtx.drawImage(temp, rect.x, rect.y);
+      };
 
-          // Step 1: Create black mask
-          tempCtx.fillStyle = '#000000';
-          tempCtx.globalAlpha = 1;
+      _fillToLayer(s);
 
-          if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
-            tempCtx.beginPath();
-            tempCtx.moveTo(this.lassoPath[0].x - s.x, this.lassoPath[0].y - s.y);
-            for (let i = 1; i < this.lassoPath.length; i++) {
-              tempCtx.lineTo(this.lassoPath[i].x - s.x, this.lassoPath[i].y - s.y);
-            }
-            tempCtx.closePath();
-            tempCtx.fill();
-          } else {
-            tempCtx.fillRect(0, 0, s.width, s.height);
-          }
-
-          // Step 2: Apply pattern with source-in
-          const pattern = tempCtx.createPattern(tile, 'repeat');
-          if (pattern && pattern.setTransform) {
-            let scale = (app.self.patternScale || 100) / 100;
-            // SVGs are rendered at 200px but should display as 40px at 100% scale
-            if (app.self.patternBrush && app.self.patternBrush.type === 'svg') {
-              scale *= 0.2;
-            }
-            const offsetX = app.self.patternOffsetX || 0;
-            const offsetY = app.self.patternOffsetY || 0;
-            const rotation = app.self.patternRotation || 0;
-            const matrix = new DOMMatrix()
-              .translate(offsetX - s.x, offsetY - s.y)
-              .rotate(rotation)
-              .scale(scale);
-            pattern.setTransform(matrix);
-          }
-
-          tempCtx.globalCompositeOperation = 'source-in';
-          tempCtx.globalAlpha = opacity;
-          tempCtx.fillStyle = pattern;
-          tempCtx.fillRect(0, 0, s.width, s.height);
-
-          // Step 3: Draw to layer
-          layerCtx.drawImage(tempCanvas, s.x, s.y);
-        } else {
-          // Fallback to solid color
-          layerCtx.globalAlpha = opacity;
-          layerCtx.fillStyle = color;
-          if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
-            layerCtx.save();
-            layerCtx.beginPath();
-            layerCtx.moveTo(this.lassoPath[0].x, this.lassoPath[0].y);
-            for (let i = 1; i < this.lassoPath.length; i++) {
-              layerCtx.lineTo(this.lassoPath[i].x, this.lassoPath[i].y);
-            }
-            layerCtx.closePath();
-            layerCtx.clip();
-            layerCtx.fillRect(s.x, s.y, s.width, s.height);
-            layerCtx.restore();
-          } else {
-            layerCtx.fillRect(s.x, s.y, s.width, s.height);
-          }
-          layerCtx.globalAlpha = 1;
-        }
-      } else {
-        // Normal solid color fill
-        layerCtx.globalAlpha = opacity;
-        layerCtx.fillStyle = color;
-
-        if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
-          layerCtx.save();
-          layerCtx.beginPath();
-          layerCtx.moveTo(this.lassoPath[0].x, this.lassoPath[0].y);
-          for (let i = 1; i < this.lassoPath.length; i++) {
-            layerCtx.lineTo(this.lassoPath[i].x, this.lassoPath[i].y);
-          }
-          layerCtx.closePath();
-          layerCtx.clip();
-          layerCtx.fillRect(s.x, s.y, s.width, s.height);
-          layerCtx.restore();
-        } else {
-          layerCtx.fillRect(s.x, s.y, s.width, s.height);
-        }
-        layerCtx.globalAlpha = 1;
-      }
-
-      // Track the dirty region so the stroke is properly saved
+      // Dirty rect + tile tracking
       this.board.expandDirtyRect(app.self, s.x, s.y, s.width, s.height);
-
-      // Store affected tiles in the stroke record for undo
       const userId = app.self?.id ?? 0;
       const activeLayer = app.self?.activeLayer ?? 0;
       const tileOwnership = this.board.tileTracker;
       const lm = this.board.layerManager;
       const active = lm?.layerGroups[activeLayer]?.activeStrokeByUser.get(userId);
-
       if (tileOwnership && active?.affectedTiles) {
-        const tileIndices = tileOwnership.getTileIndicesForRect(s.x, s.y, s.width, s.height);
-        for (const idx of tileIndices) {
+        for (const idx of tileOwnership.getTileIndicesForRect(s.x, s.y, s.width, s.height)) {
           active.affectedTiles.add(idx);
         }
       }
@@ -3023,106 +2924,13 @@ export class SelectTool extends Tool {
       if (this.board.mirror) {
         const bw = this.board.getWidth();
         const mx = bw - s.x - s.width;
+        const mirrorRect = { x: mx, y: s.y, width: s.width, height: s.height };
+        const mLasso = this.lassoPath ? this.lassoPath.map(p => ({ x: bw - p.x, y: p.y })) : null;
+        _fillToLayer(mirrorRect, mLasso);
 
-        if (this.patternMode) {
-          // Pattern fill for mirror
-          const tile = this._getPatternTile(app.self);
-          if (tile) {
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = s.width;
-            tempCanvas.height = s.height;
-            const tempCtx = tempCanvas.getContext('2d');
-
-            // Step 1: Create black mask
-            tempCtx.fillStyle = '#000000';
-            tempCtx.globalAlpha = 1;
-
-            if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
-              const mLassoPath = this.lassoPath.map(p => ({ x: bw - p.x - mx, y: p.y - s.y }));
-              tempCtx.beginPath();
-              tempCtx.moveTo(mLassoPath[0].x, mLassoPath[0].y);
-              for (let i = 1; i < mLassoPath.length; i++) {
-                tempCtx.lineTo(mLassoPath[i].x, mLassoPath[i].y);
-              }
-              tempCtx.closePath();
-              tempCtx.fill();
-            } else {
-              tempCtx.fillRect(0, 0, s.width, s.height);
-            }
-
-            // Step 2: Apply pattern with source-in
-            const pattern = tempCtx.createPattern(tile, 'repeat');
-            if (pattern && pattern.setTransform) {
-              let scale = (app.self.patternScale || 100) / 100;
-              // SVGs are rendered at 200px but should display as 40px at 100% scale
-              if (app.self.patternBrush && app.self.patternBrush.type === 'svg') {
-                scale *= 0.2;
-              }
-              const offsetX = app.self.patternOffsetX || 0;
-              const offsetY = app.self.patternOffsetY || 0;
-              const rotation = app.self.patternRotation || 0;
-              const matrix = new DOMMatrix()
-                .translate(offsetX - mx, offsetY - s.y)
-                .rotate(rotation)
-                .scale(scale);
-              pattern.setTransform(matrix);
-            }
-
-            tempCtx.globalCompositeOperation = 'source-in';
-            tempCtx.globalAlpha = opacity;
-            tempCtx.fillStyle = pattern;
-            tempCtx.fillRect(0, 0, s.width, s.height);
-
-            // Step 3: Draw to layer
-            layerCtx.drawImage(tempCanvas, mx, s.y);
-          } else {
-            // Fallback to solid color
-            layerCtx.globalAlpha = opacity;
-            layerCtx.fillStyle = color;
-            if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
-              const mLassoPath = this.lassoPath.map(p => ({ x: bw - p.x, y: p.y }));
-              layerCtx.save();
-              layerCtx.beginPath();
-              layerCtx.moveTo(mLassoPath[0].x, mLassoPath[0].y);
-              for (let i = 1; i < mLassoPath.length; i++) {
-                layerCtx.lineTo(mLassoPath[i].x, mLassoPath[i].y);
-              }
-              layerCtx.closePath();
-              layerCtx.clip();
-              layerCtx.fillRect(mx, s.y, s.width, s.height);
-              layerCtx.restore();
-            } else {
-              layerCtx.fillRect(mx, s.y, s.width, s.height);
-            }
-            layerCtx.globalAlpha = 1;
-          }
-        } else {
-          // Normal solid color fill for mirror
-          layerCtx.globalAlpha = opacity;
-          layerCtx.fillStyle = color;
-          if (this.mode === 'lasso' && this.lassoPath && this.lassoPath.length >= 3) {
-            const mLassoPath = this.lassoPath.map(p => ({ x: bw - p.x, y: p.y }));
-            layerCtx.save();
-            layerCtx.beginPath();
-            layerCtx.moveTo(mLassoPath[0].x, mLassoPath[0].y);
-            for (let i = 1; i < mLassoPath.length; i++) {
-              layerCtx.lineTo(mLassoPath[i].x, mLassoPath[i].y);
-            }
-            layerCtx.closePath();
-            layerCtx.clip();
-            layerCtx.fillRect(mx, s.y, s.width, s.height);
-            layerCtx.restore();
-          } else {
-            layerCtx.fillRect(mx, s.y, s.width, s.height);
-          }
-          layerCtx.globalAlpha = 1;
-        }
         this.board.expandDirtyRect(app.self, mx, s.y, s.width, s.height);
-
-        // Also add mirror tiles for undo
         if (tileOwnership && active?.affectedTiles) {
-          const mirrorTileIndices = tileOwnership.getTileIndicesForRect(mx, s.y, s.width, s.height);
-          for (const idx of mirrorTileIndices) {
+          for (const idx of tileOwnership.getTileIndicesForRect(mx, s.y, s.width, s.height)) {
             active.affectedTiles.add(idx);
           }
         }
@@ -3131,7 +2939,7 @@ export class SelectTool extends Tool {
       this.board.compositeAllLayers();
       this.board.endStroke(app.self);
 
-      // Add tile ownership for visible filled tiles (after composite)
+      // Tile occupancy (must be after composite)
       this.board.addOccupancyForVisibleTilesInRect(userId, s.x, s.y, s.width, s.height);
       if (this.board.mirror) {
         const bw = this.board.getWidth();
@@ -3140,14 +2948,12 @@ export class SelectTool extends Tool {
       }
     }
 
-    // Broadcast fill to other users
     if (this.board.app?.wsClient) {
       this.board.app.wsClient.broadcastSelectionFill(app.self.color, app.self.activeLayer);
     }
 
     // Keep selection active, update menu buttons only (don't reposition)
     this.showContextMenu(true);
-
     return true;
   }
 
