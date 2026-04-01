@@ -15,6 +15,44 @@ export class RemoteUserUI {
     this.icons = icons;
     this.cursors = new Map();
     this.userGroups = new Map(); // ipHash -> { element, userIds: Set }
+    this._replayModeActive = false;
+  }
+
+  _isReplayBotUser(userId) {
+    return Number(userId) < 0;
+  }
+
+  _shouldSuppressLiveUser(userId) {
+    return this._replayModeActive && !this._isReplayBotUser(userId);
+  }
+
+  _setUserVisibility(userId, visible) {
+    const cursorElements = this.cursors.get(userId);
+    const display = visible ? '' : 'none';
+
+    if (cursorElements) {
+      if (cursorElements.cursor) cursorElements.cursor.style.display = display;
+      if (cursorElements.circle) cursorElements.circle.style.display = display;
+      if (cursorElements.square) cursorElements.square.style.display = display;
+      if (cursorElements.crosshair) cursorElements.crosshair.style.display = display;
+      if (cursorElements.text) cursorElements.text.style.display = display;
+    }
+
+    const entry = document.querySelector(`.userEntry.u${userId}`);
+    if (entry) entry.style.display = display;
+  }
+
+  setReplayModeActive(active) {
+    this._replayModeActive = !!active;
+
+    for (const userId of this.cursors.keys()) {
+      this._setUserVisibility(userId, !this._shouldSuppressLiveUser(userId));
+    }
+
+    for (const group of this.userGroups.values()) {
+      const hasVisibleLiveUser = Array.from(group.userIds).some((userId) => !this._shouldSuppressLiveUser(userId));
+      group.element.style.display = hasVisibleLiveUser ? '' : 'none';
+    }
   }
 
   /**
@@ -112,6 +150,10 @@ export class RemoteUserUI {
     this.createUserBoard(userId);
 
     this.cursors.set(userId, { cursor, circle, square, crosshair, text, textInput, name });
+
+    if (this._shouldSuppressLiveUser(userId)) {
+      this._setUserVisibility(userId, false);
+    }
   }
 
   /**
@@ -384,6 +426,10 @@ export class RemoteUserUI {
    * @param {number} size - Current tool size
    */
   updateRemoteCursor(userId, x, y, size) {
+    if (this._shouldSuppressLiveUser(userId)) {
+      this._setUserVisibility(userId, false);
+      return;
+    }
     this.notifyUserActive(userId);
     const id = `u${userId}`;
     const cursor = document.querySelector(`.cursor.${id}`);
@@ -414,6 +460,10 @@ export class RemoteUserUI {
    * @param {string} tool - Current tool name
    */
   updateRemoteToolDisplay(userId, tool) {
+    if (this._shouldSuppressLiveUser(userId)) {
+      this._setUserVisibility(userId, false);
+      return;
+    }
     const id = `u${userId}`;
     const circle = document.querySelector(`.circle.${id}`);
     const square = document.querySelector(`.square.${id}`);
@@ -460,6 +510,7 @@ export class RemoteUserUI {
    * @param {number} size - Current tool size
    */
   updateRemoteSize(userId, size) {
+    if (this._shouldSuppressLiveUser(userId)) return;
     const id = `u${userId}`;
     const circle = document.querySelector(`.circle.${id}`);
     const square = document.querySelector(`.square.${id}`);
@@ -479,6 +530,7 @@ export class RemoteUserUI {
    * @param {Array} color - [r, g, b, a] color array
    */
   updateRemoteColor(userId, color) {
+    if (this._shouldSuppressLiveUser(userId)) return;
     const id = `u${userId}`;
     const circle = document.querySelector(`.circle.${id}`);
     const text = document.querySelector(`.text.${id}`);
@@ -506,6 +558,7 @@ export class RemoteUserUI {
    * @param {string} name - New username
    */
   updateRemoteName(userId, name) {
+    if (this._shouldSuppressLiveUser(userId)) return;
     const id = `u${userId}`;
     const nameEl = document.querySelector(`.name.${id}`);
     const userEl = document.querySelector(`.listUser.${id}`);
@@ -528,6 +581,7 @@ export class RemoteUserUI {
    * @param {string} textContent - New text content
    */
   updateRemoteText(userId, textContent) {
+    if (this._shouldSuppressLiveUser(userId)) return;
     const cursorElements = this.cursors.get(userId);
     if (cursorElements && cursorElements.textInput) {
       cursorElements.textInput.textContent = textContent;
@@ -541,6 +595,7 @@ export class RemoteUserUI {
    * @param {boolean} visible - Whether to show the element
    */
   setRemoteTextDomVisible(userId, visible) {
+    if (this._shouldSuppressLiveUser(userId)) return;
     const cursorElements = this.cursors.get(userId);
     if (cursorElements && cursorElements.text) {
       cursorElements.text.style.visibility = visible ? '' : 'hidden';
@@ -553,6 +608,7 @@ export class RemoteUserUI {
    * @param {boolean} afk - Whether the user is AFK
    */
   setRemoteUserAfk(userId, afk) {
+    if (this._shouldSuppressLiveUser(userId)) return;
     const id = `u${userId}`;
     const cursor = document.querySelector(`.cursor.${id}`);
     const userEntry = document.querySelector(`.userEntry.${id}`);
@@ -638,6 +694,10 @@ export class RemoteUserUI {
    * @param {string} userId - User's session ID
    */
   hideRemoteCursor(userId) {
+    if (this._shouldSuppressLiveUser(userId)) {
+      this._setUserVisibility(userId, false);
+      return;
+    }
     const cursorElements = this.cursors.get(userId);
     if (!cursorElements) return;
 
@@ -653,6 +713,10 @@ export class RemoteUserUI {
    * @param {string} userId - User's session ID
    */
   showRemoteCursor(userId) {
+    if (this._shouldSuppressLiveUser(userId)) {
+      this._setUserVisibility(userId, false);
+      return;
+    }
     const cursorElements = this.cursors.get(userId);
     if (!cursorElements) return;
 

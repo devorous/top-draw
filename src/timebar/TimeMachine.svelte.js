@@ -143,6 +143,8 @@ class TimeMachineState {
 
   /** @type {Set<number>} IDs of bot cursors we've created in the UI */
   _botCursorIds = new Set();
+  /** @type {Array<{element: HTMLElement|SVGElement, display: string}>} */
+  _hiddenRealtimeCursorElements = [];
 
   /** @type {boolean} Prevents overlapping seeks */
   _isSeeking = false;
@@ -870,6 +872,8 @@ class TimeMachineState {
       this._replayCanvas.style.display = show ? 'block' : 'none';
     }
 
+    window.app?.ui?.remoteUserUI?.setReplayModeActive(show);
+
     // Hide/show the real board canvases to prevent them showing through
     if (this._board) {
       const display = show ? 'none' : 'block';
@@ -880,6 +884,71 @@ class TimeMachineState {
       // Also hide user boards (remote user canvases)
       const userBoards = document.getElementById('userBoards');
       if (userBoards) userBoards.style.display = display;
+    }
+
+    this._setRealtimeCursorVisibility(!show);
+  }
+
+  /**
+   * Hide live local/remote cursor overlays during replay while keeping replay bot
+   * cursors visible, then restore the exact prior display state on exit.
+   * @param {boolean} visible
+   * @private
+   */
+  _setRealtimeCursorVisibility(visible) {
+    const ui = window.app?.ui;
+    if (!ui) return;
+
+    if (visible) {
+      for (const { element, display } of this._hiddenRealtimeCursorElements) {
+        if (element?.style) {
+          element.style.display = display;
+        }
+      }
+      this._hiddenRealtimeCursorElements = [];
+      return;
+    }
+
+    if (this._hiddenRealtimeCursorElements.length > 0) return;
+
+    const hideElement = (element) => {
+      if (!element?.style) return;
+      this._hiddenRealtimeCursorElements.push({
+        element,
+        display: element.style.display
+      });
+      element.style.display = 'none';
+    };
+
+    hideElement(ui.elements?.selfCursor);
+    hideElement(ui.elements?.selfCircle);
+    hideElement(ui.elements?.selfSquare);
+    hideElement(ui.elements?.selfCrosshair);
+    hideElement(ui.elements?.selfText);
+    hideElement(ui.elements?.selfPressureCircle);
+    hideElement(ui.elements?.selfPressureSquare);
+
+    const remoteCursors = ui.remoteUserUI?.cursors;
+    if (remoteCursors) {
+      for (const [userId, cursorElements] of remoteCursors.entries()) {
+        if (this._botCursorIds.has(Number(userId))) continue;
+        hideElement(cursorElements?.cursor);
+        hideElement(cursorElements?.circle);
+        hideElement(cursorElements?.square);
+        hideElement(cursorElements?.crosshair);
+      }
+    }
+
+    const remoteUserUI = ui.remoteUserUI;
+    if (!remoteUserUI) return;
+
+    for (const [userId] of remoteCursors ?? []) {
+      if (this._botCursorIds.has(Number(userId))) continue;
+      hideElement(document.querySelector(`.userEntry.u${userId}`));
+    }
+
+    for (const group of remoteUserUI.userGroups?.values?.() ?? []) {
+      hideElement(group?.element);
     }
   }
 
@@ -1180,10 +1249,6 @@ class TimeMachineState {
         };
         ui.createRemoteUser(botId, userData);
         this._botCursorIds.add(botId);
-
-        // Hide the user list entry for bot users (keep only the cursor)
-        const listEntry = document.querySelector(`.userListEntry.u${botId}`);
-        if (listEntry) listEntry.style.display = 'none';
       }
 
       // Update cursor position and size
