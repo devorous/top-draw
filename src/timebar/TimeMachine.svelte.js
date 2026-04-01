@@ -1,14 +1,22 @@
 import { appState } from '../state.svelte.js';
 import { ReplayEngine } from './ReplayEngine.js';
+import { T } from '../../shared/MessageTypes.js';
 
 /** How long a user can be in replay mode before we stop recording and require resync (1 minute) */
 const REPLAY_TIMEOUT_MS = 60 * 1000;
+const CHECKPOINT_INTERVAL_MS = 10 * 1000;
+const FULL_SNAPSHOT_INTERVAL_MS = 30 * 1000;
+const REPLAY_BUFFER_MS = 2 * 60 * 1000;
+const ACTION_CHUNK_MS = 100;
+const ACTION_DEDUPE_WINDOW_MS = 250;
+const SEEK_TELEMETRY_LOG_INTERVAL_MS = 1500;
 
 /**
  * Snapshot structure to store board and application state at a point in time.
  */
 class Snapshot {
-  constructor(timestamp, appStateData, canvasData, topCanvasData, layerStates, history = [], redoHistory = {}, activeStrokes = []) {
+  constructor(kind, timestamp, appStateData, canvasData, topCanvasData, layerStates, history = [], redoHistory = {}, activeStrokes = []) {
+    this.kind = kind;
     this.timestamp = timestamp;
     this.appState = JSON.parse(JSON.stringify(appStateData));
     this.canvasData = canvasData; // base64 PNG of main board (baked content only)
@@ -17,12 +25,25 @@ class Snapshot {
     this.history = history; // Array of per-layer stroke stacks
     this.redoHistory = redoHistory; // Map of userId -> redo batches
     this.activeStrokes = activeStrokes; // Array of per-layer active in-progress strokes
-    this.actions = []; // Array of { timestamp, buffer }
+    this.actionChunks = []; // Array of { startTimestamp, endTimestamp, actions }
   }
 }
 
-function serializeCanvasData(canvas) {
-  return canvas ? canvas.toDataURL('image/png') : null;
+function stableStringify(value) {
+  if (value === null || value === undefined) return String(value);
+  if (typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableStringify(entry)).join(',')}]`;
+  }
+
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+}
+
+function estimateSerializedBytes(value) {
+  if (value == null) return 0;
+  if (typeof value === 'string') return value.length;
+  return stableStringify(value).length;
 }
 
 function clonePoints(points) {
@@ -55,7 +76,7 @@ function serializePatternBrushState(user) {
   };
 }
 
-function serializeActiveStroke(active, userId) {
+function serializeActiveStroke(active, userId, serializeImage) {
   if (!active?.canvas) return null;
 
   return {
@@ -65,14 +86,14 @@ function serializeActiveStroke(active, userId) {
     affectedTiles: active.affectedTiles ? Array.from(active.affectedTiles) : [],
     filterType: active.filterType,
     blurRadius: active.blurRadius,
-    canvasData: serializeCanvasData(active.canvas),
+    canvasData: serializeImage(active.canvas),
     maskCanvasData: active.maskCanvas && active.maskCanvas !== active.canvas
-      ? serializeCanvasData(active.maskCanvas)
+      ? serializeImage(active.maskCanvas)
       : null
   };
 }
 
-function serializeSelectionRestoreData(restoreData) {
+function serializeSelectionRestoreData(restoreData, serializeImage) {
   if (!restoreData) return null;
 
   return {
@@ -84,7 +105,7 @@ function serializeSelectionRestoreData(restoreData) {
       y: snap.y,
       width: snap.canvas?.width ?? 0,
       height: snap.canvas?.height ?? 0,
-      canvasData: serializeCanvasData(snap.canvas)
+      canvasData: serializeImage(snap.canvas)
     }))
   };
 }
@@ -110,6 +131,8 @@ class TimeMachineState {
   _reviewStartTime = null; // When user entered replay mode
   _tickInterval = null;
   _playbackInterval = null;
+  _playbackFrameId = null;
+  _lastFullSnapshotAt = 0;
   _board = null;
   _wsClient = null;
   _replayEngine = null;
@@ -125,6 +148,21 @@ class TimeMachineState {
   _isSeeking = false;
   /** @type {number|null} Pending seek timestamp */
   _pendingSeekTimestamp = null;
+  _lastAppliedTimestamp = null;
+  _lastSeekLogAt = 0;
+  _isPlaybackAdvancing = false;
+  _pendingPlaybackTimestamp = null;
+  _playbackStartPerf = 0;
+  _playbackStartOffset = 0;
+  _recentActionSignatures = new Map();
+  _assetDataById = new Map();
+  _assetIdByData = new Map();
+  _assetRefCounts = new Map();
+  _nextAssetId = 1;
+  _telemetry = {
+    snapshot: null,
+    seek: null
+  };
 
   /**
    * Initialize the TimeMachine with a reference to the board and wsClient.
@@ -138,6 +176,7 @@ class TimeMachineState {
     // Create replay engine with full layer simulation
     this._replayEngine = new ReplayEngine();
     this._replayEngine.init(board.getWidth(), board.getHeight(), wsClient);
+    this._replayEngine.setAssetResolver((source) => this.resolveAssetRef(source));
 
     // When async blur worker finishes, refresh the visible replay canvas
     this._replayEngine.onOutputUpdate = () => {
@@ -206,6 +245,10 @@ class TimeMachineState {
     this.previewData = null;
     this.needsResync = false;
     this.isRecordingPaused = false;
+    this._lastAppliedTimestamp = null;
+    this._lastFullSnapshotAt = 0;
+    this._recentActionSignatures.clear();
+    this._clearAssetStore();
     this._showReplayCanvas(false);
     this._removeBotCursors();
     this._clearReplayTimeout();
@@ -222,6 +265,10 @@ class TimeMachineState {
       clearInterval(this._playbackInterval);
       this._playbackInterval = null;
     }
+    if (this._playbackFrameId) {
+      cancelAnimationFrame(this._playbackFrameId);
+      this._playbackFrameId = null;
+    }
   }
 
   /**
@@ -229,13 +276,15 @@ class TimeMachineState {
    * @private
    */
   startRecording() {
-    // Take initial snapshot
-    this.takeSnapshot();
+    // Take initial full checkpoint
+    this.takeCheckpoint('full');
 
-    // Snapshot every 30 seconds
+    // Checkpoint every 10 seconds, promoting every 30 seconds to full
     this._snapshotInterval = setInterval(() => {
-      this.takeSnapshot();
-    }, 30000);
+      const now = Date.now();
+      const shouldTakeFull = (now - this._lastFullSnapshotAt) >= FULL_SNAPSHOT_INTERVAL_MS;
+      this.takeCheckpoint(shouldTakeFull ? 'full' : 'delta');
+    }, CHECKPOINT_INTERVAL_MS);
 
     // Tick every 50ms to update maxTime smoothly
     this._tickInterval = setInterval(() => {
@@ -264,19 +313,21 @@ class TimeMachineState {
   /**
    * Take a simultaneous snapshot of the board and application state.
    */
-  takeSnapshot() {
+  takeCheckpoint(kind = 'delta') {
     if (!this._board || !this.isStarted || this.isRecordingPaused) return;
 
     const timestamp = Date.now();
-    console.log(`[TimeMachine] Taking snapshot at ${new Date(timestamp).toLocaleTimeString()}`);
+    const snapshotStart = performance.now();
+    console.log(`[TimeMachine] Taking ${kind} checkpoint at ${new Date(timestamp).toLocaleTimeString()}`);
+    const serializeImage = (canvas) => this._captureCanvasAsset(canvas);
     
     // Capture stroke history for each layer
     const history = this._board.layerManager?.layerGroups.map(group => {
       return group.strokeStack.map(stroke => ({
-        imageData: stroke.canvas.toDataURL('image/png'),
+        imageData: serializeImage(stroke.canvas),
         canvasWidth: stroke.canvas.width,
         canvasHeight: stroke.canvas.height,
-        maskCanvasData: stroke.maskCanvas ? serializeCanvasData(stroke.maskCanvas) : null,
+        maskCanvasData: stroke.maskCanvas ? serializeImage(stroke.maskCanvas) : null,
         maskCanvasWidth: stroke.maskCanvas?.width ?? null,
         maskCanvasHeight: stroke.maskCanvas?.height ?? null,
         x: stroke.x,
@@ -301,10 +352,10 @@ class TimeMachineState {
           return batch.map(({ groupIdx, record }) => ({
             groupIdx,
             record: {
-              imageData: record.canvas.toDataURL('image/png'),
+              imageData: serializeImage(record.canvas),
               canvasWidth: record.canvas.width,
               canvasHeight: record.canvas.height,
-              maskCanvasData: record.maskCanvas ? serializeCanvasData(record.maskCanvas) : null,
+              maskCanvasData: record.maskCanvas ? serializeImage(record.maskCanvas) : null,
               maskCanvasWidth: record.maskCanvas?.width ?? null,
               maskCanvasHeight: record.maskCanvas?.height ?? null,
               x: record.x,
@@ -327,7 +378,7 @@ class TimeMachineState {
     const activeStrokes = this._board.layerManager?.layerGroups.map(group => {
       const strokes = [];
       for (const [userId, active] of group.activeStrokeByUser) {
-        const serialized = serializeActiveStroke(active, userId);
+        const serialized = serializeActiveStroke(active, userId, serializeImage);
         if (serialized) strokes.push(serialized);
       }
       return strokes;
@@ -345,7 +396,7 @@ class TimeMachineState {
       this._board.compositeAllLayers();
     }
     
-    const canvasData = this._board.mainCanvas.toDataURL('image/png');
+    const canvasData = serializeImage(this._board.mainCanvas);
 
     // Restore original stacks and composite again to restore visible state
     if (lm) {
@@ -357,7 +408,7 @@ class TimeMachineState {
     }
 
     // Capture active strokes canvas (live previews)
-    const topCanvasData = this._board.topCanvas.toDataURL('image/png');
+    const topCanvasData = serializeImage(this._board.topCanvas);
     
     // Capture relevant layer states
     const layerStates = this._board.layerManager?.layerGroups.map(group => ({
@@ -408,16 +459,16 @@ class TimeMachineState {
           lastx: user.lastx,
           lasty: user.lasty,
           prevpressure: user.prevpressure,
-          previewCanvasData: serializeCanvasData(user.board),
+          previewCanvasData: serializeImage(user.board),
           penStrokeActive: !!user._penStrokeActive,
-          penOffscreenData: serializeCanvasData(user._penOffscreen),
+          penOffscreenData: serializeImage(user._penOffscreen),
           penStrokeColor: user._penStrokeColor ?? null,
           penAlpha: user._penAlpha ?? null,
           penHardness: user._penHardness ?? null,
           penLastStampPos: user._penLastStampPos ? { ...user._penLastStampPos } : null,
           penPoints: clonePoints(user.penPoints),
           inkStrokeActive: !!user._inkStrokeActive,
-          inkOffscreenData: serializeCanvasData(user._inkOffscreen),
+          inkOffscreenData: serializeImage(user._inkOffscreen),
           inkStrokeColor: user._inkStrokeColor ?? null,
           inkAlpha: user._inkAlpha ?? null,
           inkHardness: user._inkHardness ?? null,
@@ -425,7 +476,7 @@ class TimeMachineState {
           inkPoints: clonePoints(user._inkPoints),
           toolLastStampPositions,
           patternRemoteOffscreen: patternRemoteOffscreen ? {
-            canvasData: serializeCanvasData(patternRemoteOffscreen.canvas),
+            canvasData: serializeImage(patternRemoteOffscreen.canvas),
             strokePoints: clonePoints(patternRemoteOffscreen.strokePoints)
           } : null,
           selection: user.selection ? { ...user.selection } : null,
@@ -445,12 +496,12 @@ class TimeMachineState {
             bl: { ...user.originalCorners.bl }
           } : null,
           originalSelectionPos: user.originalSelectionPos ? { ...user.originalSelectionPos } : null,
-          floatingCanvasData: serializeCanvasData(user.floatingCanvas),
+          floatingCanvasData: serializeImage(user.floatingCanvas),
           floatingCanvasWidth: user.floatingCanvas?.width ?? null,
           floatingCanvasHeight: user.floatingCanvas?.height ?? null,
-          cachedSelectionPreviewData: serializeCanvasData(user._cachedPreviewCanvas),
+          cachedSelectionPreviewData: serializeImage(user._cachedPreviewCanvas),
           cachedSelectionPreviewBounds: user._cachedPreviewBounds ? { ...user._cachedPreviewBounds } : null,
-          selectionRestoreData: serializeSelectionRestoreData(user._selectionRestoreData),
+          selectionRestoreData: serializeSelectionRestoreData(user._selectionRestoreData, serializeImage),
           patternMode: user.patternMode ?? false,
           patternBrush: serializePatternBrushState(user),
           patternScale: user.patternScale ?? 100,
@@ -473,10 +524,31 @@ class TimeMachineState {
       activeLayer: appState.activeLayer
     };
 
-    const snapshot = new Snapshot(timestamp, appStateData, canvasData, topCanvasData, layerStates, history, redoHistory, activeStrokes);
+    const snapshot = new Snapshot(kind, timestamp, appStateData, canvasData, topCanvasData, layerStates, history, redoHistory, activeStrokes);
     
     this.recordingBuffer.push(snapshot);
-    console.log(`[TimeMachine] Buffer size: ${this.recordingBuffer.length}`);
+    if (kind === 'full') {
+      this._lastFullSnapshotAt = timestamp;
+    }
+
+    const snapshotDurationMs = performance.now() - snapshotStart;
+    const estimatedBytes =
+      estimateSerializedBytes(canvasData) +
+      estimateSerializedBytes(topCanvasData) +
+      estimateSerializedBytes(history) +
+      estimateSerializedBytes(redoHistory) +
+      estimateSerializedBytes(activeStrokes) +
+      estimateSerializedBytes(appStateData);
+
+    this._telemetry.snapshot = {
+      timestamp,
+      durationMs: Number(snapshotDurationMs.toFixed(2)),
+      estimatedBytes,
+      bufferSize: this.recordingBuffer.length
+    };
+    console.log(
+      `[TimeMachine] ${kind} checkpoint complete in ${snapshotDurationMs.toFixed(1)}ms, estimated payload ${Math.round(estimatedBytes / 1024)}KB, buffer size ${this.recordingBuffer.length}`
+    );
     
     // Update maxTime immediately on snapshot
     this.maxTime = timestamp;
@@ -484,18 +556,14 @@ class TimeMachineState {
       this.currentTime = this.maxTime;
     }
 
-    // Maintain 2-minute buffer (max 5 snapshots)
-    if (this.recordingBuffer.length > 5) {
-      console.log('[TimeMachine] Rotating buffer, removing oldest snapshot');
-      this.recordingBuffer.shift();
-    }
+    this._trimRecordingBuffer(timestamp);
   }
 
   /**
    * Record an incoming or outgoing action as JSON.
    * @param {Object} msg - Decoded message object
    */
-  recordAction(msg) {
+  recordAction(msg, source = 'unknown') {
     if (!this.isStarted || this.recordingBuffer.length === 0) return;
 
     // Stop recording if we've been in replay mode too long
@@ -503,11 +571,17 @@ class TimeMachineState {
 
     const timestamp = Date.now();
     const latestSnapshot = this.recordingBuffer[this.recordingBuffer.length - 1];
+    if (!latestSnapshot) return;
 
-    latestSnapshot.actions.push({
-      timestamp,
-      msg // Store decoded JSON directly
-    });
+    if (this._shouldSkipActionRecording(msg, source, timestamp)) {
+      return;
+    }
+
+    const chunk = this._getOrCreateActionChunk(latestSnapshot, timestamp);
+    if (!this._mergeIntoPreviousAction(chunk, timestamp, msg)) {
+      chunk.actions.push({ timestamp, msg });
+    }
+    chunk.endTimestamp = timestamp;
 
     this.maxTime = timestamp;
 
@@ -517,12 +591,192 @@ class TimeMachineState {
     }
   }
 
+  _getOrCreateActionChunk(snapshot, timestamp) {
+    const lastChunk = snapshot.actionChunks[snapshot.actionChunks.length - 1];
+    if (lastChunk && (timestamp - lastChunk.startTimestamp) < ACTION_CHUNK_MS) {
+      return lastChunk;
+    }
+
+    const chunk = {
+      startTimestamp: timestamp,
+      endTimestamp: timestamp,
+      actions: []
+    };
+    snapshot.actionChunks.push(chunk);
+    return chunk;
+  }
+
+  _mergeIntoPreviousAction(chunk, timestamp, msg) {
+    if (!chunk || !msg) return false;
+    const previous = chunk.actions[chunk.actions.length - 1];
+    if (!previous?.msg) return false;
+
+    if (msg.t !== previous.msg.t || msg.t !== T.MM) {
+      return false;
+    }
+
+    if (msg.u !== previous.msg.u) return false;
+    if (!Array.isArray(msg.ps) || !Array.isArray(previous.msg.ps)) return false;
+
+    previous.msg.ps.push(...msg.ps);
+    if (Array.isArray(msg.rs) && Array.isArray(previous.msg.rs)) {
+      previous.msg.rs.push(...msg.rs);
+    } else if (Array.isArray(msg.rs) && !previous.msg.rs) {
+      previous.msg.rs = [...msg.rs];
+    }
+    previous.timestamp = timestamp;
+    return true;
+  }
+
+  _shouldSkipActionRecording(msg, source, timestamp) {
+    if (!msg) return true;
+
+    const actionUserId = msg.u;
+    const localUserId = this._wsClient?.sessionIndex;
+    const isLocalAction = actionUserId != null && localUserId != null && actionUserId === localUserId;
+    if (!isLocalAction) return false;
+
+    const actionSignature = this._buildActionSignature(msg);
+    const signature = `${source}:${actionSignature}`;
+    const oppositeSource = source === 'outbound' ? 'inbound' : source === 'inbound' ? 'outbound' : null;
+
+    if (oppositeSource) {
+      const oppositeSignature = `${oppositeSource}:${actionSignature}`;
+      const previousTimestamp = this._recentActionSignatures.get(oppositeSignature);
+      if (previousTimestamp != null && (timestamp - previousTimestamp) <= ACTION_DEDUPE_WINDOW_MS) {
+        return true;
+      }
+    }
+
+    this._recentActionSignatures.set(signature, timestamp);
+    this._pruneRecentActionSignatures(timestamp);
+    return false;
+  }
+
+  _buildActionSignature(msg) {
+    const keys = Object.keys(msg).sort();
+    const parts = new Array(keys.length);
+
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      const value = msg[key];
+      if (Array.isArray(value)) {
+        parts[i] = `${key}:[${value.join(',')}]`;
+      } else if (value && typeof value === 'object') {
+        parts[i] = `${key}:${stableStringify(value)}`;
+      } else {
+        parts[i] = `${key}:${String(value)}`;
+      }
+    }
+
+    return parts.join('|');
+  }
+
+  _pruneRecentActionSignatures(now) {
+    for (const [signature, ts] of this._recentActionSignatures) {
+      if ((now - ts) > ACTION_DEDUPE_WINDOW_MS) {
+        this._recentActionSignatures.delete(signature);
+      }
+    }
+  }
+
+  _captureCanvasAsset(canvas) {
+    if (!canvas) return null;
+    return this._storeAssetData(canvas.toDataURL('image/png'));
+  }
+
+  _storeAssetData(dataUrl) {
+    if (!dataUrl) return null;
+
+    let assetId = this._assetIdByData.get(dataUrl);
+    if (!assetId) {
+      assetId = `asset_${this._nextAssetId++}`;
+      this._assetIdByData.set(dataUrl, assetId);
+      this._assetDataById.set(assetId, dataUrl);
+      this._assetRefCounts.set(assetId, 0);
+    }
+
+    this._assetRefCounts.set(assetId, (this._assetRefCounts.get(assetId) || 0) + 1);
+    return { assetId };
+  }
+
+  resolveAssetRef(source) {
+    if (!source) return null;
+    if (typeof source === 'string') return source;
+    if (typeof source === 'object' && source.assetId) {
+      return this._assetDataById.get(source.assetId) || null;
+    }
+    return null;
+  }
+
+  _trimRecordingBuffer(nowTimestamp) {
+    while (this.recordingBuffer.length > 0) {
+      const oldest = this.recordingBuffer[0];
+      if ((nowTimestamp - oldest.timestamp) <= REPLAY_BUFFER_MS) {
+        break;
+      }
+
+      console.log(`[TimeMachine] Rotating buffer, removing oldest ${oldest.kind} checkpoint`);
+      this.recordingBuffer.shift();
+      this._releaseSnapshotAssets(oldest);
+    }
+  }
+
+  _releaseSnapshotAssets(snapshot) {
+    this._walkAssetRefs(snapshot, (assetId) => this._decrementAssetRef(assetId));
+  }
+
+  _walkAssetRefs(value, visitor) {
+    if (!value) return;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        this._walkAssetRefs(item, visitor);
+      }
+      return;
+    }
+
+    if (typeof value !== 'object') return;
+    if (value.assetId) {
+      visitor(value.assetId);
+      return;
+    }
+
+    for (const nested of Object.values(value)) {
+      this._walkAssetRefs(nested, visitor);
+    }
+  }
+
+  _decrementAssetRef(assetId) {
+    const current = this._assetRefCounts.get(assetId);
+    if (current == null) return;
+
+    if (current <= 1) {
+      const dataUrl = this._assetDataById.get(assetId);
+      this._assetRefCounts.delete(assetId);
+      this._assetDataById.delete(assetId);
+      if (dataUrl) {
+        this._assetIdByData.delete(dataUrl);
+      }
+      return;
+    }
+
+    this._assetRefCounts.set(assetId, current - 1);
+  }
+
+  _clearAssetStore() {
+    this._assetDataById.clear();
+    this._assetIdByData.clear();
+    this._assetRefCounts.clear();
+    this._nextAssetId = 1;
+  }
+
   /**
    * Seek to a specific timestamp in the history.
    * @param {number} timestamp - The target timestamp
    */
-  async seek(timestamp) {
+  async seek(timestamp, options = {}) {
     if (!this.isStarted) return;
+    const { suppressPlaybackPause = false } = options;
 
     this.currentTime = Math.max(
       this.recordingBuffer[0]?.timestamp || 0,
@@ -542,6 +796,16 @@ class TimeMachineState {
     }
 
     if (this.isReviewing) {
+      if (this.isPlaying && !suppressPlaybackPause) {
+        this.pause();
+      }
+
+      if (this._lastAppliedTimestamp === this.currentTime) {
+        this._showReplayCanvas(true);
+        this._updateBotCursors();
+        return;
+      }
+
       if (this._isSeeking) {
         this._pendingSeekTimestamp = this.currentTime;
         return;
@@ -561,6 +825,8 @@ class TimeMachineState {
         }
       }
     } else {
+      this._lastAppliedTimestamp = null;
+      this._pendingPlaybackTimestamp = null;
       this._showReplayCanvas(false);
       this._removeBotCursors();
       this.previewData = null;
@@ -628,6 +894,9 @@ class TimeMachineState {
       return;
     }
 
+    const seekStart = performance.now();
+    const heapBefore = performance.memory?.usedJSHeapSize ?? null;
+
     //  Find the snapshot closest to, but not exceeding, the target timestamp
     let snapshot = null;
     let snapshotIndex = -1;
@@ -646,23 +915,26 @@ class TimeMachineState {
 
 
     await this._replayEngine.loadSnapshot(snapshot);
-
-
-    const actionsToReplay = [];
-
-    for (let i = snapshotIndex; i < this.recordingBuffer.length; i++) {
-      const snap = this.recordingBuffer[i];
-      for (const action of snap.actions) {
-        if (action.timestamp > snapshot.timestamp && action.timestamp <= timestamp) {
-          actionsToReplay.push(action);
-        }
-      }
-    }
-
-    // Sort by timestamp to ensure correct order
-    actionsToReplay.sort((a, b) => a.timestamp - b.timestamp);
+    const snapshotLoadMs = performance.now() - seekStart;
+    const actionsToReplay = this._collectActionsBetween(snapshotIndex, snapshot.timestamp, timestamp);
 
     await this._replayEngine.processActions(actionsToReplay, timestamp);
+    const totalSeekMs = performance.now() - seekStart;
+    const replayMs = totalSeekMs - snapshotLoadMs;
+    const heapAfter = performance.memory?.usedJSHeapSize ?? null;
+    const heapDelta = heapBefore != null && heapAfter != null ? heapAfter - heapBefore : null;
+
+    this._telemetry.seek = {
+      timestamp,
+      snapshotTimestamp: snapshot.timestamp,
+      snapshotLoadMs: Number(snapshotLoadMs.toFixed(2)),
+      replayMs: Number(replayMs.toFixed(2)),
+      totalMs: Number(totalSeekMs.toFixed(2)),
+      actionsReplayed: actionsToReplay.length,
+      heapDelta
+    };
+    this._lastAppliedTimestamp = timestamp;
+    this._maybeLogSeekTelemetry();
 
     if (this._replayCtx && this._replayEngine.outputCanvas) {
       // Fill with background color first to prevent real board showing through
@@ -678,24 +950,50 @@ class TimeMachineState {
     console.log('[TimeMachine] Replay canvas updated, isReviewing:', this.isReviewing);
   }
 
+  _collectActionsBetween(snapshotIndex, startTimestamp, endTimestamp) {
+    const actions = [];
+
+    for (let i = snapshotIndex; i < this.recordingBuffer.length; i++) {
+      const snap = this.recordingBuffer[i];
+      const chunks = snap.actionChunks || [];
+      for (const chunk of chunks) {
+        if (chunk.startTimestamp > endTimestamp) break;
+        if (chunk.endTimestamp <= startTimestamp) continue;
+
+        for (const action of chunk.actions) {
+          if (action.timestamp > startTimestamp && action.timestamp <= endTimestamp) {
+            actions.push(action);
+          }
+        }
+      }
+    }
+
+    return actions;
+  }
+
+  _maybeLogSeekTelemetry() {
+    const now = performance.now();
+    if ((now - this._lastSeekLogAt) < SEEK_TELEMETRY_LOG_INTERVAL_MS) return;
+    this._lastSeekLogAt = now;
+
+    const seek = this._telemetry.seek;
+    if (!seek) return;
+
+    const heapDeltaText = seek.heapDelta == null
+      ? 'n/a'
+      : `${Math.round(seek.heapDelta / 1024)}KB`;
+
+    console.log(
+      `[TimeMachine] Seek ${seek.totalMs.toFixed(1)}ms (snapshot ${seek.snapshotLoadMs.toFixed(1)}ms, replay ${seek.replayMs.toFixed(1)}ms, actions ${seek.actionsReplayed}, heap delta ${heapDeltaText})`
+    );
+  }
+
   play() {
     if (!this.isStarted || this.isPlaying || this.currentTime >= this.maxTime) return;
     this.isPlaying = true;
-    
-    const startTime = Date.now();
-    const startOffset = this.currentTime;
-
-    this._playbackInterval = setInterval(() => {
-      const elapsed = Date.now() - startTime;
-      const targetTime = startOffset + elapsed;
-      
-      if (targetTime >= this.maxTime) {
-        this.seek(this.maxTime);
-        this.pause();
-      } else {
-        this.seek(targetTime);
-      }
-    }, 16); // ~60fps
+    this._playbackStartPerf = performance.now();
+    this._playbackStartOffset = this.currentTime;
+    this._playbackFrameId = requestAnimationFrame((now) => this._playbackFrame(now));
   }
 
   pause() {
@@ -704,6 +1002,98 @@ class TimeMachineState {
       clearInterval(this._playbackInterval);
       this._playbackInterval = null;
     }
+    if (this._playbackFrameId) {
+      cancelAnimationFrame(this._playbackFrameId);
+      this._playbackFrameId = null;
+    }
+    this._pendingPlaybackTimestamp = null;
+  }
+
+  async _playbackFrame(now) {
+    if (!this.isPlaying) return;
+
+    const elapsed = now - this._playbackStartPerf;
+    const targetTime = Math.min(this._playbackStartOffset + elapsed, this.maxTime);
+
+    if (targetTime >= this.maxTime) {
+      await this._advancePlaybackTo(this.maxTime);
+      this.pause();
+      return;
+    }
+
+    await this._advancePlaybackTo(targetTime);
+    if (!this.isPlaying) return;
+    this._playbackFrameId = requestAnimationFrame((frameNow) => this._playbackFrame(frameNow));
+  }
+
+  async _advancePlaybackTo(targetTimestamp) {
+    if (targetTimestamp <= this.currentTime) return;
+
+    if (this._isPlaybackAdvancing) {
+      this._pendingPlaybackTimestamp = Math.max(this._pendingPlaybackTimestamp ?? 0, targetTimestamp);
+      return;
+    }
+
+    this._isPlaybackAdvancing = true;
+    try {
+      if (!this.isReviewing || this._lastAppliedTimestamp == null || this._lastAppliedTimestamp > targetTimestamp) {
+        await this.seek(targetTimestamp, { suppressPlaybackPause: true });
+        return;
+      }
+
+      const actionsToReplay = this._collectActionsBetween(
+        this._getSnapshotIndexForTimestamp(this._lastAppliedTimestamp),
+        this._lastAppliedTimestamp,
+        targetTimestamp
+      );
+
+      const replayStart = performance.now();
+      await this._replayEngine.appendActions(actionsToReplay, targetTimestamp);
+      const totalMs = performance.now() - replayStart;
+
+      this.currentTime = targetTimestamp;
+      this._lastAppliedTimestamp = targetTimestamp;
+      this._telemetry.seek = {
+        timestamp: targetTimestamp,
+        snapshotTimestamp: this._findNearestSnapshotTimestamp(targetTimestamp),
+        snapshotLoadMs: 0,
+        replayMs: Number(totalMs.toFixed(2)),
+        totalMs: Number(totalMs.toFixed(2)),
+        actionsReplayed: actionsToReplay.length,
+        heapDelta: null
+      };
+      this._maybeLogSeekTelemetry();
+
+      if (this._replayCtx && this._replayEngine.outputCanvas) {
+        const bgColor = this._board?.backgroundColor || [255, 255, 255, 1];
+        this._replayCtx.fillStyle = `rgba(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]}, ${bgColor[3]})`;
+        this._replayCtx.fillRect(0, 0, this._replayCanvas.width, this._replayCanvas.height);
+        this._replayCtx.drawImage(this._replayEngine.outputCanvas, 0, 0);
+      }
+      this._showReplayCanvas(true);
+      this._updateBotCursors();
+    } finally {
+      this._isPlaybackAdvancing = false;
+      if (this._pendingPlaybackTimestamp != null && this._pendingPlaybackTimestamp > this.currentTime) {
+        const next = this._pendingPlaybackTimestamp;
+        this._pendingPlaybackTimestamp = null;
+        await this._advancePlaybackTo(next);
+      }
+    }
+  }
+
+  _getSnapshotIndexForTimestamp(timestamp) {
+    for (let i = this.recordingBuffer.length - 1; i >= 0; i--) {
+      if (this.recordingBuffer[i].timestamp <= timestamp) {
+        return i;
+      }
+    }
+    return 0;
+  }
+
+  _findNearestSnapshotTimestamp(timestamp) {
+    const idx = this._getSnapshotIndexForTimestamp(timestamp);
+    return this.recordingBuffer[idx]?.timestamp ?? 0;
   }
 
   /**

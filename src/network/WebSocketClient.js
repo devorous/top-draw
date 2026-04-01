@@ -174,7 +174,7 @@ export class WebSocketClient {
 
           // Record decoded message for TimeMachine (JSON, not protobuf)
           if (window.app?.TimeMachine) {
-            window.app.TimeMachine.recordAction(data);
+            window.app.TimeMachine.recordAction(data, 'inbound');
           }
 
           this.handleMessage(data);
@@ -249,7 +249,7 @@ export class WebSocketClient {
 
         // Record decoded message for TimeMachine (JSON, not protobuf)
         if (window.app?.TimeMachine) {
-          window.app.TimeMachine.recordAction(data);
+          window.app.TimeMachine.recordAction(data, 'inbound');
         }
 
         this.handleMessage(data);
@@ -835,7 +835,7 @@ export class WebSocketClient {
 
       // Record outgoing messages for TimeMachine (JSON with sessionIndex)
       if (window.app?.TimeMachine && this.sessionIndex != null) {
-        window.app.TimeMachine.recordAction({ ...data, u: this.sessionIndex });
+        window.app.TimeMachine.recordAction({ ...data, u: this.sessionIndex }, 'outbound');
       }
     }
   }

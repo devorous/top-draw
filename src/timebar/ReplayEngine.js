@@ -382,6 +382,8 @@ export class ReplayEngine {
 
     /** @type {Function|null} Called when async operations (blur worker) update the output */
     this.onOutputUpdate = null;
+    /** @type {(source: any) => string|null} */
+    this._assetResolver = null;
   }
 
   /**
@@ -414,6 +416,14 @@ export class ReplayEngine {
     this._snapshotCtx = this._snapshotCanvas.getContext('2d');
 
     this._initReplaySystem();
+  }
+
+  /**
+   * Provide a resolver for deduplicated replay image assets.
+   * @param {(source:any) => string|null} resolver
+   */
+  setAssetResolver(resolver) {
+    this._assetResolver = resolver;
   }
 
   /**
@@ -695,7 +705,8 @@ export class ReplayEngine {
    */
   _loadImageToCanvas(ctx, dataUrl) {
     return new Promise((resolve) => {
-      if (!dataUrl || !ctx) {
+      const src = this._resolveImageSource(dataUrl);
+      if (!src || !ctx) {
         resolve();
         return;
       }
@@ -705,7 +716,7 @@ export class ReplayEngine {
         resolve();
       };
       img.onerror = () => resolve();
-      img.src = dataUrl;
+      img.src = src;
     });
   }
 
@@ -715,7 +726,8 @@ export class ReplayEngine {
    */
   _loadImageToNewCanvas(dataUrl, width, height) {
     return new Promise((resolve) => {
-      if (!dataUrl) {
+      const src = this._resolveImageSource(dataUrl);
+      if (!src) {
         resolve(null);
         return;
       }
@@ -729,8 +741,16 @@ export class ReplayEngine {
         resolve(canvas);
       };
       img.onerror = () => resolve(null);
-      img.src = dataUrl;
+      img.src = src;
     });
+  }
+
+  _resolveImageSource(source) {
+    if (!source) return null;
+    if (this._assetResolver) {
+      return this._assetResolver(source);
+    }
+    return typeof source === 'string' ? source : null;
   }
 
   /**
@@ -1459,11 +1479,29 @@ export class ReplayEngine {
    * @param {number} [upToTimestamp] - Only process actions up to this timestamp
    */
   async processActions(actions, upToTimestamp = Infinity) {
-    // Bake the snapshot into layer 0's flatCanvas BEFORE action processing
-    // so that: (a) tools that read pixels (CircleBlur) can sample from mainCtx,
-    // (b) overflow strokes baked during processing are drawn ON TOP of the snapshot
-    //     rather than being wiped when _compositeOutput runs.
-    if (this._snapshotCanvas) {
+    await this._runActionBatch(actions, upToTimestamp, { rebaseSnapshot: true });
+  }
+
+  /**
+   * Append actions to the current replay state without rebuilding from snapshot.
+   * Used for smoother forward playback once a replay state is already loaded.
+   * @param {Array<{timestamp: number, msg: Object}>} actions
+   * @param {number} [upToTimestamp]
+   * @returns {Promise<void>}
+   */
+  async appendActions(actions, upToTimestamp = Infinity) {
+    await this._runActionBatch(actions, upToTimestamp, { rebaseSnapshot: false });
+  }
+
+  /**
+   * Internal helper for replay action execution.
+   * @param {Array<{timestamp: number, msg: Object}>} actions
+   * @param {number} upToTimestamp
+   * @param {{rebaseSnapshot: boolean}} options
+   * @private
+   */
+  async _runActionBatch(actions, upToTimestamp, { rebaseSnapshot }) {
+    if (rebaseSnapshot && this._snapshotCanvas) {
       const layer0 = this._replayBoard.layerManager.layerGroups[0];
       if (layer0) {
         if (!layer0.flatCanvas) {
@@ -1475,13 +1513,10 @@ export class ReplayEngine {
         layer0.flatCtx.clearRect(0, 0, this.width, this.height);
         layer0.flatCtx.drawImage(this._snapshotCanvas, 0, 0);
       }
-      // Also populate mainCtx so pixel-sampling tools work during processing
+      this._replayBoard.mainCtx.clearRect(0, 0, this.width, this.height);
       this._replayBoard.mainCtx.drawImage(this._snapshotCanvas, 0, 0);
     }
 
-    // Pre-load all brush images before processing actions so that
-    // imageBrush stamps don't execute before the Image objects are ready.
-    // Also pre-load glitch result images for deterministic replay.
     await Promise.all([
       this._preloadBrushImages(actions, upToTimestamp),
       this._preloadPatternImages(actions, upToTimestamp),
@@ -1492,8 +1527,6 @@ export class ReplayEngine {
     for (const action of actions) {
       if (action.timestamp > upToTimestamp) break;
 
-      // Force a composite update BEFORE any sampling tool (like circleBlur)
-      // processes its stamps, otherwise it will sample from a stale or empty mainCtx.
       const msg = action.msg;
       if (msg && msg.u != null && (msg.t === T.MD || msg.t === T.MM)) {
         const user = this._getOrCreateBot(msg.u);
@@ -1505,7 +1538,6 @@ export class ReplayEngine {
       await this._processAction(action.msg);
     }
 
-    // Composite the final result
     this._compositeOutput();
   }
 

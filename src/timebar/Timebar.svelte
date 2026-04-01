@@ -21,6 +21,10 @@
     }
   }
 
+  function resolveMarkerPreview(source) {
+    return TimeMachine.resolveAssetRef(source);
+  }
+
   function handleUndoToState() {
     if (confirm('Are you sure you want to revert the board to this state for everyone?')) {
       TimeMachine.requestUndoTo(TimeMachine.currentTime);
@@ -116,7 +120,13 @@
     const range = maxTime - firstTimestamp;
     return TimeMachine.recordingBuffer.map((snapshot, index) => {
       const position = ((snapshot.timestamp - firstTimestamp) / range) * 100;
-      return { position, type: 'snapshot', index, data: snapshot.canvasData, timestamp: snapshot.timestamp };
+      return {
+        position,
+        type: snapshot.kind === 'full' ? 'full-snapshot' : 'delta-snapshot',
+        index,
+        data: snapshot.canvasData,
+        timestamp: snapshot.timestamp
+      };
     });
   });
 
@@ -156,7 +166,7 @@
       } else if (marker.position <= 100) { // Only add if it fits in frozen range
         tickMarks.push({
           position: marker.position,
-          type: 'snapshot',
+          type: marker.type,
           index: marker.index,
           data: marker.data,
           timestamp: marker.timestamp
@@ -166,19 +176,20 @@
 
     // Add activity markers (user actions)
     TimeMachine.recordingBuffer.forEach(snap => {
-      snap.actions.forEach(action => {
-        const position = ((action.timestamp - firstTimestamp) / duration) * 100;
-        if (position >= 0 && position <= 100) {
-          // Check if we already have an activity tick very close to this one to reduce clutter
-          const exists = tickMarks.some(t => t.type === 'activity' && Math.abs(t.position - position) < 0.2);
-          if (!exists) {
-            tickMarks.push({
-              position,
-              type: 'activity',
-              timestamp: action.timestamp
-            });
+      (snap.actionChunks || []).forEach(chunk => {
+        chunk.actions.forEach(action => {
+          const position = ((action.timestamp - firstTimestamp) / duration) * 100;
+          if (position >= 0 && position <= 100) {
+            const exists = tickMarks.some(t => t.type === 'activity' && Math.abs(t.position - position) < 0.2);
+            if (!exists) {
+              tickMarks.push({
+                position,
+                type: 'activity',
+                timestamp: action.timestamp
+              });
+            }
           }
-        }
+        });
       });
     });
 
@@ -199,6 +210,14 @@
       VIEWING HISTORY
     {/if}
   </div>
+
+  <button class="floating-catch-up-btn" class:needs-resync={TimeMachine.needsResync} onclick={() => TimeMachine.catchUp()}>
+    {#if TimeMachine.needsResync}
+      Resync To Present
+    {:else}
+      Jump To Present
+    {/if}
+  </button>
 {/if}
 
 {#if TimeMachine.isStarted}
@@ -244,15 +263,15 @@
                   style="left: {tick.position}%"
                   title="Recorded state at {formatRelativeTime(tick.timestamp)}"
                 ></div>
-              {:else if tick.type === 'snapshot'}
+              {:else if tick.type === 'full-snapshot' || tick.type === 'delta-snapshot'}
                 <div 
                   class="tick-mark snapshot-tick" 
                   style="left: {tick.position}%"
-                  title="Snapshot {tick.index}"
+                  title={(tick.type === 'full-snapshot' ? 'Full checkpoint ' : 'Delta checkpoint ') + tick.index}
                 >
                   {#if tick.index === 0}
                     <div class="flag">
-                      <img src={tick.data} alt="Start Preview" />
+                      <img src={resolveMarkerPreview(tick.data)} alt="Start Preview" />
                     </div>
                   {/if}
                 </div>
@@ -328,6 +347,28 @@
       border-radius: 50%;
       animation: pulse 1.5s infinite;
     }
+  }
+
+  .floating-catch-up-btn {
+    position: fixed;
+    right: 20px;
+    bottom: 96px;
+    z-index: 10002;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(15, 23, 42, 0.9);
+    color: white;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    backdrop-filter: blur(10px);
+  }
+
+  .floating-catch-up-btn.needs-resync {
+    background: rgba(185, 28, 28, 0.92);
+    border-color: rgba(254, 202, 202, 0.35);
   }
 
   @keyframes badge-pulse {
