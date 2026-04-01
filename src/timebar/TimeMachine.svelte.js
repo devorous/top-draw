@@ -72,6 +72,23 @@ function serializeActiveStroke(active, userId) {
   };
 }
 
+function serializeSelectionRestoreData(restoreData) {
+  if (!restoreData) return null;
+
+  return {
+    eraseS: restoreData.eraseS ? { ...restoreData.eraseS } : null,
+    eraseLassoPath: clonePoints(restoreData.eraseLassoPath),
+    snapshots: (restoreData.snapshots || []).map((snap) => ({
+      groupIdx: snap.groupIdx,
+      x: snap.x,
+      y: snap.y,
+      width: snap.canvas?.width ?? 0,
+      height: snap.canvas?.height ?? 0,
+      canvasData: serializeCanvasData(snap.canvas)
+    }))
+  };
+}
+
 /**
  * TimeMachine manages recording and replaying of board state and user actions.
  */
@@ -400,6 +417,29 @@ class TimeMachineState {
             canvasData: serializeCanvasData(patternRemoteOffscreen.canvas),
             strokePoints: clonePoints(patternRemoteOffscreen.strokePoints)
           } : null,
+          selection: user.selection ? { ...user.selection } : null,
+          pendingSelection: user.pendingSelection ? { ...user.pendingSelection } : null,
+          pendingLassoPath: clonePoints(user.pendingLassoPath),
+          lassoPath: clonePoints(user.lassoPath),
+          selectionCorners: user.selectionCorners ? {
+            tl: { ...user.selectionCorners.tl },
+            tr: { ...user.selectionCorners.tr },
+            br: { ...user.selectionCorners.br },
+            bl: { ...user.selectionCorners.bl }
+          } : null,
+          originalCorners: user.originalCorners ? {
+            tl: { ...user.originalCorners.tl },
+            tr: { ...user.originalCorners.tr },
+            br: { ...user.originalCorners.br },
+            bl: { ...user.originalCorners.bl }
+          } : null,
+          originalSelectionPos: user.originalSelectionPos ? { ...user.originalSelectionPos } : null,
+          floatingCanvasData: serializeCanvasData(user.floatingCanvas),
+          floatingCanvasWidth: user.floatingCanvas?.width ?? null,
+          floatingCanvasHeight: user.floatingCanvas?.height ?? null,
+          cachedSelectionPreviewData: serializeCanvasData(user._cachedPreviewCanvas),
+          cachedSelectionPreviewBounds: user._cachedPreviewBounds ? { ...user._cachedPreviewBounds } : null,
+          selectionRestoreData: serializeSelectionRestoreData(user._selectionRestoreData),
           patternMode: user.patternMode ?? false,
           patternBrush: serializePatternBrushState(user),
           patternScale: user.patternScale ?? 100,

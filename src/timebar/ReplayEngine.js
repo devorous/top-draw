@@ -6,6 +6,7 @@
 
 import { User } from '../User.js';
 import { T, ToolNames } from '../../shared/MessageTypes.js';
+import { unpackColor } from '../../shared/ColorUtils.js';
 import { RemoteUserHandler } from '../remote/RemoteUserHandler.js';
 import { LayerManager } from '../canvas/LayerManager.js';
 import { ToolManager } from '../tools/Tools.js';
@@ -58,10 +59,11 @@ class ReplayBoard {
     this._needsComposite = false;
     this._dirtyRects = [];
 
-    // Stubs for selection overlay (not needed for replay)
-    this.selectionOverlay = null;
-    this.selectionCtx = null;
-    this.selectionOverlayPadding = 0;
+    this.selectionOverlayPadding = 500;
+    this.selectionOverlay = document.createElement('canvas');
+    this.selectionOverlay.width = width + this.selectionOverlayPadding * 2;
+    this.selectionOverlay.height = height + this.selectionOverlayPadding * 2;
+    this.selectionCtx = this.selectionOverlay.getContext('2d');
     this.cursorsSvg = null;
     this.mirrorLine = null;
   }
@@ -243,19 +245,58 @@ class ReplayBoard {
   }
 
   checkErasedTilesByIndices() {}
+  addOccupancyForVisibleTilesInRect() {}
 
   // Compositing — no-op during action processing.
   // The real composite is driven by _compositeOutput() after all actions finish,
   // which ensures the snapshot is in place so blur filters have source content.
-  compositeAllLayers() {}
+  compositeAllLayers() {
+    if (!this.layerManager) return;
+
+    const totalLayers = this.layerManager.getLayerCount();
+    const hasActiveSelection = this.activeSelectionLayer >= 0;
+    const splitLayer = hasActiveSelection
+      ? Math.max(0, Math.min(this.activeSelectionLayer, totalLayers - 1))
+      : totalLayers - 1;
+    const canSplitUpperLayers =
+      hasActiveSelection &&
+      splitLayer + 1 < totalLayers &&
+      !this.layerManager.rangeHasBlendModeStrokes(splitLayer + 1, totalLayers);
+
+    this.mainCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
+    this.upperLayersCtx?.clearRect(0, 0, this.getWidth(), this.getHeight());
+
+    if (canSplitUpperLayers) {
+      this.layerManager.compositeLayerRange(
+        this.mainCtx,
+        0,
+        splitLayer + 1,
+        this.backgroundColor,
+        []
+      );
+      this.layerManager.compositeLayerRange(
+        this.upperLayersCtx,
+        splitLayer + 1,
+        totalLayers,
+        null,
+        []
+      );
+    } else {
+      this.layerManager.compositeLayerRange(
+        this.mainCtx,
+        0,
+        totalLayers,
+        this.backgroundColor,
+        []
+      );
+    }
+
+    this.layerManager.needsComposite = false;
+  }
 
   // Called by _compositeOutput when the snapshot base is ready.
   _doComposite() {
-    if (!this.layerManager) return;
-    const totalLayers = this.layerManager.getLayerCount();
-    this.layerManager.compositeLayerRange(
-      this.mainCtx, 0, totalLayers, this.backgroundColor, []
-    );
+    this.compositeAllLayers();
   }
 
   // requestUpdate is a no-op — we composite manually at the end
@@ -264,10 +305,22 @@ class ReplayBoard {
   // Selection overlay stubs
   clearTop() {
     this.topCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
+    this.clearSelectionOverlay();
   }
-  clearSelectionOverlay() {}
-  getSelectionCtx() { return null; }
-  restoreSelectionCtx() {}
+  clearSelectionOverlay() {
+    if (!this.selectionCtx) return;
+    const pad = this.selectionOverlayPadding;
+    this.selectionCtx.clearRect(0, 0, this.getWidth() + pad * 2, this.getHeight() + pad * 2);
+  }
+  getSelectionCtx() {
+    if (!this.selectionCtx) return null;
+    this.selectionCtx.save();
+    this.selectionCtx.translate(this.selectionOverlayPadding, this.selectionOverlayPadding);
+    return this.selectionCtx;
+  }
+  restoreSelectionCtx() {
+    if (this.selectionCtx) this.selectionCtx.restore();
+  }
 
   getActiveLayerBlendMode() { return 'source-over'; }
 }
@@ -318,6 +371,10 @@ export class ReplayEngine {
 
     /** @type {Map<string, Object>} Cache for pattern brush images */
     this._patternCache = new Map();
+    /** @type {Map<number, {patternData: Object|null, patternMode: boolean}>} Last known pattern state by user */
+    this._patternStateByUser = new Map();
+    /** @type {Map<string, HTMLImageElement|null>} Cache for pasted image payloads */
+    this._imagePasteCache = new Map();
 
     /** @type {HTMLCanvasElement} Holds loaded snapshot image */
     this._snapshotCanvas = null;
@@ -456,6 +513,7 @@ export class ReplayEngine {
    */
   reset() {
     this.botUsers.clear();
+    this._patternStateByUser.clear();
     this.outputCtx?.clearRect(0, 0, this.width, this.height);
     this.topCtx?.clearRect(0, 0, this.width, this.height);
     this._snapshotCtx?.clearRect(0, 0, this.width, this.height);
@@ -507,6 +565,7 @@ export class ReplayEngine {
     const userStates = snapshot.appState?.userDrawingStates || {};
     for (const [idStr, state] of Object.entries(userStates)) {
       const bot = this._createBotUser(Number(idStr), state);
+      this._storePatternState(bot);
       if (state.patternBrush) {
         const loadedPattern = await this._loadPatternData(state.patternBrush);
         this._applyPatternDataToUser(bot, loadedPattern);
@@ -625,6 +684,280 @@ export class ReplayEngine {
   }
 
   /**
+   * Decode a flattened [x, y, ...] path array into point objects.
+   * @param {*} values
+   * @returns {Array<{x:number,y:number}>|null}
+   * @private
+   */
+  _decodePointPath(values) {
+    const points = this._ensureArray(values);
+    if (!points || points.length < 2) return null;
+
+    const path = [];
+    for (let i = 0; i + 1 < points.length; i += 2) {
+      path.push({ x: Number(points[i]), y: Number(points[i + 1]) });
+    }
+    return path.length > 0 ? path : null;
+  }
+
+  /**
+   * Decode a selection rect from raw replay message fields.
+   * @param {Object} msg
+   * @returns {{x:number,y:number,width:number,height:number}}
+   * @private
+   */
+  _decodeSelectionRect(msg) {
+    return {
+      x: Math.floor(Number(msg?.sx) || 0),
+      y: Math.floor(Number(msg?.sy) || 0),
+      width: Math.ceil(Number(msg?.sw) || 0),
+      height: Math.ceil(Number(msg?.sh) || 0)
+    };
+  }
+
+  /**
+   * Decode selection transform corners from a raw SEL_MOVE payload.
+   * @param {Object} msg
+   * @returns {{tl:{x:number,y:number},tr:{x:number,y:number},br:{x:number,y:number},bl:{x:number,y:number}}|null}
+   * @private
+   */
+  _decodeSelectionCorners(msg) {
+    const cr = this._ensureArray(msg?.cr);
+    if (!cr || cr.length < 8) return null;
+
+    return {
+      tl: { x: Number(cr[0]), y: Number(cr[1]) },
+      tr: { x: Number(cr[2]), y: Number(cr[3]) },
+      br: { x: Number(cr[4]), y: Number(cr[5]) },
+      bl: { x: Number(cr[6]), y: Number(cr[7]) }
+    };
+  }
+
+  /**
+   * Apply an IMG_PASTE payload synchronously using a preloaded image.
+   * @param {User} user
+   * @param {Object} msg
+   * @param {HTMLImageElement|null} image
+   * @private
+   */
+  _applyImagePaste(user, msg, image) {
+    if (!user || !msg) return;
+
+    const width = Number(msg.sw) || 0;
+    const height = Number(msg.sh) || 0;
+    if (width <= 0 || height <= 0) return;
+
+    user.context?.clearRect(0, 0, this.width, this.height);
+    user.pendingSelection = null;
+    user.pendingLassoPath = null;
+
+    user.floatingCanvas = document.createElement('canvas');
+    user.floatingCanvas.width = width;
+    user.floatingCanvas.height = height;
+    user.floatingCtx = user.floatingCanvas.getContext('2d');
+
+    user.selection = {
+      x: Number(msg.sx) || 0,
+      y: Number(msg.sy) || 0,
+      width,
+      height
+    };
+    user.selectionCorners = {
+      tl: { x: user.selection.x, y: user.selection.y },
+      tr: { x: user.selection.x + width, y: user.selection.y },
+      bl: { x: user.selection.x, y: user.selection.y + height },
+      br: { x: user.selection.x + width, y: user.selection.y + height }
+    };
+    user.originalCorners = {
+      tl: { x: 0, y: 0 },
+      tr: { x: width, y: 0 },
+      bl: { x: 0, y: height },
+      br: { x: width, y: height }
+    };
+    user.originalSelectionPos = { x: -1, y: -1 };
+
+    this._replayBoard.activeSelectionLayer = user.activeLayer ?? 0;
+
+    if (image && user.floatingCtx) {
+      user.floatingCtx.drawImage(image, 0, 0, width, height);
+    }
+
+    user._cachedPreviewCanvas = null;
+    user._cachedPreviewBounds = null;
+    this._remoteHandler.selectionHandler.drawFloatingSelection(user);
+  }
+
+  /**
+   * Replay a flood fill using the same FillTool internals as live remote handling.
+   * This preserves pattern fill behavior because the FillTool reads pattern state
+   * directly from the replay bot user.
+   * @param {User} user
+   * @param {Object} msg
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _applyFloodFill(user, msg) {
+    const fillTool = this._toolManager?.getTool('fill');
+    const board = this._replayBoard;
+    if (!fillTool || !board || !user) return;
+
+    const width = board.getWidth();
+    const height = board.getHeight();
+    const x = Math.floor(Number(msg?.sx) || 0);
+    const y = Math.floor(Number(msg?.sy) || 0);
+    if (x < 0 || x >= width || y < 0 || y >= height) return;
+
+    const layerIndex = msg?.ly ?? user.activeLayer ?? 0;
+    const userId = user.id;
+
+    const fillColor = user.color ?? [0, 0, 0, 1];
+    const fillR = Math.round(fillColor[0]);
+    const fillG = Math.round(fillColor[1]);
+    const fillB = Math.round(fillColor[2]);
+    const colorAlpha = fillColor[3] ?? 1;
+    const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
+    const userOpacity = colorAlpha * opacitySlider;
+
+    const imageData = board.mainCtx.getImageData(0, 0, width, height);
+    const imgData = imageData.data;
+
+    const startIdx = (y * width + x) * 4;
+    const tR = imgData[startIdx];
+    const tG = imgData[startIdx + 1];
+    const tB = imgData[startIdx + 2];
+    const tA = imgData[startIdx + 3];
+    if (tA >= 10) {
+      const dr = tR - fillR;
+      const dg = tG - fillG;
+      const db = tB - fillB;
+      const da = tA - 255;
+      if (dr * dr + dg * dg + db * db + da * da <= 100) return;
+    }
+
+    const expansion = (Number(msg?.s) || 0) / 100;
+    const blurRadius = (Number(msg?.br) || 0) / 100;
+
+    let result = await fillTool._fillWorker.computeFill(
+      imgData,
+      width,
+      height,
+      x,
+      y,
+      10,
+      expansion,
+      null
+    );
+    if (!result) return;
+
+    if (fillTool._isFillTooLarge(result, width, height)) {
+      const tileRects = fillTool._getOccupiedTileRects(x, y);
+      if (tileRects) {
+        const constrainedResult = await fillTool._fillWorker.computeFill(
+          board.mainCtx.getImageData(0, 0, width, height).data,
+          width,
+          height,
+          x,
+          y,
+          10,
+          expansion,
+          tileRects
+        );
+        if (constrainedResult) {
+          result = constrainedResult;
+        } else {
+          return;
+        }
+      } else {
+        return;
+      }
+    }
+
+    const blendMode = user.blendMode || 'source-over';
+    board.layerManager.beginUserStroke(layerIndex, userId, blendMode);
+    const strokeCtx = board.layerManager.getUserStrokeContext(layerIndex, userId);
+    if (!strokeCtx) return;
+
+    fillTool._renderMask(
+      strokeCtx,
+      result,
+      fillR,
+      fillG,
+      fillB,
+      userOpacity,
+      blurRadius,
+      width,
+      height,
+      user
+    );
+
+    const pad = Math.ceil(blurRadius * 2) + Math.ceil(Math.abs(expansion));
+    const bx = Math.max(0, result.minX - pad);
+    const by = Math.max(0, result.minY - pad);
+    const bw = Math.min(width, result.maxX + pad + 1) - bx;
+    const bh = Math.min(height, result.maxY + pad + 1) - by;
+    board.expandDirtyRect(user, bx, by, bw, bh);
+    fillTool._markFilledTiles(result, width, userId, layerIndex);
+
+    if (board.mirror) {
+      const mx = width - 1 - x;
+      if (mx >= 0 && mx < width) {
+        let mirrorResult = await fillTool._fillWorker.computeFill(
+          board.mainCtx.getImageData(0, 0, width, height).data,
+          width,
+          height,
+          mx,
+          y,
+          10,
+          expansion,
+          null
+        );
+
+        if (mirrorResult && fillTool._isFillTooLarge(mirrorResult, width, height)) {
+          const mirrorTileRects = fillTool._getOccupiedTileRects(mx, y);
+          if (mirrorTileRects) {
+            mirrorResult = await fillTool._fillWorker.computeFill(
+              board.mainCtx.getImageData(0, 0, width, height).data,
+              width,
+              height,
+              mx,
+              y,
+              10,
+              expansion,
+              mirrorTileRects
+            );
+          } else {
+            mirrorResult = null;
+          }
+        }
+
+        if (mirrorResult) {
+          fillTool._renderMaskComposite(
+            strokeCtx,
+            mirrorResult,
+            fillR,
+            fillG,
+            fillB,
+            userOpacity,
+            blurRadius,
+            width,
+            height,
+            user
+          );
+          const mbx = Math.max(0, mirrorResult.minX - pad);
+          const mby = Math.max(0, mirrorResult.minY - pad);
+          const mbw = Math.min(width, mirrorResult.maxX + pad + 1) - mbx;
+          const mbh = Math.min(height, mirrorResult.maxY + pad + 1) - mby;
+          board.expandDirtyRect(user, mbx, mby, mbw, mbh);
+          fillTool._markFilledTiles(mirrorResult, width, userId, layerIndex);
+        }
+      }
+    }
+
+    board.layerManager.commitUserStroke(layerIndex, userId);
+    board.compositeAllLayers();
+  }
+
+  /**
    * Load a pattern payload into a replay-ready object with images attached.
    * @param {string|Object} patternDataInput
    * @returns {Promise<Object|null>}
@@ -715,6 +1048,53 @@ export class ReplayEngine {
 
     const patternTool = this._toolManager?.getTool('pattern');
     if (patternTool) patternTool._tileCache.clear();
+    const fillTool = this._toolManager?.getTool('fill');
+    if (fillTool?._patternTileCache) fillTool._patternTileCache.clear();
+    const selectTool = this._toolManager?.getTool('select');
+    if (selectTool?._patternTileCache) selectTool._patternTileCache.clear();
+    const remoteSelectionHandler = this._remoteHandler?.selectionHandler;
+    if (remoteSelectionHandler?._patternTileCache) remoteSelectionHandler._patternTileCache.clear();
+
+    this._storePatternState(user, patternData);
+  }
+
+  /**
+   * Persist the last known pattern state for a replay bot so tools that depend
+   * on implicit user state (like selection fill and bucket fill) can recover it.
+   * @param {User} user
+   * @param {Object|null} [patternData]
+   * @private
+   */
+  _storePatternState(user, patternData = undefined) {
+    if (!user || user.id == null) return;
+
+    const existing = this._patternStateByUser.get(user.id) || {};
+    this._patternStateByUser.set(user.id, {
+      patternData: patternData !== undefined ? patternData : (existing.patternData ?? null),
+      patternMode: user.patternMode ?? existing.patternMode ?? false
+    });
+  }
+
+  /**
+   * Rehydrate implicit pattern state for replay users before fill actions.
+   * Fill/select replay messages do not carry brush payloads themselves, so they
+   * depend on the most recent GPT/CPM state having been restored correctly.
+   * @param {User} user
+   * @private
+   */
+  _restorePatternStateForUser(user) {
+    if (!user) return;
+
+    const stored = this._patternStateByUser.get(user.id);
+    if (!stored) return;
+
+    if (stored.patternMode !== undefined) {
+      user.patternMode = !!stored.patternMode;
+    }
+
+    if (!user.patternBrush && stored.patternData?.brush) {
+      this._applyPatternDataToUser(user, stored.patternData);
+    }
   }
 
   /**
@@ -866,6 +1246,85 @@ export class ReplayEngine {
         });
       }
     }
+
+    if (state.selection) bot.selection = { ...state.selection };
+    if (state.pendingSelection) bot.pendingSelection = { ...state.pendingSelection };
+    if (Array.isArray(state.pendingLassoPath)) {
+      bot.pendingLassoPath = state.pendingLassoPath.map((pt) => ({ ...pt }));
+    }
+    if (Array.isArray(state.lassoPath)) {
+      bot.lassoPath = state.lassoPath.map((pt) => ({ ...pt }));
+    }
+    if (state.selectionCorners) {
+      bot.selectionCorners = {
+        tl: { ...state.selectionCorners.tl },
+        tr: { ...state.selectionCorners.tr },
+        br: { ...state.selectionCorners.br },
+        bl: { ...state.selectionCorners.bl }
+      };
+    }
+    if (state.originalCorners) {
+      bot.originalCorners = {
+        tl: { ...state.originalCorners.tl },
+        tr: { ...state.originalCorners.tr },
+        br: { ...state.originalCorners.br },
+        bl: { ...state.originalCorners.bl }
+      };
+    }
+    if (state.originalSelectionPos) {
+      bot.originalSelectionPos = { ...state.originalSelectionPos };
+    }
+    if (state.floatingCanvasData) {
+      const canvas = document.createElement('canvas');
+      canvas.width = state.floatingCanvasWidth || this.width;
+      canvas.height = state.floatingCanvasHeight || this.height;
+      const ctx = canvas.getContext('2d');
+      await this._loadImageToCanvas(ctx, state.floatingCanvasData);
+      bot.floatingCanvas = canvas;
+      bot.floatingCtx = ctx;
+    }
+    if (state.cachedSelectionPreviewData) {
+      const canvas = document.createElement('canvas');
+      const bounds = state.cachedSelectionPreviewBounds || {};
+      canvas.width = bounds.width || this.width;
+      canvas.height = bounds.height || this.height;
+      const ctx = canvas.getContext('2d');
+      await this._loadImageToCanvas(ctx, state.cachedSelectionPreviewData);
+      bot._cachedPreviewCanvas = canvas;
+      bot._cachedPreviewBounds = state.cachedSelectionPreviewBounds
+        ? { ...state.cachedSelectionPreviewBounds }
+        : null;
+    }
+    if (state.selectionRestoreData) {
+      bot._selectionRestoreData = {
+        eraseS: state.selectionRestoreData.eraseS ? { ...state.selectionRestoreData.eraseS } : null,
+        eraseLassoPath: Array.isArray(state.selectionRestoreData.eraseLassoPath)
+          ? state.selectionRestoreData.eraseLassoPath.map((pt) => ({ ...pt }))
+          : null,
+        snapshots: []
+      };
+
+      for (const snap of state.selectionRestoreData.snapshots || []) {
+        const canvas = document.createElement('canvas');
+        canvas.width = snap.width || this.width;
+        canvas.height = snap.height || this.height;
+        const ctx = canvas.getContext('2d');
+        await this._loadImageToCanvas(ctx, snap.canvasData);
+        bot._selectionRestoreData.snapshots.push({
+          groupIdx: snap.groupIdx,
+          canvas,
+          x: snap.x,
+          y: snap.y
+        });
+      }
+    }
+
+    if (bot.floatingCanvas && bot.selection) {
+      this._replayBoard.activeSelectionLayer = bot.activeLayer ?? 0;
+      this._remoteHandler.selectionHandler.drawFloatingSelection(bot);
+    } else if (bot.pendingSelection) {
+      this._remoteHandler.selectionHandler.drawPendingSelection(bot);
+    }
   }
 
   /**
@@ -961,7 +1420,8 @@ export class ReplayEngine {
     await Promise.all([
       this._preloadBrushImages(actions, upToTimestamp),
       this._preloadPatternImages(actions, upToTimestamp),
-      this._preloadGlitchResults(actions, upToTimestamp)
+      this._preloadGlitchResults(actions, upToTimestamp),
+      this._preloadImagePastes(actions, upToTimestamp)
     ]);
 
     for (const action of actions) {
@@ -977,7 +1437,7 @@ export class ReplayEngine {
         }
       }
 
-      this._processAction(action.msg);
+      await this._processAction(action.msg);
     }
 
     // Composite the final result
@@ -1019,7 +1479,7 @@ export class ReplayEngine {
    * Routes drawing actions through the real RemoteUserHandler.
    * @private
    */
-  _processAction(msg) {
+  async _processAction(msg) {
     if (!msg) return;
 
     const userId = msg.u;
@@ -1130,6 +1590,11 @@ export class ReplayEngine {
           }
           break;
 
+        case T.CPM:
+          user.patternMode = !!msg.pm;
+          this._storePatternState(user);
+          break;
+
         case T.MIR:
           this.mirror = !this.mirror;
           this._replayBoard.mirror = this.mirror;
@@ -1169,9 +1634,10 @@ export class ReplayEngine {
           break;
 
         case T.FILL:
-          if (msg.ps && msg.ps.length >= 2) {
-            user.setPosition(msg.ps[0], msg.ps[1]);
-            this._remoteHandler.handleFloodFill(user, msg.ps[0], msg.ps[1], msg.c, msg.ly);
+          if (msg.sx !== undefined && msg.sy !== undefined) {
+            this._restorePatternStateForUser(user);
+            user.setPosition(Number(msg.sx), Number(msg.sy));
+            await this._applyFloodFill(user, msg);
           }
           break;
 
@@ -1215,23 +1681,65 @@ export class ReplayEngine {
           }
           break;
 
-        case T.SEL_START:
-          this._remoteHandler.selectionHandler.handleSelectionStart(user, { x: msg.x, y: msg.y });
+        case T.SEL_LIFT:
+          this._remoteHandler.selectionHandler.handleSelectionLift(
+            user,
+            this._decodeSelectionRect(msg),
+            this._decodePointPath(msg.cr)
+          );
           break;
-        case T.SEL_UPDATE:
-          this._remoteHandler.selectionHandler.handleSelectionUpdate(user, { x: msg.x, y: msg.y });
-          break;
-        case T.SEL_END:
-          this._remoteHandler.selectionHandler.handleSelectionEnd(user);
+        case T.SEL_PENDING:
+          this._remoteHandler.selectionHandler.handleSelectionPending(
+            user,
+            this._decodeSelectionRect(msg),
+            this._decodePointPath(msg.ps)
+          );
           break;
         case T.SEL_MOVE:
-          this._remoteHandler.selectionHandler.handleSelectionMove(user, { x: msg.x, y: msg.y });
+          {
+            const corners = this._decodeSelectionCorners(msg);
+            if (corners) {
+              this._remoteHandler.selectionHandler.handleSelectionMove(user, corners);
+            }
+          }
           break;
-        case T.SEL_PASTE:
-          this._remoteHandler.selectionHandler.handleSelectionPaste(user);
+        case T.SEL_COMMIT:
+          this._remoteHandler.selectionHandler.handleSelectionCommit(user, msg.ly ?? 0);
           break;
-        case T.SEL_CLEAR:
-          this._remoteHandler.selectionHandler.handleSelectionClear(user);
+        case T.SEL_DELETE:
+          this._remoteHandler.selectionHandler.handleSelectionDelete(user, msg.ly ?? 0);
+          break;
+        case T.SEL_FILL:
+          this._restorePatternStateForUser(user);
+          this._remoteHandler.selectionHandler.handleSelectionFill(user, unpackColor(msg.c), msg.ly ?? 0);
+          break;
+        case T.SEL_STAMP:
+          this._remoteHandler.selectionHandler.handleSelectionStamp(user, msg.ly ?? 0);
+          break;
+        case T.SEL_FLIP:
+          this._remoteHandler.selectionHandler.handleSelectionFlip(user);
+          break;
+        case T.SEL_CANCEL:
+          this._remoteHandler.selectionHandler.handleSelectionCancel(user);
+          break;
+        case T.SEL_TO_BRUSH:
+          this._remoteHandler.selectionHandler.handleSelectionToBrush(user, msg.g);
+          break;
+        case T.IMG_PASTE:
+          {
+            const cached = msg.g ? this._imagePasteCache?.get(msg.g) ?? null : null;
+            if (cached) {
+              this._applyImagePaste(user, msg, cached);
+            } else {
+              this._remoteHandler.selectionHandler.handleImagePaste(user, {
+                x: msg.sx,
+                y: msg.sy,
+                width: msg.sw,
+                height: msg.sh,
+                imageData: msg.g
+              });
+            }
+          }
           break;
 
         case T.UNDO:
@@ -1313,6 +1821,18 @@ export class ReplayEngine {
         ctx.drawImage(user.board, 0, 0);
         ctx.restore();
       }
+    }
+
+    if (this._replayBoard.upperLayersCanvas) {
+      ctx.drawImage(this._replayBoard.upperLayersCanvas, 0, 0);
+    }
+
+    if (this._replayBoard.selectionOverlay) {
+      ctx.drawImage(
+        this._replayBoard.selectionOverlay,
+        -this._replayBoard.selectionOverlayPadding,
+        -this._replayBoard.selectionOverlayPadding
+      );
     }
 
     // 4. Draw the snapshot's top canvas overlay (active strokes at snapshot time)
@@ -1510,6 +2030,41 @@ export class ReplayEngine {
     }
 
     console.log('[ReplayEngine] Pre-loaded glitch results:', glitchResultCount, 'unique:', this._glitchResultCache.size);
+  }
+
+  /**
+   * Pre-load pasted image payloads so IMG_PASTE replay can restore
+   * floating selections synchronously.
+   * @param {Array} actions
+   * @param {number} upToTimestamp
+   * @private
+   */
+  async _preloadImagePastes(actions, upToTimestamp) {
+    this._imagePasteCache = new Map();
+    const loadPromises = [];
+
+    for (const action of actions) {
+      if (action.timestamp > upToTimestamp) break;
+      if (action.msg?.t !== T.IMG_PASTE || !action.msg.g) continue;
+
+      const imageKey = action.msg.g;
+      if (this._imagePasteCache.has(imageKey)) continue;
+
+      this._imagePasteCache.set(imageKey, null);
+      loadPromises.push(new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          this._imagePasteCache.set(imageKey, img);
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = imageKey;
+      }));
+    }
+
+    if (loadPromises.length > 0) {
+      await Promise.all(loadPromises);
+    }
   }
 
   /**
