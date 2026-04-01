@@ -2875,6 +2875,18 @@ export class DrawingApp {
       return;
     }
 
+    // Pointer moves are listened to on window so active drags can continue off-canvas.
+    // When the pointer is simply hovering outside the board, suppress local buffering
+    // and remote broadcasts so replay/history do not accumulate phantom cursor moves.
+    const hasActiveBoardInteraction =
+      this.self.mousedown ||
+      this.self.panning ||
+      this._containerPanActive ||
+      !!this.self._pendingTextPos;
+    if (!this.isOnBoard && !hasActiveBoardInteraction) {
+      return;
+    }
+
     const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
     const x = pos.x;
     const y = pos.y;
