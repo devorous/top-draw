@@ -531,6 +531,7 @@ export class RemoteUserHandler {
 
       case 'fill':
         if (!user.panning) {
+          this._invalidateFillPreview(user);
           this._drawFillPreview(user, pos);
         }
         break;
@@ -561,6 +562,7 @@ export class RemoteUserHandler {
     if (!user.mousedown) return;
     const pos = { x: user.x, y: user.y };
     user.remoteTarget = null;
+    this._invalidateFillPreview(user, !(user.tool === 'select' && user.floatingCanvas));
 
     const activeStrokeCtx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
 
@@ -572,10 +574,6 @@ export class RemoteUserHandler {
     const hadInkStroke = user._inkStrokeActive;
     if (hadInkStroke) {
       this.inkHandler.handleInkUp(user);
-    }
-
-    if (!(user.tool === 'select' && user.floatingCanvas)) {
-      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
 
     if (hadPenStroke || hadInkStroke) {
@@ -690,10 +688,6 @@ export class RemoteUserHandler {
     }
 
     this.board.compositeAllLayers();
-
-    if (!(user.tool === 'select' && user.floatingCanvas)) {
-      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-    }
 
     // Collect erased tiles before committing (for tile ownership check)
     let erasedTiles = null;
@@ -926,6 +920,21 @@ export class RemoteUserHandler {
   }
 
   /**
+   * Invalidate any in-flight async fill preview render and optionally clear
+   * the user's preview canvas immediately.
+   * @param {User} user
+   * @param {boolean} [clearCanvas=true]
+   * @returns {void}
+   */
+  _invalidateFillPreview(user, clearCanvas = true) {
+    if (!user) return;
+    user._fillPreviewToken = (user._fillPreviewToken || 0) + 1;
+    if (clearCanvas && user.context) {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
+  }
+
+  /**
    * Cancels a remote user's active stroke and cleans up state.
    *
    * @param {User} user - The remote user whose stroke is being cancelled.
@@ -938,7 +947,7 @@ export class RemoteUserHandler {
 
     this.board.layerManager.cancelUserStroke(user.activeLayer, user.id);
 
-    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    this._invalidateFillPreview(user);
     user.clearLine();
     user.mousedown = false;
     user.startPos = null;
@@ -1006,6 +1015,7 @@ export class RemoteUserHandler {
   async _drawFillPreview(user, pos) {
     const fillTool = this.toolManager.getTool('fill');
     if (!fillTool) return;
+    const previewToken = user._fillPreviewToken || 0;
 
     const width = this.board.getWidth();
     const height = this.board.getHeight();
@@ -1017,7 +1027,7 @@ export class RemoteUserHandler {
     let result = await fillTool._fillWorker.computeFill(
       imageData.data, width, height, x, y, 10, 0, null
     );
-    if (!result) return;
+    if (!result || previewToken !== (user._fillPreviewToken || 0) || !user.mousedown || user.tool !== 'fill') return;
 
     // Apply tile constraint if fill is too large (same logic as local FloodFillTool)
     if (fillTool._isFillTooLarge(result, width, height)) {
@@ -1036,6 +1046,8 @@ export class RemoteUserHandler {
         return; // No tiles occupied, can't allow huge fill
       }
     }
+
+    if (previewToken !== (user._fillPreviewToken || 0) || !user.mousedown || user.tool !== 'fill') return;
 
     const { mask, minX, minY, maxX, maxY } = result;
     const regionW = maxX - minX + 1;
@@ -1070,6 +1082,7 @@ export class RemoteUserHandler {
       }
     }
 
+    user.context.clearRect(0, 0, width, height);
     user.context.putImageData(imgData, minX, minY);
   }
 

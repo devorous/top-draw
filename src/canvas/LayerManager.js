@@ -1282,6 +1282,7 @@ export class LayerManager {
   _applyBlurFilter(ctx, filterStroke, isActive) {
     const { maskCanvas, blurRadius, x, y, width, height } = filterStroke;
     if (!maskCanvas || !blurRadius) return;
+    const preferStableReplayBlur = this.useStableReplayBlur === true && filterStroke.filterType === 'blur';
 
     // Helper to render the fast preview
     const renderFastPreview = () => {
@@ -1340,6 +1341,36 @@ export class LayerManager {
       ctx.globalCompositeOperation = 'source-over';
       ctx.drawImage(filterStroke._cachedPreview, x, y);
       ctx.restore();
+      return;
+    }
+
+    if (preferStableReplayBlur) {
+      const stableCanvas = document.createElement('canvas');
+      stableCanvas.width = width;
+      stableCanvas.height = height;
+      const stableCtx = stableCanvas.getContext('2d');
+
+      const stableBlurRadius = blurRadius * 0.5;
+      const margin = Math.ceil(stableBlurRadius * 2);
+      const cropX = Math.max(0, x - margin);
+      const cropY = Math.max(0, y - margin);
+      const cropW = Math.min(this.width - cropX, width + margin * 2);
+      const cropH = Math.min(this.height - cropY, height + margin * 2);
+
+      if (cropW > 0 && cropH > 0) {
+        stableCtx.filter = `blur(${stableBlurRadius}px)`;
+        stableCtx.drawImage(ctx.canvas, cropX, cropY, cropW, cropH, cropX - x, cropY - y, cropW, cropH);
+        stableCtx.filter = 'none';
+        stableCtx.globalCompositeOperation = 'destination-in';
+        stableCtx.drawImage(maskCanvas, x, y, width, height, 0, 0, width, height);
+
+        filterStroke._cachedBlurResult = stableCanvas;
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(stableCanvas, x, y);
+        ctx.restore();
+      }
       return;
     }
 

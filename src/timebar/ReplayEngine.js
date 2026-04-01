@@ -423,6 +423,7 @@ export class ReplayEngine {
   _initReplaySystem() {
     // Real board facade with real LayerManager
     this._replayBoard = new ReplayBoard(this.width, this.height);
+    this._replayBoard.layerManager.useStableReplayBlur = true;
 
     // Set localUserId to a non-matching value so all glitchBlur strokes are
     // treated as "remote" and wait for GLITCH_RESULT instead of computing WASM
@@ -438,14 +439,21 @@ export class ReplayEngine {
         if (!user) return;
         user.setPosition(x, y);
         if (size !== undefined) user.setSize(size);
+        this._syncReplayTextPreview(user);
       },
       updateRemoteColor: (id, color) => {
         const user = this.botUsers.get(id);
-        if (user && color) user.setColor(color);
+        if (user && color) {
+          user.setColor(color);
+          this._syncReplayTextPreview(user);
+        }
       },
       updateRemoteSize: (id, size) => {
         const user = this.botUsers.get(id);
-        if (user && size !== undefined) user.setSize(size);
+        if (user && size !== undefined) {
+          user.setSize(size);
+          this._syncReplayTextPreview(user);
+        }
       },
       updateRemoteName: (id, name) => {
         const user = this.botUsers.get(id);
@@ -453,17 +461,31 @@ export class ReplayEngine {
       },
       updateRemoteToolDisplay: (id, tool) => {
         const user = this.botUsers.get(id);
-        if (user && tool) user.setTool(tool);
+        if (user && tool) {
+          user.setTool(tool);
+          this._syncReplayTextPreview(user);
+        }
       },
       hideRemoteCursor: () => {},
       showRemoteCursor: () => {},
       createRemoteUser: () => {},
-      removeRemoteUser: () => {},
+      removeRemoteUser: (id) => {
+        const user = this.botUsers.get(id);
+        if (!user?.context) return;
+        user.context.clearRect(0, 0, this.width, this.height);
+      },
       createUserBoard: () => ({ board: document.createElement('canvas'), context: document.createElement('canvas').getContext('2d') }),
-      setRemoteTextDomVisible: () => {},
+      setRemoteTextDomVisible: (id) => {
+        const user = this.botUsers.get(id);
+        if (!user) return;
+        this._syncReplayTextPreview(user);
+      },
       updateRemoteText: (id, text) => {
         const user = this.botUsers.get(id);
-        if (user && text !== undefined) user.text = text;
+        if (user && text !== undefined) {
+          user.text = text;
+          this._syncReplayTextPreview(user);
+        }
       },
       setRemoteUserAfk: (id, afk) => {
         const user = this.botUsers.get(id);
@@ -506,6 +528,21 @@ export class ReplayEngine {
     // Disable the catchup loop — replay drives all drawing synchronously
     this._remoteHandler.startCatchupLoop = () => {};
     this._remoteHandler.tickCatchup = () => {};
+  }
+
+  /**
+   * Mirror in-progress text previews onto the bot preview canvas so replay can
+   * display text typing even though it has no DOM overlay layer.
+   * @param {User} user
+   * @private
+   */
+  _syncReplayTextPreview(user) {
+    if (!user?.context) return;
+    user.context.clearRect(0, 0, this.width, this.height);
+
+    const hasBlendMode = user.blendMode && user.blendMode !== 'source-over';
+    if (user.tool !== 'text' || !user.text || !hasBlendMode) return;
+    this._remoteHandler?._renderRemoteTextToCanvas?.(user);
   }
 
   /**
@@ -583,8 +620,17 @@ export class ReplayEngine {
    * @private
    */
   async _importStrokeData(groupIdx, data) {
-    const canvas = await this._loadImageToNewCanvas(data.imageData, data.width, data.height);
+    const canvasWidth = data.canvasWidth ?? data.width;
+    const canvasHeight = data.canvasHeight ?? data.height;
+    const canvas = await this._loadImageToNewCanvas(data.imageData, canvasWidth, canvasHeight);
     if (!canvas) return;
+
+    let maskCanvas = null;
+    if (data.maskCanvasData) {
+      const maskCanvasWidth = data.maskCanvasWidth ?? canvasWidth;
+      const maskCanvasHeight = data.maskCanvasHeight ?? canvasHeight;
+      maskCanvas = await this._loadImageToNewCanvas(data.maskCanvasData, maskCanvasWidth, maskCanvasHeight);
+    }
 
     const record = {
       canvas,
@@ -600,6 +646,9 @@ export class ReplayEngine {
       blurRadius: data.blurRadius,
       affectedTiles: data.affectedTiles
     };
+    if (data.filterType) {
+      record.maskCanvas = maskCanvas || canvas;
+    }
     this._replayBoard.layerManager.importStroke(groupIdx, record);
   }
 
@@ -608,8 +657,17 @@ export class ReplayEngine {
    * @private
    */
   async _importRedoStrokeData(userId, batchIdx, groupIdx, data) {
-    const canvas = await this._loadImageToNewCanvas(data.imageData, data.width, data.height);
+    const canvasWidth = data.canvasWidth ?? data.width;
+    const canvasHeight = data.canvasHeight ?? data.height;
+    const canvas = await this._loadImageToNewCanvas(data.imageData, canvasWidth, canvasHeight);
     if (!canvas) return;
+
+    let maskCanvas = null;
+    if (data.maskCanvasData) {
+      const maskCanvasWidth = data.maskCanvasWidth ?? canvasWidth;
+      const maskCanvasHeight = data.maskCanvasHeight ?? canvasHeight;
+      maskCanvas = await this._loadImageToNewCanvas(data.maskCanvasData, maskCanvasWidth, maskCanvasHeight);
+    }
 
     const record = {
       canvas,
@@ -625,6 +683,9 @@ export class ReplayEngine {
       blurRadius: data.blurRadius,
       affectedTiles: data.affectedTiles
     };
+    if (data.filterType) {
+      record.maskCanvas = maskCanvas || canvas;
+    }
     this._replayBoard.layerManager.importRedoStroke(userId, batchIdx, groupIdx, record);
   }
 
@@ -1122,6 +1183,7 @@ export class ReplayEngine {
       opacity: botOpacity,
       size: state.size || 10,
       tool: state.tool || 'brush',
+      text: state.text || '',
       pressure: state.pressure ?? 1,
       thinning: state.thinning ?? 0.5,
       simulatePressure: state.simulatePressure ?? true,
@@ -1165,6 +1227,7 @@ export class ReplayEngine {
 
     bot.mousedown = !!state.mousedown;
     bot.panning = !!state.panning;
+    bot.text = state.text ?? bot.text ?? '';
     bot.startPos = state.startPos ? { ...state.startPos } : null;
     bot.currentLine = Array.isArray(state.currentLine) ? state.currentLine.map((pt) => ({ ...pt })) : [];
     bot.lineLength = state.lineLength ?? 0;
@@ -1188,6 +1251,8 @@ export class ReplayEngine {
     if (state.previewCanvasData && bot.context) {
       await this._loadImageToCanvas(bot.context, state.previewCanvasData);
     }
+
+    this._syncReplayTextPreview(bot);
 
     if (state.penOffscreenData) {
       const canvas = document.createElement('canvas');
@@ -1511,6 +1576,10 @@ export class ReplayEngine {
           if (msg.l !== undefined) {
             const newTool = ToolNames[msg.l] || 'brush';
             user.setTool(newTool);
+            if (newTool === 'blur' && user.context) {
+              user.context.clearRect(0, 0, this.width, this.height);
+            }
+            this._syncReplayTextPreview(user);
           }
           if (msg.a !== undefined) {
             user.eraseAllLayers = msg.a;
@@ -1527,12 +1596,14 @@ export class ReplayEngine {
               1 // Set color alpha to 1, use user.opacity for the actual transparency
             ]);
             user.setOpacity((c & 0xFF) / 255);
+            this._syncReplayTextPreview(user);
           }
           break;
 
         case T.CS:
           if (msg.s !== undefined) {
             user.setSize(msg.s / 100);
+            this._syncReplayTextPreview(user);
           }
           break;
 
@@ -1575,6 +1646,7 @@ export class ReplayEngine {
         case T.CBM:
           if (msg.bm !== undefined) {
             user.setBlendMode(msg.bm);
+            this._syncReplayTextPreview(user);
           }
           break;
 
@@ -1629,7 +1701,11 @@ export class ReplayEngine {
 
         case T.KP:
           if (msg.k !== undefined) {
+            if (user.tool !== 'text') {
+              user.setTool('text');
+            }
             this._remoteHandler.handleKeyPress(user, msg.k);
+            this._syncReplayTextPreview(user);
           }
           break;
 
@@ -1802,12 +1878,16 @@ export class ReplayEngine {
 
     //  Draw per-user preview canvases (in-progress strokes / shape previews)
     for (const user of this.botUsers.values()) {
+      if (user.tool === 'blur') {
+        continue;
+      }
+
       if (user.board) {
         const blendMode = user.blendMode || 'source-over';
         ctx.save();
         
-        // Handle CSS filter for blur tools to avoid showing raw mask stamps
-        if (user.tool === 'blur' || user.tool === 'glitchBlur') {
+        // Glitch blur still uses a dedicated preview canvas in replay.
+        if (user.tool === 'glitchBlur') {
           const radius = user.blurRadius || 5;
           ctx.filter = `blur(${radius * 0.5}px)`;
         }
@@ -1820,6 +1900,10 @@ export class ReplayEngine {
         
         ctx.drawImage(user.board, 0, 0);
         ctx.restore();
+      }
+
+      if (user.tool === 'text' && user.text && (!user.blendMode || user.blendMode === 'source-over')) {
+        this._drawReplayTextPreview(ctx, user);
       }
     }
 
@@ -1839,6 +1923,25 @@ export class ReplayEngine {
     if (this.topCanvas) {
       ctx.drawImage(this.topCanvas, 0, 0);
     }
+  }
+
+  /**
+   * Draw the floating text preview directly into the replay output for normal
+   * blend mode, matching the live remote cursor text behavior.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {User} user
+   * @private
+   */
+  _drawReplayTextPreview(ctx, user) {
+    const fontSize = user.size + 5;
+    const opacity = user.opacity !== undefined ? user.opacity : 1;
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.fillStyle = user.getColorString();
+    ctx.font = `${fontSize}px Newsreader, serif`;
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(user.text, user.x + 5, user.y + (fontSize * 0.66) - 3);
+    ctx.restore();
   }
 
   /**

@@ -274,6 +274,11 @@ class TimeMachineState {
     const history = this._board.layerManager?.layerGroups.map(group => {
       return group.strokeStack.map(stroke => ({
         imageData: stroke.canvas.toDataURL('image/png'),
+        canvasWidth: stroke.canvas.width,
+        canvasHeight: stroke.canvas.height,
+        maskCanvasData: stroke.maskCanvas ? serializeCanvasData(stroke.maskCanvas) : null,
+        maskCanvasWidth: stroke.maskCanvas?.width ?? null,
+        maskCanvasHeight: stroke.maskCanvas?.height ?? null,
         x: stroke.x,
         y: stroke.y,
         width: stroke.width,
@@ -297,6 +302,11 @@ class TimeMachineState {
             groupIdx,
             record: {
               imageData: record.canvas.toDataURL('image/png'),
+              canvasWidth: record.canvas.width,
+              canvasHeight: record.canvas.height,
+              maskCanvasData: record.maskCanvas ? serializeCanvasData(record.maskCanvas) : null,
+              maskCanvasWidth: record.maskCanvas?.width ?? null,
+              maskCanvasHeight: record.maskCanvas?.height ?? null,
               x: record.x,
               y: record.y,
               width: record.width,
@@ -381,6 +391,7 @@ class TimeMachineState {
           x: user.x ?? 0,
           y: user.y ?? 0,
           tool: user.tool || 'brush',
+          text: user.text || '',
           pressure: user.pressure ?? 1,
           thinning: user.thinning ?? 0.5,
           simulatePressure: user.simulatePressure ?? true,
@@ -797,6 +808,14 @@ class TimeMachineState {
       // Update color
       if (user.color) {
         ui.updateRemoteColor(botId, user.color);
+      }
+
+      if (user.tool === 'text') {
+        ui.updateRemoteText(botId, user.text || '');
+        ui.setRemoteTextDomVisible(botId, !(user.blendMode && user.blendMode !== 'source-over'));
+      } else {
+        ui.updateRemoteText(botId, '');
+        ui.setRemoteTextDomVisible(botId, true);
       }
     }
   }

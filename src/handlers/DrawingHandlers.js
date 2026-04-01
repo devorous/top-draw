@@ -241,6 +241,8 @@ export function setupDrawingHandlers(wrapHandler, app) {
     const user = users.get(data.sessionIndex);
     if (!user) return;
 
+    remoteUserHandler._invalidateFillPreview?.(user);
+
     const fillTool = app.toolManager.getTool('fill');
     if (!fillTool) return;
 
