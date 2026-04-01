@@ -374,22 +374,48 @@ export class ReplayEngine {
     // Real ToolManager with all tool instances
     this._toolManager = new ToolManager(this._replayBoard);
 
-    // Stub UI with no-op methods
+    // Minimal fake UI that feeds live handler updates back into replay bot state.
     const noopUI = {
-      updateRemoteCursor: () => {},
-      updateRemoteColor: () => {},
-      updateRemoteSize: () => {},
-      updateRemoteName: () => {},
-      updateRemoteToolDisplay: () => {},
+      updateRemoteCursor: (id, x, y, size) => {
+        const user = this.botUsers.get(id);
+        if (!user) return;
+        user.setPosition(x, y);
+        if (size !== undefined) user.setSize(size);
+      },
+      updateRemoteColor: (id, color) => {
+        const user = this.botUsers.get(id);
+        if (user && color) user.setColor(color);
+      },
+      updateRemoteSize: (id, size) => {
+        const user = this.botUsers.get(id);
+        if (user && size !== undefined) user.setSize(size);
+      },
+      updateRemoteName: (id, name) => {
+        const user = this.botUsers.get(id);
+        if (user && name !== undefined) user.setUsername(name);
+      },
+      updateRemoteToolDisplay: (id, tool) => {
+        const user = this.botUsers.get(id);
+        if (user && tool) user.setTool(tool);
+      },
       hideRemoteCursor: () => {},
       showRemoteCursor: () => {},
       createRemoteUser: () => {},
       removeRemoteUser: () => {},
       createUserBoard: () => ({ board: document.createElement('canvas'), context: document.createElement('canvas').getContext('2d') }),
       setRemoteTextDomVisible: () => {},
-      updateRemoteText: () => {},
-      setRemoteUserAfk: () => {},
-      updateRemoteUserRank: () => {},
+      updateRemoteText: (id, text) => {
+        const user = this.botUsers.get(id);
+        if (user && text !== undefined) user.text = text;
+      },
+      setRemoteUserAfk: (id, afk) => {
+        const user = this.botUsers.get(id);
+        if (user) user.setAfk(!!afk);
+      },
+      updateRemoteUserRank: (id, role) => {
+        const user = this.botUsers.get(id);
+        if (user && role !== undefined) user.role = role;
+      },
     };
 
     // Fake app object matching what RemoteUserHandler expects
@@ -480,7 +506,11 @@ export class ReplayEngine {
     // Create bot users from snapshot's user drawing states
     const userStates = snapshot.appState?.userDrawingStates || {};
     for (const [idStr, state] of Object.entries(userStates)) {
-      this._createBotUser(Number(idStr), state);
+      const bot = this._createBotUser(Number(idStr), state);
+      if (state.patternBrush) {
+        const loadedPattern = await this._loadPatternData(state.patternBrush);
+        this._applyPatternDataToUser(bot, loadedPattern);
+      }
     }
   }
 
@@ -579,6 +609,110 @@ export class ReplayEngine {
   }
 
   /**
+   * Extract the serialized pattern payload from a GPT action.
+   * Live websocket messages use `g`, while some replay code previously expected `pb`.
+   * @param {Object} msg
+   * @returns {string|Object|null}
+   * @private
+   */
+  _getPatternPayload(msg) {
+    return msg?.g ?? msg?.pb ?? null;
+  }
+
+  /**
+   * Load a pattern payload into a replay-ready object with images attached.
+   * @param {string|Object} patternDataInput
+   * @returns {Promise<Object|null>}
+   * @private
+   */
+  _loadPatternData(patternDataInput) {
+    return new Promise((resolve) => {
+      if (!patternDataInput) {
+        resolve(null);
+        return;
+      }
+
+      let patternData;
+      try {
+        patternData = typeof patternDataInput === 'string'
+          ? JSON.parse(patternDataInput)
+          : JSON.parse(JSON.stringify(patternDataInput));
+      } catch (e) {
+        resolve(null);
+        return;
+      }
+
+      const brushData = patternData?.brush;
+      if (!brushData) {
+        resolve(null);
+        return;
+      }
+
+      if (brushData.image || (brushData.type === 'gih' && brushData.images?.length > 0)) {
+        resolve(patternData);
+        return;
+      }
+
+      if ((brushData.type === 'gbr' || brushData.type === 'image' || brushData.type === 'svg') && brushData.gimpUrl) {
+        const image = new Image();
+        image.onload = () => {
+          brushData.image = image;
+          resolve(patternData);
+        };
+        image.onerror = () => resolve(null);
+        image.src = brushData.gimpUrl;
+        return;
+      }
+
+      if (brushData.type === 'gih' && brushData.gBrushes?.length > 0) {
+        let loadedCount = 0;
+        const totalImages = brushData.gBrushes.length;
+        const images = brushData.gBrushes.map((brush) => {
+          const img = new Image();
+          img.onload = () => {
+            loadedCount++;
+            if (loadedCount === totalImages) {
+              brushData.images = images;
+              resolve(patternData);
+            }
+          };
+          img.onerror = () => {
+            loadedCount++;
+            if (loadedCount === totalImages) resolve(null);
+          };
+          img.src = brush.gimpUrl;
+          return img;
+        });
+        return;
+      }
+
+      resolve(patternData);
+    });
+  }
+
+  /**
+   * Apply a loaded pattern payload to a replay bot without re-triggering async loads.
+   * @param {User} user
+   * @param {Object|null} patternData
+   * @private
+   */
+  _applyPatternDataToUser(user, patternData) {
+    const brushData = patternData?.brush;
+    if (!user || !brushData) return;
+
+    user.patternScale = patternData.scale ?? 100;
+    user.patternRotation = patternData.rotation ?? 0;
+    user.patternSpacing = patternData.spacing ?? 0;
+    user.patternOffsetX = patternData.offsetX ?? 0;
+    user.patternOffsetY = patternData.offsetY ?? 0;
+    user.patternColorMode = patternData.colorMode ?? 'original';
+    user.patternBrush = brushData;
+
+    const patternTool = this._toolManager?.getTool('pattern');
+    if (patternTool) patternTool._tileCache.clear();
+  }
+
+  /**
    * Create or update a bot user with the given state.
    * Creates a full User object with per-user preview canvas, just like real remote users.
    * @private
@@ -608,6 +742,13 @@ export class ReplayEngine {
       simulatePressure: state.simulatePressure ?? true,
       blendMode: state.blendMode || 'source-over',
       activeLayer: state.activeLayer ?? 2,
+      patternMode: state.patternMode ?? false,
+      patternScale: state.patternScale ?? 100,
+      patternRotation: state.patternRotation ?? 0,
+      patternSpacing: state.patternSpacing ?? 0,
+      patternOffsetX: state.patternOffsetX ?? 0,
+      patternOffsetY: state.patternOffsetY ?? 0,
+      patternColorMode: state.patternColorMode ?? 'original',
       spacing: state.spacing ?? 0,
       smoothing: state.smoothing ?? 15,
       hardness: state.hardness ?? 100
@@ -898,11 +1039,14 @@ export class ReplayEngine {
 
         case T.GPT:
           // Pattern images were pre-loaded into _patternCache by _preloadPatternImages().
-          if (msg.pb) {
-            const cached = this._patternCache?.get(msg.pb);
+          {
+            const patternPayload = this._getPatternPayload(msg);
+            const patternKey = typeof patternPayload === 'string'
+              ? patternPayload
+              : (patternPayload ? JSON.stringify(patternPayload) : null);
+            const cached = patternKey ? this._patternCache?.get(patternKey) : null;
             if (cached) {
-              user.patternBrush = cached;
-              this._remoteHandler.handlePatternBrushLoad(user, msg.pb);
+              this._applyPatternDataToUser(user, cached);
             }
           }
           break;
@@ -1145,31 +1289,24 @@ export class ReplayEngine {
 
     for (const action of actions) {
       if (action.timestamp > upToTimestamp) break;
-      if (action.msg?.t !== T.GPT || !action.msg.pb) continue;
+      if (action.msg?.t !== T.GPT) continue;
 
-      const patternDataStr = action.msg.pb;
-      if (this._patternCache.has(patternDataStr)) continue;
+      const patternPayload = this._getPatternPayload(action.msg);
+      if (!patternPayload) continue;
 
-      let patternData;
-      try {
-        patternData = JSON.parse(patternDataStr);
-      } catch (e) {
-        continue;
-      }
+      const patternKey = typeof patternPayload === 'string'
+        ? patternPayload
+        : JSON.stringify(patternPayload);
+      if (this._patternCache.has(patternKey)) continue;
 
-      if (patternData.url) {
-        this._patternCache.set(patternDataStr, null);
-        loadPromises.push(new Promise((resolve) => {
-          const image = new Image();
-          image.onload = () => {
-            patternData.image = image;
-            this._patternCache.set(patternDataStr, patternData);
-            resolve();
-          };
-          image.onerror = () => resolve();
-          image.src = patternData.url;
-        }));
-      }
+      this._patternCache.set(patternKey, null);
+      loadPromises.push(
+        this._loadPatternData(patternPayload).then((patternData) => {
+          if (patternData) {
+            this._patternCache.set(patternKey, patternData);
+          }
+        })
+      );
     }
 
     if (loadPromises.length > 0) {

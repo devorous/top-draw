@@ -20,6 +20,28 @@ class Snapshot {
   }
 }
 
+function serializePatternBrushState(user) {
+  if (!user?.patternBrush) return null;
+
+  const brush = { ...user.patternBrush };
+  delete brush.image;
+  delete brush.images;
+  delete brush.reset;
+  delete brush.getNextBrush;
+  delete brush.index;
+  delete brush.ncells;
+
+  return {
+    brush,
+    scale: user.patternScale ?? 100,
+    rotation: user.patternRotation ?? 0,
+    spacing: user.patternSpacing ?? 0,
+    offsetX: user.patternOffsetX ?? 0,
+    offsetY: user.patternOffsetY ?? 0,
+    colorMode: user.patternColorMode ?? 'original'
+  };
+}
+
 /**
  * TimeMachine manages recording and replaying of board state and user actions.
  */
@@ -289,6 +311,14 @@ class TimeMachineState {
           simulatePressure: user.simulatePressure ?? true,
           blendMode: user.blendMode || 'source-over',
           activeLayer: user.activeLayer ?? 2,
+          patternMode: user.patternMode ?? false,
+          patternBrush: serializePatternBrushState(user),
+          patternScale: user.patternScale ?? 100,
+          patternRotation: user.patternRotation ?? 0,
+          patternSpacing: user.patternSpacing ?? 0,
+          patternOffsetX: user.patternOffsetX ?? 0,
+          patternOffsetY: user.patternOffsetY ?? 0,
+          patternColorMode: user.patternColorMode ?? 'original',
           spacing: user.spacing ?? 0,
           smoothing: user.smoothing ?? 15,
           hardness: user.hardness ?? 100

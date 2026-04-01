@@ -201,6 +201,20 @@ export class PatternTool extends Tool {
     ctx.globalAlpha = 1.0;
   }
 
+  _drawRemotePreview(user, maskCanvas) {
+    if (!user?.context) return;
+
+    const ctx = user.context;
+    ctx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+
+    const composite = this._buildPatternComposite(user, maskCanvas);
+    if (!composite) return;
+
+    ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
+    ctx.drawImage(composite, 0, 0);
+    ctx.globalAlpha = 1.0;
+  }
+
   /**
    * Generates a single tile for the repeating pattern.
    * Standardizes size and adds user-defined padding (spacing).
@@ -413,6 +427,7 @@ export class PatternTool extends Tool {
     offscreen.ctx.arc(pos.x, pos.y, Math.max(0.5, radius), 0, Math.PI * 2);
     offscreen.ctx.fill();
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+    this._drawRemotePreview(user, offscreen.canvas);
   }
 
   remoteStampMask(user, ps) {
@@ -426,6 +441,7 @@ export class PatternTool extends Tool {
       offscreen.ctx.fill();
       offscreen.strokePoints.push(pos);
     }
+    this._drawRemotePreview(user, offscreen.canvas);
   }
 
   remoteEndStroke(user) {
@@ -444,6 +460,10 @@ export class PatternTool extends Tool {
 
     if (offscreen.strokePoints.length > 0) {
       this.board.markDirtyPath(user, offscreen.strokePoints, user.size);
+    }
+
+    if (user?.context) {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
 
     this.remoteOffscreens.delete(user.id);
