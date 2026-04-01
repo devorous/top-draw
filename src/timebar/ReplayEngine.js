@@ -1634,6 +1634,9 @@ export class ReplayEngine {
 
         case T.CS:
           if (msg.s !== undefined) {
+            if (user.mousedown && user.tool === 'brush' && !user._penStrokeActive && !user._inkStrokeActive) {
+              this._remoteHandler.commitLine(user, user.pressure, msg.s / 100);
+            }
             user.setSize(msg.s / 100);
             this._syncReplayTextPreview(user);
           }
@@ -1641,6 +1644,9 @@ export class ReplayEngine {
 
         case T.CP:
           if (msg.p !== undefined) {
+            if (user.mousedown && user.tool === 'brush' && !user._penStrokeActive && !user._inkStrokeActive) {
+              this._remoteHandler.commitLine(user, (msg.p ?? 100) / 100, user.size);
+            }
             user.setPressure((msg.p ?? 100) / 100);
           }
           break;

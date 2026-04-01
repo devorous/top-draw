@@ -1267,10 +1267,12 @@ class TimeMachineState {
 
       if (user.tool === 'text') {
         ui.updateRemoteText(botId, user.text || '');
-        ui.setRemoteTextDomVisible(botId, !(user.blendMode && user.blendMode !== 'source-over'));
+        // ReplayEngine already renders active text previews into the replay canvas.
+        // Keep the bot cursor's DOM text hidden so the preview doesn't appear twice.
+        ui.setRemoteTextDomVisible(botId, false);
       } else {
         ui.updateRemoteText(botId, '');
-        ui.setRemoteTextDomVisible(botId, true);
+        ui.setRemoteTextDomVisible(botId, false);
       }
     }
   }
