@@ -9,6 +9,16 @@ export function has_content(data: Uint8Array): boolean;
 
 export function init_panic_hook(): void;
 
+export function qoi_decode_tile(encoded: Uint8Array): Uint8Array;
+
+export function qoi_encode_tile(data: Uint8Array): Uint8Array;
+
+/**
+ * A specialized content check for QOI-encoded buffers.
+ * Returns true if the tile contains ANY pixel with Alpha > 0.
+ */
+export function qoi_has_content(encoded: Uint8Array): boolean;
+
 export function stackblur_rgba(pixels: Uint8Array, width: number, height: number, radius: number): Uint8Array;
 
 /**
@@ -24,6 +34,9 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly qoi_decode_tile: (a: number, b: number) => [number, number];
+    readonly qoi_encode_tile: (a: number, b: number) => [number, number];
+    readonly qoi_has_content: (a: number, b: number) => number;
     readonly apply_brush_hardness: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly stackblur_rgba: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly stackblur_rgba_glitch: (a: number, b: number, c: number, d: number, e: number) => [number, number];

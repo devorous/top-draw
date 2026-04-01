@@ -47,6 +47,45 @@ export function init_panic_hook() {
 }
 
 /**
+ * @param {Uint8Array} encoded
+ * @returns {Uint8Array}
+ */
+export function qoi_decode_tile(encoded) {
+    const ptr0 = passArray8ToWasm0(encoded, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.qoi_decode_tile(ptr0, len0);
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
+ * @param {Uint8Array} data
+ * @returns {Uint8Array}
+ */
+export function qoi_encode_tile(data) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.qoi_encode_tile(ptr0, len0);
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
+ * A specialized content check for QOI-encoded buffers.
+ * Returns true if the tile contains ANY pixel with Alpha > 0.
+ * @param {Uint8Array} encoded
+ * @returns {boolean}
+ */
+export function qoi_has_content(encoded) {
+    const ptr0 = passArray8ToWasm0(encoded, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.qoi_has_content(ptr0, len0);
+    return ret !== 0;
+}
+
+/**
  * @param {Uint8Array} pixels
  * @param {number} width
  * @param {number} height

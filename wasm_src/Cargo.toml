@@ -10,3 +10,4 @@ crate-type = ["cdylib"] # Tells Rust to make a Wasm library
 wasm-bindgen = "0.2"
 stackblur-iter = "0.2.0"
 console_error_panic_hook = "0.1.7"
+qoi = "0.4.1"

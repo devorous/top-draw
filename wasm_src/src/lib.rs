@@ -4,10 +4,12 @@ use wasm_bindgen::prelude::*;
 // Declare your sub-modules
 pub mod pixels;
 pub mod blur;
+pub mod qoi;
 
 // Re-export the functions so wasm-bindgen can see them at the top level
 pub use crate::pixels::*;
 pub use crate::blur::*;
+pub use crate::qoi::*;
 
 #[wasm_bindgen]
 pub fn init_panic_hook() {
