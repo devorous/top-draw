@@ -182,6 +182,59 @@ export async function revokeModAction(actionId, revokedById) {
 }
 
 /**
+ * Revokes all active moderation actions matching the provided target filters.
+ * @param {Object} opts
+ * @param {'mute'|'ban'} opts.type
+ * @param {string|null} [opts.targetUserId]
+ * @param {string|null} [opts.targetIp]
+ * @param {string|null} [opts.targetUsername]
+ * @param {string|null} [opts.roomId]
+ * @param {string|null} [opts.revokedById]
+ * @returns {Promise<number>} - Number of actions revoked.
+ */
+export async function revokeMatchingModActions({
+  type,
+  targetUserId = null,
+  targetIp = null,
+  targetUsername = null,
+  roomId = null,
+  revokedById = null
+}) {
+  const db = getDB();
+  if (!db) return 0;
+
+  const conditions = [];
+  if (targetUserId) conditions.push({ targetUserId });
+  if (targetIp) conditions.push({ targetIp });
+  if (targetUsername) conditions.push({ targetUsername });
+  if (conditions.length === 0) return 0;
+
+  const roomCondition = roomId
+    ? { $or: [{ roomId }, { roomId: null }] }
+    : { roomId: null };
+
+  const result = await db.collection('moderation').updateMany(
+    {
+      type,
+      active: true,
+      $and: [
+        { $or: conditions },
+        roomCondition
+      ]
+    },
+    {
+      $set: {
+        active: false,
+        revokedAt: new Date(),
+        revokedBy: revokedById
+      }
+    }
+  );
+
+  return result.modifiedCount || 0;
+}
+
+/**
  * Retrieves moderation entries with optional history and search filters.
  * @param {Object} [opts] - Filter options.
  * @param {boolean} [opts.showHistory=false] - Whether to include inactive entries.

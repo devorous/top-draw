@@ -920,6 +920,13 @@ export class UI {
     this.elements.selfListUser.textContent = name;
   }
 
+  setSelfUserMuted(muted) {
+    const entry = this.elements.selfUserEntry;
+    const userEl = this.elements.selfListUser;
+    if (entry) entry.classList.toggle('muted', !!muted);
+    if (userEl) userEl.classList.toggle('muted', !!muted);
+  }
+
   /**
    * Updates the local tool icon in the user list.
    * @param {string} tool - Current tool name
@@ -1216,6 +1223,10 @@ export class UI {
 
   setRemoteUserAfk(userId, afk) {
     return this.remoteUserUI.setRemoteUserAfk(userId, afk);
+  }
+
+  setRemoteUserMuted(userId, muted) {
+    return this.remoteUserUI.setRemoteUserMuted(userId, muted);
   }
 
   removeRemoteUser(userId) {

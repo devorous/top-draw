@@ -42,6 +42,11 @@ export class RemoteUserUI {
     if (entry) entry.style.display = display;
   }
 
+  _applyMutedStateToEntry(entry, userEl, muted) {
+    if (entry) entry.classList.toggle('muted', !!muted);
+    if (userEl) userEl.classList.toggle('muted', !!muted);
+  }
+
   setReplayModeActive(active) {
     this._replayModeActive = !!active;
 
@@ -264,6 +269,7 @@ export class RemoteUserUI {
     const nameEl = document.createElement('span');
     nameEl.className = 'listUser groupHeaderName';
     nameEl.textContent = displayUserData.name || displayUserData.username || displayUserId;
+    this._applyMutedStateToEntry(groupHeader, nameEl, displayUserData.isMuted);
 
     const countBadge = document.createElement('span');
     countBadge.className = 'groupCountBadge';
@@ -330,6 +336,8 @@ export class RemoteUserUI {
       if (srcName) {
         group.headerNameEl.textContent = srcName.textContent;
         group.headerNameEl.className = 'listUser groupHeaderName';
+        group.headerNameEl.classList.toggle('muted', srcName.classList.contains('muted'));
+        group.element.querySelector('.groupHeader')?.classList.toggle('muted', srcName.classList.contains('muted'));
         if (srcName.classList.contains('admin')) group.headerNameEl.classList.add('admin');
         else if (srcName.classList.contains('mod')) group.headerNameEl.classList.add('mod');
       }
@@ -379,6 +387,7 @@ export class RemoteUserUI {
       // Add glow class to entry row for Noble/Holy/Deity
       if (role >= 7) entry.classList.add(roleClass);
     }
+    this._applyMutedStateToEntry(entry, userEntry, userData.isMuted);
 
     const activeEntry = document.createElement('span');
     activeEntry.className = `listActive ${id}`;
@@ -570,6 +579,22 @@ export class RemoteUserUI {
     for (const [ipHash, group] of this.userGroups.entries()) {
       if (group.userIds.has(userId) && group.displayUserId === userId) {
         group.headerNameEl.textContent = name;
+        break;
+      }
+    }
+  }
+
+  setRemoteUserMuted(userId, muted) {
+    const id = `u${userId}`;
+    const entry = document.querySelector(`.userEntry.${id}`);
+    const userEl = document.querySelector(`.listUser.${id}`);
+    this._applyMutedStateToEntry(entry, userEl, muted);
+
+    for (const [ipHash, group] of this.userGroups.entries()) {
+      if (group.userIds.has(userId) && group.displayUserId === userId) {
+        const header = group.element.querySelector('.groupHeader');
+        this._applyMutedStateToEntry(header, group.headerNameEl, muted);
+        this._updateGroupSummary(ipHash);
         break;
       }
     }

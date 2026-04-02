@@ -455,4 +455,118 @@
   opacity: 0.5;
 }
 
+/* ========================================
+   Wipe Prompt
+   ======================================== */
+
+.modWipePrompt {
+  position: fixed;
+  width: 280px;
+  background: var(--bg-secondary);
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 1001;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+
+.modWipePrompt-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.modWipePrompt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 6px;
+}
+
+.modWipePrompt-title {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  strong {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+}
+
+.modWipePrompt-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+
+  &:hover {
+    color: var(--text-primary);
+  }
+}
+
+.modWipePrompt-text {
+  margin: 0;
+  padding: 0 12px 10px;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.modWipePrompt-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.modWipePrompt-btn {
+  flex: 1;
+  padding: 7px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all var(--transition-fast);
+
+  &:hover {
+    background: var(--bg-elevated);
+    border-color: var(--border-active);
+  }
+}
+
+.modWipePrompt-btn-danger {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.38);
+  color: #fca5a5;
+
+  &:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: #f87171;
+    color: #fecaca;
+  }
+}
+
+.modWipePrompt-timer {
+  height: 2px;
+  width: 100%;
+  background: #f87171;
+  opacity: 0.55;
+}
+
 

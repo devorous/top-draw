@@ -40,19 +40,24 @@ export function setupAuthModHandlers(wsClient, app) {
     // Update muted state on target user
     if (data.actionType === 1) {
       const targetUser = users.get(data.targetSessionIndex);
-      if (targetUser) targetUser.isMuted = true;
+      if (targetUser) {
+        targetUser.isMuted = true;
+        ui.setRemoteUserMuted?.(data.targetSessionIndex, true);
+      }
 
       // If we are the target, update self muted state
       if (data.targetSessionIndex === app.sessionIndex) {
         app.self.isMuted = true;
         ui.setMutedState(true);
+        ui.setSelfUserMuted?.(true);
         ui.showToast(`You have been muted${data.reason ? ': ' + data.reason : ''}`, 5000);
       }
     } else if (data.actionType === 3) {
       // Unmuted - find user by name since they might not have a session index in the notify
-      for (const [, u] of users) {
-        if (u.username === data.targetName) {
+      for (const [sessionIndex, u] of users) {
+        if (u.username === data.targetName || u.registeredName === data.targetName) {
           u.isMuted = false;
+          ui.setRemoteUserMuted?.(sessionIndex, false);
           break;
         }
       }
@@ -61,6 +66,7 @@ export function setupAuthModHandlers(wsClient, app) {
       if (data.targetSessionIndex === app.sessionIndex || data.targetName === app.self.username) {
         app.self.isMuted = false;
         ui.setMutedState(false);
+        ui.setSelfUserMuted?.(false);
         app._updateBlurCannotDraw();
         ui.showToast('You have been unmuted', 3000);
       }
@@ -140,11 +146,16 @@ export function setupAuthModHandlers(wsClient, app) {
     const targetName = data.targetName || `User ${targetIndex}`;
     const issuerName = data.issuerName || 'Moderator';
 
+    if (targetIndex === app.sessionIndex && typeof app.cancelCurrentStroke === 'function') {
+      app.cancelCurrentStroke();
+    }
+
     // Wipe all strokes from this user across all layers
     if (app.board?.layerManager) {
       const removed = app.board.layerManager.wipeUserStrokes(targetIndex);
       if (removed) {
-        app.board.composite();
+        app.board.compositeAllLayers();
+        app.board.requestUpdate();
       }
     }
 

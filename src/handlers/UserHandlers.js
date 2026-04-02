@@ -37,6 +37,12 @@ export function setupUserHandlers(wsClient, app) {
         if (userData.registeredName) {
           app.self.registeredName = userData.registeredName;
         }
+        if (userData.isMuted !== undefined && userData.isMuted !== app.self.isMuted) {
+          app.self.isMuted = !!userData.isMuted;
+          ui.setMutedState(app.self.isMuted);
+          app._updateBlurCannotDraw?.();
+          ui.setSelfUserMuted?.(app.self.isMuted);
+        }
         if (userData.role !== undefined && userData.role !== app.self.role) {
           app.selfRole = userData.role;
           app.self.role = userData.role;
@@ -66,6 +72,7 @@ export function setupUserHandlers(wsClient, app) {
           afk: userData.afk || false,
           opacity: userData.color ? userData.color[3] : 1,
           role: userData.role || 0,
+          isMuted: !!userData.isMuted,
           ipHash: userData.iph || userData.ipHash || '',
           patternMode: userData.pm || userData.patternMode || false
         };
@@ -130,9 +137,14 @@ export function setupUserHandlers(wsClient, app) {
         if (userData.registeredName) {
           user.registeredName = userData.registeredName;
         }
+        if (userData.isMuted !== undefined && userData.isMuted !== user.isMuted) {
+          user.isMuted = !!userData.isMuted;
+          ui.setRemoteUserMuted?.(userData.sessionIndex, user.isMuted);
+        }
       }
 
       ui.setRemoteUserAfk(userData.sessionIndex, !!userData.afk);
+      ui.setRemoteUserMuted?.(userData.sessionIndex, !!userData.isMuted);
     });
 
     app.updateChatUserList();

@@ -39,6 +39,7 @@ export class Moderation {
     this.onClear = null;             // ()
     this.onToggleDevMode = null;     // ()
     this.onRoomRoleSet = null;       // (targetUserId, role)
+    this._wipePromptDismiss = null;
   }
 
   setRole(role) {
@@ -280,12 +281,14 @@ export class Moderation {
     const sessionIndex = this.targetSessionIndex;
     const user = this.targetUser;
     const ipHash = this.targetIpHash;
+    const anchorRect = this._getWipePromptAnchorRect(sessionIndex, ipHash);
     this.hideContextMenu();
 
     if (!sessionIndex && sessionIndex !== 0 && !ipHash) return;
 
     const isGroup = !!(ipHash && !sessionIndex && sessionIndex !== 0);
     const targetName = isGroup ? `Group ${ipHash}` : (user?.username || `User ${sessionIndex}`);
+    const targetUsername = user?.username || targetName;
 
     switch (action) {
       case 'profile':
@@ -336,6 +339,7 @@ export class Moderation {
           } else {
             if (this.onModAction) this.onModAction(1, sessionIndex, '', 60);
           }
+          this.showWipePromptAfterAction('Muted', targetName, isGroup, sessionIndex, ipHash, targetUsername, anchorRect);
           this.showReasonCard('mute', sessionIndex, targetName, isGroup, ipHash);
         }
         break;
@@ -347,6 +351,7 @@ export class Moderation {
         } else {
           if (this.onModAction) this.onModAction(0, sessionIndex, '', 0);
         }
+        this.showWipePromptAfterAction('Kicked', targetName, isGroup, sessionIndex, ipHash, targetUsername, anchorRect);
         this.showReasonCard('kick', sessionIndex, targetName, isGroup, ipHash);
         break;
       case 'ban':
@@ -356,9 +361,121 @@ export class Moderation {
         } else {
           if (this.onModAction) this.onModAction(2, sessionIndex, '', 0);
         }
+        this.showWipePromptAfterAction('Banned', targetName, isGroup, sessionIndex, ipHash, targetUsername, anchorRect);
         this.showReasonCard('ban', sessionIndex, targetName, isGroup, ipHash);
         break;
     }
+  }
+
+  _getWipePromptAnchorRect(sessionIndex, ipHash) {
+    if (ipHash) {
+      const groupHeader = document.querySelector(`.userGroup[data-ip-hash="${CSS.escape(ipHash)}"] .groupHeader`);
+      if (groupHeader) return groupHeader.getBoundingClientRect();
+    }
+
+    if (sessionIndex || sessionIndex === 0) {
+      const userEntry = document.querySelector(`.userEntry.u${sessionIndex}`);
+      if (userEntry) return userEntry.getBoundingClientRect();
+    }
+
+    const userList = document.getElementById('userList');
+    return userList?.getBoundingClientRect() || null;
+  }
+
+  showWipePromptAfterAction(actionLabel, targetName, isGroup, sessionIndex, ipHash, targetUsername, anchorRect) {
+    const existing = document.getElementById('modWipePrompt');
+    if (existing) existing.remove();
+    if (this._wipePromptDismiss) {
+      this._wipePromptDismiss();
+      this._wipePromptDismiss = null;
+    }
+
+    const card = document.createElement('div');
+    card.id = 'modWipePrompt';
+    card.className = 'modWipePrompt';
+    card.innerHTML = `
+      <div class="modWipePrompt-header">
+        <span class="modWipePrompt-title">${this.escapeHtml(actionLabel)} <strong>${this.escapeHtml(targetName)}</strong></span>
+        <button class="modWipePrompt-close" type="button" title="Dismiss">✕</button>
+      </div>
+      <p class="modWipePrompt-text">${isGroup ? `Wipe current strokes for ${this.escapeHtml(targetName)}?` : `Wipe ${this.escapeHtml(targetName)}'s current strokes?`}</p>
+      <div class="modWipePrompt-actions">
+        <button class="modWipePrompt-btn modWipePrompt-btn-danger" type="button">Wipe Now</button>
+        <button class="modWipePrompt-btn" type="button">Keep</button>
+      </div>
+      <div class="modWipePrompt-timer"></div>
+    `;
+    document.body.appendChild(card);
+
+    this._positionWipePrompt(card, anchorRect);
+    requestAnimationFrame(() => card.classList.add('modWipePrompt-visible'));
+
+    const closeBtn = card.querySelector('.modWipePrompt-close');
+    const wipeBtn = card.querySelector('.modWipePrompt-btn-danger');
+    const keepBtn = card.querySelectorAll('.modWipePrompt-btn')[1];
+    const timerBar = card.querySelector('.modWipePrompt-timer');
+    const AUTO_DISMISS_MS = 12000;
+
+    let dismissed = false;
+    const dismiss = () => {
+      if (dismissed) return;
+      dismissed = true;
+      clearTimeout(autoTimeout);
+      card.classList.remove('modWipePrompt-visible');
+      setTimeout(() => card.remove(), 250);
+      if (this._wipePromptDismiss === dismiss) {
+        this._wipePromptDismiss = null;
+      }
+    };
+    this._wipePromptDismiss = dismiss;
+
+    const wipe = () => {
+      if (isGroup) {
+        if (this.onModGroupAction) this.onModGroupAction('wipe', ipHash);
+      } else if (this.onModWipe) {
+        this.onModWipe(sessionIndex, targetUsername || targetName || '');
+      }
+      dismiss();
+    };
+
+    closeBtn?.addEventListener('click', dismiss);
+    keepBtn?.addEventListener('click', dismiss);
+    wipeBtn?.addEventListener('click', wipe);
+
+    requestAnimationFrame(() => {
+      timerBar.style.transition = `width ${AUTO_DISMISS_MS}ms linear`;
+      timerBar.style.width = '0%';
+    });
+    const autoTimeout = setTimeout(dismiss, AUTO_DISMISS_MS);
+  }
+
+  _positionWipePrompt(card, anchorRect) {
+    const margin = 10;
+    const cardRect = card.getBoundingClientRect();
+    const fallbackLeft = Math.max(margin, window.innerWidth - cardRect.width - margin);
+    const fallbackTop = 64;
+
+    if (!anchorRect) {
+      card.style.left = `${fallbackLeft}px`;
+      card.style.top = `${fallbackTop}px`;
+      return;
+    }
+
+    let left = anchorRect.left;
+    let top = anchorRect.bottom + 8;
+
+    if (left + cardRect.width > window.innerWidth - margin) {
+      left = window.innerWidth - cardRect.width - margin;
+    }
+    if (left < margin) left = margin;
+
+    if (top + cardRect.height > window.innerHeight - margin) {
+      const aboveTop = anchorRect.top - cardRect.height - 8;
+      top = aboveTop >= margin ? aboveTop : Math.max(margin, window.innerHeight - cardRect.height - margin);
+    }
+
+    card.style.left = `${left}px`;
+    card.style.top = `${top}px`;
   }
 
   // --- Reason Card (non-blocking, shown after instant action) ---

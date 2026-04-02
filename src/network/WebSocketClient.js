@@ -335,7 +335,8 @@ export class WebSocketClient {
           patternScale: u.patternScale,
           patternShape: u.patternShape,
           patternName: u.patternName,
-          registeredName: u.rn || ''
+          registeredName: u.rn || '',
+          isMuted: !!u.mt
         }));
         this.emit('users', { users });
         break;
@@ -1485,6 +1486,23 @@ export class WebSocketClient {
       modTarget: targetSessionIndex,
       modReason: reason || '',
       modDuration: duration || 0
+    });
+  }
+
+  /**
+   * Sends a revoke request for an existing moderation entry.
+   * `modReason` is repurposed here to carry the entry id for revoke actions.
+   * @param {number} actionType - 3=unmute, 4=unban
+   * @param {string} entryId - Moderation entry id to revoke
+   * @param {string} [targetName] - Target username for UI notifications/fallback lookup
+   * @returns {void}
+   */
+  sendModRevoke(actionType, entryId, targetName = '') {
+    this.send({
+      t: T.MOD_ACTION,
+      modActionType: actionType,
+      modTargetName: targetName || '',
+      modReason: entryId || ''
     });
   }
 

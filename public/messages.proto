@@ -168,6 +168,7 @@ message Msg {
     string pb = 23;     // Pattern brush data (JSON)
     bool   pm = 24;     // Pattern mode enabled
     string rn = 25;     // Registered name (original, without dedup suffix)
+    bool mt = 26;       // Whether the user is currently muted
   }
   repeated U us = 17;   // Users array
 

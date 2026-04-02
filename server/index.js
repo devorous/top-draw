@@ -11,7 +11,7 @@ import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGaller
 import { handleAuthLogin, handleAuthRegister, handleAuthMe } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
-import { issueModAction, revokeModAction, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
+import { issueModAction, revokeModAction, revokeMatchingModActions, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
 import { SessionManager, Role } from './SessionManager.js';
@@ -222,7 +222,8 @@ function mapUsersForBroadcast(users) {
     iph: u.ipHash,
     th: u.thinning,
     sim: u.simulatePressure,
-    rn: u.registeredName || ''
+    rn: u.registeredName || '',
+    mt: !!u.isMuted
   }));
 }
 
@@ -812,6 +813,10 @@ wss.on('connection', (ws, req) => {
             packColor([0, 0, 0, 1]),
             getIpHash(ws.clientIp)
           );
+          const createdUser = room.sessionManager.getUser(sessionIndex);
+          if (createdUser) {
+            createdUser.isMuted = !!ws.isMuted;
+          }
 
           sendTo(ws, { t: T.CONNECT, u: sessionIndex, authRole: ws.userRole, authUsername: username });
 
@@ -981,6 +986,11 @@ wss.on('connection', (ws, req) => {
 
           const targetUser = room.sessionManager.getUser(modTargetIndex);
           const targetName = data.modTargetName || targetWs?.username || targetUser?.name || `User ${modTargetIndex}`;
+          const targetRole = Math.max(targetWs?.userRole || 0, targetUser?.role || 0);
+
+          const rejectProtectedTarget = (message) => {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: message });
+          };
 
           try {
             const roomBroadcaster = createRoomBroadcaster(room);
@@ -988,6 +998,10 @@ wss.on('connection', (ws, req) => {
             console.log(`[Mod] MOD_ACTION received: type=${modActionType}, target=${modTargetIndex}, targetWs=${!!targetWs}`);
             switch (modActionType) {
               case 0: // Kick
+                if (targetRole > (ws.userRole || 0)) {
+                  rejectProtectedTarget('Cannot kick a user with a higher role than your own');
+                  break;
+                }
                 console.log(`[MOD] KICKING sessionIndex=${modTargetIndex}, targetWs=${!!targetWs}`);
                 roomBroadcaster({
                   t: T.MOD_NOTIFY,
@@ -1007,6 +1021,14 @@ wss.on('connection', (ws, req) => {
                 break;
 
               case 1: { // Mute
+                if (targetRole >= Role.MOD) {
+                  rejectProtectedTarget('Users with MOD rank or higher cannot be muted');
+                  break;
+                }
+                if (targetRole > (ws.userRole || 0)) {
+                  rejectProtectedTarget('Cannot mute a user with a higher role than your own');
+                  break;
+                }
                 const isGlobalMute = (ws.globalRole || 0) >= Role.HOLY;
                 if (getDB()) {
                   await issueModAction({
@@ -1024,7 +1046,14 @@ wss.on('connection', (ws, req) => {
                 if (targetWs) {
                   targetWs.isMuted = true;
                 }
+                if (targetUser) {
+                  targetUser.isMuted = true;
+                }
                 roomBroadcaster({ t: T.HIDE_CURSOR, u: modTargetIndex });
+                roomBroadcaster({
+                  t: T.USERS,
+                  us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+                });
                 roomBroadcaster({
                   t: T.MOD_NOTIFY,
                   modActionType: 1,
@@ -1037,6 +1066,10 @@ wss.on('connection', (ws, req) => {
               }
 
               case 2: { // Ban
+                if (targetRole > (ws.userRole || 0)) {
+                  rejectProtectedTarget('Cannot ban a user with a higher role than your own');
+                  break;
+                }
                 // Ban immunity: HOLY(7)+ can't be room-banned; room owner can't be banned from own room
                 if (targetWs?.globalRole >= Role.HOLY) {
                   sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Cannot ban users with global HOLY+ rank' });
@@ -1076,21 +1109,39 @@ wss.on('connection', (ws, req) => {
 
               case 3: // Unmute
                 if (getDB()) {
-                  const db = getDB();
-                  const activeMute = await db.collection('moderation').findOne({
-                    type: 'mute',
-                    active: true,
-                    targetUsername: targetName,
-                    $or: [{ roomId: room.id }, { roomId: null }]
-                  });
-                  if (activeMute) {
-                    await revokeModAction(activeMute._id.toString(), ws.userId);
+                  const revokeEntryId = (data.modReason || '').trim();
+                  const hasSpecificEntryId = /^[a-f0-9]{24}$/i.test(revokeEntryId);
+
+                  if (hasSpecificEntryId) {
+                    await revokeModAction(revokeEntryId, ws.userId);
+                  } else {
+                    await revokeMatchingModActions({
+                      type: 'mute',
+                      targetUserId: targetWs?.userId || null,
+                      targetIp: targetWs?.clientIp || null,
+                      targetUsername: targetName || null,
+                      roomId: room.id,
+                      revokedById: ws.userId
+                    });
                   }
                 }
+
+                let stillMuted = false;
                 if (targetWs) {
-                  targetWs.isMuted = false;
+                  const remainingMute = await checkMute(targetWs.userId || null, targetWs.clientIp || null, room.id);
+                  stillMuted = !!remainingMute && (targetWs.userRole || 0) < Role.MOD;
+                  targetWs.isMuted = stillMuted;
                 }
-                roomBroadcaster({ t: T.SHOW_CURSOR, u: modTargetIndex });
+                if (targetUser) {
+                  targetUser.isMuted = stillMuted;
+                }
+                if (!stillMuted) {
+                  roomBroadcaster({ t: T.SHOW_CURSOR, u: modTargetIndex });
+                }
+                roomBroadcaster({
+                  t: T.USERS,
+                  us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+                });
                 roomBroadcaster({
                   t: T.MOD_NOTIFY,
                   modActionType: 3,
@@ -1128,15 +1179,20 @@ wss.on('connection', (ws, req) => {
 
               case 4: // Unban
                 if (getDB()) {
-                  const db = getDB();
-                  const activeBan = await db.collection('moderation').findOne({
-                    type: 'ban',
-                    active: true,
-                    targetUsername: targetName,
-                    $or: [{ roomId: room.id }, { roomId: null }]
-                  });
-                  if (activeBan) {
-                    await revokeModAction(activeBan._id.toString(), ws.userId);
+                  const revokeEntryId = (data.modReason || '').trim();
+                  const hasSpecificEntryId = /^[a-f0-9]{24}$/i.test(revokeEntryId);
+
+                  if (hasSpecificEntryId) {
+                    await revokeModAction(revokeEntryId, ws.userId);
+                  } else {
+                    await revokeMatchingModActions({
+                      type: 'ban',
+                      targetUserId: targetWs?.userId || null,
+                      targetIp: targetWs?.clientIp || null,
+                      targetUsername: targetName || null,
+                      roomId: room.id,
+                      revokedById: ws.userId
+                    });
                   }
                 }
                 roomBroadcaster({
@@ -1680,6 +1736,7 @@ wss.on('connection', (ws, req) => {
               user.role = effectiveRole;
               user.name = uniqueName;
               user.registeredName = userDoc.username;
+              user.isMuted = !!ws.isMuted;
             }
 
             sendTo(ws, {
