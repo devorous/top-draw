@@ -81,11 +81,7 @@ export class Auth {
     // Consolidated buttons
     this.els.loginJoinBtn?.addEventListener('click', (e) => {
       e.preventDefault();
-      if (this.els.loginPassword?.value) {
-        this.handleLogin();
-      } else {
-        this.triggerJoin();
-      }
+      this.triggerJoin();
     });
 
     this.els.joinBtnLoggedIn?.addEventListener('click', (e) => {
@@ -118,11 +114,7 @@ export class Auth {
     this.els.loginPassword?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        if (this.els.loginPassword?.value) {
-          this.handleLogin();
-        } else {
-          this.triggerJoin();
-        }
+        this.triggerJoin();
       }
     });
 

@@ -185,10 +185,6 @@
 
         <!-- Top Toolbar -->
         <div class="boardBtns">
-          <a class="btn" id="recordBtn" title="Start Recording">
-            <span class="btnText">Record</span>
-          </a>
-
           <!-- Mobile Menu Toggle -->
           <button class="btn menuBtn" id="menuBtn" title="Menu">
             <span class="menuIcon">&#9776;</span>
@@ -208,6 +204,10 @@
 
           <!-- Always Visible Controls -->
           <div class="zoomGroup">
+            <a class="btn recordBtn" id="recordBtn" title="Start Recording" aria-label="Start recording">
+              <span class="recordGlyph" aria-hidden="true"></span>
+            </a>
+
             <div class="zoomBtns">
               <a class="btn" id="minusBtn" title="Zoom Out">-</a>
               <a class="btn" id="plusBtn" title="Zoom In">+</a>
@@ -217,16 +217,16 @@
           </div>
 
           <div class="right">
-            <a class="btn" id="inboxBtn" title="Messenger">
-              <span class="btnText">Inbox</span>
-              <span class="btnIcon" style="display: none;"><img src="/images/chat-icon.svg" alt="Messenger"></span>
-            </a>
-
             <div id="connectionStatus" class="connectionStatus" style="display: none;">
               <span class="connectionDot"></span>
               <span class="connectionText"></span>
               <span class="connectionRoom" id="connectionRoom"></span>
             </div>
+
+            <a class="btn" id="inboxBtn" title="Messenger">
+              <span class="btnText">Inbox</span>
+              <span class="btnIcon" style="display: none;"><img src="/images/chat-icon.svg" alt="Messenger"></span>
+            </a>
 
             <div class="saveUploadGroup">
               <a class="btn" id="uploadBtn" title="Upload Image">
@@ -235,24 +235,25 @@
               </a>
               <input type="file" id="imageUploadInput" accept="image/*" style="display: none;">
 
+              <a class="btn" id="chatBtn" title="Chat">
+                <span class="btnText">Chat</span>
+                <span class="btnIcon" style="display: none;"><img src="/images/chat-icon.svg" alt="Chat"></span>
+                <span class="chatBadge" id="chatBadge" style="display: none;"></span>
+              </a>
+
               <a class="btn" id="saveBtn" title="Save Image">
                 <span class="btnText">Save</span>
                 <span class="btnIcon" style="display: none;"><img src="/images/download-icon.svg" alt="Save"></span>
               </a>
             </div>
-
-            <a class="btn" id="chatBtn" title="Chat">
-              <span class="btnText">Chat</span>
-              <span class="btnIcon" style="display: none;"><img src="/images/chat-icon.svg" alt="Chat"></span>
-              <span class="chatBadge" id="chatBadge" style="display: none;"></span>
-            </a>
             <a class="btn accent" id="registerRoomBtn" style="display: none;">Register Room</a>
             <a class="btn" id="roomSettingsBtn" style="display: none;">Room Settings</a>
             <a class="btn" id="disconnectBtn" title="Exit Room">
               <span class="btnText">Exit Room</span>
               <span class="btnIcon" style="display: none;"><img src="/images/exit-icon.svg" alt="Exit"></span>
             </a>
-            </div>        </div>
+          </div>
+        </div>
 
         <!-- Save Mode Overlay -->
         <div id="saveModeOverlay" class="saveModeOverlay" style="display: none;">

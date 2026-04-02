@@ -293,6 +293,17 @@
   text-align: center;
 }
 
+.landingError {
+  margin-top: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
 #offlineBtn,
 #loginOfflineBtn {
   margin-top: clamp(0px, 2vh, 20px);
@@ -743,4 +754,3 @@
     max-height: 300px;
   }
 }
-

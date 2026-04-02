@@ -3,7 +3,8 @@
 import 'dotenv/config';
 import { MongoClient, ServerApiVersion } from 'mongodb';
 
-const uri = process.env.MONGODB_URI;
+const DEFAULT_LOCAL_URI = 'mongodb://127.0.0.1:27017';
+const DB_NAME = process.env.MONGODB_DB_NAME || 'Draw';
 
 let db = null;
 let client = null;
@@ -16,17 +17,21 @@ let client = null;
 export async function connectDB() {
   if (db) return db;
 
-  client = new MongoClient(uri, {
+  const uri = process.env.MONGODB_URI || DEFAULT_LOCAL_URI;
+  const isSrvUri = uri.startsWith('mongodb+srv://');
+  const clientOptions = isSrvUri ? {
     serverApi: {
       version: ServerApiVersion.v1,
       strict: true,
       deprecationErrors: true,
     }
-  });
+  } : {};
+
+  client = new MongoClient(uri, clientOptions);
 
   try {
     await client.connect();
-    db = client.db("Draw"); 
+    db = client.db(DB_NAME);
 
     await db.collection('users').createIndex(
       { username: 1 },
@@ -51,10 +56,10 @@ export async function connectDB() {
     await db.collection('messages').createIndex({ sender_id: 1, timestamp: -1 });
     await db.collection('messages').createIndex({ receiver_id: 1, timestamp: -1 });
 
-    console.log('Connected to MongoDB Atlas');
+    console.log(`[DB] Connected to MongoDB: ${uri} (${DB_NAME})`);
     return db;
   } catch (error) {
-    console.error('Failed to connect to MongoDB:', error);
+    console.error(`[DB] Failed to connect to MongoDB at ${uri}:`, error);
     throw error;
   }
 }

@@ -57,6 +57,8 @@ The app opens automatically at `http://localhost:3000`
 |----------|-------------|---------|
 | `VITE_WS_SERVER_URL` | WebSocket server URL | Same host |
 | `PORT` | Server port | 8000 |
+| `MONGODB_URI` | MongoDB connection string | `mongodb://127.0.0.1:27017` |
+| `MONGODB_DB_NAME` | Main app database name | `Draw` |
 
 ### Ports
 

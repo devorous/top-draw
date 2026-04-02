@@ -300,6 +300,7 @@ export class DrawingApp {
     window.app = this;
 
     this.setupEventListeners();
+    this.updateAuthenticatedActionVisibility();
     this.updateRecordingButtonState();
     setupWebSocketHandlers(this);
 
@@ -506,7 +507,10 @@ export class DrawingApp {
     if (elements.hudRedoBtn) elements.hudRedoBtn.addEventListener('click', () => this.handleRedo());
 
     elements.chatBtn.addEventListener('click', () => { appState.chatVisible = !appState.chatVisible; });
-    elements.inboxBtn.addEventListener('click', () => { appState.messengerVisible = !appState.messengerVisible; });
+    elements.inboxBtn.addEventListener('click', () => {
+      if (this.selfRole < 1) return;
+      appState.messengerVisible = !appState.messengerVisible;
+    });
     elements.selfListUser.addEventListener('click', () => this.handleRenameself());
 
     // Room settings button
@@ -1534,6 +1538,58 @@ export class DrawingApp {
   }
 
   /**
+   * Starts a room join from the landing page without waiting for discovery to connect.
+   * @param {string|null} [roomId=null] - Explicit room to join, or current landing selection.
+   * @param {string|null} [password=null] - Optional password to use for auth-on-connect.
+   * @returns {Promise<void>}
+   */
+  async startLandingJoin(roomId = null, password = null) {
+    let resolvedRoomId = roomId || this.landingPage?.els.roomIdInput?.value.trim() || this.landingPage?.selectedRoom || 'lobby';
+
+    if (resolvedRoomId !== 'lobby') {
+      if (!/^[a-zA-Z0-9_-]+$/.test(resolvedRoomId)) {
+        this.landingPage?.showError('Room name can only contain letters, numbers, dashes, and underscores');
+        return;
+      }
+      if (resolvedRoomId.length < 2 || resolvedRoomId.length > 20) {
+        this.landingPage?.showError('Room name must be 2-20 characters');
+        return;
+      }
+    }
+
+    let name = this.auth?.getJoinUsername();
+    if (!name) {
+      name = this.ui.elements.loginUsername?.value.trim();
+    }
+    if (!name) {
+      let tabId = sessionStorage.getItem('tabId');
+      if (!tabId) {
+        tabId = Math.random().toString(36).substring(2, 8);
+        sessionStorage.setItem('tabId', tabId);
+      }
+      name = `Guest-${tabId}`;
+    }
+
+    this.self.setUsername(name);
+
+    const pendingPassword = password ?? ((!this.auth?.isLoggedIn && this.ui.elements.loginPassword?.value) || '');
+    this._pendingPassword = pendingPassword || null;
+    this.landingPage?.clearError();
+
+    if (this.landingPage) {
+      this.landingPage.selectRoom(resolvedRoomId);
+      this.landingPage.hide();
+    }
+
+    const newPath = resolvedRoomId === 'offline' ? '/go/offline' : `/go/${resolvedRoomId}`;
+    if (window.location.pathname !== newPath) {
+      window.history.pushState({ room: resolvedRoomId }, '', newPath);
+    }
+
+    await this.handleRoomSelected(resolvedRoomId, password);
+  }
+
+  /**
    * Starts the application in offline (local-only) mode.
    */
   handleOffline() {
@@ -1627,6 +1683,7 @@ export class DrawingApp {
         this.moderation.setRole(role);
       }
       this.ui.updateSelfRole(role);
+      this.updateAuthenticatedActionVisibility(role);
     }
 
     if (this.landingPage) {
@@ -1656,7 +1713,6 @@ export class DrawingApp {
     if (this._pendingPassword && this.self.username) {
       this.wsClient.sendAuthLogin(this.self.username, this._pendingPassword);
       this._pendingPassword = null;
-      this.handleJoinAfterConnect();
       return;
     }
     this._pendingPassword = null;
@@ -1803,6 +1859,7 @@ export class DrawingApp {
 
     this.updateRoomSettingsButtonVisibility();
     this.updateGalleryButtonVisibility(role);
+    this.updateAuthenticatedActionVisibility(role);
 
     if (this.landingPage && this.landingPage.isVisible) {
       this.landingPage.isAuthenticated = true;
@@ -1884,19 +1941,26 @@ export class DrawingApp {
   handleAuthError(error) {
     if (this.isOfflineMode) return;
 
-    this.ui.showToast(error, 4000, 'error');
-
     if (this.landingPage) {
       this.syncClient.hideOverlay();
       this.landingPage.show();
+      this.landingPage.showError(error);
       this.ui.elements.overlay.style.display = 'flex';
+      return;
     }
+
+    this.ui.showToast(error, 4000, 'error');
   }
 
   /**
    * Handles the join request from the login dialog.
    */
   handleJoin() {
+    if (this.landingPage && this.landingPage.isVisible) {
+      void this.startLandingJoin();
+      return;
+    }
+
     let name = this.auth?.getJoinUsername();
     if (!name) {
       name = this.ui.elements.loginUsername?.value.trim();
@@ -1913,11 +1977,6 @@ export class DrawingApp {
 
     const password = (!this.auth?.isLoggedIn && this.ui.elements.loginPassword?.value) || '';
     this._pendingPassword = password || null;
-
-    if (this.landingPage && this.landingPage.isVisible) {
-      this.landingPage.joinAsGuest();
-      return;
-    }
 
     this.connected = true;
     this.ui.hideOverlay();
@@ -2134,6 +2193,23 @@ export class DrawingApp {
     el.style.display = role >= 1 ? '' : 'none';
   }
 
+  updateAuthenticatedActionVisibility(role = this.selfRole) {
+    const isAuthenticated = role >= 1;
+    const { inboxBtn, uploadBtn } = this.ui.elements;
+
+    if (inboxBtn) {
+      inboxBtn.style.display = isAuthenticated ? '' : 'none';
+    }
+
+    if (uploadBtn) {
+      uploadBtn.style.display = isAuthenticated ? '' : 'none';
+    }
+
+    if (!isAuthenticated) {
+      appState.messengerVisible = false;
+    }
+  }
+
   updateRecordingButtonState() {
     const btn = this.ui?.elements?.recordBtn;
     if (!btn) return;
@@ -2141,24 +2217,19 @@ export class DrawingApp {
     const connectedToRoom = !!this.currentRoomId && !this.isOfflineMode;
     const waitingForSync = connectedToRoom && !!this.syncClient && !this.syncClient.hasCompletedSync;
 
-    btn.classList.toggle('accent', TimeMachine.isStarted);
+    btn.classList.toggle('is-recording', TimeMachine.isStarted);
     btn.classList.toggle('disabled', waitingForSync);
     btn.setAttribute('aria-disabled', waitingForSync ? 'true' : 'false');
 
-    const label = btn.querySelector('.btnText');
-    const text = TimeMachine.isStarted ? 'Recording' : 'Record';
-    if (label) {
-      label.textContent = text;
-    } else {
-      btn.textContent = text;
-    }
-
     if (TimeMachine.isStarted) {
       btn.title = 'Recording is active';
+      btn.setAttribute('aria-label', 'Stop recording');
     } else if (waitingForSync) {
       btn.title = 'Recording becomes available after room sync completes';
+      btn.setAttribute('aria-label', 'Recording unavailable until sync completes');
     } else {
       btn.title = 'Start Recording';
+      btn.setAttribute('aria-label', 'Start recording');
     }
   }
 
