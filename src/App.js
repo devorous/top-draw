@@ -1610,6 +1610,7 @@ export class DrawingApp {
     if (this.isOfflineMode) return;
 
     this.sessionIndex = sessionIndex;
+    appState.sessionIndex = sessionIndex;
     this.self.id = sessionIndex;
     this.users.set(sessionIndex, this.self);
 
@@ -2264,6 +2265,7 @@ export class DrawingApp {
     this.connected = false;
     this.isOfflineMode = false;
     this.sessionIndex = null;
+    appState.sessionIndex = null;
     if (this.self) this.self.id = null;
     this.currentRoomData = null;
 
@@ -2713,7 +2715,7 @@ export class DrawingApp {
       if (id !== this.sessionIndex) { // Exclude self
         userMap.set(id, {
           id,
-          username: user.name,
+          username: user.username || user.name || '',
           color: `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
           isSelf: false
         });
@@ -2847,7 +2849,7 @@ export class DrawingApp {
 
   handlePointerMove(e) {
     // Block local input while syncing
-    if (this.syncClient?.isSyncing()) return;
+    if (this.syncClient?.isSyncing() || this.syncClient?.isCanvasInputBlocked()) return;
 
     // Skip drawing during two-finger gestures
     if (this.touchHandler.state.isPinching || this.touchHandler.state.gestureStartedWithTwoFingers) {
@@ -3001,7 +3003,7 @@ export class DrawingApp {
     if (!this.connected && !this.isOfflineMode) return;
 
     // Block local input while syncing
-    if (this.syncClient?.isSyncing()) return;
+    if (this.syncClient?.isSyncing() || this.syncClient?.isCanvasInputBlocked()) return;
 
     // Skip drawing during two-finger gestures
     if (this.touchHandler.state.isPinching || this.touchHandler.state.gestureStartedWithTwoFingers) {
@@ -3229,6 +3231,7 @@ export class DrawingApp {
   }
 
   handlePointerUp(e) {
+    if (this.syncClient?.isCanvasInputBlocked()) return;
     // Pan tool: release clears panning
     if (this.self.tool === 'pan') {
       if (e.button === 0) {
@@ -3365,6 +3368,7 @@ export class DrawingApp {
   // boardContainer pointer handlers: pan by dragging the background (Space held or middle-click)
 
   handleBoardContainerPointerDown(e) {
+    if (this.syncClient?.isCanvasInputBlocked()) return;
     // Only handle events on the boardContainer background itself (not bubbled from canvas/children)
     if (e.target !== this.ui.elements.boardContainer) return;
 
@@ -3407,6 +3411,7 @@ export class DrawingApp {
   }
 
   handleBoardContainerPointerMove(e) {
+    if (this.syncClient?.isCanvasInputBlocked()) return;
     // Update select tool cursor when hovering over handles in the gray area
     if (this.self.tool === 'select' && !this._containerPanActive) {
       const selectToolLoader = this.toolManager.tools.select;
@@ -3426,6 +3431,7 @@ export class DrawingApp {
   }
 
   handleBoardContainerPointerUp(e) {
+    if (this.syncClient?.isCanvasInputBlocked()) return;
     if (!this._containerPanActive) return;
     this._containerPanActive = false;
 
@@ -3438,6 +3444,7 @@ export class DrawingApp {
   // Wheel/zoom handlers
 
   handleWheel(e) {
+    if (this.syncClient?.isCanvasInputBlocked()) return;
     e.preventDefault();
 
     if (this.self.panning || this.self.tool === 'pan' || this.self.tool === 'rotate') {
@@ -3626,6 +3633,7 @@ export class DrawingApp {
   }
 
   handleImageDrop(e) {
+    if (this.syncClient?.isCanvasInputBlocked()) return;
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       this.handleImageFile(e.dataTransfer.files[0]);

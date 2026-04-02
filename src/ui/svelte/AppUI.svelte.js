@@ -197,7 +197,11 @@ export function syncStoresFromApp(app) {
   if (app.self) {
     appState.currentColor = app.self.color || [0, 0, 0, 255];
     appState.activeLayer = app.self.activeLayer ?? 2;
-    appState.username = app.self.name || '';
+    appState.username = app.self.username || app.self.name || '';
+  }
+
+  if (app.sessionIndex !== undefined) {
+    appState.sessionIndex = app.sessionIndex;
   }
 
   if (app.currentRoomData) {
@@ -213,7 +217,7 @@ export function syncStoresFromApp(app) {
     app.users.forEach((user, id) => {
       userMap.set(id, {
         id,
-        username: user.name,
+        username: user.username || user.name || '',
         color: `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
         isSelf: id === app.sessionIndex
       });

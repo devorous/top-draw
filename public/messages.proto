@@ -272,6 +272,7 @@ message Msg {
 
   // === Extended Room Settings Fields (90+) ===
   string room_background_color = 90;  // ROOM_UPDATE: canvas background color (hex "#ffffff")
+  bool room_mod_inactive_immune = 91; // ROOM_UPDATE/SETTINGS: moderators ignore inactivity timeout
 
   // === Ink Thinning Fields ===
   uint32 th = 59;               // Thinning * 100 (0-100)

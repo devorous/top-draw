@@ -36,7 +36,7 @@ export const Role = {
   DEITY:   9,
 };
 
-const AFK_TIMEOUT = 2 * 60 * 1000;
+const AFK_TIMEOUT = 5 * 60 * 1000;
 const AFK_CHECK_INTERVAL = 30 * 1000;
 
 /**
@@ -47,13 +47,14 @@ export class SessionManager {
    * @param {function} broadcastCallback - Function to broadcast messages to all users.
    * @param {boolean} [isDiscovery=false] - Whether this manager is for a discovery/lobby room.
    */
-  constructor(broadcastCallback, isDiscovery = false) {
+  constructor(broadcastCallback, isDiscovery = false, options = {}) {
     this.sessions = new Map();
     this.users = new Map();
     this.nextSessionIndex = 0;
     this.freedIndices = [];
     this.broadcastToAll = broadcastCallback;
     this.isDiscovery = isDiscovery;
+    this.isImmuneToInactivity = options.isImmuneToInactivity || (() => false);
 
     this.afkCheckInterval = setInterval(() => this.checkAfkUsers(), AFK_CHECK_INTERVAL);
   }
@@ -181,19 +182,31 @@ export class SessionManager {
   }
 
   /**
-   * Updates a user's activity timestamp and clears their AFK status.
+   * Updates a user's activity timestamp.
+   * Once marked inactive, a user remains inactive until an explicit resync.
    * @param {number} sessionIndex - The session index of the user.
    */
   updateUserActivity(sessionIndex) {
     const user = this.users.get(sessionIndex);
     if (user) {
-      const wasAfk = user.afk;
       user.lastActivity = Date.now();
-      user.afk = false;
+    }
+  }
 
-      if (wasAfk) {
-        this.broadcastToAll({ t: T.AFK, u: sessionIndex, a: false });
-      }
+  /**
+   * Marks a user active again, clearing their inactive state.
+   * @param {number} sessionIndex - The session index of the user.
+   */
+  markUserActive(sessionIndex) {
+    const user = this.users.get(sessionIndex);
+    if (!user) return;
+
+    const wasAfk = user.afk;
+    user.lastActivity = Date.now();
+    user.afk = false;
+
+    if (wasAfk) {
+      this.broadcastToAll({ t: T.AFK, u: sessionIndex, a: false });
     }
   }
 
@@ -202,8 +215,18 @@ export class SessionManager {
    */
   checkAfkUsers() {
     const now = Date.now();
+    const joinedUsers = this.getJoinedUsers();
+    const shouldSuspendInactivity = joinedUsers.length <= 1;
+
     this.users.forEach((user, sessionIndex) => {
       if (!user.name) return;
+      if (shouldSuspendInactivity || this.isImmuneToInactivity(sessionIndex, user)) {
+        if (user.afk) {
+          user.afk = false;
+          this.broadcastToAll({ t: T.AFK, u: sessionIndex, a: false });
+        }
+        return;
+      }
       if (!user.afk && user.lastActivity && (now - user.lastActivity > AFK_TIMEOUT)) {
         user.afk = true;
         this.broadcastToAll({ t: T.AFK, u: sessionIndex, a: true });

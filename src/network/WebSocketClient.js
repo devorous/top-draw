@@ -345,7 +345,8 @@ export class WebSocketClient {
           mirror: data.m,
           backgroundColor: data.roomBackgroundColor,
           locked: data.roomLocked,
-          maxUsers: data.roomMaxUsers
+          maxUsers: data.roomMaxUsers,
+          modInactiveImmune: data.roomModInactiveImmune
         });
         break;
 

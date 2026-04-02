@@ -10,6 +10,7 @@
   let backgroundColor = $state('#ffffff');
   let locked = $state(false);
   let maxUsers = $state(40);
+  let modInactiveImmune = $state(false);
   let message = $state('');
   let messageType = $state('success');
   let showMessage = $state(false);
@@ -33,6 +34,7 @@
     ownerUsername = data.ownerUsername || 'Unregistered';
     locked = !!data.locked;
     maxUsers = data.maxUsers !== undefined ? data.maxUsers : 40;
+    modInactiveImmune = !!data.modInactiveImmune;
 
     if (board) {
       const [r, g, b] = board.backgroundColor;
@@ -72,7 +74,8 @@
             description: trimmedDesc,
             backgroundColor,
             locked,
-            maxUsers: clampedMaxUsers
+            maxUsers: clampedMaxUsers,
+            modInactiveImmune
           });
         }
       } else {
@@ -85,7 +88,8 @@
       roomDescription: trimmedDesc,
       roomBackgroundColor: backgroundColor,
       roomLocked: locked,
-      roomMaxUsers: clampedMaxUsers
+      roomMaxUsers: clampedMaxUsers,
+      roomModInactiveImmune: modInactiveImmune
     });
   }
 
@@ -232,6 +236,16 @@
               bind:checked={locked}
             />
             <span>Lock Room (prevent new users from joining)</span>
+          </label>
+        </div>
+
+        <div class="form-group checkbox-group">
+          <label>
+            <input
+              type="checkbox"
+              bind:checked={modInactiveImmune}
+            />
+            <span>Moderators are immune to the inactivity timeout</span>
           </label>
         </div>
       </div>

@@ -29,6 +29,7 @@ export function setupUserHandlers(wsClient, app) {
 
       if (userData.sessionIndex === app.sessionIndex) {
         // Authoritative update for SELF (e.g. if name was forced unique)
+        app.syncClient?.setInactive(!!userData.afk);
         if (username && username !== app.self.username) {
           app.self.setUsername(username);
           app.ui.updateSelfName(username);
@@ -182,6 +183,9 @@ export function setupUserHandlers(wsClient, app) {
     if (data.maxUsers !== undefined) {
       app.currentRoomData.maxUsers = data.maxUsers;
     }
+    if (data.modInactiveImmune !== undefined) {
+      app.currentRoomData.modInactiveImmune = data.modInactiveImmune;
+    }
     // Mirror is not persisted to DB, but update it locally
     app.currentRoomData.mirror = data.mirror;
   });
@@ -206,6 +210,10 @@ export function setupUserHandlers(wsClient, app) {
   });
 
   wsClient.on('afk', (data) => {
+    if (data.sessionIndex === app.sessionIndex) {
+      app.syncClient?.setInactive(data.afk);
+      return;
+    }
     const user = users.get(data.sessionIndex);
     if (user) {
       user.setAfk(data.afk);

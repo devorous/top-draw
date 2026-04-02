@@ -329,6 +329,21 @@ function sendTo(ws, payload) {
   }
 }
 
+const INACTIVE_FILTERED_TYPES = new Set([
+  T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC, T.CSP, T.CSM, T.CHD, T.CBR,
+  T.CL, T.CBM, T.PAN, T.CANCEL, T.KP, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP,
+  T.GPT, T.CPM, T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE,
+  T.SEL_FILL, T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_FLIP,
+  T.SEL_PENDING, T.IMG_PASTE, T.CLR, T.UNDO, T.REDO, T.FILL, T.CTHN,
+  T.CSIM, T.GLITCH_RESULT, T.TILE_UPDATE, T.TILE_CLEAR
+]);
+
+function shouldSkipInactiveRecipient(room, client, messageType) {
+  if (!room || !INACTIVE_FILTERED_TYPES.has(messageType)) return false;
+  const user = room.sessionManager.getUser(client.sessionIndex);
+  return !!user?.afk;
+}
+
 const MUTED_BLOCKED = new Set([
   T.MM, T.MD, T.MU, T.KP, T.CLR,
   T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL, T.SEL_STAMP, T.SEL_FLIP, T.SEL_CANCEL, T.SEL_TO_BRUSH,
@@ -622,6 +637,9 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
         return;
       }
       if (shouldBatch) {
+        if (shouldSkipInactiveRecipient(room, client, payload.t)) {
+          return;
+        }
         let outbox = clientOutbox.get(client);
         if (!outbox) {
           outbox = [];
@@ -629,6 +647,9 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
         }
         outbox.push(buffer.slice());
       } else {
+        if (shouldSkipInactiveRecipient(room, client, payload.t)) {
+          return;
+        }
         client.send(buffer);
       }
     }
@@ -815,7 +836,8 @@ wss.on('connection', (ws, req) => {
             m: room.settings.mirror,
             roomBackgroundColor: room.settings.backgroundColor,
             roomLocked: room.settings.locked,
-            roomMaxUsers: room.settings.maxUsers
+            roomMaxUsers: room.settings.maxUsers,
+            roomModInactiveImmune: room.settings.modInactiveImmune
           });
 
           // If user is muted (IP-based for guests), hide their cursor for everyone
@@ -862,15 +884,11 @@ wss.on('connection', (ws, req) => {
             const tileIndices = data.tiles.map(t => typeof t === 'number' ? t : t.idx);
             room.markTilesDirty(ws.sessionIndex, tileIndices);
             // Relay to other clients with sender's user ID
-            for (const client of room.clients) {
-              if (client !== ws && client.readyState === WebSocket.OPEN) {
-                sendTo(client, {
-                  t: T.TILE_UPDATE,
-                  u: ws.sessionIndex,
-                  tiles: data.tiles
-                });
-              }
-            }
+            broadcastToRoom(room, {
+              t: T.TILE_UPDATE,
+              u: ws.sessionIndex,
+              tiles: data.tiles
+            }, ws.sessionIndex);
           }
           break;
 
@@ -881,14 +899,10 @@ wss.on('connection', (ws, req) => {
             room.clearTiles(data.clearedTiles);
             
             // Relay to other clients
-            for (const client of room.clients) {
-              if (client !== ws && client.readyState === WebSocket.OPEN) {
-                sendTo(client, {
-                  t: T.TILE_CLEAR,
-                  clearedTiles: data.clearedTiles
-                });
-              }
-            }
+            broadcastToRoom(room, {
+              t: T.TILE_CLEAR,
+              clearedTiles: data.clearedTiles
+            }, ws.sessionIndex);
           }
           break;
 
@@ -1229,6 +1243,10 @@ wss.on('connection', (ws, req) => {
                 room.settings.backgroundColor = hex;
               }
             }
+            if (data.roomModInactiveImmune !== undefined) {
+              room.settings.modInactiveImmune = !!data.roomModInactiveImmune;
+              room.sessionManager.checkAfkUsers();
+            }
 
             await room.saveToDB();
 
@@ -1239,7 +1257,8 @@ wss.on('connection', (ws, req) => {
               m: room.settings.mirror,
               roomBackgroundColor: room.settings.backgroundColor,
               roomLocked: room.settings.locked,
-              roomMaxUsers: room.settings.maxUsers
+              roomMaxUsers: room.settings.maxUsers,
+              roomModInactiveImmune: room.settings.modInactiveImmune
             });
 
             sendTo(ws, { t: T.MOD_RESULT, a: true });

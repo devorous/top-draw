@@ -4,6 +4,8 @@
  * stroke history, and redo stacks.
  */
 
+import { appState } from '../state.svelte.js';
+
 /**
  * SyncClient manages the complex process of synchronizing the canvas state
  * from an existing user to a newly joined user.
@@ -45,6 +47,16 @@ export class SyncClient {
     this.progressBarEl = null;
     /** @type {HTMLElement|null} */
     this.progressFillEl = null;
+    /** @type {HTMLElement|null} */
+    this.overlayContentEl = null;
+    /** @type {HTMLDivElement|null} */
+    this.inactiveControlsEl = null;
+    /** @type {HTMLSelectElement|null} */
+    this.inactiveTargetSelectEl = null;
+    /** @type {HTMLButtonElement|null} */
+    this.inactiveSyncButtonEl = null;
+    /** @type {boolean} */
+    this.inactive = false;
 
     /** @type {number} */
     this.expectedMessages = 0;
@@ -72,10 +84,167 @@ export class SyncClient {
     this.wsClient = wsClient;
     this.board = board;
     this.overlayEl = document.getElementById('syncOverlay');
+    this.overlayContentEl = this.overlayEl?.querySelector('.sync-content');
     this.progressTextEl = this.overlayEl?.querySelector('.sync-text');
     this.progressBarEl = this.overlayEl?.querySelector('.sync-progress-bar');
     this.progressFillEl = this.overlayEl?.querySelector('.sync-progress-fill');
+    this._ensureInactiveControls();
     this.initialized = true;
+  }
+
+  /**
+   * Creates the AFK controls inside the existing canvas overlay.
+   * @private
+   * @returns {void}
+   */
+  _ensureInactiveControls() {
+    if (!this.overlayContentEl || this.inactiveControlsEl) return;
+
+    const controls = document.createElement('div');
+    controls.className = 'sync-inactive-controls';
+    Object.assign(controls.style, {
+      display: 'none',
+      width: 'min(320px, calc(100% - 24px))',
+      padding: '16px',
+      borderRadius: '14px',
+      background: 'rgba(16, 19, 24, 0.84)',
+      border: '1px solid rgba(255, 255, 255, 0.12)',
+      boxShadow: '0 18px 48px rgba(0, 0, 0, 0.28)'
+    });
+
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', 'Sync source user');
+    Object.assign(select.style, {
+      width: '100%',
+      height: '40px',
+      marginBottom: '12px',
+      padding: '0 12px',
+      borderRadius: '10px',
+      border: '1px solid rgba(255, 255, 255, 0.16)',
+      background: 'rgba(255, 255, 255, 0.10)',
+      color: '#ffffff'
+    });
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = 'Sync';
+    Object.assign(button.style, {
+      display: 'block',
+      width: '100%',
+      height: '42px',
+      border: 'none',
+      borderRadius: '999px',
+      background: 'linear-gradient(135deg, #00d4aa, #4ae3bf)',
+      color: '#081711',
+      fontSize: '15px',
+      fontWeight: '700',
+      cursor: 'pointer'
+    });
+
+    button.addEventListener('click', () => {
+      const value = select.value;
+      this.requestSync(value ? Number(value) : null);
+    });
+
+    controls.appendChild(select);
+    controls.appendChild(button);
+    this.overlayContentEl.appendChild(controls);
+
+    this.inactiveControlsEl = controls;
+    this.inactiveTargetSelectEl = select;
+    this.inactiveSyncButtonEl = button;
+  }
+
+  /**
+   * Populates the AFK sync target list.
+   * @private
+   * @returns {void}
+   */
+  _populateInactiveTargets() {
+    if (!this.inactiveTargetSelectEl) return;
+
+    const previousValue = this.inactiveTargetSelectEl.value;
+    this.inactiveTargetSelectEl.innerHTML = '';
+
+    const autoOption = document.createElement('option');
+    autoOption.value = '';
+    autoOption.textContent = 'Auto-select active user';
+    autoOption.style.color = '#101317';
+    this.inactiveTargetSelectEl.appendChild(autoOption);
+
+    const users = [...appState.users.values()]
+      .filter((user) => user && user.id !== appState.sessionIndex && !user.afk)
+      .sort((a, b) => ((a.username || a.name || '')).localeCompare(b.username || b.name || ''));
+
+    for (const user of users) {
+      const option = document.createElement('option');
+      option.value = String(user.id);
+      option.textContent = user.username || user.name || `User ${user.id}`;
+      option.style.color = '#101317';
+      this.inactiveTargetSelectEl.appendChild(option);
+    }
+
+    if ([...this.inactiveTargetSelectEl.options].some((option) => option.value === previousValue)) {
+      this.inactiveTargetSelectEl.value = previousValue;
+    }
+  }
+
+  /**
+   * Shows the AFK UI while leaving the rest of the app interactive.
+   * @returns {void}
+   */
+  showInactiveUi() {
+    this._ensureInactiveControls();
+    this._populateInactiveTargets();
+    if (this.overlayEl) {
+      this.overlayEl.classList.add('active');
+      this.overlayEl.style.pointerEvents = 'auto';
+    }
+    if (this.progressTextEl) {
+      this.progressTextEl.textContent = 'You are inactive - please resync';
+    }
+    if (this.progressBarEl) {
+      this.progressBarEl.style.display = 'none';
+    }
+    if (this.inactiveControlsEl) {
+      this.inactiveControlsEl.style.display = 'block';
+    }
+  }
+
+  /**
+   * Hides the AFK UI.
+   * @returns {void}
+   */
+  hideInactiveUi() {
+    if (this.inactiveControlsEl) {
+      this.inactiveControlsEl.style.display = 'none';
+    }
+    if (!this.syncing && this.overlayEl) {
+      this.overlayEl.classList.remove('active');
+      this.overlayEl.style.pointerEvents = '';
+    }
+  }
+
+  /**
+   * Marks whether the local user is inactive and should resync.
+   * @param {boolean} inactive - Whether the local user is inactive.
+   * @returns {void}
+   */
+  setInactive(inactive) {
+    this.inactive = !!inactive;
+    if (this.inactive) {
+      this.showInactiveUi();
+    } else {
+      this.hideInactiveUi();
+    }
+  }
+
+  /**
+   * Whether canvas interactions should be blocked.
+   * @returns {boolean}
+   */
+  isCanvasInputBlocked() {
+    return !!this.inactive;
   }
 
   /**
@@ -99,7 +268,7 @@ export class SyncClient {
       return;
     }
 
-    if (this.hasCompletedSync && targetUserId === null) {
+    if (this.hasCompletedSync && targetUserId === null && !this.inactive) {
       console.log('[SyncClient] Already completed initial sync, ignoring duplicate auto-sync request');
       return;
     }
@@ -111,6 +280,7 @@ export class SyncClient {
     }
 
     this.syncing = true;
+    this.inactive = false;
     this.buffering = true;
     this.eventBuffer = [];
     this._pendingImports = [];
@@ -454,6 +624,7 @@ export class SyncClient {
       this.syncing = false;
       this.buffering = false;
       this.hasCompletedSync = true;
+      this.inactive = false;
       this.expectedMessages = 0;
       this.receivedMessages = 0;
 
@@ -520,6 +691,13 @@ export class SyncClient {
   showOverlay() {
     if (this.overlayEl) {
       this.overlayEl.classList.add('active');
+      this.overlayEl.style.pointerEvents = 'auto';
+    }
+    if (this.progressBarEl) {
+      this.progressBarEl.style.display = '';
+    }
+    if (this.inactiveControlsEl) {
+      this.inactiveControlsEl.style.display = 'none';
     }
   }
 
@@ -529,7 +707,15 @@ export class SyncClient {
    */
   hideOverlay() {
     if (this.overlayEl) {
+      if (this.inactive) {
+        this.showInactiveUi();
+        return;
+      }
       this.overlayEl.classList.remove('active');
+      this.overlayEl.style.pointerEvents = '';
+    }
+    if (this.inactiveControlsEl) {
+      this.inactiveControlsEl.style.display = 'none';
     }
   }
 
@@ -626,9 +812,15 @@ export class SyncClient {
    * @returns {void}
    */
   destroy() {
+    this.inactiveControlsEl?.remove();
+    if (this.overlayEl) {
+      this.overlayEl.classList.remove('active');
+      this.overlayEl.style.pointerEvents = '';
+    }
     this.wsClient = null;
     this.board = null;
     this.initialized = false;
     this.hasCompletedSync = false;
+    this.inactive = false;
   }
 }

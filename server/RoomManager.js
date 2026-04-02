@@ -25,7 +25,8 @@ export class Room {
       mirror: false,
       locked: false,
       maxUsers: 40,
-      backgroundColor: '#ffffff'
+      backgroundColor: '#ffffff',
+      modInactiveImmune: false
     };
 
     this.description = '';
@@ -41,7 +42,12 @@ export class Room {
     this.previewUpdatedAt = 0;
 
     const isDiscovery = id === '_discovery' || id === 'default';
-    this.sessionManager = new SessionManager(this.broadcastToAll.bind(this), isDiscovery);
+    this.sessionManager = new SessionManager(this.broadcastToAll.bind(this), isDiscovery, {
+      isImmuneToInactivity: (_sessionIndex, user) => {
+        const role = user.role || 0;
+        return role >= 5 || (!!this.settings.modInactiveImmune && role >= 4);
+      }
+    });
     this.syncCoordinator = new SyncCoordinator(this.sessionManager, { clients: this.clients }, this.sendTo, this);
 
     this.POOLED_MSG = this.Msg.create();
@@ -112,6 +118,7 @@ export class Room {
         this.settings.locked = doc.settings?.locked || false;
         this.settings.maxUsers = doc.settings?.maxUsers !== undefined ? doc.settings.maxUsers : 40;
         this.settings.backgroundColor = doc.settings?.backgroundColor || '#ffffff';
+        this.settings.modInactiveImmune = !!doc.settings?.modInactiveImmune;
         console.log(`[Room] Loaded "${this.id}" from DB`);
       } else {
         const newDoc = {
@@ -124,7 +131,8 @@ export class Room {
           settings: {
             locked: false,
             maxUsers: 40,
-            backgroundColor: '#ffffff'
+            backgroundColor: '#ffffff',
+            modInactiveImmune: false
           }
         };
         await db.collection('rooms').insertOne(newDoc);
@@ -158,7 +166,8 @@ export class Room {
             settings: {
               locked: this.settings.locked,
               maxUsers: this.settings.maxUsers,
-              backgroundColor: this.settings.backgroundColor
+              backgroundColor: this.settings.backgroundColor,
+              modInactiveImmune: this.settings.modInactiveImmune
             }
           }
         }

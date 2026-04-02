@@ -28,6 +28,7 @@ export class SyncCoordinator {
    */
   handleSyncRequest(ws, data) {
     const requesterSessionIndex = Number(ws.sessionIndex);
+    this.sessionManager.markUserActive(requesterSessionIndex);
     console.log(`[Sync] User ${requesterSessionIndex} requested sync`);
 
     let providerSessionIndex = null;
@@ -36,7 +37,7 @@ export class SyncCoordinator {
       const requestedProvider = Number(data.tu);
       const providerData = this.sessionManager.users.get(requestedProvider);
 
-      if (providerData && providerData.name && requestedProvider !== requesterSessionIndex) {
+      if (providerData && providerData.name && !providerData.afk && requestedProvider !== requesterSessionIndex) {
         providerSessionIndex = requestedProvider;
         console.log(`[Sync] Using requested provider ${providerSessionIndex} (${providerData.name})`);
       } else {
@@ -81,7 +82,7 @@ export class SyncCoordinator {
 
     for (const [sessionIndex, userData] of this.sessionManager.users) {
       const idx = Number(sessionIndex);
-      if (idx !== excludeIdx && userData.name) {
+      if (idx !== excludeIdx && userData.name && !userData.afk) {
         // Also exclude by WS reference to be ultra-safe against uninitialized sessionIndex
         const client = this._findClient(idx);
         if (client && client !== requesterWs) {
