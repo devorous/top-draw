@@ -14,6 +14,11 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+function stripSessionSuffix(username) {
+  if (typeof username !== 'string') return '';
+  return username.trim().replace(/-\d+$/, '');
+}
+
 /**
  * GET /api/users/:username — fetch public user profile.
  */
@@ -22,11 +27,22 @@ export async function handleUserProfile(req, res, username) {
   if (!db) return json(res, 503, { error: 'Database not available' });
 
   try {
-    // Find user (case-insensitive)
-    const user = await db.collection('users').findOne(
+    const users = db.collection('users');
+    const normalizedUsername = stripSessionSuffix(username);
+
+    // First try the requested name as-is, then fall back to a de-suffixed
+    // session display name like "name-1" -> "name".
+    let user = await users.findOne(
       { username },
       { collation: { locale: 'en', strength: 2 } }
     );
+
+    if (!user && normalizedUsername && normalizedUsername !== username) {
+      user = await users.findOne(
+        { username: normalizedUsername },
+        { collation: { locale: 'en', strength: 2 } }
+      );
+    }
 
     if (!user) {
       return json(res, 404, { error: 'User not found' });
