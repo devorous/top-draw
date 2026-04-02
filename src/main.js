@@ -138,6 +138,15 @@ function attachDeferredLandingHandlers() {
   const roomIdInput = document.getElementById('roomIdInput');
   const loginPassword = document.getElementById('loginPassword');
 
+  const runDeferredPrimaryAuthAction = () => {
+    const passwordValue = loginPassword?.value;
+    if (passwordValue) {
+      return runDeferredAction((readyApp) => readyApp.handleLandingLogin());
+    }
+
+    return runDeferredAction((readyApp) => readyApp.handleJoin());
+  };
+
   loginForm?.addEventListener('submit', (event) => {
     if (app) return;
     event.preventDefault();
@@ -147,7 +156,7 @@ function attachDeferredLandingHandlers() {
   loginJoinBtn?.addEventListener('click', (event) => {
     if (app) return;
     event.preventDefault();
-    void runDeferredAction((readyApp) => readyApp.handleJoin());
+    void runDeferredPrimaryAuthAction();
   });
 
   joinBtnLoggedIn?.addEventListener('click', (event) => {
@@ -183,7 +192,7 @@ function attachDeferredLandingHandlers() {
   loginPassword?.addEventListener('keydown', (event) => {
     if (app || event.key !== 'Enter') return;
     event.preventDefault();
-    void runDeferredAction((readyApp) => readyApp.handleJoin());
+    void runDeferredPrimaryAuthAction();
   });
 }
 

@@ -100,6 +100,7 @@ export class DrawingApp {
     this.roomSettings = null;
     this.currentRoomId = null;
     this.currentRoomData = null;
+    this._pendingLandingLogin = false;
     this.selfRole = 0;
     this.moderation = new Moderation();
     // this.profileDialog = new ProfileDialog(); // Now Svelte component
@@ -1590,6 +1591,31 @@ export class DrawingApp {
   }
 
   /**
+   * Authenticates from the landing page without immediately joining a room.
+   */
+  async handleLandingLogin() {
+    if (!this.auth || this.auth.isLoggedIn) return;
+
+    const username = this.ui.elements.loginUsername?.value.trim();
+    const password = this.ui.elements.loginPassword?.value;
+
+    if (!username || !password) {
+      this.landingPage?.showError('Please enter username and password');
+      return;
+    }
+
+    this.landingPage?.clearError();
+
+    if (this.wsClient.connected && (!this.currentRoomId || this.currentRoomId === '_discovery')) {
+      this.auth.handleLogin();
+      return;
+    }
+
+    this._pendingLandingLogin = true;
+    await this.connectForRoomDiscovery();
+  }
+
+  /**
    * Starts the application in offline (local-only) mode.
    */
   handleOffline() {
@@ -1693,7 +1719,13 @@ export class DrawingApp {
     this.updateRecordingButtonState();
 
     const isDiscoveryConnection = !this.currentRoomId || this.currentRoomId === '_discovery';
-    if (isDiscoveryConnection) return;
+    if (isDiscoveryConnection) {
+      if (this._pendingLandingLogin) {
+        this._pendingLandingLogin = false;
+        this.auth?.handleLogin();
+      }
+      return;
+    }
 
     this.wsClient.broadcastToolChange(this.self.tool);
     this.users.set(sessionIndex, this.self);

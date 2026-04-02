@@ -81,7 +81,7 @@ export class Auth {
     // Consolidated buttons
     this.els.loginJoinBtn?.addEventListener('click', (e) => {
       e.preventDefault();
-      this.triggerJoin();
+      this.triggerPrimaryAction();
     });
 
     this.els.joinBtnLoggedIn?.addEventListener('click', (e) => {
@@ -114,7 +114,7 @@ export class Auth {
     this.els.loginPassword?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        this.triggerJoin();
+        this.triggerPrimaryAction();
       }
     });
 
@@ -150,6 +150,18 @@ export class Auth {
     if (form) {
       form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
     }
+  }
+
+  /**
+   * Trigger login when credentials are present, otherwise continue with join.
+   */
+  triggerPrimaryAction() {
+    if (!this.isLoggedIn && this.els.loginPassword?.value) {
+      this.handleLogin();
+      return;
+    }
+
+    this.triggerJoin();
   }
 
   /**
