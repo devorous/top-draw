@@ -768,9 +768,8 @@ export class DrawingApp {
     layerVisibilityButtons.forEach(btn => {
       btn.addEventListener('click', () => {
         const layerIndex = parseInt(btn.dataset.layer);
-        const visible = this.board.layerManager.toggleLayerVisibility(layerIndex);
+        const visible = this.handleLayerVisibilityToggle(layerIndex);
         btn.classList.toggle('is-hidden', !visible);
-        this.board.compositeAllLayers();
       });
     });
 
@@ -2450,6 +2449,48 @@ export class DrawingApp {
     }
   }
 
+  handleLayerVisibilityToggle(layerIndex) {
+    const visible = this.board.layerManager.toggleLayerVisibility(layerIndex);
+    appState.layerVisibility = {
+      ...appState.layerVisibility,
+      [layerIndex]: visible
+    };
+
+    if (!visible && this.self.activeLayer === layerIndex) {
+      if (this.self.mousedown && !this.self.panning) {
+        this.cancelCurrentStroke();
+      } else {
+        this.board.clearTop();
+      }
+    }
+
+    if (this.board.tileGrid) {
+      this.board.tileGrid.markAllDirty();
+    }
+
+    this.board.compositeAllLayers();
+    this.refreshRemoteLayerVisibilityStates();
+    this._updateBlurCannotDraw();
+    return visible;
+  }
+
+  refreshRemoteLayerVisibilityStates(userId = null) {
+    if (!this.ui?.remoteUserUI) return;
+
+    const refreshUser = (user) => {
+      if (!user || user.id === this.self?.id) return;
+      const hiddenLayer = !this.board.layerManager.isLayerVisible(user.activeLayer);
+      this.ui.remoteUserUI.updateRemoteLayerVisibility(user.id, hiddenLayer);
+    };
+
+    if (userId !== null && userId !== undefined) {
+      refreshUser(this.users.get(userId));
+      return;
+    }
+
+    this.users.forEach((user) => refreshUser(user));
+  }
+
   /**
    * Show/hide the muted-style cursor indicator when blur is active on a non-zero layer.
    * @private
@@ -2457,14 +2498,47 @@ export class DrawingApp {
   _updateBlurCannotDraw() {
     const cannotDraw = (this.self.tool === 'blur' || this.self.tool === 'glitchBlur') && this.self.activeLayer !== 0;
     this._blurCannotDraw = cannotDraw;
-    // Reuse the muted indicator visuals (only if not actually muted)
+    this._updateCursorDrawState();
+  }
+
+  _updateCursorDrawState() {
+    const hiddenLayerCannotDraw =
+      this.self.tool !== 'pan' &&
+      this.self.tool !== 'rotate' &&
+      !this.self.panning &&
+      !this.board.layerManager.isLayerVisible(this.self.activeLayer);
+    this._hiddenLayerCannotDraw = hiddenLayerCannotDraw;
+
+    const cannotDraw = this._blurCannotDraw || hiddenLayerCannotDraw;
+
     if (!this.self.isMuted) {
       this.ui.setMutedState(cannotDraw);
     }
-    // Hide the square cursor and show crosshair-style muted indicator instead
-    if (this.self.tool === 'blur' || this.self.tool === 'glitchBlur') {
-      this.ui.elements.selfSquare.style.display = cannotDraw ? 'none' : 'block';
+
+    if (!cannotDraw) {
+      if (this.isOnBoard && this.ui?.elements?.selfCursor?.style.display !== 'none') {
+        this.ui.updateToolDisplay(this.self.tool, this.self);
+      }
+      return;
     }
+
+    const {
+      selfCircle,
+      selfPressureCircle,
+      selfSquare,
+      selfPressureSquare,
+      selfCrosshair,
+      selfHand,
+      selfText
+    } = this.ui.elements;
+
+    if (selfCircle) selfCircle.style.display = 'none';
+    if (selfPressureCircle) selfPressureCircle.style.display = 'none';
+    if (selfSquare) selfSquare.style.display = 'none';
+    if (selfPressureSquare) selfPressureSquare.style.display = 'none';
+    if (selfCrosshair) selfCrosshair.style.display = 'none';
+    if (selfHand) selfHand.style.display = 'none';
+    if (selfText) selfText.style.display = 'none';
   }
 
   /**
@@ -2859,6 +2933,7 @@ export class DrawingApp {
 
       this.ui.showCursor();
       this.ui.updateToolDisplay(this.self.tool, this.self);
+      this._updateBlurCannotDraw();
       if (this.connected) {
         this.wsClient.broadcastShowCursor();
       }
@@ -2876,6 +2951,7 @@ export class DrawingApp {
       if (shouldRefresh) {
         this.ui.showCursor();
         this.ui.updateToolDisplay(this.self.tool, this.self);
+        this._updateBlurCannotDraw();
       }
       return;
     }

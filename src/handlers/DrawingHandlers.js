@@ -133,6 +133,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     const user = users.get(data.sessionIndex);
     if (user) {
       user.setActiveLayer(data.layerIndex);
+      app.refreshRemoteLayerVisibilityStates?.(data.sessionIndex);
     }
   });
 

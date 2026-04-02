@@ -77,7 +77,7 @@ export function initSvelteUI(app) {
       props: {
         onBlendModeChange: (mode) => app.handleBlendModeChange(mode),
         onLayerSelect: (layerIdx) => app.handleLayerSelect(layerIdx),
-        onLayerVisibilityToggle: (layerIdx) => app.board.layerManager.toggleLayerVisibility(layerIdx),
+        onLayerVisibilityToggle: (layerIdx) => app.handleLayerVisibilityToggle(layerIdx),
       }
     });
   }

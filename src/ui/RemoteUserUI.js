@@ -60,6 +60,24 @@ export class RemoteUserUI {
     }
   }
 
+  updateRemoteLayerVisibility(userId, hiddenLayer) {
+    const cursorElements = this.cursors.get(userId);
+    const opacity = hiddenLayer ? '0.5' : '1';
+    const board = document.querySelector(`.userBoard.u${userId}`);
+
+    if (board) {
+      board.style.display = hiddenLayer ? 'none' : '';
+    }
+
+    if (cursorElements) {
+      if (cursorElements.cursor) cursorElements.cursor.style.opacity = opacity;
+      if (cursorElements.circle) cursorElements.circle.style.opacity = opacity;
+      if (cursorElements.square) cursorElements.square.style.opacity = opacity;
+      if (cursorElements.crosshair) cursorElements.crosshair.style.opacity = opacity;
+      if (cursorElements.text) cursorElements.text.style.opacity = opacity;
+    }
+  }
+
   /**
    * Create all UI elements for a new remote user.
    * @param {string} userId - User's session ID
@@ -155,6 +173,10 @@ export class RemoteUserUI {
     this.createUserBoard(userId);
 
     this.cursors.set(userId, { cursor, circle, square, crosshair, text, textInput, name });
+    this.updateRemoteLayerVisibility(
+      userId,
+      !window.app?.board?.layerManager?.isLayerVisible?.(userData.activeLayer ?? 0)
+    );
 
     if (this._shouldSuppressLiveUser(userId)) {
       this._setUserVisibility(userId, false);
