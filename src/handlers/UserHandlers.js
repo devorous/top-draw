@@ -1,7 +1,6 @@
 /** @fileoverview Handles user-related events including lifecycle, AFK status, and cursor visibility. */
 
 import { User } from '../User.js';
-import { TimeMachine } from '../timebar/TimeMachine.svelte.js';
 
 /**
  * Sets up WebSocket event handlers for user-related actions and state changes.
@@ -149,12 +148,6 @@ export function setupUserHandlers(wsClient, app) {
 
     app.updateChatUserList();
 
-    // Start timeline recording when 2+ users are in the room
-    if (!TimeMachine.isStarted && data.users.length >= 2) {
-      console.log('[TimeMachine] Starting recording - 2+ users in room');
-      TimeMachine.start();
-    }
-
     // Trigger sync on first USERS message after connecting
     if (app._needsSync) {
       app._needsSync = false;
@@ -169,6 +162,7 @@ export function setupUserHandlers(wsClient, app) {
       } else {
         app.syncClient.hideOverlay();
         app.syncClient.hasCompletedSync = true;
+        app.updateRecordingButtonState?.();
       }
     }
   });
@@ -299,11 +293,6 @@ export function setupUserHandlers(wsClient, app) {
     }
     app.updateChatUserList();
 
-    // Start timeline recording when another user joins (2+ users in room)
-    if (!TimeMachine.isStarted && users.size >= 2) {
-      console.log('[TimeMachine] Starting recording - another user joined');
-      TimeMachine.start();
-    }
   });
 
   wsClient.on('hide_cursor', (data) => {

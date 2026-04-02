@@ -172,9 +172,10 @@ export class UI {
       devBtn: null, // injected dynamically by Moderation._injectModUI()
       devText: null, // injected dynamically
       debugOverlay: document.getElementById('debugOverlay'),
-      perfSettingsBtn: null, // injected dynamically by Moderation._injectModUI()
+      perfSettingsBtn: null, // injected dynamically by Moderation._injectModUI(),
 
       chatBtn: document.getElementById('chatBtn'),
+      recordBtn: document.getElementById('recordBtn'),
       inboxBtn: document.getElementById('inboxBtn'),
       saveBtn: document.getElementById('saveBtn'),
 

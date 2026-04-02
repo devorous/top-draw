@@ -209,8 +209,8 @@ export class DrawingApp {
       board: this.board
     });
     this.syncClient.onSyncComplete = () => {
-      console.log('[App] Sync complete, starting TimeMachine');
-      TimeMachine.start();
+      console.log('[App] Sync complete');
+      this.updateRecordingButtonState();
     };
 
     this.auth = new Auth({
@@ -300,6 +300,7 @@ export class DrawingApp {
     window.app = this;
 
     this.setupEventListeners();
+    this.updateRecordingButtonState();
     setupWebSocketHandlers(this);
 
     const initialTool = this.brushModeManager.getCurrentToolName();
@@ -423,6 +424,9 @@ export class DrawingApp {
     });
 
     elements.disconnectBtn.addEventListener('click', () => this.disconnect());
+    if (elements.recordBtn) {
+      elements.recordBtn.addEventListener('click', () => this.handleStartRecording());
+    }
 
     // Disconnection banner buttons
     if (elements.retryConnectionBtn) {
@@ -1576,6 +1580,7 @@ export class DrawingApp {
   async connectForRoomDiscovery() {
     this.currentRoomId = null;
     TimeMachine.stop();
+    this.updateRecordingButtonState();
 
     if (this.landingPage) {
       this.landingPage.updateConnectionStatus('connecting');
@@ -1627,6 +1632,8 @@ export class DrawingApp {
     if (this.landingPage) {
       this.landingPage.updateConnectionStatus('connected');
     }
+
+    this.updateRecordingButtonState();
 
     const isDiscoveryConnection = !this.currentRoomId || this.currentRoomId === '_discovery';
     if (isDiscoveryConnection) return;
@@ -1710,6 +1717,8 @@ export class DrawingApp {
   handleWSDisconnect(code, reason) {
     this.connected = false;
     this.stopPreviewInterval();
+    TimeMachine.stop();
+    this.updateRecordingButtonState();
 
     // Don't show disconnection UI if disconnect was intentional
     if (this.intentionalDisconnect) {
@@ -2123,6 +2132,54 @@ export class DrawingApp {
     const el = this.ui.elements.saveModeGallery;
     if (!el) return;
     el.style.display = role >= 1 ? '' : 'none';
+  }
+
+  updateRecordingButtonState() {
+    const btn = this.ui?.elements?.recordBtn;
+    if (!btn) return;
+
+    const connectedToRoom = !!this.currentRoomId && !this.isOfflineMode;
+    const waitingForSync = connectedToRoom && !!this.syncClient && !this.syncClient.hasCompletedSync;
+
+    btn.classList.toggle('accent', TimeMachine.isStarted);
+    btn.classList.toggle('disabled', waitingForSync);
+    btn.setAttribute('aria-disabled', waitingForSync ? 'true' : 'false');
+
+    const label = btn.querySelector('.btnText');
+    const text = TimeMachine.isStarted ? 'Recording' : 'Record';
+    if (label) {
+      label.textContent = text;
+    } else {
+      btn.textContent = text;
+    }
+
+    if (TimeMachine.isStarted) {
+      btn.title = 'Recording is active';
+    } else if (waitingForSync) {
+      btn.title = 'Recording becomes available after room sync completes';
+    } else {
+      btn.title = 'Start Recording';
+    }
+  }
+
+  handleStartRecording() {
+    if (TimeMachine.isStarted) {
+      TimeMachine.stop();
+      this.updateRecordingButtonState();
+      this.ui.showToast('Recording stopped', 2000);
+      return;
+    }
+
+    const connectedToRoom = !!this.currentRoomId && !this.isOfflineMode;
+    if (connectedToRoom && this.syncClient && !this.syncClient.hasCompletedSync) {
+      this.ui.showToast('Please wait for sync to finish before recording', 2500);
+      this.updateRecordingButtonState();
+      return;
+    }
+
+    TimeMachine.start();
+    this.updateRecordingButtonState();
+    this.ui.showToast('Recording started', 2000);
   }
 
   canUseImageFeatures(showToast = false) {
