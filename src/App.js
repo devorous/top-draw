@@ -300,6 +300,7 @@ export class DrawingApp {
     window.app = this;
 
     this.setupEventListeners();
+    this.updateAuthenticatedActionVisibility();
     this.updateRecordingButtonState();
     setupWebSocketHandlers(this);
 
@@ -506,7 +507,10 @@ export class DrawingApp {
     if (elements.hudRedoBtn) elements.hudRedoBtn.addEventListener('click', () => this.handleRedo());
 
     elements.chatBtn.addEventListener('click', () => { appState.chatVisible = !appState.chatVisible; });
-    elements.inboxBtn.addEventListener('click', () => { appState.messengerVisible = !appState.messengerVisible; });
+    elements.inboxBtn.addEventListener('click', () => {
+      if (this.selfRole < 1) return;
+      appState.messengerVisible = !appState.messengerVisible;
+    });
     elements.selfListUser.addEventListener('click', () => this.handleRenameself());
 
     // Room settings button
@@ -1678,6 +1682,7 @@ export class DrawingApp {
         this.moderation.setRole(role);
       }
       this.ui.updateSelfRole(role);
+      this.updateAuthenticatedActionVisibility(role);
     }
 
     if (this.landingPage) {
@@ -1854,6 +1859,7 @@ export class DrawingApp {
 
     this.updateRoomSettingsButtonVisibility();
     this.updateGalleryButtonVisibility(role);
+    this.updateAuthenticatedActionVisibility(role);
 
     if (this.landingPage && this.landingPage.isVisible) {
       this.landingPage.isAuthenticated = true;
@@ -2185,6 +2191,23 @@ export class DrawingApp {
     el.style.display = role >= 1 ? '' : 'none';
   }
 
+  updateAuthenticatedActionVisibility(role = this.selfRole) {
+    const isAuthenticated = role >= 1;
+    const { inboxBtn, uploadBtn } = this.ui.elements;
+
+    if (inboxBtn) {
+      inboxBtn.style.display = isAuthenticated ? '' : 'none';
+    }
+
+    if (uploadBtn) {
+      uploadBtn.style.display = isAuthenticated ? '' : 'none';
+    }
+
+    if (!isAuthenticated) {
+      appState.messengerVisible = false;
+    }
+  }
+
   updateRecordingButtonState() {
     const btn = this.ui?.elements?.recordBtn;
     if (!btn) return;
@@ -2192,24 +2215,19 @@ export class DrawingApp {
     const connectedToRoom = !!this.currentRoomId && !this.isOfflineMode;
     const waitingForSync = connectedToRoom && !!this.syncClient && !this.syncClient.hasCompletedSync;
 
-    btn.classList.toggle('accent', TimeMachine.isStarted);
+    btn.classList.toggle('is-recording', TimeMachine.isStarted);
     btn.classList.toggle('disabled', waitingForSync);
     btn.setAttribute('aria-disabled', waitingForSync ? 'true' : 'false');
 
-    const label = btn.querySelector('.btnText');
-    const text = TimeMachine.isStarted ? 'Recording' : 'Record';
-    if (label) {
-      label.textContent = text;
-    } else {
-      btn.textContent = text;
-    }
-
     if (TimeMachine.isStarted) {
       btn.title = 'Recording is active';
+      btn.setAttribute('aria-label', 'Stop recording');
     } else if (waitingForSync) {
       btn.title = 'Recording becomes available after room sync completes';
+      btn.setAttribute('aria-label', 'Recording unavailable until sync completes');
     } else {
       btn.title = 'Start Recording';
+      btn.setAttribute('aria-label', 'Start recording');
     }
   }
 
