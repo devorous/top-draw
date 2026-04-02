@@ -68,6 +68,8 @@ class DrawingState {
 
 export const appState = new DrawingState();
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
 // ============================================================================
 // Helper functions
 // ============================================================================
@@ -103,17 +105,23 @@ export function toggleLayerVisibility(layerIndex) {
 export function showProfile(username) {
   appState.profileDialog = { visible: true, username, data: null, loading: true, error: null };
 
-  fetch(`/api/users/${encodeURIComponent(username)}`)
-    .then(res => res.json())
-    .then(data => {
-      if (data.error) {
-        appState.profileDialog = { ...appState.profileDialog, loading: false, error: data.error };
-      } else {
-        appState.profileDialog = { ...appState.profileDialog, loading: false, data };
+  fetch(`${API_BASE}/api/users/${encodeURIComponent(username)}`)
+    .then(async (res) => {
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to load profile');
       }
+      return data;
     })
-    .catch(() => {
-      appState.profileDialog = { ...appState.profileDialog, loading: false, error: 'Connection error' };
+    .then(data => {
+      appState.profileDialog = { ...appState.profileDialog, loading: false, data };
+    })
+    .catch((err) => {
+      appState.profileDialog = {
+        ...appState.profileDialog,
+        loading: false,
+        error: err?.message || 'Connection error'
+      };
     });
 }
 

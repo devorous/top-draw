@@ -68,7 +68,10 @@ export class Moderation {
    * Injects mod-only toolbar buttons and panel into the DOM on first mod+ login.
    */
   updateModVisibility() {
-    if (this.isMod() && !this._modUIInjected) {
+    const hasToolbar = !!document.getElementById('modBtn');
+    const hasPanel = !!document.getElementById('modPanel');
+
+    if (this.isMod() && (!this._modUIInjected || !hasToolbar || !hasPanel)) {
       this._injectModUI();
     }
 
@@ -97,12 +100,16 @@ export class Moderation {
    * Called once when user is first confirmed as mod+.
    */
   _injectModUI() {
-    if (this._modUIInjected) return;
-    this._modUIInjected = true;
+    const hasToolbar = !!document.getElementById('modBtn');
+    const hasPanel = !!document.getElementById('modPanel');
+    if (hasToolbar && hasPanel) {
+      this._modUIInjected = true;
+      return;
+    }
 
     // --- Toolbar buttons ---
     const collapsible = document.getElementById('collapsibleBtns');
-    if (collapsible) {
+    if (collapsible && !hasToolbar) {
       const fragment = document.createDocumentFragment();
 
       // Clear button (inserted at the start of collapsible)
@@ -151,7 +158,7 @@ export class Moderation {
 
     // --- Mod panel ---
     const boardContainer = document.getElementById('boardContainer');
-    if (boardContainer) {
+    if (boardContainer && !hasPanel) {
       const panel = document.createElement('div');
       panel.id = 'modPanel';
       panel.style.display = 'none';
@@ -195,6 +202,8 @@ export class Moderation {
         historyToggle.addEventListener('click', () => this.setShowHistory(!this.showHistory));
       }
     }
+
+    this._modUIInjected = !!document.getElementById('modBtn') && !!document.getElementById('modPanel');
   }
 
   /**
