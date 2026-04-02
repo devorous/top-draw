@@ -23,6 +23,7 @@ export class SaveMode {
     // Selection state
     this.isActive = false;
     this.isSelecting = false;
+    this.activeTool = 'select'; // 'select' or 'pan'
     this.mode = 'rectangle'; // 'rectangle' or 'lasso'
     this.startPos = null;
     this.selection = null; // { x, y, width, height }
@@ -32,6 +33,12 @@ export class SaveMode {
     this._isPanning = false;
     this._lastPanX = 0;
     this._lastPanY = 0;
+    this.viewZoom = 1;
+    this.viewPanX = 0;
+    this.viewPanY = 0;
+    this.defaultViewZoom = 1;
+    this.defaultViewPanX = 0;
+    this.defaultViewPanY = 0;
 
     // Marching ants animation
     this.marchingAntsOffset = 0;
@@ -62,21 +69,42 @@ export class SaveMode {
     this.selectionCanvas = document.createElement('canvas');
     this.selectionCanvas.className = 'saveModeSelection';
 
-    // Mode toggle buttons (rectangle/lasso)
-    const modeToggle = document.createElement('div');
-    modeToggle.className = 'saveModeModeToggle';
-    modeToggle.innerHTML = `
-      <button class="saveModeToggleBtn active" data-mode="rectangle" title="Rectangle Selection">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
-          <rect x="2" y="2" width="14" height="14" rx="1"/>
-        </svg>
-      </button>
-      <button class="saveModeToggleBtn" data-mode="lasso" title="Lasso Selection">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M9 2C5 2 2 5 2 9C2 13 5 16 9 16C11 16 13 15 14 13"/>
-          <circle cx="14" cy="13" r="2"/>
-        </svg>
-      </button>
+    // Top controls
+    const controls = document.createElement('div');
+    controls.className = 'saveModeControls';
+    controls.innerHTML = `
+      <div class="saveModeModeToggle">
+        <button class="saveModeToggleBtn active" data-tool="select" data-mode="rectangle" title="Rectangle Selection">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="2" width="14" height="14" rx="1"/>
+          </svg>
+        </button>
+        <button class="saveModeToggleBtn" data-tool="select" data-mode="lasso" title="Lasso Selection">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M9 2C5 2 2 5 2 9C2 13 5 16 9 16C11 16 13 15 14 13"/>
+            <circle cx="14" cy="13" r="2"/>
+          </svg>
+        </button>
+        <button class="saveModeToggleBtn" data-tool="pan" title="Pan View">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 2.5V15.5"/>
+            <path d="M2.5 9H15.5"/>
+            <path d="M9 2.5L7.2 4.3"/>
+            <path d="M9 2.5L10.8 4.3"/>
+            <path d="M9 15.5L7.2 13.7"/>
+            <path d="M9 15.5L10.8 13.7"/>
+            <path d="M2.5 9L4.3 7.2"/>
+            <path d="M2.5 9L4.3 10.8"/>
+            <path d="M15.5 9L13.7 7.2"/>
+            <path d="M15.5 9L13.7 10.8"/>
+          </svg>
+        </button>
+      </div>
+      <div class="saveModeZoomControls">
+        <button class="saveModeZoomBtn" id="saveModeZoomOut" title="Zoom Out">-</button>
+        <button class="saveModeZoomResetBtn" id="saveModeZoomReset" title="Reset View">100%</button>
+        <button class="saveModeZoomBtn" id="saveModeZoomIn" title="Zoom In">+</button>
+      </div>
     `;
 
     // Options panel (shown after selection or for full board)
@@ -108,7 +136,7 @@ export class SaveMode {
 
     this.overlay.appendChild(this.snapshotCanvas);
     this.overlay.appendChild(this.selectionCanvas);
-    this.overlay.appendChild(modeToggle);
+    this.overlay.appendChild(controls);
     this.overlay.appendChild(this.optionsPanel);
     this.overlay.appendChild(closeBtn);
 
@@ -127,7 +155,11 @@ export class SaveMode {
     this.selectionCtx = this.selectionCanvas.getContext('2d');
 
     // Store references
-    this.modeToggle = modeToggle;
+    this.controls = controls;
+    this.modeToggle = controls.querySelector('.saveModeModeToggle');
+    this.zoomOutBtn = controls.querySelector('#saveModeZoomOut');
+    this.zoomResetBtn = controls.querySelector('#saveModeZoomReset');
+    this.zoomInBtn = controls.querySelector('#saveModeZoomIn');
     this.closeBtn = closeBtn;
   }
 
@@ -139,11 +171,18 @@ export class SaveMode {
     this.modeToggle.addEventListener('click', (e) => {
       const btn = e.target.closest('.saveModeToggleBtn');
       if (!btn) return;
-      const mode = btn.dataset.mode;
-      this.setMode(mode);
-      this.modeToggle.querySelectorAll('.saveModeToggleBtn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+      if (btn.dataset.tool === 'pan') {
+        this.setActiveTool('pan');
+        return;
+      }
+
+      this.setMode(btn.dataset.mode);
+      this.setActiveTool('select');
     });
+
+    this.zoomOutBtn.addEventListener('click', () => this._zoomByStep(-0.1));
+    this.zoomInBtn.addEventListener('click', () => this._zoomByStep(0.1));
+    this.zoomResetBtn.addEventListener('click', () => this.resetView());
 
     // Selection canvas pointer events
     this.selectionCanvas.addEventListener('pointerdown', (e) => this._onPointerDown(e));
@@ -196,6 +235,7 @@ export class SaveMode {
     this.selection = null;
     this.lassoPoints = [];
     this.transparent = false;
+    this.activeTool = 'select';
     this.optionsPanel.querySelector('#saveModeTransparent').checked = false;
 
     // Size canvases to match board
@@ -214,8 +254,8 @@ export class SaveMode {
     // Start marching ants animation
     this._startMarchingAnts();
 
-    // Apply current board transform to the canvases
-    this._updateCanvasTransform();
+    this._setView(this.board.zoom || 1, this.board.panX || 0, this.board.panY || 0, true);
+    this._syncControlState();
   }
 
   /**
@@ -231,20 +271,96 @@ export class SaveMode {
       this._drawSnapshot();
       this._drawSelection();
     }
+    this._syncControlState();
+  }
+
+  /**
+   * Sets the active interaction tool.
+   * @param {'select'|'pan'} tool
+   */
+  setActiveTool(tool) {
+    this.activeTool = tool;
+    this._updateCursor();
+    this._syncControlState();
   }
 
   /**
    * Updates canvas transform to match board zoom/pan.
    */
   _updateCanvasTransform() {
-    const zoom = this.board.zoom || 1;
-    const panX = this.board.panX || 0;
-    const panY = this.board.panY || 0;
-
-    // Match board transform exactly
-    const transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    const transform = `translate(${this.viewPanX}px, ${this.viewPanY}px) scale(${this.viewZoom})`;
     this.snapshotCanvas.style.transform = transform;
     this.selectionCanvas.style.transform = transform;
+  }
+
+  _setView(zoom, panX, panY, updateDefault = false) {
+    this.viewZoom = Math.max(0.2, Math.min(3, zoom));
+    this.viewPanX = panX;
+    this.viewPanY = panY;
+    if (updateDefault) {
+      this.defaultViewZoom = this.viewZoom;
+      this.defaultViewPanX = this.viewPanX;
+      this.defaultViewPanY = this.viewPanY;
+    }
+    this._updateCanvasTransform();
+    this._syncControlState();
+  }
+
+  _zoomTo(nextZoom, pivot = null) {
+    const clampedZoom = Math.max(0.2, Math.min(3, Math.round(nextZoom * 10) / 10));
+    if (clampedZoom === this.viewZoom) return;
+
+    let nextPanX = this.viewPanX;
+    let nextPanY = this.viewPanY;
+
+    if (pivot) {
+      const canvasX = (pivot.x - this.viewPanX) / this.viewZoom;
+      const canvasY = (pivot.y - this.viewPanY) / this.viewZoom;
+      nextPanX = pivot.x - (canvasX * clampedZoom);
+      nextPanY = pivot.y - (canvasY * clampedZoom);
+    }
+
+    this._setView(clampedZoom, nextPanX, nextPanY);
+  }
+
+  _zoomByStep(step) {
+    const overlayRect = this.overlay.getBoundingClientRect();
+    this._zoomTo(this.viewZoom + step, {
+      x: overlayRect.width / 2,
+      y: overlayRect.height / 2
+    });
+  }
+
+  resetView() {
+    this._setView(this.defaultViewZoom, this.defaultViewPanX, this.defaultViewPanY);
+  }
+
+  _syncControlState() {
+    if (!this.controls) return;
+
+    this.modeToggle.querySelectorAll('.saveModeToggleBtn').forEach((btn) => {
+      const tool = btn.dataset.tool;
+      const mode = btn.dataset.mode;
+      const isActive = tool === 'pan'
+        ? this.activeTool === 'pan'
+        : this.activeTool === 'select' && mode === this.mode;
+      btn.classList.toggle('active', isActive);
+    });
+
+    if (this.zoomResetBtn) {
+      this.zoomResetBtn.textContent = `${Math.round(this.viewZoom * 100)}%`;
+    }
+
+    this._updateCursor();
+  }
+
+  _updateCursor() {
+    if (!this.selectionCanvas) return;
+    if (this._isPanning) {
+      this.selectionCanvas.style.cursor = 'grabbing';
+      return;
+    }
+    this.selectionCanvas.style.cursor = this.activeTool === 'pan' ? 'grab' : 'crosshair';
   }
 
   /**
@@ -430,7 +546,8 @@ export class SaveMode {
    */
   _drawSelection() {
     const ctx = this.selectionCtx;
-    const [height, width] = this.board.dimensions;
+    const width = this.selectionCanvas.width;
+    const height = this.selectionCanvas.height;
 
     ctx.clearRect(0, 0, width, height);
 
@@ -492,17 +609,14 @@ export class SaveMode {
    */
   _getCanvasPos(e) {
     const overlayRect = this.overlay.getBoundingClientRect();
-    const zoom = this.board.zoom || 1;
-    const panX = this.board.panX || 0;
-    const panY = this.board.panY || 0;
 
     // Get pointer position relative to overlay
     const screenX = e.clientX - overlayRect.left;
     const screenY = e.clientY - overlayRect.top;
 
     // Reverse the transform: remove pan then unscale
-    const canvasX = (screenX - panX) / zoom;
-    const canvasY = (screenY - panY) / zoom;
+    const canvasX = (screenX - this.viewPanX) / this.viewZoom;
+    const canvasY = (screenY - this.viewPanY) / this.viewZoom;
 
     return { x: canvasX, y: canvasY };
   }
@@ -519,19 +633,7 @@ export class SaveMode {
     const cursorX = e.clientX - overlayRect.left;
     const cursorY = e.clientY - overlayRect.top;
 
-    // Zoom in or out
-    const zoomDelta = 0.1;
-    if (e.deltaY > 0) {
-      this.board.zoomOut(zoomDelta, { x: cursorX, y: cursorY });
-    } else {
-      this.board.zoomIn(zoomDelta, { x: cursorX, y: cursorY });
-    }
-
-    // Update canvas transform to match new zoom/pan
-    this._updateCanvasTransform();
-
-    // Update UI zoom display
-    this.ui.updateZoomDisplay(this.board.getZoomPercent());
+    this._zoomTo(this.viewZoom + (e.deltaY > 0 ? -0.1 : 0.1), { x: cursorX, y: cursorY });
   }
 
   /**
@@ -540,13 +642,14 @@ export class SaveMode {
    */
   _onPointerDown(e) {
     // Check if we're in pan mode (Space held or middle-click)
-    const isPanning = this.app.self.panning || e.button === 1;
+    const isPanning = this.activeTool === 'pan' || this.app.self.panning || e.button === 1;
 
     if (isPanning) {
       // Start pan mode
       this._isPanning = true;
       this._lastPanX = e.clientX;
       this._lastPanY = e.clientY;
+      this._updateCursor();
       this.selectionCanvas.setPointerCapture(e.pointerId);
       return;
     }
@@ -573,7 +676,8 @@ export class SaveMode {
     if (this._isPanning) {
       const dx = e.clientX - this._lastPanX;
       const dy = e.clientY - this._lastPanY;
-      this.board.pan(dx, dy);
+      this.viewPanX += dx;
+      this.viewPanY += dy;
       this._lastPanX = e.clientX;
       this._lastPanY = e.clientY;
       this._updateCanvasTransform();
@@ -612,11 +716,18 @@ export class SaveMode {
     // End panning
     if (this._isPanning) {
       this._isPanning = false;
+      this._updateCursor();
+      if (e.pointerId !== undefined && this.selectionCanvas.hasPointerCapture?.(e.pointerId)) {
+        this.selectionCanvas.releasePointerCapture(e.pointerId);
+      }
       return;
     }
 
     if (!this.isSelecting) return;
     this.isSelecting = false;
+    if (e.pointerId !== undefined && this.selectionCanvas.hasPointerCapture?.(e.pointerId)) {
+      this.selectionCanvas.releasePointerCapture(e.pointerId);
+    }
 
     // Finalize lasso by closing the path
     if (this.mode === 'lasso' && this.lassoPoints.length > 2) {
@@ -795,6 +906,7 @@ export class SaveMode {
     // Reset state
     this.lassoPoints = [];
     this.transparent = false;
+    this.activeTool = 'pan';
     this.optionsPanel.querySelector('#saveModeTransparent').checked = false;
 
     // Size canvases to match the pre-existing canvas
@@ -823,6 +935,7 @@ export class SaveMode {
 
     // Center the canvas in the viewport
     this._centerPreExistingCanvas();
+    this._syncControlState();
   }
 
   /**
@@ -867,9 +980,7 @@ export class SaveMode {
     const panX = (overlayRect.width - canvasWidth * scale) / 2;
     const panY = (overlayRect.height - canvasHeight * scale) / 2 - 30; // Offset for options panel
 
-    const transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
-    this.snapshotCanvas.style.transform = transform;
-    this.selectionCanvas.style.transform = transform;
+    this._setView(scale, panX, panY, true);
   }
 
   /**
@@ -886,6 +997,9 @@ export class SaveMode {
 
     // Reset pan/zoom state
     this._isPanning = false;
+    this.activeTool = 'select';
+    this._setView(1, 0, 0, true);
+    this._syncControlState();
 
     // Restore mode toggle visibility
     this.modeToggle.style.display = '';
