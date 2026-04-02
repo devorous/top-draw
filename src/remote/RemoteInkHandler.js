@@ -190,6 +190,32 @@ export class RemoteInkHandler {
     const rawThinning = user.thinning !== undefined ? user.thinning : 0.5;
     const thinning = !simulatePressure ? 0.95 : Math.min(0.99, rawThinning * Math.max(1, inkSize / 10));
 
+    const isDot = user._inkPoints.length === 1 ||
+                 (user._inkPoints.length === 2 &&
+                  Math.abs(user._inkPoints[0][0] - user._inkPoints[1][0]) < 0.1 &&
+                  Math.abs(user._inkPoints[0][1] - user._inkPoints[1][1]) < 0.1);
+
+    if (isDot) {
+      // Match local ink preview behavior: don't flash the initial dot during
+      // preview. Only render it when the stroke is actually finalized.
+      if (!last) return;
+
+      const [x, y, pressure] = user._inkPoints[0];
+      let dotPressure = pressure !== undefined ? pressure : 1;
+      if (!simulatePressure) {
+        dotPressure = Math.pow(dotPressure, 2);
+      }
+      ctx.fillStyle = user._inkStrokeColor;
+      ctx.beginPath();
+      ctx.arc(x, y, inkSize * dotPressure, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+
+    // Match local ink preview behavior: wait for enough points to form a real
+    // stroke shape before drawing the preview, avoiding oversized start blobs.
+    if (!last && user._inkPoints.length < 3) return;
+
     const userSmoothing = user.smoothing !== undefined ? user.smoothing / 50 : 0.5;
     // We use a baseline streamline even at 0 smoothing to stabilize velocity calculation in perfect-freehand
     const streamline = 0.3 + (userSmoothing * 0.7); // Scale 0.3 to 1.0
