@@ -834,7 +834,8 @@ export class Board {
       }
     }
     if (this.tileGrid) this.tileGrid.markAllDirty();
-    this.clearTop();
+    // Preserve the local preview/selection overlays during undo so another
+    // user's history change cannot blank an in-progress stroke preview.
     this.compositeAllLayers();
 
     // After composite, check affected tiles and update tracker state based on current pixels
@@ -899,7 +900,8 @@ export class Board {
     }
     this.layerManager.redoLastStroke(userId);
     if (this.tileGrid) this.tileGrid.markAllDirty();
-    this.clearTop();
+    // Preserve the local preview/selection overlays during redo for the same
+    // reason as undo: previews are transient UI state, not history state.
     this.compositeAllLayers();
 
     // Re-check tiles to update tracker state
