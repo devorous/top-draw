@@ -1016,23 +1016,8 @@ export class DrawingApp {
     window.addEventListener('pointerup', (e) => this.handlePointerUp(e));
     window.addEventListener('pointercancel', (e) => this.handlePointerUp(e));
 
-    elements.board.addEventListener('pointerenter', () => {
-           this.isOnBoard = true;
-    
-           // Skip showing cursor during two-finger gestures (except for text tool)
-           if (this.touchHandler.state.isPinching || this.touchHandler.state.gestureStartedWithTwoFingers) {
-             if (this.self.tool !== 'text') {
-               return;
-             }
-           }
-    
-           this.ui.showCursor();      // Refresh tool display to show correct cursor shape
-      this.ui.updateToolDisplay(this.self.tool, this.self);
-
-      // Broadcast cursor show to other users
-      if (this.connected) {
-        this.wsClient.broadcastShowCursor();
-      }
+    elements.board.addEventListener('pointerenter', (e) => {
+      this.syncBoardHoverState(true, { forceRefresh: true, event: e });
     });
     elements.board.addEventListener('pointerleave', (e) => this.handlePointerLeave(e));
 
@@ -2847,6 +2832,60 @@ export class DrawingApp {
 
   // Pointer event handlers
 
+  isPointerOverBoard(clientX, clientY) {
+    const boardEl = this.ui?.elements?.board;
+    if (!boardEl || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
+
+    const rect = boardEl.getBoundingClientRect();
+    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+  }
+
+  syncBoardHoverState(isOnBoard, { forceRefresh = false, event = null } = {}) {
+    const cursorHidden = this.ui?.elements?.selfCursor?.style.display === 'none';
+    const shouldRefresh = forceRefresh || (isOnBoard && cursorHidden);
+    if (this.isOnBoard === isOnBoard && !shouldRefresh) {
+      return;
+    }
+
+    this.isOnBoard = isOnBoard;
+
+    if (isOnBoard) {
+      const inTouchGesture =
+        this.touchHandler.state.isPinching ||
+        this.touchHandler.state.gestureStartedWithTwoFingers;
+      if (inTouchGesture && this.self.tool !== 'text') {
+        return;
+      }
+
+      this.ui.showCursor();
+      this.ui.updateToolDisplay(this.self.tool, this.self);
+      if (this.connected) {
+        this.wsClient.broadcastShowCursor();
+      }
+      return;
+    }
+
+    if (this.self.mousedown || this.self.tool === 'text') {
+      return;
+    }
+
+    // Some stylus drivers emit leave during hover/contact transitions. If the
+    // pointer is still physically over the board, keep the cursor visible.
+    if (event && this.isPointerOverBoard(event.clientX, event.clientY)) {
+      this.isOnBoard = true;
+      if (shouldRefresh) {
+        this.ui.showCursor();
+        this.ui.updateToolDisplay(this.self.tool, this.self);
+      }
+      return;
+    }
+
+    this.ui.hideCursor();
+    if (this.connected) {
+      this.wsClient.broadcastHideCursor();
+    }
+  }
+
   handlePointerMove(e) {
     // Block local input while syncing
     if (this.syncClient?.isSyncing() || this.syncClient?.isCanvasInputBlocked()) return;
@@ -2885,6 +2924,7 @@ export class DrawingApp {
       this.self.panning ||
       this._containerPanActive ||
       !!this.self._pendingTextPos;
+    this.syncBoardHoverState(this.isPointerOverBoard(e.clientX, e.clientY), { event: e });
     if (!this.isOnBoard && !hasActiveBoardInteraction) {
       return;
     }
@@ -3012,6 +3052,8 @@ export class DrawingApp {
       }
       return;
     }
+
+    this.syncBoardHoverState(true, { forceRefresh: true, event: e });
 
     // Middle-click enables panning mode
     if (e.button === 1) {
@@ -3350,19 +3392,7 @@ export class DrawingApp {
   }
 
   handlePointerLeave(e) {
-    this.isOnBoard = false;
-
-    // Keep cursor visible if drawing or if text tool is active
-    if (this.self.mousedown || this.self.tool === 'text') {
-      return;
-    }
-
-    this.ui.hideCursor();
-
-    // Broadcast cursor hide to other users
-    if (this.connected) {
-      this.wsClient.broadcastHideCursor();
-    }
+    this.syncBoardHoverState(false, { forceRefresh: true, event: e });
   }
 
   // boardContainer pointer handlers: pan by dragging the background (Space held or middle-click)
