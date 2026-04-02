@@ -467,7 +467,10 @@ export class DrawingApp {
     if (elements.patternBtn) {
       elements.patternBtn.addEventListener('click', () => this.selectTool('pattern'));
     }
-    elements.uploadBtn.addEventListener('click', () => elements.imageUploadInput.click());
+    elements.uploadBtn.addEventListener('click', () => {
+      if (!this.canUseImageFeatures(true)) return;
+      elements.imageUploadInput.click();
+    });
     elements.imageUploadInput.addEventListener('change', (e) => {
       if (e.target.files && e.target.files[0]) {
         this.handleImageFile(e.target.files[0]);
@@ -1186,12 +1189,17 @@ export class DrawingApp {
   }
 
   handlePatternImageBtnClick() {
+    if (!this.canUseImageFeatures(true)) return;
     this.ui.elements.patternImageUploadInput?.click();
   }
 
   handlePatternImageUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
+    if (!this.canUseImageFeatures(true)) {
+      e.target.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -2115,6 +2123,14 @@ export class DrawingApp {
     const el = this.ui.elements.saveModeGallery;
     if (!el) return;
     el.style.display = role >= 1 ? '' : 'none';
+  }
+
+  canUseImageFeatures(showToast = false) {
+    const allowed = this.selfRole >= 1;
+    if (!allowed && showToast) {
+      this.ui?.showToast('Only registered users can upload, copy, or paste images', 3000);
+    }
+    return allowed;
   }
 
   /** Opens the interactive save mode with visual selection. */
@@ -3723,6 +3739,7 @@ export class DrawingApp {
 
   handleImageFile(file) {
     if (!file || !file.type.startsWith('image/')) return;
+    if (!this.canUseImageFeatures(true)) return;
 
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -3741,6 +3758,7 @@ export class DrawingApp {
   handleImageDrop(e) {
     if (this.syncClient?.isCanvasInputBlocked()) return;
     e.preventDefault();
+    if (!this.canUseImageFeatures(true)) return;
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       this.handleImageFile(e.dataTransfer.files[0]);
     } else {

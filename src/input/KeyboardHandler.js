@@ -29,6 +29,11 @@ export class KeyboardHandler {
     const items = (e.clipboardData || e.originalEvent.clipboardData).items;
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
+        if (!app.canUseImageFeatures(true)) {
+          e.preventDefault();
+          break;
+        }
+
         const blob = items[i].getAsFile();
         const reader = new FileReader();
         reader.onload = (event) => {

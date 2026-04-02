@@ -2604,6 +2604,7 @@ export class SelectTool extends Tool {
   // Copy selection to clipboard
   copy() {
     if (!this.selection) return false;
+    if (!this.board.app?.canUseImageFeatures?.(true)) return false;
 
     const s = this.selection;
 
@@ -2639,7 +2640,7 @@ export class SelectTool extends Tool {
   cut() {
     if (!this.selection) return false;
 
-    this.copy();
+    if (!this.copy()) return false;
     this.deleteSelection();
     return true;
   }
@@ -2647,6 +2648,7 @@ export class SelectTool extends Tool {
   // Paste from clipboard
   paste() {
     if (!this.clipboard) return false;
+    if (!this.board.app?.canUseImageFeatures?.(true)) return false;
 
     // Commit any existing selection
     this.commitSelection();
@@ -2700,6 +2702,8 @@ export class SelectTool extends Tool {
    * @param {HTMLImageElement|HTMLCanvasElement|ImageData} imageSource 
    */
   pasteImage(imageSource) {
+    if (!this.board.app?.canUseImageFeatures?.(true)) return false;
+
     // Commit any existing selection
     this.commitSelection();
     this.clearSelection();
