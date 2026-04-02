@@ -192,6 +192,21 @@ export class LandingPage {
   }
 
   /**
+   * Creates a plain room preview using the room background color.
+   * @param {string|null|undefined} backgroundColor - Hex room background color
+   * @returns {string} - SVG data URL
+   */
+  createFallbackPreviewUrl(backgroundColor) {
+    const color = typeof backgroundColor === 'string' && /^#[0-9A-Fa-f]{6}$/.test(backgroundColor)
+      ? backgroundColor
+      : '#ffffff';
+    const width = 1920 / 4;
+    const height = 1080 / 4;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><rect width="${width}" height="${height}" fill="${color}"/></svg>`;
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+  }
+
+  /**
    * Render room list in the UI.
    * @param {Array} rooms - List of room objects
    */
@@ -210,20 +225,14 @@ export class LandingPage {
     }
 
     this.els.roomList.innerHTML = rooms.map(room => {
-      const previewUrl = this.previewToDataUrl(room.preview);
-      if (previewUrl) this._previewUrls.push(previewUrl);
+      const previewUrl = this.previewToDataUrl(room.preview) || this.createFallbackPreviewUrl(room.backgroundColor);
+      if (previewUrl.startsWith('blob:')) this._previewUrls.push(previewUrl);
 
       return `
       <div class="roomListItem ${this.selectedRoom === room.id ? 'selected' : ''}" data-room-id="${room.id}">
-        ${previewUrl ? `
-          <div class="roomPreview">
-            <img src="${previewUrl}" alt="Room preview" loading="lazy" />
-          </div>
-        ` : `
-          <div class="roomPreview roomPreviewEmpty">
-            <span>No preview</span>
-          </div>
-        `}
+        <div class="roomPreview">
+          <img src="${previewUrl}" alt="Room preview" loading="lazy" />
+        </div>
         <div class="roomInfo">
           <div class="roomId">${room.id}</div>
           ${room.description ? `<div class="roomDescription">${this.escapeHtml(room.description)}</div>` : ''}

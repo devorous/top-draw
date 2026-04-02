@@ -179,7 +179,7 @@ export class Room {
 
   /**
    * Updates the room preview image.
-   * @param {Buffer} previewData - PNG image data at 1/4 scale
+   * @param {Buffer|null} previewData - PNG image data at 1/4 scale, or null to clear
    */
   setPreview(previewData) {
     this.preview = previewData;
@@ -307,6 +307,7 @@ export class RoomManager {
         userCount: room.getClientCount(),
         locked: room.settings.locked,
         hasPassword: false,
+        backgroundColor: room.settings.backgroundColor || '#ffffff',
         ownerId: room.ownerId || '',
         ownerUsername: room.ownerUsername || ''
       };
@@ -316,6 +317,36 @@ export class RoomManager {
       list.push(roomInfo);
     }
     return list;
+  }
+
+  /**
+   * Broadcasts an updated room list to discovery clients.
+   */
+  broadcastRoomListUpdate() {
+    if (!this.Msg) return;
+
+    const payload = {
+      t: T.ROOM_LIST_RESPONSE,
+      rooms: this.getRoomList().map(r => ({
+        id: r.id,
+        userCount: r.userCount,
+        locked: r.locked,
+        hasPassword: r.hasPassword,
+        description: r.description || '',
+        backgroundColor: r.backgroundColor || '#ffffff',
+        ownerId: r.ownerId || '',
+        ownerUsername: r.ownerUsername || '',
+        preview: r.preview || null
+      }))
+    };
+
+    const discoveryRooms = ['default', '_discovery'];
+    for (const roomId of discoveryRooms) {
+      const room = this.rooms.get(roomId);
+      if (room) {
+        room.broadcastToAll(payload);
+      }
+    }
   }
 
   /**

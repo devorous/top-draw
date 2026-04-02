@@ -1251,6 +1251,7 @@ wss.on('connection', (ws, req) => {
                 locked: r.locked,
                 hasPassword: r.hasPassword,
                 description: r.description || '',
+                backgroundColor: r.backgroundColor || '#ffffff',
                 ownerId: r.ownerId || '',
                 ownerUsername: r.ownerUsername || '',
                 preview: r.preview || null
@@ -1815,8 +1816,10 @@ wss.on('connection', (ws, req) => {
           if (room.sessionManager.getUserCount() === 0) {
             room.settings.mirror = false;
             room.syncCoordinator.clearPendingRequests();
+            room.setPreview(null);
             // Clear tile data when room empties - stale data shouldn't persist
             room.clearAllTiles();
+            roomManager.broadcastRoomListUpdate();
           }
       }
 

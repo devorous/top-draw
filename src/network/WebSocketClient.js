@@ -782,6 +782,7 @@ export class WebSocketClient {
             locked: r.locked || false,
             hasPassword: r.hasPassword || false,
             description: r.description || '',
+            backgroundColor: r.backgroundColor || '#ffffff',
             ownerId: r.ownerId || null,
             ownerUsername: r.ownerUsername || null,
             preview: r.preview || null
