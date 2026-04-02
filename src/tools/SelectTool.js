@@ -2285,24 +2285,12 @@ export class SelectTool extends Tool {
           });
           if (result) {
             const tempCanvas = imageDataToCanvas(result.imageData);
-            if (this.patternMode && this.board.app?.self) {
-              this._drawWithPattern(active.ctx, tempCanvas, result.bounds.minX, result.bounds.minY, this.board.app.self);
-            } else {
-              active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
-            }
-          } else {
-            if (this.patternMode && this.board.app?.self) {
-              this._drawWithPattern(active.ctx, canvas, this.selection.x, this.selection.y, this.board.app.self);
-            } else {
-              active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
-            }
-          }
-        } else {
-          if (this.patternMode && this.board.app?.self) {
-            this._drawWithPattern(active.ctx, canvas, this.selection.x, this.selection.y, this.board.app.self);
+            active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
           } else {
             active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
           }
+        } else {
+          active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
         }
 
         lm.commitUserStroke(groupIdx, userId, { selectionRestoreData: this._restoreData });
@@ -2360,32 +2348,20 @@ export class SelectTool extends Tool {
 
       if (result) {
         const tempCanvas = imageDataToCanvas(result.imageData);
-        if (this.patternMode && this.board.app?.self) {
-          this._drawWithPattern(active.ctx, tempCanvas, result.bounds.minX, result.bounds.minY, this.board.app.self);
-        } else {
-          active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
-        }
+        active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
         dirtyX = result.bounds.minX;
         dirtyY = result.bounds.minY;
         dirtyWidth = result.bounds.width;
         dirtyHeight = result.bounds.height;
       } else {
-        if (this.patternMode && this.board.app?.self) {
-          this._drawWithPattern(active.ctx, this.floatingCanvas, this.selection.x, this.selection.y, this.board.app.self);
-        } else {
-          active.ctx.drawImage(this.floatingCanvas, this.selection.x, this.selection.y, this.selection.width, this.selection.height);
-        }
+        active.ctx.drawImage(this.floatingCanvas, this.selection.x, this.selection.y, this.selection.width, this.selection.height);
         dirtyX = this.selection.x;
         dirtyY = this.selection.y;
         dirtyWidth = this.selection.width;
         dirtyHeight = this.selection.height;
       }
     } else {
-      if (this.patternMode && this.board.app?.self) {
-        this._drawWithPattern(active.ctx, this.floatingCanvas, this.selection.x, this.selection.y, this.board.app.self);
-      } else {
-        active.ctx.drawImage(this.floatingCanvas, this.selection.x, this.selection.y, this.selection.width, this.selection.height);
-      }
+      active.ctx.drawImage(this.floatingCanvas, this.selection.x, this.selection.y, this.selection.width, this.selection.height);
       dirtyX = this.selection.x;
       dirtyY = this.selection.y;
       dirtyWidth = this.selection.width;
