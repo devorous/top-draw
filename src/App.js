@@ -1574,6 +1574,7 @@ export class DrawingApp {
 
     const pendingPassword = password ?? ((!this.auth?.isLoggedIn && this.ui.elements.loginPassword?.value) || '');
     this._pendingPassword = pendingPassword || null;
+    this.landingPage?.clearError();
 
     if (this.landingPage) {
       this.landingPage.selectRoom(resolvedRoomId);
@@ -1712,7 +1713,6 @@ export class DrawingApp {
     if (this._pendingPassword && this.self.username) {
       this.wsClient.sendAuthLogin(this.self.username, this._pendingPassword);
       this._pendingPassword = null;
-      this.handleJoinAfterConnect();
       return;
     }
     this._pendingPassword = null;
@@ -1941,13 +1941,15 @@ export class DrawingApp {
   handleAuthError(error) {
     if (this.isOfflineMode) return;
 
-    this.ui.showToast(error, 4000, 'error');
-
     if (this.landingPage) {
       this.syncClient.hideOverlay();
       this.landingPage.show();
+      this.landingPage.showError(error);
       this.ui.elements.overlay.style.display = 'flex';
+      return;
     }
+
+    this.ui.showToast(error, 4000, 'error');
   }
 
   /**

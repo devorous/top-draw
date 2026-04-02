@@ -3,24 +3,20 @@ const { MongoClient } = require('mongodb');
 const http = require('http');
 
 const PORT = process.env.PORT || 3001;
-const MONGODB_URI = process.env.MONGODB_URI; // MongoDB Atlas connection string
-const DB_NAME = 'ddraw_messenger';
-const USERS_DB_NAME = 'Draw'; // Main app DB for user lookup
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017';
+const DB_NAME = process.env.MONGODB_MESSENGER_DB_NAME || 'ddraw_messenger';
+const USERS_DB_NAME = process.env.MONGODB_DB_NAME || 'Draw';
 
 let db;
 let usersDb;
 const clients = new Map(); // username -> WebSocket connection
 
 async function initDB() {
-  if (!MONGODB_URI) {
-    console.error('MONGODB_URI is not defined in environment variables');
-    process.exit(1);
-  }
   const client = new MongoClient(MONGODB_URI);
   await client.connect();
   db = client.db(DB_NAME);
   usersDb = client.db(USERS_DB_NAME);
-  console.log('Connected to MongoDB Atlas');
+  console.log(`Connected to MongoDB: ${MONGODB_URI} (${DB_NAME}, users=${USERS_DB_NAME})`);
 }
 
 const server = http.createServer(async (req, res) => {

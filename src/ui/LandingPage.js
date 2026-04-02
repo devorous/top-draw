@@ -486,15 +486,31 @@ export class LandingPage {
    * @param {string} message - Error message
    */
   showError(message) {
-    const toast = document.getElementById('toast');
-    if (toast) {
-      toast.textContent = message;
-      toast.classList.add('show');
-      setTimeout(() => {
-        toast.classList.remove('show');
-      }, 3000);
-    } else {
-      console.error('[LandingPage]', message);
+    const form = document.getElementById('loginForm');
+    if (form) {
+      let errorEl = document.getElementById('landingError');
+      if (!errorEl) {
+        errorEl = document.createElement('div');
+        errorEl.id = 'landingError';
+        errorEl.className = 'landingError';
+        form.appendChild(errorEl);
+      }
+      errorEl.textContent = message;
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    console.error('[LandingPage]', message);
+  }
+
+  /**
+   * Clears any landing-page error message.
+   */
+  clearError() {
+    const errorEl = document.getElementById('landingError');
+    if (errorEl) {
+      errorEl.textContent = '';
+      errorEl.style.display = 'none';
     }
   }
 
