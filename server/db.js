@@ -42,9 +42,11 @@ export async function connectDB() {
     await db.collection('gallery').createIndex({ createdAt: -1 });
     await db.collection('gallery').createIndex({ author: 1, createdAt: -1 });
     await db.collection('gallery').createIndex({ likes: -1 });
+    await db.collection('gallery').createIndex({ tags: 1, createdAt: -1 });
     await db.collection('favorites').createIndex({ userId: 1, galleryId: 1 }, { unique: true });
     await db.collection('favorites').createIndex({ userId: 1, createdAt: -1 });
     await db.collection('comments').createIndex({ galleryId: 1, createdAt: 1 });
+    await db.collection('comments').createIndex({ createdAt: -1 });
     await db.collection('messages').createIndex({ room_id: 1, timestamp: 1 });
     await db.collection('messages').createIndex({ sender_id: 1, timestamp: -1 });
     await db.collection('messages').createIndex({ receiver_id: 1, timestamp: -1 });

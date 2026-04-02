@@ -35,14 +35,22 @@
   let likedIds = $state(new Set(JSON.parse(localStorage.getItem('ddraw_liked') || '[]')));
   let sort = $state('newest'); // 'newest' | 'top' | 'views'
   let authorFilter = $state(null); // username string or null
+  let tagFilter = $state(null); // tag string or null
   let showFavorites = $state(false); // viewing favorites mode
   let favoritedIds = $state(new Set()); // ids user has favorited
+
+  // Sidebar state
+  let recentCommentsFeed = $state([]);
+  let sidebarTags = $state([]);
+  let sidebarLoading = $state(false);
 
   // Comments state
   let comments = $state([]);
   let commentsLoading = $state(false);
   let newComment = $state('');
   let commentSubmitting = $state(false);
+  let tagDraft = $state('');
+  let tagSaving = $state(false);
 
   // Auth state
   let user = $state(null); // { username, role, userId }
@@ -58,6 +66,7 @@
     try {
       let url = `${API_BASE}/api/gallery?page=${page}&limit=24&sort=${sort}`;
       if (authorFilter) url += `&author=${encodeURIComponent(authorFilter)}`;
+      if (tagFilter) url += `&tag=${encodeURIComponent(tagFilter)}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
@@ -70,23 +79,65 @@
     }
   }
 
+  async function fetchSidebar() {
+    sidebarLoading = true;
+    try {
+      let url = `${API_BASE}/api/gallery/sidebar`;
+      const params = new URLSearchParams();
+      if (authorFilter) params.set('author', authorFilter);
+      if (tagFilter) params.set('tag', tagFilter);
+      const query = params.toString();
+      if (query) url += `?${query}`;
+
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Failed to fetch sidebar');
+      const data = await res.json();
+      recentCommentsFeed = data.recentComments || [];
+      sidebarTags = data.tags || [];
+    } catch {
+      recentCommentsFeed = [];
+      sidebarTags = [];
+    } finally {
+      sidebarLoading = false;
+    }
+  }
+
   function setSort(newSort) {
     if (sort === newSort) return;
     sort = newSort;
     page = 1;
     fetchGallery();
+    fetchSidebar();
   }
 
   function filterByAuthor(username) {
     authorFilter = username;
+    tagFilter = null;
     page = 1;
     fetchGallery();
+    fetchSidebar();
   }
 
   function clearAuthorFilter() {
     authorFilter = null;
     page = 1;
     fetchGallery();
+    fetchSidebar();
+  }
+
+  function filterByTag(tag) {
+    tagFilter = tag;
+    showFavorites = false;
+    page = 1;
+    fetchGallery();
+    fetchSidebar();
+  }
+
+  function clearTagFilter() {
+    tagFilter = null;
+    page = 1;
+    fetchGallery();
+    fetchSidebar();
   }
 
   async function downloadImage(url, filename) {
@@ -134,11 +185,15 @@
   function toggleFavoritesView() {
     showFavorites = !showFavorites;
     authorFilter = null;
+    tagFilter = null;
     page = 1;
     if (showFavorites) {
       fetchFavorites();
+      recentCommentsFeed = [];
+      sidebarTags = [];
     } else {
       fetchGallery();
+      fetchSidebar();
     }
   }
 
@@ -234,6 +289,7 @@
         const comment = await res.json();
         comments = [...comments, comment];
         newComment = '';
+        fetchSidebar();
       }
     } catch {}
     commentSubmitting = false;
@@ -250,8 +306,50 @@
       });
       if (res.ok) {
         comments = comments.filter(c => c.id !== commentId);
+        fetchSidebar();
       }
     } catch {}
+  }
+
+  function canEditTags(item) {
+    return !!user && (user.username === item.author || user.role >= 5);
+  }
+
+  function syncTagDraft(item) {
+    tagDraft = (item?.tags || []).join(', ');
+  }
+
+  async function saveTags() {
+    if (!lightbox || !canEditTags(lightbox) || tagSaving) return;
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) return;
+
+    tagSaving = true;
+    try {
+      const nextTags = tagDraft.split(',').map((tag) => tag.trim()).filter(Boolean);
+      const res = await fetch(`${API_BASE}/api/gallery/${lightbox.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ tags: nextTags })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to update tags');
+      }
+
+      const data = await res.json();
+      lightbox = { ...lightbox, tags: data.tags || [] };
+      items = items.map((item) => item.id === lightbox.id ? { ...item, tags: data.tags || [] } : item);
+      syncTagDraft(lightbox);
+      fetchSidebar();
+    } catch (err) {
+      alert(err.message || 'Failed to update tags');
+    } finally {
+      tagSaving = false;
+    }
   }
 
   async function deleteImage(item) {
@@ -404,6 +502,7 @@
 
   function openLightbox(item) {
     lightbox = item;
+    syncTagDraft(item);
     document.body.style.overflow = 'hidden';
     // Check if favorited when opening lightbox
     if (user && !favoritedIds.has(item.id)) {
@@ -427,6 +526,7 @@
     lightbox = null;
     comments = [];
     newComment = '';
+    tagDraft = '';
 
     if (!returnToProfile) {
       document.body.style.overflow = '';
@@ -452,6 +552,21 @@
     return new Date(d).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
+  async function openImageById(itemId) {
+    try {
+      const existing = items.find((item) => item.id === itemId);
+      if (existing) {
+        openLightbox(existing);
+        return;
+      }
+
+      const res = await fetch(`${API_BASE}/api/gallery/${itemId}`);
+      if (!res.ok) return;
+      const item = await res.json();
+      openLightbox(item);
+    } catch {}
+  }
+
   async function checkUrlParams() {
     const params = new URLSearchParams(window.location.search);
 
@@ -474,12 +589,18 @@
     if (authorParam) {
       authorFilter = authorParam;
     }
+
+    const tagParam = params.get('tag');
+    if (tagParam) {
+      tagFilter = tagParam.trim().toLowerCase();
+    }
   }
 
   onMount(() => {
     checkAuth();
     checkUrlParams();
     fetchGallery();
+    fetchSidebar();
   });
 </script>
 
@@ -509,10 +630,12 @@
   <header>
     <div class="header-top">
       <div>
-        <h1>{showFavorites ? 'My Favorites' : (authorFilter ? `${authorFilter}'s Art` : 'Gallery')}</h1>
+        <h1>{showFavorites ? 'My Favorites' : (authorFilter ? `${authorFilter}'s Art` : (tagFilter ? `#${tagFilter}` : 'Gallery'))}</h1>
         <p>
           {#if showFavorites}
             <button class="btn-link" onclick={toggleFavoritesView}>← back to all</button>
+          {:else if tagFilter}
+            <button class="btn-link" onclick={clearTagFilter}>â† clear tag</button>
           {:else if authorFilter}
             <button class="btn-link" onclick={clearAuthorFilter}>← back to all</button>
           {:else}
@@ -548,11 +671,16 @@
         <a href="/go/" class="btn-primary">Start Drawing</a>
       </div>
     {:else}
-      <div class="grid">
+      <div class="gallery-layout">
+        <section class="gallery-main">
+          <div class="grid">
         {#each items as item (item.id)}
           <div class="card" role="button" tabindex="0" onclick={() => openLightbox(item)} onkeydown={(e) => e.key === 'Enter' && openLightbox(item)}>
             <div class="card-img">
               <img src={item.thumbUrl || item.url} alt={item.title || 'artwork'} loading="lazy">
+              {#if item.tags?.includes('nsfw')}
+                <span class="card-badge">NSFW</span>
+              {/if}
             </div>
             <div class="card-meta">
               <button class="card-author" onclick={(e) => { e.stopPropagation(); profileDialog.show(item.author); }}>{item.author}</button>
@@ -565,6 +693,13 @@
                 ♥ {item.likes || 0}
               </button>
             </div>
+            {#if item.tags?.length}
+              <div class="card-tags">
+                {#each item.tags as tag}
+                  <button class="tag-chip" onclick={(e) => { e.stopPropagation(); filterByTag(tag); }}>#{tag}</button>
+                {/each}
+              </div>
+            {/if}
           </div>
         {/each}
       </div>
@@ -576,6 +711,55 @@
           <button class="btn-ghost small" disabled={page >= totalPages} onclick={() => { page++; fetchGallery(); }}>Next →</button>
         </div>
       {/if}
+        </section>
+
+        <aside class="gallery-sidebar">
+          <div class="sidebar-card">
+            <div class="sidebar-head">
+              <h2>Image Tags</h2>
+              {#if tagFilter}
+                <button class="btn-link small-link" onclick={clearTagFilter}>clear</button>
+              {/if}
+            </div>
+            {#if sidebarTags.length === 0}
+              <p class="sidebar-empty">{sidebarLoading ? 'Loading tags...' : 'No tags yet'}</p>
+            {:else}
+              <div class="sidebar-tags">
+                {#each sidebarTags as entry}
+                  <button class="tag-chip sidebar-tag" class:active={tagFilter === entry.tag} onclick={() => filterByTag(entry.tag)}>
+                    #{entry.tag} <span>{entry.count}</span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+
+          <div class="sidebar-card">
+            <div class="sidebar-head">
+              <h2>Recent Comments</h2>
+            </div>
+            {#if recentCommentsFeed.length === 0}
+              <p class="sidebar-empty">{sidebarLoading ? 'Loading comments...' : 'No recent comments'}</p>
+            {:else}
+              <div class="recent-comments">
+                {#each recentCommentsFeed as entry (entry.id)}
+                  <button class="recent-comment" onclick={() => openImageById(entry.image.id)}>
+                    <img src={entry.image.thumbUrl} alt={entry.image.title || 'artwork'}>
+                    <div class="recent-comment-body">
+                      <div class="recent-comment-meta">
+                        <span>{entry.author}</span>
+                        <span>{formatDate(entry.createdAt)}</span>
+                      </div>
+                      <p>{entry.text}</p>
+                      <strong>{entry.image.title || `by ${entry.image.author}`}</strong>
+                    </div>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        </aside>
+      </div>
     {/if}
   </main>
 
@@ -602,6 +786,15 @@
           <button class="lb-author" onclick={() => profileDialog.show(lightbox.author)}>by {lightbox.author}</button>
           <span class="lb-date">{formatDate(lightbox.createdAt)}</span>
         </div>
+        <div class="lb-tags">
+          {#if lightbox.tags?.length}
+            {#each lightbox.tags as tag}
+              <button class="tag-chip" onclick={() => { closeLightbox(); filterByTag(tag); }}>#{tag}</button>
+            {/each}
+          {:else}
+            <span class="lb-tags-empty">No tags yet</span>
+          {/if}
+        </div>
         <div class="lb-actions">
           <button
             class="like-btn large"
@@ -625,6 +818,19 @@
             <button class="btn-danger small" onclick={() => deleteImage(lightbox)}>Delete</button>
           {/if}
         </div>
+
+        {#if canEditTags(lightbox)}
+          <div class="tag-editor">
+            <label for="tagEditorInput">Tags</label>
+            <div class="tag-editor-row">
+              <input id="tagEditorInput" type="text" bind:value={tagDraft} placeholder="nsfw, portrait, pixel-art" />
+              <button class="btn-ghost small" onclick={saveTags} disabled={tagSaving}>
+                {tagSaving ? 'Saving...' : 'Save Tags'}
+              </button>
+            </div>
+            <p class="tag-editor-hint">Comma-separated tags. Use <code>nsfw</code> for adult or sensitive images.</p>
+          </div>
+        {/if}
 
         <!-- Comments Section -->
         <div class="comments-section">
@@ -842,6 +1048,103 @@
     padding: 3rem;
   }
 
+  .gallery-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .gallery-main {
+    min-width: 0;
+  }
+
+  .gallery-sidebar {
+    position: sticky;
+    top: 5.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .sidebar-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+  }
+
+  .sidebar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.8rem;
+  }
+
+  .sidebar-head h2 {
+    font-size: 0.95rem;
+    font-weight: 400;
+  }
+
+  .sidebar-empty {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+  }
+
+  .sidebar-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .recent-comments {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .recent-comment {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 0.75rem;
+    background: none;
+    border: none;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .recent-comment img {
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+
+  .recent-comment-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-bottom: 0.25rem;
+  }
+
+  .recent-comment-body p {
+    font-size: 0.8rem;
+    line-height: 1.35;
+    margin-bottom: 0.3rem;
+    word-break: break-word;
+  }
+
+  .recent-comment-body strong {
+    font-size: 0.76rem;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+
   /* ── States ── */
   .state-center {
     display: flex;
@@ -899,6 +1202,7 @@
   }
 
   .card-img {
+    position: relative;
     aspect-ratio: 4 / 3;
     overflow: hidden;
     background: var(--bg2);
@@ -910,6 +1214,19 @@
     transition: transform 0.3s;
   }
   .card:hover .card-img img { transform: scale(1.015); }
+
+  .card-badge {
+    position: absolute;
+    top: 0.65rem;
+    right: 0.65rem;
+    background: rgba(0, 0, 0, 0.8);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 999px;
+    padding: 0.28rem 0.55rem;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    color: var(--text);
+  }
 
   .card-meta {
     padding: 0.65rem 0.75rem;
@@ -930,6 +1247,34 @@
     transition: color 0.15s;
   }
   .card-author:hover { color: var(--accent); }
+
+  .card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    padding: 0 0.75rem 0.75rem;
+    background: var(--bg2);
+  }
+
+  .tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 0.76rem;
+    padding: 0.32rem 0.65rem;
+    cursor: pointer;
+  }
+
+  .tag-chip:hover,
+  .sidebar-tag.active {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
 
   /* ── Like Button ── */
   .like-btn {
@@ -1153,6 +1498,55 @@
     gap: 0.75rem;
   }
 
+  .lb-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .lb-tags-empty {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+  }
+
+  .tag-editor {
+    padding-top: 0.25rem;
+  }
+
+  .tag-editor label {
+    display: block;
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    margin-bottom: 0.45rem;
+  }
+
+  .tag-editor-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .tag-editor-row input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.5rem 0.65rem;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.82rem;
+  }
+
+  .tag-editor-row input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .tag-editor-hint {
+    margin-top: 0.45rem;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+
   /* ── Comments ── */
   .comments-section {
     margin-top: 1rem;
@@ -1334,5 +1728,8 @@
     header { padding-top: 1.5rem; }
     .grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem; }
     .nav-links { gap: 1rem; }
+    .gallery-layout { grid-template-columns: 1fr; }
+    .gallery-sidebar { position: static; }
+    .tag-editor-row, .lb-actions { flex-wrap: wrap; }
   }
 </style>

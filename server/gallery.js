@@ -36,9 +36,13 @@ const PUBLIC_URL = (process.env.R2_PUBLIC_URL || 'https://gallery.ddraw.ca').rep
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
+
+const RESERVED_TAGS = ['nsfw'];
+const MAX_TAGS = 12;
+const MAX_TAG_LENGTH = 24;
 
 function json(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json', ...CORS_HEADERS });
@@ -62,6 +66,47 @@ async function readBody(req) {
   });
 }
 
+function normalizeTags(input) {
+  const source = Array.isArray(input)
+    ? input
+    : typeof input === 'string'
+      ? input.split(',')
+      : [];
+
+  const seen = new Set();
+  const tags = [];
+
+  for (const rawTag of source) {
+    const tag = String(rawTag || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    if (!tag || tag.length > MAX_TAG_LENGTH || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+    if (tags.length >= MAX_TAGS) break;
+  }
+
+  return tags;
+}
+
+function toClientGalleryItem(item) {
+  return {
+    id: item._id.toString(),
+    url: item.url,
+    thumbUrl: item.thumbUrl || item.url,
+    author: item.author,
+    title: item.title || '',
+    tags: Array.isArray(item.tags) ? item.tags : [],
+    likes: item.likes || 0,
+    views: item.views || 0,
+    createdAt: item.createdAt,
+  };
+}
+
 /**
  * GET /api/gallery — list gallery items.
  * Query params:
@@ -69,6 +114,7 @@ async function readBody(req) {
  *   - limit (default 24, max 50)
  *   - sort: newest (default), top, views
  *   - author: filter by username
+ *   - tag: filter by tag
  */
 export async function handleGalleryList(req, res) {
   const db = getDB();
@@ -90,7 +136,10 @@ export async function handleGalleryList(req, res) {
 
   // Author filter
   const author = urlObj.searchParams.get('author');
-  const query = author ? { author } : {};
+  const tag = normalizeTags(urlObj.searchParams.get('tag')).at(0) || null;
+  const query = {};
+  if (author) query.author = author;
+  if (tag) query.tags = tag;
 
   try {
     const [items, total] = await Promise.all([
@@ -99,16 +148,7 @@ export async function handleGalleryList(req, res) {
     ]);
 
     json(res, 200, {
-      items: items.map(item => ({
-        id: item._id.toString(),
-        url: item.url,
-        thumbUrl: item.thumbUrl || item.url,
-        author: item.author,
-        title: item.title || '',
-        likes: item.likes || 0,
-        views: item.views || 0,
-        createdAt: item.createdAt,
-      })),
+      items: items.map(toClientGalleryItem),
       total,
       page,
       pages: Math.ceil(total / limit),
@@ -122,7 +162,7 @@ export async function handleGalleryList(req, res) {
 /**
  * POST /api/gallery/upload — upload canvas to R2 and save metadata.
  * Requires Authorization: Bearer <token>
- * Body: { imageData: "data:image/png;base64,...", title?: string }
+ * Body: { imageData: "data:image/png;base64,...", title?: string, tags?: string[]|string }
  */
 export async function handleGalleryUpload(req, res) {
   // Auth
@@ -144,10 +184,12 @@ export async function handleGalleryUpload(req, res) {
     return json(res, 400, { error: 'Invalid request body' });
   }
 
-  const { imageData, title } = body;
+  const { imageData, title, tags } = body;
   if (!imageData || !imageData.startsWith('data:image/')) {
     return json(res, 400, { error: 'Missing or invalid imageData' });
   }
+
+  const normalizedTags = normalizeTags(tags);
 
   // Decode base64
   const commaIdx = imageData.indexOf(',');
@@ -210,6 +252,7 @@ export async function handleGalleryUpload(req, res) {
     author: decoded.username,
     authorId: decoded.userId,
     title: (title || '').substring(0, 100).trim(),
+    tags: normalizedTags,
     likes: 0,
     views: 0,
     createdAt: new Date(),
@@ -223,6 +266,7 @@ export async function handleGalleryUpload(req, res) {
       thumbUrl,
       author: decoded.username,
       title: doc.title,
+      tags: doc.tags,
       likes: 0,
       views: 0,
       createdAt: doc.createdAt,
@@ -248,14 +292,7 @@ export async function handleGalleryItem(req, res, id) {
     if (!item) return json(res, 404, { error: 'Item not found' });
 
     json(res, 200, {
-      id: item._id.toString(),
-      url: item.url,
-      thumbUrl: item.thumbUrl || item.url,
-      author: item.author,
-      title: item.title || '',
-      likes: item.likes || 0,
-      views: item.views || 0,
-      createdAt: item.createdAt,
+      ...toClientGalleryItem(item),
     });
   } catch (err) {
     console.error('[Gallery] Item fetch error:', err);
@@ -381,14 +418,7 @@ export async function handleGalleryFavorites(req, res) {
 
     json(res, 200, {
       items: orderedItems.map(item => ({
-        id: item._id.toString(),
-        url: item.url,
-        thumbUrl: item.thumbUrl || item.url,
-        author: item.author,
-        title: item.title || '',
-        likes: item.likes || 0,
-        views: item.views || 0,
-        createdAt: item.createdAt,
+        ...toClientGalleryItem(item),
       })),
       total,
       page,
@@ -455,6 +485,82 @@ export async function handleGalleryCommentsList(req, res, id) {
   } catch (err) {
     console.error('[Gallery] Comments list error:', err);
     json(res, 500, { error: 'Failed to fetch comments' });
+  }
+}
+
+/**
+ * GET /api/gallery/sidebar — fetch recent comments and popular tags for the sidebar.
+ */
+export async function handleGallerySidebar(req, res) {
+  const db = getDB();
+  if (!db) return json(res, 503, { error: 'Database not available' });
+
+  const urlObj = new URL(req.url, 'http://localhost');
+  const author = urlObj.searchParams.get('author');
+  const activeTag = normalizeTags(urlObj.searchParams.get('tag')).at(0) || null;
+  const galleryMatch = {};
+  if (author) galleryMatch.author = author;
+  if (activeTag) galleryMatch.tags = activeTag;
+
+  try {
+    const recentCommentsPromise = db.collection('comments').aggregate([
+      { $sort: { createdAt: -1 } },
+      {
+        $lookup: {
+          from: 'gallery',
+          let: { galleryId: '$galleryId' },
+          pipeline: [
+            { $match: { $expr: { $eq: [{ $toString: '$_id' }, '$$galleryId'] }, ...galleryMatch } },
+            { $project: { _id: 1, author: 1, title: 1, thumbUrl: 1, url: 1, tags: 1 } }
+          ],
+          as: 'galleryItem'
+        }
+      },
+      { $unwind: '$galleryItem' },
+      { $limit: 12 }
+    ]).toArray();
+
+    const tagPipeline = [];
+    if (Object.keys(galleryMatch).length > 0) {
+      tagPipeline.push({ $match: galleryMatch });
+    }
+    tagPipeline.push(
+      { $unwind: '$tags' },
+      { $group: { _id: '$tags', count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: 20 }
+    );
+
+    const [recentComments, tags] = await Promise.all([
+      recentCommentsPromise,
+      db.collection('gallery').aggregate(tagPipeline).toArray()
+    ]);
+
+    json(res, 200, {
+      reservedTags: RESERVED_TAGS,
+      recentComments: recentComments.map((comment) => ({
+        id: comment._id.toString(),
+        text: comment.text,
+        author: comment.author,
+        authorId: comment.authorId,
+        createdAt: comment.createdAt,
+        galleryId: comment.galleryId,
+        image: {
+          id: comment.galleryItem._id.toString(),
+          title: comment.galleryItem.title || '',
+          author: comment.galleryItem.author,
+          thumbUrl: comment.galleryItem.thumbUrl || comment.galleryItem.url,
+          tags: Array.isArray(comment.galleryItem.tags) ? comment.galleryItem.tags : [],
+        }
+      })),
+      tags: tags.map((tag) => ({
+        tag: tag._id,
+        count: tag.count
+      }))
+    });
+  } catch (err) {
+    console.error('[Gallery] Sidebar error:', err);
+    json(res, 500, { error: 'Failed to fetch gallery sidebar' });
   }
 }
 
@@ -545,6 +651,53 @@ export async function handleGalleryCommentDelete(req, res, commentId) {
   } catch (err) {
     console.error('[Gallery] Comment delete error:', err);
     json(res, 500, { error: 'Failed to delete comment' });
+  }
+}
+
+/**
+ * PATCH /api/gallery/:id/tags — replace tags for a gallery item.
+ * Requires Authorization: Bearer <token>
+ * Body: { tags: string[]|string }
+ */
+export async function handleGalleryTagsUpdate(req, res, id) {
+  const authHeader = req.headers['authorization'] || '';
+  if (!authHeader.startsWith('Bearer ')) {
+    return json(res, 401, { error: 'Authentication required' });
+  }
+  const decoded = verifyToken(authHeader.slice(7));
+  if (!decoded) return json(res, 401, { error: 'Invalid or expired token' });
+
+  const db = getDB();
+  if (!db) return json(res, 503, { error: 'Database not available' });
+  if (!/^[a-f0-9]{24}$/.test(id)) return json(res, 400, { error: 'Invalid id' });
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return json(res, 400, { error: 'Invalid request body' });
+  }
+
+  const tags = normalizeTags(body.tags);
+
+  try {
+    const { ObjectId } = await import('mongodb');
+    const item = await db.collection('gallery').findOne({ _id: new ObjectId(id) });
+    if (!item) return json(res, 404, { error: 'Item not found' });
+
+    if (item.authorId !== decoded.userId && decoded.role < 5) {
+      return json(res, 403, { error: 'Not authorized to edit tags for this item' });
+    }
+
+    await db.collection('gallery').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { tags } }
+    );
+
+    json(res, 200, { tags });
+  } catch (err) {
+    console.error('[Gallery] Tags update error:', err);
+    json(res, 500, { error: 'Failed to update tags' });
   }
 }
 
