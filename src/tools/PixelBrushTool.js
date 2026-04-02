@@ -135,11 +135,9 @@ export class PixelBrushTool {
     if (points.length > 0) {
       const size = Math.max(1, Math.round((user.size || 5) * 2));
       this.board.markDirtyPath(user, points, size / 2);
-      if (this.board.mirror) {
-        const boardWidth = this.board.getWidth();
-        const mirroredPoints = points.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
-        this.board.markDirtyPath(user, mirroredPoints, size / 2);
-      }
+      this.board.forEachMirrorRegion({ points }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(points, region), size / 2);
+      });
     }
     this.board.clearTop();
     this.drawPreview(user);
@@ -223,15 +221,13 @@ export class PixelBrushTool {
         ctx.globalAlpha = 1.0;
 
         // Mirror mode
-        if (this.board.mirror) {
+        this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
           ctx.save();
-          ctx.translate(this.board.getWidth(), 0);
-          ctx.scale(-1, 1);
           ctx.globalAlpha = finalAlpha;
-          ctx.drawImage(tempCanvas, 0, 0);
+          this.board.drawMirroredCanvas(ctx, tempCanvas, region, 0, 0);
           ctx.globalAlpha = 1.0;
           ctx.restore();
-        }
+        });
       }
       this.tempCanvases.delete(user.id);
     }
@@ -240,11 +236,9 @@ export class PixelBrushTool {
     if (this.strokePoints.length > 0) {
       const size = Math.max(1, Math.round((user.size || 5) * 2));
       this.board.markDirtyPath(user, this.strokePoints, size / 2);
-      if (this.board.mirror) {
-        const boardWidth = this.board.getWidth();
-        const mirroredPoints = this.strokePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
-        this.board.markDirtyPath(user, mirroredPoints, size / 2);
-      }
+      this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(this.strokePoints, region), size / 2);
+      });
     }
     this.strokePoints = [];
 
@@ -274,15 +268,13 @@ export class PixelBrushTool {
     ctx.globalAlpha = 1.0;
 
     // Mirror mode
-    if (this.board.mirror) {
+    this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
       ctx.save();
-      ctx.translate(this.board.getWidth(), 0);
-      ctx.scale(-1, 1);
       ctx.globalAlpha = finalAlpha;
-      ctx.drawImage(tempCanvas, 0, 0);
+      this.board.drawMirroredCanvas(ctx, tempCanvas, region, 0, 0);
       ctx.globalAlpha = 1.0;
       ctx.restore();
-    }
+    });
   }
 
   /**

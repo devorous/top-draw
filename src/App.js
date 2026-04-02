@@ -29,6 +29,7 @@ import { TimeMachine } from './timebar/TimeMachine.svelte.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
 import { SaveMode } from './ui/SaveMode.js';
+import { MirrorRegionController } from './ui/MirrorRegionController.js';
 
 // Svelte UI Components
 import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } from './ui/svelte/AppUI.svelte.js';
@@ -94,6 +95,7 @@ export class DrawingApp {
     this.debugOverlay = null;
     this.regionTracker = null;
     this.syncClient = null;
+    this.mirrorRegionController = null;
     this.auth = null;
     this.moderation = null;
     this.landingPage = null;
@@ -182,6 +184,8 @@ export class DrawingApp {
     this.touchHandler = new TouchHandler(this);
     this.touchHandler.init(this.ui.elements.boards);
     this.saveMode = new SaveMode(this);
+    this.mirrorRegionController = new MirrorRegionController(this);
+    this.mirrorRegionController.init();
 
     this.debugOverlay = new DebugOverlay();
     const debugCanvas = document.getElementById('debugOverlay');
@@ -2768,9 +2772,7 @@ export class DrawingApp {
    * Toggles canvas mirroring.
    */
   handleToggleMirror() {
-    const mirror = this.board.toggleMirror();
-    this.ui.updateMirrorDisplay(mirror);
-    this.wsClient.broadcastMirror();
+    this.mirrorRegionController?.begin();
   }
 
   /**
@@ -3139,6 +3141,11 @@ export class DrawingApp {
   }
 
   handlePointerMove(e) {
+    if (this.mirrorRegionController?.isActive()) {
+      const consumed = this.mirrorRegionController.handlePointerMove(e);
+      if (consumed) return;
+    }
+
     // Block local input while syncing
     if (this.syncClient?.isSyncing() || this.syncClient?.isCanvasInputBlocked()) return;
 
@@ -3286,6 +3293,11 @@ export class DrawingApp {
   }
 
   handlePointerDown(e) {
+    if (this.mirrorRegionController?.isActive()) {
+      const consumed = this.mirrorRegionController.handlePointerDown(e);
+      if (consumed) return;
+    }
+
     // Reset smoothing buffer and state for new stroke immediately
     this.inputBufferManager.resetBroadcastSmoothing();
     this.self._mainCtxDrawCount = 0;
@@ -3525,6 +3537,11 @@ export class DrawingApp {
   }
 
   handlePointerUp(e) {
+    if (this.mirrorRegionController?.isActive()) {
+      const consumed = this.mirrorRegionController.handlePointerUp(e);
+      if (consumed) return;
+    }
+
     if (this.syncClient?.isCanvasInputBlocked()) return;
     // Pan tool: release clears panning
     if (this.self.tool === 'pan') {

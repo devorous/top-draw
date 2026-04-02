@@ -3,7 +3,7 @@
  * Handles stroke lifecycle, preview rendering, and dirty rectangle tracking.
  */
 
-import { manhattanDistance, mirrorLine, drawLineArray, bridgeGap } from '../utils/drawing.js';
+import { manhattanDistance, drawLineArray, bridgeGap } from '../utils/drawing.js';
 
 /**
  * Base class for all interactive tools.
@@ -120,10 +120,12 @@ export class BrushTool extends Tool {
     this.board.topCtx.beginPath();
     drawLineArray(user.currentLine, this.board.topCtx, user);
 
-    if (this.board.mirror) {
-      const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-      drawLineArray(mirrored, this.board.topCtx, user);
-    }
+    this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
+      const mirrored = this.board.mirrorPointsToRegion(user.currentLine, region);
+      this.board.withMirrorRegionClip(this.board.topCtx, region, () => {
+        drawLineArray(mirrored, this.board.topCtx, user);
+      });
+    });
 
     user.lineLength += manhattanDistance(pos, lastPos);
   }
@@ -142,10 +144,12 @@ export class BrushTool extends Tool {
     const layerCtx = this.board.getActiveLayerContext();
     drawLineArray(user.currentLine, layerCtx, user);
 
-    if (this.board.mirror) {
-      const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-      drawLineArray(mirrored, layerCtx, user);
-    }
+    this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
+      const mirrored = this.board.mirrorPointsToRegion(user.currentLine, region);
+      this.board.withMirrorRegionClip(layerCtx, region, () => {
+        drawLineArray(mirrored, layerCtx, user);
+      });
+    });
 
     this.trackDirtyRect(user, user.currentLine);
     user.clearLine();
@@ -185,11 +189,10 @@ export class BrushTool extends Tool {
     // Use line-based tile marking for efficiency
     this.board.markDirtyPath(user, points, totalRadius);
 
-    if (this.board.mirror) {
-      const boardWidth = this.board.getWidth();
-      const mirroredPoints = points.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
+    this.board.forEachMirrorRegion({ points }, (region) => {
+      const mirroredPoints = this.board.mirrorPointsToRegion(points, region);
       this.board.markDirtyPath(user, mirroredPoints, totalRadius);
-    }
+    });
   }
 
   /**
@@ -211,10 +214,12 @@ export class BrushTool extends Tool {
     const layerCtx = this.board.getActiveLayerContext();
     drawLineArray(user.currentLine, layerCtx, user);
 
-    if (this.board.mirror) {
-      const mirrored = mirrorLine(user.currentLine, this.board.getWidth());
-      drawLineArray(mirrored, layerCtx, user);
-    }
+    this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
+      const mirrored = this.board.mirrorPointsToRegion(user.currentLine, region);
+      this.board.withMirrorRegionClip(layerCtx, region, () => {
+        drawLineArray(mirrored, layerCtx, user);
+      });
+    });
 
     this.trackDirtyRect(user, user.currentLine);
 
@@ -225,13 +230,18 @@ export class BrushTool extends Tool {
     if (user.currentLine.length > 0) {
       const from = lastSmoothedPos;
       bridgeGap(layerCtx, from, lastSmoothedPos, oldRadius, newRadius, user);
-      if (this.board.mirror) {
-        const w = this.board.getWidth();
-        bridgeGap(layerCtx,
-          { x: w - from.x, y: from.y },
-          { x: w - lastSmoothedPos.x, y: lastSmoothedPos.y },
-          oldRadius, newRadius, user);
-      }
+      this.board.forEachMirrorRegion({ points: [from, lastSmoothedPos] }, (region) => {
+        this.board.withMirrorRegionClip(layerCtx, region, () => {
+          bridgeGap(
+            layerCtx,
+            this.board.mirrorPointToRegion(from, region),
+            this.board.mirrorPointToRegion(lastSmoothedPos, region),
+            oldRadius,
+            newRadius,
+            user
+          );
+        });
+      });
     }
 
     user.clearLine();

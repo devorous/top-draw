@@ -319,35 +319,36 @@ export function setupDrawingHandlers(wrapHandler, app) {
     // Track tile ownership for remote user's fill
     fillTool._markFilledTiles(result, width, userId, layerIndex);
 
-    if (board.mirror) {
-      const mx = width - 1 - x;
-      if (mx >= 0 && mx < width) {
-        const mirrorData = board.mainCtx.getImageData(0, 0, width, height).data;
-        let mResult = await fillTool._fillWorker.computeFill(
-          mirrorData, width, height, mx, y, 10, expansion, null
-        );
-        // Apply constraint if mirror fill is too large
-        if (mResult && fillTool._isFillTooLarge(mResult, width, height)) {
-          const mirrorTileRects = fillTool._getOwnedTileRects(mx, y, userId);
-          if (mirrorTileRects) {
-            mResult = await fillTool._fillWorker.computeFill(
-              board.mainCtx.getImageData(0, 0, width, height).data,
-              width, height, mx, y, 10, expansion, mirrorTileRects
-            );
-          } else {
-            mResult = null;
-          }
+    for (const region of board.getActiveMirrorRegions()) {
+      const mirrored = board.mirrorPointToRegion({ x, y }, region);
+      const mx = Math.round(mirrored.x);
+      const my = Math.round(mirrored.y);
+      if (mx < 0 || mx >= width || my < 0 || my >= height) continue;
+      const mirrorData = board.mainCtx.getImageData(0, 0, width, height).data;
+      let mResult = await fillTool._fillWorker.computeFill(
+        mirrorData, width, height, mx, my, 10, expansion, null
+      );
+      if (mResult && fillTool._isFillTooLarge(mResult, width, height)) {
+        const mirrorTileRects = fillTool._getOwnedTileRects(mx, my, userId);
+        if (mirrorTileRects) {
+          mResult = await fillTool._fillWorker.computeFill(
+            board.mainCtx.getImageData(0, 0, width, height).data,
+            width, height, mx, my, 10, expansion, mirrorTileRects
+          );
+        } else {
+          mResult = null;
         }
-        if (mResult) {
+      }
+      if (mResult) {
+        board.withMirrorRegionClip(strokeCtx, region, () => {
           fillTool._renderMaskComposite(strokeCtx, mResult, fillR, fillG, fillB, userOpacity, blurRadius, width, height, user);
-          const mbx = Math.max(0, mResult.minX - pad);
-          const mby = Math.max(0, mResult.minY - pad);
-          const mbw = Math.min(width, mResult.maxX + pad + 1) - mbx;
-          const mbh = Math.min(height, mResult.maxY + pad + 1) - mby;
-          board.expandDirtyRect(user, mbx, mby, mbw, mbh);
-          // Track tile ownership for mirrored fill
-          fillTool._markFilledTiles(mResult, width, userId, layerIndex);
-        }
+        });
+        const mbx = Math.max(0, mResult.minX - pad);
+        const mby = Math.max(0, mResult.minY - pad);
+        const mbw = Math.min(width, mResult.maxX + pad + 1) - mbx;
+        const mbh = Math.min(height, mResult.maxY + pad + 1) - mby;
+        board.expandDirtyRect(user, mbx, mby, mbw, mbh);
+        fillTool._markFilledTiles(mResult, width, userId, layerIndex);
       }
     }
 

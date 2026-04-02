@@ -193,22 +193,21 @@ export class EraserTool extends Tool {
       }
     }
 
-    if (this.board.mirror) {
-      const width = this.board.getWidth();
-      const m1 = { x: width - p1.x, y: p1.y };
-      const m2 = { x: width - p2.x, y: p2.y };
+    this.board.forEachMirrorRegion({ points: [p1, p2] }, (region) => {
+      const m1 = this.board.mirrorPointToRegion(p1, region);
+      const m2 = this.board.mirrorPointToRegion(p2, region);
       if (this._eraseAllLayers()) {
         const ctxs = this.board.getAllLayerContexts(userId);
         for (const ctx of ctxs) {
-          this._renderSegmentToCtx(ctx, m1, m2, size);
+          this.board.withMirrorRegionClip(ctx, region, () => this._renderSegmentToCtx(ctx, m1, m2, size));
         }
       } else {
         const ctx = this.board.getActiveLayerContext('destination-out');
         if (ctx) {
-          this._renderSegmentToCtx(ctx, m1, m2, size);
+          this.board.withMirrorRegionClip(ctx, region, () => this._renderSegmentToCtx(ctx, m1, m2, size));
         }
       }
-    }
+    });
 
     const radius = size / 2;
     const safetyMargin = radius * 0.25;
@@ -235,22 +234,26 @@ export class EraserTool extends Tool {
       this.board.expandDirtyRect(user, x, y, w, h);
     }
 
-    if (this.board.mirror) {
-      const width = this.board.getWidth();
-      const mirrorMinX = width - maxX;
-      const mirrorX = Math.floor(mirrorMinX);
+    this.board.forEachMirrorRegion({ rect: { x, y, width: w, height: h } }, (region) => {
+      const m1 = this.board.mirrorPointToRegion(p1, region);
+      const m2 = this.board.mirrorPointToRegion(p2, region);
+      const mirrorMinX = Math.min(m1.x, m2.x) - margin;
+      const mirrorMinY = Math.min(m1.y, m2.y) - margin;
+      const mirrorMaxX = Math.max(m1.x, m2.x) + margin;
+      const mirrorMaxY = Math.max(m1.y, m2.y) + margin;
+      const mx = Math.floor(mirrorMinX);
+      const my = Math.floor(mirrorMinY);
+      const mw = Math.ceil(mirrorMaxX) - mx;
+      const mh = Math.ceil(mirrorMaxY) - my;
       if (this._eraseAllLayers()) {
-        this.board.expandDirtyRectAllLayers(user, mirrorX, y, w, h);
+        this.board.expandDirtyRectAllLayers(user, mx, my, mw, mh);
       } else {
-        this.board.expandDirtyRect(user, mirrorX, y, w, h);
+        this.board.expandDirtyRect(user, mx, my, mw, mh);
       }
-      // Track mirror tiles
       if (this._erasedTiles && this.board.tileTracker) {
-        const m1 = { x: width - p1.x, y: p1.y };
-        const m2 = { x: width - p2.x, y: p2.y };
         this.board.tileTracker.collectTilesFromPath([m1, m2], radius, this._erasedTiles);
       }
-    }
+    });
 
     this.board.requestUpdate();
   }

@@ -166,21 +166,23 @@ export class ImageBrushTool extends Tool {
 
       this.board.expandDirtyRect(user, x, y, width, height);
 
-      if (this.board.mirror) {
-        const boardWidth = this.board.getWidth();
-        const mirrorX = Math.floor(boardWidth - this.dirtyBounds.maxX - margin);
-        this.board.expandDirtyRect(user, mirrorX, y, width, height);
-      }
+      this.board.forEachMirrorRegion({ rect: { x, y, width, height } }, (region) => {
+        const p1 = this.board.mirrorPointToRegion({ x: this.dirtyBounds.minX, y: this.dirtyBounds.minY }, region);
+        const p2 = this.board.mirrorPointToRegion({ x: this.dirtyBounds.maxX, y: this.dirtyBounds.maxY }, region);
+        const mx = Math.floor(Math.min(p1.x, p2.x) - margin);
+        const my = Math.floor(Math.min(p1.y, p2.y) - margin);
+        const mw = Math.ceil(Math.max(p1.x, p2.x) - Math.min(p1.x, p2.x) + margin * 2);
+        const mh = Math.ceil(Math.max(p1.y, p2.y) - Math.min(p1.y, p2.y) + margin * 2);
+        this.board.expandDirtyRect(user, mx, my, mw, mh);
+      });
     }
 
     // Track tile ownership
     if (this.strokePoints.length > 0) {
       this.board.markDirtyPath(user, this.strokePoints, user.size);
-      if (this.board.mirror) {
-        const boardWidth = this.board.getWidth();
-        const mirroredPoints = this.strokePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
-        this.board.markDirtyPath(user, mirroredPoints, user.size);
-      }
+      this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(this.strokePoints, region), user.size);
+      });
     }
     this.strokePoints = [];
 
@@ -208,11 +210,9 @@ export class ImageBrushTool extends Tool {
     // Track tile ownership for remote user
     if (points.length > 0) {
       this.board.markDirtyPath(user, points, user.size);
-      if (this.board.mirror) {
-        const boardWidth = this.board.getWidth();
-        const mirroredPoints = points.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
-        this.board.markDirtyPath(user, mirroredPoints, user.size);
-      }
+      this.board.forEachMirrorRegion({ points }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(points, region), user.size);
+      });
     }
     this.board.requestUpdate();
   }

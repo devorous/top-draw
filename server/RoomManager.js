@@ -23,6 +23,7 @@ export class Room {
     this.clients = new Set();
     this.settings = {
       mirror: false,
+      mirrorRegions: [],
       locked: false,
       maxUsers: 40,
       backgroundColor: '#ffffff',
@@ -119,6 +120,7 @@ export class Room {
         this.settings.maxUsers = doc.settings?.maxUsers !== undefined ? doc.settings.maxUsers : 40;
         this.settings.backgroundColor = doc.settings?.backgroundColor || '#ffffff';
         this.settings.modInactiveImmune = !!doc.settings?.modInactiveImmune;
+        this.settings.mirrorRegions = Array.isArray(doc.settings?.mirrorRegions) ? doc.settings.mirrorRegions : [];
         console.log(`[Room] Loaded "${this.id}" from DB`);
       } else {
         const newDoc = {
@@ -163,14 +165,15 @@ export class Room {
             ownerId: this.ownerId,
             ownerUsername: this.ownerUsername,
             lastActiveAt: new Date(),
-            settings: {
-              locked: this.settings.locked,
-              maxUsers: this.settings.maxUsers,
-              backgroundColor: this.settings.backgroundColor,
-              modInactiveImmune: this.settings.modInactiveImmune
+              settings: {
+                locked: this.settings.locked,
+                maxUsers: this.settings.maxUsers,
+                backgroundColor: this.settings.backgroundColor,
+                modInactiveImmune: this.settings.modInactiveImmune,
+                mirrorRegions: this.settings.mirrorRegions
+              }
             }
           }
-        }
       );
     } catch (err) {
       console.error(`[Room] Save error for "${this.id}":`, err);

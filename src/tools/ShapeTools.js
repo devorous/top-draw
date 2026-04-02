@@ -105,12 +105,16 @@ export class LineTool extends Tool {
     const layerCtx = this.board.getActiveLayerContext();
     this.drawLine(layerCtx, user, this.startPos, pos);
 
-    if (this.board.mirror) {
-      const width = this.board.getWidth();
-      const mirroredStart = { x: width - this.startPos.x, y: this.startPos.y };
-      const mirroredEnd = { x: width - pos.x, y: pos.y };
-      this.drawLine(layerCtx, user, mirroredStart, mirroredEnd);
-    }
+    this.board.forEachMirrorRegion({ points: [this.startPos, pos] }, (region) => {
+      this.board.withMirrorRegionClip(layerCtx, region, () => {
+        this.drawLine(
+          layerCtx,
+          user,
+          this.board.mirrorPointToRegion(this.startPos, region),
+          this.board.mirrorPointToRegion(pos, region)
+        );
+      });
+    });
 
     const radius = user.size;
     const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
@@ -130,25 +134,28 @@ export class LineTool extends Tool {
 
     this.board.expandDirtyRect(user, x, y, width, height);
 
-    if (this.board.mirror) {
-      const width = this.board.getWidth();
-      const mirrorMinX = width - maxX;
-      const x_mirrored = Math.floor(mirrorMinX);
-      const y_mirrored = Math.floor(minY);
-      const width_mirrored = Math.ceil(width - minX) - x_mirrored;
-      const height_mirrored = Math.ceil(maxY) - y_mirrored;
-
-      this.board.expandDirtyRect(user, x_mirrored, y_mirrored, width_mirrored, height_mirrored);
-    }
+    this.board.forEachMirrorRegion({ rect: { x, y, width, height } }, (region) => {
+      const mirroredStart = this.board.mirrorPointToRegion(this.startPos, region);
+      const mirroredEnd = this.board.mirrorPointToRegion(pos, region);
+      const mirrorMinX = Math.min(mirroredStart.x, mirroredEnd.x) - margin;
+      const mirrorMinY = Math.min(mirroredStart.y, mirroredEnd.y) - margin;
+      const mirrorMaxX = Math.max(mirroredStart.x, mirroredEnd.x) + margin;
+      const mirrorMaxY = Math.max(mirroredStart.y, mirroredEnd.y) + margin;
+      this.board.expandDirtyRect(
+        user,
+        Math.floor(mirrorMinX),
+        Math.floor(mirrorMinY),
+        Math.ceil(mirrorMaxX) - Math.floor(mirrorMinX),
+        Math.ceil(mirrorMaxY) - Math.floor(mirrorMinY)
+      );
+    });
 
     // Track tile ownership for the line
     const linePoints = [this.startPos, pos];
     this.board.markDirtyPath(user, linePoints, margin);
-    if (this.board.mirror) {
-      const boardWidth = this.board.getWidth();
-      const mirroredPoints = linePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
-      this.board.markDirtyPath(user, mirroredPoints, margin);
-    }
+    this.board.forEachMirrorRegion({ points: linePoints }, (region) => {
+      this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(linePoints, region), margin);
+    });
 
     this.board.clearTop();
     this.startPos = null;
@@ -167,12 +174,16 @@ export class LineTool extends Tool {
   drawPreview(ctx, user, start, end) {
     this.drawLine(ctx, user, start, end);
 
-    if (this.board.mirror) {
-      const width = this.board.getWidth();
-      const mirroredStart = { x: width - start.x, y: start.y };
-      const mirroredEnd = { x: width - end.x, y: end.y };
-      this.drawLine(ctx, user, mirroredStart, mirroredEnd);
-    }
+    this.board.forEachMirrorRegion({ points: [start, end] }, (region) => {
+      this.board.withMirrorRegionClip(ctx, region, () => {
+        this.drawLine(
+          ctx,
+          user,
+          this.board.mirrorPointToRegion(start, region),
+          this.board.mirrorPointToRegion(end, region)
+        );
+      });
+    });
   }
 
   /**
@@ -277,12 +288,16 @@ export class RectangleTool extends Tool {
     const layerCtx = this.board.getActiveLayerContext();
     this.drawRect(layerCtx, user, this.startPos, pos);
 
-    if (this.board.mirror) {
-      const width = this.board.getWidth();
-      const mirroredStart = { x: width - this.startPos.x, y: this.startPos.y };
-      const mirroredEnd = { x: width - pos.x, y: pos.y };
-      this.drawRect(layerCtx, user, mirroredStart, mirroredEnd);
-    }
+    this.board.forEachMirrorRegion({ points: [this.startPos, pos] }, (region) => {
+      this.board.withMirrorRegionClip(layerCtx, region, () => {
+        this.drawRect(
+          layerCtx,
+          user,
+          this.board.mirrorPointToRegion(this.startPos, region),
+          this.board.mirrorPointToRegion(pos, region)
+        );
+      });
+    });
 
     const radius = user.size;
     const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
@@ -302,16 +317,15 @@ export class RectangleTool extends Tool {
 
     this.board.expandDirtyRect(user, x, y, width, height);
 
-    if (this.board.mirror) {
-      const width = this.board.getWidth();
-      const mirrorMinX = width - maxX;
-      const x_mirrored = Math.floor(mirrorMinX);
-      const y_mirrored = Math.floor(minY);
-      const width_mirrored = Math.ceil(width - minX) - x_mirrored;
-      const height_mirrored = Math.ceil(maxY) - y_mirrored;
-
-      this.board.expandDirtyRect(user, x_mirrored, y_mirrored, width_mirrored, height_mirrored);
-    }
+    this.board.forEachMirrorRegion({ rect: { x, y, width, height } }, (region) => {
+      const mirroredStart = this.board.mirrorPointToRegion(this.startPos, region);
+      const mirroredEnd = this.board.mirrorPointToRegion(pos, region);
+      const rx1 = Math.min(mirroredStart.x, mirroredEnd.x) - margin;
+      const ry1 = Math.min(mirroredStart.y, mirroredEnd.y) - margin;
+      const rx2 = Math.max(mirroredStart.x, mirroredEnd.x) + margin;
+      const ry2 = Math.max(mirroredStart.y, mirroredEnd.y) + margin;
+      this.board.expandDirtyRect(user, Math.floor(rx1), Math.floor(ry1), Math.ceil(rx2) - Math.floor(rx1), Math.ceil(ry2) - Math.floor(ry1));
+    });
 
     // Track tile ownership for the rectangle perimeter
     const rectPoints = [
@@ -322,11 +336,9 @@ export class RectangleTool extends Tool {
       this.startPos
     ];
     this.board.markDirtyPath(user, rectPoints, margin);
-    if (this.board.mirror) {
-      const boardWidth = this.board.getWidth();
-      const mirroredPoints = rectPoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
-      this.board.markDirtyPath(user, mirroredPoints, margin);
-    }
+    this.board.forEachMirrorRegion({ points: rectPoints }, (region) => {
+      this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(rectPoints, region), margin);
+    });
 
     this.board.clearTop();
     this.startPos = null;
@@ -343,12 +355,16 @@ export class RectangleTool extends Tool {
   drawPreview(user, pos) {
     this.drawRect(this.board.topCtx, user, this.startPos, pos);
 
-    if (this.board.mirror) {
-      const width = this.board.getWidth();
-      const mirroredStart = { x: width - this.startPos.x, y: this.startPos.y };
-      const mirroredEnd = { x: width - pos.x, y: pos.y };
-      this.drawRect(this.board.topCtx, user, mirroredStart, mirroredEnd);
-    }
+    this.board.forEachMirrorRegion({ points: [this.startPos, pos] }, (region) => {
+      this.board.withMirrorRegionClip(this.board.topCtx, region, () => {
+        this.drawRect(
+          this.board.topCtx,
+          user,
+          this.board.mirrorPointToRegion(this.startPos, region),
+          this.board.mirrorPointToRegion(pos, region)
+        );
+      });
+    });
   }
 
   /**
@@ -457,12 +473,16 @@ export class CircleTool extends Tool {
     const layerCtx = this.board.getActiveLayerContext();
     this.drawEllipse(layerCtx, user, this.startPos, pos);
 
-    if (this.board.mirror) {
-      const width = this.board.getWidth();
-      const mirroredStart = { x: width - this.startPos.x, y: this.startPos.y };
-      const mirroredEnd = { x: width - pos.x, y: pos.y };
-      this.drawEllipse(layerCtx, user, mirroredStart, mirroredEnd);
-    }
+    this.board.forEachMirrorRegion({ points: [this.startPos, pos] }, (region) => {
+      this.board.withMirrorRegionClip(layerCtx, region, () => {
+        this.drawEllipse(
+          layerCtx,
+          user,
+          this.board.mirrorPointToRegion(this.startPos, region),
+          this.board.mirrorPointToRegion(pos, region)
+        );
+      });
+    });
 
     const radius = user.size;
     const hardnessFloat = (user.hardness !== undefined ? user.hardness : 100) / 100;
@@ -482,16 +502,15 @@ export class CircleTool extends Tool {
 
     this.board.expandDirtyRect(user, x, y, width, height);
 
-    if (this.board.mirror) {
-      const width = this.board.getWidth();
-      const mirrorMinX = width - maxX;
-      const x_mirrored = Math.floor(mirrorMinX);
-      const y_mirrored = Math.floor(minY);
-      const width_mirrored = Math.ceil(width - minX) - x_mirrored;
-      const height_mirrored = Math.ceil(maxY) - y_mirrored;
-
-      this.board.expandDirtyRect(user, x_mirrored, y_mirrored, width_mirrored, height_mirrored);
-    }
+    this.board.forEachMirrorRegion({ rect: { x, y, width, height } }, (region) => {
+      const mirroredStart = this.board.mirrorPointToRegion(this.startPos, region);
+      const mirroredEnd = this.board.mirrorPointToRegion(pos, region);
+      const ex1 = Math.min(mirroredStart.x, mirroredEnd.x) - margin;
+      const ey1 = Math.min(mirroredStart.y, mirroredEnd.y) - margin;
+      const ex2 = Math.max(mirroredStart.x, mirroredEnd.x) + margin;
+      const ey2 = Math.max(mirroredStart.y, mirroredEnd.y) + margin;
+      this.board.expandDirtyRect(user, Math.floor(ex1), Math.floor(ey1), Math.ceil(ex2) - Math.floor(ex1), Math.ceil(ey2) - Math.floor(ey1));
+    });
 
     // Track tile ownership for the ellipse perimeter
     const cx = (this.startPos.x + pos.x) / 2;
@@ -505,11 +524,9 @@ export class CircleTool extends Tool {
       ellipsePoints.push({ x: cx + rx * Math.cos(angle), y: cy + ry * Math.sin(angle) });
     }
     this.board.markDirtyPath(user, ellipsePoints, margin);
-    if (this.board.mirror) {
-      const boardWidth = this.board.getWidth();
-      const mirroredPoints = ellipsePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
-      this.board.markDirtyPath(user, mirroredPoints, margin);
-    }
+    this.board.forEachMirrorRegion({ points: ellipsePoints }, (region) => {
+      this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(ellipsePoints, region), margin);
+    });
 
     this.board.clearTop();
     this.startPos = null;
@@ -526,12 +543,16 @@ export class CircleTool extends Tool {
   drawPreview(user, pos) {
     this.drawEllipse(this.board.topCtx, user, this.startPos, pos);
 
-    if (this.board.mirror) {
-      const width = this.board.getWidth();
-      const mirroredStart = { x: width - this.startPos.x, y: this.startPos.y };
-      const mirroredEnd = { x: width - pos.x, y: pos.y };
-      this.drawEllipse(this.board.topCtx, user, mirroredStart, mirroredEnd);
-    }
+    this.board.forEachMirrorRegion({ points: [this.startPos, pos] }, (region) => {
+      this.board.withMirrorRegionClip(this.board.topCtx, region, () => {
+        this.drawEllipse(
+          this.board.topCtx,
+          user,
+          this.board.mirrorPointToRegion(this.startPos, region),
+          this.board.mirrorPointToRegion(pos, region)
+        );
+      });
+    });
   }
 
   /**

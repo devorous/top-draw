@@ -495,6 +495,43 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       room.settings.mirror = !room.settings.mirror;
       break;
 
+    case T.MIRROR_REGION: {
+      try {
+        const payload = data.mirrorRegionsJson ? JSON.parse(data.mirrorRegionsJson) : null;
+        if (!payload || !payload.action) break;
+
+        if (payload.action === 'create' && payload.region) {
+          const region = payload.region;
+          const x = Math.max(0, Math.floor(region.x || 0));
+          const y = Math.max(0, Math.floor(region.y || 0));
+          const width = Math.max(1, Math.floor(region.width || 0));
+          const height = Math.max(1, Math.floor(region.height || 0));
+          const axis = region.axis === 'horizontal' ? 'horizontal' : 'vertical';
+          const showLine = region.showLine !== false;
+          const id = String(region.id || `mr_${Date.now()}`);
+
+          room.settings.mirrorRegions = [
+            ...(room.settings.mirrorRegions || []),
+            {
+              id,
+              x,
+              y,
+              width,
+              height,
+              axis,
+              showLine,
+              owner: region.owner || region.createdBy || ws.userId || null
+            }
+          ];
+        } else if (payload.action === 'remove' && payload.id) {
+          room.settings.mirrorRegions = (room.settings.mirrorRegions || []).filter(region => region.id !== payload.id);
+        }
+      } catch (err) {
+        console.warn('[MirrorRegion] Invalid payload', err);
+      }
+      break;
+    }
+
     case T.MSG:
       room.sessionManager.updateUserActivity(sessionIndex);
       break;
@@ -570,6 +607,19 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
         return;
       }
     }
+  }
+
+  if (data.t === T.MIRROR_REGION) {
+    broadcastToRoom(room, {
+      t: T.SETTINGS,
+      m: room.settings.mirror,
+      mirrorRegionsJson: JSON.stringify(room.settings.mirrorRegions || []),
+      roomBackgroundColor: room.settings.backgroundColor,
+      roomLocked: room.settings.locked,
+      roomMaxUsers: room.settings.maxUsers,
+      roomModInactiveImmune: room.settings.modInactiveImmune
+    });
+    return;
   }
 
   broadcastToRoom(room, { ...data, u: sessionIndex }, sessionIndex);
@@ -848,6 +898,7 @@ wss.on('connection', (ws, req) => {
           sendTo(ws, {
             t: T.SETTINGS,
             m: room.settings.mirror,
+            mirrorRegionsJson: JSON.stringify(room.settings.mirrorRegions || []),
             roomBackgroundColor: room.settings.backgroundColor,
             roomLocked: room.settings.locked,
             roomMaxUsers: room.settings.maxUsers,
@@ -1321,6 +1372,7 @@ wss.on('connection', (ws, req) => {
             roomBroadcaster({
               t: T.SETTINGS,
               m: room.settings.mirror,
+              mirrorRegionsJson: JSON.stringify(room.settings.mirrorRegions || []),
               roomBackgroundColor: room.settings.backgroundColor,
               roomLocked: room.settings.locked,
               roomMaxUsers: room.settings.maxUsers,
@@ -1813,10 +1865,11 @@ wss.on('connection', (ws, req) => {
         room.sessionManager.freeSessionIndex(sessionIndex);
         broadcastToRoom(room, { t: T.LEFT, u: sessionIndex });
 
-          if (room.sessionManager.getUserCount() === 0) {
-            room.settings.mirror = false;
-            room.syncCoordinator.clearPendingRequests();
-            room.setPreview(null);
+            if (room.sessionManager.getUserCount() === 0) {
+              room.settings.mirror = false;
+              room.settings.mirrorRegions = [];
+              room.syncCoordinator.clearPendingRequests();
+              room.setPreview(null);
             // Clear tile data when room empties - stale data shouldn't persist
             room.clearAllTiles();
             roomManager.broadcastRoomListUpdate();

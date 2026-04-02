@@ -98,10 +98,10 @@ export class CircleBlurTool extends Tool {
     // Store for broadcasting (fixes missing first point in remote/replay)
     this.stampBuffer.push(pos.x, pos.y, radius);
 
-    if (this.board.mirror) {
-      const width = this.board.getWidth();
-      this.stampBlurredCircle(width - pos.x, pos.y, radius, user);
-    }
+    this.board.forEachMirrorRegion({ point: pos }, (region) => {
+      const mirrored = this.board.mirrorPointToRegion(pos, region);
+      this.stampBlurredCircle(mirrored.x, mirrored.y, radius, user, region);
+    });
 
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
   }
@@ -154,11 +154,13 @@ export class CircleBlurTool extends Tool {
           maxY = Math.max(maxY, stamp.y + sampleRadius);
 
           // Include mirrored stamps in bbox calculation
-          if (this.board.mirror) {
-            const mx = canvasWidth - stamp.x;
-            minX = Math.min(minX, mx - sampleRadius);
-            maxX = Math.max(maxX, mx + sampleRadius);
-          }
+          this.board.forEachMirrorRegion({ point: stamp }, (region) => {
+            const mirrored = this.board.mirrorPointToRegion(stamp, region);
+            minX = Math.min(minX, mirrored.x - sampleRadius);
+            minY = Math.min(minY, mirrored.y - sampleRadius);
+            maxX = Math.max(maxX, mirrored.x + sampleRadius);
+            maxY = Math.max(maxY, mirrored.y + sampleRadius);
+          });
         }
 
         // Clamp to canvas bounds
@@ -181,9 +183,10 @@ export class CircleBlurTool extends Tool {
           this.stampBuffer.push(stamp.x, stamp.y, stamp.r);
           this.strokePoints.push({ x: stamp.x, y: stamp.y });
 
-          if (this.board.mirror) {
-            this.stampBlurredCircleFromCache(canvasWidth - stamp.x, stamp.y, stamp.r, user, cachedImageData, left, top);
-          }
+          this.board.forEachMirrorRegion({ point: stamp }, (region) => {
+            const mirrored = this.board.mirrorPointToRegion(stamp, region);
+            this.stampBlurredCircleFromCache(mirrored.x, mirrored.y, stamp.r, user, cachedImageData, left, top, region);
+          });
         }
 
         this.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
@@ -200,11 +203,9 @@ export class CircleBlurTool extends Tool {
     if (this.strokePoints.length > 0) {
       const radius = user.size;
       this.board.markDirtyPath(user, this.strokePoints, radius);
-      if (this.board.mirror) {
-        const boardWidth = this.board.getWidth();
-        const mirroredPoints = this.strokePoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
-        this.board.markDirtyPath(user, mirroredPoints, radius);
-      }
+      this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(this.strokePoints, region), radius);
+      });
     }
     this.strokePoints = [];
 
@@ -261,11 +262,13 @@ export class CircleBlurTool extends Tool {
       maxX = Math.max(maxX, sx + sampleRadius);
       maxY = Math.max(maxY, sy + sampleRadius);
 
-      if (this.board.mirror) {
-        const mx = canvasWidth - sx;
-        minX = Math.min(minX, mx - sampleRadius);
-        maxX = Math.max(maxX, mx + sampleRadius);
-      }
+      this.board.forEachMirrorRegion({ point: { x: sx, y: sy } }, (region) => {
+        const mirrored = this.board.mirrorPointToRegion({ x: sx, y: sy }, region);
+        minX = Math.min(minX, mirrored.x - sampleRadius);
+        minY = Math.min(minY, mirrored.y - sampleRadius);
+        maxX = Math.max(maxX, mirrored.x + sampleRadius);
+        maxY = Math.max(maxY, mirrored.y + sampleRadius);
+      });
     }
 
     // Clamp to canvas bounds
@@ -285,19 +288,19 @@ export class CircleBlurTool extends Tool {
     // Apply all stamps
     for (const stamp of stamps) {
       this.stampBlurredCircleFromCache(stamp.x, stamp.y, stamp.r, user, cachedImageData, left, top);
-      if (this.board.mirror) {
-        this.stampBlurredCircleFromCache(canvasWidth - stamp.x, stamp.y, stamp.r, user, cachedImageData, left, top);
-      }
+      this.board.forEachMirrorRegion({ point: stamp }, (region) => {
+        const mirrored = this.board.mirrorPointToRegion(stamp, region);
+        this.stampBlurredCircleFromCache(mirrored.x, mirrored.y, stamp.r, user, cachedImageData, left, top, region);
+      });
     }
 
     // Track tile ownership for remote user
     if (points.length > 0) {
       const radius = user.size;
       this.board.markDirtyPath(user, points, radius);
-      if (this.board.mirror) {
-        const mirroredPoints = points.map(pt => ({ x: canvasWidth - pt.x, y: pt.y }));
-        this.board.markDirtyPath(user, mirroredPoints, radius);
-      }
+      this.board.forEachMirrorRegion({ points }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(points, region), radius);
+      });
     }
   }
 
@@ -309,7 +312,7 @@ export class CircleBlurTool extends Tool {
    * @param {number} radius - Stamp radius.
    * @param {Object} user - The user performing the action.
    */
-  stampBlurredCircle(x, y, radius, user) {
+  stampBlurredCircle(x, y, radius, user, clipRegion = null) {
     const canvasWidth = this.board.getWidth();
     const canvasHeight = this.board.getHeight();
 
@@ -338,7 +341,13 @@ export class CircleBlurTool extends Tool {
     const color = this._sampleAverageColor(imageData.data, width, height, x - left, y - top, sampleRadius, radius);
     if (!color) return;
 
-    this._drawBlurCircle(strokeCtx, x, y, radius, color, user);
+    if (clipRegion) {
+      this.board.withMirrorRegionClip(strokeCtx, clipRegion, () => {
+        this._drawBlurCircle(strokeCtx, x, y, radius, color, user);
+      });
+    } else {
+      this._drawBlurCircle(strokeCtx, x, y, radius, color, user);
+    }
 
     // Mark dirty rect
     this.board.expandDirtyRect(user,
@@ -359,7 +368,7 @@ export class CircleBlurTool extends Tool {
    * @param {number} cacheLeft - Left offset of cached region.
    * @param {number} cacheTop - Top offset of cached region.
    */
-  stampBlurredCircleFromCache(x, y, radius, user, cachedImageData, cacheLeft, cacheTop) {
+  stampBlurredCircleFromCache(x, y, radius, user, cachedImageData, cacheLeft, cacheTop, clipRegion = null) {
     if (radius <= 0 || !cachedImageData) return;
 
     const activeLayer = user.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
@@ -385,7 +394,13 @@ export class CircleBlurTool extends Tool {
     );
     if (!color) return;
 
-    this._drawBlurCircle(strokeCtx, x, y, radius, color, user);
+    if (clipRegion) {
+      this.board.withMirrorRegionClip(strokeCtx, clipRegion, () => {
+        this._drawBlurCircle(strokeCtx, x, y, radius, color, user);
+      });
+    } else {
+      this._drawBlurCircle(strokeCtx, x, y, radius, color, user);
+    }
 
     // Mark dirty rect
     this.board.expandDirtyRect(user,

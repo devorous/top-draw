@@ -225,14 +225,17 @@ export class FlowPenTool extends Tool {
 
     this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
 
-    if (this.board.mirror) {
+    this.board.forEachMirrorRegion({ rect: this.dirtyBounds ? {
+      x: this.dirtyBounds.minX,
+      y: this.dirtyBounds.minY,
+      width: this.dirtyBounds.maxX - this.dirtyBounds.minX,
+      height: this.dirtyBounds.maxY - this.dirtyBounds.minY
+    } : null }, (region) => {
       ctx.save();
       ctx.globalCompositeOperation = 'source-over';
-      ctx.translate(this.board.getWidth(), 0);
-      ctx.scale(-1, 1);
-      this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
+      this.board.drawMirroredCanvas(ctx, this.offscreenCanvas, region, 0, 0);
       ctx.restore();
-    }
+    });
 
     ctx.globalAlpha = 1.0;
 
@@ -249,22 +252,24 @@ export class FlowPenTool extends Tool {
 
       this.board.expandDirtyRect(user, x, y, width, height);
 
-      if (this.board.mirror) {
-        const boardWidth = this.board.getWidth();
-        const mirrorX = Math.floor(boardWidth - this.dirtyBounds.maxX - margin);
-        this.board.expandDirtyRect(user, mirrorX, y, width, height);
-      }
+      this.board.forEachMirrorRegion({ rect: { x, y, width, height } }, (region) => {
+        const p1 = this.board.mirrorPointToRegion({ x: this.dirtyBounds.minX, y: this.dirtyBounds.minY }, region);
+        const p2 = this.board.mirrorPointToRegion({ x: this.dirtyBounds.maxX, y: this.dirtyBounds.maxY }, region);
+        const mx = Math.floor(Math.min(p1.x, p2.x) - margin);
+        const my = Math.floor(Math.min(p1.y, p2.y) - margin);
+        const mw = Math.ceil(Math.max(p1.x, p2.x) - Math.min(p1.x, p2.x) + margin * 2);
+        const mh = Math.ceil(Math.max(p1.y, p2.y) - Math.min(p1.y, p2.y) + margin * 2);
+        this.board.expandDirtyRect(user, mx, my, mw, mh);
+      });
     }
 
     // Track tile ownership
     if (user.penPoints && user.penPoints.length > 0) {
       const maxRadius = Math.max(...user.penPoints.map(p => p.radius || user.size));
       this.board.markDirtyPath(user, user.penPoints, maxRadius);
-      if (this.board.mirror) {
-        const boardWidth = this.board.getWidth();
-        const mirroredPoints = user.penPoints.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
-        this.board.markDirtyPath(user, mirroredPoints, maxRadius);
-      }
+      this.board.forEachMirrorRegion({ points: user.penPoints }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(user.penPoints, region), maxRadius);
+      });
     }
 
     this.clearStroke();
@@ -312,13 +317,14 @@ export class FlowPenTool extends Tool {
 
     this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
 
-    if (this.board.mirror) {
-      ctx.save();
-      ctx.translate(this.board.getWidth(), 0);
-      ctx.scale(-1, 1);
-      this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
-      ctx.restore();
-    }
+    this.board.forEachMirrorRegion({ rect: this.dirtyBounds ? {
+      x: this.dirtyBounds.minX,
+      y: this.dirtyBounds.minY,
+      width: this.dirtyBounds.maxX - this.dirtyBounds.minX,
+      height: this.dirtyBounds.maxY - this.dirtyBounds.minY
+    } : null }, (region) => {
+      this.board.drawMirroredCanvas(ctx, this.offscreenCanvas, region, 0, 0);
+    });
 
     ctx.globalAlpha = 1.0;
   }

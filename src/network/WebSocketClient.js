@@ -342,8 +342,17 @@ export class WebSocketClient {
         break;
 
       case T.SETTINGS:
+        let mirrorRegions = [];
+        if (data.mirrorRegionsJson) {
+          try {
+            mirrorRegions = JSON.parse(data.mirrorRegionsJson);
+          } catch (err) {
+            console.warn('[WebSocketClient] Failed to parse mirror regions payload', err);
+          }
+        }
         this.emit('settings', {
           mirror: data.m,
+          mirrorRegions,
           backgroundColor: data.roomBackgroundColor,
           locked: data.roomLocked,
           maxUsers: data.roomMaxUsers,
@@ -1067,6 +1076,18 @@ export class WebSocketClient {
    */
   broadcastMirror() {
     this.send({ t: T.MIR });
+  }
+
+  /**
+   * Broadcasts a mirror region creation/update payload.
+   * @param {Object} payload
+   * @returns {void}
+   */
+  broadcastMirrorRegion(payload) {
+    this.send({
+      t: T.MIRROR_REGION,
+      mirrorRegionsJson: JSON.stringify(payload)
+    });
   }
 
   /**

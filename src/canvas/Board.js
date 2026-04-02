@@ -25,6 +25,7 @@ export class Board {
     this.rotation = 0;
     this.defaultRotation = 0;
     this.mirror = false;
+    this.mirrorRegions = [];
     this.backgroundColor = options.backgroundColor || [255, 255, 255, 1];
 
     this.container = null;
@@ -40,6 +41,7 @@ export class Board {
     this.selectionCtx = null;
     this.cursorsSvg = null;
     this.mirrorLine = null;
+    this.mirrorRegionsLayer = null;
 
     this.layerManager = null;
     this.app = null;
@@ -122,6 +124,17 @@ export class Board {
     this.boardsWrapper.appendChild(this.upperLayersCanvas);
     this.upperLayersCtx = this.upperLayersCanvas.getContext('2d');
 
+    this.mirrorRegionsLayer = document.createElement('div');
+    this.mirrorRegionsLayer.id = 'mirrorRegionsLayer';
+    this.mirrorRegionsLayer.style.position = 'absolute';
+    this.mirrorRegionsLayer.style.top = '0';
+    this.mirrorRegionsLayer.style.left = '0';
+    this.mirrorRegionsLayer.style.width = '100%';
+    this.mirrorRegionsLayer.style.height = '100%';
+    this.mirrorRegionsLayer.style.pointerEvents = 'none';
+    this.mirrorRegionsLayer.style.zIndex = '3';
+    this.boardsWrapper.appendChild(this.mirrorRegionsLayer);
+
     this.setupCanvas();
 
     const [height, width] = this.dimensions;
@@ -177,6 +190,11 @@ export class Board {
     this.mirrorLine.style.display = 'none';
 
     this.boardsWrapper.style.transformOrigin = 'top left';
+    if (this.mirrorRegionsLayer) {
+      this.mirrorRegionsLayer.style.width = `${width}px`;
+      this.mirrorRegionsLayer.style.height = `${height}px`;
+    }
+    this.renderMirrorRegions();
   }
 
   /**
@@ -419,6 +437,7 @@ export class Board {
   toggleMirror() {
     this.mirror = !this.mirror;
     this.mirrorLine.style.display = this.mirror ? 'block' : 'none';
+    this.renderMirrorRegions();
     return this.mirror;
   }
 
@@ -429,6 +448,248 @@ export class Board {
   setMirror(value) {
     this.mirror = value;
     this.mirrorLine.style.display = this.mirror ? 'block' : 'none';
+    this.renderMirrorRegions();
+  }
+
+  /**
+   * Sets the shared mirror regions for the room.
+   * @param {Array<Object>} regions
+   */
+  setMirrorRegions(regions = []) {
+    this.mirrorRegions = Array.isArray(regions)
+      ? regions
+        .map(region => this._normalizeMirrorRegion(region))
+        .filter(Boolean)
+      : [];
+    this.renderMirrorRegions();
+  }
+
+  /**
+   * Gets active mirror regions, with full-board mirror taking precedence.
+   * @returns {Array<Object>}
+   */
+  getActiveMirrorRegions() {
+    if (this.mirror) {
+      return [{
+        id: '__global_mirror__',
+        x: 0,
+        y: 0,
+        width: this.getWidth(),
+        height: this.getHeight(),
+        axis: 'vertical',
+        showLine: true,
+        synthetic: true
+      }];
+    }
+    return this.mirrorRegions;
+  }
+
+  /**
+   * Returns true when any mirror source is active.
+   * @returns {boolean}
+   */
+  hasMirrors() {
+    return this.getActiveMirrorRegions().length > 0;
+  }
+
+  /**
+   * Mirrors a single point inside a region.
+   * @param {{x:number,y:number}} point
+   * @param {Object} region
+   * @returns {{x:number,y:number}}
+   */
+  mirrorPointToRegion(point, region) {
+    if (!region || !point) return point;
+    if (region.axis === 'horizontal') {
+      return {
+        x: point.x,
+        y: region.y + region.height - (point.y - region.y)
+      };
+    }
+    return {
+      x: region.x + region.width - (point.x - region.x),
+      y: point.y
+    };
+  }
+
+  /**
+   * Mirrors an array of points inside a region.
+   * @param {Array<{x:number,y:number}>} points
+   * @param {Object} region
+   * @returns {Array<{x:number,y:number}>}
+   */
+  mirrorPointsToRegion(points, region) {
+    if (!Array.isArray(points)) return [];
+    return points.map(point => this.mirrorPointToRegion(point, region));
+  }
+
+  /**
+   * Clips drawing operations to a mirror region.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Object} region
+   * @param {Function} drawFn
+   */
+  withMirrorRegionClip(ctx, region, drawFn) {
+    if (!ctx || !region || typeof drawFn !== 'function') return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(region.x, region.y, region.width, region.height);
+    ctx.clip();
+    drawFn();
+    ctx.restore();
+  }
+
+  /**
+   * Draws a source canvas mirrored into a mirror region.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {HTMLCanvasElement} sourceCanvas
+   * @param {Object} region
+   * @param {number} [x=0]
+   * @param {number} [y=0]
+   */
+  drawMirroredCanvas(ctx, sourceCanvas, region, x = 0, y = 0) {
+    if (!ctx || !sourceCanvas || !region) return;
+    this.withMirrorRegionClip(ctx, region, () => {
+      ctx.save();
+      if (region.axis === 'horizontal') {
+        ctx.translate(0, (region.y * 2) + region.height);
+        ctx.scale(1, -1);
+      } else {
+        ctx.translate((region.x * 2) + region.width, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(sourceCanvas, x, y);
+      ctx.restore();
+    });
+  }
+
+  /**
+   * Iterates active mirror regions intersecting a target geometry.
+   * @param {Object|null} target
+   * @param {(region: Object) => void} callback
+   */
+  forEachMirrorRegion(target, callback) {
+    if (typeof callback !== 'function') return;
+    const bounds = this._getMirrorTargetBounds(target);
+    for (const region of this.getActiveMirrorRegions()) {
+      if (!bounds || this._rectIntersects(bounds, region)) {
+        callback(region);
+      }
+    }
+  }
+
+  /**
+   * Renders the persistent mirror region overlays.
+   */
+  renderMirrorRegions() {
+    if (!this.mirrorRegionsLayer) return;
+    this.mirrorRegionsLayer.innerHTML = '';
+
+    if (this.mirror) return;
+
+    for (const region of this.mirrorRegions) {
+      const regionEl = document.createElement('div');
+      regionEl.className = 'mirror-region';
+      regionEl.style.position = 'absolute';
+      regionEl.style.left = `${region.x}px`;
+      regionEl.style.top = `${region.y}px`;
+      regionEl.style.width = `${region.width}px`;
+      regionEl.style.height = `${region.height}px`;
+      regionEl.style.border = '1px solid rgba(0, 212, 170, 0.9)';
+      regionEl.style.boxSizing = 'border-box';
+      regionEl.style.background = 'transparent';
+
+      if (region.showLine) {
+        const lineEl = document.createElement('div');
+        lineEl.className = 'mirror-region-line';
+        lineEl.style.position = 'absolute';
+        if (region.axis === 'horizontal') {
+          lineEl.style.left = '0';
+          lineEl.style.right = '0';
+          lineEl.style.top = `${region.height / 2}px`;
+          lineEl.style.height = '0';
+          lineEl.style.borderTop = '1px dashed rgba(0, 212, 170, 0.85)';
+          lineEl.style.transform = 'translateY(-0.5px) scaleY(0.8)';
+          lineEl.style.transformOrigin = 'center';
+        } else {
+          lineEl.style.top = '0';
+          lineEl.style.bottom = '0';
+          lineEl.style.left = `${region.width / 2}px`;
+          lineEl.style.width = '0';
+          lineEl.style.borderLeft = '1px dashed rgba(0, 212, 170, 0.85)';
+          lineEl.style.transform = 'translateX(-0.5px) scaleX(0.8)';
+          lineEl.style.transformOrigin = 'center';
+        }
+        regionEl.appendChild(lineEl);
+      }
+
+      this.mirrorRegionsLayer.appendChild(regionEl);
+    }
+  }
+
+  _normalizeMirrorRegion(region) {
+    if (!region) return null;
+    const x = Math.floor(Number(region.x));
+    const y = Math.floor(Number(region.y));
+    const width = Math.floor(Number(region.width));
+    const height = Math.floor(Number(region.height));
+
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) {
+      return null;
+    }
+
+    return {
+      id: String(region.id || `mr_${x}_${y}_${width}_${height}`),
+      x: Math.max(0, x),
+      y: Math.max(0, y),
+      width: Math.max(1, width),
+      height: Math.max(1, height),
+      axis: region.axis === 'horizontal' ? 'horizontal' : 'vertical',
+      showLine: region.showLine !== false,
+      owner: region.owner || region.createdBy || null
+    };
+  }
+
+  _getMirrorTargetBounds(target) {
+    if (!target) return null;
+
+    if (target.rect) return target.rect;
+
+    if (target.point) {
+      return { x: target.point.x, y: target.point.y, width: 0, height: 0 };
+    }
+
+    if (Array.isArray(target.points) && target.points.length > 0) {
+      let minX = target.points[0].x;
+      let minY = target.points[0].y;
+      let maxX = target.points[0].x;
+      let maxY = target.points[0].y;
+
+      for (const point of target.points) {
+        minX = Math.min(minX, point.x);
+        minY = Math.min(minY, point.y);
+        maxX = Math.max(maxX, point.x);
+        maxY = Math.max(maxY, point.y);
+      }
+
+      return {
+        x: minX,
+        y: minY,
+        width: maxX - minX,
+        height: maxY - minY
+      };
+    }
+
+    return null;
+  }
+
+  _rectIntersects(a, b) {
+    return (
+      a.x <= b.x + b.width &&
+      a.x + a.width >= b.x &&
+      a.y <= b.y + b.height &&
+      a.y + a.height >= b.y
+    );
   }
 
   /**

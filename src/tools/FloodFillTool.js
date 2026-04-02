@@ -494,7 +494,7 @@ export class FloodFillTool {
    * Commit a fill result to the stroke canvas.
    * @private
    */
-  _commitFillResult(user, result, params, width, height, mirrorResult, blurRadius = this._blurRadius, expansion = this._expansion) {
+  _commitFillResult(user, result, params, width, height, mirrorResults, blurRadius = this._blurRadius, expansion = this._expansion) {
     if (!result) return;
 
     this.board.beginStroke(user);
@@ -510,8 +510,18 @@ export class FloodFillTool {
     const bh = Math.min(height, result.maxY + pad + 1) - by;
     this.board.expandDirtyRect(user, bx, by, bw, bh);
 
-    if (mirrorResult) {
-      this._renderMaskComposite(strokeCtx, mirrorResult, params.fillR, params.fillG, params.fillB, params.userOpacity, blurRadius, width, height, user);
+    const mirrors = Array.isArray(mirrorResults) ? mirrorResults : (mirrorResults ? [mirrorResults] : []);
+    for (const entry of mirrors) {
+      const mirrorResult = entry?.result || entry;
+      const region = entry?.region || null;
+      if (!mirrorResult) continue;
+      if (region) {
+        this.board.withMirrorRegionClip(strokeCtx, region, () => {
+          this._renderMaskComposite(strokeCtx, mirrorResult, params.fillR, params.fillG, params.fillB, params.userOpacity, blurRadius, width, height, user);
+        });
+      } else {
+        this._renderMaskComposite(strokeCtx, mirrorResult, params.fillR, params.fillG, params.fillB, params.userOpacity, blurRadius, width, height, user);
+      }
       const mbx = Math.max(0, mirrorResult.minX - pad);
       const mby = Math.max(0, mirrorResult.minY - pad);
       const mbw = Math.min(width, mirrorResult.maxX + pad + 1) - mbx;
@@ -522,9 +532,31 @@ export class FloodFillTool {
     // Track tile ownership only for tiles that actually have filled pixels
     // Also tracks in active stroke for undo support
     this._markFilledTiles(result, width, params.userId, params.activeLayer);
-    if (mirrorResult) {
-      this._markFilledTiles(mirrorResult, width, params.userId, params.activeLayer);
+    for (const entry of mirrors) {
+      const mirrorResult = entry?.result || entry;
+      if (mirrorResult) this._markFilledTiles(mirrorResult, width, params.userId, params.activeLayer);
     }
+  }
+
+  async _computeMirrorFillResults(imageData, width, height, x, y, expansion, userId) {
+    const results = [];
+    for (const region of this.board.getActiveMirrorRegions()) {
+      const mirrored = this.board.mirrorPointToRegion({ x, y }, region);
+      const mx = Math.round(mirrored.x);
+      const my = Math.round(mirrored.y);
+      if (mx < 0 || mx >= width || my < 0 || my >= height) continue;
+      let mirrorResult = await this._fillWorker.computeFill(imageData, width, height, mx, my, 10, expansion, null);
+      if (mirrorResult && this._isFillTooLarge(mirrorResult, width, height)) {
+        const mirrorTileRects = this._getOccupiedTileRects(mx, my, userId);
+        if (mirrorTileRects) {
+          mirrorResult = await this._fillWorker.computeFill(imageData, width, height, mx, my, 10, expansion, mirrorTileRects);
+        } else {
+          mirrorResult = null;
+        }
+      }
+      if (mirrorResult) results.push({ region, result: mirrorResult });
+    }
+    return results;
   }
 
   /**
@@ -627,29 +659,17 @@ export class FloodFillTool {
         }
       }
 
-      let mirrorResult = null;
-      if (this.board.mirror) {
-        const mx = width - 1 - x;
-        if (mx >= 0 && mx < width) {
-          const mirrorData = this.board.mainCtx.getImageData(0, 0, width, height).data;
-          mirrorResult = await this._fillWorker.computeFill(
-            mirrorData, width, height, mx, y, 10, 0, null
-          );
-          // Check mirror fill bounds too
-          if (mirrorResult) {
-            const mirrorTileRects = this._getOccupiedTileRects(mx, y, params.userId);
-            if (mirrorTileRects && !this._isFillWithinTileBounds(mirrorResult, mirrorTileRects)) {
-              const constrainedMirror = await this._fillWorker.computeFill(
-                this.board.mainCtx.getImageData(0, 0, width, height).data,
-                width, height, mx, y, 10, 0, mirrorTileRects
-              );
-              if (constrainedMirror) mirrorResult = constrainedMirror;
-            }
-          }
-        }
-      }
+      const mirrorResults = await this._computeMirrorFillResults(
+        this.board.mainCtx.getImageData(0, 0, width, height).data,
+        width,
+        height,
+        x,
+        y,
+        0,
+        params.userId
+      );
 
-      this._commitFillResult(user, result, params, width, height, mirrorResult, 0, 0);
+      this._commitFillResult(user, result, params, width, height, mirrorResults, 0, 0);
       this._broadcastFill(user, x, y, params.activeLayer, 0, 0);
       this.board.endStroke(user);
       this._committed = true;
@@ -761,29 +781,20 @@ export class FloodFillTool {
     if (result) {
       this._renderMask(topCtx, result, fillR, fillG, fillB, userOpacity, this._blurRadius, width, height, user);
 
-      if (this.board.mirror) {
-        const mx = width - 1 - x;
-        if (mx >= 0 && mx < width) {
-          let mResult = await this._fillWorker.computeFill(
-            this._imageData.data.slice(0), width, height,
-            mx, y, 10, this._expansion, null
-          );
-          // Only apply constraint if too large
-          if (mResult && this._isFillTooLarge(mResult, width, height)) {
-            const mirrorTileRects = this._getOccupiedTileRects(mx, y, userId);
-            if (mirrorTileRects) {
-              mResult = await this._fillWorker.computeFill(
-                this._imageData.data.slice(0), width, height,
-                mx, y, 10, this._expansion, mirrorTileRects
-              );
-            } else {
-              mResult = null;
-            }
-          }
-          if (mResult && this._active) {
-            this._renderMaskComposite(topCtx, mResult, fillR, fillG, fillB, userOpacity, this._blurRadius, width, height, user);
-          }
-        }
+      const mirrorResults = await this._computeMirrorFillResults(
+        this._imageData.data.slice(0),
+        width,
+        height,
+        x,
+        y,
+        this._expansion,
+        userId
+      );
+      for (const entry of mirrorResults) {
+        if (!this._active) break;
+        this.board.withMirrorRegionClip(topCtx, entry.region, () => {
+          this._renderMaskComposite(topCtx, entry.result, fillR, fillG, fillB, userOpacity, this._blurRadius, width, height, user);
+        });
       }
     }
   }
@@ -841,30 +852,17 @@ export class FloodFillTool {
     this.board.topCtx.clearRect(0, 0, width, height);
 
     if (result) {
-      let mirrorResult = null;
-      if (this.board.mirror) {
-        const mx = width - 1 - x;
-        if (mx >= 0 && mx < width) {
-          mirrorResult = await this._fillWorker.computeFill(
-            this._imageData.data.slice(0), width, height,
-            mx, y, 10, this._expansion, null
-          );
-          // Only apply constraint if too large
-          if (mirrorResult && this._isFillTooLarge(mirrorResult, width, height)) {
-            const mirrorTileRects = this._getOccupiedTileRects(mx, y, userId);
-            if (mirrorTileRects) {
-              mirrorResult = await this._fillWorker.computeFill(
-                this._imageData.data.slice(0), width, height,
-                mx, y, 10, this._expansion, mirrorTileRects
-              );
-            } else {
-              mirrorResult = null;
-            }
-          }
-        }
-      }
+      const mirrorResults = await this._computeMirrorFillResults(
+        this._imageData.data.slice(0),
+        width,
+        height,
+        x,
+        y,
+        this._expansion,
+        userId
+      );
 
-      this._commitFillResult(user, result, params, width, height, mirrorResult);
+      this._commitFillResult(user, result, params, width, height, mirrorResults);
       this._broadcastFill(user, x, y, activeLayer, this._expansion, this._blurRadius);
       this.board.endStroke(user);
     }

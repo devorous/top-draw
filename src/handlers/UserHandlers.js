@@ -169,6 +169,7 @@ export function setupUserHandlers(wsClient, app) {
 
   wsClient.on('settings', (data) => {
     board.setMirror(data.mirror);
+    board.setMirrorRegions(data.mirrorRegions || []);
     ui.updateMirrorDisplay(data.mirror);
     if (data.backgroundColor) {
       board.setBackgroundColor(data.backgroundColor);
@@ -194,6 +195,7 @@ export function setupUserHandlers(wsClient, app) {
     }
     // Mirror is not persisted to DB, but update it locally
     app.currentRoomData.mirror = data.mirror;
+    app.currentRoomData.mirrorRegions = data.mirrorRegions || [];
   });
 
   wsClient.on('left', (data) => {

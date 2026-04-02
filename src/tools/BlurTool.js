@@ -125,10 +125,12 @@ export class BlurTool extends Tool {
     // Paint the first mask stamp
     this.paintMask(pos.x, pos.y, user.size, user, maskCtx);
 
-    if (this.board.mirror) {
-      const width = this.board.getWidth();
-      this.paintMask(width - pos.x, pos.y, user.size, user, maskCtx);
-    }
+    this.board.forEachMirrorRegion({ point: pos }, (region) => {
+      const mirrored = this.board.mirrorPointToRegion(pos, region);
+      this.board.withMirrorRegionClip(maskCtx, region, () => {
+        this.paintMask(mirrored.x, mirrored.y, user.size, user, maskCtx);
+      });
+    });
 
     this.board.requestUpdate();
   }
@@ -159,10 +161,12 @@ export class BlurTool extends Tool {
       if (distance >= minSpacing) {
         this.paintMask(pos.x, pos.y, user.size, user, maskCtx);
 
-        if (this.board.mirror) {
-          const width = this.board.getWidth();
-          this.paintMask(width - pos.x, pos.y, user.size, user, maskCtx);
-        }
+        this.board.forEachMirrorRegion({ point: pos }, (region) => {
+          const mirrored = this.board.mirrorPointToRegion(pos, region);
+          this.board.withMirrorRegionClip(maskCtx, region, () => {
+            this.paintMask(mirrored.x, mirrored.y, user.size, user, maskCtx);
+          });
+        });
 
         this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
         const points = this.strokePoints.get(user.id);
@@ -212,11 +216,9 @@ export class BlurTool extends Tool {
     const points = this.strokePoints.get(user.id);
     if (points && points.length > 0) {
       this.board.markDirtyPath(user, points, user.size);
-      if (this.board.mirror) {
-        const boardWidth = this.board.getWidth();
-        const mirroredPoints = points.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
-        this.board.markDirtyPath(user, mirroredPoints, user.size);
-      }
+      this.board.forEachMirrorRegion({ points }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(points, region), user.size);
+      });
     }
     this.strokePoints.delete(user.id);
 

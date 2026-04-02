@@ -165,20 +165,23 @@ export class RemotePenHandler {
       const w = Math.ceil(maxX - minX + margin * 2);
       const h = Math.ceil(maxY - minY + margin * 2);
       this.board.expandDirtyRect(user, x, y, w, h);
-      if (this.board.mirror) {
-        const boardW = this.board.getWidth();
-        this.board.expandDirtyRect(user, Math.floor(boardW - maxX - margin), y, w, h);
-      }
+      this.board.forEachMirrorRegion({ rect: { x, y, width: w, height: h } }, (region) => {
+        const p1 = this.board.mirrorPointToRegion({ x: minX, y: minY }, region);
+        const p2 = this.board.mirrorPointToRegion({ x: maxX, y: maxY }, region);
+        const mx = Math.floor(Math.min(p1.x, p2.x) - margin);
+        const my = Math.floor(Math.min(p1.y, p2.y) - margin);
+        const mw = Math.ceil(Math.max(p1.x, p2.x) - Math.min(p1.x, p2.x) + margin * 2);
+        const mh = Math.ceil(Math.max(p1.y, p2.y) - Math.min(p1.y, p2.y) + margin * 2);
+        this.board.expandDirtyRect(user, mx, my, mw, mh);
+      });
 
       // Track tile ownership for remote user
       const points = user.penPoints.map(pt => ({ x: pt.x, y: pt.y }));
       const maxRadius = Math.max(...user.penPoints.map(p => p.radius || user.size));
       this.board.markDirtyPath(user, points, maxRadius);
-      if (this.board.mirror) {
-        const boardWidth = this.board.getWidth();
-        const mirroredPoints = points.map(pt => ({ x: boardWidth - pt.x, y: pt.y }));
-        this.board.markDirtyPath(user, mirroredPoints, maxRadius);
-      }
+      this.board.forEachMirrorRegion({ points }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(points, region), maxRadius);
+      });
     }
 
     const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);
@@ -188,14 +191,12 @@ export class RemotePenHandler {
 
       this.compositeWithHardness(layerCtx, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
 
-      if (this.board.mirror) {
+      this.board.forEachMirrorRegion({ points: user.penPoints }, (region) => {
         layerCtx.save();
         layerCtx.globalCompositeOperation = 'source-over';
-        layerCtx.translate(this.board.getWidth(), 0);
-        layerCtx.scale(-1, 1);
-        this.compositeWithHardness(layerCtx, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
+        this.board.drawMirroredCanvas(layerCtx, user._penOffscreen, region, 0, 0);
         layerCtx.restore();
-      }
+      });
 
       layerCtx.globalAlpha = 1.0;
       this.board.requestUpdate();
@@ -220,13 +221,9 @@ export class RemotePenHandler {
 
     this.compositeWithHardness(user.context, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
 
-    if (this.board.mirror) {
-      user.context.save();
-      user.context.translate(this.board.getWidth(), 0);
-      user.context.scale(-1, 1);
-      this.compositeWithHardness(user.context, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
-      user.context.restore();
-    }
+    this.board.forEachMirrorRegion({ points: user.penPoints }, (region) => {
+      this.board.drawMirroredCanvas(user.context, user._penOffscreen, region, 0, 0);
+    });
 
     user.context.globalAlpha = 1.0;
   }

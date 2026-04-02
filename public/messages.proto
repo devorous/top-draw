@@ -92,6 +92,7 @@ message Msg {
     GLITCH_RESULT      = 83;  // Glitch blur result image (sender-computed, for deterministic sync)
     CPM                = 84;  // Change pattern mode (fill/select pattern toggle)
     ROOM_PREVIEW       = 85;  // Room canvas preview (1/4 scale thumbnail)
+    MIRROR_REGION      = 86;  // Create/update mirror regions
   }
 
   // Tool enum
@@ -274,6 +275,7 @@ message Msg {
   // === Extended Room Settings Fields (90+) ===
   string room_background_color = 90;  // ROOM_UPDATE: canvas background color (hex "#ffffff")
   bool room_mod_inactive_immune = 91; // ROOM_UPDATE/SETTINGS: moderators ignore inactivity timeout
+  string mirror_regions_json = 92;    // SETTINGS/MIRROR_REGION: shared mirror region payload
 
   // === Ink Thinning Fields ===
   uint32 th = 59;               // Thinning * 100 (0-100)

@@ -3,7 +3,7 @@
  * Manages remote cursors, drawing tool routing, and position interpolation.
  */
 
-import { mirrorLine, drawLineArray, bridgeGap } from '../utils/drawing.js';
+import { drawLineArray, bridgeGap } from '../utils/drawing.js';
 import { SELECTION_MODES, getNextBrushIndex } from '../utils/parseGimp.js';
 import { resetSmoothingBuffer } from '../utils/smoothing.js';
 import { RemotePenHandler } from './RemotePenHandler.js';
@@ -222,20 +222,22 @@ export class RemoteUserHandler {
             const g = this.board.layerManager.getLayerGroup(i);
             if (g) {
               eraserTool.eraseOnGroup(g, pos.x, pos.y, lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
-              if (this.board.mirror) {
-                const w = this.board.getWidth();
-                eraserTool.eraseOnGroup(g, w - pos.x, pos.y, w - lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
-              }
+              this.board.forEachMirrorRegion({ points: [pos, lastPos] }, (region) => {
+                const p1 = this.board.mirrorPointToRegion(pos, region);
+                const p2 = this.board.mirrorPointToRegion(lastPos, region);
+                eraserTool.eraseOnGroup(g, p1.x, p1.y, p2.x, p2.y, eraseSize, user.opacity, user.id);
+              });
             }
           }
         } else {
           const group = this.board.layerManager.getLayerGroup(user.activeLayer);
           if (group) {
             eraserTool.eraseOnGroup(group, pos.x, pos.y, lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
-            if (this.board.mirror) {
-              const w = this.board.getWidth();
-              eraserTool.eraseOnGroup(group, w - pos.x, pos.y, w - lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
-            }
+            this.board.forEachMirrorRegion({ points: [pos, lastPos] }, (region) => {
+              const p1 = this.board.mirrorPointToRegion(pos, region);
+              const p2 = this.board.mirrorPointToRegion(lastPos, region);
+              eraserTool.eraseOnGroup(group, p1.x, p1.y, p2.x, p2.y, eraseSize, user.opacity, user.id);
+            });
           }
         }
         this.board.requestUpdate();
@@ -305,45 +307,55 @@ export class RemoteUserHandler {
       case 'brush':
         if (user.currentLine.length >= 2) {
           drawLineArray(user.currentLine, user.context, user);
-          if (this.board.mirror) {
-            const w = this.board.getWidth();
-            const mirroredLine = mirrorLine(user.currentLine, w);
-            drawLineArray(mirroredLine, user.context, user);
-          }
+          this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
+            const mirroredLine = this.board.mirrorPointsToRegion(user.currentLine, region);
+            this.board.withMirrorRegionClip(user.context, region, () => {
+              drawLineArray(mirroredLine, user.context, user);
+            });
+          });
         }
         break;
 
       case 'line':
         this.toolManager.getTool('line').drawPreview(user.context, user, user.startPos, pos);
-        if (this.board.mirror) {
-          const w = this.board.getWidth();
-          this.toolManager.getTool('line').drawPreview(user.context, user,
-            { x: w - user.startPos.x, y: user.startPos.y },
-            { x: w - pos.x, y: pos.y }
-          );
-        }
+        this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
+          this.board.withMirrorRegionClip(user.context, region, () => {
+            this.toolManager.getTool('line').drawPreview(
+              user.context,
+              user,
+              this.board.mirrorPointToRegion(user.startPos, region),
+              this.board.mirrorPointToRegion(pos, region)
+            );
+          });
+        });
         break;
 
       case 'rectangle':
         this.toolManager.getTool('rectangle').drawRect(user.context, user, user.startPos, pos);
-        if (this.board.mirror) {
-          const w = this.board.getWidth();
-          this.toolManager.getTool('rectangle').drawRect(user.context, user,
-            { x: w - user.startPos.x, y: user.startPos.y },
-            { x: w - pos.x, y: pos.y }
-          );
-        }
+        this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
+          this.board.withMirrorRegionClip(user.context, region, () => {
+            this.toolManager.getTool('rectangle').drawRect(
+              user.context,
+              user,
+              this.board.mirrorPointToRegion(user.startPos, region),
+              this.board.mirrorPointToRegion(pos, region)
+            );
+          });
+        });
         break;
 
       case 'circle':
         this.toolManager.getTool('circle').drawEllipse(user.context, user, user.startPos, pos);
-        if (this.board.mirror) {
-          const w = this.board.getWidth();
-          this.toolManager.getTool('circle').drawEllipse(user.context, user,
-            { x: w - user.startPos.x, y: user.startPos.y },
-            { x: w - pos.x, y: pos.y }
-          );
-        }
+        this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
+          this.board.withMirrorRegionClip(user.context, region, () => {
+            this.toolManager.getTool('circle').drawEllipse(
+              user.context,
+              user,
+              this.board.mirrorPointToRegion(user.startPos, region),
+              this.board.mirrorPointToRegion(pos, region)
+            );
+          });
+        });
         break;
 
       case 'select':
@@ -488,10 +500,10 @@ export class RemoteUserHandler {
             const radius = user.pressure * user.size;
             circleBlurTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
             circleBlurTool.stampBlurredCircle(pos.x, pos.y, radius, user);
-            if (this.board.mirror) {
-              const width = this.board.getWidth();
-              circleBlurTool.stampBlurredCircle(width - pos.x, pos.y, radius, user);
-            }
+            this.board.forEachMirrorRegion({ point: pos }, (region) => {
+              const mirrored = this.board.mirrorPointToRegion(pos, region);
+              circleBlurTool.stampBlurredCircle(mirrored.x, mirrored.y, radius, user, region);
+            });
           }
         }
         break;
@@ -582,11 +594,12 @@ export class RemoteUserHandler {
       case 'brush':
         if (activeStrokeCtx && user.currentLine.length >= 2) {
           drawLineArray(user.currentLine, activeStrokeCtx, user);
-          if (this.board.mirror) {
-            const w = this.board.getWidth();
-            const mirroredLine = mirrorLine(user.currentLine, w);
-            drawLineArray(mirroredLine, activeStrokeCtx, user);
-          }
+          this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
+            const mirroredLine = this.board.mirrorPointsToRegion(user.currentLine, region);
+            this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
+              drawLineArray(mirroredLine, activeStrokeCtx, user);
+            });
+          });
           this._expandDirtyRectFromPoints(user, user.currentLine, this._brushMargin(user));
         }
         break;
@@ -594,11 +607,16 @@ export class RemoteUserHandler {
       case 'line':
         if (activeStrokeCtx) {
           this.toolManager.getTool('line').drawPreview(activeStrokeCtx, user, user.startPos, pos);
-          if (this.board.mirror) {
-            const w = this.board.getWidth();
-            this.toolManager.getTool('line').drawPreview(activeStrokeCtx, user,
-              { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
-          }
+          this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
+            this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
+              this.toolManager.getTool('line').drawPreview(
+                activeStrokeCtx,
+                user,
+                this.board.mirrorPointToRegion(user.startPos, region),
+                this.board.mirrorPointToRegion(pos, region)
+              );
+            });
+          });
           const lineMargin = user.size + 2;
           this._expandDirtyRectFromPoints(user, [user.startPos, pos], lineMargin);
         }
@@ -607,11 +625,16 @@ export class RemoteUserHandler {
       case 'rectangle':
         if (activeStrokeCtx) {
           this.toolManager.getTool('rectangle').drawRect(activeStrokeCtx, user, user.startPos, pos);
-          if (this.board.mirror) {
-            const w = this.board.getWidth();
-            this.toolManager.getTool('rectangle').drawRect(activeStrokeCtx, user,
-              { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
-          }
+          this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
+            this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
+              this.toolManager.getTool('rectangle').drawRect(
+                activeStrokeCtx,
+                user,
+                this.board.mirrorPointToRegion(user.startPos, region),
+                this.board.mirrorPointToRegion(pos, region)
+              );
+            });
+          });
           const rectMargin = user.size + 2;
           this._expandDirtyRectFromPoints(user, [user.startPos, pos], rectMargin);
         }
@@ -620,11 +643,16 @@ export class RemoteUserHandler {
       case 'circle':
         if (activeStrokeCtx) {
           this.toolManager.getTool('circle').drawEllipse(activeStrokeCtx, user, user.startPos, pos);
-          if (this.board.mirror) {
-            const w = this.board.getWidth();
-            this.toolManager.getTool('circle').drawEllipse(activeStrokeCtx, user,
-              { x: w - user.startPos.x, y: user.startPos.y }, { x: w - pos.x, y: pos.y });
-          }
+          this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
+            this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
+              this.toolManager.getTool('circle').drawEllipse(
+                activeStrokeCtx,
+                user,
+                this.board.mirrorPointToRegion(user.startPos, region),
+                this.board.mirrorPointToRegion(pos, region)
+              );
+            });
+          });
           const circleMargin = user.size + 2;
           this._expandDirtyRectFromPoints(user, [user.startPos, pos], circleMargin);
         }
@@ -1104,10 +1132,15 @@ export class RemoteUserHandler {
 
     this.board.expandDirtyRect(user, x, y, w, h);
 
-    if (this.board.mirror) {
-      const boardW = this.board.getWidth();
-      this.board.expandDirtyRect(user, Math.floor(boardW - maxX - margin), y, w, h);
-    }
+    this.board.forEachMirrorRegion({ rect: { x, y, width: w, height: h } }, (region) => {
+      const p1 = this.board.mirrorPointToRegion({ x: minX, y: minY }, region);
+      const p2 = this.board.mirrorPointToRegion({ x: maxX, y: maxY }, region);
+      const mx = Math.floor(Math.min(p1.x, p2.x) - margin);
+      const my = Math.floor(Math.min(p1.y, p2.y) - margin);
+      const mw = Math.ceil(Math.max(p1.x, p2.x) - Math.min(p1.x, p2.x) + margin * 2);
+      const mh = Math.ceil(Math.max(p1.y, p2.y) - Math.min(p1.y, p2.y) + margin * 2);
+      this.board.expandDirtyRect(user, mx, my, mw, mh);
+    });
 
     // Track occupied tiles for remote users (non-erase operations)
     const tt = this.board.tileTracker;
@@ -1122,11 +1155,9 @@ export class RemoteUserHandler {
       tt.markPathDirty(points, radius, active?.affectedTiles);
 
       // Also track mirrored tiles
-      if (this.board.mirror) {
-        const boardW = this.board.getWidth();
-        const mirroredPoints = points.map(pt => ({ x: boardW - pt.x, y: pt.y }));
-        tt.markPathDirty(mirroredPoints, radius, active?.affectedTiles);
-      }
+      this.board.forEachMirrorRegion({ points }, (region) => {
+        tt.markPathDirty(this.board.mirrorPointsToRegion(points, region), radius, active?.affectedTiles);
+      });
     }
   }
 
@@ -1167,24 +1198,30 @@ export class RemoteUserHandler {
     if (activeStrokeCtx) {
       if (user.tool === 'brush' && user.currentLine.length >= 2) {
         drawLineArray(user.currentLine, activeStrokeCtx, user);
-        if (this.board.mirror) {
-          const w = this.board.getWidth();
-          const mirroredLine = mirrorLine(user.currentLine, w);
-          drawLineArray(mirroredLine, activeStrokeCtx, user);
-        }
+        this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
+          const mirroredLine = this.board.mirrorPointsToRegion(user.currentLine, region);
+          this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
+            drawLineArray(mirroredLine, activeStrokeCtx, user);
+          });
+        });
         this._expandDirtyRectFromPoints(user, user.currentLine, this._brushMargin(user));
       }
 
       if (user.currentLine.length > 0 && oldRadius !== newRadius) {
         const from = lastDrawnPos;
         bridgeGap(activeStrokeCtx, from, lastDrawnPos, oldRadius, newRadius, user);
-        if (this.board.mirror) {
-          const w = this.board.getWidth();
-          bridgeGap(activeStrokeCtx,
-            { x: w - from.x, y: from.y },
-            { x: w - lastDrawnPos.x, y: lastDrawnPos.y },
-            oldRadius, newRadius, user);
-        }
+        this.board.forEachMirrorRegion({ points: [from, lastDrawnPos] }, (region) => {
+          this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
+            bridgeGap(
+              activeStrokeCtx,
+              this.board.mirrorPointToRegion(from, region),
+              this.board.mirrorPointToRegion(lastDrawnPos, region),
+              oldRadius,
+              newRadius,
+              user
+            );
+          });
+        });
       }
     }
 
