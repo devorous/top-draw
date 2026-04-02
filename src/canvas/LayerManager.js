@@ -11,7 +11,7 @@ import { blurImageData, getStackblurSync } from '../utils/blurUtils.js';
  * and active strokes for users. Handles compositing and baking of strokes.
  */
 export class LayerManager {
-  static MAX_STROKES_PER_USER = 10;
+  static MAX_STROKES_PER_USER = 20;
 
   /**
    * @param {number} width - Canvas width
