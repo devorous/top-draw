@@ -71,7 +71,9 @@ export class LandingPage {
     this.els.refreshRoomsBtn?.addEventListener('click', () => this.refreshRooms());
 
     this.els.roomIdInput?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this.joinAsGuest();
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      document.getElementById('loginForm')?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
     });
   }
 

@@ -1534,6 +1534,57 @@ export class DrawingApp {
   }
 
   /**
+   * Starts a room join from the landing page without waiting for discovery to connect.
+   * @param {string|null} [roomId=null] - Explicit room to join, or current landing selection.
+   * @param {string|null} [password=null] - Optional password to use for auth-on-connect.
+   * @returns {Promise<void>}
+   */
+  async startLandingJoin(roomId = null, password = null) {
+    let resolvedRoomId = roomId || this.landingPage?.els.roomIdInput?.value.trim() || this.landingPage?.selectedRoom || 'lobby';
+
+    if (resolvedRoomId !== 'lobby') {
+      if (!/^[a-zA-Z0-9_-]+$/.test(resolvedRoomId)) {
+        this.landingPage?.showError('Room name can only contain letters, numbers, dashes, and underscores');
+        return;
+      }
+      if (resolvedRoomId.length < 2 || resolvedRoomId.length > 20) {
+        this.landingPage?.showError('Room name must be 2-20 characters');
+        return;
+      }
+    }
+
+    let name = this.auth?.getJoinUsername();
+    if (!name) {
+      name = this.ui.elements.loginUsername?.value.trim();
+    }
+    if (!name) {
+      let tabId = sessionStorage.getItem('tabId');
+      if (!tabId) {
+        tabId = Math.random().toString(36).substring(2, 8);
+        sessionStorage.setItem('tabId', tabId);
+      }
+      name = `Guest-${tabId}`;
+    }
+
+    this.self.setUsername(name);
+
+    const pendingPassword = password ?? ((!this.auth?.isLoggedIn && this.ui.elements.loginPassword?.value) || '');
+    this._pendingPassword = pendingPassword || null;
+
+    if (this.landingPage) {
+      this.landingPage.selectRoom(resolvedRoomId);
+      this.landingPage.hide();
+    }
+
+    const newPath = resolvedRoomId === 'offline' ? '/go/offline' : `/go/${resolvedRoomId}`;
+    if (window.location.pathname !== newPath) {
+      window.history.pushState({ room: resolvedRoomId }, '', newPath);
+    }
+
+    await this.handleRoomSelected(resolvedRoomId, password);
+  }
+
+  /**
    * Starts the application in offline (local-only) mode.
    */
   handleOffline() {
@@ -1897,6 +1948,11 @@ export class DrawingApp {
    * Handles the join request from the login dialog.
    */
   handleJoin() {
+    if (this.landingPage && this.landingPage.isVisible) {
+      void this.startLandingJoin();
+      return;
+    }
+
     let name = this.auth?.getJoinUsername();
     if (!name) {
       name = this.ui.elements.loginUsername?.value.trim();
@@ -1913,11 +1969,6 @@ export class DrawingApp {
 
     const password = (!this.auth?.isLoggedIn && this.ui.elements.loginPassword?.value) || '';
     this._pendingPassword = password || null;
-
-    if (this.landingPage && this.landingPage.isVisible) {
-      this.landingPage.joinAsGuest();
-      return;
-    }
 
     this.connected = true;
     this.ui.hideOverlay();
