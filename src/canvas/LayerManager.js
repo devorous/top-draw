@@ -262,6 +262,7 @@ export class LayerManager {
         filterType: extraProps.filterType,
         blurRadius: extraProps.blurRadius,
         maskCanvas: active.canvas,
+        mirrorRegions: Array.isArray(extraProps.mirrorRegions) ? extraProps.mirrorRegions : [],
         affectedTiles
       };
 
@@ -746,6 +747,7 @@ export class LayerManager {
       if (group.flatCanvas) {
         group.flatCtx.globalCompositeOperation = 'source-over';
         group.flatCtx.drawImage(stroke._cachedBlurResult, x, y);
+        this._drawMirroredGlitchCopies(group.flatCtx, stroke, stroke._cachedBlurResult, x, y);
         return;
       }
       const lastSeq = group.bakedSequences[group.bakedSequences.length - 1];
@@ -758,6 +760,7 @@ export class LayerManager {
         group.bakedSequences.push(targetBin);
       }
       targetBin.ctx.drawImage(stroke._cachedBlurResult, x, y);
+      this._drawMirroredGlitchCopies(targetBin.ctx, stroke, stroke._cachedBlurResult, x, y);
       return;
     }
 
@@ -816,6 +819,7 @@ export class LayerManager {
     if (group.flatCanvas) {
       group.flatCtx.globalCompositeOperation = 'source-over';
       group.flatCtx.drawImage(blurred, cropX, cropY);
+      this._drawMirroredGlitchCopies(group.flatCtx, stroke, blurred, cropX, cropY);
     } else {
       const lastSeq = group.bakedSequences[group.bakedSequences.length - 1];
       let targetBin;
@@ -827,6 +831,7 @@ export class LayerManager {
         group.bakedSequences.push(targetBin);
       }
       targetBin.ctx.drawImage(blurred, cropX, cropY);
+      this._drawMirroredGlitchCopies(targetBin.ctx, stroke, blurred, cropX, cropY);
     }
   }
 
@@ -1315,6 +1320,7 @@ export class LayerManager {
       ctx.save();
       ctx.globalCompositeOperation = 'source-over';
       ctx.drawImage(temp, cropX, cropY);
+      this._drawMirroredGlitchCopies(ctx, filterStroke, temp, cropX, cropY);
       ctx.restore();
     };
 
@@ -1331,6 +1337,7 @@ export class LayerManager {
       ctx.save();
       ctx.globalCompositeOperation = 'source-over';
       ctx.drawImage(filterStroke._cachedBlurResult, x, y);
+      this._drawMirroredGlitchCopies(ctx, filterStroke, filterStroke._cachedBlurResult, x, y);
       ctx.restore();
       return;
     }
@@ -1340,6 +1347,7 @@ export class LayerManager {
       ctx.save();
       ctx.globalCompositeOperation = 'source-over';
       ctx.drawImage(filterStroke._cachedPreview, x, y);
+      this._drawMirroredGlitchCopies(ctx, filterStroke, filterStroke._cachedPreview, x, y);
       ctx.restore();
       return;
     }
@@ -1369,6 +1377,7 @@ export class LayerManager {
         ctx.save();
         ctx.globalCompositeOperation = 'source-over';
         ctx.drawImage(stableCanvas, x, y);
+        this._drawMirroredGlitchCopies(ctx, filterStroke, stableCanvas, x, y);
         ctx.restore();
       }
       return;
@@ -1566,6 +1575,14 @@ export class LayerManager {
       const { resultImage, bounds } = pending.shift();
       if (pending.length === 0) this._pendingGlitchResults.delete(stroke.userId);
       this._applyGlitchResultToStroke(stroke, resultImage, bounds);
+    }
+  }
+
+  _drawMirroredGlitchCopies(ctx, stroke, sourceCanvas, x, y) {
+    if (!ctx || !sourceCanvas || stroke?.filterType !== 'glitchBlur' || !this.board) return;
+    const mirrorRegions = Array.isArray(stroke.mirrorRegions) ? stroke.mirrorRegions : [];
+    for (const region of mirrorRegions) {
+      this.board.drawMirroredCanvas(ctx, sourceCanvas, region, x, y);
     }
   }
 

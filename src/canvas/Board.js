@@ -42,6 +42,7 @@ export class Board {
     this.cursorsSvg = null;
     this.mirrorLine = null;
     this.mirrorRegionsLayer = null;
+    this.onMirrorRegionsChange = null;
 
     this.layerManager = null;
     this.app = null;
@@ -139,6 +140,7 @@ export class Board {
 
     const [height, width] = this.dimensions;
     this.layerManager = new LayerManager(width, height);
+    this.layerManager.board = this;
     this.layerManager.onNeedsUpdate = () => this.requestUpdate();
     this.layerManager.onGlitchBlurReady = (result) => this._handleGlitchBlurReady(result);
 
@@ -462,6 +464,9 @@ export class Board {
         .filter(Boolean)
       : [];
     this.renderMirrorRegions();
+    if (typeof this.onMirrorRegionsChange === 'function') {
+      this.onMirrorRegionsChange(this.mirrorRegions);
+    }
   }
 
   /**
@@ -470,18 +475,18 @@ export class Board {
    */
   getActiveMirrorRegions() {
     if (this.mirror) {
-      return [{
+      return this._expandMirrorRegionTransforms({
         id: '__global_mirror__',
         x: 0,
         y: 0,
         width: this.getWidth(),
         height: this.getHeight(),
-        axis: 'vertical',
+        mode: 'vertical',
         showLine: true,
         synthetic: true
-      }];
+      });
     }
-    return this.mirrorRegions;
+    return this.mirrorRegions.flatMap(region => this._expandMirrorRegionTransforms(region));
   }
 
   /**
@@ -500,16 +505,29 @@ export class Board {
    */
   mirrorPointToRegion(point, region) {
     if (!region || !point) return point;
-    if (region.axis === 'horizontal') {
-      return {
-        x: point.x,
-        y: region.y + region.height - (point.y - region.y)
-      };
+    const centerX = region.x + (region.width / 2);
+    const centerY = region.y + (region.height / 2);
+    const dx = point.x - centerX;
+    const dy = point.y - centerY;
+
+    switch (region.transform || region.mode || region.axis) {
+      case 'horizontal':
+      case 'flipY':
+        return { x: point.x, y: (centerY * 2) - point.y };
+      case 'vertical':
+      case 'flipX':
+        return { x: (centerX * 2) - point.x, y: point.y };
+      case 'flipXY':
+        return { x: (centerX * 2) - point.x, y: (centerY * 2) - point.y };
+      case 'rotate90':
+        return { x: centerX - dy, y: centerY + dx };
+      case 'rotate180':
+        return { x: (centerX * 2) - point.x, y: (centerY * 2) - point.y };
+      case 'rotate270':
+        return { x: centerX + dy, y: centerY - dx };
+      default:
+        return { x: (centerX * 2) - point.x, y: point.y };
     }
-    return {
-      x: region.x + region.width - (point.x - region.x),
-      y: point.y
-    };
   }
 
   /**
@@ -551,12 +569,38 @@ export class Board {
     if (!ctx || !sourceCanvas || !region) return;
     this.withMirrorRegionClip(ctx, region, () => {
       ctx.save();
-      if (region.axis === 'horizontal') {
-        ctx.translate(0, (region.y * 2) + region.height);
-        ctx.scale(1, -1);
-      } else {
-        ctx.translate((region.x * 2) + region.width, 0);
-        ctx.scale(-1, 1);
+      const centerX = region.x + (region.width / 2);
+      const centerY = region.y + (region.height / 2);
+      switch (region.transform || region.mode || region.axis) {
+        case 'horizontal':
+        case 'flipY':
+          ctx.translate(0, centerY * 2);
+          ctx.scale(1, -1);
+          break;
+        case 'vertical':
+        case 'flipX':
+          ctx.translate(centerX * 2, 0);
+          ctx.scale(-1, 1);
+          break;
+        case 'flipXY':
+        case 'rotate180':
+          ctx.translate(centerX * 2, centerY * 2);
+          ctx.scale(-1, -1);
+          break;
+        case 'rotate90':
+          ctx.translate(centerX, centerY);
+          ctx.rotate(Math.PI / 2);
+          ctx.translate(-centerX, -centerY);
+          break;
+        case 'rotate270':
+          ctx.translate(centerX, centerY);
+          ctx.rotate(-Math.PI / 2);
+          ctx.translate(-centerX, -centerY);
+          break;
+        default:
+          ctx.translate(centerX * 2, 0);
+          ctx.scale(-1, 1);
+          break;
       }
       ctx.drawImage(sourceCanvas, x, y);
       ctx.restore();
@@ -600,27 +644,7 @@ export class Board {
       regionEl.style.background = 'transparent';
 
       if (region.showLine) {
-        const lineEl = document.createElement('div');
-        lineEl.className = 'mirror-region-line';
-        lineEl.style.position = 'absolute';
-        if (region.axis === 'horizontal') {
-          lineEl.style.left = '0';
-          lineEl.style.right = '0';
-          lineEl.style.top = `${region.height / 2}px`;
-          lineEl.style.height = '0';
-          lineEl.style.borderTop = '1px dashed rgba(0, 212, 170, 0.85)';
-          lineEl.style.transform = 'translateY(-0.5px) scaleY(0.8)';
-          lineEl.style.transformOrigin = 'center';
-        } else {
-          lineEl.style.top = '0';
-          lineEl.style.bottom = '0';
-          lineEl.style.left = `${region.width / 2}px`;
-          lineEl.style.width = '0';
-          lineEl.style.borderLeft = '1px dashed rgba(0, 212, 170, 0.85)';
-          lineEl.style.transform = 'translateX(-0.5px) scaleX(0.8)';
-          lineEl.style.transformOrigin = 'center';
-        }
-        regionEl.appendChild(lineEl);
+        this._appendMirrorRegionGuide(regionEl, region);
       }
 
       this.mirrorRegionsLayer.appendChild(regionEl);
@@ -644,10 +668,81 @@ export class Board {
       y: Math.max(0, y),
       width: Math.max(1, width),
       height: Math.max(1, height),
-      axis: region.axis === 'horizontal' ? 'horizontal' : 'vertical',
+      mode: this._normalizeMirrorMode(region.mode || region.axis),
+      axis: this._normalizeMirrorMode(region.mode || region.axis),
       showLine: region.showLine !== false,
       owner: region.owner || region.createdBy || null
     };
+  }
+
+  _normalizeMirrorMode(mode) {
+    return ['horizontal', 'quad', 'rotational'].includes(mode) ? mode : 'vertical';
+  }
+
+  _expandMirrorRegionTransforms(region) {
+    if (!region) return [];
+
+    const baseRegion = {
+      ...region,
+      mode: this._normalizeMirrorMode(region.mode || region.axis)
+    };
+
+    const transformsByMode = {
+      vertical: ['flipX'],
+      horizontal: ['flipY'],
+      quad: ['flipX', 'flipY', 'flipXY'],
+      rotational: ['rotate180']
+    };
+
+    return (transformsByMode[baseRegion.mode] || transformsByMode.vertical).map(transform => ({
+      ...baseRegion,
+      transform,
+      synthetic: true,
+      id: `${baseRegion.id}_${transform}`
+    }));
+  }
+
+  _appendMirrorRegionGuide(regionEl, region) {
+    const addLine = (styles) => {
+      const lineEl = document.createElement('div');
+      lineEl.className = 'mirror-region-line';
+      lineEl.style.position = 'absolute';
+      Object.assign(lineEl.style, styles);
+      regionEl.appendChild(lineEl);
+    };
+
+    const horizontalStyles = {
+      left: '0',
+      right: '0',
+      top: `${region.height / 2}px`,
+      height: '0',
+      borderTop: '1px dashed rgba(0, 212, 170, 0.85)',
+      transform: 'translateY(-0.5px) scaleY(0.8)',
+      transformOrigin: 'center'
+    };
+    const verticalStyles = {
+      top: '0',
+      bottom: '0',
+      left: `${region.width / 2}px`,
+      width: '0',
+      borderLeft: '1px dashed rgba(0, 212, 170, 0.85)',
+      transform: 'translateX(-0.5px) scaleX(0.8)',
+      transformOrigin: 'center'
+    };
+
+    switch (region.mode) {
+      case 'horizontal':
+        addLine(horizontalStyles);
+        break;
+      case 'quad':
+      case 'rotational':
+        addLine(horizontalStyles);
+        addLine(verticalStyles);
+        break;
+      default:
+        addLine(verticalStyles);
+        break;
+    }
   }
 
   _getMirrorTargetBounds(target) {
@@ -846,6 +941,10 @@ export class Board {
       if (active?.affectedTiles?.size > 0 && active.blendMode !== 'destination-out') {
         tilesToBroadcast = Array.from(active.affectedTiles);
       }
+    }
+
+    if (extraProps.filterType === 'glitchBlur') {
+      extraProps.mirrorRegions = this.getActiveMirrorRegions().map(region => ({ ...region }));
     }
 
     this.layerManager.commitUserStroke(activeLayer, userId, extraProps);

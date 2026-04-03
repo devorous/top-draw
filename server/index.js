@@ -500,29 +500,40 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
         const payload = data.mirrorRegionsJson ? JSON.parse(data.mirrorRegionsJson) : null;
         if (!payload || !payload.action) break;
 
-        if (payload.action === 'create' && payload.region) {
+        if ((payload.action === 'create' || payload.action === 'update') && payload.region) {
           const region = payload.region;
           const x = Math.max(0, Math.floor(region.x || 0));
           const y = Math.max(0, Math.floor(region.y || 0));
           const width = Math.max(1, Math.floor(region.width || 0));
           const height = Math.max(1, Math.floor(region.height || 0));
-          const axis = region.axis === 'horizontal' ? 'horizontal' : 'vertical';
+          const mode = ['horizontal', 'quad', 'rotational'].includes(region.mode || region.axis)
+            ? (region.mode || region.axis)
+            : 'vertical';
           const showLine = region.showLine !== false;
           const id = String(region.id || `mr_${Date.now()}`);
 
-          room.settings.mirrorRegions = [
-            ...(room.settings.mirrorRegions || []),
-            {
-              id,
-              x,
-              y,
-              width,
-              height,
-              axis,
-              showLine,
-              owner: region.owner || region.createdBy || ws.userId || null
-            }
-          ];
+          const nextRegion = {
+            id,
+            x,
+            y,
+            width,
+            height,
+            mode,
+            axis: mode,
+            showLine,
+            owner: region.owner || region.createdBy || ws.userId || null
+          };
+
+          if (payload.action === 'update') {
+            room.settings.mirrorRegions = (room.settings.mirrorRegions || []).map(existing =>
+              existing.id === id ? nextRegion : existing
+            );
+          } else {
+            room.settings.mirrorRegions = [
+              ...(room.settings.mirrorRegions || []),
+              nextRegion
+            ];
+          }
         } else if (payload.action === 'remove' && payload.id) {
           room.settings.mirrorRegions = (room.settings.mirrorRegions || []).filter(region => region.id !== payload.id);
         }

@@ -2496,6 +2496,10 @@ export class DrawingApp {
       this.toolLockManager.saveCurrentValues(previousTool);
     }
 
+    if (this.mirrorRegionController?.isActive()) {
+      this.mirrorRegionController.cancel();
+    }
+
     this.brushModeManager.updateModeFromTool(tool);
 
 

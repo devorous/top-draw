@@ -523,6 +523,29 @@ export class UI {
   }
 
   /**
+   * Temporarily force the local cursor to use the select-style crosshair.
+   */
+  showMirrorRegionCursor() {
+    const {
+      selfCircle,
+      selfPressureCircle,
+      selfSquare,
+      selfPressureSquare,
+      selfCrosshair,
+      selfHand,
+      selfText
+    } = this.elements;
+
+    selfCircle.style.display = 'none';
+    selfSquare.style.display = 'none';
+    selfCrosshair.style.display = 'block';
+    selfHand.style.display = 'none';
+    selfText.style.display = 'none';
+    if (selfPressureCircle) selfPressureCircle.style.display = 'none';
+    if (selfPressureSquare) selfPressureSquare.style.display = 'none';
+  }
+
+  /**
    * Updates the muted indicator state on the local cursor.
    * @param {boolean} muted - Whether the user is muted
    */

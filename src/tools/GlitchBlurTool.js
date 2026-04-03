@@ -65,13 +65,6 @@ export class GlitchBlurTool extends Tool {
     this.strokePoints.set(user.id, [{ x: pos.x, y: pos.y }]);
     this.paintMask(pos.x, pos.y, user.size, user, maskCtx);
 
-    this.board.forEachMirrorRegion({ point: pos }, (region) => {
-      const mirrored = this.board.mirrorPointToRegion(pos, region);
-      this.board.withMirrorRegionClip(maskCtx, region, () => {
-        this.paintMask(mirrored.x, mirrored.y, user.size, user, maskCtx);
-      });
-    });
-
     // Draw initial preview
     if (user === this.board.app?.self) {
       this.board.topCtx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
@@ -97,12 +90,6 @@ export class GlitchBlurTool extends Tool {
 
       if (distance >= minSpacing) {
         this.paintMask(pos.x, pos.y, user.size, user, maskCtx);
-        this.board.forEachMirrorRegion({ point: pos }, (region) => {
-          const mirrored = this.board.mirrorPointToRegion(pos, region);
-          this.board.withMirrorRegionClip(maskCtx, region, () => {
-            this.paintMask(mirrored.x, mirrored.y, user.size, user, maskCtx);
-          });
-        });
         this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
         const points = this.strokePoints.get(user.id);
         if (points) points.push({ x: pos.x, y: pos.y });
