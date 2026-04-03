@@ -33,10 +33,11 @@ const MESSENGER_QUERY_LIMIT = { max: 30, windowMs: 60 * 1000, blockMs: 5 * 60 * 
 const WS_CONNECTION_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 10 * 60 * 1000 };
 const MESSENGER_CONNECTION_LIMIT = { max: 20, windowMs: 60 * 1000, blockMs: 10 * 60 * 1000 };
 const MESSENGER_MESSAGE_LIMIT = { max: 120, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
-const WS_DRAW_LIMIT = { max: 600, windowMs: 10 * 1000, blockMs: 15 * 1000 };
+const WS_DRAW_LIMIT = { max: 5000, windowMs: 10 * 1000, blockMs: 15 * 1000 };
 const WS_CHAT_LIMIT = { max: 20, windowMs: 10 * 1000, blockMs: 30 * 1000 };
 const WS_CHAT_IMAGE_LIMIT = { max: 4, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
-const WS_HEAVY_IMAGE_LIMIT = { max: 8, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
+const WS_HEAVY_IMAGE_LIMIT = { max: 180, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
+const WS_GLITCH_RESULT_LIMIT = { max: 360, windowMs: 60 * 1000, blockMs: 60 * 1000 };
 const WS_AUTH_LIMIT = { max: 8, windowMs: 10 * 60 * 1000, blockMs: 15 * 60 * 1000 };
 const WS_ADMIN_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
 const VALID_ROOM_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -104,9 +105,13 @@ function shouldAllowWsMessage(ws, data) {
       config = WS_CHAT_IMAGE_LIMIT;
       break;
 
+    case T.GLITCH_RESULT:
+      suffix = 'glitch';
+      config = WS_GLITCH_RESULT_LIMIT;
+      break;
+
     case T.IMG_PASTE:
     case T.SEL_LIFT:
-    case T.GLITCH_RESULT:
     case T.ROOM_PREVIEW:
     case T.SYNC_CANVAS:
     case T.SYNC_LAYER_BASE:
