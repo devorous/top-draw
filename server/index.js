@@ -3,6 +3,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
 import protobuf from 'protobufjs';
+import { ObjectId } from 'mongodb';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
@@ -19,12 +20,19 @@ import { SyncCoordinator } from './SyncCoordinator.js';
 import { RoomManager } from './RoomManager.js';
 import { sanitizeMessage } from './validation.js';
 import { authorize, Action } from './permissions.js';
-import { getRoomRole, setRoomRole, computeEffectiveRole } from './roomRoles.js';
+import { getRoomRole, setRoomRole, computeEffectiveRole, getRoomRoleRoster } from './roomRoles.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 8000;
+const ROOM_JOIN_POLICIES = new Set(['open', 'registered', 'trusted']);
+
+function getJoinPolicyMinRole(joinPolicy) {
+  if (joinPolicy === 'trusted') return Role.TRUSTED;
+  if (joinPolicy === 'registered') return Role.USER;
+  return Role.GUEST;
+}
 
 const server = createServer(async (req, res) => {
   const path = req.url.split('?')[0];
@@ -855,6 +863,9 @@ wss.on('connection', (ws, req) => {
               if (ipMute) {
                 ws.isMuted = true;
               }
+              if (room.settings.autoMuteGuests) {
+                ws.isMuted = true;
+              }
             } catch (err) {
               console.error('[Mod] IP ban/mute check error:', err);
             }
@@ -893,7 +904,10 @@ wss.on('connection', (ws, req) => {
           const allUsers = room.sessionManager.getJoinedUsers();
           const roomBroadcaster = createRoomBroadcaster(room);
 
-          if (!room.sessionManager.isDiscovery) {
+          const requiresAuthToAppear = getJoinPolicyMinRole(room.settings.joinPolicy) > Role.GUEST;
+          const shouldBroadcastJoin = !requiresAuthToAppear;
+
+          if (!room.sessionManager.isDiscovery && shouldBroadcastJoin) {
             roomBroadcaster({
               t: T.USERS,
               us: mapUsersForBroadcast(allUsers)
@@ -913,7 +927,9 @@ wss.on('connection', (ws, req) => {
             roomBackgroundColor: room.settings.backgroundColor,
             roomLocked: room.settings.locked,
             roomMaxUsers: room.settings.maxUsers,
-            roomModInactiveImmune: room.settings.modInactiveImmune
+            roomModInactiveImmune: room.settings.modInactiveImmune,
+            roomJoinPolicy: room.settings.joinPolicy,
+            roomAutoMuteGuests: room.settings.autoMuteGuests
           });
 
           // If user is muted (IP-based for guests), hide their cursor for everyone
@@ -1351,6 +1367,7 @@ wss.on('connection', (ws, req) => {
           }
 
           try {
+            const autoMuteGuestsChanged = data.roomAutoMuteGuests !== undefined;
             if (!room.ownerId && data.roomOwnerId === ws.userId) {
               room.ownerId = ws.userId;
               room.ownerUsername = ws.username;
@@ -1375,8 +1392,35 @@ wss.on('connection', (ws, req) => {
               room.settings.modInactiveImmune = !!data.roomModInactiveImmune;
               room.sessionManager.checkAfkUsers();
             }
+            if (data.roomJoinPolicy !== undefined) {
+              const joinPolicy = String(data.roomJoinPolicy || 'open');
+              room.settings.joinPolicy = ROOM_JOIN_POLICIES.has(joinPolicy) ? joinPolicy : 'open';
+            }
+            if (data.roomAutoMuteGuests !== undefined) {
+              room.settings.autoMuteGuests = !!data.roomAutoMuteGuests;
+            }
 
             await room.saveToDB();
+
+            if (autoMuteGuestsChanged) {
+              for (const client of room.clients) {
+                if (client.userId) continue;
+                let shouldMute = !!room.settings.autoMuteGuests;
+                if (!shouldMute && getDB()) {
+                  const ipMute = await checkMute(null, client.clientIp, room.id);
+                  shouldMute = !!ipMute;
+                }
+                client.isMuted = shouldMute;
+                const guestUser = room.sessionManager.getUser(client.sessionIndex);
+                if (guestUser) {
+                  guestUser.isMuted = shouldMute;
+                }
+                createRoomBroadcaster(room)({
+                  t: shouldMute ? T.HIDE_CURSOR : T.SHOW_CURSOR,
+                  u: client.sessionIndex
+                });
+              }
+            }
 
             // Broadcast updated settings to all clients in the room
             const roomBroadcaster = createRoomBroadcaster(room);
@@ -1387,8 +1431,16 @@ wss.on('connection', (ws, req) => {
               roomBackgroundColor: room.settings.backgroundColor,
               roomLocked: room.settings.locked,
               roomMaxUsers: room.settings.maxUsers,
-              roomModInactiveImmune: room.settings.modInactiveImmune
+              roomModInactiveImmune: room.settings.modInactiveImmune,
+              roomJoinPolicy: room.settings.joinPolicy,
+              roomAutoMuteGuests: room.settings.autoMuteGuests
             });
+            if (autoMuteGuestsChanged) {
+              roomBroadcaster({
+                t: T.USERS,
+                us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+              });
+            }
 
             sendTo(ws, { t: T.MOD_RESULT, a: true });
           } catch (err) {
@@ -1542,7 +1594,8 @@ wss.on('connection', (ws, req) => {
             break;
           }
 
-          const targetSessionIdx = parseInt(data.roomRoleTargetId, 10);
+          const targetIdentifier = String(data.roomRoleTargetId || '').trim();
+          const targetUsernameLookup = String(data.roomRoleTargetName || '').trim();
           const newRole = data.roomRoleValue;
 
           if (newRole == null || newRole < 0 || newRole > Role.ADMIN) {
@@ -1550,21 +1603,57 @@ wss.on('connection', (ws, req) => {
             break;
           }
 
-          // Resolve target session index to their ws/userId
-          let targetClient = null;
-          for (const client of room.clients) {
-            if (client.sessionIndex === targetSessionIdx && client.readyState === WebSocket.OPEN) {
-              targetClient = client;
-              break;
-            }
-          }
-
-          if (!targetClient || !targetClient.userId) {
-            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Target user not found or not logged in' });
+          if (!targetIdentifier && !targetUsernameLookup) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Missing target user' });
             break;
           }
 
-          const targetUserId = targetClient.userId;
+          // Resolve target by online session index first, then fall back to a persisted user id.
+          let targetClient = null;
+          let targetUserId = '';
+          let targetUsername = '';
+          const targetSessionIdx = Number.parseInt(targetIdentifier, 10);
+
+          if (targetIdentifier && Number.isInteger(targetSessionIdx) && String(targetSessionIdx) === targetIdentifier) {
+            for (const client of room.clients) {
+              if (client.sessionIndex === targetSessionIdx && client.readyState === WebSocket.OPEN) {
+                targetClient = client;
+                break;
+              }
+            }
+          }
+
+          if (targetClient?.userId) {
+            targetUserId = targetClient.userId;
+            targetUsername = targetClient.username || '';
+          } else {
+            const db = getDB();
+            if (!db) {
+              sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Database not available' });
+              break;
+            }
+
+            let targetUserDoc = null;
+            if (targetIdentifier && ObjectId.isValid(targetIdentifier)) {
+              targetUserId = targetIdentifier;
+              targetUserDoc = await db.collection('users').findOne(
+                { _id: new ObjectId(targetUserId) },
+                { projection: { username: 1, role: 1 } }
+              );
+            } else if (targetUsernameLookup) {
+              targetUserDoc = await db.collection('users').findOne(
+                { username: targetUsernameLookup },
+                { collation: { locale: 'en', strength: 2 }, projection: { username: 1, role: 1 } }
+              );
+              targetUserId = targetUserDoc?._id?.toString() || '';
+            }
+
+            if (!targetUserDoc || !targetUserId) {
+              sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Target user not found' });
+              break;
+            }
+            targetUsername = targetUserDoc.username || '';
+          }
 
           // Permission: room owner, effective ADMIN(5)+ in room, or global DEITY(9)
           const isOwner = room.ownerId === ws.userId;
@@ -1576,6 +1665,11 @@ wss.on('connection', (ws, req) => {
             break;
           }
 
+          if (room.ownerId && targetUserId === room.ownerId) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Room owner role is managed by room ownership' });
+            break;
+          }
+
           // Can't assign role >= your own effective role (unless DEITY)
           if (!isDeity && newRole >= ws.userRole) {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Cannot assign role equal to or higher than your own' });
@@ -1583,23 +1677,34 @@ wss.on('connection', (ws, req) => {
           }
 
           try {
+            const existingRoleDoc = await getRoomRole(room.id, targetUserId);
+            const previousRole = existingRoleDoc?.role || 0;
             if (newRole === 0) {
               const { removeRoomRole } = await import('./roomRoles.js');
               await removeRoomRole(room.id, targetUserId);
             } else {
-              await setRoomRole(room.id, targetUserId, newRole, ws.userId);
+              await setRoomRole(room.id, {
+                userId: targetUserId,
+                username: targetUsername,
+                role: newRole,
+                assignedBy: ws.userId,
+                assignedByUsername: ws.username || '',
+                previousRole
+              });
             }
 
             // Update their effective role live
-            targetClient.roomRole = newRole;
-            const effective = computeEffectiveRole(targetClient.globalRole || 0, newRole);
-            targetClient.userRole = effective;
+            if (targetClient) {
+              targetClient.roomRole = newRole;
+              const effective = computeEffectiveRole(targetClient.globalRole || 0, newRole);
+              targetClient.userRole = effective;
 
-            const targetUser = room.sessionManager.getUser(targetClient.sessionIndex);
-            if (targetUser) targetUser.role = effective;
+              const targetUser = room.sessionManager.getUser(targetClient.sessionIndex);
+              if (targetUser) targetUser.role = effective;
 
-            // Notify the target user of their new role
-            sendTo(targetClient, { t: T.AUTH_RESULT, a: true, authRole: effective });
+              // Notify the target user of their new role
+              sendTo(targetClient, { t: T.AUTH_RESULT, a: true, authRole: effective });
+            }
 
             // Re-broadcast user list so all clients see updated role badge
             createRoomBroadcaster(room)({
@@ -1611,6 +1716,43 @@ wss.on('connection', (ws, req) => {
           } catch (err) {
             console.error('[Room] Role set error:', err);
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Failed to set room role' });
+          }
+          break;
+        }
+
+        case T.ROOM_ROLE_LIST_REQUEST: {
+          if (!ws.userId) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Must be logged in' });
+            break;
+          }
+
+          const isOwner = room.ownerId === ws.userId;
+          const isRoomAdmin = ws.userRole >= Role.ADMIN;
+          const isDeity = (ws.globalRole || 0) >= Role.DEITY;
+          if (!isOwner && !isRoomAdmin && !isDeity) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Insufficient permissions' });
+            break;
+          }
+
+          try {
+            const roster = await getRoomRoleRoster(room);
+            sendTo(ws, {
+              t: T.ROOM_ROLE_LIST_RESPONSE,
+              roomRoles: roster.map(entry => ({
+                userId: entry.userId,
+                username: entry.username,
+                role: entry.role,
+                updatedBy: entry.updatedBy,
+                updatedByUsername: entry.updatedByUsername,
+                updatedAt: entry.updatedAt,
+                previousRole: entry.previousRole,
+                changeType: entry.changeType,
+                isOwner: entry.isOwner
+              }))
+            });
+          } catch (err) {
+            console.error('[Room] Role list error:', err);
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Failed to load room moderators' });
           }
           break;
         }
@@ -1770,6 +1912,18 @@ wss.on('connection', (ws, req) => {
             // Room-scoped mute check
             const muteCheck = await checkMute(userDoc._id.toString(), ws.clientIp, room.id);
             ws.isMuted = !!muteCheck && userDoc.role < Role.MOD;
+
+            const minJoinRole = getJoinPolicyMinRole(room.settings.joinPolicy);
+            if (userDoc.role < minJoinRole) {
+              sendTo(ws, {
+                t: T.AUTH_RESULT,
+                a: false,
+                authError: room.settings.joinPolicy === 'trusted'
+                  ? 'This room is restricted to trusted users and above'
+                  : 'This room is restricted to registered users'
+              });
+              break;
+            }
 
             const ipHistory = userDoc.ipHistory || [];
             if (!ipHistory.includes(ws.clientIp)) {

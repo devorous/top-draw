@@ -93,6 +93,8 @@ message Msg {
     CPM                = 84;  // Change pattern mode (fill/select pattern toggle)
     ROOM_PREVIEW       = 85;  // Room canvas preview (1/4 scale thumbnail)
     MIRROR_REGION      = 86;  // Create/update mirror regions
+    ROOM_ROLE_LIST_REQUEST = 87;  // Request room moderation roster
+    ROOM_ROLE_LIST_RESPONSE = 88; // Response with room moderation roster
   }
 
   // Tool enum
@@ -276,6 +278,8 @@ message Msg {
   string room_background_color = 90;  // ROOM_UPDATE: canvas background color (hex "#ffffff")
   bool room_mod_inactive_immune = 91; // ROOM_UPDATE/SETTINGS: moderators ignore inactivity timeout
   string mirror_regions_json = 92;    // SETTINGS/MIRROR_REGION: shared mirror region payload
+  string room_join_policy = 93;       // ROOM_UPDATE/SETTINGS: open|registered|trusted
+  bool room_auto_mute_guests = 94;    // ROOM_UPDATE/SETTINGS: auto-mute unauthenticated guests
 
   // === Ink Thinning Fields ===
   uint32 th = 59;               // Thinning * 100 (0-100)
@@ -284,6 +288,7 @@ message Msg {
   // === Room Role Fields (61-62) ===
   string room_role_target_id = 61;  // Target userId for room role assignment
   uint32 room_role_value     = 62;  // Role value to assign (0-5)
+  string room_role_target_name = 71; // Username for offline room role assignment
 
   // === Tile Ownership Fields ===
   message TileEntry {
@@ -296,6 +301,18 @@ message Msg {
   // === Room Ownership Broadcast Fields (68-69) ===
   string ownerId       = 68;  // ROOM_OWNERSHIP: room owner's userId (null if unregistered)
   string ownerUsername = 69;  // ROOM_OWNERSHIP: room owner's username
+  message RoomRoleEntry {
+    string userId = 1;
+    string username = 2;
+    uint32 role = 3;
+    string updatedBy = 4;
+    string updatedByUsername = 5;
+    uint64 updatedAt = 6;
+    uint32 previousRole = 7;
+    string changeType = 8;
+    bool isOwner = 9;
+  }
+  repeated RoomRoleEntry room_roles = 70; // ROOM_ROLE_LIST_RESPONSE: room-specific moderation roster
   uint64 mod_undo_ts   = 82;  // MOD_UNDO_TO_STATE: target timestamp
   string pb            = 83;  // Pattern brush data JSON (for GPT message)
   bool   pm            = 84;  // Pattern mode enabled (for fill/select tools)

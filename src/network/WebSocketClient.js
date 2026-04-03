@@ -356,7 +356,9 @@ export class WebSocketClient {
           backgroundColor: data.roomBackgroundColor,
           locked: data.roomLocked,
           maxUsers: data.roomMaxUsers,
-          modInactiveImmune: data.roomModInactiveImmune
+          modInactiveImmune: data.roomModInactiveImmune,
+          joinPolicy: data.roomJoinPolicy || 'open',
+          autoMuteGuests: !!data.roomAutoMuteGuests
         });
         break;
 
@@ -803,6 +805,22 @@ export class WebSocketClient {
         this.emit('room_ownership', {
           ownerId: data.ownerId || null,
           ownerUsername: data.ownerUsername || null
+        });
+        break;
+
+      case T.ROOM_ROLE_LIST_RESPONSE:
+        this.emit('room_role_list', {
+          entries: (data.roomRoles || []).map(entry => ({
+            userId: entry.userId || '',
+            username: entry.username || '',
+            role: entry.role || 0,
+            updatedBy: entry.updatedBy || '',
+            updatedByUsername: entry.updatedByUsername || '',
+            updatedAt: Number(entry.updatedAt || 0),
+            previousRole: entry.previousRole || 0,
+            changeType: entry.changeType || 'assigned',
+            isOwner: !!entry.isOwner
+          }))
         });
         break;
     }
@@ -1556,12 +1574,21 @@ export class WebSocketClient {
    * @param {string} targetUserId - The target user's ID.
    * @param {number} role - The role value (0-5).
    */
-  sendRoomRoleSet(targetSessionIndex, role) {
+  sendRoomRoleSet(targetSessionIndex, role, targetUsername = '') {
     this.send({
       t: T.ROOM_ROLE_SET,
-      roomRoleTargetId: String(targetSessionIndex),
+      roomRoleTargetId: String(targetSessionIndex || ''),
+      roomRoleTargetName: targetUsername || '',
       roomRoleValue: role
     });
+  }
+
+  /**
+   * Requests the moderation roster for the current room.
+   * @returns {void}
+   */
+  requestRoomRoleList() {
+    this.send({ t: T.ROOM_ROLE_LIST_REQUEST });
   }
 
   /**

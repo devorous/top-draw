@@ -6,7 +6,9 @@
  * the effective role in a room is max(globalRole, roomRole).
  */
 
+import { ObjectId } from 'mongodb';
 import { getDB } from './db.js';
+import { Role } from './SessionManager.js';
 
 /**
  * Get a user's room-specific role document.
@@ -27,12 +29,26 @@ export async function getRoomRole(roomId, userId) {
  * @param {number} role - 0-6 (room-scoped tiers, including OWNER)
  * @param {string} assignedBy - userId of the assigner
  */
-export async function setRoomRole(roomId, userId, role, assignedBy) {
+export async function setRoomRole(roomId, { userId, username = '', role, assignedBy, assignedByUsername = '', previousRole = 0 }) {
   const db = getDB();
   if (!db) return null;
+  const assignedAt = new Date();
+  const changeType = role > previousRole ? 'promoted' : role < previousRole ? 'demoted' : 'assigned';
   return db.collection('room_roles').updateOne(
     { roomId, userId },
-    { $set: { role, assignedBy, assignedAt: new Date() } },
+    {
+      $set: {
+        roomId,
+        userId,
+        username,
+        role,
+        assignedBy,
+        assignedByUsername,
+        assignedAt,
+        previousRole,
+        changeType
+      }
+    },
     { upsert: true }
   );
 }
@@ -57,6 +73,71 @@ export async function getRoomRoles(roomId) {
   const db = getDB();
   if (!db) return [];
   return db.collection('room_roles').find({ roomId }).toArray();
+}
+
+/**
+ * Returns moderation roster entries for the room, including the synthetic owner row.
+ * @param {Object} room
+ * @returns {Promise<Array<Object>>}
+ */
+export async function getRoomRoleRoster(room) {
+  const db = getDB();
+  if (!db || !room?.id) return [];
+
+  const docs = await db.collection('room_roles')
+    .find({ roomId: room.id, role: { $gte: Role.HELPER } })
+    .sort({ role: -1, assignedAt: -1, username: 1 })
+    .toArray();
+
+  const userIdsToHydrate = [];
+  const assignerIdsToHydrate = [];
+  for (const doc of docs) {
+    if (!doc.username && doc.userId) userIdsToHydrate.push(doc.userId);
+    if (!doc.assignedByUsername && doc.assignedBy) assignerIdsToHydrate.push(doc.assignedBy);
+  }
+
+  const ids = [...new Set([...userIdsToHydrate, ...assignerIdsToHydrate])]
+    .filter(id => ObjectId.isValid(id))
+    .map(id => new ObjectId(id));
+  const usernamesById = new Map();
+  if (ids.length > 0) {
+    const users = await db.collection('users')
+      .find({ _id: { $in: ids } }, { projection: { username: 1 } })
+      .toArray();
+    for (const user of users) {
+      usernamesById.set(user._id.toString(), user.username || '');
+    }
+  }
+
+  const roster = docs
+    .filter(doc => doc.userId !== room.ownerId)
+    .map(doc => ({
+      userId: doc.userId,
+      username: doc.username || usernamesById.get(doc.userId) || 'Unknown user',
+      role: doc.role || 0,
+      updatedBy: doc.assignedBy || '',
+      updatedByUsername: doc.assignedByUsername || usernamesById.get(doc.assignedBy) || '',
+      updatedAt: doc.assignedAt instanceof Date ? doc.assignedAt.getTime() : 0,
+      previousRole: doc.previousRole || 0,
+      changeType: doc.changeType || 'assigned',
+      isOwner: false
+    }));
+
+  if (room.ownerId) {
+    roster.unshift({
+      userId: room.ownerId,
+      username: room.ownerUsername || usernamesById.get(room.ownerId) || 'Room owner',
+      role: Role.OWNER,
+      updatedBy: room.ownerId,
+      updatedByUsername: room.ownerUsername || usernamesById.get(room.ownerId) || 'Room owner',
+      updatedAt: Number(room.createdAt || 0),
+      previousRole: 0,
+      changeType: 'owner',
+      isOwner: true
+    });
+  }
+
+  return roster;
 }
 
 /**

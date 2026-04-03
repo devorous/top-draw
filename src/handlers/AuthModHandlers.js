@@ -1,5 +1,7 @@
 /** @fileoverview Handles authentication and moderation events from the WebSocket client. */
 
+import { appState } from '../state.svelte.js';
+
 /**
  * Sets up WebSocket event handlers for authentication and moderation.
  * @param {WebSocketClient} wsClient - The WebSocket client instance.
@@ -89,6 +91,14 @@ export function setupAuthModHandlers(wsClient, app) {
       wsClient.requestRoomList();
       return;
     }
+    if (wsClient._roomRoleSetResultHandler) {
+      const handler = wsClient._roomRoleSetResultHandler;
+      wsClient._roomRoleSetResultHandler = null;
+      handler(data);
+      wsClient.requestRoomRoleList?.();
+      wsClient.requestRoomList();
+      return;
+    }
     if (!data.success && data.error) {
       ui.showToast(data.error, 3000);
     }
@@ -118,6 +128,7 @@ export function setupAuthModHandlers(wsClient, app) {
           ...(app.currentRoomData || {}),
           ...currentRoom
         };
+        appState.currentRoomData = app.currentRoomData;
         app.updateRoomSettingsButtonVisibility();
       }
     }
@@ -129,6 +140,11 @@ export function setupAuthModHandlers(wsClient, app) {
     if (app.currentRoomData) {
       app.currentRoomData.ownerId = data.ownerId || null;
       app.currentRoomData.ownerUsername = data.ownerUsername || null;
+      appState.currentRoomData = {
+        ...(appState.currentRoomData || {}),
+        ownerId: app.currentRoomData.ownerId,
+        ownerUsername: app.currentRoomData.ownerUsername
+      };
     }
     app.updateRoomSettingsButtonVisibility();
 
@@ -138,6 +154,18 @@ export function setupAuthModHandlers(wsClient, app) {
       ui.showToast(`${ownerName} registered this room`, 3000);
     } else {
       ui.showToast('This room has been unregistered', 3000);
+    }
+  });
+
+  wsClient.on('room_role_list', (data) => {
+    if (app.currentRoomData) {
+      app.currentRoomData.moderationRoster = data.entries || [];
+      app.currentRoomData.moderationRosterLoadedAt = Date.now();
+      appState.currentRoomData = {
+        ...(appState.currentRoomData || {}),
+        moderationRoster: data.entries || [],
+        moderationRosterLoadedAt: app.currentRoomData.moderationRosterLoadedAt
+      };
     }
   });
 

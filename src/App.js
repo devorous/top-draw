@@ -2958,6 +2958,8 @@ export class DrawingApp {
           id,
           username: user.username || user.name || '',
           color: `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
+          registeredName: user.registeredName || '',
+          role: user.role || 0,
           isSelf: false
         });
       }

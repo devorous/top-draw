@@ -1,6 +1,7 @@
 /** @fileoverview Handles user-related events including lifecycle, AFK status, and cursor visibility. */
 
 import { User } from '../User.js';
+import { appState } from '../state.svelte.js';
 
 /**
  * Sets up WebSocket event handlers for user-related actions and state changes.
@@ -193,9 +194,16 @@ export function setupUserHandlers(wsClient, app) {
     if (data.modInactiveImmune !== undefined) {
       app.currentRoomData.modInactiveImmune = data.modInactiveImmune;
     }
+    if (data.joinPolicy !== undefined) {
+      app.currentRoomData.joinPolicy = data.joinPolicy;
+    }
+    if (data.autoMuteGuests !== undefined) {
+      app.currentRoomData.autoMuteGuests = data.autoMuteGuests;
+    }
     // Mirror is not persisted to DB, but update it locally
     app.currentRoomData.mirror = data.mirror;
     app.currentRoomData.mirrorRegions = data.mirrorRegions || [];
+    appState.currentRoomData = app.currentRoomData;
   });
 
   wsClient.on('left', (data) => {

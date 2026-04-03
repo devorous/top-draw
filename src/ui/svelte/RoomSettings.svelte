@@ -2,8 +2,35 @@
   import { appState } from '../../state.svelte.js';
   import { T } from '../../../shared/MessageTypes.js';
 
+  const TAB_GENERAL = 'general';
+  const TAB_MODERATION = 'moderation';
+  const ROLE_OPTIONS = [
+    { value: 0, label: 'None' },
+    { value: 3, label: 'Helper' },
+    { value: 4, label: 'Moderator' },
+    { value: 5, label: 'Admin' }
+  ];
+  const JOIN_POLICY_OPTIONS = [
+    { value: 'open', label: 'Open' },
+    { value: 'registered', label: 'Registered Only' },
+    { value: 'trusted', label: 'Trusted Only' }
+  ];
+  const ROLE_LABELS = {
+    0: 'None',
+    1: 'User',
+    2: 'Trusted',
+    3: 'Helper',
+    4: 'Moderator',
+    5: 'Admin',
+    6: 'Owner',
+    7: 'Noble',
+    8: 'Holy',
+    9: 'Deity'
+  };
+
   let { wsClient = null, board = null, ui = null, onUpdate = null, onUnregister = null } = $props();
 
+  let activeTab = $state(TAB_GENERAL);
   let roomId = $state('');
   let description = $state('');
   let ownerUsername = $state('');
@@ -11,20 +38,48 @@
   let locked = $state(false);
   let maxUsers = $state(40);
   let modInactiveImmune = $state(false);
+  let joinPolicy = $state('open');
+  let autoMuteGuests = $state(false);
   let message = $state('');
   let messageType = $state('success');
   let showMessage = $state(false);
   let saving = $state(false);
+  let rosterLoading = $state(false);
+  let roleSavingTarget = $state('');
+  let rosterFilter = $state('');
+  let pendingRoles = $state({});
+  let offlinePromotionName = $state('');
+  let offlinePromotionRole = $state(4);
 
   let visible = $derived(appState.roomSettingsVisible);
   let roomData = $derived(appState.currentRoomData);
   let userRole = $derived(appState.selfRole);
   let currentUsername = $derived(appState.username);
+  let users = $derived(appState.users);
+  let roomRoster = $derived(roomData?.moderationRoster || []);
 
-  // Update form when room data changes
+  const dateFormatter = new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
+
   $effect(() => {
     if (visible && roomData) {
       loadRoomData(roomData);
+    }
+    if (!visible) {
+      activeTab = TAB_GENERAL;
+      roleSavingTarget = '';
+      rosterFilter = '';
+      pendingRoles = {};
+      offlinePromotionName = '';
+      offlinePromotionRole = 4;
+    }
+  });
+
+  $effect(() => {
+    if (visible && activeTab === TAB_MODERATION) {
+      requestModerationRoster();
     }
   });
 
@@ -35,11 +90,35 @@
     locked = !!data.locked;
     maxUsers = data.maxUsers !== undefined ? data.maxUsers : 40;
     modInactiveImmune = !!data.modInactiveImmune;
+    joinPolicy = data.joinPolicy || 'open';
+    autoMuteGuests = !!data.autoMuteGuests;
 
     if (board) {
       const [r, g, b] = board.backgroundColor;
       backgroundColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
     }
+
+    syncPendingRoles(data.moderationRoster || []);
+  }
+
+  function syncPendingRoles(roster) {
+    const next = {};
+    for (const entry of roster) {
+      next[entry.userId] = entry.role;
+    }
+    pendingRoles = next;
+  }
+
+  function requestModerationRoster(force = false) {
+    if (!visible || !wsClient || rosterLoading) return;
+    const loadedAt = roomData?.moderationRosterLoadedAt || 0;
+    const isFresh = loadedAt > 0 && (Date.now() - loadedAt) < 15000;
+    if (!force && isFresh) return;
+    rosterLoading = true;
+    wsClient.requestRoomRoleList?.();
+    setTimeout(() => {
+      rosterLoading = false;
+    }, 600);
   }
 
   function hide() {
@@ -50,14 +129,16 @@
     message = text;
     messageType = type;
     showMessage = true;
-    setTimeout(() => { showMessage = false; }, 3000);
+    setTimeout(() => {
+      showMessage = false;
+    }, 3000);
   }
 
   function save() {
     if (!roomData || !wsClient || saving) return;
 
     const trimmedDesc = description.trim();
-    let clampedMaxUsers = Math.max(2, Math.min(60, maxUsers));
+    const clampedMaxUsers = Math.max(2, Math.min(60, maxUsers));
     maxUsers = clampedMaxUsers;
 
     saving = true;
@@ -75,7 +156,9 @@
             backgroundColor,
             locked,
             maxUsers: clampedMaxUsers,
-            modInactiveImmune
+            modInactiveImmune,
+            joinPolicy,
+            autoMuteGuests
           });
         }
       } else {
@@ -89,38 +172,30 @@
       roomBackgroundColor: backgroundColor,
       roomLocked: locked,
       roomMaxUsers: clampedMaxUsers,
-      roomModInactiveImmune: modInactiveImmune
+      roomModInactiveImmune: modInactiveImmune,
+      roomJoinPolicy: joinPolicy,
+      roomAutoMuteGuests: autoMuteGuests
     });
   }
 
   function confirmUnregister() {
     if (!roomData) return;
-
     const confirmed = confirm(
       `Are you sure you want to unregister "${roomData.id}"?\n\n` +
-      `This will remove ownership and allow anyone to register the room.`
+      'This will remove ownership and allow anyone to register the room.'
     );
-
-    if (confirmed) {
-      unregisterRoom();
-    }
+    if (confirmed) unregisterRoom();
   }
 
   function unregisterRoom() {
     if (!roomData || !wsClient) return;
-
     wsClient.send({ t: T.ROOM_UNREGISTER });
     hide();
-
-    if (onUnregister) {
-      onUnregister();
-    }
+    if (onUnregister) onUnregister();
   }
 
   function handleBackdropClick(e) {
-    if (e.target === e.currentTarget) {
-      hide();
-    }
+    if (e.target === e.currentTarget) hide();
   }
 
   function canShowUnregister() {
@@ -130,11 +205,142 @@
     return isOwner || isDeity;
   }
 
+  function roleLabel(role) {
+    return ROLE_LABELS[role] || `Role ${role}`;
+  }
+
+  function formatTimestamp(timestamp) {
+    if (!timestamp) return 'Unknown';
+    return dateFormatter.format(new Date(timestamp));
+  }
+
+  function lastUpdatedBy(entry) {
+    if (entry.isOwner) return 'Ownership';
+    return entry.updatedByUsername || 'Unknown';
+  }
+
+  function rosterUserIds() {
+    return new Set(roomRoster.map(entry => entry.userId).filter(Boolean));
+  }
+
+  function buildOnlineCandidates() {
+    const candidates = [];
+    const existingIds = rosterUserIds();
+    const existingNames = new Set(roomRoster.map(entry => entry.username?.toLowerCase()).filter(Boolean));
+
+    users?.forEach((user, id) => {
+      const username = user.registeredName || user.username || '';
+      if (!username) return;
+      if (existingIds.has(String(id)) || existingNames.has(username.toLowerCase())) return;
+      candidates.push({
+        id: String(id),
+        username,
+        role: user.role || 0
+      });
+    });
+
+    if (appState.sessionIndex !== null && userRole >= 1) {
+      const selfId = String(appState.sessionIndex);
+      const username = currentUsername || '';
+      if (
+        username &&
+        !candidates.some(candidate => candidate.id === selfId) &&
+        !existingNames.has(username.toLowerCase())
+      ) {
+        candidates.push({
+          id: selfId,
+          username,
+          role: userRole
+        });
+      }
+    }
+
+    return candidates.sort((a, b) => a.username.localeCompare(b.username));
+  }
+
+  function filterText() {
+    return rosterFilter.trim().toLowerCase();
+  }
+
+  function filteredRoster() {
+    const query = filterText();
+    if (!query) return roomRoster;
+    return roomRoster.filter(entry =>
+      (entry.username || '').toLowerCase().includes(query) ||
+      roleLabel(entry.role).toLowerCase().includes(query) ||
+      (entry.updatedByUsername || '').toLowerCase().includes(query)
+    );
+  }
+
+  function filteredOnlineCandidates() {
+    const query = filterText();
+    const candidates = buildOnlineCandidates();
+    if (!query) return candidates;
+    return candidates.filter(candidate =>
+      candidate.username.toLowerCase().includes(query) ||
+      roleLabel(candidate.role).toLowerCase().includes(query)
+    );
+  }
+
+  function pendingRoleValue(targetId, fallbackRole) {
+    return pendingRoles[targetId] ?? fallbackRole;
+  }
+
+  function setPendingRole(targetId, role) {
+    pendingRoles = {
+      ...pendingRoles,
+      [targetId]: role
+    };
+  }
+
+  function applyRoleChange(targetId, nextRole, options = {}) {
+    if (!wsClient || roleSavingTarget) return;
+    if (options.isOwner) {
+      displayMessage('Room ownership controls the owner rank', 'error');
+      return;
+    }
+    if (!targetId && !options.targetUsername) return;
+    if ((options.currentRole ?? 0) === nextRole) return;
+
+    const requestKey = String(targetId || `username:${options.targetUsername}`);
+    roleSavingTarget = requestKey;
+    wsClient._roomRoleSetResultHandler = (result) => {
+      roleSavingTarget = '';
+      if (result.success) {
+        displayMessage('Moderation roster updated', 'success');
+        ui?.showToast('Moderator role updated', 2000);
+        if (roomData) {
+          appState.currentRoomData = {
+            ...roomData,
+            moderationRosterLoadedAt: 0
+          };
+        }
+        requestModerationRoster(true);
+      } else {
+        displayMessage(result.error || 'Failed to update room role', 'error');
+      }
+    };
+    wsClient.sendRoomRoleSet(targetId, nextRole, options.targetUsername || '');
+  }
+
+  function applyOfflinePromotion() {
+    const username = offlinePromotionName.trim();
+    if (!username) {
+      displayMessage('Enter a username to promote', 'error');
+      return;
+    }
+    applyRoleChange('', Number(offlinePromotionRole), {
+      currentRole: 0,
+      targetUsername: username
+    });
+    offlinePromotionName = '';
+  }
+
   $effect(() => {
     function handleKeydown(e) {
       if (e.key === 'Escape' && appState.roomSettingsVisible) {
         hide();
-      } else if (e.key === 'Enter' && e.ctrlKey && appState.roomSettingsVisible) {
+      } else if (e.key === 'Enter' && e.ctrlKey && appState.roomSettingsVisible && activeTab === TAB_GENERAL) {
         save();
       }
     }
@@ -144,120 +350,276 @@
 </script>
 
 {#if visible}
-  <div
-    class="room-settings-overlay"
-    onclick={handleBackdropClick}
-    role="presentation"
-  >
+  <div class="room-settings-overlay" onclick={handleBackdropClick} role="presentation">
     <div class="room-settings-dialog" onclick={(e) => e.stopPropagation()}>
       <div class="room-settings-header">
-        <h3>Room Settings</h3>
-        <button
-          class="room-settings-close"
-          onclick={hide}
-          title="Close"
-        >&times;</button>
+        <div>
+          <h3>Room Settings</h3>
+          <p>Manage room defaults and the moderation roster.</p>
+        </div>
+        <button class="room-settings-close" onclick={hide} title="Close">&times;</button>
+      </div>
+
+      <div class="room-settings-tabs" role="tablist" aria-label="Room settings sections">
+        <button class:active={activeTab === TAB_GENERAL} class="room-settings-tab" onclick={() => activeTab = TAB_GENERAL} type="button">General</button>
+        <button class:active={activeTab === TAB_MODERATION} class="room-settings-tab" onclick={() => activeTab = TAB_MODERATION} type="button">Moderation</button>
       </div>
 
       <div class="room-settings-body">
         {#if showMessage}
-          <div class="room-settings-message {messageType}">
-            {message}
-          </div>
+          <div class="room-settings-message {messageType}">{message}</div>
         {/if}
 
-        <div class="form-group">
-          <label for="roomId">Room ID</label>
-          <input
-            type="text"
-            id="roomId"
-            value={roomId}
-            disabled
-            class="room-input disabled"
-          />
-        </div>
+        {#if activeTab === TAB_GENERAL}
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="roomId">Room ID</label>
+              <input type="text" id="roomId" value={roomId} disabled class="room-input disabled" />
+            </div>
 
-        <div class="form-group">
-          <label for="roomOwner">Owner</label>
-          <input
-            type="text"
-            id="roomOwner"
-            value={ownerUsername}
-            disabled
-            class="room-input disabled"
-          />
-        </div>
-
-        <div class="form-group">
-          <label for="roomDescription">Description</label>
-          <textarea
-            id="roomDescription"
-            bind:value={description}
-            class="room-textarea"
-            placeholder="Room description..."
-            rows="3"
-          ></textarea>
-        </div>
-
-        <div class="form-group">
-          <label for="roomBgColor">Background Color</label>
-          <div class="color-input-group">
-            <input
-              type="color"
-              id="roomBgColor"
-              bind:value={backgroundColor}
-              class="room-color-input"
-            />
-            <input
-              type="text"
-              value={backgroundColor}
-              oninput={(e) => backgroundColor = e.target.value}
-              class="room-input color-text"
-            />
+            <div class="form-group">
+              <label for="roomOwner">Owner</label>
+              <input type="text" id="roomOwner" value={ownerUsername} disabled class="room-input disabled" />
+            </div>
           </div>
-        </div>
 
-        <div class="form-group">
-          <label for="roomMaxUsers">Max Users (2-60)</label>
-          <input
-            type="number"
-            id="roomMaxUsers"
-            bind:value={maxUsers}
-            min="2"
-            max="60"
-            class="room-input"
-          />
-        </div>
+          <div class="form-group">
+            <label for="roomDescription">Description</label>
+            <textarea id="roomDescription" bind:value={description} class="room-textarea" placeholder="Room description..." rows="3"></textarea>
+          </div>
 
-        <div class="form-group checkbox-group">
-          <label>
-            <input
-              type="checkbox"
-              bind:checked={locked}
-            />
-            <span>Lock Room (prevent new users from joining)</span>
-          </label>
-        </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="roomBgColor">Background Color</label>
+              <div class="color-input-group">
+                <input type="color" id="roomBgColor" bind:value={backgroundColor} class="room-color-input" />
+                <input type="text" value={backgroundColor} oninput={(e) => backgroundColor = e.target.value} class="room-input color-text" />
+              </div>
+            </div>
 
-        <div class="form-group checkbox-group">
-          <label>
-            <input
-              type="checkbox"
-              bind:checked={modInactiveImmune}
-            />
-            <span>Moderators are immune to the inactivity timeout</span>
-          </label>
-        </div>
+            <div class="form-group">
+              <label for="roomMaxUsers">Max Users (2-60)</label>
+              <input type="number" id="roomMaxUsers" bind:value={maxUsers} min="2" max="60" class="room-input" />
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="roomJoinPolicy">Join Policy</label>
+              <select id="roomJoinPolicy" bind:value={joinPolicy} class="room-input">
+                {#each JOIN_POLICY_OPTIONS as option}
+                  <option value={option.value}>{option.label}</option>
+                {/each}
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" bind:checked={locked} />
+              <span>Lock Room (prevent new users from joining)</span>
+            </label>
+          </div>
+
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" bind:checked={modInactiveImmune} />
+              <span>Moderators are immune to the inactivity timeout</span>
+            </label>
+          </div>
+
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" bind:checked={autoMuteGuests} />
+              <span>Auto-mute unregistered guests until they log in</span>
+            </label>
+          </div>
+        {:else}
+          <section class="moderation-panel">
+            <div class="moderation-toolbar">
+              <div>
+                <h4>Room Staff</h4>
+                <p>Search current moderators and apply rank changes inline.</p>
+              </div>
+              <div class="moderation-toolbar-actions">
+                <input
+                  type="text"
+                  bind:value={rosterFilter}
+                  class="room-input moderation-search"
+                  placeholder="Search users, rank, or promoted by..."
+                />
+                <button class="btn secondary small" onclick={() => requestModerationRoster(true)} type="button">
+                  {rosterLoading ? 'Refreshing...' : 'Refresh'}
+                </button>
+              </div>
+            </div>
+
+            <div class="moderation-table-wrap">
+              <table class="moderation-table">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Date</th>
+                    <th>Promoted By</th>
+                    <th>Rank</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#if filteredRoster().length > 0}
+                    {#each filteredRoster() as entry (entry.userId)}
+                      <tr>
+                        <td>
+                          <div class="table-user-cell">
+                            <strong>{entry.username}</strong>
+                            {#if entry.isOwner}
+                              <span class="table-subtle">Room owner</span>
+                            {/if}
+                          </div>
+                        </td>
+                        <td>{formatTimestamp(entry.updatedAt)}</td>
+                        <td>{lastUpdatedBy(entry)}</td>
+                        <td>
+                          <div class="rank-action-cell">
+                            <select
+                              class="table-rank-select"
+                              value={String(pendingRoleValue(entry.userId, entry.role))}
+                              disabled={entry.isOwner || roleSavingTarget === entry.userId}
+                              onchange={(e) => setPendingRole(entry.userId, Number(e.currentTarget.value))}
+                            >
+                              {#each ROLE_OPTIONS as option}
+                                <option value={option.value}>{option.label}</option>
+                              {/each}
+                            </select>
+                            <button
+                              class="btn primary small"
+                              type="button"
+                              disabled={entry.isOwner || roleSavingTarget === entry.userId || pendingRoleValue(entry.userId, entry.role) === entry.role}
+                              onclick={() => applyRoleChange(entry.userId, pendingRoleValue(entry.userId, entry.role), {
+                                isOwner: entry.isOwner,
+                                currentRole: entry.role
+                              })}
+                            >
+                              {roleSavingTarget === entry.userId ? 'Applying...' : 'Apply'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    {/each}
+                  {:else}
+                    <tr>
+                      <td colspan="4" class="table-empty">
+                        {rosterLoading ? 'Loading moderator roster...' : 'No moderation matches found.'}
+                      </td>
+                    </tr>
+                  {/if}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="moderation-panel">
+            <div class="moderation-split">
+              <div class="subpanel">
+                <h4>Online Members</h4>
+                <p>Promote connected registered users directly from the room.</p>
+
+                <div class="moderation-table-wrap">
+                  <table class="moderation-table">
+                    <thead>
+                      <tr>
+                        <th>User</th>
+                        <th>Date</th>
+                        <th>Promoted By</th>
+                        <th>Rank</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#if filteredOnlineCandidates().length > 0}
+                        {#each filteredOnlineCandidates() as candidate (candidate.id)}
+                          <tr>
+                            <td>
+                              <div class="table-user-cell">
+                                <strong>{candidate.username}</strong>
+                                <span class="table-subtle">Current role: {roleLabel(candidate.role)}</span>
+                              </div>
+                            </td>
+                            <td class="table-muted">Online now</td>
+                            <td class="table-muted">Pending</td>
+                            <td>
+                              <div class="rank-action-cell">
+                                <select
+                                  class="table-rank-select"
+                                  value={String(pendingRoleValue(candidate.id, 0))}
+                                  disabled={roleSavingTarget === candidate.id}
+                                  onchange={(e) => setPendingRole(candidate.id, Number(e.currentTarget.value))}
+                                >
+                                  {#each ROLE_OPTIONS as option}
+                                    <option value={option.value}>{option.label}</option>
+                                  {/each}
+                                </select>
+                                <button
+                                  class="btn primary small"
+                                  type="button"
+                                  disabled={roleSavingTarget === candidate.id || pendingRoleValue(candidate.id, 0) === 0}
+                                  onclick={() => applyRoleChange(candidate.id, pendingRoleValue(candidate.id, 0), {
+                                    currentRole: 0
+                                  })}
+                                >
+                                  {roleSavingTarget === candidate.id ? 'Applying...' : 'Apply'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        {/each}
+                      {:else}
+                        <tr>
+                          <td colspan="4" class="table-empty">No additional registered members match this filter.</td>
+                        </tr>
+                      {/if}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="moderation-panel compact-panel">
+            <div class="offline-promo-row">
+              <div class="offline-promo-copy">
+                <h4>Offline Promotion</h4>
+                <p>Assign a room role by username even if the user is not online.</p>
+              </div>
+
+              <input
+                id="offlinePromotionName"
+                type="text"
+                bind:value={offlinePromotionName}
+                class="room-input compact-input offline-name-input"
+                placeholder="Exact username"
+              />
+
+              <select id="offlinePromotionRole" bind:value={offlinePromotionRole} class="room-input compact-input offline-role-select">
+                {#each ROLE_OPTIONS as option}
+                  <option value={option.value}>{option.label}</option>
+                {/each}
+              </select>
+
+              <button class="btn primary small" type="button" onclick={applyOfflinePromotion} disabled={roleSavingTarget.startsWith('username:')}>
+                Apply
+              </button>
+            </div>
+          </section>
+        {/if}
       </div>
 
       <div class="room-settings-footer">
         <button class="btn secondary" onclick={hide}>Cancel</button>
-        {#if canShowUnregister()}
-          <button class="btn danger" onclick={confirmUnregister}>
-            Unregister
-          </button>
+        {#if activeTab === TAB_GENERAL}
+          {#if canShowUnregister()}
+            <button class="btn danger" onclick={confirmUnregister}>Unregister</button>
+          {/if}
+          <button class="btn primary" onclick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
         {/if}
-        <button class="btn primary" onclick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
       </div>
     </div>
   </div>
@@ -274,32 +636,20 @@
     justify-content: center;
     padding: 1rem;
     backdrop-filter: blur(4px);
-    animation: fadeIn 0.15s ease;
-  }
-
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
   }
 
   .room-settings-dialog {
     background: #242830;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
-    max-width: 680px;
+    max-width: 920px;
     width: 100%;
     max-height: 90vh;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    animation: slideUp 0.2s ease;
-    font-family: 'Inter', -apple-system, sans-serif;
     color: #f0f2f5;
-  }
-
-  @keyframes slideUp {
-    from { transform: translateY(16px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
+    font-family: 'Inter', -apple-system, sans-serif;
   }
 
   .room-settings-header {
@@ -307,185 +657,328 @@
     background: #2d323c;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
+    gap: 1rem;
   }
 
-  .room-settings-header h3 {
+  .room-settings-header h3,
+  .moderation-panel h4 {
     margin: 0;
-    font-size: 1.125rem;
-    font-weight: 500;
+  }
+
+  .room-settings-header p,
+  .moderation-panel p {
+    margin: 0.35rem 0 0;
+    color: #a8b0bf;
+    font-size: 0.92rem;
   }
 
   .room-settings-close {
-    background: none;
+    background: transparent;
     border: none;
-    color: #6b7280;
-    font-size: 1.5rem;
-    cursor: pointer;
-    padding: 0;
-    line-height: 1;
-    width: 28px;
-    height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-  }
-  .room-settings-close:hover {
     color: #f0f2f5;
-    background: #363c4a;
+    font-size: 1.75rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .room-settings-tabs {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.9rem 1.5rem 0;
+  }
+
+  .room-settings-tab {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: none;
+    background: rgba(255, 255, 255, 0.04);
+    color: #cfd6e3;
+    padding: 0.7rem 1rem;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  .room-settings-tab.active {
+    background: #313744;
+    color: #fff;
   }
 
   .room-settings-body {
-    padding: 1.5rem;
+    padding: 1rem 1.1rem 1.1rem;
     overflow-y: auto;
-    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
   }
 
   .room-settings-message {
-    padding: 0.75rem 1rem;
+    padding: 0.8rem 1rem;
     border-radius: 6px;
-    margin-bottom: 1rem;
-    font-size: 0.875rem;
   }
 
   .room-settings-message.success {
-    background: rgba(0, 212, 170, 0.15);
-    border: 1px solid rgba(0, 212, 170, 0.3);
-    color: #00f0c3;
+    background: rgba(80, 200, 120, 0.14);
+    border: 1px solid rgba(80, 200, 120, 0.28);
+    color: #aef0c2;
   }
 
   .room-settings-message.error {
-    background: rgba(224, 112, 112, 0.15);
-    border: 1px solid rgba(224, 112, 112, 0.3);
-    color: #e07070;
+    background: rgba(220, 80, 90, 0.14);
+    border: 1px solid rgba(220, 80, 90, 0.28);
+    color: #ffb7bd;
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
   }
 
   .form-group {
-    margin-bottom: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
   }
 
   .form-group label {
-    display: block;
-    margin-bottom: 0.5rem;
-    font-size: 0.875rem;
-    color: #a0a8b8;
+    font-size: 0.84rem;
+    color: #cfd6e3;
   }
 
   .room-input,
-  .room-textarea {
+  .room-textarea,
+  .table-rank-select {
     width: 100%;
-    padding: 0.625rem 0.875rem;
-    background: #1a1d23;
+    background: #1d2128;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 6px;
     color: #f0f2f5;
-    font-family: inherit;
-    font-size: 0.875rem;
-    transition: border-color 0.15s;
+    padding: 0.62rem 0.72rem;
+    font: inherit;
   }
 
-  .room-input:focus,
-  .room-textarea:focus {
-    outline: none;
-    border-color: rgba(0, 212, 170, 0.4);
+  .compact-input {
+    padding: 0.5rem 0.65rem;
+    font-size: 0.92rem;
   }
 
   .room-input.disabled {
-    opacity: 0.5;
+    opacity: 0.75;
     cursor: not-allowed;
   }
 
   .room-textarea {
     resize: vertical;
-    min-height: 60px;
+    min-height: 72px;
   }
 
   .color-input-group {
-    display: flex;
+    display: grid;
+    grid-template-columns: 72px 1fr;
     gap: 0.75rem;
-    align-items: center;
   }
 
   .room-color-input {
-    width: 48px;
-    height: 40px;
-    padding: 4px;
-    background: #1a1d23;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 6px;
-    cursor: pointer;
-  }
-
-  .color-text {
-    flex: 1;
+    width: 100%;
+    height: 46px;
+    border: none;
+    background: transparent;
+    padding: 0;
   }
 
   .checkbox-group label {
     display: flex;
     align-items: center;
-    gap: 0.625rem;
-    cursor: pointer;
+    gap: 0.55rem;
+    font-size: 0.92rem;
   }
 
-  .checkbox-group input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
+  .moderation-panel {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 0.8rem 0.9rem;
   }
 
-  .checkbox-group span {
-    font-size: 0.875rem;
-    color: #a0a8b8;
+  .compact-panel {
+    padding: 0.7rem 0.9rem;
+  }
+
+  .moderation-toolbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.65rem;
+  }
+
+  .moderation-toolbar-actions {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+  }
+
+  .moderation-search {
+    min-width: 220px;
+    font-size: 0.84rem;
+    padding: 0.45rem 0.6rem;
+  }
+
+  .moderation-table-wrap {
+    overflow-x: auto;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    background: #1b1f27;
+  }
+
+  .moderation-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 680px;
+    font-size: 0.92rem;
+  }
+
+  .moderation-table th,
+  .moderation-table td {
+    text-align: left;
+    padding: 0.55rem 0.7rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    vertical-align: middle;
+  }
+
+  .moderation-table th {
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #95a1b4;
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .moderation-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .table-user-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    line-height: 1.2;
+  }
+
+  .table-subtle,
+  .table-muted {
+    color: #9ea7b6;
+    font-size: 0.77rem;
+  }
+
+  .table-empty {
+    text-align: center;
+    color: #a8b0bf;
+  }
+
+  .rank-action-cell {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+  }
+
+  .table-rank-select {
+    min-width: 96px;
+    max-width: 108px;
+    padding: 0.38rem 0.48rem;
+    font-size: 0.88rem;
+  }
+
+  .moderation-split {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+
+  .subpanel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+
+  .offline-promo-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 1.2fr) minmax(170px, 1fr) 120px auto;
+    gap: 0.55rem;
+    align-items: end;
+  }
+
+  .offline-promo-copy h4 {
+    margin: 0;
+  }
+
+  .offline-promo-copy p {
+    margin: 0.18rem 0 0;
+    font-size: 0.8rem;
+  }
+
+  .offline-name-input {
+    min-width: 0;
+  }
+
+  .offline-role-select {
+    min-width: 0;
   }
 
   .room-settings-footer {
-    padding: 1rem 1.5rem;
-    background: #2d323c;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
     display: flex;
-    gap: 0.75rem;
     justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 0.8rem 1.1rem 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: #242830;
   }
 
-  .btn {
-    padding: 0.625rem 1.25rem;
-    border-radius: 6px;
-    font-family: inherit;
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s;
-    border: none;
+  .btn.small {
+    padding: 0.42rem 0.68rem;
+    font-size: 0.8rem;
   }
 
-  .btn.primary {
-    background: #00d4aa;
-    color: #121212;
-  }
-  .btn.primary:hover {
-    background: #00f0c3;
+  @media (max-width: 860px) {
+    .moderation-split,
+    .form-grid,
+    .moderation-toolbar {
+      grid-template-columns: 1fr;
+      display: grid;
+    }
+
+    .moderation-toolbar-actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .moderation-search {
+      min-width: 0;
+    }
+
+    .offline-promo-row {
+      grid-template-columns: 1fr;
+      align-items: stretch;
+    }
   }
 
-  .btn.secondary {
-    background: rgba(255, 255, 255, 0.05);
-    color: #a0a8b8;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-  }
-  .btn.secondary:hover {
-    background: #363c4a;
-    color: #f0f2f5;
-    border-color: rgba(255, 255, 255, 0.12);
-  }
+  @media (max-width: 700px) {
+    .room-settings-dialog {
+      max-height: 95vh;
+    }
 
-  .btn.danger {
-    background: rgba(224, 112, 112, 0.15);
-    color: #e07070;
-    border: 1px solid rgba(224, 112, 112, 0.3);
-  }
-  .btn.danger:hover {
-    background: rgba(224, 112, 112, 0.25);
-    border-color: rgba(224, 112, 112, 0.5);
+    .moderation-table {
+      min-width: 560px;
+    }
+
+    .rank-action-cell {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .room-settings-footer {
+      flex-wrap: wrap;
+    }
   }
 </style>
