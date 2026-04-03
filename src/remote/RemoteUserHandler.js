@@ -45,6 +45,10 @@ export class RemoteUserHandler {
   get sessionIndex() { return this.app.sessionIndex; }
   get debugOverlay() { return this.app.debugOverlay; }
 
+  getStrokeLayer(user) {
+    return user?._strokeLayer ?? user?.activeLayer ?? 0;
+  }
+
   /**
    * Processes remote mouse movement and updates drawing state.
    *
@@ -230,7 +234,7 @@ export class RemoteUserHandler {
             }
           }
         } else {
-          const group = this.board.layerManager.getLayerGroup(user.activeLayer);
+          const group = this.board.layerManager.getLayerGroup(this.getStrokeLayer(user));
           if (group) {
             eraserTool.eraseOnGroup(group, pos.x, pos.y, lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
             this.board.forEachMirrorRegion({ points: [pos, lastPos] }, (region) => {
@@ -414,6 +418,7 @@ export class RemoteUserHandler {
     const pos = { x: user.x, y: user.y };
     user.startPos = pos;
     user.setPosition(pos.x, pos.y);
+    user._strokeLayer = user.activeLayer ?? 0;
 
     if (!user.panning) {
       if (user.tool === 'erase' && user.eraseAllLayers) {
@@ -422,7 +427,7 @@ export class RemoteUserHandler {
         // Blur tool handles its own stroke creation in onPointerDown with filter metadata
         // Fill tool manages its own stroke lifecycle via the dedicated FILL message handler
         const blendMode = user.tool === 'erase' ? 'destination-out' : (user.blendMode || 'source-over');
-        this.board.layerManager.beginUserStroke(user.activeLayer, user.id, blendMode);
+        this.board.layerManager.beginUserStroke(this.getStrokeLayer(user), user.id, blendMode);
       }
     }
 
@@ -459,7 +464,7 @@ export class RemoteUserHandler {
               if (g) eraserTool.eraseOnGroup(g, pos.x, pos.y, pos.x, pos.y, eraseSize, 1.0, user.id);
             }
           } else {
-            const eraseGroup = this.board.layerManager.getLayerGroup(user.activeLayer);
+            const eraseGroup = this.board.layerManager.getLayerGroup(this.getStrokeLayer(user));
             if (eraseGroup) eraserTool.eraseOnGroup(eraseGroup, pos.x, pos.y, pos.x, pos.y, eraseSize, 1.0, user.id);
           }
           this.board.requestUpdate();
@@ -514,7 +519,7 @@ export class RemoteUserHandler {
           user.text = '';
           this.ui.setRemoteTextDomVisible(user.id, true);
           this.ui.updateRemoteText(user.id, '');
-          this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
+          this.board.layerManager.commitUserStroke(this.getStrokeLayer(user), user.id);
           this.board.requestUpdate();
         }
         break;
@@ -573,10 +578,11 @@ export class RemoteUserHandler {
   handleMouseUp(user) {
     if (!user.mousedown) return;
     const pos = { x: user.x, y: user.y };
+    const strokeLayer = this.getStrokeLayer(user);
     user.remoteTarget = null;
     this._invalidateFillPreview(user, !(user.tool === 'select' && user.floatingCanvas));
 
-    const activeStrokeCtx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
+    const activeStrokeCtx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id);
 
     const hadPenStroke = user._penStrokeActive;
     if (hadPenStroke) {
@@ -731,7 +737,7 @@ export class RemoteUserHandler {
           }
         }
       } else {
-        const group = this.board.layerManager.getLayerGroup(user.activeLayer);
+        const group = this.board.layerManager.getLayerGroup(strokeLayer);
         const active = group?.activeStrokeByUser?.get(user.id);
         if (active?.affectedTiles) {
           for (const idx of active.affectedTiles) erasedTiles.add(idx);
@@ -743,7 +749,7 @@ export class RemoteUserHandler {
       this.board.endStrokeAllLayers(user);
     } else if (user.tool !== 'fill') {
       // Fill tool commits its own stroke via the dedicated FILL message handler
-      this.board.layerManager.commitUserStroke(user.activeLayer, user.id);
+      this.board.layerManager.commitUserStroke(strokeLayer, user.id);
     }
 
     // Check erased tiles and clear ownership for empty ones (don't broadcast - remote user handles that)
@@ -754,6 +760,7 @@ export class RemoteUserHandler {
 
     user.clearLine();
     user.mousedown = false;
+    user._strokeLayer = null;
     user.startPos = null;
     user.lassoPoints = null;
 
@@ -973,11 +980,12 @@ export class RemoteUserHandler {
       this.debugOverlay.cancelDrawing(user.id);
     }
 
-    this.board.layerManager.cancelUserStroke(user.activeLayer, user.id);
+    this.board.layerManager.cancelUserStroke(this.getStrokeLayer(user), user.id);
 
     this._invalidateFillPreview(user);
     user.clearLine();
     user.mousedown = false;
+    user._strokeLayer = null;
     user.startPos = null;
     user.pendingSelection = null;
     user.pendingLassoPath = null;
@@ -1149,7 +1157,7 @@ export class RemoteUserHandler {
       const radius = user.size || margin;
 
       // Get the active stroke to collect affectedTiles (same as local implementation)
-      const group = this.board.layerManager?.layerGroups[user.activeLayer];
+      const group = this.board.layerManager?.layerGroups[this.getStrokeLayer(user)];
       const active = group?.activeStrokeByUser?.get(userId);
 
       tt.markPathDirty(points, radius, active?.affectedTiles);
@@ -1194,7 +1202,7 @@ export class RemoteUserHandler {
     const oldRadius = user.pressure * user.size;
     const newRadius = (newPressure ?? user.pressure) * (newSize ?? user.size);
 
-    const activeStrokeCtx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
+    const activeStrokeCtx = this.board.layerManager.getUserStrokeContext(this.getStrokeLayer(user), user.id);
     if (activeStrokeCtx) {
       if (user.tool === 'brush' && user.currentLine.length >= 2) {
         drawLineArray(user.currentLine, activeStrokeCtx, user);

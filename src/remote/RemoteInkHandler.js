@@ -113,6 +113,7 @@ export class RemoteInkHandler {
     if (!user._inkStrokeActive || !user._inkOffscreen) return;
 
     this.renderInkStroke(user, true);
+    const points = user._inkPoints.map(pt => ({ x: pt[0], y: pt[1] }));
 
     // Track dirty rect from ink points to avoid expensive getImageData on commit
     if (user._inkPoints && user._inkPoints.length > 0) {
@@ -144,14 +145,14 @@ export class RemoteInkHandler {
       });
 
       // Track tile ownership for remote user
-      const points = user._inkPoints.map(pt => ({ x: pt[0], y: pt[1] }));
       this.board.markDirtyPath(user, points, size);
       this.board.forEachMirrorRegion({ points }, (region) => {
         this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(points, region), size);
       });
     }
 
-    const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);
+    const strokeLayer = user._strokeLayer ?? user.activeLayer;
+    const layerCtx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id);
     if (layerCtx) {
       layerCtx.globalCompositeOperation = 'source-over';
       layerCtx.globalAlpha = user._inkAlpha;

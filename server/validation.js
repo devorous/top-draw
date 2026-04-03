@@ -1,107 +1,515 @@
-/** @fileoverview Provides validation and sanitization rules for incoming client messages to ensure data integrity and security. */
+/** @fileoverview Server-side sanitization and validation for inbound WebSocket messages. */
 
 import { T, Tool } from '../shared/MessageTypes.js';
+import { CHAT_IMAGE_MIME_TYPES, INLINE_IMAGE_MIME_TYPES, validateDataUrlImage, validateImageBytes } from './imageValidation.js';
 
-/**
- * Clamps a numeric value between a minimum and maximum range.
- * @param {number} num - The value to clamp.
- * @param {number} min - The minimum allowed value.
- * @param {number} max - The maximum allowed value.
- * @returns {number} - The clamped value.
- */
-const clamp = (num, min, max) => {
-  if (num === undefined || num === null || isNaN(num)) return min;
-  return Math.min(Math.max(num, min), max);
+const MIN_BRUSH_SIZE = 25;
+const MAX_BRUSH_SIZE = 10000;
+const MAX_SPACING = 2000;
+const MAX_SMOOTHING = 50;
+const MAX_HARDNESS = 100;
+const MAX_PRESSURE = 100;
+const MAX_BLUR_RADIUS = 100;
+const MAX_LAYER_INDEX = 4;
+const MAX_NAME_LENGTH = 20;
+const MAX_CHAT_LENGTH = 500;
+const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
+const MAX_INLINE_IMAGE_WIDTH = 8192;
+const MAX_INLINE_IMAGE_HEIGHT = 8192;
+const MAX_INLINE_IMAGE_PIXELS = 16_777_216;
+const MAX_ROOM_PREVIEW_BYTES = 100 * 1024;
+const MAX_SYNC_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_SYNC_IMAGE_PIXELS = 33_554_432;
+const MAX_SYNC_BATCH_STROKES = 256;
+const MAX_TILE_LIST = 4096;
+const MAX_PATH_VALUES = 1024;
+const MAX_SELECTION_POINTS = 2048;
+const MAX_BRUSH_DATA_LENGTH = 1024 * 1024;
+const MAX_MIRROR_REGION_PAYLOAD = 64 * 1024;
+const MAX_AUTH_TOKEN_LENGTH = 4096;
+const MAX_AUTH_STRING_LENGTH = 256;
+const MAX_SECRET_QUESTION_LENGTH = 200;
+const MAX_MOD_REASON_LENGTH = 200;
+const MAX_ROOM_DESCRIPTION_LENGTH = 200;
+const MAX_USERNAME_LOOKUP_LENGTH = 32;
+const MAX_COORD = 50000;
+const MIN_COORD = -50000;
+const MAX_DIMENSION = 10000;
+const MAX_DURATION_MINUTES = 60 * 24 * 365;
+const MAX_ROOM_USERS = 60;
+
+const VALID_MESSAGE_TYPES = new Set(Object.values(T));
+const VALID_BLEND_MODES = new Set([
+  'source-over',
+  'multiply',
+  'screen',
+  'lighter',
+  'overlay',
+  'darken',
+  'lighten',
+  'difference',
+  'color-dodge',
+  'color-burn',
+  'hard-light',
+  'soft-light',
+  'exclusion',
+  'hue',
+  'saturation',
+  'color',
+  'luminosity',
+  'destination-out'
+]);
+const VALID_JOIN_POLICIES = new Set(['open', 'registered', 'trusted']);
+
+const IMAGE_MESSAGE_TYPES = new Set([T.IMG_PASTE, T.SEL_LIFT, T.GLITCH_RESULT]);
+
+const clampInt = (value, min, max, fallback = min) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(Math.max(Math.trunc(num), min), max);
 };
 
-/**
- * Sanitizes a string by optionally trimming and limiting its length.
- * @param {string} str - The string to sanitize.
- * @param {number} maxLength - The maximum allowed length.
- * @param {boolean} [shouldTrim=true] - Whether to trim leading/trailing whitespace.
- * @returns {string} - The sanitized string.
- */
-const sanitizeString = (str, maxLength, shouldTrim = true) => {
-  if (typeof str !== 'string') return '';
-  const val = shouldTrim ? str.trim() : str;
-  return val.substring(0, maxLength);
+const sanitizeString = (value, maxLength, { trim = true } = {}) => {
+  if (typeof value !== 'string') return '';
+  const output = trim ? value.trim() : value;
+  return output.slice(0, maxLength);
 };
 
-/**
- * Validation rules for incoming message fields, mapped by message type.
- * Each rule is a function that returns a sanitized value for a specific field.
- * @type {Object<number, Object<string, function>>}
- */
-export const VALIDATION_RULES = {
-  [T.CS]: {
-    s: (val) => clamp(val, 25, 10000)
-  },
-  [T.CSP]: {
-    sp: (val) => clamp(val, 0, 2000)
-  },
-  [T.CSM]: {
-    sm: (val) => clamp(val, 0, 50)
-  },
-  [T.CHD]: {
-    hd: (val) => clamp(val, 0, 100)
-  },
-  [T.CBR]: {
-    br: (val) => clamp(val, 0, 100)
-  },
-  [T.CP]: {
-    p: (val) => clamp(val, 0, 100)
-  },
-  [T.CC]: {
-    c: (val) => (typeof val === 'number' ? val : 0)
-  },
-  [T.CT]: {
-    l: (val) => clamp(val, 0, Object.keys(Tool).length - 1)
-  },
-  [T.CL]: {
-    ly: (val) => clamp(val, 0, 4)
-  },
-  [T.CN]: {
-    n: (val) => sanitizeString(val, 20)
-  },
-  [T.MSG]: {
-    g: (val) => sanitizeString(val, 500)
-  },
-  [T.DM]: {
-    g: (val) => sanitizeString(val, 500)
-  },
-  [T.KP]: {
-    k: (val) => sanitizeString(val, 20, false)
-  },
-  [T.SEL_LIFT]: {
-    sx: (val) => clamp(val, -10000, 20000),
-    sy: (val) => clamp(val, -10000, 20000),
-    sw: (val) => clamp(val, 0, 10000),
-    sh: (val) => clamp(val, 0, 10000),
-    g: (val) => (typeof val === 'string' && val.length < 2 * 1024 * 1024 ? val : '')
-  },
-  [T.IMG_PASTE]: {
-    sx: (val) => clamp(val, -10000, 20000),
-    sy: (val) => clamp(val, -10000, 20000),
-    sw: (val) => clamp(val, 0, 10000),
-    sh: (val) => clamp(val, 0, 10000),
-    g: (val) => (typeof val === 'string' && val.length < 2 * 1024 * 1024 ? val : '')
+const sanitizeBoolean = (value) => !!value;
+
+const sanitizeFloatArray = (value, {
+  min = MIN_COORD,
+  max = MAX_COORD,
+  maxLength = MAX_PATH_VALUES,
+  requireEvenLength = false
+} = {}) => {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+
+  for (const item of value) {
+    const num = Number(item);
+    if (!Number.isFinite(num)) continue;
+    out.push(Math.min(Math.max(num, min), max));
+    if (out.length >= maxLength) break;
   }
+
+  if (requireEvenLength && out.length % 2 !== 0) {
+    out.pop();
+  }
+
+  return out;
 };
 
-/**
- * Sanitizes a message object by applying validation rules based on its type.
- * @param {Object} data - The message data to sanitize.
- * @returns {Object} - A new object containing only sanitized fields.
- */
-export function sanitizeMessage(data) {
-  const rules = VALIDATION_RULES[data.t];
-  if (!rules) return data;
+const sanitizeUintArray = (value, { max = 0xffffffff, maxLength = MAX_TILE_LIST } = {}) => {
+  if (!Array.isArray(value)) return [];
+  const out = [];
 
-  const sanitized = { ...data };
-  for (const field in rules) {
-    if (sanitized[field] !== undefined) {
-      sanitized[field] = rules[field](sanitized[field]);
+  for (const item of value) {
+    const num = Number(item);
+    if (!Number.isInteger(num) || num < 0) continue;
+    out.push(Math.min(num, max));
+    if (out.length >= maxLength) break;
+  }
+
+  return out;
+};
+
+const sanitizeBlendMode = (value) => {
+  const blendMode = sanitizeString(value, 32);
+  return VALID_BLEND_MODES.has(blendMode) ? blendMode : 'source-over';
+};
+
+const sanitizeImageRect = (data) => ({
+  sx: clampInt(data.sx, MIN_COORD, MAX_COORD, 0),
+  sy: clampInt(data.sy, MIN_COORD, MAX_COORD, 0),
+  sw: clampInt(data.sw, 0, MAX_DIMENSION, 0),
+  sh: clampInt(data.sh, 0, MAX_DIMENSION, 0)
+});
+
+function sanitizeStrokeRecord(record) {
+  if (!record || typeof record !== 'object') return null;
+
+  let img = record.img;
+  if (img && typeof img === 'object' && !Buffer.isBuffer(img) && !(img instanceof Uint8Array)) {
+    img = null;
+  }
+  if (img && img.length > MAX_SYNC_IMAGE_BYTES) {
+    return null;
+  }
+
+  return {
+    img,
+    userId: clampInt(record.userId, 0, 65535, 0),
+    x: clampInt(record.x, MIN_COORD, MAX_COORD, 0),
+    y: clampInt(record.y, MIN_COORD, MAX_COORD, 0),
+    width: clampInt(record.width, 0, MAX_DIMENSION, 0),
+    height: clampInt(record.height, 0, MAX_DIMENSION, 0),
+    blendMode: sanitizeBlendMode(record.blendMode),
+    timestamp: Number.isFinite(Number(record.timestamp)) ? Number(record.timestamp) : 0,
+    isRedo: sanitizeBoolean(record.isRedo),
+    redoBatch: clampInt(record.redoBatch, 0, 10000, 0),
+    layerIdx: clampInt(record.layerIdx, 0, MAX_LAYER_INDEX, 0),
+    affectedTiles: sanitizeUintArray(record.affectedTiles, { max: 1_000_000, maxLength: MAX_TILE_LIST }),
+    eraseAll: sanitizeBoolean(record.eraseAll)
+  };
+}
+
+/**
+ * Validates and sanitizes a decoded protobuf/JSON message.
+ * Returns `null` when the message violates server policy.
+ *
+ * @param {Record<string, any>} data
+ * @returns {Promise<Record<string, any>|null>}
+ */
+export async function sanitizeMessage(data) {
+  if (!data || typeof data !== 'object') return null;
+
+  const type = Number(data.t);
+  if (!Number.isInteger(type) || !VALID_MESSAGE_TYPES.has(type)) return null;
+
+  const sanitized = { t: type };
+
+  switch (type) {
+    case T.CONNECT:
+      sanitized.n = sanitizeString(data.n, MAX_NAME_LENGTH);
+      return sanitized;
+
+    case T.MM:
+    case T.MD: {
+      sanitized.ps = sanitizeFloatArray(data.ps, { requireEvenLength: true });
+      if (!sanitized.ps.length) return null;
+      if (Array.isArray(data.rs)) {
+        sanitized.rs = sanitizeFloatArray(data.rs, {
+          min: 0,
+          max: MAX_BRUSH_SIZE,
+          maxLength: Math.min(512, sanitized.ps.length / 2)
+        });
+      }
+      return sanitized;
+    }
+
+    case T.MU:
+    case T.CLR:
+    case T.MIR:
+    case T.CANCEL:
+    case T.HIDE_CURSOR:
+    case T.SHOW_CURSOR:
+    case T.UNDO:
+    case T.REDO:
+    case T.ROOM_LIST_REQUEST:
+    case T.ROOM_REGISTER:
+    case T.ROOM_UNREGISTER:
+    case T.ROOM_ROLE_LIST_REQUEST:
+    case T.PING:
+    case T.PONG:
+      return sanitized;
+
+    case T.CS:
+      sanitized.s = clampInt(data.s, MIN_BRUSH_SIZE, MAX_BRUSH_SIZE, 1000);
+      return sanitized;
+
+    case T.CSP:
+      sanitized.sp = clampInt(data.sp, 0, MAX_SPACING, 10);
+      return sanitized;
+
+    case T.CSM:
+      sanitized.sm = clampInt(data.sm, 0, MAX_SMOOTHING, 15);
+      return sanitized;
+
+    case T.CHD:
+      sanitized.hd = clampInt(data.hd, 0, MAX_HARDNESS, 100);
+      return sanitized;
+
+    case T.CBR:
+      sanitized.br = clampInt(data.br, 0, MAX_BLUR_RADIUS, 5);
+      return sanitized;
+
+    case T.CP:
+      sanitized.p = clampInt(data.p, 0, MAX_PRESSURE, 100);
+      return sanitized;
+
+    case T.CC:
+      sanitized.c = Number.isInteger(data.c) ? data.c >>> 0 : 0;
+      return sanitized;
+
+    case T.CT:
+      sanitized.l = clampInt(data.l, 0, Object.keys(Tool).length - 1, Tool.BRUSH);
+      return sanitized;
+
+    case T.CL:
+      sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
+      return sanitized;
+
+    case T.CBM:
+      sanitized.bm = sanitizeBlendMode(data.bm);
+      return sanitized;
+
+    case T.CN:
+      sanitized.n = sanitizeString(data.n, MAX_NAME_LENGTH);
+      return sanitized;
+
+    case T.AFK:
+    case T.PAN:
+      sanitized.a = sanitizeBoolean(data.a);
+      return sanitized;
+
+    case T.MSG:
+      sanitized.g = sanitizeString(data.g, MAX_CHAT_LENGTH, { trim: true });
+      return sanitized.g ? sanitized : null;
+
+    case T.DM:
+      sanitized.g = sanitizeString(data.g, MAX_CHAT_LENGTH, { trim: true });
+      sanitized.r = clampInt(data.r, 0, 65535, 0);
+      return sanitized.g ? sanitized : null;
+
+    case T.KP:
+      sanitized.k = sanitizeString(data.k, 20, { trim: false });
+      return sanitized.k ? sanitized : null;
+
+    case T.GMP:
+    case T.GPT:
+    case T.SEL_TO_BRUSH:
+      sanitized.g = sanitizeString(data.g, MAX_BRUSH_DATA_LENGTH, { trim: false });
+      return sanitized.g ? sanitized : null;
+
+    case T.CPM:
+      sanitized.pm = sanitizeBoolean(data.pm);
+      return sanitized;
+
+    case T.SEL_PENDING:
+      Object.assign(sanitized, sanitizeImageRect(data));
+      if (Array.isArray(data.ps)) {
+        sanitized.ps = sanitizeFloatArray(data.ps, {
+          requireEvenLength: true,
+          maxLength: MAX_SELECTION_POINTS
+        });
+      }
+      return sanitized;
+
+    case T.SEL_MOVE:
+      sanitized.cr = sanitizeFloatArray(data.cr, {
+        requireEvenLength: true,
+        maxLength: 8
+      });
+      return sanitized.cr.length === 8 ? sanitized : null;
+
+    case T.SEL_COMMIT:
+    case T.SEL_DELETE:
+    case T.SEL_STAMP:
+    case T.SEL_CANCEL:
+    case T.SEL_FLIP:
+      if (data.ly !== undefined) sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
+      return sanitized;
+
+    case T.SEL_FILL:
+      sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
+      sanitized.c = Number.isInteger(data.c) ? data.c >>> 0 : 0;
+      return sanitized;
+
+    case T.FILL:
+      sanitized.sx = clampInt(data.sx, MIN_COORD, MAX_COORD, 0);
+      sanitized.sy = clampInt(data.sy, MIN_COORD, MAX_COORD, 0);
+      sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
+      sanitized.s = clampInt(data.s, -MAX_BRUSH_SIZE, MAX_BRUSH_SIZE, 0);
+      sanitized.br = clampInt(data.br, 0, MAX_BLUR_RADIUS, 0);
+      return sanitized;
+
+    case T.SYNC_REQUEST:
+      if (data.tu !== undefined) sanitized.tu = clampInt(data.tu, 0, 65535, 0);
+      return sanitized;
+
+    case T.CTHN:
+      sanitized.th = clampInt(data.th, 0, 100, 51);
+      return sanitized;
+
+    case T.CSIM:
+      sanitized.sim = clampInt(data.sim, 0, 2, 2);
+      return sanitized;
+
+    case T.ROOM_PREVIEW: {
+      const previewValidation = await validateImageBytes(data.img, {
+        maxBytes: MAX_ROOM_PREVIEW_BYTES,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        maxPixels: 1_048_576,
+        allowedMimeTypes: new Set(['image/png']),
+        mimeTypeHint: 'image/png'
+      });
+      if (!previewValidation.ok) return null;
+      sanitized.img = new Uint8Array(previewValidation.buffer);
+      return sanitized;
+    }
+
+    case T.ROOM_UPDATE:
+      if (data.roomDescription !== undefined) {
+        sanitized.roomDescription = sanitizeString(data.roomDescription, MAX_ROOM_DESCRIPTION_LENGTH);
+      }
+      if (data.roomBackgroundColor !== undefined) {
+        const color = sanitizeString(data.roomBackgroundColor, 7);
+        if (!/^#[0-9a-f]{6}$/i.test(color)) return null;
+        sanitized.roomBackgroundColor = color;
+      }
+      if (data.roomLocked !== undefined) sanitized.roomLocked = sanitizeBoolean(data.roomLocked);
+      if (data.roomModInactiveImmune !== undefined) sanitized.roomModInactiveImmune = sanitizeBoolean(data.roomModInactiveImmune);
+      if (data.roomAutoMuteGuests !== undefined) sanitized.roomAutoMuteGuests = sanitizeBoolean(data.roomAutoMuteGuests);
+      if (data.roomMaxUsers !== undefined) sanitized.roomMaxUsers = clampInt(data.roomMaxUsers, 2, MAX_ROOM_USERS, 40);
+      if (data.roomJoinPolicy !== undefined) {
+        const joinPolicy = sanitizeString(data.roomJoinPolicy, 16);
+        sanitized.roomJoinPolicy = VALID_JOIN_POLICIES.has(joinPolicy) ? joinPolicy : 'open';
+      }
+      return sanitized;
+
+    case T.MIRROR_REGION:
+      sanitized.mirrorRegionsJson = sanitizeString(data.mirrorRegionsJson, MAX_MIRROR_REGION_PAYLOAD, { trim: false });
+      return sanitized.mirrorRegionsJson ? sanitized : null;
+
+    case T.MOD_ACTION:
+      sanitized.modActionType = clampInt(data.modActionType, 0, 5, 0);
+      sanitized.modTarget = clampInt(data.modTarget, 0, 65535, 0);
+      sanitized.modReason = sanitizeString(data.modReason, MAX_MOD_REASON_LENGTH);
+      sanitized.modDuration = clampInt(data.modDuration, 0, MAX_DURATION_MINUTES, 0);
+      sanitized.modTargetName = sanitizeString(data.modTargetName, MAX_NAME_LENGTH);
+      return sanitized;
+
+    case T.MOD_WIPE:
+      sanitized.modTarget = clampInt(data.modTarget, 0, 65535, 0);
+      sanitized.modTargetName = sanitizeString(data.modTargetName, MAX_NAME_LENGTH);
+      return sanitized;
+
+    case T.ROOM_ROLE_SET:
+      sanitized.roomRoleTargetId = sanitizeString(data.roomRoleTargetId, MAX_AUTH_STRING_LENGTH);
+      sanitized.roomRoleTargetName = sanitizeString(data.roomRoleTargetName, MAX_USERNAME_LOOKUP_LENGTH);
+      sanitized.roomRoleValue = clampInt(data.roomRoleValue, 0, 5, 0);
+      return sanitized;
+
+    case T.AUTH_LOGIN:
+      if (data.authUsername !== undefined) sanitized.authUsername = sanitizeString(data.authUsername, MAX_USERNAME_LOOKUP_LENGTH);
+      if (data.authPassword !== undefined) sanitized.authPassword = sanitizeString(data.authPassword, MAX_AUTH_STRING_LENGTH, { trim: false });
+      if (data.authToken !== undefined) sanitized.authToken = sanitizeString(data.authToken, MAX_AUTH_TOKEN_LENGTH, { trim: false });
+      if (!sanitized.authToken && !(sanitized.authUsername && sanitized.authPassword)) return null;
+      return sanitized;
+
+    case T.AUTH_REGISTER:
+      sanitized.authUsername = sanitizeString(data.authUsername, MAX_USERNAME_LOOKUP_LENGTH);
+      sanitized.authPassword = sanitizeString(data.authPassword, MAX_AUTH_STRING_LENGTH, { trim: false });
+      sanitized.authEmail = sanitizeString(data.authEmail, MAX_AUTH_STRING_LENGTH);
+      sanitized.authSecretQuestion = sanitizeString(data.authSecretQuestion, MAX_SECRET_QUESTION_LENGTH);
+      sanitized.authSecretAnswer = sanitizeString(data.authSecretAnswer, MAX_AUTH_STRING_LENGTH, { trim: false });
+      if (!sanitized.authUsername || !sanitized.authPassword) return null;
+      return sanitized;
+
+    case T.TILE_UPDATE:
+      if (!Array.isArray(data.tiles)) return null;
+      sanitized.tiles = data.tiles
+        .slice(0, MAX_TILE_LIST)
+        .map((entry) => {
+          if (typeof entry === 'number') {
+            return clampInt(entry, 0, 1_000_000, 0);
+          }
+          if (!entry || typeof entry !== 'object') return null;
+          return {
+            idx: clampInt(entry.idx, 0, 1_000_000, 0),
+            users: sanitizeUintArray(entry.users, { max: 65535, maxLength: 32 })
+          };
+        })
+        .filter((entry) => entry !== null);
+      return sanitized;
+
+    case T.TILE_CLEAR:
+      sanitized.clearedTiles = sanitizeUintArray(data.clearedTiles, { max: 1_000_000, maxLength: MAX_TILE_LIST });
+      return sanitized.clearedTiles.length ? sanitized : null;
+
+    case T.SYNC_CANVAS:
+    case T.SYNC_LAYER_BASE:
+    case T.SYNC_STROKE: {
+      sanitized.tu = clampInt(data.tu, 0, 65535, 0);
+      if (type === T.SYNC_LAYER_BASE || type === T.SYNC_STROKE) {
+        sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
+        sanitized.bm = sanitizeBlendMode(data.bm);
+      }
+      if (type === T.SYNC_STROKE) {
+        sanitized.u = clampInt(data.u, 0, 65535, 0);
+        Object.assign(sanitized, sanitizeImageRect(data));
+        sanitized.strokeTs = Number.isFinite(Number(data.strokeTs ?? data.stroke_ts)) ? Number(data.strokeTs ?? data.stroke_ts) : 0;
+        sanitized.strokeRedo = sanitizeBoolean(data.strokeRedo ?? data.stroke_redo);
+        sanitized.strokeRedoBatch = clampInt(data.strokeRedoBatch ?? data.stroke_redo_batch, 0, 10000, 0);
+        sanitized.a = sanitizeBoolean(data.a);
+      }
+
+      const syncValidation = await validateImageBytes(data.img, {
+        maxBytes: MAX_SYNC_IMAGE_BYTES,
+        maxWidth: MAX_INLINE_IMAGE_WIDTH,
+        maxHeight: MAX_INLINE_IMAGE_HEIGHT,
+        maxPixels: MAX_SYNC_IMAGE_PIXELS,
+        allowedMimeTypes: new Set(['image/png']),
+        mimeTypeHint: 'image/png'
+      });
+      if (!syncValidation.ok) return null;
+      sanitized.img = new Uint8Array(syncValidation.buffer);
+      return sanitized;
+    }
+
+    case T.SYNC_METADATA:
+      sanitized.tu = clampInt(data.tu, 0, 65535, 0);
+      sanitized.syncTotal = clampInt(data.syncTotal ?? data.sync_total, 0, 50000, 0);
+      return sanitized;
+
+    case T.SYNC_STROKE_BATCH:
+      sanitized.tu = clampInt(data.tu, 0, 65535, 0);
+      sanitized.layerIdx = clampInt(data.layerIdx, 0, MAX_LAYER_INDEX, 0);
+      if (!Array.isArray(data.strokes) || data.strokes.length === 0) return null;
+      sanitized.strokes = data.strokes
+        .slice(0, MAX_SYNC_BATCH_STROKES)
+        .map(sanitizeStrokeRecord)
+        .filter(Boolean);
+      return sanitized.strokes.length ? sanitized : null;
+
+    case T.SYNC_STROKES_DONE:
+      sanitized.tu = clampInt(data.tu, 0, 65535, 0);
+      return sanitized;
+
+    case T.SYNC_TILE_OWNERSHIP:
+      sanitized.tu = clampInt(data.tu, 0, 65535, 0);
+      sanitized.tiles = sanitizeUintArray(data.tiles || data.dirtyTiles, { max: 1_000_000, maxLength: MAX_TILE_LIST });
+      return sanitized;
+
+    case T.CHAT_IMG: {
+      const imageValidation = await validateImageBytes(data.cimg, {
+        maxBytes: MAX_CHAT_IMAGE_BYTES,
+        maxWidth: 4096,
+        maxHeight: 4096,
+        maxPixels: 8_388_608,
+        allowedMimeTypes: CHAT_IMAGE_MIME_TYPES
+      });
+      if (!imageValidation.ok) return null;
+      sanitized.cimg = new Uint8Array(imageValidation.buffer);
+      if (data.r !== undefined) sanitized.r = clampInt(data.r, 0, 65535, 0);
+      return sanitized;
     }
   }
+
+  if (IMAGE_MESSAGE_TYPES.has(type)) {
+    Object.assign(sanitized, sanitizeImageRect(data));
+    if (Array.isArray(data.cr)) {
+      sanitized.cr = sanitizeFloatArray(data.cr, {
+        requireEvenLength: true,
+        maxLength: MAX_SELECTION_POINTS
+      });
+    }
+
+    const imageValidation = await validateDataUrlImage(data.g, {
+      maxBytes: MAX_INLINE_IMAGE_BYTES,
+      maxWidth: MAX_INLINE_IMAGE_WIDTH,
+      maxHeight: MAX_INLINE_IMAGE_HEIGHT,
+      maxPixels: MAX_INLINE_IMAGE_PIXELS,
+      allowedMimeTypes: INLINE_IMAGE_MIME_TYPES,
+      maxDataUrlLength: 3 * 1024 * 1024
+    });
+    if (!imageValidation.ok) return null;
+    sanitized.g = data.g;
+    return sanitized;
+  }
+
   return sanitized;
 }

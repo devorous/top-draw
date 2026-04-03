@@ -2,6 +2,7 @@
 
 import { getDB } from './db.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
+import { getClientIp, httpRateLimiter } from './security.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -9,15 +10,28 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
+const AUTH_BODY_LIMIT = 16 * 1024;
+const LOGIN_RATE_LIMIT = { max: 10, windowMs: 5 * 60 * 1000, blockMs: 15 * 60 * 1000 };
+const REGISTER_RATE_LIMIT = { max: 5, windowMs: 15 * 60 * 1000, blockMs: 30 * 60 * 1000 };
+const VALID_USERNAME_RE = /^[a-zA-Z0-9_-]{2,20}$/;
+
 function json(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json', ...CORS_HEADERS });
   res.end(JSON.stringify(body));
 }
 
-async function readBody(req) {
+async function readBody(req, maxBytes = AUTH_BODY_LIMIT) {
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', chunk => { data += chunk.toString(); });
+    let size = 0;
+    req.on('data', chunk => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(new Error('Payload too large'));
+        return;
+      }
+      data += chunk.toString();
+    });
     req.on('end', () => resolve(data));
     req.on('error', reject);
   });
@@ -32,14 +46,24 @@ export async function handleAuthLogin(req, res) {
   const db = getDB();
   if (!db) return json(res, 503, { success: false, error: 'Database not available' });
 
+  const clientIp = getClientIp(req);
+  const loginLimit = httpRateLimiter.consume(`auth:login:${clientIp}`, LOGIN_RATE_LIMIT);
+  if (!loginLimit.allowed) {
+    return json(res, 429, { success: false, error: 'Too many login attempts. Please try again later.' });
+  }
+
   let body;
   try {
     body = JSON.parse(await readBody(req));
-  } catch {
+  } catch (err) {
+    if (err?.message === 'Payload too large') {
+      return json(res, 413, { success: false, error: 'Request body too large' });
+    }
     return json(res, 400, { success: false, error: 'Invalid request body' });
   }
 
-  const { username, password } = body;
+  const username = typeof body.username === 'string' ? body.username.trim() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
   if (!username || !password) {
     return json(res, 400, { success: false, error: 'Username and password required' });
   }
@@ -58,6 +82,16 @@ export async function handleAuthLogin(req, res) {
     if (!valid) {
       return json(res, 401, { success: false, error: 'Invalid username or password' });
     }
+
+    const ipHistory = Array.isArray(user.ipHistory) ? user.ipHistory.slice(0, 19) : [];
+    if (clientIp && !ipHistory.includes(clientIp)) {
+      ipHistory.push(clientIp);
+    }
+
+    await db.collection('users').updateOne(
+      { _id: user._id },
+      { $set: { lastLoginAt: new Date(), lastIp: clientIp, ipHistory } }
+    );
 
     const token = generateToken({
       userId: user._id.toString(),
@@ -86,25 +120,42 @@ export async function handleAuthRegister(req, res) {
   const db = getDB();
   if (!db) return json(res, 503, { success: false, error: 'Database not available' });
 
+  const clientIp = getClientIp(req);
+  const registerLimit = httpRateLimiter.consume(`auth:register:${clientIp}`, REGISTER_RATE_LIMIT);
+  if (!registerLimit.allowed) {
+    return json(res, 429, { success: false, error: 'Too many registration attempts. Please try again later.' });
+  }
+
   let body;
   try {
     body = JSON.parse(await readBody(req));
-  } catch {
+  } catch (err) {
+    if (err?.message === 'Payload too large') {
+      return json(res, 413, { success: false, error: 'Request body too large' });
+    }
     return json(res, 400, { success: false, error: 'Invalid request body' });
   }
 
-  const { username, password, email, secretQuestion, secretAnswer } = body;
+  const username = typeof body.username === 'string' ? body.username.trim() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+  const email = typeof body.email === 'string' ? body.email.trim() : '';
+  const secretQuestion = typeof body.secretQuestion === 'string' ? body.secretQuestion.trim() : '';
+  const secretAnswer = typeof body.secretAnswer === 'string' ? body.secretAnswer.trim() : '';
+
   if (!username || !password) {
     return json(res, 400, { success: false, error: 'Username and password required' });
   }
 
-  // Validate username format
-  if (!/^[a-zA-Z0-9_-]{2,20}$/.test(username)) {
+  if (!VALID_USERNAME_RE.test(username)) {
     return json(res, 400, { success: false, error: 'Username must be 2-20 characters (letters, numbers, _ -)' });
   }
 
-  if (password.length < 4) {
-    return json(res, 400, { success: false, error: 'Password must be at least 4 characters' });
+  if (password.length < 6) {
+    return json(res, 400, { success: false, error: 'Password must be at least 6 characters' });
+  }
+
+  if (secretQuestion && !secretAnswer) {
+    return json(res, 400, { success: false, error: 'Secret answer is required when providing a secret question' });
   }
 
   try {
@@ -118,6 +169,7 @@ export async function handleAuthRegister(req, res) {
     }
 
     const passwordHash = await hashPassword(password);
+    const secretAnswerHash = secretAnswer ? await hashPassword(secretAnswer.toLowerCase()) : null;
 
     // Check if this is the first user (auto-promote to DEITY)
     const userCount = await db.collection('users').countDocuments();
@@ -128,9 +180,12 @@ export async function handleAuthRegister(req, res) {
       passwordHash,
       email: email || null,
       secretQuestion: secretQuestion || null,
-      secretAnswer: secretAnswer || null,
+      secretAnswerHash,
       role,
       createdAt: new Date(),
+      lastLoginAt: new Date(),
+      lastIp: clientIp,
+      ipHistory: clientIp ? [clientIp] : []
     };
 
     const result = await db.collection('users').insertOne(doc);

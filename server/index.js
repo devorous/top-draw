@@ -21,11 +21,25 @@ import { RoomManager } from './RoomManager.js';
 import { sanitizeMessage } from './validation.js';
 import { authorize, Action } from './permissions.js';
 import { getRoomRole, setRoomRole, computeEffectiveRole, getRoomRoleRoster } from './roomRoles.js';
+import { getClientIp, httpRateLimiter, messengerRateLimiter, wsRateLimiter } from './security.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 8000;
+const MAX_WS_PAYLOAD_BYTES = 16 * 1024 * 1024;
+const MESSENGER_QUERY_LIMIT = { max: 30, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
+const WS_CONNECTION_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 10 * 60 * 1000 };
+const MESSENGER_CONNECTION_LIMIT = { max: 20, windowMs: 60 * 1000, blockMs: 10 * 60 * 1000 };
+const MESSENGER_MESSAGE_LIMIT = { max: 120, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
+const WS_DRAW_LIMIT = { max: 600, windowMs: 10 * 1000, blockMs: 15 * 1000 };
+const WS_CHAT_LIMIT = { max: 20, windowMs: 10 * 1000, blockMs: 30 * 1000 };
+const WS_CHAT_IMAGE_LIMIT = { max: 4, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
+const WS_HEAVY_IMAGE_LIMIT = { max: 8, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
+const WS_AUTH_LIMIT = { max: 8, windowMs: 10 * 60 * 1000, blockMs: 15 * 60 * 1000 };
+const WS_ADMIN_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
+const VALID_ROOM_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+const VALID_USERNAME_RE = /^[a-zA-Z0-9_-]{2,20}$/;
 const ROOM_JOIN_POLICIES = new Set(['open', 'registered', 'trusted']);
 const ADMIN_COLLECTIONS = new Set([
   'users',
@@ -44,6 +58,92 @@ function getJoinPolicyMinRole(joinPolicy) {
   return Role.GUEST;
 }
 
+function sanitizeRoomId(roomId) {
+  const normalized = String(roomId || 'default').trim();
+  return VALID_ROOM_ID_RE.test(normalized) ? normalized : 'default';
+}
+
+function rateLimitKey(prefix, ip, suffix = '') {
+  return suffix ? `${prefix}:${ip}:${suffix}` : `${prefix}:${ip}`;
+}
+
+function shouldAllowWsMessage(ws, data) {
+  const ip = ws.clientIp || 'unknown';
+  let config = WS_DRAW_LIMIT;
+  let suffix = 'default';
+
+  switch (data.t) {
+    case T.MM:
+    case T.MD:
+    case T.MU:
+    case T.CP:
+    case T.CS:
+    case T.CSP:
+    case T.CSM:
+    case T.CHD:
+    case T.CBR:
+    case T.CC:
+    case T.CT:
+    case T.CL:
+    case T.CBM:
+    case T.KP:
+    case T.FILL:
+      suffix = 'draw';
+      config = WS_DRAW_LIMIT;
+      break;
+
+    case T.MSG:
+    case T.DM:
+      suffix = 'chat';
+      config = WS_CHAT_LIMIT;
+      break;
+
+    case T.CHAT_IMG:
+      suffix = 'chatimg';
+      config = WS_CHAT_IMAGE_LIMIT;
+      break;
+
+    case T.IMG_PASTE:
+    case T.SEL_LIFT:
+    case T.GLITCH_RESULT:
+    case T.ROOM_PREVIEW:
+    case T.SYNC_CANVAS:
+    case T.SYNC_LAYER_BASE:
+    case T.SYNC_STROKE:
+    case T.SYNC_STROKE_BATCH:
+      suffix = 'heavy';
+      config = WS_HEAVY_IMAGE_LIMIT;
+      break;
+
+    case T.AUTH_LOGIN:
+    case T.AUTH_REGISTER:
+      suffix = 'auth';
+      config = WS_AUTH_LIMIT;
+      break;
+
+    case T.MOD_ACTION:
+    case T.MOD_WIPE:
+    case T.MOD_LIST:
+    case T.ROOM_UPDATE:
+    case T.ROOM_ROLE_SET:
+    case T.ROOM_ROLE_LIST_REQUEST:
+    case T.ROOM_REGISTER:
+    case T.ROOM_UNREGISTER:
+      suffix = 'admin';
+      config = WS_ADMIN_LIMIT;
+      break;
+  }
+
+  const limiterScope = suffix === 'auth' ? ip : (ws.rateLimitId || ip);
+  return wsRateLimiter.consume(rateLimitKey('wsmsg', limiterScope, suffix), config).allowed;
+}
+
+function isValidMessengerRoomId(roomId, currentUserId, otherUserId) {
+  if (!roomId || !currentUserId || !otherUserId) return false;
+  const [a, b] = [String(currentUserId), String(otherUserId)].sort();
+  return roomId === `${a}:${b}`;
+}
+
 function json(res, status, payload) {
   res.writeHead(status, {
     'Content-Type': 'application/json',
@@ -58,7 +158,7 @@ async function getAdminHttpUser(req) {
   if (!token) return null;
 
   const decoded = verifyToken(token);
-  if (!decoded?.userId) return null;
+  if (!decoded?.userId || !ObjectId.isValid(decoded.userId)) return null;
 
   const db = getDB();
   if (!db) return null;
@@ -222,14 +322,22 @@ const server = createServer(async (req, res) => {
 
   // Messenger: check if a username exists
   if (path === '/api/messenger/check-user' && req.method === 'GET') {
-    const username = new URL(req.url, `http://${req.headers.host}`).searchParams.get('username');
+    const clientIp = getClientIp(req);
+    const lookupLimit = httpRateLimiter.consume(rateLimitKey('messenger:lookup', clientIp), MESSENGER_QUERY_LIMIT);
     const corsHeaders = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+    if (!lookupLimit.allowed) {
+      res.writeHead(429, corsHeaders);
+      res.end(JSON.stringify({ exists: false, error: 'Too many lookup requests' }));
+      return;
+    }
+
+    const username = new URL(req.url, `http://${req.headers.host}`).searchParams.get('username');
     if (!username) { res.writeHead(400, corsHeaders); res.end(JSON.stringify({ exists: false })); return; }
     try {
       const db = getDB();
       const user = await db.collection('users').findOne(
-        { username: { $regex: new RegExp(`^${username}$`, 'i') } },
-        { projection: { username: 1 } }
+        { username: String(username).trim() },
+        { projection: { username: 1 }, collation: { locale: 'en', strength: 2 } }
       );
       res.writeHead(200, corsHeaders);
       res.end(JSON.stringify({ exists: !!user, username: user?.username || null }));
@@ -314,7 +422,7 @@ server.on('error', (err) => {
   console.error('[HTTP Server] Error:', err);
 });
 
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, maxPayload: MAX_WS_PAYLOAD_BYTES });
 
 wss.on('error', (err) => {
   console.error('[WebSocket Server] Error:', err);
@@ -326,19 +434,6 @@ let roomManager;
 
 // Messenger: username -> WebSocket
 const messengerClients = new Map();
-
-/**
- * Extracts the client's IP address from the request, handling proxies.
- * @param {Object} req - The HTTP request object.
- * @returns {string} - The client's IP address.
- */
-function getClientIp(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded) {
-    return forwarded.split(',')[0].trim();
-  }
-  return req.socket.remoteAddress || '';
-}
 
 /**
  * Generates an obfuscated hash from an IP address.
@@ -393,7 +488,7 @@ function mapUsersForBroadcast(users) {
  * @returns {boolean} - True if valid, false otherwise.
  */
 function isValidUsername(username) {
-  return /^[a-zA-Z0-9_]{1,20}$/.test(username);
+  return VALID_USERNAME_RE.test(username);
 }
 
 /**
@@ -883,26 +978,60 @@ wss.on('connection', (ws, req) => {
 
   // Fork: messenger connections use /messenger path
   if (url.pathname === '/messenger') {
-    const userId = url.searchParams.get('userId');
-    if (!userId) { ws.close(); return; }
+    const clientIp = getClientIp(req);
+    const connectionLimit = messengerRateLimiter.consume(rateLimitKey('messenger:connect', clientIp), MESSENGER_CONNECTION_LIMIT);
+    if (!connectionLimit.allowed) {
+      ws.close(4408, 'Rate limit exceeded');
+      return;
+    }
 
-    messengerClients.set(userId, ws);
-    console.log(`[Messenger] ${userId} connected`);
+    const userId = String(url.searchParams.get('userId') || '').trim();
+    const token = String(url.searchParams.get('token') || '').trim();
+    const decoded = verifyToken(token);
+    if (!userId || !decoded?.username || decoded.username !== userId) {
+      ws.close(4401, 'Unauthorized');
+      return;
+    }
+
+    ws.clientIp = clientIp;
+    ws.userId = decoded.userId || null;
+    ws.username = decoded.username;
+
+    messengerClients.set(ws.username, ws);
+    console.log(`[Messenger] ${ws.username} connected`);
 
     ws.on('message', async (data) => {
       try {
-        const { type, payload } = JSON.parse(data);
+        const envelope = JSON.parse(data.toString());
+        const type = String(envelope?.type || '');
+        const payload = envelope?.payload && typeof envelope.payload === 'object' ? envelope.payload : {};
         const db = getDB();
+        if (!db || !type) return;
+
+        const actionLimit = messengerRateLimiter.consume(
+          rateLimitKey('messenger:message', clientIp, type),
+          MESSENGER_MESSAGE_LIMIT
+        );
+        if (!actionLimit.allowed) {
+          ws.close(4408, 'Rate limit exceeded');
+          return;
+        }
 
         if (type === 'init_chat') {
+          const roomId = String(payload.roomId || '').trim();
+          const participants = roomId.split(':');
+          if (participants.length !== 2 || !participants.includes(ws.username)) return;
+
           const history = await db.collection('messages')
-            .find({ room_id: payload.roomId })
-            .sort({ timestamp: -1 }).limit(50).toArray();
+            .find({ room_id: roomId })
+            .sort({ timestamp: -1 })
+            .limit(50)
+            .toArray();
           ws.send(JSON.stringify({ type: 'history', payload: history.reverse() }));
 
         } else if (type === 'get_inbox') {
           const inbox = await db.collection('messages').aggregate([
-            { $match: { $or: [{ sender_id: payload.userId }, { receiver_id: payload.userId }] } },
+            { $match: { $or: [{ sender_id: ws.username }, { receiver_id: ws.username }] } },
             { $sort: { timestamp: -1 } },
             { $group: { _id: '$room_id', latestMessage: { $first: '$$ROOT' } } },
             { $sort: { 'latestMessage.timestamp': -1 } }
@@ -910,12 +1039,27 @@ wss.on('connection', (ws, req) => {
           ws.send(JSON.stringify({ type: 'inbox', payload: inbox.map(i => i.latestMessage) }));
 
         } else if (type === 'send_message') {
-          const { room_id, sender_id, receiver_id, encrypted_content, iv } = payload;
-          const msgDoc = { room_id, sender_id, receiver_id, encrypted_content, iv, timestamp: Date.now() };
+          const receiverId = String(payload.receiver_id || '').trim();
+          const roomId = String(payload.room_id || '').trim();
+          const encryptedContent = String(payload.encrypted_content || '').trim();
+          const iv = String(payload.iv || '').trim();
+
+          if (!receiverId || !roomId || !encryptedContent || !iv) return;
+          if (receiverId.length > 32 || encryptedContent.length > 16384 || iv.length > 256) return;
+          if (!isValidMessengerRoomId(roomId, ws.username, receiverId)) return;
+
+          const msgDoc = {
+            room_id: roomId,
+            sender_id: ws.username,
+            receiver_id: receiverId,
+            encrypted_content: encryptedContent,
+            iv,
+            timestamp: Date.now()
+          };
           await db.collection('messages').insertOne(msgDoc);
 
-          if (messengerClients.has(receiver_id)) {
-            messengerClients.get(receiver_id).send(JSON.stringify({ type: 'new_message', payload: msgDoc }));
+          if (messengerClients.has(receiverId)) {
+            messengerClients.get(receiverId).send(JSON.stringify({ type: 'new_message', payload: msgDoc }));
           }
           ws.send(JSON.stringify({ type: 'new_message', payload: msgDoc }));
         }
@@ -925,8 +1069,8 @@ wss.on('connection', (ws, req) => {
     });
 
     ws.on('close', () => {
-      messengerClients.delete(userId);
-      console.log(`[Messenger] ${userId} disconnected`);
+      messengerClients.delete(ws.username);
+      console.log(`[Messenger] ${ws.username} disconnected`);
     });
 
     return;
@@ -937,14 +1081,21 @@ wss.on('connection', (ws, req) => {
     console.log(`[WS] New connection attempt from ${req.socket.remoteAddress}`);
 
     ws.clientIp = getClientIp(req);
+    const connectionLimit = wsRateLimiter.consume(rateLimitKey('ws:connect', ws.clientIp), WS_CONNECTION_LIMIT);
+    if (!connectionLimit.allowed) {
+      ws.close(4408, 'Rate limit exceeded');
+      return;
+    }
+
     ws.userRole = Role.GUEST;
     ws.globalRole = Role.GUEST;
     ws.roomRole = 0;
     ws.userId = null;
     ws.username = null;
     ws.isMuted = false;
+    ws.rateLimitId = crypto.randomUUID();
 
-    const roomId = url.searchParams.get('room') || 'default';
+    const roomId = sanitizeRoomId(url.searchParams.get('room'));
     console.log(`[Room] Parsed room ID: ${roomId}`);
 
     const room = roomManager.getOrCreateRoom(roomId);
@@ -985,7 +1136,18 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
-      data = sanitizeMessage(data);
+      data = await sanitizeMessage(data);
+      if (!data) {
+        console.warn(`[WS] Rejected invalid message from session ${ws.sessionIndex ?? 'unassigned'}`);
+        ws.close(1008, 'Invalid message');
+        return;
+      }
+
+      if (!shouldAllowWsMessage(ws, data)) {
+        console.warn(`[WS] Rate limited message from ${ws.clientIp} (type=${data.t})`);
+        ws.close(4408, 'Rate limit exceeded');
+        return;
+      }
 
       switch (data.t) {
         case T.CONNECT:
@@ -1110,7 +1272,7 @@ wss.on('connection', (ws, req) => {
           break;
 
         case T.SYNC_TILE_OWNERSHIP:
-          room.syncCoordinator.handleSyncTileOwnership(ws, data);
+          room.syncCoordinator.handleSyncDirtyTiles(ws, data);
           break;
 
         case T.TILE_UPDATE:
@@ -1907,6 +2069,12 @@ wss.on('connection', (ws, req) => {
             break;
           }
 
+          const registerLimit = wsRateLimiter.consume(rateLimitKey('wsauth:register', ws.clientIp), WS_AUTH_LIMIT);
+          if (!registerLimit.allowed) {
+            sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Too many registration attempts. Please try again later.' });
+            break;
+          }
+
           const regUsername = (data.authUsername || '').trim();
           const regPassword = data.authPassword || '';
           const regEmail = (data.authEmail || '').trim();
@@ -1914,7 +2082,7 @@ wss.on('connection', (ws, req) => {
           const regSecretAnswer = (data.authSecretAnswer || '').trim();
 
           if (!isValidUsername(regUsername)) {
-            sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Username must be 2-20 characters (letters, numbers, underscores)' });
+            sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Username must be 2-20 characters (letters, numbers, underscores or hyphens)' });
             break;
           }
           if (regPassword.length < 6) {
@@ -1998,18 +2166,23 @@ wss.on('connection', (ws, req) => {
             break;
           }
 
+          const loginLimit = wsRateLimiter.consume(rateLimitKey('wsauth:login', ws.clientIp), WS_AUTH_LIMIT);
+          if (!loginLimit.allowed) {
+            sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Too many login attempts. Please try again later.' });
+            break;
+          }
+
           try {
             let userDoc = null;
 
             if (data.authToken) {
               const decoded = verifyToken(data.authToken);
-              if (!decoded) {
+              if (!decoded?.userId || !ObjectId.isValid(decoded.userId)) {
                 console.log('[Auth] Token invalid/expired');
                 sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Invalid or expired token' });
                 break;
               }
 
-              const { ObjectId } = await import('mongodb');
               userDoc = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
               if (!userDoc) {
                 sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Account not found' });

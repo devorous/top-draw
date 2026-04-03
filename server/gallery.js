@@ -4,6 +4,8 @@ import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client
 import crypto from 'crypto';
 import { getDB } from './db.js';
 import { verifyToken } from './auth.js';
+import { INLINE_IMAGE_MIME_TYPES, validateDataUrlImage } from './imageValidation.js';
+import { getClientIp, httpRateLimiter } from './security.js';
 
 // Lazy-load sharp to avoid startup issues if not installed
 let sharp = null;
@@ -19,6 +21,14 @@ async function getSharp() {
 }
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_GALLERY_IMAGE_WIDTH = 8192;
+const MAX_GALLERY_IMAGE_HEIGHT = 8192;
+const MAX_GALLERY_IMAGE_PIXELS = 33_554_432;
+const JSON_BODY_LIMIT = MAX_IMAGE_BYTES + 65536;
+const GALLERY_UPLOAD_LIMIT = { max: 12, windowMs: 60 * 60 * 1000, blockMs: 15 * 60 * 1000 };
+const GALLERY_COMMENT_LIMIT = { max: 20, windowMs: 5 * 60 * 1000, blockMs: 10 * 60 * 1000 };
+const GALLERY_LIKE_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
+const GALLERY_FAVORITE_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
 
 const r2 = process.env.R2_ENDPOINT
   ? new S3Client({
@@ -49,13 +59,13 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-async function readBody(req) {
+async function readBody(req, maxBytes = JSON_BODY_LIMIT) {
   return new Promise((resolve, reject) => {
     let data = '';
     let size = 0;
     req.on('data', chunk => {
       size += chunk.length;
-      if (size > MAX_IMAGE_BYTES + 65536) {
+      if (size > maxBytes) {
         reject(new Error('Payload too large'));
         return;
       }
@@ -165,6 +175,12 @@ export async function handleGalleryList(req, res) {
  * Body: { imageData: "data:image/png;base64,...", title?: string, tags?: string[]|string }
  */
 export async function handleGalleryUpload(req, res) {
+  const clientIp = getClientIp(req);
+  const uploadLimit = httpRateLimiter.consume(`gallery:upload:${clientIp}`, GALLERY_UPLOAD_LIMIT);
+  if (!uploadLimit.allowed) {
+    return json(res, 429, { error: 'Too many uploads. Please try again later.' });
+  }
+
   // Auth
   const authHeader = req.headers['authorization'] || '';
   if (!authHeader.startsWith('Bearer ')) {
@@ -180,30 +196,40 @@ export async function handleGalleryUpload(req, res) {
   let body;
   try {
     body = JSON.parse(await readBody(req));
-  } catch {
+  } catch (err) {
+    if (err?.message === 'Payload too large') {
+      return json(res, 413, { error: 'Request body too large' });
+    }
     return json(res, 400, { error: 'Invalid request body' });
   }
 
   const { imageData, title, tags } = body;
-  if (!imageData || !imageData.startsWith('data:image/')) {
+  if (!imageData || typeof imageData !== 'string' || !imageData.startsWith('data:image/')) {
     return json(res, 400, { error: 'Missing or invalid imageData' });
   }
 
   const normalizedTags = normalizeTags(tags);
 
-  // Decode base64
-  const commaIdx = imageData.indexOf(',');
-  const header = imageData.slice(0, commaIdx);
-  const b64 = imageData.slice(commaIdx + 1);
-  const mimeMatch = header.match(/data:([^;]+)/);
-  const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
-  const buffer = Buffer.from(b64, 'base64');
-
-  if (buffer.length > MAX_IMAGE_BYTES) {
-    return json(res, 400, { error: 'Image too large (max 10 MB)' });
+  const imageValidation = await validateDataUrlImage(imageData, {
+    maxBytes: MAX_IMAGE_BYTES,
+    maxWidth: MAX_GALLERY_IMAGE_WIDTH,
+    maxHeight: MAX_GALLERY_IMAGE_HEIGHT,
+    maxPixels: MAX_GALLERY_IMAGE_PIXELS,
+    allowedMimeTypes: INLINE_IMAGE_MIME_TYPES,
+    maxDataUrlLength: Math.ceil(MAX_IMAGE_BYTES * 1.5) + 1024
+  });
+  if (!imageValidation.ok) {
+    return json(res, 400, { error: imageValidation.error || 'Invalid image upload' });
   }
 
-  const ext = mimeType === 'image/jpeg' ? 'jpg' : 'png';
+  const buffer = imageValidation.buffer;
+  const mimeType = imageValidation.mimeType || 'image/png';
+
+  const ext = mimeType === 'image/jpeg'
+    ? 'jpg'
+    : mimeType === 'image/webp'
+      ? 'webp'
+      : 'png';
   const id = crypto.randomUUID();
   const filename = `${id}.${ext}`;
   const thumbFilename = `${id}_thumb.${ext}`;
@@ -306,6 +332,11 @@ export async function handleGalleryItem(req, res, id) {
 export async function handleGalleryLike(req, res, id) {
   const db = getDB();
   if (!db) return json(res, 503, { error: 'Database not available' });
+  const clientIp = getClientIp(req);
+  const likeLimit = httpRateLimiter.consume(`gallery:like:${clientIp}`, GALLERY_LIKE_LIMIT);
+  if (!likeLimit.allowed) {
+    return json(res, 429, { error: 'Too many like requests. Please try again later.' });
+  }
 
   // Validate id is a 24-char hex string
   if (!/^[a-f0-9]{24}$/.test(id)) return json(res, 400, { error: 'Invalid id' });
@@ -331,6 +362,12 @@ export async function handleGalleryLike(req, res, id) {
  * Requires Authorization: Bearer <token>
  */
 export async function handleGalleryFavorite(req, res, id) {
+  const clientIp = getClientIp(req);
+  const favoriteLimit = httpRateLimiter.consume(`gallery:favorite:${clientIp}`, GALLERY_FAVORITE_LIMIT);
+  if (!favoriteLimit.allowed) {
+    return json(res, 429, { error: 'Too many favorite requests. Please try again later.' });
+  }
+
   const authHeader = req.headers['authorization'] || '';
   if (!authHeader.startsWith('Bearer ')) {
     return json(res, 401, { error: 'Authentication required' });
@@ -570,6 +607,12 @@ export async function handleGallerySidebar(req, res) {
  * Body: { text: string }
  */
 export async function handleGalleryCommentCreate(req, res, id) {
+  const clientIp = getClientIp(req);
+  const commentLimit = httpRateLimiter.consume(`gallery:comment:${clientIp}`, GALLERY_COMMENT_LIMIT);
+  if (!commentLimit.allowed) {
+    return json(res, 429, { error: 'Too many comments. Please try again later.' });
+  }
+
   const authHeader = req.headers['authorization'] || '';
   if (!authHeader.startsWith('Bearer ')) {
     return json(res, 401, { error: 'Authentication required' });
@@ -584,7 +627,10 @@ export async function handleGalleryCommentCreate(req, res, id) {
   let body;
   try {
     body = JSON.parse(await readBody(req));
-  } catch {
+  } catch (err) {
+    if (err?.message === 'Payload too large') {
+      return json(res, 413, { error: 'Request body too large' });
+    }
     return json(res, 400, { error: 'Invalid request body' });
   }
 
@@ -594,6 +640,15 @@ export async function handleGalleryCommentCreate(req, res, id) {
   }
 
   try {
+    const { ObjectId } = await import('mongodb');
+    const galleryItem = await db.collection('gallery').findOne(
+      { _id: new ObjectId(id) },
+      { projection: { _id: 1 } }
+    );
+    if (!galleryItem) {
+      return json(res, 404, { error: 'Item not found' });
+    }
+
     const doc = {
       galleryId: id,
       authorId: decoded.userId,

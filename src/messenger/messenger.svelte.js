@@ -1,5 +1,7 @@
 import { getRoomId, encryptMessage, decryptMessage, getMessageKey } from '../utils/crypto.js';
 
+const TOKEN_KEY = 'topDrawAuthToken';
+
 class MessengerState {
   messages = $state([]);
   inbox = $state([]); // [{ roomId, lastMessage, otherUserId }]
@@ -33,10 +35,17 @@ class MessengerState {
 
   async init(currentUserId, targetUser = null) {
     this.currentUserId = currentUserId;
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) {
+      this.isConnected = false;
+      return;
+    }
 
     const wsBase = import.meta.env.VITE_WS_SERVER_URL || 'ws://localhost:8000';
     const wsUrl = wsBase.replace(/\/$/, '');
-    this.ws = new WebSocket(`${wsUrl}/messenger?userId=${encodeURIComponent(currentUserId)}`);
+    this.ws = new WebSocket(
+      `${wsUrl}/messenger?userId=${encodeURIComponent(currentUserId)}&token=${encodeURIComponent(token)}`
+    );
     
     this.ws.onopen = () => {
       this.isConnected = true;

@@ -127,12 +127,13 @@ export class SyncCoordinator {
    */
   handleSyncMetadata(ws, data) {
     const targetUser = Number(data.tu);
-    console.log(`[Sync] Relaying metadata to user ${targetUser}, count:`, data.sync_total || data.syncTotal);
+    const syncTotal = Number(data.syncTotal ?? data.sync_total ?? 0);
+    console.log(`[Sync] Relaying metadata to user ${targetUser}, count:`, syncTotal);
     const client = this._findClient(targetUser);
     if (client) {
-      this.sendTo(client, { 
-        t: T.SYNC_METADATA, 
-        sync_total: data.sync_total || data.syncTotal 
+      this.sendTo(client, {
+        t: T.SYNC_METADATA,
+        syncTotal
       });
     }
   }
@@ -169,15 +170,15 @@ export class SyncCoordinator {
         t: T.SYNC_STROKE,
         u: data.u,
         ly: data.ly,
-        sx: data.sx, 
-        sy: data.sy, 
+        sx: data.sx,
+        sy: data.sy,
         sw: data.sw, 
         sh: data.sh,
         bm: data.bm,
-        stroke_ts: data.stroke_ts || data.strokeTs,
+        strokeTs: data.strokeTs ?? data.stroke_ts ?? 0,
         a: data.a,
-        stroke_redo: data.stroke_redo || data.strokeRedo,
-        stroke_redo_batch: data.stroke_redo_batch || data.strokeRedoBatch,
+        strokeRedo: data.strokeRedo ?? data.stroke_redo ?? false,
+        strokeRedoBatch: data.strokeRedoBatch ?? data.stroke_redo_batch ?? 0,
         img: data.img
       });
     }
@@ -215,7 +216,7 @@ export class SyncCoordinator {
       // Send server's authoritative dirty tile data
       const dirtyTiles = this.room?.getDirtyTilesForSync();
       if (dirtyTiles && dirtyTiles.length > 0) {
-        this.sendTo(client, { t: T.SYNC_TILE_OWNERSHIP, dirtyTiles });
+        this.sendTo(client, { t: T.SYNC_TILE_OWNERSHIP, tiles: dirtyTiles });
         console.log(`[Sync] Sent ${dirtyTiles.length} dirty tile entries to user ${targetUser}`);
       }
 
@@ -237,7 +238,7 @@ export class SyncCoordinator {
     if (client) {
       this.sendTo(client, {
         t: T.SYNC_TILE_OWNERSHIP,
-        dirtyTiles: data.dirtyTiles || data.tiles
+        tiles: data.tiles || data.dirtyTiles || []
       });
     }
   }

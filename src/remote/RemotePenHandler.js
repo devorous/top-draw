@@ -184,7 +184,8 @@ export class RemotePenHandler {
       });
     }
 
-    const layerCtx = this.board.layerManager.getLayerContext(user.activeLayer, user.id);
+    const strokeLayer = user._strokeLayer ?? user.activeLayer;
+    const layerCtx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id);
     if (layerCtx) {
       layerCtx.globalCompositeOperation = 'source-over';
       layerCtx.globalAlpha = user._penAlpha;
