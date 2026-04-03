@@ -45,6 +45,7 @@ COPY --from=builder /app/server ./server
 COPY --from=builder /app/shared ./shared
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/src/wasm ./src/wasm
+COPY --from=builder /app/data ./data
 
 EXPOSE 8000
 
