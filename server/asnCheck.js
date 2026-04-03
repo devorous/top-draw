@@ -1,6 +1,7 @@
 /** @fileoverview ASN-based VPN/datacenter detection using a local MaxMind GeoLite2-ASN database. */
 
-import { open } from 'maxmind';
+import { Reader } from 'mmdb-lib';
+import { readFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -48,9 +49,10 @@ export function getAsnCheckStatus() {
   };
 }
 
-export async function loadAsnDb() {
+function loadAsnDb() {
   try {
-    asnReader = await open(ASN_DB_PATH);
+    const buf = readFileSync(ASN_DB_PATH);
+    asnReader = new Reader(buf);
     console.log(`[ASN] Loaded GeoLite2-ASN database from ${ASN_DB_PATH}`);
   } catch (error) {
     console.error(`[ASN] Failed to load GeoLite2-ASN database at ${ASN_DB_PATH}:`, error.message);
@@ -92,8 +94,8 @@ export async function refreshAsnList() {
   return refreshInFlight;
 }
 
-export async function initAsnCheck() {
-  await loadAsnDb();
+export function initAsnCheck() {
+  loadAsnDb();
   refreshAsnList().catch((error) => {
     console.error('[ASN] Initial ASN list refresh failed:', error);
   });
