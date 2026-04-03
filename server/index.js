@@ -22,7 +22,7 @@ import { sanitizeMessage } from './validation.js';
 import { authorize, Action } from './permissions.js';
 import { getRoomRole, setRoomRole, computeEffectiveRole, getRoomRoleRoster } from './roomRoles.js';
 import { getClientIp, httpRateLimiter, messengerRateLimiter, wsRateLimiter } from './security.js';
-import { getAsnCheckStatus, getRequestAsn, initAsnCheck, isVpnAsn } from './asnCheck.js';
+import { getAsnCheckStatus, lookupAsnForIp, initAsnCheck, isVpnAsn } from './asnCheck.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -528,7 +528,7 @@ function logVpnAutoMuteContext(client, room, contextLabel) {
 
   const status = getAsnCheckStatus();
   if (!client.clientAsn) {
-    console.warn(`[ASN] ${contextLabel}: no cf-ipasn header for ${client.clientIp} in room ${room.id}; VPN auto-mute cannot evaluate this connection.`);
+    console.warn(`[ASN] ${contextLabel}: no ASN resolved for ${client.clientIp} in room ${room.id}; VPN auto-mute cannot evaluate this connection.`);
     return;
   }
 
@@ -545,29 +545,20 @@ function logAsnHandshakeContext(client, roomId = '') {
   const roomLabel = roomId || 'unknown-room';
 
   if (!client.clientAsn) {
-    console.warn(`[ASN] WS handshake: no ASN header for ${client.clientIp} (room=${roomLabel}). Expected cf-ipasn or x-client-asn.`);
+    if (status.dbLoaded) {
+      console.warn(`[ASN] WS handshake: no ASN resolved for ${client.clientIp} (room=${roomLabel}). IP may not be in the MaxMind database.`);
+    } else {
+      console.warn(`[ASN] WS handshake: MaxMind database not loaded; cannot resolve ASN for ${client.clientIp} (room=${roomLabel}).`);
+    }
     return;
   }
 
   if (!status.ready) {
-    console.warn(`[ASN] WS handshake: ASN ${client.clientAsn} present for ${client.clientIp} (room=${roomLabel}) but ASN list is not ready yet.`);
+    console.warn(`[ASN] WS handshake: ASN ${client.clientAsn} resolved for ${client.clientIp} (room=${roomLabel}) but VPN blocklist is not ready yet.`);
     return;
   }
 
   console.log(`[ASN] WS handshake: ASN ${client.clientAsn} for ${client.clientIp} (room=${roomLabel}) flagged=${isVpnAsn(client.clientAsn)}`);
-}
-
-function logAsnHandshakeHeaders(req, roomId = '') {
-  const headers = req?.headers || {};
-  const roomLabel = roomId || 'unknown-room';
-  const headerSnapshot = {
-    cfIpasn: headers['cf-ipasn'] || null,
-    xClientAsn: headers['x-client-asn'] || null,
-    cfConnectingIp: headers['cf-connecting-ip'] || null,
-    xForwardedFor: headers['x-forwarded-for'] || null,
-    xRealIp: headers['x-real-ip'] || null
-  };
-  console.log(`[ASN] WS headers (room=${roomLabel}): ${JSON.stringify(headerSnapshot)}`);
 }
 
 async function applyMuteStateToClient(client, room, options = {}) {
@@ -1198,13 +1189,12 @@ wss.on('connection', (ws, req) => {
     ws.userId = null;
     ws.username = null;
     ws.isMuted = false;
-    ws.clientAsn = getRequestAsn(req);
+    ws.clientAsn = lookupAsnForIp(ws.clientIp);
     ws.isVpnNetwork = isVpnAsn(ws.clientAsn);
     ws.isVPN = ws.isVpnNetwork;
     ws.rateLimitId = crypto.randomUUID();
 
     const roomId = sanitizeRoomId(url.searchParams.get('room'));
-    logAsnHandshakeHeaders(req, roomId);
     logAsnHandshakeContext(ws, roomId);
     console.log(`[Room] Parsed room ID: ${roomId}`);
 
