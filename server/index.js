@@ -500,6 +500,7 @@ async function determineMutedStateForClient(client, room, {
   let shouldMute = false;
   const vpnFlagged = isVpnAsn(client.clientAsn);
   client.isVpnNetwork = vpnFlagged;
+  client.isVPN = vpnFlagged;
 
   if (getDB()) {
     const muteCheck = await checkMute(userId, client.clientIp, room.id);
@@ -539,6 +540,23 @@ function logVpnAutoMuteContext(client, room, contextLabel) {
   console.log(`[ASN] ${contextLabel}: ASN ${client.clientAsn} for ${client.clientIp} in room ${room.id} flagged=${isVpnAsn(client.clientAsn)}`);
 }
 
+function logAsnHandshakeContext(client, roomId = '') {
+  const status = getAsnCheckStatus();
+  const roomLabel = roomId || 'unknown-room';
+
+  if (!client.clientAsn) {
+    console.warn(`[ASN] WS handshake: no ASN header for ${client.clientIp} (room=${roomLabel}). Expected cf-ipasn or x-client-asn.`);
+    return;
+  }
+
+  if (!status.ready) {
+    console.warn(`[ASN] WS handshake: ASN ${client.clientAsn} present for ${client.clientIp} (room=${roomLabel}) but ASN list is not ready yet.`);
+    return;
+  }
+
+  console.log(`[ASN] WS handshake: ASN ${client.clientAsn} for ${client.clientIp} (room=${roomLabel}) flagged=${isVpnAsn(client.clientAsn)}`);
+}
+
 async function applyMuteStateToClient(client, room, options = {}) {
   const { shouldMute, muteReason } = await determineMutedStateForClient(client, room, options);
   client.isMuted = shouldMute;
@@ -546,6 +564,7 @@ async function applyMuteStateToClient(client, room, options = {}) {
   const roomUser = room.sessionManager.getUser(client.sessionIndex);
   if (roomUser) {
     roomUser.isMuted = shouldMute;
+    roomUser.isVPN = !!client.isVPN;
   }
 
   return { shouldMute, muteReason };
@@ -1167,10 +1186,12 @@ wss.on('connection', (ws, req) => {
     ws.username = null;
     ws.isMuted = false;
     ws.clientAsn = getRequestAsn(req);
-    ws.isVpnNetwork = false;
+    ws.isVpnNetwork = isVpnAsn(ws.clientAsn);
+    ws.isVPN = ws.isVpnNetwork;
     ws.rateLimitId = crypto.randomUUID();
 
     const roomId = sanitizeRoomId(url.searchParams.get('room'));
+    logAsnHandshakeContext(ws, roomId);
     console.log(`[Room] Parsed room ID: ${roomId}`);
 
     const room = roomManager.getOrCreateRoom(roomId);
@@ -1283,6 +1304,7 @@ wss.on('connection', (ws, req) => {
           const createdUser = room.sessionManager.getUser(sessionIndex);
           if (createdUser) {
             createdUser.isMuted = !!ws.isMuted;
+            createdUser.isVPN = !!ws.isVPN;
           }
 
           sendTo(ws, { t: T.CONNECT, u: sessionIndex, authRole: ws.userRole, authUsername: username });
@@ -2376,6 +2398,7 @@ wss.on('connection', (ws, req) => {
               user.name = uniqueName;
               user.registeredName = userDoc.username;
               user.isMuted = !!ws.isMuted;
+              user.isVPN = !!ws.isVPN;
             }
 
             sendTo(ws, {

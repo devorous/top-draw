@@ -17,8 +17,11 @@ function parseAsnValue(value) {
 }
 
 export function getRequestAsn(req) {
-  const header = req?.headers?.['cf-ipasn'];
-  return parseAsnValue(Array.isArray(header) ? header[0] : header);
+  const directHeader = req?.headers?.['cf-ipasn'];
+  const customHeader = req?.headers?.['x-client-asn'];
+  const candidate = Array.isArray(directHeader) ? directHeader[0] : directHeader;
+  const fallback = Array.isArray(customHeader) ? customHeader[0] : customHeader;
+  return parseAsnValue(candidate) ?? parseAsnValue(fallback);
 }
 
 export function isVpnAsn(asn) {

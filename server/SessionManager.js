@@ -141,6 +141,7 @@ export class SessionManager {
       activeSelectionCorners: null, // [tl.x, tl.y, tr.x, tr.y, bl.x, bl.y, br.x, br.y] — latest SEL_MOVE position
       role: Role.GUEST,
       isMuted: false,
+      isVPN: false,
       ipHash
     };
     this.users.set(sessionIndex, newUser);
