@@ -48,9 +48,9 @@ export function getAsnCheckStatus() {
   };
 }
 
-async function loadAsnDb() {
+function loadAsnDb() {
   try {
-    asnReader = await maxmind.open(ASN_DB_PATH);
+    asnReader = maxmind.openSync(ASN_DB_PATH);
     console.log(`[ASN] Loaded GeoLite2-ASN database from ${ASN_DB_PATH}`);
   } catch (error) {
     console.error(`[ASN] Failed to load GeoLite2-ASN database at ${ASN_DB_PATH}:`, error.message);
@@ -92,8 +92,8 @@ export async function refreshAsnList() {
   return refreshInFlight;
 }
 
-export async function initAsnCheck() {
-  await loadAsnDb();
+export function initAsnCheck() {
+  loadAsnDb();
   refreshAsnList().catch((error) => {
     console.error('[ASN] Initial ASN list refresh failed:', error);
   });
