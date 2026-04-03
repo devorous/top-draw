@@ -603,7 +603,7 @@ async function init() {
   roomManager = new RoomManager(wss, sendTo);
   roomManager.setMsgEncoder(Msg, createRoomBroadcaster);
   console.log('[Server] RoomManager initialized');
-  initAsnCheck();
+  await initAsnCheck();
 
   startBatchTimer();
 
