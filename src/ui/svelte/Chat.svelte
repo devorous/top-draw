@@ -296,6 +296,7 @@
     display: flex;
     flex-direction: column;
     z-index: 1000;
+    cursor: default;
     box-shadow: var(--shadow-lg);
     overflow: hidden;
   }
