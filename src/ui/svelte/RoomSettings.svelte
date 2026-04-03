@@ -45,12 +45,14 @@
   let messageType = $state('success');
   let showMessage = $state(false);
   let saving = $state(false);
+  let unregistering = $state(false);
   let rosterLoading = $state(false);
   let roleSavingTarget = $state('');
   let rosterFilter = $state('');
   let pendingRoles = $state({});
   let offlinePromotionName = $state('');
   let offlinePromotionRole = $state(4);
+  let showUnregisterConfirm = $state(false);
 
   let visible = $derived(appState.roomSettingsVisible);
   let roomData = $derived(appState.currentRoomData);
@@ -75,6 +77,8 @@
       pendingRoles = {};
       offlinePromotionName = '';
       offlinePromotionRole = 4;
+      showUnregisterConfirm = false;
+      unregistering = false;
     }
   });
 
@@ -182,18 +186,21 @@
     });
   }
 
-  function confirmUnregister() {
-    if (!roomData) return;
-    const confirmed = confirm(
-      `Are you sure you want to unregister "${roomData.id}"?\n\n` +
-      'This will remove ownership and allow anyone to register the room.'
-    );
-    if (confirmed) unregisterRoom();
+  function openUnregisterConfirm() {
+    if (!roomData || unregistering) return;
+    showUnregisterConfirm = true;
+  }
+
+  function closeUnregisterConfirm() {
+    if (unregistering) return;
+    showUnregisterConfirm = false;
   }
 
   function unregisterRoom() {
-    if (!roomData || !wsClient) return;
+    if (!roomData || !wsClient || unregistering) return;
+    unregistering = true;
     wsClient.send({ t: T.ROOM_UNREGISTER });
+    showUnregisterConfirm = false;
     hide();
     if (onUnregister) onUnregister();
   }
@@ -445,6 +452,18 @@
               <span>Auto-mute VPN or datacenter users by ASN (mods and above exempt)</span>
             </label>
           </div>
+
+          {#if canShowUnregister()}
+            <section class="danger-zone">
+              <div class="danger-zone-copy">
+                <h4>Danger Zone</h4>
+                <p>Unregistering removes ownership of this room and allows someone else to claim it.</p>
+              </div>
+              <button class="btn danger" type="button" onclick={openUnregisterConfirm} disabled={unregistering}>
+                {unregistering ? 'Unregistering...' : 'Unregister Room'}
+              </button>
+            </section>
+          {/if}
         {:else}
           <section class="moderation-panel">
             <div class="moderation-toolbar">
@@ -626,12 +645,25 @@
       <div class="room-settings-footer">
         <button class="btn secondary" onclick={hide}>Cancel</button>
         {#if activeTab === TAB_GENERAL}
-          {#if canShowUnregister()}
-            <button class="btn danger" onclick={confirmUnregister}>Unregister</button>
-          {/if}
           <button class="btn primary" onclick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
         {/if}
       </div>
+
+      {#if showUnregisterConfirm}
+        <div class="dialog-confirm-backdrop" role="presentation">
+          <div class="dialog-confirm" role="alertdialog" aria-modal="true" aria-labelledby="unregisterTitle">
+            <h4 id="unregisterTitle">Unregister This Room?</h4>
+            <p><strong>{roomId}</strong> will lose its owner and become claimable by anyone.</p>
+            <p>This does not delete the room, but it does remove your ownership protection.</p>
+            <div class="dialog-confirm-actions">
+              <button class="btn secondary" type="button" onclick={closeUnregisterConfirm} disabled={unregistering}>Keep Registered</button>
+              <button class="btn danger" type="button" onclick={unregisterRoom} disabled={unregistering}>
+                {unregistering ? 'Unregistering...' : 'Yes, Unregister'}
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -659,6 +691,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    position: relative;
     color: #f0f2f5;
     font-family: 'Inter', -apple-system, sans-serif;
   }
@@ -817,6 +850,28 @@
     padding: 0.7rem 0.9rem;
   }
 
+  .danger-zone {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid rgba(220, 80, 90, 0.28);
+    border-radius: 10px;
+    background: rgba(220, 80, 90, 0.08);
+  }
+
+  .danger-zone-copy h4 {
+    margin: 0;
+    color: #ffd7db;
+  }
+
+  .danger-zone-copy p {
+    margin: 0.25rem 0 0;
+    color: #f0b9c0;
+    font-size: 0.86rem;
+  }
+
   .moderation-toolbar {
     display: flex;
     justify-content: space-between;
@@ -946,6 +1001,42 @@
     background: #242830;
   }
 
+  .dialog-confirm-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 12, 16, 0.72);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+
+  .dialog-confirm {
+    width: min(100%, 420px);
+    background: #1f232b;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 1rem 1rem 0.95rem;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  }
+
+  .dialog-confirm h4 {
+    margin: 0 0 0.5rem;
+  }
+
+  .dialog-confirm p {
+    margin: 0 0 0.55rem;
+    color: #b8c0cd;
+    line-height: 1.4;
+  }
+
+  .dialog-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.65rem;
+    margin-top: 0.9rem;
+  }
+
   .btn.small {
     padding: 0.42rem 0.68rem;
     font-size: 0.8rem;
@@ -970,6 +1061,11 @@
 
     .offline-promo-row {
       grid-template-columns: 1fr;
+      align-items: stretch;
+    }
+
+    .danger-zone {
+      flex-direction: column;
       align-items: stretch;
     }
   }

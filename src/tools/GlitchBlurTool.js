@@ -48,7 +48,7 @@ export class GlitchBlurTool extends Tool {
     const maskCtx = this.board.layerManager?.getUserStrokeContext(
       activeLayerIdx,
       user.id,
-      'source-over',
+      user.blendMode || 'source-over',
       { filterType: 'glitchBlur', blurRadius: user.blurRadius }
     );
     if (!maskCtx) return;
@@ -151,7 +151,7 @@ export class GlitchBlurTool extends Tool {
 
     maskCtx.save();
     maskCtx.globalCompositeOperation = 'source-over';
-    maskCtx.globalAlpha = user.pressure || 1.0;
+    maskCtx.globalAlpha = 1.0;
     maskCtx.fillStyle = '#ffffff';
     maskCtx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
     maskCtx.restore();

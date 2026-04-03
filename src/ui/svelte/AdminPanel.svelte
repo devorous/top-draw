@@ -306,11 +306,13 @@
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 8px;
     padding: 0.85rem;
+    min-height: 0;
   }
 
   .admin-section.grow {
     flex: 1;
     min-height: 0;
+    overflow: hidden;
   }
 
   .section-head {
@@ -399,15 +401,18 @@
     gap: 1rem;
     color: #95a1b4;
     font-size: 0.8rem;
+    flex-shrink: 0;
   }
 
   .doc-list {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     display: flex;
     flex-direction: column;
     gap: 0.55rem;
+    padding-right: 0.2rem;
   }
 
   .doc-card {
@@ -415,6 +420,7 @@
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 7px;
     overflow: hidden;
+    flex-shrink: 0;
   }
 
   .doc-card summary {

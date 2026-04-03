@@ -3259,7 +3259,7 @@ export class DrawingApp {
         this.self.setPressure(pressure);
         this.inputBufferManager.inputBuffer.pressure = pressure;
         this.wsClient.broadcastPressureChange(pressure);
-        this.wsClient.broadcastMouseDown();
+        this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y]);
 
         const tool = this.toolManager.getCurrentTool();
         if (tool) {
@@ -3615,7 +3615,7 @@ export class DrawingApp {
         // This is correct behavior: dots should only appear with intentional pen pressure
         const tool = this.toolManager.getCurrentTool();
         if (tool) {
-          this.wsClient.broadcastMouseDown();
+          this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y]);
           tool.onPointerDown(this.self, pending.pos, pending.event);
         }
       }

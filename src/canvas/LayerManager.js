@@ -1335,7 +1335,7 @@ export class LayerManager {
     // If the high-quality version is ready, draw it and we're done.
     if (filterStroke._cachedBlurResult) {
       ctx.save();
-      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalCompositeOperation = filterStroke.blendMode || 'source-over';
       ctx.drawImage(filterStroke._cachedBlurResult, x, y);
       this._drawMirroredGlitchCopies(ctx, filterStroke, filterStroke._cachedBlurResult, x, y);
       ctx.restore();
@@ -1345,7 +1345,7 @@ export class LayerManager {
     // If we already have a cached preview, use it instead of re-rendering.
     if (filterStroke._cachedPreview) {
       ctx.save();
-      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalCompositeOperation = filterStroke.blendMode || 'source-over';
       ctx.drawImage(filterStroke._cachedPreview, x, y);
       this._drawMirroredGlitchCopies(ctx, filterStroke, filterStroke._cachedPreview, x, y);
       ctx.restore();
@@ -1375,7 +1375,7 @@ export class LayerManager {
         filterStroke._cachedBlurResult = stableCanvas;
 
         ctx.save();
-        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalCompositeOperation = filterStroke.blendMode || 'source-over';
         ctx.drawImage(stableCanvas, x, y);
         this._drawMirroredGlitchCopies(ctx, filterStroke, stableCanvas, x, y);
         ctx.restore();
