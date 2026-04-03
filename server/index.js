@@ -557,6 +557,19 @@ function logAsnHandshakeContext(client, roomId = '') {
   console.log(`[ASN] WS handshake: ASN ${client.clientAsn} for ${client.clientIp} (room=${roomLabel}) flagged=${isVpnAsn(client.clientAsn)}`);
 }
 
+function logAsnHandshakeHeaders(req, roomId = '') {
+  const headers = req?.headers || {};
+  const roomLabel = roomId || 'unknown-room';
+  const headerSnapshot = {
+    cfIpasn: headers['cf-ipasn'] || null,
+    xClientAsn: headers['x-client-asn'] || null,
+    cfConnectingIp: headers['cf-connecting-ip'] || null,
+    xForwardedFor: headers['x-forwarded-for'] || null,
+    xRealIp: headers['x-real-ip'] || null
+  };
+  console.log(`[ASN] WS headers (room=${roomLabel}): ${JSON.stringify(headerSnapshot)}`);
+}
+
 async function applyMuteStateToClient(client, room, options = {}) {
   const { shouldMute, muteReason } = await determineMutedStateForClient(client, room, options);
   client.isMuted = shouldMute;
@@ -1191,6 +1204,7 @@ wss.on('connection', (ws, req) => {
     ws.rateLimitId = crypto.randomUUID();
 
     const roomId = sanitizeRoomId(url.searchParams.get('room'));
+    logAsnHandshakeHeaders(req, roomId);
     logAsnHandshakeContext(ws, roomId);
     console.log(`[Room] Parsed room ID: ${roomId}`);
 
