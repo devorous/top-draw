@@ -22,7 +22,7 @@ import { sanitizeMessage } from './validation.js';
 import { authorize, Action } from './permissions.js';
 import { getRoomRole, setRoomRole, computeEffectiveRole, getRoomRoleRoster } from './roomRoles.js';
 import { getClientIp, httpRateLimiter, messengerRateLimiter, wsRateLimiter } from './security.js';
-import { getRequestAsn, initAsnCheck, isVpnAsn } from './asnCheck.js';
+import { getAsnCheckStatus, getRequestAsn, initAsnCheck, isVpnAsn } from './asnCheck.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -498,6 +498,8 @@ async function determineMutedStateForClient(client, room, {
 } = {}) {
   let muteReason = '';
   let shouldMute = false;
+  const vpnFlagged = isVpnAsn(client.clientAsn);
+  client.isVpnNetwork = vpnFlagged;
 
   if (getDB()) {
     const muteCheck = await checkMute(userId, client.clientIp, room.id);
@@ -512,12 +514,29 @@ async function determineMutedStateForClient(client, room, {
     if (!muteReason) muteReason = 'Guests are auto-muted in this room until they log in.';
   }
 
-  if (room.settings.autoMuteVpnUsers && client.isVpnNetwork && !isVpnAutoMuteExempt(effectiveRole)) {
+  if (room.settings.autoMuteVpnUsers && vpnFlagged && !isVpnAutoMuteExempt(effectiveRole)) {
     shouldMute = true;
     if (!muteReason) muteReason = 'VPN or datacenter connections are auto-muted in this room.';
   }
 
   return { shouldMute, muteReason };
+}
+
+function logVpnAutoMuteContext(client, room, contextLabel) {
+  if (!room.settings.autoMuteVpnUsers) return;
+
+  const status = getAsnCheckStatus();
+  if (!client.clientAsn) {
+    console.warn(`[ASN] ${contextLabel}: no cf-ipasn header for ${client.clientIp} in room ${room.id}; VPN auto-mute cannot evaluate this connection.`);
+    return;
+  }
+
+  if (!status.ready) {
+    console.warn(`[ASN] ${contextLabel}: ASN list not ready yet for ASN ${client.clientAsn} in room ${room.id}.`);
+    return;
+  }
+
+  console.log(`[ASN] ${contextLabel}: ASN ${client.clientAsn} for ${client.clientIp} in room ${room.id} flagged=${isVpnAsn(client.clientAsn)}`);
 }
 
 async function applyMuteStateToClient(client, room, options = {}) {
@@ -1148,7 +1167,7 @@ wss.on('connection', (ws, req) => {
     ws.username = null;
     ws.isMuted = false;
     ws.clientAsn = getRequestAsn(req);
-    ws.isVpnNetwork = isVpnAsn(ws.clientAsn);
+    ws.isVpnNetwork = false;
     ws.rateLimitId = crypto.randomUUID();
 
     const roomId = sanitizeRoomId(url.searchParams.get('room'));
@@ -1211,6 +1230,7 @@ wss.on('connection', (ws, req) => {
 
           if (getDB()) {
             try {
+              logVpnAutoMuteContext(ws, room, 'Guest connect');
               const ipBan = await checkBan(null, ws.clientIp, room.id);
               if (ipBan) {
                 const reason = ipBan.reason || '';
@@ -1227,7 +1247,8 @@ wss.on('connection', (ws, req) => {
               if (room.settings.autoMuteGuests) {
                 ws.isMuted = true;
               }
-              if (room.settings.autoMuteVpnUsers && ws.isVpnNetwork) {
+              if (room.settings.autoMuteVpnUsers && isVpnAsn(ws.clientAsn)) {
+                ws.isVpnNetwork = true;
                 ws.isMuted = true;
                 console.warn(`[Security] Auto-muted guest on VPN ASN ${ws.clientAsn || 'unknown'} in room ${room.id}`);
               }
@@ -2338,6 +2359,7 @@ wss.on('connection', (ws, req) => {
             ws.roomRole = roomRoleVal;
             ws.userRole = effectiveRole;
             ws.username = userDoc.username;
+            logVpnAutoMuteContext(ws, room, `Auth login for ${userDoc.username}`);
             const { shouldMute, muteReason } = await applyMuteStateToClient(ws, room, {
               userId: userDoc._id.toString(),
               effectiveRole
