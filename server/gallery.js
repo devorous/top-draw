@@ -203,6 +203,24 @@ export async function handleGalleryUpload(req, res) {
     return json(res, 400, { error: 'Image too large (max 10 MB)' });
   }
 
+  // Compute image hash for duplicate detection
+  const imageHash = crypto.createHash('sha256').update(buffer).digest('hex');
+
+  // Check for duplicate
+  try {
+    const existing = await db.collection('gallery').findOne({ imageHash });
+    if (existing) {
+      return json(res, 409, {
+        error: 'This image has already been uploaded',
+        duplicate: true,
+        existingId: existing._id.toString(),
+      });
+    }
+  } catch (err) {
+    console.error('[Gallery] Duplicate check error:', err);
+    // Continue with upload if duplicate check fails
+  }
+
   const ext = mimeType === 'image/jpeg' ? 'jpg' : 'png';
   const id = crypto.randomUUID();
   const filename = `${id}.${ext}`;
@@ -249,6 +267,7 @@ export async function handleGalleryUpload(req, res) {
   const doc = {
     url,
     thumbUrl,
+    imageHash,
     author: decoded.username,
     authorId: decoded.userId,
     title: (title || '').substring(0, 100).trim(),
