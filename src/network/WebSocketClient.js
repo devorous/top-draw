@@ -358,7 +358,8 @@ export class WebSocketClient {
           maxUsers: data.roomMaxUsers,
           modInactiveImmune: data.roomModInactiveImmune,
           joinPolicy: data.roomJoinPolicy || 'open',
-          autoMuteGuests: !!data.roomAutoMuteGuests
+          autoMuteGuests: !!data.roomAutoMuteGuests,
+          autoMuteVpnUsers: !!data.roomAutoMuteVpnUsers
         });
         break;
 

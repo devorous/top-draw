@@ -353,6 +353,7 @@ export async function sanitizeMessage(data) {
       if (data.roomLocked !== undefined) sanitized.roomLocked = sanitizeBoolean(data.roomLocked);
       if (data.roomModInactiveImmune !== undefined) sanitized.roomModInactiveImmune = sanitizeBoolean(data.roomModInactiveImmune);
       if (data.roomAutoMuteGuests !== undefined) sanitized.roomAutoMuteGuests = sanitizeBoolean(data.roomAutoMuteGuests);
+      if (data.roomAutoMuteVpnUsers !== undefined) sanitized.roomAutoMuteVpnUsers = sanitizeBoolean(data.roomAutoMuteVpnUsers);
       if (data.roomMaxUsers !== undefined) sanitized.roomMaxUsers = clampInt(data.roomMaxUsers, 2, MAX_ROOM_USERS, 40);
       if (data.roomJoinPolicy !== undefined) {
         const joinPolicy = sanitizeString(data.roomJoinPolicy, 16);

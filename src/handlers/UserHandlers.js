@@ -201,6 +201,9 @@ export function setupUserHandlers(wsClient, app) {
     if (data.autoMuteGuests !== undefined) {
       app.currentRoomData.autoMuteGuests = data.autoMuteGuests;
     }
+    if (data.autoMuteVpnUsers !== undefined) {
+      app.currentRoomData.autoMuteVpnUsers = data.autoMuteVpnUsers;
+    }
     // Mirror is not persisted to DB, but update it locally
     app.currentRoomData.mirror = data.mirror;
     app.currentRoomData.mirrorRegions = data.mirrorRegions || [];

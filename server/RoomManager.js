@@ -29,7 +29,8 @@ export class Room {
       backgroundColor: '#ffffff',
       modInactiveImmune: false,
       joinPolicy: 'open',
-      autoMuteGuests: false
+      autoMuteGuests: false,
+      autoMuteVpnUsers: false
     };
 
     this.description = '';
@@ -124,6 +125,7 @@ export class Room {
         this.settings.modInactiveImmune = !!doc.settings?.modInactiveImmune;
         this.settings.joinPolicy = doc.settings?.joinPolicy || 'open';
         this.settings.autoMuteGuests = !!doc.settings?.autoMuteGuests;
+        this.settings.autoMuteVpnUsers = !!doc.settings?.autoMuteVpnUsers;
         this.settings.mirrorRegions = Array.isArray(doc.settings?.mirrorRegions) ? doc.settings.mirrorRegions : [];
         console.log(`[Room] Loaded "${this.id}" from DB`);
       } else {
@@ -140,7 +142,8 @@ export class Room {
             backgroundColor: '#ffffff',
             modInactiveImmune: false,
             joinPolicy: 'open',
-            autoMuteGuests: false
+            autoMuteGuests: false,
+            autoMuteVpnUsers: false
           }
         };
         await db.collection('rooms').insertOne(newDoc);
@@ -178,6 +181,7 @@ export class Room {
                 modInactiveImmune: this.settings.modInactiveImmune,
                 joinPolicy: this.settings.joinPolicy,
                 autoMuteGuests: this.settings.autoMuteGuests,
+                autoMuteVpnUsers: this.settings.autoMuteVpnUsers,
                 mirrorRegions: this.settings.mirrorRegions
               }
             }

@@ -22,6 +22,7 @@ import { sanitizeMessage } from './validation.js';
 import { authorize, Action } from './permissions.js';
 import { getRoomRole, setRoomRole, computeEffectiveRole, getRoomRoleRoster } from './roomRoles.js';
 import { getClientIp, httpRateLimiter, messengerRateLimiter, wsRateLimiter } from './security.js';
+import { getRequestAsn, initAsnCheck, isVpnAsn } from './asnCheck.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -482,6 +483,50 @@ function mapUsersForBroadcast(users) {
   }));
 }
 
+function isVpnAutoMuteExempt(role) {
+  return (role || 0) >= Role.MOD;
+}
+
+async function determineMutedStateForClient(client, room, {
+  userId = client.userId || null,
+  effectiveRole = client.userRole || Role.GUEST
+} = {}) {
+  let muteReason = '';
+  let shouldMute = false;
+
+  if (getDB()) {
+    const muteCheck = await checkMute(userId, client.clientIp, room.id);
+    if (muteCheck && effectiveRole < Role.MOD) {
+      shouldMute = true;
+      muteReason = muteCheck.reason || '';
+    }
+  }
+
+  if (!userId && room.settings.autoMuteGuests) {
+    shouldMute = true;
+    if (!muteReason) muteReason = 'Guests are auto-muted in this room until they log in.';
+  }
+
+  if (room.settings.autoMuteVpnUsers && client.isVpnNetwork && !isVpnAutoMuteExempt(effectiveRole)) {
+    shouldMute = true;
+    if (!muteReason) muteReason = 'VPN or datacenter connections are auto-muted in this room.';
+  }
+
+  return { shouldMute, muteReason };
+}
+
+async function applyMuteStateToClient(client, room, options = {}) {
+  const { shouldMute, muteReason } = await determineMutedStateForClient(client, room, options);
+  client.isMuted = shouldMute;
+
+  const roomUser = room.sessionManager.getUser(client.sessionIndex);
+  if (roomUser) {
+    roomUser.isMuted = shouldMute;
+  }
+
+  return { shouldMute, muteReason };
+}
+
 /**
  * Validates a username: 1-20 characters, alphanumeric and underscores.
  * @param {string} username - The username to validate.
@@ -511,6 +556,7 @@ async function init() {
   roomManager = new RoomManager(wss, sendTo);
   roomManager.setMsgEncoder(Msg, createRoomBroadcaster);
   console.log('[Server] RoomManager initialized');
+  initAsnCheck();
 
   startBatchTimer();
 
@@ -874,7 +920,10 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       roomBackgroundColor: room.settings.backgroundColor,
       roomLocked: room.settings.locked,
       roomMaxUsers: room.settings.maxUsers,
-      roomModInactiveImmune: room.settings.modInactiveImmune
+      roomModInactiveImmune: room.settings.modInactiveImmune,
+      roomJoinPolicy: room.settings.joinPolicy,
+      roomAutoMuteGuests: room.settings.autoMuteGuests,
+      roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers
     });
     return;
   }
@@ -1093,6 +1142,8 @@ wss.on('connection', (ws, req) => {
     ws.userId = null;
     ws.username = null;
     ws.isMuted = false;
+    ws.clientAsn = getRequestAsn(req);
+    ws.isVpnNetwork = isVpnAsn(ws.clientAsn);
     ws.rateLimitId = crypto.randomUUID();
 
     const roomId = sanitizeRoomId(url.searchParams.get('room'));
@@ -1171,6 +1222,10 @@ wss.on('connection', (ws, req) => {
               if (room.settings.autoMuteGuests) {
                 ws.isMuted = true;
               }
+              if (room.settings.autoMuteVpnUsers && ws.isVpnNetwork) {
+                ws.isMuted = true;
+                console.warn(`[Security] Auto-muted guest on VPN ASN ${ws.clientAsn || 'unknown'} in room ${room.id}`);
+              }
             } catch (err) {
               console.error('[Mod] IP ban/mute check error:', err);
             }
@@ -1234,7 +1289,8 @@ wss.on('connection', (ws, req) => {
             roomMaxUsers: room.settings.maxUsers,
             roomModInactiveImmune: room.settings.modInactiveImmune,
             roomJoinPolicy: room.settings.joinPolicy,
-            roomAutoMuteGuests: room.settings.autoMuteGuests
+            roomAutoMuteGuests: room.settings.autoMuteGuests,
+            roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers
           });
 
           // If user is muted (IP-based for guests), hide their cursor for everyone
@@ -1673,6 +1729,7 @@ wss.on('connection', (ws, req) => {
 
           try {
             const autoMuteGuestsChanged = data.roomAutoMuteGuests !== undefined;
+            const autoMuteVpnUsersChanged = data.roomAutoMuteVpnUsers !== undefined;
             if (!room.ownerId && data.roomOwnerId === ws.userId) {
               room.ownerId = ws.userId;
               room.ownerUsername = ws.username;
@@ -1704,22 +1761,19 @@ wss.on('connection', (ws, req) => {
             if (data.roomAutoMuteGuests !== undefined) {
               room.settings.autoMuteGuests = !!data.roomAutoMuteGuests;
             }
+            if (data.roomAutoMuteVpnUsers !== undefined) {
+              room.settings.autoMuteVpnUsers = !!data.roomAutoMuteVpnUsers;
+            }
 
             await room.saveToDB();
 
-            if (autoMuteGuestsChanged) {
+            if (autoMuteGuestsChanged || autoMuteVpnUsersChanged) {
               for (const client of room.clients) {
-                if (client.userId) continue;
-                let shouldMute = !!room.settings.autoMuteGuests;
-                if (!shouldMute && getDB()) {
-                  const ipMute = await checkMute(null, client.clientIp, room.id);
-                  shouldMute = !!ipMute;
-                }
-                client.isMuted = shouldMute;
-                const guestUser = room.sessionManager.getUser(client.sessionIndex);
-                if (guestUser) {
-                  guestUser.isMuted = shouldMute;
-                }
+                const effectiveRole = client.userRole || Role.GUEST;
+                const { shouldMute } = await applyMuteStateToClient(client, room, {
+                  userId: client.userId || null,
+                  effectiveRole
+                });
                 createRoomBroadcaster(room)({
                   t: shouldMute ? T.HIDE_CURSOR : T.SHOW_CURSOR,
                   u: client.sessionIndex
@@ -1738,9 +1792,10 @@ wss.on('connection', (ws, req) => {
               roomMaxUsers: room.settings.maxUsers,
               roomModInactiveImmune: room.settings.modInactiveImmune,
               roomJoinPolicy: room.settings.joinPolicy,
-              roomAutoMuteGuests: room.settings.autoMuteGuests
+              roomAutoMuteGuests: room.settings.autoMuteGuests,
+              roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers
             });
-            if (autoMuteGuestsChanged) {
+            if (autoMuteGuestsChanged || autoMuteVpnUsersChanged) {
               roomBroadcaster({
                 t: T.USERS,
                 us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
@@ -2007,8 +2062,18 @@ wss.on('connection', (ws, req) => {
               const targetUser = room.sessionManager.getUser(targetClient.sessionIndex);
               if (targetUser) targetUser.role = effective;
 
+              const { shouldMute } = await applyMuteStateToClient(targetClient, room, {
+                userId: targetClient.userId || null,
+                effectiveRole: effective
+              });
+
               // Notify the target user of their new role
               sendTo(targetClient, { t: T.AUTH_RESULT, a: true, authRole: effective });
+
+              createRoomBroadcaster(room)({
+                t: shouldMute ? T.HIDE_CURSOR : T.SHOW_CURSOR,
+                u: targetClient.sessionIndex
+              });
             }
 
             // Re-broadcast user list so all clients see updated role badge
@@ -2226,9 +2291,6 @@ wss.on('connection', (ws, req) => {
             }
 
             // Room-scoped mute check
-            const muteCheck = await checkMute(userDoc._id.toString(), ws.clientIp, room.id);
-            ws.isMuted = !!muteCheck && userDoc.role < Role.MOD;
-
             const minJoinRole = getJoinPolicyMinRole(room.settings.joinPolicy);
             if (userDoc.role < minJoinRole) {
               sendTo(ws, {
@@ -2271,7 +2333,14 @@ wss.on('connection', (ws, req) => {
             ws.roomRole = roomRoleVal;
             ws.userRole = effectiveRole;
             ws.username = userDoc.username;
+            const { shouldMute, muteReason } = await applyMuteStateToClient(ws, room, {
+              userId: userDoc._id.toString(),
+              effectiveRole
+            });
             console.log(`[Auth] Login success: ${userDoc.username} (global=${userDoc.role}, room=${roomRoleVal}, effective=${effectiveRole}) in room ${room.id}`);
+            if (room.settings.autoMuteVpnUsers && ws.isVpnNetwork && !isVpnAutoMuteExempt(effectiveRole) && shouldMute) {
+              console.warn(`[Security] Auto-muted user ${userDoc.username} on VPN ASN ${ws.clientAsn || 'unknown'} in room ${room.id}`);
+            }
 
             const user = room.sessionManager.getUser(ws.sessionIndex);
             if (user) {
@@ -2306,7 +2375,7 @@ wss.on('connection', (ws, req) => {
                 modTarget: ws.sessionIndex,
                 modTargetName: userDoc.username,
                 modIssuerName: 'System',
-                modReason: muteCheck.reason || ''
+                modReason: muteReason || ''
               });
             }
           } catch (err) {

@@ -40,6 +40,7 @@
   let modInactiveImmune = $state(false);
   let joinPolicy = $state('open');
   let autoMuteGuests = $state(false);
+  let autoMuteVpnUsers = $state(false);
   let message = $state('');
   let messageType = $state('success');
   let showMessage = $state(false);
@@ -92,6 +93,7 @@
     modInactiveImmune = !!data.modInactiveImmune;
     joinPolicy = data.joinPolicy || 'open';
     autoMuteGuests = !!data.autoMuteGuests;
+    autoMuteVpnUsers = !!data.autoMuteVpnUsers;
 
     if (board) {
       const [r, g, b] = board.backgroundColor;
@@ -158,7 +160,8 @@
             maxUsers: clampedMaxUsers,
             modInactiveImmune,
             joinPolicy,
-            autoMuteGuests
+            autoMuteGuests,
+            autoMuteVpnUsers
           });
         }
       } else {
@@ -174,7 +177,8 @@
       roomMaxUsers: clampedMaxUsers,
       roomModInactiveImmune: modInactiveImmune,
       roomJoinPolicy: joinPolicy,
-      roomAutoMuteGuests: autoMuteGuests
+      roomAutoMuteGuests: autoMuteGuests,
+      roomAutoMuteVpnUsers: autoMuteVpnUsers
     });
   }
 
@@ -432,6 +436,13 @@
             <label>
               <input type="checkbox" bind:checked={autoMuteGuests} />
               <span>Auto-mute unregistered guests until they log in</span>
+            </label>
+          </div>
+
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" bind:checked={autoMuteVpnUsers} />
+              <span>Auto-mute VPN or datacenter users by ASN (mods and above exempt)</span>
             </label>
           </div>
         {:else}
