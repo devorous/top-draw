@@ -176,6 +176,7 @@ export class UI {
 
       chatBtn: document.getElementById('chatBtn'),
       recordBtn: document.getElementById('recordBtn'),
+      adminTopBtn: document.getElementById('adminTopBtn'),
       inboxBtn: document.getElementById('inboxBtn'),
       saveBtn: document.getElementById('saveBtn'),
 

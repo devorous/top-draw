@@ -46,6 +46,7 @@ export function setupUserHandlers(wsClient, app) {
         if (userData.role !== undefined && userData.role !== app.self.role) {
           app.selfRole = userData.role;
           app.self.role = userData.role;
+          appState.selfRole = userData.role;
           ui.updateSelfRole(userData.role);
           if (app.moderation) app.moderation.setRole(userData.role);
         }

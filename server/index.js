@@ -27,11 +27,85 @@ const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 8000;
 const ROOM_JOIN_POLICIES = new Set(['open', 'registered', 'trusted']);
+const ADMIN_COLLECTIONS = new Set([
+  'users',
+  'rooms',
+  'moderation',
+  'room_roles',
+  'gallery',
+  'favorites',
+  'comments',
+  'messages'
+]);
 
 function getJoinPolicyMinRole(joinPolicy) {
   if (joinPolicy === 'trusted') return Role.TRUSTED;
   if (joinPolicy === 'registered') return Role.USER;
   return Role.GUEST;
+}
+
+function json(res, status, payload) {
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*'
+  });
+  res.end(JSON.stringify(payload));
+}
+
+async function getAdminHttpUser(req) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!token) return null;
+
+  const decoded = verifyToken(token);
+  if (!decoded?.userId) return null;
+
+  const db = getDB();
+  if (!db) return null;
+
+  const user = await db.collection('users').findOne(
+    { _id: new ObjectId(decoded.userId) },
+    { projection: { username: 1, role: 1 } }
+  );
+  if (!user || (user.role || 0) < Role.DEITY) return null;
+  return user;
+}
+
+function sanitizeAdminDoc(doc) {
+  if (!doc || typeof doc !== 'object') return doc;
+
+  const seen = new WeakSet();
+  const redactKeys = new Set([
+    'passwordHash',
+    'secretAnswerHash',
+    'authToken',
+    'encrypted_content',
+    'iv',
+    'ipHistory',
+    'lastIp'
+  ]);
+
+  const walk = (value) => {
+    if (value == null) return value;
+    if (value instanceof Date) return value.toISOString();
+    if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
+      return `[binary ${value.length} bytes]`;
+    }
+    if (Array.isArray(value)) return value.map(walk);
+    if (typeof value === 'object') {
+      if (typeof value.toHexString === 'function') return value.toHexString();
+      if (seen.has(value)) return '[circular]';
+      seen.add(value);
+      const out = {};
+      for (const [key, nested] of Object.entries(value)) {
+        out[key] = redactKeys.has(key) ? '[redacted]' : walk(nested);
+      }
+      return out;
+    }
+    return value;
+  };
+
+  return walk(doc);
 }
 
 const server = createServer(async (req, res) => {
@@ -160,6 +234,75 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, corsHeaders);
       res.end(JSON.stringify({ exists: !!user, username: user?.username || null }));
     } catch { res.writeHead(500, corsHeaders); res.end(JSON.stringify({ exists: false })); }
+    return;
+  }
+
+  if (path === '/api/admin/stats' && req.method === 'GET') {
+    const adminUser = await getAdminHttpUser(req);
+    if (!adminUser) {
+      json(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    const db = getDB();
+    const activeRooms = roomManager
+      ? [...roomManager.rooms.values()].filter(room => room.id !== '_discovery' && room.getClientCount() > 0)
+      : [];
+
+    const rooms = activeRooms
+      .map(room => ({
+        id: room.id,
+        userCount: room.getClientCount(),
+        ownerUsername: room.ownerUsername || '',
+        locked: !!room.settings?.locked
+      }))
+      .sort((a, b) => b.userCount - a.userCount || a.id.localeCompare(b.id));
+
+    json(res, 200, {
+      activeUsers: rooms.reduce((sum, room) => sum + room.userCount, 0),
+      activeRooms: rooms.length,
+      registeredUsers: db ? await db.collection('users').countDocuments() : 0,
+      dbAvailable: !!db,
+      rooms
+    });
+    return;
+  }
+
+  const adminCollectionMatch = path.match(/^\/api\/admin\/collections\/([a-zA-Z0-9_-]+)$/);
+  if (adminCollectionMatch && req.method === 'GET') {
+    const adminUser = await getAdminHttpUser(req);
+    if (!adminUser) {
+      json(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    const collectionName = adminCollectionMatch[1];
+    if (!ADMIN_COLLECTIONS.has(collectionName)) {
+      json(res, 404, { error: 'Collection not available' });
+      return;
+    }
+
+    const db = getDB();
+    if (!db) {
+      json(res, 503, { error: 'Database unavailable' });
+      return;
+    }
+
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const requestedLimit = Number(url.searchParams.get('limit'));
+    const limit = Math.max(1, Math.min(100, Number.isFinite(requestedLimit) ? requestedLimit : 25));
+
+    const collection = db.collection(collectionName);
+    const [documents, total] = await Promise.all([
+      collection.find({}).sort({ _id: -1 }).limit(limit).toArray(),
+      collection.countDocuments()
+    ]);
+
+    json(res, 200, {
+      collection: collectionName,
+      total,
+      documents: documents.map(sanitizeAdminDoc)
+    });
     return;
   }
 

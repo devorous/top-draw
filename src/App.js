@@ -512,6 +512,12 @@ export class DrawingApp {
     if (elements.hudRedoBtn) elements.hudRedoBtn.addEventListener('click', () => this.handleRedo());
 
     elements.chatBtn.addEventListener('click', () => { appState.chatVisible = !appState.chatVisible; });
+    if (elements.adminTopBtn) {
+      elements.adminTopBtn.addEventListener('click', () => {
+        if (this.selfRole < 9) return;
+        appState.adminPanelVisible = true;
+      });
+    }
     elements.inboxBtn.addEventListener('click', () => {
       if (this.selfRole < 1) return;
       appState.messengerVisible = !appState.messengerVisible;
@@ -1709,6 +1715,7 @@ export class DrawingApp {
     if (role !== undefined) {
       this.selfRole = role;
       this.self.role = role;
+      appState.selfRole = role;
       if (this.moderation) {
         this.moderation.setRole(role);
       }
@@ -1882,6 +1889,7 @@ export class DrawingApp {
   handleAuthSuccess(token, role, username) {
     this.selfRole = role;
     this.self.role = role;
+    appState.selfRole = role;
     this.self.setUsername(username);
     appState.username = username;
 
@@ -2231,7 +2239,11 @@ export class DrawingApp {
 
   updateAuthenticatedActionVisibility(role = this.selfRole) {
     const isAuthenticated = role >= 1;
-    const { inboxBtn, uploadBtn } = this.ui.elements;
+    const { adminTopBtn, inboxBtn, uploadBtn } = this.ui.elements;
+
+    if (adminTopBtn) {
+      adminTopBtn.style.display = role >= 9 ? '' : 'none';
+    }
 
     if (inboxBtn) {
       inboxBtn.style.display = isAuthenticated ? '' : 'none';

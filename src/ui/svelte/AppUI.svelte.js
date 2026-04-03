@@ -6,6 +6,7 @@ import { mount, unmount } from 'svelte';
 import BoardMenu from './BoardMenu.svelte';
 import ProfileDialog from './ProfileDialog.svelte';
 import RoomSettings from './RoomSettings.svelte';
+import AdminPanel from './AdminPanel.svelte';
 import ColorPalette from './ColorPalette.svelte';
 import Chat from './Chat.svelte';
 import Messenger from '../../messenger/Messenger.svelte';
@@ -125,6 +126,17 @@ export function initSvelteUI(app) {
       }
     });
   }
+
+  let adminPanelTarget = document.getElementById('adminPanelMount');
+  if (!adminPanelTarget) {
+    adminPanelTarget = document.createElement('div');
+    adminPanelTarget.id = 'adminPanelMount';
+    document.body.appendChild(adminPanelTarget);
+  }
+  components.adminPanel = mount(AdminPanel, {
+    target: adminPanelTarget,
+    props: {}
+  });
 
   // Mount ColorPalette
   const colorPaletteTarget = document.getElementById('colorPaletteMount');

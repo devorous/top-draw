@@ -195,7 +195,6 @@
     white-space: nowrap;
     box-sizing: border-box;
   }
-
   .blend-btn:hover {
     background: rgba(30, 34, 42, 0.75);
     color: rgba(255, 255, 255, 0.95);

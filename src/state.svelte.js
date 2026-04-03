@@ -42,6 +42,7 @@ class DrawingState {
   boardMenuOpen = $state(null); // null | 'blend' | 'layers'
   profileDialog = $state({ visible: false, username: null, data: null, loading: false, error: null });
   roomSettingsVisible = $state(false);
+  adminPanelVisible = $state(false);
   colorPaletteVisible = $state(true);
   toastState = $state({ text: '', visible: false });
   connectionState = $state({ connected: false, roomId: null, text: '' });
