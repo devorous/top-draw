@@ -165,13 +165,13 @@ export class User {
   }
 
   /**
-   * Sets the brush spacing, clamped between 0 and 20.
+   * Sets the brush spacing, clamped between 0 and 50.
    *
    * @param {number} spacing - The new spacing.
    * @returns {void}
    */
   setSpacing(spacing) {
-    this.spacing = Math.max(0, Math.min(20, spacing));
+    this.spacing = Math.max(0, Math.min(50, spacing));
   }
 
   /**

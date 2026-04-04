@@ -822,7 +822,7 @@ export class DrawingApp {
     });
 
     this.ui.makeValueEditable(elements.spacingValue, {
-      min: 0, max: 20, step: 1, suffix: '',
+      min: 0, max: 50, step: 1, suffix: '',
       onCommit: (val) => {
         this.self.setSpacing(val);
         elements.spacingSlider.value = val;

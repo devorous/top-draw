@@ -2,6 +2,7 @@
   import { getStroke } from 'perfect-freehand';
 
   let canvasEl = $state(null);
+  let canvasReady = $state(false);
   let mounted = $state(false);
 
   // Virtual canvas space
@@ -33,11 +34,11 @@
   const STROKES = [
     {
       points: sampleBezierSkewed([[22, 238], [110, 135], [305, 82], [458, 62]], 72, 0.35),
-      color: '#ffdd00', size: 18, thinning: 0.74, // Yellow!
+      color: '#ffdd00', size: 18, thinning: 0.74, 
     },
     {
       points: sampleBezier([[48, 98], [165, 148], [308, 162], [452, 205]], 55),
-      color: '#c800c8', size: 9, thinning: 0.58, // Muted Magenta!
+      color: '#c800c8', size: 9, thinning: 0.58, 
     },
     {
       points: sampleBezier([[118, 262], [178, 192], [244, 188], [288, 258]], 44),
@@ -62,11 +63,19 @@
 
   $effect(() => {
     mounted = true;
+
+    let t0 = null;
+    let alive = true;
+    const DONE_MS = TL[TL.length - 1].end + 200;
+
+
     const canvas = canvasEl;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
 
     function setup() {
+      if (!alive) return;
+
       const dpr = window.devicePixelRatio || 1;
       const { width, height } = canvas.getBoundingClientRect();
       canvas.width = Math.round(width * dpr);
@@ -95,12 +104,14 @@
       ctx.restore();
     }
 
-    let t0 = null;
-    let alive = true;
-    const DONE_MS = TL[TL.length - 1].end + 200;
-
     function frame(ts) {
       if (!alive) return;
+
+       if (t0 === null) {
+        t0 = ts;
+        canvasReady = true; 
+      }
+
       if (t0 === null) t0 = ts;
       const elapsed = ts - t0;
       if (elapsed > DONE_MS) {
@@ -144,6 +155,7 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="preload" href="https://assets.ddraw.ca/homography.mp4" as="video" type="video/mp4">
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
 
 <div class="page" class:mounted>
@@ -159,38 +171,49 @@
     </div>
   </nav>
 
-  <section class="hero">
-    <div class="hero-text">
-      <div class="badge-float">Wowza!</div>
-      <h1>DDraw with<br><span class="accent">anyboDy!</span></h1>
-      <p class="sub">
-        A cool, real-time multi user drawing canvas. No need to sign up. Just, like, a fun thing to draw on, you know?
-      </p>
-      <div class="actions">
-        <a href="/go/" class="btn-primary main-cta">Start Scribbling!</a>
-        <div class="download-mini">
-          <span>Windows user?</span>
-          <a href="#download">Grab the app ↓</a>
-        </div>
-      </div>
-    </div>
-
-    <div class="hero-preview">
-      <div class="preview-container">
-        <div class="blob-bg"></div>
-        <div class="preview-chrome">
-          <div class="chrome-bar">
-            <div class="chrome-dots"><span></span><span></span><span></span></div>
-            <span class="chrome-title">DDraw — falling forward</span>
-          </div>
-          <div class="canvas-wrap">
-            <canvas bind:this={canvasEl}></canvas>
+  <main>
+    <section class="hero">
+      <div class="hero-text">
+        <div class="badge-float">Wowza!</div>
+        <h1>DDraw with<br><span class="accent">anyboDy!</span></h1>
+        <p class="sub">
+          A cool, real-time multi user drawing canvas. No need to sign up. Just, like, a fun thing to draw on, you know?
+        </p>
+        <div class="actions">
+          <a href="/go/" class="btn-primary main-cta">Start Scribbling!</a>
+          <div class="download-mini">
+            <span>Windows user?</span>
+            <a href="#download">Grab the app ↓</a>
           </div>
         </div>
       </div>
-    </div>
-  </section>
 
+      <div class="hero-preview">
+        <div class="preview-container">
+          <div class="blob-bg"></div>
+          <div class="preview-chrome">
+            <div class="chrome-bar">
+              <div class="chrome-dots"><span></span><span></span><span></span></div>
+              <span class="chrome-title">DDraw — falling forward</span>
+            </div>
+            <div class="canvas-wrap">
+               {#if !canvasReady}
+                <img 
+                  src="/images/preview-fallback.png" 
+                  alt="" 
+                  fetchpriority="high"
+                  width="480" 
+                  height="300"
+                  style="position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1;" 
+                />
+              {/if}
+              <canvas bind:this={canvasEl} style="position: relative; z-index: 2;"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
   <section id="download" class="download-card-section">
     <div class="funky-card">
       <div class="card-content">
