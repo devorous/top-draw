@@ -94,8 +94,12 @@ const T = {
   CS: 14, CT: 15, CC: 16, SHOW_CURSOR: 28,
 };
 
-// Only realistic drawing tools — skip text, select, inkdropper, etc.
-const DRAWING_TOOLS = [0, 5, 9]; // BRUSH, PEN, INK
+const Tool = {
+  BRUSH: 0, TEXT: 1, ERASE: 2, IMAGE_BRUSH: 3, SELECT: 4,
+  PEN: 5, LINE: 6, RECTANGLE: 7, CIRCLE: 8, INK: 9,
+  INKDROPPER: 10, BLUR: 11, CIRCLE_BLUR: 12,
+};
+const DRAWING_TOOLS = Object.values(Tool);
 
 function randInt(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
 function randColor() {
@@ -138,7 +142,6 @@ export default function () {
       let state       = 0;
       let stateTicks  = 0;
       let cycleLength = randInt(40, 80);  // ticks per stroke (~500–1000ms at 12ms/tick)
-      let strokeCount = 0;               // how many strokes completed this session
 
       socket.setInterval(function () {
         if (sessionIndex === -1) return;
@@ -155,16 +158,13 @@ export default function () {
         if (y > 1080 - margin)     { y = 1080 - margin;     dy = -Math.abs(dy); }
 
         if (state === 0) {
-          // Change settings roughly every 3–7 strokes, like a real user would
-          if (strokeCount === 0 || strokeCount % randInt(3, 7) === 0) {
-            currentTool  = DRAWING_TOOLS[Math.floor(Math.random() * DRAWING_TOOLS.length)];
-            currentColor = randColor();
-            currentSize  = randInt(300, 2000);
-            socket.sendBinary(buildMsg({ t: T.CT, u: sessionIndex, l: currentTool }));
-            socket.sendBinary(buildMsg({ t: T.CC, u: sessionIndex, c: currentColor }));
-            socket.sendBinary(buildMsg({ t: T.CS, u: sessionIndex, s: currentSize }));
-            socket.sendBinary(buildMsg({ t: T.SHOW_CURSOR, u: sessionIndex }));
-          }
+          currentTool  = DRAWING_TOOLS[Math.floor(Math.random() * DRAWING_TOOLS.length)];
+          currentColor = randColor();
+          currentSize  = randInt(300, 2000);
+          socket.sendBinary(buildMsg({ t: T.CT, u: sessionIndex, l: currentTool }));
+          socket.sendBinary(buildMsg({ t: T.CC, u: sessionIndex, c: currentColor }));
+          socket.sendBinary(buildMsg({ t: T.CS, u: sessionIndex, s: currentSize }));
+          socket.sendBinary(buildMsg({ t: T.SHOW_CURSOR, u: sessionIndex }));
 
           // Move cursor to stroke start
           socket.sendBinary(buildMsg({ t: T.MM, u: sessionIndex, ps: [x, y] }));
@@ -182,7 +182,6 @@ export default function () {
         } else {
           // Pen up, then start next stroke
           socket.sendBinary(buildMsg({ t: T.MU, u: sessionIndex }));
-          strokeCount++;
           state       = 0;
           stateTicks  = -1;
           cycleLength = randInt(40, 80);
@@ -192,68 +191,45 @@ export default function () {
       }, 12); // ~83 ticks/s, matching the app's 90 TPS tick loop
     });
 
-    // ---------------------------------------------------------------------------
-    // Receive: decode batched length-delimited frames from server
-    // ---------------------------------------------------------------------------
     socket.on('binaryMessage', function (data) {
-      const view   = new Uint8Array(data);
-      let   offset = 0;
-
-      // Server sends length-delimited batched frames: [varint len][msg bytes]...
+      const view = new Uint8Array(data);
+      let t = 0, u = -1, ts = -1, offset = 0;
       while (offset < view.length) {
-        let msgLen = 0, shift = 0;
-        while (offset < view.length) {
+        let tag = 0, shift = 0;
+        while (true) {
+          if (offset >= view.length) break;
           const b = view[offset++];
-          msgLen += (b & 0x7F) * Math.pow(2, shift);
+          tag += (b & 0x7F) * Math.pow(2, shift);
           if (!(b & 0x80)) break;
           shift += 7;
         }
-        if (msgLen === 0 || offset + msgLen > view.length) break;
-
-        const msgEnd = offset + msgLen;
-        let t = 0, u = -1, ts = -1;
-
-        while (offset < msgEnd) {
-          let tag = 0, tagShift = 0;
-          while (offset < msgEnd) {
-            const b = view[offset++];
-            tag += (b & 0x7F) * Math.pow(2, tagShift);
-            if (!(b & 0x80)) break;
-            tagShift += 7;
+        const fieldNum = tag >> 3;
+        const wireType = tag & 0x07;
+        if (fieldNum === 1) {
+          let val = 0, s = 0;
+          while (true) { const b = view[offset++]; val += (b & 0x7F) * Math.pow(2, s); if (!(b & 0x80)) break; s += 7; }
+          t = val;
+        } else if (fieldNum === 2) {
+          let val = 0, s = 0;
+          while (true) { const b = view[offset++]; val += (b & 0x7F) * Math.pow(2, s); if (!(b & 0x80)) break; s += 7; }
+          u = val;
+        } else if (fieldNum === 46) {
+          let val = 0, s = 0;
+          while (true) { const b = view[offset++]; val += (b & 0x7F) * Math.pow(2, s); if (!(b & 0x80)) break; s += 7; }
+          ts = val;
+        } else {
+          if      (wireType === 0) { while (view[offset++] & 0x80); }
+          else if (wireType === 1) { offset += 8; }
+          else if (wireType === 2) {
+            let len = 0, s = 0;
+            while (true) { const b = view[offset++]; len += (b & 0x7F) * Math.pow(2, s); if (!(b & 0x80)) break; s += 7; }
+            offset += len;
           }
-          const fieldNum = tag >> 3;
-          const wireType = tag & 0x07;
-
-          if (fieldNum === 1 && wireType === 0) {
-            let val = 0, s = 0;
-            while (offset < msgEnd) { const b = view[offset++]; val += (b & 0x7F) * Math.pow(2, s); if (!(b & 0x80)) break; s += 7; }
-            t = val;
-          } else if (fieldNum === 2 && wireType === 0) {
-            let val = 0, s = 0;
-            while (offset < msgEnd) { const b = view[offset++]; val += (b & 0x7F) * Math.pow(2, s); if (!(b & 0x80)) break; s += 7; }
-            u = val;
-          } else if (fieldNum === 46 && wireType === 0) {
-            let val = 0, s = 0;
-            while (offset < msgEnd) { const b = view[offset++]; val += (b & 0x7F) * Math.pow(2, s); if (!(b & 0x80)) break; s += 7; }
-            ts = val;
-          } else {
-            if      (wireType === 0) { while (offset < msgEnd && view[offset++] & 0x80); }
-            else if (wireType === 1) { offset += 8; }
-            else if (wireType === 2) {
-              let len = 0, s = 0;
-              while (offset < msgEnd) { const b = view[offset++]; len += (b & 0x7F) * Math.pow(2, s); if (!(b & 0x80)) break; s += 7; }
-              offset += len;
-            }
-            else if (wireType === 5) { offset += 4; }
-            else break;
-          }
+          else if (wireType === 5) { offset += 4; }
         }
-
-        if (t === 0 && u !== -1 && sessionIndex === -1) sessionIndex = u;
-        if (ts !== -1 && u !== sessionIndex) broadcastLatency.add(Date.now() - ts);
-
-        offset = msgEnd;
       }
+      if (t === 0 && u !== -1 && sessionIndex === -1) sessionIndex = u;
+      if (ts !== -1 && u !== sessionIndex) broadcastLatency.add(Date.now() - ts);
     });
 
     socket.on('error', (e) => console.log(`[VU${__VU} room=${room}] WS Error:`, e.error()));
