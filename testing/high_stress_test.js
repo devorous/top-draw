@@ -138,7 +138,7 @@ export default function () {
           state = 1;
         } 
         else if (state === 1) {
-          socket.sendBinary(buildMsg({ t: T.MD, u: sessionIndex }));
+          socket.sendBinary(buildMsg({ t: T.MD, u: sessionIndex, ps: [x, y] }));
           state = 2;
         }
         else if (stateTicks < cycleLength) {
@@ -157,7 +157,7 @@ export default function () {
 
     socket.on('binaryMessage', function (data) {
       const view = new Uint8Array(data);
-      let t = -1; let u = -1; let ts = -1;
+      let t = 0; let u = -1; let ts = -1;
       let offset = 0;
       while(offset < view.length) {
         let tag = 0; let shift = 0;
@@ -199,7 +199,7 @@ export default function () {
     });
 
     socket.on('error', (e) => console.log('WebSocket Error: ', e.error()));
-    socket.setTimeout(() => socket.close(), 175000);
+    socket.setTimeout(() => socket.close(), 115000);
   });
 
   check(res, { 'Connected': (r) => r && r.status === 101 });

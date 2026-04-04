@@ -7,6 +7,21 @@ import { LayerPreview } from './LayerPreview.js';
 import { ResizableSections } from './ResizableSections.js';
 import { appState } from '../state.svelte.js';
 
+import selectIconUrl from '../assets/icons/select-icon.svg';
+import brushIconUrl from '../assets/icons/brush-icon.svg';
+import lineIconUrl from '../assets/icons/line-icon.svg';
+import rectangleIconUrl from '../assets/icons/rectangle-icon.svg';
+import circleIconUrl from '../assets/icons/circle-icon.svg';
+import textIconUrl from '../assets/icons/text-icon.svg';
+import eraserIconUrl from '../assets/icons/eraser-icon.svg';
+import circleBlurIconUrl from '../assets/icons/circle-blur-icon.svg';
+import glitchIconUrl from '../assets/icons/glitch-icon.svg';
+import inkdropperIconUrl from '../assets/icons/inkdropper-icon.svg';
+import moveIconUrl from '../assets/icons/move-icon.svg';
+import rotateIconUrl from '../assets/icons/rotate-icon.svg';
+import pepperIconUrl from '../assets/icons/pepper.png';
+import patternIconUrl from '../assets/icons/pattern-icon.svg';
+
 /**
  * UI Manager class
  */
@@ -346,25 +361,25 @@ export class UI {
    */
   createIcons() {
     this.icons = {
-      select: this.createIcon('/images/select-icon.svg'),
-      brush: this.createIcon('/images/brush-icon.svg'),
-      pen: this.createIcon('/images/brush-icon.svg'),
-      flowPen: this.createIcon('/images/brush-icon.svg'),
-      ink: this.createIcon('/images/brush-icon.svg'),
-      line: this.createIcon('/images/line-icon.svg'),
-      rectangle: this.createIcon('/images/rectangle-icon.svg'),
-      circle: this.createIcon('/images/circle-icon.svg'),
-      text: this.createIcon('/images/text-icon.svg'),
-      erase: this.createIcon('/images/eraser-icon.svg'),
-      blur: this.createIcon('/images/brush-icon.svg'),
-      circleBlur: this.createIcon('/images/circle-blur-icon.svg'),
-      glitchBlur: this.createIcon('/images/glitch-icon.svg'),
-      inkdropper: this.createIcon('/images/inkdropper-icon.svg'),
-      pan: this.createIcon('/images/move-icon.svg'),
-      rotate: this.createIcon('/images/rotate-icon.svg'),
-      imageBrush: this.createIcon('/images/pepper.png'),
-      pixel: this.createIcon('/images/brush-icon.svg'),
-      pattern: this.createIcon('/images/pattern-icon.svg')
+      select: this.createIcon(selectIconUrl),
+      brush: this.createIcon(brushIconUrl),
+      pen: this.createIcon(brushIconUrl),
+      flowPen: this.createIcon(brushIconUrl),
+      ink: this.createIcon(brushIconUrl),
+      line: this.createIcon(lineIconUrl),
+      rectangle: this.createIcon(rectangleIconUrl),
+      circle: this.createIcon(circleIconUrl),
+      text: this.createIcon(textIconUrl),
+      erase: this.createIcon(eraserIconUrl),
+      blur: this.createIcon(brushIconUrl),
+      circleBlur: this.createIcon(circleBlurIconUrl),
+      glitchBlur: this.createIcon(glitchIconUrl),
+      inkdropper: this.createIcon(inkdropperIconUrl),
+      pan: this.createIcon(moveIconUrl),
+      rotate: this.createIcon(rotateIconUrl),
+      imageBrush: this.createIcon(pepperIconUrl),
+      pixel: this.createIcon(brushIconUrl),
+      pattern: this.createIcon(patternIconUrl)
     };
   }
 

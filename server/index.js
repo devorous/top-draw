@@ -29,6 +29,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 8000;
+const DISABLE_RATE_LIMITS = process.env.DISABLE_RATE_LIMITS === 'true';
 const MAX_WS_PAYLOAD_BYTES = 16 * 1024 * 1024;
 const MESSENGER_QUERY_LIMIT = { max: 30, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
 const WS_CONNECTION_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 10 * 60 * 1000 };
@@ -686,6 +687,7 @@ async function init() {
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`WebSocket server running on port ${PORT}`);
+    if (DISABLE_RATE_LIMITS) console.warn('[SERVER] ⚠ Rate limits DISABLED (DISABLE_RATE_LIMITS=true)');
   });
 }
 
@@ -1271,7 +1273,7 @@ wss.on('connection', (ws, req) => {
   try {
     // Rate limit new connections per IP
     const connIp = getClientIp(req);
-    if (!wsConnectionLimiter.check(connIp)) {
+    if (!DISABLE_RATE_LIMITS && !wsConnectionLimiter.check(connIp)) {
       console.warn(`[WS] Connection rate limited: ${connIp}`);
       ws.close(1008, 'Too many connections');
       return;
@@ -1280,10 +1282,12 @@ wss.on('connection', (ws, req) => {
     console.log(`[WS] New connection attempt from ${req.socket.remoteAddress}`);
 
     ws.clientIp = connIp;
-    const connectionLimit = wsRateLimiter.consume(rateLimitKey('ws:connect', ws.clientIp), WS_CONNECTION_LIMIT);
-    if (!connectionLimit.allowed) {
-      ws.close(4408, 'Rate limit exceeded');
-      return;
+    if (!DISABLE_RATE_LIMITS) {
+      const connectionLimit = wsRateLimiter.consume(rateLimitKey('ws:connect', ws.clientIp), WS_CONNECTION_LIMIT);
+      if (!connectionLimit.allowed) {
+        ws.close(4408, 'Rate limit exceeded');
+        return;
+      }
     }
 
     ws.userRole = Role.GUEST;
@@ -1320,9 +1324,11 @@ wss.on('connection', (ws, req) => {
 
   ws.on('message', async (rawData) => {
     // Per-connection message rate limiting
-    const wsKey = ws.clientIp || 'unknown';
-    if (!wsMessageLimiter.check(wsKey)) {
-      return; // Silently drop excess messages
+    if (!DISABLE_RATE_LIMITS) {
+      const wsKey = ws.clientIp || 'unknown';
+      if (!wsMessageLimiter.check(wsKey)) {
+        return; // Silently drop excess messages
+      }
     }
 
     const room = roomManager.getRoomByClient(ws);
@@ -1352,7 +1358,7 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
-      if (!shouldAllowWsMessage(ws, data)) {
+      if (!DISABLE_RATE_LIMITS && !shouldAllowWsMessage(ws, data)) {
         console.warn(`[WS] Rate limited message from ${ws.clientIp} (type=${data.t})`);
         ws.close(4408, 'Rate limit exceeded');
         return;

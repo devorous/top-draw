@@ -56,6 +56,7 @@ export class InkdropperTool {
    * @param {Event} e - The pointer event.
    */
   onPointerUp(user, pos, e) {
+    if (!this._active) return;
     this._active = false;
     this.sampleColor(pos);
   }
