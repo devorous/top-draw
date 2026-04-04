@@ -2,10 +2,12 @@
  * @fileoverview Realistic k6 stress test simulating genuine user drawing behavior
  * across multiple rooms to avoid exponential fan-out from a single overcrowded room.
  *
+ * NUM_VUS is the number of users PER ROOM. Total VUs = NUM_VUS * NUM_ROOMS.
+ *
  * Presets (set via env vars):
- *   Low:    NUM_VUS=5,  NUM_ROOMS=10
- *   Medium: NUM_VUS=10, NUM_ROOMS=10
- *   High:   NUM_VUS=20, NUM_ROOMS=10
+ *   Low:    NUM_VUS=5,  NUM_ROOMS=10  → 50 total VUs
+ *   Medium: NUM_VUS=10, NUM_ROOMS=10  → 100 total VUs
+ *   High:   NUM_VUS=20, NUM_ROOMS=10  → 200 total VUs
  *
  * Usage:
  *   k6 run --env TARGET_URL=wss://top-draw.koyeb.app --env NUM_VUS=10 --env NUM_ROOMS=10 testing/multiroom_stress_test.js
@@ -21,7 +23,7 @@ const NUM_VUS   = parseInt(__ENV.NUM_VUS)   || 5;
 const NUM_ROOMS = parseInt(__ENV.NUM_ROOMS) || 10;
 
 export const options = {
-  vus: NUM_VUS,
+  vus: NUM_VUS * NUM_ROOMS,
   duration: __ENV.DURATION || '2m',
 };
 
@@ -110,8 +112,8 @@ export default function () {
   sleep(Math.random() * 3);
 
   const baseUrl = __ENV.TARGET_URL || 'ws://127.0.0.1:8000';
-  // Each VU picks a random room and sticks with it for the whole session
-  const roomNum = randInt(1, NUM_ROOMS);
+  // Deterministically assign each VU to a room so every room gets exactly NUM_VUS users
+  const roomNum = ((__VU - 1) % NUM_ROOMS) + 1;
   const room    = `${__ENV.ROOM_PREFIX || 'stress'}_${roomNum}`;
   const url     = `${baseUrl}/?room=${room}`;
 
