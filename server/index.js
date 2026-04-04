@@ -1398,7 +1398,7 @@ wss.on('connection', (ws, req) => {
           }
 
           // Check room capacity
-          if (room.settings.maxUsers > 0) {
+          if (!DISABLE_RATE_LIMITS && room.settings.maxUsers > 0) {
             const currentCount = room.getClientCount();
             if (currentCount >= room.settings.maxUsers) {
               sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Room is full' });
