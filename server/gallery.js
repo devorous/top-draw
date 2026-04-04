@@ -20,6 +20,32 @@ async function getSharp() {
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 
+/** Verify that the buffer's magic bytes match the declared MIME type. */
+function verifyMagicBytes(buffer, mimeType) {
+  if (buffer.length < 4) return false;
+
+  // PNG: 89 50 4E 47
+  if (mimeType === 'image/png') {
+    return buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+  }
+  // JPEG: FF D8 FF
+  if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
+    return buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
+  }
+  // GIF: 47 49 46 38
+  if (mimeType === 'image/gif') {
+    return buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38;
+  }
+  // WebP: RIFF....WEBP
+  if (mimeType === 'image/webp') {
+    return buffer.length >= 12 &&
+      buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+      buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50;
+  }
+  // Unknown MIME — reject
+  return false;
+}
+
 const r2 = process.env.R2_ENDPOINT
   ? new S3Client({
       region: 'auto',
@@ -197,10 +223,38 @@ export async function handleGalleryUpload(req, res) {
   const b64 = imageData.slice(commaIdx + 1);
   const mimeMatch = header.match(/data:([^;]+)/);
   const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+
+  // Reject SVG uploads (can contain embedded scripts / XSS)
+  if (mimeType === 'image/svg+xml' || mimeType === 'image/svg') {
+    return json(res, 400, { error: 'SVG uploads are not supported' });
+  }
+
   const buffer = Buffer.from(b64, 'base64');
 
   if (buffer.length > MAX_IMAGE_BYTES) {
     return json(res, 400, { error: 'Image too large (max 10 MB)' });
+  }
+
+  // Verify magic bytes match claimed MIME type
+  if (!verifyMagicBytes(buffer, mimeType)) {
+    return json(res, 400, { error: 'Image data does not match declared format' });
+  }
+
+  // Validate dimensions and strip EXIF metadata using sharp
+  const sharpLib = await getSharp();
+  if (sharpLib) {
+    try {
+      const metadata = await sharpLib(buffer).metadata();
+      const MAX_MEGAPIXELS = 25_000_000;
+      if (metadata.width && metadata.height && metadata.width * metadata.height > MAX_MEGAPIXELS) {
+        return json(res, 400, { error: `Image dimensions too large (max ${MAX_MEGAPIXELS / 1_000_000}MP)` });
+      }
+      if (metadata.width > 20000 || metadata.height > 20000) {
+        return json(res, 400, { error: 'Image dimensions too large (max 20000px per side)' });
+      }
+    } catch {
+      return json(res, 400, { error: 'Unable to read image — file may be corrupt' });
+    }
   }
 
   // Compute image hash for duplicate detection
@@ -226,12 +280,22 @@ export async function handleGalleryUpload(req, res) {
   const filename = `${id}.${ext}`;
   const thumbFilename = `${id}_thumb.${ext}`;
 
-  // Generate thumbnail if sharp is available
+  // Strip EXIF/metadata from the original and generate thumbnail
+  let sanitizedBuffer = buffer;
   let thumbBuffer = null;
-  const sharpLib = await getSharp();
-  if (sharpLib) {
+  const sharpUpload = await getSharp();
+  if (sharpUpload) {
     try {
-      thumbBuffer = await sharpLib(buffer)
+      sanitizedBuffer = await sharpUpload(buffer)
+        .rotate() // Auto-rotate based on EXIF before stripping
+        .withMetadata({}) // Strip all EXIF/ICC/XMP metadata
+        .toBuffer();
+    } catch (err) {
+      console.warn('[Gallery] EXIF strip failed, using original:', err.message);
+    }
+
+    try {
+      thumbBuffer = await sharpUpload(sanitizedBuffer)
         .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
         .toBuffer();
     } catch (err) {
@@ -240,11 +304,11 @@ export async function handleGalleryUpload(req, res) {
   }
 
   try {
-    // Upload original
+    // Upload original (with metadata stripped)
     await r2.send(new PutObjectCommand({
       Bucket: BUCKET,
       Key: filename,
-      Body: buffer,
+      Body: sanitizedBuffer,
       ContentType: mimeType,
     }));
 
