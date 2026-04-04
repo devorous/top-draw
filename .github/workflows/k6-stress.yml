@@ -6,17 +6,26 @@ on:
       test:
         description: 'Test to run'
         required: true
-        default: 'high_stress_test'
+        default: 'multiroom_stress_test'
         type: choice
         options:
+          - multiroom_stress_test
           - low_stress_test
           - low_ordered_stress_test
           - medium_stress_test
           - medium_ordered_stress_test
           - high_stress_test
           - high_ordered_stress_test
+      num_vus:
+        description: 'Number of virtual users (multiroom test only)'
+        required: false
+        default: '5'
+      num_rooms:
+        description: 'Number of rooms to spread across (multiroom test only)'
+        required: false
+        default: '10'
       room:
-        description: 'Room name'
+        description: 'Room name (single-room tests) / room prefix (multiroom test)'
         required: false
         default: 'stress'
 
@@ -39,4 +48,7 @@ jobs:
           k6 run \
             --env TARGET_URL=wss://top-draw.koyeb.app \
             --env ROOM=${{ github.event.inputs.room }} \
+            --env ROOM_PREFIX=${{ github.event.inputs.room }} \
+            --env NUM_VUS=${{ github.event.inputs.num_vus }} \
+            --env NUM_ROOMS=${{ github.event.inputs.num_rooms }} \
             testing/${{ github.event.inputs.test }}.js
