@@ -217,12 +217,9 @@ export function setupUserHandlers(wsClient, app) {
         app.svelteComponents.chat.addSystemMessage(`${user.username || 'User'} has left the room`);
       }
 
-      if (app.remoteUserHandler) {
-        app.remoteUserHandler.handleCancel(user);
-      } else if (board.layerManager) {
-        board.layerManager.cleanupUserStrokes(data.sessionIndex);
-      }
+      // Bake out all user strokes (preserves visuals, frees memory)
       if (board.layerManager) {
+        board.layerManager.bakeOutUserStrokes(data.sessionIndex);
         board.requestUpdate();
       }
 

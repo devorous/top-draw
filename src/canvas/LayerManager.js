@@ -2040,6 +2040,57 @@ export class LayerManager {
     this.needsComposite = true;
   }
 
+  /**
+   * Bake out all strokes for a user into baked sequences, preserving visuals while freeing memory.
+   * Called when a user disconnects to consolidate their drawing and release memory.
+   * @param {number} userId - User ID to bake out
+   */
+  bakeOutUserStrokes(userId) {
+    for (const group of this.layerGroups) {
+      // Bake active stroke if it exists
+      const active = group.activeStrokeByUser.get(userId);
+      if (active) {
+        this._bakeStrokeToBin(group, active);
+        this._releaseCanvas(active);
+        group.activeStrokeByUser.delete(userId);
+      }
+
+      // Bake all historical strokes for this user from strokeStack
+      const strokesToBake = [];
+      for (let i = 0; i < group.strokeStack.length; i++) {
+        if (group.strokeStack[i].userId === userId) {
+          strokesToBake.push(i);
+        }
+      }
+
+      // Bake in reverse order to maintain visual layer order
+      for (let i = strokesToBake.length - 1; i >= 0; i--) {
+        const idx = strokesToBake[i];
+        const stroke = group.strokeStack[idx];
+        this._bakeStrokeToBin(group, stroke);
+      }
+
+      // Remove all baked strokes from stack
+      group.strokeStack = group.strokeStack.filter(s => s.userId !== userId);
+
+      // Clear user-specific metadata
+      group.userStrokeCounts.delete(userId);
+
+      // Clean up user's strokes from bakedSequences groups
+      for (const seq of group.bakedSequences) {
+        if (seq.type === 'group' && seq.strokes) {
+          seq.strokes = seq.strokes.filter(s => s.userId !== userId);
+        }
+      }
+    }
+
+    // Clear redo stack for this user
+    this.redoStackByUser.delete(userId);
+
+    this.needsComposite = true;
+    this._notifyHistoryPanel(true);
+  }
+
   /** @deprecated No-op */
   mergeAdjacentSourceOverSubLayers(groupIndex, userId) {}
 
