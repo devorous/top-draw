@@ -2,6 +2,10 @@
   import { messenger } from './messenger.svelte.js';
   import { onMount, onDestroy } from 'svelte';
   import { appState, toggleMessenger } from '../state.svelte.js';
+  import { ProfileDialog } from '../ui/ProfileDialog.js';
+
+  // Initialize profile dialog
+  const profileDialog = new ProfileDialog();
 
   let { initialTargetUser = null, isFloating = false } = $props();
   let newMessageText = $state("");
@@ -9,7 +13,6 @@
   let isStartingNewChat = $state(false);
   let newChatUsername = $state("");
   let newChatError = $state("");
-  let newChatChecking = $state(false);
   let initialized = $state(false);
 
   // Read username reactively from shared state so it's always current
@@ -54,21 +57,10 @@
     if (!username) return;
 
     newChatError = "";
-    newChatChecking = true;
-    try {
-      const result = await messenger.checkUser(username);
-      if (!result.exists) {
-        newChatError = `No account found for "${username}"`;
-        return;
-      }
-      messenger.openChat({ id: result.username, name: result.username });
-      isStartingNewChat = false;
-      newChatUsername = "";
-    } catch {
-      newChatError = "Could not reach server. Try again.";
-    } finally {
-      newChatChecking = false;
-    }
+    // Open chat directly without checking if user exists (prevents username enumeration)
+    messenger.openChat({ id: username, name: username });
+    isStartingNewChat = false;
+    newChatUsername = "";
   }
 
   function selectConversation(msg) {
@@ -162,13 +154,13 @@
             {#if newChatError}
               <p class="error-msg">{newChatError}</p>
             {/if}
-            <button type="submit" class="primary-btn wide" disabled={!newChatUsername.trim() || newChatChecking}>
-              {newChatChecking ? 'Checking...' : 'Start Chatting'}
+            <button type="submit" class="primary-btn wide" disabled={!newChatUsername.trim()}>
+              Start Chatting
             </button>
           </form>
           
           <div class="recent-users">
-            <h4>Suggested (Online)</h4>
+            <h4>Suggested</h4>
             <div class="user-chips">
               {#each [...appState.users.values()] as user}
                 {#if user.id !== username}
@@ -188,10 +180,9 @@
     {:else if messenger.activeChat}
       <header class="chat-header">
         <div class="user-info">
-          <h3>{messenger.activeChat.name}</h3>
-          <span class="status" class:online={messenger.isConnected}>
-            {messenger.isConnected ? '● Online' : '○ Offline'}
-          </span>
+          <button class="username-btn" onclick={() => profileDialog.show(messenger.activeChat.name)}>
+            {messenger.activeChat.name}
+          </button>
         </div>
       </header>
 
@@ -535,10 +526,20 @@
       background: var(--bg-secondary);
       height: 64px;
 
-      h3 { margin: 0; font-size: var(--text-lg); color: var(--text-primary); }
-      .status { 
-        font-size: var(--text-xs); color: var(--text-muted); 
-        &.online { color: var(--accent-primary); }
+      .username-btn {
+        background: none;
+        border: none;
+        margin: 0;
+        padding: 0;
+        font-size: var(--text-lg);
+        color: var(--text-primary);
+        cursor: pointer;
+        font-weight: 600;
+        transition: color 0.15s ease;
+
+        &:hover {
+          color: var(--accent-primary);
+        }
       }
     }
 

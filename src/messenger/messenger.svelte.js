@@ -26,12 +26,6 @@ class MessengerState {
     return groups;
   });
 
-  async checkUser(username) {
-    const baseUrl = (import.meta.env.VITE_WS_SERVER_URL || 'ws://localhost:8000')
-      .replace(/^ws/, 'http');
-    const res = await fetch(`${baseUrl}/api/messenger/check-user?username=${encodeURIComponent(username)}`);
-    return res.json();
-  }
 
   async init(currentUserId, targetUser = null) {
     this.currentUserId = currentUserId;

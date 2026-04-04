@@ -30,6 +30,32 @@ const GALLERY_COMMENT_LIMIT = { max: 20, windowMs: 5 * 60 * 1000, blockMs: 10 * 
 const GALLERY_LIKE_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
 const GALLERY_FAVORITE_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
 
+/** Verify that the buffer's magic bytes match the declared MIME type. */
+function verifyMagicBytes(buffer, mimeType) {
+  if (buffer.length < 4) return false;
+
+  // PNG: 89 50 4E 47
+  if (mimeType === 'image/png') {
+    return buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+  }
+  // JPEG: FF D8 FF
+  if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
+    return buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
+  }
+  // GIF: 47 49 46 38
+  if (mimeType === 'image/gif') {
+    return buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38;
+  }
+  // WebP: RIFF....WEBP
+  if (mimeType === 'image/webp') {
+    return buffer.length >= 12 &&
+      buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+      buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50;
+  }
+  // Unknown MIME — reject
+  return false;
+}
+
 const r2 = process.env.R2_ENDPOINT
   ? new S3Client({
       region: 'auto',
@@ -222,6 +248,46 @@ export async function handleGalleryUpload(req, res) {
     return json(res, 400, { error: imageValidation.error || 'Invalid image upload' });
   }
 
+  // Verify magic bytes match claimed MIME type
+  if (!verifyMagicBytes(buffer, mimeType)) {
+    return json(res, 400, { error: 'Image data does not match declared format' });
+  }
+
+  // Validate dimensions and strip EXIF metadata using sharp
+  const sharpLib = await getSharp();
+  if (sharpLib) {
+    try {
+      const metadata = await sharpLib(buffer).metadata();
+      const MAX_MEGAPIXELS = 25_000_000;
+      if (metadata.width && metadata.height && metadata.width * metadata.height > MAX_MEGAPIXELS) {
+        return json(res, 400, { error: `Image dimensions too large (max ${MAX_MEGAPIXELS / 1_000_000}MP)` });
+      }
+      if (metadata.width > 20000 || metadata.height > 20000) {
+        return json(res, 400, { error: 'Image dimensions too large (max 20000px per side)' });
+      }
+    } catch {
+      return json(res, 400, { error: 'Unable to read image — file may be corrupt' });
+    }
+  }
+
+  // Compute image hash for duplicate detection
+  const imageHash = crypto.createHash('sha256').update(buffer).digest('hex');
+
+  // Check for duplicate
+  try {
+    const existing = await db.collection('gallery').findOne({ imageHash });
+    if (existing) {
+      return json(res, 409, {
+        error: 'This image has already been uploaded',
+        duplicate: true,
+        existingId: existing._id.toString(),
+      });
+    }
+  } catch (err) {
+    console.error('[Gallery] Duplicate check error:', err);
+    // Continue with upload if duplicate check fails
+  }
+
   const buffer = imageValidation.buffer;
   const mimeType = imageValidation.mimeType || 'image/png';
 
@@ -234,12 +300,22 @@ export async function handleGalleryUpload(req, res) {
   const filename = `${id}.${ext}`;
   const thumbFilename = `${id}_thumb.${ext}`;
 
-  // Generate thumbnail if sharp is available
+  // Strip EXIF/metadata from the original and generate thumbnail
+  let sanitizedBuffer = buffer;
   let thumbBuffer = null;
-  const sharpLib = await getSharp();
-  if (sharpLib) {
+  const sharpUpload = await getSharp();
+  if (sharpUpload) {
     try {
-      thumbBuffer = await sharpLib(buffer)
+      sanitizedBuffer = await sharpUpload(buffer)
+        .rotate() // Auto-rotate based on EXIF before stripping
+        .withMetadata({}) // Strip all EXIF/ICC/XMP metadata
+        .toBuffer();
+    } catch (err) {
+      console.warn('[Gallery] EXIF strip failed, using original:', err.message);
+    }
+
+    try {
+      thumbBuffer = await sharpUpload(sanitizedBuffer)
         .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
         .toBuffer();
     } catch (err) {
@@ -248,11 +324,11 @@ export async function handleGalleryUpload(req, res) {
   }
 
   try {
-    // Upload original
+    // Upload original (with metadata stripped)
     await r2.send(new PutObjectCommand({
       Bucket: BUCKET,
       Key: filename,
-      Body: buffer,
+      Body: sanitizedBuffer,
       ContentType: mimeType,
     }));
 
@@ -275,6 +351,7 @@ export async function handleGalleryUpload(req, res) {
   const doc = {
     url,
     thumbUrl,
+    imageHash,
     author: decoded.username,
     authorId: decoded.userId,
     title: (title || '').substring(0, 100).trim(),
@@ -696,8 +773,8 @@ export async function handleGalleryCommentDelete(req, res, commentId) {
       return json(res, 404, { error: 'Comment not found' });
     }
 
-    // Only allow author or admin (role >= 5) to delete
-    if (comment.authorId !== decoded.userId && decoded.role < 5) {
+    // Only allow author or HOLY+ (role >= 8) to delete
+    if (comment.authorId !== decoded.userId && decoded.role < 8) {
       return json(res, 403, { error: 'Not authorized to delete this comment' });
     }
 
@@ -740,7 +817,7 @@ export async function handleGalleryTagsUpdate(req, res, id) {
     const item = await db.collection('gallery').findOne({ _id: new ObjectId(id) });
     if (!item) return json(res, 404, { error: 'Item not found' });
 
-    if (item.authorId !== decoded.userId && decoded.role < 5) {
+    if (item.authorId !== decoded.userId && decoded.role < 8) {
       return json(res, 403, { error: 'Not authorized to edit tags for this item' });
     }
 
@@ -780,8 +857,8 @@ export async function handleGalleryDelete(req, res, id) {
       return json(res, 404, { error: 'Item not found' });
     }
 
-    // Only allow author or admin (role >= 5) to delete
-    if (item.authorId !== decoded.userId && decoded.role < 5) {
+    // Only allow author or HOLY+ (role >= 8) to delete
+    if (item.authorId !== decoded.userId && decoded.role < 8) {
       return json(res, 403, { error: 'Not authorized to delete this item' });
     }
 

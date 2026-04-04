@@ -23,9 +23,7 @@ export class InkdropperTool {
    * Deactivates the tool and clears the top canvas.
    */
   deactivate() {
-    if (this._active) {
-      this.sampleColor(this.board.lastMousePos || { x: 0, y: 0 });
-    }
+    // Always clear the preview when deactivating
     this.board.clearTop();
     this._active = false;
   }
@@ -116,18 +114,19 @@ export class InkdropperTool {
     const imageData = ctx.getImageData(x, y, 1, 1);
     let [r, g, b, a] = imageData.data;
 
+    const app = this.board.app;
+
     if (a < 255) {
       const bgColor = this.board.backgroundColor;
       const alpha = a / 255;
       r = Math.round(r * alpha + bgColor[0] * (1 - alpha));
-      g = Math.round(r * alpha + bgColor[1] * (1 - alpha));
-      b = Math.round(r * alpha + bgColor[2] * (1 - alpha));
+      g = Math.round(g * alpha + bgColor[1] * (1 - alpha));
+      b = Math.round(b * alpha + bgColor[2] * (1 - alpha));
       a = 255;
     }
 
     const rgba = [r, g, b, a / 255];
 
-    const app = this.board.app;
     app.self.setColor(rgba);
     app.self.setOpacity(rgba[3]);
 
@@ -160,7 +159,12 @@ export class InkdropperTool {
       app.colorPalette.addRecent(rgba);
     }
 
-    if (app.previousTool) {
+    // Clear the preview box
+    this.board.clearTop();
+
+    // Auto-switch back to previous tool if enabled
+    const autoSwitch = app.ui.elements.inkdropperAutoSwitch?.checked ?? true;
+    if (autoSwitch && app.previousTool) {
       const toolToRestore = app.previousTool;
       app.previousTool = null;
       app.selectTool(toolToRestore);

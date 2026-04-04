@@ -2,9 +2,13 @@
 
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
 const SALT_ROUNDS = 10;
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+if (!process.env.JWT_SECRET) {
+  console.warn('[SECURITY] JWT_SECRET not set — using random secret (sessions will not persist across restarts)');
+}
 
 /**
  * Hashes a plaintext password using bcrypt.

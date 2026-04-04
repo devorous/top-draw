@@ -23,6 +23,7 @@ import { authorize, Action } from './permissions.js';
 import { getRoomRole, setRoomRole, computeEffectiveRole, getRoomRoleRoster } from './roomRoles.js';
 import { getClientIp, httpRateLimiter, messengerRateLimiter, wsRateLimiter } from './security.js';
 import { getAsnCheckStatus, lookupAsnForIp, initAsnCheck, isVpnAsn } from './asnCheck.js';
+import { authLimiter, uploadLimiter, likeLimiter, wsMessageLimiter, wsConnectionLimiter } from './rateLimit.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -214,6 +215,11 @@ function sanitizeAdminDoc(doc) {
   return walk(doc);
 }
 
+const _fallbackIpSalt = crypto.randomBytes(16).toString('hex');
+if (!process.env.IP_SALT) {
+  console.warn('[SECURITY] IP_SALT not set — using random salt (IP hashes will change across restarts)');
+}
+
 const server = createServer(async (req, res) => {
   const path = req.url.split('?')[0];
 
@@ -226,6 +232,17 @@ const server = createServer(async (req, res) => {
     });
     res.end();
     return;
+  }
+
+  // Rate limit helper
+  const clientIp = req.socket.remoteAddress || '';
+  function rateLimited(limiter) {
+    if (!limiter.check(clientIp)) {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+      res.end(JSON.stringify({ error: 'Too many requests, please try again later' }));
+      return true;
+    }
+    return false;
   }
 
   if (path === '/health' && req.method === 'GET') {
@@ -245,12 +262,14 @@ const server = createServer(async (req, res) => {
   }
 
   if (path === '/api/gallery/upload' && req.method === 'POST') {
+    if (rateLimited(uploadLimiter)) return;
     await handleGalleryUpload(req, res);
     return;
   }
 
   const likeMatch = path.match(/^\/api\/gallery\/([a-f0-9]{24})\/like$/);
   if (likeMatch && req.method === 'POST') {
+    if (rateLimited(likeLimiter)) return;
     await handleGalleryLike(req, res, likeMatch[1]);
     return;
   }
@@ -305,11 +324,13 @@ const server = createServer(async (req, res) => {
 
   // Auth routes (HTTP for gallery/non-WebSocket clients)
   if (path === '/api/auth/login' && req.method === 'POST') {
+    if (rateLimited(authLimiter)) return;
     await handleAuthLogin(req, res);
     return;
   }
 
   if (path === '/api/auth/register' && req.method === 'POST') {
+    if (rateLimited(authLimiter)) return;
     await handleAuthRegister(req, res);
     return;
   }
@@ -448,7 +469,7 @@ const messengerClients = new Map();
  */
 function getIpHash(ip) {
   // We use a salt (you might want to make this persistent/env var)
-  const salt = process.env.IP_SALT || 'top-draw-secret-salt';
+  const salt = process.env.IP_SALT || _fallbackIpSalt;
   return crypto.createHash('sha256').update(ip + salt).digest('hex').substring(0, 12);
 }
 
@@ -836,8 +857,12 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
 
     case T.MIRROR_REGION: {
       try {
+        if (data.mirrorRegionsJson && data.mirrorRegionsJson.length > 10000) {
+          console.warn('[MirrorRegion] Payload too large');
+          break;
+        }
         const payload = data.mirrorRegionsJson ? JSON.parse(data.mirrorRegionsJson) : null;
-        if (!payload || !payload.action) break;
+        if (!payload || typeof payload !== 'object' || !payload.action) break;
 
         if ((payload.action === 'create' || payload.action === 'update') && payload.region) {
           const region = payload.region;
@@ -1174,6 +1199,14 @@ wss.on('connection', (ws, req) => {
 
   // Drawing server connection
   try {
+    // Rate limit new connections per IP
+    const connIp = req.socket.remoteAddress || '';
+    if (!wsConnectionLimiter.check(connIp)) {
+      console.warn(`[WS] Connection rate limited: ${connIp}`);
+      ws.close(1008, 'Too many connections');
+      return;
+    }
+
     console.log(`[WS] New connection attempt from ${req.socket.remoteAddress}`);
 
     ws.clientIp = getClientIp(req);
@@ -1216,6 +1249,12 @@ wss.on('connection', (ws, req) => {
   }
 
   ws.on('message', async (rawData) => {
+    // Per-connection message rate limiting
+    const wsKey = ws.clientIp || 'unknown';
+    if (!wsMessageLimiter.check(wsKey)) {
+      return; // Silently drop excess messages
+    }
+
     const room = roomManager.getRoomByClient(ws);
     if (!room) {
       console.warn('[WS] Message from client not in any room');

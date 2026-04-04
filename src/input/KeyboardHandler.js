@@ -84,9 +84,9 @@ export class KeyboardHandler {
 
     // TAB key for temporary inkdropper mode
     if (e.key === 'Tab' && app.self.tool !== 'text') {
-      e.preventDefault();
-      if (app.self.tool !== 'inkdropper') {
-        app.previousTool = app.self.tool;
+      e.preventDefault(); // Always prevent focus cycling
+      if (!e.repeat && app.self.tool !== 'inkdropper') {
+        // First press only - switch to inkdropper
         app.selectTool('inkdropper');
       }
       return;

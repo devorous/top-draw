@@ -2387,12 +2387,16 @@ export class DrawingApp {
       return;
     }
 
+    const targetCanvas = canvas ?? this.board.mainCanvas;
     const btn = this.ui.elements.saveToGalleryBtn;
     const originalText = btn?.textContent;
     if (btn) btn.textContent = 'Saving...';
 
+    // Show saving toast immediately
+    this.ui.showToast('Saving...', 10000);
+
     try {
-      const imageData = (canvas ?? this.board.mainCanvas).toDataURL('image/png');
+      const imageData = targetCanvas.toDataURL('image/png');
       const apiBase = import.meta.env.VITE_API_BASE_URL || '';
       const res = await fetch(`${apiBase}/api/gallery/upload`, {
         method: 'POST',
@@ -2403,18 +2407,40 @@ export class DrawingApp {
         body: JSON.stringify({ imageData }),
       });
 
+      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || `Upload failed (${res.status})`);
+        if (data.duplicate) {
+          this.ui.showToast('This image is already in the gallery', 3000, 'error');
+        } else {
+          this.ui.showToast(`Gallery save failed: ${data.error || res.status}`, 3000, 'error');
+          this._offerLocalSave(targetCanvas);
+        }
+        return;
       }
 
       this.ui.showToast('Saved to gallery!');
     } catch (err) {
       console.error('[Gallery] Save error:', err);
-      this.ui.showToast(`Gallery save failed: ${err.message}`);
+      this.ui.showToast(`Gallery save failed: ${err.message}`, 3000, 'error');
+      this._offerLocalSave(targetCanvas);
     } finally {
       if (btn && originalText) btn.textContent = originalText;
     }
+  }
+
+  /**
+   * Triggers a local download of the canvas as a fallback when gallery upload fails.
+   * @param {HTMLCanvasElement} canvas
+   * @private
+   */
+  _offerLocalSave(canvas) {
+    const link = document.createElement('a');
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    link.download = `drawing-${ts}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    setTimeout(() => this.ui.showToast('Saved locally instead'), 500);
   }
 
   /**
@@ -2498,9 +2524,15 @@ export class DrawingApp {
 
     const previousTool = this.self.tool;
 
-    if (tool !== 'inkdropper' && previousTool === 'inkdropper' && tool !== this.previousTool) {
+    // Handle inkdropper previousTool logic
+    if (tool === 'inkdropper' && previousTool !== 'inkdropper') {
+      // Switching TO inkdropper - always remember the previous tool
+      this.previousTool = previousTool;
+    } else if (previousTool === 'inkdropper' && tool !== this.previousTool) {
+      // Switching FROM inkdropper to a different tool (not the previous one)
       this.previousTool = null;
     } else if (previousTool !== 'inkdropper' && tool !== 'inkdropper' && this.previousTool) {
+      // Normal tool switching (not involving inkdropper)
       this.previousTool = null;
     }
 

@@ -220,11 +220,11 @@
 .saveModeControls {
   position: absolute;
   top: 16px;
-  left: 16px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 10px;
-  max-width: calc(100vw - 88px);
 }
 
 .saveModeModeToggle,
@@ -432,9 +432,6 @@
 @media (max-width: 768px) {
   .saveModeControls {
     top: 12px;
-    left: 12px;
-    right: 56px;
-    justify-content: space-between;
     gap: 8px;
   }
 
