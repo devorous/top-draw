@@ -248,6 +248,8 @@ export async function handleGalleryUpload(req, res) {
     return json(res, 400, { error: imageValidation.error || 'Invalid image upload' });
   }
 
+  const { buffer, mimeType } = imageValidation;
+
   // Verify magic bytes match claimed MIME type
   if (!verifyMagicBytes(buffer, mimeType)) {
     return json(res, 400, { error: 'Image data does not match declared format' });
