@@ -235,7 +235,7 @@
 
       <!-- Main Drawing Area -->
       <div id="boardContainer">
-        <!-- Svelte Board Menu (top-right: blend mode + layers) -->
+        <!-- Svelte Board Menu (top-right: blend mode + layers + pattern preview) -->
         <div id="boardMenu"></div>
 
         <!-- Top Toolbar -->
@@ -727,12 +727,6 @@
 
               <!-- Selection Pattern Settings (shown when Pattern is checked) -->
               <div id="selectionPatternSettings" style="display: none;">
-                <div class="selection-mode-container">
-                  <label class="modeLabel">Pattern Preview</label>
-                  <div class="patternPreviewContainer">
-                    <canvas id="selectionPatternPreview" width="120" height="60"></canvas>
-                  </div>
-                </div>
 
                 <div class="selection-mode-container">
                   <label class="modeLabel">Color Mode</label>
@@ -875,13 +869,6 @@
               <!-- Fill Pattern Settings (shown when Pattern is checked) -->
               <div id="fillPatternSettings" style="display: none;">
                 <div class="selection-mode-container">
-                  <label class="modeLabel">Pattern Preview</label>
-                  <div class="patternPreviewContainer">
-                    <canvas id="fillPatternPreview" width="120" height="60"></canvas>
-                  </div>
-                </div>
-
-                <div class="selection-mode-container">
                   <label class="modeLabel">Color Mode</label>
                   <div class="radio-group">
                     <label class="radio-option">
@@ -937,13 +924,6 @@
 
             <!-- Pattern Mode Options -->
             <div id="patternModeOptions" style="display: none;">
-              <div class="selection-mode-container">
-                <label class="modeLabel">Pattern Preview</label>
-                <div class="patternPreviewContainer">
-                  <canvas id="patternPreview" width="120" height="60"></canvas>
-                </div>
-              </div>
-
               <div class="selection-mode-container">
                 <label class="modeLabel">Color Mode</label>
                 <div class="radio-group">

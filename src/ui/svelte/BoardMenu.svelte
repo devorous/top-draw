@@ -1,6 +1,7 @@
 <script>
   import { appState } from '../../state.svelte.js';
   import { LayerPreview } from '../LayerPreview.js';
+  import PatternPreview from './PatternPreview.svelte';
 
   let { onBlendModeChange = null, onLayerSelect = null, onLayerVisibilityToggle = null } = $props();
 
@@ -98,6 +99,9 @@
 </script>
 
 <div class="board-menu">
+  <!-- Pattern Preview (collapsible, above layers) -->
+  <PatternPreview />
+
   <!-- Layers (always visible, no frame) -->
   <div class="layer-list">
     {#each layers as layer}

@@ -352,11 +352,8 @@ export class PatternTool extends Tool {
   }
 
   updatePreview(user) {
+    this.previewCanvas = document.getElementById('patternPreviewCanvas');
     if (!this.previewCanvas) {
-      this.previewCanvas = document.getElementById('patternPreview');
-    }
-    if (!this.previewCanvas) {
-      console.warn('Pattern preview canvas not found');
       return;
     }
 

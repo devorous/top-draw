@@ -419,19 +419,6 @@
    ======================================== */
 
 #patternModeOptions {
-  .patternPreviewContainer {
-    display: flex;
-    justify-content: center;
-    margin: 4px 0 6px 0;
-  }
-
-  #patternPreview {
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-primary);
-    border-radius: 4px;
-    display: block;
-  }
-
   .sliderContainer {
     &#pattern-scale {
       margin-top: 8px;
@@ -528,19 +515,6 @@
 
 /* Fill Pattern Settings - matching Pattern Mode Options */
 #fillPatternSettings {
-  .patternPreviewContainer {
-    display: flex;
-    justify-content: center;
-    margin: 4px 0 6px 0;
-  }
-
-  #fillPatternPreview {
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-primary);
-    border-radius: 4px;
-    display: block;
-  }
-
   .sliderContainer {
     &#fill-pattern-scale {
       margin-top: 8px;
@@ -593,19 +567,6 @@
 
 /* Selection Pattern Settings - matching Pattern Mode Options */
 #selectionPatternSettings {
-  .patternPreviewContainer {
-    display: flex;
-    justify-content: center;
-    margin: 4px 0 6px 0;
-  }
-
-  #selectionPatternPreview {
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-primary);
-    border-radius: 4px;
-    display: block;
-  }
-
   .sliderContainer {
     &#selection-pattern-scale {
       margin-top: 8px;

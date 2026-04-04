@@ -719,17 +719,13 @@ export class DrawingApp {
           this.wsClient.broadcastPatternMode(e.target.checked);
         }
 
+        // Show/hide pattern preview window
+        appState.patternPreviewVisible = e.target.checked;
+
         // Update preview if pattern tool exists
         const patternTool = this.toolManager.getTool('pattern');
         if (patternTool && e.target.checked) {
-          // Also update fill pattern preview
-          const fillPatternPreview = document.getElementById('fillPatternPreview');
-          if (fillPatternPreview) {
-            const oldPreview = patternTool.previewCanvas;
-            patternTool.previewCanvas = fillPatternPreview;
-            patternTool.updatePreview(this.self);
-            patternTool.previewCanvas = oldPreview;
-          }
+          patternTool.updatePreview(this.self);
         }
       });
     }
@@ -754,17 +750,13 @@ export class DrawingApp {
           this.wsClient.broadcastPatternMode(e.target.checked);
         }
 
+        // Show/hide pattern preview window
+        appState.patternPreviewVisible = e.target.checked;
+
         // Update preview if pattern tool exists
         const patternTool = this.toolManager.getTool('pattern');
         if (patternTool && e.target.checked) {
-          // Also update selection pattern preview
-          const selectionPatternPreview = document.getElementById('selectionPatternPreview');
-          if (selectionPatternPreview) {
-            const oldPreview = patternTool.previewCanvas;
-            patternTool.previewCanvas = selectionPatternPreview;
-            patternTool.updatePreview(this.self);
-            patternTool.previewCanvas = oldPreview;
-          }
+          patternTool.updatePreview(this.self);
         }
       });
     }
@@ -1183,26 +1175,6 @@ export class DrawingApp {
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
       patternTool.updatePreview(this.self);
-
-      // Also update fill pattern preview if fill tool has pattern mode enabled
-      const fillTool = this.toolManager.getTool('fill');
-      const fillPatternPreview = document.getElementById('fillPatternPreview');
-      if (fillTool?.patternMode && fillPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = fillPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
-
-      // Also update selection pattern preview if select tool has pattern mode enabled
-      const selectTool = this.toolManager.getTool('select');
-      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
-      if (selectTool?.patternMode && selectionPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = selectionPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
     }
 
     if (this.connected && this.self.patternBrush) {
@@ -1256,26 +1228,6 @@ export class DrawingApp {
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
       patternTool.updatePreview(this.self);
-
-      // Also update fill pattern preview if fill tool has pattern mode enabled
-      const fillTool = this.toolManager.getTool('fill');
-      const fillPatternPreview = document.getElementById('fillPatternPreview');
-      if (fillTool?.patternMode && fillPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = fillPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
-
-      // Also update selection pattern preview if select tool has pattern mode enabled
-      const selectTool = this.toolManager.getTool('select');
-      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
-      if (selectTool?.patternMode && selectionPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = selectionPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
     }
 
     if (this.connected && this.self.patternBrush) {
@@ -1299,26 +1251,6 @@ export class DrawingApp {
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
       patternTool.updatePreview(this.self);
-
-      // Also update fill pattern preview if fill tool has pattern mode enabled
-      const fillTool = this.toolManager.getTool('fill');
-      const fillPatternPreview = document.getElementById('fillPatternPreview');
-      if (fillTool?.patternMode && fillPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = fillPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
-
-      // Also update selection pattern preview if select tool has pattern mode enabled
-      const selectTool = this.toolManager.getTool('select');
-      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
-      if (selectTool?.patternMode && selectionPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = selectionPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
     }
 
     if (this.connected && this.self.patternBrush) {
@@ -1342,26 +1274,6 @@ export class DrawingApp {
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
       patternTool.updatePreview(this.self);
-
-      // Also update fill pattern preview if fill tool has pattern mode enabled
-      const fillTool = this.toolManager.getTool('fill');
-      const fillPatternPreview = document.getElementById('fillPatternPreview');
-      if (fillTool?.patternMode && fillPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = fillPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
-
-      // Also update selection pattern preview if select tool has pattern mode enabled
-      const selectTool = this.toolManager.getTool('select');
-      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
-      if (selectTool?.patternMode && selectionPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = selectionPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
     }
 
     if (this.connected && this.self.patternBrush) {
@@ -1385,26 +1297,6 @@ export class DrawingApp {
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
       patternTool.updatePreview(this.self);
-
-      // Also update fill pattern preview if fill tool has pattern mode enabled
-      const fillTool = this.toolManager.getTool('fill');
-      const fillPatternPreview = document.getElementById('fillPatternPreview');
-      if (fillTool?.patternMode && fillPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = fillPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
-
-      // Also update selection pattern preview if select tool has pattern mode enabled
-      const selectTool = this.toolManager.getTool('select');
-      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
-      if (selectTool?.patternMode && selectionPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = selectionPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
     }
 
     if (this.connected && this.self.patternBrush) {
@@ -1422,26 +1314,6 @@ export class DrawingApp {
       patternTool._tileCache.clear();
       if (patternTool.updatePreview) {
         patternTool.updatePreview(this.self);
-      }
-
-      // Also update fill pattern preview if fill tool has pattern mode enabled
-      const fillTool = this.toolManager.getTool('fill');
-      const fillPatternPreview = document.getElementById('fillPatternPreview');
-      if (fillTool?.patternMode && fillPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = fillPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
-
-      // Also update selection pattern preview if select tool has pattern mode enabled
-      const selectTool = this.toolManager.getTool('select');
-      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
-      if (selectTool?.patternMode && selectionPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = selectionPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
       }
     }
 
@@ -1478,26 +1350,6 @@ export class DrawingApp {
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool && patternTool.updatePreview) {
       patternTool.updatePreview(this.self);
-
-      // Also update fill pattern preview if fill tool has pattern mode enabled
-      const fillTool = this.toolManager.getTool('fill');
-      const fillPatternPreview = document.getElementById('fillPatternPreview');
-      if (fillTool?.patternMode && fillPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = fillPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
-
-      // Also update selection pattern preview if select tool has pattern mode enabled
-      const selectTool = this.toolManager.getTool('select');
-      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
-      if (selectTool?.patternMode && selectionPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = selectionPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
     }
 
     if (this.connected) {
@@ -3041,24 +2893,6 @@ export class DrawingApp {
     if (patternTool) {
       patternTool._tileCache.clear();
       patternTool.updatePreview(this.self);
-
-      // Also update fill pattern preview
-      const fillPatternPreview = document.getElementById('fillPatternPreview');
-      if (fillPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = fillPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
-
-      // Also update selection pattern preview
-      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
-      if (selectionPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = selectionPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
     }
 
     const fillTool = this.toolManager.getTool('fill');
@@ -3096,24 +2930,6 @@ export class DrawingApp {
     if (patternTool) {
       patternTool._tileCache.clear();
       patternTool.updatePreview(this.self);
-
-      // Also update fill pattern preview
-      const fillPatternPreview = document.getElementById('fillPatternPreview');
-      if (fillPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = fillPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
-
-      // Also update selection pattern preview
-      const selectionPatternPreview = document.getElementById('selectionPatternPreview');
-      if (selectionPatternPreview) {
-        const oldPreview = patternTool.previewCanvas;
-        patternTool.previewCanvas = selectionPatternPreview;
-        patternTool.updatePreview(this.self);
-        patternTool.previewCanvas = oldPreview;
-      }
     }
 
     const fillTool = this.toolManager.getTool('fill');

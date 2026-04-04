@@ -44,6 +44,8 @@ class DrawingState {
   roomSettingsVisible = $state(false);
   adminPanelVisible = $state(false);
   colorPaletteVisible = $state(true);
+  patternPreviewVisible = $state(false);
+  patternPreviewCollapsed = $state(false);
   toastState = $state({ text: '', visible: false });
   connectionState = $state({ connected: false, roomId: null, text: '' });
 

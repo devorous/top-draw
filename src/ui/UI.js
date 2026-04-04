@@ -5,6 +5,7 @@ import { EditableValueHandler } from './EditableValueHandler.js';
 import { RemoteUserUI } from './RemoteUserUI.js';
 import { LayerPreview } from './LayerPreview.js';
 import { ResizableSections } from './ResizableSections.js';
+import { appState } from '../state.svelte.js';
 
 /**
  * UI Manager class
@@ -641,6 +642,7 @@ export class UI {
     if (this.elements.fillModeOptions) this.elements.fillModeOptions.style.display = 'none';
     if (patternModeOptions) patternModeOptions.style.display = 'none';
     if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'none';
+    appState.patternPreviewVisible = false;
     
     const { blendModeOptions } = this.elements;
     if (blendModeOptions) {
@@ -661,6 +663,10 @@ export class UI {
         smoothingContainer.style.display = 'none';
         opacityContainer.style.display = 'none';
         if (selectionModeOptions) selectionModeOptions.style.display = 'block';
+        {
+          const selectTool = window.app?.toolManager?.getTool('select');
+          if (selectTool?.patternMode) appState.patternPreviewVisible = true;
+        }
         break;
 
       case 'brush':
@@ -736,6 +742,7 @@ export class UI {
         brushSpacing.style.display = 'none';
         smoothingContainer.style.display = 'none';
         if (patternModeOptions) patternModeOptions.style.display = 'block';
+        appState.patternPreviewVisible = true;
         break;
 
       case 'pixel':
@@ -750,6 +757,10 @@ export class UI {
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
         if (fillModeOptions) fillModeOptions.style.display = 'block';
+        {
+          const fillTool = window.app?.toolManager?.getTool('fill');
+          if (fillTool?.patternMode) appState.patternPreviewVisible = true;
+        }
         break;
 
       case 'inkdropper':
