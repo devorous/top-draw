@@ -261,6 +261,8 @@ export class UI {
 
       selectionModeOptions: document.getElementById('selectionModeOptions'),
       eraserModeOptions: document.getElementById('eraserModeOptions'),
+      inkdropperModeOptions: document.getElementById('inkdropperModeOptions'),
+      inkdropperAutoSwitch: document.getElementById('inkdropperAutoSwitch'),
       brushModeOptions: document.getElementById('brushModeOptions'),
       circleBlurModeOptions: document.getElementById('circleBlurModeOptions'),
       fillModeOptions: document.getElementById('fillModeOptions'),
@@ -559,7 +561,7 @@ export class UI {
       selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText,
       brushImage, brushFileInput, sizeContainer, pressureContainer, smoothingContainer,
       brushSpacing, brushHardness, opacityContainer, blurRadiusContainer,
-      selectionModeOptions, eraserModeOptions, brushModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions
+      selectionModeOptions, eraserModeOptions, inkdropperModeOptions, brushModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions
     } = this.elements;
 
     selfCircle.style.display = 'none';
@@ -580,6 +582,7 @@ export class UI {
     if (blurRadiusContainer) blurRadiusContainer.style.display = 'none';
     if (selectionModeOptions) selectionModeOptions.style.display = 'none';
     if (eraserModeOptions) eraserModeOptions.style.display = 'none';
+    if (inkdropperModeOptions) inkdropperModeOptions.style.display = 'none';
     if (brushModeOptions) brushModeOptions.style.display = 'none';
     if (circleBlurModeOptions) circleBlurModeOptions.style.display = 'none';
     if (this.elements.fillModeOptions) this.elements.fillModeOptions.style.display = 'none';
@@ -709,6 +712,7 @@ export class UI {
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
         opacityContainer.style.display = 'none';
+        if (inkdropperModeOptions) inkdropperModeOptions.style.display = 'block';
         break;
 
       case 'pan':

@@ -2512,9 +2512,15 @@ export class DrawingApp {
 
     const previousTool = this.self.tool;
 
-    if (tool !== 'inkdropper' && previousTool === 'inkdropper' && tool !== this.previousTool) {
+    // Handle inkdropper previousTool logic
+    if (tool === 'inkdropper' && previousTool !== 'inkdropper') {
+      // Switching TO inkdropper - always remember the previous tool
+      this.previousTool = previousTool;
+    } else if (previousTool === 'inkdropper' && tool !== this.previousTool) {
+      // Switching FROM inkdropper to a different tool (not the previous one)
       this.previousTool = null;
     } else if (previousTool !== 'inkdropper' && tool !== 'inkdropper' && this.previousTool) {
+      // Normal tool switching (not involving inkdropper)
       this.previousTool = null;
     }
 
