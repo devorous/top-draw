@@ -1482,8 +1482,52 @@ export class DrawingApp {
 
   /**
    * Starts the application in offline (local-only) mode.
+   * If the user has entered credentials, attempts to authenticate first.
    */
-  handleOffline() {
+  async handleOffline() {
+    const hasPassword = !this.auth?.isLoggedIn && this.ui.elements.loginPassword?.value;
+    const hasToken = this.auth?.getStoredToken();
+
+    // If user has credentials or a stored token, try to authenticate before going offline
+    if (hasPassword || hasToken) {
+      await this._authenticateThenGoOffline();
+      return;
+    }
+
+    this._enterOfflineMode();
+  }
+
+  /**
+   * Attempts to connect and authenticate, then enters offline mode regardless of outcome.
+   */
+  async _authenticateThenGoOffline() {
+    this._pendingOffline = true;
+
+    // Safety timeout — if auth doesn't complete in 5s, go offline anyway
+    this._offlineAuthTimeout = setTimeout(() => {
+      if (this._pendingOffline) {
+        console.log('[App] Auth timed out before offline mode');
+        this._pendingOffline = false;
+        this._enterOfflineMode();
+      }
+    }, 5000);
+
+    try {
+      // Connect to discovery room for authentication
+      await this.wsClient.connect(this.self.toJSON(), '_discovery');
+      // handleWSConnect will trigger login; auth result will call _enterOfflineMode
+    } catch (err) {
+      console.log('[App] Could not connect for auth before offline mode:', err.message);
+      clearTimeout(this._offlineAuthTimeout);
+      this._pendingOffline = false;
+      this._enterOfflineMode();
+    }
+  }
+
+  /**
+   * Actually enters offline drawing mode.
+   */
+  _enterOfflineMode() {
     console.log('[App] Draw Alone mode - creating local room');
     this.isOfflineMode = true;
     this.connected = false;
@@ -1589,6 +1633,18 @@ export class DrawingApp {
       if (this._pendingLandingLogin) {
         this._pendingLandingLogin = false;
         this.auth?.handleLogin();
+      } else if (this._pendingOffline) {
+        // Authenticate before entering offline mode
+        const hasPassword = !this.auth?.isLoggedIn && this.ui.elements.loginPassword?.value;
+        if (hasPassword) {
+          this.auth?.handleLogin();
+        } else if (this.auth?.attemptAutoLogin()) {
+          // Auto-login with stored token; auth result will trigger _enterOfflineMode
+        } else {
+          // No credentials to try — go offline immediately
+          this._pendingOffline = false;
+          this._enterOfflineMode();
+        }
       }
       return;
     }
@@ -1760,6 +1816,15 @@ export class DrawingApp {
     this.updateGalleryButtonVisibility(role);
     this.updateAuthenticatedActionVisibility(role);
 
+    if (this._pendingOffline) {
+      this._pendingOffline = false;
+      if (this._offlineAuthTimeout) { clearTimeout(this._offlineAuthTimeout); this._offlineAuthTimeout = null; }
+      const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
+      this._enterOfflineMode();
+      this.ui.showToast(`Logged in as ${username} (${roleNames[role] || 'Guest'})`, 3000);
+      return;
+    }
+
     if (this.landingPage && this.landingPage.isVisible) {
       this.landingPage.isAuthenticated = true;
       this.landingPage.authToken = token;
@@ -1838,6 +1903,14 @@ export class DrawingApp {
    * @param {string} error - The error message.
    */
   handleAuthError(error) {
+    if (this._pendingOffline) {
+      this._pendingOffline = false;
+      if (this._offlineAuthTimeout) { clearTimeout(this._offlineAuthTimeout); this._offlineAuthTimeout = null; }
+      console.log('[App] Auth failed before offline mode:', error);
+      this._enterOfflineMode();
+      return;
+    }
+
     if (this.isOfflineMode) return;
 
     if (this.landingPage) {
