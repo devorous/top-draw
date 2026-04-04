@@ -4,6 +4,7 @@
 import { EditableValueHandler } from './EditableValueHandler.js';
 import { RemoteUserUI } from './RemoteUserUI.js';
 import { LayerPreview } from './LayerPreview.js';
+import { ResizableSections } from './ResizableSections.js';
 
 /**
  * UI Manager class
@@ -16,6 +17,7 @@ export class UI {
     this.editableHandler = new EditableValueHandler();
     this.remoteUserUI = null;
     this.layerPreview = new LayerPreview();
+    this.resizableSections = null;
   }
 
   /**
@@ -27,42 +29,61 @@ export class UI {
     this.remoteUserUI = new RemoteUserUI(this.elements, this.icons);
     this.layerPreview.init();
     this.setupScrollIndicator();
+    this.initResizableSections();
   }
 
   /**
-   * Sets up the scroll indicator for the options panel
+   * Initializes resizable sections in the tool options panel
+   */
+  initResizableSections() {
+    this.resizableSections = new ResizableSections('toolOptions', [
+      { id: 'userList', minHeight: 40, defaultHeight: 150 },
+      { id: 'toolSliders', minHeight: 100, defaultHeight: 250 },
+      { id: 'toolExtras', minHeight: 100, defaultHeight: 300 }
+    ]);
+  }
+
+  /**
+   * Sets up the scroll indicators for resizable sections
    */
   setupScrollIndicator() {
-    const optionsPanel = document.getElementById('options');
-    const scrollIndicator = document.getElementById('optionsScrollIndicator');
+    const sections = [
+      { panel: 'toolSliders', indicator: 'toolSlidersScrollIndicator' },
+      { panel: 'toolExtras', indicator: 'toolExtrasScrollIndicator' }
+    ];
 
-    if (!optionsPanel || !scrollIndicator) return;
+    sections.forEach(({ panel: panelId, indicator: indicatorId }) => {
+      const panel = document.getElementById(panelId);
+      const indicator = document.getElementById(indicatorId);
 
-    const updateScrollIndicator = () => {
-      const hasScroll = optionsPanel.scrollHeight > optionsPanel.clientHeight;
-      const scrollTop = optionsPanel.scrollTop;
-      const isNearBottom = optionsPanel.scrollHeight - scrollTop <= optionsPanel.clientHeight + 20;
+      if (!panel || !indicator) return;
 
-      // Show only when: has scroll, at top (not scrolled), and not at bottom
-      if (hasScroll && scrollTop < 10 && !isNearBottom) {
-        scrollIndicator.classList.add('visible');
-      } else {
-        scrollIndicator.classList.remove('visible');
-      }
-    };
+      const updateScrollIndicator = () => {
+        const hasScroll = panel.scrollHeight > panel.clientHeight;
+        const scrollTop = panel.scrollTop;
+        const isNearBottom = panel.scrollHeight - scrollTop <= panel.clientHeight + 20;
 
-    // Initial check
-    updateScrollIndicator();
+        // Show only when: has scroll, at top (not scrolled), and not at bottom
+        if (hasScroll && scrollTop < 10 && !isNearBottom) {
+          indicator.classList.add('visible');
+        } else {
+          indicator.classList.remove('visible');
+        }
+      };
 
-    // Update on scroll
-    optionsPanel.addEventListener('scroll', updateScrollIndicator);
+      // Initial check
+      updateScrollIndicator();
 
-    // Update when window resizes or content changes
-    const resizeObserver = new ResizeObserver(updateScrollIndicator);
-    resizeObserver.observe(optionsPanel);
+      // Update on scroll
+      panel.addEventListener('scroll', updateScrollIndicator);
 
-    // Also check after a short delay (for dynamic content)
-    setTimeout(updateScrollIndicator, 500);
+      // Update when window resizes or content changes
+      const resizeObserver = new ResizeObserver(updateScrollIndicator);
+      resizeObserver.observe(panel);
+
+      // Also check after a short delay (for dynamic content)
+      setTimeout(updateScrollIndicator, 500);
+    });
   }
 
   /**

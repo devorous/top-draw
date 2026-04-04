@@ -552,8 +552,8 @@
             </div>
           </div>
 
-          <!-- Brush Options -->
-          <div id="options">
+          <!-- Tool Sliders -->
+          <div id="toolSliders">
             <div class="sliders">
               <div class="sliderContainer" id="size-container">
                 <div class="sliderLabel">Size <span class="sliderValue" id="sizeValue">10</span><button class="lock-btn" id="sizeLock" title="Lock size for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
@@ -615,11 +615,15 @@
 
               <input autocomplete="off" type="file" id="brush-file-input" accept=".gih,.gbr,.png,.jpg,.jpeg,.webp" style="display: none;">
               <img id="brushImage" alt="Brush preview" style="display: none;">
+            </div>
+            <div class="scroll-indicator" id="toolSlidersScrollIndicator"></div>
+          </div>
 
-              <div id="brushGallery" style="display: none;">
-                <label>Brush Gallery</label>
-                <div id="brushList"></div>
-              </div>
+          <!-- Tool Extras (Galleries & Mode Options) -->
+          <div id="toolExtras">
+            <div id="brushGallery" style="display: none;">
+              <label>Brush Gallery</label>
+              <div id="brushList"></div>
             </div>
 
             <!-- Selection Mode Options -->
@@ -950,7 +954,7 @@
                 </div>
               </div>
             </div>
-            <div class="scroll-indicator" id="optionsScrollIndicator"></div>
+            <div class="scroll-indicator" id="toolExtrasScrollIndicator"></div>
           </div>
 
           <!-- Color Palette (Svelte) -->
