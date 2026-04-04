@@ -60,3 +60,6 @@ export const wsMessageLimiter = createRateLimiter({ windowMs: 1000, max: 200 });
 
 /** WebSocket connections: 20 per minute per IP */
 export const wsConnectionLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 20 });
+
+/** Feedback submissions: 3 per 10 minutes per IP */
+export const feedbackLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 3 });

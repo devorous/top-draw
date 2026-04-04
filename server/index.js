@@ -23,7 +23,7 @@ import { authorize, Action } from './permissions.js';
 import { getRoomRole, setRoomRole, computeEffectiveRole, getRoomRoleRoster } from './roomRoles.js';
 import { getClientIp, httpRateLimiter, messengerRateLimiter, wsRateLimiter } from './security.js';
 import { getAsnCheckStatus, lookupAsnForIp, initAsnCheck, isVpnAsn } from './asnCheck.js';
-import { authLimiter, uploadLimiter, likeLimiter, wsMessageLimiter, wsConnectionLimiter } from './rateLimit.js';
+import { authLimiter, uploadLimiter, likeLimiter, wsMessageLimiter, wsConnectionLimiter, feedbackLimiter } from './rateLimit.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -158,6 +158,20 @@ function json(res, status, payload) {
     'Access-Control-Allow-Origin': '*'
   });
   res.end(JSON.stringify(payload));
+}
+
+async function readBody(req, maxBytes = 65536) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    let size = 0;
+    req.on('data', chunk => {
+      size += chunk.length;
+      if (size > maxBytes) { reject(new Error('Payload too large')); return; }
+      data += chunk.toString();
+    });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
 }
 
 async function getAdminHttpUser(req) {
@@ -338,6 +352,47 @@ const server = createServer(async (req, res) => {
 
   if (path === '/api/auth/me' && req.method === 'GET') {
     await handleAuthMe(req, res);
+    return;
+  }
+
+  if (path === '/api/feedback' && req.method === 'POST') {
+    if (rateLimited(feedbackLimiter)) return;
+
+    let body;
+    try {
+      const raw = await readBody(req, 8192);
+      body = JSON.parse(raw);
+    } catch {
+      json(res, 400, { error: 'Invalid request body' });
+      return;
+    }
+
+    const text = typeof body?.text === 'string' ? body.text.trim() : '';
+    const page = body?.page === 'landing' ? 'landing' : 'app';
+
+    if (text.length < 1 || text.length > 2000) {
+      json(res, 422, { error: 'Feedback must be between 1 and 2000 characters.' });
+      return;
+    }
+
+    const db = getDB();
+    if (!db) {
+      json(res, 503, { error: 'Database unavailable' });
+      return;
+    }
+
+    try {
+      await db.collection('feedback').insertOne({
+        text,
+        page,
+        submittedAt: new Date(),
+        userAgent: String(req.headers['user-agent'] || '').slice(0, 512),
+      });
+      json(res, 201, { ok: true });
+    } catch (err) {
+      console.error('[Feedback] Insert error:', err);
+      json(res, 500, { error: 'Failed to save feedback' });
+    }
     return;
   }
 

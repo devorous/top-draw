@@ -1,5 +1,6 @@
 <script>
   import { getStroke } from 'perfect-freehand';
+  import FeedbackWidget from '../ui/svelte/FeedbackWidget.svelte';
 
   let canvasEl = $state(null);
   let canvasReady = $state(false);
@@ -292,6 +293,8 @@
       </div>
     </div>
   </footer>
+
+  <FeedbackWidget page="landing" />
 </div>
 
 <style>

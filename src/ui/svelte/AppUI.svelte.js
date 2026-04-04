@@ -11,6 +11,7 @@ import ColorPalette from './ColorPalette.svelte';
 import Chat from './Chat.svelte';
 import Messenger from '../../messenger/Messenger.svelte';
 import Timebar from '../../timebar/Timebar.svelte';
+import FeedbackWidget from './FeedbackWidget.svelte';
 
 import { appState, showProfile as showProfileFromState, toggleMessenger } from '../../state.svelte.js';
 
@@ -165,6 +166,15 @@ export function initSvelteUI(app) {
         onDM: (message, recipientId) => app.handleDMSend?.(message, recipientId),
         onSendImage: (imageData, recipientId) => app.handleChatImageSend?.(imageData, recipientId)
       }
+    });
+  }
+
+  // Mount FeedbackWidget (in landing page form)
+  const feedbackTarget = document.getElementById('feedbackWidgetMount');
+  if (feedbackTarget) {
+    components.feedbackWidget = mount(FeedbackWidget, {
+      target: feedbackTarget,
+      props: { page: 'app' }
     });
   }
 

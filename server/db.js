@@ -56,6 +56,7 @@ export async function connectDB() {
     await db.collection('messages').createIndex({ room_id: 1, timestamp: 1 });
     await db.collection('messages').createIndex({ sender_id: 1, timestamp: -1 });
     await db.collection('messages').createIndex({ receiver_id: 1, timestamp: -1 });
+    await db.collection('feedback').createIndex({ submittedAt: -1 });
 
     console.log(`[DB] Connected to MongoDB: ${uri} (${DB_NAME})`);
     return db;
