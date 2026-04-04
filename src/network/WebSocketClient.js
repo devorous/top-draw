@@ -37,6 +37,8 @@ export class WebSocketClient {
     this.Msg = null;
     /** @type {boolean} */
     this.protoLoaded = false;
+    /** @type {number|null} */
+    this._reconnectTimer = null;
 
     /**
      * @private
@@ -88,6 +90,8 @@ export class WebSocketClient {
    */
   async connect(userData, roomId = null) {
     await this.loadProto();
+
+    this._clearReconnectTimer();
 
     if (this.socket) {
       this.socket.onclose = null;
@@ -152,11 +156,21 @@ export class WebSocketClient {
    * @returns {void}
    */
   _tryConnect() {
+    if (this._cancelled) return;
+    this._clearReconnectTimer();
+    if (this.socket && (
+      this.socket.readyState === WebSocket.OPEN ||
+      this.socket.readyState === WebSocket.CONNECTING
+    )) {
+      return;
+    }
+
     this._connectAttempts++;
     this.socket = new WebSocket(this._url);
     this.socket.binaryType = 'arraybuffer';
 
     this.socket.onopen = () => {
+      this._clearReconnectTimer();
       this.connected = true;
       this._connectAttempts = 0;
       const username = this._userData.username || this._userData.name || '';
@@ -186,9 +200,13 @@ export class WebSocketClient {
 
     this.socket.onclose = (event) => {
       this.connected = false;
-      if (!this._cancelled && this.sessionIndex === null && this._connectAttempts < 10) {
+      if (this._shouldRetryConnect(event) && this.sessionIndex === null && this._connectAttempts < 10) {
         const delay = Math.min(1000 * this._connectAttempts, 5000);
-        setTimeout(() => this._tryConnect(), delay);
+        this._clearReconnectTimer();
+        this._reconnectTimer = window.setTimeout(() => {
+          this._reconnectTimer = null;
+          this._tryConnect();
+        }, delay);
         return;
       }
 
@@ -200,6 +218,40 @@ export class WebSocketClient {
     this.socket.onerror = (error) => {
       console.error('WebSocket error:', error);
     };
+  }
+
+  /**
+   * Clears any pending reconnect timer.
+   * @private
+   * @returns {void}
+   */
+  _clearReconnectTimer() {
+    if (this._reconnectTimer !== null) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+  }
+
+  /**
+   * Determines whether a closed connection should be retried automatically.
+   * @private
+   * @param {CloseEvent} event
+   * @returns {boolean}
+   */
+  _shouldRetryConnect(event) {
+    if (this._cancelled) return false;
+
+    const nonRetryableCodes = new Set([
+      1000, // Normal closure
+      1008, // Policy violation / throttled before handshake
+      4001, // Banned
+      4002, // Kicked
+      4003, // Room full
+      4401, // Unauthorized
+      4408  // Rate limit exceeded
+    ]);
+
+    return !nonRetryableCodes.has(event.code);
   }
 
   /**
@@ -1585,6 +1637,19 @@ export class WebSocketClient {
   }
 
   /**
+   * Sets a user's global role (User/Noble/Holy). DEITY only.
+   * @param {string} targetUsername - The target user's username.
+   * @param {number} newGlobalRole - The new global role (1=User, 7=Noble, 8=Holy).
+   */
+  sendGlobalRoleSet(targetUsername, newGlobalRole) {
+    this.send({
+      t: T.GLOBAL_ROLE_SET,
+      targetUsername: targetUsername,
+      newGlobalRole: newGlobalRole
+    });
+  }
+
+  /**
    * Requests the moderation roster for the current room.
    * @returns {void}
    */
@@ -1615,6 +1680,7 @@ export class WebSocketClient {
    */
   disconnect() {
     this._cancelled = true;
+    this._clearReconnectTimer();
     if (this.socket) {
       this.socket.close();
     }

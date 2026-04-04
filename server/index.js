@@ -15,7 +15,7 @@ import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth
 import { issueModAction, revokeModAction, revokeMatchingModActions, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
-import { SessionManager, Role } from './SessionManager.js';
+import { SessionManager, Role, RoleNames } from './SessionManager.js';
 import { SyncCoordinator } from './SyncCoordinator.js';
 import { RoomManager } from './RoomManager.js';
 import { sanitizeMessage } from './validation.js';
@@ -136,6 +136,7 @@ function shouldAllowWsMessage(ws, data) {
     case T.ROOM_ROLE_LIST_REQUEST:
     case T.ROOM_REGISTER:
     case T.ROOM_UNREGISTER:
+    case T.GLOBAL_ROLE_SET:
       suffix = 'admin';
       config = WS_ADMIN_LIMIT;
       break;
@@ -688,6 +689,19 @@ function createRoomBroadcaster(room) {
 }
 
 /**
+ * Broadcasts the latest USERS payload to everyone in a room.
+ * @param {Object} room
+ * @returns {void}
+ */
+function broadcastUsersForRoom(room) {
+  if (!room) return;
+  createRoomBroadcaster(room)({
+    t: T.USERS,
+    us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+  });
+}
+
+/**
  * Sends a payload to a specific WebSocket client.
  * @param {WebSocket} ws - The WebSocket client.
  * @param {Object} payload - The message payload to send.
@@ -1200,7 +1214,7 @@ wss.on('connection', (ws, req) => {
   // Drawing server connection
   try {
     // Rate limit new connections per IP
-    const connIp = req.socket.remoteAddress || '';
+    const connIp = getClientIp(req);
     if (!wsConnectionLimiter.check(connIp)) {
       console.warn(`[WS] Connection rate limited: ${connIp}`);
       ws.close(1008, 'Too many connections');
@@ -1209,7 +1223,7 @@ wss.on('connection', (ws, req) => {
 
     console.log(`[WS] New connection attempt from ${req.socket.remoteAddress}`);
 
-    ws.clientIp = getClientIp(req);
+    ws.clientIp = connIp;
     const connectionLimit = wsRateLimiter.consume(rateLimitKey('ws:connect', ws.clientIp), WS_CONNECTION_LIMIT);
     if (!connectionLimit.allowed) {
       ws.close(4408, 'Rate limit exceeded');
@@ -2214,6 +2228,134 @@ wss.on('connection', (ws, req) => {
           } catch (err) {
             console.error('[Room] Role list error:', err);
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Failed to load room moderators' });
+          }
+          break;
+        }
+
+        case T.GLOBAL_ROLE_SET: {
+          // Only DEITY (role 9) can set global roles
+          if (!ws.userId || (ws.globalRole || 0) < Role.DEITY) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Only DEITY can set global roles' });
+            break;
+          }
+
+          const db = getDB();
+          if (!db) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Database not available' });
+            break;
+          }
+
+          const targetUsername = String(data.targetUsername || '').trim();
+          const newGlobalRole = data.newGlobalRole;
+
+          if (!targetUsername) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Target username required' });
+            break;
+          }
+
+          try {
+            // Find the target user by username
+            const targetUser = await db.collection('users').findOne({ username: targetUsername });
+            if (!targetUser) {
+              sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'User not found' });
+              break;
+            }
+
+            const previousGlobalRole = targetUser.role || Role.GUEST;
+            const allowedGlobalRoles = new Set([Role.USER, Role.NOBLE, Role.HOLY]);
+            if (!allowedGlobalRoles.has(newGlobalRole)) {
+              sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Can only set global role to User, Noble, or Holy' });
+              break;
+            }
+
+            // Prevent setting role on other Deities
+            if (previousGlobalRole >= Role.DEITY) {
+              sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Cannot modify DEITY rank' });
+              break;
+            }
+
+            if (previousGlobalRole === newGlobalRole) {
+              sendTo(ws, {
+                t: T.MOD_RESULT,
+                a: true,
+                message: `${targetUsername} is already ${RoleNames[newGlobalRole] || 'role ' + newGlobalRole}`
+              });
+              break;
+            }
+
+            const actionLabel = newGlobalRole > previousGlobalRole
+              ? 'promoted'
+              : newGlobalRole < previousGlobalRole
+                ? 'demoted'
+                : 'updated';
+
+            // Update the user's global role
+            await db.collection('users').updateOne(
+              { _id: targetUser._id },
+              { $set: { role: newGlobalRole } }
+            );
+
+            // Update all active connections for this user
+            const roomsNeedingRefresh = new Set();
+            for (const client of wss.clients) {
+              if (client.userId === String(targetUser._id)) {
+                const clientRoom = roomManager.getRoomByClient(client);
+                const roomRole = client.roomRole || 0;
+                let effectiveRole = computeEffectiveRole(newGlobalRole, roomRole);
+                if (clientRoom?.ownerId && client.userId === clientRoom.ownerId) {
+                  effectiveRole = Math.max(effectiveRole, Role.OWNER);
+                }
+
+                client.globalRole = newGlobalRole;
+                client.userRole = effectiveRole;
+
+                if (clientRoom) {
+                  const roomUser = clientRoom.sessionManager.getUser(client.sessionIndex);
+                  if (roomUser) {
+                    roomUser.role = effectiveRole;
+                    roomUser.registeredName = targetUser.username || roomUser.registeredName;
+                    roomUser.isMuted = !!client.isMuted;
+                  }
+
+                  const { shouldMute } = await applyMuteStateToClient(client, clientRoom, {
+                    userId: client.userId || null,
+                    effectiveRole
+                  });
+
+                  sendTo(client, { t: T.AUTH_RESULT, a: true, authRole: effectiveRole });
+                  createRoomBroadcaster(clientRoom)({
+                    t: shouldMute ? T.HIDE_CURSOR : T.SHOW_CURSOR,
+                    u: client.sessionIndex
+                  });
+                  roomsNeedingRefresh.add(clientRoom);
+                }
+              }
+            }
+
+            // Send success to requester
+            sendTo(ws, {
+              t: T.MOD_RESULT,
+              a: true,
+              message: `${targetUsername} ${actionLabel} to ${RoleNames[newGlobalRole] || 'role ' + newGlobalRole}`
+            });
+
+            // Notify the target user
+            wss.clients.forEach(client => {
+              if (client.userId === String(targetUser._id)) {
+                sendTo(client, {
+                  t: T.MOD_NOTIFY,
+                  message: `You have been ${actionLabel} to ${RoleNames[newGlobalRole] || 'role ' + newGlobalRole} by ${ws.registeredName || ws.guestName || 'admin'}`
+                });
+              }
+            });
+
+            // Broadcast updated user lists so role badges refresh anywhere they're active
+            for (const activeRoom of roomsNeedingRefresh) {
+              broadcastUsersForRoom(activeRoom);
+            }
+          } catch (err) {
+            console.error('[Global Role] Error setting global role:', err);
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Failed to set global role' });
           }
           break;
         }

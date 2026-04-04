@@ -4,11 +4,9 @@
   let canvasEl = $state(null);
   let mounted = $state(false);
 
-  // Virtual canvas space — coordinates defined here, scaled to display
+  // Virtual canvas space
   const VW = 480, VH = 300;
 
-  // Sample a cubic bezier into [x, y, pressure] points.
-  // Pressure follows a sine bell so strokes taper naturally at ends.
   function sampleBezier([p0, p1, p2, p3], n = 60) {
     return Array.from({ length: n }, (_, i) => {
       const t = i / (n - 1);
@@ -20,45 +18,37 @@
     });
   }
 
-  // sampleBezier variant with offset pressure peak — strokes that linger thick then taper fast
   function sampleBezierSkewed([p0, p1, p2, p3], n = 60, peakT = 0.5) {
     return Array.from({ length: n }, (_, i) => {
       const t = i / (n - 1);
       const mt = 1 - t;
       const x = mt**3*p0[0] + 3*mt**2*t*p1[0] + 3*mt*t**2*p2[0] + t**3*p3[0];
       const y = mt**3*p0[1] + 3*mt**2*t*p1[1] + 3*mt*t**2*p2[1] + t**3*p3[1];
-      // Asymmetric bell — peakT shifts where the stroke is thickest
       const norm = t / peakT < 1 ? t / peakT : (1 - t) / (1 - peakT);
       const pressure = 0.05 + 0.92 * Math.pow(norm, 0.6);
       return [x, y, Math.max(0.05, Math.min(1, pressure))];
     });
   }
 
-  // Stroke definitions — bezier control points, color, brush params
   const STROKES = [
-    // Main sweep — big gestural arc, cyan, peaks early
     {
       points: sampleBezierSkewed([[22, 238], [110, 135], [305, 82], [458, 62]], 72, 0.35),
-      color: '#00d4aa', size: 18, thinning: 0.74,
+      color: '#ffdd00', size: 18, thinning: 0.74, // Yellow!
     },
-    // Counter-arc going the other way, white, thin
     {
       points: sampleBezier([[48, 98], [165, 148], [308, 162], [452, 205]], 55),
-      color: 'rgba(255,255,255,0.2)', size: 9, thinning: 0.58,
+      color: '#c800c8', size: 9, thinning: 0.58, // Muted Magenta!
     },
-    // Tight loop / comma shape, cyan, semi-opaque
     {
       points: sampleBezier([[118, 262], [178, 192], [244, 188], [288, 258]], 44),
       color: '#00d4aa', size: 13, thinning: 0.85, opacity: 0.5,
     },
-    // Short flick bottom-right, white ghost
     {
       points: sampleBezierSkewed([[332, 252], [368, 210], [418, 218], [452, 248]], 30, 0.25),
-      color: 'rgba(255,255,255,0.16)', size: 7, thinning: 0.7,
+      color: 'rgba(255,255,255,0.4)', size: 7, thinning: 0.7,
     },
   ];
 
-  // Timeline: each stroke has a [start, end] window in ms.
   const TL = [
     { start: 400,  end: 1900, idx: 0 },
     { start: 2150, end: 3200, idx: 1 },
@@ -113,7 +103,9 @@
       if (!alive) return;
       if (t0 === null) t0 = ts;
       const elapsed = ts - t0;
-      if (elapsed > DONE_MS) return;
+      if (elapsed > DONE_MS) {
+        t0 = ts; // Loop it!
+      }
 
       ctx.clearRect(0, 0, VW, VH);
 
@@ -138,97 +130,164 @@
   });
 
   const features = [
-    { label: '01', title: 'Real-time collaboration', desc: 'Every stroke is broadcast instantly. Multiple cursors, shared rooms, no refresh needed.' },
-    { label: '02', title: 'Layers & blend modes',    desc: 'Three layers with ten blend modes — Multiply, Screen, Overlay, and more.' },
-    { label: '03', title: 'Pressure-sensitive tools', desc: 'Brush, Pen, Ink, Eraser, Fill, Blur. Full tilt and pressure support via Pointer Events API.' },
+    { image: 'https://placehold.co/400x300/c800c8/fff?text=Protocol+Buffers', title: 'Protocol Buffers', desc: 'We don\'t use boring text for messages. We use Protocol Buffers! It\'s like squishing your doodles into tiny binary tubes so they travel across the internet at the speed of light. 60fps or bust!' },
+    { image: 'https://placehold.co/400x300/00d4aa/000?text=Mirror+Modes', title: 'Mirrored Regions', desc: 'Can\'t draw a face? Just draw half! Our mirror modes let you create complex configurations, draw weird aliens, or perfectly symmetrical pieces with zero effort.' },
+    { image: 'https://placehold.co/400x300/ffdd00/000?text=Custom+Brushes', title: 'Customizable Patterns', desc: 'Why use a normal brush when you can paint with patterns? Stamp your art with custom textures or use the image brush to paint with whatever!' },
+    { image: 'https://placehold.co/400x300/c800c8/fff?text=Selection+Tool', title: 'The Selector', desc: 'Grab a chunk of the canvas, wiggle it around, resize it, or stamp it a thousand times. Our selection tool is fast, floaty, and lets you rearrange reality however you like.' },
+  ];
+
+  const whyDdraw = [
+    { title: 'Privacy First', desc: 'Your secrets are safe with us. Our messenger uses end-to-end encryption, and rooms are ephemeral. We don\'t peek, and we definitely don\'t track your every move.' },
+    { title: 'No Nonsense', desc: 'No paywalls, no "premium brushes," and no annoying ads. It\'s a pure creative space built for the love of digital art.' },
   ];
 </script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
 
 <div class="page" class:mounted>
   <nav>
-    <span class="wordmark">ddraw</span>
+    <div class="nav-left">
+      <span class="wordmark">DDraw!</span>
+    </div>
     <div class="nav-links">
+      <a href="#features">cool stuff</a>
+      <a href="#download">get app</a>
       <a href="/gallery/" target="_blank">gallery</a>
-      <a href="/go/" class="nav-enter">open app →</a>
+      <a href="/go/" class="nav-enter">ENTER IT →</a>
     </div>
   </nav>
 
   <section class="hero">
     <div class="hero-text">
-      <p class="label">Free · Open · Real-time</p>
-      <h1>Draw with<br><span class="accent">anyone.</span></h1>
+      <div class="badge-float">Wowza!</div>
+      <h1>DDraw with<br><span class="accent">anyboDy!</span></h1>
       <p class="sub">
-        A multiplayer canvas. Pick a room, grab a brush,
-        and make something with strangers.
+        A cool, real-time multi user drawing canvas. No need to sign up. Just, like, a fun thing to draw on, you know?
       </p>
       <div class="actions">
-        <a href="/go/" class="btn-primary">Start Drawing</a>
-        <a href="/gallery/" class="btn-secondary">Browse Gallery</a>
+        <a href="/go/" class="btn-primary main-cta">Start Scribbling!</a>
+        <div class="download-mini">
+          <span>Windows user?</span>
+          <a href="#download">Grab the app ↓</a>
+        </div>
       </div>
     </div>
 
     <div class="hero-preview">
-      <div class="preview-chrome">
-        <div class="chrome-bar">
-          <span class="chrome-title">ddraw — lobby</span>
-          <div class="chrome-dots"><span></span><span></span><span></span></div>
-        </div>
-        <div class="canvas-wrap">
-          <canvas bind:this={canvasEl}></canvas>
-        </div>
-        <div class="chrome-foot">
-          <span class="dot active"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <div class="preview-container">
+        <div class="blob-bg"></div>
+        <div class="preview-chrome">
+          <div class="chrome-bar">
+            <div class="chrome-dots"><span></span><span></span><span></span></div>
+            <span class="chrome-title">DDraw — falling forward</span>
+          </div>
+          <div class="canvas-wrap">
+            <canvas bind:this={canvasEl}></canvas>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <section class="features">
-    {#each features as f}
-      <div class="feature">
-        <span class="feat-num">{f.label}</span>
-        <div class="feat-body">
+  <section id="download" class="download-card-section">
+    <div class="funky-card">
+      <div class="card-content">
+        <h2>Desktop App!</h2>
+        <p>Want it to go even faster? Grab the Windows app. It's lightweight (&lt; 10MB), runs even smoother and looks great on your taskbar.</p>
+        <a href="#" class="btn-primary download-btn">
+          Download for Windows
+        </a>
+        <p class="tiny-print">v0.1.0 • Built with Tauri 2</p>
+      </div>
+      <div class="card-decorations">
+        <div class="star s1">★</div>
+        <div class="star s2">★</div>
+        <div class="star s3">★</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" class="features-section">
+    <div class="section-header center">
+      <p class="label-goofy">Wait, what is this?</p>
+      <h2>Kind of neat features</h2>
+    </div>
+    <div class="features-grid-goofy">
+      {#each features as f}
+        <div class="feature-card">
+          <div class="feat-preview">
+            <img src={f.image} alt={f.title} />
+          </div>
           <h3>{f.title}</h3>
           <p>{f.desc}</p>
         </div>
-      </div>
-    {/each}
+      {/each}
+    </div>
   </section>
 
-  <section class="cta-row">
-    <p>No account required. Just join a room.</p>
-    <a href="/go/" class="btn-primary">Open the canvas</a>
+  <section class="why-section-goofy">
+    <div class="why-grid">
+      {#each whyDdraw as item}
+        <div class="why-item-goofy">
+          <h3>{item.title}</h3>
+          <p>{item.desc}</p>
+        </div>
+      {/each}
+    </div>
+  </section>
+
+  <section class="cta-row-goofy">
+    <div class="cta-inner">
+      <h2>Stop reading, start drawing.</h2>
+      <p>The canvas is waiting. Don't keep it hanging!</p>
+      <a href="/go/" class="btn-primary giant-btn">GO GO GO!</a>
+    </div>
   </section>
 
   <footer>
-    <span class="wordmark dim">ddraw</span>
-    <div class="foot-links">
-      <a href="/gallery/">Gallery</a>
-      <a href="https://github.com" target="_blank" rel="noopener">GitHub</a>
+    <div class="foot-content">
+      <div class="foot-left">
+        <span class="wordmark">DDraw</span>
+        <p>Made for the fun of it.</p>
+      </div>
+      <div class="foot-links">
+        <a href="/gallery/">Gallery</a>
+        <a href="#features">Features</a>
+        <a href="#download">Download</a>
+      </div>
     </div>
   </footer>
 </div>
 
 <style>
   :global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
+  :global(html) { scroll-behavior: smooth; }
   :global(body) {
-    background: #121212;
+    background: #0f0f13;
     color: #fff;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 14px;
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
     overflow-x: hidden;
+    line-height: 1.5;
   }
+  
+  h1, h2, h3, .wordmark, .btn-primary {
+    font-family: 'Fredoka', sans-serif;
+  }
+
   :global(a) { color: inherit; text-decoration: none; }
+  
   :global(body)::before {
     content: '';
     position: fixed;
     inset: 0;
-    background-image: radial-gradient(circle, rgba(255,255,255,0.065) 1px, transparent 1px);
-    background-size: 28px 28px;
+    background-image: 
+      radial-gradient(circle, rgba(255,0,255,0.05) 1px, transparent 1px),
+      radial-gradient(circle, rgba(0,212,170,0.05) 1px, transparent 1px);
+    background-size: 40px 40px;
+    background-position: 0 0, 20px 20px;
     pointer-events: none;
     z-index: 0;
   }
@@ -240,125 +299,199 @@
   nav {
     position: fixed; top: 0; left: 0; right: 0; z-index: 100;
     display: flex; align-items: center; justify-content: space-between;
-    padding: 0 2rem; height: 44px;
-    background: rgba(18,18,18,0.9);
-    border-bottom: 1px solid rgba(255,255,255,0.07);
-    backdrop-filter: blur(8px);
+    padding: 0 2rem; height: 64px;
+    background: rgba(15,15,19,0.8);
+    border-bottom: 2px solid #00d4aa;
+    backdrop-filter: blur(12px);
   }
-  .wordmark { font-size: 13px; font-weight: 600; letter-spacing: 0.08em; }
-  .wordmark.dim { color: rgba(255,255,255,0.25); }
-  .nav-links { display: flex; align-items: center; gap: 1.5rem; font-size: 12px; font-weight: 500; }
-  .nav-links a { color: rgba(255,255,255,0.4); transition: color 0.15s; }
-  .nav-links a:hover { color: #fff; }
-  .nav-enter { color: #00d4aa !important; }
+  .wordmark { font-size: 22px; font-weight: 700; color: #00d4aa; transform: rotate(-2deg); }
+  .nav-links { display: flex; align-items: center; gap: 2rem; font-size: 14px; font-weight: 600; }
+  .nav-links a { color: rgba(255,255,255,0.7); transition: all 0.2s; }
+  .nav-links a:hover { color: #c800c8; transform: scale(1.1) rotate(2deg); }
+  .nav-enter { background: #00d4aa; color: #000 !important; padding: 0.5rem 1rem; border-radius: 50px; }
 
   /* ── Hero ── */
   .hero {
     min-height: 100vh;
     display: grid;
-    grid-template-columns: 1fr 1.15fr;
+    grid-template-columns: 1fr 1fr;
     align-items: center;
-    gap: 5rem;
-    padding: 6rem 3rem 4rem;
+    gap: 2rem;
+    padding: 8rem 2rem 4rem;
     max-width: 1200px;
     margin: 0 auto;
   }
-  .label { font-size: 11px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: #00d4aa; margin-bottom: 1.25rem; }
-  h1 { font-size: clamp(2.8rem, 5vw, 4.5rem); font-weight: 600; line-height: 1.08; letter-spacing: -0.03em; margin-bottom: 1.5rem; }
-  .accent { color: #00d4aa; }
-  .sub { font-size: 14px; line-height: 1.75; color: rgba(255,255,255,0.45); margin-bottom: 2.5rem; max-width: 38ch; }
-  .actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
-
-  .btn-primary {
-    display: inline-block; padding: 0.6rem 1.5rem;
-    background: #00d4aa; color: #121212;
-    font-family: inherit; font-size: 13px; font-weight: 600; letter-spacing: 0.02em;
-    transition: background 0.15s;
+  .badge-float {
+    display: inline-block;
+    padding: 4px 12px;
+    background: #ffdd00;
+    color: #000;
+    font-weight: 700;
+    border-radius: 4px;
+    transform: rotate(-5deg);
+    margin-bottom: 1rem;
+    font-size: 14px;
   }
-  .btn-primary:hover { background: #00f0c3; }
-  .btn-secondary {
-    display: inline-block; padding: 0.6rem 1.5rem;
-    border: 1px solid rgba(255,255,255,0.15); color: rgba(255,255,255,0.5);
-    font-size: 13px; font-weight: 500;
-    transition: border-color 0.15s, color 0.15s;
-  }
-  .btn-secondary:hover { border-color: rgba(255,255,255,0.4); color: #fff; }
+  h1 { font-size: clamp(3.5rem, 8vw, 6rem); line-height: 0.9; margin-bottom: 2rem; }
+  .accent { color: #00d4aa; text-shadow: 4px 4px 0px #c800c8; }
+  .sub { font-size: 18px; color: rgba(255,255,255,0.6); margin-bottom: 3rem; max-width: 35ch; }
+  
+  .actions { display: flex; flex-direction: column; gap: 1.5rem; }
+  .main-cta { font-size: 20px !important; padding: 1.2rem 2.5rem !important; border-radius: 12px !important; box-shadow: 6px 6px 0px #c800c8; }
+  .main-cta:hover { transform: translate(-2px, -2px); box-shadow: 8px 8px 0px #c800c8; }
+  
+  .download-mini { display: flex; align-items: center; gap: 0.75rem; font-size: 14px; color: rgba(255,255,255,0.4); }
+  .download-mini a { color: #00d4aa; font-weight: 600; text-decoration: underline; }
 
   /* ── Preview ── */
+  .preview-container { position: relative; }
+  .blob-bg {
+    position: absolute; inset: -10%;
+    background: radial-gradient(circle, #00d4aa 0%, transparent 70%);
+    opacity: 0.2; filter: blur(40px);
+    z-index: -1;
+    animation: blobby 10s infinite alternate;
+  }
+  @keyframes blobby {
+    0% { transform: scale(1) translate(0, 0); }
+    100% { transform: scale(1.2) translate(5%, 5%); }
+  }
   .preview-chrome {
-    border: 1px solid rgba(255,255,255,0.1);
-    background: #0d0d0d;
+    border: 3px solid #fff;
+    background: #000;
+    border-radius: 16px;
     overflow: hidden;
+    transform: rotate(2deg);
+    box-shadow: 20px 20px 0px rgba(0,212,170,0.3);
   }
   .chrome-bar {
-    height: 34px; background: #1a1a1a;
-    border-bottom: 1px solid rgba(255,255,255,0.07);
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0 12px;
+    height: 40px; background: #222;
+    display: flex; align-items: center; padding: 0 16px; gap: 12px;
+    border-bottom: 2px solid #333;
   }
-  .chrome-title { font-size: 11px; color: rgba(255,255,255,0.3); font-weight: 500; letter-spacing: 0.03em; }
-  .chrome-dots { display: flex; gap: 5px; }
-  .chrome-dots span { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.12); }
+  .chrome-dots { display: flex; gap: 6px; }
+  .chrome-dots span { width: 10px; height: 10px; border-radius: 50%; background: #444; }
+  .chrome-title { font-size: 12px; color: #777; font-weight: 600; }
+  .canvas-wrap { aspect-ratio: 1.6; background: #111; }
+  canvas { width: 100%; height: 100%; }
 
-  .canvas-wrap {
+  /* ── Funky Download Card ── */
+  .download-card-section { padding: 4rem 2rem; max-width: 1200px; margin: 0 auto; }
+  .funky-card {
+    background: #c800c8;
+    border-radius: 24px;
+    padding: 4rem 2rem;
     position: relative;
-    aspect-ratio: 8 / 5;
-    background: #111;
     overflow: hidden;
+    color: #fff;
+    text-align: center;
+    border: 4px solid #fff;
+    box-shadow: 0 20px 40px rgba(255,0,255,0.3);
   }
-  canvas {
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
-
-
-  .chrome-foot {
-    height: 28px; background: #1a1a1a;
-    border-top: 1px solid rgba(255,255,255,0.07);
-    display: flex; align-items: center; padding: 0 12px; gap: 6px;
-  }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.14); flex-shrink: 0; }
-  .dot.active { background: #00d4aa; }
+  .card-content { position: relative; z-index: 2; max-width: 500px; margin: 0 auto; }
+  .emoji-big { font-size: 4rem; display: block; margin-bottom: 1rem; }
+  .funky-card h2 { font-size: 3rem; margin-bottom: 1rem; }
+  .funky-card p { font-size: 18px; margin-bottom: 2.5rem; opacity: 0.9; }
+  .download-btn { background: #fff !important; color: #c800c8 !important; font-size: 18px !important; padding: 1rem 2rem !important; }
+  .tiny-print { font-size: 12px !important; margin-top: 2rem; opacity: 0.7; }
+  
+  .card-decorations .star { position: absolute; color: #ffdd00; font-size: 2rem; }
+  .s1 { top: 10%; left: 10%; transform: rotate(-15deg); }
+  .s2 { bottom: 15%; right: 12%; transform: rotate(20deg); }
+  .s3 { top: 20%; right: 15%; font-size: 1rem !important; }
 
   /* ── Features ── */
-  .features { border-top: 1px solid rgba(255,255,255,0.07); max-width: 1200px; margin: 0 auto; }
-  .feature {
-    display: grid; grid-template-columns: 80px 1fr;
-    align-items: start; gap: 1.5rem;
-    padding: 2rem 3rem;
-    border-bottom: 1px solid rgba(255,255,255,0.07);
-    transition: background 0.15s;
+  .features-section { padding: 8rem 2rem; max-width: 1200px; margin: 0 auto; }
+  .label-goofy { color: #ffdd00; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1rem; }
+  .features-grid-goofy {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+    margin-top: 3rem;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
   }
-  .feature:hover { background: rgba(255,255,255,0.02); }
-  .feat-num { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; color: rgba(255,255,255,0.18); padding-top: 3px; }
-  .feat-body h3 { font-size: 14px; font-weight: 600; margin-bottom: 0.4rem; letter-spacing: -0.01em; }
-  .feat-body p { font-size: 13px; line-height: 1.65; color: rgba(255,255,255,0.38); }
+  .feature-card {
+    background: rgba(255,255,255,0.03);
+    padding: 1.25rem;
+    border-radius: 16px;
+    border: 2px solid rgba(255,255,255,0.1);
+    transition: all 0.3s;
+  }
+  .feature-card:hover {
+    border-color: #00d4aa;
+    transform: translateY(-5px) rotate(1deg);
+    background: rgba(0,212,170,0.05);
+  }
+  .feat-preview {
+    width: 100%;
+    margin-bottom: 1rem;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 2px solid rgba(255,255,255,0.1);
+  }
+  .feat-preview img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .feature-card h3 { font-size: 1.25rem; margin-bottom: 0.75rem; color: #00d4aa; }
+  .feature-card p { color: rgba(255,255,255,0.5); font-size: 13px; line-height: 1.5; }
 
-  /* ── CTA Row ── */
-  .cta-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 2.5rem 3rem;
-    border-top: 1px solid rgba(255,255,255,0.07);
+  /* ── Why Section ── */
+  .why-section-goofy { padding: 4rem 2rem; border-top: 2px dashed #333; }
+  .why-grid {
     max-width: 1200px; margin: 0 auto;
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 4rem;
   }
-  .cta-row p { font-size: 13px; color: rgba(255,255,255,0.38); }
+  .why-item-goofy { text-align: center; max-width: 300px; }
+  .why-item-goofy h3 { font-size: 1.8rem; margin-bottom: 1rem; color: #c800c8; }
+  .why-item-goofy p { color: rgba(255,255,255,0.4); }
+
+  /* ── CTA ── */
+  .cta-row-goofy { padding: 8rem 2rem; text-align: center; }
+  .cta-inner {
+    background: #00d4aa;
+    padding: 5rem 2rem;
+    border-radius: 40px;
+    color: #000;
+    max-width: 900px;
+    margin: 0 auto;
+    transform: rotate(-1deg);
+  }
+  .giant-btn { background: #000 !important; color: #00d4aa !important; font-size: 24px !important; margin-top: 2rem; }
 
   /* ── Footer ── */
-  footer {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 1rem 3rem;
-    border-top: 1px solid rgba(255,255,255,0.06);
+  footer { padding: 4rem 2rem; border-top: 2px solid #333; }
+  .foot-content {
     max-width: 1200px; margin: 0 auto;
+    display: flex; justify-content: space-between; align-items: flex-start;
   }
-  .foot-links { display: flex; gap: 1.25rem; font-size: 12px; color: rgba(255,255,255,0.22); }
-  .foot-links a:hover { color: rgba(255,255,255,0.6); }
+  .foot-left .wordmark { display: block; margin-bottom: 0.5rem; }
+  .foot-left p { font-size: 13px; color: #555; }
+  .foot-links { display: flex; gap: 2rem; font-weight: 600; font-size: 14px; }
+  .foot-links a { color: #777; }
+  .foot-links a:hover { color: #00d4aa; }
 
-  /* ── Responsive ── */
-  @media (max-width: 860px) {
-    .hero { grid-template-columns: 1fr; padding: 5rem 1.5rem 3rem; gap: 3rem; }
-    .feature { padding: 1.5rem; grid-template-columns: 48px 1fr; gap: 1rem; }
-    .cta-row { flex-direction: column; gap: 1.25rem; align-items: flex-start; padding: 2rem 1.5rem; }
-    footer { padding: 1rem 1.5rem; }
+  .btn-primary {
+    display: inline-block;
+    padding: 0.8rem 1.8rem;
+    background: #00d4aa;
+    color: #000;
+    font-weight: 700;
+    text-transform: uppercase;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .center { text-align: center; }
+
+  @media (max-width: 900px) {
+    .hero { grid-template-columns: 1fr; text-align: center; padding-top: 6rem; }
+    .hero-text { order: 1; display: flex; flex-direction: column; align-items: center; }
+    .hero-preview { order: 2; max-width: 500px; margin: 0 auto; }
+    .foot-content { flex-direction: column; gap: 2rem; align-items: center; text-align: center; }
   }
 </style>

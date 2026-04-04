@@ -95,6 +95,7 @@ message Msg {
     MIRROR_REGION      = 86;  // Create/update mirror regions
     ROOM_ROLE_LIST_REQUEST = 87;  // Request room moderation roster
     ROOM_ROLE_LIST_RESPONSE = 88; // Response with room moderation roster
+    GLOBAL_ROLE_SET = 89;          // Set a user's global role (DEITY only)
   }
 
   // Tool enum
@@ -290,6 +291,10 @@ message Msg {
   string room_role_target_id = 61;  // Target userId for room role assignment
   uint32 room_role_value     = 62;  // Role value to assign (0-5)
   string room_role_target_name = 71; // Username for offline room role assignment
+
+  // === Global Role Fields (72-73) ===
+  string targetUsername = 72;  // Target username for global role assignment (DEITY only)
+  uint32 newGlobalRole  = 73;  // New global role value (7=Noble, 8=Holy)
 
   // === Tile Ownership Fields ===
   message TileEntry {

@@ -36,6 +36,8 @@ export const Role = {
   DEITY:   9,
 };
 
+export const RoleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
+
 const AFK_TIMEOUT = 5 * 60 * 1000;
 const AFK_CHECK_INTERVAL = 30 * 1000;
 

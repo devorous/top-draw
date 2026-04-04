@@ -301,6 +301,9 @@ export class DrawingApp {
     this.moderation.onRoomRoleSet = (targetSessionIndex, role) => {
       this.wsClient.sendRoomRoleSet(targetSessionIndex, role);
     };
+    this.moderation.onGlobalRoleSet = (targetUsername, newGlobalRole) => {
+      this.wsClient.sendGlobalRoleSet(targetUsername, newGlobalRole);
+    };
 
     window.app = this;
 

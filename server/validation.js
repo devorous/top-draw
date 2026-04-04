@@ -384,6 +384,19 @@ export async function sanitizeMessage(data) {
       sanitized.roomRoleValue = clampInt(data.roomRoleValue, 0, 5, 0);
       return sanitized;
 
+    case T.GLOBAL_ROLE_SET:
+      sanitized.targetUsername = sanitizeString(
+        data.targetUsername ?? data.target_username,
+        MAX_USERNAME_LOOKUP_LENGTH
+      );
+      sanitized.newGlobalRole = clampInt(
+        data.newGlobalRole ?? data.new_global_role,
+        0,
+        255,
+        0
+      );
+      return sanitized;
+
     case T.AUTH_LOGIN:
       if (data.authUsername !== undefined) sanitized.authUsername = sanitizeString(data.authUsername, MAX_USERNAME_LOOKUP_LENGTH);
       if (data.authPassword !== undefined) sanitized.authPassword = sanitizeString(data.authPassword, MAX_AUTH_STRING_LENGTH, { trim: false });

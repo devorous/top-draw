@@ -39,6 +39,7 @@ export class Moderation {
     this.onClear = null;             // ()
     this.onToggleDevMode = null;     // ()
     this.onRoomRoleSet = null;       // (targetUserId, role)
+    this.onGlobalRoleSet = null;     // (targetUsername, newGlobalRole)
     this._wipePromptDismiss = null;
   }
 
@@ -265,6 +266,12 @@ export class Moderation {
       el.style.display = isRegistered ? '' : 'none';
     });
 
+    // Show deity-only items only for DEITY users (role 9)
+    const isDeity = this.localRole >= 9;
+    menu.querySelectorAll('.deityOnly').forEach(el => {
+      el.style.display = isDeity ? '' : 'none';
+    });
+
     menu.style.display = 'flex';
 
     // Position at click, clamped to viewport
@@ -317,6 +324,49 @@ export class Moderation {
         if (user && this.onRoomRoleSet) {
           const newRole = Math.max((user.role || 0) - 1, 0);
           this.onRoomRoleSet(sessionIndex, newRole);
+        }
+        return;
+      }
+      case 'promoteNoble': {
+        if (user && this.onGlobalRoleSet) {
+          const targetUsername = user.registeredName || user.username || user.name;
+          if (!targetUsername) {
+            alert('Could not determine username for this user');
+            return;
+          }
+          if (confirm(`Promote ${targetUsername} to Noble (global rank)?`)) {
+            this.onGlobalRoleSet(targetUsername, 7); // Noble = 7
+          }
+        }
+        return;
+      }
+      case 'promoteHoly': {
+        if (user && this.onGlobalRoleSet) {
+          const targetUsername = user.registeredName || user.username || user.name;
+          if (!targetUsername) {
+            alert('Could not determine username for this user');
+            return;
+          }
+          if (confirm(`Promote ${targetUsername} to Holy (global rank)?`)) {
+            this.onGlobalRoleSet(targetUsername, 8); // Holy = 8
+          }
+        }
+        return;
+      }
+      case 'demoteGlobal': {
+        if (user && this.onGlobalRoleSet) {
+          const targetUsername = user.registeredName || user.username || user.name;
+          if (!targetUsername) {
+            alert('Could not determine username for this user');
+            return;
+          }
+          const currentGlobalRole = user.globalRole || user.role || 0;
+          if (currentGlobalRole >= 7) {
+            // Demote from Noble/Holy to USER (1)
+            if (confirm(`Demote ${targetUsername} from global rank ${currentGlobalRole} to User?`)) {
+              this.onGlobalRoleSet(targetUsername, 1); // USER = 1
+            }
+          }
         }
         return;
       }
