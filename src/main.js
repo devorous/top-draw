@@ -15,9 +15,40 @@ window.addEventListener('unhandledrejection', (event) => {
 // Clear the reload flag on successful load
 sessionStorage.removeItem('chunk-reload');
 
+const isFirefox = /Firefox\//i.test(navigator.userAgent) && !/Seamonkey\//i.test(navigator.userAgent);
+
 let app = null;
 let appBootPromise = null;
 let deferredActionPromise = null;
+function showFirefoxWarning() {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.style.cssText = 'display:flex;justify-content:center;align-items:center;position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(3px);z-index:99999;';
+
+    const dialog = document.createElement('div');
+    dialog.style.cssText = 'padding:32px 40px;background:var(--bg-secondary, #1e1e2e);border:1px solid var(--border-subtle, #333);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.4);text-align:center;max-width:380px;font-family:inherit;color:var(--text-primary, #e0e0e0);';
+    dialog.innerHTML = `
+      <div style="font-size:36px;margin-bottom:12px;">&#9888;&#65039;</div>
+      <h2 style="margin:0 0 12px;font-size:18px;font-weight:600;">Firefox Performance Warning</h2>
+      <p style="margin:0 0 20px;font-size:14px;color:var(--text-secondary, #aaa);line-height:1.5;">
+        Firefox will lag a lot with this app!<br>
+        Try using a Chromium-based browser for the best experience:<br>
+        <strong style="color:var(--text-primary, #e0e0e0);">Chrome, Edge, Brave, Opera</strong>
+      </p>
+      <button id="firefoxContinueBtn" style="padding:10px 24px;font-size:14px;font-weight:500;background:var(--bg-tertiary, #2a2a3e);color:var(--text-secondary, #aaa);border:1px solid var(--border-subtle, #333);border-radius:8px;cursor:pointer;">
+        Continue anyway
+      </button>
+    `;
+
+    backdrop.appendChild(dialog);
+    document.body.appendChild(backdrop);
+
+    document.getElementById('firefoxContinueBtn').addEventListener('click', () => {
+      backdrop.remove();
+      resolve();
+    });
+  });
+}
 
 function updateShellStatus(status, text) {
   const statusEl = document.getElementById('landingConnectionStatus');
@@ -226,9 +257,15 @@ function init() {
     }, true); // Use capture phase to intercept before other handlers
   }
 
-  requestAnimationFrame(() => {
-    setTimeout(startBackgroundBoot, 0);
-  });
+  if (isFirefox) {
+    showFirefoxWarning().then(() => {
+      requestAnimationFrame(() => setTimeout(startBackgroundBoot, 0));
+    });
+  } else {
+    requestAnimationFrame(() => {
+      setTimeout(startBackgroundBoot, 0);
+    });
+  }
 }
 
 if (document.readyState === 'loading') {
