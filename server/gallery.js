@@ -660,8 +660,8 @@ export async function handleGalleryCommentDelete(req, res, commentId) {
       return json(res, 404, { error: 'Comment not found' });
     }
 
-    // Only allow author or admin (role >= 5) to delete
-    if (comment.authorId !== decoded.userId && decoded.role < 5) {
+    // Only allow author or HOLY+ (role >= 8) to delete
+    if (comment.authorId !== decoded.userId && decoded.role < 8) {
       return json(res, 403, { error: 'Not authorized to delete this comment' });
     }
 
@@ -704,7 +704,7 @@ export async function handleGalleryTagsUpdate(req, res, id) {
     const item = await db.collection('gallery').findOne({ _id: new ObjectId(id) });
     if (!item) return json(res, 404, { error: 'Item not found' });
 
-    if (item.authorId !== decoded.userId && decoded.role < 5) {
+    if (item.authorId !== decoded.userId && decoded.role < 8) {
       return json(res, 403, { error: 'Not authorized to edit tags for this item' });
     }
 
@@ -744,8 +744,8 @@ export async function handleGalleryDelete(req, res, id) {
       return json(res, 404, { error: 'Item not found' });
     }
 
-    // Only allow author or admin (role >= 5) to delete
-    if (item.authorId !== decoded.userId && decoded.role < 5) {
+    // Only allow author or HOLY+ (role >= 8) to delete
+    if (item.authorId !== decoded.userId && decoded.role < 8) {
       return json(res, 403, { error: 'Not authorized to delete this item' });
     }
 

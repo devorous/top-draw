@@ -138,22 +138,6 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  // Messenger: check if a username exists
-  if (path === '/api/messenger/check-user' && req.method === 'GET') {
-    const username = new URL(req.url, `http://${req.headers.host}`).searchParams.get('username');
-    const corsHeaders = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
-    if (!username) { res.writeHead(400, corsHeaders); res.end(JSON.stringify({ exists: false })); return; }
-    try {
-      const db = getDB();
-      const user = await db.collection('users').findOne(
-        { username: { $regex: new RegExp(`^${username}$`, 'i') } },
-        { projection: { username: 1 } }
-      );
-      res.writeHead(200, corsHeaders);
-      res.end(JSON.stringify({ exists: !!user, username: user?.username || null }));
-    } catch { res.writeHead(500, corsHeaders); res.end(JSON.stringify({ exists: false })); }
-    return;
-  }
 
   res.writeHead(404);
   res.end();
