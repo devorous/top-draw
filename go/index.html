@@ -136,6 +136,7 @@
               <h2>DDraw</h2>
               <p class="landingSubtitle">Draw stuff + things</p>
 
+              <!-- Join / login form -->
               <form id="loginForm" onsubmit="return false;">
                 <input autocomplete="on" class="authInput" id="roomIdInput" name="room" placeholder="Room name (default: lobby)">
 
@@ -153,22 +154,6 @@
                   </div>
                 </div>
 
-                <!-- Registration panel (replaces room input when registering) -->
-                <div id="authRegisterPanel" style="display: none;">
-                  <div class="authEditHeader">
-                    <span>Create Account</span>
-                    <button type="button" class="authEditClose" id="registerClose">&times;</button>
-                  </div>
-                  <input autocomplete="username" class="authInput" id="registerUsername" name="reg-username" placeholder="Username" readonly>
-                  <input autocomplete="new-password" type="password" class="authInput" id="registerPassword" name="reg-password" placeholder="Password" readonly>
-                  <input autocomplete="email" type="email" class="authInput" id="registerEmail" name="reg-email" placeholder="Email (optional)">
-                  <input type="text" class="authInput" id="registerSecretQuestion" name="reg-secret-question" placeholder="Secret question">
-                  <input type="text" class="authInput" id="registerSecretAnswer" name="reg-secret-answer" placeholder="Secret answer">
-                  <div class="authButtons">
-                    <button type="button" class="btn primary large" id="registerSubmitBtn">Create Account</button>
-                  </div>
-                </div>
-
                 <!-- Logged in state -->
                 <div id="authLoggedIn" style="display: none;">
                   <div class="authLoggedInUser">
@@ -182,18 +167,34 @@
                     <button type="button" class="btn primary large" id="joinBtnLoggedIn">Join</button>
                   </div>
                 </div>
+              </form>
 
-                <!-- Edit credentials panel (shown when clicking username button) -->
-                <div id="authEditCredentials" style="display: none;">
-                  <div class="authEditHeader">
-                    <span>Switch Account</span>
-                    <button type="button" class="authEditClose" id="authEditClose">&times;</button>
-                  </div>
-                  <input autocomplete="username" class="authInput" id="editUsername" name="edit-username" placeholder="Username">
-                  <input autocomplete="current-password" type="password" class="authInput" id="editPassword" name="edit-password" placeholder="Password">
-                  <div class="authButtons">
-                    <button type="button" class="btn primary large" id="editLoginJoinBtn">Join</button>
-                  </div>
+              <!-- Registration form (replaces login form when registering) -->
+              <form id="authRegisterPanel" onsubmit="return false;" style="display: none;">
+                <div class="authEditHeader">
+                  <span>Create Account</span>
+                  <button type="button" class="authEditClose" id="registerClose">&times;</button>
+                </div>
+                <input autocomplete="username" class="authInput" id="registerUsername" name="reg-username" placeholder="Username" readonly>
+                <input autocomplete="new-password" type="password" class="authInput" id="registerPassword" name="reg-password" placeholder="Password" readonly>
+                <input autocomplete="email" type="email" class="authInput" id="registerEmail" name="reg-email" placeholder="Email (optional)">
+                <input type="text" class="authInput" id="registerSecretQuestion" name="reg-secret-question" placeholder="Secret question">
+                <input type="text" class="authInput" id="registerSecretAnswer" name="reg-secret-answer" placeholder="Secret answer">
+                <div class="authButtons">
+                  <button type="button" class="btn primary large" id="registerSubmitBtn">Create Account</button>
+                </div>
+              </form>
+
+              <!-- Switch account form (shown when clicking username button) -->
+              <form id="authEditCredentials" onsubmit="return false;" style="display: none;">
+                <div class="authEditHeader">
+                  <span>Switch Account</span>
+                  <button type="button" class="authEditClose" id="authEditClose">&times;</button>
+                </div>
+                <input autocomplete="username" class="authInput" id="editUsername" name="edit-username" placeholder="Username">
+                <input autocomplete="current-password" type="password" class="authInput" id="editPassword" name="edit-password" placeholder="Password">
+                <div class="authButtons">
+                  <button type="button" class="btn primary large" id="editLoginJoinBtn">Join</button>
                 </div>
               </form>
 
@@ -507,7 +508,7 @@
         </div>
 
         <!-- Hidden input for touch keyboard (text tool) -->
-        <input type="text" id="touchInput" style="position:fixed;opacity:0;pointer-events:none;left:0;top:0;width:1px;height:1px;font-size:16px;" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <input type="text" id="touchInput" aria-hidden="true" style="position:fixed;opacity:0;pointer-events:none;left:0;top:0;width:1px;height:1px;font-size:16px;" inputmode="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
 
         <!-- Hidden: Timeline (Not Implemented) -->
         <div id="bottomBar">
@@ -620,7 +621,7 @@
             <div class="sliders">
               <div class="sliderContainer" id="size-container">
                 <div class="sliderLabel">Size <span class="sliderValue" id="sizeValue">10</span><button class="lock-btn" id="sizeLock" title="Lock size for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
-                <input autocomplete="off" type="range" min="0.25" max="100" value="10" step="0.25" class="slider size">
+                <input autocomplete="off" type="range" min="0.25" max="100" value="10" step="0.25" class="slider size" aria-label="Brush size">
               </div>
 
               <div class="sliderContainer" id="ink-thinning" style="display: none;">
@@ -632,7 +633,7 @@
                   <span class="sliderValue" id="thinningValue">50</span><button class="lock-btn" id="thinningLock" title="Lock thinning for current tool"><img src="/images/lock-open.svg" alt="unlock"></button>
                 </div>
                 <div id="thinningSlider">
-                  <input autocomplete="off" type="range" min="0" max="100" value="50" class="slider thinning">
+                  <input autocomplete="off" type="range" min="0" max="100" value="50" class="slider thinning" aria-label="Thinning">
                 </div>
               </div>
 
@@ -646,34 +647,34 @@
                   <button class="lock-btn" id="pressureLock" title="Lock pressure for current tool"><img src="/images/lock-open.svg" alt="unlock"></button>
                 </div>
                 <div class="dual-slider" id="pressureDualSlider">
-                  <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider pressureMin" id="pressureMinSlider">
-                  <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider pressureMax" id="pressureMaxSlider">
+                  <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider pressureMin" id="pressureMinSlider" aria-label="Minimum pressure">
+                  <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider pressureMax" id="pressureMaxSlider" aria-label="Maximum pressure">
                 </div>
               </div>
 
               <div class="sliderContainer" id="smoothing-container">
                 <div class="sliderLabel">Smoothing <span class="sliderValue" id="smoothingValue">30%</span><button class="lock-btn" id="smoothingLock" title="Lock smoothing for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
-                <input autocomplete="off" type="range" min="0" max="50" value="15" class="slider smoothing">
+                <input autocomplete="off" type="range" min="0" max="50" value="15" class="slider smoothing" aria-label="Smoothing">
               </div>
 
               <div class="sliderContainer" id="brush-spacing" style="display: none;">
                 <div class="sliderLabel">Spacing <span class="sliderValue" id="spacingValue">0</span><button class="lock-btn" id="spacingLock" title="Lock spacing for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
-                <input autocomplete="off" type="range" min="0" max="50" value="0" class="slider spacing">
+                <input autocomplete="off" type="range" min="0" max="50" value="0" class="slider spacing" aria-label="Spacing">
               </div>
 
               <div class="sliderContainer" id="brush-hardness" style="display: none;">
                 <div class="sliderLabel">Hardness <span class="sliderValue" id="hardnessValue">100</span><button class="lock-btn" id="hardnessLock" title="Lock hardness for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
-                <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider hardness">
+                <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider hardness" aria-label="Hardness">
               </div>
 
               <div class="sliderContainer" id="blur-radius" style="display: none;">
                 <div class="sliderLabel">Blur Radius <span class="sliderValue" id="blurRadiusValue">5</span><button class="lock-btn" id="blurRadiusLock" title="Lock blur radius"><img src="/images/lock-open.svg" alt="unlock"></button></div>
-                <input autocomplete="off" type="range" min="1" max="10" value="5" step="1" class="slider blurRadius">
+                <input autocomplete="off" type="range" min="1" max="10" value="5" step="1" class="slider blurRadius" aria-label="Blur radius">
               </div>
 
               <div class="sliderContainer" id="brush-opacity" style="display: none;">
                 <div class="sliderLabel">Opacity <span class="sliderValue" id="opacityValue">100%</span><button class="lock-btn" id="opacityLock" title="Lock opacity for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
-                <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider opacity">
+                <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider opacity" aria-label="Opacity">
               </div>
 
               <input autocomplete="off" type="file" id="brush-file-input" accept=".gih,.gbr,.png,.jpg,.jpeg,.webp" style="display: none;">

@@ -314,7 +314,7 @@ export class LandingPage {
         } else {
           showExpanded(e);
         }
-      });
+      }, { passive: true });
     });
 
     // Hide expanded preview when clicking elsewhere

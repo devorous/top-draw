@@ -252,6 +252,7 @@ export class Chat {
 
         const img = document.createElement('img');
         img.src = msg.imageData;
+        img.alt = 'Shared image';
         img.style.maxWidth = '200px';
         img.style.maxHeight = '200px';
         img.style.borderRadius = 'var(--radius-sm)';
@@ -566,6 +567,7 @@ export class Chat {
 
     const img = document.createElement('img');
     img.src = this.pendingImage;
+    img.alt = 'Image preview';
     img.style.maxWidth = '120px';
     img.style.maxHeight = '120px';
     img.style.borderRadius = 'var(--radius-sm)';
@@ -605,6 +607,7 @@ export class Chat {
 
     const img = document.createElement('img');
     img.src = imageData;
+    img.alt = 'Shared image';
     img.style.maxWidth = '200px';
     img.style.maxHeight = '200px';
     img.style.borderRadius = 'var(--radius-sm)';
@@ -774,6 +777,7 @@ export class Chat {
 
         const img = document.createElement('img');
         img.src = msg.imageData;
+        img.alt = 'Shared image';
         img.style.maxWidth = '200px';
         img.style.maxHeight = '200px';
         img.style.borderRadius = 'var(--radius-sm)';

@@ -377,6 +377,7 @@ export class UI {
     const img = document.createElement('img');
     img.className = 'toolIcon';
     img.src = src;
+    img.alt = '';
     return img;
   }
 
