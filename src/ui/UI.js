@@ -477,14 +477,18 @@ export class UI {
    * Updates the pressure-sensitive feedback circle radius.
    * @param {number} r - Pressure-scaled radius
    * @param {number} baseSize - Unscaled base size
+   * @param {boolean} tabletDetected - Whether tablet/pen input has been detected
    */
-  updatePressureCursorRadius(r, baseSize) {
+  updatePressureCursorRadius(r, baseSize, tabletDetected = false) {
     const el = this.elements.selfPressureCircle;
     if (!el) return;
 
-    if (baseSize !== undefined && r < baseSize) {
+    // Only show inner circle if tablet is detected and pressure is less than full size
+    if (tabletDetected && baseSize !== undefined && r < baseSize) {
       el.style.display = 'block';
       el.setAttribute('r', Math.max(1, r));
+      // Only show dashed line if size is 8 or larger
+      el.setAttribute('stroke-dasharray', baseSize >= 8 ? '3,2' : '0');
     } else {
       el.style.display = 'none';
     }
@@ -494,16 +498,20 @@ export class UI {
    * Updates the pressure-sensitive feedback square size.
    * @param {number} squareSize - Pressure-scaled half-width
    * @param {number} baseSize - Unscaled base size
+   * @param {boolean} tabletDetected - Whether tablet/pen input has been detected
    */
-  updatePressureSquareSize(squareSize, baseSize) {
+  updatePressureSquareSize(squareSize, baseSize, tabletDetected = false) {
     const el = this.elements.selfPressureSquare;
     if (!el) return;
 
-    if (baseSize !== undefined && squareSize < baseSize) {
+    // Only show inner square if tablet is detected and pressure is less than full size
+    if (tabletDetected && baseSize !== undefined && squareSize < baseSize) {
       el.style.display = 'block';
       const sizeDoubled = Math.max(2, squareSize * 2);
       el.setAttribute('width', sizeDoubled);
       el.setAttribute('height', sizeDoubled);
+      // Only show dashed line if size is 8 or larger
+      el.setAttribute('stroke-dasharray', baseSize >= 8 ? '3,2' : '0');
     } else {
       el.style.display = 'none';
     }
@@ -660,14 +668,12 @@ export class UI {
         selfCircle.style.display = 'block';
         brushHardness.style.display = 'block';
         if (brushModeOptions) brushModeOptions.style.display = 'block';
-        if (selfPressureCircle) selfPressureCircle.style.display = 'block';
         break;
 
       case 'ink':
         selfCircle.style.display = 'block';
         brushHardness.style.display = 'block';
         if (brushModeOptions) brushModeOptions.style.display = 'block';
-        if (selfPressureCircle) selfPressureCircle.style.display = 'block';
         if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'block';
         break;
 
@@ -692,14 +698,12 @@ export class UI {
         smoothingContainer.style.display = 'none';
         brushHardness.style.display = 'none';
         if (eraserModeOptions) eraserModeOptions.style.display = 'block';
-        if (selfPressureCircle) selfPressureCircle.style.display = 'block';
         break;
 
       case 'circleBlur':
         selfCircle.style.display = 'block';
         brushSpacing.style.display = 'block';
         brushHardness.style.display = 'block';
-        if (selfPressureCircle) selfPressureCircle.style.display = 'block';
         break;
 
       case 'glitchBlur':
@@ -721,16 +725,13 @@ export class UI {
         if (user && user.imageBrush) brushImage.style.display = 'block';
         brushFileInput.style.display = 'block';
         brushSpacing.style.display = 'block';
-        if (selfPressureSquare) selfPressureSquare.style.display = 'block';
         break;
 
       case 'pattern':
         if (user && user.patternShape === 'square') {
           selfSquare.style.display = 'block';
-          if (selfPressureSquare) selfPressureSquare.style.display = 'block';
         } else {
           selfCircle.style.display = 'block';
-          if (selfPressureCircle) selfPressureCircle.style.display = 'block';
         }
         brushSpacing.style.display = 'none';
         smoothingContainer.style.display = 'none';

@@ -2875,10 +2875,10 @@ export class DrawingApp {
     // Update pressure indicators only for tools that use pressure
     const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur'];
     if (pressureTools.includes(this.self.tool)) {
-      this.ui.updatePressureCursorRadius(this.self.pressure * size, size);
+      this.ui.updatePressureCursorRadius(this.self.pressure * size, size, this.tabletDetected);
     }
     if (this.self.tool === 'imageBrush') {
-      this.ui.updatePressureSquareSize(this.self.pressure * size, size);
+      this.ui.updatePressureSquareSize(this.self.pressure * size, size, this.tabletDetected);
     }
     this.ui.updateSelfTextStyle(size, this.self.color);
     this.ui.updateSizeValue(size);
@@ -3281,10 +3281,10 @@ export class DrawingApp {
       // Update pressure indicators only for tools that use pressure
       const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur'];
       if (pressureTools.includes(this.self.tool)) {
-        this.ui.updatePressureCursorRadius(pressure * this.self.size, this.self.size);
+        this.ui.updatePressureCursorRadius(pressure * this.self.size, this.self.size, this.tabletDetected);
       }
       if (this.self.tool === 'imageBrush') {
-        this.ui.updatePressureSquareSize(pressure * this.self.size, this.self.size);
+        this.ui.updatePressureSquareSize(pressure * this.self.size, this.self.size, this.tabletDetected);
       }
 
       // If stroke start was deferred, now we have real pressure - start the stroke
@@ -3494,9 +3494,9 @@ export class DrawingApp {
       const estimatedPressure = 0.5; // Reasonable default for initial pen pressure
       const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur'];
       if (pressureTools.includes(this.self.tool)) {
-        this.ui.updatePressureCursorRadius(estimatedPressure * this.self.size, this.self.size);
+        this.ui.updatePressureCursorRadius(estimatedPressure * this.self.size, this.self.size, this.tabletDetected);
       } else if (this.self.tool === 'imageBrush') {
-        this.ui.updatePressureSquareSize(estimatedPressure * this.self.size, this.self.size);
+        this.ui.updatePressureSquareSize(estimatedPressure * this.self.size, this.self.size, this.tabletDetected);
       }
       this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);
     } else {

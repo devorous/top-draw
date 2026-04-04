@@ -130,10 +130,10 @@
   });
 
   const features = [
-    { image: 'https://placehold.co/400x300/c800c8/fff?text=Protocol+Buffers', title: 'Protocol Buffers', desc: 'We don\'t use boring text for messages. We use Protocol Buffers! It\'s like squishing your doodles into tiny binary tubes so they travel across the internet at the speed of light. 60fps or bust!' },
-    { image: 'https://placehold.co/400x300/00d4aa/000?text=Mirror+Modes', title: 'Mirrored Regions', desc: 'Can\'t draw a face? Just draw half! Our mirror modes let you create complex configurations, draw weird aliens, or perfectly symmetrical pieces with zero effort.' },
-    { image: 'https://placehold.co/400x300/ffdd00/000?text=Custom+Brushes', title: 'Customizable Patterns', desc: 'Why use a normal brush when you can paint with patterns? Stamp your art with custom textures or use the image brush to paint with whatever!' },
-    { image: 'https://placehold.co/400x300/c800c8/fff?text=Selection+Tool', title: 'The Selector', desc: 'Grab a chunk of the canvas, wiggle it around, resize it, or stamp it a thousand times. Our selection tool is fast, floaty, and lets you rearrange reality however you like.' },
+    { video: 'https://assets.ddraw.ca/drawing.mp4', title: 'Smooth Drawing', desc: 'Designed to make every stroke feel smooth and responsive, runs at a crisp 60 FPS, and keeps everyone in sync and drawing without a hitch.' },
+    { video: 'https://assets.ddraw.ca/mirror.mp4', title: 'Mirrored Regions', desc: 'Can\'t draw a face? Just draw half! Our mirror modes applies region based reflections on the canvas perfect for symmetrical pieces with zero effort.' },
+    { video: 'https://assets.ddraw.ca/pattern.mp4', title: 'Customizable Patterns', desc: 'Why use a normal brush when you can paint with patterns? Stamp your art with custom textures or use the image brush to paint with whatever!' },
+    { video: 'https://assets.ddraw.ca/homography.mp4', title: 'The Selector', desc: 'Grab a chunk of the canvas, wiggle it around, resize it, or stamp it a thousand times. Our selection tool is fast, floaty, and lets you rearrange reality however you like.' },
   ];
 
   const whyDdraw = [
@@ -218,7 +218,17 @@
       {#each features as f}
         <div class="feature-card">
           <div class="feat-preview">
-            <img src={f.image} alt={f.title} />
+            <video 
+              src={f.video} 
+              autoplay 
+              muted 
+              loop 
+              playsinline
+              class="rounded-lg shadow-sm"
+            >
+              <track kind="captions" />
+              Your browser does not support the video tag.
+            </video>
           </div>
           <h3>{f.title}</h3>
           <p>{f.desc}</p>
@@ -424,18 +434,30 @@
     transform: translateY(-5px) rotate(1deg);
     background: rgba(0,212,170,0.05);
   }
-  .feat-preview {
-    width: 100%;
-    margin-bottom: 1rem;
-    border-radius: 8px;
-    overflow: hidden;
-    border: 2px solid rgba(255,255,255,0.1);
-  }
-  .feat-preview img {
-    width: 100%;
-    height: auto;
-    display: block;
-  }
+.feat-preview {
+  width: 100%;
+  /* Set your desired aspect ratio (e.g., 16/9, 4/3, or 1/1) */
+  aspect-ratio: 3 / 4; 
+  
+  background-color: white; /* This fills the "letterbox" gaps */
+  margin-bottom: 1rem;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid rgba(255,255,255,0.1);
+  
+  /* Centers the video if it's smaller than the box */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.feat-preview video {
+  width: 100%;
+  height: 100%;
+  /* 'contain' keeps the whole video visible without stretching */
+  object-fit: contain; 
+  display: block;
+}
   .feature-card h3 { font-size: 1.25rem; margin-bottom: 0.75rem; color: #00d4aa; }
   .feature-card p { color: rgba(255,255,255,0.5); font-size: 13px; line-height: 1.5; }
 
