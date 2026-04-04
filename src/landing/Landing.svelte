@@ -220,7 +220,7 @@
       <div class="card-content">
         <h2>Desktop App!</h2>
         <p>Want it to go even faster? Grab the Windows app. It's lightweight (&lt; 10MB), runs even smoother and looks great on your taskbar.</p>
-        <a href="#" class="btn-primary download-btn">
+        <a href="/download" class="btn-primary download-btn">
           Download for Windows
         </a>
         <p class="tiny-print">v0.1.0 • Built with Tauri 2</p>
@@ -425,7 +425,6 @@
     box-shadow: 0 20px 40px rgba(255,0,255,0.3);
   }
   .card-content { position: relative; z-index: 2; max-width: 500px; margin: 0 auto; }
-  .emoji-big { font-size: 4rem; display: block; margin-bottom: 1rem; }
   .funky-card h2 { font-size: 3rem; margin-bottom: 1rem; }
   .funky-card p { font-size: 18px; margin-bottom: 2.5rem; opacity: 0.9; }
   .download-btn { background: #fff !important; color: #c800c8 !important; font-size: 18px !important; padding: 1rem 2rem !important; }

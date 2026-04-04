@@ -770,10 +770,10 @@
 </div>
 
 {#if lightbox}
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="lightbox-backdrop" class:instant={lightboxInstant} onclick={closeLightbox}>
-    <div class="lightbox" onclick={(e) => e.stopPropagation()}>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="lightbox-backdrop" class:instant={lightboxInstant} role="presentation" onclick={closeLightbox} onkeydown={(e) => e.key === 'Escape' && closeLightbox()}>
+    <div class="lightbox" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <button class="lb-close" onclick={closeLightbox}>×</button>
       <div class="lb-img-wrap">
         <img src={lightbox.url} alt={lightbox.title || 'artwork'}>
@@ -881,10 +881,10 @@
 {/if}
 
 {#if showAuthModal}
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="modal-backdrop" onclick={closeAuthModal}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="modal-backdrop" role="presentation" onclick={closeAuthModal} onkeydown={(e) => e.key === 'Escape' && closeAuthModal()}>
+    <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       <button class="modal-close" onclick={closeAuthModal}>×</button>
       <h2>{authMode === 'login' ? 'Login' : 'Register'}</h2>
 
