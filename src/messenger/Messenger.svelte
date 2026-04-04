@@ -14,6 +14,13 @@
   let newChatUsername = $state("");
   let newChatError = $state("");
   let initialized = $state(false);
+  let usernameInput = $state();
+
+  $effect(() => {
+    if (isStartingNewChat && usernameInput) {
+      usernameInput.focus();
+    }
+  });
 
   // Read username reactively from shared state so it's always current
   const username = $derived(appState.username);
@@ -143,11 +150,11 @@
               <label for="username">To:</label>
               <input
                 id="username"
+                bind:this={usernameInput}
                 bind:value={newChatUsername}
                 oninput={() => newChatError = ""}
                 placeholder="Type a username..."
                 autocomplete="off"
-                autofocus
               />
             </div>
             <p class="hint">Starting a secure, end-to-end encrypted chat.</p>

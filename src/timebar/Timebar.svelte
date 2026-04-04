@@ -32,7 +32,7 @@
   }
 
   let isScrubbing = false;
-  let scrubberElement; // Will be assigned to the .custom-scrubber div
+  let scrubberElement = $state(); // Will be assigned to the .custom-scrubber div
 
   function calculateScrubTime(event, element) {
     const rect = element.getBoundingClientRect();
@@ -252,6 +252,12 @@
           bind:this={scrubberElement}
           onmousedown={handleScrubberMouseDown}
           ontouchstart={handleScrubberTouchStart}
+          role="slider"
+          aria-label="Timeline scrubber"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow={progressPercent}
+          tabindex="0"
         >
           <div class="scrubber-track">
             <div class="scrubber-progress" style="width: {progressPercent}%"></div>

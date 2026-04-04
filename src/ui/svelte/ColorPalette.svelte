@@ -52,7 +52,7 @@
 <div class="color-palette">
   <!-- Recent Colors -->
   <div class="palette-section">
-    <label>Recent</label>
+    <span class="palette-section-title">Recent</span>
     <div class="swatch-grid">
       {#each recentSlots as color}
         {#if color}
@@ -71,9 +71,9 @@
 
   <!-- Custom Colors -->
   <div class="palette-section">
-    <label>
+    <span class="palette-section-title">
       Custom <span class="palette-hint">(click + to save)</span>
-    </label>
+    </span>
     <div class="swatch-grid">
       {#each appState.customColors as color}
         <button
@@ -109,7 +109,7 @@
     flex-direction: column;
   }
 
-  .palette-section label {
+  .palette-section-title {
     font-size: 0.75rem;
     font-weight: 500;
     text-transform: uppercase;

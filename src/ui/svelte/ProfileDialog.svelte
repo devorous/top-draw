@@ -70,7 +70,12 @@
     onclick={handleBackdropClick}
     role="presentation"
   >
-    <div class="profile-dialog" onclick={(e) => e.stopPropagation()}>
+    <div
+      class="profile-dialog"
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
+      role="presentation"
+    >
       <div class="profile-dialog-header">
         <span></span>
         <button

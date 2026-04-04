@@ -114,7 +114,13 @@
 </script>
 
 {#if visible && selfRole >= 9}
-  <div class="admin-overlay" onclick={(e) => e.target === e.currentTarget && hide()}>
+  <div
+    class="admin-overlay"
+    onclick={(e) => e.target === e.currentTarget && hide()}
+    onkeydown={(e) => e.key === 'Escape' && hide()}
+    role="button"
+    tabindex="-1"
+  >
     <div class="admin-dialog">
       <div class="admin-header">
         <div>

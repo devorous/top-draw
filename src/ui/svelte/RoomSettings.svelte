@@ -362,7 +362,12 @@
 
 {#if visible}
   <div class="room-settings-overlay" onclick={handleBackdropClick} role="presentation">
-    <div class="room-settings-dialog" onclick={(e) => e.stopPropagation()}>
+    <div
+      class="room-settings-dialog"
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
+      role="presentation"
+    >
       <div class="room-settings-header">
         <div>
           <h3>Room Settings</h3>
