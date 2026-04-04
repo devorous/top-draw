@@ -61,8 +61,6 @@ export class MirrorRegionController {
     this.panel = document.createElement('div');
     this.panel.id = 'mirrorRegionPanel';
     this.panel.style.position = 'absolute';
-    this.panel.style.right = '12px';
-    this.panel.style.top = '108px';
     this.panel.style.zIndex = '60';
     this.panel.style.display = 'none';
     this.panel.style.minWidth = '220px';
@@ -308,6 +306,56 @@ export class MirrorRegionController {
     if (axisInput) axisInput.checked = true;
     const lineInput = this.panel.querySelector('input[name="mirrorRegionShowLine"]');
     if (lineInput) lineInput.checked = this.options.showLine;
+    this._positionPanelNearSelection();
+  }
+
+  _positionPanelNearSelection() {
+    if (!this.selection) {
+      this.panel.style.right = '12px';
+      this.panel.style.top = '108px';
+      this.panel.style.left = '';
+      return;
+    }
+
+    // Convert the selection's right edge from board coords to container coords
+    const board = this.board;
+    const bx = this.selection.x + this.selection.width;
+    const by = this.selection.y;
+
+    // Board → container: zoom, rotate, then pan
+    const sx = bx * board.zoom;
+    const sy = by * board.zoom;
+    const rad = board.rotation * Math.PI / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const rx = sx * cos - sy * sin;
+    const ry = sx * sin + sy * cos;
+    let cx = rx + board.panX;
+    let cy = ry + board.panY;
+
+    const containerRect = board.container.getBoundingClientRect();
+    const panelWidth = this.panel.offsetWidth || 220;
+    const panelHeight = this.panel.offsetHeight || 260;
+    const margin = 12;
+
+    // Place to the right of the region edge; if it overflows, place to the left
+    let left = cx + margin;
+    if (left + panelWidth > containerRect.width) {
+      // Try left side of the region
+      const leftEdgeX = this.selection.x * board.zoom;
+      const lrx = leftEdgeX * cos - sy * sin;
+      const lcx = lrx + board.panX;
+      left = lcx - panelWidth - margin;
+    }
+    // Clamp horizontal
+    left = Math.max(margin, Math.min(left, containerRect.width - panelWidth - margin));
+
+    // Clamp vertical
+    let top = Math.max(margin, Math.min(cy, containerRect.height - panelHeight - margin));
+
+    this.panel.style.left = `${left}px`;
+    this.panel.style.top = `${top}px`;
+    this.panel.style.right = '';
   }
 
   _hidePanel() {
