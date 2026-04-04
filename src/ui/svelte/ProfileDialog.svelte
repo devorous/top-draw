@@ -123,6 +123,7 @@
             <a
               href="{galleryBaseUrl}?author={encodeURIComponent(data.username)}"
               class="profile-btn profile-btn-primary"
+              target="_blank"
               onclick={handleViewAll}
             >
               View All Art

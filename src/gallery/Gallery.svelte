@@ -615,7 +615,7 @@
     <a href="/" class="wordmark">ddraw</a>
     <div class="nav-links">
       <span class="nav-active">gallery</span>
-      <a href="/go/" class="nav-cta">draw →</a>
+      <a href="/go/" class="nav-cta" target="_blank">draw →</a>
       <span class="nav-divider">|</span>
       {#if user}
         <button class="btn-text" class:active={showFavorites} onclick={toggleFavoritesView}>favorites</button>
@@ -668,7 +668,7 @@
         <div class="empty-icon">◻</div>
         <h2>Nothing here yet</h2>
         <p>Be the first to save something to the gallery.</p>
-        <a href="/go/" class="btn-primary">Start Drawing</a>
+        <a href="/go/" class="btn-primary" target="_blank">Start Drawing</a>
       </div>
     {:else}
       <div class="gallery-layout">

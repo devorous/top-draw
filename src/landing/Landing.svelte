@@ -152,7 +152,7 @@
   <nav>
     <span class="wordmark">ddraw</span>
     <div class="nav-links">
-      <a href="/gallery/">gallery</a>
+      <a href="/gallery/" target="_blank">gallery</a>
       <a href="/go/" class="nav-enter">open app →</a>
     </div>
   </nav>

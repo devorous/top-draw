@@ -14,9 +14,14 @@
     "start": "node server/index.js",
     "brushes": "node scripts/generate-brush-manifest.js",
     "docs": "jsdoc -r src server shared -d docs/jsdocs",
-    "wasm": "wasm-pack build wasm_src --target web --out-dir ../src/wasm/"
+    "wasm": "wasm-pack build wasm_src --target web --out-dir ../src/wasm/",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "devDependencies": {
+    "@tauri-apps/api": "^2.0.0-rc.6",
+    "@tauri-apps/cli": "^2.0.0-rc.18",
     "concurrently": "^8.2.0",
     "jsdoc": "^4.0.5",
     "mitata": "^1.0.34",
@@ -28,6 +33,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1011.0",
     "@sveltejs/vite-plugin-svelte": "^4.0.4",
+    "@tauri-apps/plugin-shell": "^2.3.5",
     "bcrypt": "^6.0.0",
     "delaunator": "^5.0.1",
     "dotenv": "^17.2.4",

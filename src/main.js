@@ -200,6 +200,32 @@ function init() {
   revealLandingShell();
   attachDeferredLandingHandlers();
 
+  // Open external links in the default browser when running in Tauri
+  const isTauri = !!(window.__TAURI_INTERNALS__ || window.__TAURI_METADATA__);
+  if (isTauri) {
+    document.addEventListener('click', (e) => {
+      const link = e.target.closest('a');
+      if (link && link.href) {
+        // Resolve the URL to handle relative links correctly
+        const url = new URL(link.href, window.location.origin);
+        const isExternal = url.origin !== window.location.origin;
+
+        if (isExternal || link.target === '_blank') {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          
+          import('@tauri-apps/plugin-shell').then(({ open }) => {
+            open(link.href);
+          }).catch(err => {
+            console.error('Failed to open external link via Tauri shell:', err);
+            // Fallback: only if really needed, but tauri should handle it
+            window.open(link.href, '_blank');
+          });
+        }
+      }
+    }, true); // Use capture phase to intercept before other handlers
+  }
+
   requestAnimationFrame(() => {
     setTimeout(startBackgroundBoot, 0);
   });
