@@ -80,6 +80,7 @@ export class KeyboardHandler {
     if (e.key === ' ' && app.self.tool !== 'text' && !app.self.panning && !app.self.mousedown) {
       app.self.panning = true;
       app.wsClient.broadcastPan(true);
+      app.ui.showPanCursor();
     }
 
     // TAB key for temporary inkdropper mode
@@ -240,6 +241,7 @@ export class KeyboardHandler {
     if (e.key === ' ' && app.self.tool !== 'text' && app.self.tool !== 'pan' && app.self.tool !== 'rotate') {
       app.self.panning = false;
       app.wsClient.broadcastPan(false);
+      app.ui.hidePanCursor(app.self.tool, app.self);
     }
 
     // TAB key release - return to previous tool

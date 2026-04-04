@@ -3052,8 +3052,12 @@ export class DrawingApp {
       }
 
       this.ui.showCursor();
-      this.ui.updateToolDisplay(this.self.tool, this.self);
-      this._updateBlurCannotDraw();
+      if (this.self.panning && this.self.tool !== 'pan') {
+        this.ui.showPanCursor();
+      } else {
+        this.ui.updateToolDisplay(this.self.tool, this.self);
+        this._updateBlurCannotDraw();
+      }
       if (this.connected) {
         this.wsClient.broadcastShowCursor();
       }
@@ -3070,8 +3074,12 @@ export class DrawingApp {
       this.isOnBoard = true;
       if (shouldRefresh) {
         this.ui.showCursor();
-        this.ui.updateToolDisplay(this.self.tool, this.self);
-        this._updateBlurCannotDraw();
+        if (this.self.panning && this.self.tool !== 'pan') {
+          this.ui.showPanCursor();
+        } else {
+          this.ui.updateToolDisplay(this.self.tool, this.self);
+          this._updateBlurCannotDraw();
+        }
       }
       return;
     }
@@ -3269,6 +3277,7 @@ export class DrawingApp {
       this._lastPanPointerX = e.clientX;
       this._lastPanPointerY = e.clientY;
       this.wsClient.broadcastPan(true);
+      this.ui.showPanCursor();
       return;
     }
 
@@ -3509,6 +3518,7 @@ export class DrawingApp {
       this.self.panning = false;
       this.self.mousedown = false;
       this.wsClient.broadcastPan(false);
+      this.ui.hidePanCursor(this.self.tool, this.self);
       return;
     }
 
@@ -3635,6 +3645,7 @@ export class DrawingApp {
       this._lastPanPointerX = e.clientX;
       this._lastPanPointerY = e.clientY;
       this.wsClient.broadcastPan(true);
+      this.ui.showPanCursor();
       this._containerPanActive = true;
       e.currentTarget.setPointerCapture(e.pointerId);
       return;
@@ -3679,6 +3690,7 @@ export class DrawingApp {
     if (e.button === 1) {
       this.self.panning = false;
       this.wsClient.broadcastPan(false);
+      this.ui.hidePanCursor(this.self.tool, this.self);
     }
   }
 

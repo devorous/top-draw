@@ -542,6 +542,30 @@ export class UI {
   }
 
   /**
+   * Shows the hand cursor for temporary panning (e.g. spacebar held),
+   * hiding whatever cursor shape was previously visible.
+   */
+  showPanCursor() {
+    const { selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText } = this.elements;
+    selfCircle.style.display = 'none';
+    selfSquare.style.display = 'none';
+    selfCrosshair.style.display = 'none';
+    selfText.style.display = 'none';
+    if (selfPressureCircle) selfPressureCircle.style.display = 'none';
+    if (selfPressureSquare) selfPressureSquare.style.display = 'none';
+    selfHand.style.display = 'block';
+  }
+
+  /**
+   * Restores the cursor shape for the current tool after temporary panning ends.
+   * @param {string} tool - The current tool name
+   * @param {Object} [user=null] - The local user object
+   */
+  hidePanCursor(tool, user = null) {
+    this.updateToolDisplay(tool, user);
+  }
+
+  /**
    * Switches between crosshair and hand for the selection tool.
    * @param {boolean} isHand - Whether to show the hand icon
    */
