@@ -359,6 +359,12 @@ export async function sanitizeMessage(data) {
         const joinPolicy = sanitizeString(data.roomJoinPolicy, 16);
         sanitized.roomJoinPolicy = VALID_JOIN_POLICIES.has(joinPolicy) ? joinPolicy : 'open';
       }
+      if (data.roomDedicatedReplayUser !== undefined) {
+        // null or empty string clears, otherwise sanitize as username
+        sanitized.roomDedicatedReplayUser = data.roomDedicatedReplayUser
+          ? sanitizeString(data.roomDedicatedReplayUser, MAX_NAME_LENGTH)
+          : null;
+      }
       return sanitized;
 
     case T.MIRROR_REGION:
@@ -526,6 +532,37 @@ export async function sanitizeMessage(data) {
     case T.BOARD_SNAPSHOT_DELETE:
       sanitized.snapshotId = sanitizeString(data.snapshotId, 64);
       if (!sanitized.snapshotId) return null;
+      return sanitized;
+
+    case T.CHECKPOINT_UPLOAD: {
+      const cpValidation = await validateImageBytes(data.checkpointImg, {
+        maxBytes: MAX_SYNC_IMAGE_BYTES,
+        maxWidth: MAX_INLINE_IMAGE_WIDTH,
+        maxHeight: MAX_INLINE_IMAGE_HEIGHT,
+        maxPixels: MAX_SYNC_IMAGE_PIXELS,
+        allowedMimeTypes: new Set(['image/png']),
+        mimeTypeHint: 'image/png'
+      });
+      if (!cpValidation.ok) return null;
+      sanitized.checkpointImg = new Uint8Array(cpValidation.buffer);
+      return sanitized;
+    }
+
+    case T.CHECKPOINT_LIST:
+      return sanitized;
+
+    case T.CHECKPOINT_GET:
+      sanitized.checkpointId = sanitizeString(data.checkpointId, 64);
+      if (!sanitized.checkpointId) return null;
+      return sanitized;
+
+    case T.REPLAY_REQUEST:
+      sanitized.replayStartTs = Number(data.replayStartTs);
+      sanitized.replayEndTs = Number(data.replayEndTs);
+      if (!Number.isFinite(sanitized.replayStartTs) || !Number.isFinite(sanitized.replayEndTs)) return null;
+      if (sanitized.replayEndTs <= sanitized.replayStartTs) return null;
+      // Cap replay window to 1 hour
+      if (sanitized.replayEndTs - sanitized.replayStartTs > 3_600_000) return null;
       return sanitized;
   }
 

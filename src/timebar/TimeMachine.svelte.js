@@ -978,6 +978,12 @@ class TimeMachineState {
     }
 
     if (!snapshot) {
+      // No local snapshot — try fetching server-side replay data
+      if (this._wsClient) {
+        console.log('[TimeMachine] No local snapshot, requesting server-side replay...');
+        await this._fetchAndApplyServerReplay(timestamp);
+        return;
+      }
       console.warn('[TimeMachine] No snapshot found for timestamp', timestamp);
       return;
     }
@@ -1017,6 +1023,69 @@ class TimeMachineState {
     // Also update previewData for the badge/UI (optional, can be removed if not needed)
     this.previewData = true; // Just a flag that we have preview data
     console.log('[TimeMachine] Replay canvas updated, isReviewing:', this.isReviewing);
+  }
+
+  /**
+   * Fetch replay data from the server (checkpoint image + deltas) and apply it.
+   * Used when local recording buffer doesn't cover the requested timestamp.
+   * @param {number} timestamp - Target replay timestamp
+   * @private
+   */
+  async _fetchAndApplyServerReplay(timestamp) {
+    if (this._pendingServerReplay) return;
+    this._pendingServerReplay = true;
+
+    try {
+      const data = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          this._wsClient.messageHandlers.delete('replay_response');
+          reject(new Error('Replay request timed out'));
+        }, 15000);
+
+        this._wsClient.on('replay_response', (response) => {
+          clearTimeout(timeout);
+          resolve(response);
+        });
+
+        // Request a window: 5 minutes before the target up to the target
+        const startTs = timestamp - 5 * 60 * 1000;
+        this._wsClient.requestReplay(startTs, timestamp);
+      });
+
+      if (!data.checkpointImg || data.checkpointImg.length === 0) {
+        console.warn('[TimeMachine] Server returned no checkpoint image');
+        return;
+      }
+
+      // Load checkpoint as the base image
+      await this._replayEngine.loadCheckpointImage(data.checkpointImg);
+
+      // Apply deltas through the replay engine
+      if (data.deltas && data.deltas.length > 0) {
+        const actions = data.deltas.map(d => ({
+          timestamp: d._ts,
+          msg: d
+        }));
+        await this._replayEngine.processActions(actions, timestamp);
+      }
+
+      this._lastAppliedTimestamp = timestamp;
+
+      // Render to replay canvas
+      if (this._replayCtx && this._replayEngine.outputCanvas) {
+        const bgColor = this._board?.backgroundColor || [255, 255, 255, 1];
+        this._replayCtx.fillStyle = `rgba(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]}, ${bgColor[3]})`;
+        this._replayCtx.fillRect(0, 0, this._replayCanvas.width, this._replayCanvas.height);
+        this._replayCtx.drawImage(this._replayEngine.outputCanvas, 0, 0);
+      }
+
+      this.previewData = true;
+      console.log(`[TimeMachine] Server replay applied: checkpoint + ${data.deltas?.length || 0} deltas`);
+    } catch (err) {
+      console.error('[TimeMachine] Server replay failed:', err);
+    } finally {
+      this._pendingServerReplay = false;
+    }
   }
 
   _collectActionsBetween(snapshotIndex, startTimestamp, endTimestamp) {

@@ -102,6 +102,12 @@ message Msg {
     BOARD_SNAPSHOT_RESTORE = 99;
     BOARD_SNAPSHOT_DELETE = 100;
     BOARD_SNAPSHOT_REQUEST = 101; // Server asks a client to capture a snapshot
+    CHECKPOINT_UPLOAD = 110;       // Dedicated user uploads full board checkpoint
+    CHECKPOINT_LIST = 111;         // Request list of checkpoints for replay
+    CHECKPOINT_LIST_RESPONSE = 112; // Response with checkpoint metadata
+    CHECKPOINT_GET = 113;          // Request a specific checkpoint image
+    REPLAY_REQUEST = 114;          // Request replay data (checkpoint + deltas) for time range
+    REPLAY_RESPONSE = 115;         // Response with replay data
   }
 
   // Tool enum
@@ -347,4 +353,24 @@ message Msg {
     bytes thumb = 6; // JPEG thumbnail
   }
   repeated SnapshotMeta snapshot_list = 104;
+
+  // === Checkpoint / Replay Fields (110+) ===
+  bytes checkpoint_img = 110;        // Full board PNG for CHECKPOINT_UPLOAD
+  string checkpoint_id = 111;        // Checkpoint ID (for GET/LIST)
+  uint64 checkpoint_ts = 112;        // Checkpoint timestamp
+  string checkpoint_uploader = 113;  // Username who uploaded
+  string room_dedicated_replay_user = 114; // SETTINGS: dedicated replay uploader username
+
+  message CheckpointMeta {
+    string id = 1;
+    uint64 ts = 2;
+    string uploader = 3;
+    uint32 sizeBytes = 4;
+  }
+  repeated CheckpointMeta checkpoint_list = 115;
+
+  // === Replay Fields ===
+  uint64 replay_start_ts = 116;   // REPLAY_REQUEST: desired start timestamp
+  uint64 replay_end_ts = 117;     // REPLAY_REQUEST: desired end timestamp
+  string replay_deltas_json = 118; // REPLAY_RESPONSE: JSON-encoded array of delta actions
 }

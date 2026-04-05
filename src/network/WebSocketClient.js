@@ -411,7 +411,8 @@ export class WebSocketClient {
           modInactiveImmune: data.roomModInactiveImmune,
           joinPolicy: data.roomJoinPolicy || 'open',
           autoMuteGuests: !!data.roomAutoMuteGuests,
-          autoMuteVpnUsers: !!data.roomAutoMuteVpnUsers
+          autoMuteVpnUsers: !!data.roomAutoMuteVpnUsers,
+          dedicatedReplayUser: data.roomDedicatedReplayUser || null
         });
         break;
 
@@ -892,6 +893,20 @@ export class WebSocketClient {
 
       case T.BOARD_SNAPSHOT_REQUEST:
         this.emit('board_snapshot_request');
+        break;
+
+      case T.REPLAY_RESPONSE:
+        this.emit('replay_response', {
+          checkpointId: data.checkpointId || null,
+          checkpointImg: data.checkpointImg || null,
+          deltas: data.replayDeltasJson ? JSON.parse(data.replayDeltasJson) : []
+        });
+        break;
+
+      case T.CHECKPOINT_LIST_RESPONSE:
+        this.emit('checkpoint_list_response', {
+          checkpoints: data.checkpointList || []
+        });
         break;
 
     }
@@ -1690,6 +1705,18 @@ export class WebSocketClient {
    */
   broadcastRoomPreview(imageData) {
     this.send({ t: T.ROOM_PREVIEW, img: imageData });
+  }
+
+  broadcastCheckpoint(imageData) {
+    this.send({ t: T.CHECKPOINT_UPLOAD, checkpointImg: imageData });
+  }
+
+  requestReplay(startTs, endTs) {
+    this.send({ t: T.REPLAY_REQUEST, replayStartTs: startTs, replayEndTs: endTs });
+  }
+
+  requestCheckpointList() {
+    this.send({ t: T.CHECKPOINT_LIST });
   }
 
   /**

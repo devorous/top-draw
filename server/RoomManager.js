@@ -31,7 +31,8 @@ export class Room {
       modInactiveImmune: false,
       joinPolicy: 'open',
       autoMuteGuests: false,
-      autoMuteVpnUsers: false
+      autoMuteVpnUsers: false,
+      dedicatedReplayUser: null
     };
 
     this.description = '';
@@ -212,6 +213,7 @@ export class Room {
         this.settings.autoMuteGuests = !!doc.settings?.autoMuteGuests;
         this.settings.autoMuteVpnUsers = !!doc.settings?.autoMuteVpnUsers;
         this.settings.mirrorRegions = Array.isArray(doc.settings?.mirrorRegions) ? doc.settings.mirrorRegions : [];
+        this.settings.dedicatedReplayUser = doc.settings?.dedicatedReplayUser || null;
         console.log(`[Room] Loaded "${this.id}" from DB`);
       } else {
         const newDoc = {
@@ -228,7 +230,9 @@ export class Room {
             modInactiveImmune: false,
             joinPolicy: 'open',
             autoMuteGuests: false,
-            autoMuteVpnUsers: false
+            autoMuteVpnUsers: false,
+            mirrorRegions: [],
+            dedicatedReplayUser: null
           }
         };
         await db.collection('rooms').insertOne(newDoc);
@@ -259,18 +263,19 @@ export class Room {
             ownerId: this.ownerId,
             ownerUsername: this.ownerUsername,
             lastActiveAt: new Date(),
-              settings: {
-                locked: this.settings.locked,
-                maxUsers: this.settings.maxUsers,
-                backgroundColor: this.settings.backgroundColor,
-                modInactiveImmune: this.settings.modInactiveImmune,
-                joinPolicy: this.settings.joinPolicy,
-                autoMuteGuests: this.settings.autoMuteGuests,
-                autoMuteVpnUsers: this.settings.autoMuteVpnUsers,
-                mirrorRegions: this.settings.mirrorRegions
-              }
+            settings: {
+              locked: this.settings.locked,
+              maxUsers: this.settings.maxUsers,
+              backgroundColor: this.settings.backgroundColor,
+              modInactiveImmune: this.settings.modInactiveImmune,
+              joinPolicy: this.settings.joinPolicy,
+              autoMuteGuests: this.settings.autoMuteGuests,
+              autoMuteVpnUsers: this.settings.autoMuteVpnUsers,
+              mirrorRegions: this.settings.mirrorRegions,
+              dedicatedReplayUser: this.settings.dedicatedReplayUser
             }
           }
+        }
       );
     } catch (err) {
       console.error(`[Room] Save error for "${this.id}":`, err);

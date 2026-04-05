@@ -154,6 +154,10 @@ export class DrawingApp {
     this._previewInterval = null;
     this._previewIntervalMs = 30000;
 
+    // Checkpoint interval (dedicated user sends full board every 60s)
+    this._checkpointInterval = null;
+    this._checkpointIntervalMs = 60000;
+
     this.snapshotManager = new SnapshotManager(this);
   }
 
@@ -1720,8 +1724,14 @@ export class DrawingApp {
     this.moderation.setRole(this.selfRole);
     this.inputBufferManager.startTickLoop();
 
-    // Start sending room previews
-    this.startPreviewInterval();
+    // Start sending room previews (gated by dedicated replay user setting)
+    const dedicated = this.currentRoomData?.dedicatedReplayUser;
+    if (!dedicated) {
+      // No dedicated user — everyone uploads (legacy behavior)
+      this.startPreviewInterval();
+    } else {
+      this._updatePreviewUploadEligibility();
+    }
   }
 
   /**
@@ -1732,6 +1742,7 @@ export class DrawingApp {
   handleWSDisconnect(code, reason) {
     this.connected = false;
     this.stopPreviewInterval();
+    this.stopCheckpointInterval();
     TimeMachine.stop();
     this.updateRecordingButtonState();
 
@@ -3946,6 +3957,84 @@ export class DrawingApp {
     if (this._previewInterval) {
       clearInterval(this._previewInterval);
       this._previewInterval = null;
+    }
+  }
+
+  /**
+   * Checks whether this client is the designated preview uploader and
+   * starts/stops the preview and checkpoint intervals accordingly.
+   */
+  _updatePreviewUploadEligibility() {
+    const dedicated = this.currentRoomData?.dedicatedReplayUser;
+    if (dedicated) {
+      const myName = this.self?.registeredName || this.self?.username;
+      if (myName && myName === dedicated) {
+        // Dedicated user: checkpoint uploads serve as both replay data and room preview
+        this.stopPreviewInterval();
+        this.startCheckpointInterval();
+      } else {
+        // Not the dedicated user: stop both
+        this.stopPreviewInterval();
+        this.stopCheckpointInterval();
+      }
+    } else {
+      // No dedicated user — stop checkpoint, keep preview (legacy behavior)
+      this.stopCheckpointInterval();
+    }
+  }
+
+  startCheckpointInterval() {
+    this.stopCheckpointInterval();
+    setTimeout(() => this.captureAndSendCheckpoint(), 3000);
+    this._checkpointInterval = setInterval(() => {
+      this.captureAndSendCheckpoint();
+    }, this._checkpointIntervalMs);
+  }
+
+  stopCheckpointInterval() {
+    if (this._checkpointInterval) {
+      clearInterval(this._checkpointInterval);
+      this._checkpointInterval = null;
+    }
+  }
+
+  /**
+   * Captures the full board and sends it as a checkpoint for replay.
+   * The server also uses this as the room preview.
+   */
+  captureAndSendCheckpoint() {
+    if (!this.connected || !this.wsClient || this.isOfflineMode) return;
+
+    try {
+      const mainCanvas = this.board.mainCanvas;
+      if (!mainCanvas) return;
+
+      // Create a half-scale canvas to balance quality and bandwidth
+      const scale = 0.5;
+      const cpCanvas = document.createElement('canvas');
+      cpCanvas.width = Math.floor(mainCanvas.width * scale);
+      cpCanvas.height = Math.floor(mainCanvas.height * scale);
+
+      const ctx = cpCanvas.getContext('2d');
+
+      // Fill with background color
+      const [r, g, b] = this.board.backgroundColor;
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+      ctx.fillRect(0, 0, cpCanvas.width, cpCanvas.height);
+
+      // Draw scaled main canvas
+      ctx.drawImage(mainCanvas, 0, 0, cpCanvas.width, cpCanvas.height);
+
+      // Convert to PNG and send (allow up to 4MB for checkpoint)
+      cpCanvas.toBlob((blob) => {
+        if (blob && blob.size <= 4 * 1024 * 1024) {
+          blob.arrayBuffer().then((buffer) => {
+            this.wsClient.broadcastCheckpoint(new Uint8Array(buffer));
+          });
+        }
+      }, 'image/png');
+    } catch (err) {
+      console.error('[App] Checkpoint capture error:', err);
     }
   }
 

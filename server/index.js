@@ -12,6 +12,8 @@ import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGaller
 import { handleAuthLogin, handleAuthRegister, handleAuthMe } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
 import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete } from './snapshots.js';
+import { handleCheckpointUpload, handleCheckpointList, handleCheckpointGet } from './checkpoints.js';
+import { getRecorder, removeRecorder, getReplayData } from './deltaRecorder.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
 import { issueModAction, revokeModAction, revokeMatchingModActions, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
@@ -122,6 +124,7 @@ function shouldAllowWsMessage(ws, data) {
     case T.SYNC_STROKE_BATCH:
     case T.BOARD_SNAPSHOT_SAVE:
     case T.BOARD_SNAPSHOT_RESTORE:
+    case T.CHECKPOINT_UPLOAD:
       suffix = 'heavy';
       config = WS_HEAVY_IMAGE_LIMIT;
       break;
@@ -143,6 +146,9 @@ function shouldAllowWsMessage(ws, data) {
     case T.GLOBAL_ROLE_SET:
     case T.BOARD_SNAPSHOT_LIST_REQUEST:
     case T.BOARD_SNAPSHOT_DELETE:
+    case T.CHECKPOINT_LIST:
+    case T.CHECKPOINT_GET:
+    case T.REPLAY_REQUEST:
       suffix = 'admin';
       config = WS_ADMIN_LIMIT;
       break;
@@ -1072,12 +1078,19 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       roomModInactiveImmune: room.settings.modInactiveImmune,
       roomJoinPolicy: room.settings.joinPolicy,
       roomAutoMuteGuests: room.settings.autoMuteGuests,
-      roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers
+      roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers,
+      roomDedicatedReplayUser: room.settings.dedicatedReplayUser
     });
     return;
   }
 
-  broadcastToRoom(room, { ...data, u: sessionIndex }, sessionIndex);
+  // Record delta for replay system
+  const outgoing = { ...data, u: sessionIndex };
+  if (room.settings.dedicatedReplayUser) {
+    getRecorder(room.id).record(outgoing);
+  }
+
+  broadcastToRoom(room, outgoing, sessionIndex);
 }
 
 const BATCH_INTERVAL_MS = 16;
@@ -1462,9 +1475,9 @@ wss.on('connection', (ws, req) => {
             roomModInactiveImmune: room.settings.modInactiveImmune,
             roomJoinPolicy: room.settings.joinPolicy,
             roomAutoMuteGuests: room.settings.autoMuteGuests,
-            roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers
-          });
-
+            roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers,
+            roomDedicatedReplayUser: room.settings.dedicatedReplayUser
+            });
           // If user is muted (IP-based for guests), hide their cursor for everyone
           if (ws.isMuted) {
             roomBroadcaster({ t: T.HIDE_CURSOR, u: sessionIndex });
@@ -1936,6 +1949,10 @@ wss.on('connection', (ws, req) => {
             if (data.roomAutoMuteVpnUsers !== undefined) {
               room.settings.autoMuteVpnUsers = !!data.roomAutoMuteVpnUsers;
             }
+            if (data.roomDedicatedReplayUser !== undefined) {
+              // null clears the dedicated user, otherwise store the username string
+              room.settings.dedicatedReplayUser = data.roomDedicatedReplayUser || null;
+            }
 
             await room.saveToDB();
 
@@ -1965,7 +1982,8 @@ wss.on('connection', (ws, req) => {
               roomModInactiveImmune: room.settings.modInactiveImmune,
               roomJoinPolicy: room.settings.joinPolicy,
               roomAutoMuteGuests: room.settings.autoMuteGuests,
-              roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers
+              roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers,
+              roomDedicatedReplayUser: room.settings.dedicatedReplayUser
             });
             if (autoMuteGuestsChanged || autoMuteVpnUsersChanged) {
               roomBroadcaster({
@@ -2708,6 +2726,47 @@ wss.on('connection', (ws, req) => {
           await handleSnapshotDelete(ws, data, room);
           break;
 
+        case T.CHECKPOINT_UPLOAD: {
+          const cpId = await handleCheckpointUpload(ws, data, room);
+          if (cpId && room.settings.dedicatedReplayUser) {
+            getRecorder(room.id).onCheckpoint(cpId);
+          }
+          break;
+        }
+
+        case T.CHECKPOINT_LIST:
+          await handleCheckpointList(ws, room);
+          break;
+
+        case T.CHECKPOINT_GET:
+          await handleCheckpointGet(ws, data, room);
+          break;
+
+        case T.REPLAY_REQUEST: {
+          const { checkpointId: replayCpId, deltas } = await getReplayData(
+            room.id, data.replayStartTs, data.replayEndTs
+          );
+          // Fetch checkpoint image if available
+          let cpImg = null;
+          if (replayCpId) {
+            const cpDb = getDB();
+            if (cpDb) {
+              const cpDoc = await cpDb.collection('checkpoints').findOne(
+                { roomId: room.id, checkpointId: replayCpId },
+                { projection: { img: 1 } }
+              );
+              if (cpDoc) cpImg = cpDoc.img;
+            }
+          }
+          ws.send(room.Msg.encode(room.Msg.create({
+            t: T.REPLAY_RESPONSE,
+            checkpointId: replayCpId || '',
+            checkpointImg: cpImg || new Uint8Array(0),
+            replayDeltasJson: JSON.stringify(deltas)
+          })).finish());
+          break;
+        }
+
         default:
           if (ws.sessionIndex !== undefined) {
             handleBroadcast(data, ws.sessionIndex, room, ws);
@@ -2746,6 +2805,8 @@ wss.on('connection', (ws, req) => {
               room.setPreview(null);
             // Clear tile data when room empties - stale data shouldn't persist
             room.clearAllTiles();
+            // Flush and remove delta recorder
+            removeRecorder(room.id);
             roomManager.broadcastRoomListUpdate();
           }
       }

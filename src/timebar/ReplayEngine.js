@@ -588,6 +588,25 @@ export class ReplayEngine {
   }
 
   /**
+   * Load a server-side checkpoint image as the base state for replay.
+   * Clears all state and draws the checkpoint onto the snapshot canvas.
+   * @param {Uint8Array} imageData - PNG image bytes
+   * @returns {Promise<void>}
+   */
+  async loadCheckpointImage(imageData) {
+    this.reset();
+    this._snapshotHasLayerState = false;
+
+    const blob = new Blob([imageData], { type: 'image/png' });
+    const url = URL.createObjectURL(blob);
+    try {
+      await this._loadImageToCanvas(this._snapshotCtx, url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  /**
    * Load a snapshot as the base state.
    * @param {Object} snapshot - Snapshot object with canvas data and user states
    * @returns {Promise<void>}
