@@ -562,11 +562,12 @@ export class UI {
    * hiding whatever cursor shape was previously visible.
    */
   showPanCursor() {
-    const { selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText } = this.elements;
+    const { selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText, selfName } = this.elements;
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
     selfCrosshair.style.display = 'none';
     selfText.style.display = 'none';
+    selfName.style.display = 'none';
     if (selfPressureCircle) selfPressureCircle.style.display = 'none';
     if (selfPressureSquare) selfPressureSquare.style.display = 'none';
     selfHand.style.display = 'block';
@@ -578,6 +579,7 @@ export class UI {
    * @param {Object} [user=null] - The local user object
    */
   hidePanCursor(tool, user = null) {
+    this.elements.selfName.style.display = '';
     this.updateToolDisplay(tool, user);
   }
 
@@ -588,9 +590,11 @@ export class UI {
   setSelectCursor(isHand) {
     if (isHand) {
       this.elements.selfCrosshair.style.display = 'none';
+      this.elements.selfName.style.display = 'none';
       this.elements.selfHand.style.display = 'block';
     } else {
       this.elements.selfCrosshair.style.display = 'block';
+      this.elements.selfName.style.display = '';
       this.elements.selfHand.style.display = 'none';
     }
   }
