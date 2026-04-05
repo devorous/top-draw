@@ -1671,50 +1671,60 @@ export class Board {
   }
 
   /**
-   * Captures the current board state and encodes it as a QOI image.
-   * @returns {Uint8Array|null}
+   * Captures each layer as a separate QOI-encoded image.
+   * @returns {Uint8Array[]|null} Array of QOI blobs, one per layer
    */
   getSnapshot() {
     if (!this.layerManager) return null;
-    const canvas = this.layerManager.getCompositedCanvas();
-    const ctx = canvas.getContext('2d');
     const [height, width] = this.dimensions;
-    const imageData = ctx.getImageData(0, 0, width, height);
-    return wasm.qoi_encode(new Uint8Array(imageData.data.buffer), width, height);
+    const layers = [];
+
+    for (let i = 0; i < this.layerManager.layerGroups.length; i++) {
+      const { canvas, ctx } = this.layerManager._createCanvas();
+      this.layerManager.compositeLayerRange(ctx, i, i + 1, null);
+      const imageData = ctx.getImageData(0, 0, width, height);
+      layers.push(wasm.qoi_encode(new Uint8Array(imageData.data.buffer), width, height));
+    }
+
+    return layers;
   }
 
   /**
-   * Decodes a QOI snapshot and applies it to the board.
-   * @param {Uint8Array} qoiData
+   * Restores per-layer QOI snapshot data onto the board.
+   * @param {Uint8Array[]} layerDatas - Array of QOI blobs, one per layer
    */
-  restoreSnapshot(qoiData) {
-    if (!this.layerManager) return;
-    const pixels = wasm.qoi_decode(qoiData);
-    if (!pixels || pixels.length === 0) return;
-
+  restoreSnapshot(layerDatas) {
+    if (!this.layerManager || !layerDatas || layerDatas.length === 0) return;
     const [height, width] = this.dimensions;
-    const imageData = new ImageData(new Uint8ClampedArray(pixels.buffer), width, height);
-    
-    // Clear and restore to Layer 0
+
     this.layerManager.clearAll();
-    const layer0 = this.layerManager.getLayerGroup(0);
-    if (layer0 && layer0.flatCtx) {
-      layer0.flatCtx.putImageData(imageData, 0, 0);
-    } else {
-      // Fallback if layer 0 is not flat
-      this.layerManager.addToBaseBin(0, this._createCanvasFromImageData(imageData), 0, 0);
+
+    for (let i = 0; i < layerDatas.length && i < this.layerManager.layerGroups.length; i++) {
+      const qoi = layerDatas[i];
+      if (!qoi || qoi.length === 0) continue;
+
+      const pixels = wasm.qoi_decode(qoi);
+      if (!pixels || pixels.length === 0) continue;
+
+      const imageData = new ImageData(new Uint8ClampedArray(pixels.buffer), width, height);
+      const group = this.layerManager.layerGroups[i];
+
+      if (group.flatCanvas) {
+        group.flatCtx.putImageData(imageData, 0, 0);
+      } else {
+        this.layerManager.addToBaseBin(i, this._createCanvasFromImageData(imageData), 0, 0);
+      }
     }
 
     if (this.tileGrid) this.tileGrid.markAllDirty();
     if (this.tileTracker) {
-      // Re-scan tiles for occupancy
       const tileIndices = [];
       for (let i = 0; i < this.tileTracker.cols * this.tileTracker.rows; i++) {
         tileIndices.push(i);
       }
       this.checkErasedTilesByIndices(new Set(tileIndices), true);
     }
-    
+
     this.compositeAllLayers();
   }
 

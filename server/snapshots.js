@@ -18,7 +18,7 @@ export async function handleSnapshotSave(ws, data, room) {
     id: `snap_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     ts: Date.now(),
     issuer: ws.username || 'Unknown',
-    data: data.snapshotData,
+    layers: data.snapshotLayers || [],
     thumb: data.snapshotThumb || null,
     auto: !!data.a
   };
@@ -34,7 +34,7 @@ export async function handleSnapshotSave(ws, data, room) {
         snapshotId: snapshot.id,
         timestamp: snapshot.ts,
         issuer: snapshot.issuer,
-        data: snapshot.data,
+        layers: snapshot.layers,
         thumb: snapshot.thumb,
         name: data.n || `Snapshot ${new Date(snapshot.ts).toLocaleString()}`
       });
@@ -119,7 +119,7 @@ export async function handleSnapshotRestore(ws, data, room) {
             id: doc.snapshotId,
             ts: doc.timestamp,
             issuer: doc.issuer,
-            data: doc.data.buffer || doc.data
+            layers: (doc.layers || []).map(l => l.buffer || l)
           };
         }
       } catch (err) {
@@ -138,7 +138,7 @@ export async function handleSnapshotRestore(ws, data, room) {
   // Broadcast restoration to everyone
   room.broadcastToAll({
     t: T.BOARD_SNAPSHOT_RESTORE,
-    snapshotData: snapshot.data,
+    snapshotLayers: snapshot.layers,
     snapshotId: snapshot.id,
     snapshotTs: snapshot.ts,
     snapshotIssuer: snapshot.issuer

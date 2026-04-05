@@ -19,11 +19,11 @@ export class SnapshotManager {
   handleServerRequest() {
     if (!this.app.wsClient || !this.app.connected) return;
 
-    const snapshotData = this.app.board.getSnapshot();
-    if (!snapshotData) return;
+    const layers = this.app.board.getSnapshot();
+    if (!layers || layers.length === 0) return;
 
     // Skip if board hasn't changed
-    const hash = this._computeHash(snapshotData);
+    const hash = this._computeHashLayers(layers);
     if (hash === this.lastSnapshotHash) return;
     this.lastSnapshotHash = hash;
 
@@ -31,7 +31,7 @@ export class SnapshotManager {
 
     const msg = {
       t: T.BOARD_SNAPSHOT_SAVE,
-      snapshotData: snapshotData,
+      snapshotLayers: layers,
       a: true
     };
     if (thumbBytes) msg.snapshotThumb = thumbBytes;
@@ -44,14 +44,14 @@ export class SnapshotManager {
    * @param {string} name
    */
   saveSnapshot(name) {
-    const snapshotData = this.app.board.getSnapshot();
-    if (!snapshotData) return;
+    const layers = this.app.board.getSnapshot();
+    if (!layers || layers.length === 0) return;
 
     const thumbBytes = this._generateThumbnail();
 
     const msg = {
       t: T.BOARD_SNAPSHOT_SAVE,
-      snapshotData: snapshotData,
+      snapshotLayers: layers,
       n: name,
       a: false
     };
@@ -105,6 +105,14 @@ export class SnapshotManager {
     thumbCanvas.width = w;
     thumbCanvas.height = h;
     const ctx = thumbCanvas.getContext('2d');
+
+    // Fill with room background color so transparency doesn't become black in JPEG
+    const bg = this.app.board.backgroundColor;
+    if (bg) {
+      ctx.fillStyle = `rgb(${bg[0]},${bg[1]},${bg[2]})`;
+      ctx.fillRect(0, 0, w, h);
+    }
+
     ctx.drawImage(srcCanvas, 0, 0, w, h);
 
     // Convert to JPEG blob synchronously via toDataURL
@@ -121,16 +129,18 @@ export class SnapshotManager {
   }
 
   /**
-   * Simple hash for comparing snapshots.
-   * @param {Uint8Array} data
+   * Simple hash for comparing multi-layer snapshots.
+   * @param {Uint8Array[]} layers
    * @returns {number}
    * @private
    */
-  _computeHash(data) {
+  _computeHashLayers(layers) {
     let hash = 0;
-    for (let i = 0; i < data.length; i++) {
-      hash = ((hash << 5) - hash) + data[i];
-      hash |= 0;
+    for (const data of layers) {
+      for (let i = 0; i < data.length; i++) {
+        hash = ((hash << 5) - hash) + data[i];
+        hash |= 0;
+      }
     }
     return hash;
   }

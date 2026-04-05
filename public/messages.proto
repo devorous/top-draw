@@ -330,12 +330,13 @@ message Msg {
   bool   pm            = 84;  // Pattern mode enabled (for fill/select tools)
 
   // === Board Snapshot Fields (100+) ===
-  bytes snapshot_data  = 100; // QOI encoded board state
+  bytes snapshot_data  = 100; // QOI encoded board state (legacy single-layer)
   string snapshot_id   = 101; // ID for listing/restoring
   uint64 snapshot_ts   = 102; // Timestamp
   string snapshot_issuer = 103; // Who took it
 
   bytes snapshot_thumb = 105; // JPEG thumbnail (1/3 scale)
+  repeated bytes snapshot_layers = 106; // Per-layer QOI encoded data
 
   message SnapshotMeta {
     string id = 1;

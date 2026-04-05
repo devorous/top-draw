@@ -883,7 +883,7 @@ export class WebSocketClient {
 
       case T.BOARD_SNAPSHOT_RESTORE:
         this.emit('board_snapshot_restore', {
-          snapshotData: data.snapshotData,
+          snapshotLayers: data.snapshotLayers,
           snapshotId: data.snapshotId,
           snapshotTs: data.snapshotTs,
           snapshotIssuer: data.snapshotIssuer

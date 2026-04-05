@@ -503,8 +503,8 @@ export async function sanitizeMessage(data) {
     }
 
     case T.BOARD_SNAPSHOT_SAVE:
-      if (data.snapshotData && data.snapshotData.length > 0) {
-        sanitized.snapshotData = data.snapshotData;
+      if (Array.isArray(data.snapshotLayers) && data.snapshotLayers.length > 0) {
+        sanitized.snapshotLayers = data.snapshotLayers;
       } else {
         return null;
       }

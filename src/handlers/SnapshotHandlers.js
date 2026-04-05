@@ -26,16 +26,16 @@ export function setupSnapshotHandlers(wsClient, app) {
 
   // Handle board restoration
   wsClient.on('board_snapshot_restore', (data) => {
-    if (!data.snapshotData) return;
+    if (!data.snapshotLayers || data.snapshotLayers.length === 0) return;
 
     const issuer = data.snapshotIssuer || 'Unknown';
     const ts = new Date(data.snapshotTs).toLocaleString();
-    
+
     app.ui.showToast(`Board restored to snapshot by ${issuer} (${ts})`, 5000);
-    
-    // Apply the snapshot to the board
-    app.board.restoreSnapshot(data.snapshotData);
-    
+
+    // Apply the per-layer snapshot to the board
+    app.board.restoreSnapshot(data.snapshotLayers);
+
     // Clear undo/redo history as the board has changed significantly
     app.board.layerManager.clearHistory();
     app.updateUndoRedoHud();
