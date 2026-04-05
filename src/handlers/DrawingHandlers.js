@@ -58,10 +58,16 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('ct', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      // Clear pending selection if switching away from select tool
-      if (user.pendingSelection && data.tool !== 'select') {
-        user.pendingSelection = null;
-        user.context.clearRect(0, 0, board.getWidth(), board.getHeight());
+      // Defensively clean up any dangling selection state when switching away from select
+      if (data.tool !== 'select' && (user.floatingCanvas || user.pendingSelection)) {
+        if (user.floatingCanvas) {
+          // Floating canvas present but no commit/cancel was received — cancel it to restore
+          // the erased content and clear the overlay, preventing a permanently stuck selection.
+          remoteUserHandler.selectionHandler.handleSelectionCancel(user);
+        } else {
+          user.pendingSelection = null;
+          user.context.clearRect(0, 0, board.getWidth(), board.getHeight());
+        }
       }
       user.setTool(data.tool);
       // Track eraser mode so remote erase-all works correctly

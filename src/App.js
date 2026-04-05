@@ -3635,6 +3635,9 @@ export class DrawingApp {
           this.handlePointerDown(e);
           return;
         }
+        // Clicking on the background (not a handle) with an active selection: commit and deselect
+        selectTool.deselect();
+        return;
       }
     }
 
