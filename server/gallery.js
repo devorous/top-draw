@@ -290,9 +290,6 @@ export async function handleGalleryUpload(req, res) {
     // Continue with upload if duplicate check fails
   }
 
-  const buffer = imageValidation.buffer;
-  const mimeType = imageValidation.mimeType || 'image/png';
-
   const ext = mimeType === 'image/jpeg'
     ? 'jpg'
     : mimeType === 'image/webp'
