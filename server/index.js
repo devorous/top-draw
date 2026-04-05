@@ -11,6 +11,7 @@ import { connectDB, getDB } from './db.js';
 import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate } from './gallery.js';
 import { handleAuthLogin, handleAuthRegister, handleAuthMe } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
+import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete } from './snapshots.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
 import { issueModAction, revokeModAction, revokeMatchingModActions, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
@@ -119,6 +120,8 @@ function shouldAllowWsMessage(ws, data) {
     case T.SYNC_LAYER_BASE:
     case T.SYNC_STROKE:
     case T.SYNC_STROKE_BATCH:
+    case T.BOARD_SNAPSHOT_SAVE:
+    case T.BOARD_SNAPSHOT_RESTORE:
       suffix = 'heavy';
       config = WS_HEAVY_IMAGE_LIMIT;
       break;
@@ -138,6 +141,8 @@ function shouldAllowWsMessage(ws, data) {
     case T.ROOM_REGISTER:
     case T.ROOM_UNREGISTER:
     case T.GLOBAL_ROLE_SET:
+    case T.BOARD_SNAPSHOT_LIST_REQUEST:
+    case T.BOARD_SNAPSHOT_DELETE:
       suffix = 'admin';
       config = WS_ADMIN_LIMIT;
       break;
@@ -2009,6 +2014,7 @@ wss.on('connection', (ws, req) => {
 
             // Notify the user of their new role
             sendTo(ws, { t: T.AUTH_RESULT, a: true, authRole: ws.userRole });
+            room.updateSnapshotTimer();
 
             // Broadcast updated user list so everyone sees the new role
             createRoomBroadcaster(room)({
@@ -2502,6 +2508,8 @@ wss.on('connection', (ws, req) => {
               authUsername: regUsername
             });
 
+            room.updateSnapshotTimer();
+
             createRoomBroadcaster(room)({
               t: T.USERS,
               us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
@@ -2656,6 +2664,8 @@ wss.on('connection', (ws, req) => {
               authUsername: userDoc.username
             });
 
+            room.updateSnapshotTimer();
+
             createRoomBroadcaster(room)({
               t: T.USERS,
               us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
@@ -2682,6 +2692,22 @@ wss.on('connection', (ws, req) => {
           break;
         }
 
+        case T.BOARD_SNAPSHOT_SAVE:
+          await handleSnapshotSave(ws, data, room);
+          break;
+
+        case T.BOARD_SNAPSHOT_LIST_REQUEST:
+          await handleSnapshotList(ws, room);
+          break;
+
+        case T.BOARD_SNAPSHOT_RESTORE:
+          await handleSnapshotRestore(ws, data, room);
+          break;
+
+        case T.BOARD_SNAPSHOT_DELETE:
+          await handleSnapshotDelete(ws, data, room);
+          break;
+
         default:
           if (ws.sessionIndex !== undefined) {
             handleBroadcast(data, ws.sessionIndex, room, ws);
@@ -2706,6 +2732,7 @@ wss.on('connection', (ws, req) => {
 
     if (room) {
       room.removeClient(ws);
+      room.updateSnapshotTimer();
 
       if (sessionIndex !== undefined) {
         room.sessionManager.removeUser(sessionIndex);

@@ -1,7 +1,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const qoi_decode: (a: number, b: number) => [number, number];
 export const qoi_decode_tile: (a: number, b: number) => [number, number];
+export const qoi_encode: (a: number, b: number, c: number, d: number) => [number, number];
 export const qoi_encode_tile: (a: number, b: number) => [number, number];
 export const qoi_has_content: (a: number, b: number) => number;
 export const apply_brush_hardness: (a: number, b: number, c: number, d: number, e: number) => [number, number];

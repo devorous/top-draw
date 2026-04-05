@@ -1,24 +1,34 @@
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
-pub fn qoi_encode_tile(data: &[u8]) -> Vec<u8> {
-    if data.len() != 4096 { // 32 * 32 * 4
+pub fn qoi_encode(data: &[u8], width: u32, height: u32) -> Vec<u8> {
+    let expected_len = (width * height * 4) as usize;
+    if data.len() != expected_len {
         return Vec::new();
     }
 
-    // qoi::encode_to_vec expects raw RGBA pixels and dimensions
-    match qoi::encode_to_vec(data, 32, 32) {
+    match qoi::encode_to_vec(data, width, height) {
         Ok(v) => v,
         Err(_) => Vec::new(),
     }
 }
 
 #[wasm_bindgen]
-pub fn qoi_decode_tile(encoded: &[u8]) -> Vec<u8> {
+pub fn qoi_decode(encoded: &[u8]) -> Vec<u8> {
     match qoi::decode_to_vec(encoded) {
         Ok((_header, pixels)) => pixels,
         Err(_) => Vec::new(),
     }
+}
+
+#[wasm_bindgen]
+pub fn qoi_encode_tile(data: &[u8]) -> Vec<u8> {
+    qoi_encode(data, 32, 32)
+}
+
+#[wasm_bindgen]
+pub fn qoi_decode_tile(encoded: &[u8]) -> Vec<u8> {
+    qoi_decode(encoded)
 }
 
 /// A specialized content check for QOI-encoded buffers.

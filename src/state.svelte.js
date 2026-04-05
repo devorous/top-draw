@@ -49,6 +49,10 @@ class DrawingState {
   toastState = $state({ text: '', visible: false });
   connectionState = $state({ connected: false, roomId: null, text: '' });
 
+  // Snapshots
+  snapshots = $state([]);
+  snapshotMenuVisible = $state(false);
+
   // Derived
   get currentColorRgba() {
     const [r, g, b, a] = this.currentColor;
@@ -131,6 +135,10 @@ export function showProfile(username) {
 export function toggleMessenger() {
   appState.messengerVisible = !appState.messengerVisible;
   console.log('Messenger visible:', appState.messengerVisible);
+}
+
+export function toggleSnapshotMenu() {
+  appState.snapshotMenuVisible = !appState.snapshotMenuVisible;
 }
 
 export function openMessengerWithUser(id, name) {

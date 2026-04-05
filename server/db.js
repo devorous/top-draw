@@ -58,6 +58,10 @@ export async function connectDB() {
     await db.collection('messages').createIndex({ receiver_id: 1, timestamp: -1 });
     await db.collection('feedback').createIndex({ submittedAt: -1 });
 
+    // Snapshots: for longterm undo and rolling buffer
+    await db.collection('board_snapshots').createIndex({ roomId: 1, timestamp: -1 });
+    await db.collection('board_snapshots').createIndex({ timestamp: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 7 }); // Keep snapshots for 1 week
+
     console.log(`[DB] Connected to MongoDB: ${uri} (${DB_NAME})`);
     return db;
   } catch (error) {

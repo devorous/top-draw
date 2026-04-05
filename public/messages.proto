@@ -96,6 +96,12 @@ message Msg {
     ROOM_ROLE_LIST_REQUEST = 87;  // Request room moderation roster
     ROOM_ROLE_LIST_RESPONSE = 88; // Response with room moderation roster
     GLOBAL_ROLE_SET = 89;          // Set a user's global role (DEITY only)
+    BOARD_SNAPSHOT_SAVE = 96;
+    BOARD_SNAPSHOT_LIST_REQUEST = 97;
+    BOARD_SNAPSHOT_LIST_RESPONSE = 98;
+    BOARD_SNAPSHOT_RESTORE = 99;
+    BOARD_SNAPSHOT_DELETE = 100;
+    BOARD_SNAPSHOT_REQUEST = 101; // Server asks a client to capture a snapshot
   }
 
   // Tool enum
@@ -322,4 +328,22 @@ message Msg {
   uint64 mod_undo_ts   = 82;  // MOD_UNDO_TO_STATE: target timestamp
   string pb            = 83;  // Pattern brush data JSON (for GPT message)
   bool   pm            = 84;  // Pattern mode enabled (for fill/select tools)
+
+  // === Board Snapshot Fields (100+) ===
+  bytes snapshot_data  = 100; // QOI encoded board state
+  string snapshot_id   = 101; // ID for listing/restoring
+  uint64 snapshot_ts   = 102; // Timestamp
+  string snapshot_issuer = 103; // Who took it
+
+  bytes snapshot_thumb = 105; // JPEG thumbnail (1/3 scale)
+
+  message SnapshotMeta {
+    string id = 1;
+    uint64 ts = 2;
+    string issuer = 3;
+    string name = 4;
+    bool auto = 5; // Whether it was an auto-snapshot
+    bytes thumb = 6; // JPEG thumbnail
+  }
+  repeated SnapshotMeta snapshot_list = 104;
 }

@@ -6,6 +6,7 @@ import { setupAuthModHandlers } from '../handlers/AuthModHandlers.js';
 import { setupSyncHandlers } from '../handlers/SyncHandlers.js';
 import { setupDrawingHandlers } from '../handlers/DrawingHandlers.js';
 import { setupSelectionHandlers } from '../handlers/SelectionHandlers.js';
+import { setupSnapshotHandlers } from '../handlers/SnapshotHandlers.js';
 
 /**
  * Sets up all WebSocket message handlers for the app.
@@ -42,6 +43,7 @@ export function setupWebSocketHandlers(app) {
   setupChatHandlers(wsClient, app);
   setupAuthModHandlers(wsClient, app);
   setupSyncHandlers(wsClient, app);
+  setupSnapshotHandlers(wsClient, app);
 
   // Setup buffered handlers (all events that modify canvas state)
   setupDrawingHandlers(wrapHandler, app);

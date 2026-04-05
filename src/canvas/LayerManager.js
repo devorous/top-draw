@@ -72,10 +72,14 @@ export class LayerManager {
   }
 
   /**
-   * Acquire a full-size canvas from the pool
-   * @returns {Object} {canvas, ctx}
-   * @private
+   * Get a composited canvas of all visible layers.
+   * @returns {HTMLCanvasElement}
    */
+  getCompositedCanvas() {
+    const { canvas, ctx } = this._createCanvas();
+    this.compositeLayers(ctx);
+    return canvas;
+  }
   _acquireCanvas() {
     if (this._canvasPool.length > 0) {
       const c = this._canvasPool.pop();

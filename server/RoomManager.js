@@ -3,6 +3,7 @@
 import { SessionManager } from './SessionManager.js';
 import { SyncCoordinator } from './SyncCoordinator.js';
 import { T } from '../shared/MessageTypes.js';
+import { Role } from './SessionManager.js';
 import { WebSocket } from 'ws';
 import { getDB } from './db.js';
 
@@ -58,6 +59,90 @@ export class Room {
 
     /** @type {Set<number>} Set of occupied tile indices */
     this.tileDirtySet = new Set();
+
+    /** @type {Array<Object>} Rolling buffer of board snapshots (max 60, every 2s for 2 min) */
+    this.snapshots = [];
+
+    /** @type {NodeJS.Timeout|null} Server-driven snapshot request interval */
+    this._snapshotTimer = null;
+    this._snapshotIntervalMs = 2000;
+  }
+
+  /**
+   * Adds a snapshot to the rolling buffer.
+   * @param {Object} snapshot - {id, ts, issuer, data, auto}
+   */
+  addSnapshot(snapshot) {
+    this.snapshots.push(snapshot);
+    if (this.snapshots.length > 60) {
+      this.snapshots.shift();
+    }
+  }
+
+  /**
+   * Starts the periodic snapshot request timer.
+   * Called when a Helper+ user joins the room.
+   */
+  startSnapshotTimer() {
+    if (this._snapshotTimer) return;
+    this._snapshotTimer = setInterval(() => this._requestSnapshot(), this._snapshotIntervalMs);
+  }
+
+  /**
+   * Stops the snapshot request timer.
+   * Called when no Helper+ users remain in the room.
+   */
+  stopSnapshotTimer() {
+    if (!this._snapshotTimer) return;
+    clearInterval(this._snapshotTimer);
+    this._snapshotTimer = null;
+  }
+
+  /**
+   * Checks if the snapshot timer should be running based on current clients.
+   */
+  updateSnapshotTimer() {
+    const hasHelper = this._getHelperClients().length > 0;
+    if (hasHelper && !this._snapshotTimer) {
+      this.startSnapshotTimer();
+    } else if (!hasHelper && this._snapshotTimer) {
+      this.stopSnapshotTimer();
+    }
+  }
+
+  /**
+   * Returns Helper+ clients, preferring active (non-AFK) ones.
+   * @returns {WebSocket[]}
+   * @private
+   */
+  _getHelperClients() {
+    const helpers = [];
+    for (const ws of this.clients) {
+      if (ws.readyState === WebSocket.OPEN && (ws.userRole || 0) >= Role.HELPER) {
+        helpers.push(ws);
+      }
+    }
+    return helpers;
+  }
+
+  /**
+   * Picks a random Helper+ client (preferring non-AFK) and sends a snapshot request.
+   * @private
+   */
+  _requestSnapshot() {
+    const helpers = this._getHelperClients();
+    if (helpers.length === 0) return;
+
+    // Prefer non-AFK helpers
+    const active = helpers.filter(ws => {
+      const user = this.sessionManager.getUser(ws.sessionIndex);
+      return user && !user.afk;
+    });
+
+    const pool = active.length > 0 ? active : helpers;
+    const chosen = pool[Math.floor(Math.random() * pool.length)];
+
+    this.sendTo(chosen, { t: T.BOARD_SNAPSHOT_REQUEST });
   }
 
   /**
@@ -370,6 +455,7 @@ export class RoomManager {
   cleanupEmptyRooms() {
     for (const [id, room] of this.rooms) {
       if (id !== 'lobby' && id !== '_discovery' && room.getClientCount() === 0) {
+        room.stopSnapshotTimer();
         this.rooms.delete(id);
         console.log(`[RoomManager] Cleaned up empty room: ${id}`);
       }

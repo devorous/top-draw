@@ -876,6 +876,24 @@ export class WebSocketClient {
           }))
         });
         break;
+
+      case T.BOARD_SNAPSHOT_LIST_RESPONSE:
+        this.emit('board_snapshot_list', { snapshotList: data.snapshotList || [] });
+        break;
+
+      case T.BOARD_SNAPSHOT_RESTORE:
+        this.emit('board_snapshot_restore', {
+          snapshotData: data.snapshotData,
+          snapshotId: data.snapshotId,
+          snapshotTs: data.snapshotTs,
+          snapshotIssuer: data.snapshotIssuer
+        });
+        break;
+
+      case T.BOARD_SNAPSHOT_REQUEST:
+        this.emit('board_snapshot_request');
+        break;
+
     }
   }
 

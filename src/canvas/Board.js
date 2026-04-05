@@ -2,6 +2,7 @@ import { LayerManager } from './LayerManager.js';
 import { PerformanceMonitor } from './PerformanceMonitor.js';
 import { TileGrid } from './TileGrid.js';
 import { TileTracker } from './TileTracker.js';
+import * as wasm from '../wasm/ddraw_wasm.js';
 
 /**
  * @fileoverview Board class managing canvas elements and viewport
@@ -1667,6 +1668,68 @@ export class Board {
     };
 
     processNextBatch();
+  }
+
+  /**
+   * Captures the current board state and encodes it as a QOI image.
+   * @returns {Uint8Array|null}
+   */
+  getSnapshot() {
+    if (!this.layerManager) return null;
+    const canvas = this.layerManager.getCompositedCanvas();
+    const ctx = canvas.getContext('2d');
+    const [height, width] = this.dimensions;
+    const imageData = ctx.getImageData(0, 0, width, height);
+    return wasm.qoi_encode(new Uint8Array(imageData.data.buffer), width, height);
+  }
+
+  /**
+   * Decodes a QOI snapshot and applies it to the board.
+   * @param {Uint8Array} qoiData
+   */
+  restoreSnapshot(qoiData) {
+    if (!this.layerManager) return;
+    const pixels = wasm.qoi_decode(qoiData);
+    if (!pixels || pixels.length === 0) return;
+
+    const [height, width] = this.dimensions;
+    const imageData = new ImageData(new Uint8ClampedArray(pixels.buffer), width, height);
+    
+    // Clear and restore to Layer 0
+    this.layerManager.clearAll();
+    const layer0 = this.layerManager.getLayerGroup(0);
+    if (layer0 && layer0.flatCtx) {
+      layer0.flatCtx.putImageData(imageData, 0, 0);
+    } else {
+      // Fallback if layer 0 is not flat
+      this.layerManager.addToBaseBin(0, this._createCanvasFromImageData(imageData), 0, 0);
+    }
+
+    if (this.tileGrid) this.tileGrid.markAllDirty();
+    if (this.tileTracker) {
+      // Re-scan tiles for occupancy
+      const tileIndices = [];
+      for (let i = 0; i < this.tileTracker.cols * this.tileTracker.rows; i++) {
+        tileIndices.push(i);
+      }
+      this.checkErasedTilesByIndices(new Set(tileIndices), true);
+    }
+    
+    this.compositeAllLayers();
+  }
+
+  /**
+   * Helper to create a canvas from ImageData.
+   * @param {ImageData} imageData
+   * @returns {HTMLCanvasElement}
+   * @private
+   */
+  _createCanvasFromImageData(imageData) {
+    const canvas = document.createElement('canvas');
+    canvas.width = imageData.width;
+    canvas.height = imageData.height;
+    canvas.getContext('2d').putImageData(imageData, 0, 0);
+    return canvas;
   }
 
   /**

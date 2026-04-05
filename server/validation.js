@@ -501,6 +501,32 @@ export async function sanitizeMessage(data) {
       if (data.r !== undefined) sanitized.r = clampInt(data.r, 0, 65535, 0);
       return sanitized;
     }
+
+    case T.BOARD_SNAPSHOT_SAVE:
+      if (data.snapshotData && data.snapshotData.length > 0) {
+        sanitized.snapshotData = data.snapshotData;
+      } else {
+        return null;
+      }
+      if (data.snapshotThumb && data.snapshotThumb.length > 0) {
+        sanitized.snapshotThumb = data.snapshotThumb;
+      }
+      sanitized.a = sanitizeBoolean(data.a);
+      sanitized.n = sanitizeString(data.n || '', MAX_NAME_LENGTH);
+      return sanitized;
+
+    case T.BOARD_SNAPSHOT_LIST_REQUEST:
+      return sanitized;
+
+    case T.BOARD_SNAPSHOT_RESTORE:
+      sanitized.snapshotId = sanitizeString(data.snapshotId, 64);
+      if (!sanitized.snapshotId) return null;
+      return sanitized;
+
+    case T.BOARD_SNAPSHOT_DELETE:
+      sanitized.snapshotId = sanitizeString(data.snapshotId, 64);
+      if (!sanitized.snapshotId) return null;
+      return sanitized;
   }
 
   if (IMAGE_MESSAGE_TYPES.has(type)) {

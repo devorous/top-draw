@@ -50,10 +50,38 @@ export function init_panic_hook() {
  * @param {Uint8Array} encoded
  * @returns {Uint8Array}
  */
+export function qoi_decode(encoded) {
+    const ptr0 = passArray8ToWasm0(encoded, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.qoi_decode(ptr0, len0);
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
+ * @param {Uint8Array} encoded
+ * @returns {Uint8Array}
+ */
 export function qoi_decode_tile(encoded) {
     const ptr0 = passArray8ToWasm0(encoded, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.qoi_decode_tile(ptr0, len0);
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
+ * @param {Uint8Array} data
+ * @param {number} width
+ * @param {number} height
+ * @returns {Uint8Array}
+ */
+export function qoi_encode(data, width, height) {
+    const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.qoi_encode(ptr0, len0, width, height);
     var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
     return v2;

@@ -12,6 +12,7 @@ import Chat from './Chat.svelte';
 import Messenger from '../../messenger/Messenger.svelte';
 import Timebar from '../../timebar/Timebar.svelte';
 import FeedbackWidget from './FeedbackWidget.svelte';
+import SnapshotMenu from './SnapshotMenu.svelte';
 
 import { appState, showProfile as showProfileFromState, toggleMessenger } from '../../state.svelte.js';
 
@@ -48,6 +49,41 @@ const MessengerWrapper = (function() {
       });
     }
     
+    destroy() {
+      if (this.instance) unmount(this.instance);
+      this.effect();
+    }
+  };
+})();
+
+// Internal wrapper for SnapshotMenu
+const SnapshotMenuWrapper = (function() {
+  return class {
+    constructor({ target, props }) {
+      this.target = target;
+      this.app = props.app;
+      
+      this.effect = $effect.root(() => {
+        $effect(() => {
+          const visible = appState.snapshotMenuVisible;
+          if (visible) {
+            if (!this.instance) {
+              this.instance = mount(SnapshotMenu, {
+                target: this.target,
+                props: { app: this.app }
+              });
+              // Sync the local isVisible state if needed, 
+              // but SnapshotMenu.svelte uses appState.snapshotMenuVisible (Wait, let's check)
+            }
+          } else {
+            if (this.instance) {
+              unmount(this.instance);
+              this.instance = null;
+            }
+          }
+        });
+      });
+    }
     destroy() {
       if (this.instance) unmount(this.instance);
       this.effect();
@@ -188,6 +224,18 @@ export function initSvelteUI(app) {
       }
     });
   }
+
+  // Mount SnapshotMenu
+  let snapshotMenuTarget = document.getElementById('snapshotMenuMount');
+  if (!snapshotMenuTarget) {
+    snapshotMenuTarget = document.createElement('div');
+    snapshotMenuTarget.id = 'snapshotMenuMount';
+    document.body.appendChild(snapshotMenuTarget);
+  }
+  components.snapshotMenu = new SnapshotMenuWrapper({
+    target: snapshotMenuTarget,
+    props: { app }
+  });
 
   return components;
 }

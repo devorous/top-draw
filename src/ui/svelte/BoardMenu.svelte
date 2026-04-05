@@ -1,5 +1,5 @@
 <script>
-  import { appState } from '../../state.svelte.js';
+  import { appState, toggleSnapshotMenu } from '../../state.svelte.js';
   import { LayerPreview } from '../LayerPreview.js';
   import PatternPreview from './PatternPreview.svelte';
 
@@ -10,6 +10,7 @@
   let hoveredLayerBtn = null;
 
   let blendModeAllowed = $derived(appState.activeLayer === 0);
+  let isHelper = $derived(appState.selfRole >= 3);
 
   const blendModes = [
     { value: 'source-over', label: 'Normal' },
@@ -160,6 +161,20 @@
         {/each}
       </div>
     {/if}
+  </div>
+  {/if}
+
+  <!-- Snapshot/History Button (Helper+) -->
+  {#if isHelper}
+  <div class="history-wrap">
+    <button
+      class="history-btn"
+      onclick={toggleSnapshotMenu}
+      title="Board History / Snapshots"
+    >
+      <img src="/images/undo-icon.svg" alt="History" width="14" height="14" style="filter: invert(1) brightness(1.5);" />
+      <span>History</span>
+    </button>
   </div>
   {/if}
 </div>
@@ -313,5 +328,32 @@
 
   .layer-btn.active {
     color: #00d4aa;
+  }
+
+  /* ── History ── */
+  .history-wrap {
+    margin-top: 4px;
+  }
+
+  .history-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 8px;
+    background: rgba(20, 23, 28, 0.6);
+    border: none;
+    border-radius: 5px;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 0.75rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: color 0.12s ease, background 0.12s ease;
+    white-space: nowrap;
+  }
+
+  .history-btn:hover {
+    background: rgba(30, 34, 42, 0.75);
+    color: rgba(255, 255, 255, 0.95);
   }
 </style>

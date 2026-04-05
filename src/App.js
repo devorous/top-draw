@@ -30,6 +30,8 @@ import { TimeMachine } from './timebar/TimeMachine.svelte.js';
 import { highlight } from './ui/Highlight.js';
 import { SaveMode } from './ui/SaveMode.js';
 import { MirrorRegionController } from './ui/MirrorRegionController.js';
+import { SnapshotManager } from './remote/SnapshotManager.js';
+import initWasm from './wasm/ddraw_wasm.js';
 
 // Svelte UI Components
 import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } from './ui/svelte/AppUI.svelte.js';
@@ -151,6 +153,8 @@ export class DrawingApp {
     // Room preview interval (sends 1/4 scale preview to server every 30s)
     this._previewInterval = null;
     this._previewIntervalMs = 30000;
+
+    this.snapshotManager = new SnapshotManager(this);
   }
 
   /**
@@ -159,6 +163,7 @@ export class DrawingApp {
    * @returns {Promise<void>}
    */
   async init() {
+    await initWasm();
     this.ui.init();
     this.createSelf();
     this.board.init('#boardContainer');
