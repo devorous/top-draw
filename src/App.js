@@ -3165,9 +3165,11 @@ export class DrawingApp {
     if (!this.pressureEnabled) {
       pressure = 1;
     } else if (e.pointerType === 'pen' && !this.self.panning) {
-      // On pen lift (e.pressure === 0), always use 0, bypass min/max slider scaling
+      // On pen lift (e.pressure === 0), keep the last known pressure if mid-stroke.
+      // The browser fires a 0-pressure pointerMove just before pointerUp; processing
+      // it would cause zero-size drawing artifacts. The stroke end is handled by pointerUp.
       if (e.pressure === 0) {
-        pressure = 0;
+        pressure = this.self.mousedown ? this.self.pressure : 0;
       } else {
         const minP = Number(this.ui.elements.pressureMinSlider.value) / 100;
         const maxP = Number(this.ui.elements.pressureMaxSlider.value) / 100;
@@ -3979,5 +3981,13 @@ export class DrawingApp {
     } catch (err) {
       console.error('[App] Preview capture error:', err);
     }
+  }
+
+  get usersByName() {
+    const m = new Map();
+    this.users.forEach((user, id) => {
+      m.set(user.username || `#${id}`, user);
+    });
+    return m;
   }
 }

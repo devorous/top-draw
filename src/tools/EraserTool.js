@@ -179,6 +179,7 @@ export class EraserTool extends Tool {
    */
   _drawSegment(user, p1, p2) {
     const size = user.pressure * this.userSize * 2;
+    if (size <= 0) return;
     const userId = user.id;
 
     if (this._eraseAllLayers()) {
@@ -293,6 +294,7 @@ export class EraserTool extends Tool {
    * @param {string} userId - ID of the user erasing.
    */
   eraseOnGroup(group, x1, y1, x2, y2, size, _opacity, userId) {
+    if (size <= 0) return;
     const active = group.activeStrokeByUser?.get(userId);
     if (active?.ctx) {
       active.opacity = 1.0;
