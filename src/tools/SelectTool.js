@@ -514,6 +514,7 @@ export class SelectTool extends Tool {
       brush: document.getElementById('selMenuBrush'),
       flip: document.getElementById('selMenuFlip'),
       stamp: document.getElementById('selMenuStamp'),
+      apply: document.getElementById('selMenuApply'),
       save: document.getElementById('selMenuSave'),
       cancel: document.getElementById('selMenuCancel')
     };
@@ -526,6 +527,7 @@ export class SelectTool extends Tool {
     this.menuElements.brush.addEventListener('click', () => this.toImageBrush());
     this.menuElements.flip.addEventListener('click', () => this.flipHorizontal());
     this.menuElements.stamp.addEventListener('click', () => this.stamp());
+    this.menuElements.apply.addEventListener('click', () => this.deselect());
     this.menuElements.save.addEventListener('click', () => this.saveSelection());
     this.menuElements.cancel.addEventListener('click', () => this.cancelSelection());
   }
@@ -545,6 +547,7 @@ export class SelectTool extends Tool {
     this.menuElements.fill.classList.toggle('hidden', hasMoved);
     this.menuElements.flip.classList.toggle('hidden', false);
     this.menuElements.stamp.classList.toggle('hidden', !hasMoved);
+    this.menuElements.apply.classList.toggle('hidden', !hasMoved);
     this.menuElements.save.classList.toggle('hidden', false);
     this.menuElements.cancel.classList.toggle('hidden', !hasMoved);
 
@@ -2254,6 +2257,9 @@ export class SelectTool extends Tool {
         ? tileOwnership.getTileIndicesForRect(dirtyX, dirtyY, dirtyW, dirtyH)
         : [];
 
+      // Shared timestamp so all per-layer commit strokes get undone together in one Ctrl+Z
+      const commitBatchTimestamp = Date.now();
+
       for (const { canvas, groupIdx } of this.floatingLayers) {
         lm.beginUserStroke(groupIdx, userId, 'source-over');
         const active = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(userId);
@@ -2293,7 +2299,7 @@ export class SelectTool extends Tool {
           active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
         }
 
-        lm.commitUserStroke(groupIdx, userId, { selectionRestoreData: this._restoreData });
+        lm.commitUserStroke(groupIdx, userId, { selectionRestoreData: this._restoreData, timestamp: commitBatchTimestamp });
       }
 
       this.board.compositeAllLayers();
