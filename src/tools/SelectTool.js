@@ -2715,16 +2715,27 @@ export class SelectTool extends Tool {
     const viewCenterX = (containerWidth / 2 - panX) / zoom;
     const viewCenterY = (containerHeight / 2 - panY) / zoom;
 
-    // Scale image to fit within 80% of viewport
-    const maxWidth = viewportWidth * 0.8;
-    const maxHeight = viewportHeight * 0.8;
-    const scale = Math.min(1, maxWidth / origWidth, maxHeight / origHeight);
-    const width = Math.round(origWidth * scale);
-    const height = Math.round(origHeight * scale);
+    // If the image matches the board size exactly, place it at the origin at full size
+    const boardWidth = this.board.dimensions[1];
+    const boardHeight = this.board.dimensions[0];
+    let width, height, pasteX, pasteY;
+    if (origWidth === boardWidth && origHeight === boardHeight) {
+      width = origWidth;
+      height = origHeight;
+      pasteX = 0;
+      pasteY = 0;
+    } else {
+      // Scale image to fit within 80% of viewport
+      const maxWidth = viewportWidth * 0.8;
+      const maxHeight = viewportHeight * 0.8;
+      const scale = Math.min(1, maxWidth / origWidth, maxHeight / origHeight);
+      width = Math.round(origWidth * scale);
+      height = Math.round(origHeight * scale);
 
-    // Center on viewport
-    const pasteX = viewCenterX - width / 2;
-    const pasteY = viewCenterY - height / 2;
+      // Center on viewport
+      pasteX = viewCenterX - width / 2;
+      pasteY = viewCenterY - height / 2;
+    }
 
     this.selection = {
       x: pasteX,
