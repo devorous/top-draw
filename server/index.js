@@ -1151,7 +1151,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
 
   // Record delta for replay system
   const outgoing = { ...data, u: sessionIndex };
-  if (room.settings.dedicatedReplayUser) {
+  if (room.settings.dedicatedReplayUser || room._electedUploader) {
     getRecorder(room.id).record(outgoing);
   }
 
@@ -2788,7 +2788,7 @@ wss.on('connection', (ws, req) => {
 
         case T.CHECKPOINT_UPLOAD: {
           const cpId = await handleCheckpointUpload(ws, data, room);
-          if (cpId && room.settings.dedicatedReplayUser) {
+          if (cpId && (room.settings.dedicatedReplayUser || room._electedUploader)) {
             getRecorder(room.id).onCheckpoint(cpId);
           }
           break;

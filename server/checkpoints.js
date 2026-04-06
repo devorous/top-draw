@@ -15,8 +15,9 @@ const CHECKPOINT_INTERVAL_MIN_MS = 30_000; // Reject if < 30s since last
  * @param {Room} room - The room instance.
  */
 export async function handleCheckpointUpload(ws, data, room) {
-  // Only the dedicated replay user may upload checkpoints
-  const dedicated = room.settings.dedicatedReplayUser;
+  // Only the designated uploader may upload checkpoints.
+  // Prefer the manually-set dedicated user; fall back to the auto-elected uploader.
+  const dedicated = room.settings.dedicatedReplayUser || room._electedUploader;
   const senderName = ws.registeredName || ws.username;
   if (!dedicated || senderName !== dedicated) {
     console.warn(`[Checkpoint] Rejected upload from "${senderName}" — dedicated user is "${dedicated}"`);
