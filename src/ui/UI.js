@@ -199,9 +199,7 @@ export class UI {
       zoomPercent: document.querySelector('.zoomPercent'),
       hudUndoBtn: document.getElementById('hudUndoBtn'),
       hudRedoBtn: document.getElementById('hudRedoBtn'),
-      mirrorText: document.querySelector('.mirrorOption'),
-
-      menuBtn: document.getElementById('menuBtn'),
+menuBtn: document.getElementById('menuBtn'),
       collapsibleBtns: document.getElementById('collapsibleBtns'),
       sidebarToggleBtn: document.getElementById('sidebarToggleBtn'),
       sideMenu: document.getElementById('sideMenu'),
@@ -939,7 +937,7 @@ export class UI {
    * @param {boolean} enabled - Whether mirror is enabled
    */
   updateMirrorDisplay(enabled) {
-    this.elements.mirrorText.textContent = enabled ? 'ON' : 'OFF';
+    this.elements.mirrorBtn?.classList.toggle('selected', !!enabled);
   }
 
   /**

@@ -135,6 +135,7 @@ export class MirrorRegionController {
 
     this.active = true;
     this.stage = 'selecting';
+    this.ui.updateMirrorDisplay(true);
     this.startPos = null;
     this.selection = null;
     this.editingRegionId = null;
@@ -156,6 +157,7 @@ export class MirrorRegionController {
     this._clearOverlay();
     this._hideControlsLayer();
     this._stopMarchingAnts();
+    this.ui.updateMirrorDisplay(this.board.mirror);
     this.ui.updateToolDisplay(this.app.self?.tool, this.app.self);
   }
 
