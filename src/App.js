@@ -2508,7 +2508,7 @@ export class DrawingApp {
       if (brush.type === 'gih' && brush.gBrushes && brush.gBrushes.length > 0) {
         this.ui.setBrushPreview(brush.gBrushes[0].gimpUrl);
       } else {
-        this.ui.setBrushPreview(brush.gimpUrl);
+        this.ui.setBrushPreview(brush.previewUrl || brush.gimpUrl);
       }
     }
 
@@ -2582,7 +2582,7 @@ export class DrawingApp {
     if (brush.type === 'gih' && brush.gBrushes && brush.gBrushes.length > 0) {
       this.ui.setBrushPreview(brush.gBrushes[0].gimpUrl);
     } else {
-      this.ui.setBrushPreview(brush.gimpUrl);
+      this.ui.setBrushPreview(brush.previewUrl || brush.gimpUrl);
     }
 
     this.wsClient.broadcastBrush(brush);
@@ -2903,7 +2903,7 @@ export class DrawingApp {
     const brushData = await brushTool.loadBrush(file, this.self);
 
     if (brushData) {
-      this.ui.setBrushPreview(brushData.gimpUrl || brushData.gBrushes[0].gimpUrl);
+      this.ui.setBrushPreview(brushData.previewUrl || brushData.gimpUrl || brushData.gBrushes[0].gimpUrl);
       this.wsClient.broadcastBrush(brushData);
     }
   }

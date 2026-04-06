@@ -131,15 +131,33 @@ export class BrushGallery {
       brushData.image = image;
     } else if (fileType === 'svg') {
       const svgText = await response.text();
+      const svgBlob = new Blob([svgText], { type: 'image/svg+xml' });
+      const previewUrl = URL.createObjectURL(svgBlob);
       brushData = {
         type: 'svg',
         fileName: fileName,
         brushName: fileName.replace(/\.[^/.]+$/, ''),
-        gimpUrl: filePath, // Still provide path for consistency, though content is preferred
+        gimpUrl: filePath,
+        previewUrl: previewUrl,
         svgContent: svgText,
-        width: 0, // Dimensions will be determined when rendered
+        width: 0,
         height: 0
       };
+
+      const image = new Image();
+      await new Promise((resolve, reject) => {
+        image.onload = () => {
+          brushData.width = image.naturalWidth || image.width;
+          brushData.height = image.naturalHeight || image.height;
+          resolve();
+        };
+        image.onerror = () => {
+          URL.revokeObjectURL(previewUrl);
+          reject(new Error(`Failed to load SVG brush ${fileName}`));
+        };
+        image.src = previewUrl;
+      });
+      brushData.image = image;
     }
 
     return brushData;
@@ -160,7 +178,7 @@ export class BrushGallery {
     } else if (brush.type === 'image' || brush.type === 'gbr') {
       img.src = brush.gimpUrl;
     } else {
-      img.src = brush.gimpUrl;
+      img.src = brush.previewUrl || brush.gimpUrl;
     }
     img.alt = brush.brushName || brush.name || 'Brush';
 

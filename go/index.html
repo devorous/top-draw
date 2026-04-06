@@ -63,62 +63,62 @@
     <style id="rank-styles">
       /* User Rank Styling */
       .rank-guest {
-        color: #a0a8b8 !important;
+        color: var(--role-guest);
       }
 
       .rank-user {
-        color: #f0f2f5 !important;
+        color: var(--role-user);
       }
 
       .rank-helper {
-        color: #75ff75 !important;
+        color: var(--role-helper);
         font-weight: 500;
       }
 
       .rank-mod {
-        color: #00ffff !important;
+        color: var(--role-mod);
         font-weight: 600;
       }
 
       .rank-admin {
-        color: #3425ff !important;
+        color: var(--role-admin);
         font-weight: 600;
-        text-shadow: 0 0 4px rgba(0, 112, 255, 0.3);
+        text-shadow: 0 0 4px color-mix(in srgb, var(--role-admin), transparent 70%);
       }
 
       .rank-noble {
-        color: #ba95ff !important;
+        color: var(--role-noble);
         font-weight: 700;
-        text-shadow: 0 0 8px rgba(177, 156, 217, 0.6);
+        text-shadow: 0 0 8px color-mix(in srgb, var(--role-noble), transparent 40%);
       }
 
       .rank-holy {
-        color: #ffa0ae !important;
+        color: var(--role-holy);
         font-weight: 700;
-        text-shadow: 0 0 10px rgba(255, 182, 193, 0.7);
+        text-shadow: 0 0 10px color-mix(in srgb, var(--role-holy), transparent 30%);
       }
 
       .rank-deity {
-        color: #dd6d1d !important;
+        color: var(--role-deity);
         font-weight: 700;
-        text-shadow: 0 0 12px rgba(255, 106, 0, 0.5);
+        text-shadow: 0 0 12px color-mix(in srgb, var(--role-deity), transparent 50%);
       }
 
       /* Row glow effects for Noble/Holy/Deity entries */
       .listEntry.rank-noble {
-        background: rgba(177, 156, 217, 0.08) !important;
-        border-left: 2px solid rgba(177, 156, 217, 0.4);
+        background: color-mix(in srgb, var(--role-noble), transparent 92%);
+        border-left: 2px solid color-mix(in srgb, var(--role-noble), transparent 60%);
       }
 
       .listEntry.rank-holy {
-        background: rgba(255, 182, 193, 0.10) !important;
-        border-left: 2px solid rgba(255, 182, 193, 0.5);
+        background: color-mix(in srgb, var(--role-holy), transparent 90%);
+        border-left: 2px solid color-mix(in srgb, var(--role-holy), transparent 50%);
       }
 
       .listEntry.rank-deity {
-        background: rgba(255, 106, 0, 0.12) !important;
-        border-left: 3px solid rgba(255, 106, 0, 0.6);
-        box-shadow: inset 0 0 12px rgba(255, 106, 0, 0.1);
+        background: color-mix(in srgb, var(--role-deity), transparent 88%);
+        border-left: 3px solid color-mix(in srgb, var(--role-deity), transparent 40%);
+        box-shadow: inset 0 0 12px color-mix(in srgb, var(--role-deity), transparent 90%);
       }
 
     </style>
