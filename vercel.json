@@ -1,6 +1,17 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Permissions-Policy",
+          "value": "browsing-topics=(), run-ad-auction=(), join-ad-interest-group=(), private-state-token-redemption=(), private-state-token-issuance=(), private-aggregation=(), attribution-reporting=()"
+        }
+      ]
+    }
+  ],
   "rewrites": [
     { "source": "/go", "destination": "/go/index.html" },
     { "source": "/go/(.*)", "destination": "/go/index.html" },
