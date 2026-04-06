@@ -380,3 +380,9 @@ message Msg {
   bool low_power_mode = 119;      // PONG: client reports low-power mode status
   string elected_uploader = 120;  // SETTINGS: server-elected checkpoint uploader username
 }
+
+// New message for storing snapshot layers and thumbnail bundled in R2
+message SnapshotBundle {
+  repeated bytes layers = 1; // QOI encoded layers
+  bytes thumbnail = 2;       // JPEG encoded thumbnail
+}
