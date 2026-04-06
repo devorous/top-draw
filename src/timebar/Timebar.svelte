@@ -6,7 +6,7 @@
   // Format timestamp relative to the current live time
   function formatRelativeTime(timestamp) {
     if (!timestamp) return '0:00';
-    const referenceTime = TimeMachine.frozenMaxTime || TimeMachine.maxTime;
+    const referenceTime = TimeMachine.sessionEnd;
     const secondsAgo = Math.floor((referenceTime - timestamp) / 1000);
     const mins = Math.floor(secondsAgo / 60);
     const secs = secondsAgo % 60;
@@ -19,10 +19,6 @@
     } else {
       TimeMachine.play();
     }
-  }
-
-  function resolveMarkerPreview(source) {
-    return TimeMachine.resolveAssetRef(source);
   }
 
   function handleUndoToState() {
@@ -40,13 +36,10 @@
     const offsetX = clientX - rect.left;
     const percentage = Math.max(0, Math.min(1, offsetX / rect.width));
 
-    const firstTimestamp = TimeMachine.recordingBuffer[0]?.timestamp;
-    if (!firstTimestamp) return 0;
-    
-    const maxTime = TimeMachine.frozenMaxTime || TimeMachine.maxTime;
-    const range = maxTime - firstTimestamp;
-    const scrubTime = firstTimestamp + (percentage * range);
-    return scrubTime;
+    const { sessionStart, sessionEnd } = TimeMachine;
+    if (!sessionStart || sessionEnd <= sessionStart) return 0;
+
+    return sessionStart + percentage * (sessionEnd - sessionStart);
   }
 
   function handleScrubberMouseDown(event) {
@@ -102,98 +95,64 @@
 
   // Calculate percentage for slider background
   let progressPercent = $derived.by(() => {
-    const firstTimestamp = TimeMachine.recordingBuffer[0]?.timestamp;
-    const maxTime = TimeMachine.frozenMaxTime || TimeMachine.maxTime;
-    if (!firstTimestamp || maxTime === firstTimestamp) return 0;
-    
-    const range = maxTime - firstTimestamp;
-    const progress = TimeMachine.currentTime - firstTimestamp;
-    return (progress / range) * 100;
+    const { sessionStart, sessionEnd, currentTime } = TimeMachine;
+    if (!sessionStart || sessionEnd <= sessionStart) return 0;
+    return ((currentTime - sessionStart) / (sessionEnd - sessionStart)) * 100;
   });
 
-  // Calculate marker positions
+  // Checkpoint markers derived from server checkpoint list
   let markers = $derived.by(() => {
-    const firstTimestamp = TimeMachine.recordingBuffer[0]?.timestamp;
-    const maxTime = TimeMachine.frozenMaxTime || TimeMachine.maxTime;
-    if (!firstTimestamp || maxTime === firstTimestamp) return [];
-    
-    const range = maxTime - firstTimestamp;
-    return TimeMachine.recordingBuffer.map((snapshot, index) => {
-      const position = ((snapshot.timestamp - firstTimestamp) / range) * 100;
-      return {
-        position,
-        type: snapshot.kind === 'full' ? 'full-snapshot' : 'delta-snapshot',
-        index,
-        data: snapshot.canvasData,
-        timestamp: snapshot.timestamp
-      };
-    });
+    const { sessionStart, sessionEnd, checkpoints } = TimeMachine;
+    if (!sessionStart || sessionEnd <= sessionStart || checkpoints.length === 0) return [];
+    const range = sessionEnd - sessionStart;
+    return checkpoints.map((cp, index) => ({
+      position: ((cp.ts - sessionStart) / range) * 100,
+      type: 'snapshot',
+      index,
+      timestamp: cp.ts,
+      id: cp.id
+    }));
   });
 
   // Calculate all tick marks and labels for the timeline
   let allTickMarks = $derived.by(() => {
-    const firstTimestamp = TimeMachine.recordingBuffer[0]?.timestamp;
-    const maxTime = TimeMachine.frozenMaxTime || TimeMachine.maxTime;
-    if (!firstTimestamp || maxTime === firstTimestamp) return [];
+    const { sessionStart, sessionEnd } = TimeMachine;
+    if (!sessionStart || sessionEnd <= sessionStart) return [];
 
-    const duration = maxTime - firstTimestamp; // in milliseconds
+    const duration = sessionEnd - sessionStart;
     const tickMarks = [];
 
-    // Determine interval for major ticks (e.g., every 15, 60, 300 seconds)
-    let majorInterval = 1000 * 15; // 15 seconds
-    if (duration > 1000 * 60 * 5) majorInterval = 1000 * 60; // 1 minute for longer recordings
-    if (duration > 1000 * 60 * 30) majorInterval = 1000 * 60 * 5; // 5 minutes for very long recordings
+    // Determine major tick interval
+    let majorInterval = 1000 * 15; // 15 s
+    if (duration > 1000 * 60 * 5) majorInterval = 1000 * 60;     // 1 min
+    if (duration > 1000 * 60 * 30) majorInterval = 1000 * 60 * 5; // 5 min
 
-    // Generate major ticks with labels
-    for (let time = firstTimestamp; time <= maxTime; time += majorInterval) {
-      const position = ((time - firstTimestamp) / duration) * 100;
+    for (let time = sessionStart; time <= sessionEnd; time += majorInterval) {
       tickMarks.push({
-        position: position,
+        position: ((time - sessionStart) / duration) * 100,
         type: 'major',
         label: formatRelativeTime(time),
         timestamp: time
       });
     }
 
-    // Add existing snapshot markers
+    // Merge checkpoint markers with major ticks
     markers.forEach(marker => {
-      // Avoid duplicate labels if a snapshot aligns exactly with a major tick's label
       const existingLabelTick = tickMarks.find(
         (tick) => tick.type === 'major' && Math.abs(tick.position - marker.position) < 0.5
       );
       if (existingLabelTick) {
-        existingLabelTick.type = 'major-snapshot'; // Indicate it's both
-      } else if (marker.position <= 100) { // Only add if it fits in frozen range
+        existingLabelTick.type = 'major-snapshot';
+      } else if (marker.position <= 100) {
         tickMarks.push({
           position: marker.position,
-          type: marker.type,
+          type: 'snapshot',
           index: marker.index,
-          data: marker.data,
           timestamp: marker.timestamp
         });
       }
     });
 
-    // Add activity markers (user actions)
-    TimeMachine.recordingBuffer.forEach(snap => {
-      (snap.actionChunks || []).forEach(chunk => {
-        chunk.actions.forEach(action => {
-          const position = ((action.timestamp - firstTimestamp) / duration) * 100;
-          if (position >= 0 && position <= 100) {
-            const exists = tickMarks.some(t => t.type === 'activity' && Math.abs(t.position - position) < 0.2);
-            if (!exists) {
-              tickMarks.push({
-                position,
-                type: 'activity',
-                timestamp: action.timestamp
-              });
-            }
-          }
-        });
-      });
-    });
-
-    // Sort by position and filter out anything beyond 100%
     return tickMarks
       .filter(t => t.position <= 100)
       .sort((a, b) => a.position - b.position);
@@ -202,25 +161,17 @@
 </script>
 
 {#if TimeMachine.isReviewing}
-  <div class="history-badge" class:needs-resync={TimeMachine.needsResync}>
+  <div class="history-badge">
     <span class="pulse"></span>
-    {#if TimeMachine.needsResync}
-      RESYNC REQUIRED
-    {:else}
-      VIEWING HISTORY
-    {/if}
+    VIEWING HISTORY
   </div>
 
-  <button class="floating-catch-up-btn" class:needs-resync={TimeMachine.needsResync} onclick={() => TimeMachine.catchUp()}>
-    {#if TimeMachine.needsResync}
-      Resync To Present
-    {:else}
-      Jump To Present
-    {/if}
+  <button class="floating-catch-up-btn" onclick={() => TimeMachine.catchUp()}>
+    Jump To Present
   </button>
 {/if}
 
-{#if TimeMachine.isStarted}
+{#if TimeMachine.isOpen || TimeMachine.isLoading}
 <button
   class="toggle-btn"
   class:bar-visible={TimeMachine.isVisible}
@@ -264,27 +215,16 @@
             <div class="scrubber-thumb" style="left: {progressPercent}%"></div>
             {#each allTickMarks as tick}
               {#if tick.type === 'major' || tick.type === 'major-snapshot'}
-                <div 
-                  class="tick-mark major-tick" 
+                <div
+                  class="tick-mark major-tick"
                   style="left: {tick.position}%"
-                  title="Recorded state at {formatRelativeTime(tick.timestamp)}"
+                  title={formatRelativeTime(tick.timestamp)}
                 ></div>
-              {:else if tick.type === 'full-snapshot' || tick.type === 'delta-snapshot'}
-                <div 
-                  class="tick-mark snapshot-tick" 
+              {:else if tick.type === 'snapshot'}
+                <div
+                  class="tick-mark snapshot-tick"
                   style="left: {tick.position}%"
-                  title={(tick.type === 'full-snapshot' ? 'Full checkpoint ' : 'Delta checkpoint ') + tick.index}
-                >
-                  {#if tick.index === 0}
-                    <div class="flag">
-                      <img src={resolveMarkerPreview(tick.data)} alt="Start Preview" />
-                    </div>
-                  {/if}
-                </div>
-              {:else if tick.type === 'activity'}
-                <div 
-                  class="tick-mark activity-tick" 
-                  style="left: {tick.position}%"
+                  title="Checkpoint {tick.index + 1} at {formatRelativeTime(tick.timestamp)}"
                 ></div>
               {/if}
             {/each}
@@ -302,12 +242,8 @@
       </div>
 
       {#if TimeMachine.isReviewing}
-        <button class="catch-up-btn" class:needs-resync={TimeMachine.needsResync} onclick={() => TimeMachine.catchUp()}>
-          {#if TimeMachine.needsResync}
-            Resync
-          {:else}
-            Catch Up
-          {/if}
+        <button class="catch-up-btn" onclick={() => TimeMachine.catchUp()}>
+          Catch Up
         </button>
         
         {#if appState.isModerator}
@@ -546,40 +482,9 @@
 
         &.snapshot-tick {
           height: 100%;
-          background: #2dd4bf; /* Prominent Teal */
-          width: 3px; /* Slightly wider */
+          background: #2dd4bf;
+          width: 3px;
           z-index: 2;
-
-          .flag {
-            position: absolute;
-            bottom: 100%;
-            left: 50%;
-            transform: translateX(-50%) translateY(-5px);
-            width: 48px;
-            height: 32px;
-            background: #1e293b;
-            border: 2px solid #2dd4bf; /* Teal border */
-            border-radius: 4px;
-            overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-            
-            img {
-              width: 100%;
-              height: 100%;
-              object-fit: cover;
-            }
-
-            &::after {
-              content: '';
-              position: absolute;
-              top: 100%;
-              left: 50%;
-              transform: translateX(-50%);
-              border-left: 5px solid transparent;
-              border-right: 5px solid transparent;
-              border-top: 5px solid #2dd4bf; /* Teal arrow */
-            }
-          }
         }
 
         &.activity-tick {

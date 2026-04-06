@@ -11,9 +11,10 @@ import { connectDB, getDB } from './db.js';
 import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate } from './gallery.js';
 import { handleAuthLogin, handleAuthRegister, handleAuthMe } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
-import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete } from './snapshots.js';
+import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore } from './snapshots.js';
 import { handleCheckpointUpload, handleCheckpointList, handleCheckpointGet } from './checkpoints.js';
 import { getRecorder, removeRecorder, getReplayData } from './deltaRecorder.js';
+import { startElection, stopElection } from './uploaderElection.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
 import { issueModAction, revokeModAction, revokeMatchingModActions, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
@@ -471,6 +472,59 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (path === '/api/admin/live' && req.method === 'GET') {
+    const adminUser = await getAdminHttpUser(req);
+    if (!adminUser) {
+      json(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    const activeRooms = roomManager
+      ? [...roomManager.rooms.values()].filter(r => r.id !== '_discovery' && r.getClientCount() > 0)
+      : [];
+
+    const db = getDB();
+    const rooms = await Promise.all(activeRooms.map(async room => {
+      const candidates = (room._electionCandidates || []).map(c => ({
+        username: c.username,
+        ping: c.ping != null ? Math.round(c.ping) : null,
+        lowPower: c.lowPower,
+        active: c.active,
+        score: Math.round(c.score * 10) / 10
+      }));
+
+      // In-memory snapshot buffer stats
+      const snaps = room.snapshots || [];
+      const snapshotInfo = {
+        buffered: snaps.length,
+        oldest: snaps.length ? snaps[0].ts : null,
+        newest: snaps.length ? snaps[snaps.length - 1].ts : null,
+        lastCheckpointTs: room._lastCheckpointTs || null
+      };
+
+      // DB checkpoint count (lightweight)
+      let dbCheckpoints = 0;
+      if (db) {
+        try {
+          dbCheckpoints = await db.collection('checkpoints').countDocuments({ roomId: room.id });
+        } catch (_) {}
+      }
+
+      return {
+        id: room.id,
+        userCount: room.getClientCount(),
+        dedicatedUploader: room.settings.dedicatedReplayUser || null,
+        electedUploader: room._electedUploader || null,
+        candidates,
+        snapshots: snapshotInfo,
+        dbCheckpoints
+      };
+    }));
+
+    json(res, 200, { rooms });
+    return;
+  }
+
   const adminCollectionMatch = path.match(/^\/api\/admin\/collections\/([a-zA-Z0-9_-]+)$/);
   if (adminCollectionMatch && req.method === 'GET') {
     const adminUser = await getAdminHttpUser(req);
@@ -804,6 +858,29 @@ const MUTED_BLOCKED = new Set([
 ]);
 
 /**
+ * Builds the T.SETTINGS payload for a room.
+ * Single source of truth — used by join, MIRROR_REGION, and ROOM_UPDATE broadcasts.
+ * @param {Room} room
+ * @returns {Object}
+ */
+function buildSettingsPayload(room) {
+  return {
+    t: T.SETTINGS,
+    m: room.settings.mirror,
+    mirrorRegionsJson: JSON.stringify(room.settings.mirrorRegions || []),
+    roomBackgroundColor: room.settings.backgroundColor,
+    roomLocked: room.settings.locked,
+    roomMaxUsers: room.settings.maxUsers,
+    roomModInactiveImmune: room.settings.modInactiveImmune,
+    roomJoinPolicy: room.settings.joinPolicy,
+    roomAutoMuteGuests: room.settings.autoMuteGuests,
+    roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers,
+    roomDedicatedReplayUser: room.settings.dedicatedReplayUser,
+    electedUploader: room._electedUploader || ''
+  };
+}
+
+/**
  * Handles incoming broadcast-type messages, updating user state and relaying to others.
  * @param {Object} data - The message data.
  * @param {number} sessionIndex - The session index of the sender.
@@ -1068,19 +1145,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
   }
 
   if (data.t === T.MIRROR_REGION) {
-    broadcastToRoom(room, {
-      t: T.SETTINGS,
-      m: room.settings.mirror,
-      mirrorRegionsJson: JSON.stringify(room.settings.mirrorRegions || []),
-      roomBackgroundColor: room.settings.backgroundColor,
-      roomLocked: room.settings.locked,
-      roomMaxUsers: room.settings.maxUsers,
-      roomModInactiveImmune: room.settings.modInactiveImmune,
-      roomJoinPolicy: room.settings.joinPolicy,
-      roomAutoMuteGuests: room.settings.autoMuteGuests,
-      roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers,
-      roomDedicatedReplayUser: room.settings.dedicatedReplayUser
-    });
+    broadcastToRoom(room, buildSettingsPayload(room));
     return;
   }
 
@@ -1328,8 +1393,11 @@ wss.on('connection', (ws, req) => {
 
     console.log(`[Room] Client joined room: ${roomId}, total clients: ${room.getClientCount()}`);
 
+    ws.pingRtt = null;
+    ws.lowPowerMode = false;
     ws.pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
+        ws.pingSentAt = Date.now();
         sendTo(ws, { t: T.PING });
       } else {
         clearInterval(ws.pingInterval);
@@ -1465,19 +1533,13 @@ wss.on('connection', (ws, req) => {
             });
           }
 
-          sendTo(ws, {
-            t: T.SETTINGS,
-            m: room.settings.mirror,
-            mirrorRegionsJson: JSON.stringify(room.settings.mirrorRegions || []),
-            roomBackgroundColor: room.settings.backgroundColor,
-            roomLocked: room.settings.locked,
-            roomMaxUsers: room.settings.maxUsers,
-            roomModInactiveImmune: room.settings.modInactiveImmune,
-            roomJoinPolicy: room.settings.joinPolicy,
-            roomAutoMuteGuests: room.settings.autoMuteGuests,
-            roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers,
-            roomDedicatedReplayUser: room.settings.dedicatedReplayUser
-            });
+          sendTo(ws, buildSettingsPayload(room));
+
+          // Start/continue election when first user joins (auto mode only)
+          if (room.getClientCount() === 1 && !room.settings.dedicatedReplayUser) {
+            startElection(room, (r) => broadcastToRoom(r, buildSettingsPayload(r)));
+          }
+
           // If user is muted (IP-based for guests), hide their cursor for everyone
           if (ws.isMuted) {
             roomBroadcaster({ t: T.HIDE_CURSOR, u: sessionIndex });
@@ -1970,21 +2032,16 @@ wss.on('connection', (ws, req) => {
               }
             }
 
+            // If dedicatedReplayUser changed, start/stop election accordingly
+            if (room.settings.dedicatedReplayUser) {
+              stopElection(room);
+            } else if (!room._electionTimer) {
+              startElection(room, (r) => broadcastToRoom(r, buildSettingsPayload(r)));
+            }
+
             // Broadcast updated settings to all clients in the room
             const roomBroadcaster = createRoomBroadcaster(room);
-            roomBroadcaster({
-              t: T.SETTINGS,
-              m: room.settings.mirror,
-              mirrorRegionsJson: JSON.stringify(room.settings.mirrorRegions || []),
-              roomBackgroundColor: room.settings.backgroundColor,
-              roomLocked: room.settings.locked,
-              roomMaxUsers: room.settings.maxUsers,
-              roomModInactiveImmune: room.settings.modInactiveImmune,
-              roomJoinPolicy: room.settings.joinPolicy,
-              roomAutoMuteGuests: room.settings.autoMuteGuests,
-              roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers,
-              roomDedicatedReplayUser: room.settings.dedicatedReplayUser
-            });
+            roomBroadcaster(buildSettingsPayload(room));
             if (autoMuteGuestsChanged || autoMuteVpnUsersChanged) {
               roomBroadcaster({
                 t: T.USERS,
@@ -2137,6 +2194,11 @@ wss.on('connection', (ws, req) => {
         }
 
         case T.PONG:
+          if (ws.pingSentAt) {
+            ws.pingRtt = Date.now() - ws.pingSentAt;
+            ws.pingSentAt = null;
+          }
+          ws.lowPowerMode = !!data.lowPowerMode;
           break;
 
         case T.ROOM_ROLE_SET: {
@@ -2726,6 +2788,14 @@ wss.on('connection', (ws, req) => {
           await handleSnapshotDelete(ws, data, room);
           break;
 
+        case T.BOARD_SNAPSHOT_GET:
+          await handleSnapshotGet(ws, data, room);
+          break;
+
+        case T.BOARD_SNAPSHOT_REGION_RESTORE:
+          await handleSnapshotRegionRestore(ws, data, room);
+          break;
+
         case T.CHECKPOINT_UPLOAD: {
           const cpId = await handleCheckpointUpload(ws, data, room);
           if (cpId && room.settings.dedicatedReplayUser) {
@@ -2805,7 +2875,8 @@ wss.on('connection', (ws, req) => {
               room.setPreview(null);
             // Clear tile data when room empties - stale data shouldn't persist
             room.clearAllTiles();
-            // Flush and remove delta recorder
+            // Stop uploader election and flush delta recorder
+            stopElection(room);
             removeRecorder(room.id);
             roomManager.broadcastRoomListUpdate();
           }

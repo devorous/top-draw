@@ -102,6 +102,8 @@ message Msg {
     BOARD_SNAPSHOT_RESTORE = 99;
     BOARD_SNAPSHOT_DELETE = 100;
     BOARD_SNAPSHOT_REQUEST = 101; // Server asks a client to capture a snapshot
+    BOARD_SNAPSHOT_GET = 102;     // Client privately fetches one snapshot's layer data
+    BOARD_SNAPSHOT_REGION_RESTORE = 103; // Restore a region from a snapshot (broadcast)
     CHECKPOINT_UPLOAD = 110;       // Dedicated user uploads full board checkpoint
     CHECKPOINT_LIST = 111;         // Request list of checkpoints for replay
     CHECKPOINT_LIST_RESPONSE = 112; // Response with checkpoint metadata
@@ -373,4 +375,8 @@ message Msg {
   uint64 replay_start_ts = 116;   // REPLAY_REQUEST: desired start timestamp
   uint64 replay_end_ts = 117;     // REPLAY_REQUEST: desired end timestamp
   string replay_deltas_json = 118; // REPLAY_RESPONSE: JSON-encoded array of delta actions
+
+  // === Uploader Election Fields ===
+  bool low_power_mode = 119;      // PONG: client reports low-power mode status
+  string elected_uploader = 120;  // SETTINGS: server-elected checkpoint uploader username
 }

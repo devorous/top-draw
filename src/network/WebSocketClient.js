@@ -356,7 +356,10 @@ export class WebSocketClient {
         break;
 
       case T.PING:
-        this.send({ t: T.PONG });
+        this.send({
+          t: T.PONG,
+          lowPowerMode: this.getLowPowerMode ? !!this.getLowPowerMode() : false
+        });
         break;
 
       case T.USERS:
@@ -412,7 +415,8 @@ export class WebSocketClient {
           joinPolicy: data.roomJoinPolicy || 'open',
           autoMuteGuests: !!data.roomAutoMuteGuests,
           autoMuteVpnUsers: !!data.roomAutoMuteVpnUsers,
-          dedicatedReplayUser: data.roomDedicatedReplayUser || null
+          dedicatedReplayUser: data.roomDedicatedReplayUser || null,
+          electedUploader: data.electedUploader || null
         });
         break;
 
@@ -891,8 +895,30 @@ export class WebSocketClient {
         });
         break;
 
+      case T.BOARD_SNAPSHOT_REGION_RESTORE:
+        this.emit('board_snapshot_region_restore', {
+          snapshotLayers: data.snapshotLayers,
+          snapshotId: data.snapshotId,
+          isLasso: data.a,
+          sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh,
+          cr: data.cr
+        });
+        break;
+
       case T.BOARD_SNAPSHOT_REQUEST:
         this.emit('board_snapshot_request');
+        break;
+
+      case T.BOARD_SNAPSHOT_SAVE:
+        // Private response to a BOARD_SNAPSHOT_GET request (not a broadcast restore)
+        if (data.snapshotId && !data.a) {
+          this.emit('board_snapshot_get_response', {
+            snapshotId: data.snapshotId,
+            snapshotTs: data.snapshotTs,
+            snapshotIssuer: data.snapshotIssuer,
+            snapshotLayers: data.snapshotLayers
+          });
+        }
         break;
 
       case T.REPLAY_RESPONSE:
@@ -1717,6 +1743,10 @@ export class WebSocketClient {
 
   requestCheckpointList() {
     this.send({ t: T.CHECKPOINT_LIST });
+  }
+
+  requestSnapshotGet(snapshotId) {
+    this.send({ t: T.BOARD_SNAPSHOT_GET, snapshotId });
   }
 
   /**

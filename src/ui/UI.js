@@ -216,6 +216,7 @@ export class UI {
       adminTopBtn: document.getElementById('adminTopBtn'),
       inboxBtn: document.getElementById('inboxBtn'),
       saveBtn: document.getElementById('saveBtn'),
+      historyBtn: document.getElementById('historyBtn'),
 
       saveModeOverlay: document.getElementById('saveModeOverlay'),
       saveModeCloseBtn: document.getElementById('saveModeCloseBtn'),

@@ -41,6 +41,7 @@
   let joinPolicy = $state('open');
   let autoMuteGuests = $state(false);
   let autoMuteVpnUsers = $state(false);
+  let dedicatedReplayUser = $state('');
   let message = $state('');
   let messageType = $state('success');
   let showMessage = $state(false);
@@ -98,6 +99,7 @@
     joinPolicy = data.joinPolicy || 'open';
     autoMuteGuests = !!data.autoMuteGuests;
     autoMuteVpnUsers = !!data.autoMuteVpnUsers;
+    dedicatedReplayUser = data.dedicatedReplayUser || '';
 
     if (board) {
       const [r, g, b] = board.backgroundColor;
@@ -182,7 +184,8 @@
       roomModInactiveImmune: modInactiveImmune,
       roomJoinPolicy: joinPolicy,
       roomAutoMuteGuests: autoMuteGuests,
-      roomAutoMuteVpnUsers: autoMuteVpnUsers
+      roomAutoMuteVpnUsers: autoMuteVpnUsers,
+      roomDedicatedReplayUser: dedicatedReplayUser.trim() || null
     });
   }
 
@@ -456,6 +459,24 @@
               <input type="checkbox" bind:checked={autoMuteVpnUsers} />
               <span>Auto-mute VPN or datacenter users by ASN (mods and above exempt)</span>
             </label>
+          </div>
+
+          <div class="form-group">
+            <label for="roomReplayUploader">Replay uploader</label>
+            <input
+              type="text"
+              id="roomReplayUploader"
+              bind:value={dedicatedReplayUser}
+              class="room-input"
+              placeholder={roomData?.electedUploader ? `Auto: ${roomData.electedUploader}` : 'Auto-selected by server'}
+              maxlength="20"
+            />
+            <span class="form-hint">
+              Leave blank to let the server auto-elect the best candidate.
+              {#if roomData?.electedUploader && !dedicatedReplayUser}
+                Currently elected: <strong>{roomData.electedUploader}</strong>
+              {/if}
+            </span>
           </div>
 
           {#if canShowUnregister()}
@@ -794,6 +815,16 @@
   .form-group label {
     font-size: 0.84rem;
     color: #cfd6e3;
+  }
+
+  .form-hint {
+    font-size: 0.76rem;
+    color: #7a8494;
+    line-height: 1.4;
+  }
+
+  .form-hint strong {
+    color: #90f0da;
   }
 
   .room-input,

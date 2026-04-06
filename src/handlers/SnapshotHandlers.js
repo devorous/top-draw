@@ -2,6 +2,7 @@
 
 import { T } from '../../shared/MessageTypes.js';
 import { appState } from '../state.svelte.js';
+import * as wasm from '../wasm/ddraw_wasm.js';
 
 /**
  * Registers WebSocket event listeners for board snapshot messages.
@@ -24,6 +25,15 @@ export function setupSnapshotHandlers(wsClient, app) {
     app.snapshotManager.handleServerRequest();
   });
 
+  // Handle region restoration (broadcast from server)
+  wsClient.on('board_snapshot_region_restore', (data) => {
+    if (!data.snapshotLayers || data.snapshotLayers.length === 0) return;
+    applyRegionRestore(app.board, data.snapshotLayers, data.isLasso, {
+      sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh
+    }, data.cr || []);
+    app.ui.showToast('A region was restored from a snapshot', 3000);
+  });
+
   // Handle board restoration
   wsClient.on('board_snapshot_restore', (data) => {
     if (!data.snapshotLayers || data.snapshotLayers.length === 0) return;
@@ -36,11 +46,119 @@ export function setupSnapshotHandlers(wsClient, app) {
     // Apply the per-layer snapshot to the board
     app.board.restoreSnapshot(data.snapshotLayers);
 
-    // Clear undo/redo history as the board has changed significantly
-    app.board.layerManager.clearHistory();
+    // Clear undo/redo stroke stacks since the board has been replaced
+    for (const group of app.board.layerManager.layerGroups) {
+      group.strokeStack = [];
+      group.activeStrokeByUser.clear();
+    }
     app.updateUndoRedoHud();
     
     // Re-request sync for everything else if needed
     // app.syncClient.requestSync();
   });
+}
+
+/**
+ * Applies a region restore from snapshot layer data onto the board.
+ * Works for both rectangle and lasso selections across all layer groups.
+ * @param {Board} board
+ * @param {Uint8Array[]} layerDatas
+ * @param {boolean} isLasso
+ * @param {{sx,sy,sw,sh}} rect - Rectangle selection coords (board space)
+ * @param {number[]} lassoFlat - Flat [x0,y0,x1,y1,...] lasso points
+ */
+export function applyRegionRestore(board, layerDatas, isLasso, rect, lassoFlat) {
+  const lm = board.layerManager;
+  const [height, width] = board.dimensions;
+
+  // Reconstruct lasso points array
+  const lassoPoints = [];
+  for (let i = 0; i + 1 < lassoFlat.length; i += 2) {
+    lassoPoints.push({ x: lassoFlat[i], y: lassoFlat[i + 1] });
+  }
+
+  for (let i = 0; i < layerDatas.length; i++) {
+    const qoi = layerDatas[i];
+    if (!qoi || qoi.length === 0) continue;
+
+    let pixels;
+    try {
+      pixels = wasm.qoi_decode(qoi);
+      if (!pixels || pixels.length === 0) continue;
+    } catch (e) { continue; }
+
+    const snapshotCanvas = document.createElement('canvas');
+    snapshotCanvas.width = width; snapshotCanvas.height = height;
+    snapshotCanvas.getContext('2d').putImageData(
+      new ImageData(new Uint8ClampedArray(pixels.buffer), width, height), 0, 0
+    );
+
+    const group = lm?.layerGroups[i];
+    if (!group) continue;
+
+    // Bake all pending strokes into the base so the region clear is complete.
+    // strokeStack entries composite on top of flatCanvas/bakedSequences, so
+    // clearing the base without baking first leaves recent strokes untouched.
+    for (const stroke of group.strokeStack) {
+      lm.addToBaseBin(i, stroke.canvas, stroke.x, stroke.y, stroke.blendMode);
+    }
+    group.strokeStack = [];
+    group.userStrokeCounts = new Map();
+
+    if (group.flatCanvas) {
+      // Layer 0: direct pixel manipulation on the flat canvas
+      const ctx = group.flatCtx;
+      ctx.save();
+      if (!isLasso) {
+        const { sx: x, sy: y, sw: w, sh: h } = rect;
+        ctx.clearRect(x, y, w, h);
+        ctx.drawImage(snapshotCanvas, x, y, w, h, x, y, w, h);
+      } else {
+        _buildLassoPath(ctx, lassoPoints);
+        ctx.clip();
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(snapshotCanvas, 0, 0);
+      }
+      ctx.restore();
+    } else {
+      // Layers 1+: append destination-out erase then source-over fill to bakedSequences
+      const eraseCanvas = document.createElement('canvas');
+      eraseCanvas.width = width; eraseCanvas.height = height;
+      const eraseCtx = eraseCanvas.getContext('2d');
+      eraseCtx.fillStyle = '#000';
+      if (!isLasso) {
+        eraseCtx.fillRect(rect.sx, rect.sy, rect.sw, rect.sh);
+      } else {
+        _buildLassoPath(eraseCtx, lassoPoints);
+        eraseCtx.fill();
+      }
+      lm.addToBaseBin(i, eraseCanvas, 0, 0, 'destination-out');
+
+      const fillCanvas = document.createElement('canvas');
+      fillCanvas.width = width; fillCanvas.height = height;
+      const fillCtx = fillCanvas.getContext('2d');
+      fillCtx.save();
+      if (!isLasso) {
+        const { sx: x, sy: y, sw: w, sh: h } = rect;
+        fillCtx.drawImage(snapshotCanvas, x, y, w, h, x, y, w, h);
+      } else {
+        _buildLassoPath(fillCtx, lassoPoints);
+        fillCtx.clip();
+        fillCtx.drawImage(snapshotCanvas, 0, 0);
+      }
+      fillCtx.restore();
+      lm.addToBaseBin(i, fillCanvas, 0, 0, 'source-over');
+    }
+  }
+
+  board.compositeAllLayers();
+  if (board.tileGrid) board.tileGrid.markAllDirty();
+}
+
+function _buildLassoPath(ctx, points) {
+  if (points.length < 2) return;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+  ctx.closePath();
 }

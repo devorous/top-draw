@@ -206,9 +206,12 @@ export function setupUserHandlers(wsClient, app) {
     }
     if (data.dedicatedReplayUser !== undefined) {
       app.currentRoomData.dedicatedReplayUser = data.dedicatedReplayUser;
-      // Re-evaluate whether this client should be uploading previews
-      app._updatePreviewUploadEligibility();
     }
+    if (data.electedUploader !== undefined) {
+      app.currentRoomData.electedUploader = data.electedUploader;
+    }
+    // Re-evaluate on any settings change that could affect upload eligibility
+    app._updatePreviewUploadEligibility();
     // Mirror is not persisted to DB, but update it locally
     app.currentRoomData.mirror = data.mirror;
     app.currentRoomData.mirrorRegions = data.mirrorRegions || [];

@@ -203,6 +203,7 @@ export async function sanitizeMessage(data) {
     case T.ROOM_ROLE_LIST_REQUEST:
     case T.PING:
     case T.PONG:
+      if (data.lowPowerMode !== undefined) sanitized.lowPowerMode = sanitizeBoolean(data.lowPowerMode);
       return sanitized;
 
     case T.CS:
@@ -532,6 +533,22 @@ export async function sanitizeMessage(data) {
     case T.BOARD_SNAPSHOT_DELETE:
       sanitized.snapshotId = sanitizeString(data.snapshotId, 64);
       if (!sanitized.snapshotId) return null;
+      return sanitized;
+
+    case T.BOARD_SNAPSHOT_GET:
+      sanitized.snapshotId = sanitizeString(data.snapshotId, 64);
+      if (!sanitized.snapshotId) return null;
+      return sanitized;
+
+    case T.BOARD_SNAPSHOT_REGION_RESTORE:
+      sanitized.snapshotId = sanitizeString(data.snapshotId, 64);
+      if (!sanitized.snapshotId) return null;
+      sanitized.a = !!data.a;
+      sanitized.sx = Math.round(data.sx) || 0;
+      sanitized.sy = Math.round(data.sy) || 0;
+      sanitized.sw = Math.round(data.sw) || 0;
+      sanitized.sh = Math.round(data.sh) || 0;
+      sanitized.cr = Array.isArray(data.cr) ? data.cr.map(Number).filter(isFinite) : [];
       return sanitized;
 
     case T.CHECKPOINT_UPLOAD: {

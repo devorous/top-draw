@@ -29,6 +29,7 @@ import { TimeMachine } from './timebar/TimeMachine.svelte.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
 import { SaveMode } from './ui/SaveMode.js';
+import { HistoryPanel } from './ui/HistoryPanel.js';
 import { MirrorRegionController } from './ui/MirrorRegionController.js';
 import { SnapshotManager } from './remote/SnapshotManager.js';
 import initWasm from './wasm/ddraw_wasm.js';
@@ -110,6 +111,7 @@ export class DrawingApp {
     // this.profileDialog = new ProfileDialog(); // Now Svelte component
 
     this.inputBufferManager = new InputBufferManager(this);
+    this.wsClient.getLowPowerMode = () => this.inputBufferManager.lowPowerMode;
 
     this.pressureEnabled = true;
     this.tabletDetected = false;
@@ -149,6 +151,9 @@ export class DrawingApp {
 
     // Save mode (initialized in init() after board is ready)
     this.saveMode = null;
+
+    // History panel (initialized in init() after board is ready)
+    this.historyPanel = null;
 
     // Room preview interval (sends 1/4 scale preview to server every 30s)
     this._previewInterval = null;
@@ -193,6 +198,7 @@ export class DrawingApp {
     this.touchHandler = new TouchHandler(this);
     this.touchHandler.init(this.ui.elements.boards);
     this.saveMode = new SaveMode(this);
+    this.historyPanel = new HistoryPanel(this);
     this.mirrorRegionController = new MirrorRegionController(this);
     this.mirrorRegionController.init();
 
@@ -511,6 +517,7 @@ export class DrawingApp {
     elements.minusBtn.addEventListener('click', () => this.handleZoomOut());
     elements.rotationResetBtn.addEventListener('click', () => this.handleResetBoard());
     elements.saveBtn.addEventListener('click', () => this.openSaveDialog());
+    if (elements.historyBtn) elements.historyBtn.addEventListener('click', () => this.historyPanel?.open());
     if (elements.saveModeCloseBtn) elements.saveModeCloseBtn.addEventListener('click', () => this.closeSaveDialog());
     if (elements.saveModeCancelBtn) elements.saveModeCancelBtn.addEventListener('click', () => this.closeSaveDialog());
     if (elements.saveModeOverlay) elements.saveModeOverlay.addEventListener('click', (e) => {
@@ -1724,14 +1731,8 @@ export class DrawingApp {
     this.moderation.setRole(this.selfRole);
     this.inputBufferManager.startTickLoop();
 
-    // Start sending room previews (gated by dedicated replay user setting)
-    const dedicated = this.currentRoomData?.dedicatedReplayUser;
-    if (!dedicated) {
-      // No dedicated user — everyone uploads (legacy behavior)
-      this.startPreviewInterval();
-    } else {
-      this._updatePreviewUploadEligibility();
-    }
+    // Eligibility determined by election or manual pin — let the handler decide
+    this._updatePreviewUploadEligibility();
   }
 
   /**
@@ -2214,14 +2215,14 @@ export class DrawingApp {
     btn.setAttribute('aria-disabled', waitingForSync ? 'true' : 'false');
 
     if (TimeMachine.isStarted) {
-      btn.title = 'Recording is active';
-      btn.setAttribute('aria-label', 'Stop recording');
+      btn.title = 'Timeline active (click to close)';
+      btn.setAttribute('aria-label', 'Close timeline');
     } else if (waitingForSync) {
-      btn.title = 'Recording becomes available after room sync completes';
-      btn.setAttribute('aria-label', 'Recording unavailable until sync completes');
+      btn.title = 'Timeline becomes available after room sync completes';
+      btn.setAttribute('aria-label', 'Timeline unavailable until sync completes');
     } else {
-      btn.title = 'Start Recording';
-      btn.setAttribute('aria-label', 'Start recording');
+      btn.title = 'Open Timeline';
+      btn.setAttribute('aria-label', 'Open timeline');
     }
   }
 
@@ -2229,20 +2230,20 @@ export class DrawingApp {
     if (TimeMachine.isStarted) {
       TimeMachine.stop();
       this.updateRecordingButtonState();
-      this.ui.showToast('Recording stopped', 2000);
+      this.ui.showToast('Timeline closed', 2000);
       return;
     }
 
     const connectedToRoom = !!this.currentRoomId && !this.isOfflineMode;
     if (connectedToRoom && this.syncClient && !this.syncClient.hasCompletedSync) {
-      this.ui.showToast('Please wait for sync to finish before recording', 2500);
+      this.ui.showToast('Please wait for sync to finish before opening the timeline', 2500);
       this.updateRecordingButtonState();
       return;
     }
 
     TimeMachine.start();
     this.updateRecordingButtonState();
-    this.ui.showToast('Recording started', 2000);
+    this.ui.showToast('Loading timeline…', 2000);
   }
 
   canUseImageFeatures(showToast = false) {
@@ -3965,21 +3966,24 @@ export class DrawingApp {
    * starts/stops the preview and checkpoint intervals accordingly.
    */
   _updatePreviewUploadEligibility() {
-    const dedicated = this.currentRoomData?.dedicatedReplayUser;
-    if (dedicated) {
-      const myName = this.self?.registeredName || this.self?.username;
-      if (myName && myName === dedicated) {
-        // Dedicated user: checkpoint uploads serve as both replay data and room preview
+    const myName = this.self?.registeredName || this.self?.username;
+    // Manual pin takes priority over auto-elected user
+    const activeUploader = this.currentRoomData?.dedicatedReplayUser
+      || this.currentRoomData?.electedUploader
+      || null;
+
+    if (activeUploader) {
+      if (myName && myName === activeUploader) {
         this.stopPreviewInterval();
         this.startCheckpointInterval();
       } else {
-        // Not the dedicated user: stop both
         this.stopPreviewInterval();
         this.stopCheckpointInterval();
       }
     } else {
-      // No dedicated user — stop checkpoint, keep preview (legacy behavior)
+      // No election result yet — fall back to legacy preview for everyone
       this.stopCheckpointInterval();
+      if (!this._previewInterval) this.startPreviewInterval();
     }
   }
 

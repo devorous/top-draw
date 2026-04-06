@@ -17,10 +17,18 @@
   let visible = $derived(appState.adminPanelVisible);
   let selfRole = $derived(appState.selfRole);
 
+  const TAB_STATS = 'stats';
+  const TAB_LIVE = 'live';
+  const TAB_DB = 'db';
+
+  let activeTab = $state(TAB_STATS);
   let statsLoading = $state(false);
   let collectionLoading = $state(false);
+  let liveLoading = $state(false);
+  let liveAutoRefresh = $state(null);
   let error = $state('');
   let stats = $state(null);
+  let liveData = $state(null);
   let selectedCollection = $state('users');
   let collectionData = $state({ documents: [], total: 0, collection: 'users' });
 
@@ -28,6 +36,22 @@
     if (visible && selfRole >= 9) {
       void loadStats();
       void loadCollection(selectedCollection);
+    }
+    if (!visible) {
+      clearInterval(liveAutoRefresh);
+      liveAutoRefresh = null;
+    }
+  });
+
+  $effect(() => {
+    if (activeTab === TAB_LIVE && visible) {
+      void loadLive();
+      if (!liveAutoRefresh) {
+        liveAutoRefresh = setInterval(() => void loadLive(), 15000);
+      }
+    } else {
+      clearInterval(liveAutoRefresh);
+      liveAutoRefresh = null;
     }
   });
 
@@ -62,6 +86,18 @@
       error = err?.message || 'Failed to load stats';
     } finally {
       statsLoading = false;
+    }
+  }
+
+  async function loadLive() {
+    liveLoading = true;
+    error = '';
+    try {
+      liveData = await fetchAdmin('/api/admin/live');
+    } catch (err) {
+      error = err?.message || 'Failed to load live state';
+    } finally {
+      liveLoading = false;
     }
   }
 
@@ -134,7 +170,14 @@
         <div class="admin-error">{error}</div>
       {/if}
 
+      <div class="admin-tabs">
+        <button class:active={activeTab === TAB_STATS} onclick={() => activeTab = TAB_STATS} type="button">Stats</button>
+        <button class:active={activeTab === TAB_LIVE}  onclick={() => activeTab = TAB_LIVE}  type="button">Live</button>
+        <button class:active={activeTab === TAB_DB}    onclick={() => activeTab = TAB_DB}    type="button">Database</button>
+      </div>
+
       <div class="admin-body">
+        {#if activeTab === TAB_STATS}
         <section class="admin-section">
           <div class="section-head">
             <h4>Server Stats</h4>
@@ -187,7 +230,98 @@
             </div>
           {/if}
         </section>
+        {/if}
 
+        {#if activeTab === TAB_LIVE}
+        <section class="admin-section grow">
+          <div class="section-head">
+            <h4>Live Uploader Election</h4>
+            <div style="display:flex;gap:0.5rem;align-items:center">
+              <span style="font-size:0.76rem;color:#7a8494">Auto-refreshes every 15s</span>
+              <button class="btn secondary small" type="button" onclick={() => void loadLive()}>
+                {liveLoading ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+
+          {#if !liveData?.rooms?.length}
+            <div class="empty-state">{liveLoading ? 'Loading...' : 'No active rooms.'}</div>
+          {:else}
+            <div class="doc-list">
+              {#each liveData.rooms as room}
+                <div class="live-room-card">
+                  <div class="live-room-head">
+                    <span class="live-room-id">{room.id}</span>
+                    <span class="live-room-meta">{room.userCount} user{room.userCount !== 1 ? 's' : ''}</span>
+                    <span class="live-uploader-badge {room.dedicatedUploader ? 'pinned' : 'auto'}">
+                      {#if room.dedicatedUploader}
+                        📌 {room.dedicatedUploader}
+                      {:else if room.electedUploader}
+                        ⚡ {room.electedUploader}
+                      {:else}
+                        No uploader
+                      {/if}
+                    </span>
+                  </div>
+                  <div class="live-room-body">
+                    {#if room.candidates?.length}
+                      <div class="live-subsection">
+                        <div class="live-subsection-label">Uploader Candidates</div>
+                        <table class="admin-table">
+                          <thead>
+                            <tr>
+                              <th>User</th>
+                              <th>Ping</th>
+                              <th>Score</th>
+                              <th>Active</th>
+                              <th>Low Power</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {#each room.candidates as c}
+                              <tr class:elected={c.username === (room.dedicatedUploader || room.electedUploader)}>
+                                <td>{c.username}</td>
+                                <td>{c.ping != null ? `${c.ping}ms` : '—'}</td>
+                                <td>{c.score === -Infinity ? 'DQ' : c.score}</td>
+                                <td>{c.active ? '✓' : '—'}</td>
+                                <td>{c.lowPower ? '⚠️' : '—'}</td>
+                              </tr>
+                            {/each}
+                          </tbody>
+                        </table>
+                      </div>
+                    {/if}
+
+                    <div class="live-subsection">
+                      <div class="live-subsection-label">Snapshots &amp; Checkpoints</div>
+                      <div class="snap-grid">
+                        <div class="snap-stat">
+                          <span class="stat-label">In-memory snapshots</span>
+                          <strong>{room.snapshots?.buffered ?? 0} / 60</strong>
+                        </div>
+                        <div class="snap-stat">
+                          <span class="stat-label">DB checkpoints</span>
+                          <strong>{room.dbCheckpoints ?? 0}</strong>
+                        </div>
+                        <div class="snap-stat">
+                          <span class="stat-label">Oldest snapshot</span>
+                          <strong>{room.snapshots?.oldest ? new Date(room.snapshots.oldest).toLocaleTimeString() : '—'}</strong>
+                        </div>
+                        <div class="snap-stat">
+                          <span class="stat-label">Last checkpoint</span>
+                          <strong>{room.snapshots?.lastCheckpointTs ? new Date(room.snapshots.lastCheckpointTs).toLocaleTimeString() : '—'}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </section>
+        {/if}
+
+        {#if activeTab === TAB_DB}
         <section class="admin-section grow">
           <div class="section-head">
             <h4>Collections</h4>
@@ -223,12 +357,122 @@
             {/if}
           </div>
         </section>
+        {/if}
       </div>
     </div>
   </div>
 {/if}
 
 <style>
+  .admin-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: #2d323c;
+    flex-shrink: 0;
+  }
+
+  .admin-tabs button {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #95a1b4;
+    padding: 0.65rem 1.1rem;
+    font-size: 0.84rem;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  .admin-tabs button.active {
+    color: #90f0da;
+    border-bottom-color: #00d4aa;
+  }
+
+  .live-room-card {
+    background: #1b1f27;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 7px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .live-room-head {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .live-room-id {
+    font-weight: 600;
+    font-size: 0.84rem;
+  }
+
+  .live-room-meta {
+    color: #7a8494;
+    font-size: 0.78rem;
+  }
+
+  .live-uploader-badge {
+    margin-left: auto;
+    font-size: 0.78rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 4px;
+  }
+
+  .live-uploader-badge.auto {
+    background: rgba(0, 212, 170, 0.1);
+    color: #90f0da;
+    border: 1px solid rgba(0, 212, 170, 0.2);
+  }
+
+  .live-uploader-badge.pinned {
+    background: rgba(255, 200, 80, 0.1);
+    color: #ffd966;
+    border: 1px solid rgba(255, 200, 80, 0.2);
+  }
+
+  .admin-table tr.elected td {
+    background: rgba(0, 212, 170, 0.06);
+  }
+
+  .live-subsection {
+    padding: 0.6rem 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  .live-subsection-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #5a6478;
+    margin-bottom: 0.5rem;
+  }
+
+  .snap-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.4rem;
+  }
+
+  .snap-stat {
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 5px;
+    padding: 0.4rem 0.5rem;
+    font-size: 0.75rem;
+    color: #9aa3b2;
+  }
+
+  .snap-stat strong {
+    display: block;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #c8d0de;
+    line-height: 1.2;
+  }
+
   .admin-overlay {
     position: fixed;
     inset: 0;
