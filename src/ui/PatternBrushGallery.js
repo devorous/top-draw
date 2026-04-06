@@ -94,46 +94,46 @@ export class PatternBrushGallery extends BrushGallery {
     return canvas.toDataURL();
   }
 
+
   addBrushToGallery(brush) {
-    const item = document.createElement('div');
-    item.className = 'brushItem';
-    item.title = brush.brushName || brush.name || brush.fileName;
+    const createGalleryItem = (brush) => {
+      const item = document.createElement('div');
+      item.className = 'brushItem';
+      item.title = brush.brushName || brush.name || brush.fileName;
 
-    const img = document.createElement('img');
-    img.src = brush.gimpUrl;
-    img.alt = brush.brushName || brush.name || 'Brush';
+      if (brush.svgContent) {
+        // If SVG content is available, inject it directly
+        item.innerHTML = brush.svgContent;
+        // Optionally, you might want to size the SVG or its container
+        item.style.width = '40px'; // Example size, adjust as needed
+        item.style.height = '40px';
+        item.style.display = 'flex';
+        item.style.alignItems = 'center';
+        item.style.justifyContent = 'center';
+      } else {
+        // Fallback for non-SVG brushes (or if svgContent isn't available)
+        const img = document.createElement('img');
+        img.src = brush.gimpUrl;
+        img.alt = brush.brushName || brush.name || 'Brush';
+        item.appendChild(img);
+      }
 
-    item.appendChild(img);
-    item.addEventListener('click', () => this.selectBrush(brush, item));
+      item.addEventListener('click', () => this.selectBrush(brush, item));
+      return item;
+    };
+
+    const item = createGalleryItem(brush);
     this.brushListEl.appendChild(item);
 
     // Also add to fill pattern brush list if it exists
     if (this.fillBrushListEl) {
-      const fillItem = document.createElement('div');
-      fillItem.className = 'brushItem';
-      fillItem.title = brush.brushName || brush.name || brush.fileName;
-
-      const fillImg = document.createElement('img');
-      fillImg.src = brush.gimpUrl;
-      fillImg.alt = brush.brushName || brush.name || 'Brush';
-
-      fillItem.appendChild(fillImg);
-      fillItem.addEventListener('click', () => this.selectBrush(brush, fillItem));
+      const fillItem = createGalleryItem(brush);
       this.fillBrushListEl.appendChild(fillItem);
     }
 
     // Also add to selection pattern brush list if it exists
     if (this.selectionBrushListEl) {
-      const selectionItem = document.createElement('div');
-      selectionItem.className = 'brushItem';
-      selectionItem.title = brush.brushName || brush.name || brush.fileName;
-
-      const selectionImg = document.createElement('img');
-      selectionImg.src = brush.gimpUrl;
-      selectionImg.alt = brush.brushName || brush.name || 'Brush';
-
-      selectionItem.appendChild(selectionImg);
-      selectionItem.addEventListener('click', () => this.selectBrush(brush, selectionItem));
+      const selectionItem = createGalleryItem(brush);
       this.selectionBrushListEl.appendChild(selectionItem);
     }
 

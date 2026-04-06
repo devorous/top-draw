@@ -130,26 +130,16 @@ export class BrushGallery {
       });
       brushData.image = image;
     } else if (fileType === 'svg') {
+      const svgText = await response.text();
       brushData = {
         type: 'svg',
         fileName: fileName,
         brushName: fileName.replace(/\.[^/.]+$/, ''),
-        gimpUrl: filePath,
-        width: 0,
+        gimpUrl: filePath, // Still provide path for consistency, though content is preferred
+        svgContent: svgText,
+        width: 0, // Dimensions will be determined when rendered
         height: 0
       };
-
-      const image = new Image();
-      await new Promise((resolve, reject) => {
-        image.onload = () => {
-          brushData.width = image.naturalWidth || image.width;
-          brushData.height = image.naturalHeight || image.height;
-          resolve();
-        };
-        image.onerror = reject;
-        image.src = filePath;
-      });
-      brushData.image = image;
     }
 
     return brushData;

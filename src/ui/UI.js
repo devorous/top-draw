@@ -28,7 +28,8 @@ import patternIconUrl from '../assets/icons/pattern-icon.svg';
 export class UI {
   constructor() {
     this.elements = {};
-    this.icons = {};
+    this.svgCache = new Map(); // Initialize SVG cache
+    this.icons = {}; // Will store references to cached SVG data or image elements
     this.cursors = new Map();
     this.editableHandler = new EditableValueHandler();
     this.remoteUserUI = null;
@@ -39,9 +40,9 @@ export class UI {
   /**
    * Initializes the UI manager and its sub-components.
    */
-  init() {
+  async init() { // Made init async
     this.cacheElements();
-    this.createIcons();
+    await this._preloadSVGIcons(); // Await preloading of SVG icons
     this.remoteUserUI = new RemoteUserUI(this.elements, this.icons);
     this.layerPreview.init();
     this.setupScrollIndicator();
@@ -358,43 +359,71 @@ export class UI {
   }
 
   /**
-   * Populates the internal icons map from image sources.
+   * Preloads all SVG tool icons and stores their content.
    */
-  createIcons() {
-    this.icons = {
-      select: this.createIcon(selectIconUrl),
-      brush: this.createIcon(brushIconUrl),
-      pen: this.createIcon(brushIconUrl),
-      flowPen: this.createIcon(brushIconUrl),
-      ink: this.createIcon(brushIconUrl),
-      line: this.createIcon(lineIconUrl),
-      rectangle: this.createIcon(rectangleIconUrl),
-      circle: this.createIcon(circleIconUrl),
-      text: this.createIcon(textIconUrl),
-      erase: this.createIcon(eraserIconUrl),
-      blur: this.createIcon(brushIconUrl),
-      circleBlur: this.createIcon(circleBlurIconUrl),
-      glitchBlur: this.createIcon(glitchIconUrl),
-      inkdropper: this.createIcon(inkdropperIconUrl),
-      pan: this.createIcon(moveIconUrl),
-      rotate: this.createIcon(rotateIconUrl),
-      imageBrush: this.createIcon(pepperIconUrl),
-      pixel: this.createIcon(brushIconUrl),
-      pattern: this.createIcon(patternIconUrl)
+  async _preloadSVGIcons() {
+    const iconMap = {
+      select: selectIconUrl,
+      brush: brushIconUrl,
+      pen: brushIconUrl, // Reuse brush icon
+      flowPen: brushIconUrl, // Reuse brush icon
+      ink: brushIconUrl, // Reuse brush icon
+      line: lineIconUrl,
+      rectangle: rectangleIconUrl,
+      circle: circleIconUrl,
+      text: textIconUrl,
+      erase: eraserIconUrl,
+      blur: brushIconUrl, // Reuse brush icon
+      circleBlur: circleBlurIconUrl,
+      glitchBlur: glitchIconUrl,
+      inkdropper: inkdropperIconUrl,
+      pan: moveIconUrl,
+      rotate: rotateIconUrl,
+      pattern: patternIconUrl,
+      lockClosed: '/images/lock-closed.svg', // Preload from static assets
+      lockOpen: '/images/lock-open.svg'
     };
-  }
 
-  /**
-   * Creates an icon image element.
-   * @param {string} src - Image source path
-   * @returns {HTMLImageElement}
-   */
-  createIcon(src) {
-    const img = document.createElement('img');
-    img.className = 'toolIcon';
-    img.src = src;
-    img.alt = '';
-    return img;
+    const fetchPromises = Object.entries(iconMap).map(async ([toolName, url]) => {
+      if (url.endsWith('.svg')) {
+        try {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`Failed to fetch ${url}`);
+          const svgContent = await response.text();
+          this.svgCache.set(toolName, { type: 'svg', content: svgContent, originalUrl: url });
+        } catch (error) {
+          console.error(`Error preloading SVG for ${toolName} (${url}):`, error);
+          // Fallback to image element if preloading fails
+          const img = document.createElement('img');
+          img.className = 'toolIcon';
+          img.src = url;
+          img.alt = '';
+          this.svgCache.set(toolName, { type: 'img', element: img, originalUrl: url });
+        }
+      } else {
+        // Handle non-SVG icons (e.g., PNG) by creating an img element directly
+        const img = document.createElement('img');
+        img.className = 'toolIcon';
+        img.src = url;
+        img.alt = '';
+        this.svgCache.set(toolName, { type: 'img', element: img, originalUrl: url });
+      }
+    });
+
+    // Handle pepperIconUrl separately as it's a PNG and not in the main iconMap
+    const pepperImg = document.createElement('img');
+    pepperImg.className = 'toolIcon';
+    pepperImg.src = pepperIconUrl;
+    pepperImg.alt = '';
+    this.svgCache.set('imageBrush', { type: 'img', element: pepperImg, originalUrl: pepperIconUrl });
+
+
+    await Promise.all(fetchPromises);
+
+    // Populate this.icons with references to the cached data
+    for (const [toolName, data] of this.svgCache.entries()) {
+      this.icons[toolName] = data;
+    }
   }
 
   /**
@@ -685,7 +714,7 @@ export class UI {
     if (brushModeOptions) brushModeOptions.style.display = 'none';
     if (circleBlurModeOptions) circleBlurModeOptions.style.display = 'none';
     if (this.elements.fillModeOptions) this.elements.fillModeOptions.style.display = 'none';
-    if (patternModeOptions) patternModeOptions.style.display = 'none';
+    if (patternModeOptions) patternModeOptions.style.display = 'block';
     if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'none';
     appState.patternPreviewVisible = false;
     
@@ -878,13 +907,22 @@ export class UI {
       buttons[buttonTool].classList.add('selected');
     }
 
-    const toolIcon = this.icons[tool];
-    if (toolIcon) {
+    const toolIconData = this.icons[tool]; // Renamed to avoid confusion with the DOM element
+
+    if (toolIconData) {
       const toolEntry = this.elements.selfListTool;
       if (toolEntry.children[0]) {
         toolEntry.children[0].remove();
       }
-      toolEntry.appendChild(toolIcon.cloneNode(true));
+
+      if (toolIconData.type === 'svg') {
+        const svgWrapper = document.createElement('div');
+        svgWrapper.className = 'toolIcon'; // Apply class for consistent styling
+        svgWrapper.innerHTML = toolIconData.content;
+        toolEntry.appendChild(svgWrapper);
+      } else if (toolIconData.type === 'img') {
+        toolEntry.appendChild(toolIconData.element.cloneNode(true)); // Clone the pre-created img element
+      }
     }
   }
 
@@ -1042,8 +1080,16 @@ export class UI {
     const { selfListTool } = this.elements;
     if (selfListTool) {
       selfListTool.innerHTML = '';
-      const icon = this.icons[tool] || this.icons.brush;
-      selfListTool.appendChild(icon.cloneNode(true));
+      const iconData = this.icons[tool] || this.icons.brush; // Use iconData to avoid confusion with DOM element
+
+      if (iconData.type === 'svg') {
+        const svgWrapper = document.createElement('div');
+        svgWrapper.className = 'toolIcon'; // Apply class for consistent styling
+        svgWrapper.innerHTML = iconData.content;
+        selfListTool.appendChild(svgWrapper);
+      } else if (iconData.type === 'img') {
+        selfListTool.appendChild(iconData.element.cloneNode(true)); // Clone the pre-created img element
+      }
     }
   }
 
@@ -1217,7 +1263,16 @@ export class UI {
     if (!btn) return;
 
     btn.style.display = visible ? 'inline-block' : 'none';
-    btn.innerHTML = locked ? '<img src="/images/lock-closed.svg" alt="lock">' : '<img src="/images/lock-open.svg" alt="unlock">';
+    
+    // Use preloaded SVG content from cache
+    const cachedIcon = locked ? this.svgCache.get('lockClosed') : this.svgCache.get('lockOpen');
+    if (cachedIcon && cachedIcon.type === 'svg') {
+      btn.innerHTML = cachedIcon.content;
+    } else {
+      // Fallback
+      btn.innerHTML = locked ? '<img src="/images/lock-closed.svg" alt="lock">' : '<img src="/images/lock-open.svg" alt="unlock">';
+    }
+
     btn.classList.toggle('locked', locked);
     btn.title = locked ? `Unlock ${property} for current tool` : `Lock ${property} for current tool`;
   }
