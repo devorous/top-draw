@@ -290,13 +290,10 @@ export class Auth {
    * Show the registration panel, hiding the room input
    */
   async showRegisterPanel() {
-    const username = this.els.loginUsername?.value.trim();
-    const password = this.els.loginPassword?.value;
-    if (!username || !password) {
-      if (this.onError) this.onError('Please enter username and password first');
-      return;
-    }
-    // Pre-fill and lock username/password from the login form
+    const username = this.els.loginUsername?.value.trim() || '';
+    const password = this.els.loginPassword?.value || '';
+
+    // Pre-fill username/password from the login form
     if (this.els.registerUsername) {
       this.els.registerUsername.value = username;
     }

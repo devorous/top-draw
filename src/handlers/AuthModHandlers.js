@@ -14,6 +14,24 @@ export function setupAuthModHandlers(wsClient, app) {
     if (data.success && data.username) {
       app.self.registeredName = data.username;
     }
+
+    // Detect a live role update (promotion/demotion) while already in a room.
+    // These arrive with success=true but no username and no token — distinct from a real login.
+    if (data.success && !data.username && !data.token && app.connected) {
+      const role = data.role;
+      app.selfRole = role;
+      app.self.role = role;
+      appState.selfRole = role;
+      if (app.moderation) app.moderation.setRole(role);
+      app.ui.updateSelfRole(role);
+      app.updateRoomSettingsButtonVisibility?.();
+      app.updateGalleryButtonVisibility?.(role);
+      app.updateAuthenticatedActionVisibility?.(role);
+      const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
+      ui.showToast(`Your role has been updated to ${roleNames[role] || 'Unknown'}`, 4000);
+      return;
+    }
+
     if (app.auth) {
       app.auth.handleAuthResult(data);
     }

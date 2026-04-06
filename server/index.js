@@ -2487,16 +2487,6 @@ wss.on('connection', (ws, req) => {
               message: `${targetUsername} ${actionLabel} to ${RoleNames[newGlobalRole] || 'role ' + newGlobalRole}`
             });
 
-            // Notify the target user
-            wss.clients.forEach(client => {
-              if (client.userId === String(targetUser._id)) {
-                sendTo(client, {
-                  t: T.MOD_NOTIFY,
-                  message: `You have been ${actionLabel} to ${RoleNames[newGlobalRole] || 'role ' + newGlobalRole} by ${ws.registeredName || ws.guestName || 'admin'}`
-                });
-              }
-            });
-
             // Broadcast updated user lists so role badges refresh anywhere they're active
             for (const activeRoom of roomsNeedingRefresh) {
               broadcastUsersForRoom(activeRoom);

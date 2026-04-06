@@ -18,6 +18,20 @@ export class RemoteUserUI {
     this._replayModeActive = false;
   }
 
+  _iconToElement(iconData) {
+    if (!iconData) return null;
+    if (iconData.type === 'svg') {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'toolIcon';
+      wrapper.innerHTML = iconData.content;
+      return wrapper;
+    } else if (iconData.type === 'img') {
+      return iconData.element.cloneNode(true);
+    }
+    // Legacy: plain DOM node
+    return iconData.cloneNode ? iconData.cloneNode(true) : null;
+  }
+
   _isReplayBotUser(userId) {
     return Number(userId) < 0;
   }
@@ -280,8 +294,8 @@ export class RemoteUserUI {
 
     const toolEl = document.createElement('a');
     toolEl.className = 'listTool groupHeaderTool';
-    const icon = this.icons[displayUserData.tool] || this.icons.brush;
-    toolEl.appendChild(icon.cloneNode(true));
+    const iconEl = this._iconToElement(this.icons[displayUserData.tool] || this.icons.brush);
+    if (iconEl) toolEl.appendChild(iconEl);
 
     const colorEl = document.createElement('a');
     colorEl.className = 'listColor groupHeaderColor';
@@ -390,8 +404,8 @@ export class RemoteUserUI {
 
     const toolEntry = document.createElement('a');
     toolEntry.className = `listTool ${id}`;
-    const icon = this.icons[userData.tool] || this.icons.brush;
-    toolEntry.appendChild(icon.cloneNode(true));
+    const iconEl = this._iconToElement(this.icons[userData.tool] || this.icons.brush);
+    if (iconEl) toolEntry.appendChild(iconEl);
 
     const colorEntry = document.createElement('a');
     colorEntry.className = `listColor ${id}`;
@@ -780,16 +794,16 @@ export class RemoteUserUI {
     const toolEntry = document.querySelector(`.listTool.${id}`);
     if (toolEntry) {
       toolEntry.innerHTML = '';
-      const icon = this.icons[tool] || this.icons.brush;
-      toolEntry.appendChild(icon.cloneNode(true));
+      const iconEl = this._iconToElement(this.icons[tool] || this.icons.brush);
+      if (iconEl) toolEntry.appendChild(iconEl);
     }
 
     // Propagate to group header if this is the display user
     for (const [ipHash, group] of this.userGroups.entries()) {
       if (group.userIds.has(userId) && group.displayUserId === userId) {
         group.headerToolEl.innerHTML = '';
-        const icon = this.icons[tool] || this.icons.brush;
-        group.headerToolEl.appendChild(icon.cloneNode(true));
+        const iconEl = this._iconToElement(this.icons[tool] || this.icons.brush);
+        if (iconEl) group.headerToolEl.appendChild(iconEl);
         break;
       }
     }
