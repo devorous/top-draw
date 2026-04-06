@@ -71,13 +71,13 @@
 }
 
 .roleBadge.mod {
-  background: rgba(0, 212, 170, 0.2);
-  color: var(--accent-primary);
+  background: color-mix(in srgb, var(--role-mod), transparent 80%);
+  color: var(--role-mod);
 }
 
 .roleBadge.admin {
-  background: rgba(251, 191, 36, 0.2);
-  color: #fbbf24;
+  background: color-mix(in srgb, var(--role-admin), transparent 80%);
+  color: var(--role-admin);
 }
 
 /* ========================================
@@ -105,23 +105,25 @@
   font-weight: 700;
   color: var(--text-primary);
 
-  &.rank-helper { color: #8bc34a; }
-  &.rank-mod    { color: var(--accent-primary); }
-  &.rank-admin  { color: #fbbf24; }
+  &.rank-guest  { color: var(--role-guest); }
+  &.rank-user   { color: var(--role-user); }
+  &.rank-helper { color: var(--role-helper); }
+  &.rank-mod    { color: var(--role-mod); }
+  &.rank-admin  { color: var(--role-admin); }
 
   &.rank-noble {
-    color: #d4a853;
-    text-shadow: 0 0 8px rgba(212, 168, 83, 0.4);
+    color: var(--role-noble);
+    text-shadow: 0 0 8px color-mix(in srgb, var(--role-noble), transparent 60%);
   }
 
   &.rank-holy {
-    color: #7cb3ff;
-    text-shadow: 0 0 8px rgba(124, 179, 255, 0.5);
+    color: var(--role-holy);
+    text-shadow: 0 0 8px color-mix(in srgb, var(--role-holy), transparent 50%);
   }
 
   &.rank-deity {
-    color: #ffb347;
-    text-shadow: 0 0 10px rgba(255, 179, 71, 0.7);
+    color: var(--role-deity);
+    text-shadow: 0 0 10px color-mix(in srgb, var(--role-deity), transparent 30%);
   }
 }
 

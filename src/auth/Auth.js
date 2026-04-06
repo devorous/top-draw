@@ -26,7 +26,6 @@ export class Auth {
       // Login state elements
       authNotLoggedIn: document.getElementById('authNotLoggedIn'),
       authLoggedIn: document.getElementById('authLoggedIn'),
-      authEditCredentials: document.getElementById('authEditCredentials'),
       // Not logged in form
       loginUsername: document.getElementById('loginUsername'),
       loginPassword: document.getElementById('loginPassword'),
@@ -36,11 +35,6 @@ export class Auth {
       authUsernameBtn: document.getElementById('authUsernameBtn'),
       authUsernameDisplay: document.getElementById('authUsernameDisplay'),
       joinBtnLoggedIn: document.getElementById('joinBtnLoggedIn'),
-      // Edit credentials
-      authEditClose: document.getElementById('authEditClose'),
-      editUsername: document.getElementById('editUsername'),
-      editPassword: document.getElementById('editPassword'),
-      editLoginJoinBtn: document.getElementById('editLoginJoinBtn'),
       // Registration
       registerBtn: document.getElementById('registerBtn'),
       registerPanel: document.getElementById('authRegisterPanel'),
@@ -51,7 +45,8 @@ export class Auth {
       registerSecretQuestion: document.getElementById('registerSecretQuestion'),
       registerSecretAnswer: document.getElementById('registerSecretAnswer'),
       registerSubmitBtn: document.getElementById('registerSubmitBtn'),
-      roomIdInput: document.getElementById('roomIdInput')
+      roomIdInput: document.getElementById('roomIdInput'),
+      authFormWrapper: document.getElementById('authFormWrapper')
     };
 
     // Load remember me preference
@@ -66,16 +61,9 @@ export class Auth {
   }
 
   setupListeners() {
-    // Dynamic button text and register button visibility based on password input
+    // Dynamic button text
     this.els.loginPassword?.addEventListener('input', () => {
       this.updateButtonText(this.els.loginPassword, this.els.loginJoinBtn);
-      // Show register button when password is entered
-      if (this.els.registerBtn) {
-        this.els.registerBtn.style.display = this.els.loginPassword.value ? '' : 'none';
-      }
-    });
-    this.els.editPassword?.addEventListener('input', () => {
-      this.updateButtonText(this.els.editPassword, this.els.editLoginJoinBtn);
     });
 
     // Consolidated buttons
@@ -89,27 +77,6 @@ export class Auth {
       this.triggerJoin();
     });
 
-    this.els.editLoginJoinBtn?.addEventListener('click', (e) => {
-      e.preventDefault();
-      const newUsername = this.els.editUsername?.value.trim();
-      
-      if (this.els.editPassword?.value) {
-        this.handleSaveCredentials();
-      } else {
-        // If user changed the username while logged in, log them out first
-        if (this.isLoggedIn && newUsername && newUsername !== this.loggedInUsername) {
-          this.logout();
-          // Update the loginUsername field so App.handleJoin picks it up
-          if (this.els.loginUsername) {
-            this.els.loginUsername.value = newUsername;
-          }
-        }
-        
-        this.hideEditCredentials();
-        this.triggerJoin();
-      }
-    });
-
     // Enter key on password fields
     this.els.loginPassword?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -118,23 +85,14 @@ export class Auth {
       }
     });
 
-    this.els.editPassword?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        if (this.els.editPassword?.value) {
-          this.handleSaveCredentials();
-        } else {
-          this.hideEditCredentials();
-          this.triggerJoin();
-        }
+    // Username button (logged in state) - logs out to show login menu
+    this.els.authUsernameBtn?.addEventListener('click', () => {
+      const currentUsername = this.loggedInUsername;
+      this.logout();
+      if (this.els.loginUsername) {
+        this.els.loginUsername.value = currentUsername || '';
       }
     });
-
-    // Username button (logged in state) - opens edit panel
-    this.els.authUsernameBtn?.addEventListener('click', () => this.showEditCredentials());
-
-    // Edit credentials panel
-    this.els.authEditClose?.addEventListener('click', () => this.hideEditCredentials());
 
     // Register button — opens registration panel
     this.els.registerBtn?.addEventListener('click', () => this.showRegisterPanel());
@@ -186,15 +144,81 @@ export class Auth {
   }
 
   /**
+   * Helper to switch between elements with a fade and height animation
+   */
+  async _transitionTo(toEl, fromEls = []) {
+    const duration = 200; // Match CSS transition duration
+    const wrapper = this.els.authFormWrapper;
+
+    // 1. Measure current height
+    let oldHeight = 0;
+    if (wrapper) {
+      oldHeight = wrapper.offsetHeight;
+      wrapper.style.height = oldHeight + 'px';
+    }
+
+    // 2. Start fading out old elements
+    fromEls.forEach(el => {
+      if (el && el.style.display !== 'none') {
+        el.classList.remove('auth-fade-in');
+        el.classList.add('auth-fade-out');
+      }
+    });
+
+    // Wait for fade out
+    await new Promise(r => setTimeout(r, duration));
+
+    // 3. Hide old elements and prepare new element (but keep it invisible)
+    fromEls.forEach(el => {
+      if (el) {
+        el.style.display = 'none';
+        el.classList.remove('auth-fade-out');
+      }
+    });
+
+    if (toEl) {
+      toEl.style.display = 'flex';
+      toEl.style.opacity = '0';
+      toEl.style.transform = 'translateY(10px)';
+    }
+
+    // 4. Measure new height and animate
+    if (wrapper && toEl) {
+      const newHeight = wrapper.scrollHeight;
+      wrapper.style.height = newHeight + 'px';
+      
+      // Wait for height animation
+      await new Promise(r => setTimeout(r, duration));
+    }
+
+    // 5. Fade in new element
+    if (toEl) {
+      toEl.style.opacity = '';
+      toEl.style.transform = '';
+      toEl.classList.add('auth-fade-in');
+      
+      // Cleanup
+      setTimeout(() => {
+        toEl.classList.remove('auth-fade-in');
+        if (wrapper) wrapper.style.height = '';
+      }, duration);
+    } else if (wrapper) {
+      wrapper.style.height = '';
+    }
+  }
+
+  /**
    * Show the logged-in UI state
    */
-  showLoggedInState(username) {
+  async showLoggedInState(username) {
+    const wasLoggedIn = this.isLoggedIn;
     this.isLoggedIn = true;
     this.loggedInUsername = username;
 
-    if (this.els.authNotLoggedIn) this.els.authNotLoggedIn.style.display = 'none';
-    if (this.els.authLoggedIn) this.els.authLoggedIn.style.display = 'flex';
-    if (this.els.authEditCredentials) this.els.authEditCredentials.style.display = 'none';
+    if (!wasLoggedIn) {
+      await this._transitionTo(this.els.authLoggedIn, [this.els.authNotLoggedIn, this.els.registerPanel]);
+    }
+
     if (this.els.authUsernameDisplay) this.els.authUsernameDisplay.textContent = username;
 
     if (this.onLoggedInStateChange) {
@@ -205,13 +229,11 @@ export class Auth {
   /**
    * Show the not-logged-in UI state
    */
-  showNotLoggedInState() {
+  async showNotLoggedInState() {
     this.isLoggedIn = false;
     this.loggedInUsername = null;
 
-    if (this.els.authNotLoggedIn) this.els.authNotLoggedIn.style.display = 'flex';
-    if (this.els.authLoggedIn) this.els.authLoggedIn.style.display = 'none';
-    if (this.els.authEditCredentials) this.els.authEditCredentials.style.display = 'none';
+    await this._transitionTo(this.els.authNotLoggedIn, [this.els.authLoggedIn, this.els.registerPanel]);
 
     // Reset button text
     this.updateButtonText(this.els.loginPassword, this.els.loginJoinBtn);
@@ -222,71 +244,13 @@ export class Auth {
   }
 
   /**
-   * Show the edit credentials panel
-   */
-  showEditCredentials() {
-    if (this.els.authLoggedIn) this.els.authLoggedIn.style.display = 'none';
-    if (this.els.authEditCredentials) this.els.authEditCredentials.style.display = 'flex';
-
-    // Pre-fill username
-    if (this.els.editUsername) {
-      this.els.editUsername.value = this.loggedInUsername || '';
-    }
-    // Clear password fields
-    if (this.els.editPassword) {
-      this.els.editPassword.value = '';
-    }
-    
-    // Reset button text
-    this.updateButtonText(this.els.editPassword, this.els.editLoginJoinBtn);
-  }
-
-  /**
-   * Hide the edit credentials panel, return to correct auth state
-   */
-  hideEditCredentials() {
-    if (this.els.authEditCredentials) this.els.authEditCredentials.style.display = 'none';
-    
-    if (this.isLoggedIn) {
-      if (this.els.authLoggedIn) this.els.authLoggedIn.style.display = 'flex';
-    } else {
-      if (this.els.authNotLoggedIn) this.els.authNotLoggedIn.style.display = 'flex';
-    }
-  }
-
-  /**
    * Log out the current user (clear session/token)
    */
   logout() {
     this.clearToken();
     this.clearStoredUsername();
     this.setRememberMe(false);
-    this.showNotLoggedInState();
-  }
-
-  /**
-   * Handle switching account (login with new credentials)
-   */
-  handleSaveCredentials() {
-    if (this._loading) return;
-
-    if (!this.wsClient?.connected) {
-      if (this.onError) this.onError('Not currently connected');
-      return;
-    }
-
-    const username = this.els.editUsername?.value.trim();
-    const password = this.els.editPassword?.value;
-
-    if (!username || !password) {
-      if (this.onError) this.onError('Please enter username and password');
-      return;
-    }
-
-    // Reuse handleLogin logic
-    this._pendingUsername = username;
-    this.setLoading(true);
-    this.wsClient.sendAuthLogin(username, password);
+    void this.showNotLoggedInState();
   }
 
   handleLogin() {
@@ -325,7 +289,7 @@ export class Auth {
   /**
    * Show the registration panel, hiding the room input
    */
-  showRegisterPanel() {
+  async showRegisterPanel() {
     const username = this.els.loginUsername?.value.trim();
     const password = this.els.loginPassword?.value;
     if (!username || !password) {
@@ -345,26 +309,28 @@ export class Auth {
     if (this.els.registerSecretAnswer) this.els.registerSecretAnswer.value = '';
 
     // Hide room input, login form, divider, and offline button; show registration panel
-    if (this.els.roomIdInput) this.els.roomIdInput.style.display = 'none';
-    if (this.els.authNotLoggedIn) this.els.authNotLoggedIn.style.display = 'none';
     const divider = document.querySelector('.landingDivider');
     const offlineBtn = document.getElementById('loginOfflineBtn');
+    
+    if (this.els.roomIdInput) this.els.roomIdInput.style.display = 'none';
     if (divider) divider.style.display = 'none';
     if (offlineBtn) offlineBtn.style.display = 'none';
-    if (this.els.registerPanel) this.els.registerPanel.style.display = 'flex';
+
+    await this._transitionTo(this.els.registerPanel, [this.els.authNotLoggedIn, this.els.authLoggedIn]);
   }
 
   /**
    * Hide the registration panel, restore the login form
    */
-  hideRegisterPanel() {
-    if (this.els.registerPanel) this.els.registerPanel.style.display = 'none';
-    if (this.els.roomIdInput) this.els.roomIdInput.style.display = '';
-    if (this.els.authNotLoggedIn) this.els.authNotLoggedIn.style.display = 'flex';
+  async hideRegisterPanel() {
     const divider = document.querySelector('.landingDivider');
     const offlineBtn = document.getElementById('loginOfflineBtn');
+    
+    if (this.els.roomIdInput) this.els.roomIdInput.style.display = '';
     if (divider) divider.style.display = '';
     if (offlineBtn) offlineBtn.style.display = '';
+
+    await this._transitionTo(this.els.authNotLoggedIn, [this.els.registerPanel]);
   }
 
   handleRegister() {
@@ -457,7 +423,7 @@ export class Auth {
 
   setLoading(loading) {
     this._loading = loading;
-    const btns = [this.els.loginJoinBtn, this.els.editLoginJoinBtn, this.els.registerSubmitBtn];
+    const btns = [this.els.loginJoinBtn, this.els.registerSubmitBtn];
 
     if (loading) {
       btns.forEach(btn => {

@@ -1534,61 +1534,57 @@ export class UI {
 
   /**
    * Updates the self user entry's role styling in the user list.
-   * @param {number} role - Role level (0-8)
+   * @param {number} role - Role level (0-9)
    */
   updateSelfRole(role) {
     const el = this.elements.selfListUser;
     if (!el) return;
 
-    // Remove all rank classes
-    const rankClasses = ['rank-helper', 'rank-mod', 'rank-admin', 'rank-noble', 'rank-holy', 'rank-deity'];
+    // Remove all possible rank classes
+    const rankClasses = ['rank-guest', 'rank-user', 'rank-helper', 'rank-mod', 'rank-admin', 'rank-noble', 'rank-holy', 'rank-deity'];
     el.classList.remove(...rankClasses);
 
-    // Import would create circular dependency, so inline the mapping
-    if (role >= 9) el.classList.add('rank-deity');
-    else if (role >= 8) el.classList.add('rank-holy');
-    else if (role >= 7) el.classList.add('rank-noble');
-    else if (role >= 5) el.classList.add('rank-admin');
-    else if (role >= 4) el.classList.add('rank-mod');
-    else if (role >= 3) el.classList.add('rank-helper');
+    const roleClass = RemoteUserUI.roleToClass(role);
+    if (roleClass) {
+      el.classList.add(roleClass);
+    }
 
     // Also update the self userEntry glow
     const entry = el.closest('.userEntry');
     if (entry) {
       entry.classList.remove(...rankClasses);
-      if (role >= 9) entry.classList.add('rank-deity');
-      else if (role >= 8) entry.classList.add('rank-holy');
-      else if (role >= 7) entry.classList.add('rank-noble');
+      // Only apply row glow for Noble+
+      if (role >= 7 && roleClass) {
+        entry.classList.add(roleClass);
+      }
     }
   }
 
   /**
    * Updates a remote user's rank styling in the user list.
    * @param {number} sessionIndex
-   * @param {number} role - Role level (0-8)
+   * @param {number} role - Role level (0-9)
    */
   updateRemoteUserRank(sessionIndex, role) {
     const id = `u${sessionIndex}`;
-    const rankClasses = ['rank-helper', 'rank-mod', 'rank-admin', 'rank-noble', 'rank-holy', 'rank-deity'];
+    const rankClasses = ['rank-guest', 'rank-user', 'rank-helper', 'rank-mod', 'rank-admin', 'rank-noble', 'rank-holy', 'rank-deity'];
+
+    const roleClass = RemoteUserUI.roleToClass(role);
 
     const listUser = document.querySelector(`.listUser.${id}`);
     if (listUser) {
       listUser.classList.remove(...rankClasses);
-      if (role >= 9) listUser.classList.add('rank-deity');
-      else if (role >= 8) listUser.classList.add('rank-holy');
-      else if (role >= 7) listUser.classList.add('rank-noble');
-      else if (role >= 5) listUser.classList.add('rank-admin');
-      else if (role >= 4) listUser.classList.add('rank-mod');
-      else if (role >= 3) listUser.classList.add('rank-helper');
+      if (roleClass) {
+        listUser.classList.add(roleClass);
+      }
     }
 
     const entry = document.querySelector(`.userEntry.${id}`);
     if (entry) {
       entry.classList.remove(...rankClasses);
-      if (role >= 7) {
-        if (role >= 9) entry.classList.add('rank-deity');
-        else if (role >= 8) entry.classList.add('rank-holy');
-        else entry.classList.add('rank-noble');
+      // Only apply row glow for Noble+
+      if (role >= 7 && roleClass) {
+        entry.classList.add(roleClass);
       }
     }
   }

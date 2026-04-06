@@ -154,13 +154,56 @@
 }
 
 /* Auth Containers */
+.authFormWrapper {
+  width: 100%;
+  transition: height var(--transition-normal) ease;
+  overflow: hidden;
+  position: relative;
+  min-height: 220px;
+}
+
 #authLoggedIn,
 #authNotLoggedIn,
-#authEditCredentials {
+#authRegisterPanel {
   display: flex;
   flex-direction: column;
   align-items: center;
   width: 100%;
+  transition: opacity var(--transition-normal), transform var(--transition-normal);
+  
+  &[style*="display: none"] {
+    display: none !important;
+  }
+}
+
+.auth-fade-in {
+  animation: authFadeIn var(--transition-normal) forwards;
+}
+
+.auth-fade-out {
+  animation: authFadeOut var(--transition-normal) forwards;
+}
+
+@keyframes authFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes authFadeOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
 }
 
 /* Logged in state */

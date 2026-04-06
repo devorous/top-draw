@@ -101,47 +101,55 @@
 }
 
 /* Rank-based username styling */
+.listUser.rank-guest {
+  color: var(--role-guest);
+}
+
+.listUser.rank-user {
+  color: var(--role-user);
+}
+
 .listUser.rank-helper {
-  color: #8bc34a;
+  color: var(--role-helper);
 }
 
 .listUser.rank-mod {
-  color: var(--accent-primary);
+  color: var(--role-mod);
 }
 
 .listUser.rank-admin {
-  color: #fbbf24;
+  color: var(--role-admin);
 }
 
 .listUser.rank-noble {
-  color: #d4a853;
-  text-shadow: 0 0 6px rgba(212, 168, 83, 0.35);
+  color: var(--role-noble);
+  text-shadow: 0 0 6px color-mix(in srgb, var(--role-noble), transparent 65%);
 }
 
 .listUser.rank-holy {
-  color: #7cb3ff;
-  text-shadow: 0 0 6px rgba(124, 179, 255, 0.4);
+  color: var(--role-holy);
+  text-shadow: 0 0 6px color-mix(in srgb, var(--role-holy), transparent 60%);
 }
 
 .listUser.rank-deity {
-  color: #ffb347;
-  text-shadow: 0 0 8px rgba(255, 179, 71, 0.6);
+  color: var(--role-deity);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--role-deity), transparent 40%);
 }
 
 /* Noble/Holy/Deity border glow on user entry row */
 .userEntry.rank-noble {
-  border: 1px solid rgba(212, 168, 83, 0.25);
-  box-shadow: 0 0 6px rgba(212, 168, 83, 0.15), inset 0 0 6px rgba(212, 168, 83, 0.06);
+  border: 1px solid color-mix(in srgb, var(--role-noble), transparent 75%);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--role-noble), transparent 85%), inset 0 0 6px color-mix(in srgb, var(--role-noble), transparent 94%);
 }
 
 .userEntry.rank-holy {
-  border: 1px solid rgba(124, 179, 255, 0.3);
-  box-shadow: 0 0 8px rgba(124, 179, 255, 0.2), inset 0 0 6px rgba(124, 179, 255, 0.06);
+  border: 1px solid color-mix(in srgb, var(--role-holy), transparent 70%);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--role-holy), transparent 80%), inset 0 0 6px color-mix(in srgb, var(--role-holy), transparent 94%);
 }
 
 .userEntry.rank-deity {
-  border: 1px solid rgba(255, 179, 71, 0.35);
-  box-shadow: 0 0 10px rgba(255, 179, 71, 0.25), inset 0 0 8px rgba(255, 179, 71, 0.08);
+  border: 1px solid color-mix(in srgb, var(--role-deity), transparent 65%);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--role-deity), transparent 75%), inset 0 0 8px color-mix(in srgb, var(--role-deity), transparent 92%);
 }
 
 .listSync {

@@ -62,55 +62,63 @@
 
     <style id="rank-styles">
       /* User Rank Styling */
+      .rank-guest {
+        color: #a0a8b8 !important;
+      }
+
+      .rank-user {
+        color: #f0f2f5 !important;
+      }
+
       .rank-helper {
-        color: #60a5fa !important;
+        color: #90ee90 !important;
         font-weight: 500;
       }
 
       .rank-mod {
-        color: #34d399 !important;
+        color: #00ffff !important;
         font-weight: 600;
       }
 
       .rank-admin {
-        color: #fbbf24 !important;
+        color: #0070ff !important;
         font-weight: 600;
-        text-shadow: 0 0 4px rgba(251, 191, 36, 0.3);
+        text-shadow: 0 0 4px rgba(0, 112, 255, 0.3);
       }
 
       .rank-noble {
-        color: #a78bfa !important;
+        color: #b19cd9 !important;
         font-weight: 700;
-        text-shadow: 0 0 10px rgba(167, 139, 250, 0.7), 0 0 14px rgba(167, 139, 250, 0.5);
+        text-shadow: 0 0 8px rgba(177, 156, 217, 0.6);
       }
 
       .rank-holy {
-        color: #ec4899 !important;
+        color: #ffb6c1 !important;
         font-weight: 700;
-        text-shadow: 0 0 12px rgba(236, 72, 153, 0.8), 0 0 18px rgba(236, 72, 153, 0.6), 0 0 24px rgba(236, 72, 153, 0.4);
+        text-shadow: 0 0 10px rgba(255, 182, 193, 0.7);
       }
 
       .rank-deity {
-        color: #fbbf24 !important;
+        color: #ff4500 !important;
         font-weight: 700;
-        text-shadow: 0 0 10px rgba(251, 191, 36, 0.7), 0 0 16px rgba(251, 191, 36, 0.5), 0 0 22px rgba(251, 191, 36, 0.3);
+        text-shadow: 0 0 12px rgba(255, 69, 0, 0.5);
       }
 
       /* Row glow effects for Noble/Holy/Deity entries */
       .listEntry.rank-noble {
-        background: rgba(167, 139, 250, 0.08) !important;
-        border-left: 2px solid rgba(167, 139, 250, 0.4);
+        background: rgba(177, 156, 217, 0.08) !important;
+        border-left: 2px solid rgba(177, 156, 217, 0.4);
       }
 
       .listEntry.rank-holy {
-        background: rgba(236, 72, 153, 0.10) !important;
-        border-left: 2px solid rgba(236, 72, 153, 0.5);
+        background: rgba(255, 182, 193, 0.10) !important;
+        border-left: 2px solid rgba(255, 182, 193, 0.5);
       }
 
       .listEntry.rank-deity {
-        background: linear-gradient(90deg, rgba(251, 191, 36, 0.12), rgba(245, 158, 11, 0.12)) !important;
-        border-left: 3px solid rgba(251, 191, 36, 0.6);
-        box-shadow: inset 0 0 12px rgba(251, 191, 36, 0.1);
+        background: rgba(255, 69, 0, 0.12) !important;
+        border-left: 3px solid rgba(255, 69, 0, 0.6);
+        box-shadow: inset 0 0 12px rgba(255, 69, 0, 0.1);
       }
 
     </style>
@@ -136,67 +144,56 @@
               <h2>DDraw</h2>
               <p class="landingSubtitle">Draw stuff + things</p>
 
-              <!-- Join / login form -->
-              <form id="loginForm" onsubmit="return false;">
-                <input autocomplete="on" class="authInput" id="roomIdInput" name="room" placeholder="Room name (default: lobby)">
+              <div id="authFormWrapper" class="authFormWrapper">
+                <!-- Join / login form -->
+                <form id="loginForm" onsubmit="return false;">
+                  <input autocomplete="on" class="authInput" id="roomIdInput" name="room" placeholder="Room name (default: lobby)">
 
-                <!-- Not logged in state -->
-                <div id="authNotLoggedIn">
-                  <input autocomplete="username" class="authInput" id="loginUsername" name="username" placeholder="Username">
-                  <input autocomplete="current-password" type="password" class="authInput" id="loginPassword" name="password" placeholder="Password (optional)">
-                  <label class="authCheckbox">
-                    <input type="checkbox" id="rememberMe">
-                    <span>Login Automatically (30 Days)</span>
-                  </label>
+                  <!-- Not logged in state -->
+                  <div id="authNotLoggedIn">
+                    <input autocomplete="username" class="authInput" id="loginUsername" name="username" placeholder="Username">
+                    <input autocomplete="current-password" type="password" class="authInput" id="loginPassword" name="password" placeholder="Password (optional)">
+                    <label class="authCheckbox">
+                      <input type="checkbox" id="rememberMe">
+                      <span>Login Automatically (30 Days)</span>
+                    </label>
+                    <div class="authButtons">
+                      <button type="button" class="btn secondary large" id="registerBtn">Register</button>
+                      <button type="button" class="btn primary large" id="loginJoinBtn">Join</button>
+                    </div>
+                  </div>
+
+                  <!-- Logged in state -->
+                  <div id="authLoggedIn" style="display: none;">
+                    <div class="authLoggedInUser">
+                      <span class="authLoggedInLabel">Logged in as</span>
+                      <button type="button" class="authUsernameBtn" id="authUsernameBtn">
+                        <span id="authUsernameDisplay">Username</span>
+                        <span class="authEditIcon">&#9998;</span>
+                      </button>
+                    </div>
+                    <div class="authButtons">
+                      <button type="button" class="btn primary large" id="joinBtnLoggedIn">Join</button>
+                    </div>
+                  </div>
+                </form>
+
+                <!-- Registration form (replaces login form when registering) -->
+                <form id="authRegisterPanel" onsubmit="return false;" style="display: none;">
+                  <div class="authEditHeader">
+                    <span>Create Account</span>
+                    <button type="button" class="authEditClose" id="registerClose">&times;</button>
+                  </div>
+                  <input autocomplete="username" class="authInput" id="registerUsername" name="reg-username" placeholder="Username" readonly>
+                  <input autocomplete="new-password" type="password" class="authInput" id="registerPassword" name="reg-password" placeholder="Password" readonly>
+                  <input autocomplete="email" type="email" class="authInput" id="registerEmail" name="reg-email" placeholder="Email (optional)">
+                  <input type="text" class="authInput" id="registerSecretQuestion" name="reg-secret-question" placeholder="Secret question">
+                  <input type="text" class="authInput" id="registerSecretAnswer" name="reg-secret-answer" placeholder="Secret answer">
                   <div class="authButtons">
-                    <button type="button" class="btn primary large" id="loginJoinBtn">Join</button>
-                    <button type="button" class="btn secondary large" id="registerBtn" style="display: none;">Register</button>
+                    <button type="button" class="btn primary large" id="registerSubmitBtn">Create Account</button>
                   </div>
-                </div>
-
-                <!-- Logged in state -->
-                <div id="authLoggedIn" style="display: none;">
-                  <div class="authLoggedInUser">
-                    <span class="authLoggedInLabel">Logged in as</span>
-                    <button type="button" class="authUsernameBtn" id="authUsernameBtn">
-                      <span id="authUsernameDisplay">Username</span>
-                      <span class="authEditIcon">&#9998;</span>
-                    </button>
-                  </div>
-                  <div class="authButtons">
-                    <button type="button" class="btn primary large" id="joinBtnLoggedIn">Join</button>
-                  </div>
-                </div>
-              </form>
-
-              <!-- Registration form (replaces login form when registering) -->
-              <form id="authRegisterPanel" onsubmit="return false;" style="display: none;">
-                <div class="authEditHeader">
-                  <span>Create Account</span>
-                  <button type="button" class="authEditClose" id="registerClose">&times;</button>
-                </div>
-                <input autocomplete="username" class="authInput" id="registerUsername" name="reg-username" placeholder="Username" readonly>
-                <input autocomplete="new-password" type="password" class="authInput" id="registerPassword" name="reg-password" placeholder="Password" readonly>
-                <input autocomplete="email" type="email" class="authInput" id="registerEmail" name="reg-email" placeholder="Email (optional)">
-                <input type="text" class="authInput" id="registerSecretQuestion" name="reg-secret-question" placeholder="Secret question">
-                <input type="text" class="authInput" id="registerSecretAnswer" name="reg-secret-answer" placeholder="Secret answer">
-                <div class="authButtons">
-                  <button type="button" class="btn primary large" id="registerSubmitBtn">Create Account</button>
-                </div>
-              </form>
-
-              <!-- Switch account form (shown when clicking username button) -->
-              <form id="authEditCredentials" onsubmit="return false;" style="display: none;">
-                <div class="authEditHeader">
-                  <span>Switch Account</span>
-                  <button type="button" class="authEditClose" id="authEditClose">&times;</button>
-                </div>
-                <input autocomplete="username" class="authInput" id="editUsername" name="edit-username" placeholder="Username">
-                <input autocomplete="current-password" type="password" class="authInput" id="editPassword" name="edit-password" placeholder="Password">
-                <div class="authButtons">
-                  <button type="button" class="btn primary large" id="editLoginJoinBtn">Join</button>
-                </div>
-              </form>
+                </form>
+              </div>
 
               <div class="landingDivider">or</div>
               <button class="btn offline" id="loginOfflineBtn">Draw Alone</button>
