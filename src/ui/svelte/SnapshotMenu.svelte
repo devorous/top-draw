@@ -29,6 +29,38 @@
   let marchingAntsOffset = $state(0);
   let animId = null;
 
+  // Snap strip dragging
+  let stripRef = $state(null);
+  let isDraggingStrip = $state(false);
+  let stripStartX = 0;
+  let stripScrollLeft = 0;
+  let stripMoved = $state(false);
+
+  function onStripPointerDown(e) {
+    if (e.button !== 0) return;
+    isDraggingStrip = true;
+    stripStartX = e.pageX - stripRef.offsetLeft;
+    stripScrollLeft = stripRef.scrollLeft;
+    stripMoved = false;
+  }
+
+  function onStripPointerMove(e) {
+    if (!isDraggingStrip) return;
+    const x = e.pageX - stripRef.offsetLeft;
+    const walk = (x - stripStartX);
+    if (!stripMoved && Math.abs(walk) > 5) {
+      stripMoved = true;
+      stripRef.setPointerCapture(e.pointerId);
+    }
+    if (stripMoved) {
+      stripRef.scrollLeft = stripScrollLeft - walk;
+    }
+  }
+
+  function onStripPointerUp() {
+    isDraggingStrip = false;
+  }
+
   // Canvas refs
   let previewCanvas = $state(null);
   let selectionCanvas = $state(null);
@@ -381,7 +413,15 @@
     </div>
 
     <!-- Thumbnail strip -->
-    <div class="snap-strip-wrap">
+    <div
+      class="snap-strip-wrap"
+      bind:this={stripRef}
+      onpointerdown={onStripPointerDown}
+      onpointermove={onStripPointerMove}
+      onpointerup={onStripPointerUp}
+      onpointerleave={onStripPointerUp}
+      style="cursor: {isDraggingStrip ? 'grabbing' : 'auto'}"
+    >
       {#if snapshots.length === 0}
         <span class="snap-strip-empty">No snapshots available. (Requires Helper+ rank)</span>
       {:else}
@@ -390,13 +430,13 @@
           <div
             class="snap-thumb-item"
             class:selected={snap.id === selectedId}
-            onclick={() => selectSnapshot(snap.id)}
+            onclick={() => { if (!stripMoved) selectSnapshot(snap.id); }}
             role="button"
             tabindex="0"
             title={snap.name}
           >
             {#if thumbUrl}
-              <img src={thumbUrl} alt="snapshot" />
+              <img src={thumbUrl} alt="snapshot" draggable="false" />
             {:else}
               <div class="snap-thumb-placeholder">{snap.auto ? 'Auto' : 'Manual'}</div>
             {/if}
@@ -587,10 +627,11 @@
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: thin;
-    scrollbar-color: #333 transparent;
+    scrollbar-color: #555 transparent;
   }
-  .snap-strip-wrap::-webkit-scrollbar { height: 3px; }
-  .snap-strip-wrap::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+  .snap-strip-wrap::-webkit-scrollbar { height: 4px; }
+  .snap-strip-wrap::-webkit-scrollbar-thumb { background: #555; border-radius: 2px; }
+  .snap-strip-wrap::-webkit-scrollbar-thumb:hover { background: #666; }
 
   .snap-strip-empty {
     font-size: 12px;
