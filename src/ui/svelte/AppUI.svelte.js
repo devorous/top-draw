@@ -129,10 +129,10 @@ export function initSvelteUI(app) {
         galleryBaseUrl: '/gallery',
         apiBaseUrl: '',
         onViewGallery: (username) => {
-          window.location.href = `/gallery?author=${encodeURIComponent(username)}`;
+          window.open(`/gallery?author=${encodeURIComponent(username)}`, '_blank');
         },
         onImageClick: (item) => {
-          window.location.href = `/gallery?id=${item.id}`;
+          window.open(`/gallery?id=${item.id}`, '_blank');
         }
       }
     });

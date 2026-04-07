@@ -325,7 +325,7 @@ export class ProfileDialog {
 
       <div class="profile-actions">
         <a href="${this.galleryBaseUrl}?author=${encodeURIComponent(data.username)}" class="profile-btn profile-btn-primary" target="_blank">
-          View All Art
+          View on Gallery
         </a>
       </div>
     `;
@@ -340,7 +340,7 @@ export class ProfileDialog {
           this.onImageClick(item);
         } else if (item) {
           // Fallback: navigate
-          window.location.href = `${this.galleryBaseUrl}?id=${item.id}`;
+          window.open(`${this.galleryBaseUrl}?id=${item.id}`, '_blank');
         }
       });
     });
