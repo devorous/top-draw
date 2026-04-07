@@ -319,6 +319,10 @@ export function setupUserHandlers(wsClient, app) {
   });
 
   wsClient.on('hide_cursor', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user && user.tool === 'text' && user.text) {
+      return;
+    }
     ui.hideRemoteCursor(data.sessionIndex);
   });
 

@@ -3081,14 +3081,15 @@ export class DrawingApp {
       }
 
       this.ui.showCursor();
-      if (this.self.panning && this.self.tool !== 'pan') {
+      const isTextWithContent = this.self.tool === 'text' && this.self.text;
+      if (this.self.panning && this.self.tool !== 'pan' && !isTextWithContent) {
         this.ui.showPanCursor();
       } else {
         this.ui.updateToolDisplay(this.self.tool, this.self);
         this._updateBlurCannotDraw();
       }
       if (this.connected) {
-        if (this.self.panning || this.self.tool === 'pan') {
+        if ((this.self.panning || this.self.tool === 'pan') && !isTextWithContent) {
           this.wsClient.broadcastHideCursor();
         } else {
           this.wsClient.broadcastShowCursor();
@@ -3312,8 +3313,12 @@ export class DrawingApp {
       this._lastPanPointerX = e.clientX;
       this._lastPanPointerY = e.clientY;
       this.wsClient.broadcastPan(true);
-      this.wsClient.broadcastHideCursor();
-      this.ui.showPanCursor();
+      
+      const isTextWithContent = this.self.tool === 'text' && this.self.text;
+      if (!isTextWithContent) {
+        this.wsClient.broadcastHideCursor();
+        this.ui.showPanCursor();
+      }
       return;
     }
 
@@ -3685,8 +3690,13 @@ export class DrawingApp {
       this._lastPanPointerX = e.clientX;
       this._lastPanPointerY = e.clientY;
       this.wsClient.broadcastPan(true);
-      this.wsClient.broadcastHideCursor();
-      this.ui.showPanCursor();
+      
+      const isTextWithContent = this.self.tool === 'text' && this.self.text;
+      if (!isTextWithContent) {
+        this.wsClient.broadcastHideCursor();
+        this.ui.showPanCursor();
+      }
+      
       this._containerPanActive = true;
       e.currentTarget.setPointerCapture(e.pointerId);
       return;
