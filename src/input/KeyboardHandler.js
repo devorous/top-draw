@@ -80,6 +80,7 @@ export class KeyboardHandler {
     if (e.key === ' ' && app.self.tool !== 'text' && !app.self.panning && !app.self.mousedown) {
       app.self.panning = true;
       app.wsClient.broadcastPan(true);
+      app.wsClient.broadcastHideCursor();
       app.ui.showPanCursor();
     }
 
@@ -241,6 +242,7 @@ export class KeyboardHandler {
     if (e.key === ' ' && app.self.tool !== 'text' && app.self.tool !== 'pan' && app.self.tool !== 'rotate') {
       app.self.panning = false;
       app.wsClient.broadcastPan(false);
+      app.wsClient.broadcastShowCursor();
       app.ui.hidePanCursor(app.self.tool, app.self);
     }
 

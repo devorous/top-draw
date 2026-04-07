@@ -28,6 +28,7 @@ export class ToolLockManager {
       opacity: 1.0,
       spacing: 0,
       blurRadius: 5,
+      thinning: 0.5,
       pressure: { min: 0, max: 100, enabled: true }
     };
 
@@ -145,7 +146,7 @@ export class ToolLockManager {
     const tools = {
       brush: ['size', 'pressure', 'smoothing', 'hardness', 'opacity'],
       flowPen: ['size', 'pressure', 'smoothing', 'hardness', 'opacity'],
-      ink: ['size', 'pressure', 'smoothing', 'hardness', 'opacity'],
+      ink: ['size', 'pressure', 'smoothing', 'hardness', 'opacity', 'thinning'],
       pixel: ['size', 'pressure', 'smoothing', 'spacing', 'opacity'],
       line: ['size', 'hardness', 'opacity'],
       rectangle: ['size', 'hardness', 'opacity'],
@@ -182,6 +183,7 @@ export class ToolLockManager {
           if (prop === 'opacity') defaultValue = 1.0;
           if (prop === 'blurRadius') defaultValue = 5;
           if (prop === 'spacing') defaultValue = 0;
+          if (prop === 'thinning') defaultValue = 0.5;
 
           locks[tool][prop] = {
             locked: false,
@@ -232,6 +234,7 @@ export class ToolLockManager {
         else if (prop === 'hardness') state.lockedValue = self.hardness;
         else if (prop === 'opacity') state.lockedValue = self.opacity;
         else if (prop === 'blurRadius') state.lockedValue = self.blurRadius;
+        else if (prop === 'thinning') state.lockedValue = self.thinning;
       } else {
         if (prop === 'size') {
           this.globalUnlockedValues.size = self.size;
@@ -248,6 +251,7 @@ export class ToolLockManager {
         else if (prop === 'hardness') this.globalUnlockedValues.hardness = self.hardness;
         else if (prop === 'opacity') this.globalUnlockedValues.opacity = self.opacity;
         else if (prop === 'blurRadius') this.globalUnlockedValues.blurRadius = self.blurRadius;
+        else if (prop === 'thinning') this.globalUnlockedValues.thinning = self.thinning;
       }
     }
 
@@ -336,6 +340,13 @@ export class ToolLockManager {
           wsClient.broadcastBlurRadiusChange(value);
         }
       }
+      else if (prop === 'thinning') {
+        self.setThinning(value);
+        ui.updateThinningValue(Math.round(value * 100));
+        if (elements.thinningSlider) elements.thinningSlider.value = Math.round(value * 100);
+        // Thinning is not yet broadcasted in UserHandlers/DrawingHandlers for some tools? 
+        // But we update self.
+      }
     }
   }
 
@@ -348,7 +359,7 @@ export class ToolLockManager {
     if (!locks) return;
 
     const { ui } = this.app;
-    const allProps = ['size', 'pressure', 'smoothing', 'spacing', 'hardness', 'opacity', 'blurRadius'];
+    const allProps = ['size', 'pressure', 'smoothing', 'spacing', 'hardness', 'opacity', 'blurRadius', 'thinning'];
     
     allProps.forEach(prop => {
       const lock = locks[prop];

@@ -321,6 +321,7 @@ menuBtn: document.getElementById('menuBtn'),
       blurRadiusLock: document.getElementById('blurRadiusLock'),
       thinningLock: document.getElementById('thinningLock'),
       thinningEnabled: document.getElementById('thinningEnabled'),
+      thinningSlider: document.querySelector('.slider.thinning'),
       thinningSliderContainer: document.getElementById('thinningSlider'),
       simulatePressureCheckbox: document.getElementById('simulatePressureCheckbox'),
 
