@@ -10,6 +10,7 @@ const MAX_SMOOTHING = 50;
 const MAX_HARDNESS = 100;
 const MAX_PRESSURE = 100;
 const MAX_BLUR_RADIUS = 100;
+const MAX_FILL_BLUR_RADIUS = 25;
 const MAX_LAYER_INDEX = 4;
 const MAX_NAME_LENGTH = 20;
 const MAX_CHAT_LENGTH = 500;
@@ -321,7 +322,7 @@ export async function sanitizeMessage(data) {
       sanitized.sy = clampInt(data.sy, MIN_COORD, MAX_COORD, 0);
       sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
       sanitized.s = clampInt(data.s, -MAX_BRUSH_SIZE, MAX_BRUSH_SIZE, 0);
-      sanitized.br = clampInt(data.br, 0, MAX_BLUR_RADIUS, 0);
+      sanitized.br = clampInt(data.br, 0, MAX_FILL_BLUR_RADIUS * 100, 0);
       return sanitized;
 
     case T.SYNC_REQUEST:

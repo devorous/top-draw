@@ -738,7 +738,7 @@ menuBtn: document.getElementById('menuBtn'),
     if (brushModeOptions) brushModeOptions.style.display = 'none';
     if (circleBlurModeOptions) circleBlurModeOptions.style.display = 'none';
     if (this.elements.fillModeOptions) this.elements.fillModeOptions.style.display = 'none';
-    if (patternModeOptions) patternModeOptions.style.display = 'block';
+    if (patternModeOptions) patternModeOptions.style.display = 'none';
     if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'none';
     appState.patternPreviewVisible = false;
     
