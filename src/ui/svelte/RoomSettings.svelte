@@ -372,16 +372,14 @@
       role="presentation"
     >
       <div class="room-settings-header">
-        <div>
+        <div class="room-settings-header-main">
           <h3>Room Settings</h3>
-          <p>Manage room defaults and the moderation roster.</p>
+          <div class="room-settings-tabs" role="tablist" aria-label="Room settings sections">
+            <button class:active={activeTab === TAB_GENERAL} class="room-settings-tab" onclick={() => activeTab = TAB_GENERAL} type="button">General</button>
+            <button class:active={activeTab === TAB_MODERATION} class="room-settings-tab" onclick={() => activeTab = TAB_MODERATION} type="button">Moderation</button>
+          </div>
         </div>
         <button class="room-settings-close" onclick={hide} title="Close">&times;</button>
-      </div>
-
-      <div class="room-settings-tabs" role="tablist" aria-label="Room settings sections">
-        <button class:active={activeTab === TAB_GENERAL} class="room-settings-tab" onclick={() => activeTab = TAB_GENERAL} type="button">General</button>
-        <button class:active={activeTab === TAB_MODERATION} class="room-settings-tab" onclick={() => activeTab = TAB_MODERATION} type="button">Moderation</button>
       </div>
 
       <div class="room-settings-body">
@@ -723,7 +721,7 @@
   }
 
   .room-settings-header {
-    padding: 1.25rem 1.5rem;
+    padding: 1.25rem 1.5rem 0;
     background: #2d323c;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     display: flex;
@@ -732,12 +730,19 @@
     gap: 1rem;
   }
 
+  .room-settings-header-main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    min-width: 0;
+    flex: 1;
+  }
+
   .room-settings-header h3,
   .moderation-panel h4 {
     margin: 0;
   }
 
-  .room-settings-header p,
   .moderation-panel p {
     margin: 0.35rem 0 0;
     color: #a8b0bf;
@@ -756,22 +761,29 @@
   .room-settings-tabs {
     display: flex;
     gap: 0.5rem;
-    padding: 0.9rem 1.5rem 0;
+    margin-bottom: -1px;
   }
 
   .room-settings-tab {
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-bottom: none;
-    background: rgba(255, 255, 255, 0.04);
-    color: #cfd6e3;
+    background: rgba(12, 15, 20, 0.4);
+    color: #b4bece;
     padding: 0.7rem 1rem;
     border-radius: 8px 8px 0 0;
     cursor: pointer;
     font-weight: 600;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .room-settings-tab:hover {
+    background: rgba(39, 45, 56, 0.85);
+    color: #f0f2f5;
   }
 
   .room-settings-tab.active {
-    background: #313744;
+    background: #394252;
+    border-color: rgba(140, 225, 205, 0.22);
     color: #fff;
   }
 

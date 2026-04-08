@@ -56,6 +56,13 @@ function applyThemeColors(themeColors = {}) {
   }
 }
 
+function applySidebarSide(sidebarSide = 'right') {
+  if (typeof document === 'undefined') return;
+
+  const normalized = sidebarSide === 'left' ? 'left' : 'right';
+  document.documentElement.dataset.sidebarSide = normalized;
+}
+
 /**
  * Main Drawing Application class.
  * @class
@@ -74,6 +81,7 @@ export class DrawingApp {
     this.intentionalDisconnect = false;
     this.appPreferences = loadAppPreferences();
     applyThemeColors(this.appPreferences?.general?.themeColors);
+    applySidebarSide(this.appPreferences?.general?.sidebarSide);
     this._warnOnNextUnload = false;
 
     this.board = new Board({
@@ -2497,6 +2505,7 @@ export class DrawingApp {
   setAppPreferences(preferences) {
     this.appPreferences = saveAppPreferences(preferences);
     applyThemeColors(this.appPreferences?.general?.themeColors);
+    applySidebarSide(this.appPreferences?.general?.sidebarSide);
     appState.appPreferences = this.appPreferences;
     return this.appPreferences;
   }

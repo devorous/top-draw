@@ -3,6 +3,7 @@ import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
 
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
 const APP_PREFERENCES_VERSION = 1;
+const SIDEBAR_SIDES = new Set(['left', 'right']);
 export const THEME_COLOR_KEYS = [
   'bg-primary',
   'bg-secondary',
@@ -20,6 +21,7 @@ export function createDefaultAppPreferences() {
   return {
     version: APP_PREFERENCES_VERSION,
     general: {
+      sidebarSide: 'right',
       themeColors: {}
     },
     keybinds: getDefaultKeybindings()
@@ -76,6 +78,12 @@ function sanitizeThemeColors(rawThemeColors) {
   return sanitized;
 }
 
+function sanitizeSidebarSide(rawSidebarSide) {
+  if (typeof rawSidebarSide !== 'string') return 'right';
+  const normalized = rawSidebarSide.trim().toLowerCase();
+  return SIDEBAR_SIDES.has(normalized) ? normalized : 'right';
+}
+
 function sanitizePreferences(rawPreferences) {
   const defaults = createDefaultAppPreferences();
   const parsed = rawPreferences && typeof rawPreferences === 'object' ? rawPreferences : {};
@@ -84,6 +92,7 @@ function sanitizePreferences(rawPreferences) {
     version: APP_PREFERENCES_VERSION,
     general: {
       ...defaults.general,
+      sidebarSide: sanitizeSidebarSide(parsed.general?.sidebarSide),
       themeColors: sanitizeThemeColors(parsed.general?.themeColors)
     },
     keybinds: sanitizeKeybinds(parsed.keybinds)

@@ -19,6 +19,12 @@
   background: var(--bg-secondary);
 }
 
+html[data-sidebar-side='left'] #sideMenu {
+  flex-direction: row-reverse;
+  border-left: 0;
+  border-right: 1px solid var(--border-subtle);
+}
+
 // Sidebar should ONLY collapse the options panel, keeping the tools bar visible
 #toolOptions {
   display: flex;
@@ -36,6 +42,16 @@
     pointer-events: none;
     transform: translateX(20px);
   }
+}
+
+html[data-sidebar-side='left'] #toolOptions {
+  border-left: 0;
+  border-right: 1px solid var(--border-subtle);
+}
+
+html[data-sidebar-side='left'] #toolOptions.collapsed {
+  border-right-width: 0;
+  transform: translateX(-20px);
 }
 
 /* Tools Panel - Always Visible */
@@ -147,14 +163,32 @@
 
 @media (max-height: 800px) {
   #moveGroup { @include collapsed-group; }
+  html[data-sidebar-side='left'] #moveGroup .toolSubgroup {
+    right: auto;
+    left: 100%;
+    padding-right: 4px;
+    padding-left: 12px;
+  }
 }
 
 @media (max-height: 700px) {
   #shapesGroup { @include collapsed-group; }
+  html[data-sidebar-side='left'] #shapesGroup .toolSubgroup {
+    right: auto;
+    left: 100%;
+    padding-right: 4px;
+    padding-left: 12px;
+  }
 }
 
 @media (max-height: 600px) {
   #blurGroup { @include collapsed-group; }
+  html[data-sidebar-side='left'] #blurGroup .toolSubgroup {
+    right: auto;
+    left: 100%;
+    padding-right: 4px;
+    padding-left: 12px;
+  }
 }
 
 .tool.btn.tool-disabled {

@@ -41,6 +41,22 @@
     { key: 'text-muted', label: 'Muted Text' }
   ];
 
+  function isSidebarOnLeft() {
+    return appPreferences?.general?.sidebarSide === 'left';
+  }
+
+  function updateSidebarSide(enabled) {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        sidebarSide: enabled ? 'left' : 'right'
+      }
+    };
+
+    updatePreferences(nextPreferences, `Sidebar moved to the ${enabled ? 'left' : 'right'}`);
+  }
+
   function hide() {
     appState.appSettingsVisible = false;
     listeningTarget = null;
@@ -285,26 +301,24 @@
   <div class="app-settings-overlay" onclick={(e) => e.target === e.currentTarget && hide()} role="presentation">
     <div class="app-settings-dialog" onclick={(e) => e.stopPropagation()} role="presentation">
       <div class="app-settings-header">
-        <div>
+        <div class="app-settings-header-main">
           <h3>App Settings</h3>
-          <p>Manage app colours, preferences, and keyboard shortcuts.</p>
+          <div class="app-settings-tabs" role="tablist" aria-label="App settings sections">
+            <button
+              class:active={activeTab === TAB_GENERAL}
+              class="app-settings-tab"
+              onclick={() => setTab(TAB_GENERAL)}
+              type="button"
+            >General</button>
+            <button
+              class:active={activeTab === TAB_KEYBINDS}
+              class="app-settings-tab"
+              onclick={() => setTab(TAB_KEYBINDS)}
+              type="button"
+            >Keybinds</button>
+          </div>
         </div>
         <button class="app-settings-close" type="button" onclick={hide} title="Close">&times;</button>
-      </div>
-
-      <div class="app-settings-tabs" role="tablist" aria-label="App settings sections">
-        <button
-          class:active={activeTab === TAB_GENERAL}
-          class="app-settings-tab"
-          onclick={() => setTab(TAB_GENERAL)}
-          type="button"
-        >General</button>
-        <button
-          class:active={activeTab === TAB_KEYBINDS}
-          class="app-settings-tab"
-          onclick={() => setTab(TAB_KEYBINDS)}
-          type="button"
-        >Keybinds</button>
       </div>
 
       <div class="app-settings-body">
@@ -314,6 +328,21 @@
 
         {#if activeTab === TAB_GENERAL}
           <section class="settings-panel">
+            <div class="settings-option-card">
+              <div class="settings-option-copy">
+                <h4>Sidebar on Left</h4>
+                <p>Move the tool sidebar to the left side of the canvas and pin the board menu to the top-left corner.</p>
+              </div>
+              <label class="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={isSidebarOnLeft()}
+                  onchange={(event) => updateSidebarSide(event.currentTarget.checked)}
+                />
+                <span>{isSidebarOnLeft() ? 'On' : 'Off'}</span>
+              </label>
+            </div>
+
             <h4>App Colours</h4>
             <p>
               Tune the app's main background, text, and accent colours. Changes save immediately and
@@ -458,10 +487,19 @@
   .app-settings-header {
     display: flex;
     justify-content: space-between;
+    align-items: flex-start;
     gap: 1rem;
-    padding: 1.25rem 1.5rem;
+    padding: 1.25rem 1.5rem 0;
     background: var(--bg-tertiary);
     border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .app-settings-header-main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    min-width: 0;
+    flex: 1;
   }
 
   .app-settings-header h3,
@@ -470,7 +508,6 @@
     margin: 0;
   }
 
-  .app-settings-header p,
   .settings-panel p {
     margin: 0.35rem 0 0;
     color: var(--text-secondary);
@@ -488,22 +525,29 @@
   .app-settings-tabs {
     display: flex;
     gap: 0.5rem;
-    padding: 0.9rem 1.5rem 0;
+    margin-bottom: -1px;
   }
 
   .app-settings-tab {
     border: 1px solid var(--border-subtle);
     border-bottom: none;
-    background: color-mix(in srgb, var(--bg-elevated) 78%, transparent);
-    color: var(--text-secondary);
+    background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+    color: color-mix(in srgb, var(--text-secondary) 88%, var(--text-muted));
     padding: 0.7rem 1rem;
     border-radius: 8px 8px 0 0;
     cursor: pointer;
     font-weight: 600;
+    transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  }
+
+  .app-settings-tab:hover {
+    background: color-mix(in srgb, var(--bg-elevated) 70%, transparent);
+    color: var(--text-primary);
   }
 
   .app-settings-tab.active {
-    background: var(--bg-elevated);
+    background: color-mix(in srgb, var(--bg-elevated) 94%, var(--accent-primary) 6%);
+    border-color: color-mix(in srgb, var(--border-subtle) 60%, var(--accent-primary) 40%);
     color: var(--text-primary);
   }
 
@@ -552,6 +596,53 @@
     display: flex;
     justify-content: flex-end;
     margin-top: 1rem;
+  }
+
+  .settings-option-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding: 0.9rem 1rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-primary);
+  }
+
+  .settings-option-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 0;
+  }
+
+  .settings-option-copy h4 {
+    margin: 0;
+  }
+
+  .settings-option-copy p {
+    margin: 0;
+  }
+
+  .settings-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex-shrink: 0;
+    padding: 0.55rem 0.75rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--bg-elevated) 65%, transparent);
+    color: var(--text-primary);
+    font-size: 0.84rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .settings-toggle input {
+    margin: 0;
+    accent-color: var(--accent-primary);
   }
 
   .theme-grid {

@@ -192,6 +192,12 @@
     pointer-events: all;
   }
 
+  :global(html[data-sidebar-side='left']) .board-menu {
+    left: 12px;
+    right: auto;
+    align-items: flex-start;
+  }
+
   /* ── Blend mode ── */
   .blend-wrap {
     position: relative;
@@ -239,6 +245,11 @@
     flex-direction: column;
     gap: 1px;
     animation: fadeDown 0.12s ease;
+  }
+
+  :global(html[data-sidebar-side='left']) .blend-dropdown {
+    left: 0;
+    right: auto;
   }
 
   @keyframes fadeDown {

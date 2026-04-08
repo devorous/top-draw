@@ -121,6 +121,11 @@
   z-index: 10;
 }
 
+html[data-sidebar-side='left'] .colorInputBtn {
+  left: 12px;
+  right: auto;
+}
+
 .colorInputBtn:hover {
   background: var(--bg-elevated);
   color: var(--accent-primary);
@@ -140,6 +145,11 @@
   box-shadow: var(--shadow-lg);
   z-index: 100;
   overflow: hidden;
+}
+
+html[data-sidebar-side='left'] .colorInputMenu {
+  left: 8px;
+  right: auto;
 }
 
 .colorInputHeader {
