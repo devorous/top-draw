@@ -132,12 +132,6 @@ function shouldAllowWsMessage(ws, data) {
       config = WS_HEAVY_IMAGE_LIMIT;
       break;
 
-    case T.AUTH_LOGIN:
-    case T.AUTH_REGISTER:
-      suffix = 'auth';
-      config = WS_AUTH_LIMIT;
-      break;
-
     case T.MOD_ACTION:
     case T.MOD_WIPE:
     case T.MOD_LIST:
@@ -155,6 +149,13 @@ function shouldAllowWsMessage(ws, data) {
       suffix = 'admin';
       config = WS_ADMIN_LIMIT;
       break;
+  }
+
+  // AUTH_LOGIN / AUTH_REGISTER are rate-limited inside their dedicated handlers.
+  // Avoid double-counting them here, which can disconnect the entire socket
+  // before the auth flow has a chance to return a normal AUTH_RESULT error.
+  if (data.t === T.AUTH_LOGIN || data.t === T.AUTH_REGISTER) {
+    return true;
   }
 
   const limiterScope = suffix === 'auth' ? ip : (ws.rateLimitId || ip);

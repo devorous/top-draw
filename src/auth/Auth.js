@@ -55,6 +55,8 @@ export class Auth {
     }
 
     this.setupListeners();
+    this.syncAuthStateHeights();
+    window.addEventListener('resize', () => this.syncAuthStateHeights());
 
     // Check if user has stored credentials for auto-login
     this.checkStoredLogin();
@@ -208,6 +210,61 @@ export class Auth {
   }
 
   /**
+   * Keep login and logged-in panels at the same height to avoid UI popping.
+   */
+  syncAuthStateHeights() {
+    const states = [this.els.authNotLoggedIn, this.els.authLoggedIn].filter(Boolean);
+    const loginForm = document.getElementById('loginForm');
+    const wrapper = this.els.authFormWrapper;
+    if (!states.length || !loginForm || !wrapper) return;
+
+    const originalStyles = states.map((el) => ({
+      el,
+      display: el.style.display,
+      position: el.style.position,
+      visibility: el.style.visibility,
+      pointerEvents: el.style.pointerEvents,
+      width: el.style.width
+    }));
+    const originalFormDisplay = loginForm.style.display;
+    const originalWrapperMinHeight = wrapper.style.minHeight;
+
+    let maxHeight = 0;
+    let maxFormHeight = 0;
+
+    states.forEach((el) => {
+      el.style.display = 'flex';
+      el.style.position = 'absolute';
+      el.style.visibility = 'hidden';
+      el.style.pointerEvents = 'none';
+      el.style.width = '100%';
+      maxHeight = Math.max(maxHeight, el.offsetHeight);
+      maxFormHeight = Math.max(maxFormHeight, loginForm.scrollHeight);
+    });
+
+    originalStyles.forEach(({ el, display, position, visibility, pointerEvents, width }) => {
+      el.style.display = display;
+      el.style.position = position;
+      el.style.visibility = visibility;
+      el.style.pointerEvents = pointerEvents;
+      el.style.width = width;
+    });
+    loginForm.style.display = originalFormDisplay;
+
+    if (maxHeight > 0) {
+      states.forEach((el) => {
+        el.style.minHeight = `${maxHeight}px`;
+      });
+    }
+
+    if (maxFormHeight > 0) {
+      wrapper.style.minHeight = `${maxFormHeight}px`;
+    } else {
+      wrapper.style.minHeight = originalWrapperMinHeight;
+    }
+  }
+
+  /**
    * Show the logged-in UI state
    */
   async showLoggedInState(username) {
@@ -215,11 +272,12 @@ export class Auth {
     this.isLoggedIn = true;
     this.loggedInUsername = username;
 
+    if (this.els.authUsernameDisplay) this.els.authUsernameDisplay.textContent = username;
+    this.syncAuthStateHeights();
+
     if (!wasLoggedIn) {
       await this._transitionTo(this.els.authLoggedIn, [this.els.authNotLoggedIn, this.els.registerPanel]);
     }
-
-    if (this.els.authUsernameDisplay) this.els.authUsernameDisplay.textContent = username;
 
     if (this.onLoggedInStateChange) {
       this.onLoggedInStateChange(true, username);
@@ -232,6 +290,7 @@ export class Auth {
   async showNotLoggedInState() {
     this.isLoggedIn = false;
     this.loggedInUsername = null;
+    this.syncAuthStateHeights();
 
     await this._transitionTo(this.els.authNotLoggedIn, [this.els.authLoggedIn, this.els.registerPanel]);
 

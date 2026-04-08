@@ -162,6 +162,12 @@
   min-height: 220px;
 }
 
+#loginForm {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
 #authLoggedIn,
 #authNotLoggedIn,
 #authRegisterPanel {
@@ -226,8 +232,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px;
-  font-size: 14px;
+  padding: 10px 12px;
+  font-size: 18px;
   font-weight: 500;
   color: var(--text-primary);
   background: var(--bg-tertiary);
@@ -395,6 +401,7 @@
   max-width: 1000px;
   width: 100%;
   max-height: calc(100vh - 40px);
+  height:75%;
   margin: auto 0;
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
