@@ -21,6 +21,7 @@ export class MirrorRegionController {
     this.animationId = null;
     this.options = {
       axis: 'vertical',
+      slices: 6,
       showLine: true
     };
 
@@ -89,9 +90,26 @@ export class MirrorRegionController {
         <input type="radio" name="mirrorRegionAxis" value="rotational" />
         Rotational
       </label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,0.85);margin-bottom:10px;">
+        <input type="radio" name="mirrorRegionAxis" value="radial" />
+        Radial spokes
+      </label>
+      <label data-role="mirror-slices-row" style="display:none;align-items:center;justify-content:space-between;gap:12px;font-size:12px;color:rgba(255,255,255,0.85);margin-bottom:12px;">
+        <span>Slices</span>
+        <input
+          type="range"
+          name="mirrorRegionSlices"
+          min="3"
+          max="16"
+          step="1"
+          value="6"
+          style="flex:1;"
+        />
+        <span data-role="mirror-slices-value" style="min-width:20px;text-align:right;">6</span>
+      </label>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,0.85);margin-bottom:12px;">
         <input type="checkbox" name="mirrorRegionShowLine" checked />
-        Show center line
+        Show guides
       </label>
       <div style="display:flex;gap:8px;">
         <button type="button" data-action="cancel" class="btn" style="flex:1;">Close</button>
@@ -103,13 +121,22 @@ export class MirrorRegionController {
     this.panelTitle = this.panel.querySelector('[data-role="mirror-panel-title"]');
     this.panelDescription = this.panel.querySelector('[data-role="mirror-panel-description"]');
     this.applyButton = this.panel.querySelector('[data-action="apply"]');
+    this.slicesRow = this.panel.querySelector('[data-role="mirror-slices-row"]');
+    this.slicesValue = this.panel.querySelector('[data-role="mirror-slices-value"]');
 
     this.panel.querySelectorAll('input[name="mirrorRegionAxis"]').forEach(input => {
       input.addEventListener('change', () => {
         this.options.axis = input.value;
+        this._syncSlicesVisibility();
         this._drawSelection();
         this._refreshRegionControls();
       });
+    });
+    this.panel.querySelector('input[name="mirrorRegionSlices"]').addEventListener('input', (e) => {
+      this.options.slices = this._normalizeSlices(e.target.value);
+      if (this.slicesValue) this.slicesValue.textContent = String(this.options.slices);
+      this._drawSelection();
+      this._refreshRegionControls();
     });
     this.panel.querySelector('input[name="mirrorRegionShowLine"]').addEventListener('change', (e) => {
       this.options.showLine = !!e.target.checked;
@@ -139,7 +166,7 @@ export class MirrorRegionController {
     this.startPos = null;
     this.selection = null;
     this.editingRegionId = null;
-    this.options = { axis: 'vertical', showLine: true };
+    this.options = { axis: 'vertical', slices: 6, showLine: true };
     this._showControlsLayer();
     this._refreshRegionControls();
     this._showMirrorCursor();
@@ -221,6 +248,7 @@ export class MirrorRegionController {
       height: Math.max(1, Math.floor(this.selection.height)),
       mode: this.options.axis,
       axis: this.options.axis,
+      slices: this.options.axis === 'radial' ? this._normalizeSlices(this.options.slices) : undefined,
       showLine: this.options.showLine,
       owner: this.app.self?.id || null
     };
@@ -261,6 +289,7 @@ export class MirrorRegionController {
     this.editingRegionId = region.id;
     this.options = {
       axis: region.mode || region.axis || 'vertical',
+      slices: this._normalizeSlices(region.slices),
       showLine: region.showLine !== false
     };
 
@@ -299,15 +328,19 @@ export class MirrorRegionController {
     this.startPos = null;
     this.selection = null;
     this.editingRegionId = null;
-    this.options = { axis: 'vertical', showLine: true };
+    this.options = { axis: 'vertical', slices: 6, showLine: true };
   }
 
   _showPanel() {
     this.panel.style.display = 'block';
     const axisInput = this.panel.querySelector(`input[name="mirrorRegionAxis"][value="${this.options.axis}"]`);
     if (axisInput) axisInput.checked = true;
+    const slicesInput = this.panel.querySelector('input[name="mirrorRegionSlices"]');
+    if (slicesInput) slicesInput.value = String(this._normalizeSlices(this.options.slices));
+    if (this.slicesValue) this.slicesValue.textContent = String(this._normalizeSlices(this.options.slices));
     const lineInput = this.panel.querySelector('input[name="mirrorRegionShowLine"]');
     if (lineInput) lineInput.checked = this.options.showLine;
+    this._syncSlicesVisibility();
     this._positionPanelNearSelection();
   }
 
@@ -430,18 +463,27 @@ export class MirrorRegionController {
   }
 
   _drawModeGuides(ctx, selection, axis) {
+    const cx = selection.x + selection.width / 2;
+    const cy = selection.y + selection.height / 2;
     ctx.beginPath();
     if (axis === 'horizontal') {
-      const cy = selection.y + selection.height / 2;
       ctx.moveTo(selection.x, cy);
       ctx.lineTo(selection.x + selection.width, cy);
     } else if (axis === 'vertical') {
-      const cx = selection.x + selection.width / 2;
       ctx.moveTo(cx, selection.y);
       ctx.lineTo(cx, selection.y + selection.height);
+    } else if (axis === 'radial') {
+      const radius = Math.max(selection.width, selection.height) / 2;
+      const slices = this._normalizeSlices(this.options.slices);
+      for (let step = 0; step < slices; step += 1) {
+        const angle = ((Math.PI * 2) / slices) * step - (Math.PI / 2);
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(
+          cx + Math.cos(angle) * radius,
+          cy + Math.sin(angle) * radius
+        );
+      }
     } else {
-      const cx = selection.x + selection.width / 2;
-      const cy = selection.y + selection.height / 2;
       ctx.moveTo(cx, selection.y);
       ctx.lineTo(cx, selection.y + selection.height);
       ctx.moveTo(selection.x, cy);
@@ -511,6 +553,17 @@ export class MirrorRegionController {
     if (this.panelTitle) this.panelTitle.textContent = 'Edit Mirror Region';
     if (this.panelDescription) this.panelDescription.textContent = 'Adjust how this region reflects strokes.';
     if (this.applyButton) this.applyButton.textContent = 'Save';
+  }
+
+  _syncSlicesVisibility() {
+    if (!this.slicesRow) return;
+    this.slicesRow.style.display = this.options.axis === 'radial' ? 'flex' : 'none';
+  }
+
+  _normalizeSlices(value) {
+    const parsed = Math.floor(Number(value));
+    if (!Number.isFinite(parsed)) return 6;
+    return Math.max(3, Math.min(16, parsed));
   }
 
   _showMirrorCursor() {

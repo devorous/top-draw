@@ -1087,9 +1087,10 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
           const y = Math.max(0, Math.floor(region.y || 0));
           const width = Math.max(1, Math.floor(region.width || 0));
           const height = Math.max(1, Math.floor(region.height || 0));
-          const mode = ['horizontal', 'quad', 'rotational'].includes(region.mode || region.axis)
+          const mode = ['horizontal', 'quad', 'rotational', 'radial'].includes(region.mode || region.axis)
             ? (region.mode || region.axis)
             : 'vertical';
+          const slices = Math.max(3, Math.min(16, Math.floor(Number(region.slices || 6)) || 6));
           const showLine = region.showLine !== false;
           const id = String(region.id || `mr_${Date.now()}`);
 
@@ -1101,6 +1102,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
             height,
             mode,
             axis: mode,
+            slices: mode === 'radial' ? slices : undefined,
             showLine,
             owner: region.owner || region.createdBy || ws.userId || null
           };

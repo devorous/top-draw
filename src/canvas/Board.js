@@ -528,8 +528,19 @@ export class Board {
     const centerY = region.y + (region.height / 2);
     const dx = point.x - centerX;
     const dy = point.y - centerY;
+    const transform = region.transform || region.mode || region.axis;
 
-    switch (region.transform || region.mode || region.axis) {
+    if (transform === 'rotateCustom') {
+      const angle = Number(region.rotationAngle || 0);
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      return {
+        x: centerX + (dx * cos) - (dy * sin),
+        y: centerY + (dx * sin) + (dy * cos)
+      };
+    }
+
+    switch (transform) {
       case 'horizontal':
       case 'flipY':
         return { x: point.x, y: (centerY * 2) - point.y };
@@ -590,7 +601,8 @@ export class Board {
       ctx.save();
       const centerX = region.x + (region.width / 2);
       const centerY = region.y + (region.height / 2);
-      switch (region.transform || region.mode || region.axis) {
+      const transform = region.transform || region.mode || region.axis;
+      switch (transform) {
         case 'horizontal':
         case 'flipY':
           ctx.translate(0, centerY * 2);
@@ -614,6 +626,11 @@ export class Board {
         case 'rotate270':
           ctx.translate(centerX, centerY);
           ctx.rotate(-Math.PI / 2);
+          ctx.translate(-centerX, -centerY);
+          break;
+        case 'rotateCustom':
+          ctx.translate(centerX, centerY);
+          ctx.rotate(Number(region.rotationAngle || 0));
           ctx.translate(-centerX, -centerY);
           break;
         default:
@@ -661,6 +678,7 @@ export class Board {
       regionEl.style.border = '1px solid rgba(0, 212, 170, 0.9)';
       regionEl.style.boxSizing = 'border-box';
       regionEl.style.background = 'transparent';
+      regionEl.style.overflow = 'hidden';
 
       if (region.showLine) {
         this._appendMirrorRegionGuide(regionEl, region);
@@ -689,13 +707,20 @@ export class Board {
       height: Math.max(1, height),
       mode: this._normalizeMirrorMode(region.mode || region.axis),
       axis: this._normalizeMirrorMode(region.mode || region.axis),
+      slices: this._normalizeMirrorSlices(region.slices),
       showLine: region.showLine !== false,
       owner: region.owner || region.createdBy || null
     };
   }
 
   _normalizeMirrorMode(mode) {
-    return ['horizontal', 'quad', 'rotational'].includes(mode) ? mode : 'vertical';
+    return ['horizontal', 'quad', 'rotational', 'radial'].includes(mode) ? mode : 'vertical';
+  }
+
+  _normalizeMirrorSlices(slices) {
+    const parsed = Math.floor(Number(slices));
+    if (!Number.isFinite(parsed)) return 6;
+    return Math.max(3, Math.min(16, parsed));
   }
 
   _expandMirrorRegionTransforms(region) {
@@ -703,7 +728,8 @@ export class Board {
 
     const baseRegion = {
       ...region,
-      mode: this._normalizeMirrorMode(region.mode || region.axis)
+      mode: this._normalizeMirrorMode(region.mode || region.axis),
+      slices: this._normalizeMirrorSlices(region.slices)
     };
 
     const transformsByMode = {
@@ -712,6 +738,22 @@ export class Board {
       quad: ['flipX', 'flipY', 'flipXY'],
       rotational: ['rotate180']
     };
+
+    if (baseRegion.mode === 'radial') {
+      const transforms = [];
+      for (let step = 1; step < baseRegion.slices; step += 1) {
+        const rotationAngle = (Math.PI * 2 * step) / baseRegion.slices;
+        transforms.push({
+          ...baseRegion,
+          transform: 'rotateCustom',
+          rotationAngle,
+          rotationStep: step,
+          synthetic: true,
+          id: `${baseRegion.id}_radial_${step}`
+        });
+      }
+      return transforms;
+    }
 
     return (transformsByMode[baseRegion.mode] || transformsByMode.vertical).map(transform => ({
       ...baseRegion,
@@ -753,6 +795,24 @@ export class Board {
       case 'horizontal':
         addLine(horizontalStyles);
         break;
+      case 'radial': {
+        const cx = region.width / 2;
+        const cy = region.height / 2;
+        const radius = Math.max(region.width, region.height) / 2;
+        for (let step = 0; step < region.slices; step += 1) {
+          const angle = ((Math.PI * 2) / region.slices) * step - (Math.PI / 2);
+          addLine({
+            left: `${cx}px`,
+            top: `${cy}px`,
+            width: `${radius}px`,
+            height: '0',
+            borderTop: '1px dashed rgba(0, 212, 170, 0.85)',
+            transformOrigin: '0 0',
+            transform: `rotate(${angle}rad) scaleX(0.8)`
+          });
+        }
+        break;
+      }
       case 'quad':
       case 'rotational':
         addLine(horizontalStyles);
