@@ -85,6 +85,25 @@ export class FloodFillTool {
     this._cancelInteractive();
   }
 
+  compactMemory(options = {}) {
+    if (this._previewTimer) {
+      clearTimeout(this._previewTimer);
+      this._previewTimer = null;
+    }
+    this._pendingPreview = false;
+    this._cancelInteractive();
+    this._imageData = null;
+    this._fillParams = null;
+    this._startPos = null;
+    this._clickPos = null;
+    this._committed = false;
+
+    if (options.recycleWorker && this._fillWorker) {
+      this._fillWorker.destroy();
+      this._fillWorker = new FillWorkerClient();
+    }
+  }
+
   // -- helpers --
 
   _getFillParams(user) {

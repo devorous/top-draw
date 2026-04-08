@@ -183,6 +183,8 @@ export class DrawingApp {
     // Checkpoint interval (dedicated user sends full board every 60s)
     this._checkpointInterval = null;
     this._checkpointIntervalMs = 60000;
+    this._memoryCompactionTimer = null;
+    this._memoryCompactionDelayMs = 2500;
 
     this.snapshotManager = new SnapshotManager(this);
   }
@@ -229,14 +231,10 @@ export class DrawingApp {
     const debugCanvas = document.getElementById('debugOverlay');
     this.debugOverlay.init(debugCanvas, this.board.getWidth(), this.board.getHeight());
     this.debugOverlay.setBoard(this.board);
-    this.debugOverlay.setPixelsWorker(this.board.layerManager._pixelsWorker);
     this.debugOverlay.setTileTracker(this.board.tileTracker);
 
     this.strokeHistoryPanel.init();
-    this.strokeHistoryPanel.setLayerManager(this.board.layerManager);
-    this.strokeHistoryPanel.setActiveLayer(this.self?.activeLayer ?? 0);
-    this.board.layerManager.strokeHistoryPanel = this.strokeHistoryPanel;
-    this.board.layerManager.onHistoryChange = () => this.updateUndoRedoHud();
+    this._bindLayerManagerDependencies();
 
     this.performanceDebugPanel.init();
     // PerformanceSettings.init() called lazily by Moderation._showPerformanceSettings()
@@ -1561,6 +1559,8 @@ export class DrawingApp {
       return;
     }
 
+    this.resetRoomState({ preserveRemoteVisuals: false, clearBoard: true });
+
     this.isOfflineMode = false;
     this.currentRoomId = roomId;
     this.currentRoomPassword = password;
@@ -1717,6 +1717,7 @@ export class DrawingApp {
    */
   _enterOfflineMode() {
     console.log('[App] Draw Alone mode - creating local room');
+    this.resetRoomState({ preserveRemoteVisuals: false, clearBoard: true });
     this.isOfflineMode = true;
     this.connected = false;
     this.currentRoomId = 'offline-' + Date.now();
@@ -1775,6 +1776,216 @@ export class DrawingApp {
     }
   }
 
+  _bindLayerManagerDependencies() {
+    if (!this.board?.layerManager) return;
+    this.strokeHistoryPanel.setLayerManager(this.board.layerManager);
+    this.strokeHistoryPanel.setActiveLayer(this.self?.activeLayer ?? 0);
+    this.board.layerManager.strokeHistoryPanel = this.strokeHistoryPanel;
+    this.board.layerManager.onHistoryChange = () => this.updateUndoRedoHud();
+    this.board.layerManager.localUserId = this.self?.id ?? null;
+    this.debugOverlay?.setPixelsWorker?.(this.board.layerManager._pixelsWorker);
+  }
+
+  hasRemoteUsers() {
+    for (const id of this.users.keys()) {
+      if (Number(id) !== Number(this.sessionIndex)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  cancelMemoryCompaction() {
+    if (this._memoryCompactionTimer) {
+      clearTimeout(this._memoryCompactionTimer);
+      this._memoryCompactionTimer = null;
+    }
+  }
+
+  scheduleMemoryCompaction(reason = 'remote-idle') {
+    this.cancelMemoryCompaction();
+    if (this.hasRemoteUsers()) return;
+
+    this._memoryCompactionTimer = setTimeout(() => {
+      this._memoryCompactionTimer = null;
+      this.compactMemory({ reason });
+    }, this._memoryCompactionDelayMs);
+  }
+
+  compactMemory(options = {}) {
+    if (!this.board?.layerManager) return false;
+    if (this.hasRemoteUsers()) return false;
+    if (this.syncClient?.isSyncing?.()) {
+      this.scheduleMemoryCompaction('sync-busy');
+      return false;
+    }
+    if (this.self?.mousedown) {
+      this.scheduleMemoryCompaction('local-active');
+      return false;
+    }
+
+    const selectTool = this.toolManager.getTool('select');
+    if (selectTool?.isSelecting || selectTool?.isDragging || selectTool?.floatingCanvas) {
+      this.scheduleMemoryCompaction('selection-active');
+      return false;
+    }
+
+    const layerStats = this.board.layerManager.getDebugStats?.();
+    if ((layerStats?.activeStrokes ?? 0) > 0) {
+      this.scheduleMemoryCompaction('strokes-active');
+      return false;
+    }
+
+    this.remoteUserHandler?.resetTransientState?.();
+    this.toolManager.getTool('fill')?.compactMemory?.({ recycleWorker: true });
+    this.board.layerManager.compactTransientState?.({ recycleWorker: true, clearReplayCaches: true });
+    this.debugOverlay?.setPixelsWorker?.(this.board.layerManager._pixelsWorker);
+    this.board.requestUpdate();
+    this.updateCleanupDebugStats();
+    console.log('[Memory] Compacted renderer state:', options.reason || 'manual');
+    return true;
+  }
+
+  cleanupRemoteUserState(userId, options = {}) {
+    const preserveVisuals = options.preserveVisuals === true;
+    const requestUpdate = options.requestUpdate !== false;
+    const numericUserId = Number(userId);
+    if (!Number.isFinite(numericUserId)) return;
+    if (this.sessionIndex !== null && numericUserId === Number(this.sessionIndex)) return;
+
+    const user = this.users.get(numericUserId);
+    if (user) {
+      this.remoteUserHandler?.cleanupUserState?.(user, { preserveVisuals });
+      this.users.delete(numericUserId);
+    } else {
+      this.board.layerManager?.deepCleanupUserState?.(numericUserId, { preserveVisuals });
+    }
+
+    this.ui.removeRemoteUser(numericUserId);
+    if (requestUpdate) {
+      this.board.requestUpdate();
+    }
+    if (this.hasRemoteUsers()) {
+      this.cancelMemoryCompaction();
+    } else {
+      this.scheduleMemoryCompaction('last-remote-left');
+    }
+    this.updateCleanupDebugStats();
+  }
+
+  resetRoomState(options = {}) {
+    const preserveRemoteVisuals = options.preserveRemoteVisuals === true;
+    const clearBoard = options.clearBoard !== false;
+
+    this.cancelMemoryCompaction();
+    this.stopPreviewInterval();
+    this.stopCheckpointInterval();
+    this.syncClient?.resetForRoomChange?.();
+    this.remoteUserHandler?.resetTransientState?.();
+    this._resetLocalTransientState();
+
+    const remoteIds = new Set();
+    this.users.forEach((_, sessionIndex) => {
+      if (sessionIndex !== this.sessionIndex) {
+        remoteIds.add(Number(sessionIndex));
+      }
+    });
+    this.ui.remoteUserUI?.cursors?.forEach?.((_, userId) => {
+      if (Number(userId) !== Number(this.sessionIndex)) {
+        remoteIds.add(Number(userId));
+      }
+    });
+
+    for (const userId of remoteIds) {
+      this.cleanupRemoteUserState(userId, { preserveVisuals: preserveRemoteVisuals, requestUpdate: false });
+    }
+
+    if (clearBoard && this.board) {
+      this.board.activeSelectionLayer = -1;
+      this.board.setMirror(false);
+      this.board.setMirrorRegions([]);
+      this.board.rebuildRenderingState({ preserveSnapshot: false });
+      this._bindLayerManagerDependencies();
+      this.toolManager.getTool('fill')?.compactMemory?.({ recycleWorker: true });
+      this.remoteUserHandler?.resetTransientState?.();
+      this.board.setBackgroundColor('#ffffff');
+    }
+
+    this.currentRoomData = null;
+    appState.currentRoomData = null;
+    this.updateRoomSettingsButtonVisibility();
+    this.updateCleanupDebugStats();
+  }
+
+  _resetLocalTransientState() {
+    if (!this.self) return;
+
+    this.self.clearLine();
+    this.self.mousedown = false;
+    this.self.panning = false;
+    this.self.penPoints = [];
+    this.self._inkPoints = [];
+    this.self.remoteTarget = null;
+
+    const penTool = this.toolManager.getTool('flowPen');
+    penTool?.clearStroke?.();
+
+    const inkTool = this.toolManager.getTool('ink');
+    inkTool?.clearStroke?.();
+
+    const pixelTool = this.toolManager.getTool('pixel');
+    pixelTool?.clearStroke?.(this.self);
+
+    const lineTool = this.toolManager.getTool('line');
+    if (lineTool) lineTool.startPos = null;
+    const rectangleTool = this.toolManager.getTool('rectangle');
+    if (rectangleTool) rectangleTool.startPos = null;
+    const circleTool = this.toolManager.getTool('circle');
+    if (circleTool) circleTool.startPos = null;
+
+    const selectTool = this.toolManager.getTool('select');
+    if (selectTool) {
+      selectTool.isSelecting = false;
+      selectTool.isDragging = false;
+      selectTool.startPos = null;
+      selectTool.floatingCanvas = null;
+      selectTool.floatingCtx = null;
+      selectTool.selection = null;
+      selectTool.corners = null;
+      selectTool.originalCorners = null;
+      selectTool.lassoPath = null;
+      selectTool._cachedTransform = null;
+      selectTool.pendingSelectionBroadcast = null;
+    }
+
+    const fillTool = this.toolManager.getTool('fill');
+    fillTool?._cancelInteractive?.();
+
+    this.board.cancelStroke(this.self);
+    this.board.clearTop();
+    this.debugOverlay?.cancelDrawing?.(this.self.id);
+  }
+
+  getCleanupDebugStats() {
+    const remoteBoards = typeof document !== 'undefined' ? document.querySelectorAll('.userBoard').length : 0;
+    const remoteCursors = typeof document !== 'undefined' ? document.querySelectorAll('.cursor').length : 0;
+    return {
+      remoteUsers: [...this.users.keys()].filter((id) => id !== this.sessionIndex).length,
+      remoteBoards,
+      remoteCursors,
+      ...(this.board.layerManager?.getDebugStats?.() || {}),
+      ...(this.remoteUserHandler?.getDebugStats?.() || {})
+    };
+  }
+
+  updateCleanupDebugStats() {
+    const stats = this.getCleanupDebugStats();
+    if (typeof window !== 'undefined') {
+      window.__topDrawCleanupStats = stats;
+    }
+    return stats;
+  }
+
   /**
    * Handles successful WebSocket connection.
    * @param {number} sessionIndex - The session index assigned by the server.
@@ -1784,11 +1995,13 @@ export class DrawingApp {
    */
   handleWSConnect(sessionIndex, role, assignedUsername, ipHash) {
     if (this.isOfflineMode) return;
+    this.cancelMemoryCompaction();
 
     this.sessionIndex = sessionIndex;
     appState.sessionIndex = sessionIndex;
     this.self.id = sessionIndex;
     this.users.set(sessionIndex, this.self);
+    this.board.layerManager.localUserId = sessionIndex;
 
     if (assignedUsername) {
       this.self.setUsername(assignedUsername);
@@ -2613,12 +2826,7 @@ export class DrawingApp {
       this.inputBufferManager.stopTickLoop();
     }
 
-    this.users.forEach((user, sessionIndex) => {
-      if (sessionIndex !== this.sessionIndex) {
-        this.remoteUserHandler.handleCancel(user);
-        this.ui.removeRemoteUser(sessionIndex);
-      }
-    });
+    this.resetRoomState({ preserveRemoteVisuals: false, clearBoard: true });
     this.users.clear();
     if (this.self) {
       this.users.set(this.sessionIndex, this.self);

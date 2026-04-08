@@ -864,4 +864,30 @@ export class SyncClient {
     this.hasCompletedSync = false;
     this.inactive = false;
   }
+
+  /**
+   * Reset transient sync state when leaving a room or switching rooms.
+   * Keeps the instance reusable for the next room.
+   * @returns {void}
+   */
+  resetForRoomChange() {
+    if (this.syncTimeout) {
+      clearTimeout(this.syncTimeout);
+      this.syncTimeout = null;
+    }
+    this.syncing = false;
+    this.buffering = false;
+    this.inactive = false;
+    this.hasCompletedSync = false;
+    this.expectedMessages = 0;
+    this.receivedMessages = 0;
+    this.currentSyncTargetId = null;
+    this.eventBuffer = [];
+    this._pendingImports = [];
+    this.hideInactiveUi();
+    this.hideOverlay();
+    if (this.progressFillEl) {
+      this.progressFillEl.style.width = '0%';
+    }
+  }
 }

@@ -1,9 +1,13 @@
 // src/workers/PixelsWorkerClient.js
 export class PixelsWorkerClient {
     constructor() {
-        this.worker = new Worker(new URL('./pixels.worker.js', import.meta.url), { type: 'module' });
         this.promises = new Map();
         this.msgId = 0;
+        this._initWorker();
+    }
+
+    _initWorker() {
+        this.worker = new Worker(new URL('./pixels.worker.js', import.meta.url), { type: 'module' });
 
         this.worker.onmessage = (e) => {
             const { id, result, type, error } = e.data;
@@ -91,5 +95,16 @@ export class PixelsWorkerClient {
             this.promises.set(id, { resolve, reject });
             this.worker.postMessage({ type: 'GET_STATUS', id });
         });
+    }
+
+    destroy() {
+        if (this.worker) {
+            this.worker.terminate();
+            this.worker = null;
+        }
+        for (const { reject } of this.promises.values()) {
+            reject(new Error('Worker terminated'));
+        }
+        this.promises.clear();
     }
 }

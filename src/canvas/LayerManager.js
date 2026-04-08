@@ -37,6 +37,22 @@ export class LayerManager {
     this.initLayerGroups(3);
   }
 
+  recycleWorkerClient() {
+    this._pixelsWorker?.destroy?.();
+    this._pixelsWorker = new PixelsWorkerClient();
+  }
+
+  destroy() {
+    this.clearAll();
+    this._pixelsWorker?.destroy?.();
+    this._pixelsWorker = null;
+    for (const group of this.layerGroups) {
+      this._disposeCanvasElement(group.flatCanvas);
+      group.flatCanvas = null;
+      group.flatCtx = null;
+    }
+  }
+
   /**
    * Notify the stroke history panel to update
    * @param {boolean} [immediate=false] - If true, update immediately
@@ -720,7 +736,7 @@ export class LayerManager {
     const lastSeq = group.bakedSequences[group.bakedSequences.length - 1];
 
     let targetBin;
-    if (lastSeq && lastSeq.blendMode === stroke.blendMode) {
+    if (lastSeq && lastSeq.canvas && lastSeq.ctx && lastSeq.blendMode === stroke.blendMode) {
       targetBin = lastSeq;
     } else {
       targetBin = this._createCanvas();
@@ -756,7 +772,7 @@ export class LayerManager {
       }
       const lastSeq = group.bakedSequences[group.bakedSequences.length - 1];
       let targetBin;
-      if (lastSeq && lastSeq.blendMode === 'source-over') {
+      if (lastSeq && lastSeq.canvas && lastSeq.ctx && lastSeq.blendMode === 'source-over') {
         targetBin = lastSeq;
       } else {
         targetBin = this._createCanvas();
@@ -827,7 +843,7 @@ export class LayerManager {
     } else {
       const lastSeq = group.bakedSequences[group.bakedSequences.length - 1];
       let targetBin;
-      if (lastSeq && lastSeq.blendMode === 'source-over') {
+      if (lastSeq && lastSeq.canvas && lastSeq.ctx && lastSeq.blendMode === 'source-over') {
         targetBin = lastSeq;
       } else {
         targetBin = this._createCanvas();
@@ -1905,6 +1921,15 @@ export class LayerManager {
   clear(index) {
     const group = this.layerGroups[index];
     if (group) {
+      for (const seq of group.bakedSequences) {
+        this._disposeSequence(seq);
+      }
+      for (const stroke of group.strokeStack) {
+        this._disposeStrokeRecord(stroke);
+      }
+      for (const active of group.activeStrokeByUser.values()) {
+        this._disposeCanvasObject(active);
+      }
       group.bakedSequences = [];
       group.strokeStack = [];
       group.userStrokeCounts.clear();
@@ -1924,14 +1949,80 @@ export class LayerManager {
     for (let i = 0; i < this.layerGroups.length; i++) {
       this.clear(i);
     }
+    for (const batches of this.redoStackByUser.values()) {
+      for (const batch of batches) {
+        for (const { record } of batch) {
+          this._disposeStrokeRecord(record);
+        }
+      }
+    }
     this.redoStackByUser.clear();
 
+    if (this._pendingGlitchResults) {
+      for (const pending of this._pendingGlitchResults.values()) {
+        for (const item of pending) {
+          this._disposeCanvasElement(item?.resultImage);
+        }
+      }
+      this._pendingGlitchResults.clear();
+    }
+
     // Clear canvas pool to prevent old content from reappearing
+    for (const pooled of this._canvasPool) {
+      this._disposeCanvasObject(pooled);
+    }
     this._canvasPool = [];
     // Clear group buffer
+    this._disposeCanvasObject(this._groupBuffer);
     this._groupBuffer = null;
 
     this._notifyHistoryPanel();
+  }
+
+  compactTransientState(options = {}) {
+    const clearReplayCaches = options.clearReplayCaches !== false;
+    if (clearReplayCaches) {
+      for (const group of this.layerGroups) {
+        for (const stroke of group.strokeStack) {
+          this._disposeCanvasElement(stroke._cachedPreview);
+          stroke._cachedPreview = null;
+          this._disposeCanvasElement(stroke._cachedBlurResult);
+          stroke._cachedBlurResult = null;
+        }
+        for (const seq of group.bakedSequences) {
+          if (seq?.type === 'group' && Array.isArray(seq.strokes)) {
+            for (const stroke of seq.strokes) {
+              this._disposeCanvasElement(stroke._cachedPreview);
+              stroke._cachedPreview = null;
+              this._disposeCanvasElement(stroke._cachedBlurResult);
+              stroke._cachedBlurResult = null;
+            }
+          }
+        }
+      }
+    }
+
+    if (this._pendingGlitchResults) {
+      for (const pending of this._pendingGlitchResults.values()) {
+        for (const item of pending) {
+          this._disposeCanvasElement(item?.resultImage);
+        }
+      }
+      this._pendingGlitchResults.clear();
+    }
+
+    for (const pooled of this._canvasPool) {
+      this._disposeCanvasObject(pooled);
+    }
+    this._canvasPool = [];
+    this._disposeCanvasObject(this._groupBuffer);
+    this._groupBuffer = null;
+
+    if (options.recycleWorker !== false) {
+      this.recycleWorkerClient();
+    }
+
+    this.needsComposite = true;
   }
 
   /**
@@ -2050,49 +2141,121 @@ export class LayerManager {
    * @param {number} userId - User ID to bake out
    */
   bakeOutUserStrokes(userId) {
+    this.deepCleanupUserState(userId, { preserveVisuals: true });
+    this.needsComposite = true;
+    this._notifyHistoryPanel(true);
+  }
+
+  /**
+   * Deep-clean all layer-manager state related to a user.
+   * @param {number} userId - User ID to clean
+   * @param {{preserveVisuals?: boolean}} [options={}]
+   */
+  deepCleanupUserState(userId, options = {}) {
+    const preserveVisuals = options.preserveVisuals !== false;
+
     for (const group of this.layerGroups) {
-      // Bake active stroke if it exists
       const active = group.activeStrokeByUser.get(userId);
       if (active) {
-        this._bakeStrokeToBin(group, active);
-        this._releaseCanvas(active);
+        if (preserveVisuals) {
+          this._bakeStrokeToBin(group, active);
+        }
         group.activeStrokeByUser.delete(userId);
+        this._disposeCanvasObject(active);
       }
 
-      // Bake all historical strokes for this user from strokeStack
-      const strokesToBake = [];
-      for (let i = 0; i < group.strokeStack.length; i++) {
-        if (group.strokeStack[i].userId === userId) {
-          strokesToBake.push(i);
+      const retainedStrokes = [];
+      for (const stroke of group.strokeStack) {
+        if (stroke.userId === userId) {
+          if (preserveVisuals) {
+            this._bakeStrokeToBin(group, stroke);
+          }
+          this._disposeStrokeRecord(stroke);
+          continue;
+        }
+        retainedStrokes.push(stroke);
+      }
+      group.strokeStack = retainedStrokes;
+
+      const retainedSequences = [];
+      for (const seq of group.bakedSequences) {
+        if (seq?.type === 'group' && Array.isArray(seq.strokes) && seq.strokes.some((stroke) => stroke.userId === userId)) {
+          if (preserveVisuals) {
+            const rasterized = this._rasterizeGroupedSequence(seq);
+            if (rasterized) {
+              retainedSequences.push(rasterized);
+            }
+          }
+          this._disposeSequence(seq);
+          continue;
+        }
+        retainedSequences.push(seq);
+      }
+      group.bakedSequences = retainedSequences;
+      group.userStrokeCounts.delete(userId);
+    }
+
+    const redoBatches = this.redoStackByUser.get(userId);
+    if (redoBatches) {
+      for (const batch of redoBatches) {
+        for (const { record } of batch) {
+          this._disposeStrokeRecord(record);
         }
       }
+      this.redoStackByUser.delete(userId);
+    }
 
-      // Bake in reverse order to maintain visual layer order
-      for (let i = strokesToBake.length - 1; i >= 0; i--) {
-        const idx = strokesToBake[i];
-        const stroke = group.strokeStack[idx];
-        this._bakeStrokeToBin(group, stroke);
+    if (this._pendingGlitchResults?.has(userId)) {
+      const pending = this._pendingGlitchResults.get(userId) || [];
+      for (const item of pending) {
+        this._disposeCanvasElement(item?.resultImage);
       }
+      this._pendingGlitchResults.delete(userId);
+    }
 
-      // Remove all baked strokes from stack
-      group.strokeStack = group.strokeStack.filter(s => s.userId !== userId);
+    this.needsComposite = true;
+  }
 
-      // Clear user-specific metadata
-      group.userStrokeCounts.delete(userId);
+  /**
+   * Return lightweight counters useful during memory investigations.
+   * @returns {Object}
+   */
+  getDebugStats() {
+    const stats = {
+      activeStrokes: 0,
+      strokeStack: 0,
+      redoEntries: 0,
+      bakedSequences: 0,
+      groupedStrokeRefs: 0,
+      pendingGlitchUsers: this._pendingGlitchResults?.size ?? 0,
+      pendingGlitchResults: 0,
+      canvasPool: this._canvasPool.length
+    };
 
-      // Clean up user's strokes from bakedSequences groups
+    for (const group of this.layerGroups) {
+      stats.activeStrokes += group.activeStrokeByUser.size;
+      stats.strokeStack += group.strokeStack.length;
+      stats.bakedSequences += group.bakedSequences.length;
       for (const seq of group.bakedSequences) {
-        if (seq.type === 'group' && seq.strokes) {
-          seq.strokes = seq.strokes.filter(s => s.userId !== userId);
+        if (seq?.type === 'group' && Array.isArray(seq.strokes)) {
+          stats.groupedStrokeRefs += seq.strokes.length;
         }
       }
     }
 
-    // Clear redo stack for this user
-    this.redoStackByUser.delete(userId);
+    for (const batches of this.redoStackByUser.values()) {
+      for (const batch of batches) {
+        stats.redoEntries += batch.length;
+      }
+    }
 
-    this.needsComposite = true;
-    this._notifyHistoryPanel(true);
+    if (this._pendingGlitchResults) {
+      for (const pending of this._pendingGlitchResults.values()) {
+        stats.pendingGlitchResults += pending.length;
+      }
+    }
+
+    return stats;
   }
 
   /** @deprecated No-op */
@@ -2103,4 +2266,70 @@ export class LayerManager {
 
   /** @deprecated No-op */
   cleanupEmptySubLayers(groupIndex, userId) {}
+
+  _disposeCanvasElement(canvas) {
+    if (!canvas) return;
+    if (typeof canvas.close === 'function') {
+      try { canvas.close(); } catch (_) {}
+    }
+    if (canvas instanceof HTMLCanvasElement) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+  }
+
+  _disposeCanvasObject(canvasObj) {
+    if (!canvasObj) return;
+    if (canvasObj.maskCanvas && canvasObj.maskCanvas !== canvasObj.canvas) {
+      this._disposeCanvasElement(canvasObj.maskCanvas);
+      canvasObj.maskCanvas = null;
+    }
+    this._disposeCanvasElement(canvasObj.canvas);
+    canvasObj.ctx = null;
+    canvasObj.canvas = null;
+  }
+
+  _disposeStrokeRecord(stroke) {
+    if (!stroke) return;
+    if (stroke.selectionRestoreData?.snapshots) {
+      for (const snap of stroke.selectionRestoreData.snapshots) {
+        this._disposeCanvasElement(snap?.canvas);
+      }
+    }
+    this._disposeCanvasElement(stroke._cachedBlurResult);
+    this._disposeCanvasElement(stroke._cachedPreview);
+    if (stroke.maskCanvas && stroke.maskCanvas !== stroke.canvas) {
+      this._disposeCanvasElement(stroke.maskCanvas);
+    }
+    this._disposeCanvasElement(stroke.canvas);
+    stroke.canvas = null;
+    stroke.ctx = null;
+    stroke.maskCanvas = null;
+    stroke._cachedBlurResult = null;
+    stroke._cachedPreview = null;
+    stroke.selectionRestoreData = null;
+  }
+
+  _disposeSequence(seq) {
+    if (!seq) return;
+    if (seq.type === 'group' && Array.isArray(seq.strokes)) {
+      for (const stroke of seq.strokes) {
+        this._disposeStrokeRecord(stroke);
+      }
+      seq.strokes = [];
+      return;
+    }
+    this._disposeCanvasObject(seq);
+  }
+
+  _rasterizeGroupedSequence(seq) {
+    if (!seq?.strokes || seq.strokes.length === 0) return null;
+    const rasterized = this._createCanvas();
+    rasterized.blendMode = 'source-over';
+    for (const stroke of seq.strokes) {
+      this._compositeStroke(rasterized.ctx, stroke, false);
+    }
+    rasterized.ctx.globalCompositeOperation = 'source-over';
+    return this._hasContent(rasterized.canvas) ? rasterized : null;
+  }
 }

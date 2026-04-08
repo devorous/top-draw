@@ -17,8 +17,7 @@ export function setupUserHandlers(wsClient, app) {
     users.forEach((user, sessionIndex) => {
       if (sessionIndex !== app.sessionIndex && !remoteIndices.has(sessionIndex)) {
         console.log(`[USERS] Removing ghost user ${user.username}(${sessionIndex})`);
-        users.delete(sessionIndex);
-        ui.removeRemoteUser(sessionIndex);
+        app.cleanupRemoteUserState(sessionIndex, { preserveVisuals: true });
       }
     });
 
@@ -261,13 +260,7 @@ export function setupUserHandlers(wsClient, app) {
       }
 
       // Bake out all user strokes (preserves visuals, frees memory)
-      if (board.layerManager) {
-        board.layerManager.bakeOutUserStrokes(data.sessionIndex);
-        board.requestUpdate();
-      }
-
-      users.delete(data.sessionIndex);
-      ui.removeRemoteUser(data.sessionIndex);
+      app.cleanupRemoteUserState(data.sessionIndex, { preserveVisuals: true });
 
       app.updateChatUserList();
     }

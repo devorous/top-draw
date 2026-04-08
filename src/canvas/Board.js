@@ -139,17 +139,34 @@ export class Board {
 
     this.setupCanvas();
 
-    const [height, width] = this.dimensions;
-    this.layerManager = new LayerManager(width, height);
-    this.layerManager.board = this;
-    this.layerManager.onNeedsUpdate = () => this.requestUpdate();
-    this.layerManager.onGlitchBlurReady = (result) => this._handleGlitchBlurReady(result);
+    this._createLayerManager();
 
+    const [height, width] = this.dimensions;
     this.tileGrid = new TileGrid(width, height);
     this.tileTracker = new TileTracker(width, height);
 
     this.calculateDefaultView();
     this.resetView();
+  }
+
+  _createLayerManager(previousLayerManager = null) {
+    const [height, width] = this.dimensions;
+    const layerManager = new LayerManager(width, height);
+    layerManager.board = this;
+    layerManager.onNeedsUpdate = () => this.requestUpdate();
+    layerManager.onGlitchBlurReady = (result) => this._handleGlitchBlurReady(result);
+    layerManager.localUserId = this.app?.self?.id ?? null;
+
+    if (previousLayerManager?.layerGroups?.length === layerManager.layerGroups.length) {
+      for (let i = 0; i < layerManager.layerGroups.length; i++) {
+        layerManager.layerGroups[i].visible = previousLayerManager.layerGroups[i].visible;
+        layerManager.layerGroups[i].allowComplexBlendModes = previousLayerManager.layerGroups[i].allowComplexBlendModes;
+        layerManager.layerGroups[i].name = previousLayerManager.layerGroups[i].name;
+      }
+    }
+
+    this.layerManager = layerManager;
+    return layerManager;
   }
 
   /**
@@ -810,6 +827,32 @@ export class Board {
     }
 
     this.topCtx.clearRect(0, 0, width, height);
+  }
+
+  rebuildRenderingState(options = {}) {
+    const preserveSnapshot = options.preserveSnapshot === true;
+    const layerSnapshot = preserveSnapshot ? this.getSnapshot() : null;
+    const previousLayerManager = this.layerManager;
+
+    previousLayerManager?.destroy?.();
+    this._createLayerManager(previousLayerManager);
+
+    this.activeSelectionLayer = -1;
+    this.mainCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
+    this.clearTop();
+    this.clearSelectionOverlay();
+    if (this.upperLayersCtx) {
+      this.upperLayersCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
+    }
+    this.tileGrid?.clear?.();
+    this.tileTracker?.clear?.();
+
+    if (layerSnapshot?.length) {
+      this.restoreSnapshot(layerSnapshot);
+    } else {
+      this.layerManager.needsComposite = true;
+      this.compositeAllLayers();
+    }
   }
 
   /**

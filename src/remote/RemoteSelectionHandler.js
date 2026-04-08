@@ -20,6 +20,17 @@ export class RemoteSelectionHandler {
     this._patternTileCache = new Map();
   }
 
+  _disposeCanvas(canvas) {
+    if (!canvas) return;
+    if (typeof canvas.close === 'function') {
+      try { canvas.close(); } catch (_) {}
+    }
+    if (canvas instanceof HTMLCanvasElement) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+  }
+
   /**
    * Generate a pattern tile from a user's pattern brush settings.
    * @private
@@ -856,6 +867,8 @@ export class RemoteSelectionHandler {
    * Reset all selection-related state on a user object and clear their overlay canvas.
    */
   _cleanupUserSelection(user) {
+    if (!user) return;
+
     // Cancel idle timer
     if (user._selectionIdleTimer) {
       clearTimeout(user._selectionIdleTimer);
@@ -863,7 +876,16 @@ export class RemoteSelectionHandler {
     }
     user._selectionMoving = false;
 
-    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    if (user.context) {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
+    if (user._selectionRestoreData?.snapshots) {
+      for (const snap of user._selectionRestoreData.snapshots) {
+        this._disposeCanvas(snap?.canvas);
+      }
+    }
+    this._disposeCanvas(user.floatingCanvas);
+    this._disposeCanvas(user._cachedPreviewCanvas);
     user.floatingCanvas = null;
     user.floatingCtx = null;
     user.selection = null;

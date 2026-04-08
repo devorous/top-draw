@@ -971,64 +971,243 @@ export class RemoteUserHandler {
   }
 
   /**
-   * Cancels a remote user's active stroke and cleans up state.
-   *
-   * @param {User} user - The remote user whose stroke is being cancelled.
-   * @returns {void}
+   * Deep-clean all transient renderer state associated with a remote user.
+   * Optionally bakes their visible drawing into the permanent layer state first.
+   * @param {User} user
+   * @param {{preserveVisuals?: boolean}} [options={}]
    */
-  handleCancel(user) {
-    if (this.debugOverlay) {
-      this.debugOverlay.cancelDrawing(user.id);
+  cleanupUserState(user, options = {}) {
+    if (!user) return;
+    const preserveVisuals = options.preserveVisuals === true;
+
+    if (preserveVisuals) {
+      this.board.layerManager?.deepCleanupUserState?.(user.id, { preserveVisuals: true });
+    } else {
+      this.board.layerManager?.deepCleanupUserState?.(user.id, { preserveVisuals: false });
     }
 
-    this.board.layerManager.cancelUserStroke(this.getStrokeLayer(user), user.id);
+    this._cleanupTransientUserState(user);
+    this.board.requestUpdate();
+  }
+
+  _disposeCanvasElement(canvas) {
+    if (!canvas) return;
+    if (typeof canvas.close === 'function') {
+      try { canvas.close(); } catch (_) {}
+    }
+    if (canvas instanceof HTMLCanvasElement) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+  }
+
+  /**
+   * Clear room-level remote caches that are not tied to a single remaining user.
+   */
+  resetTransientState() {
+    this.selectionHandler?.stopRemoteSelectionAnimation?.();
+    if (this.selectionHandler?._patternTileCache) {
+      for (const tile of this.selectionHandler._patternTileCache.values()) {
+        this._disposeCanvasElement(tile);
+      }
+      this.selectionHandler._patternTileCache.clear();
+    }
+
+    const blurTool = this.toolManager.getTool('blur');
+    if (blurTool) {
+      blurTool.lastStampPos?.clear?.();
+      blurTool.strokePoints?.clear?.();
+      blurTool._activeUser = null;
+    }
+
+    const circleBlurTool = this.toolManager.getTool('circleBlur');
+    if (circleBlurTool) {
+      circleBlurTool.lastStampPos?.clear?.();
+      circleBlurTool._activeUser = null;
+    }
+
+    const glitchBlurTool = this.toolManager.getTool('glitchBlur');
+    if (glitchBlurTool) {
+      glitchBlurTool.lastStampPos?.clear?.();
+      glitchBlurTool.strokePoints?.clear?.();
+      glitchBlurTool._activeUser = null;
+    }
+
+    const imageBrushTool = this.toolManager.getTool('imageBrush');
+    if (imageBrushTool) {
+      imageBrushTool.lastStampPos?.clear?.();
+      imageBrushTool._activeUser = null;
+      imageBrushTool.strokePoints = [];
+      imageBrushTool.stampBuffer = [];
+    }
+
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool) {
+      patternTool.lastStampPos?.clear?.();
+      for (const tile of patternTool._tileCache?.values?.() || []) {
+        this._disposeCanvasElement(tile);
+      }
+      for (const offscreen of patternTool.remoteOffscreens?.values?.() || []) {
+        this._disposeCanvasElement(offscreen?.canvas);
+        offscreen.ctx = null;
+      }
+      patternTool.remoteOffscreens?.clear?.();
+      patternTool._tileCache?.clear?.();
+      patternTool._activeUser = null;
+      patternTool.strokePoints = [];
+      patternTool.stampBuffer = [];
+      this._disposeCanvasElement(patternTool.offscreenCanvas);
+      patternTool.offscreenCanvas = null;
+      patternTool.offscreenCtx = null;
+      patternTool.dirtyBounds = null;
+    }
+
+    const pixelTool = this.toolManager.getTool('pixel');
+    if (pixelTool) {
+      pixelTool.lastStampPos?.clear?.();
+      for (const canvas of pixelTool.tempCanvases?.values?.() || []) {
+        this._disposeCanvasElement(canvas);
+      }
+      pixelTool.tempCanvases?.clear?.();
+      pixelTool._activeUser = null;
+      pixelTool.strokePoints = [];
+      pixelTool.stampBuffer = [];
+    }
+
+    const fillTool = this.toolManager.getTool('fill');
+    fillTool?._cancelInteractive?.();
+  }
+
+  getDebugStats() {
+    let remoteSelections = 0;
+    for (const [id, user] of this.users.entries()) {
+      if (id === this.sessionIndex) continue;
+      if (user?.floatingCanvas || user?.pendingSelection) {
+        remoteSelections++;
+      }
+    }
+
+    return {
+      remoteSelections,
+      remoteSelectionAnimationActive: !!this.selectionHandler?.remoteSelectionAnimationId,
+      remotePatternPreviewCaches: this.selectionHandler?._patternTileCache?.size ?? 0,
+      remotePatternOffscreens: this.toolManager.getTool('pattern')?.remoteOffscreens?.size ?? 0,
+      remotePixelTempCanvases: this.toolManager.getTool('pixel')?.tempCanvases?.size ?? 0,
+      remoteBlurTracks: this.toolManager.getTool('blur')?.strokePoints?.size ?? 0,
+      remoteGlitchTracks: this.toolManager.getTool('glitchBlur')?.strokePoints?.size ?? 0
+    };
+  }
+
+  _cleanupTransientUserState(user) {
+    if (this.debugOverlay) {
+      this.debugOverlay.cancelDrawing(user.id);
+      this.debugOverlay.endDrawing?.(user.id);
+      this.debugOverlay.endStrokeTracking?.(user.id);
+    }
 
     this._invalidateFillPreview(user);
+    this.selectionHandler?._cleanupUserSelection?.(user);
+
     user.clearLine();
     user.mousedown = false;
     user._strokeLayer = null;
     user.startPos = null;
     user.pendingSelection = null;
     user.pendingLassoPath = null;
-
+    user.remoteTarget = null;
+    user.selection = null;
+    user.selectionCorners = null;
+    user.originalCorners = null;
+    user.originalSelectionPos = null;
+    user.lassoPath = null;
+    user.floatingCanvas = null;
+    user.floatingCtx = null;
+    user.homography = null;
+    user.previewHomography = null;
+    this._disposeCanvasElement(user._cachedPreviewCanvas);
+    user._selectionRestoreData = null;
+    user._cachedPreviewCanvas = null;
+    user._cachedPreviewBounds = null;
     user.penPoints = [];
     user._penLastStampPos = null;
     user._penStrokeActive = false;
     user._penStrokeColor = null;
     user._penAlpha = null;
-    if (user._penOffscreenCtx) {
+    if (user._penOffscreenCtx && user._penOffscreen) {
       user._penOffscreenCtx.clearRect(0, 0, user._penOffscreen.width, user._penOffscreen.height);
     }
+    this._disposeCanvasElement(user._penOffscreen);
+    user._penOffscreen = null;
+    user._penOffscreenCtx = null;
 
     user._inkPoints = [];
     user._inkStrokeActive = false;
     user._inkStrokeColor = null;
     user._inkAlpha = null;
-    if (user._inkCtx) {
+    if (user._inkCtx && user._inkOffscreen) {
       user._inkCtx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
     }
+    this._disposeCanvasElement(user._inkOffscreen);
+    user._inkOffscreen = null;
+    user._inkCtx = null;
 
     delete user.blurBounds;
+    delete user.glitchStamps;
     user.lastBlurPos = null;
+    user.imageBrush = null;
+    user.patternBrush = null;
 
     const blurTool = this.toolManager.getTool('blur');
-    if (blurTool) blurTool.lastStampPos.delete(user.id);
+    if (blurTool) {
+      blurTool.lastStampPos.delete(user.id);
+      blurTool.strokePoints.delete(user.id);
+    }
 
     const circleBlurTool = this.toolManager.getTool('circleBlur');
     if (circleBlurTool) circleBlurTool.lastStampPos.delete(user.id);
 
-    const glitchBlurTool2 = this.toolManager.getTool('glitchBlur');
-    if (glitchBlurTool2) glitchBlurTool2.lastStampPos.delete(user.id);
+    const glitchBlurTool = this.toolManager.getTool('glitchBlur');
+    if (glitchBlurTool) {
+      glitchBlurTool.lastStampPos.delete(user.id);
+      glitchBlurTool.strokePoints.delete(user.id);
+    }
 
     const imageBrushTool = this.toolManager.getTool('imageBrush');
     if (imageBrushTool) imageBrushTool.lastStampPos.delete(user.id);
 
-    const patternTool2 = this.toolManager.getTool('pattern');
-    if (patternTool2) {
-      patternTool2.lastStampPos.delete(user.id);
-      patternTool2.remoteOffscreens.delete(user.id);
+    const patternTool = this.toolManager.getTool('pattern');
+    if (patternTool) {
+      patternTool.lastStampPos.delete(user.id);
+      const offscreen = patternTool.remoteOffscreens.get(user.id);
+      if (offscreen) {
+        this._disposeCanvasElement(offscreen.canvas);
+        offscreen.ctx = null;
+      }
+      patternTool.remoteOffscreens.delete(user.id);
     }
 
+    const pixelTool = this.toolManager.getTool('pixel');
+    if (pixelTool) {
+      pixelTool.lastStampPos.delete(user.id);
+      const tempCanvas = pixelTool.tempCanvases.get(user.id);
+      this._disposeCanvasElement(tempCanvas);
+      pixelTool.tempCanvases.delete(user.id);
+    }
+
+    if (user.context) {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
+  }
+
+  /**
+   * Cancels a remote user's active stroke and cleans up state.
+   *
+   * @param {User} user - The remote user whose stroke is being cancelled.
+   * @returns {void}
+   */
+  handleCancel(user) {
+    this.board.layerManager.cancelUserStroke(this.getStrokeLayer(user), user.id);
+    this._cleanupTransientUserState(user);
     this.board.requestUpdate();
   }
 
