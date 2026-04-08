@@ -707,7 +707,7 @@ menuBtn: document.getElementById('menuBtn'),
    */
   updateToolDisplay(tool, user = null) {
     const {
-      selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText,
+      selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText, selfName,
       brushImage, brushFileInput, sizeContainer, pressureContainer, smoothingContainer,
       brushSpacing, brushHardness, opacityContainer, blurRadiusContainer,
       selectionModeOptions, eraserModeOptions, inkdropperModeOptions, brushModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions, fontContainer, textPositionMultiplierContainer, textPositionOffsetContainer
@@ -752,6 +752,7 @@ menuBtn: document.getElementById('menuBtn'),
 
     if (selfPressureCircle) selfPressureCircle.style.display = 'none';
     if (selfPressureSquare) selfPressureSquare.style.display = 'none';
+    if (selfName) selfName.style.display = tool === 'pan' ? 'none' : '';
 
     switch (tool) {
       case 'select':

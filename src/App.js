@@ -198,6 +198,7 @@ export class DrawingApp {
     this.createSelf();
     this.board.init('#boardContainer');
     this.board.setApp(this);
+    this.ui.updateZoomDisplay(this.board.getZoomPercent());
     appState.board = this.board;
     appState.appPreferences = this.appPreferences;
     TimeMachine.init(this.board, this.wsClient);
