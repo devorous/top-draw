@@ -32,7 +32,7 @@ import { SaveMode } from './ui/SaveMode.js';
 import { HistoryPanel } from './ui/HistoryPanel.js';
 import { MirrorRegionController } from './ui/MirrorRegionController.js';
 import { SnapshotManager } from './remote/SnapshotManager.js';
-import { loadAppPreferences, saveAppPreferences } from './config/AppPreferences.js';
+import { loadAppPreferences, saveAppPreferences, THEME_COLOR_KEYS } from './config/AppPreferences.js';
 import { getTextFontDefaults, normalizeTextFont } from './config/textFonts.js';
 import initWasm from './wasm/ddraw_wasm.js';
 
@@ -41,6 +41,20 @@ import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } fro
 import { appState, addRecentColor } from './state.svelte.js';
 
 const TEXT_FONT_SETTINGS_STORAGE_KEY = 'topDrawTextFontSettings';
+
+function applyThemeColors(themeColors = {}) {
+  if (typeof document === 'undefined') return;
+
+  const rootStyle = document.documentElement.style;
+  for (const key of THEME_COLOR_KEYS) {
+    const value = themeColors?.[key];
+    if (typeof value === 'string' && value.trim()) {
+      rootStyle.setProperty(`--${key}`, value.trim());
+    } else {
+      rootStyle.removeProperty(`--${key}`);
+    }
+  }
+}
 
 /**
  * Main Drawing Application class.
@@ -59,6 +73,7 @@ export class DrawingApp {
     this.previousTool = null;
     this.intentionalDisconnect = false;
     this.appPreferences = loadAppPreferences();
+    applyThemeColors(this.appPreferences?.general?.themeColors);
     this._warnOnNextUnload = false;
 
     this.board = new Board({
@@ -2267,6 +2282,7 @@ export class DrawingApp {
 
   setAppPreferences(preferences) {
     this.appPreferences = saveAppPreferences(preferences);
+    applyThemeColors(this.appPreferences?.general?.themeColors);
     appState.appPreferences = this.appPreferences;
     return this.appPreferences;
   }

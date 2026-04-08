@@ -1,6 +1,6 @@
 <script>
   import { appState } from '../../state.svelte.js';
-  import { createDefaultAppPreferences } from '../../config/AppPreferences.js';
+  import { createDefaultAppPreferences, THEME_COLOR_KEYS } from '../../config/AppPreferences.js';
   import {
     KEYBIND_ACTIONS,
     KEYBIND_ACTIONS_BY_ID,
@@ -26,6 +26,20 @@
   let message = $state('');
   let messageType = $state('success');
   let showMessage = $state(false);
+  let themeColorDrafts = $state({});
+
+  const THEME_COLOR_FIELDS = [
+    { key: 'bg-primary', label: 'Base Background' },
+    { key: 'bg-secondary', label: 'Panel Background' },
+    { key: 'bg-tertiary', label: 'Raised Background' },
+    { key: 'bg-elevated', label: 'Elevated Surface' },
+    { key: 'accent-primary', label: 'Primary Accent' },
+    { key: 'accent-secondary', label: 'Secondary Accent' },
+    { key: 'accent-hover', label: 'Accent Hover' },
+    { key: 'text-primary', label: 'Primary Text' },
+    { key: 'text-secondary', label: 'Secondary Text' },
+    { key: 'text-muted', label: 'Muted Text' }
+  ];
 
   function hide() {
     appState.appSettingsVisible = false;
@@ -51,7 +65,7 @@
     const saved = app?.setAppPreferences?.(nextPreferences) ?? nextPreferences;
     appState.appPreferences = saved;
     if (toastMessage) {
-      displayMessage(toastMessage, 'success');
+      app?.ui?.showToast?.(toastMessage);
     }
   }
 
@@ -73,7 +87,55 @@
 
   function restoreDefaults() {
     const defaults = createDefaultAppPreferences();
-    updatePreferences(defaults, 'Default shortcuts restored');
+    updatePreferences(defaults, 'Default app settings restored');
+  }
+
+  function resolveThemeColorValue(key) {
+    return getComputedStyle(document.documentElement).getPropertyValue(`--${key}`).trim() || '#000000';
+  }
+
+  function syncThemeColorDrafts() {
+    const nextDrafts = {};
+    for (const { key } of THEME_COLOR_FIELDS) {
+      nextDrafts[key] = resolveThemeColorValue(key);
+    }
+    themeColorDrafts = nextDrafts;
+  }
+
+  function updateThemeColor(key, value) {
+    if (!THEME_COLOR_KEYS.includes(key)) return;
+    themeColorDrafts = {
+      ...themeColorDrafts,
+      [key]: value
+    };
+
+    const nextThemeColors = {
+      ...(appPreferences?.general?.themeColors ?? {}),
+      [key]: value
+    };
+
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        themeColors: nextThemeColors
+      }
+    };
+
+    updatePreferences(nextPreferences);
+  }
+
+  function restoreThemeDefaults() {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        themeColors: {}
+      }
+    };
+
+    updatePreferences(nextPreferences, 'Default colours restored');
+    syncThemeColorDrafts();
   }
 
   function restoreActionDefault(actionId) {
@@ -176,6 +238,12 @@
   }
 
   $effect(() => {
+    appPreferences;
+    visible;
+    syncThemeColorDrafts();
+  });
+
+  $effect(() => {
     function handleKeydown(event) {
       if (!visible) return;
 
@@ -219,7 +287,7 @@
       <div class="app-settings-header">
         <div>
           <h3>App Settings</h3>
-          <p>Manage app preferences and customize keyboard shortcuts.</p>
+          <p>Manage app colours, preferences, and keyboard shortcuts.</p>
         </div>
         <button class="app-settings-close" type="button" onclick={hide} title="Close">&times;</button>
       </div>
@@ -246,16 +314,35 @@
 
         {#if activeTab === TAB_GENERAL}
           <section class="settings-panel">
-            <h4>Shortcut Customization</h4>
+            <h4>App Colours</h4>
             <p>
-              Keyboard shortcuts are now configurable per browser profile. Changes save immediately and
-              take effect without a reload.
+              Tune the app's main background, text, and accent colours. Changes save immediately and
+              apply without a reload.
             </p>
+            <div class="theme-grid">
+              {#each THEME_COLOR_FIELDS as field (field.key)}
+                <label class="theme-color-field">
+                  <span>{field.label}</span>
+                  <div class="theme-color-input-wrap">
+                    <input
+                      type="color"
+                      class="theme-color-picker"
+                      value={themeColorDrafts[field.key] ?? '#000000'}
+                      onchange={(event) => updateThemeColor(field.key, event.currentTarget.value)}
+                    />
+                    <code>{themeColorDrafts[field.key] ?? '#000000'}</code>
+                  </div>
+                </label>
+              {/each}
+            </div>
             <div class="settings-actions">
               <button class="btn secondary" type="button" onclick={() => setTab(TAB_KEYBINDS)}>Open Keybinds</button>
-              <button class="btn danger" type="button" onclick={restoreDefaults}>Restore All Defaults</button>
+              <button class="btn danger" type="button" onclick={restoreThemeDefaults}>Restore Default Colours</button>
             </div>
           </section>
+          <div class="settings-global-actions">
+            <button class="btn danger" type="button" onclick={restoreDefaults}>Restore All Defaults</button>
+          </div>
         {:else}
           <section class="settings-panel">
             <div class="keybind-toolbar">
@@ -362,10 +449,10 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: #242830;
-    color: #f0f2f5;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
   }
 
   .app-settings-header {
@@ -373,8 +460,8 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 1.25rem 1.5rem;
-    background: #2d323c;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-subtle);
   }
 
   .app-settings-header h3,
@@ -386,13 +473,13 @@
   .app-settings-header p,
   .settings-panel p {
     margin: 0.35rem 0 0;
-    color: #a8b0bf;
+    color: var(--text-secondary);
   }
 
   .app-settings-close {
     background: transparent;
     border: none;
-    color: #f0f2f5;
+    color: var(--text-primary);
     font-size: 1.75rem;
     line-height: 1;
     cursor: pointer;
@@ -405,10 +492,10 @@
   }
 
   .app-settings-tab {
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border-subtle);
     border-bottom: none;
-    background: rgba(255, 255, 255, 0.04);
-    color: #cfd6e3;
+    background: color-mix(in srgb, var(--bg-elevated) 78%, transparent);
+    color: var(--text-secondary);
     padding: 0.7rem 1rem;
     border-radius: 8px 8px 0 0;
     cursor: pointer;
@@ -416,8 +503,8 @@
   }
 
   .app-settings-tab.active {
-    background: #313744;
-    color: #fff;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
   }
 
   .app-settings-body {
@@ -430,7 +517,7 @@
   .app-settings-message {
     margin-bottom: 0.8rem;
     padding: 0.8rem 1rem;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
   }
 
   .app-settings-message.success {
@@ -448,16 +535,67 @@
   .settings-panel {
     min-height: 100%;
     box-sizing: border-box;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg-elevated) 55%, transparent);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
     padding: 1rem;
   }
 
   .settings-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.75rem;
     margin-top: 1rem;
+  }
+
+  .settings-global-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1rem;
+  }
+
+  .theme-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.9rem;
+    margin-top: 1rem;
+  }
+
+  .theme-color-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    min-width: 0;
+  }
+
+  .theme-color-field span {
+    color: var(--text-secondary);
+    font-size: 0.84rem;
+    font-weight: 600;
+  }
+
+  .theme-color-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.7rem;
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+  }
+
+  .theme-color-picker {
+    width: 44px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .theme-color-input-wrap code {
+    color: var(--text-primary);
+    font-size: 0.82rem;
   }
 
   .keybind-toolbar {
@@ -475,10 +613,10 @@
 
   .settings-input {
     width: 100%;
-    background: #1d2128;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 6px;
-    color: #f0f2f5;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
     padding: 0.62rem 0.72rem;
     font: inherit;
   }
@@ -493,7 +631,7 @@
 
   .keybind-category h5 {
     margin-bottom: 0.65rem;
-    color: #dce3ef;
+    color: var(--text-primary);
     font-size: 0.95rem;
   }
 
@@ -508,8 +646,8 @@
     grid-template-columns: minmax(220px, 1.4fr) minmax(420px, 1fr);
     gap: 0.85rem;
     align-items: start;
-    background: #1b1f27;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
     border-radius: 8px;
     padding: 0.75rem;
   }
@@ -524,7 +662,7 @@
   .keybind-copy span,
   .keybind-default,
   .keybind-empty {
-    color: #9ea7b6;
+    color: var(--text-secondary);
     font-size: 0.82rem;
     line-height: 1.4;
   }
@@ -544,7 +682,7 @@
   }
 
   .keybind-slot-label {
-    color: #9ea7b6;
+    color: var(--text-secondary);
     font-size: 0.78rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -559,19 +697,19 @@
     min-height: 38px;
     min-width: 110px;
     padding: 0.45rem 0.8rem;
-    border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.04);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--bg-elevated) 72%, transparent);
     font-weight: 700;
-    color: #f3f5f8;
+    color: var(--text-primary);
     box-sizing: border-box;
     white-space: nowrap;
   }
 
   .keybind-binding.capturing {
-    border-color: rgba(93, 188, 255, 0.6);
-    background: rgba(93, 188, 255, 0.16);
-    color: #cfefff;
+    border-color: var(--border-active);
+    background: color-mix(in srgb, var(--accent-primary) 16%, transparent);
+    color: var(--text-primary);
   }
 
   .keybind-empty {

@@ -3,11 +3,25 @@ import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
 
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
 const APP_PREFERENCES_VERSION = 1;
+export const THEME_COLOR_KEYS = [
+  'bg-primary',
+  'bg-secondary',
+  'bg-tertiary',
+  'bg-elevated',
+  'accent-primary',
+  'accent-secondary',
+  'accent-hover',
+  'text-primary',
+  'text-secondary',
+  'text-muted'
+];
 
 export function createDefaultAppPreferences() {
   return {
     version: APP_PREFERENCES_VERSION,
-    general: {},
+    general: {
+      themeColors: {}
+    },
     keybinds: getDefaultKeybindings()
   };
 }
@@ -48,13 +62,30 @@ function sanitizeKeybinds(rawKeybinds) {
   return sanitized;
 }
 
+function sanitizeThemeColors(rawThemeColors) {
+  const sanitized = {};
+  const source = rawThemeColors && typeof rawThemeColors === 'object' ? rawThemeColors : {};
+
+  for (const key of THEME_COLOR_KEYS) {
+    const value = source[key];
+    if (typeof value === 'string' && value.trim()) {
+      sanitized[key] = value.trim();
+    }
+  }
+
+  return sanitized;
+}
+
 function sanitizePreferences(rawPreferences) {
   const defaults = createDefaultAppPreferences();
   const parsed = rawPreferences && typeof rawPreferences === 'object' ? rawPreferences : {};
 
   return {
     version: APP_PREFERENCES_VERSION,
-    general: defaults.general,
+    general: {
+      ...defaults.general,
+      themeColors: sanitizeThemeColors(parsed.general?.themeColors)
+    },
     keybinds: sanitizeKeybinds(parsed.keybinds)
   };
 }
