@@ -92,7 +92,7 @@ export class MirrorRegionController {
       </label>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,0.85);margin-bottom:10px;">
         <input type="radio" name="mirrorRegionAxis" value="radial" />
-        Radial spokes
+        Radial
       </label>
       <label data-role="mirror-slices-row" style="display:none;align-items:center;justify-content:space-between;gap:12px;font-size:12px;color:rgba(255,255,255,0.85);margin-bottom:12px;">
         <span>Slices</span>

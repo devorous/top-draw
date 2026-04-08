@@ -150,6 +150,10 @@ export class KeyboardHandler {
         app.handleRedo();
         return true;
 
+      case 'history.cancelStroke':
+        app.cancelCurrentStroke();
+        return true;
+
       case 'selection.copy':
         if (selectTool && selectTool.hasSelection()) {
           selectTool.copy();

@@ -171,6 +171,12 @@ export const KEYBIND_ACTIONS = [
     defaultSecondaryBinding: 'Ctrl+Y'
   },
   {
+    id: 'history.cancelStroke',
+    label: 'Cancel stroke',
+    description: 'Cancel your current in-progress stroke.',
+    category: 'History'
+  },
+  {
     id: 'canvas.temporaryPan',
     label: 'Temporary pan',
     description: 'Hold to pan without switching tools.',
