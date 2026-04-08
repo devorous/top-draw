@@ -74,6 +74,9 @@ export class SyncClient {
 
     /** @type {boolean} */
     this.compositeScheduled = false;
+
+    /** @type {number} */
+    this._syncSessionId = 0;
   }
 
   /**
@@ -294,6 +297,7 @@ export class SyncClient {
     }
 
     this.syncing = true;
+    this._syncSessionId += 1;
     this.inactive = false;
     this.buffering = true;
     this.eventBuffer = [];
@@ -337,6 +341,7 @@ export class SyncClient {
    * @private
    */
   _resetSyncAttempt() {
+    this._syncSessionId += 1;
     if (this.syncTimeout) {
       clearTimeout(this.syncTimeout);
       this.syncTimeout = null;
@@ -348,6 +353,31 @@ export class SyncClient {
     this.expectedMessages = 0;
     this.receivedMessages = 0;
     this.currentSyncTargetId = null;
+  }
+
+  /**
+   * Aborts an in-progress sync and ignores any late packets from that attempt.
+   *
+   * @param {string} [reason='Sync cancelled'] - Optional UI message.
+   * @param {{markCompleted?: boolean}} [options={}] - Additional behavior flags.
+   * @returns {void}
+   */
+  abortSync(reason = 'Sync cancelled', options = {}) {
+    const { markCompleted = true } = options;
+    if (!this.syncing && !this.buffering) return;
+
+    console.warn('[SyncClient] Aborting sync:', reason);
+    this._resetSyncAttempt();
+    this.hideOverlay();
+    this.inactive = false;
+    this.hasCompletedSync = !!markCompleted;
+
+    if (this.progressTextEl) {
+      this.progressTextEl.textContent = reason;
+    }
+    if (this.progressFillEl) {
+      this.progressFillEl.style.width = '0%';
+    }
   }
 
   /**
@@ -482,6 +512,7 @@ export class SyncClient {
    * @returns {void}
    */
   handleSyncMetadata(data) {
+    if (!this.syncing) return;
     this.expectedMessages = data.totalCount || 0;
     this.updateProgress();
   }
@@ -493,7 +524,9 @@ export class SyncClient {
    * @returns {void}
    */
   handleSyncLayerBin(data) {
-    const p = this._importLayerBin(data);
+    if (!this.syncing) return;
+    const syncSessionId = this._syncSessionId;
+    const p = this._importLayerBin(data, syncSessionId);
     this._pendingImports.push(p);
     this.receivedMessages++;
     this.updateProgress();
@@ -506,11 +539,15 @@ export class SyncClient {
    * @param {Object} data - Layer data
    * @returns {Promise<void>}
    */
-  async _importLayerBin(data) {
+  async _importLayerBin(data, syncSessionId = this._syncSessionId) {
     if (!this.board?.layerManager) return;
     try {
       const blob = new Blob([data.imageData], { type: 'image/png' });
       const bitmap = await createImageBitmap(blob);
+      if (syncSessionId !== this._syncSessionId || !this.syncing) {
+        bitmap.close();
+        return;
+      }
       this.board.layerManager.importLayerBin(data.layerIdx, data.blendMode, bitmap);
       bitmap.close();
       this._scheduleComposite();
@@ -526,7 +563,9 @@ export class SyncClient {
    * @returns {void}
    */
   handleSyncStroke(data) {
-    const p = this._importStroke(data);
+    if (!this.syncing) return;
+    const syncSessionId = this._syncSessionId;
+    const p = this._importStroke(data, syncSessionId);
     this._pendingImports.push(p);
     this.receivedMessages++;
     this.updateProgress();
@@ -540,7 +579,7 @@ export class SyncClient {
    * @param {Object} data - Stroke record data
    * @returns {Promise<void>}
    */
-  async _importStroke(data) {
+  async _importStroke(data, syncSessionId = this._syncSessionId) {
     if (!this.board?.layerManager) return;
 
     const timeout = new Promise((_, reject) => {
@@ -552,6 +591,10 @@ export class SyncClient {
         (async () => {
           const blob = new Blob([data.imageData], { type: 'image/png' });
           const bitmap = await createImageBitmap(blob);
+          if (syncSessionId !== this._syncSessionId || !this.syncing) {
+            bitmap.close();
+            return;
+          }
 
           const strokeCanvas = document.createElement('canvas');
           strokeCanvas.width = data.w;
@@ -596,11 +639,13 @@ export class SyncClient {
    * @returns {void}
    */
   handleSyncStrokeBatch(data) {
-    if (!data.strokes || !Array.isArray(data.strokes)) return;
+    if (!this.syncing || !data.strokes || !Array.isArray(data.strokes)) return;
+
+    const syncSessionId = this._syncSessionId;
 
     for (const s of data.strokes) {
       // Note: s is already mapped by WebSocketClient to have imageData, w, h, etc.
-      const p = this._importStroke(s);
+      const p = this._importStroke(s, syncSessionId);
       this._pendingImports.push(p);
     }
 
@@ -613,6 +658,7 @@ export class SyncClient {
    * @returns {void}
    */
   handleSyncStrokesDone() {
+    if (!this.syncing) return;
     // No action needed here — handleSyncComplete waits for _pendingImports.
   }
 
@@ -623,6 +669,7 @@ export class SyncClient {
    * @returns {void}
    */
   handleSyncDirtyTiles(data) {
+    if (!this.syncing) return;
     const tiles = data.dirtyTiles || data.tiles;
     if (!this.board?.tileTracker || !tiles) return;
 
@@ -643,6 +690,7 @@ export class SyncClient {
    * @returns {void}
    */
   handleSyncComplete() {
+    if (!this.syncing) return;
     if (this.syncTimeout) {
       clearTimeout(this.syncTimeout);
       this.syncTimeout = null;
@@ -871,6 +919,7 @@ export class SyncClient {
    * @returns {void}
    */
   resetForRoomChange() {
+    this._syncSessionId += 1;
     if (this.syncTimeout) {
       clearTimeout(this.syncTimeout);
       this.syncTimeout = null;

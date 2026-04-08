@@ -1149,8 +1149,9 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       if (data.g) {
         user.activeImage = { sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, g: data.g };
         user.activeSelectionCorners = null;
-        // Strip image data from relay — existing users reconstruct the floating image from their canvas
-        broadcastToRoom(room, { t: T.SEL_LIFT, u: sessionIndex, sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, cr: data.cr }, sessionIndex);
+        // Forward the lifted snapshot so remote clients reuse the sender's exact pixels
+        // instead of attempting to recapture from their own canvases.
+        broadcastToRoom(room, { t: T.SEL_LIFT, u: sessionIndex, sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, cr: data.cr, g: data.g }, sessionIndex);
         return;
       }
       break;

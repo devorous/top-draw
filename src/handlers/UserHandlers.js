@@ -11,6 +11,16 @@ import { appState } from '../state.svelte.js';
 export function setupUserHandlers(wsClient, app) {
   const { users, ui, board, chat } = app;
 
+  const abortSyncIfRoomIsEmpty = () => {
+    if (!app.syncClient?.isSyncing()) return;
+
+    const hasOtherUsers = [...users.keys()].some((sessionIndex) => sessionIndex !== app.sessionIndex);
+    if (!hasOtherUsers) {
+      app.syncClient.abortSync('Sync stopped - no other users remain in the room');
+      app.updateRecordingButtonState?.();
+    }
+  };
+
   wsClient.on('users', (data) => {
     // Authoritative Removal: Find users we have locally who are NOT in the new list
     const remoteIndices = new Set(data.users.map(u => u.sessionIndex));
@@ -183,6 +193,7 @@ export function setupUserHandlers(wsClient, app) {
     });
 
     app.updateChatUserList();
+    abortSyncIfRoomIsEmpty();
 
     // Trigger sync on first USERS message after connecting
     if (app._needsSync) {
@@ -263,6 +274,7 @@ export function setupUserHandlers(wsClient, app) {
       app.cleanupRemoteUserState(data.sessionIndex, { preserveVisuals: true });
 
       app.updateChatUserList();
+      abortSyncIfRoomIsEmpty();
     }
   });
 
