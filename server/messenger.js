@@ -3,13 +3,18 @@ import { MongoClient } from 'mongodb';
 import { createServer } from 'http';
 import { verifyToken } from './auth.js';
 import { getClientIp, httpRateLimiter, messengerRateLimiter } from './security.js';
+import {
+  getDirectMessageRoomParticipants,
+  isValidDirectMessageRoomId,
+  isValidUsername,
+  normalizeUsername
+} from '../shared/identity.js';
 
 const PORT = process.env.PORT || 3001;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017';
 const DB_NAME = process.env.MONGODB_MESSENGER_DB_NAME || 'ddraw_messenger';
 const USERS_DB_NAME = process.env.MONGODB_DB_NAME || 'Draw';
 const MAX_WS_PAYLOAD_BYTES = 128 * 1024;
-const VALID_USERNAME_RE = /^[a-zA-Z0-9_-]{2,20}$/;
 const HTTP_LOOKUP_LIMIT = { max: 30, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
 const WS_CONNECT_LIMIT = { max: 20, windowMs: 60 * 1000, blockMs: 10 * 60 * 1000 };
 const WS_MESSAGE_LIMIT = { max: 120, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
@@ -33,14 +38,7 @@ function json(res, status, body) {
 }
 
 function isValidMessengerRoomId(roomId, currentUserId, otherUserId) {
-  if (!roomId || !currentUserId || !otherUserId) return false;
-  const [a, b] = [String(currentUserId), String(otherUserId)].sort();
-  return roomId === `${a}:${b}`;
-}
-
-function normalizeUsername(value) {
-  const username = String(value || '').trim();
-  return VALID_USERNAME_RE.test(username) ? username : '';
+  return isValidDirectMessageRoomId(roomId, currentUserId, otherUserId);
 }
 
 async function initDB() {
@@ -78,7 +76,7 @@ const server = createServer(async (req, res) => {
     }
 
     const username = normalizeUsername(url.searchParams.get('username'));
-    if (!username) {
+    if (!isValidUsername(username)) {
       json(res, 400, { exists: false });
       return;
     }
@@ -114,7 +112,7 @@ wss.on('connection', async (ws, req) => {
   const token = String(url.searchParams.get('token') || '').trim();
   const decoded = verifyToken(token);
 
-  if (!userId || !decoded?.username || decoded.username !== userId) {
+  if (!isValidUsername(userId) || !decoded?.username || decoded.username !== userId) {
     ws.close(4401, 'Unauthorized');
     return;
   }
@@ -142,8 +140,8 @@ wss.on('connection', async (ws, req) => {
 
       if (type === 'init_chat') {
         const roomId = String(payload.roomId || '').trim();
-        const participants = roomId.split(':');
-        if (participants.length !== 2 || !participants.includes(ws.username)) return;
+        const participants = getDirectMessageRoomParticipants(roomId);
+        if (!participants || participants.length !== 2 || !participants.includes(ws.username)) return;
 
         const history = await db.collection('messages')
           .find({ room_id: roomId })
@@ -178,7 +176,7 @@ wss.on('connection', async (ws, req) => {
         const encryptedContent = String(payload.encrypted_content || '').trim();
         const iv = String(payload.iv || '').trim();
 
-        if (!receiverId || !roomId || !encryptedContent || !iv) return;
+        if (!isValidUsername(receiverId) || !roomId || !encryptedContent || !iv) return;
         if (encryptedContent.length > 16384 || iv.length > 256) return;
         if (!isValidMessengerRoomId(roomId, ws.username, receiverId)) return;
 

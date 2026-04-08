@@ -3,6 +3,7 @@ import {
   DEFAULT_APPLIED_TEXT_OFFSET,
   DEFAULT_APPLIED_TEXT_SIZE_MULTIPLIER
 } from './utils/textLayout.js';
+import { truncateUsername } from '../shared/identity.js';
 
 /**
  * @fileoverview User model representing a participant in a drawing session.
@@ -286,13 +287,13 @@ export class User {
   }
 
   /**
-   * Sets the username, truncated to 20 characters.
+   * Sets the username, truncated to 20 Unicode characters.
    *
    * @param {string} username - The new username.
    * @returns {void}
    */
   setUsername(username) {
-    this.username = (username || '').slice(0, 20);
+    this.username = truncateUsername(username);
   }
 
   /**

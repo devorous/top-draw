@@ -3,6 +3,7 @@
 import { getDB } from './db.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
 import { getClientIp, httpRateLimiter } from './security.js';
+import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -13,8 +14,6 @@ const CORS_HEADERS = {
 const AUTH_BODY_LIMIT = 16 * 1024;
 const LOGIN_RATE_LIMIT = { max: 10, windowMs: 5 * 60 * 1000, blockMs: 15 * 60 * 1000 };
 const REGISTER_RATE_LIMIT = { max: 5, windowMs: 15 * 60 * 1000, blockMs: 30 * 60 * 1000 };
-const VALID_USERNAME_RE = /^[a-zA-Z0-9_-]{2,20}$/;
-
 function json(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json', ...CORS_HEADERS });
   res.end(JSON.stringify(body));
@@ -62,7 +61,7 @@ export async function handleAuthLogin(req, res) {
     return json(res, 400, { success: false, error: 'Invalid request body' });
   }
 
-  const username = typeof body.username === 'string' ? body.username.trim() : '';
+  const username = typeof body.username === 'string' ? normalizeUsername(body.username) : '';
   const password = typeof body.password === 'string' ? body.password : '';
   if (!username || !password) {
     return json(res, 400, { success: false, error: 'Username and password required' });
@@ -136,7 +135,7 @@ export async function handleAuthRegister(req, res) {
     return json(res, 400, { success: false, error: 'Invalid request body' });
   }
 
-  const username = typeof body.username === 'string' ? body.username.trim() : '';
+  const username = typeof body.username === 'string' ? normalizeUsername(body.username) : '';
   const password = typeof body.password === 'string' ? body.password : '';
   const email = typeof body.email === 'string' ? body.email.trim() : '';
   const secretQuestion = typeof body.secretQuestion === 'string' ? body.secretQuestion.trim() : '';
@@ -146,8 +145,8 @@ export async function handleAuthRegister(req, res) {
     return json(res, 400, { success: false, error: 'Username and password required' });
   }
 
-  if (!VALID_USERNAME_RE.test(username)) {
-    return json(res, 400, { success: false, error: 'Username must be 2-20 characters (letters, numbers, _ -)' });
+  if (!isValidUsername(username)) {
+    return json(res, 400, { success: false, error: getUsernameValidationMessage() });
   }
 
   if (password.length < 6) {

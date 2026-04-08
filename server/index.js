@@ -28,6 +28,7 @@ import { getRoomRole, setRoomRole, computeEffectiveRole, getRoomRoleRoster } fro
 import { getClientIp, httpRateLimiter, messengerRateLimiter, wsRateLimiter } from './security.js';
 import { getAsnCheckStatus, lookupAsnForIp, initAsnCheck, isVpnAsn } from './asnCheck.js';
 import { authLimiter, uploadLimiter, likeLimiter, wsMessageLimiter, wsConnectionLimiter, feedbackLimiter } from './rateLimit.js';
+import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,7 +48,6 @@ const WS_GLITCH_RESULT_LIMIT = { max: 360, windowMs: 60 * 1000, blockMs: 60 * 10
 const WS_AUTH_LIMIT = { max: 8, windowMs: 10 * 60 * 1000, blockMs: 15 * 60 * 1000 };
 const WS_ADMIN_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
 const VALID_ROOM_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
-const VALID_USERNAME_RE = /^[a-zA-Z0-9_-]{2,20}$/;
 const ROOM_JOIN_POLICIES = new Set(['open', 'registered', 'trusted']);
 const ADMIN_COLLECTIONS = new Set([
   'users',
@@ -719,15 +719,6 @@ async function applyMuteStateToClient(client, room, options = {}) {
   }
 
   return { shouldMute, muteReason };
-}
-
-/**
- * Validates a username: 1-20 characters, alphanumeric and underscores.
- * @param {string} username - The username to validate.
- * @returns {boolean} - True if valid, false otherwise.
- */
-function isValidUsername(username) {
-  return VALID_USERNAME_RE.test(username);
 }
 
 /**
@@ -1507,7 +1498,8 @@ wss.on('connection', (ws, req) => {
           const sessionIndex = room.sessionManager.allocateSessionIndex();
           ws.sessionIndex = sessionIndex;
 
-          const username = room.sessionManager.getUniqueName(data.n || 'Guest');
+          const requestedUsername = normalizeUsername(data.n || '');
+          const username = room.sessionManager.getUniqueName(requestedUsername || 'Guest');
           console.log(`[CONNECT] Session ${sessionIndex} joining room ${room.id} as "${username}"`);
 
           room.sessionManager.createUser(
@@ -2522,14 +2514,14 @@ wss.on('connection', (ws, req) => {
             break;
           }
 
-          const regUsername = (data.authUsername || '').trim();
+          const regUsername = normalizeUsername(data.authUsername || '');
           const regPassword = data.authPassword || '';
           const regEmail = (data.authEmail || '').trim();
           const regSecretQuestion = (data.authSecretQuestion || '').trim();
           const regSecretAnswer = (data.authSecretAnswer || '').trim();
 
           if (!isValidUsername(regUsername)) {
-            sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Username must be 2-20 characters (letters, numbers, underscores or hyphens)' });
+            sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: getUsernameValidationMessage() });
             break;
           }
           if (regPassword.length < 6) {
@@ -2638,8 +2630,9 @@ wss.on('connection', (ws, req) => {
                 break;
               }
             } else if (data.authUsername && data.authPassword) {
+              const normalizedLoginUsername = normalizeUsername(data.authUsername);
               userDoc = await db.collection('users').findOne(
-                { username: data.authUsername },
+                { username: normalizedLoginUsername },
                 { collation: { locale: 'en', strength: 2 } }
               );
               if (!userDoc) {

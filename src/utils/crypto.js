@@ -1,8 +1,10 @@
+import { buildDirectMessageRoomId } from '../../shared/identity.js';
+
 /**
  * Generates a room_id from two user IDs (alphabetically sorted).
  */
 export function getRoomId(uid1, uid2) {
-  return [uid1, uid2].sort().join(':');
+  return buildDirectMessageRoomId(uid1, uid2);
 }
 
 /**
