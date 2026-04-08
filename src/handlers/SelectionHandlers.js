@@ -11,7 +11,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
   wrapHandler('sel_lift', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.selectionHandler.handleSelectionLift(user, data.selection, data.lassoPath);
+      remoteUserHandler.selectionHandler.handleSelectionLift(user, data.selection, data.lassoPath, data.imageData);
     }
   });
 

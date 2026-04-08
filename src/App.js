@@ -3968,6 +3968,9 @@ export class DrawingApp {
             // Update local self position to match the smoothed broadcast position
             this.self.setPosition(smoothed[0], smoothed[1]);
           }
+          if (this.self.tool === 'text' && this.self.text) {
+            this._broadcastExplicitTextApply({ x: this.self.x, y: this.self.y });
+          }
           this.wsClient.broadcastMouseDown(broadcastPos);
 
           tool.onPointerDown(this.self, pos, e);
@@ -4000,6 +4003,25 @@ export class DrawingApp {
       // Start tracking for debug overlay (pass tool type, brush size, and user info)
       this.debugOverlay.startDrawing(pos.x, pos.y, this.self.tool, this.self.size, this.self.id, this.self.username);
     }
+  }
+
+  _broadcastExplicitTextApply(position = null) {
+    if (!this.connected || !this.wsClient || !this.self?.text) return;
+
+    const textPosition = position || { x: this.self.x, y: this.self.y };
+    this.wsClient.broadcastTextApply({
+      text: this.self.text,
+      x: textPosition.x,
+      y: textPosition.y,
+      size: this.self.size,
+      color: this.self.color,
+      opacity: this.self.opacity,
+      layerIndex: this.self.activeLayer ?? 0,
+      blendMode: this.self.blendMode || 'source-over',
+      font: this.self.font,
+      textPositionMultiplier: this.self.textPositionMultiplier,
+      textPositionOffset: this.self.textPositionOffset
+    });
   }
 
   handlePointerUp(e) {
@@ -4085,7 +4107,9 @@ export class DrawingApp {
         if (textTool) {
           // Broadcast final position before MU so remote users draw it in the right place
           if (this.connected) {
-            // Send MD to trigger placement of any previous text and set remote mousedown=true
+            if (this.self.text) {
+              this._broadcastExplicitTextApply(this.self._pendingTextPos);
+            }
             this.wsClient.broadcastMouseDown([this.self._pendingTextPos.x, this.self._pendingTextPos.y]);
           }
           textTool.onPointerDown(this.self, this.self._pendingTextPos, e);

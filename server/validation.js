@@ -269,6 +269,21 @@ export async function sanitizeMessage(data) {
       sanitized.k = sanitizeString(data.k, 20, { trim: false });
       return sanitized.k ? sanitized : null;
 
+    case T.TEXT_APPLY:
+      sanitized.g = sanitizeString(data.g, 2000, { trim: false });
+      sanitized.ps = sanitizeFloatArray(data.ps, { requireEvenLength: true, maxLength: 2 });
+      sanitized.s = clampInt(data.s, MIN_BRUSH_SIZE, MAX_BRUSH_SIZE, 1000);
+      sanitized.c = Number.isInteger(data.c) ? data.c >>> 0 : 0;
+      sanitized.p = clampInt(data.p, 0, MAX_PRESSURE, 100);
+      sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
+      sanitized.bm = sanitizeBlendMode(data.bm);
+      sanitized.fo = sanitizeString(data.fo, 120, { trim: true });
+      sanitized.tm = Math.min(Math.max(Number(data.tm), -1), 1);
+      sanitized.to = Math.min(Math.max(Number(data.to), -20), 20);
+      if (!Number.isFinite(sanitized.tm)) sanitized.tm = 0;
+      if (!Number.isFinite(sanitized.to)) sanitized.to = 0;
+      return sanitized.g && sanitized.ps.length === 2 ? sanitized : null;
+
     case T.GMP:
     case T.GPT:
     case T.SEL_TO_BRUSH:

@@ -175,6 +175,13 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
+  wrapHandler('text_apply', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      remoteUserHandler.handleTextApply(user, data);
+    }
+  });
+
   wrapHandler('clr', () => {
     board.clear();
   });

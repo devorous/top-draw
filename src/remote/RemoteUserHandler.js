@@ -424,7 +424,7 @@ export class RemoteUserHandler {
     if (!user.panning) {
       if (user.tool === 'erase' && user.eraseAllLayers) {
         this.board.beginStrokeAllLayers(user, 'destination-out');
-      } else if (user.tool !== 'blur' && user.tool !== 'glitchBlur' && user.tool !== 'fill') {
+      } else if (user.tool !== 'blur' && user.tool !== 'glitchBlur' && user.tool !== 'fill' && user.tool !== 'text') {
         // Blur tool handles its own stroke creation in onPointerDown with filter metadata
         // Fill tool manages its own stroke lifecycle via the dedicated FILL message handler
         const blendMode = user.tool === 'erase' ? 'destination-out' : (user.blendMode || 'source-over');
@@ -511,17 +511,6 @@ export class RemoteUserHandler {
               circleBlurTool.stampBlurredCircle(mirrored.x, mirrored.y, radius, user, region);
             });
           }
-        }
-        break;
-
-      case 'text':
-        if (user.text) {
-          this.toolManager.getTool('text').drawText(user);
-          user.text = '';
-          this.ui.setRemoteTextDomVisible(user.id, true);
-          this.ui.updateRemoteText(user.id, '');
-          this.board.layerManager.commitUserStroke(this.getStrokeLayer(user), user.id);
-          this.board.requestUpdate();
         }
         break;
 
@@ -700,13 +689,6 @@ export class RemoteUserHandler {
         break;
 
       case 'text':
-        if (user.text) {
-          this.toolManager.getTool('text').drawText(user);
-          user.text = '';
-          this.ui.setRemoteTextDomVisible(user.id, true);
-          this.ui.updateRemoteText(user.id, '');
-          this.board.requestUpdate();
-        }
         break;
 
       case 'pattern':
@@ -748,7 +730,7 @@ export class RemoteUserHandler {
 
     if (user.tool === 'erase' && user.eraseAllLayers) {
       this.board.endStrokeAllLayers(user);
-    } else if (user.tool !== 'fill') {
+    } else if (user.tool !== 'fill' && user.tool !== 'text') {
       // Fill tool commits its own stroke via the dedicated FILL message handler
       this.board.layerManager.commitUserStroke(strokeLayer, user.id);
     }
@@ -809,6 +791,42 @@ export class RemoteUserHandler {
       this.ui.setRemoteTextDomVisible(user.id, true);
       this.ui.updateRemoteText(user.id, user.text);
     }
+  }
+
+  handleTextApply(user, data) {
+    if (!user || !data?.text) return;
+
+    const layerIndex = data.layerIndex ?? user.activeLayer ?? 0;
+    const blendMode = data.blendMode || user.blendMode || 'source-over';
+    const textUser = {
+      ...user,
+      text: data.text,
+      x: data.position?.x ?? user.x,
+      y: data.position?.y ?? user.y,
+      size: data.size ?? user.size,
+      color: data.color ?? user.color,
+      opacity: data.opacity ?? user.opacity,
+      activeLayer: layerIndex,
+      blendMode,
+      font: data.font ?? user.font,
+      textPositionMultiplier: data.textPositionMultiplier ?? user.textPositionMultiplier,
+      textPositionOffset: data.textPositionOffset ?? user.textPositionOffset,
+      getColorString() {
+        return `rgba(${this.color.join(',')})`;
+      }
+    };
+
+    this.board.layerManager.beginUserStroke(layerIndex, user.id, blendMode);
+    this.toolManager.getTool('text').drawText(textUser);
+    this.board.layerManager.commitUserStroke(layerIndex, user.id);
+
+    user.text = '';
+    if (user.context) {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
+    this.ui.setRemoteTextDomVisible(user.id, true);
+    this.ui.updateRemoteText(user.id, '');
+    this.board.requestUpdate();
   }
 
   /**

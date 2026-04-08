@@ -97,6 +97,7 @@ function shouldAllowWsMessage(ws, data) {
     case T.CBM:
     case T.KP:
     case T.FILL:
+    case T.TEXT_APPLY:
       suffix = 'draw';
       config = WS_DRAW_LIMIT;
       break;
@@ -885,7 +886,7 @@ function sendTo(ws, payload) {
 
 const INACTIVE_FILTERED_TYPES = new Set([
   T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC, T.CSP, T.CSM, T.CHD, T.CBR,
-  T.CL, T.CBM, T.PAN, T.CANCEL, T.KP, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP,
+  T.CL, T.CBM, T.PAN, T.CANCEL, T.KP, T.TEXT_APPLY, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP,
   T.GPT, T.CPM, T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE,
   T.SEL_FILL, T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_FLIP,
   T.SEL_PENDING, T.IMG_PASTE, T.CLR, T.UNDO, T.REDO, T.FILL, T.CTHN,
@@ -899,7 +900,7 @@ function shouldSkipInactiveRecipient(room, client, messageType) {
 }
 
 const MUTED_BLOCKED = new Set([
-  T.MM, T.MD, T.MU, T.KP, T.CLR,
+  T.MM, T.MD, T.MU, T.KP, T.TEXT_APPLY, T.CLR,
   T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL, T.SEL_STAMP, T.SEL_FLIP, T.SEL_CANCEL, T.SEL_TO_BRUSH,
   T.IMG_PASTE, T.MSG, T.DM, T.CHAT_IMG, T.GLITCH_RESULT,
   T.MIR, T.MIRROR_REGION
@@ -962,6 +963,11 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       if (user.tool === Tool.TEXT) {
         user.text = '';
       }
+      room.sessionManager.updateUserActivity(sessionIndex);
+      break;
+
+    case T.TEXT_APPLY:
+      user.text = '';
       room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
@@ -1258,7 +1264,7 @@ function flushAllOutboxes() {
 const BATCHABLE_TYPES = new Set([
   T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC,
   T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL,
-  T.KP, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP, T.GPT, T.AFK,
+  T.KP, T.TEXT_APPLY, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP, T.GPT, T.AFK,
   T.CTHN, T.CSIM, T.FILL, T.CF
 ]);
 

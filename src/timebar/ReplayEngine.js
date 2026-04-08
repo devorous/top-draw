@@ -1797,6 +1797,25 @@ export class ReplayEngine {
           }
           break;
 
+        case T.TEXT_APPLY:
+          this._remoteHandler.handleTextApply(user, {
+            text: msg.g || '',
+            position: {
+              x: Array.isArray(msg.ps) ? msg.ps[0] : user.x,
+              y: Array.isArray(msg.ps) ? msg.ps[1] : user.y
+            },
+            size: msg.s !== undefined ? msg.s / 100 : user.size,
+            color: unpackColor(msg.c),
+            opacity: msg.p !== undefined ? msg.p / 100 : user.opacity,
+            layerIndex: msg.ly ?? user.activeLayer ?? 0,
+            blendMode: msg.bm || user.blendMode || 'source-over',
+            font: msg.fo || user.font,
+            textPositionMultiplier: msg.tm,
+            textPositionOffset: msg.to
+          });
+          this._syncReplayTextPreview(user);
+          break;
+
         case T.FILL:
           if (msg.sx !== undefined && msg.sy !== undefined) {
             this._restorePatternStateForUser(user);

@@ -181,7 +181,7 @@ export class RemoteSelectionHandler {
    * @param {Object} selection - Selection bounds {x, y, width, height}
    * @param {Array<{x: number, y: number}>|null} lassoPath - Optional lasso path for non-rectangular selections
    */
-  handleSelectionLift(user, selection, lassoPath = null) {
+  handleSelectionLift(user, selection, lassoPath = null, imageData = null) {
     // Clear pending selection since it's now being lifted
     user.pendingSelection = null;
     user.pendingLassoPath = null;
@@ -189,34 +189,15 @@ export class RemoteSelectionHandler {
     // Store selection info on user for rendering
     user.selection = selection;
 
-    // Lift the pixels from main canvas into a floating canvas for this user
+    // Lift the pixels into a floating canvas for this user.
+    // Prefer the sender-provided snapshot when available so moved selections
+    // preserve the exact rasterized result (important for text/font parity).
     const s = selection;
     user.floatingCanvas = document.createElement('canvas');
     user.floatingCanvas.width = s.width;
     user.floatingCanvas.height = s.height;
     user.floatingCtx = user.floatingCanvas.getContext('2d');
     user.floatingCtx.setTransform(1, 0, 0, 1, 0, 0); // Ensure clean state
-
-    // Copy selected region from the remote user's active layer only (transparent background),
-    // matching local SelectTool behaviour (copyAllLayers=false).
-    // Reading from mainCtx would capture all layers + background, so moving the selection
-    // would appear to move content from every layer instead of just the user's layer.
-    const lm = this.board.layerManager;
-    const layerIdx = user.activeLayer ?? 0;
-    const layerFlatCanvas = document.createElement('canvas');
-    layerFlatCanvas.width = lm.width;
-    layerFlatCanvas.height = lm.height;
-    const layerFlatCtx = layerFlatCanvas.getContext('2d');
-    lm.compositeLayerRange(layerFlatCtx, layerIdx, layerIdx + 1, null);
-    
-    // Copy selected region into user's floating canvas
-    user.floatingCtx.drawImage(layerFlatCanvas, s.x, s.y, s.width, s.height, 0, 0, s.width, s.height);
-
-    // Apply lasso mask if path provided (preserves concave selections)
-    if (lassoPath && lassoPath.length >= 3) {
-      this.applyLassoMask(user.floatingCtx, s.x, s.y, lassoPath);
-      user.lassoPath = lassoPath; // Store for potential later use
-    }
 
     // Erase directly from the layer canvas so the hole persists through compositing.
     // Clearing mainCtx is insufficient because compositeAllLayers() rebuilds it from
@@ -255,9 +236,68 @@ export class RemoteSelectionHandler {
     user.homography = new Homography('projective');
     user.previewHomography = new Homography('projective');
 
-    // Draw floating selection on user's preview layer and start animation loop
-    this.drawFloatingSelection(user);
-    this.startRemoteSelectionAnimation();
+    const finalizeLiftPreview = () => {
+      if (lassoPath && lassoPath.length >= 3) {
+        this.applyLassoMask(user.floatingCtx, s.x, s.y, lassoPath);
+        user.lassoPath = lassoPath;
+      }
+
+      user._cachedPreviewCanvas = null;
+      user._cachedPreviewBounds = null;
+      if (this.hasTransformedCorners(user)) {
+        this._regeneratePreviewCache(user);
+      }
+
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+      this.drawFloatingSelection(user);
+      this.startRemoteSelectionAnimation();
+    };
+
+    if (imageData) {
+      const img = new Image();
+      img.onload = () => {
+        user.floatingCtx.clearRect(0, 0, s.width, s.height);
+        user.floatingCtx.drawImage(img, 0, 0, s.width, s.height);
+        finalizeLiftPreview();
+      };
+      img.onerror = () => {
+        this._populateLiftedSelectionFromLayer(user, s);
+        finalizeLiftPreview();
+      };
+      img.src = imageData;
+    } else {
+      this._populateLiftedSelectionFromLayer(user, s);
+      finalizeLiftPreview();
+    }
+  }
+
+  _populateLiftedSelectionFromLayer(user, selection) {
+    if (!user?.floatingCtx) return;
+
+    // Copy selected region from the remote user's active layer only (transparent background),
+    // matching local SelectTool behaviour (copyAllLayers=false).
+    // Reading from mainCtx would capture all layers + background, so moving the selection
+    // would appear to move content from every layer instead of just the user's layer.
+    const lm = this.board.layerManager;
+    const layerIdx = user.activeLayer ?? 0;
+    const layerFlatCanvas = document.createElement('canvas');
+    layerFlatCanvas.width = lm.width;
+    layerFlatCanvas.height = lm.height;
+    const layerFlatCtx = layerFlatCanvas.getContext('2d');
+    lm.compositeLayerRange(layerFlatCtx, layerIdx, layerIdx + 1, null);
+
+    user.floatingCtx.clearRect(0, 0, selection.width, selection.height);
+    user.floatingCtx.drawImage(
+      layerFlatCanvas,
+      selection.x,
+      selection.y,
+      selection.width,
+      selection.height,
+      0,
+      0,
+      selection.width,
+      selection.height
+    );
   }
 
   /**

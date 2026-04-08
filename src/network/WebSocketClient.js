@@ -57,7 +57,10 @@ export class WebSocketClient {
      * @type {Set<number>}
      */
     this._batchableMessages = new Set([
-      T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC,
+      // KP must stay in the same receive queue as MD/MU so remote text commits
+      // cannot be applied with a stale or future string due to frame-deferred
+      // pointer events interleaving with immediately-processed key events.
+      T.MM, T.MD, T.MU, T.KP, T.TEXT_APPLY, T.CP, T.CS, T.CT, T.CC,
       T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL, T.CF
     ]);
   }
@@ -543,6 +546,25 @@ export class WebSocketClient {
         this.emit('kp', { sessionIndex: data.u, key: data.k });
         break;
 
+      case T.TEXT_APPLY:
+        this.emit('text_apply', {
+          sessionIndex: data.u,
+          text: data.g || '',
+          position: {
+            x: Array.isArray(data.ps) ? data.ps[0] : 0,
+            y: Array.isArray(data.ps) ? data.ps[1] : 0
+          },
+          size: (data.s ?? 1000) / 100,
+          color: unpackColor(data.c),
+          opacity: (data.p ?? 100) / 100,
+          layerIndex: data.ly ?? 0,
+          blendMode: data.bm || 'source-over',
+          font: normalizeTextFont(data.fo),
+          textPositionMultiplier: data.tm,
+          textPositionOffset: data.to
+        });
+        break;
+
       case T.CLR:
         this.emit('clr', { sessionIndex: data.u });
         break;
@@ -627,7 +649,8 @@ export class WebSocketClient {
         this.emit('sel_lift', {
           sessionIndex: data.u,
           selection: { x: data.sx, y: data.sy, width: data.sw, height: data.sh },
-          lassoPath
+          lassoPath,
+          imageData: data.g || null
         });
         break;
 
@@ -1171,6 +1194,28 @@ export class WebSocketClient {
    */
   broadcastKeyPress(key) {
     this.send({ t: T.KP, k: key });
+  }
+
+  /**
+   * Broadcasts an explicit text application payload.
+   * @param {Object} payload - Fully specified text draw payload.
+   * @returns {void}
+   */
+  broadcastTextApply(payload) {
+    if (!payload?.text) return;
+    this.send({
+      t: T.TEXT_APPLY,
+      g: payload.text,
+      ps: [payload.x, payload.y],
+      s: Math.round((payload.size ?? 10) * 100),
+      c: packColor(payload.color),
+      p: Math.round((payload.opacity ?? 1) * 100),
+      ly: payload.layerIndex ?? 0,
+      bm: payload.blendMode || 'source-over',
+      fo: payload.font,
+      tm: payload.textPositionMultiplier ?? 0,
+      to: payload.textPositionOffset ?? 0
+    });
   }
 
   /**
