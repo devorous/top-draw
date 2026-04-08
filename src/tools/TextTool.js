@@ -4,6 +4,8 @@
 
 import { getAppliedTextLayout, getPreviewTextLayout } from '../utils/textLayout.js';
 
+const TEXT_DIRTY_RECT_PADDING = 12;
+
 /**
  * Base tool class
  * @abstract
@@ -115,10 +117,12 @@ export class TextTool extends Tool {
     const { drawX, baselineY, ascent, descent } = getAppliedTextLayout(user, metrics);
     const textWidth = metrics.width;
 
-    const drX = Math.floor(drawX - 4);
-    const drY = Math.floor(baselineY - ascent - 4);
-    const drW = Math.ceil(textWidth + 8);
-    const drH = Math.ceil(ascent + descent + 8);
+    const left = metrics.actualBoundingBoxLeft ?? 0;
+    const right = metrics.actualBoundingBoxRight ?? textWidth;
+    const drX = Math.floor(drawX - left - TEXT_DIRTY_RECT_PADDING);
+    const drY = Math.floor(baselineY - ascent - TEXT_DIRTY_RECT_PADDING);
+    const drW = Math.ceil(left + right + (TEXT_DIRTY_RECT_PADDING * 2));
+    const drH = Math.ceil(ascent + descent + (TEXT_DIRTY_RECT_PADDING * 2));
 
     ctx.fillText(text, drawX, baselineY);
     this.board.expandDirtyRect(user, drX, drY, drW, drH);
