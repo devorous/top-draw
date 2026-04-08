@@ -32,6 +32,7 @@ import { SaveMode } from './ui/SaveMode.js';
 import { HistoryPanel } from './ui/HistoryPanel.js';
 import { MirrorRegionController } from './ui/MirrorRegionController.js';
 import { SnapshotManager } from './remote/SnapshotManager.js';
+import { loadAppPreferences, saveAppPreferences } from './config/AppPreferences.js';
 import { getTextFontDefaults, normalizeTextFont } from './config/textFonts.js';
 import initWasm from './wasm/ddraw_wasm.js';
 
@@ -57,6 +58,8 @@ export class DrawingApp {
     this.connected = false;
     this.previousTool = null;
     this.intentionalDisconnect = false;
+    this.appPreferences = loadAppPreferences();
+    this._warnOnNextUnload = false;
 
     this.board = new Board({
       dimensions: options.dimensions || [1080, 1920]
@@ -181,6 +184,7 @@ export class DrawingApp {
     this.board.init('#boardContainer');
     this.board.setApp(this);
     appState.board = this.board;
+    appState.appPreferences = this.appPreferences;
     TimeMachine.init(this.board, this.wsClient);
     this.TimeMachine = TimeMachine; // Expose for WebSocketClient recording
 
@@ -649,6 +653,12 @@ export class DrawingApp {
       appState.messengerVisible = !appState.messengerVisible;
     });
     elements.selfListUser.addEventListener('click', () => this.handleRenameself());
+
+    this.ensureAppSettingsButton();
+    const appSettingsBtn = document.getElementById('appSettingsBtn');
+    if (appSettingsBtn) {
+      appSettingsBtn.addEventListener('click', () => this.handleAppSettings());
+    }
 
     // Room settings button
     const roomSettingsBtn = document.getElementById('roomSettingsBtn');
@@ -1226,6 +1236,18 @@ export class DrawingApp {
     elements.boardContainer.addEventListener('drop', (e) => this.handleImageDrop(e));
 
     window.addEventListener('resize', () => this.handleResize());
+    window.addEventListener('beforeunload', (e) => {
+      if (!this._warnOnNextUnload) return;
+
+      e.preventDefault();
+      e.returnValue = '';
+
+      // If the user stays on the page, clear the flag on the next tick so
+      // normal tab close behavior is preserved until they press Ctrl/Cmd+R again.
+      setTimeout(() => {
+        this._warnOnNextUnload = false;
+      }, 0);
+    });
 
     // Pattern options listeners
     if (elements.patternScaleSlider) {
@@ -2225,6 +2247,32 @@ export class DrawingApp {
   handleSwitchToOffline() {
     this.ui.hideDisconnectionBanner();
     this.handleOffline();
+  }
+
+  ensureAppSettingsButton() {
+    const collapsible = document.getElementById('collapsibleBtns');
+    if (!collapsible || document.getElementById('appSettingsBtn')) return;
+
+    const appSettingsBtn = document.createElement('a');
+    appSettingsBtn.className = 'btn';
+    appSettingsBtn.id = 'appSettingsBtn';
+    appSettingsBtn.textContent = 'Settings';
+    collapsible.appendChild(appSettingsBtn);
+  }
+
+  handleAppSettings() {
+    appState.appSettingsTab = appState.appSettingsTab || 'general';
+    appState.appSettingsVisible = true;
+  }
+
+  setAppPreferences(preferences) {
+    this.appPreferences = saveAppPreferences(preferences);
+    appState.appPreferences = this.appPreferences;
+    return this.appPreferences;
+  }
+
+  requestRefreshUnloadWarning() {
+    this._warnOnNextUnload = true;
   }
 
   /**

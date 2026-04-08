@@ -42,6 +42,9 @@ class DrawingState {
   boardMenuOpen = $state(null); // null | 'blend' | 'layers'
   profileDialog = $state({ visible: false, username: null, data: null, loading: false, error: null });
   roomSettingsVisible = $state(false);
+  appSettingsVisible = $state(false);
+  appSettingsTab = $state('general');
+  appPreferences = $state(null);
   adminPanelVisible = $state(false);
   colorPaletteVisible = $state(true);
   patternPreviewVisible = $state(false);

@@ -3,6 +3,39 @@
  * Handles tool switching, selection operations, panning, and text input
  */
 
+import { appState } from '../state.svelte.js';
+import { getEffectiveKeybinding, getEffectiveKeybindings } from '../config/AppPreferences.js';
+import { eventToBinding } from './keybinds/KeybindMatcher.js';
+import { KEYBIND_ACTIONS } from './keybinds/KeybindRegistry.js';
+
+const BLOCKED_BROWSER_BINDINGS = new Set([
+  'Alt+ArrowLeft',
+  'Alt+ArrowRight',
+  'Mod+0',
+  'Mod+1',
+  'Mod+2',
+  'Mod+3',
+  'Mod+4',
+  'Mod+5',
+  'Mod+6',
+  'Mod+7',
+  'Mod+8',
+  'Mod+9',
+  'Mod+Comma',
+  'Mod+D',
+  'Mod+Equal',
+  'Mod+L',
+  'Mod+Minus',
+  'Mod+N',
+  'Mod+O',
+  'Mod+P',
+  'Mod+S',
+  'Mod+T',
+  'Mod+Shift+N',
+  'Mod+Shift+T',
+  'Mod+Shift+W'
+]);
+
 export class KeyboardHandler {
   constructor(app) {
     this.app = app;
@@ -53,6 +86,173 @@ export class KeyboardHandler {
     }
   }
 
+  getBindingForAction(actionId) {
+    return getEffectiveKeybinding(this.app.appPreferences, actionId);
+  }
+
+  getBindingsForAction(actionId) {
+    return getEffectiveKeybindings(this.app.appPreferences, actionId) ?? [];
+  }
+
+  getActionForEvent(e) {
+    const binding = eventToBinding(e);
+    if (!binding) return null;
+
+    for (const action of KEYBIND_ACTIONS) {
+      const actionBindings = this.getBindingsForAction(action.id);
+      if (actionBindings.includes(binding)) {
+        return action.id;
+      }
+    }
+
+    return null;
+  }
+
+  shouldSuppressBrowserShortcut(binding) {
+    return !!binding && BLOCKED_BROWSER_BINDINGS.has(binding);
+  }
+
+  dispatchAction(actionId, e) {
+    const { app } = this;
+    const selectTool = app.toolManager.getTool('select');
+
+    switch (actionId) {
+      case 'app.openSettings':
+        app.handleAppSettings();
+        return true;
+
+      case 'panel.performanceDebug':
+        if (!app.performanceDebugPanel) return false;
+        app.performanceDebugPanel.toggle();
+        app.performanceDebugPanel.update();
+        return true;
+
+      case 'canvas.temporaryPan':
+        if (app.self.tool === 'text' || app.self.panning || app.self.mousedown) return false;
+        app.self.panning = true;
+        app.wsClient.broadcastPan(true);
+        app.wsClient.broadcastHideCursor();
+        app.ui.showPanCursor();
+        return true;
+
+      case 'tool.temporaryEyedropper':
+        if (app.self.tool === 'text') return false;
+        if (!e.repeat && app.self.tool !== 'inkdropper') {
+          app.selectTool('inkdropper');
+        }
+        return true;
+
+      case 'history.undo':
+        app.handleUndo();
+        return true;
+
+      case 'history.redo':
+        app.handleRedo();
+        return true;
+
+      case 'selection.copy':
+        if (selectTool && selectTool.hasSelection()) {
+          selectTool.copy();
+          return true;
+        }
+        return false;
+
+      case 'selection.cut':
+        if (selectTool && selectTool.hasSelection()) {
+          selectTool.cut();
+          return true;
+        }
+        return false;
+
+      case 'selection.paste':
+        if (selectTool && selectTool.hasClipboard()) {
+          app.selectTool('select');
+          selectTool.paste();
+          return true;
+        }
+        return false;
+
+      case 'selection.selectAll':
+        if (!selectTool) return false;
+        app.selectTool('select');
+        selectTool.selectAll();
+        return true;
+
+      case 'selection.deselect':
+        if (selectTool && selectTool.hasSelection()) {
+          selectTool.deselect();
+          return true;
+        }
+        return false;
+
+      case 'selection.delete':
+        if (app.self.tool === 'select' && selectTool && selectTool.hasSelection()) {
+          selectTool.deleteSelection();
+          return true;
+        }
+        return false;
+
+      case 'tool.select':
+        app.selectTool('select');
+        return true;
+
+      case 'tool.brush':
+        app.selectTool(app.brushModeManager.getCurrentToolName());
+        return true;
+
+      case 'tool.line':
+        app.selectTool('line');
+        return true;
+
+      case 'tool.rectangle':
+        app.selectTool('rectangle');
+        return true;
+
+      case 'tool.circle':
+        app.selectTool('circle');
+        return true;
+
+      case 'tool.text':
+        app.selectTool('text');
+        return true;
+
+      case 'tool.fill':
+        app.selectTool('fill');
+        return true;
+
+      case 'tool.erase':
+        app.selectTool('erase');
+        return true;
+
+      case 'tool.blur':
+        app.selectTool('blur');
+        return true;
+
+      case 'tool.circleBlur':
+        app.selectTool('circleBlur');
+        return true;
+
+      case 'tool.imageBrush':
+        app.selectTool('imageBrush');
+        return true;
+
+      case 'tool.eyedropper':
+        app.selectTool('inkdropper');
+        return true;
+
+      case 'tool.pan':
+        app.selectTool('pan');
+        return true;
+
+      case 'tool.rotate':
+        app.selectTool('rotate');
+        return true;
+
+      default:
+        return false;
+    }
+  }
+
   handleKeyDown(e) {
     const { app } = this;
 
@@ -77,29 +277,26 @@ export class KeyboardHandler {
       e.preventDefault();
     }
 
-    if (e.key === ' ' && app.self.tool !== 'text' && !app.self.panning && !app.self.mousedown) {
-      app.self.panning = true;
-      app.wsClient.broadcastPan(true);
-      app.wsClient.broadcastHideCursor();
-      app.ui.showPanCursor();
-    }
-
-    // TAB key for temporary inkdropper mode
-    if (e.key === 'Tab' && app.self.tool !== 'text') {
-      e.preventDefault(); // Always prevent focus cycling
-      if (!e.repeat && app.self.tool !== 'inkdropper') {
-        // First press only - switch to inkdropper
-        app.selectTool('inkdropper');
-      }
+    const binding = eventToBinding(e);
+    if (binding === 'Mod+R') {
+      app.requestRefreshUnloadWarning?.();
       return;
     }
 
-    // Shift+P to toggle performance debug panel
-    if ((e.shiftKey && e.key === 'P') && app.performanceDebugPanel) {
+    if (this.shouldSuppressBrowserShortcut(binding)) {
       e.preventDefault();
-      app.performanceDebugPanel.toggle();
-      app.performanceDebugPanel.update();
+    }
+
+    if (appState.appSettingsVisible || appState.roomSettingsVisible || appState.adminPanelVisible) {
       return;
+    }
+
+    const actionId = this.getActionForEvent(e);
+
+    if (actionId === 'app.openSettings' || actionId === 'panel.performanceDebug') {
+      if (this.dispatchAction(actionId, e)) {
+        return;
+      }
     }
 
     if (app.self.tool === 'text') {
@@ -108,149 +305,49 @@ export class KeyboardHandler {
       const text = textTool.onKeyPress(app.self, e.key);
       app.ui.updateSelfTextInput(text);
       app._updateTextPreview();
-    } else if (app.inputBufferManager.tickTimer) {
-      // Handle shortcuts only when in drawing mode (tick loop running)
-      const selectTool = app.toolManager.getTool('select');
-
-      if (e.ctrlKey || e.metaKey) {
-        switch (e.key.toLowerCase()) {
-          case 'z':
-            e.preventDefault();
-            if (e.shiftKey) {
-              app.handleRedo();
-            } else {
-              app.handleUndo();
-            }
-            return;
-          case 'c':
-            if (selectTool && selectTool.hasSelection()) {
-              e.preventDefault();
-              selectTool.copy();
-            }
-            return;
-          case 'x':
-            if (selectTool && selectTool.hasSelection()) {
-              e.preventDefault();
-              selectTool.cut();
-            }
-            return;
-          case 'v':
-            // The 'paste' event listener will handle system clipboard pastes (e.g., images).
-            // Here, we only need to handle the application's internal clipboard.
-            const selectTool = app.toolManager.getTool('select');
-            if (selectTool && selectTool.hasClipboard()) {
-              // If we have an internal clipboard, prevent the native paste event
-              // and use our internal paste logic.
-              e.preventDefault();
-              app.selectTool('select');
-              selectTool.paste();
-            }
-            // If there's no internal clipboard, we do nothing and allow the native 'paste'
-            // event to proceed, which is handled by our 'handlePaste' method.
-            return;
-          case 'a':
-            e.preventDefault();
-            app.selectTool('select');
-            selectTool.selectAll();
-            return;
-          case 'd':
-            if (selectTool && selectTool.hasSelection()) {
-              e.preventDefault();
-              selectTool.deselect();
-            }
-            return;
-        }
-      }
-
-      // Delete/Backspace to delete selection
-      if ((e.key === 'Delete' || e.key === 'Backspace') && app.self.tool === 'select') {
-        if (selectTool && selectTool.hasSelection()) {
-          e.preventDefault();
-          selectTool.deleteSelection();
-        }
-        return;
-      }
-
-      // Escape to deselect
-      if (e.key === 'Escape' && app.self.tool === 'select') {
-        if (selectTool && selectTool.hasSelection()) {
-          selectTool.deselect();
-        }
-        return;
-      }
-
-      switch (e.key) {
-        case 's':
-          app.selectTool('select');
-          break;
-        case 'b':
-          app.selectTool(app.brushModeManager.getCurrentToolName());
-          break;
-        case 'p':
-          if (app.self.tool === 'brush' || app.self.tool === 'pixel' || app.self.tool === 'flowPen' || app.self.tool === 'ink') {
-            // Cycle: classic -> pixel -> fluid -> ink -> classic
-            const currentMode = app.brushModeManager.getMode();
-            const nextMode = currentMode === 'classic' ? 'pixel' : currentMode === 'pixel' ? 'fluid' : currentMode === 'fluid' ? 'ink' : 'classic';
-            app.brushModeManager.setMode(nextMode);
-          } else {
-            app.brushModeManager.setMode('pixel');
-          }
-          break;
-        case 'l':
-          app.selectTool('line');
-          break;
-        case 'r':
-          app.selectTool('rectangle');
-          break;
-        case 'c':
-          app.selectTool('circle');
-          break;
-        case 't':
-          app.selectTool('text');
-          break;
-        case 'f':
-          app.selectTool('fill');
-          break;
-        case 'e':
-          app.selectTool('erase');
-          break;
-        case 'u':
-          app.selectTool('blur');
-          break;
-        case 'y':
-          app.selectTool('circleBlur');
-          break;
-        case 'g':
-          app.selectTool('imageBrush');
-          break;
-        case 'i':
-          app.selectTool('inkdropper');
-          break;
-        case 'h':
-          app.selectTool('pan');
-          break;
-        case 'n':
-          app.selectTool('rotate');
-          break;
-      }
+      return;
     }
+
+    if (!app.inputBufferManager.tickTimer) {
+      return;
+    }
+
+    const selectTool = app.toolManager.getTool('select');
+
+    if (e.key === 'Escape' && app.self.tool === 'select') {
+      if (selectTool && selectTool.hasSelection()) {
+        selectTool.deselect();
+      }
+      return;
+    }
+
+    if (!actionId) {
+      return;
+    }
+
+    this.dispatchAction(actionId, e);
   }
 
   handleKeyUp(e) {
     const { app } = this;
+    const binding = eventToBinding(e);
 
-    if (e.key === ' ' && app.self.tool !== 'text' && app.self.tool !== 'pan' && app.self.tool !== 'rotate') {
-      app.self.panning = false;
-      app.wsClient.broadcastPan(false);
-      app.wsClient.broadcastShowCursor();
-      app.ui.hidePanCursor(app.self.tool, app.self);
+    if (binding && this.getBindingsForAction('canvas.temporaryPan').includes(binding)) {
+      if (app.self.tool !== 'text' && app.self.tool !== 'pan' && app.self.tool !== 'rotate') {
+        app.self.panning = false;
+        app.wsClient.broadcastPan(false);
+        app.wsClient.broadcastShowCursor();
+        app.ui.hidePanCursor(app.self.tool, app.self);
+      }
+      return;
     }
 
-    // TAB key release - return to previous tool
-    if (e.key === 'Tab' && app.self.tool === 'inkdropper' && app.previousTool) {
-      e.preventDefault();
-      app.selectTool(app.previousTool);
-      app.previousTool = null;
+    if (binding && this.getBindingsForAction('tool.temporaryEyedropper').includes(binding)) {
+      if (app.self.tool === 'inkdropper' && app.previousTool) {
+        e.preventDefault();
+        app.selectTool(app.previousTool);
+        app.previousTool = null;
+      }
     }
   }
 }

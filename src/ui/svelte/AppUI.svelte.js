@@ -6,6 +6,7 @@ import { mount, unmount } from 'svelte';
 import BoardMenu from './BoardMenu.svelte';
 import ProfileDialog from './ProfileDialog.svelte';
 import RoomSettings from './RoomSettings.svelte';
+import AppSettings from './AppSettings.svelte';
 import AdminPanel from './AdminPanel.svelte';
 import ColorPalette from './ColorPalette.svelte';
 import Chat from './Chat.svelte';
@@ -164,6 +165,19 @@ export function initSvelteUI(app) {
     });
   }
 
+  let appSettingsTarget = document.getElementById('appSettingsMount');
+  if (!appSettingsTarget) {
+    appSettingsTarget = document.createElement('div');
+    appSettingsTarget.id = 'appSettingsMount';
+    document.body.appendChild(appSettingsTarget);
+  }
+  components.appSettings = mount(AppSettings, {
+    target: appSettingsTarget,
+    props: {
+      app
+    }
+  });
+
   let adminPanelTarget = document.getElementById('adminPanelMount');
   if (!adminPanelTarget) {
     adminPanelTarget = document.createElement('div');
@@ -276,6 +290,10 @@ export function syncStoresFromApp(app) {
 
   if (app.currentRoomData) {
     appState.currentRoomData = app.currentRoomData;
+  }
+
+  if (app.appPreferences) {
+    appState.appPreferences = app.appPreferences;
   }
 
   if (app.selfRole !== undefined) {
