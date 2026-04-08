@@ -104,8 +104,8 @@
     background: rgba(15, 17, 21, 0.8);
     border-radius: 3px;
     display: block;
-    width: 100%;
-    height: auto;
-    aspect-ratio: 1;
+    width: 90px;
+    height: 90px;
+    flex: 0 0 90px;
   }
 </style>

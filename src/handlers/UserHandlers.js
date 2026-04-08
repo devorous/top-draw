@@ -220,6 +220,10 @@ export function setupUserHandlers(wsClient, app) {
     ui.updateMirrorDisplay(data.mirror);
     if (data.backgroundColor) {
       board.setBackgroundColor(data.backgroundColor);
+      const patternTool = app.toolManager?.getTool('pattern');
+      if (patternTool?.updatePreview) {
+        patternTool.updatePreview(app.self);
+      }
     }
 
     // Initialize currentRoomData if it doesn't exist

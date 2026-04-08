@@ -369,6 +369,9 @@ export class PatternTool extends Tool {
     }
 
     ctx.clearRect(0, 0, this.previewCanvas.width, this.previewCanvas.height);
+    const bgColor = this.board?.backgroundColor || [255, 255, 255, 1];
+    ctx.fillStyle = `rgba(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]}, ${bgColor[3] ?? 1})`;
+    ctx.fillRect(0, 0, this.previewCanvas.width, this.previewCanvas.height);
 
     const tile = this._getPatternTile(user);
     if (!tile) {
@@ -382,6 +385,7 @@ export class PatternTool extends Tool {
     if (user.patternBrush && user.patternBrush.type === 'svg') {
       scale *= 0.2; // 200px / 40px = 5, so multiply by 1/5
     }
+    scale *= this.board?.zoom || 1;
     const offsetX = user.patternOffsetX || 0;
     const offsetY = user.patternOffsetY || 0;
 
@@ -394,6 +398,7 @@ export class PatternTool extends Tool {
     }
     
     ctx.save();
+    ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
     ctx.fillStyle = pattern;
     ctx.fillRect(0, 0, this.previewCanvas.width, this.previewCanvas.height);
     ctx.restore();

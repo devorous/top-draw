@@ -560,6 +560,22 @@ export class DrawingApp {
             this.colorInputMenu.updateColor(rgba);
           }
 
+          const patternTool = this.toolManager.getTool('pattern');
+          if (patternTool) {
+            patternTool._tileCache.clear();
+            patternTool.updatePreview(this.self);
+          }
+
+          const fillTool = this.toolManager.getTool('fill');
+          if (fillTool && fillTool._patternTileCache) {
+            fillTool._patternTileCache.clear();
+          }
+
+          const selectTool = this.toolManager.getTool('select');
+          if (selectTool && selectTool._patternTileCache) {
+            selectTool._patternTileCache.clear();
+          }
+
           if (this.connected) {
             this.wsClient.broadcastColorChange(rgba);
           }
@@ -3476,13 +3492,13 @@ export class DrawingApp {
     }
 
     const fillTool = this.toolManager.getTool('fill');
-    if (fillTool && fillTool._tileCache) {
-      fillTool._tileCache.clear();
+    if (fillTool && fillTool._patternTileCache) {
+      fillTool._patternTileCache.clear();
     }
 
     const selectTool = this.toolManager.getTool('select');
-    if (selectTool && selectTool._tileCache) {
-      selectTool._tileCache.clear();
+    if (selectTool && selectTool._patternTileCache) {
+      selectTool._patternTileCache.clear();
     }
 
     if (this.connected) {
@@ -3513,13 +3529,13 @@ export class DrawingApp {
     }
 
     const fillTool = this.toolManager.getTool('fill');
-    if (fillTool && fillTool._tileCache) {
-      fillTool._tileCache.clear();
+    if (fillTool && fillTool._patternTileCache) {
+      fillTool._patternTileCache.clear();
     }
 
     const selectTool = this.toolManager.getTool('select');
-    if (selectTool && selectTool._tileCache) {
-      selectTool._tileCache.clear();
+    if (selectTool && selectTool._patternTileCache) {
+      selectTool._patternTileCache.clear();
     }
 
     // Broadcast to other users if connected

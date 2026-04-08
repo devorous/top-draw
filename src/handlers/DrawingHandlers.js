@@ -84,6 +84,26 @@ export function setupDrawingHandlers(wrapHandler, app) {
       user.setColor(data.color);
       user.setOpacity(data.color[3]); // Sync opacity from color alpha (matches local behavior)
       ui.updateRemoteColor(data.sessionIndex, data.color);
+
+      const patternTool = app.toolManager.getTool('pattern');
+      if (patternTool?._tileCache) {
+        patternTool._tileCache.clear();
+      }
+
+      const fillTool = app.toolManager.getTool('fill');
+      if (fillTool?._patternTileCache) {
+        fillTool._patternTileCache.clear();
+      }
+
+      const selectTool = app.toolManager.getTool('select');
+      if (selectTool?._patternTileCache) {
+        selectTool._patternTileCache.clear();
+      }
+
+      const remoteSelectionHandler = app.remoteUserHandler?.selectionHandler;
+      if (remoteSelectionHandler?._patternTileCache) {
+        remoteSelectionHandler._patternTileCache.clear();
+      }
     }
   });
 
