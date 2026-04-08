@@ -78,6 +78,10 @@ async function maybeCreateInitialCheckpoint(roomId, bgColor, ts) {
 
 export async function handleSnapshotSave(ws, data, room) {
   if (!authorize(ws, Action.MOD_MUTE, null)) return; // Helper+ can save
+  if (!room?.isRegistered?.()) {
+    console.log(`[Snapshot] Ignoring snapshot save for unregistered room ${room?.id || 'unknown'}`);
+    return;
+  }
 
   const db = getDB();
   const snapshotId = `snap_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;

@@ -81,6 +81,14 @@ export class Room {
   }
 
   /**
+   * Returns whether the room is registered and eligible for persisted snapshots.
+   * @returns {boolean}
+   */
+  isRegistered() {
+    return !!this.ownerId;
+  }
+
+  /**
    * Starts the periodic snapshot request timer.
    * Called when a Helper+ user joins the room.
    */
@@ -104,9 +112,10 @@ export class Room {
    */
   updateSnapshotTimer() {
     const hasHelper = this._getHelperClients().length > 0;
-    if (hasHelper && !this._snapshotTimer) {
+    const shouldRun = this.isRegistered() && hasHelper;
+    if (shouldRun && !this._snapshotTimer) {
       this.startSnapshotTimer();
-    } else if (!hasHelper && this._snapshotTimer) {
+    } else if (!shouldRun && this._snapshotTimer) {
       this.stopSnapshotTimer();
     }
   }
@@ -131,6 +140,8 @@ export class Room {
    * @private
    */
   _requestSnapshot() {
+    if (!this.isRegistered()) return;
+
     const helpers = this._getHelperClients();
     if (helpers.length === 0) return;
 

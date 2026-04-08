@@ -2215,6 +2215,8 @@ wss.on('connection', (ws, req) => {
               ownerUsername: null
             });
 
+            room.updateSnapshotTimer();
+
             sendTo(ws, { t: T.MOD_RESULT, a: true });
             console.log(`[Room] ${ws.username} unregistered room "${room.id}" (previous owner: ${previousOwnerId})`);
           } catch (err) {
