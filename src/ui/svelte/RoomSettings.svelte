@@ -462,7 +462,7 @@
           </div>
 
           <div class="form-group">
-            <label for="roomReplayUploader">Replay uploader</label>
+            <label for="roomReplayUploader">Replay uploader and Sync Master</label>
             <input
               type="text"
               id="roomReplayUploader"

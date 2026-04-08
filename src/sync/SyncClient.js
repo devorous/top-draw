@@ -48,6 +48,8 @@ export class SyncClient {
     /** @type {HTMLElement|null} */
     this.progressFillEl = null;
     /** @type {HTMLElement|null} */
+    this.progressHintEl = null;
+    /** @type {HTMLElement|null} */
     this.overlayContentEl = null;
     /** @type {HTMLDivElement|null} */
     this.inactiveControlsEl = null;
@@ -64,6 +66,8 @@ export class SyncClient {
     this.receivedMessages = 0;
     /** @type {number|null} */
     this.syncTimeout = null;
+    /** @type {number|null} */
+    this.currentSyncTargetId = null;
 
     /** @type {Function|null} */
     this.onSyncComplete = null;
@@ -88,6 +92,7 @@ export class SyncClient {
     this.progressTextEl = this.overlayEl?.querySelector('.sync-text');
     this.progressBarEl = this.overlayEl?.querySelector('.sync-progress-bar');
     this.progressFillEl = this.overlayEl?.querySelector('.sync-progress-fill');
+    this.progressHintEl = this.overlayEl?.querySelector('.sync-hint');
     this._ensureInactiveControls();
     this.initialized = true;
   }
@@ -263,15 +268,24 @@ export class SyncClient {
       return;
     }
 
+    const normalizedTarget = targetUserId !== null && targetUserId !== undefined
+      ? Number(targetUserId)
+      : null;
+
     if (this.syncing) {
-      console.warn('[SyncClient] Already syncing, ignoring duplicate requestSync call');
-      return;
+      if (normalizedTarget === null) {
+        console.warn('[SyncClient] Already syncing, ignoring duplicate auto-sync request');
+        return;
+      }
+      console.log(`[SyncClient] Switching sync provider from ${this.currentSyncTargetId ?? 'auto'} to ${normalizedTarget}`);
     }
 
-    if (this.hasCompletedSync && targetUserId === null && !this.inactive) {
+    if (this.hasCompletedSync && normalizedTarget === null && !this.inactive) {
       console.log('[SyncClient] Already completed initial sync, ignoring duplicate auto-sync request');
       return;
     }
+
+    this._resetSyncAttempt();
 
     if (this.board?.layerManager) {
       console.log('[SyncClient] Clearing existing canvas before sync...');
@@ -286,6 +300,7 @@ export class SyncClient {
     this._pendingImports = [];
     this.expectedMessages = 0;
     this.receivedMessages = 0;
+    this.currentSyncTargetId = normalizedTarget;
 
     this.syncTimeout = setTimeout(() => {
       if (this.syncing) {
@@ -297,13 +312,13 @@ export class SyncClient {
     this.showOverlay();
     this.updateProgress();
 
-    if (targetUserId !== null) {
-      console.log(`[SyncClient] Requesting canvas sync from user ${targetUserId}...`);
+    if (normalizedTarget !== null) {
+      console.log(`[SyncClient] Requesting canvas sync from user ${normalizedTarget}...`);
     } else {
       console.log('[SyncClient] Requesting canvas sync (auto-select provider)...');
     }
 
-    this.wsClient.requestSync(targetUserId);
+    this.wsClient.requestSync(normalizedTarget);
   }
 
   /**
@@ -314,6 +329,25 @@ export class SyncClient {
    */
   requestSyncFrom(userId) {
     this.requestSync(userId);
+  }
+
+  /**
+   * Clears any in-progress sync bookkeeping before starting a new request.
+   * @returns {void}
+   * @private
+   */
+  _resetSyncAttempt() {
+    if (this.syncTimeout) {
+      clearTimeout(this.syncTimeout);
+      this.syncTimeout = null;
+    }
+    this.syncing = false;
+    this.buffering = false;
+    this.eventBuffer = [];
+    this._pendingImports = [];
+    this.expectedMessages = 0;
+    this.receivedMessages = 0;
+    this.currentSyncTargetId = null;
   }
 
   /**
@@ -627,6 +661,7 @@ export class SyncClient {
       this.inactive = false;
       this.expectedMessages = 0;
       this.receivedMessages = 0;
+      this.currentSyncTargetId = null;
 
       if (this.onSyncComplete) {
         this.onSyncComplete();
@@ -696,6 +731,9 @@ export class SyncClient {
     if (this.progressBarEl) {
       this.progressBarEl.style.display = '';
     }
+    if (this.progressHintEl) {
+      this.progressHintEl.style.display = '';
+    }
     if (this.inactiveControlsEl) {
       this.inactiveControlsEl.style.display = 'none';
     }
@@ -716,6 +754,9 @@ export class SyncClient {
     }
     if (this.inactiveControlsEl) {
       this.inactiveControlsEl.style.display = 'none';
+    }
+    if (this.progressHintEl) {
+      this.progressHintEl.style.display = '';
     }
   }
 

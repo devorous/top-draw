@@ -445,7 +445,7 @@ export class RemoteUserUI {
     syncBtn.onclick = (e) => {
       e.stopPropagation();
       if (window.app && window.app.syncClient) {
-        window.app.syncClient.requestSync(userId);
+        window.app.syncClient.requestSyncFrom(userId);
       }
     };
 

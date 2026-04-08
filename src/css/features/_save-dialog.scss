@@ -328,48 +328,52 @@
 
 .saveModeOptionsPanel {
   position: absolute;
-  bottom: 24px;
   left: 50%;
+  bottom: 16px;
+  width: 80vw;
+  max-width: 900px;
   transform: translateX(-50%);
-  background: var(--bg-secondary);
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+  border-radius: 999px;
   box-shadow: var(--shadow-lg);
-  min-width: 320px;
-  max-width: 90vw;
-  overflow: hidden;
+  backdrop-filter: blur(10px);
 }
 
-.saveModeOptionsPanelHeader {
-  padding: 14px 18px;
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-subtle);
+.saveModeOptionsPanelLead {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.saveModeOptionsTitle {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
+  align-items: center;
+  min-width: 0;
+  justify-content: flex-start;
 }
 
 .saveModeOptionsHint {
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .saveModeOptionsPanelBody {
-  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .saveModeOptionsCheckbox {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   cursor: pointer;
   user-select: none;
+  white-space: nowrap;
 
   input[type="checkbox"] {
     width: 16px;
@@ -380,7 +384,7 @@
   }
 
   span {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--text-primary);
   }
@@ -389,15 +393,13 @@
 .saveModeOptionsPanelFooter {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding: 14px 18px;
-  background: var(--bg-tertiary);
-  border-top: 1px solid var(--border-subtle);
+  justify-content: center;
   gap: 8px;
+  min-width: 0;
 
   .btn {
-    padding: 8px 16px;
-    font-size: 13px;
+    padding: 8px 14px;
+    font-size: 12px;
     font-weight: 500;
     border-radius: var(--radius-sm);
     cursor: pointer;
@@ -454,13 +456,32 @@
   }
 
   .saveModeOptionsPanel {
-    bottom: 16px;
+    left: 50%;
+    bottom: 12px;
     width: calc(100vw - 24px);
-    max-width: 420px;
+    border-radius: var(--radius-lg);
+    grid-template-columns: 1fr;
+  }
+
+  .saveModeOptionsPanelLead {
+    grid-column: 1;
+    justify-content: center;
+  }
+
+  .saveModeOptionsHint {
+    white-space: normal;
+    text-align: center;
+  }
+
+  .saveModeOptionsPanelBody {
+    grid-column: 1;
+    justify-content: center;
   }
 
   .saveModeOptionsPanelFooter {
+    grid-column: 1;
     flex-wrap: wrap;
+    justify-content: center;
 
     .btn {
       flex: 1 1 140px;

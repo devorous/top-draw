@@ -29,6 +29,9 @@
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  width: calc(100% - 32px);
+  max-width: 420px;
+  text-align: center;
 }
 
 .sync-text {
@@ -53,6 +56,13 @@
   background: linear-gradient(90deg, #4CAF50, #66BB6A);
   border-radius: 4px;
   animation: syncPulse 1.5s ease-in-out infinite;
+}
+
+.sync-hint {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  line-height: 1.4;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 
 @keyframes syncPulse {

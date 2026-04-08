@@ -54,7 +54,7 @@ export class SyncCoordinator {
     }
 
     if (providerSessionIndex !== null) {
-      this.pendingSyncRequests.set(requesterSessionIndex, true);
+      this.pendingSyncRequests.set(requesterSessionIndex, providerSessionIndex);
 
       const providerClient = this._findClient(providerSessionIndex);
       if (providerClient) {
@@ -67,8 +67,31 @@ export class SyncCoordinator {
       }
     }
 
+    this.pendingSyncRequests.delete(requesterSessionIndex);
     console.log(`[Sync] No provider available, sending empty sync complete to user ${requesterSessionIndex}`);
     this.sendTo(ws, { t: T.SYNC_COMPLETE });
+  }
+
+  /**
+   * Returns whether the provider sending sync data is still the active provider
+   * for the requester associated with the payload.
+   * @param {WebSocket} ws
+   * @param {Object} data
+   * @returns {number|null}
+   * @private
+   */
+  _getActiveSyncTarget(ws, data) {
+    const targetUser = Number(data.tu);
+    const activeProvider = this.pendingSyncRequests.get(targetUser);
+    if (activeProvider === undefined) {
+      console.log(`[Sync] Ignoring sync data from ${ws.sessionIndex}; no active request for ${targetUser}`);
+      return null;
+    }
+    if (Number(ws.sessionIndex) !== Number(activeProvider)) {
+      console.log(`[Sync] Ignoring stale sync data from ${ws.sessionIndex}; active provider for ${targetUser} is ${activeProvider}`);
+      return null;
+    }
+    return targetUser;
   }
 
   /**
@@ -107,7 +130,8 @@ export class SyncCoordinator {
    * @param {Object} data - The sync canvas message data.
    */
   handleSyncCanvas(ws, data) {
-    const targetUser = data.tu;
+    const targetUser = this._getActiveSyncTarget(ws, data);
+    if (targetUser === null) return;
     console.log(`[Sync] User ${ws.sessionIndex} providing legacy canvas for user ${targetUser}`);
     for (const client of this.wss.clients) {
       if (client.sessionIndex === targetUser && client.readyState === WebSocket.OPEN) {
@@ -126,7 +150,8 @@ export class SyncCoordinator {
    * @param {Object} data - The sync metadata message data.
    */
   handleSyncMetadata(ws, data) {
-    const targetUser = Number(data.tu);
+    const targetUser = this._getActiveSyncTarget(ws, data);
+    if (targetUser === null) return;
     const syncTotal = Number(data.syncTotal ?? data.sync_total ?? 0);
     console.log(`[Sync] Relaying metadata to user ${targetUser}, count:`, syncTotal);
     const client = this._findClient(targetUser);
@@ -144,7 +169,8 @@ export class SyncCoordinator {
    * @param {Object} data - The sync layer base message data.
    */
   handleSyncLayerBase(ws, data) {
-    const targetUser = Number(data.tu);
+    const targetUser = this._getActiveSyncTarget(ws, data);
+    if (targetUser === null) return;
     const client = this._findClient(targetUser);
     if (client) {
       this.sendTo(client, { 
@@ -162,7 +188,8 @@ export class SyncCoordinator {
    * @param {Object} data - The sync stroke message data.
    */
   handleSyncStroke(ws, data) {
-    const targetUser = Number(data.tu);
+    const targetUser = this._getActiveSyncTarget(ws, data);
+    if (targetUser === null) return;
     const client = this._findClient(targetUser);
     if (client) {
       // Use the field names defined in public/messages.proto for SYNC_STROKE
@@ -190,7 +217,8 @@ export class SyncCoordinator {
    * @param {Object} data - The sync stroke batch message data.
    */
   handleSyncStrokeBatch(ws, data) {
-    const targetUser = Number(data.tu);
+    const targetUser = this._getActiveSyncTarget(ws, data);
+    if (targetUser === null) return;
     const client = this._findClient(targetUser);
     if (client) {
       this.sendTo(client, {
@@ -207,7 +235,8 @@ export class SyncCoordinator {
    * @param {Object} data - The sync strokes done message data.
    */
   handleSyncStrokesDone(ws, data) {
-    const targetUser = Number(data.tu);
+    const targetUser = this._getActiveSyncTarget(ws, data);
+    if (targetUser === null) return;
     console.log(`[Sync] User ${ws.sessionIndex} finished sending strokes for user ${targetUser}`);
     const client = this._findClient(targetUser);
     if (client) {
@@ -233,7 +262,8 @@ export class SyncCoordinator {
    * @param {Object} data - The tile sync message data.
    */
   handleSyncDirtyTiles(ws, data) {
-    const targetUser = Number(data.tu);
+    const targetUser = this._getActiveSyncTarget(ws, data);
+    if (targetUser === null) return;
     const client = this._findClient(targetUser);
     if (client) {
       this.sendTo(client, {

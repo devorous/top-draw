@@ -111,8 +111,7 @@ export class SaveMode {
     this.optionsPanel = document.createElement('div');
     this.optionsPanel.className = 'saveModeOptionsPanel';
     this.optionsPanel.innerHTML = `
-      <div class="saveModeOptionsPanelHeader">
-        <span class="saveModeOptionsTitle">Save Image</span>
+      <div class="saveModeOptionsPanelLead">
         <span class="saveModeOptionsHint">Draw a selection or save the entire canvas</span>
       </div>
       <div class="saveModeOptionsPanelBody">
