@@ -221,7 +221,7 @@ export class DrawingApp {
 
     this.remoteUserHandler = new RemoteUserHandler(this);
     this.touchHandler = new TouchHandler(this);
-    this.touchHandler.init(this.ui.elements.boards);
+    this.touchHandler.init(this.ui.elements.boardContainer);
     this.saveMode = new SaveMode(this);
     this.historyPanel = new HistoryPanel(this);
     this.mirrorRegionController = new MirrorRegionController(this);

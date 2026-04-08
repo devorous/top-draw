@@ -65,6 +65,25 @@ export class TouchHandler {
   }
 
   /**
+   * Returns true when the touch target is the board itself or the empty
+   * background area around it, but not floating board UI controls.
+   *
+   * @param {TouchEvent} e
+   * @returns {boolean}
+   */
+  shouldHandleTouchEvent(e) {
+    if (!this.element) return false;
+
+    const target = e.target instanceof Element ? e.target : null;
+    if (!target) return false;
+
+    if (target === this.element) return true;
+
+    const boards = this.app.ui?.elements?.boards;
+    return Boolean(boards && (target === boards || target.closest('#boards')));
+  }
+
+  /**
    * Calculates the Euclidean distance between two touch points.
    *
    * @param {TouchList} touches - The list of active touches.
@@ -120,6 +139,8 @@ export class TouchHandler {
    * @returns {void}
    */
   handleTouchStart(e) {
+    if (!this.shouldHandleTouchEvent(e)) return;
+
     this.touchStartedOnBoard = true;
     e.preventDefault();
 
@@ -283,10 +304,10 @@ export class TouchHandler {
   destroy() {
     if (this.element) {
       this.element.removeEventListener('touchstart', this.handleTouchStart);
-      this.element.removeEventListener('touchmove', this.handleTouchMove);
-      this.element.removeEventListener('touchend', this.handleTouchEnd);
-      this.element.removeEventListener('touchcancel', this.handleTouchEnd);
     }
+    window.removeEventListener('touchmove', this.handleTouchMove);
+    window.removeEventListener('touchend', this.handleTouchEnd);
+    window.removeEventListener('touchcancel', this.handleTouchEnd);
   }
 
   /**
