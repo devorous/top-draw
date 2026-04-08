@@ -7,6 +7,7 @@
   let snapshots = $derived(appState.snapshots || []);
   let snapshotHasMore = $derived(appState.snapshotHasMore);
   let snapshotListVersion = $derived(appState.snapshotListVersion);
+  let hasLoadedOlderSnapshots = $derived(snapshots.length > 20);
 
   let selectedId = $state(null);
   let selectedLayers = $state(null);
@@ -14,6 +15,7 @@
   let isLoadingSnapshots = $state(false);
   let isLoadingMore = $state(false);
   let lastHandledSnapshotListVersion = $state(0);
+  let showBackToPresent = $state(false);
 
   // Selection tool
   let mode = $state('rectangle'); // 'rectangle' | 'lasso'
@@ -67,12 +69,19 @@
   }
 
   function onStripScroll() {
+    showBackToPresent = !!stripRef && hasLoadedOlderSnapshots && stripRef.scrollLeft > 40;
     if (!stripRef || isLoadingSnapshots || isLoadingMore || !snapshotHasMore) return;
     const threshold = 160;
     const remaining = stripRef.scrollWidth - (stripRef.scrollLeft + stripRef.clientWidth);
     if (remaining <= threshold) {
       loadMoreSnapshots();
     }
+  }
+
+  function scrollToPresent() {
+    if (!stripRef) return;
+    stripRef.scrollTo({ left: 0, behavior: 'smooth' });
+    showBackToPresent = false;
   }
 
   // Canvas refs
@@ -90,6 +99,7 @@
   function refresh() {
     isLoadingSnapshots = true;
     isLoadingMore = false;
+    showBackToPresent = false;
     window.app?.snapshotManager?.requestList();
   }
   function formatDate(ts) { return new Date(Number(ts)).toLocaleTimeString(); }
@@ -482,6 +492,12 @@
         {/if}
       {/if}
     </div>
+    {#if showBackToPresent}
+      <button class="snap-back-to-present" onclick={scrollToPresent} title="Jump back to the newest snapshots">
+        <span aria-hidden="true">←</span>
+        <span>Back to present</span>
+      </button>
+    {/if}
 
     <!-- Footer -->
     <div class="snap-footer">
@@ -526,6 +542,7 @@
     border: 1px solid var(--border-subtle, #333);
     border-radius: 10px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    position: relative;
     width: 92vw;
     max-width: 960px;
     height: 90vh;
@@ -745,6 +762,27 @@
     font-size: 12px;
     color: var(--text-secondary, #aaa);
     white-space: nowrap;
+  }
+
+  .snap-back-to-present {
+    position: absolute;
+    right: 18px;
+    bottom: 128px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border: 1px solid var(--border-subtle, #333);
+    border-radius: 999px;
+    background: rgba(17, 17, 17, 0.92);
+    color: var(--text-primary, #eee);
+    font-size: 12px;
+    cursor: pointer;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    z-index: 5;
+  }
+  .snap-back-to-present:hover {
+    background: rgba(28, 28, 28, 0.96);
   }
 
   .btn {
