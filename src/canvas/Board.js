@@ -247,6 +247,7 @@ export class Board {
    * Reset the viewport to default zoom, pan, and rotation
    */
   resetView() {
+    this.calculateDefaultView();
     this.zoom = this.defaultZoom;
     this.panX = this.defaultPanX;
     this.panY = this.defaultPanY;

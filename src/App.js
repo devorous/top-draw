@@ -4031,6 +4031,16 @@ export class DrawingApp {
     }
 
     if (this.syncClient?.isCanvasInputBlocked()) return;
+    // Middle-click release disables temporary panning regardless of active tool
+    if (e.button === 1) {
+      this.self.panning = false;
+      this.self.mousedown = false;
+      this.wsClient.broadcastPan(false);
+      this.wsClient.broadcastShowCursor();
+      this.ui.hidePanCursor(this.self.tool, this.self);
+      return;
+    }
+
     // Pan tool: release clears panning
     if (this.self.tool === 'pan') {
       if (e.button === 0) {
@@ -4047,16 +4057,6 @@ export class DrawingApp {
         this._rotatePrevAngle = null;
         this.self.mousedown = false;
       }
-      return;
-    }
-
-    // Middle-click release disables panning mode
-    if (e.button === 1) {
-      this.self.panning = false;
-      this.self.mousedown = false;
-      this.wsClient.broadcastPan(false);
-      this.wsClient.broadcastShowCursor();
-      this.ui.hidePanCursor(this.self.tool, this.self);
       return;
     }
 
