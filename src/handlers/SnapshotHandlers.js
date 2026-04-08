@@ -14,10 +14,23 @@ export function setupSnapshotHandlers(wsClient, app) {
   wsClient.on('board_snapshot_list', (data) => {
     if (!data.snapshotList) return;
 
-    app.snapshotManager.snapshots = data.snapshotList;
-    appState.snapshots = data.snapshotList;
+    const append = !!app.snapshotManager.lastListAppend;
+    const nextSnapshots = append
+      ? [
+          ...appState.snapshots,
+          ...data.snapshotList.filter((snap) => !appState.snapshots.some((existing) => existing.id === snap.id))
+        ]
+      : data.snapshotList;
 
-    console.log(`[Snapshot] Received list of ${data.snapshotList.length} snapshots`);
+    app.snapshotManager.snapshots = nextSnapshots;
+    app.snapshotManager.hasMoreSnapshots = data.snapshotList.length === app.snapshotManager.snapshotPageSize;
+    app.snapshotManager.lastListAppend = false;
+
+    appState.snapshots = nextSnapshots;
+    appState.snapshotHasMore = app.snapshotManager.hasMoreSnapshots;
+    appState.snapshotListVersion += 1;
+
+    console.log(`[Snapshot] Received ${data.snapshotList.length} snapshot(s) (${append ? 'append' : 'replace'})`);
   });
 
   // Handle server requesting us to capture a snapshot

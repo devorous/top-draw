@@ -4,7 +4,44 @@ import { getDB } from './db.js';
 import { T } from '../shared/MessageTypes.js';
 import { authorize, Action } from './permissions.js';
 import { getRecorder } from './deltaRecorder.js';
-import { uploadSnapshotBundle, getSnapshotBundle } from './r2.js';
+import { uploadSnapshotBundle, getSnapshotBundle, deleteSnapshotBundle } from './r2.js';
+
+const DEFAULT_SNAPSHOT_MAX_PER_ROOM = 100;
+const SNAPSHOT_LIST_PAGE_SIZE = 20;
+
+function getSnapshotMaxPerRoom() {
+  const parsed = Number.parseInt(process.env.SNAPSHOT_MAX_PER_ROOM || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SNAPSHOT_MAX_PER_ROOM;
+}
+
+async function deleteSnapshotRecord(db, room, doc) {
+  if (doc.r2Key) {
+    await deleteSnapshotBundle(doc.r2Key);
+  } else {
+    console.log(`[Snapshot] Deleting legacy snapshot without R2 bundle: ${doc.snapshotId}`);
+  }
+
+  await db.collection('board_snapshots').deleteOne({ _id: doc._id });
+  room.snapshots = room.snapshots.filter(s => s.id !== doc.snapshotId);
+}
+
+async function pruneSnapshotsForRoom(db, room) {
+  const maxSnapshots = getSnapshotMaxPerRoom();
+  const overflowDocs = await db.collection('board_snapshots')
+    .find({ roomId: room.id })
+    .sort({ timestamp: -1, _id: -1 })
+    .skip(maxSnapshots)
+    .project({ _id: 1, snapshotId: 1, r2Key: 1 })
+    .toArray();
+
+  for (const doc of overflowDocs) {
+    await deleteSnapshotRecord(db, room, doc);
+  }
+
+  if (overflowDocs.length > 0) {
+    console.log(`[Snapshot] Pruned ${overflowDocs.length} old snapshot(s) for room ${room.id}; limit=${maxSnapshots}`);
+  }
+}
 
 
 /**
@@ -101,6 +138,7 @@ export async function handleSnapshotSave(ws, data, room) {
       };
 
       await db.collection('board_snapshots').insertOne(mongoDoc);
+      await pruneSnapshotsForRoom(db, room);
 
       // Notify deltaRecorder if it's an auto snapshot (checkpoint)
       if (isAuto) {
@@ -121,20 +159,26 @@ export async function handleSnapshotSave(ws, data, room) {
  * @param {WebSocket} ws - The requester's WebSocket.
  * @param {Room} room - The room instance.
  */
-export async function handleSnapshotList(ws, room) {
+export async function handleSnapshotList(ws, data, room) {
   if (!authorize(ws, Action.MOD_MUTE, null)) return; // Helper+ only
 
   console.log(`[Snapshot] List requested for room ${room.id} by ${ws.username}`);
   const db = getDB();
   let dbSnapshots = [];
+  const beforeTs = Number(data?.snapshotTs || 0);
 
   if (db) {
     try {
       // Fetch snapshot metadata from MongoDB, which includes thumbnail and r2Key
+      const filter = { roomId: room.id };
+      if (beforeTs > 0) {
+        filter.timestamp = { $lt: beforeTs };
+      }
+
       dbSnapshots = await db.collection('board_snapshots')
-        .find({ roomId: room.id })
-        .sort({ timestamp: -1 })
-        .limit(20)
+        .find(filter)
+        .sort({ timestamp: -1, _id: -1 })
+        .limit(SNAPSHOT_LIST_PAGE_SIZE)
         .toArray();
     } catch (err) {
       console.error('[Snapshot] DB list error:', err);
@@ -428,10 +472,9 @@ export async function handleSnapshotDelete(ws, data, room) {
   if (db) {
     try {
       const doc = await db.collection('board_snapshots').findOne({ roomId: room.id, snapshotId });
-      if (doc && doc.r2Key) {
-        // TODO: Implement deletion from R2 in r2.js utility
-        // await r2.deleteObject(doc.r2Key);
-        console.log(`[Snapshot Delete] Marked for R2 deletion: ${doc.r2Key}`);
+      if (doc) {
+        await deleteSnapshotRecord(db, room, doc);
+        console.log(`[Snapshot Delete] Removed ${snapshotId} from MongoDB and R2.`);
       }
     } catch (err) {
       console.error(`[Snapshot Delete] Error checking/deleting R2 object for ${snapshotId}:`, err);
@@ -440,14 +483,4 @@ export async function handleSnapshotDelete(ws, data, room) {
 
   // Remove from in-memory buffer
   room.snapshots = room.snapshots.filter(s => s.id !== snapshotId);
-
-  // Remove from MongoDB
-  if (db) {
-    try {
-      await db.collection('board_snapshots').deleteOne({ roomId: room.id, snapshotId });
-      console.log(`[Snapshot Delete] Removed ${snapshotId} from MongoDB.`);
-    } catch (err) {
-      console.error('[Snapshot Delete] DB delete error:', err);
-    }
-  }
 }

@@ -10,6 +10,9 @@ export class SnapshotManager {
     this.app = app;
     this.snapshots = []; // Locally cached list (metadata only)
     this.lastSnapshotHash = null; // To avoid uploading identical snapshots
+    this.snapshotPageSize = 20;
+    this.lastListAppend = false;
+    this.hasMoreSnapshots = true;
   }
 
   /**
@@ -63,8 +66,15 @@ export class SnapshotManager {
   /**
    * Request the list of snapshots from the server.
    */
-  requestList() {
-    this.app.wsClient.send({ t: T.BOARD_SNAPSHOT_LIST_REQUEST });
+  requestList({ beforeTs = 0, append = false } = {}) {
+    this.lastListAppend = append;
+
+    const msg = { t: T.BOARD_SNAPSHOT_LIST_REQUEST };
+    if (beforeTs > 0) {
+      msg.snapshotTs = beforeTs;
+    }
+
+    this.app.wsClient.send(msg);
   }
 
   /**

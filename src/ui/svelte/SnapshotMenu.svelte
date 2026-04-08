@@ -5,10 +5,15 @@
   import * as wasm from '../../wasm/ddraw_wasm.js';
 
   let snapshots = $derived(appState.snapshots || []);
+  let snapshotHasMore = $derived(appState.snapshotHasMore);
+  let snapshotListVersion = $derived(appState.snapshotListVersion);
 
   let selectedId = $state(null);
   let selectedLayers = $state(null);
   let isLoadingPreview = $state(false);
+  let isLoadingSnapshots = $state(false);
+  let isLoadingMore = $state(false);
+  let lastHandledSnapshotListVersion = $state(0);
 
   // Selection tool
   let mode = $state('rectangle'); // 'rectangle' | 'lasso'
@@ -61,6 +66,15 @@
     isDraggingStrip = false;
   }
 
+  function onStripScroll() {
+    if (!stripRef || isLoadingSnapshots || isLoadingMore || !snapshotHasMore) return;
+    const threshold = 160;
+    const remaining = stripRef.scrollWidth - (stripRef.scrollLeft + stripRef.clientWidth);
+    if (remaining <= threshold) {
+      loadMoreSnapshots();
+    }
+  }
+
   // Canvas refs
   let previewCanvas = $state(null);
   let selectionCanvas = $state(null);
@@ -73,8 +87,20 @@
   let zoomLabel = $derived(`${Math.round(viewZoom * 100)}%`);
 
   function close() { toggleSnapshotMenu(); }
-  function refresh() { window.app?.snapshotManager?.requestList(); }
+  function refresh() {
+    isLoadingSnapshots = true;
+    isLoadingMore = false;
+    window.app?.snapshotManager?.requestList();
+  }
   function formatDate(ts) { return new Date(Number(ts)).toLocaleTimeString(); }
+
+  function loadMoreSnapshots() {
+    if (isLoadingSnapshots || isLoadingMore || !snapshotHasMore || snapshots.length === 0) return;
+    const oldest = snapshots[snapshots.length - 1];
+    if (!oldest?.ts) return;
+    isLoadingMore = true;
+    window.app?.snapshotManager?.requestList({ beforeTs: Number(oldest.ts), append: true });
+  }
 
   function getThumbUrl(snap) {
     if (thumbUrls[snap.id]) return thumbUrls[snap.id];
@@ -316,8 +342,15 @@
   }
 
   $effect(() => { selection; lassoPoints; drawSelection(); });
+  $effect(() => {
+    if (snapshotListVersion === lastHandledSnapshotListVersion) return;
+    lastHandledSnapshotListVersion = snapshotListVersion;
+    isLoadingSnapshots = false;
+    isLoadingMore = false;
+  });
 
   onMount(() => {
+    lastHandledSnapshotListVersion = snapshotListVersion;
     refresh();
     const tick = () => {
       marchingAntsOffset = (marchingAntsOffset + 0.4) % 13;
@@ -416,6 +449,7 @@
     <div
       class="snap-strip-wrap"
       bind:this={stripRef}
+      onscroll={onStripScroll}
       onpointerdown={onStripPointerDown}
       onpointermove={onStripPointerMove}
       onpointerup={onStripPointerUp}
@@ -443,6 +477,9 @@
             <span class="snap-thumb-time">{formatDate(snap.ts)}</span>
           </div>
         {/each}
+        {#if isLoadingMore}
+          <div class="snap-thumb-loading">Loading older snapshots...</div>
+        {/if}
       {/if}
     </div>
 
@@ -698,6 +735,16 @@
   .snap-footer-btns {
     display: flex;
     gap: 8px;
+  }
+
+  .snap-thumb-loading {
+    min-width: 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: var(--text-secondary, #aaa);
+    white-space: nowrap;
   }
 
   .btn {

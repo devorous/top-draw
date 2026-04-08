@@ -531,6 +531,9 @@ export async function sanitizeMessage(data) {
       return sanitized;
 
     case T.BOARD_SNAPSHOT_LIST_REQUEST:
+      if (data.snapshotTs !== undefined) {
+        sanitized.snapshotTs = Math.max(0, Math.round(Number(data.snapshotTs) || 0));
+      }
       return sanitized;
 
     case T.BOARD_SNAPSHOT_RESTORE:

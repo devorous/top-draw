@@ -1,5 +1,5 @@
 // server/r2.js
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { Buffer } from 'buffer'; // Node.js Buffer is globally available
 import protobuf from 'protobufjs';
 
@@ -84,5 +84,27 @@ export async function getSnapshotBundle(r2Key) {
     }
     console.error(`Error retrieving snapshot bundle from R2 (${r2Key}):`, error);
     throw error; // Re-throw to indicate failure
+  }
+}
+
+/**
+ * Deletes a snapshot bundle from Cloudflare R2.
+ * @param {string} r2Key - The object key for the snapshot bundle.
+ * @returns {Promise<void>}
+ */
+export async function deleteSnapshotBundle(r2Key) {
+  if (!r2Key) return;
+
+  const params = {
+    Bucket: BUCKET_NAME,
+    Key: r2Key,
+  };
+
+  try {
+    await r2Client.send(new DeleteObjectCommand(params));
+    console.log(`Successfully deleted snapshot bundle from R2: ${r2Key}`);
+  } catch (error) {
+    console.error(`Error deleting snapshot bundle from R2 (${r2Key}):`, error);
+    throw error;
   }
 }

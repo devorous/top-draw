@@ -2778,7 +2778,7 @@ wss.on('connection', (ws, req) => {
           break;
 
         case T.BOARD_SNAPSHOT_LIST_REQUEST:
-          await handleSnapshotList(ws, room);
+          await handleSnapshotList(ws, data, room);
           break;
 
         case T.BOARD_SNAPSHOT_RESTORE:

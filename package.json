@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "server": "node server/index.js",
     "server:stress": "cross-env DISABLE_RATE_LIMITS=true node server/index.js",
+    "snapshots:cleanup-legacy": "node server/scripts/delete-legacy-snapshots.js",
     "dev:stress": "concurrently \"npm run server:stress\" \"vite --open /go/\"",
     "messenger": "node server/messenger.js",
     "start": "node server/index.js",

@@ -54,6 +54,8 @@ class DrawingState {
 
   // Snapshots
   snapshots = $state([]);
+  snapshotHasMore = $state(true);
+  snapshotListVersion = $state(0);
   snapshotMenuVisible = $state(false);
 
   // Derived
