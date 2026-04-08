@@ -302,6 +302,24 @@ html[data-sidebar-side='left'] #toolOptions.collapsed {
   color: var(--text-secondary);
 }
 
+#patternModeOptions .pattern-colour-mode {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+#patternModeOptions .pattern-colour-mode-group {
+  width: auto;
+  gap: 6px;
+  margin-bottom: 6px;
+  flex-wrap: nowrap;
+}
+
+#patternModeOptions .pattern-colour-mode-group .radio-option {
+  flex: 0 0 auto;
+  min-width: 72px;
+  padding: 6px 10px;
+}
+
 /* Blend Mode Select */
 .blendModeSelect {
   width: 100%;

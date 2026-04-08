@@ -110,15 +110,14 @@ export class PatternTool extends Tool {
     const ctx = this.board.getActiveLayerContext();
     if (ctx) {
       const composite = this._buildPatternComposite(user);
-      if (composite) {
-        ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
-        ctx.drawImage(composite, 0, 0);
-        ctx.globalAlpha = 1.0;
-      }
+      this._drawPatternCompositeToContext(ctx, composite, user);
     }
 
     if (this.strokePoints.length > 0) {
       this.board.markDirtyPath(user, this.strokePoints, user.size);
+      this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(this.strokePoints, region), user.size);
+      });
     }
 
     if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
@@ -127,6 +126,16 @@ export class PatternTool extends Tool {
       const w = Math.ceil(this.dirtyBounds.maxX) - x + 2;
       const h = Math.ceil(this.dirtyBounds.maxY) - y + 2;
       this.board.expandDirtyRect(user, x, y, w, h);
+
+      this.board.forEachMirrorRegion({ rect: { x, y, width: w, height: h } }, (region) => {
+        const p1 = this.board.mirrorPointToRegion({ x: this.dirtyBounds.minX, y: this.dirtyBounds.minY }, region);
+        const p2 = this.board.mirrorPointToRegion({ x: this.dirtyBounds.maxX, y: this.dirtyBounds.maxY }, region);
+        const mx = Math.floor(Math.min(p1.x, p2.x)) - 2;
+        const my = Math.floor(Math.min(p1.y, p2.y)) - 2;
+        const mw = Math.ceil(Math.max(p1.x, p2.x)) - mx + 2;
+        const mh = Math.ceil(Math.max(p1.y, p2.y)) - my + 2;
+        this.board.expandDirtyRect(user, mx, my, mw, mh);
+      });
     }
 
     this.strokePoints = [];
@@ -193,25 +202,26 @@ export class PatternTool extends Tool {
 
   _drawPreview(user) {
     const composite = this._buildPatternComposite(user);
-    if (!composite) return;
-
-    const ctx = this.board.topCtx;
-    ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
-    ctx.drawImage(composite, 0, 0);
-    ctx.globalAlpha = 1.0;
+    this._drawPatternCompositeToContext(this.board.topCtx, composite, user, this.strokePoints);
   }
 
-  _drawRemotePreview(user, maskCanvas) {
+  _drawRemotePreview(user, maskCanvas, strokePoints = []) {
     if (!user?.context) return;
 
     const ctx = user.context;
     ctx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
 
     const composite = this._buildPatternComposite(user, maskCanvas);
-    if (!composite) return;
+    this._drawPatternCompositeToContext(ctx, composite, user, strokePoints);
+  }
 
+  _drawPatternCompositeToContext(ctx, composite, user, strokePoints = this.strokePoints) {
+    if (!ctx || !composite) return;
     ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
     ctx.drawImage(composite, 0, 0);
+    this.board.forEachMirrorRegion({ points: strokePoints }, (region) => {
+      this.board.drawMirroredCanvas(ctx, composite, region, 0, 0);
+    });
     ctx.globalAlpha = 1.0;
   }
 
@@ -331,21 +341,28 @@ export class PatternTool extends Tool {
     const offsetX = user.patternOffsetX || 0;
     const offsetY = user.patternOffsetY || 0;
 
-    ctx.save();
-    const pattern = ctx.createPattern(tile, 'repeat');
-    if (pattern.setTransform) {
-      const matrix = new DOMMatrix()
-        .translate(offsetX, offsetY)
-        .rotate(user.patternRotation || 0)
-        .scale(scale);
-      pattern.setTransform(matrix);
-    }
-    ctx.fillStyle = pattern;
-    ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, size, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    const fillStamp = (targetCtx) => {
+      targetCtx.save();
+      const pattern = targetCtx.createPattern(tile, 'repeat');
+      if (pattern.setTransform) {
+        const matrix = new DOMMatrix()
+          .translate(offsetX, offsetY)
+          .rotate(user.patternRotation || 0)
+          .scale(scale);
+        pattern.setTransform(matrix);
+      }
+      targetCtx.fillStyle = pattern;
+      targetCtx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
+      targetCtx.beginPath();
+      targetCtx.arc(pos.x, pos.y, size, 0, Math.PI * 2);
+      targetCtx.fill();
+      targetCtx.restore();
+    };
+
+    fillStamp(ctx);
+    this.board.forEachMirrorRegion({ point: pos }, (region) => {
+      this.board.withMirroredRegionTransform(ctx, region, () => fillStamp(ctx));
+    });
 
     this.board.expandDirtyRect(user, pos.x - size - 2, pos.y - size - 2, size * 2 + 4, size * 2 + 4);
     this.board.requestUpdate();
@@ -429,7 +446,7 @@ export class PatternTool extends Tool {
     offscreen.ctx.arc(pos.x, pos.y, Math.max(0.5, radius), 0, Math.PI * 2);
     offscreen.ctx.fill();
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-    this._drawRemotePreview(user, offscreen.canvas);
+    this._drawRemotePreview(user, offscreen.canvas, offscreen.strokePoints);
   }
 
   remoteStampMask(user, ps) {
@@ -443,7 +460,7 @@ export class PatternTool extends Tool {
       offscreen.ctx.fill();
       offscreen.strokePoints.push(pos);
     }
-    this._drawRemotePreview(user, offscreen.canvas);
+    this._drawRemotePreview(user, offscreen.canvas, offscreen.strokePoints);
   }
 
   remoteEndStroke(user) {
@@ -453,15 +470,14 @@ export class PatternTool extends Tool {
     const composite = this._buildPatternComposite(user, offscreen.canvas);
     if (composite) {
       const ctx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
-      if (ctx) {
-        ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
-        ctx.drawImage(composite, 0, 0);
-        ctx.globalAlpha = 1.0;
-      }
+      this._drawPatternCompositeToContext(ctx, composite, user, offscreen.strokePoints);
     }
 
     if (offscreen.strokePoints.length > 0) {
       this.board.markDirtyPath(user, offscreen.strokePoints, user.size);
+      this.board.forEachMirrorRegion({ points: offscreen.strokePoints }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(offscreen.strokePoints, region), user.size);
+      });
     }
 
     if (user?.context) {
@@ -481,6 +497,9 @@ export class PatternTool extends Tool {
     }
     if (points.length > 0) {
       this.board.markDirtyPath(user, points, user.size);
+      this.board.forEachMirrorRegion({ points }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(points, region), user.size);
+      });
     }
     this.board.requestUpdate();
   }

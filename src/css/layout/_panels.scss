@@ -54,6 +54,19 @@
   filter: brightness(0) invert(0.8);
 }
 
+.toolIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.toolIcon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
 .listColor {
   width: 20px;
   height: 20px;

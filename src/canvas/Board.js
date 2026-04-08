@@ -588,15 +588,13 @@ export class Board {
   }
 
   /**
-   * Draws a source canvas mirrored into a mirror region.
+   * Runs drawing code in a mirror-region-local transformed coordinate space.
    * @param {CanvasRenderingContext2D} ctx
-   * @param {HTMLCanvasElement} sourceCanvas
    * @param {Object} region
-   * @param {number} [x=0]
-   * @param {number} [y=0]
+   * @param {Function} drawFn
    */
-  drawMirroredCanvas(ctx, sourceCanvas, region, x = 0, y = 0) {
-    if (!ctx || !sourceCanvas || !region) return;
+  withMirroredRegionTransform(ctx, region, drawFn) {
+    if (!ctx || !region || typeof drawFn !== 'function') return;
     this.withMirrorRegionClip(ctx, region, () => {
       ctx.save();
       const centerX = region.x + (region.width / 2);
@@ -638,8 +636,23 @@ export class Board {
           ctx.scale(-1, 1);
           break;
       }
-      ctx.drawImage(sourceCanvas, x, y);
+      drawFn();
       ctx.restore();
+    });
+  }
+
+  /**
+   * Draws a source canvas mirrored into a mirror region.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {HTMLCanvasElement} sourceCanvas
+   * @param {Object} region
+   * @param {number} [x=0]
+   * @param {number} [y=0]
+   */
+  drawMirroredCanvas(ctx, sourceCanvas, region, x = 0, y = 0) {
+    if (!ctx || !sourceCanvas || !region) return;
+    this.withMirroredRegionTransform(ctx, region, () => {
+      ctx.drawImage(sourceCanvas, x, y);
     });
   }
 

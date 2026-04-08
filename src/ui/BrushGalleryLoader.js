@@ -62,6 +62,9 @@ export class BrushGalleryLoader {
 
     if (this.realGallery) {
       this.realGallery.show();
+    } else if (this.galleryEl) {
+      this.galleryEl.style.display = 'block';
+      window.app?.ui?.refreshToolOptionsLayout?.(window.app?.self?.tool);
     }
   }
 
@@ -73,6 +76,7 @@ export class BrushGalleryLoader {
       this.realGallery.hide();
     } else if (this.galleryEl) {
       this.galleryEl.style.display = 'none';
+      window.app?.ui?.refreshToolOptionsLayout?.(window.app?.self?.tool);
     }
   }
 

@@ -61,6 +61,7 @@ export class RemoteUserHandler {
     const points = data.ps;
     if (!points || points.length < 2) return;
 
+    this.ui.markRemoteCursorActivity(user.id);
     user.remoteTarget = { x: points[points.length - 2], y: points[points.length - 1] };
     this.startCatchupLoop();
 
@@ -396,6 +397,7 @@ export class RemoteUserHandler {
    * @returns {void}
    */
   handleMouseDown(user, data = {}) {
+    this.ui.markRemoteCursorActivity(user.id);
     user.mousedown = true;
     user._mainCtxDrawCount = 0;
     user.clearLine();
@@ -776,6 +778,7 @@ export class RemoteUserHandler {
    * @returns {void}
    */
   handleKeyPress(user, key) {
+    this.ui.markRemoteCursorActivity(user.id);
     if (key.length === 1) {
       user.text += key;
     } else if (key === 'Enter') {

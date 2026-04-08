@@ -5,6 +5,8 @@
 import { normalizeTextFont } from '../config/textFonts.js';
 import { getPreviewTextLayout } from '../utils/textLayout.js';
 
+const REMOTE_CURSOR_IDLE_MS = 5000;
+
 /**
  * RemoteUserUI class
  */
@@ -19,6 +21,7 @@ export class RemoteUserUI {
     this.cursors = new Map();
     this.userGroups = new Map(); // ipHash -> { element, userIds: Set }
     this._replayModeActive = false;
+    this._cursorIdleTimers = new Map();
   }
 
   _iconToElement(iconData) {
@@ -57,6 +60,106 @@ export class RemoteUserUI {
 
     const entry = document.querySelector(`.userEntry.u${userId}`);
     if (entry) entry.style.display = display;
+  }
+
+  _clearCursorIdleTimer(userId) {
+    const existingTimer = this._cursorIdleTimers.get(userId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      this._cursorIdleTimers.delete(userId);
+    }
+  }
+
+  _isRemoteTextActive(userId) {
+    const user = window.app?.users?.get(Number(userId));
+    return user?.tool === 'text' && typeof user.text === 'string' && user.text.length > 0;
+  }
+
+  _setCursorLayerVisibility(userId, visible) {
+    const cursorElements = this.cursors.get(userId);
+    if (!cursorElements) return;
+
+    if (!visible) {
+      cursorElements.cursor.style.display = 'none';
+      cursorElements.circle.style.display = 'none';
+      cursorElements.square.style.display = 'none';
+      cursorElements.crosshair.style.display = 'none';
+      cursorElements.text.style.display = 'none';
+      return;
+    }
+
+    cursorElements.cursor.style.display = 'block';
+    const tool = window.app?.users?.get(Number(userId))?.tool ?? 'brush';
+    this._applyRemoteToolDisplay(userId, tool);
+  }
+
+  _scheduleCursorIdleHide(userId) {
+    this._clearCursorIdleTimer(userId);
+
+    if (this._shouldSuppressLiveUser(userId) || this._isRemoteTextActive(userId)) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this._cursorIdleTimers.delete(userId);
+      if (this._shouldSuppressLiveUser(userId) || this._isRemoteTextActive(userId)) {
+        return;
+      }
+      this._setCursorLayerVisibility(userId, false);
+    }, REMOTE_CURSOR_IDLE_MS);
+
+    this._cursorIdleTimers.set(userId, timer);
+  }
+
+  _applyRemoteToolDisplay(userId, tool) {
+    const id = `u${userId}`;
+    const circle = document.querySelector(`.circle.${id}`);
+    const square = document.querySelector(`.square.${id}`);
+    const crosshair = document.querySelector(`.crosshair.${id}`);
+    const text = document.querySelector(`.text.${id}`);
+
+    if (!circle || !square || !crosshair || !text) return;
+
+    circle.style.display = 'none';
+    square.style.display = 'none';
+    crosshair.style.display = 'none';
+    text.style.display = 'none';
+
+    switch (tool) {
+      case 'select':
+        crosshair.style.display = 'block';
+        break;
+      case 'brush':
+      case 'flowPen':
+      case 'ink':
+      case 'line':
+      case 'rectangle':
+      case 'circle':
+      case 'erase':
+      case 'circleBlur':
+        circle.style.display = 'block';
+        break;
+      case 'text':
+        text.style.display = 'block';
+        break;
+      case 'blur':
+      case 'imageBrush':
+        square.style.display = 'block';
+        break;
+      case 'pattern':
+        circle.style.display = 'block';
+        break;
+    }
+  }
+
+  markRemoteCursorActivity(userId) {
+    if (this._shouldSuppressLiveUser(userId)) {
+      this._setUserVisibility(userId, false);
+      return;
+    }
+
+    this._setCursorLayerVisibility(userId, true);
+    this._scheduleCursorIdleHide(userId);
   }
 
   _applyMutedStateToEntry(entry, userEl, muted) {
@@ -199,6 +302,7 @@ export class RemoteUserUI {
       userId,
       !window.app?.board?.layerManager?.isLayerVisible?.(userData.activeLayer ?? 0)
     );
+    this._scheduleCursorIdleHide(userId);
 
     if (this._shouldSuppressLiveUser(userId)) {
       this._setUserVisibility(userId, false);
@@ -484,6 +588,7 @@ export class RemoteUserUI {
       return;
     }
     this.notifyUserActive(userId);
+    this.markRemoteCursorActivity(userId);
     const id = `u${userId}`;
     const cursor = document.querySelector(`.cursor.${id}`);
     const circle = document.querySelector(`.circle.${id}`);
@@ -517,44 +622,8 @@ export class RemoteUserUI {
       this._setUserVisibility(userId, false);
       return;
     }
-    const id = `u${userId}`;
-    const circle = document.querySelector(`.circle.${id}`);
-    const square = document.querySelector(`.square.${id}`);
-    const crosshair = document.querySelector(`.crosshair.${id}`);
-    const text = document.querySelector(`.text.${id}`);
-
-    if (!circle || !square || !crosshair || !text) return;
-
-    circle.style.display = 'none';
-    square.style.display = 'none';
-    crosshair.style.display = 'none';
-    text.style.display = 'none';
-
-    switch (tool) {
-      case 'select':
-        crosshair.style.display = 'block';
-        break;
-      case 'brush':
-      case 'flowPen':
-      case 'ink':
-      case 'line':
-      case 'rectangle':
-      case 'circle':
-      case 'erase':
-      case 'circleBlur':
-        circle.style.display = 'block';
-        break;
-      case 'text':
-        text.style.display = 'block';
-        break;
-      case 'blur':
-      case 'imageBrush':
-        square.style.display = 'block';
-        break;
-      case 'pattern':
-        circle.style.display = 'block';
-        break;
-    }
+    this._applyRemoteToolDisplay(userId, tool);
+    this._scheduleCursorIdleHide(userId);
   }
 
   /**
@@ -659,6 +728,10 @@ export class RemoteUserUI {
     if (cursorElements && cursorElements.textInput) {
       cursorElements.textInput.textContent = textContent;
     }
+    if (textContent) {
+      this._setCursorLayerVisibility(userId, true);
+    }
+    this._scheduleCursorIdleHide(userId);
   }
 
   updateRemoteFont(userId, font) {
@@ -730,6 +803,7 @@ export class RemoteUserUI {
    * @param {string} userId - User's session ID
    */
   removeRemoteUser(userId) {
+    this._clearCursorIdleTimer(userId);
     const id = `u${userId}`;
     document.querySelector(`.cursor.${id}`)?.remove();
     document.querySelector(`.circle.${id}`)?.remove();
@@ -799,14 +873,8 @@ export class RemoteUserUI {
       this._setUserVisibility(userId, false);
       return;
     }
-    const cursorElements = this.cursors.get(userId);
-    if (!cursorElements) return;
-
-    cursorElements.cursor.style.display = 'none';
-    cursorElements.circle.style.display = 'none';
-    cursorElements.square.style.display = 'none';
-    cursorElements.crosshair.style.display = 'none';
-    cursorElements.text.style.display = 'none';
+    this._clearCursorIdleTimer(userId);
+    this._setCursorLayerVisibility(userId, false);
   }
 
   /**
@@ -818,10 +886,8 @@ export class RemoteUserUI {
       this._setUserVisibility(userId, false);
       return;
     }
-    const cursorElements = this.cursors.get(userId);
-    if (!cursorElements) return;
-
-    cursorElements.cursor.style.display = 'block';
+    this._setCursorLayerVisibility(userId, true);
+    this._scheduleCursorIdleHide(userId);
   }
 
   /**

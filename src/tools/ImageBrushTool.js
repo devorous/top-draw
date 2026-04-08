@@ -188,6 +188,7 @@ export class ImageBrushTool extends Tool {
 
     this.board.compositeAllLayers();
     this.board.endStroke(user);
+    this.board.clearTop();
 
     this.lastStampPos.delete(user.id);
     this.dirtyBounds = null;
@@ -215,6 +216,25 @@ export class ImageBrushTool extends Tool {
       });
     }
     this.board.requestUpdate();
+  }
+
+  /**
+   * Draw the mirrored live preview for the active image-brush stroke.
+   * The primary stroke already exists on the active stroke layer canvas,
+   * so the top canvas only needs the mirrored replay.
+   * @param {Object} user
+   */
+  drawPreview(user = this._activeUser) {
+    if (!user) return;
+    const strokeCtx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
+    const previewCtx = this.board.topCtx;
+    if (!strokeCtx || !previewCtx || !strokeCtx.canvas) return;
+
+    previewCtx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
+    this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
+      this.board.drawMirroredCanvas(previewCtx, strokeCtx.canvas, region, 0, 0);
+    });
+    previewCtx.globalAlpha = 1.0;
   }
 
   /**
@@ -275,17 +295,25 @@ export class ImageBrushTool extends Tool {
     const stampY = pos.y - scaledSize * ratioY;
     const stampW = scaledSize * 2 * ratioX;
     const stampH = scaledSize * 2 * ratioY;
+    const drawStampImage = (targetCtx) => {
+      const prevSmoothing = targetCtx.imageSmoothingEnabled;
+      if (brush.type === 'svg') {
+        targetCtx.imageSmoothingEnabled = false;
+      }
+      targetCtx.drawImage(image, stampX, stampY, stampW, stampH);
+      targetCtx.imageSmoothingEnabled = prevSmoothing;
+    };
 
-    // Disable image smoothing for SVGs to keep them crisp when scaled
-    const prevSmoothing = ctx.imageSmoothingEnabled;
-    if (brush.type === 'svg') {
-      ctx.imageSmoothingEnabled = false;
-    }
+    drawStampImage(ctx);
 
-    ctx.drawImage(image, stampX, stampY, stampW, stampH);
+    this.board.forEachMirrorRegion({ rect: { x: stampX, y: stampY, width: stampW, height: stampH } }, (region) => {
+      this.board.withMirroredRegionTransform(ctx, region, () => {
+        drawStampImage(ctx);
+      });
+    });
+
     ctx.stroke();
     ctx.globalAlpha = 1.0;
-    ctx.imageSmoothingEnabled = prevSmoothing;
 
     if (this.dirtyBounds) {
       this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, stampX);
@@ -296,6 +324,16 @@ export class ImageBrushTool extends Tool {
 
     this.board.expandDirtyRect(user, Math.floor(stampX), Math.floor(stampY),
       Math.ceil(stampW) + 1, Math.ceil(stampH) + 1);
+
+    this.board.forEachMirrorRegion({ rect: { x: stampX, y: stampY, width: stampW, height: stampH } }, (region) => {
+      const p1 = this.board.mirrorPointToRegion({ x: stampX, y: stampY }, region);
+      const p2 = this.board.mirrorPointToRegion({ x: stampX + stampW, y: stampY + stampH }, region);
+      const mx = Math.floor(Math.min(p1.x, p2.x));
+      const my = Math.floor(Math.min(p1.y, p2.y));
+      const mw = Math.ceil(Math.max(p1.x, p2.x)) - mx + 1;
+      const mh = Math.ceil(Math.max(p1.y, p2.y)) - my + 1;
+      this.board.expandDirtyRect(user, mx, my, mw, mh);
+    });
   }
 
   /**

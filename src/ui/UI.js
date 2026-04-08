@@ -66,9 +66,12 @@ export class UI {
   initResizableSections() {
     this.resizableSections = new ResizableSections('toolOptions', [
       { id: 'userList', minHeight: 40, defaultHeight: 150 },
-      { id: 'toolSliders', minHeight: 100, defaultHeight: 250 },
+      { id: 'toolSliders', minHeight: 100, defaultHeight: 250, contentSelector: '.sliders' },
       { id: 'toolExtras', minHeight: 100, defaultHeight: 300 }
-    ]);
+    ], {
+      getContextKey: () => window.app?.self?.tool || 'default',
+      sharedSectionIds: ['userList']
+    });
   }
 
   /**
@@ -112,6 +115,10 @@ export class UI {
       // Also check after a short delay (for dynamic content)
       setTimeout(updateScrollIndicator, 500);
     });
+  }
+
+  refreshToolOptionsLayout(tool = window.app?.self?.tool) {
+    this.resizableSections?.refreshLayout(tool || 'default');
   }
 
   /**
@@ -898,6 +905,7 @@ menuBtn: document.getElementById('menuBtn'),
     }
 
     this.updateToolButton(tool);
+    this.refreshToolOptionsLayout(tool);
   }
 
   /**
@@ -1060,9 +1068,11 @@ menuBtn: document.getElementById('menuBtn'),
 
     if (allowComplex && toolSupports) {
       section.style.display = 'block';
+      this.refreshToolOptionsLayout(tool);
       return false;
     } else {
       section.style.display = 'none';
+      this.refreshToolOptionsLayout(tool);
       const select = this.elements.blendModeSelect;
       if (select && select.value !== 'source-over') {
         this._updatingBlendMode = true;
@@ -1418,6 +1428,10 @@ menuBtn: document.getElementById('menuBtn'),
 
   showRemoteCursor(userId) {
     return this.remoteUserUI.showRemoteCursor(userId);
+  }
+
+  markRemoteCursorActivity(userId) {
+    return this.remoteUserUI.markRemoteCursorActivity(userId);
   }
   
   /**

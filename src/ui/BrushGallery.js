@@ -214,6 +214,7 @@ export class BrushGallery {
   show() {
     if (this.galleryEl) {
       this.galleryEl.style.display = 'block';
+      window.app?.ui?.refreshToolOptionsLayout?.(window.app?.self?.tool);
     }
   }
 
@@ -223,6 +224,7 @@ export class BrushGallery {
   hide() {
     if (this.galleryEl) {
       this.galleryEl.style.display = 'none';
+      window.app?.ui?.refreshToolOptionsLayout?.(window.app?.self?.tool);
     }
   }
 
