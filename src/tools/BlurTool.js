@@ -159,18 +159,26 @@ export class BlurTool extends Tool {
       const minSpacing = Math.max(user.size * spacingPercent, 5); // Min 5px spacing
 
       if (distance >= minSpacing) {
-        this.paintMask(pos.x, pos.y, user.size, user, maskCtx);
+        const points = this.strokePoints.get(user.id);
+        const steps = Math.max(1, Math.ceil(distance / minSpacing));
 
-        this.board.forEachMirrorRegion({ point: pos }, (region) => {
-          const mirrored = this.board.mirrorPointToRegion(pos, region);
-          this.board.withMirrorRegionClip(maskCtx, region, () => {
-            this.paintMask(mirrored.x, mirrored.y, user.size, user, maskCtx);
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps;
+          const stampX = prevStamp.x + dx * t;
+          const stampY = prevStamp.y + dy * t;
+          this.paintMask(stampX, stampY, user.size, user, maskCtx);
+
+          this.board.forEachMirrorRegion({ point: { x: stampX, y: stampY } }, (region) => {
+            const mirrored = this.board.mirrorPointToRegion({ x: stampX, y: stampY }, region);
+            this.board.withMirrorRegionClip(maskCtx, region, () => {
+              this.paintMask(mirrored.x, mirrored.y, user.size, user, maskCtx);
+            });
           });
-        });
+
+          if (points) points.push({ x: stampX, y: stampY });
+        }
 
         this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-        const points = this.strokePoints.get(user.id);
-        if (points) points.push({ x: pos.x, y: pos.y });
         this.board.requestUpdate();
       }
     } else {
