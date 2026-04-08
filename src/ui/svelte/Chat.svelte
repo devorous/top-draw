@@ -77,8 +77,8 @@
     show();
   }
 
-  function addMessage(username, message, color, timestamp = Date.now()) {
-    messages.all = [...messages.all, { username, message, color, timestamp }];
+  function addMessage(username, message, color, timestamp = Date.now(), userId = null) {
+    messages.all = [...messages.all, { username, message, color, timestamp, userId }];
     if (!visible) {
       appState.chatUnreadCount++;
       showToast(username, message, color);
@@ -119,9 +119,38 @@
     });
   }
 
+  function getChatUser(userId) {
+    if (userId === null || userId === undefined) return null;
+    if (Number(userId) === Number(appState.sessionIndex) && window.app?.self) {
+      return window.app.self;
+    }
+    return appState.users.get(userId) || window.app?.users?.get(Number(userId)) || null;
+  }
+
+  function formatModeratorMeta(user) {
+    if (!user || appState.selfRole < 4) return '';
+    const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
+    const roleName = roleNames[user.role || 0] || 'Guest';
+    return user.visibleIp ? `${roleName} | ${user.visibleIp}` : roleName;
+  }
+
+  function openUserContextMenu(event, userId) {
+    if (!window.app || userId === null || userId === undefined) return;
+
+    if (Number(userId) === Number(appState.sessionIndex)) {
+      window.app._showSelfContextMenu?.(event);
+      return;
+    }
+
+    const user = window.app.users?.get(Number(userId)) || appState.users.get(userId);
+    if (user) {
+      window.app.moderation?.showContextMenu(event, Number(userId), user);
+    }
+  }
+
   // Expose methods for App.js to call
-  export function addChatMessage(username, message, color) {
-    addMessage(username, message, color);
+  export function addChatMessage(username, message, color, userId = null) {
+    addMessage(username, message, color, Date.now(), userId);
   }
 
   export function addSystemMessage(message) {
@@ -228,9 +257,14 @@
         <div class="chat-messages">
           {#each messages.all as msg}
             <div class="chat-message">
-              <span class="chat-username">
+              <button
+                class="chat-username"
+                oncontextmenu={(event) => openUserContextMenu(event, msg.userId)}
+                title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''}
+                type="button"
+              >
                 <span class="chat-user-dot" style="background: {msg.color}"></span>{msg.username}:
-              </span>
+              </button>
               <span class="chat-text">{@html linkify(msg.message)}</span>
               <span class="chat-time">{formatTime(msg.timestamp)}</span>
             </div>
@@ -260,9 +294,16 @@
                 class="dm-user-item" 
                 onclick={() => selectDMRecipient(user)}
                 onkeydown={(e) => e.key === 'Enter' && selectDMRecipient(user)}
+                oncontextmenu={(event) => openUserContextMenu(event, user.id)}
+                title={formatModeratorMeta(user)}
               >
                 <div class="dm-user-color" style="background-color: {user.color}"></div>
-                <span class="dm-user-name">{user.username}</span>
+                <span class="dm-user-text">
+                  <span class="dm-user-name">{user.username}</span>
+                  {#if formatModeratorMeta(user)}
+                    <span class="dm-user-meta">{formatModeratorMeta(user)}</span>
+                  {/if}
+                </span>
               </button>
             {/each}
           {/if}
@@ -389,12 +430,16 @@
   }
 
   .chat-username {
+    border: 0;
+    background: transparent;
+    padding: 0;
     font-weight: 500;
     margin-right: 0.375rem;
     color: var(--text-primary);
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
+    cursor: context-menu;
   }
 
   .chat-user-dot {
@@ -521,6 +566,17 @@
     font-size: 0.875rem;
     color: var(--text-primary);
     font-weight: 500;
+  }
+
+  .dm-user-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .dm-user-meta {
+    font-size: 0.75rem;
+    color: var(--text-muted);
   }
 
   .dm-no-users {

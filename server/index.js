@@ -601,7 +601,40 @@ function getIpHash(ip) {
  * @param {Array<Object>} users - The list of user objects.
  * @returns {Array<Object>} - The mapped user objects.
  */
-function mapUsersForBroadcast(users) {
+function getRoomClientBySessionIndex(room, sessionIndex) {
+  if (!room || sessionIndex === undefined || sessionIndex === null) return null;
+
+  for (const client of room.clients) {
+    if (client.sessionIndex === sessionIndex) {
+      return client;
+    }
+  }
+
+  return null;
+}
+
+function canViewerSeeTargetIp(viewer, targetUser) {
+  if (!viewer || !targetUser) return false;
+
+  const viewerRole = viewer.userRole || Role.GUEST;
+  const targetRole = targetUser.role || Role.GUEST;
+
+  return viewerRole >= Role.MOD && viewerRole > targetRole;
+}
+
+function getVisibleIpForViewer(viewer, targetUser, room) {
+  if (!canViewerSeeTargetIp(viewer, targetUser)) return '';
+
+  const targetClient = getRoomClientBySessionIndex(room, targetUser.sessionIndex);
+  const targetIp = targetClient?.clientIp || '';
+  if (!targetIp) return '';
+
+  return (viewer.userRole || Role.GUEST) >= Role.DEITY
+    ? targetIp
+    : obfuscateIp(targetIp);
+}
+
+function mapUsersForBroadcast(users, viewer = null, room = null) {
   return users.map(u => ({
     u: u.sessionIndex,
     a: u.afk,
@@ -631,8 +664,19 @@ function mapUsersForBroadcast(users) {
     th: u.thinning,
     sim: u.simulatePressure,
     rn: u.registeredName || '',
-    mt: !!u.isMuted
+    mt: !!u.isMuted,
+    vip: room ? getVisibleIpForViewer(viewer, u, room) : ''
   }));
+}
+
+function sendUsersToClient(ws, room, users = null) {
+  if (!ws || !room) return;
+
+  const joinedUsers = users || room.sessionManager.getJoinedUsers();
+  sendTo(ws, {
+    t: T.USERS,
+    us: mapUsersForBroadcast(joinedUsers, ws, room)
+  });
 }
 
 function isVpnAutoMuteExempt(role) {
@@ -794,6 +838,16 @@ function broadcastToAll(payload) {
  */
 function createRoomBroadcaster(room) {
   return (payload) => {
+    if (payload?.t === T.USERS) {
+      const joinedUsers = room.sessionManager.getJoinedUsers();
+      room.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          sendUsersToClient(client, room, joinedUsers);
+        }
+      });
+      return;
+    }
+
     const message = Msg.create(payload);
     const buffer = Msg.encode(message).finish();
 
@@ -813,8 +867,7 @@ function createRoomBroadcaster(room) {
 function broadcastUsersForRoom(room) {
   if (!room) return;
   createRoomBroadcaster(room)({
-    t: T.USERS,
-    us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+    t: T.USERS
   });
 }
 
@@ -981,14 +1034,10 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       
       if (!room.sessionManager.isDiscovery) {
         cnBroadcaster({
-          t: T.USERS,
-          us: mapUsersForBroadcast(allUsers)
+          t: T.USERS
         });
       } else {
-        sendTo(ws, {
-          t: T.USERS,
-          us: mapUsersForBroadcast(allUsers)
-        });
+        sendUsersToClient(ws, room, allUsers);
       }
       break;
 
@@ -1525,15 +1574,11 @@ wss.on('connection', (ws, req) => {
 
           if (!room.sessionManager.isDiscovery && shouldBroadcastJoin) {
             roomBroadcaster({
-              t: T.USERS,
-              us: mapUsersForBroadcast(allUsers)
+              t: T.USERS
             });
           } else {
             // In discovery, only send to self, no broadcast
-            sendTo(ws, {
-              t: T.USERS,
-              us: mapUsersForBroadcast(allUsers)
-            });
+            sendUsersToClient(ws, room, allUsers);
           }
 
           sendTo(ws, buildSettingsPayload(room));
@@ -1749,8 +1794,7 @@ wss.on('connection', (ws, req) => {
                 }
                 roomBroadcaster({ t: T.HIDE_CURSOR, u: modTargetIndex });
                 roomBroadcaster({
-                  t: T.USERS,
-                  us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+                  t: T.USERS
                 });
                 roomBroadcaster({
                   t: T.MOD_NOTIFY,
@@ -1837,8 +1881,7 @@ wss.on('connection', (ws, req) => {
                   roomBroadcaster({ t: T.SHOW_CURSOR, u: modTargetIndex });
                 }
                 roomBroadcaster({
-                  t: T.USERS,
-                  us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+                  t: T.USERS
                 });
                 roomBroadcaster({
                   t: T.MOD_NOTIFY,
@@ -2047,8 +2090,7 @@ wss.on('connection', (ws, req) => {
             roomBroadcaster(buildSettingsPayload(room));
             if (autoMuteGuestsChanged || autoMuteVpnUsersChanged) {
               roomBroadcaster({
-                t: T.USERS,
-                us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+                t: T.USERS
               });
             }
 
@@ -2096,8 +2138,7 @@ wss.on('connection', (ws, req) => {
 
             // Broadcast updated user list so everyone sees the new role
             createRoomBroadcaster(room)({
-              t: T.USERS,
-              us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+              t: T.USERS
             });
 
             // Broadcast ownership change to all clients in the room
@@ -2157,8 +2198,7 @@ wss.on('connection', (ws, req) => {
 
             // Broadcast updated user list
             createRoomBroadcaster(room)({
-              t: T.USERS,
-              us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+              t: T.USERS
             });
 
             // Broadcast ownership change to all clients in the room
@@ -2334,8 +2374,7 @@ wss.on('connection', (ws, req) => {
 
             // Re-broadcast user list so all clients see updated role badge
             createRoomBroadcaster(room)({
-              t: T.USERS,
-              us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+              t: T.USERS
             });
 
             sendTo(ws, { t: T.MOD_RESULT, a: true });
@@ -2584,8 +2623,7 @@ wss.on('connection', (ws, req) => {
             room.updateSnapshotTimer();
 
             createRoomBroadcaster(room)({
-              t: T.USERS,
-              us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+              t: T.USERS
             });
           } catch (err) {
             if (err.code === 11000) {
@@ -2741,8 +2779,7 @@ wss.on('connection', (ws, req) => {
             room.updateSnapshotTimer();
 
             createRoomBroadcaster(room)({
-              t: T.USERS,
-              us: mapUsersForBroadcast(room.sessionManager.getJoinedUsers())
+              t: T.USERS
             });
 
             if (ws.isMuted) {

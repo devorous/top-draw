@@ -395,7 +395,8 @@ export class WebSocketClient {
           textPositionMultiplier: u.tm,
           textPositionOffset: u.to,
           registeredName: u.rn || '',
-          isMuted: !!u.mt
+          isMuted: !!u.mt,
+          visibleIp: u.vip || ''
         }));
         this.emit('users', { users });
         break;

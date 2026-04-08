@@ -54,6 +54,34 @@
     background: var(--border-subtle);
     margin: 4px 0;
   }
+
+  .menuInfo {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px 10px;
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: 4px;
+  }
+
+  .menuInfoRow {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .menuInfoLabel {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+  }
+
+  .menuInfoValue {
+    font-size: 13px;
+    color: var(--text-primary);
+    word-break: break-word;
+  }
 }
 
 /* ========================================

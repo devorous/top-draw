@@ -75,6 +75,7 @@ export function setupUserHandlers(wsClient, app) {
           role: userData.role || 0,
           isMuted: !!userData.isMuted,
           ipHash: userData.iph || userData.ipHash || '',
+          visibleIp: userData.visibleIp || '',
           patternMode: userData.pm || userData.patternMode || false,
           textPositionMultiplier: userData.textPositionMultiplier,
           textPositionOffset: userData.textPositionOffset
@@ -168,6 +169,9 @@ export function setupUserHandlers(wsClient, app) {
 
         if (userData.registeredName) {
           user.registeredName = userData.registeredName;
+        }
+        if (userData.visibleIp !== undefined) {
+          user.visibleIp = userData.visibleIp || '';
         }
         if (userData.isMuted !== undefined && userData.isMuted !== user.isMuted) {
           user.isMuted = !!userData.isMuted;

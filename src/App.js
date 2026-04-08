@@ -3184,7 +3184,8 @@ export class DrawingApp {
       this.svelteComponents.chat.addChatMessage(
         this.self.username,
         message,
-        `rgba(${this.self.color[0]}, ${this.self.color[1]}, ${this.self.color[2]}, ${this.self.color[3] / 255})`
+        `rgba(${this.self.color[0]}, ${this.self.color[1]}, ${this.self.color[2]}, ${this.self.color[3] / 255})`,
+        this.sessionIndex
       );
     }
     this.wsClient.broadcastChat(message);
@@ -3220,6 +3221,7 @@ export class DrawingApp {
           color: `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
           registeredName: user.registeredName || '',
           role: user.role || 0,
+          visibleIp: user.visibleIp || '',
           isSelf: false
         });
       }

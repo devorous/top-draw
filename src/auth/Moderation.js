@@ -64,6 +64,40 @@ export class Moderation {
     return this.localRole >= 9;  // DEITY(9) only
   }
 
+  static roleName(role) {
+    const names = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
+    return names[role] || 'Guest';
+  }
+
+  _ensureContextMenuInfo(menu) {
+    let info = menu.querySelector('.menuInfo');
+    if (info) return info;
+
+    info = document.createElement('div');
+    info.className = 'menuInfo';
+    menu.prepend(info);
+    return info;
+  }
+
+  _renderContextMenuInfo(menu, targetUser, ipHash = null) {
+    const info = this._ensureContextMenuInfo(menu);
+    const rows = [];
+
+    if (targetUser) {
+      rows.push({ label: 'Role', value: Moderation.roleName(targetUser.role || 0) });
+      if (targetUser.visibleIp) {
+        rows.push({ label: 'IP', value: targetUser.visibleIp });
+      }
+    } else if (ipHash) {
+      rows.push({ label: 'Group', value: ipHash });
+    }
+
+    info.innerHTML = rows.map(({ label, value }) => (
+      `<div class="menuInfoRow"><span class="menuInfoLabel">${label}</span><span class="menuInfoValue">${this.escapeHtml(String(value || ''))}</span></div>`
+    )).join('');
+    info.style.display = rows.length > 0 ? 'flex' : 'none';
+  }
+
   /**
    * Show/hide .modOnly elements based on current role.
    * Injects mod-only toolbar buttons and panel into the DOM on first mod+ login.
@@ -251,6 +285,8 @@ export class Moderation {
     groupItems.forEach(item => {
       item.style.display = isGroup ? 'block' : 'none';
     });
+
+    this._renderContextMenuInfo(menu, targetUser, ipHash);
 
     // Update mute button text based on whether user is already muted
     if (this.isMod()) {

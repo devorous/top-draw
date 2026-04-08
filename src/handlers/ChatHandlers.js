@@ -15,7 +15,8 @@ export function setupChatHandlers(wsClient, app) {
       app.svelteComponents.chat.addChatMessage(
         user.username,
         data.message,
-        `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`
+        `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
+        data.sessionIndex
       );
     }
   });

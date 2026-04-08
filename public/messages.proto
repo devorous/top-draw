@@ -191,6 +191,7 @@ message Msg {
     string fo = 27;     // Current text font family
     float tm = 28;      // Text baseline multiplier
     float to = 29;      // Text baseline offset
+    string vip = 30;    // Viewer-specific visible IP (role-gated by server)
   }
   repeated U us = 17;   // Users array
 
