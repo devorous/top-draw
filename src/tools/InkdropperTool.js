@@ -132,7 +132,7 @@ export class InkdropperTool {
     app.self.setOpacity(rgba[3]);
 
     app.ui.updateSelfColor(rgba);
-    app.ui.updateSelfTextStyle(app.self.size, rgba);
+    app.ui.updateSelfTextStyle(app.self.size, rgba, app.self.font);
     app.ui.updateopacityValue(rgba[3]);
 
     if (app.colorPicker) {

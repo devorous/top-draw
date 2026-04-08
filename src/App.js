@@ -32,11 +32,14 @@ import { SaveMode } from './ui/SaveMode.js';
 import { HistoryPanel } from './ui/HistoryPanel.js';
 import { MirrorRegionController } from './ui/MirrorRegionController.js';
 import { SnapshotManager } from './remote/SnapshotManager.js';
+import { getTextFontDefaults, normalizeTextFont } from './config/textFonts.js';
 import initWasm from './wasm/ddraw_wasm.js';
 
 // Svelte UI Components
 import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } from './ui/svelte/AppUI.svelte.js';
 import { appState, addRecentColor } from './state.svelte.js';
+
+const TEXT_FONT_SETTINGS_STORAGE_KEY = 'topDrawTextFontSettings';
 
 /**
  * Main Drawing Application class.
@@ -219,6 +222,7 @@ export class DrawingApp {
     // PerformanceSettings.init() called lazily by Moderation._showPerformanceSettings()
 
     this.ui.setupLayerPreviewListeners(this.board.layerManager);
+    this.ui.attachFontChangeListener(this); // Attach font change listener
 
     // Sync initial app state to Svelte stores
     syncStoresFromApp(this);
@@ -320,10 +324,12 @@ export class DrawingApp {
       this.wsClient.sendGlobalRoleSet(targetUsername, newGlobalRole);
     };
 
-    window.app = this;
+      window.app = this;
 
-    this.setupEventListeners();
-    this.updateAuthenticatedActionVisibility();
+      this.setupEventListeners();
+      this.ui.updateTextPositionMultiplierValue(this.self.textPositionMultiplier);
+      this.ui.updateTextPositionOffsetValue(this.self.textPositionOffset);
+      this.updateAuthenticatedActionVisibility();
     this.updateRecordingButtonState();
     setupWebSocketHandlers(this);
 
@@ -354,6 +360,107 @@ export class DrawingApp {
       context: this.board.topCtx,
       board: this.board.mainCanvas
     });
+
+    this._migrateLegacyTextFontSettings();
+    this._migrateTextFontPresetDefaults();
+    this._applyStoredTextFontSettings(this.self.font);
+  }
+
+  _getStoredTextFontSettings() {
+    try {
+      const rawSettings = localStorage.getItem(TEXT_FONT_SETTINGS_STORAGE_KEY);
+      if (!rawSettings) return {};
+
+      const parsedSettings = JSON.parse(rawSettings);
+      return parsedSettings && typeof parsedSettings === 'object' ? parsedSettings : {};
+    } catch {
+      return {};
+    }
+  }
+
+  _getResolvedTextFontSettings(font) {
+    const normalizedFont = normalizeTextFont(font);
+    const defaults = getTextFontDefaults(normalizedFont);
+    const storedSettings = this._getStoredTextFontSettings()[normalizedFont];
+
+    return {
+      font: normalizedFont,
+      textPositionMultiplier: Number(storedSettings?.textPositionMultiplier ?? defaults.textPositionMultiplier),
+      textPositionOffset: Number(storedSettings?.textPositionOffset ?? defaults.textPositionOffset)
+    };
+  }
+
+  _applyStoredTextFontSettings(font) {
+    const settings = this._getResolvedTextFontSettings(font);
+    this.self.setTextPositionMultiplier(settings.textPositionMultiplier);
+    this.self.setTextPositionOffset(settings.textPositionOffset);
+  }
+
+  _saveTextFontSettings(font = this.self?.font) {
+    if (!font || !this.self) return;
+
+    const normalizedFont = normalizeTextFont(font);
+    const settings = this._getStoredTextFontSettings();
+    settings[normalizedFont] = {
+      textPositionMultiplier: this.self.textPositionMultiplier,
+      textPositionOffset: this.self.textPositionOffset
+    };
+
+    localStorage.setItem(TEXT_FONT_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  }
+
+  _migrateLegacyTextFontSettings() {
+    const legacyMultiplier = localStorage.getItem('topDrawTextPositionMultiplier');
+    const legacyOffset = localStorage.getItem('topDrawTextPositionOffset');
+
+    if (legacyMultiplier === null && legacyOffset === null) return;
+
+    let textPositionMultiplier = Number(legacyMultiplier);
+    let textPositionOffset = Number(legacyOffset);
+
+    if (!Number.isFinite(textPositionMultiplier)) {
+      textPositionMultiplier = getTextFontDefaults(this.self.font).textPositionMultiplier;
+    }
+
+    if (!Number.isFinite(textPositionOffset)) {
+      textPositionOffset = getTextFontDefaults(this.self.font).textPositionOffset;
+    }
+
+    // Migrate the old absolute-baseline defaults to the new correction-based defaults.
+    if (textPositionMultiplier === 0.66 && textPositionOffset === -3) {
+      textPositionMultiplier = 0;
+      textPositionOffset = 0;
+    }
+
+    const settings = this._getStoredTextFontSettings();
+    const normalizedFont = normalizeTextFont(this.self.font);
+    if (!settings[normalizedFont]) {
+      settings[normalizedFont] = {
+        textPositionMultiplier,
+        textPositionOffset
+      };
+      localStorage.setItem(TEXT_FONT_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    }
+
+    localStorage.removeItem('topDrawTextPositionMultiplier');
+    localStorage.removeItem('topDrawTextPositionOffset');
+  }
+
+  _migrateTextFontPresetDefaults() {
+    const settings = this._getStoredTextFontSettings();
+    const tangerineSettings = settings['Tangerine, cursive'];
+    if (!tangerineSettings) return;
+
+    // Tangerine ended up sitting correctly with neutral applied correction.
+    // If a user still has the old baked-in preset, update it once without
+    // touching any custom tuning they may have already made.
+    if (Number(tangerineSettings.textPositionMultiplier) === 0.25 && Number(tangerineSettings.textPositionOffset) === 0) {
+      settings['Tangerine, cursive'] = {
+        textPositionMultiplier: 0,
+        textPositionOffset: 0
+      };
+      localStorage.setItem(TEXT_FONT_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    }
   }
 
   /**
@@ -415,7 +522,7 @@ export class DrawingApp {
           this.self.setColor(rgba);
           this.self.setOpacity(rgba[3]);
           this.ui.updateSelfColor(rgba);
-          this.ui.updateSelfTextStyle(this.self.size, rgba);
+          this.ui.updateSelfTextStyle(this.self.size, rgba, this.self.font);
           this.ui.updateopacityValue(rgba[3]);
 
           const { elements } = this.ui;
@@ -814,11 +921,38 @@ export class DrawingApp {
         this.self.setSize(val);
         elements.sizeSlider.value = val;
         this.ui.updateCursorSize(val);
-        this.ui.updateSelfTextStyle(val, this.self.color);
+        this.ui.updateSelfTextStyle(val, this.self.color, this.self.font);
         this.board.mainCtx.lineWidth = val * 2;
         this.wsClient.broadcastSizeChange(val);
       }
     });
+
+    // Keeping the text tuning controls dormant for now.
+    // if (elements.textPositionMultiplierSlider) {
+    //   elements.textPositionMultiplierSlider.addEventListener('input', (e) => {
+    //     this.handleTextPositionMultiplierChange(Number(e.target.value));
+    //   });
+    //   this.ui.makeValueEditable(elements.textPositionMultiplierValue, {
+    //     min: -1,
+    //     max: 1,
+    //     step: 0.01,
+    //     suffix: '',
+    //     onCommit: (val) => this.handleTextPositionMultiplierChange(val)
+    //   });
+    // }
+
+    // if (elements.textPositionOffsetSlider) {
+    //   elements.textPositionOffsetSlider.addEventListener('input', (e) => {
+    //     this.handleTextPositionOffsetChange(Number(e.target.value));
+    //   });
+    //   this.ui.makeValueEditable(elements.textPositionOffsetValue, {
+    //     min: -20,
+    //     max: 20,
+    //     step: 0.25,
+    //     suffix: '',
+    //     onCommit: (val) => this.handleTextPositionOffsetChange(val)
+    //   });
+    // }
 
     this.ui.makeValueEditable(elements.smoothingValue, {
       min: 0, max: 50, step: 1, suffix: '',
@@ -1717,6 +1851,11 @@ export class DrawingApp {
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
+    this.wsClient.broadcastFontChange(
+      this.self.font,
+      this.self.textPositionMultiplier,
+      this.self.textPositionOffset
+    );
     this.wsClient.broadcastToolChange(this.self.tool);
     this.wsClient.broadcastSpacingChange(this.self.spacing);
     this.wsClient.broadcastHardnessChange(this.self.hardness);
@@ -1865,6 +2004,11 @@ export class DrawingApp {
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
+    this.wsClient.broadcastFontChange(
+      this.self.font,
+      this.self.textPositionMultiplier,
+      this.self.textPositionOffset
+    );
     this.wsClient.broadcastToolChange(this.self.tool);
     const activeLayer = this.self.activeLayer;
     this.wsClient.broadcastLayerBlendModeChange(activeLayer, this.self.blendMode);
@@ -1978,6 +2122,11 @@ export class DrawingApp {
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);
     this.wsClient.broadcastColorChange(this.self.color);
+    this.wsClient.broadcastFontChange(
+      this.self.font,
+      this.self.textPositionMultiplier,
+      this.self.textPositionOffset
+    );
     this.wsClient.broadcastToolChange(this.self.tool);
     const activeLayer = this.self.activeLayer;
     this.wsClient.broadcastLayerBlendModeChange(activeLayer, this.self.blendMode);
@@ -2505,7 +2654,7 @@ export class DrawingApp {
     }
 
     if (tool === 'text') {
-      this.ui.updateSelfTextStyle(this.self.size, this.self.color);
+      this.ui.updateSelfTextStyle(this.self.size, this.self.color, this.self.font);
       this._updateTextPreview();
     }
 
@@ -2592,6 +2741,56 @@ export class DrawingApp {
     }
 
     this.wsClient.broadcastBrush(brush);
+  }
+
+  /**
+   * Handles font selection change from the UI dropdown.
+   * @param {string} font - The selected font family string.
+   */
+  handleFontChange(font) {
+    this.self.setFont(font);
+    this._applyStoredTextFontSettings(this.self.font);
+    this.ui.updateTextPositionMultiplierValue(this.self.textPositionMultiplier);
+    this.ui.updateTextPositionOffsetValue(this.self.textPositionOffset);
+    this.ui.updateSelfTextStyle(this.self.size, this.self.color, font);
+    this._updateTextPreview(); // Update preview with new font
+    if (this.connected) {
+      this.wsClient.broadcastFontChange(
+        this.self.font,
+        this.self.textPositionMultiplier,
+        this.self.textPositionOffset
+      );
+    }
+  }
+
+  handleTextPositionMultiplierChange(multiplier) {
+    this.self.setTextPositionMultiplier(multiplier);
+    this._saveTextFontSettings();
+    this.ui.updateTextPositionMultiplierValue(this.self.textPositionMultiplier);
+    this.ui.updateSelfTextStyle(this.self.size, this.self.color, this.self.font);
+    this._updateTextPreview();
+    if (this.connected) {
+      this.wsClient.broadcastFontChange(
+        this.self.font,
+        this.self.textPositionMultiplier,
+        this.self.textPositionOffset
+      );
+    }
+  }
+
+  handleTextPositionOffsetChange(offset) {
+    this.self.setTextPositionOffset(offset);
+    this._saveTextFontSettings();
+    this.ui.updateTextPositionOffsetValue(this.self.textPositionOffset);
+    this.ui.updateSelfTextStyle(this.self.size, this.self.color, this.self.font);
+    this._updateTextPreview();
+    if (this.connected) {
+      this.wsClient.broadcastFontChange(
+        this.self.font,
+        this.self.textPositionMultiplier,
+        this.self.textPositionOffset
+      );
+    }
   }
 
   /**
@@ -2829,7 +3028,7 @@ export class DrawingApp {
     if (this.self.tool === 'imageBrush') {
       this.ui.updatePressureSquareSize(this.self.pressure * size, size, this.tabletDetected);
     }
-    this.ui.updateSelfTextStyle(size, this.self.color);
+    this.ui.updateSelfTextStyle(size, this.self.color, this.self.font);
     this.ui.updateSizeValue(size);
     this.board.mainCtx.lineWidth = size * 2;
     this.wsClient.broadcastSizeChange(size);
@@ -2977,7 +3176,7 @@ export class DrawingApp {
     this.self.setColor(color);
     this.self.setOpacity(color[3]);
     this.ui.updateSelfColor(color);
-    this.ui.updateSelfTextStyle(this.self.size, color);
+    this.ui.updateSelfTextStyle(this.self.size, color, this.self.font);
     this.ui.updateopacityValue(color[3]);
 
     // Update the color picker to match
@@ -3014,7 +3213,7 @@ export class DrawingApp {
     this.self.setColor(rgba);
     this.self.setOpacity(rgba[3]);
     this.ui.updateSelfColor(rgba);
-    this.ui.updateSelfTextStyle(this.self.size, rgba);
+    this.ui.updateSelfTextStyle(this.self.size, rgba, this.self.font);
     this.ui.updateopacityValue(rgba[3]);
 
     // Update the color picker to match
@@ -3794,7 +3993,7 @@ export class DrawingApp {
     this.ui.updateCursorSize(size);
     this.ui.updateSquarePositions(size);
     this.ui.updateSizeValue(size);
-    this.ui.updateSelfTextStyle(size, this.self.color);
+    this.ui.updateSelfTextStyle(size, this.self.color, this.self.font);
     this.board.mainCtx.lineWidth = size * 2;
     this.wsClient.broadcastSizeChange(size);
   }

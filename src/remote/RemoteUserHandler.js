@@ -6,6 +6,7 @@
 import { drawLineArray, bridgeGap } from '../utils/drawing.js';
 import { SELECTION_MODES, getNextBrushIndex } from '../utils/parseGimp.js';
 import { resetSmoothingBuffer } from '../utils/smoothing.js';
+import { getPreviewTextLayout } from '../utils/textLayout.js';
 import { RemotePenHandler } from './RemotePenHandler.js';
 import { RemoteInkHandler } from './RemoteInkHandler.js';
 import { RemoteSelectionHandler } from './RemoteSelectionHandler.js';
@@ -824,14 +825,14 @@ export class RemoteUserHandler {
     if (!ctx) return;
     ctx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     if (!user.text) return;
-    const fontSize = user.size + 5;
+    const { fontSize, drawX, baselineY } = getPreviewTextLayout(user);
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     ctx.save();
     ctx.globalAlpha = opacity;
     ctx.fillStyle = user.getColorString();
-    ctx.font = `${fontSize}px Newsreader, serif`;
+    ctx.font = `${fontSize}px ${user.font}`;
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(user.text, user.x + 5, user.y + (fontSize * 0.66) - 3);
+    ctx.fillText(user.text, drawX, baselineY);
     ctx.restore();
   }
 

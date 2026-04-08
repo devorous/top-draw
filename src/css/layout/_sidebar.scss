@@ -292,6 +292,80 @@
   background: var(--bg-elevated);
 }
 
+#font-container {
+  .fontSelectWrap {
+    position: relative;
+
+    &::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      right: 12px;
+      width: 8px;
+      height: 8px;
+      padding-top: 10px;
+      border-right: 2px solid color-mix(in srgb, var(--accent-primary), white 18%);
+      border-bottom: 2px solid color-mix(in srgb, var(--accent-primary), white 18%);
+      transform: translateY(-70%) rotate(45deg);
+      pointer-events: none;
+      opacity: 0.9;
+    }
+  }
+
+  #font-select {
+    width: 100%;
+    appearance: none;
+    padding: 10px 38px 10px 12px;
+    margin-top: 9px;
+    border: 1px solid color-mix(in srgb, var(--accent-primary), transparent 72%);
+    border-radius: 10px;
+    background:
+      linear-gradient(135deg,
+        color-mix(in srgb, var(--bg-secondary), var(--accent-primary) 10%),
+        color-mix(in srgb, var(--bg-elevated), var(--accent-primary) 18%)
+      );
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, white, transparent 90%),
+      0 8px 18px color-mix(in srgb, black, transparent 85%);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    outline: none;
+    transition:
+      border-color var(--transition-fast),
+      box-shadow var(--transition-fast),
+      transform var(--transition-fast),
+      background var(--transition-fast);
+  }
+
+  #font-select:hover {
+    border-color: color-mix(in srgb, var(--accent-primary), transparent 38%);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, white, transparent 86%),
+      0 10px 22px color-mix(in srgb, var(--accent-primary), transparent 82%);
+  }
+
+  #font-select:focus {
+    border-color: var(--accent-primary);
+    background:
+      linear-gradient(135deg,
+        color-mix(in srgb, var(--bg-elevated), var(--accent-primary) 18%),
+        color-mix(in srgb, var(--bg-secondary), var(--accent-primary) 30%)
+      );
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--accent-primary), transparent 72%),
+      0 12px 24px color-mix(in srgb, var(--accent-primary), transparent 80%);
+  }
+
+  #font-select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+}
+
 /* Layer Panel */
 #layerPanel {
   padding: 10px 16px;

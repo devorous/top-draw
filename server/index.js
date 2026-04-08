@@ -92,6 +92,7 @@ function shouldAllowWsMessage(ws, data) {
     case T.CBR:
     case T.CC:
     case T.CT:
+    case T.CF:
     case T.CL:
     case T.CBM:
     case T.KP:
@@ -623,6 +624,9 @@ function mapUsersForBroadcast(users) {
     ib: u.imageBrush,
     pb: u.patternBrush,
     pm: u.patternMode || false,
+    fo: u.font || '',
+    tm: u.textPositionMultiplier ?? 0,
+    to: u.textPositionOffset ?? 0,
     iph: u.ipHash,
     th: u.thinning,
     sim: u.simulatePressure,
@@ -967,6 +971,13 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
+    case T.CF:
+      user.font = data.fo;
+      user.textPositionMultiplier = data.tm;
+      user.textPositionOffset = data.to;
+      room.sessionManager.updateUserActivity(sessionIndex);
+      break;
+
     case T.CN:
       const uniqueName = room.sessionManager.getUniqueName(data.n, sessionIndex);
       user.name = uniqueName;
@@ -1208,7 +1219,7 @@ const BATCHABLE_TYPES = new Set([
   T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC,
   T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL,
   T.KP, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP, T.GPT, T.AFK,
-  T.CTHN, T.CSIM, T.FILL
+  T.CTHN, T.CSIM, T.FILL, T.CF
 ]);
 
 /**

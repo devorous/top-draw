@@ -96,6 +96,7 @@ message Msg {
     ROOM_ROLE_LIST_REQUEST = 87;  // Request room moderation roster
     ROOM_ROLE_LIST_RESPONSE = 88; // Response with room moderation roster
     GLOBAL_ROLE_SET = 89;          // Set a user's global role (DEITY only)
+    CF = 116;                      // Change font
     BOARD_SNAPSHOT_SAVE = 96;
     BOARD_SNAPSHOT_LIST_REQUEST = 97;
     BOARD_SNAPSHOT_LIST_RESPONSE = 98;
@@ -187,6 +188,9 @@ message Msg {
     bool   pm = 24;     // Pattern mode enabled
     string rn = 25;     // Registered name (original, without dedup suffix)
     bool mt = 26;       // Whether the user is currently muted
+    string fo = 27;     // Current text font family
+    float tm = 28;      // Text baseline multiplier
+    float to = 29;      // Text baseline offset
   }
   repeated U us = 17;   // Users array
 
@@ -336,6 +340,9 @@ message Msg {
   uint64 mod_undo_ts   = 82;  // MOD_UNDO_TO_STATE: target timestamp
   string pb            = 83;  // Pattern brush data JSON (for GPT message)
   bool   pm            = 84;  // Pattern mode enabled (for fill/select tools)
+  string fo            = 85;  // Text font family
+  float  tm            = 86;  // Text baseline multiplier
+  float  to            = 87;  // Text baseline offset
 
   // === Board Snapshot Fields (100+) ===
   bytes snapshot_data  = 100; // QOI encoded board state (legacy single-layer)

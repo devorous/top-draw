@@ -278,6 +278,14 @@ export async function sanitizeMessage(data) {
       sanitized.pm = sanitizeBoolean(data.pm);
       return sanitized;
 
+    case T.CF:
+      sanitized.fo = sanitizeString(data.fo, 120, { trim: true });
+      sanitized.tm = Math.min(Math.max(Number(data.tm), -1), 1);
+      sanitized.to = Math.min(Math.max(Number(data.to), -20), 20);
+      if (!Number.isFinite(sanitized.tm)) sanitized.tm = 0;
+      if (!Number.isFinite(sanitized.to)) sanitized.to = 0;
+      return sanitized.fo ? sanitized : null;
+
     case T.SEL_PENDING:
       Object.assign(sanitized, sanitizeImageRect(data));
       if (Array.isArray(data.ps)) {

@@ -10,6 +10,7 @@ import { unpackColor } from '../../shared/ColorUtils.js';
 import { RemoteUserHandler } from '../remote/RemoteUserHandler.js';
 import { LayerManager } from '../canvas/LayerManager.js';
 import { ToolManager } from '../tools/Tools.js';
+import { getPreviewTextLayout } from '../utils/textLayout.js';
 
 /**
  * Minimal board facade backed by a real LayerManager.
@@ -2020,14 +2021,14 @@ export class ReplayEngine {
    * @private
    */
   _drawReplayTextPreview(ctx, user) {
-    const fontSize = user.size + 5;
+    const { fontSize, drawX, baselineY } = getPreviewTextLayout(user);
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     ctx.save();
     ctx.globalAlpha = opacity;
     ctx.fillStyle = user.getColorString();
-    ctx.font = `${fontSize}px Newsreader, serif`;
+    ctx.font = `${fontSize}px ${user.font}`;
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(user.text, user.x + 5, user.y + (fontSize * 0.66) - 3);
+    ctx.fillText(user.text, drawX, baselineY);
     ctx.restore();
   }
 

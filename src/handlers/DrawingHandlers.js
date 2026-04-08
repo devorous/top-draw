@@ -212,6 +212,39 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
+  wrapHandler('cf', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (!user) {
+      if (!app._pendingRemoteFontChanges) {
+        app._pendingRemoteFontChanges = new Map();
+      }
+      app._pendingRemoteFontChanges.set(data.sessionIndex, {
+        font: data.font,
+        textPositionMultiplier: data.textPositionMultiplier,
+        textPositionOffset: data.textPositionOffset
+      });
+      return;
+    }
+
+    user.setFont(data.font);
+    if (data.textPositionMultiplier !== undefined) {
+      user.setTextPositionMultiplier(data.textPositionMultiplier);
+    }
+    if (data.textPositionOffset !== undefined) {
+      user.setTextPositionOffset(data.textPositionOffset);
+    }
+    ui.updateRemoteFont(data.sessionIndex, data.font);
+    ui.updateRemoteTextLayout(data.sessionIndex, user);
+
+    if (user.tool !== 'text' || !user.text) return;
+
+    if (user.blendMode && user.blendMode !== 'source-over') {
+      remoteUserHandler._renderRemoteTextToCanvas(user);
+    } else {
+      ui.updateRemoteText(data.sessionIndex, user.text);
+    }
+  });
+
   wrapHandler('glitch_result', (data) => {
     const user = users.get(data.sessionIndex);
     if (!user || !data.imageData) return;

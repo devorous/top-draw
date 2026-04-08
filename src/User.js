@@ -1,3 +1,9 @@
+import { normalizeTextFont } from './config/textFonts.js';
+import {
+  DEFAULT_APPLIED_TEXT_OFFSET,
+  DEFAULT_APPLIED_TEXT_SIZE_MULTIPLIER
+} from './utils/textLayout.js';
+
 /**
  * @fileoverview User model representing a participant in a drawing session.
  * Tracks user state, tool settings, and synchronization progress.
@@ -54,6 +60,9 @@ export class User {
     this.imageBrush = null;
     this.blendMode = options.blendMode || 'source-over';
     this.activeLayer = options.activeLayer || 0;
+    this.font = normalizeTextFont(options.font);
+    this.textPositionMultiplier = options.textPositionMultiplier ?? DEFAULT_APPLIED_TEXT_SIZE_MULTIPLIER;
+    this.textPositionOffset = options.textPositionOffset ?? DEFAULT_APPLIED_TEXT_OFFSET;
     this.currentLine = [];
     this.lineLength = 0;
     this.smoothBuffer = { x: 0, y: 0, isFirst: true };
@@ -225,6 +234,28 @@ export class User {
   }
 
   /**
+   * Sets the font family for the text tool.
+   *
+   * @param {string} font - The CSS font-family string.
+   * @returns {void}
+   */
+  setFont(font) {
+    this.font = normalizeTextFont(font);
+  }
+
+  setTextPositionMultiplier(multiplier) {
+    this.textPositionMultiplier = Number.isFinite(Number(multiplier))
+      ? Number(multiplier)
+      : DEFAULT_APPLIED_TEXT_SIZE_MULTIPLIER;
+  }
+
+  setTextPositionOffset(offset) {
+    this.textPositionOffset = Number.isFinite(Number(offset))
+      ? Number(offset)
+      : DEFAULT_APPLIED_TEXT_OFFSET;
+  }
+
+  /**
    * Sets whether to simulate pressure from velocity for the ink tool.
    *
    * @param {boolean} simulate - Whether to simulate pressure.
@@ -331,11 +362,14 @@ export class User {
       patternName: this.patternName,
       patternRotation: this.patternRotation,
       patternSpacing: this.patternSpacing,
-      patternOffsetX: this.patternOffsetX,
-      patternOffsetY: this.patternOffsetY,
-      patternColorMode: this.patternColorMode
-    };
-  }
+        patternOffsetX: this.patternOffsetX,
+        patternOffsetY: this.patternOffsetY,
+        patternColorMode: this.patternColorMode,
+        font: this.font,
+        textPositionMultiplier: this.textPositionMultiplier,
+        textPositionOffset: this.textPositionOffset
+      };
+    }
 
   /**
    * Updates multiple user fields from a data object.
@@ -344,11 +378,19 @@ export class User {
    * @returns {void}
    */
   updateFrom(data) {
-    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'username', 'blendMode', 'activeLayer', 'patternScale', 'patternShape', 'patternName', 'patternRotation', 'patternSpacing'];
-    fields.forEach(field => {
-      if (data[field] !== undefined) {
-        this[field] = data[field];
-      }
-    });
+    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'username', 'blendMode', 'activeLayer', 'patternScale', 'patternShape', 'patternName', 'patternRotation', 'patternSpacing', 'font', 'textPositionMultiplier', 'textPositionOffset'];
+      fields.forEach(field => {
+        if (data[field] !== undefined) {
+          if (field === 'font') {
+            this[field] = normalizeTextFont(data[field]);
+          } else if (field === 'textPositionMultiplier') {
+            this.setTextPositionMultiplier(data[field]);
+          } else if (field === 'textPositionOffset') {
+            this.setTextPositionOffset(data[field]);
+          } else {
+            this[field] = data[field];
+          }
+        }
+      });
   }
 }

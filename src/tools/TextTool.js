@@ -2,6 +2,8 @@
  * @fileoverview Text tool for drawing text on the canvas
  */
 
+import { getAppliedTextLayout, getPreviewTextLayout } from '../utils/textLayout.js';
+
 /**
  * Base tool class
  * @abstract
@@ -81,15 +83,13 @@ export class TextTool extends Tool {
   renderPreview(user) {
     if (!user.text) return;
     const ctx = this.board.topCtx;
-    const fontSize = user.size + 5;
     const opacity = user.opacity !== undefined ? user.opacity : 1;
+    const { fontSize, drawX, baselineY } = getPreviewTextLayout(user);
     ctx.save();
     ctx.globalAlpha = opacity;
     ctx.fillStyle = user.getColorString();
-    ctx.font = `${fontSize}px Newsreader, serif`;
+    ctx.font = `${fontSize}px ${user.font}`;
     ctx.textBaseline = 'alphabetic';
-    const baselineY = user.y + (fontSize * 0.66) - 3;
-    const drawX = user.x + 5;
     ctx.fillText(user.text, drawX, baselineY);
     ctx.restore();
   }
@@ -103,22 +103,17 @@ export class TextTool extends Tool {
     ctx.globalCompositeOperation = 'source-over';
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     ctx.globalAlpha = opacity;
-    const fontSize = user.size + 5;
+    const { fontSize } = getAppliedTextLayout(user);
     const text = user.text;
 
     ctx.beginPath();
     ctx.fillStyle = user.getColorString();
-    ctx.font = `${fontSize}px Newsreader, serif`;
+    ctx.font = `${fontSize}px ${user.font}`;
     ctx.textBaseline = 'alphabetic';
 
     const metrics = ctx.measureText(text);
+    const { drawX, baselineY, ascent, descent } = getAppliedTextLayout(user, metrics);
     const textWidth = metrics.width;
-
-    const ascent = metrics.actualBoundingBoxAscent || (fontSize * 0.75);
-    const descent = metrics.actualBoundingBoxDescent || (fontSize * 0.25);
-
-    const baselineY = user.y + (fontSize * 0.66) - 3;
-    const drawX = user.x + 5;
 
     const drX = Math.floor(drawX - 4);
     const drY = Math.floor(baselineY - ascent - 4);

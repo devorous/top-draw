@@ -2,6 +2,9 @@
  * @fileoverview Manages UI elements for remote users (cursors, boards, user list entries).
  */
 
+import { normalizeTextFont } from '../config/textFonts.js';
+import { getPreviewTextLayout } from '../utils/textLayout.js';
+
 /**
  * RemoteUserUI class
  */
@@ -160,6 +163,10 @@ export class RemoteUserUI {
     text.style.color = `rgb(${userData.color[0]}, ${userData.color[1]}, ${userData.color[2]})`;
     text.style.opacity = userData.color[3] ?? 1;
     text.style.fontSize = `${userData.size + 5}px`;
+    text.style.fontFamily = normalizeTextFont(userData.font);
+    const textLayout = getPreviewTextLayout(userData);
+    text.style.left = `${textLayout.domLeft}px`;
+    text.style.top = `${textLayout.domTop}px`;
 
     if (userData.tool !== 'text') {
       text.style.display = 'none';
@@ -168,6 +175,7 @@ export class RemoteUserUI {
     const textInput = document.createElement('text');
     textInput.className = `textInput ${id}`;
     textInput.textContent = userData.text || '';
+    textInput.style.fontFamily = normalizeTextFont(userData.font);
 
     const line = document.createElement('text');
     line.textContent = '|';
@@ -566,7 +574,11 @@ export class RemoteUserUI {
       square.setAttribute('width', size * 2);
       square.setAttribute('height', size * 2);
     }
-    if (text) text.style.fontSize = `${size + 5}px`;
+    if (text) {
+      text.style.fontSize = `${size + 5}px`;
+      const user = window.app?.users?.get(Number(userId));
+      if (user) this.updateRemoteTextLayout(userId, user);
+    }
   }
 
   /**
@@ -646,6 +658,34 @@ export class RemoteUserUI {
     const cursorElements = this.cursors.get(userId);
     if (cursorElements && cursorElements.textInput) {
       cursorElements.textInput.textContent = textContent;
+    }
+  }
+
+  updateRemoteFont(userId, font) {
+    if (this._shouldSuppressLiveUser(userId)) return;
+    const cursorElements = this.cursors.get(userId);
+    if (cursorElements?.text) {
+      cursorElements.text.style.fontFamily = normalizeTextFont(font);
+      if (cursorElements.textInput) {
+        cursorElements.textInput.style.fontFamily = normalizeTextFont(font);
+      }
+      const user = window.app?.users?.get(Number(userId));
+      if (user) this.updateRemoteTextLayout(userId, user);
+    }
+  }
+
+  updateRemoteTextLayout(userId, user) {
+    if (this._shouldSuppressLiveUser(userId)) return;
+    const cursorElements = this.cursors.get(userId);
+    if (!cursorElements?.text || !user) return;
+
+    const layout = getPreviewTextLayout(user);
+    cursorElements.text.style.left = `${layout.domLeft}px`;
+    cursorElements.text.style.top = `${layout.domTop}px`;
+    cursorElements.text.style.fontSize = `${layout.fontSize}px`;
+    cursorElements.text.style.fontFamily = normalizeTextFont(user.font);
+    if (cursorElements.textInput) {
+      cursorElements.textInput.style.fontFamily = normalizeTextFont(user.font);
     }
   }
 

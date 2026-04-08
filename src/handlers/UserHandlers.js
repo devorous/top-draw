@@ -75,8 +75,22 @@ export function setupUserHandlers(wsClient, app) {
           role: userData.role || 0,
           isMuted: !!userData.isMuted,
           ipHash: userData.iph || userData.ipHash || '',
-          patternMode: userData.pm || userData.patternMode || false
+          patternMode: userData.pm || userData.patternMode || false,
+          textPositionMultiplier: userData.textPositionMultiplier,
+          textPositionOffset: userData.textPositionOffset
         };
+
+        const pendingFontChange = app._pendingRemoteFontChanges?.get(userData.sessionIndex);
+        if (pendingFontChange) {
+          userOptions.font = pendingFontChange.font ?? userOptions.font;
+          if (pendingFontChange.textPositionMultiplier !== undefined) {
+            userOptions.textPositionMultiplier = pendingFontChange.textPositionMultiplier;
+          }
+          if (pendingFontChange.textPositionOffset !== undefined) {
+            userOptions.textPositionOffset = pendingFontChange.textPositionOffset;
+          }
+          app._pendingRemoteFontChanges.delete(userData.sessionIndex);
+        }
 
         user = new User(userData.sessionIndex, userOptions);
         user.setTool(userData.tool);
@@ -128,6 +142,23 @@ export function setupUserHandlers(wsClient, app) {
         if (userData.size !== undefined && userData.size !== user.size) {
           user.setSize(userData.size);
           ui.updateRemoteSize(userData.sessionIndex, userData.size);
+        }
+
+        if (userData.font !== undefined && userData.font !== user.font) {
+          user.setFont(userData.font);
+          ui.updateRemoteFont(userData.sessionIndex, userData.font);
+        }
+
+        if (userData.textPositionMultiplier !== undefined) {
+          user.setTextPositionMultiplier(userData.textPositionMultiplier);
+        }
+
+        if (userData.textPositionOffset !== undefined) {
+          user.setTextPositionOffset(userData.textPositionOffset);
+        }
+
+        if (userData.font !== undefined || userData.textPositionMultiplier !== undefined || userData.textPositionOffset !== undefined || userData.size !== undefined) {
+          ui.updateRemoteTextLayout(userData.sessionIndex, user);
         }
 
         if (userData.role !== undefined && userData.role !== user.role) {
@@ -272,6 +303,9 @@ export function setupUserHandlers(wsClient, app) {
         blurRadius: data.blurRadius,
         activeLayer: data.activeLayer,
         blendMode: data.blendMode,
+        font: data.font,
+        textPositionMultiplier: data.textPositionMultiplier,
+        textPositionOffset: data.textPositionOffset,
         thinning: data.thinning,
         simulatePressure: data.simulatePressure
       };
@@ -299,6 +333,9 @@ export function setupUserHandlers(wsClient, app) {
       if (data.blurRadius !== undefined) user.setBlurRadius(data.blurRadius);
       if (data.activeLayer !== undefined) user.setActiveLayer(data.activeLayer);
       if (data.blendMode !== undefined) user.setBlendMode(data.blendMode);
+      if (data.font !== undefined) user.setFont(data.font);
+      if (data.textPositionMultiplier !== undefined) user.setTextPositionMultiplier(data.textPositionMultiplier);
+      if (data.textPositionOffset !== undefined) user.setTextPositionOffset(data.textPositionOffset);
       if (data.thinning !== undefined) user.setThinning(data.thinning);
       if (data.simulatePressure !== undefined) user.setSimulatePressure(data.simulatePressure);
 
@@ -309,6 +346,10 @@ export function setupUserHandlers(wsClient, app) {
         if (data.tool !== undefined) ui.updateRemoteToolDisplay(data.sessionIndex, data.tool);
         if (data.color !== undefined) ui.updateRemoteColor(data.sessionIndex, data.color);
         if (data.size !== undefined) ui.updateRemoteSize(data.sessionIndex, data.size);
+        if (data.font !== undefined) ui.updateRemoteFont(data.sessionIndex, data.font);
+        if (data.font !== undefined || data.textPositionMultiplier !== undefined || data.textPositionOffset !== undefined || data.size !== undefined) {
+          ui.updateRemoteTextLayout(data.sessionIndex, user);
+        }
       }
     }
     if (app.svelteComponents?.chat) {

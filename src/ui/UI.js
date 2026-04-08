@@ -6,6 +6,17 @@ import { RemoteUserUI } from './RemoteUserUI.js';
 import { LayerPreview } from './LayerPreview.js';
 import { ResizableSections } from './ResizableSections.js';
 import { appState } from '../state.svelte.js';
+import {
+  DEFAULT_TEXT_FONT,
+  ensureTextFontsLoaded,
+  normalizeTextFont,
+  TEXT_FONT_OPTIONS
+} from '../config/textFonts.js';
+import {
+  DEFAULT_APPLIED_TEXT_OFFSET,
+  DEFAULT_APPLIED_TEXT_SIZE_MULTIPLIER,
+  getPreviewTextLayout
+} from '../utils/textLayout.js';
 
 import selectIconUrl from '../assets/icons/select-icon.svg';
 import brushIconUrl from '../assets/icons/brush-icon.svg';
@@ -282,6 +293,8 @@ menuBtn: document.getElementById('menuBtn'),
       opacityValue: document.getElementById('opacityValue'),
       blurRadiusValue: document.getElementById('blurRadiusValue'),
       thinningValue: document.getElementById('thinningValue'),
+      textPositionMultiplierValue: document.getElementById('textPositionMultiplierValue'),
+      textPositionOffsetValue: document.getElementById('textPositionOffsetValue'),
       patternScaleValue: document.getElementById('patternScaleValue'),
       patternRotationValue: document.getElementById('patternRotationValue'),
       patternSpacingValue: document.getElementById('patternSpacingValue'),
@@ -296,6 +309,9 @@ menuBtn: document.getElementById('menuBtn'),
       opacityContainer: document.getElementById('brush-opacity'),
       blurRadiusContainer: document.getElementById('blur-radius'),
       inkThinningContainer: document.getElementById('ink-thinning'),
+      fontContainer: document.getElementById('font-container'),
+      textPositionMultiplierContainer: document.getElementById('text-position-multiplier-container'),
+      textPositionOffsetContainer: document.getElementById('text-position-offset-container'),
 
       selectionModeOptions: document.getElementById('selectionModeOptions'),
       eraserModeOptions: document.getElementById('eraserModeOptions'),
@@ -322,8 +338,12 @@ menuBtn: document.getElementById('menuBtn'),
       thinningLock: document.getElementById('thinningLock'),
       thinningEnabled: document.getElementById('thinningEnabled'),
       thinningSlider: document.querySelector('.slider.thinning'),
+      textPositionMultiplierSlider: document.querySelector('.slider.textPositionMultiplier'),
+      textPositionOffsetSlider: document.querySelector('.slider.textPositionOffset'),
       thinningSliderContainer: document.getElementById('thinningSlider'),
       simulatePressureCheckbox: document.getElementById('simulatePressureCheckbox'),
+
+      fontSelect: document.getElementById('font-select'),
 
       colorPicker: document.getElementById('colorPicker'),
 
@@ -355,6 +375,8 @@ menuBtn: document.getElementById('menuBtn'),
       modPanel: null, // injected dynamically by Moderation._injectModUI()
       modBtn: null // injected dynamically by Moderation._injectModUI()
     };
+
+    this._initializeFontSelect();
   }
 
   /**
@@ -688,7 +710,7 @@ menuBtn: document.getElementById('menuBtn'),
       selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText,
       brushImage, brushFileInput, sizeContainer, pressureContainer, smoothingContainer,
       brushSpacing, brushHardness, opacityContainer, blurRadiusContainer,
-      selectionModeOptions, eraserModeOptions, inkdropperModeOptions, brushModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions
+      selectionModeOptions, eraserModeOptions, inkdropperModeOptions, brushModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions, fontContainer, textPositionMultiplierContainer, textPositionOffsetContainer
     } = this.elements;
 
     selfCircle.style.display = 'none';
@@ -700,6 +722,9 @@ menuBtn: document.getElementById('menuBtn'),
     brushFileInput.style.display = 'none';
     brushSpacing.style.display = 'none';
     brushHardness.style.display = 'none';
+    if (fontContainer) fontContainer.style.display = 'none'; // Hide by default
+    if (textPositionMultiplierContainer) textPositionMultiplierContainer.style.display = 'none';
+    if (textPositionOffsetContainer) textPositionOffsetContainer.style.display = 'none';
 
     sizeContainer.style.display = 'block';
     pressureContainer.style.display = 'block';
@@ -769,6 +794,15 @@ menuBtn: document.getElementById('menuBtn'),
         selfText.style.display = 'block';
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
+        if (fontContainer) fontContainer.style.display = 'block'; // Show font dropdown
+        // Keeping the text tuning controls dormant for now.
+        // if (textPositionMultiplierContainer) textPositionMultiplierContainer.style.display = 'block';
+        // if (textPositionOffsetContainer) textPositionOffsetContainer.style.display = 'block';
+        if (user) {
+          this.updateFontSelect(user.font);
+          this.updateTextPositionMultiplierValue(user.textPositionMultiplier);
+          this.updateTextPositionOffsetValue(user.textPositionOffset);
+        }
         break;
 
       case 'erase':
@@ -1096,11 +1130,23 @@ menuBtn: document.getElementById('menuBtn'),
    * Updates the local floating text cursor style.
    * @param {number} size - Font size
    * @param {Array} color - [r, g, b, a] color array
+   * @param {string} font - CSS font-family string
    */
-  updateSelfTextStyle(size, color) {
-    this.elements.selfText.style.fontSize = `${size + 5}px`;
+  updateSelfTextStyle(size, color, font) {
+    const layout = getPreviewTextLayout({
+      size,
+      x: 0,
+      y: 0
+    });
+    this.elements.selfText.style.fontSize = `${layout.fontSize}px`;
     const [r, g, b, a] = color;
     this.elements.selfText.style.color = `rgba(${r}, ${g}, ${b}, ${a * a})`;
+    this.elements.selfText.style.fontFamily = normalizeTextFont(font);
+    if (this.elements.selfTextInput) {
+      this.elements.selfTextInput.style.fontFamily = normalizeTextFont(font);
+    }
+    this.elements.selfText.style.left = `${layout.domLeft}px`;
+    this.elements.selfText.style.top = `${layout.domTop}px`;
   }
 
   /**
@@ -1283,6 +1329,86 @@ menuBtn: document.getElementById('menuBtn'),
    */
   makeValueEditable(spanEl, opts) {
     return this.editableHandler.makeEditable(spanEl, opts);
+  }
+
+  /**
+   * Attaches an event listener to the font selection dropdown.
+   * @param {App} app - Reference to the main App instance
+   */
+  attachFontChangeListener(app) {
+    this.elements.fontSelect?.addEventListener('change', (e) => {
+      this._applyFontSelectStyle(e.target.value);
+      app.handleFontChange(e.target.value);
+    });
+  }
+
+  /**
+   * Updates the selected font in the dropdown.
+   * @param {string} font - The font family string to set as selected
+   */
+  updateFontSelect(font) {
+    if (this.elements.fontSelect) {
+      const normalizedFont = normalizeTextFont(font);
+      this.elements.fontSelect.value = normalizedFont;
+      this._applyFontSelectStyle(normalizedFont);
+    }
+  }
+
+  updateRemoteFont(userId, font) {
+    return this.remoteUserUI.updateRemoteFont(userId, font);
+  }
+
+  updateRemoteTextLayout(userId, user) {
+    return this.remoteUserUI.updateRemoteTextLayout(userId, user);
+  }
+
+  updateTextPositionMultiplierValue(multiplier) {
+    if (this.elements.textPositionMultiplierValue) {
+      this.elements.textPositionMultiplierValue.textContent = Number(multiplier).toFixed(2);
+    }
+    if (this.elements.textPositionMultiplierSlider) {
+      this.elements.textPositionMultiplierSlider.value = Number(multiplier);
+    }
+  }
+
+  updateTextPositionOffsetValue(offset) {
+    if (this.elements.textPositionOffsetValue) {
+      const rounded = Math.round(Number(offset) * 100) / 100;
+      this.elements.textPositionOffsetValue.textContent = rounded;
+    }
+    if (this.elements.textPositionOffsetSlider) {
+      this.elements.textPositionOffsetSlider.value = Number(offset);
+    }
+  }
+
+  _initializeFontSelect() {
+    const select = this.elements.fontSelect;
+    if (!select) return;
+
+    ensureTextFontsLoaded(document);
+    select.innerHTML = '';
+
+    TEXT_FONT_OPTIONS.forEach(font => {
+      const option = document.createElement('option');
+      option.value = font.family;
+      option.textContent = font.label;
+      option.style.fontFamily = font.family;
+      option.style.fontSize = `${font.pickerFontSize ?? 12}px`;
+      select.appendChild(option);
+    });
+
+    select.value = DEFAULT_TEXT_FONT;
+    this._applyFontSelectStyle(DEFAULT_TEXT_FONT);
+  }
+
+  _applyFontSelectStyle(font) {
+    const select = this.elements.fontSelect;
+    if (!select) return;
+
+    const normalizedFont = normalizeTextFont(font);
+    const fontOption = TEXT_FONT_OPTIONS.find(option => option.family === normalizedFont);
+    select.style.fontFamily = normalizedFont;
+    select.style.fontSize = `${fontOption?.pickerFontSize ?? 12}px`;
   }
 
   hideRemoteCursor(userId) {

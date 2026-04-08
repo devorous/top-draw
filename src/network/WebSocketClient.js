@@ -5,6 +5,7 @@
 
 import { T, Tool, ToolNames, ToolToEnum } from '../../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../../shared/ColorUtils.js';
+import { normalizeTextFont } from '../config/textFonts.js';
 
 /**
  * WebSocketClient manages the bidirectional binary communication with the server.
@@ -57,7 +58,7 @@ export class WebSocketClient {
      */
     this._batchableMessages = new Set([
       T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC,
-      T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL
+      T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL, T.CF
     ]);
   }
 
@@ -390,6 +391,9 @@ export class WebSocketClient {
           patternScale: u.patternScale,
           patternShape: u.patternShape,
           patternName: u.patternName,
+          font: normalizeTextFont(u.fo),
+          textPositionMultiplier: u.tm,
+          textPositionOffset: u.to,
           registeredName: u.rn || '',
           isMuted: !!u.mt
         }));
@@ -584,6 +588,15 @@ export class WebSocketClient {
 
       case T.CPM:
         this.emit('cpm', { sessionIndex: data.u, patternMode: data.pm });
+        break;
+
+      case T.CF:
+        this.emit('cf', {
+          sessionIndex: data.u,
+          font: normalizeTextFont(data.fo),
+          textPositionMultiplier: data.tm,
+          textPositionOffset: data.to
+        });
         break;
 
       case T.PAN:
@@ -1315,6 +1328,20 @@ export class WebSocketClient {
    */
   broadcastPatternMode(enabled) {
     this.send({ t: T.CPM, pm: enabled });
+  }
+
+  /**
+   * Broadcasts a font change.
+   * @param {string} font - The new font family.
+   * @returns {void}
+   */
+  broadcastFontChange(font, textPositionMultiplier, textPositionOffset) {
+    this.send({
+      t: T.CF,
+      fo: font,
+      tm: textPositionMultiplier,
+      to: textPositionOffset
+    });
   }
 
   /**
