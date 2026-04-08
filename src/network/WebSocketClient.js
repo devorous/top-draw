@@ -362,7 +362,8 @@ export class WebSocketClient {
       case T.PING:
         this.send({
           t: T.PONG,
-          lowPowerMode: this.getLowPowerMode ? !!this.getLowPowerMode() : false
+          lowPowerMode: this.getLowPowerMode ? !!this.getLowPowerMode() : false,
+          tabHidden: typeof document !== 'undefined' ? document.visibilityState === 'hidden' : false
         });
         break;
 

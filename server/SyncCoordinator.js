@@ -2,6 +2,7 @@
 
 import { WebSocket } from 'ws';
 import { T } from '../shared/MessageTypes.js';
+import { isRecentlyActive, scoreProvider } from './providerScoring.js';
 
 /**
  * Handles the multi-step canvas synchronization flow for new users.
@@ -37,9 +38,9 @@ export class SyncCoordinator {
       const requestedProvider = Number(data.tu);
       const providerData = this.sessionManager.users.get(requestedProvider);
 
-      if (providerData && providerData.name && !providerData.afk && requestedProvider !== requesterSessionIndex) {
+      if (providerData && providerData.name && requestedProvider !== requesterSessionIndex) {
         providerSessionIndex = requestedProvider;
-        console.log(`[Sync] Using requested provider ${providerSessionIndex} (${providerData.name})`);
+        console.log(`[Sync] Using requested provider ${providerSessionIndex} (${providerData.name}) hidden=${!!this._findClient(providerSessionIndex)?.tabHidden} afk=${!!providerData.afk}`);
       } else {
         console.log(`[Sync] Requested provider ${requestedProvider} not available or invalid, using auto-select`);
       }
@@ -49,7 +50,8 @@ export class SyncCoordinator {
       providerSessionIndex = this.selectBestProvider(ws);
       if (providerSessionIndex !== null) {
         const providerData = this.sessionManager.users.get(providerSessionIndex);
-        console.log(`[Sync] Auto-selected provider ${providerSessionIndex} (${providerData.name})`);
+        const providerClient = this._findClient(providerSessionIndex);
+        console.log(`[Sync] Auto-selected provider ${providerSessionIndex} (${providerData.name}) hidden=${!!providerClient?.tabHidden} afk=${!!providerData?.afk}`);
       }
     }
 
@@ -105,13 +107,15 @@ export class SyncCoordinator {
 
     for (const [sessionIndex, userData] of this.sessionManager.users) {
       const idx = Number(sessionIndex);
-      if (idx !== excludeIdx && userData.name && !userData.afk) {
+      if (idx !== excludeIdx && userData.name) {
         // Also exclude by WS reference to be ultra-safe against uninitialized sessionIndex
         const client = this._findClient(idx);
         if (client && client !== requesterWs) {
           candidates.push({
             sessionIndex: idx,
-            lastActivity: userData.lastActivity || 0,
+            score: scoreProvider(client, userData),
+            active: isRecentlyActive(userData),
+            hidden: !!client.tabHidden,
           });
         }
       }
@@ -119,7 +123,12 @@ export class SyncCoordinator {
 
     if (candidates.length === 0) return null;
 
-    candidates.sort((a, b) => b.lastActivity - a.lastActivity);
+    candidates.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (a.hidden !== b.hidden) return Number(a.hidden) - Number(b.hidden);
+      if (a.active !== b.active) return Number(b.active) - Number(a.active);
+      return b.sessionIndex - a.sessionIndex;
+    });
 
     return candidates[0].sessionIndex;
   }

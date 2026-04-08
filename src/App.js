@@ -1769,6 +1769,10 @@ export class DrawingApp {
     this.ui.showConnectionStatus('offline');
 
     this.inputBufferManager.startTickLoop();
+    if (!this._visibilityEligibilityHandler && typeof document !== 'undefined') {
+      this._visibilityEligibilityHandler = () => this._updatePreviewUploadEligibility();
+      document.addEventListener('visibilitychange', this._visibilityEligibilityHandler);
+    }
 
     // Update URL to /go/offline
     if (window.location.pathname !== '/go/offline') {
@@ -4519,11 +4523,18 @@ export class DrawingApp {
    * starts/stops the preview and checkpoint intervals accordingly.
    */
   _updatePreviewUploadEligibility() {
+    const isHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
     const myName = this.self?.registeredName || this.self?.username;
     // Manual pin takes priority over auto-elected user
     const activeUploader = this.currentRoomData?.dedicatedReplayUser
       || this.currentRoomData?.electedUploader
       || null;
+
+    if (isHidden) {
+      this.stopPreviewInterval();
+      this.stopCheckpointInterval();
+      return;
+    }
 
     if (activeUploader) {
       if (myName && myName === activeUploader) {
@@ -4561,6 +4572,7 @@ export class DrawingApp {
    */
   captureAndSendCheckpoint() {
     if (!this.connected || !this.wsClient || this.isOfflineMode) return;
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
 
     try {
       const mainCanvas = this.board.mainCanvas;
@@ -4600,6 +4612,7 @@ export class DrawingApp {
    */
   captureAndSendPreview() {
     if (!this.connected || !this.wsClient || this.isOfflineMode) return;
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
 
     try {
       const mainCanvas = this.board.mainCanvas;

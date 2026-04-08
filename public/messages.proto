@@ -388,6 +388,7 @@ message Msg {
   // === Uploader Election Fields ===
   bool low_power_mode = 119;      // PONG: client reports low-power mode status
   string elected_uploader = 120;  // SETTINGS: server-elected checkpoint uploader username
+  bool tab_hidden = 121;          // PONG: whether the sender's tab is currently hidden/backgrounded
 }
 
 // New message for storing snapshot layers and thumbnail bundled in R2

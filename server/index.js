@@ -491,6 +491,7 @@ const server = createServer(async (req, res) => {
         username: c.username,
         ping: c.ping != null ? Math.round(c.ping) : null,
         lowPower: c.lowPower,
+        hidden: !!c.hidden,
         active: c.active,
         score: Math.round(c.score * 10) / 10
       }));
@@ -1455,6 +1456,7 @@ wss.on('connection', (ws, req) => {
 
     ws.pingRtt = null;
     ws.lowPowerMode = false;
+    ws.tabHidden = false;
     ws.pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.pingSentAt = Date.now();
@@ -2253,6 +2255,7 @@ wss.on('connection', (ws, req) => {
             ws.pingSentAt = null;
           }
           ws.lowPowerMode = !!data.lowPowerMode;
+          ws.tabHidden = !!data.tabHidden;
           break;
 
         case T.ROOM_ROLE_SET: {

@@ -1,36 +1,8 @@
 /** @fileoverview Server-side uploader election — picks the best client to upload board checkpoints. */
 
+import { isRecentlyActive, scoreProvider } from './providerScoring.js';
+
 const ELECTION_INTERVAL_MS = 30_000;
-const ACTIVE_WINDOW_MS = 60_000;
-
-/**
- * Score a single WebSocket client as a checkpoint uploader candidate.
- * Higher is better. Returns -Infinity if disqualified.
- * @param {WebSocket} ws
- * @param {Object} user - SessionManager user object
- * @returns {number}
- */
-function scoreCandidate(ws, user) {
-  if (ws.lowPowerMode) return -Infinity;
-
-  let score = 0;
-
-  // +20 if recently active
-  const lastActivity = user?.lastActivity ?? 0;
-  if (lastActivity && Date.now() - lastActivity < ACTIVE_WINDOW_MS) {
-    score += 20;
-  }
-
-  // Ping penalty — lower ping = higher score
-  if (ws.pingRtt != null) {
-    score -= ws.pingRtt / 5;
-  } else {
-    // No ping data yet — mild penalty, don't disqualify
-    score -= 20;
-  }
-
-  return score;
-}
 
 /**
  * Run an election for the given room.
@@ -44,12 +16,13 @@ export function runElection(room) {
   for (const ws of room.clients) {
     if (!ws.username) continue;
     const user = room.sessionManager.getUser(ws.sessionIndex);
-    const score = scoreCandidate(ws, user);
+    const score = scoreProvider(ws, user);
     candidates.push({
       username: ws.registeredName || ws.username,
       ping: ws.pingRtt,
       lowPower: ws.lowPowerMode,
-      active: user && (Date.now() - (user.lastActivity ?? 0)) < ACTIVE_WINDOW_MS,
+      hidden: !!ws.tabHidden,
+      active: isRecentlyActive(user),
       score
     });
   }

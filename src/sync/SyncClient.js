@@ -12,6 +12,11 @@ import { appState } from '../state.svelte.js';
  */
 export class SyncClient {
   constructor() {
+    /** @type {number} */
+    this.SYNC_IDLE_TIMEOUT_MS = 15000;
+    /** @type {number} */
+    this.SYNC_INITIAL_TIMEOUT_MS = 30000;
+
     /** @type {WebSocketClient|null} */
     this.wsClient = null;
     /** @type {Board|null} */
@@ -176,18 +181,22 @@ export class SyncClient {
 
     const autoOption = document.createElement('option');
     autoOption.value = '';
-    autoOption.textContent = 'Auto-select active user';
+    autoOption.textContent = 'Auto-select best user';
     autoOption.style.color = '#101317';
     this.inactiveTargetSelectEl.appendChild(autoOption);
 
     const users = [...appState.users.values()]
-      .filter((user) => user && user.id !== appState.sessionIndex && !user.afk)
-      .sort((a, b) => ((a.username || a.name || '')).localeCompare(b.username || b.name || ''));
+      .filter((user) => user && user.id !== appState.sessionIndex)
+      .sort((a, b) => {
+        if (!!a.afk !== !!b.afk) return Number(!!a.afk) - Number(!!b.afk);
+        return ((a.username || a.name || '')).localeCompare(b.username || b.name || '');
+      });
 
     for (const user of users) {
       const option = document.createElement('option');
       option.value = String(user.id);
-      option.textContent = user.username || user.name || `User ${user.id}`;
+      const label = user.username || user.name || `User ${user.id}`;
+      option.textContent = user.afk ? `${label} (inactive)` : label;
       option.style.color = '#101317';
       this.inactiveTargetSelectEl.appendChild(option);
     }
@@ -306,12 +315,7 @@ export class SyncClient {
     this.receivedMessages = 0;
     this.currentSyncTargetId = normalizedTarget;
 
-    this.syncTimeout = setTimeout(() => {
-      if (this.syncing) {
-        console.warn('[SyncClient] Sync timeout - completing anyway');
-        this.handleSyncComplete();
-      }
-    }, 30000);
+    this._armSyncTimeout(this.SYNC_INITIAL_TIMEOUT_MS);
 
     this.showOverlay();
     this.updateProgress();
@@ -353,6 +357,35 @@ export class SyncClient {
     this.expectedMessages = 0;
     this.receivedMessages = 0;
     this.currentSyncTargetId = null;
+  }
+
+  /**
+   * Starts or refreshes the sync idle timeout.
+   *
+   * @param {number} [timeoutMs=this.SYNC_IDLE_TIMEOUT_MS] - Time to wait for more sync progress.
+   * @returns {void}
+   * @private
+   */
+  _armSyncTimeout(timeoutMs = this.SYNC_IDLE_TIMEOUT_MS) {
+    if (this.syncTimeout) {
+      clearTimeout(this.syncTimeout);
+    }
+
+    this.syncTimeout = setTimeout(() => {
+      if (!this.syncing) return;
+      console.warn('[SyncClient] Sync timeout - completing anyway');
+      this.handleSyncComplete();
+    }, timeoutMs);
+  }
+
+  /**
+   * Refreshes the sync timeout after receiving progress from the provider.
+   * @returns {void}
+   * @private
+   */
+  _noteSyncProgress() {
+    if (!this.syncing) return;
+    this._armSyncTimeout(this.SYNC_IDLE_TIMEOUT_MS);
   }
 
   /**
@@ -513,6 +546,7 @@ export class SyncClient {
    */
   handleSyncMetadata(data) {
     if (!this.syncing) return;
+    this._noteSyncProgress();
     this.expectedMessages = data.totalCount || 0;
     this.updateProgress();
   }
@@ -525,6 +559,7 @@ export class SyncClient {
    */
   handleSyncLayerBin(data) {
     if (!this.syncing) return;
+    this._noteSyncProgress();
     const syncSessionId = this._syncSessionId;
     const p = this._importLayerBin(data, syncSessionId);
     this._pendingImports.push(p);
@@ -564,6 +599,7 @@ export class SyncClient {
    */
   handleSyncStroke(data) {
     if (!this.syncing) return;
+    this._noteSyncProgress();
     const syncSessionId = this._syncSessionId;
     const p = this._importStroke(data, syncSessionId);
     this._pendingImports.push(p);
@@ -640,6 +676,7 @@ export class SyncClient {
    */
   handleSyncStrokeBatch(data) {
     if (!this.syncing || !data.strokes || !Array.isArray(data.strokes)) return;
+    this._noteSyncProgress();
 
     const syncSessionId = this._syncSessionId;
 
@@ -658,6 +695,7 @@ export class SyncClient {
    * @returns {void}
    */
   handleSyncStrokesDone() {
+    this._noteSyncProgress();
     if (!this.syncing) return;
     // No action needed here — handleSyncComplete waits for _pendingImports.
   }
@@ -669,6 +707,7 @@ export class SyncClient {
    * @returns {void}
    */
   handleSyncDirtyTiles(data) {
+    this._noteSyncProgress();
     if (!this.syncing) return;
     const tiles = data.dirtyTiles || data.tiles;
     if (!this.board?.tileTracker || !tiles) return;

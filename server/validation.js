@@ -205,6 +205,7 @@ export async function sanitizeMessage(data) {
     case T.PING:
     case T.PONG:
       if (data.lowPowerMode !== undefined) sanitized.lowPowerMode = sanitizeBoolean(data.lowPowerMode);
+      if (data.tabHidden !== undefined) sanitized.tabHidden = sanitizeBoolean(data.tabHidden);
       return sanitized;
 
     case T.CS:

@@ -6,6 +6,7 @@ import { T } from '../shared/MessageTypes.js';
 import { Role } from './SessionManager.js';
 import { WebSocket } from 'ws';
 import { getDB } from './db.js';
+import { scoreProvider } from './providerScoring.js';
 
 /**
  * Represents a single drawing room.
@@ -145,14 +146,15 @@ export class Room {
     const helpers = this._getHelperClients();
     if (helpers.length === 0) return;
 
-    // Prefer non-AFK helpers
-    const active = helpers.filter(ws => {
-      const user = this.sessionManager.getUser(ws.sessionIndex);
-      return user && !user.afk;
-    });
+    const ranked = helpers
+      .map((ws) => ({
+        ws,
+        score: scoreProvider(ws, this.sessionManager.getUser(ws.sessionIndex))
+      }))
+      .sort((a, b) => b.score - a.score);
 
-    const pool = active.length > 0 ? active : helpers;
-    const chosen = pool[Math.floor(Math.random() * pool.length)];
+    const chosen = ranked[0]?.ws;
+    if (!chosen) return;
 
     this.sendTo(chosen, { t: T.BOARD_SNAPSHOT_REQUEST });
   }
