@@ -150,11 +150,13 @@
   flex-shrink: 0;
 }
 
-#chatBtn {
+#chatBtn,
+#inboxBtn {
   position: relative;
 }
 
-#chatBtn .chatBadge {
+#chatBtn .chatBadge,
+#inboxBtn .chatBadge {
   position: absolute;
   top: -6px;
   right: -6px;

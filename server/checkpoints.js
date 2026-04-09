@@ -2,10 +2,28 @@
 
 import { getDB } from './db.js';
 import { T } from '../shared/MessageTypes.js';
+import { Action, canPerform } from './permissions.js';
+import { ENABLE_SERVER_REPLAY_DB } from './replayConfig.js';
 
 const COLLECTION = 'checkpoints';
 const MAX_CHECKPOINTS_PER_ROOM = 1440; // 24h at 1/min
 const CHECKPOINT_INTERVAL_MIN_MS = 30_000; // Reject if < 30s since last
+
+function sendCheckpointPermissionDenied(ws, room) {
+  ws.send(room.Msg.encode(room.Msg.create({
+    t: T.MOD_RESULT,
+    a: false,
+    authError: 'Insufficient permissions'
+  })).finish());
+}
+
+function ensureCheckpointReadAccess(ws, room) {
+  if (canPerform(ws.userRole || 0, Action.MOD_MUTE)) {
+    return true;
+  }
+  sendCheckpointPermissionDenied(ws, room);
+  return false;
+}
 
 /**
  * Handles a full-board checkpoint upload from the dedicated replay user.
@@ -39,6 +57,10 @@ export async function handleCheckpointUpload(ws, data, room) {
   // Update room preview with the checkpoint image (reuse existing preview mechanism)
   room.setPreview(imgBuffer);
   room._lastCheckpointTs = now;
+
+  if (!ENABLE_SERVER_REPLAY_DB) {
+    return null;
+  }
 
   // Persist to DB
   const db = getDB();
@@ -82,6 +104,16 @@ export async function handleCheckpointUpload(ws, data, room) {
  * @param {Room} room - The room instance.
  */
 export async function handleCheckpointList(ws, room) {
+  if (!ensureCheckpointReadAccess(ws, room)) return;
+
+  if (!ENABLE_SERVER_REPLAY_DB) {
+    ws.send(room.Msg.encode(room.Msg.create({
+      t: T.CHECKPOINT_LIST_RESPONSE,
+      checkpointList: []
+    })).finish());
+    return;
+  }
+
   const db = getDB();
   if (!db) {
     ws.send(room.Msg.encode(room.Msg.create({
@@ -120,6 +152,10 @@ export async function handleCheckpointList(ws, room) {
  * @param {Room} room - The room instance.
  */
 export async function handleCheckpointGet(ws, data, room) {
+  if (!ensureCheckpointReadAccess(ws, room)) return;
+
+  if (!ENABLE_SERVER_REPLAY_DB) return;
+
   const db = getDB();
   if (!db) return;
 

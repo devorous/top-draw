@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import { createServer } from 'http';
 import { verifyToken } from './auth.js';
 import { getClientIp, httpRateLimiter, messengerRateLimiter } from './security.js';
@@ -39,6 +39,30 @@ function json(res, status, body) {
 
 function isValidMessengerRoomId(roomId, currentUserId, otherUserId) {
   return isValidDirectMessageRoomId(roomId, currentUserId, otherUserId);
+}
+
+function matchesRequestedMessengerIdentity(requestedIdentity, user) {
+  const normalizedIdentity = normalizeUsername(requestedIdentity);
+  return requestedIdentity === user._id.toString() || normalizedIdentity === user.username;
+}
+
+async function getAuthenticatedMessengerUser(token) {
+  const decoded = verifyToken(token);
+  if (!decoded) return null;
+
+  if (decoded.userId && ObjectId.isValid(decoded.userId)) {
+    const user = await usersDb.collection('users').findOne(
+      { _id: new ObjectId(decoded.userId) },
+      { projection: { username: 1 } }
+    );
+    if (user) return user;
+  }
+
+  if (!decoded.username) return null;
+  return usersDb.collection('users').findOne(
+    { username: normalizeUsername(decoded.username) },
+    { projection: { username: 1 }, collation: { locale: 'en', strength: 2 } }
+  );
 }
 
 async function initDB() {
@@ -108,16 +132,16 @@ wss.on('connection', async (ws, req) => {
     return;
   }
 
-  const userId = normalizeUsername(url.searchParams.get('userId'));
+  const userId = String(url.searchParams.get('userId') || '').trim();
   const token = String(url.searchParams.get('token') || '').trim();
-  const decoded = verifyToken(token);
+  const authUser = await getAuthenticatedMessengerUser(token);
 
-  if (!isValidUsername(userId) || !decoded?.username || decoded.username !== userId) {
+  if (!userId || !authUser || !matchesRequestedMessengerIdentity(userId, authUser)) {
     ws.close(4401, 'Unauthorized');
     return;
   }
 
-  ws.username = decoded.username;
+  ws.username = authUser.username;
   ws.clientIp = clientIp;
   clients.set(ws.username, ws);
   console.log(`[Messenger] User ${ws.username} connected`);
@@ -211,6 +235,10 @@ wss.on('connection', async (ws, req) => {
     }
     console.log(`[Messenger] User ${ws.username} disconnected`);
   });
+
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'ready' }));
+  }
 });
 
 initDB().then(() => {

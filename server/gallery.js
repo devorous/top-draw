@@ -1,9 +1,10 @@
 /** @fileoverview Gallery API handlers — upload to R2, store metadata in MongoDB. */
 
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { ObjectId } from 'mongodb';
 import crypto from 'crypto';
 import { getDB } from './db.js';
-import { verifyToken } from './auth.js';
+import { getBearerToken, getRequestUser, getUserFromToken } from './authUser.js';
 import { INLINE_IMAGE_MIME_TYPES, validateDataUrlImage } from './imageValidation.js';
 import { getClientIp, httpRateLimiter } from './security.js';
 
@@ -83,6 +84,22 @@ const MAX_TAG_LENGTH = 24;
 function json(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json', ...CORS_HEADERS });
   res.end(JSON.stringify(body));
+}
+
+async function requireAuthenticatedUser(req, res, options = {}) {
+  const authHeader = req.headers['authorization'] || '';
+  if (!authHeader.startsWith('Bearer ')) {
+    json(res, 401, { error: 'Authentication required' });
+    return null;
+  }
+
+  const user = await getRequestUser(req, options);
+  if (!user) {
+    json(res, 401, { error: 'Invalid or expired token' });
+    return null;
+  }
+
+  return user;
 }
 
 async function readBody(req, maxBytes = JSON_BODY_LIMIT) {
@@ -207,13 +224,8 @@ export async function handleGalleryUpload(req, res) {
     return json(res, 429, { error: 'Too many uploads. Please try again later.' });
   }
 
-  // Auth
-  const authHeader = req.headers['authorization'] || '';
-  if (!authHeader.startsWith('Bearer ')) {
-    return json(res, 401, { error: 'Authentication required' });
-  }
-  const decoded = verifyToken(authHeader.slice(7));
-  if (!decoded) return json(res, 401, { error: 'Invalid or expired token' });
+  const authUser = await requireAuthenticatedUser(req, res, { projection: { username: 1 } });
+  if (!authUser) return;
 
   const db = getDB();
   if (!db) return json(res, 503, { error: 'Database not available' });
@@ -351,8 +363,8 @@ export async function handleGalleryUpload(req, res) {
     url,
     thumbUrl,
     imageHash,
-    author: decoded.username,
-    authorId: decoded.userId,
+    author: authUser.username,
+    authorId: authUser._id.toString(),
     title: (title || '').substring(0, 100).trim(),
     tags: normalizedTags,
     likes: 0,
@@ -366,7 +378,7 @@ export async function handleGalleryUpload(req, res) {
       id: result.insertedId.toString(),
       url,
       thumbUrl,
-      author: decoded.username,
+      author: authUser.username,
       title: doc.title,
       tags: doc.tags,
       likes: 0,
@@ -444,24 +456,16 @@ export async function handleGalleryFavorite(req, res, id) {
     return json(res, 429, { error: 'Too many favorite requests. Please try again later.' });
   }
 
-  const authHeader = req.headers['authorization'] || '';
-  if (!authHeader.startsWith('Bearer ')) {
-    return json(res, 401, { error: 'Authentication required' });
-  }
-  const decoded = verifyToken(authHeader.slice(7));
-  if (!decoded) return json(res, 401, { error: 'Invalid or expired token' });
-
   const db = getDB();
   if (!db) return json(res, 503, { error: 'Database not available' });
   if (!/^[a-f0-9]{24}$/.test(id)) return json(res, 400, { error: 'Invalid id' });
+  const authUser = await requireAuthenticatedUser(req, res, { projection: { username: 1 } });
+  if (!authUser) return;
 
   try {
-    const { ObjectId } = await import('mongodb');
-    const galleryId = new ObjectId(id);
-
     // Check if favorite exists
     const existing = await db.collection('favorites').findOne({
-      userId: decoded.userId,
+      userId: authUser._id.toString(),
       galleryId: id,
     });
 
@@ -472,7 +476,7 @@ export async function handleGalleryFavorite(req, res, id) {
     } else {
       // Add favorite
       await db.collection('favorites').insertOne({
-        userId: decoded.userId,
+        userId: authUser._id.toString(),
         galleryId: id,
         createdAt: new Date(),
       });
@@ -489,15 +493,10 @@ export async function handleGalleryFavorite(req, res, id) {
  * Requires Authorization: Bearer <token>
  */
 export async function handleGalleryFavorites(req, res) {
-  const authHeader = req.headers['authorization'] || '';
-  if (!authHeader.startsWith('Bearer ')) {
-    return json(res, 401, { error: 'Authentication required' });
-  }
-  const decoded = verifyToken(authHeader.slice(7));
-  if (!decoded) return json(res, 401, { error: 'Invalid or expired token' });
-
   const db = getDB();
   if (!db) return json(res, 503, { error: 'Database not available' });
+  const authUser = await requireAuthenticatedUser(req, res, { projection: { username: 1 } });
+  if (!authUser) return;
 
   const urlObj = new URL(req.url, 'http://localhost');
   const page = Math.max(1, parseInt(urlObj.searchParams.get('page') || '1'));
@@ -505,17 +504,15 @@ export async function handleGalleryFavorites(req, res) {
   const skip = (page - 1) * limit;
 
   try {
-    const { ObjectId } = await import('mongodb');
-
     // Get user's favorites
     const favorites = await db.collection('favorites')
-      .find({ userId: decoded.userId })
+      .find({ userId: authUser._id.toString() })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .toArray();
 
-    const total = await db.collection('favorites').countDocuments({ userId: decoded.userId });
+    const total = await db.collection('favorites').countDocuments({ userId: authUser._id.toString() });
     const galleryIds = favorites.map(f => new ObjectId(f.galleryId));
 
     // Fetch gallery items
@@ -548,20 +545,20 @@ export async function handleGalleryFavorites(req, res) {
  * Requires Authorization: Bearer <token>
  */
 export async function handleGalleryFavoriteCheck(req, res, id) {
-  const authHeader = req.headers['authorization'] || '';
-  if (!authHeader.startsWith('Bearer ')) {
+  const token = getBearerToken(req);
+  if (!token) {
     return json(res, 200, { favorited: false }); // Not logged in = not favorited
   }
-  const decoded = verifyToken(authHeader.slice(7));
-  if (!decoded) return json(res, 200, { favorited: false });
 
   const db = getDB();
   if (!db) return json(res, 503, { error: 'Database not available' });
   if (!/^[a-f0-9]{24}$/.test(id)) return json(res, 400, { error: 'Invalid id' });
+  const authUser = await getUserFromToken(token, { projection: { username: 1 } });
+  if (!authUser) return json(res, 200, { favorited: false });
 
   try {
     const existing = await db.collection('favorites').findOne({
-      userId: decoded.userId,
+      userId: authUser._id.toString(),
       galleryId: id,
     });
     json(res, 200, { favorited: !!existing });
@@ -689,12 +686,8 @@ export async function handleGalleryCommentCreate(req, res, id) {
     return json(res, 429, { error: 'Too many comments. Please try again later.' });
   }
 
-  const authHeader = req.headers['authorization'] || '';
-  if (!authHeader.startsWith('Bearer ')) {
-    return json(res, 401, { error: 'Authentication required' });
-  }
-  const decoded = verifyToken(authHeader.slice(7));
-  if (!decoded) return json(res, 401, { error: 'Invalid or expired token' });
+  const authUser = await requireAuthenticatedUser(req, res, { projection: { username: 1 } });
+  if (!authUser) return;
 
   const db = getDB();
   if (!db) return json(res, 503, { error: 'Database not available' });
@@ -716,7 +709,6 @@ export async function handleGalleryCommentCreate(req, res, id) {
   }
 
   try {
-    const { ObjectId } = await import('mongodb');
     const galleryItem = await db.collection('gallery').findOne(
       { _id: new ObjectId(id) },
       { projection: { _id: 1 } }
@@ -727,8 +719,8 @@ export async function handleGalleryCommentCreate(req, res, id) {
 
     const doc = {
       galleryId: id,
-      authorId: decoded.userId,
-      author: decoded.username,
+      authorId: authUser._id.toString(),
+      author: authUser.username,
       text,
       createdAt: new Date(),
     };
@@ -737,8 +729,8 @@ export async function handleGalleryCommentCreate(req, res, id) {
 
     json(res, 201, {
       id: result.insertedId.toString(),
-      author: decoded.username,
-      authorId: decoded.userId,
+      author: authUser.username,
+      authorId: authUser._id.toString(),
       text,
       createdAt: doc.createdAt,
     });
@@ -753,19 +745,16 @@ export async function handleGalleryCommentCreate(req, res, id) {
  * Requires Authorization: Bearer <token>
  */
 export async function handleGalleryCommentDelete(req, res, commentId) {
-  const authHeader = req.headers['authorization'] || '';
-  if (!authHeader.startsWith('Bearer ')) {
-    return json(res, 401, { error: 'Authentication required' });
-  }
-  const decoded = verifyToken(authHeader.slice(7));
-  if (!decoded) return json(res, 401, { error: 'Invalid or expired token' });
+  const authUser = await requireAuthenticatedUser(req, res, {
+    projection: { username: 1, role: 1 }
+  });
+  if (!authUser) return;
 
   const db = getDB();
   if (!db) return json(res, 503, { error: 'Database not available' });
   if (!/^[a-f0-9]{24}$/.test(commentId)) return json(res, 400, { error: 'Invalid id' });
 
   try {
-    const { ObjectId } = await import('mongodb');
     const comment = await db.collection('comments').findOne({ _id: new ObjectId(commentId) });
 
     if (!comment) {
@@ -773,7 +762,7 @@ export async function handleGalleryCommentDelete(req, res, commentId) {
     }
 
     // Only allow author or HOLY+ (role >= 8) to delete
-    if (comment.authorId !== decoded.userId && decoded.role < 8) {
+    if (comment.authorId !== authUser._id.toString() && (authUser.role || 0) < 8) {
       return json(res, 403, { error: 'Not authorized to delete this comment' });
     }
 
@@ -791,12 +780,10 @@ export async function handleGalleryCommentDelete(req, res, commentId) {
  * Body: { tags: string[]|string }
  */
 export async function handleGalleryTagsUpdate(req, res, id) {
-  const authHeader = req.headers['authorization'] || '';
-  if (!authHeader.startsWith('Bearer ')) {
-    return json(res, 401, { error: 'Authentication required' });
-  }
-  const decoded = verifyToken(authHeader.slice(7));
-  if (!decoded) return json(res, 401, { error: 'Invalid or expired token' });
+  const authUser = await requireAuthenticatedUser(req, res, {
+    projection: { username: 1, role: 1 }
+  });
+  if (!authUser) return;
 
   const db = getDB();
   if (!db) return json(res, 503, { error: 'Database not available' });
@@ -812,11 +799,10 @@ export async function handleGalleryTagsUpdate(req, res, id) {
   const tags = normalizeTags(body.tags);
 
   try {
-    const { ObjectId } = await import('mongodb');
     const item = await db.collection('gallery').findOne({ _id: new ObjectId(id) });
     if (!item) return json(res, 404, { error: 'Item not found' });
 
-    if (item.authorId !== decoded.userId && decoded.role < 8) {
+    if (item.authorId !== authUser._id.toString() && (authUser.role || 0) < 8) {
       return json(res, 403, { error: 'Not authorized to edit tags for this item' });
     }
 
@@ -837,19 +823,16 @@ export async function handleGalleryTagsUpdate(req, res, id) {
  * Requires Authorization: Bearer <token>
  */
 export async function handleGalleryDelete(req, res, id) {
-  const authHeader = req.headers['authorization'] || '';
-  if (!authHeader.startsWith('Bearer ')) {
-    return json(res, 401, { error: 'Authentication required' });
-  }
-  const decoded = verifyToken(authHeader.slice(7));
-  if (!decoded) return json(res, 401, { error: 'Invalid or expired token' });
+  const authUser = await requireAuthenticatedUser(req, res, {
+    projection: { username: 1, role: 1 }
+  });
+  if (!authUser) return;
 
   const db = getDB();
   if (!db) return json(res, 503, { error: 'Database not available' });
   if (!/^[a-f0-9]{24}$/.test(id)) return json(res, 400, { error: 'Invalid id' });
 
   try {
-    const { ObjectId } = await import('mongodb');
     const item = await db.collection('gallery').findOne({ _id: new ObjectId(id) });
 
     if (!item) {
@@ -857,7 +840,7 @@ export async function handleGalleryDelete(req, res, id) {
     }
 
     // Only allow author or HOLY+ (role >= 8) to delete
-    if (item.authorId !== decoded.userId && decoded.role < 8) {
+    if (item.authorId !== authUser._id.toString() && (authUser.role || 0) < 8) {
       return json(res, 403, { error: 'Not authorized to delete this item' });
     }
 

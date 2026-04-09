@@ -7,6 +7,7 @@
 
   const TOKEN_KEY = 'topDrawAuthToken';
   const USERNAME_KEY = 'topDrawUsername';
+  const HOLY_ROLE = 8;
 
   // Track if lightbox was opened from a profile (to return to it)
   let openedFromProfile = $state(null);
@@ -296,6 +297,10 @@
   }
 
   async function deleteComment(commentId) {
+    await checkAuth();
+    const comment = comments.find((entry) => entry.id === commentId);
+    if (!comment || !canDeleteComment(comment)) return;
+
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) return;
 
@@ -312,7 +317,15 @@
   }
 
   function canEditTags(item) {
-    return !!user && (user.username === item.author || user.role >= 5);
+    return !!user && (user.username === item.author || (user.role || 0) >= HOLY_ROLE);
+  }
+
+  function canDeleteImage(item) {
+    return !!user && (user.username === item.author || (user.role || 0) >= HOLY_ROLE);
+  }
+
+  function canDeleteComment(comment) {
+    return !!user && (user.userId === comment.authorId || (user.role || 0) >= HOLY_ROLE);
   }
 
   function syncTagDraft(item) {
@@ -320,6 +333,7 @@
   }
 
   async function saveTags() {
+    await checkAuth();
     if (!lightbox || !canEditTags(lightbox) || tagSaving) return;
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) return;
@@ -353,6 +367,11 @@
   }
 
   async function deleteImage(item) {
+    await checkAuth();
+    if (!canDeleteImage(item)) {
+      alert('You are not authorized to delete this image.');
+      return;
+    }
     if (!confirm('Are you sure you want to delete this image? This cannot be undone.')) return;
 
     const token = localStorage.getItem(TOKEN_KEY);
@@ -379,7 +398,10 @@
 
   async function checkAuth() {
     const token = localStorage.getItem(TOKEN_KEY);
-    if (!token) return;
+    if (!token) {
+      user = null;
+      return null;
+    }
 
     try {
       const res = await fetch(`${API_BASE}/api/auth/me`, {
@@ -389,13 +411,17 @@
         const data = await res.json();
         if (data.success) {
           user = { username: data.username, role: data.role, userId: data.userId };
+          return user;
         }
       } else {
         // Token invalid, clear it
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(USERNAME_KEY);
+        user = null;
       }
     } catch {}
+
+    return user;
   }
 
   async function handleLogin() {
@@ -500,10 +526,11 @@
     } catch {}
   }
 
-  function openLightbox(item) {
+  async function openLightbox(item) {
     lightbox = item;
     syncTagDraft(item);
     document.body.style.overflow = 'hidden';
+    await checkAuth();
     // Check if favorited when opening lightbox
     if (user && !favoritedIds.has(item.id)) {
       checkFavorite(item.id);
@@ -814,7 +841,7 @@
             </button>
           {/if}
           <button class="btn-ghost small" onclick={() => downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)}>Download</button>
-          {#if user && (user.username === lightbox.author || user.role >= 5)}
+          {#if canDeleteImage(lightbox)}
             <button class="btn-danger small" onclick={() => deleteImage(lightbox)}>Delete</button>
           {/if}
         </div>
@@ -846,7 +873,7 @@
                   <div class="comment-header">
                     <button class="comment-author" onclick={() => profileDialog.show(comment.author)}>{comment.author}</button>
                     <span class="comment-date">{formatDate(comment.createdAt)}</span>
-                    {#if user && (user.userId === comment.authorId || user.role >= 5)}
+                    {#if canDeleteComment(comment)}
                       <button class="comment-delete" onclick={() => deleteComment(comment.id)} title="Delete">×</button>
                     {/if}
                   </div>

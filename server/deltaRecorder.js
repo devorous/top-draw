@@ -2,11 +2,17 @@
 
 import { getDB } from './db.js';
 import { T } from '../shared/MessageTypes.js';
+import { ENABLE_SERVER_REPLAY_DB } from './replayConfig.js';
 
 const COLLECTION = 'replay_deltas';
 const FLUSH_INTERVAL_MS = 5000;
 const MAX_BUFFER_SIZE = 500;
 const MAX_DELTAS_PER_CHECKPOINT = 100_000; // Safety cap
+const NULL_RECORDER = Object.freeze({
+  record() {},
+  onCheckpoint() {},
+  destroy() {}
+});
 
 /** Message types that are meaningful for replay */
 const REPLAY_TYPES = new Set([
@@ -108,6 +114,10 @@ const recorders = new Map();
  * @returns {RoomDeltaRecorder}
  */
 export function getRecorder(roomId) {
+  if (!ENABLE_SERVER_REPLAY_DB) {
+    return NULL_RECORDER;
+  }
+
   let recorder = recorders.get(roomId);
   if (!recorder) {
     recorder = new RoomDeltaRecorder(roomId);
@@ -121,6 +131,8 @@ export function getRecorder(roomId) {
  * @param {string} roomId
  */
 export function removeRecorder(roomId) {
+  if (!ENABLE_SERVER_REPLAY_DB) return;
+
   const recorder = recorders.get(roomId);
   if (recorder) {
     recorder.destroy();
@@ -137,6 +149,10 @@ export function removeRecorder(roomId) {
  * @returns {Promise<{checkpointId: string|null, deltas: Object[]}>}
  */
 export async function getReplayData(roomId, startTs, endTs) {
+  if (!ENABLE_SERVER_REPLAY_DB) {
+    return { checkpointId: null, deltas: [] };
+  }
+
   const db = getDB();
   if (!db) return { checkpointId: null, deltas: [] };
 

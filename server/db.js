@@ -77,3 +77,13 @@ export async function connectDB() {
 export function getDB() {
   return db;
 }
+
+/**
+ * Returns a database handle for the connected Mongo client.
+ * @param {string} name
+ * @returns {import('mongodb').Db|null}
+ */
+export function getMongoDatabase(name) {
+  if (!client || !name) return null;
+  return client.db(name);
+}

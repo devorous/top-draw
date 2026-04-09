@@ -92,7 +92,9 @@
           <div class="profile-dialog-error">{error}</div>
         {:else if data}
           <h2 class="profile-username">{data.username}</h2>
-          <div class="profile-meta">Joined {formatJoinDate(data.createdAt)}</div>
+          {#if data.createdAt}
+            <div class="profile-meta">Joined {formatJoinDate(data.createdAt)}</div>
+          {/if}
 
           <div class="profile-stats">
             <div class="profile-stat">

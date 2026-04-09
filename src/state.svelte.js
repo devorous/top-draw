@@ -33,6 +33,7 @@ class DrawingState {
   // Messenger (1-1 E2EE)
   messengerVisible = $state(false);
   messengerTargetUser = $state(null); // { id, name }
+  messengerUnreadCount = $state(0);
 
   // Color Palette
   recentColors = $state([]);

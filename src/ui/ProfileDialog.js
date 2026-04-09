@@ -286,11 +286,13 @@ export class ProfileDialog {
     const body = this._backdrop?.querySelector('.profile-dialog-body');
     if (!body) return;
 
-    const joinDate = new Date(data.createdAt).toLocaleDateString('en-CA', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+    const joinMeta = data.createdAt
+      ? `<div class="profile-meta">Joined ${new Date(data.createdAt).toLocaleDateString('en-CA', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        })}</div>`
+      : '';
 
     // Store uploads data for click handler
     this._recentUploads = data.recentUploads;
@@ -305,7 +307,7 @@ export class ProfileDialog {
 
     body.innerHTML = `
       <h2 class="profile-username">${this._escapeHtml(data.username)}</h2>
-      <div class="profile-meta">Joined ${joinDate}</div>
+      ${joinMeta}
 
       <div class="profile-stats">
         <div class="profile-stat">

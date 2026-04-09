@@ -7,7 +7,7 @@ import { ObjectId } from 'mongodb';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { connectDB, getDB } from './db.js';
+import { connectDB, getDB, getMongoDatabase } from './db.js';
 import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate } from './gallery.js';
 import { handleAuthLogin, handleAuthRegister, handleAuthMe } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
@@ -16,7 +16,9 @@ import { handleCheckpointUpload, handleCheckpointList, handleCheckpointGet } fro
 import { getRecorder, removeRecorder, getReplayData } from './deltaRecorder.js';
 import { startElection, stopElection } from './uploaderElection.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
+import { getUserFromToken } from './authUser.js';
 import { issueModAction, revokeModAction, revokeMatchingModActions, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
+import { ENABLE_SERVER_REPLAY_DB } from './replayConfig.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
 import { SessionManager, Role, RoleNames } from './SessionManager.js';
@@ -37,6 +39,7 @@ const PORT = process.env.PORT || 8000;
 const DISABLE_RATE_LIMITS = process.env.DISABLE_RATE_LIMITS === 'true';
 const MAX_WS_PAYLOAD_BYTES = 16 * 1024 * 1024;
 const MESSENGER_QUERY_LIMIT = { max: 30, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
+const LEGACY_MESSENGER_DB_NAME = process.env.MONGODB_MESSENGER_DB_NAME || 'ddraw_messenger';
 const WS_CONNECTION_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 10 * 60 * 1000 };
 const MESSENGER_CONNECTION_LIMIT = { max: 20, windowMs: 60 * 1000, blockMs: 10 * 60 * 1000 };
 const MESSENGER_MESSAGE_LIMIT = { max: 120, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
@@ -169,6 +172,90 @@ function isValidMessengerRoomId(roomId, currentUserId, otherUserId) {
   if (!roomId || !currentUserId || !otherUserId) return false;
   const [a, b] = [String(currentUserId), String(otherUserId)].sort();
   return roomId === `${a}:${b}`;
+}
+
+function matchesMessengerIdentity(requestedIdentity, user) {
+  const normalizedIdentity = normalizeUsername(requestedIdentity);
+  return requestedIdentity === user._id.toString() || normalizedIdentity === user.username;
+}
+
+function getMessengerMessageCollections() {
+  const primaryDb = getDB();
+  if (!primaryDb) return [];
+
+  const collections = [primaryDb.collection('messages')];
+  const legacyDb = getMongoDatabase(LEGACY_MESSENGER_DB_NAME);
+  if (legacyDb && legacyDb.databaseName !== primaryDb.databaseName) {
+    collections.push(legacyDb.collection('messages'));
+  }
+  return collections;
+}
+
+function dedupeMessengerMessages(messages) {
+  const seen = new Set();
+  const deduped = [];
+  for (const message of messages) {
+    const key = [
+      message.room_id || '',
+      message.timestamp || 0,
+      message.sender_id || '',
+      message.receiver_id || '',
+      message.encrypted_content || '',
+      message.iv || ''
+    ].join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(message);
+  }
+  return deduped;
+}
+
+async function getMessengerHistory(roomId, limit = 50) {
+  const collections = getMessengerMessageCollections();
+  const results = await Promise.all(collections.map(async (collection) => {
+    try {
+      return await collection
+        .find({ room_id: roomId })
+        .sort({ timestamp: -1 })
+        .limit(limit)
+        .toArray();
+    } catch (err) {
+      console.warn('[Messenger] History query failed for one collection:', err.message);
+      return [];
+    }
+  }));
+
+  return dedupeMessengerMessages(results.flat())
+    .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+    .slice(-limit);
+}
+
+async function getMessengerInbox(username) {
+  const collections = getMessengerMessageCollections();
+  const results = await Promise.all(collections.map(async (collection) => {
+    try {
+      return await collection.aggregate([
+        { $match: { $or: [{ sender_id: username }, { receiver_id: username }] } },
+        { $sort: { timestamp: -1 } },
+        { $group: { _id: '$room_id', latestMessage: { $first: '$$ROOT' } } }
+      ]).toArray();
+    } catch (err) {
+      console.warn('[Messenger] Inbox query failed for one collection:', err.message);
+      return [];
+    }
+  }));
+
+  const latestByRoom = new Map();
+  for (const row of results.flat()) {
+    const message = row?.latestMessage;
+    if (!message?.room_id) continue;
+    const existing = latestByRoom.get(message.room_id);
+    if (!existing || (message.timestamp || 0) > (existing.timestamp || 0)) {
+      latestByRoom.set(message.room_id, message);
+    }
+  }
+
+  return [...latestByRoom.values()].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 }
 
 function json(res, status, payload) {
@@ -511,7 +598,7 @@ const server = createServer(async (req, res) => {
 
       // DB checkpoint count (lightweight)
       let dbCheckpoints = 0;
-      if (db) {
+      if (ENABLE_SERVER_REPLAY_DB && db) {
         try {
           dbCheckpoints = await db.collection('checkpoints').countDocuments({ roomId: room.id });
         } catch (_) {}
@@ -1216,7 +1303,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
 
   // Record delta for replay system
   const outgoing = { ...data, u: sessionIndex };
-  if (room.settings.dedicatedReplayUser || room._electedUploader) {
+  if (ENABLE_SERVER_REPLAY_DB && (room.settings.dedicatedReplayUser || room._electedUploader)) {
     getRecorder(room.id).record(outgoing);
   }
 
@@ -1314,7 +1401,7 @@ function broadcastToRoom(room, payload, excludeIndex = null) {
   });
 }
 
-wss.on('connection', (ws, req) => {
+wss.on('connection', async (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   // Fork: messenger connections use /messenger path
@@ -1328,15 +1415,21 @@ wss.on('connection', (ws, req) => {
 
     const userId = String(url.searchParams.get('userId') || '').trim();
     const token = String(url.searchParams.get('token') || '').trim();
-    const decoded = verifyToken(token);
-    if (!userId || !decoded?.username || decoded.username !== userId) {
+    const db = getDB();
+    if (!db) {
+      ws.close(1013, 'Database unavailable');
+      return;
+    }
+
+    const authUser = await getUserFromToken(token, { projection: { username: 1 } });
+    if (!userId || !authUser || !matchesMessengerIdentity(userId, authUser)) {
       ws.close(4401, 'Unauthorized');
       return;
     }
 
     ws.clientIp = clientIp;
-    ws.userId = decoded.userId || null;
-    ws.username = decoded.username;
+    ws.userId = authUser._id.toString();
+    ws.username = authUser.username;
 
     messengerClients.set(ws.username, ws);
     console.log(`[Messenger] ${ws.username} connected`);
@@ -1363,21 +1456,12 @@ wss.on('connection', (ws, req) => {
           const participants = roomId.split(':');
           if (participants.length !== 2 || !participants.includes(ws.username)) return;
 
-          const history = await db.collection('messages')
-            .find({ room_id: roomId })
-            .sort({ timestamp: -1 })
-            .limit(50)
-            .toArray();
-          ws.send(JSON.stringify({ type: 'history', payload: history.reverse() }));
+          const history = await getMessengerHistory(roomId, 50);
+          ws.send(JSON.stringify({ type: 'history', payload: history }));
 
         } else if (type === 'get_inbox') {
-          const inbox = await db.collection('messages').aggregate([
-            { $match: { $or: [{ sender_id: ws.username }, { receiver_id: ws.username }] } },
-            { $sort: { timestamp: -1 } },
-            { $group: { _id: '$room_id', latestMessage: { $first: '$$ROOT' } } },
-            { $sort: { 'latestMessage.timestamp': -1 } }
-          ]).toArray();
-          ws.send(JSON.stringify({ type: 'inbox', payload: inbox.map(i => i.latestMessage) }));
+          const inbox = await getMessengerInbox(ws.username);
+          ws.send(JSON.stringify({ type: 'inbox', payload: inbox }));
 
         } else if (type === 'send_message') {
           const receiverId = String(payload.receiver_id || '').trim();
@@ -1413,6 +1497,10 @@ wss.on('connection', (ws, req) => {
       messengerClients.delete(ws.username);
       console.log(`[Messenger] ${ws.username} disconnected`);
     });
+
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'ready' }));
+    }
 
     return;
   }
@@ -2675,8 +2763,7 @@ wss.on('connection', (ws, req) => {
             const passwordHash = await hashPassword(regPassword);
             // Hash the secret answer the same way as passwords (bcrypt)
             const secretAnswerHash = regSecretAnswer ? await hashPassword(regSecretAnswer.toLowerCase()) : null;
-            const userCount = await db.collection('users').countDocuments();
-            const role = userCount === 0 ? Role.DEITY : Role.USER;
+            const role = Role.USER;
 
             const newUserDoc = {
               username: regUsername,
@@ -2928,7 +3015,7 @@ wss.on('connection', (ws, req) => {
 
         case T.CHECKPOINT_UPLOAD: {
           const cpId = await handleCheckpointUpload(ws, data, room);
-          if (cpId && (room.settings.dedicatedReplayUser || room._electedUploader)) {
+          if (ENABLE_SERVER_REPLAY_DB && cpId && (room.settings.dedicatedReplayUser || room._electedUploader)) {
             getRecorder(room.id).onCheckpoint(cpId);
           }
           break;

@@ -1,9 +1,11 @@
 /** @fileoverview HTTP auth endpoints for gallery and other non-WebSocket clients. */
 
 import { getDB } from './db.js';
-import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
+import { hashPassword, verifyPassword, generateToken } from './auth.js';
+import { getBearerToken, getUserFromToken } from './authUser.js';
 import { getClientIp, httpRateLimiter } from './security.js';
 import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
+import { Role } from './SessionManager.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -169,10 +171,7 @@ export async function handleAuthRegister(req, res) {
 
     const passwordHash = await hashPassword(password);
     const secretAnswerHash = secretAnswer ? await hashPassword(secretAnswer.toLowerCase()) : null;
-
-    // Check if this is the first user (auto-promote to DEITY)
-    const userCount = await db.collection('users').countDocuments();
-    const role = userCount === 0 ? 9 : 1; // DEITY(9) for first user, USER(1) otherwise
+    const role = Role.USER;
 
     const doc = {
       username,
@@ -221,15 +220,20 @@ export async function handleAuthMe(req, res) {
     return json(res, 401, { success: false, error: 'No token provided' });
   }
 
-  const decoded = verifyToken(authHeader.slice(7));
-  if (!decoded) {
+  const db = getDB();
+  if (!db) return json(res, 503, { success: false, error: 'Database not available' });
+
+  const user = await getUserFromToken(getBearerToken(req), {
+    projection: { username: 1, role: 1 }
+  });
+  if (!user) {
     return json(res, 401, { success: false, error: 'Invalid or expired token' });
   }
 
   json(res, 200, {
     success: true,
-    userId: decoded.userId,
-    username: decoded.username,
-    role: decoded.role,
+    userId: user._id.toString(),
+    username: user.username,
+    role: user.role ?? Role.USER,
   });
 }

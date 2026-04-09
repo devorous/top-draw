@@ -84,6 +84,8 @@ export function canPerform(role, action) {
  */
 export function authorize(ws, action, sendTo, T_MOD_RESULT) {
   if (canPerform(ws.userRole, action)) return true;
-  sendTo(ws, { t: T_MOD_RESULT, a: false, authError: 'Insufficient permissions' });
+  if (typeof sendTo === 'function') {
+    sendTo(ws, { t: T_MOD_RESULT, a: false, authError: 'Insufficient permissions' });
+  }
   return false;
 }

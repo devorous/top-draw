@@ -1,6 +1,6 @@
 <script>
   import { messenger } from './messenger.svelte.js';
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { appState, toggleMessenger } from '../state.svelte.js';
   import { ProfileDialog } from '../ui/ProfileDialog.js';
 
@@ -15,6 +15,7 @@
   let newChatError = $state("");
   let initialized = $state(false);
   let usernameInput = $state();
+  let messageFeed = $state();
 
   $effect(() => {
     if (isStartingNewChat && usernameInput) {
@@ -22,15 +23,33 @@
     }
   });
 
-  // Read username reactively from shared state so it's always current
-  const username = $derived(appState.username);
-  const isLoggedIn = $derived(!!username);
+  async function scrollChatToBottom() {
+    if (!messageFeed) return;
+    await tick();
+    messageFeed.scrollTop = messageFeed.scrollHeight;
+  }
+
+  // Messenger should use the stable registered account name, not the room display name.
+  const accountUsername = $derived(appState.self?.registeredName || appState.username);
+  const activeMessengerIdentity = $derived(messenger.currentUserId || accountUsername);
+  const isLoggedIn = $derived(!!accountUsername);
 
   $effect(() => {
-    if (username && !initialized) {
+    if (accountUsername && !initialized) {
       initialized = true;
-      messenger.init(username, initialTargetUser);
+      messenger.init(accountUsername, initialTargetUser);
     }
+  });
+
+  $effect(() => {
+    const activeChatId = messenger.activeChat?.id;
+    const messageCount = messenger.messages.length;
+    if (!activeChatId && messageCount === 0) return;
+    scrollChatToBottom();
+  });
+
+  onMount(() => {
+    messenger.refreshOnOpen();
   });
 
   onDestroy(() => {
@@ -40,7 +59,7 @@
 
   const filteredInbox = $derived(() => {
     return messenger.inbox.filter(item => {
-      const otherId = item.sender_id === username ? item.receiver_id : item.sender_id;
+      const otherId = item.sender_id === activeMessengerIdentity ? item.receiver_id : item.sender_id;
       return otherId.toLowerCase().includes(searchQuery.toLowerCase());
     });
   });
@@ -71,13 +90,13 @@
   }
 
   function selectConversation(msg) {
-    const otherId = msg.sender_id === username ? msg.receiver_id : msg.sender_id;
+    const otherId = msg.sender_id === activeMessengerIdentity ? msg.receiver_id : msg.sender_id;
     messenger.openChat({ id: otherId, name: otherId });
     isStartingNewChat = false;
   }
 
   function getOtherUserId(msg) {
-    return msg.sender_id === username ? msg.receiver_id : msg.sender_id;
+    return msg.sender_id === activeMessengerIdentity ? msg.receiver_id : msg.sender_id;
   }
 </script>
 
@@ -124,10 +143,10 @@
               </div>
               <div class="bottom-row">
                 <p class="last-msg">
-                  {#if msg.sender_id === username}<span class="you-prefix">You:&nbsp;</span>{/if}{msg.content ?? '…'}
+                  {#if msg.sender_id === activeMessengerIdentity}<span class="you-prefix">You:&nbsp;</span>{/if}{msg.content ?? '…'}
                 </p>
                 {#if messenger.unreadCounts[msg.room_id]}
-                  <span class="unread-badge">({messenger.unreadCounts[msg.room_id]})</span>
+                  <span class="unread-badge">{messenger.unreadCounts[msg.room_id] > 99 ? '99+' : messenger.unreadCounts[msg.room_id]}</span>
                 {/if}
               </div>
             </div>
@@ -170,7 +189,7 @@
             <h4>Suggested</h4>
             <div class="user-chips">
               {#each [...appState.users.values()] as user}
-                {#if user.id !== username}
+                {#if user.username !== activeMessengerIdentity && user.registeredName !== activeMessengerIdentity}
                   <button class="user-chip" onclick={() => { messenger.openChat({ id: user.username, name: user.username }); isStartingNewChat = false; newChatUsername = ""; newChatError = ""; }}>
                     <div class="chip-color" style="background: {user.color}"></div>
                     {user.username}
@@ -193,11 +212,11 @@
         </div>
       </header>
 
-      <div class="message-feed">
+      <div class="message-feed" bind:this={messageFeed}>
         {#each Object.entries(messenger.groupedMessages()) as [date, msgs]}
           <div class="date-divider"><span>{date}</span></div>
           {#each msgs as msg}
-            <div class="message-wrapper" class:own={msg.sender_id === username}>
+            <div class="message-wrapper" class:own={msg.sender_id === activeMessengerIdentity}>
               <div class="message">
                 <p>{msg.content}</p>
                 <span class="time">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -439,9 +458,19 @@
         }
 
         .unread-badge {
-          font-size: var(--text-sm);
-          color: var(--accent-primary);
-          font-weight: 600;
+          min-width: 22px;
+          height: 22px;
+          padding: 0 6px;
+          border-radius: 999px;
+          background: var(--accent-primary);
+          color: var(--bg-primary);
+          font-size: var(--text-xs);
+          font-weight: 800;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          line-height: 1;
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--bg-secondary) 92%, black);
           flex-shrink: 0;
         }
       }

@@ -16,6 +16,7 @@ import FeedbackWidget from './FeedbackWidget.svelte';
 import SnapshotMenu from './SnapshotMenu.svelte';
 
 import { appState, showProfile as showProfileFromState, toggleMessenger } from '../../state.svelte.js';
+import { messenger } from '../../messenger/messenger.svelte.js';
 
 // Internal wrapper to handle conditional rendering of Messenger based on appState
 const MessengerWrapper = (function() {
@@ -121,6 +122,40 @@ export function initSvelteUI(app) {
     });
   });
   cleanupFns.push(chatBadgeEffect);
+
+  const messengerConnectionEffect = $effect.root(() => {
+    $effect(() => {
+      const registeredName = appState.self?.registeredName || '';
+      if (registeredName) {
+        void messenger.init(registeredName);
+      } else {
+        messenger.disconnect();
+      }
+    });
+  });
+  cleanupFns.push(messengerConnectionEffect);
+
+  const messengerBadgeEffect = $effect.root(() => {
+    $effect(() => {
+      const unread = appState.messengerUnreadCount;
+      const badgeEl = document.getElementById('inboxBadge');
+      const inboxBtn = document.getElementById('inboxBtn');
+      if (!badgeEl || !inboxBtn) return;
+
+      if (unread > 0) {
+        badgeEl.textContent = unread > 99 ? '99+' : String(unread);
+        badgeEl.style.display = 'inline-flex';
+        inboxBtn.setAttribute('data-has-unread', 'true');
+        inboxBtn.setAttribute('aria-label', `Inbox (${unread} unread)`);
+      } else {
+        badgeEl.textContent = '';
+        badgeEl.style.display = 'none';
+        inboxBtn.removeAttribute('data-has-unread');
+        inboxBtn.setAttribute('aria-label', 'Inbox');
+      }
+    });
+  });
+  cleanupFns.push(messengerBadgeEffect);
 
   // Mount Messenger (1-1 E2EE)
   const messengerTarget = document.getElementById('messengerMount');

@@ -1,8 +1,6 @@
 /** @fileoverview User profile API endpoints. */
 
 import { getDB } from './db.js';
-import { verifyToken } from './auth.js';
-
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -66,7 +64,6 @@ export async function handleUserProfile(req, res, username) {
 
     json(res, 200, {
       username: user.username,
-      createdAt: user.createdAt,
       uploadCount,
       totalLikes: totalLikes[0]?.total || 0,
       recentUploads: recentUploads.map(item => ({
