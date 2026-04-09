@@ -6,17 +6,55 @@ import protobuf from 'protobufjs';
 const root = await protobuf.load("public/messages.proto");
 const SnapshotBundle = root.lookupType("SnapshotBundle");
 
-// Initialize S3 client for Cloudflare R2
-const r2Client = new S3Client({
-  region: "auto",
-  endpoint: process.env.R2_ENDPOINT,
-  credentials: {
-    accessKeyId: process.env.R2_SNAPSHOTS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SNAPSHOTS_SECRET_KEY,
-  },
-});
+const SNAPSHOT_ENDPOINT = process.env.R2_ENDPOINT || '';
+const SNAPSHOT_ACCESS_KEY_ID =
+  process.env.R2_SNAPSHOTS_ACCESS_KEY_ID ||
+  process.env.R2_ACCESS_KEY_ID ||
+  '';
+const SNAPSHOT_SECRET_ACCESS_KEY =
+  process.env.R2_SNAPSHOTS_SECRET_ACCESS_KEY ||
+  process.env.R2_SNAPSHOTS_SECRET_KEY ||
+  process.env.R2_SECRET_ACCESS_KEY ||
+  '';
+const BUCKET_NAME =
+  process.env.R2_SNAPSHOTS_BUCKET ||
+  process.env.R2_BUCKET_NAME ||
+  '';
 
-const BUCKET_NAME = process.env.R2_SNAPSHOTS_BUCKET;
+const hasSnapshotStorageConfig = Boolean(
+  SNAPSHOT_ENDPOINT &&
+  BUCKET_NAME &&
+  SNAPSHOT_ACCESS_KEY_ID &&
+  SNAPSHOT_SECRET_ACCESS_KEY
+);
+
+if (!hasSnapshotStorageConfig) {
+  const missing = [
+    !SNAPSHOT_ENDPOINT && 'R2_ENDPOINT',
+    !BUCKET_NAME && 'R2_SNAPSHOTS_BUCKET',
+    !SNAPSHOT_ACCESS_KEY_ID && 'R2_SNAPSHOTS_ACCESS_KEY_ID',
+    !SNAPSHOT_SECRET_ACCESS_KEY && 'R2_SNAPSHOTS_SECRET_KEY',
+  ].filter(Boolean);
+  console.warn(`[R2] Snapshot storage is not fully configured. Missing: ${missing.join(', ')}`);
+}
+
+const r2Client = hasSnapshotStorageConfig
+  ? new S3Client({
+      region: "auto",
+      endpoint: SNAPSHOT_ENDPOINT,
+      credentials: {
+        accessKeyId: SNAPSHOT_ACCESS_KEY_ID,
+        secretAccessKey: SNAPSHOT_SECRET_ACCESS_KEY,
+      },
+    })
+  : null;
+
+function requireSnapshotClient() {
+  if (!r2Client) {
+    throw new Error('Snapshot R2 storage is not configured. Set R2_ENDPOINT, R2_SNAPSHOTS_BUCKET, and snapshot or default R2 credentials.');
+  }
+  return r2Client;
+}
 
 /**
  * Uploads a snapshot bundle to Cloudflare R2.
@@ -36,7 +74,7 @@ export async function uploadSnapshotBundle(r2Key, bundleData) {
   };
 
   try {
-    await r2Client.send(new PutObjectCommand(params));
+    await requireSnapshotClient().send(new PutObjectCommand(params));
     console.log(`Successfully uploaded snapshot bundle to R2: ${r2Key}`);
   } catch (error) {
     console.error(`Error uploading snapshot bundle to R2 (${r2Key}):`, error);
@@ -57,7 +95,7 @@ export async function getSnapshotBundle(r2Key) {
 
   try {
     const command = new GetObjectCommand(params);
-    const { Body } = await r2Client.send(command);
+    const { Body } = await requireSnapshotClient().send(command);
 
     if (!Body) {
       console.warn(`Snapshot bundle not found in R2: ${r2Key}`);
@@ -96,7 +134,7 @@ export async function deleteSnapshotBundle(r2Key) {
   };
 
   try {
-    await r2Client.send(new DeleteObjectCommand(params));
+    await requireSnapshotClient().send(new DeleteObjectCommand(params));
     console.log(`Successfully deleted snapshot bundle from R2: ${r2Key}`);
   } catch (error) {
     console.error(`Error deleting snapshot bundle from R2 (${r2Key}):`, error);

@@ -14,8 +14,10 @@
   let isLoadingPreview = $state(false);
   let isLoadingSnapshots = $state(false);
   let isLoadingMore = $state(false);
+  let previewError = $state('');
   let lastHandledSnapshotListVersion = $state(0);
   let showBackToPresent = $state(false);
+  let previewRequestTimeout = null;
 
   // Selection tool
   let mode = $state('rectangle'); // 'rectangle' | 'lasso'
@@ -139,11 +141,21 @@
     selectedLayers = null;
     selection = null;
     lassoPoints = [];
+    previewError = '';
     isLoadingPreview = true;
+
+    if (previewRequestTimeout) {
+      clearTimeout(previewRequestTimeout);
+      previewRequestTimeout = null;
+    }
 
     window.app.wsClient.on('board_snapshot_get_response', async (data) => {
       if (data.snapshotId !== selectedId) return;
       window.app.wsClient.messageHandlers.delete('board_snapshot_get_response');
+      if (previewRequestTimeout) {
+        clearTimeout(previewRequestTimeout);
+        previewRequestTimeout = null;
+      }
       selectedLayers = data.snapshotLayers;
       isLoadingPreview = false;
       await tick();
@@ -151,6 +163,13 @@
       resetView();
     });
     window.app.wsClient.requestSnapshotGet(id);
+    previewRequestTimeout = window.setTimeout(() => {
+      previewRequestTimeout = null;
+      if (selectedId !== id || !isLoadingPreview) return;
+      window.app?.wsClient?.messageHandlers?.delete('board_snapshot_get_response');
+      isLoadingPreview = false;
+      previewError = 'Preview could not load. Check snapshot storage settings on the server.';
+    }, 8000);
   }
 
   function renderPreview(layerDatas) {
@@ -372,6 +391,7 @@
 
   onDestroy(() => {
     if (animId) cancelAnimationFrame(animId);
+    if (previewRequestTimeout) clearTimeout(previewRequestTimeout);
     window.app?.wsClient?.messageHandlers?.delete('board_snapshot_get_response');
     for (const url of Object.values(thumbUrls)) URL.revokeObjectURL(url);
   });
@@ -400,6 +420,8 @@
         <div class="snap-preview-empty">Select a snapshot below to preview</div>
       {:else if isLoadingPreview}
         <div class="snap-preview-empty">Loading…</div>
+      {:else if previewError}
+        <div class="snap-preview-empty">{previewError}</div>
       {:else}
         <!-- Tool controls -->
         <div class="snap-tool-controls">

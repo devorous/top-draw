@@ -295,14 +295,6 @@ export class KeyboardHandler {
       return;
     }
 
-    const actionId = this.getActionForEvent(e);
-
-    if (actionId === 'app.openSettings' || actionId === 'panel.performanceDebug') {
-      if (this.dispatchAction(actionId, e)) {
-        return;
-      }
-    }
-
     if (app.self.tool === 'text') {
       app.wsClient.broadcastKeyPress(e.key);
       const textTool = app.toolManager.getTool('text');
@@ -310,6 +302,14 @@ export class KeyboardHandler {
       app.ui.updateSelfTextInput(text);
       app._updateTextPreview();
       return;
+    }
+
+    const actionId = this.getActionForEvent(e);
+
+    if (actionId === 'app.openSettings' || actionId === 'panel.performanceDebug') {
+      if (this.dispatchAction(actionId, e)) {
+        return;
+      }
     }
 
     if (!app.inputBufferManager.tickTimer) {
