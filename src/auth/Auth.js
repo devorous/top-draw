@@ -21,6 +21,24 @@ export class Auth {
 
   }
 
+  isCompactHeightLayout() {
+    return window.innerHeight <= 820;
+  }
+
+  resetAuthLayoutSizing() {
+    const wrapper = this.els.authFormWrapper;
+    if (wrapper) {
+      wrapper.style.height = '';
+      wrapper.style.minHeight = '';
+    }
+
+    [this.els.authNotLoggedIn, this.els.authLoggedIn, this.els.registerPanel]
+      .filter(Boolean)
+      .forEach((el) => {
+        el.style.minHeight = '';
+      });
+  }
+
   init() {
     this.els = {
       // Login state elements
@@ -151,10 +169,11 @@ export class Auth {
   async _transitionTo(toEl, fromEls = []) {
     const duration = 200; // Match CSS transition duration
     const wrapper = this.els.authFormWrapper;
+    const compactLayout = this.isCompactHeightLayout();
 
     // 1. Measure current height
     let oldHeight = 0;
-    if (wrapper) {
+    if (wrapper && !compactLayout) {
       oldHeight = wrapper.offsetHeight;
       wrapper.style.height = oldHeight + 'px';
     }
@@ -185,7 +204,7 @@ export class Auth {
     }
 
     // 4. Measure new height and animate
-    if (wrapper && toEl) {
+    if (wrapper && toEl && !compactLayout) {
       const newHeight = wrapper.scrollHeight;
       wrapper.style.height = newHeight + 'px';
       
@@ -217,6 +236,11 @@ export class Auth {
     const loginForm = document.getElementById('loginForm');
     const wrapper = this.els.authFormWrapper;
     if (!states.length || !loginForm || !wrapper) return;
+
+    if (this.isCompactHeightLayout()) {
+      this.resetAuthLayoutSizing();
+      return;
+    }
 
     const originalStyles = states.map((el) => ({
       el,

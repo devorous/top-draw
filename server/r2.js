@@ -7,11 +7,6 @@ const root = await protobuf.load("public/messages.proto");
 const SnapshotBundle = root.lookupType("SnapshotBundle");
 
 // Initialize S3 client for Cloudflare R2
-// IMPORTANT: Replace placeholders with actual environment variables or configuration.
-// Ensure these are securely loaded and not hardcoded.
-const _r2Vars = { R2_ENDPOINT: process.env.R2_ENDPOINT, R2_SNAPSHOTS_ACCESS_KEY_ID: process.env.R2_SNAPSHOTS_ACCESS_KEY_ID, R2_SNAPSHOTS_SECRET_KEY: process.env.R2_SNAPSHOTS_SECRET_KEY, R2_SNAPSHOTS_BUCKET: process.env.R2_SNAPSHOTS_BUCKET };
-console.log('[R2] Env check:', Object.fromEntries(Object.entries(_r2Vars).map(([k, v]) => [k, v ? '✓' : 'MISSING'])));
-
 const r2Client = new S3Client({
   region: "auto",
   endpoint: process.env.R2_ENDPOINT,

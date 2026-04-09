@@ -157,9 +157,10 @@
 .authFormWrapper {
   width: 100%;
   transition: height var(--transition-normal) ease;
-  overflow: hidden;
+  overflow: visible;
   position: relative;
   min-height: 220px;
+  flex: 0 0 auto;
 }
 
 #loginForm {
@@ -401,8 +402,9 @@
   max-width: 1000px;
   width: 100%;
   max-height: calc(100vh - 40px);
-  height:75%;
-  margin: auto 0;
+  max-height: calc(100dvh - 40px);
+  height: auto;
+  margin: 0;
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -415,6 +417,7 @@
   display: flex;
   flex-direction: column;
   position: relative;
+  min-height: 0;
 }
 
 .landingAuth {
@@ -422,6 +425,8 @@
   border-right: 1px solid var(--border-subtle);
   background: var(--bg-secondary);
   overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
 
   h2 {
     margin: 0 0 4px 0;
@@ -469,6 +474,7 @@
 .landingRooms {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   background: var(--bg-primary);
 
   h3 {
@@ -790,6 +796,8 @@
 @media (max-width: 768px) {
   .landingContainer {
     flex-direction: column;
+    min-height: 0;
+    max-height: none;
   }
 
   .landingAuth {
@@ -804,5 +812,26 @@
 
   .roomList {
     max-height: 300px;
+  }
+}
+
+@media (max-height: 820px) {
+  #landingPage {
+    align-items: stretch;
+  }
+
+  .landingContainer {
+    margin: 0 auto;
+  }
+
+  .landingAuth {
+    justify-content: flex-start;
+    padding-bottom: 24px;
+  }
+
+  .authFormWrapper {
+    min-height: 0;
+    height: auto !important;
+    transition: none;
   }
 }
