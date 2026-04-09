@@ -70,6 +70,13 @@
     isDraggingStrip = false;
   }
 
+  function handleSnapshotKeydown(event, snapshotId) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      if (!stripMoved) selectSnapshot(snapshotId);
+    }
+  }
+
   function onStripScroll() {
     showBackToPresent = !!stripRef && hasLoadedOlderSnapshots && stripRef.scrollLeft > 40;
     if (!stripRef || isLoadingSnapshots || isLoadingMore || !snapshotHasMore) return;
@@ -481,6 +488,7 @@
     <div
       class="snap-strip-wrap"
       bind:this={stripRef}
+      role="presentation"
       onscroll={onStripScroll}
       onpointerdown={onStripPointerDown}
       onpointermove={onStripPointerMove}
@@ -497,6 +505,7 @@
             class="snap-thumb-item"
             class:selected={snap.id === selectedId}
             onclick={() => { if (!stripMoved) selectSnapshot(snap.id); }}
+            onkeydown={(event) => handleSnapshotKeydown(event, snap.id)}
             role="button"
             tabindex="0"
             title={snap.name}

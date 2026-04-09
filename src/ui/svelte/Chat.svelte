@@ -1350,7 +1350,6 @@
   }
 
   .public-tab .rail-tab-name,
-  .rail-action .rail-tab-name,
   .rail-action span:last-child {
     font-size: 0.91rem;
     letter-spacing: 0.01em;

@@ -277,11 +277,6 @@
     z-index: 100;
     transition: background 0.3s ease;
 
-    &.needs-resync {
-      background: rgba(239, 68, 68, 0.9);
-      animation: badge-pulse 1s infinite;
-    }
-
     .pulse {
       width: 8px;
       height: 8px;
@@ -306,11 +301,6 @@
     letter-spacing: 0.02em;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
     backdrop-filter: blur(10px);
-  }
-
-  .floating-catch-up-btn.needs-resync {
-    background: rgba(185, 28, 28, 0.92);
-    border-color: rgba(254, 202, 202, 0.35);
   }
 
   @keyframes badge-pulse {
@@ -487,13 +477,6 @@
           z-index: 2;
         }
 
-        &.activity-tick {
-          height: 100%; /* Same height as major ticks */
-          width: 0.5px; /* Very thin */
-          background: rgba(255, 255, 255, 0.15); /* Faint */
-          bottom: 0;
-          z-index: 0;
-        }
       }
     }
 
@@ -531,15 +514,6 @@
         box-shadow: 0 4px 12px rgba(113, 128, 150, 0.4);
       }
 
-      &.needs-resync {
-        background: #ef4444;
-        animation: btn-pulse 1s infinite;
-
-        &:hover {
-          background: #dc2626;
-          box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
-        }
-      }
     }
 
     @keyframes btn-pulse {
