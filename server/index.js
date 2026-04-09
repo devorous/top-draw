@@ -8,7 +8,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { connectDB, getDB, getMongoDatabase } from './db.js';
-import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate } from './gallery.js';
+import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate } from './gallery.js';
 import { handleAuthLogin, handleAuthRegister, handleAuthMe } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
 import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore } from './snapshots.js';
@@ -440,6 +440,10 @@ const server = createServer(async (req, res) => {
   const commentDeleteMatch = path.match(/^\/api\/gallery\/comments\/([a-f0-9]{24})$/);
   if (commentDeleteMatch && req.method === 'DELETE') {
     await handleGalleryCommentDelete(req, res, commentDeleteMatch[1]);
+    return;
+  }
+  if (commentDeleteMatch && req.method === 'PATCH') {
+    await handleGalleryCommentUpdate(req, res, commentDeleteMatch[1]);
     return;
   }
 

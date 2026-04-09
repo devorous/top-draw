@@ -430,15 +430,39 @@ export async function handleGalleryLike(req, res, id) {
   if (!/^[a-f0-9]{24}$/.test(id)) return json(res, 400, { error: 'Invalid id' });
 
   try {
-    const { ObjectId } = await import('mongodb');
-    const result = await db.collection('gallery').findOneAndUpdate(
-      { _id: new ObjectId(id) },
+    const token = getBearerToken(req);
+    const authUser = token ? await getUserFromToken(token, { projection: { username: 1 } }) : null;
+    const actorKey = authUser?._id
+      ? `user:${authUser._id.toString()}`
+      : `ip:${crypto.createHash('sha256').update(clientIp || 'unknown').digest('hex')}`;
+    const objectId = new ObjectId(id);
+
+    const item = await db.collection('gallery').findOne({ _id: objectId }, { projection: { _id: 1, likes: 1 } });
+    if (!item) return json(res, 404, { error: 'Item not found' });
+
+    const existing = await db.collection('gallery_likes').findOne({ galleryId: id, actorKey });
+
+    if (existing) {
+      await Promise.all([
+        db.collection('gallery_likes').deleteOne({ _id: existing._id }),
+        db.collection('gallery').updateOne({ _id: objectId }, { $inc: { likes: -1 } })
+      ]);
+      const updated = await db.collection('gallery').findOne({ _id: objectId }, { projection: { likes: 1 } });
+      return json(res, 200, { liked: false, likes: Math.max(0, updated?.likes || 0) });
+    }
+
+    await db.collection('gallery_likes').insertOne({
+      galleryId: id,
+      actorKey,
+      createdAt: new Date(),
+    });
+    const updated = await db.collection('gallery').findOneAndUpdate(
+      { _id: objectId },
       { $inc: { likes: 1 } },
-      { returnDocument: 'after' }
+      { returnDocument: 'after', projection: { likes: 1 } }
     );
 
-    if (!result) return json(res, 404, { error: 'Item not found' });
-    json(res, 200, { likes: result.likes });
+    json(res, 200, { liked: true, likes: updated?.likes || (item.likes || 0) + 1 });
   } catch (err) {
     console.error('[Gallery] Like error:', err);
     json(res, 500, { error: 'Failed to update likes' });
@@ -590,6 +614,8 @@ export async function handleGalleryCommentsList(req, res, id) {
         authorId: c.authorId,
         text: c.text,
         createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        edited: !!c.updatedAt,
       })),
     });
   } catch (err) {
@@ -654,6 +680,8 @@ export async function handleGallerySidebar(req, res) {
         author: comment.author,
         authorId: comment.authorId,
         createdAt: comment.createdAt,
+        updatedAt: comment.updatedAt,
+        edited: !!comment.updatedAt,
         galleryId: comment.galleryId,
         image: {
           id: comment.galleryItem._id.toString(),
@@ -733,10 +761,64 @@ export async function handleGalleryCommentCreate(req, res, id) {
       authorId: authUser._id.toString(),
       text,
       createdAt: doc.createdAt,
+      updatedAt: null,
+      edited: false,
     });
   } catch (err) {
     console.error('[Gallery] Comment create error:', err);
     json(res, 500, { error: 'Failed to add comment' });
+  }
+}
+
+/**
+ * PATCH /api/gallery/comments/:commentId — edit own comment.
+ * Requires Authorization: Bearer <token>
+ * Body: { text: string }
+ */
+export async function handleGalleryCommentUpdate(req, res, commentId) {
+  const authUser = await requireAuthenticatedUser(req, res, {
+    projection: { username: 1, role: 1 }
+  });
+  if (!authUser) return;
+
+  const db = getDB();
+  if (!db) return json(res, 503, { error: 'Database not available' });
+  if (!/^[a-f0-9]{24}$/.test(commentId)) return json(res, 400, { error: 'Invalid id' });
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return json(res, 400, { error: 'Invalid request body' });
+  }
+
+  const text = (body.text || '').trim();
+  if (!text || text.length > 500) {
+    return json(res, 400, { error: 'Comment must be 1-500 characters' });
+  }
+
+  try {
+    const updatedAt = new Date();
+    const comment = await db.collection('comments').findOne({ _id: new ObjectId(commentId) });
+
+    if (!comment) {
+      return json(res, 404, { error: 'Comment not found' });
+    }
+
+    // Only allow the original author to edit their comment.
+    if (comment.authorId !== authUser._id.toString()) {
+      return json(res, 403, { error: 'Not authorized to edit this comment' });
+    }
+
+    await db.collection('comments').updateOne(
+      { _id: new ObjectId(commentId) },
+      { $set: { text, updatedAt } }
+    );
+
+    json(res, 200, { text, updatedAt, edited: true });
+  } catch (err) {
+    console.error('[Gallery] Comment update error:', err);
+    json(res, 500, { error: 'Failed to update comment' });
   }
 }
 

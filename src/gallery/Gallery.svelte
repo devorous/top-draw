@@ -39,6 +39,7 @@
   let tagFilter = $state(null); // tag string or null
   let showFavorites = $state(false); // viewing favorites mode
   let favoritedIds = $state(new Set()); // ids user has favorited
+  let revealedNsfwIds = $state(new Set());
 
   // Sidebar state
   let recentCommentsFeed = $state([]);
@@ -50,8 +51,12 @@
   let commentsLoading = $state(false);
   let newComment = $state('');
   let commentSubmitting = $state(false);
+  let editingCommentId = $state(null);
+  let editingCommentText = $state('');
+  let commentActionBusy = $state(false);
   let tagDraft = $state('');
   let tagSaving = $state(false);
+  let lightboxImageWrap = null;
 
   // Auth state
   let user = $state(null); // { username, role, userId }
@@ -203,10 +208,11 @@
     if (!token || !user) return;
 
     const wasFavorited = favoritedIds.has(item.id);
+    const nextFavoritedIds = new Set(favoritedIds);
 
     // Optimistic update
     if (wasFavorited) {
-      favoritedIds.delete(item.id);
+      nextFavoritedIds.delete(item.id);
       // Remove from list if viewing favorites
       if (showFavorites) {
         items = items.filter(i => i.id !== item.id);
@@ -216,27 +222,37 @@
         }
       }
     } else {
-      favoritedIds.add(item.id);
+      nextFavoritedIds.add(item.id);
     }
-    favoritedIds = favoritedIds;
+    favoritedIds = nextFavoritedIds;
 
     try {
-      await fetch(`${API_BASE}/api/gallery/${item.id}/favorite`, {
+      const res = await fetch(`${API_BASE}/api/gallery/${item.id}/favorite`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      if (!res.ok) throw new Error('Failed to update favorite');
+
+      const data = await res.json().catch(() => ({}));
+      if (typeof data.favorited === 'boolean') {
+        const syncedFavoritedIds = new Set(favoritedIds);
+        if (data.favorited) syncedFavoritedIds.add(item.id);
+        else syncedFavoritedIds.delete(item.id);
+        favoritedIds = syncedFavoritedIds;
+      }
     } catch {
       // Revert on error
+      const revertedFavoritedIds = new Set(favoritedIds);
       if (wasFavorited) {
-        favoritedIds.add(item.id);
+        revertedFavoritedIds.add(item.id);
         // Re-add to list if viewing favorites
         if (showFavorites) {
           items = [...items, item];
         }
       } else {
-        favoritedIds.delete(item.id);
+        revertedFavoritedIds.delete(item.id);
       }
-      favoritedIds = favoritedIds;
+      favoritedIds = revertedFavoritedIds;
     }
   }
 
@@ -250,10 +266,10 @@
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.favorited) {
-          favoritedIds.add(id);
-          favoritedIds = favoritedIds;
-        }
+        const nextFavoritedIds = new Set(favoritedIds);
+        if (data.favorited) nextFavoritedIds.add(id);
+        else nextFavoritedIds.delete(id);
+        favoritedIds = nextFavoritedIds;
       }
     } catch {}
   }
@@ -288,7 +304,7 @@
       });
       if (res.ok) {
         const comment = await res.json();
-        comments = [...comments, comment];
+        comments = [...comments, { ...comment, edited: !!comment.updatedAt }];
         newComment = '';
         fetchSidebar();
       }
@@ -296,14 +312,57 @@
     commentSubmitting = false;
   }
 
+  function beginCommentEdit(comment) {
+    editingCommentId = comment.id;
+    editingCommentText = comment.text;
+  }
+
+  function cancelCommentEdit() {
+    editingCommentId = null;
+    editingCommentText = '';
+  }
+
+  async function saveCommentEdit(commentId) {
+    await checkAuth();
+    const token = localStorage.getItem(TOKEN_KEY);
+    const nextText = editingCommentText.trim();
+    const comment = comments.find((entry) => entry.id === commentId);
+    if (!token || !comment || !canEditComment(comment) || !nextText || commentActionBusy) return;
+
+    commentActionBusy = true;
+    try {
+      const res = await fetch(`${API_BASE}/api/gallery/comments/${commentId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ text: nextText })
+      });
+      if (!res.ok) throw new Error('Failed to update comment');
+
+      const data = await res.json().catch(() => ({}));
+      comments = comments.map((entry) => entry.id === commentId ? {
+        ...entry,
+        text: data.text || nextText,
+        edited: true,
+        updatedAt: data.updatedAt || new Date().toISOString()
+      } : entry);
+      cancelCommentEdit();
+      fetchSidebar();
+    } catch {}
+    commentActionBusy = false;
+  }
+
   async function deleteComment(commentId) {
     await checkAuth();
     const comment = comments.find((entry) => entry.id === commentId);
-    if (!comment || !canDeleteComment(comment)) return;
+    if (!comment || !canDeleteComment(comment) || commentActionBusy) return;
 
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) return;
 
+    commentActionBusy = true;
     try {
       const res = await fetch(`${API_BASE}/api/gallery/comments/${commentId}`, {
         method: 'DELETE',
@@ -311,9 +370,11 @@
       });
       if (res.ok) {
         comments = comments.filter(c => c.id !== commentId);
+        if (editingCommentId === commentId) cancelCommentEdit();
         fetchSidebar();
       }
     } catch {}
+    commentActionBusy = false;
   }
 
   function canEditTags(item) {
@@ -326,6 +387,70 @@
 
   function canDeleteComment(comment) {
     return !!user && (user.userId === comment.authorId || (user.role || 0) >= HOLY_ROLE);
+  }
+
+  function canEditComment(comment) {
+    return !!user && user.userId === comment.authorId;
+  }
+
+  function isNsfw(item) {
+    return !!item?.tags?.includes('nsfw');
+  }
+
+  function isNsfwRevealed(item) {
+    return !!item && revealedNsfwIds.has(item.id);
+  }
+
+  function revealNsfw(item) {
+    if (!item?.id) return;
+    revealedNsfwIds = new Set([...revealedNsfwIds, item.id]);
+  }
+
+  function getLightboxIndex() {
+    if (!lightbox) return -1;
+    return items.findIndex((item) => item.id === lightbox.id);
+  }
+
+  function canGoPrev() {
+    return getLightboxIndex() > 0;
+  }
+
+  function canGoNext() {
+    const idx = getLightboxIndex();
+    return idx !== -1 && idx < items.length - 1;
+  }
+
+  async function setActiveLightboxItem(item) {
+    lightbox = item;
+    syncTagDraft(item);
+    comments = [];
+    commentsLoading = false;
+    cancelCommentEdit();
+    document.body.style.overflow = 'hidden';
+    await checkAuth();
+    if (user) {
+      checkFavorite(item.id);
+    }
+    fetchComments(item.id);
+  }
+
+  async function navigateLightbox(direction) {
+    const idx = getLightboxIndex();
+    if (idx === -1) return;
+    const nextIndex = idx + direction;
+    if (nextIndex < 0 || nextIndex >= items.length) return;
+    await setActiveLightboxItem(items[nextIndex]);
+  }
+
+  async function toggleFullscreen() {
+    if (!lightboxImageWrap) return;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await lightboxImageWrap.requestFullscreen();
+      }
+    } catch {}
   }
 
   function syncTagDraft(item) {
@@ -513,30 +638,51 @@
     authError = null;
   }
 
+  function persistLikedIds(nextLikedIds) {
+    likedIds = nextLikedIds;
+    localStorage.setItem('ddraw_liked', JSON.stringify([...nextLikedIds]));
+  }
+
+  function updateLikeCount(itemId, likes) {
+    items = items.map((entry) => entry.id === itemId ? { ...entry, likes } : entry);
+    if (lightbox?.id === itemId) {
+      lightbox = { ...lightbox, likes };
+    }
+  }
+
   async function like(item) {
-    if (likedIds.has(item.id)) return;
-    likedIds.add(item.id);
-    likedIds = likedIds;
-    localStorage.setItem('ddraw_liked', JSON.stringify([...likedIds]));
-    item.likes = (item.likes || 0) + 1;
-    items = items;
+    const wasLiked = likedIds.has(item.id);
+    const previousLikes = item.likes || 0;
+    const nextLikedIds = new Set(likedIds);
+    if (wasLiked) nextLikedIds.delete(item.id);
+    else nextLikedIds.add(item.id);
+
+    persistLikedIds(nextLikedIds);
+    updateLikeCount(item.id, Math.max(0, previousLikes + (wasLiked ? -1 : 1)));
 
     try {
-      await fetch(`${API_BASE}/api/gallery/${item.id}/like`, { method: 'POST' });
-    } catch {}
+      const res = await fetch(`${API_BASE}/api/gallery/${item.id}/like`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to update like');
+
+      const data = await res.json().catch(() => ({}));
+      const syncedLikedIds = new Set(likedIds);
+      if (data.liked) syncedLikedIds.add(item.id);
+      else syncedLikedIds.delete(item.id);
+      persistLikedIds(syncedLikedIds);
+      if (typeof data.likes === 'number') {
+        updateLikeCount(item.id, data.likes);
+      }
+    } catch {
+      const revertedLikedIds = new Set(nextLikedIds);
+      if (wasLiked) revertedLikedIds.add(item.id);
+      else revertedLikedIds.delete(item.id);
+      persistLikedIds(revertedLikedIds);
+      updateLikeCount(item.id, previousLikes);
+    }
   }
 
   async function openLightbox(item) {
-    lightbox = item;
-    syncTagDraft(item);
-    document.body.style.overflow = 'hidden';
-    await checkAuth();
-    // Check if favorited when opening lightbox
-    if (user && !favoritedIds.has(item.id)) {
-      checkFavorite(item.id);
-    }
-    // Fetch comments
-    fetchComments(item.id);
+    await setActiveLightboxItem(item);
   }
 
   function closeLightbox() {
@@ -553,6 +699,7 @@
     lightbox = null;
     comments = [];
     newComment = '';
+    cancelCommentEdit();
     tagDraft = '';
 
     if (!returnToProfile) {
@@ -566,12 +713,10 @@
       else closeLightbox();
     }
     if (e.key === 'ArrowRight' && lightbox) {
-      const idx = items.indexOf(lightbox);
-      if (idx < items.length - 1) lightbox = items[idx + 1];
+      navigateLightbox(1);
     }
     if (e.key === 'ArrowLeft' && lightbox) {
-      const idx = items.indexOf(lightbox);
-      if (idx > 0) lightbox = items[idx - 1];
+      navigateLightbox(-1);
     }
   }
 
@@ -704,9 +849,15 @@
         {#each items as item (item.id)}
           <div class="card" role="button" tabindex="0" onclick={() => openLightbox(item)} onkeydown={(e) => e.key === 'Enter' && openLightbox(item)}>
             <div class="card-img">
-              <img src={item.thumbUrl || item.url} alt={item.title || 'artwork'} loading="lazy">
-              {#if item.tags?.includes('nsfw')}
+              <img src={item.thumbUrl || item.url} alt={item.title || 'artwork'} loading="lazy" class:censored={isNsfw(item) && !isNsfwRevealed(item)}>
+              {#if isNsfw(item)}
                 <span class="card-badge">NSFW</span>
+                {#if !isNsfwRevealed(item)}
+                  <button class="censor-overlay" onclick={(e) => { e.stopPropagation(); revealNsfw(item); }} aria-label="Reveal censored image">
+                    <span>Censored</span>
+                    <strong>Reveal</strong>
+                  </button>
+                {/if}
               {/if}
             </div>
             <div class="card-meta">
@@ -771,7 +922,7 @@
               <div class="recent-comments">
                 {#each recentCommentsFeed as entry (entry.id)}
                   <button class="recent-comment" onclick={() => openImageById(entry.image.id)}>
-                    <img src={entry.image.thumbUrl} alt={entry.image.title || 'artwork'}>
+                    <img src={entry.image.thumbUrl} alt={entry.image.title || 'artwork'} class:censored={isNsfw(entry.image) && !isNsfwRevealed(entry.image)}>
                     <div class="recent-comment-body">
                       <div class="recent-comment-meta">
                         <span>{entry.author}</span>
@@ -801,9 +952,22 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="lightbox-backdrop" class:instant={lightboxInstant} role="presentation" onclick={closeLightbox} onkeydown={(e) => e.key === 'Escape' && closeLightbox()}>
     <div class="lightbox" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+      {#if canGoPrev()}
+        <button class="lb-nav prev" onclick={() => navigateLightbox(-1)} aria-label="Previous image">‹</button>
+      {/if}
+      {#if canGoNext()}
+        <button class="lb-nav next" onclick={() => navigateLightbox(1)} aria-label="Next image">›</button>
+      {/if}
+      <button class="lb-control lb-fullscreen" onclick={toggleFullscreen} aria-label="Toggle fullscreen" title="Fullscreen">⛶</button>
       <button class="lb-close" onclick={closeLightbox}>×</button>
-      <div class="lb-img-wrap">
-        <img src={lightbox.url} alt={lightbox.title || 'artwork'}>
+      <div class="lb-img-wrap" bind:this={lightboxImageWrap}>
+        <img src={lightbox.url} alt={lightbox.title || 'artwork'} class:censored={isNsfw(lightbox) && !isNsfwRevealed(lightbox)}>
+        {#if isNsfw(lightbox) && !isNsfwRevealed(lightbox)}
+          <button class="censor-overlay lightbox-censor" onclick={() => revealNsfw(lightbox)} aria-label="Reveal censored image">
+            <span>NSFW content hidden</span>
+            <strong>Reveal image</strong>
+          </button>
+        {/if}
       </div>
       <div class="lb-info">
         {#if lightbox.title}
@@ -873,11 +1037,29 @@
                   <div class="comment-header">
                     <button class="comment-author" onclick={() => profileDialog.show(comment.author)}>{comment.author}</button>
                     <span class="comment-date">{formatDate(comment.createdAt)}</span>
+                    {#if comment.edited}
+                      <span class="comment-edited">Edited</span>
+                    {/if}
+                    {#if canEditComment(comment)}
+                      <button class="comment-action" onclick={() => beginCommentEdit(comment)} disabled={commentActionBusy && editingCommentId !== comment.id}>
+                        Edit
+                      </button>
+                    {/if}
                     {#if canDeleteComment(comment)}
-                      <button class="comment-delete" onclick={() => deleteComment(comment.id)} title="Delete">×</button>
+                      <button class="comment-delete" onclick={() => deleteComment(comment.id)} title="Delete" disabled={commentActionBusy}>×</button>
                     {/if}
                   </div>
-                  <p class="comment-text">{comment.text}</p>
+                  {#if editingCommentId === comment.id}
+                    <form class="comment-edit-form" onsubmit={(e) => { e.preventDefault(); saveCommentEdit(comment.id); }}>
+                      <input type="text" bind:value={editingCommentText} maxlength="500" disabled={commentActionBusy} />
+                      <div class="comment-edit-actions">
+                        <button type="submit" class="btn-primary small" disabled={!editingCommentText.trim() || commentActionBusy}>Save</button>
+                        <button type="button" class="btn-ghost small" onclick={cancelCommentEdit} disabled={commentActionBusy}>Cancel</button>
+                      </div>
+                    </form>
+                  {:else}
+                    <p class="comment-text">{comment.text}</p>
+                  {/if}
                 </div>
               {/each}
             </div>
@@ -1203,7 +1385,7 @@
     object-fit: cover;
     border-radius: 6px;
     border: 2px solid var(--border);
-    transition: border-color 0.2s;
+    transition: border-color 0.2s, filter 0.2s;
   }
 
   .recent-comment:hover img {
@@ -1300,9 +1482,39 @@
     width: 100%; height: 100%;
     object-fit: cover;
     display: block;
-    transition: transform 0.4s ease;
+    transition: transform 0.4s ease, filter 0.2s ease;
   }
   .card:hover .card-img img { transform: scale(1.05); }
+
+  .censored {
+    filter: blur(20px) saturate(0.7);
+  }
+
+  .censor-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    background: rgba(8, 8, 12, 0.58);
+    border: none;
+    color: var(--text);
+    cursor: pointer;
+    font-family: inherit;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    z-index: 1;
+  }
+  .censor-overlay span {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+  }
+  .censor-overlay strong {
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
 
   .card-badge {
     position: absolute;
@@ -1538,9 +1750,10 @@
   }
   @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
+  .lb-control,
   .lb-close {
     position: absolute;
-    top: 0.75rem; right: 0.75rem;
+    top: 0.75rem;
     background: rgba(0,0,0,0.5);
     border: none;
     color: var(--text);
@@ -1554,9 +1767,41 @@
     align-items: center;
     justify-content: center;
   }
+  .lb-close { right: 0.75rem; }
+  .lb-fullscreen {
+    right: 3rem;
+    font-size: 0.95rem;
+  }
+
+  .lb-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 56px;
+    height: 56px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(0,0,0,0.7);
+    color: var(--text);
+    font-size: 2.35rem;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 2;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.32);
+    backdrop-filter: blur(8px);
+    transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  }
+  .lb-nav:hover {
+    transform: translateY(-50%) scale(1.04);
+    border-color: var(--accent);
+    background: rgba(0,0,0,0.82);
+  }
+  .lb-nav.prev { left: -1.75rem; }
+  .lb-nav.next { right: -1.75rem; }
 
   .lb-img-wrap {
     flex: 1;
+    position: relative;
     overflow: hidden;
     background: #2a2a2a;
     display: flex;
@@ -1569,6 +1814,10 @@
     max-height: 65vh;
     object-fit: contain;
     display: block;
+  }
+
+  .lightbox-censor {
+    font-size: 0.9rem;
   }
 
   .lb-info {
@@ -1707,7 +1956,6 @@
     color: var(--text-dim);
   }
   .comment-delete {
-    margin-left: auto;
     background: none;
     border: none;
     color: var(--text-dim);
@@ -1716,7 +1964,27 @@
     padding: 0 4px;
     line-height: 1;
   }
+  .comment-action {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 0;
+    font-family: inherit;
+  }
   .comment-delete:hover { color: #e07070; }
+  .comment-action:disabled, .comment-delete:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .comment-edited {
+    font-size: 0.68rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
   .comment-text {
     font-size: 0.82rem;
     color: var(--text);
@@ -1727,6 +1995,12 @@
     display: flex;
     gap: 0.5rem;
   }
+  .comment-edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .comment-edit-form input,
   .comment-form input {
     flex: 1;
     background: var(--bg);
@@ -1737,9 +2011,14 @@
     font-family: inherit;
     font-size: 0.82rem;
   }
+  .comment-edit-form input:focus,
   .comment-form input:focus {
     outline: none;
     border-color: var(--accent);
+  }
+  .comment-edit-actions {
+    display: flex;
+    gap: 0.5rem;
   }
   .btn-primary.small {
     padding: 0.5rem 0.9rem;
