@@ -3,6 +3,26 @@
 import { User } from '../User.js';
 import { appState } from '../state.svelte.js';
 
+const ROLE_NAMES = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
+const JOIN_ANNOUNCE_DELAY_MS = 700;
+
+function getRoleName(role) {
+  return ROLE_NAMES[role] || 'Guest';
+}
+
+function formatPresenceName(user) {
+  const visibleUsername = String(user?.username || '').trim() || 'User';
+  const registeredUsername = String(user?.registeredName || '').trim();
+  if (registeredUsername && registeredUsername !== visibleUsername) {
+    return `${visibleUsername} (${registeredUsername})`;
+  }
+  return visibleUsername;
+}
+
+function formatRoomPresenceMessage(user, verb) {
+  return `${getRoleName(user?.role ?? 0)} ${formatPresenceName(user)} ${verb}`;
+}
+
 /**
  * Sets up WebSocket event handlers for user-related actions and state changes.
  * @param {WebSocketClient} wsClient - The WebSocket client instance.
@@ -10,6 +30,31 @@ import { appState } from '../state.svelte.js';
  */
 export function setupUserHandlers(wsClient, app) {
   const { users, ui, board, chat } = app;
+  let hasProcessedInitialUsers = false;
+  let knownRemoteSessionIds = new Set();
+  const pendingJoinAnnouncements = new Map();
+
+  const cancelPendingJoinAnnouncement = (sessionIndex) => {
+    const timerId = pendingJoinAnnouncements.get(sessionIndex);
+    if (timerId) {
+      clearTimeout(timerId);
+      pendingJoinAnnouncements.delete(sessionIndex);
+    }
+  };
+
+  const scheduleJoinAnnouncement = (sessionIndex) => {
+    if (pendingJoinAnnouncements.has(sessionIndex)) return;
+
+    const timerId = setTimeout(() => {
+      pendingJoinAnnouncements.delete(sessionIndex);
+      const user = users.get(sessionIndex);
+      if (user?.username && app.svelteComponents?.chat) {
+        app.svelteComponents.chat.addSystemMessage(formatRoomPresenceMessage(user, 'has entered the room'));
+      }
+    }, JOIN_ANNOUNCE_DELAY_MS);
+
+    pendingJoinAnnouncements.set(sessionIndex, timerId);
+  };
 
   const abortSyncIfRoomIsEmpty = () => {
     if (!app.syncClient?.isSyncing()) return;
@@ -22,11 +67,19 @@ export function setupUserHandlers(wsClient, app) {
   };
 
   wsClient.on('users', (data) => {
+    const incomingRemoteSessionIds = new Set(
+      data.users
+        .map((u) => Number(u.sessionIndex))
+        .filter((sessionIndex) => Number.isFinite(sessionIndex) && sessionIndex !== Number(app.sessionIndex))
+    );
+    const joinedSessionIds = [...incomingRemoteSessionIds].filter((sessionIndex) => !knownRemoteSessionIds.has(sessionIndex));
+
     // Authoritative Removal: Find users we have locally who are NOT in the new list
     const remoteIndices = new Set(data.users.map(u => u.sessionIndex));
     users.forEach((user, sessionIndex) => {
       if (sessionIndex !== app.sessionIndex && !remoteIndices.has(sessionIndex)) {
         console.log(`[USERS] Removing ghost user ${user.username}(${sessionIndex})`);
+        cancelPendingJoinAnnouncement(sessionIndex);
         app.cleanupRemoteUserState(sessionIndex, { preserveVisuals: true });
       }
     });
@@ -192,6 +245,15 @@ export function setupUserHandlers(wsClient, app) {
       ui.setRemoteUserMuted?.(userData.sessionIndex, !!userData.isMuted);
     });
 
+    if (hasProcessedInitialUsers && joinedSessionIds.length > 0) {
+      joinedSessionIds.forEach((sessionIndex) => {
+        scheduleJoinAnnouncement(sessionIndex);
+      });
+    }
+
+    hasProcessedInitialUsers = true;
+    knownRemoteSessionIds = incomingRemoteSessionIds;
+
     app.updateChatUserList();
     abortSyncIfRoomIsEmpty();
 
@@ -270,8 +332,9 @@ export function setupUserHandlers(wsClient, app) {
   wsClient.on('left', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
+      cancelPendingJoinAnnouncement(data.sessionIndex);
       if (app.svelteComponents?.chat) {
-        app.svelteComponents.chat.addSystemMessage(`${user.username || 'User'} has left the room`);
+        app.svelteComponents.chat.addSystemMessage(formatRoomPresenceMessage(user, 'has left the room'));
       }
 
       // Bake out all user strokes (preserves visuals, frees memory)
@@ -300,7 +363,7 @@ export function setupUserHandlers(wsClient, app) {
     }
 
     let user = users.get(data.sessionIndex);
-    const hadName = user ? !!user.username : false;
+    const hadName = !!user?.username;
     const action = !user ? 'joined (new)' : (!hadName ? 'joined (was nameless)' : 'changed name');
     console.log(`[CN] User ${data.name}(${data.sessionIndex}) ${action}`);
     if (!user) {
@@ -364,9 +427,6 @@ export function setupUserHandlers(wsClient, app) {
           ui.updateRemoteTextLayout(data.sessionIndex, user);
         }
       }
-    }
-    if (app.svelteComponents?.chat) {
-      app.svelteComponents.chat.addSystemMessage(`${data.name} joined the room`);
     }
     app.updateChatUserList();
 

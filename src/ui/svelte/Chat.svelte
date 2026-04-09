@@ -924,32 +924,35 @@
 
 {#snippet messageContent(message)}
   {#if message.type === 'system'}
-    <div class="system-pill">System</div>
     <p class="message-text">{message.text}</p>
   {:else}
-    {#if message.type === 'image'}
-      <button class="chat-image-card" onclick={() => window.open(message.imageData, '_blank')} type="button">
-        <img src={message.imageData} alt="Chat upload" class="chat-image" />
-      </button>
-    {/if}
-    {#if message.text}
-      <p class="message-text">{@html linkify(message.text)}</p>
-    {/if}
-    <div class="reaction-row">
-      <div class="reaction-pills">
-        {#each normalizedReactionPills(message) as reaction (reaction.emoji)}
-          <button class="reaction-pill" class:active={reaction.reactedBySelf} onclick={() => toggleReaction(message, reaction.emoji)} title={reactionUsersLabel(reaction)} type="button">
-            <span>{reaction.emoji}</span>
-            <span>{reaction.count}</span>
+    <div class="message-content-row">
+      <div class="message-copy">
+        {#if message.type === 'image'}
+          <button class="chat-image-card" onclick={() => window.open(message.imageData, '_blank')} type="button">
+            <img src={message.imageData} alt="Chat upload" class="chat-image" />
           </button>
-        {/each}
+        {/if}
+        {#if message.text}
+          <p class="message-text">{@html linkify(message.text)}</p>
+        {/if}
       </div>
-      <div class="reaction-actions">
-        {#each selectableHoverReactionEmojis(message) as emoji (emoji)}
-          <button class="quick-reaction" onclick={() => toggleReaction(message, emoji)} title={`React with ${emoji}`} type="button">
-            {emoji}
-          </button>
-        {/each}
+      <div class="reaction-row">
+        <div class="reaction-pills">
+          {#each normalizedReactionPills(message) as reaction (reaction.emoji)}
+            <button class="reaction-pill" class:active={reaction.reactedBySelf} onclick={() => toggleReaction(message, reaction.emoji)} title={reactionUsersLabel(reaction)} type="button">
+              <span>{reaction.emoji}</span>
+              <span>{reaction.count}</span>
+            </button>
+          {/each}
+        </div>
+        <div class="reaction-actions">
+          {#each selectableHoverReactionEmojis(message) as emoji (emoji)}
+            <button class="quick-reaction" onclick={() => toggleReaction(message, emoji)} title={`React with ${emoji}`} type="button">
+              {emoji}
+            </button>
+          {/each}
+        </div>
       </div>
     </div>
   {/if}
@@ -1526,7 +1529,7 @@
   .directory-list {
     min-height: 0;
     overflow-y: auto;
-    padding: 1rem 1.15rem 1.1rem;
+    padding: 0.8rem 1.15rem 0.9rem;
   }
 
   .message-empty,
@@ -1542,8 +1545,8 @@
   .message-row {
     display: grid;
     grid-template-columns: 58px minmax(0, 1fr);
-    gap: 0.9rem;
-    padding: 0.38rem 0;
+    gap: 0.65rem;
+    padding: 0.18rem 0;
     border-bottom: 0;
   }
 
@@ -1552,17 +1555,17 @@
   }
 
   .message-row.grouped {
-    padding-top: 0.02rem;
-    padding-bottom: 0.02rem;
+    padding-top: 0;
+    padding-bottom: 0;
   }
 
   .message-row.group-tail {
     border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 45%, transparent);
-    padding-bottom: 0.38rem;
+    padding-bottom: 0.22rem;
   }
 
   .message-row.group-tail:not(.grouped) {
-    margin-bottom: 0.12rem;
+    margin-bottom: 0.06rem;
   }
 
   .message-time {
@@ -1579,6 +1582,22 @@
 
   .message-body {
     min-width: 0;
+  }
+
+  .message-content-row {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .message-copy {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: min(100%, 36rem);
+    user-select: text;
+    -webkit-user-select: text;
   }
 
   .message-user {
@@ -1600,6 +1619,8 @@
     font-size: 0.9rem;
     line-height: 1.45;
     word-break: break-word;
+    user-select: text;
+    -webkit-user-select: text;
   }
 
   .message-row.grouped .message-text {
@@ -1609,7 +1630,7 @@
   .chat-image-card {
     display: block;
     max-width: min(100%, 360px);
-    margin: 0.35rem 0 0;
+    margin: 0.18rem 0 0;
     padding: 0;
     overflow: hidden;
     border-radius: 18px;
@@ -1626,10 +1647,12 @@
 
   .reaction-row {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.45rem;
-    margin-top: 0.55rem;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.32rem;
+    flex-shrink: 0;
+    margin-top: 0.08rem;
+    margin-left: auto;
   }
 
   .reaction-pills,
@@ -1637,6 +1660,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.35rem;
+    justify-content: flex-end;
   }
 
   .reaction-actions {
@@ -1656,12 +1680,12 @@
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
-    min-height: 28px;
-    padding: 0 0.55rem;
+    min-height: 24px;
+    padding: 0 0.48rem;
     border-radius: 999px;
     background: color-mix(in srgb, var(--bg-elevated) 78%, transparent);
     color: var(--chat-text);
-    font-size: 0.76rem;
+    font-size: 0.72rem;
   }
 
   .reaction-pill.active {
@@ -1670,7 +1694,7 @@
   }
 
   .quick-reaction {
-    width: 28px;
+    width: 24px;
     justify-content: center;
     padding: 0;
     opacity: 0.72;
@@ -1706,23 +1730,10 @@
     gap: 0.35rem;
   }
 
-  .system-pill {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.22rem 0.5rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
-    color: color-mix(in srgb, var(--accent-primary) 55%, var(--text-primary));
-    font-size: 0.68rem;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-
   .dm-stream {
     display: flex;
     flex-direction: column;
-    gap: 0.7rem;
+    gap: 0.45rem;
   }
 
   .dm-bubble-row {
@@ -1735,11 +1746,13 @@
 
   .dm-bubble {
     max-width: min(78%, 540px);
-    padding: 0.8rem 0.9rem 0.7rem;
+    padding: 0.62rem 0.78rem 0.58rem;
     border-radius: 18px 18px 18px 6px;
     background: color-mix(in srgb, var(--bg-elevated) 72%, transparent);
     border: 1px solid color-mix(in srgb, var(--border-subtle) 85%, transparent);
     box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
+    user-select: text;
+    -webkit-user-select: text;
   }
 
   .dm-bubble-row.self .dm-bubble {
@@ -1754,9 +1767,15 @@
 
   .dm-bubble span {
     display: block;
-    margin-top: 0.35rem;
+    margin-top: 0.25rem;
     font-size: 0.7rem;
     color: color-mix(in srgb, var(--text-secondary) 68%, transparent);
+  }
+
+  .dm-bubble :global(a),
+  .message-copy :global(a) {
+    user-select: text;
+    -webkit-user-select: text;
   }
 
   .dm-bubble-row.self .dm-bubble span {
@@ -2075,6 +2094,20 @@
     .message-row {
       grid-template-columns: 50px minmax(0, 1fr);
       gap: 0.7rem;
+    }
+
+    .message-content-row {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.28rem;
+    }
+
+    .reaction-row,
+    .reaction-pills,
+    .reaction-actions {
+      align-items: flex-start;
+      justify-content: flex-start;
     }
 
     .topbar-btn {

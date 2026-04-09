@@ -2,6 +2,62 @@
 
 import { appState } from '../state.svelte.js';
 
+const ROLE_NAMES = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
+
+function getRoleName(role) {
+  return ROLE_NAMES[role] || 'Guest';
+}
+
+function formatPresenceName(user, fallbackName = 'User') {
+  const visibleUsername = String(user?.username || fallbackName || 'User').trim() || 'User';
+  const registeredUsername = String(user?.registeredName || '').trim();
+  if (registeredUsername && registeredUsername !== visibleUsername) {
+    return `${visibleUsername} (${registeredUsername})`;
+  }
+  return visibleUsername;
+}
+
+function findUserByName(users, selfUser, name) {
+  const normalized = String(name || '').trim();
+  if (!normalized) return null;
+
+  if (selfUser && (selfUser.username === normalized || selfUser.registeredName === normalized)) {
+    return selfUser;
+  }
+
+  for (const user of users.values()) {
+    if (user.username === normalized || user.registeredName === normalized) {
+      return user;
+    }
+  }
+
+  return null;
+}
+
+function resolveTargetUser(users, selfUser, data) {
+  if (data.targetSessionIndex !== undefined && data.targetSessionIndex !== null) {
+    const bySession = users.get(data.targetSessionIndex);
+    if (bySession) return bySession;
+    if (Number(data.targetSessionIndex) === Number(selfUser?.id)) return selfUser;
+  }
+
+  return findUserByName(users, selfUser, data.targetName);
+}
+
+function resolveModerationDisplay(users, selfUser, data) {
+  const targetUser = resolveTargetUser(users, selfUser, data);
+  const issuerUser = findUserByName(users, selfUser, data.issuerName);
+
+  return {
+    targetLabel: targetUser
+      ? `${getRoleName(targetUser.role ?? 0)} ${formatPresenceName(targetUser, data.targetName || 'User')}`
+      : String(data.targetName || 'User').trim() || 'User',
+    issuerLabel: issuerUser
+      ? `${getRoleName(issuerUser.role ?? 0)} ${formatPresenceName(issuerUser, data.issuerName || 'Moderator')}`
+      : String(data.issuerName || 'Moderator').trim() || 'Moderator'
+  };
+}
+
 /**
  * Sets up WebSocket event handlers for authentication and moderation.
  * @param {WebSocketClient} wsClient - The WebSocket client instance.
@@ -16,7 +72,7 @@ export function setupAuthModHandlers(wsClient, app) {
     }
 
     // Detect a live role update (promotion/demotion) while already in a room.
-    // These arrive with success=true but no username and no token — distinct from a real login.
+    // These arrive with success=true but no username and no token, distinct from a real login.
     if (data.success && !data.username && !data.token && app.connected) {
       const role = data.role;
       app.selfRole = role;
@@ -27,8 +83,7 @@ export function setupAuthModHandlers(wsClient, app) {
       app.updateRoomSettingsButtonVisibility?.();
       app.updateGalleryButtonVisibility?.(role);
       app.updateAuthenticatedActionVisibility?.(role);
-      const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
-      ui.showToast(`Your role has been updated to ${roleNames[role] || 'Unknown'}`, 4000);
+      ui.showToast(`Your role has been updated to ${ROLE_NAMES[role] || 'Unknown'}`, 4000);
       return;
     }
 
@@ -38,23 +93,19 @@ export function setupAuthModHandlers(wsClient, app) {
   });
 
   wsClient.on('mod_notify', (data) => {
+    const { targetLabel, issuerLabel } = resolveModerationDisplay(users, app.self, data);
+
     if (data.actionType === 5) {
-      // Reason added after the fact
       if (data.reason) {
-        app.svelteComponents?.chat?.addSystemMessage(`Reason for ${data.targetName}: ${data.reason} (by ${data.issuerName})`);
-        ui.showToast(`Reason added for ${data.targetName}`, 2000);
+        ui.showToast(`Reason added for ${targetLabel}`, 2000);
       }
       return;
     }
 
     const actionNames = ['kicked', 'muted', 'banned', 'unmuted', 'unbanned'];
     const actionName = actionNames[data.actionType] || 'moderated';
-    const message = `${data.targetName} was ${actionName} by ${data.issuerName}`;
-    if (data.reason) {
-      app.svelteComponents?.chat?.addSystemMessage(`${message} — ${data.reason}`);
-    } else {
-      app.svelteComponents?.chat?.addSystemMessage(message);
-    }
+    const message = `${targetLabel} was ${actionName} by ${issuerLabel}`;
+    app.svelteComponents?.chat?.addSystemMessage(message);
     ui.showToast(message, 3000);
 
     // Update muted state on target user
