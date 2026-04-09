@@ -575,16 +575,21 @@ export class WebSocketClient {
         break;
 
       case T.MSG:
-        this.emit('msg', { sessionIndex: data.u, message: data.g });
+        this.emit('msg', { sessionIndex: data.u, message: data.g, messageId: data.chatMessageId });
+        break;
+
+      case T.STAFF_MSG:
+        this.emit('staff_msg', { sessionIndex: data.u, message: data.g, messageId: data.chatMessageId });
         break;
 
       case T.DM:
-        this.emit('dm', { sessionIndex: data.u, message: data.g });
+        this.emit('dm', { sessionIndex: data.u, message: data.g, messageId: data.chatMessageId });
         break;
 
       case T.CHAT_IMG:
-        const rawBytes = data.cimg;
-        if (!rawBytes || rawBytes.length === 0) break;
+      case T.STAFF_CHAT_IMG:
+          const rawBytes = data.cimg;
+          if (!rawBytes || rawBytes.length === 0) break;
 
         const bytes = rawBytes instanceof Uint8Array ? rawBytes : new Uint8Array(rawBytes);
         let binary = '';
@@ -599,7 +604,22 @@ export class WebSocketClient {
         else if (bytes[0] === 0x52 && bytes[1] === 0x49) mimeType = 'image/webp';
 
         const imageDataUrl = `data:${mimeType};base64,${base64}`;
-        this.emit('chat_img', { sessionIndex: data.u, imageData: imageDataUrl, recipientId: data.r });
+        this.emit(data.t === T.STAFF_CHAT_IMG ? 'staff_chat_img' : 'chat_img', {
+          sessionIndex: data.u,
+          imageData: imageDataUrl,
+          recipientId: data.r,
+          messageId: data.chatMessageId
+        });
+        break;
+
+      case T.CHAT_REACTION:
+        this.emit('chat_reaction', {
+          sessionIndex: data.u,
+          messageId: data.chatMessageId,
+          emoji: data.chatReaction,
+          remove: !!data.chatReactionRemove,
+          recipientId: data.r
+        });
         break;
 
       case T.GMP:
@@ -1320,8 +1340,34 @@ export class WebSocketClient {
    * @param {string} message - Message text.
    * @returns {void}
    */
-  broadcastChat(message) {
-    this.send({ t: T.MSG, g: message });
+  broadcastChat(message, messageId) {
+    this.send({ t: T.MSG, g: message, chatMessageId: messageId });
+  }
+
+  /**
+   * Broadcasts a staff-only chat message.
+   * @param {string} message
+   * @param {string} messageId
+   * @returns {void}
+   */
+  broadcastStaffChat(message, messageId) {
+    this.send({ t: T.STAFF_MSG, g: message, chatMessageId: messageId });
+  }
+
+  /**
+   * Broadcasts a staff-only image.
+   * @param {string} imageData
+   * @param {string} messageId
+   * @returns {void}
+   */
+  broadcastStaffChatImage(imageData, messageId = '') {
+    const base64Data = imageData.split(',')[1];
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    this.send({ t: T.STAFF_CHAT_IMG, cimg: bytes, chatMessageId: messageId });
   }
 
   /**
@@ -1330,7 +1376,7 @@ export class WebSocketClient {
    * @param {number|null} [recipientId=null] - Optional private recipient.
    * @returns {void}
    */
-  broadcastChatImage(imageData, recipientId = null) {
+  broadcastChatImage(imageData, recipientId = null, messageId = '') {
     const base64Data = imageData.split(',')[1];
     const binaryString = atob(base64Data);
     const bytes = new Uint8Array(binaryString.length);
@@ -1339,9 +1385,9 @@ export class WebSocketClient {
     }
 
     if (recipientId !== null) {
-      this.send({ t: T.CHAT_IMG, cimg: bytes, r: recipientId });
+      this.send({ t: T.CHAT_IMG, cimg: bytes, r: recipientId, chatMessageId: messageId });
     } else {
-      this.send({ t: T.CHAT_IMG, cimg: bytes });
+      this.send({ t: T.CHAT_IMG, cimg: bytes, chatMessageId: messageId });
     }
   }
 
@@ -1351,8 +1397,26 @@ export class WebSocketClient {
    * @param {number} recipientId - Recipient session index.
    * @returns {void}
    */
-  broadcastDM(message, recipientId) {
-    this.send({ t: T.DM, g: message, r: recipientId });
+  broadcastDM(message, recipientId, messageId) {
+    this.send({ t: T.DM, g: message, r: recipientId, chatMessageId: messageId });
+  }
+
+  /**
+   * Broadcasts a chat reaction toggle.
+   * @param {{messageId: string, emoji: string, remove?: boolean, recipientId?: number|null}} payload
+   * @returns {void}
+   */
+  broadcastChatReaction({ messageId, emoji, remove = false, recipientId = null }) {
+    const message = {
+      t: T.CHAT_REACTION,
+      chatMessageId: messageId,
+      chatReaction: emoji,
+      chatReactionRemove: remove
+    };
+    if (recipientId !== null && recipientId !== undefined) {
+      message.r = recipientId;
+    }
+    this.send(message);
   }
 
   /**

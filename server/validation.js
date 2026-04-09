@@ -14,6 +14,8 @@ const MAX_FILL_BLUR_RADIUS = 25;
 const MAX_LAYER_INDEX = 4;
 const MAX_NAME_LENGTH = 20;
 const MAX_CHAT_LENGTH = 500;
+const MAX_CHAT_MESSAGE_ID_LENGTH = 64;
+const MAX_CHAT_REACTION_LENGTH = 16;
 const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
 const MAX_INLINE_IMAGE_WIDTH = 8192;
@@ -259,12 +261,29 @@ export async function sanitizeMessage(data) {
 
     case T.MSG:
       sanitized.g = sanitizeString(data.g, MAX_CHAT_LENGTH, { trim: true });
+      sanitized.chatMessageId = sanitizeString(data.chatMessageId ?? data.chat_message_id, MAX_CHAT_MESSAGE_ID_LENGTH);
+      if (!sanitized.chatMessageId) return null;
+      return sanitized.g ? sanitized : null;
+
+    case T.STAFF_MSG:
+      sanitized.g = sanitizeString(data.g, MAX_CHAT_LENGTH, { trim: true });
+      sanitized.chatMessageId = sanitizeString(data.chatMessageId ?? data.chat_message_id, MAX_CHAT_MESSAGE_ID_LENGTH);
+      if (!sanitized.chatMessageId) return null;
       return sanitized.g ? sanitized : null;
 
     case T.DM:
       sanitized.g = sanitizeString(data.g, MAX_CHAT_LENGTH, { trim: true });
       sanitized.r = clampInt(data.r, 0, 65535, 0);
+      sanitized.chatMessageId = sanitizeString(data.chatMessageId ?? data.chat_message_id, MAX_CHAT_MESSAGE_ID_LENGTH);
+      if (!sanitized.chatMessageId) return null;
       return sanitized.g ? sanitized : null;
+
+    case T.CHAT_REACTION:
+      sanitized.chatMessageId = sanitizeString(data.chatMessageId ?? data.chat_message_id, MAX_CHAT_MESSAGE_ID_LENGTH);
+      sanitized.chatReaction = sanitizeString(data.chatReaction ?? data.chat_reaction, MAX_CHAT_REACTION_LENGTH);
+      sanitized.chatReactionRemove = sanitizeBoolean(data.chatReactionRemove ?? data.chat_reaction_remove);
+      if (data.r !== undefined) sanitized.r = clampInt(data.r, 0, 65535, 0);
+      return sanitized.chatMessageId && sanitized.chatReaction ? sanitized : null;
 
     case T.KP:
       sanitized.k = sanitizeString(data.k, 20, { trim: false });
@@ -521,6 +540,7 @@ export async function sanitizeMessage(data) {
       return sanitized;
 
     case T.CHAT_IMG: {
+    case T.STAFF_CHAT_IMG: {
       const imageValidation = await validateImageBytes(data.cimg, {
         maxBytes: MAX_CHAT_IMAGE_BYTES,
         maxWidth: 4096,
@@ -530,6 +550,8 @@ export async function sanitizeMessage(data) {
       });
       if (!imageValidation.ok) return null;
       sanitized.cimg = new Uint8Array(imageValidation.buffer);
+      sanitized.chatMessageId = sanitizeString(data.chatMessageId ?? data.chat_message_id, MAX_CHAT_MESSAGE_ID_LENGTH);
+      if (!sanitized.chatMessageId) return null;
       if (data.r !== undefined) sanitized.r = clampInt(data.r, 0, 65535, 0);
       return sanitized;
     }

@@ -112,6 +112,9 @@ message Msg {
     CHECKPOINT_GET = 113;          // Request a specific checkpoint image
     REPLAY_REQUEST = 114;          // Request replay data (checkpoint + deltas) for time range
     REPLAY_RESPONSE = 115;         // Response with replay data
+    CHAT_REACTION = 117;           // Chat reaction toggle
+    STAFF_MSG = 118;               // Staff-only chat message
+    STAFF_CHAT_IMG = 119;          // Staff-only chat image
   }
 
   // Tool enum
@@ -371,6 +374,9 @@ message Msg {
   uint64 checkpoint_ts = 112;        // Checkpoint timestamp
   string checkpoint_uploader = 113;  // Username who uploaded
   string room_dedicated_replay_user = 114; // SETTINGS: dedicated replay uploader username
+  string chat_message_id = 124;      // Shared ID for chat text/image/reaction targets
+  string chat_reaction = 125;        // Emoji reaction payload
+  bool chat_reaction_remove = 126;   // Whether this reaction is being removed
 
   message CheckpointMeta {
     string id = 1;

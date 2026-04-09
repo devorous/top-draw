@@ -16,7 +16,8 @@ export function setupChatHandlers(wsClient, app) {
         user.username,
         data.message,
         `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
-        data.sessionIndex
+        data.sessionIndex,
+        data.messageId
       );
     }
   });
@@ -25,7 +26,29 @@ export function setupChatHandlers(wsClient, app) {
     if (data.sessionIndex === app.sessionIndex) return;
     const user = users.get(data.sessionIndex);
     if (user && app.svelteComponents?.chat) {
-      app.svelteComponents.chat.addChatDM(data.message, data.sessionIndex, false);
+      app.svelteComponents.chat.addChatDM(data.message, data.sessionIndex, false, data.messageId);
+    }
+  });
+
+  wsClient.on('staff_msg', (data) => {
+    if (data.sessionIndex === app.sessionIndex) return;
+    const user = users.get(data.sessionIndex);
+    if (user && app.svelteComponents?.chat) {
+      app.svelteComponents.chat.addStaffMessage(
+        user.username,
+        data.message,
+        `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
+        data.sessionIndex,
+        data.messageId
+      );
+    }
+  });
+
+  wsClient.on('staff_chat_img', (data) => {
+    if (data.sessionIndex === app.sessionIndex) return;
+    const user = users.get(data.sessionIndex);
+    if (user) {
+      app.svelteComponents?.chat?.addStaffImage(data.imageData, user, data.messageId);
     }
   });
 
@@ -35,15 +58,18 @@ export function setupChatHandlers(wsClient, app) {
 
     const user = users.get(data.sessionIndex);
     if (user) {
-      // TODO: Implement image messages in Svelte Chat
-      console.log('[Chat] Image messages not yet implemented in Svelte Chat');
-      // if (data.recipientId) {
-      //   app.svelteComponents.chat?.addDMImage(data.imageData, data.sessionIndex, false);
-      // } else {
-      //   app.svelteComponents.chat?.addChatImage(data.imageData, user);
-      // }
+      if (data.recipientId !== undefined && data.recipientId !== null) {
+        app.svelteComponents.chat?.addDMImage(data.imageData, data.sessionIndex, false, data.messageId);
+      } else {
+        app.svelteComponents.chat?.addChatImage(data.imageData, user, data.messageId);
+      }
     } else {
       console.warn('[CHAT_IMG] User not found for sessionIndex:', data.sessionIndex);
     }
+  });
+
+  wsClient.on('chat_reaction', (data) => {
+    if (data.sessionIndex === app.sessionIndex) return;
+    app.svelteComponents?.chat?.applyReaction(data);
   });
 }

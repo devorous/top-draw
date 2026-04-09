@@ -98,6 +98,29 @@ const SnapshotMenuWrapper = (function() {
  */
 export function initSvelteUI(app) {
   const components = {};
+  const cleanupFns = [];
+
+  const chatBadgeEffect = $effect.root(() => {
+    $effect(() => {
+      const unread = appState.chatUnreadCount;
+      const badgeEl = document.getElementById('chatBadge');
+      const chatBtn = document.getElementById('chatBtn');
+      if (!badgeEl || !chatBtn) return;
+
+      if (unread > 0) {
+        badgeEl.textContent = unread > 99 ? '99+' : String(unread);
+        badgeEl.style.display = 'inline-flex';
+        chatBtn.setAttribute('data-has-unread', 'true');
+        chatBtn.setAttribute('aria-label', `Chat (${unread} unread)`);
+      } else {
+        badgeEl.textContent = '';
+        badgeEl.style.display = 'none';
+        chatBtn.removeAttribute('data-has-unread');
+        chatBtn.setAttribute('aria-label', 'Chat');
+      }
+    });
+  });
+  cleanupFns.push(chatBadgeEffect);
 
   // Mount Messenger (1-1 E2EE)
   const messengerTarget = document.getElementById('messengerMount');
@@ -213,8 +236,11 @@ export function initSvelteUI(app) {
       target: chatTarget,
       props: {
         onSend: (message) => app.handleChatSend?.(message),
+        onStaffSend: (message) => app.handleStaffChatSend?.(message),
+        onStaffSendImage: (imageData) => app.handleStaffChatImageSend?.(imageData),
         onDM: (message, recipientId) => app.handleDMSend?.(message, recipientId),
-        onSendImage: (imageData, recipientId) => app.handleChatImageSend?.(imageData, recipientId)
+        onSendImage: (imageData, recipientId) => app.handleChatImageSend?.(imageData, recipientId),
+        onReact: (payload) => app.handleChatReaction?.(payload)
       }
     });
   }
@@ -250,6 +276,10 @@ export function initSvelteUI(app) {
     target: snapshotMenuTarget,
     props: { app }
   });
+
+  components._cleanup = () => {
+    cleanupFns.forEach((cleanup) => cleanup?.());
+  };
 
   return components;
 }

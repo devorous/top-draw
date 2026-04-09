@@ -3416,35 +3416,71 @@ export class DrawingApp {
   }
 
   handleChatSend(message) {
+    const messageId = this._createChatMessageId();
     // Show immediately in chat (Svelte component handles its own state)
     if (this.svelteComponents?.chat) {
       this.svelteComponents.chat.addChatMessage(
         this.self.username,
         message,
         `rgba(${this.self.color[0]}, ${this.self.color[1]}, ${this.self.color[2]}, ${this.self.color[3] / 255})`,
-        this.sessionIndex
+        this.sessionIndex,
+        messageId
       );
     }
-    this.wsClient.broadcastChat(message);
+    this.wsClient.broadcastChat(message, messageId);
+  }
+
+  handleStaffChatSend(message) {
+    const messageId = this._createChatMessageId();
+    if (this.svelteComponents?.chat) {
+      this.svelteComponents.chat.addStaffMessage(
+        this.self.username,
+        message,
+        `rgba(${this.self.color[0]}, ${this.self.color[1]}, ${this.self.color[2]}, ${this.self.color[3] / 255})`,
+        this.sessionIndex,
+        messageId
+      );
+    }
+    this.wsClient.broadcastStaffChat(message, messageId);
+  }
+
+  handleStaffChatImageSend(imageData) {
+    const messageId = this._createChatMessageId();
+    this.svelteComponents?.chat?.addStaffImage(imageData, this.self, messageId);
+    this.wsClient.broadcastStaffChatImage(imageData, messageId);
   }
 
   handleDMSend(message, recipientId) {
     if (this.connected) {
-      this.wsClient.broadcastDM(message, recipientId);
+      const messageId = this._createChatMessageId();
+      this.svelteComponents?.chat?.addChatDM(message, recipientId, true, messageId);
+      this.wsClient.broadcastDM(message, recipientId, messageId);
     }
   }
 
   handleChatImageSend(imageData, recipientId = null) {
     if (this.connected) {
-      // TODO: Implement image messages in Svelte Chat
-      // if (recipientId) {
-      //   this.svelteComponents.chat?.addDMImage(imageData, recipientId, true);
-      // } else {
-      //   this.svelteComponents.chat?.addChatImage(imageData, this.self);
-      // }
-      console.log('[Chat] Image messages not yet implemented in Svelte Chat');
-      this.wsClient.broadcastChatImage(imageData, recipientId);
+      const messageId = this._createChatMessageId();
+      if (recipientId !== null && recipientId !== undefined) {
+        this.svelteComponents?.chat?.addDMImage(imageData, recipientId, true, messageId);
+      } else {
+        this.svelteComponents?.chat?.addChatImage(imageData, this.self, messageId);
+      }
+      this.wsClient.broadcastChatImage(imageData, recipientId, messageId);
     }
+  }
+
+  handleChatReaction(payload) {
+    if (this.connected && payload?.messageId && payload?.emoji) {
+      this.wsClient.broadcastChatReaction(payload);
+    }
+  }
+
+  _createChatMessageId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
   updateChatUserList() {

@@ -104,6 +104,9 @@ function shouldAllowWsMessage(ws, data) {
 
     case T.MSG:
     case T.DM:
+    case T.CHAT_REACTION:
+    case T.STAFF_MSG:
+    case T.STAFF_CHAT_IMG:
       suffix = 'chat';
       config = WS_CHAT_LIMIT;
       break;
@@ -1674,7 +1677,8 @@ wss.on('connection', (ws, req) => {
                 sendTo(client, {
                   t: T.DM,
                   u: ws.sessionIndex,
-                  g: data.g
+                  g: data.g,
+                  chatMessageId: data.chatMessageId
                 });
                 break;
               }
@@ -1703,7 +1707,8 @@ wss.on('connection', (ws, req) => {
                     t: T.CHAT_IMG,
                     u: ws.sessionIndex,
                     cimg: imageBytes,
-                    r: imageRecipientId
+                    r: imageRecipientId,
+                    chatMessageId: data.chatMessageId
                   });
                   break;
                 }
@@ -1712,9 +1717,88 @@ wss.on('connection', (ws, req) => {
               broadcastToRoom(room, {
                 t: T.CHAT_IMG,
                 u: ws.sessionIndex,
-                cimg: imageBytes
+                cimg: imageBytes,
+                chatMessageId: data.chatMessageId
               }, ws.sessionIndex);
             }
+            room.sessionManager.updateUserActivity(ws.sessionIndex);
+          }
+          break;
+
+        case T.STAFF_MSG:
+          if ((ws.userRole || 0) < Role.MOD) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Only moderators can use staff chat' });
+            break;
+          }
+          if (ws.sessionIndex !== undefined) {
+            for (const client of wss.clients) {
+              if (client.readyState !== WebSocket.OPEN) continue;
+              const clientRoom = roomManager.getRoomByClient(client);
+              if (clientRoom !== room) continue;
+              if ((client.userRole || 0) < Role.MOD) continue;
+              sendTo(client, {
+                t: T.STAFF_MSG,
+                u: ws.sessionIndex,
+                g: data.g,
+                chatMessageId: data.chatMessageId
+              });
+            }
+            room.sessionManager.updateUserActivity(ws.sessionIndex);
+          }
+          break;
+
+        case T.STAFF_CHAT_IMG:
+          if ((ws.userRole || 0) < Role.MOD) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Only moderators can use staff chat' });
+            break;
+          }
+          if (ws.sessionIndex !== undefined) {
+            let imageBytes = data.cimg;
+            if (!imageBytes || imageBytes.length === 0) break;
+            if (Buffer.isBuffer(imageBytes)) {
+              imageBytes = new Uint8Array(imageBytes.buffer, imageBytes.byteOffset, imageBytes.length);
+            } else if (!(imageBytes instanceof Uint8Array)) {
+              imageBytes = new Uint8Array(imageBytes);
+            }
+
+            for (const client of wss.clients) {
+              if (client.readyState !== WebSocket.OPEN) continue;
+              const clientRoom = roomManager.getRoomByClient(client);
+              if (clientRoom !== room) continue;
+              if ((client.userRole || 0) < Role.MOD) continue;
+              sendTo(client, {
+                t: T.STAFF_CHAT_IMG,
+                u: ws.sessionIndex,
+                cimg: imageBytes,
+                chatMessageId: data.chatMessageId
+              });
+            }
+            room.sessionManager.updateUserActivity(ws.sessionIndex);
+          }
+          break;
+
+        case T.CHAT_REACTION:
+          if (ws.sessionIndex !== undefined) {
+            const reactionPayload = {
+              t: T.CHAT_REACTION,
+              u: ws.sessionIndex,
+              chatMessageId: data.chatMessageId,
+              chatReaction: data.chatReaction,
+              chatReactionRemove: !!data.chatReactionRemove
+            };
+
+            if (data.r !== undefined) {
+              reactionPayload.r = data.r;
+              for (const client of wss.clients) {
+                if (client.sessionIndex === data.r && client.readyState === WebSocket.OPEN) {
+                  sendTo(client, reactionPayload);
+                  break;
+                }
+              }
+            } else {
+              broadcastToRoom(room, reactionPayload, ws.sessionIndex);
+            }
+
             room.sessionManager.updateUserActivity(ws.sessionIndex);
           }
           break;
