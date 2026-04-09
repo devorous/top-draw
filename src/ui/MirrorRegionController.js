@@ -162,7 +162,7 @@ export class MirrorRegionController {
 
     this.active = true;
     this.stage = 'selecting';
-    this.ui.updateMirrorDisplay(true);
+    this._syncMirrorDisplay();
     this.startPos = null;
     this.selection = null;
     this.editingRegionId = null;
@@ -184,7 +184,7 @@ export class MirrorRegionController {
     this._clearOverlay();
     this._hideControlsLayer();
     this._stopMarchingAnts();
-    this.ui.updateMirrorDisplay(this.board.mirror);
+    this._syncMirrorDisplay();
     this.ui.updateToolDisplay(this.app.self?.tool, this.app.self);
   }
 
@@ -194,6 +194,7 @@ export class MirrorRegionController {
 
   handlePointerDown(e) {
     if (!this.active) return false;
+    if (this._shouldAllowPanGesture(e)) return false;
     if (this.stage !== 'selecting' || e.button !== 0) return true;
     const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
     this.ui.updateSelfCursor(pos.x, pos.y, this.app.self?.size || 1);
@@ -207,6 +208,7 @@ export class MirrorRegionController {
 
   handlePointerMove(e) {
     if (!this.active) return false;
+    if (this._shouldAllowPanGesture(e)) return false;
     const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
     this._showMirrorCursor();
     this.ui.updateSelfCursor(pos.x, pos.y, this.app.self?.size || 1);
@@ -222,6 +224,7 @@ export class MirrorRegionController {
 
   handlePointerUp(e) {
     if (!this.active) return false;
+    if (this._shouldAllowPanGesture(e)) return false;
     if (this.stage !== 'selecting' || e.button !== 0 || !this.selection) return true;
     if (this.selection.width < 4 || this.selection.height < 4) {
       this.ui.showToast('Mirror region is too small', 1800);
@@ -293,6 +296,7 @@ export class MirrorRegionController {
       showLine: region.showLine !== false
     };
 
+    this._syncMirrorDisplay();
     this._showControlsLayer();
     this._showMirrorCursor();
     this._configurePanelForEdit();
@@ -313,6 +317,7 @@ export class MirrorRegionController {
       this._clearOverlay();
       this.stage = 'selecting';
     }
+    this._syncMirrorDisplay();
     this.ui.showToast('Mirror region removed', 1800);
   }
 
@@ -321,6 +326,7 @@ export class MirrorRegionController {
     this._hidePanel();
     this._clearOverlay();
     this.stage = 'selecting';
+    this._syncMirrorDisplay();
   }
 
   _resetSelectionState() {
@@ -569,6 +575,18 @@ export class MirrorRegionController {
   _showMirrorCursor() {
     this.ui.showCursor();
     this.ui.showMirrorRegionCursor();
+  }
+
+  _shouldAllowPanGesture(e) {
+    if (!this.active) return false;
+    if (this.app.self?.tool === 'pan') return true;
+    if (this.app.self?.panning) return true;
+    if (e?.button === 1) return true;
+    return typeof e?.buttons === 'number' && (e.buttons & 4) === 4;
+  }
+
+  _syncMirrorDisplay() {
+    this.ui.updateMirrorDisplay(this.active || this.board.mirror);
   }
 
   _getRegionById(regionId) {

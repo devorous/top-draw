@@ -981,7 +981,8 @@ menuBtn: document.getElementById('menuBtn'),
    * @param {boolean} enabled - Whether mirror is enabled
    */
   updateMirrorDisplay(enabled) {
-    this.elements.mirrorBtn?.classList.toggle('selected', !!enabled);
+    const mirrorModeActive = !!window.app?.mirrorRegionController?.isActive?.();
+    this.elements.mirrorBtn?.classList.toggle('selected', !!enabled || mirrorModeActive);
   }
 
   /**
