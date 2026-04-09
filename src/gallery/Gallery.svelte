@@ -56,7 +56,9 @@
   let commentActionBusy = $state(false);
   let tagDraft = $state('');
   let tagSaving = $state(false);
-  let lightboxImageWrap = null;
+  let tagEditorOpen = $state(false);
+  let lightboxImageWrap = $state(null);
+  let lightboxStage = $state(null);
 
   // Auth state
   let user = $state(null); // { username, role, userId }
@@ -443,18 +445,19 @@
   }
 
   async function toggleFullscreen() {
-    if (!lightboxImageWrap) return;
+    if (!lightboxStage) return;
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
       } else {
-        await lightboxImageWrap.requestFullscreen();
+        await lightboxStage.requestFullscreen();
       }
     } catch {}
   }
 
   function syncTagDraft(item) {
     tagDraft = (item?.tags || []).join(', ');
+    tagEditorOpen = false;
   }
 
   async function saveTags() {
@@ -480,9 +483,10 @@
       }
 
       const data = await res.json();
-      lightbox = { ...lightbox, tags: data.tags || [] };
+      const updatedLightbox = { ...lightbox, tags: data.tags || [] };
+      lightbox = updatedLightbox;
       items = items.map((item) => item.id === lightbox.id ? { ...item, tags: data.tags || [] } : item);
-      syncTagDraft(lightbox);
+      syncTagDraft(updatedLightbox);
       fetchSidebar();
     } catch (err) {
       alert(err.message || 'Failed to update tags');
@@ -807,7 +811,7 @@
           {#if showFavorites}
             <button class="btn-link" onclick={toggleFavoritesView}>← back to all</button>
           {:else if tagFilter}
-            <button class="btn-link" onclick={clearTagFilter}>â† clear tag</button>
+            <button class="btn-link" onclick={clearTagFilter}>Clear Tag</button>
           {:else if authorFilter}
             <button class="btn-link" onclick={clearAuthorFilter}>← back to all</button>
           {:else}
@@ -951,140 +955,159 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="lightbox-backdrop" class:instant={lightboxInstant} role="presentation" onclick={closeLightbox} onkeydown={(e) => e.key === 'Escape' && closeLightbox()}>
-    <div class="lightbox" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+    <div class="lightbox-stage" bind:this={lightboxStage} onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
       {#if canGoPrev()}
-        <button class="lb-nav prev" onclick={() => navigateLightbox(-1)} aria-label="Previous image">‹</button>
+        <button class="lb-nav prev" onclick={() => navigateLightbox(-1)} aria-label="Previous image">&lsaquo;</button>
       {/if}
-      {#if canGoNext()}
-        <button class="lb-nav next" onclick={() => navigateLightbox(1)} aria-label="Next image">›</button>
-      {/if}
-      <button class="lb-control lb-fullscreen" onclick={toggleFullscreen} aria-label="Toggle fullscreen" title="Fullscreen">⛶</button>
-      <button class="lb-close" onclick={closeLightbox}>×</button>
-      <div class="lb-img-wrap" bind:this={lightboxImageWrap}>
-        <img src={lightbox.url} alt={lightbox.title || 'artwork'} class:censored={isNsfw(lightbox) && !isNsfwRevealed(lightbox)}>
-        {#if isNsfw(lightbox) && !isNsfwRevealed(lightbox)}
-          <button class="censor-overlay lightbox-censor" onclick={() => revealNsfw(lightbox)} aria-label="Reveal censored image">
-            <span>NSFW content hidden</span>
-            <strong>Reveal image</strong>
-          </button>
-        {/if}
-      </div>
-      <div class="lb-info">
-        {#if lightbox.title}
-          <h3>{lightbox.title}</h3>
-        {/if}
-        <div class="lb-meta">
-          <button class="lb-author" onclick={() => profileDialog.show(lightbox.author)}>by {lightbox.author}</button>
-          <span class="lb-date">{formatDate(lightbox.createdAt)}</span>
-        </div>
-        <div class="lb-tags">
-          {#if lightbox.tags?.length}
-            {#each lightbox.tags as tag}
-              <button class="tag-chip" onclick={() => { closeLightbox(); filterByTag(tag); }}>#{tag}</button>
-            {/each}
-          {:else}
-            <span class="lb-tags-empty">No tags yet</span>
-          {/if}
-        </div>
-        <div class="lb-actions">
-          <button
-            class="like-btn large"
-            class:liked={likedIds.has(lightbox.id)}
-            onclick={() => like(lightbox)}
-          >
-            ♥ {lightbox.likes || 0}
-          </button>
-          {#if user}
-            <button
-              class="fav-btn"
-              class:favorited={favoritedIds.has(lightbox.id)}
-              onclick={() => toggleFavorite(lightbox)}
-              title={favoritedIds.has(lightbox.id) ? 'Remove from favorites' : 'Add to favorites'}
-            >
-              ★
+      <div class="lightbox" role="dialog" aria-modal="true" tabindex="-1">
+        <button class="lb-control lb-fullscreen" onclick={toggleFullscreen} aria-label="Toggle fullscreen" title="Fullscreen">&#9974;</button>
+        <button class="lb-close" onclick={closeLightbox}>&times;</button>
+        <div class="lb-img-wrap" bind:this={lightboxImageWrap}>
+          <img src={lightbox.url} alt={lightbox.title || 'artwork'} class:censored={isNsfw(lightbox) && !isNsfwRevealed(lightbox)}>
+          {#if isNsfw(lightbox) && !isNsfwRevealed(lightbox)}
+            <button class="censor-overlay lightbox-censor" onclick={() => revealNsfw(lightbox)} aria-label="Reveal censored image">
+              <span>NSFW content hidden</span>
+              <strong>Reveal image</strong>
             </button>
           {/if}
-          <button class="btn-ghost small" onclick={() => downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)}>Download</button>
-          {#if canDeleteImage(lightbox)}
-            <button class="btn-danger small" onclick={() => deleteImage(lightbox)}>Delete</button>
-          {/if}
         </div>
+        <div class="lb-info">
+          <div class="lb-meta-block">
+            <div class="lb-meta">
+              <button class="lb-author" onclick={() => profileDialog.show(lightbox.author)}>by {lightbox.author}</button>
+              <span class="lb-date">{formatDate(lightbox.createdAt)}</span>
+            </div>
+            <div class="lb-tags-row">
+              <div class="lb-tags">
+                {#if lightbox.tags?.length}
+                  {#each lightbox.tags as tag}
+                    <button class="tag-chip" onclick={() => { closeLightbox(); filterByTag(tag); }}>#{tag}</button>
+                  {/each}
+                {:else if canEditTags(lightbox)}
+                  <button class="tag-editor-toggle tag-editor-toggle-inline" onclick={() => tagEditorOpen = true} aria-label="Add tags">
+                    +Tag
+                  </button>
+                {:else}
+                  <span class="lb-tags-empty">No tags yet</span>
+                {/if}
+              </div>
+            </div>
+          </div>
 
-        {#if canEditTags(lightbox)}
-          <div class="tag-editor">
-            <label for="tagEditorInput">Tags</label>
-            <div class="tag-editor-row">
-              <input id="tagEditorInput" type="text" bind:value={tagDraft} placeholder="nsfw, portrait, pixel-art" />
-              <button class="btn-ghost small" onclick={saveTags} disabled={tagSaving}>
-                {tagSaving ? 'Saving...' : 'Save Tags'}
+          {#if lightbox.title}
+            <p class="lb-caption">{lightbox.title}</p>
+          {/if}
+
+          <div class="lb-actions">
+            <button
+              class="like-btn large"
+              class:liked={likedIds.has(lightbox.id)}
+              onclick={() => like(lightbox)}
+            >
+              &hearts; {lightbox.likes || 0}
+            </button>
+            {#if user}
+              <button
+                class="fav-btn"
+                class:favorited={favoritedIds.has(lightbox.id)}
+                onclick={() => toggleFavorite(lightbox)}
+                title={favoritedIds.has(lightbox.id) ? 'Remove from favorites' : 'Add to favorites'}
+              >
+                &#9733;
+              </button>
+            {/if}
+            <button class="btn-ghost small" onclick={() => downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)}>Download</button>
+            {#if canDeleteImage(lightbox)}
+              <button class="btn-danger small" onclick={() => deleteImage(lightbox)}>Delete</button>
+            {/if}
+          </div>
+
+          {#if canEditTags(lightbox) && lightbox.tags?.length}
+            <div class="lb-tag-actions">
+              <button class="tag-editor-toggle tag-editor-toggle-inline" onclick={() => tagEditorOpen = !tagEditorOpen} aria-label={tagEditorOpen ? 'Hide tag editor' : 'Edit tags'}>
+                +Tag
               </button>
             </div>
-            <p class="tag-editor-hint">Comma-separated tags. Use <code>nsfw</code> for adult or sensitive images.</p>
-          </div>
-        {/if}
+          {/if}
 
-        <!-- Comments Section -->
-        <div class="comments-section">
-          <h4>Comments</h4>
-          {#if commentsLoading}
-            <p class="comments-loading">Loading...</p>
-          {:else if comments.length === 0}
-            <p class="comments-empty">No comments yet</p>
-          {:else}
-            <div class="comments-list">
-              {#each comments as comment (comment.id)}
-                <div class="comment">
-                  <div class="comment-header">
-                    <button class="comment-author" onclick={() => profileDialog.show(comment.author)}>{comment.author}</button>
-                    <span class="comment-date">{formatDate(comment.createdAt)}</span>
-                    {#if comment.edited}
-                      <span class="comment-edited">Edited</span>
-                    {/if}
-                    {#if canEditComment(comment)}
-                      <button class="comment-action" onclick={() => beginCommentEdit(comment)} disabled={commentActionBusy && editingCommentId !== comment.id}>
-                        Edit
-                      </button>
-                    {/if}
-                    {#if canDeleteComment(comment)}
-                      <button class="comment-delete" onclick={() => deleteComment(comment.id)} title="Delete" disabled={commentActionBusy}>×</button>
+          {#if canEditTags(lightbox) && tagEditorOpen}
+            <div class="tag-editor">
+              <label for="tagEditorInput">Tags</label>
+              <div class="tag-editor-row">
+                <input id="tagEditorInput" type="text" bind:value={tagDraft} placeholder="nsfw, portrait, pixel-art" />
+                <button class="btn-ghost small" onclick={saveTags} disabled={tagSaving}>
+                  {tagSaving ? 'Saving...' : 'Save Tags'}
+                </button>
+              </div>
+              <p class="tag-editor-hint">Comma-separated tags. Use <code>nsfw</code> for adult or sensitive images.</p>
+            </div>
+          {/if}
+
+          <!-- Comments Section -->
+          <div class="comments-section">
+            {#if commentsLoading}
+              <p class="comments-loading">Loading...</p>
+            {:else if comments.length === 0}
+              <p class="comments-empty">No comments yet</p>
+            {:else}
+              <div class="comments-list">
+                {#each comments as comment (comment.id)}
+                  <div class="comment">
+                    <div class="comment-header">
+                      <button class="comment-author" onclick={() => profileDialog.show(comment.author)}>{comment.author}</button>
+                      <span class="comment-date">{formatDate(comment.createdAt)}</span>
+                      {#if comment.edited}
+                        <span class="comment-edited">Edited</span>
+                      {/if}
+                      {#if canEditComment(comment)}
+                        <button class="comment-action" onclick={() => beginCommentEdit(comment)} disabled={commentActionBusy && editingCommentId !== comment.id}>
+                          Edit
+                        </button>
+                      {/if}
+                      {#if canDeleteComment(comment)}
+                        <button class="comment-delete" onclick={() => deleteComment(comment.id)} title="Delete" disabled={commentActionBusy}>&times;</button>
+                      {/if}
+                    </div>
+                    {#if editingCommentId === comment.id}
+                      <form class="comment-edit-form" onsubmit={(e) => { e.preventDefault(); saveCommentEdit(comment.id); }}>
+                        <input type="text" bind:value={editingCommentText} maxlength="500" disabled={commentActionBusy} />
+                        <div class="comment-edit-actions">
+                          <button type="submit" class="btn-primary small" disabled={!editingCommentText.trim() || commentActionBusy}>Save</button>
+                          <button type="button" class="btn-ghost small" onclick={cancelCommentEdit} disabled={commentActionBusy}>Cancel</button>
+                        </div>
+                      </form>
+                    {:else}
+                      <p class="comment-text">{comment.text}</p>
                     {/if}
                   </div>
-                  {#if editingCommentId === comment.id}
-                    <form class="comment-edit-form" onsubmit={(e) => { e.preventDefault(); saveCommentEdit(comment.id); }}>
-                      <input type="text" bind:value={editingCommentText} maxlength="500" disabled={commentActionBusy} />
-                      <div class="comment-edit-actions">
-                        <button type="submit" class="btn-primary small" disabled={!editingCommentText.trim() || commentActionBusy}>Save</button>
-                        <button type="button" class="btn-ghost small" onclick={cancelCommentEdit} disabled={commentActionBusy}>Cancel</button>
-                      </div>
-                    </form>
-                  {:else}
-                    <p class="comment-text">{comment.text}</p>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          {/if}
+                {/each}
+              </div>
+            {/if}
 
-          {#if user}
-            <form class="comment-form" onsubmit={(e) => { e.preventDefault(); submitComment(); }}>
-              <input
-                type="text"
-                bind:value={newComment}
-                placeholder="Add a comment..."
-                maxlength="500"
-                disabled={commentSubmitting}
-              />
-              <button type="submit" class="btn-primary small" disabled={!newComment.trim() || commentSubmitting}>
-                {commentSubmitting ? '...' : 'Post'}
-              </button>
-            </form>
-          {:else}
-            <p class="comments-login-hint">
-              <button class="btn-link" onclick={() => openAuthModal('login')}>Log in</button> to comment
-            </p>
-          {/if}
+            {#if user}
+              <form class="comment-form" onsubmit={(e) => { e.preventDefault(); submitComment(); }}>
+                <input
+                  type="text"
+                  bind:value={newComment}
+                  placeholder="Add a comment..."
+                  maxlength="500"
+                  disabled={commentSubmitting}
+                />
+                <button type="submit" class="btn-primary small" disabled={!newComment.trim() || commentSubmitting}>
+                  {commentSubmitting ? '...' : 'Post'}
+                </button>
+              </form>
+            {:else}
+              <p class="comments-login-hint">
+                <button class="btn-link" onclick={() => openAuthModal('login')}>Log in</button> to comment
+              </p>
+            {/if}
+          </div>
         </div>
       </div>
+      {#if canGoNext()}
+        <button class="lb-nav next" onclick={() => navigateLightbox(1)} aria-label="Next image">&rsaquo;</button>
+      {/if}
     </div>
   </div>
 {/if}
@@ -1480,7 +1503,7 @@
   }
   .card-img img {
     width: 100%; height: 100%;
-    object-fit: cover;
+    object-fit: contain;
     display: block;
     transition: transform 0.4s ease, filter 0.2s ease;
   }
@@ -1736,11 +1759,11 @@
     border: 2px solid var(--accent);
     border-radius: 12px;
     overflow: hidden;
-    max-width: 900px;
-    width: 100%;
-    max-height: 90vh;
-    display: flex;
-    flex-direction: column;
+    width: min(920px, 100%);
+    height: min(82vh, 820px);
+    min-height: 640px;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
     position: relative;
     animation: slideUp 0.2s ease;
     box-shadow: 0 20px 60px rgba(0, 212, 170, 0.2);
@@ -1749,6 +1772,14 @@
     animation: none;
   }
   @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+  .lightbox-stage {
+    width: min(1120px, 100%);
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 1.25rem;
+  }
 
   .lb-control,
   .lb-close {
@@ -1798,20 +1829,35 @@
   }
   .lb-nav.prev { left: -1.75rem; }
   .lb-nav.next { right: -1.75rem; }
+  .lightbox-stage > .lb-nav.prev {
+    position: static;
+    transform: none;
+    grid-column: 1;
+  }
+  .lightbox-stage > .lb-nav.next {
+    position: static;
+    transform: none;
+    grid-column: 3;
+  }
+  .lightbox-stage > .lb-nav:hover {
+    transform: scale(1.04);
+  }
+  .lightbox {
+    grid-column: 2;
+  }
 
   .lb-img-wrap {
-    flex: 1;
     position: relative;
     overflow: hidden;
     background: #2a2a2a;
     display: flex;
     align-items: center;
     justify-content: center;
-    max-height: 65vh;
+    min-height: 0;
   }
   .lb-img-wrap img {
     max-width: 100%;
-    max-height: 65vh;
+    max-height: 100%;
     object-fit: contain;
     display: block;
   }
@@ -1826,16 +1872,18 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+    min-height: 220px;
   }
 
-  .lb-info h3 {
-    font-family: 'Inter', sans-serif;
-    font-size: 1.1rem;
-    font-weight: 400;
+  .lb-meta-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
   }
 
   .lb-meta {
     display: flex;
+    flex-wrap: wrap;
     gap: 1rem;
     font-size: 0.82rem;
     color: var(--text-dim);
@@ -1855,6 +1903,13 @@
   .lb-actions {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .lb-tags-row {
+    display: flex;
+    align-items: flex-start;
     gap: 0.75rem;
   }
 
@@ -1864,9 +1919,50 @@
     gap: 0.5rem;
   }
 
+  .lb-caption {
+    font-size: 0.92rem;
+    line-height: 1.55;
+    color: rgba(255, 255, 255, 0.82);
+  }
+
   .lb-tags-empty {
     font-size: 0.82rem;
     color: var(--text-dim);
+  }
+
+  .lb-tag-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .tag-editor-toggle {
+    width: 2rem;
+    height: 2rem;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 1.15rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+  }
+  .tag-editor-toggle:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0, 212, 170, 0.1);
+    transform: translateY(-1px);
+  }
+
+  .tag-editor-toggle-inline {
+    width: auto;
+    min-width: 0;
+    padding: 0.42rem 0.8rem;
+    font-size: 0.8rem;
+    line-height: 1.1;
   }
 
   .tag-editor {
@@ -1909,15 +2005,8 @@
 
   /* ── Comments ── */
   .comments-section {
-    margin-top: 1rem;
-    padding-top: 1rem;
+    margin-top: 0.2rem;
     border-top: 1px solid var(--border);
-  }
-  .comments-section h4 {
-    font-size: 0.9rem;
-    font-weight: 400;
-    margin-bottom: 0.75rem;
-    color: var(--text-dim);
   }
   .comments-loading, .comments-empty {
     font-size: 0.82rem;
@@ -1927,9 +2016,27 @@
     max-height: 200px;
     overflow-y: auto;
     margin-bottom: 0.75rem;
+    padding-right: 0.35rem;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 212, 170, 0.45) rgba(255, 255, 255, 0.05);
+  }
+  .comments-list::-webkit-scrollbar {
+    width: 10px;
+  }
+  .comments-list::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 999px;
+  }
+  .comments-list::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(0, 212, 170, 0.72), rgba(91, 158, 143, 0.72));
+    border-radius: 999px;
+    border: 2px solid rgba(15, 15, 19, 0.9);
+  }
+  .comments-list::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(0, 240, 195, 0.92), rgba(91, 158, 143, 0.88));
   }
   .comment {
-    padding: 0.5rem 0;
+    padding: 0.4rem 0;
     border-bottom: 1px solid var(--border);
   }
   .comment:last-child { border-bottom: none; }
@@ -1965,7 +2072,6 @@
     line-height: 1;
   }
   .comment-action {
-    margin-left: auto;
     background: none;
     border: none;
     color: var(--accent);
@@ -2003,6 +2109,7 @@
   .comment-edit-form input,
   .comment-form input {
     flex: 1;
+    margin-top:0.5rem;
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 3px;
@@ -2121,6 +2228,44 @@
     .nav-links { gap: 1rem; }
     .gallery-layout { grid-template-columns: 1fr; }
     .gallery-sidebar { position: static; }
-    .tag-editor-row, .lb-actions { flex-wrap: wrap; }
+    .lightbox-stage {
+      grid-template-columns: 1fr;
+      gap: 0.85rem;
+    }
+    .lightbox {
+      grid-column: 1;
+      width: 100%;
+      min-height: 0;
+      height: min(86vh, 760px);
+    }
+    .lightbox-stage > .lb-nav.prev,
+    .lightbox-stage > .lb-nav.next {
+      grid-column: 1;
+      justify-self: center;
+    }
+    .lb-tags-row,
+    .tag-editor-row,
+    .lb-actions { flex-wrap: wrap; }
+  }
+
+  .lightbox-stage:fullscreen {
+    width: 100vw;
+    height: 100vh;
+    max-width: none;
+    padding: 1.5rem 2rem;
+    background: rgba(0, 0, 0, 0.96);
+  }
+
+  .lightbox-stage:fullscreen .lightbox {
+    max-width: none;
+    width: 100%;
+    max-height: 100%;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .lightbox-stage:fullscreen .lb-img-wrap,
+  .lightbox-stage:fullscreen .lb-img-wrap img {
+    max-height: 100%;
   }
 </style>

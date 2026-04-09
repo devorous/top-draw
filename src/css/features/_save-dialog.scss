@@ -365,6 +365,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
+  gap: 14px;
 }
 
 .saveModeOptionsCheckbox {
@@ -387,6 +388,44 @@
     font-size: 12px;
     font-weight: 500;
     color: var(--text-primary);
+  }
+}
+
+.saveModeOptionsField {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+
+  span {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 34px;
+    white-space: nowrap;
+  }
+
+  textarea {
+    width: 320px;
+    max-width: 36vw;
+    min-height: 56px;
+    resize: vertical;
+    background: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    padding: 8px 10px;
+    font: inherit;
+
+    &::placeholder {
+      color: var(--text-tertiary);
+    }
+
+    &:focus {
+      outline: none;
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 45%, transparent);
+    }
   }
 }
 
@@ -476,6 +515,21 @@
   .saveModeOptionsPanelBody {
     grid-column: 1;
     justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .saveModeOptionsField {
+    width: 100%;
+    flex-direction: column;
+    gap: 6px;
+
+    span {
+      line-height: 1.2;
+    }
+
+    textarea {
+      width: 100%;
+    }
   }
 
   .saveModeOptionsPanelFooter {

@@ -2782,7 +2782,7 @@ export class DrawingApp {
    * @param {HTMLCanvasElement} [canvas]
    * @async
    */
-  async handleSaveToGallery(canvas) {
+  async handleSaveToGallery(canvas, metadata = {}) {
     const token = localStorage.getItem('topDrawAuthToken');
     if (!token) {
       this.ui.showToast('Log in to save to the gallery');
@@ -2806,7 +2806,7 @@ export class DrawingApp {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ imageData }),
+        body: JSON.stringify({ imageData, title: metadata.title || '' }),
       });
 
       const data = await res.json().catch(() => ({}));

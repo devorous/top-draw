@@ -46,6 +46,7 @@ export class SaveMode {
 
     // Options state
     this.transparent = false;
+    this.galleryCaption = '';
 
     this._createElements();
     this._setupEventListeners();
@@ -118,6 +119,10 @@ export class SaveMode {
         <label class="saveModeOptionsCheckbox">
           <input type="checkbox" id="saveModeTransparent">
           <span>Transparent Background</span>
+        </label>
+        <label class="saveModeOptionsField" for="saveModeCaption">
+          <span>Caption</span>
+          <textarea id="saveModeCaption" rows="2" maxlength="280" placeholder="Add a short caption for the gallery (optional)"></textarea>
         </label>
       </div>
       <div class="saveModeOptionsPanelFooter">
@@ -206,6 +211,11 @@ export class SaveMode {
       this._drawSnapshot();
     });
 
+    this.captionInput = this.optionsPanel.querySelector('#saveModeCaption');
+    this.captionInput?.addEventListener('input', (e) => {
+      this.galleryCaption = e.target.value;
+    });
+
     // Escape key to close
     this._keyHandler = (e) => {
       if (e.key === 'Escape' && this.isActive) {
@@ -234,8 +244,10 @@ export class SaveMode {
     this.selection = null;
     this.lassoPoints = [];
     this.transparent = false;
+    this.galleryCaption = '';
     this.activeTool = 'select';
     this.optionsPanel.querySelector('#saveModeTransparent').checked = false;
+    if (this.captionInput) this.captionInput.value = '';
 
     // Size canvases to match board
     const [height, width] = this.board.dimensions;
@@ -804,7 +816,7 @@ export class SaveMode {
       link.click();
       this.ui.showToast('Image saved!');
     } else {
-      await this.app.handleSaveToGallery(canvas);
+      await this.app.handleSaveToGallery(canvas, { title: this.galleryCaption.trim() });
     }
 
     this.close();
