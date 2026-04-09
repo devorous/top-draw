@@ -81,13 +81,14 @@
   }
 
   function handleLayerHover(layerIdx, event) {
-    if (!appState.layerManager || !layerPreviewInstance) return;
+    const liveLayerManager = appState.board?.layerManager || appState.layerManager;
+    if (!liveLayerManager || !layerPreviewInstance) return;
 
     hoveredLayer = layerIdx;
     hoveredLayerBtn = event.currentTarget;
 
     const rect = event.currentTarget.getBoundingClientRect();
-    layerPreviewInstance.show(layerIdx, appState.layerManager, rect.left, rect.top + rect.height / 2);
+    layerPreviewInstance.show(layerIdx, liveLayerManager, rect.left, rect.top + rect.height / 2);
   }
 
   function handleLayerLeave() {

@@ -133,7 +133,10 @@ export class WebSocketClient {
       const currentPort = window.location.port;
 
       if (currentPort === '3000') {
-        baseUrl = `ws://localhost:8000`;
+        // In Vite dev we proxy WebSocket traffic through `/ws`, which keeps the
+        // client aligned with the current origin instead of assuming the backend
+        // is directly reachable at localhost:8000 from the browser.
+        baseUrl = `${wsProtocol}://${window.location.host}/ws`;
       } else {
         baseUrl = import.meta.env.VITE_WS_SERVER_URL || `${wsProtocol}://${window.location.host}`;
       }

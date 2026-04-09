@@ -539,7 +539,7 @@ export async function sanitizeMessage(data) {
       sanitized.tiles = sanitizeUintArray(data.tiles || data.dirtyTiles, { max: 1_000_000, maxLength: MAX_TILE_LIST });
       return sanitized;
 
-    case T.CHAT_IMG: {
+    case T.CHAT_IMG:
     case T.STAFF_CHAT_IMG: {
       const imageValidation = await validateImageBytes(data.cimg, {
         maxBytes: MAX_CHAT_IMAGE_BYTES,
