@@ -2648,6 +2648,8 @@ export class SelectTool extends Tool {
       this.board.app.ui.showToast('Copied to clipboard!');
     }
 
+    void this.board.app?.copyImageDataToClipboard?.(this.clipboard, { silent: true });
+
     return true;
   }
 

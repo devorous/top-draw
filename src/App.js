@@ -34,6 +34,13 @@ import { MirrorRegionController } from './ui/MirrorRegionController.js';
 import { SnapshotManager } from './remote/SnapshotManager.js';
 import { loadAppPreferences, saveAppPreferences, THEME_COLOR_KEYS } from './config/AppPreferences.js';
 import { getTextFontDefaults, normalizeTextFont } from './config/textFonts.js';
+import {
+  copyCanvasToSystemClipboard,
+  copyImageDataToSystemClipboard,
+  isTauriDesktop,
+  openImageViaNativeDialog,
+  saveCanvasViaNativeDialog
+} from './platform/desktop.js';
 import initWasm from './wasm/ddraw_wasm.js';
 
 // Svelte UI Components
@@ -645,8 +652,22 @@ export class DrawingApp {
     if (elements.patternBtn) {
       elements.patternBtn.addEventListener('click', () => this.selectTool('pattern'));
     }
-    elements.uploadBtn.addEventListener('click', () => {
+    elements.uploadBtn.addEventListener('click', async () => {
       if (!this.canUseImageFeatures(true)) return;
+      if (isTauriDesktop()) {
+        try {
+          const selectedImage = await openImageViaNativeDialog();
+          if (selectedImage?.dataUrl) {
+            this.handleImageDataUrl(selectedImage.dataUrl);
+          }
+        } catch (error) {
+          console.error('[Desktop] Native image import failed:', error);
+          this.ui.showToast('Image picker failed, falling back to browser upload', 3000, 'error');
+          elements.imageUploadInput.click();
+        }
+        return;
+      }
+
       elements.imageUploadInput.click();
     });
     elements.imageUploadInput.addEventListener('change', (e) => {
@@ -2824,12 +2845,9 @@ export class DrawingApp {
       }
 
       if (locally) {
-        const link = document.createElement('a');
         const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-        link.download = `selection-${ts}.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-        this.ui.showToast('Selection saved!');
+        const saved = await this.saveCanvasLocally(canvas, `selection-${ts}.png`, 'Selection saved!');
+        if (!saved) return;
       } else {
         await this.handleSaveToGallery(canvas);
       }
@@ -2837,10 +2855,9 @@ export class DrawingApp {
       const canvas = this.board.getExportCanvas(transparent);
 
       if (locally) {
-        const link = document.createElement('a');
-        link.download = `${new Date().toString().slice(0, 24)}.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
+        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+        const saved = await this.saveCanvasLocally(canvas, `board-${ts}.png`, 'Image saved!');
+        if (!saved) return;
       } else {
         await this.handleSaveToGallery(canvas);
       }
@@ -2888,7 +2905,7 @@ export class DrawingApp {
           this.ui.showToast('This image is already in the gallery', 3000, 'error');
         } else {
           this.ui.showToast(`Gallery save failed: ${data.error || res.status}`, 3000, 'error');
-          this._offerLocalSave(targetCanvas);
+          await this._offerLocalSave(targetCanvas);
         }
         return;
       }
@@ -2897,7 +2914,7 @@ export class DrawingApp {
     } catch (err) {
       console.error('[Gallery] Save error:', err);
       this.ui.showToast(`Gallery save failed: ${err.message}`, 3000, 'error');
-      this._offerLocalSave(targetCanvas);
+      await this._offerLocalSave(targetCanvas);
     } finally {
       if (btn && originalText) btn.textContent = originalText;
     }
@@ -2908,13 +2925,9 @@ export class DrawingApp {
    * @param {HTMLCanvasElement} canvas
    * @private
    */
-  _offerLocalSave(canvas) {
-    const link = document.createElement('a');
+  async _offerLocalSave(canvas) {
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-    link.download = `drawing-${ts}.png`;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
-    setTimeout(() => this.ui.showToast('Saved locally instead'), 500);
+    await this.saveCanvasLocally(canvas, `drawing-${ts}.png`, 'Saved locally instead');
   }
 
   /**
@@ -4595,21 +4608,83 @@ export class DrawingApp {
 
   // Image Upload/Drop handlers
 
+  async saveCanvasLocally(canvas, suggestedName, successMessage = 'Image saved!') {
+    if (isTauriDesktop()) {
+      try {
+        const result = await saveCanvasViaNativeDialog(canvas, suggestedName);
+        if (result?.saved) {
+          this.ui.showToast(successMessage);
+          return true;
+        }
+        return false;
+      } catch (error) {
+        console.error('[Desktop] Native save failed:', error);
+        this.ui.showToast('Native save failed, using browser download instead', 3000, 'error');
+      }
+    }
+
+    const link = document.createElement('a');
+    link.download = suggestedName;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    this.ui.showToast(successMessage);
+    return true;
+  }
+
+  async copyCanvasToClipboard(canvas, options = {}) {
+    const copied = await copyCanvasToSystemClipboard(canvas);
+    if (copied) {
+      if (!options.silent) this.ui.showToast('Copied to clipboard!');
+      return true;
+    }
+
+    if (!options.silent) {
+      this.ui.showToast('Clipboard copy is not available here', 3000, 'error');
+    }
+    return false;
+  }
+
+  async copyImageDataToClipboard(clipboardData, options = {}) {
+    if (!clipboardData?.imageData || !clipboardData?.width || !clipboardData?.height) {
+      return false;
+    }
+
+    const copied = await copyImageDataToSystemClipboard(
+      clipboardData.imageData,
+      clipboardData.width,
+      clipboardData.height
+    );
+
+    if (copied) {
+      if (!options.silent) this.ui.showToast('Copied to clipboard!');
+      return true;
+    }
+
+    if (!options.silent) {
+      this.ui.showToast('Clipboard copy is not available here', 3000, 'error');
+    }
+    return false;
+  }
+
+  handleImageDataUrl(dataUrl) {
+    if (!dataUrl || !this.canUseImageFeatures(true)) return;
+
+    const img = new Image();
+    img.onload = () => {
+      const selectTool = this.toolManager.getTool('select');
+      if (selectTool) {
+        selectTool.pasteImage(img);
+      }
+    };
+    img.src = dataUrl;
+  }
+
   handleImageFile(file) {
     if (!file || !file.type.startsWith('image/')) return;
     if (!this.canUseImageFeatures(true)) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const selectTool = this.toolManager.getTool('select');
-        if (selectTool) {
-          selectTool.pasteImage(img);
-        }
-      };
-      img.src = e.target.result;
-    };
+    reader.onload = (e) => this.handleImageDataUrl(e.target.result);
     reader.readAsDataURL(file);
   }
 

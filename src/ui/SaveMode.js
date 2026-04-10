@@ -128,6 +128,7 @@ export class SaveMode {
       </div>
       <div class="saveModeOptionsPanelFooter">
         <button class="btn secondary" id="saveModeCancelInteractive">Cancel</button>
+        <button class="btn secondary" id="saveModeCopyInteractive">Copy</button>
         <button class="btn secondary" id="saveModeGalleryInteractive">Save to Gallery</button>
         <button class="btn primary" id="saveModeLocalInteractive">Save Locally</button>
       </div>
@@ -203,6 +204,7 @@ export class SaveMode {
 
     // Options panel buttons
     this.optionsPanel.querySelector('#saveModeCancelInteractive').addEventListener('click', () => this.close());
+    this.optionsPanel.querySelector('#saveModeCopyInteractive').addEventListener('click', () => this._performCopy());
     this.optionsPanel.querySelector('#saveModeLocalInteractive').addEventListener('click', () => this._performSave(true));
     this.optionsPanel.querySelector('#saveModeGalleryInteractive').addEventListener('click', () => this._performSave(false));
 
@@ -782,47 +784,54 @@ export class SaveMode {
    * @param {boolean} locally - If true, downloads locally. If false, uploads to gallery.
    */
   async _performSave(locally) {
-    let canvas;
-
-    if (this.preExistingCanvas && this.preExistingCanvasFixedSelection) {
-      // Use the pre-existing canvas (from SelectTool)
-      if (this.transparent) {
-        canvas = this.preExistingCanvas;
-      } else {
-        // Add board background behind the selection
-        canvas = document.createElement('canvas');
-        canvas.width = this.preExistingCanvas.width;
-        canvas.height = this.preExistingCanvas.height;
-        const ctx = canvas.getContext('2d');
-        const [r, g, b, a] = this.board.backgroundColor;
-        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(this.preExistingCanvas, 0, 0);
-      }
-    } else if (this.mode === 'lasso' && this.lassoPoints.length > 2) {
-      // Lasso selection - create masked canvas
-      canvas = this._createLassoExportCanvas();
-    } else if (this.selection && this.selection.width > 0 && this.selection.height > 0) {
-      // Rectangle selection - crop to selection
-      canvas = this._createRectExportCanvas();
-    } else {
-      // Full board
-      canvas = this._createFullExportCanvas();
-    }
+    const canvas = this._createExportCanvas();
 
     if (locally) {
-      const link = document.createElement('a');
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
       const prefix = (this.preExistingCanvas || this.selection || this.lassoPoints.length > 2) ? 'selection' : 'board';
-      link.download = `${prefix}-${ts}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-      this.ui.showToast('Image saved!');
+      const saved = await this.app.saveCanvasLocally(canvas, `${prefix}-${ts}.png`, 'Image saved!');
+      if (!saved) return;
     } else {
       await this.app.handleSaveToGallery(canvas, { title: this.galleryCaption.trim() });
     }
 
     this.close();
+  }
+
+  async _performCopy() {
+    const canvas = this._createExportCanvas();
+    const copied = await this.app.copyCanvasToClipboard(canvas);
+    if (copied) {
+      this.close();
+    }
+  }
+
+  _createExportCanvas() {
+    if (this.preExistingCanvas && this.preExistingCanvasFixedSelection) {
+      if (this.transparent) {
+        return this.preExistingCanvas;
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = this.preExistingCanvas.width;
+      canvas.height = this.preExistingCanvas.height;
+      const ctx = canvas.getContext('2d');
+      const [r, g, b, a] = this.board.backgroundColor;
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(this.preExistingCanvas, 0, 0);
+      return canvas;
+    }
+
+    if (this.mode === 'lasso' && this.lassoPoints.length > 2) {
+      return this._createLassoExportCanvas();
+    }
+
+    if (this.selection && this.selection.width > 0 && this.selection.height > 0) {
+      return this._createRectExportCanvas();
+    }
+
+    return this._createFullExportCanvas();
   }
 
   /**
