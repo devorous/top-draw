@@ -33,6 +33,9 @@ import rotateIconUrl from '../assets/icons/rotate-icon.svg';
 import pepperIconUrl from '../assets/icons/pepper.png';
 import patternIconUrl from '../assets/icons/pattern-icon.svg';
 
+const fillBucketIconUrl = '/images/fillbucket-icon.svg';
+const blendIconUrl = '/images/blend-icon.svg';
+
 /**
  * UI Manager class
  */
@@ -400,8 +403,9 @@ menuBtn: document.getElementById('menuBtn'),
       rectangle: rectangleIconUrl,
       circle: circleIconUrl,
       text: textIconUrl,
+      fill: fillBucketIconUrl,
       erase: eraserIconUrl,
-      blur: brushIconUrl, // Reuse brush icon
+      blur: blendIconUrl,
       circleBlur: circleBlurIconUrl,
       glitchBlur: glitchIconUrl,
       inkdropper: inkdropperIconUrl,
@@ -933,6 +937,7 @@ menuBtn: document.getElementById('menuBtn'),
       rectangle: this.elements.rectangleBtn,
       circle: this.elements.circleBtn,
       text: this.elements.textBtn,
+      fill: this.elements.fillBtn,
       erase: this.elements.eraseBtn,
       blur: this.elements.blurBtn,
       circleBlur: this.elements.circleBlurBtn,

@@ -4,14 +4,34 @@
   const CHAT_MODE_STORAGE_KEY = 'topdraw-chat-mode';
   const CHAT_POSITION_STORAGE_KEY = 'topdraw-chat-position';
   const EMOJI_USAGE_STORAGE_KEY = 'topdraw-chat-emoji-usage';
+  const PEPPER_EMOJI = '__pepper__';
   const COMPOSER_EMOJIS = [
-    '\u{1F600}', '\u{1F602}', '\u{1F60D}', '\u{1F525}', '\u{1F3A8}', '\u{1F44F}',
-    '\u{1F91D}', '\u{1F4A1}', '\u2728', '\u{1F62E}', '\u{1F44D}', '\u{1F44E}'
+    '\u{1F600}', '\u{1F603}', '\u{1F604}', '\u{1F601}', '\u{1F606}', '\u{1F605}',
+    '\u{1F923}', '\u{1F602}', '\u{1F642}', '\u{1F643}', '\u{1F609}', '\u{1F60A}',
+    '\u{1F60D}', '\u{1F970}', '\u{1F618}', '\u{1F60E}', '\u{1F929}', '\u{1F60F}',
+    '\u{1F62D}', '\u{1F97A}', '\u{1F62E}', '\u{1F631}', '\u{1F92F}', '\u{1F525}',
+    '\u2728', '\u{1F4AF}', '\u{1F389}', '\u{1F44F}', '\u{1F44D}', '\u{1F44E}',
+    '\u{1F64C}', '\u{1F64F}', '\u{1F91D}', '\u2764\uFE0F', '\u{1F49C}',
+    '\u{1F496}', '\u{1F4A5}', '\u{1F4A8}', '\u{1F4A6}', '\u{1F440}', '\u{1F440}',
+    '\u{1F914}', '\u{1F928}', '\u{1F910}', '\u{1F92D}', '\u{1F92B}', '\u{1F4A9}',
+    '\u{1F921}', '\u{1F975}', '\u{1F976}', '\u{1F383}', '\u{1F921}', '\u{1F47D}',
+    '\u{1F47B}', '\u{1F480}', '\u{1F916}', '\u{1F47A}', '\u{1F47F}', '\u{1F32E}',
+    '\u{1F34C}', '\u{1F355}', '\u{1F354}', '\u{1F36A}', '\u{1F37F}', '\u{1F3A8}',
+    '\u{1F3AE}', '\u{1F3C6}', '\u{1F3C1}', '\u{1F680}', '\u{1F4A1}', '\u{1F44C}',
+    PEPPER_EMOJI
   ];
   const REACTION_EMOJIS = [
     '\u{1F44D}', '\u2764\uFE0F', '\u{1F525}', '\u{1F602}', '\u{1F62E}', '\u{1F3A8}',
-    '\u{1F44F}', '\u2728', '\u{1F389}', '\u{1F60D}', '\u{1F914}', '\u{1F44E}'
+    '\u{1F44F}', '\u2728', '\u{1F389}', '\u{1F60D}', '\u{1F914}', '\u{1F44E}',
+    '\u{1F4AF}', '\u{1F4A9}', '\u{1F923}', '\u{1F97A}', '\u{1F62D}', '\u{1F440}',
+    '\u{1F64C}', '\u{1F64F}', '\u{1F92F}', '\u{1F47D}', '\u{1F480}', '\u{1F32E}'
   ];
+  const CHAT_UPLOAD_MIME_TYPES = new Set([
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/gif'
+  ]);
 
   let { onSend = null, onStaffSend = null, onStaffSendImage = null, onDM = null, onSendImage = null, onReact = null } = $props();
 
@@ -36,6 +56,7 @@
   let showEmojiPicker = $state(false);
   let composerImage = $state(null);
   let emojiUsage = $state(loadEmojiUsage());
+  let expandedImage = $state(null);
 
   let visible = $derived(appState.chatVisible);
   let recipient = $derived.by(() => {
@@ -398,14 +419,22 @@
     if (!threadMessages?.length) return;
 
     let changed = false;
-    threadMessages.forEach((msg) => {
+    const nextThreadMessages = threadMessages.map((msg) => {
       if (!msg.fromSelf && !msg.read) {
-        msg.read = true;
         changed = true;
+        return { ...msg, read: true };
       }
+      return msg;
     });
 
-    if (changed) messages.dms = new Map(messages.dms);
+    if (!changed) return;
+
+    const nextDms = new Map(messages.dms);
+    nextDms.set(userId, nextThreadMessages);
+    messages = {
+      ...messages,
+      dms: nextDms
+    };
   }
 
   function showToast(username, message, color) {
@@ -468,8 +497,12 @@
 
     for (const [threadId, threadMessages] of messages.dms.entries()) {
       if (applyReactionToList(threadMessages, payload)) {
-        messages.dms.set(threadId, [...threadMessages]);
-        messages.dms = new Map(messages.dms);
+        const nextDms = new Map(messages.dms);
+        nextDms.set(threadId, [...threadMessages]);
+        messages = {
+          ...messages,
+          dms: nextDms
+        };
         updated = true;
         break;
       }
@@ -534,9 +567,12 @@
   function addDirectMessage(userId, message) {
     rememberDMUser(userId);
     const threadMessages = messages.dms.get(userId) || [];
-    threadMessages.push(message);
-    messages.dms.set(userId, threadMessages);
-    messages.dms = new Map(messages.dms);
+    const nextDms = new Map(messages.dms);
+    nextDms.set(userId, [...threadMessages, message]);
+    messages = {
+      ...messages,
+      dms: nextDms
+    };
 
     if (!message.fromSelf && !visible) {
       appState.chatUnreadCount++;
@@ -684,7 +720,15 @@
   }
 
   function isImageFile(file) {
-    return !!file && typeof file.type === 'string' && file.type.startsWith('image/');
+    return !!file && typeof file.type === 'string' && CHAT_UPLOAD_MIME_TYPES.has(file.type);
+  }
+
+  function emojiInsertValue(emoji) {
+    return emoji === PEPPER_EMOJI ? '\u{1F336}\uFE0F' : emoji;
+  }
+
+  function isPepperEmoji(emoji) {
+    return emoji === PEPPER_EMOJI;
   }
 
   function readFileAsDataUrl(file) {
@@ -697,7 +741,10 @@
   }
 
   async function queueComposerImage(file) {
-    if (!isImageFile(file)) return;
+    if (!isImageFile(file)) {
+      showToast('Chat', 'Only PNG, JPEG, WebP, and GIF are supported in chat.', '#ff9b73');
+      return;
+    }
     const dataUrl = await readFileAsDataUrl(file);
     composerImage = {
       name: file.name || 'image',
@@ -722,6 +769,7 @@
 
   async function handleDrop(event) {
     event.preventDefault();
+    event.stopPropagation();
     isDropTarget = false;
     dropDepth = 0;
 
@@ -732,6 +780,7 @@
   function handleDragEnter(event) {
     if (![...(event.dataTransfer?.items || [])].some((item) => item.type?.startsWith('image/'))) return;
     event.preventDefault();
+    event.stopPropagation();
     dropDepth += 1;
     isDropTarget = true;
   }
@@ -739,23 +788,33 @@
   function handleDragOver(event) {
     if (![...(event.dataTransfer?.items || [])].some((item) => item.type?.startsWith('image/'))) return;
     event.preventDefault();
+    event.stopPropagation();
     isDropTarget = true;
   }
 
   function handleDragLeave(event) {
     if (![...(event.dataTransfer?.items || [])].some((item) => item.type?.startsWith('image/'))) return;
     event.preventDefault();
+    event.stopPropagation();
     dropDepth = Math.max(0, dropDepth - 1);
     if (dropDepth === 0) isDropTarget = false;
   }
 
   function insertEmoji(emoji) {
-    messageInput = `${messageInput}${emoji}`;
+    messageInput = `${messageInput}${emojiInsertValue(emoji)}`;
     recordEmojiUsage(emoji);
   }
 
   function openEmojiPicker() {
     showEmojiPicker = !showEmojiPicker;
+  }
+
+  function openImageViewer(imageData) {
+    expandedImage = imageData || null;
+  }
+
+  function closeImageViewer() {
+    expandedImage = null;
   }
 
   export function addChatMessage(username, message, color, userId = null, messageId = createMessageId()) {
@@ -929,7 +988,7 @@
     <div class="message-content-row">
       <div class="message-copy">
         {#if message.type === 'image'}
-          <button class="chat-image-card" onclick={() => window.open(message.imageData, '_blank')} type="button">
+          <button class="chat-image-card" onclick={() => openImageViewer(message.imageData)} type="button">
             <img src={message.imageData} alt="Chat upload" class="chat-image" />
           </button>
         {/if}
@@ -972,6 +1031,14 @@
   </div>
 {/if}
 
+{#if expandedImage}
+  <button class="chat-image-viewer" onclick={closeImageViewer} type="button" aria-label="Close image viewer">
+    <div class="chat-image-viewer-frame">
+      <img src={expandedImage} alt="Expanded chat upload" class="chat-image-viewer-image" />
+    </div>
+  </button>
+{/if}
+
 {#if visible}
   <section class="chat-shell" class:full={chatMode === 'full'} class:compact={chatMode === 'compact'} class:dragging={isDragging} bind:this={chatEl}>
     <aside class="chat-rail">
@@ -991,10 +1058,7 @@
 
       <div class="rail-thread-list">
         {#each activeThreads as thread (thread.id)}
-          <button class="rail-tab" class:active={activeView === 'dm' && Number(recipient?.id) === Number(thread.id)} onclick={() => openThreadById(thread.id)} title={thread.user?.username || 'Direct message'} type="button">
-            <span class="rail-avatar" style="--avatar-color: {thread.user?.color || '#6f86a3'}">
-              {(thread.user?.username || '?').slice(0, 1).toUpperCase()}
-            </span>
+          <button class="rail-tab thread-tab" class:active={activeView === 'dm' && Number(recipient?.id) === Number(thread.id)} onclick={() => openThreadById(thread.id)} title={thread.user?.username || 'Direct message'} type="button">
             <span class="rail-tab-name">{thread.user?.username || 'Unknown'}</span>
             {#if getUnreadCount(thread.id) > 0}
               <span class="rail-badge">{getUnreadCount(thread.id)}</span>
@@ -1141,16 +1205,28 @@
                 <span class="reaction-picker-label">Recent</span>
                 <div class="reaction-picker-grid">
                   {#each recentEmojis() as emoji (emoji)}
-                    <button class="emoji-btn" onclick={() => insertEmoji(emoji)} type="button">{emoji}</button>
+                    <button class="emoji-btn" onclick={() => insertEmoji(emoji)} type="button">
+                      {#if isPepperEmoji(emoji)}
+                        <img src="/images/pepper.png" alt="Pepper" class="emoji-btn-image" />
+                      {:else}
+                        {emoji}
+                      {/if}
+                    </button>
                   {/each}
                 </div>
               </div>
             {/if}
             <div class="emoji-picker-section">
-              <span class="reaction-picker-label">Most used</span>
+              <span class="reaction-picker-label">Emojis</span>
               <div class="reaction-picker-grid">
             {#each rankedComposerEmojis() as emoji (emoji)}
-              <button class="emoji-btn" onclick={() => insertEmoji(emoji)} type="button">{emoji}</button>
+              <button class="emoji-btn" onclick={() => insertEmoji(emoji)} type="button">
+                {#if isPepperEmoji(emoji)}
+                  <img src="/images/pepper.png" alt="Pepper" class="emoji-btn-image" />
+                {:else}
+                  {emoji}
+                {/if}
+              </button>
             {/each}
               </div>
             </div>
@@ -1159,8 +1235,10 @@
 
         <div class="composer-row">
           <input class="composer-file-input" bind:this={fileInputEl} onchange={handleFileInputChange} accept="image/*" type="file" />
-          <button class="composer-tool" onclick={openFilePicker} disabled={activeView === 'directory'} title="Upload image" type="button">+</button>
-          <button class="composer-tool" onclick={openEmojiPicker} disabled={activeView === 'directory'} title="Add emoji" type="button">{COMPOSER_EMOJIS[0]}</button>
+          <button class="composer-tool upload-tool" onclick={openFilePicker} disabled={activeView === 'directory'} title="Upload image" type="button">
+            <img src="/images/upload-icon.svg" alt="" />
+          </button>
+          <button class="composer-tool emoji-tool" onclick={openEmojiPicker} disabled={activeView === 'directory'} title="Add emoji" type="button">{COMPOSER_EMOJIS[0]}</button>
           <textarea class="chat-input" bind:value={messageInput} onkeydown={handleKeydown} placeholder={activeView === 'all' ? 'Message the room...' : activeView === 'staff' ? 'Message staff...' : activeView === 'dm' && recipient ? `Message ${recipient.username}...` : 'Select someone to start a DM...'} rows="1" disabled={activeView === 'directory'}></textarea>
           <button class="chat-send" onclick={handleSend} disabled={activeView === 'directory'} type="button">Send</button>
         </div>
@@ -1171,8 +1249,7 @@
 
 <style>
   .chat-shell {
-    --chat-bg:
-      linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 94%, black), color-mix(in srgb, var(--bg-primary) 96%, black));
+    --chat-bg: color-mix(in srgb, var(--bg-secondary) 94%, black);
     --chat-border: var(--border-subtle);
     --chat-text: var(--text-primary);
     --chat-muted: var(--text-secondary);
@@ -1206,16 +1283,27 @@
     grid-template-columns: 92px minmax(0, 1fr);
   }
 
+  .chat-shell.compact .chat-main {
+    position: relative;
+    min-width: 0;
+    overflow: visible;
+    z-index: 3;
+  }
+
   .chat-rail {
     display: flex;
     flex-direction: column;
     gap: 10px;
     min-height: 0;
     padding: 14px 12px;
-    background:
-      linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 92%, black), color-mix(in srgb, var(--bg-primary) 96%, black)),
-      radial-gradient(circle at top, color-mix(in srgb, var(--accent-primary) 15%, transparent), transparent 52%);
+    background: color-mix(in srgb, var(--bg-secondary) 92%, black);
     border-right: 1px solid var(--border-subtle);
+    position: relative;
+    z-index: 1;
+  }
+
+  .chat-shell.compact .chat-rail {
+    padding-bottom: 112px;
   }
 
   .rail-tab,
@@ -1334,8 +1422,7 @@
 
   .rail-avatar,
   .directory-avatar {
-    background:
-      linear-gradient(135deg, color-mix(in srgb, var(--avatar-color) 78%, white), color-mix(in srgb, var(--avatar-color) 55%, black));
+    background: color-mix(in srgb, var(--avatar-color) 82%, black 18%);
     color: white;
     text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
   }
@@ -1359,7 +1446,7 @@
   }
 
   .public-tab .rail-tab-name {
-    font-weight: 800;
+    font-weight: 600;
   }
 
   .rail-action span:first-child {
@@ -1393,9 +1480,7 @@
     grid-template-rows: auto minmax(0, 1fr) auto;
     min-width: 0;
     min-height: 0;
-    background:
-      linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 8%, transparent), transparent 18%),
-      linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 95%, black), color-mix(in srgb, var(--bg-primary) 98%, black));
+    background: color-mix(in srgb, var(--bg-secondary) 95%, black);
   }
 
   .chat-topbar {
@@ -1417,7 +1502,7 @@
     margin: 0.5rem 0 0.25rem;
     color: color-mix(in srgb, var(--accent-primary) 58%, var(--text-primary));
     font-size: 0.72rem;
-    font-weight: 700;
+    font-weight: 500;
     letter-spacing: 0.14em;
     text-transform: uppercase;
   }
@@ -1475,6 +1560,16 @@
     background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
   }
 
+  .chat-stage.drop-target::after {
+    content: '';
+    position: absolute;
+    inset: 8px;
+    border: 2px solid color-mix(in srgb, var(--accent-primary) 70%, white 10%);
+    border-radius: 18px;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 24%, transparent);
+    pointer-events: none;
+  }
+
   .drop-overlay {
     position: absolute;
     inset: 16px;
@@ -1529,6 +1624,7 @@
   .directory-list {
     min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 0.8rem 1.15rem 0.9rem;
   }
 
@@ -1546,6 +1642,9 @@
     display: grid;
     grid-template-columns: 58px minmax(0, 1fr);
     gap: 0.65rem;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     padding: 0.18rem 0;
     border-bottom: 0;
   }
@@ -1581,13 +1680,13 @@
   }
 
   .message-body {
+    position: relative;
     min-width: 0;
+    max-width: 100%;
   }
 
   .message-content-row {
-    display: inline-flex;
-    align-items: flex-start;
-    gap: 0.55rem;
+    display: block;
     min-width: 0;
     max-width: 100%;
   }
@@ -1606,18 +1705,36 @@
     padding: 0;
     background: transparent;
     font-size: 0.88rem;
-    font-weight: 800;
+    font-weight: 500;
     border: 0;
     box-shadow: none;
     cursor: context-menu;
     line-height: 1.15;
   }
 
+  .thread-tab {
+    justify-content: center;
+    text-align: center;
+    min-height: 46px;
+    width: 100%;
+    margin-left: 0;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    border-radius: 16px;
+  }
+
+  .thread-tab .rail-tab-name {
+    width: 100%;
+    font-size: 0.86rem;
+    font-weight: 600;
+    text-align: center;
+  }
+
   .message-text {
     margin: 0.08rem 0 0;
     color: var(--text-primary);
     font-size: 0.9rem;
-    line-height: 1.45;
+    line-height: 1.16;
     word-break: break-word;
     user-select: text;
     -webkit-user-select: text;
@@ -1625,6 +1742,7 @@
 
   .message-row.grouped .message-text {
     margin-top: 0;
+    line-height: 1.08;
   }
 
   .chat-image-card {
@@ -1646,33 +1764,62 @@
   }
 
   .reaction-row {
+    position: relative;
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 0.32rem;
-    flex-shrink: 0;
-    margin-top: 0.08rem;
-    margin-left: auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.22rem;
+    width: fit-content;
+    max-width: 100%;
+    margin-top: 0.18rem;
   }
 
   .reaction-pills,
   .reaction-actions {
     display: flex;
+    gap: 0.24rem;
+  }
+
+  .reaction-pills {
     flex-wrap: wrap;
-    gap: 0.35rem;
-    justify-content: flex-end;
   }
 
   .reaction-actions {
+    flex-wrap: nowrap;
+    align-items: center;
+    position: absolute;
+    top: -0.02rem;
+    left: calc(100% + 1rem);
+    right: auto;
+    bottom: auto;
+    z-index: 2;
+    padding: 0.16rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-elevated) 92%, black 12%);
+    border: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
+    box-shadow: 0 10px 24px rgba(0, 0, 0,14);
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.14s ease;
+    white-space: nowrap;
+    transform: translate(6px, 0) scale(0.96);
+    transition: opacity 0.14s ease, transform 0.14s ease;
+  }
+
+  .dm-bubble-row.self .reaction-actions {
+    left: auto;
+    right: calc(100% + 0.28rem);
+    transform: translate(-6px, 0) scale(0.96);
   }
 
   .message-body:hover .reaction-actions,
   .dm-bubble:hover .reaction-actions {
     opacity: 1;
     pointer-events: auto;
+    transform: translate(0, 0) scale(1);
+  }
+
+  .dm-bubble-row.self .dm-bubble:hover .reaction-actions {
+    transform: translate(0, 0) scale(1);
   }
 
   .reaction-pill,
@@ -1680,12 +1827,13 @@
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
-    min-height: 24px;
-    padding: 0 0.48rem;
+    min-height: 20px;
+    padding: 0 0.42rem;
     border-radius: 999px;
     background: color-mix(in srgb, var(--bg-elevated) 78%, transparent);
     color: var(--chat-text);
-    font-size: 0.72rem;
+    font-size: 0.68rem;
+    line-height: 1;
   }
 
   .reaction-pill.active {
@@ -1694,26 +1842,29 @@
   }
 
   .quick-reaction {
-    width: 24px;
+    width: 22px;
+    min-height: 22px;
     justify-content: center;
     padding: 0;
-    opacity: 0.72;
+    border-radius: 999px;
+    background: transparent;
+    opacity: 0.88;
   }
 
   .emoji-picker {
     display: flex;
     flex-direction: column;
-    gap: 0.55rem;
-    padding: 0.55rem;
+    gap: 0.42rem;
+    padding: 0.42rem;
     border: 1px solid color-mix(in srgb, var(--border-subtle) 85%, transparent);
-    border-radius: 14px;
+    border-radius: 12px;
     background: color-mix(in srgb, var(--bg-elevated) 82%, black 6%);
   }
 
   .emoji-picker-section {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    gap: 0.24rem;
   }
 
   .reaction-picker-label {
@@ -1727,7 +1878,24 @@
   .reaction-picker-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.35rem;
+    gap: 0.22rem;
+  }
+
+  .emoji-picker .emoji-btn {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    border-radius: 10px;
+    font-size: 0.98rem;
+    line-height: 1;
+  }
+
+  .upload-tool img {
+    display: block;
+    width: 16px;
+    height: 16px;
+    filter: invert(1);
+    opacity: 0.9;
   }
 
   .dm-stream {
@@ -1745,6 +1913,7 @@
   }
 
   .dm-bubble {
+    position: relative;
     max-width: min(78%, 540px);
     padding: 0.62rem 0.78rem 0.58rem;
     border-radius: 18px 18px 18px 6px;
@@ -1757,12 +1926,31 @@
 
   .dm-bubble-row.self .dm-bubble {
     border-radius: 18px 18px 6px 18px;
-    background: linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 88%, white), color-mix(in srgb, var(--accent-secondary) 92%, black));
-    color: var(--bg-primary);
+    background: color-mix(in srgb, var(--accent-primary) 22%, var(--bg-elevated));
+    color: var(--chat-text);
   }
 
   .dm-bubble :global(.message-text) {
     color: inherit;
+  }
+
+  .dm-bubble :global(.message-text),
+  .dm-bubble :global(.message-row.grouped .message-text) {
+    line-height: 1.14;
+  }
+
+  .message-row.grouped {
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+
+  .message-row.grouped .message-body {
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+
+  .message-row.grouped .reaction-row {
+    margin-top: 0.12rem;
   }
 
   .dm-bubble span {
@@ -1779,7 +1967,7 @@
   }
 
   .dm-bubble-row.self .dm-bubble span {
-    color: color-mix(in srgb, var(--bg-primary) 58%, transparent);
+    color: color-mix(in srgb, var(--text-secondary) 68%, transparent);
   }
 
   .directory-list {
@@ -1842,6 +2030,19 @@
     flex-shrink: 0;
   }
 
+  .chat-shell.compact .chat-composer {
+    width: calc(100% + 92px);
+    margin-left: -92px;
+    padding: 0.8rem 0.85rem 0.9rem;
+    background: color-mix(in srgb, var(--bg-secondary) 88%, black 6%);
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: none;
+    overflow: hidden;
+    position: relative;
+    z-index: 4;
+  }
+
   .composer-row {
     display: grid;
     grid-template-columns: auto auto minmax(0, 1fr) auto;
@@ -1849,11 +2050,21 @@
     align-items: end;
   }
 
+  .chat-shell.compact .composer-row {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    grid-template-rows: 1fr 1fr;
+    column-gap: 0.45rem;
+    row-gap: 0.3rem;
+    align-items: stretch;
+  }
+
   .composer-file-input {
     display: none;
   }
 
   .composer-tool {
+    display: grid;
+    place-items: center;
     width: 42px;
     height: 42px;
     border-radius: 12px;
@@ -1861,6 +2072,28 @@
     color: var(--chat-text);
     font-size: 1rem;
     font-weight: 800;
+  }
+
+  .chat-shell.compact .composer-tool {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    font-size: 0.92rem;
+  }
+
+  .chat-shell.compact .upload-tool {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .chat-shell.compact .emoji-tool {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .chat-shell.compact .upload-tool img {
+    width: 14px;
+    height: 14px;
   }
 
   .composer-tool:hover {
@@ -1930,6 +2163,85 @@
     padding: 0.3rem 0 0;
   }
 
+  .chat-shell.compact .emoji-picker {
+    gap: 0.26rem;
+    padding: 0.28rem 0.32rem 0.08rem 0.4rem;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .chat-shell.compact .emoji-picker-section {
+    gap: 0.16rem;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .chat-shell.compact .reaction-picker-label {
+    font-size: 0.58rem;
+    letter-spacing: 0.06em;
+  }
+
+  .chat-shell.compact .reaction-picker-grid {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 28px;
+    grid-template-rows: repeat(2, 28px);
+    gap: 0.18rem;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-x: auto;
+    overflow-y: hidden;
+    align-content: start;
+    padding: 0.02rem 0 0.24rem;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--accent-primary) 42%, transparent) transparent;
+  }
+
+  .chat-shell.compact .emoji-picker .emoji-btn {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+    border-radius: 8px;
+    font-size: 0.96rem;
+  }
+
+  .chat-shell.compact .reaction-picker-grid::-webkit-scrollbar {
+    height: 8px;
+  }
+
+  .chat-shell.compact .reaction-picker-grid::-webkit-scrollbar-track {
+    background: color-mix(in srgb, var(--bg-elevated) 42%, transparent);
+    border-radius: 999px;
+  }
+
+  .chat-shell.compact .reaction-picker-grid::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--accent-primary) 44%, var(--bg-elevated));
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+  }
+
+  .chat-shell.compact .reaction-picker-grid::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--accent-primary) 58%, var(--bg-elevated));
+  }
+
+  .emoji-btn-image {
+    display: block;
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+  }
+
+  .chat-shell.compact .emoji-btn-image {
+    width: 16px;
+    height: 16px;
+  }
+
   .emoji-btn {
     width: 34px;
     height: 34px;
@@ -1939,7 +2251,6 @@
   }
 
   .chat-input {
-    flex: 1;
     min-height: 46px;
     max-height: 120px;
     padding: 0.8rem 1rem;
@@ -1952,6 +2263,13 @@
     line-height: 1.35;
     resize: none;
     outline: none;
+  }
+
+  .chat-shell.compact .chat-input {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    min-height: 78px;
+    padding: 0.7rem 0.85rem;
   }
 
   .chat-input::placeholder {
@@ -1977,6 +2295,14 @@
     color: var(--bg-primary);
     font-size: 0.84rem;
     font-weight: 800;
+  }
+
+  .chat-shell.compact .chat-send {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+    min-width: 88px;
+    min-height: 78px;
+    padding: 0 1.15rem;
   }
 
   .chat-send:hover {
@@ -2040,6 +2366,35 @@
     font-size: 0.76rem;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .chat-image-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.72);
+    border: 0;
+    cursor: zoom-out;
+  }
+
+  .chat-image-viewer-frame {
+    max-width: min(92vw, 1200px);
+    max-height: min(88vh, 900px);
+    padding: 10px;
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--bg-secondary) 92%, black);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38);
+  }
+
+  .chat-image-viewer-image {
+    display: block;
+    max-width: min(88vw, 1120px);
+    max-height: min(84vh, 820px);
+    border-radius: 12px;
+    object-fit: contain;
   }
 
   :global(.chat-link) {

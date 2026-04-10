@@ -161,6 +161,7 @@ export class DrawingApp {
     this._containerPanActive = false;
     this._lastPanPointerX = 0;
     this._lastPanPointerY = 0;
+    this._boardDragDepth = 0;
 
     // Rotate tool state
     this._rotateToolActive = false;  // true while rotate-tool drag is in progress
@@ -1274,10 +1275,13 @@ export class DrawingApp {
     this.keyboardHandler.init();
 
     // Drag and drop images
+    elements.boardContainer.addEventListener('dragenter', (e) => this.handleBoardImageDragEnter(e));
     elements.boardContainer.addEventListener('dragover', (e) => {
       e.preventDefault();
+      this.handleBoardImageDragOver(e);
       e.dataTransfer.dropEffect = 'copy';
     });
+    elements.boardContainer.addEventListener('dragleave', (e) => this.handleBoardImageDragLeave(e));
     elements.boardContainer.addEventListener('drop', (e) => this.handleImageDrop(e));
 
     window.addEventListener('resize', () => this.handleResize());
@@ -4611,7 +4615,9 @@ export class DrawingApp {
 
   handleImageDrop(e) {
     if (this.syncClient?.isCanvasInputBlocked()) return;
+    if (e.target?.closest?.('.chat-shell')) return;
     e.preventDefault();
+    this.clearBoardImageDragState();
     if (!this.canUseImageFeatures(true)) return;
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       this.handleImageFile(e.dataTransfer.files[0]);
@@ -4631,6 +4637,36 @@ export class DrawingApp {
         img.src = match[1];
       }
     }
+  }
+
+  handleBoardImageDragEnter(e) {
+    if (![...(e.dataTransfer?.items || [])].some((item) => item.type?.startsWith('image/'))) return;
+    if (e.target?.closest?.('.chat-shell')) return;
+    e.preventDefault();
+    this._boardDragDepth += 1;
+    this.ui.elements.boardContainer?.classList.add('image-dragover');
+  }
+
+  handleBoardImageDragOver(e) {
+    if (![...(e.dataTransfer?.items || [])].some((item) => item.type?.startsWith('image/'))) return;
+    if (e.target?.closest?.('.chat-shell')) return;
+    e.preventDefault();
+    this.ui.elements.boardContainer?.classList.add('image-dragover');
+  }
+
+  handleBoardImageDragLeave(e) {
+    if (![...(e.dataTransfer?.items || [])].some((item) => item.type?.startsWith('image/'))) return;
+    if (e.target?.closest?.('.chat-shell')) return;
+    e.preventDefault();
+    this._boardDragDepth = Math.max(0, this._boardDragDepth - 1);
+    if (this._boardDragDepth === 0) {
+      this.ui.elements.boardContainer?.classList.remove('image-dragover');
+    }
+  }
+
+  clearBoardImageDragState() {
+    this._boardDragDepth = 0;
+    this.ui.elements.boardContainer?.classList.remove('image-dragover');
   }
 
   // Tool Locks Management
