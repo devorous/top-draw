@@ -315,7 +315,7 @@ export class DrawingApp {
       this.wsClient.requestModList({ showHistory, search });
     };
     this.moderation.onRevokeEntry = (entryId, entryType, username) => {
-      const revokeType = entryType === 'mutes' ? 3 : 4;
+      const revokeType = entryType === 'mutes' ? 3 : entryType === 'shadowbans' ? 7 : 4;
       this.wsClient.sendModRevoke(revokeType, entryId, username);
     };
     this.moderation.onModWipe = (sessionIndex, targetName) => {

@@ -23,6 +23,8 @@ export const Action = Object.freeze({
   MOD_KICK:         'mod_kick',         // MOD+
   MOD_BAN:          'mod_ban',          // MOD+
   MOD_UNBAN:        'mod_unban',        // MOD+
+  MOD_SHADOWBAN:    'mod_shadowban',    // DEITY only
+  MOD_UNSHADOWBAN:  'mod_unshadowban',  // DEITY only
   MOD_WIPE:         'mod_wipe',         // MOD+
   MOD_LIST:         'mod_list',         // MOD+
 
@@ -49,6 +51,8 @@ const ACTION_MIN_ROLE = Object.freeze({
   [Action.MOD_KICK]:       Role.MOD,     // 4
   [Action.MOD_BAN]:        Role.MOD,     // 4
   [Action.MOD_UNBAN]:      Role.MOD,     // 4
+  [Action.MOD_SHADOWBAN]:  Role.DEITY,   // 9
+  [Action.MOD_UNSHADOWBAN]:Role.DEITY,   // 9
   [Action.MOD_WIPE]:       Role.MOD,     // 4
   [Action.MOD_LIST]:       Role.MOD,     // 4
 

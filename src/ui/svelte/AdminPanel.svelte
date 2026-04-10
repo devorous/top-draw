@@ -7,6 +7,7 @@
     'users',
     'rooms',
     'moderation',
+    'connection_events',
     'room_roles',
     'gallery',
     'favorites',

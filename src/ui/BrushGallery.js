@@ -2,6 +2,7 @@
  * @fileoverview Brush Gallery - loads and displays GIMP or image brushes from the brushes folder.
  */
 import { parseGbr, parseGih } from '../utils/parseGimp.js';
+import { BRUSH_MANIFEST } from './brushManifest.js';
 
 /**
  * BrushGallery class
@@ -16,7 +17,6 @@ export class BrushGallery {
     this.brushes = [];
     this.selectedBrush = null;
     this.onSelect = options.onSelect || (() => {});
-    this.manifestPath = '/brushes/manifest.json';
   }
 
   /**
@@ -35,20 +35,12 @@ export class BrushGallery {
   }
 
   /**
-   * Loads the brush manifest and subsequent brush files.
+   * Loads brush files from the checked-in manifest.
    * @returns {Promise<void>}
    */
   async loadBrushes() {
     try {
-      const response = await fetch(this.manifestPath);
-      if (!response.ok) {
-        console.warn('Brush manifest not found. Run: node scripts/generate-brush-manifest.js');
-        return;
-      }
-
-      const manifest = await response.json();
-
-      for (const entry of manifest.brushes) {
+      for (const entry of BRUSH_MANIFEST) {
         try {
           const brushPath = entry.path || `/brushes/${entry.file}`;
           const brush = await this.loadBrush(brushPath);
@@ -61,7 +53,7 @@ export class BrushGallery {
         }
       }
     } catch (err) {
-      console.warn('Failed to load brush manifest:', err);
+      console.warn('Failed to load brushes:', err);
     }
   }
 

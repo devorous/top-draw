@@ -202,6 +202,7 @@ export class Moderation {
           <div class="modTabs">
             <button class="modTab active" data-tab="bans">Bans</button>
             <button class="modTab" data-tab="mutes">Mutes</button>
+            <button class="modTab deityOnly" data-tab="shadowbans">Shadow</button>
           </div>
           <button class="chatCloseBtn" id="modPanelCloseBtn">&times;</button>
         </div>
@@ -459,6 +460,11 @@ export class Moderation {
         this.showWipePromptAfterAction('Banned', targetName, isGroup, sessionIndex, ipHash, targetUsername, anchorRect);
         this.showReasonCard('ban', sessionIndex, targetName, isGroup, ipHash);
         break;
+      case 'shadowban':
+        if (isGroup) return;
+        if (this.onModAction) this.onModAction(6, sessionIndex, '', 0);
+        this.showReasonCard('shadowban', sessionIndex, targetName, false, ipHash);
+        break;
     }
   }
 
@@ -582,10 +588,10 @@ export class Moderation {
     const existing = document.getElementById('modReasonCard');
     if (existing) existing.remove();
 
-    const actionCodes = { kick: 0, mute: 1, ban: 2 };
+    const actionCodes = { kick: 0, mute: 1, ban: 2, shadowban: 6 };
     const actionCode = actionCodes[action];
-    const isDanger = action === 'ban';
-    const pastTense = { kick: 'Kicked', mute: 'Muted', ban: 'Banned' };
+    const isDanger = action === 'ban' || action === 'shadowban';
+    const pastTense = { kick: 'Kicked', mute: 'Muted', ban: 'Banned', shadowban: 'Shadow Banned' };
     const actionLabel = pastTense[action] || action;
 
     const card = document.createElement('div');
@@ -726,10 +732,9 @@ export class Moderation {
    * Update mod entries from server MOD_LIST response
    */
   updateModEntries(entries) {
-    // Map numeric type to tab name: 0=ban, 1=mute
     this.modEntries = (entries || []).map(e => ({
       id: e.id,
-      type: e.type === 0 ? 'bans' : 'mutes',
+      type: e.type === 0 ? 'bans' : e.type === 1 ? 'mutes' : 'shadowbans',
       username: e.username || '',
       reason: e.reason || '',
       ip: e.ip || '',

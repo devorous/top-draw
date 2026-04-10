@@ -6,6 +6,7 @@ import { getBearerToken, getUserFromToken } from './authUser.js';
 import { getClientIp, httpRateLimiter } from './security.js';
 import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
 import { Role } from './SessionManager.js';
+import { getIpSubnet, mergeHistory, normalizeIdentityPayload, recordConnectionEvent } from './identityTracking.js';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -48,6 +49,7 @@ export async function handleAuthLogin(req, res) {
   if (!db) return json(res, 503, { success: false, error: 'Database not available' });
 
   const clientIp = getClientIp(req);
+  const clientSubnet = getIpSubnet(clientIp);
   const loginLimit = httpRateLimiter.consume(`auth:login:${clientIp}`, LOGIN_RATE_LIMIT);
   if (!loginLimit.allowed) {
     return json(res, 429, { success: false, error: 'Too many login attempts. Please try again later.' });
@@ -65,6 +67,7 @@ export async function handleAuthLogin(req, res) {
 
   const username = typeof body.username === 'string' ? normalizeUsername(body.username) : '';
   const password = typeof body.password === 'string' ? body.password : '';
+  const identity = normalizeIdentityPayload(body);
   if (!username || !password) {
     return json(res, 400, { success: false, error: 'Username and password required' });
   }
@@ -84,15 +87,41 @@ export async function handleAuthLogin(req, res) {
       return json(res, 401, { success: false, error: 'Invalid username or password' });
     }
 
-    const ipHistory = Array.isArray(user.ipHistory) ? user.ipHistory.slice(0, 19) : [];
-    if (clientIp && !ipHistory.includes(clientIp)) {
-      ipHistory.push(clientIp);
-    }
+    const ipHistory = mergeHistory(user.ipHistory, clientIp);
+    const subnetHistory = mergeHistory(user.subnetHistory, clientSubnet);
+    const deviceIds = mergeHistory(user.deviceIds, identity.deviceId);
+    const fingerprintIds = mergeHistory(user.fingerprintIds, identity.fingerprintId);
 
     await db.collection('users').updateOne(
       { _id: user._id },
-      { $set: { lastLoginAt: new Date(), lastIp: clientIp, ipHistory } }
+      {
+        $set: {
+          lastLoginAt: new Date(),
+          lastIp: clientIp,
+          lastSubnet: clientSubnet || null,
+          lastDeviceId: identity.deviceId || null,
+          lastFingerprintId: identity.fingerprintId || null,
+          lastIdentitySummary: identity.identitySummary,
+          ipHistory,
+          subnetHistory,
+          deviceIds,
+          fingerprintIds
+        }
+      }
     );
+
+    await recordConnectionEvent(db, {
+      type: 'http_login',
+      source: 'http',
+      userId: user._id.toString(),
+      username: user.username,
+      ip: clientIp,
+      subnet: clientSubnet,
+      deviceId: identity.deviceId || null,
+      fingerprintId: identity.fingerprintId || null,
+      identitySummary: identity.identitySummary,
+      userAgent: String(req.headers['user-agent'] || '').slice(0, 512),
+    });
 
     const token = generateToken({
       userId: user._id.toString(),
@@ -122,6 +151,7 @@ export async function handleAuthRegister(req, res) {
   if (!db) return json(res, 503, { success: false, error: 'Database not available' });
 
   const clientIp = getClientIp(req);
+  const clientSubnet = getIpSubnet(clientIp);
   const registerLimit = httpRateLimiter.consume(`auth:register:${clientIp}`, REGISTER_RATE_LIMIT);
   if (!registerLimit.allowed) {
     return json(res, 429, { success: false, error: 'Too many registration attempts. Please try again later.' });
@@ -142,6 +172,7 @@ export async function handleAuthRegister(req, res) {
   const email = typeof body.email === 'string' ? body.email.trim() : '';
   const secretQuestion = typeof body.secretQuestion === 'string' ? body.secretQuestion.trim() : '';
   const secretAnswer = typeof body.secretAnswer === 'string' ? body.secretAnswer.trim() : '';
+  const identity = normalizeIdentityPayload(body);
 
   if (!username || !password) {
     return json(res, 400, { success: false, error: 'Username and password required' });
@@ -183,10 +214,30 @@ export async function handleAuthRegister(req, res) {
       createdAt: new Date(),
       lastLoginAt: new Date(),
       lastIp: clientIp,
-      ipHistory: clientIp ? [clientIp] : []
+      lastSubnet: clientSubnet || null,
+      lastDeviceId: identity.deviceId || null,
+      lastFingerprintId: identity.fingerprintId || null,
+      lastIdentitySummary: identity.identitySummary,
+      ipHistory: clientIp ? [clientIp] : [],
+      subnetHistory: clientSubnet ? [clientSubnet] : [],
+      deviceIds: identity.deviceId ? [identity.deviceId] : [],
+      fingerprintIds: identity.fingerprintId ? [identity.fingerprintId] : []
     };
 
     const result = await db.collection('users').insertOne(doc);
+
+    await recordConnectionEvent(db, {
+      type: 'http_register',
+      source: 'http',
+      userId: result.insertedId.toString(),
+      username,
+      ip: clientIp,
+      subnet: clientSubnet,
+      deviceId: identity.deviceId || null,
+      fingerprintId: identity.fingerprintId || null,
+      identitySummary: identity.identitySummary,
+      userAgent: String(req.headers['user-agent'] || '').slice(0, 512),
+    });
 
     const token = generateToken({
       userId: result.insertedId.toString(),

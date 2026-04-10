@@ -2,6 +2,7 @@
  * @fileoverview Pattern Brush Gallery - selects the image used for the grid pattern.
  */
 import { BrushGallery } from './BrushGallery.js';
+import { BRUSH_MANIFEST } from './brushManifest.js';
 
 export class PatternBrushGallery extends BrushGallery {
   constructor(options = {}) {
@@ -26,14 +27,7 @@ export class PatternBrushGallery extends BrushGallery {
 
   async loadBrushes() {
     try {
-      // Fetch from public/brushes/manifest.json (served by Vite)
-      const response = await fetch('/brushes/manifest.json');
-      if (!response.ok) throw new Error('Failed to fetch brushes');
-
-      const manifest = await response.json();
-      if (!manifest.brushes) return;
-
-      for (const entry of manifest.brushes) {
+      for (const entry of BRUSH_MANIFEST) {
         if (entry.file.endsWith('.gih')) continue;
 
         try {
@@ -48,7 +42,7 @@ export class PatternBrushGallery extends BrushGallery {
         }
       }
     } catch (err) {
-      console.warn('Failed to load brush manifest:', err);
+      console.warn('Failed to load brushes:', err);
     }
   }
 

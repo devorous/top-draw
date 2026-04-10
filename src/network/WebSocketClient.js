@@ -6,6 +6,7 @@
 import { T, Tool, ToolNames, ToolToEnum } from '../../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../../shared/ColorUtils.js';
 import { normalizeTextFont } from '../config/textFonts.js';
+import { ClientIdentity } from './ClientIdentity.js';
 
 /**
  * WebSocketClient manages the bidirectional binary communication with the server.
@@ -63,6 +64,8 @@ export class WebSocketClient {
       T.MM, T.MD, T.MU, T.KP, T.TEXT_APPLY, T.CP, T.CS, T.CT, T.CC,
       T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL, T.CF
     ]);
+
+    this.clientIdentity = new ClientIdentity();
   }
 
   /**
@@ -76,7 +79,12 @@ export class WebSocketClient {
       const protobuf = await import('protobufjs');
       const baseUrl = import.meta.env.BASE_URL || '/';
       const protoUrl = `${baseUrl}messages.proto`.replace('//', '/');
-      const root = await protobuf.default.load(protoUrl);
+      const response = await fetch(protoUrl, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch protobuf schema: ${response.status}`);
+      }
+      const protoSource = await response.text();
+      const root = protobuf.default.parse(protoSource).root;
       this.Msg = root.lookupType('Msg');
       this.protoLoaded = true;
     } catch (err) {
@@ -112,6 +120,7 @@ export class WebSocketClient {
 
     this._userData = userData;
     this._roomId = roomId;
+    this._identityPayload = await this.clientIdentity.getPayload({ waitForFingerprintMs: 1200 });
     this._connectAttempts = 0;
     this._cancelled = false;
 
@@ -147,12 +156,35 @@ export class WebSocketClient {
       if (this._roomId) {
         url.searchParams.set('room', this._roomId);
       }
+      if (this._identityPayload?.clientDeviceId) {
+        url.searchParams.set('deviceId', this._identityPayload.clientDeviceId);
+      }
+      if (this._identityPayload?.clientFingerprintId) {
+        url.searchParams.set('fingerprintId', this._identityPayload.clientFingerprintId);
+      }
+      if (this._identityPayload?.clientIdentityJson) {
+        url.searchParams.set('identity', this._identityPayload.clientIdentityJson);
+      }
       this._url = url.toString();
     } catch (err) {
       this._url = baseUrl;
       if (this._roomId) {
         const separator = this._url.includes('?') ? '&' : '?';
         this._url += `${separator}room=${encodeURIComponent(this._roomId)}`;
+      }
+      const extraParams = [];
+      if (this._identityPayload?.clientDeviceId) {
+        extraParams.push(`deviceId=${encodeURIComponent(this._identityPayload.clientDeviceId)}`);
+      }
+      if (this._identityPayload?.clientFingerprintId) {
+        extraParams.push(`fingerprintId=${encodeURIComponent(this._identityPayload.clientFingerprintId)}`);
+      }
+      if (this._identityPayload?.clientIdentityJson) {
+        extraParams.push(`identity=${encodeURIComponent(this._identityPayload.clientIdentityJson)}`);
+      }
+      if (extraParams.length) {
+        const separator = this._url.includes('?') ? '&' : '?';
+        this._url += `${separator}${extraParams.join('&')}`;
       }
     }
   }
@@ -176,12 +208,14 @@ export class WebSocketClient {
     this.socket = new WebSocket(this._url);
     this.socket.binaryType = 'arraybuffer';
 
-    this.socket.onopen = () => {
+    this.socket.onopen = async () => {
       this._clearReconnectTimer();
       this.connected = true;
       this._connectAttempts = 0;
       const username = this._userData.username || this._userData.name || '';
-      this.send({ t: T.CONNECT, n: username });
+      const identityPayload = await this.clientIdentity.getPayload({ waitForFingerprintMs: 1200 });
+      if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+      this.send({ t: T.CONNECT, n: username, ...identityPayload });
     };
 
     this.socket.onmessage = (event) => {
@@ -1737,8 +1771,9 @@ export class WebSocketClient {
    * @param {string} password - Chosen password.
    * @returns {void}
    */
-  sendAuthRegister(username, password, { email = '', secretQuestion = '', secretAnswer = '' } = {}) {
-    const msg = { t: T.AUTH_REGISTER, authUsername: username, authPassword: password };
+  async sendAuthRegister(username, password, { email = '', secretQuestion = '', secretAnswer = '' } = {}) {
+    const identityPayload = await this.clientIdentity.getPayload({ waitForFingerprintMs: 800 });
+    const msg = { t: T.AUTH_REGISTER, authUsername: username, authPassword: password, ...identityPayload };
     if (email) msg.authEmail = email;
     if (secretQuestion) msg.authSecretQuestion = secretQuestion;
     if (secretAnswer) msg.authSecretAnswer = secretAnswer;
@@ -1751,8 +1786,9 @@ export class WebSocketClient {
    * @param {string} password - Password.
    * @returns {void}
    */
-  sendAuthLogin(username, password) {
-    this.send({ t: T.AUTH_LOGIN, authUsername: username, authPassword: password });
+  async sendAuthLogin(username, password) {
+    const identityPayload = await this.clientIdentity.getPayload({ waitForFingerprintMs: 500 });
+    this.send({ t: T.AUTH_LOGIN, authUsername: username, authPassword: password, ...identityPayload });
   }
 
   /**
@@ -1760,8 +1796,9 @@ export class WebSocketClient {
    * @param {string} token - JWT or session token.
    * @returns {void}
    */
-  sendAuthTokenLogin(token) {
-    this.send({ t: T.AUTH_LOGIN, authToken: token });
+  async sendAuthTokenLogin(token) {
+    const identityPayload = await this.clientIdentity.getPayload({ waitForFingerprintMs: 250 });
+    this.send({ t: T.AUTH_LOGIN, authToken: token, ...identityPayload });
   }
 
   /**

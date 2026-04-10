@@ -2,6 +2,28 @@
 
 import { getDB } from './db.js';
 
+function buildTargetConditions({
+  targetUserId = null,
+  targetIp = null,
+  targetUsername = null,
+  targetDeviceId = null,
+  targetFingerprintId = null
+} = {}) {
+  const conditions = [];
+  if (targetUserId) conditions.push({ targetUserId });
+  if (targetIp) conditions.push({ targetIp });
+  if (targetUsername) conditions.push({ targetUsername });
+  if (targetDeviceId) conditions.push({ targetDeviceId });
+  if (targetFingerprintId) conditions.push({ targetFingerprintId });
+  return conditions;
+}
+
+function buildRoomCondition(roomId = null) {
+  return roomId
+    ? { $or: [{ roomId }, { roomId: null }] }
+    : { roomId: null };
+}
+
 /**
  * Obfuscates an IP address by showing only the first two octets or groups.
  * @param {string} ip - The IP address to obfuscate.
@@ -40,21 +62,15 @@ export async function checkBan(userId, ip, roomId = null) {
   const db = getDB();
   if (!db) return null;
 
-  const conditions = [];
-  if (userId) conditions.push({ targetUserId: userId });
-  if (ip) conditions.push({ targetIp: ip });
+  const conditions = buildTargetConditions({ targetUserId: userId, targetIp: ip });
   if (conditions.length === 0) return null;
-
-  const roomCondition = roomId
-    ? { $or: [{ roomId }, { roomId: null }] }
-    : { roomId: null };
 
   return db.collection('moderation').findOne({
     type: 'ban',
     active: true,
     $and: [
       { $or: conditions },
-      roomCondition
+      buildRoomCondition(roomId)
     ]
   });
 }
@@ -74,21 +90,52 @@ export async function checkMute(userId, ip, roomId = null) {
   const db = getDB();
   if (!db) return null;
 
-  const conditions = [];
-  if (userId) conditions.push({ targetUserId: userId });
-  if (ip) conditions.push({ targetIp: ip });
+  const conditions = buildTargetConditions({ targetUserId: userId, targetIp: ip });
   if (conditions.length === 0) return null;
-
-  const roomCondition = roomId
-    ? { $or: [{ roomId }, { roomId: null }] }
-    : { roomId: null };
 
   return db.collection('moderation').findOne({
     type: 'mute',
     active: true,
     $and: [
       { $or: conditions },
-      roomCondition
+      buildRoomCondition(roomId)
+    ]
+  });
+}
+
+/**
+ * @param {Object} opts
+ * @param {string|null} [opts.userId]
+ * @param {string|null} [opts.ip]
+ * @param {string|null} [opts.deviceId]
+ * @param {string|null} [opts.fingerprintId]
+ * @param {string|null} [opts.roomId]
+ * @returns {Promise<Object|null>}
+ */
+export async function checkShadowBan({
+  userId = null,
+  ip = null,
+  deviceId = null,
+  fingerprintId = null,
+  roomId = null
+} = {}) {
+  const db = getDB();
+  if (!db) return null;
+
+  const conditions = buildTargetConditions({
+    targetUserId: userId,
+    targetIp: ip,
+    targetDeviceId: deviceId,
+    targetFingerprintId: fingerprintId
+  });
+  if (conditions.length === 0) return null;
+
+  return db.collection('moderation').findOne({
+    type: 'shadowban',
+    active: true,
+    $and: [
+      { $or: conditions },
+      buildRoomCondition(roomId)
     ]
   });
 }
@@ -100,6 +147,8 @@ export async function checkMute(userId, ip, roomId = null) {
  * @param {string|null} opts.targetUserId - The ID of the target user.
  * @param {string} opts.targetUsername - The username of the target user.
  * @param {string} opts.targetIp - The IP of the target user.
+ * @param {string|null} [opts.targetDeviceId] - The device ID of the target user.
+ * @param {string|null} [opts.targetFingerprintId] - The fingerprint ID of the target user.
  * @param {string} opts.reason - The reason for the action.
  * @param {string} opts.issuedBy - The ID of the moderator who issued the action.
  * @param {string} opts.issuedByUsername - The username of the moderator.
@@ -121,6 +170,8 @@ export async function issueModAction(opts) {
     targetUserId: opts.targetUserId || null,
     targetUsername: opts.targetUsername,
     targetIp: opts.targetIp || null,
+    targetDeviceId: opts.targetDeviceId || null,
+    targetFingerprintId: opts.targetFingerprintId || null,
     reason: opts.reason || '',
     issuedBy: opts.issuedBy,
     issuedByUsername: opts.issuedByUsername,
@@ -188,6 +239,8 @@ export async function revokeModAction(actionId, revokedById) {
  * @param {string|null} [opts.targetUserId]
  * @param {string|null} [opts.targetIp]
  * @param {string|null} [opts.targetUsername]
+ * @param {string|null} [opts.targetDeviceId]
+ * @param {string|null} [opts.targetFingerprintId]
  * @param {string|null} [opts.roomId]
  * @param {string|null} [opts.revokedById]
  * @returns {Promise<number>} - Number of actions revoked.
@@ -197,21 +250,22 @@ export async function revokeMatchingModActions({
   targetUserId = null,
   targetIp = null,
   targetUsername = null,
+  targetDeviceId = null,
+  targetFingerprintId = null,
   roomId = null,
   revokedById = null
 }) {
   const db = getDB();
   if (!db) return 0;
 
-  const conditions = [];
-  if (targetUserId) conditions.push({ targetUserId });
-  if (targetIp) conditions.push({ targetIp });
-  if (targetUsername) conditions.push({ targetUsername });
+  const conditions = buildTargetConditions({
+    targetUserId,
+    targetIp,
+    targetUsername,
+    targetDeviceId,
+    targetFingerprintId
+  });
   if (conditions.length === 0) return 0;
-
-  const roomCondition = roomId
-    ? { $or: [{ roomId }, { roomId: null }] }
-    : { roomId: null };
 
   const result = await db.collection('moderation').updateMany(
     {
@@ -219,7 +273,7 @@ export async function revokeMatchingModActions({
       active: true,
       $and: [
         { $or: conditions },
-        roomCondition
+        buildRoomCondition(roomId)
       ]
     },
     {
@@ -270,7 +324,7 @@ export async function getModEntries({ showHistory = false, search = '', roomId =
 
   return entries.map(e => ({
     id: e._id.toString(),
-    type: e.type === 'ban' ? 0 : 1,
+    type: e.type === 'ban' ? 0 : e.type === 'mute' ? 1 : 2,
     username: e.targetUsername || '',
     reason: e.reason || '',
     ip: obfuscateIp(e.targetIp),

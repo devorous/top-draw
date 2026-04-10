@@ -17,7 +17,7 @@ import { getRecorder, removeRecorder, getReplayData } from './deltaRecorder.js';
 import { startElection, stopElection } from './uploaderElection.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
 import { getUserFromToken } from './authUser.js';
-import { issueModAction, revokeModAction, revokeMatchingModActions, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute } from './moderation.js';
+import { issueModAction, revokeModAction, revokeMatchingModActions, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute, checkShadowBan } from './moderation.js';
 import { ENABLE_SERVER_REPLAY_DB } from './replayConfig.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
@@ -31,6 +31,7 @@ import { getClientIp, httpRateLimiter, messengerRateLimiter, wsRateLimiter } fro
 import { getAsnCheckStatus, lookupAsnForIp, initAsnCheck, isVpnAsn } from './asnCheck.js';
 import { authLimiter, uploadLimiter, likeLimiter, wsMessageLimiter, wsConnectionLimiter, feedbackLimiter } from './rateLimit.js';
 import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
+import { getIpSubnet, mergeHistory, normalizeIdentityPayload, recordConnectionEvent } from './identityTracking.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,6 +57,7 @@ const ADMIN_COLLECTIONS = new Set([
   'users',
   'rooms',
   'moderation',
+  'connection_events',
   'room_roles',
   'gallery',
   'favorites',
@@ -731,8 +733,16 @@ function getVisibleIpForViewer(viewer, targetUser, room) {
     : obfuscateIp(targetIp);
 }
 
+function isShadowHiddenFromViewer(subjectUser, viewer) {
+  if (!subjectUser?.isShadowBanned) return false;
+  if (!viewer) return false;
+  return subjectUser.sessionIndex !== viewer.sessionIndex;
+}
+
 function mapUsersForBroadcast(users, viewer = null, room = null) {
-  return users.map(u => ({
+  return users
+    .filter(u => !isShadowHiddenFromViewer(u, viewer))
+    .map(u => ({
     u: u.sessionIndex,
     a: u.afk,
     x: u.x,
@@ -826,6 +836,25 @@ function logVpnAutoMuteContext(client, room, contextLabel) {
   }
 
   console.log(`[ASN] ${contextLabel}: ASN ${client.clientAsn} for ${client.clientIp} in room ${room.id} flagged=${isVpnAsn(client.clientAsn)}`);
+}
+
+async function applyShadowBanStateToClient(client, room, {
+  userId = client.userId || null,
+  effectiveRole = client.userRole || Role.GUEST
+} = {}) {
+  let shadowBanEntry = null;
+  if (getDB() && effectiveRole < Role.MOD) {
+    shadowBanEntry = await checkShadowBan({
+      userId,
+      ip: client.clientIp || null,
+      deviceId: client.deviceId || null,
+      fingerprintId: client.fingerprintId || null,
+      roomId: room?.id || null
+    });
+  }
+
+  client.isShadowBanned = !!shadowBanEntry;
+  return shadowBanEntry;
 }
 
 function logAsnHandshakeContext(client, roomId = '') {
@@ -1249,7 +1278,9 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
         user.activeSelectionCorners = null;
         // Forward the lifted snapshot so remote clients reuse the sender's exact pixels
         // instead of attempting to recapture from their own canvases.
-        broadcastToRoom(room, { t: T.SEL_LIFT, u: sessionIndex, sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, cr: data.cr, g: data.g }, sessionIndex);
+        if (!ws?.isShadowBanned) {
+          broadcastToRoom(room, { t: T.SEL_LIFT, u: sessionIndex, sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, cr: data.cr, g: data.g }, sessionIndex);
+        }
         return;
       }
       break;
@@ -1302,6 +1333,10 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
 
   if (data.t === T.MIRROR_REGION) {
     broadcastToRoom(room, buildSettingsPayload(room));
+    return;
+  }
+
+  if (ws?.isShadowBanned) {
     return;
   }
 
@@ -1540,6 +1575,28 @@ wss.on('connection', async (ws, req) => {
     ws.isVpnNetwork = isVpnAsn(ws.clientAsn);
     ws.isVPN = ws.isVpnNetwork;
     ws.rateLimitId = crypto.randomUUID();
+    ws.userAgent = String(req.headers['user-agent'] || '').slice(0, 512);
+    ws.clientSubnet = getIpSubnet(ws.clientIp);
+    ws.deviceId = String(url.searchParams.get('deviceId') || '').trim();
+    ws.fingerprintId = String(url.searchParams.get('fingerprintId') || '').trim();
+    ws.identitySummary = null;
+    const identityFromQuery = String(url.searchParams.get('identity') || '').trim();
+    if (identityFromQuery) {
+      try {
+        const parsedIdentity = JSON.parse(identityFromQuery);
+        if (parsedIdentity && typeof parsedIdentity === 'object' && !Array.isArray(parsedIdentity)) {
+          ws.identitySummary = parsedIdentity;
+        }
+      } catch (error) {
+        console.warn('[IdentityDebug][server] Failed to parse identity query payload:', error.message);
+      }
+    }
+    console.log('[IdentityDebug][server] ws handshake identity', {
+      roomId: sanitizeRoomId(url.searchParams.get('room')),
+      deviceId: ws.deviceId || null,
+      fingerprintId: ws.fingerprintId || null,
+      identitySummary: ws.identitySummary
+    });
 
     const roomId = sanitizeRoomId(url.searchParams.get('room'));
     logAsnHandshakeContext(ws, roomId);
@@ -1654,6 +1711,10 @@ wss.on('connection', async (ws, req) => {
           const sessionIndex = room.sessionManager.allocateSessionIndex();
           ws.sessionIndex = sessionIndex;
 
+          const identity = normalizeIdentityPayload(data);
+          ws.deviceId = identity.deviceId;
+          ws.fingerprintId = identity.fingerprintId;
+          ws.identitySummary = identity.identitySummary;
           const requestedUsername = normalizeUsername(data.n || '');
           const username = room.sessionManager.getUniqueName(requestedUsername || 'Guest');
           console.log(`[CONNECT] Session ${sessionIndex} joining room ${room.id} as "${username}"`);
@@ -1666,10 +1727,29 @@ wss.on('connection', async (ws, req) => {
             getIpHash(ws.clientIp)
           );
           const createdUser = room.sessionManager.getUser(sessionIndex);
+          await applyShadowBanStateToClient(ws, room);
           if (createdUser) {
             createdUser.isMuted = !!ws.isMuted;
+            createdUser.isShadowBanned = !!ws.isShadowBanned;
             createdUser.isVPN = !!ws.isVPN;
           }
+
+          await recordConnectionEvent(getDB(), {
+            type: 'ws_connect',
+            source: 'ws',
+            roomId: room.id,
+            sessionIndex,
+            userId: ws.userId || null,
+            username,
+            ip: ws.clientIp,
+            subnet: ws.clientSubnet,
+            deviceId: ws.deviceId || null,
+            fingerprintId: ws.fingerprintId || null,
+            identitySummary: ws.identitySummary,
+            userAgent: ws.userAgent,
+            clientAsn: ws.clientAsn || null,
+            isVpnNetwork: !!ws.isVpnNetwork
+          });
 
           sendTo(ws, { t: T.CONNECT, u: sessionIndex, authRole: ws.userRole, authUsername: username });
 
@@ -1677,7 +1757,7 @@ wss.on('connection', async (ws, req) => {
           const roomBroadcaster = createRoomBroadcaster(room);
 
           const requiresAuthToAppear = getJoinPolicyMinRole(room.settings.joinPolicy) > Role.GUEST;
-          const shouldBroadcastJoin = !requiresAuthToAppear;
+          const shouldBroadcastJoin = !requiresAuthToAppear && !ws.isShadowBanned;
 
           if (!room.sessionManager.isDiscovery && shouldBroadcastJoin) {
             roomBroadcaster({
@@ -1696,7 +1776,7 @@ wss.on('connection', async (ws, req) => {
           }
 
           // If user is muted (IP-based for guests), hide their cursor for everyone
-          if (ws.isMuted) {
+          if (ws.isMuted && !ws.isShadowBanned) {
             roomBroadcaster({ t: T.HIDE_CURSOR, u: sessionIndex });
           }
           break;
@@ -1734,6 +1814,7 @@ wss.on('connection', async (ws, req) => {
           break;
 
         case T.TILE_UPDATE:
+          if (ws.isShadowBanned) break;
           // Real-time tile update - server tracks which tiles are now occupied
           if (data.tiles && Array.isArray(data.tiles)) {
             const tileIndices = data.tiles.map(t => typeof t === 'number' ? t : t.idx);
@@ -1748,6 +1829,7 @@ wss.on('connection', async (ws, req) => {
           break;
 
         case T.TILE_CLEAR:
+          if (ws.isShadowBanned) break;
           // Tiles that are now empty - clear from server and relay to all clients
           if (data.clearedTiles && Array.isArray(data.clearedTiles)) {
             // Clear from server's tile dirty set
@@ -1762,6 +1844,7 @@ wss.on('connection', async (ws, req) => {
           break;
 
         case T.DM:
+          if (ws.isShadowBanned) break;
           const recipientId = data.r;
           if (recipientId !== undefined && ws.sessionIndex !== undefined) {
             for (const client of wss.clients) {
@@ -1780,6 +1863,7 @@ wss.on('connection', async (ws, req) => {
           break;
 
         case T.CHAT_IMG:
+          if (ws.isShadowBanned) break;
           if (ws.sessionIndex !== undefined) {
             let imageBytes = data.cimg;
             const imageRecipientId = data.r;
@@ -1818,6 +1902,7 @@ wss.on('connection', async (ws, req) => {
           break;
 
         case T.STAFF_MSG:
+          if (ws.isShadowBanned) break;
           if ((ws.userRole || 0) < Role.MOD) {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Only moderators can use staff chat' });
             break;
@@ -1840,6 +1925,7 @@ wss.on('connection', async (ws, req) => {
           break;
 
         case T.STAFF_CHAT_IMG:
+          if (ws.isShadowBanned) break;
           if ((ws.userRole || 0) < Role.MOD) {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Only moderators can use staff chat' });
             break;
@@ -1870,6 +1956,7 @@ wss.on('connection', async (ws, req) => {
           break;
 
         case T.CHAT_REACTION:
+          if (ws.isShadowBanned) break;
           if (ws.sessionIndex !== undefined) {
             const reactionPayload = {
               t: T.CHAT_REACTION,
@@ -1897,7 +1984,16 @@ wss.on('connection', async (ws, req) => {
 
         case T.MOD_ACTION: {
           const modActionType = data.modActionType ?? 0;
-          const MOD_ACTION_MAP = [Action.MOD_KICK, Action.MOD_MUTE, Action.MOD_BAN, Action.MOD_UNMUTE, Action.MOD_UNBAN, Action.MOD_UPDATE];
+          const MOD_ACTION_MAP = [
+            Action.MOD_KICK,
+            Action.MOD_MUTE,
+            Action.MOD_BAN,
+            Action.MOD_UNMUTE,
+            Action.MOD_UNBAN,
+            Action.MOD_UPDATE,
+            Action.MOD_SHADOWBAN,
+            Action.MOD_UNSHADOWBAN
+          ];
           const requiredAction = MOD_ACTION_MAP[modActionType];
           if (!requiredAction || !authorize(ws, requiredAction, sendTo, T.MOD_RESULT)) {
             console.log(`[MOD] REJECTED - insufficient role (role=${ws.userRole}, actionType=${modActionType})`);
@@ -1918,6 +2014,10 @@ wss.on('connection', async (ws, req) => {
           const targetUser = room.sessionManager.getUser(modTargetIndex);
           const targetName = data.modTargetName || targetWs?.username || targetUser?.name || `User ${modTargetIndex}`;
           const targetRole = Math.max(targetWs?.userRole || 0, targetUser?.role || 0);
+          const targetUserId = targetWs?.userId || null;
+          const targetIp = targetWs?.clientIp || null;
+          const targetDeviceId = targetWs?.deviceId || null;
+          const targetFingerprintId = targetWs?.fingerprintId || null;
 
           const rejectProtectedTarget = (message) => {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: message });
@@ -1964,9 +2064,9 @@ wss.on('connection', async (ws, req) => {
                 if (getDB()) {
                   await issueModAction({
                     type: 'mute',
-                    targetUserId: targetWs?.userId || null,
+                    targetUserId,
                     targetUsername: targetName,
-                    targetIp: targetWs?.clientIp || null,
+                    targetIp,
                     reason: modReason,
                     issuedBy: ws.userId || null,
                     issuedByUsername: ws.username || '',
@@ -2013,9 +2113,9 @@ wss.on('connection', async (ws, req) => {
                 if (getDB()) {
                   await issueModAction({
                     type: 'ban',
-                    targetUserId: targetWs?.userId || null,
+                    targetUserId,
                     targetUsername: targetName,
-                    targetIp: targetWs?.clientIp || null,
+                    targetIp,
                     reason: modReason,
                     issuedBy: ws.userId || null,
                     issuedByUsername: ws.username || '',
@@ -2047,8 +2147,8 @@ wss.on('connection', async (ws, req) => {
                   } else {
                     await revokeMatchingModActions({
                       type: 'mute',
-                      targetUserId: targetWs?.userId || null,
-                      targetIp: targetWs?.clientIp || null,
+                      targetUserId,
+                      targetIp,
                       targetUsername: targetName || null,
                       roomId: room.id,
                       revokedById: ws.userId
@@ -2088,8 +2188,8 @@ wss.on('connection', async (ws, req) => {
                   const type = origActionCode === 1 ? 'mute' : 'ban';
                   if (getDB()) {
                     await updateModActionReason(
-                      targetWs?.userId || null,
-                      targetWs?.clientIp || null,
+                      targetUserId,
+                      targetIp,
                       type,
                       modReason
                     );
@@ -2116,8 +2216,8 @@ wss.on('connection', async (ws, req) => {
                   } else {
                     await revokeMatchingModActions({
                       type: 'ban',
-                      targetUserId: targetWs?.userId || null,
-                      targetIp: targetWs?.clientIp || null,
+                      targetUserId,
+                      targetIp,
                       targetUsername: targetName || null,
                       roomId: room.id,
                       revokedById: ws.userId
@@ -2133,6 +2233,83 @@ wss.on('connection', async (ws, req) => {
                   modReason: modReason
                 });
                 break;
+
+              case 6: { // Shadow ban
+                if (targetRole >= Role.MOD) {
+                  rejectProtectedTarget('Users with MOD rank or higher cannot be shadow banned');
+                  break;
+                }
+                if (targetRole > (ws.userRole || 0)) {
+                  rejectProtectedTarget('Cannot shadow ban a user with a higher role than your own');
+                  break;
+                }
+                if (!targetWs) {
+                  sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Target user is no longer connected' });
+                  break;
+                }
+                if (getDB()) {
+                  await issueModAction({
+                    type: 'shadowban',
+                    targetUserId,
+                    targetUsername: targetName,
+                    targetIp,
+                    targetDeviceId,
+                    targetFingerprintId,
+                    reason: modReason,
+                    issuedBy: ws.userId || null,
+                    issuedByUsername: ws.username || '',
+                    duration: modDuration,
+                    roomId: null
+                  });
+                }
+                targetWs.isShadowBanned = true;
+                if (targetUser) targetUser.isShadowBanned = true;
+                roomBroadcaster({ t: T.HIDE_CURSOR, u: modTargetIndex });
+                broadcastUsersForRoom(room);
+                break;
+              }
+
+              case 7: { // Unshadow ban
+                if (getDB()) {
+                  const revokeEntryId = (data.modReason || '').trim();
+                  const hasSpecificEntryId = /^[a-f0-9]{24}$/i.test(revokeEntryId);
+
+                  if (hasSpecificEntryId) {
+                    await revokeModAction(revokeEntryId, ws.userId);
+                  } else {
+                    await revokeMatchingModActions({
+                      type: 'shadowban',
+                      targetUserId,
+                      targetIp,
+                      targetUsername: targetName || null,
+                      targetDeviceId,
+                      targetFingerprintId,
+                      revokedById: ws.userId
+                    });
+                  }
+                }
+
+                let stillShadowBanned = false;
+                if (targetWs) {
+                  const remainingShadowBan = await checkShadowBan({
+                    userId: targetWs.userId || null,
+                    ip: targetWs.clientIp || null,
+                    deviceId: targetWs.deviceId || null,
+                    fingerprintId: targetWs.fingerprintId || null,
+                    roomId: room.id
+                  });
+                  stillShadowBanned = !!remainingShadowBan && (targetWs.userRole || 0) < Role.MOD;
+                  targetWs.isShadowBanned = stillShadowBanned;
+                }
+                if (targetUser) {
+                  targetUser.isShadowBanned = stillShadowBanned;
+                }
+                broadcastUsersForRoom(room);
+                if (!stillShadowBanned && targetWs && !targetWs.isMuted) {
+                  roomBroadcaster({ t: T.SHOW_CURSOR, u: modTargetIndex });
+                }
+                break;
+              }
             }
 
             sendTo(ws, { t: T.MOD_RESULT, a: true });
@@ -2184,6 +2361,7 @@ wss.on('connection', async (ws, req) => {
         }
 
         case T.ROOM_PREVIEW: {
+          if (ws.isShadowBanned) break;
           // Store preview image for this room (sent by any user in the room)
           if (data.img && data.img.length > 0) {
             // Limit preview size to 100KB to prevent abuse
@@ -2749,6 +2927,7 @@ wss.on('connection', async (ws, req) => {
           const regEmail = (data.authEmail || '').trim();
           const regSecretQuestion = (data.authSecretQuestion || '').trim();
           const regSecretAnswer = (data.authSecretAnswer || '').trim();
+          const identity = normalizeIdentityPayload(data);
 
           if (!isValidUsername(regUsername)) {
             sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: getUsernameValidationMessage() });
@@ -2776,7 +2955,14 @@ wss.on('connection', async (ws, req) => {
               createdAt: new Date(),
               lastLoginAt: new Date(),
               lastIp: ws.clientIp,
-              ipHistory: [ws.clientIp]
+              lastSubnet: ws.clientSubnet || null,
+              lastDeviceId: identity.deviceId || null,
+              lastFingerprintId: identity.fingerprintId || null,
+              lastIdentitySummary: identity.identitySummary,
+              ipHistory: [ws.clientIp],
+              subnetHistory: ws.clientSubnet ? [ws.clientSubnet] : [],
+              deviceIds: identity.deviceId ? [identity.deviceId] : [],
+              fingerprintIds: identity.fingerprintId ? [identity.fingerprintId] : []
             };
             if (regEmail) newUserDoc.email = regEmail;
             if (regSecretQuestion) {
@@ -2792,6 +2978,10 @@ wss.on('connection', async (ws, req) => {
             ws.roomRole = 0;
             ws.userRole = role;  // No room role yet for new registration
             ws.username = regUsername;
+            ws.deviceId = identity.deviceId || ws.deviceId;
+            ws.fingerprintId = identity.fingerprintId || ws.fingerprintId;
+            ws.identitySummary = identity.identitySummary || ws.identitySummary;
+            await applyShadowBanStateToClient(ws, room, { userId: ws.userId, effectiveRole: ws.userRole });
 
             const user = room.sessionManager.getUser(ws.sessionIndex);
             if (user) {
@@ -2799,6 +2989,7 @@ wss.on('connection', async (ws, req) => {
               user.role = role;
               user.name = uniqueName;
               user.registeredName = regUsername;
+              user.isShadowBanned = !!ws.isShadowBanned;
               // ws.username remains the original registered username for AUTH_RESULT
             }
 
@@ -2810,11 +3001,29 @@ wss.on('connection', async (ws, req) => {
               authUsername: regUsername
             });
 
+            await recordConnectionEvent(db, {
+              type: 'ws_register',
+              source: 'ws',
+              roomId: room.id,
+              sessionIndex: ws.sessionIndex,
+              userId: result.insertedId.toString(),
+              username: regUsername,
+              ip: ws.clientIp,
+              subnet: ws.clientSubnet,
+              deviceId: ws.deviceId || null,
+              fingerprintId: ws.fingerprintId || null,
+              identitySummary: ws.identitySummary,
+              userAgent: ws.userAgent,
+              clientAsn: ws.clientAsn || null,
+              isVpnNetwork: !!ws.isVpnNetwork
+            });
+
             room.updateSnapshotTimer();
 
-            createRoomBroadcaster(room)({
-              t: T.USERS
-            });
+            broadcastUsersForRoom(room);
+            if (ws.isShadowBanned) {
+              createRoomBroadcaster(room)({ t: T.HIDE_CURSOR, u: ws.sessionIndex });
+            }
           } catch (err) {
             if (err.code === 11000) {
               sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Username already taken' });
@@ -2843,6 +3052,10 @@ wss.on('connection', async (ws, req) => {
 
           try {
             let userDoc = null;
+            const identity = normalizeIdentityPayload(data);
+            ws.deviceId = identity.deviceId || ws.deviceId;
+            ws.fingerprintId = identity.fingerprintId || ws.fingerprintId;
+            ws.identitySummary = identity.identitySummary || ws.identitySummary;
 
             if (data.authToken) {
               const decoded = verifyToken(data.authToken);
@@ -2908,14 +3121,27 @@ wss.on('connection', async (ws, req) => {
               break;
             }
 
-            const ipHistory = userDoc.ipHistory || [];
-            if (!ipHistory.includes(ws.clientIp)) {
-              ipHistory.push(ws.clientIp);
-            }
+            const ipHistory = mergeHistory(userDoc.ipHistory, ws.clientIp);
+            const subnetHistory = mergeHistory(userDoc.subnetHistory, ws.clientSubnet);
+            const deviceIds = mergeHistory(userDoc.deviceIds, ws.deviceId);
+            const fingerprintIds = mergeHistory(userDoc.fingerprintIds, ws.fingerprintId);
 
             await db.collection('users').updateOne(
               { _id: userDoc._id },
-              { $set: { lastLoginAt: new Date(), lastIp: ws.clientIp, ipHistory } }
+              {
+                $set: {
+                  lastLoginAt: new Date(),
+                  lastIp: ws.clientIp,
+                  lastSubnet: ws.clientSubnet || null,
+                  lastDeviceId: ws.deviceId || null,
+                  lastFingerprintId: ws.fingerprintId || null,
+                  lastIdentitySummary: ws.identitySummary,
+                  ipHistory,
+                  subnetHistory,
+                  deviceIds,
+                  fingerprintIds
+                }
+              }
             );
 
             const token = generateToken({
@@ -2938,6 +3164,10 @@ wss.on('connection', async (ws, req) => {
             ws.roomRole = roomRoleVal;
             ws.userRole = effectiveRole;
             ws.username = userDoc.username;
+            await applyShadowBanStateToClient(ws, room, {
+              userId: userDoc._id.toString(),
+              effectiveRole
+            });
             logVpnAutoMuteContext(ws, room, `Auth login for ${userDoc.username}`);
             const { shouldMute, muteReason } = await applyMuteStateToClient(ws, room, {
               userId: userDoc._id.toString(),
@@ -2955,6 +3185,7 @@ wss.on('connection', async (ws, req) => {
               user.name = uniqueName;
               user.registeredName = userDoc.username;
               user.isMuted = !!ws.isMuted;
+              user.isShadowBanned = !!ws.isShadowBanned;
               user.isVPN = !!ws.isVPN;
             }
 
@@ -2966,13 +3197,31 @@ wss.on('connection', async (ws, req) => {
               authUsername: userDoc.username
             });
 
-            room.updateSnapshotTimer();
-
-            createRoomBroadcaster(room)({
-              t: T.USERS
+            await recordConnectionEvent(db, {
+              type: 'ws_login',
+              source: 'ws',
+              roomId: room.id,
+              sessionIndex: ws.sessionIndex,
+              userId: userDoc._id.toString(),
+              username: userDoc.username,
+              ip: ws.clientIp,
+              subnet: ws.clientSubnet,
+              deviceId: ws.deviceId || null,
+              fingerprintId: ws.fingerprintId || null,
+              identitySummary: ws.identitySummary,
+              userAgent: ws.userAgent,
+              clientAsn: ws.clientAsn || null,
+              isVpnNetwork: !!ws.isVpnNetwork
             });
 
-            if (ws.isMuted) {
+            room.updateSnapshotTimer();
+
+            broadcastUsersForRoom(room);
+            if (ws.isShadowBanned) {
+              createRoomBroadcaster(room)({ t: T.HIDE_CURSOR, u: ws.sessionIndex });
+            }
+
+            if (ws.isMuted && !ws.isShadowBanned) {
               // Hide cursor for all other users
               createRoomBroadcaster(room)({ t: T.HIDE_CURSOR, u: ws.sessionIndex });
 
@@ -2994,6 +3243,7 @@ wss.on('connection', async (ws, req) => {
         }
 
         case T.BOARD_SNAPSHOT_SAVE:
+          if (ws.isShadowBanned) break;
           await handleSnapshotSave(ws, data, room);
           break;
 
@@ -3002,10 +3252,12 @@ wss.on('connection', async (ws, req) => {
           break;
 
         case T.BOARD_SNAPSHOT_RESTORE:
+          if (ws.isShadowBanned) break;
           await handleSnapshotRestore(ws, data, room);
           break;
 
         case T.BOARD_SNAPSHOT_DELETE:
+          if (ws.isShadowBanned) break;
           await handleSnapshotDelete(ws, data, room);
           break;
 
@@ -3014,10 +3266,12 @@ wss.on('connection', async (ws, req) => {
           break;
 
         case T.BOARD_SNAPSHOT_REGION_RESTORE:
+          if (ws.isShadowBanned) break;
           await handleSnapshotRegionRestore(ws, data, room);
           break;
 
         case T.CHECKPOINT_UPLOAD: {
+          if (ws.isShadowBanned) break;
           const cpId = await handleCheckpointUpload(ws, data, room);
           if (ENABLE_SERVER_REPLAY_DB && cpId && (room.settings.dedicatedReplayUser || room._electedUploader)) {
             getRecorder(room.id).onCheckpoint(cpId);
@@ -3087,7 +3341,9 @@ wss.on('connection', async (ws, req) => {
       if (sessionIndex !== undefined) {
         room.sessionManager.removeUser(sessionIndex);
         room.sessionManager.freeSessionIndex(sessionIndex);
-        broadcastToRoom(room, { t: T.LEFT, u: sessionIndex });
+        if (!ws.isShadowBanned) {
+          broadcastToRoom(room, { t: T.LEFT, u: sessionIndex });
+        }
 
             if (room.sessionManager.getUserCount() === 0) {
               room.settings.mirror = false;

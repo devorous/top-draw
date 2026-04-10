@@ -336,7 +336,7 @@ export class Auth {
     void this.showNotLoggedInState();
   }
 
-  handleLogin() {
+  async handleLogin() {
     if (this._loading) return;
 
     if (!this.wsClient?.connected) {
@@ -356,7 +356,7 @@ export class Auth {
     this._pendingUsername = username;
 
     this.setLoading(true);
-    this.wsClient.sendAuthLogin(username, password);
+    await this.wsClient.sendAuthLogin(username, password);
   }
 
   /**
@@ -413,7 +413,7 @@ export class Auth {
     await this._transitionTo(this.els.authNotLoggedIn, [this.els.registerPanel]);
   }
 
-  handleRegister() {
+  async handleRegister() {
     if (this._loading) return;
 
     const username = this.els.registerUsername?.value.trim();
@@ -435,7 +435,7 @@ export class Auth {
     this._pendingUsername = username;
     this._pendingRegister = true;
     this.setLoading(true);
-    this.wsClient.sendAuthRegister(username, password, { email, secretQuestion, secretAnswer });
+    await this.wsClient.sendAuthRegister(username, password, { email, secretQuestion, secretAnswer });
   }
 
   attemptAutoLogin() {
@@ -444,7 +444,7 @@ export class Auth {
 
     // Send token if we have one — covers room switches within a session,
     // "remember me" across page reloads, and page refreshes with a stored token
-    this.wsClient.sendAuthTokenLogin(token);
+    void this.wsClient.sendAuthTokenLogin(token);
     return true;
   }
 
