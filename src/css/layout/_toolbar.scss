@@ -148,6 +148,7 @@
   gap: var(--space-2);
   align-items: center;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 #chatBtn,
@@ -176,6 +177,101 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--bg-elevated) 92%, black);
   pointer-events: none;
   z-index: 1;
+}
+
+@mixin toolbar-icon-collapse($button-selector) {
+  #{$button-selector} {
+    .btnText {
+      display: none;
+    }
+
+    .btnIcon {
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
+      margin-right: 0;
+
+      img {
+        width: 18px;
+        height: 18px;
+        object-fit: contain;
+        filter: brightness(0) invert(0.7);
+        transition: filter var(--transition-fast);
+      }
+    }
+
+    width: 28px;
+    min-width: 28px;
+    padding: 0;
+
+    &:hover .btnIcon img {
+      filter: brightness(0) invert(1);
+    }
+  }
+}
+
+.boardBtns.force-right-icon-collapse {
+  @include toolbar-icon-collapse('.saveUploadGroup .btn, #inboxBtn, #disconnectBtn, #roomSettingsBtn');
+
+  #chatBtn .btnIcon img,
+  #inboxBtn .btnIcon img {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+.boardBtns.force-left-icon-collapse {
+  @include toolbar-icon-collapse('#mirrorBtn, #appSettingsBtn');
+}
+
+.boardBtns.force-menu-collapse {
+  .btn.menuBtn {
+    display: inline-flex;
+  }
+
+  .collapsibleBtns {
+    display: none;
+    flex-direction: column;
+    position: absolute;
+    top: 100%;
+    left: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    box-shadow: var(--shadow-lg);
+    z-index: 105;
+    align-items: stretch;
+    min-width: 180px;
+    gap: var(--space-3);
+
+    &.show {
+      display: flex !important;
+      animation: menuFadeIn 0.2s ease;
+    }
+
+    .btn {
+      justify-content: flex-start;
+      width: 100%;
+      min-width: 0;
+      height: 36px;
+      padding: 8px;
+    }
+
+    .btnText {
+      display: inline;
+    }
+
+    .btnIcon {
+      display: none !important;
+      margin-right: 8px;
+    }
+
+    .mirrorContainer, .devContainer {
+      justify-content: space-between;
+      padding: 0 var(--space-1);
+    }
+  }
 }
 
 /* ========================================
@@ -228,38 +324,12 @@
 
 // Breakpoint for condensing text to icons (e.g., Save/Upload/Chat/Exit)
 @include respond-below(lg) {
-  .saveUploadGroup .btn, #inboxBtn, #disconnectBtn {
-    .btnText {
-      display: none;
-    }
-    .btnIcon {
-      display: inline-flex !important;
-      align-items: center;
-      justify-content: center;
-      margin-right: 0; // Remove global margin-right for centering
+  @include toolbar-icon-collapse('.saveUploadGroup .btn, #inboxBtn, #disconnectBtn, #roomSettingsBtn');
 
-      img {
-        width: 18px; // Increased from 16px
-        height: 18px;
-        object-fit: contain;
-        filter: brightness(0) invert(0.7);
-        transition: filter var(--transition-fast);
-      }
-    }
-    width: 28px;
-    padding: 0;
-
-    &:hover .btnIcon img {
-      filter: brightness(0) invert(1);
-    }
-  }
-
-  // Specific sizing for chat/inbox icon (increase by ~50% from 16px -> 24px)
   #chatBtn .btnIcon img, #inboxBtn .btnIcon img {
     width: 24px;
     height: 24px;
   }
-
 }
 
 // Further adjustments for smaller screens

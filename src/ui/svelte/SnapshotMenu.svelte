@@ -8,6 +8,8 @@
   let snapshotHasMore = $derived(appState.snapshotHasMore);
   let snapshotListVersion = $derived(appState.snapshotListVersion);
   let hasLoadedOlderSnapshots = $derived(snapshots.length > 20);
+  let canViewHistory = $derived(appState.selfRole >= 1);
+  let canRestoreHistory = $derived(appState.selfRole >= 3);
 
   let selectedId = $state(null);
   let selectedLayers = $state(null);
@@ -144,6 +146,7 @@
 
   function selectSnapshot(id) {
     if (id === selectedId) return;
+    window.app.snapshotPreviewCanvas = null;
     selectedId = id;
     selectedLayers = null;
     selection = null;
@@ -211,6 +214,13 @@
         console.warn('[SnapshotMenu] QOI decode error', e);
       }
     }
+
+    window.app.snapshotPreviewCanvas = previewCanvas;
+  }
+
+  function openSnapshotSaveDialog() {
+    if (!selectedId || !previewCanvas) return;
+    window.app?.openSaveDialogForCanvas?.(previewCanvas);
   }
 
   function doRestore() {
@@ -386,6 +396,12 @@
   });
 
   onMount(() => {
+    if (!canViewHistory) {
+      window.app.snapshotPreviewCanvas = null;
+      previewError = 'Only registered users can view board history.';
+      return;
+    }
+
     lastHandledSnapshotListVersion = snapshotListVersion;
     refresh();
     const tick = () => {
@@ -400,6 +416,9 @@
     if (animId) cancelAnimationFrame(animId);
     if (previewRequestTimeout) clearTimeout(previewRequestTimeout);
     window.app?.wsClient?.messageHandlers?.delete('board_snapshot_get_response');
+    if (window.app?.snapshotPreviewCanvas === previewCanvas) {
+      window.app.snapshotPreviewCanvas = null;
+    }
     for (const url of Object.values(thumbUrls)) URL.revokeObjectURL(url);
   });
 
@@ -497,7 +516,13 @@
       style="cursor: {isDraggingStrip ? 'grabbing' : 'auto'}"
     >
       {#if snapshots.length === 0}
-        <span class="snap-strip-empty">No snapshots available. (Requires Helper+ rank)</span>
+        <span class="snap-strip-empty">
+          {#if canViewHistory}
+            No snapshots available yet.
+          {:else}
+            Only registered users can view board history.
+          {/if}
+        </span>
       {:else}
         {#each snapshots as snap}
           {@const thumbUrl = getThumbUrl(snap)}
@@ -533,7 +558,9 @@
     <!-- Footer -->
     <div class="snap-footer">
       <span class="snap-hint">
-        {#if !selectedId}
+        {#if !canRestoreHistory}
+          View-only mode for registered users. Helpers and above can restore snapshots.
+        {:else if !selectedId}
           Select a snapshot below
         {:else if hasSelection}
           Selection active — only the selected region will be restored
@@ -545,10 +572,10 @@
         {#if hasSelection}
           <button class="btn secondary" onclick={clearSelection}>Clear Selection</button>
         {/if}
-        <button class="btn secondary" onclick={() => window.app.snapshotManager.saveSnapshot(`Manual ${new Date().toLocaleTimeString()}`)}>
-          Save Current
+        <button class="btn secondary" disabled={!selectedId} onclick={openSnapshotSaveDialog}>
+          Save Snapshot
         </button>
-        <button class="btn primary" disabled={!selectedId} onclick={doRestore}>
+        <button class="btn primary" disabled={!selectedId || !canRestoreHistory} onclick={doRestore}>
           {hasSelection ? 'Restore Region' : 'Restore Board'}
         </button>
       </div>
@@ -783,6 +810,7 @@
   .snap-footer-btns {
     display: flex;
     gap: 8px;
+    align-items: center;
   }
 
   .snap-thumb-loading {

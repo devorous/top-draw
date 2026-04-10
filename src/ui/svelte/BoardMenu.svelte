@@ -10,7 +10,7 @@
   let hoveredLayerBtn = null;
 
   let blendModeAllowed = $derived(appState.activeLayer === 0);
-  let isHelper = $derived(appState.selfRole >= 3);
+  let isRegistered = $derived(appState.selfRole >= 1);
 
   const blendModes = [
     { value: 'source-over', label: 'Normal' },
@@ -166,7 +166,7 @@
   {/if}
 
   <!-- Snapshot/History Button (Helper+) -->
-  {#if isHelper}
+  {#if isRegistered}
   <div class="history-wrap">
     <button
       class="history-btn"
@@ -345,14 +345,17 @@
   /* ── History ── */
   .history-wrap {
     margin-top: 4px;
+    width: 100%;
   }
 
   .history-btn {
     display: flex;
     align-items: center;
+    justify-content: flex-start;
     gap: 5px;
     height: 24px;
     padding: 0 8px;
+    width: 100%;
     background: rgba(20, 23, 28, 0.6);
     border: none;
     border-radius: 5px;
@@ -362,6 +365,7 @@
     cursor: pointer;
     transition: color 0.12s ease, background 0.12s ease;
     white-space: nowrap;
+    box-sizing: border-box;
   }
 
   .history-btn:hover {

@@ -665,7 +665,13 @@ export class DrawingApp {
     elements.plusBtn.addEventListener('click', () => this.handleZoomIn());
     elements.minusBtn.addEventListener('click', () => this.handleZoomOut());
     elements.rotationResetBtn.addEventListener('click', () => this.handleResetBoard());
-    elements.saveBtn.addEventListener('click', () => this.openSaveDialog());
+    elements.saveBtn.addEventListener('click', () => {
+      if (appState.snapshotMenuVisible && this.snapshotPreviewCanvas) {
+        this.openSaveDialogForCanvas(this.snapshotPreviewCanvas);
+        return;
+      }
+      this.openSaveDialog();
+    });
     if (elements.historyBtn) elements.historyBtn.addEventListener('click', () => this.historyPanel?.open());
     if (elements.saveModeCloseBtn) elements.saveModeCloseBtn.addEventListener('click', () => this.closeSaveDialog());
     if (elements.saveModeCancelBtn) elements.saveModeCancelBtn.addEventListener('click', () => this.closeSaveDialog());
@@ -697,6 +703,7 @@ export class DrawingApp {
     if (appSettingsBtn) {
       appSettingsBtn.addEventListener('click', () => this.handleAppSettings());
     }
+    this.scheduleTopbarCollapseUpdate();
 
     // Room settings button
     const roomSettingsBtn = document.getElementById('roomSettingsBtn');
@@ -2513,8 +2520,49 @@ export class DrawingApp {
     const appSettingsBtn = document.createElement('a');
     appSettingsBtn.className = 'btn';
     appSettingsBtn.id = 'appSettingsBtn';
-    appSettingsBtn.textContent = 'Settings';
+    appSettingsBtn.innerHTML = `
+      <span class="btnText">Settings</span>
+      <span class="btnIcon" style="display: none;"><img src="/images/settings-icon.svg" alt="Settings"></span>
+    `;
     collapsible.appendChild(appSettingsBtn);
+  }
+
+  scheduleTopbarCollapseUpdate() {
+    if (this._topbarCollapseFrame) {
+      cancelAnimationFrame(this._topbarCollapseFrame);
+    }
+
+    this._topbarCollapseFrame = requestAnimationFrame(() => {
+      this._topbarCollapseFrame = null;
+      this.updateTopbarCollapseState();
+    });
+  }
+
+  updateTopbarCollapseState() {
+    const toolbar = document.querySelector('.boardBtns');
+    if (!toolbar) return;
+
+    toolbar.classList.remove(
+      'force-right-icon-collapse',
+      'force-left-icon-collapse',
+      'force-menu-collapse'
+    );
+
+    const isOverflowing = () => toolbar.scrollWidth - toolbar.clientWidth > 1;
+
+    if (isOverflowing()) {
+      toolbar.classList.add('force-right-icon-collapse');
+    }
+
+    if (isOverflowing()) {
+      toolbar.classList.add('force-left-icon-collapse');
+    }
+
+    if (isOverflowing()) {
+      toolbar.classList.add('force-menu-collapse');
+    } else {
+      this.ui?.closeMenu?.();
+    }
   }
 
   handleAppSettings() {
@@ -2602,6 +2650,7 @@ export class DrawingApp {
     if (!isConnected) {
       if (settingsBtn) settingsBtn.style.display = 'none';
       if (registerBtn) registerBtn.style.display = 'none';
+      this.scheduleTopbarCollapseUpdate();
       return;
     }
 
@@ -2612,6 +2661,7 @@ export class DrawingApp {
     if (!this.currentRoomData) {
       if (settingsBtn) settingsBtn.style.display = 'none';
       if (registerBtn) registerBtn.style.display = isLoggedIn ? 'inline-block' : 'none';
+      this.scheduleTopbarCollapseUpdate();
       return;
     }
 
@@ -2627,6 +2677,8 @@ export class DrawingApp {
     if (settingsBtn) {
       settingsBtn.style.display = (hasOwner && canEdit) ? 'inline-block' : 'none';
     }
+
+    this.scheduleTopbarCollapseUpdate();
   }
 
   /**
@@ -2658,6 +2710,8 @@ export class DrawingApp {
     if (!isAuthenticated) {
       appState.messengerVisible = false;
     }
+
+    this.scheduleTopbarCollapseUpdate();
   }
 
   updateRecordingButtonState() {
@@ -2716,6 +2770,20 @@ export class DrawingApp {
     if (this.saveMode) {
       this.saveMode.open();
     }
+  }
+
+  openSaveDialogForCanvas(sourceCanvas) {
+    if (!this.saveMode || !sourceCanvas) {
+      this.openSaveDialog();
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = sourceCanvas.width;
+    canvas.height = sourceCanvas.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(sourceCanvas, 0, 0);
+    this.saveMode.openWithCanvas(canvas, { fixedSelection: false });
   }
 
   /** Closes the interactive save mode. */
@@ -4509,6 +4577,7 @@ export class DrawingApp {
 
   handleResize() {
     this.board.calculateDefaultView();
+    this.scheduleTopbarCollapseUpdate();
 
     // Auto-collapse sidebar on narrow screens
     const width = window.innerWidth;

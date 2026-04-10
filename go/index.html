@@ -271,7 +271,10 @@
             <a class="btn" id="resetBtn">Reset View</a>
 
             <div class="mirrorContainer">
-              <a class="btn" id="mirrorBtn">Mirror</a>
+              <a class="btn" id="mirrorBtn">
+                <span class="btnText">Mirror</span>
+                <span class="btnIcon" style="display: none;"><img src="/images/mirror.svg" alt="Mirror"></span>
+              </a>
             </div>
 
             <!-- Clear / Dev / Perf / Mod buttons injected dynamically by Moderation.injectModUI() -->
@@ -304,7 +307,7 @@
 
             <a class="btn" id="inboxBtn" title="Messenger">
               <span class="btnText">Inbox</span>
-              <span class="btnIcon" style="display: none;"><img src="/images/chat-icon.svg" alt="Messenger"></span>
+              <span class="btnIcon" style="display: none;"><img src="/images/messenger-icon.svg" alt="Messenger"></span>
               <span class="chatBadge" id="inboxBadge" style="display: none;"></span>
             </a>
 
@@ -325,13 +328,12 @@
                 <span class="btnText">Save</span>
                 <span class="btnIcon" style="display: none;"><img src="/images/download-icon.svg" alt="Save"></span>
               </a>
-
-              <a class="btn" id="historyBtn" title="Board History">
-                <span class="btnText">History</span>
-              </a>
             </div>
             <a class="btn accent" id="registerRoomBtn" style="display: none;">Register Room</a>
-            <a class="btn" id="roomSettingsBtn" style="display: none;">Room Settings</a>
+            <a class="btn" id="roomSettingsBtn" style="display: none;">
+              <span class="btnText">Room Settings</span>
+              <span class="btnIcon" style="display: none;"><img src="/images/settings-icon.svg" alt="Settings"></span>
+            </a>
             <a class="btn" id="disconnectBtn" title="Exit Room">
               <span class="btnText">Exit Room</span>
               <span class="btnIcon" style="display: none;"><img src="/images/exit-icon.svg" alt="Exit"></span>

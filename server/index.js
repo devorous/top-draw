@@ -112,6 +112,8 @@ function shouldAllowWsMessage(ws, data) {
     case T.CHAT_REACTION:
     case T.STAFF_MSG:
     case T.STAFF_CHAT_IMG:
+    case T.BOARD_SNAPSHOT_LIST_REQUEST:
+    case T.BOARD_SNAPSHOT_GET:
       suffix = 'chat';
       config = WS_CHAT_LIMIT;
       break;
@@ -149,7 +151,6 @@ function shouldAllowWsMessage(ws, data) {
     case T.ROOM_REGISTER:
     case T.ROOM_UNREGISTER:
     case T.GLOBAL_ROLE_SET:
-    case T.BOARD_SNAPSHOT_LIST_REQUEST:
     case T.BOARD_SNAPSHOT_DELETE:
     case T.CHECKPOINT_LIST:
     case T.CHECKPOINT_GET:

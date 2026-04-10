@@ -47,6 +47,7 @@ export class SaveMode {
     // Options state
     this.transparent = false;
     this.galleryCaption = '';
+    this.preExistingCanvasFixedSelection = false;
 
     this._createElements();
     this._setupEventListeners();
@@ -243,6 +244,8 @@ export class SaveMode {
     // Reset state
     this.selection = null;
     this.lassoPoints = [];
+    this.preExistingCanvas = null;
+    this.preExistingCanvasFixedSelection = false;
     this.transparent = false;
     this.galleryCaption = '';
     this.activeTool = 'select';
@@ -781,7 +784,7 @@ export class SaveMode {
   async _performSave(locally) {
     let canvas;
 
-    if (this.preExistingCanvas) {
+    if (this.preExistingCanvas && this.preExistingCanvasFixedSelection) {
       // Use the pre-existing canvas (from SelectTool)
       if (this.transparent) {
         canvas = this.preExistingCanvas;
@@ -827,13 +830,14 @@ export class SaveMode {
    * @returns {HTMLCanvasElement}
    */
   _createFullExportCanvas() {
-    const [height, width] = this.board.dimensions;
+    const sourceCanvas = this.preExistingCanvas;
+    const width = sourceCanvas ? sourceCanvas.width : this.board.dimensions[1];
+    const height = sourceCanvas ? sourceCanvas.height : this.board.dimensions[0];
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
-    const bgColor = this.transparent ? null : this.board.backgroundColor;
-    this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.getLayerCount(), bgColor);
+    this._drawExportSource(ctx, 0, 0);
     return canvas;
   }
 
@@ -847,13 +851,7 @@ export class SaveMode {
     canvas.width = Math.max(1, Math.round(s.width));
     canvas.height = Math.max(1, Math.round(s.height));
     const ctx = canvas.getContext('2d');
-    const bgColor = this.transparent ? null : this.board.backgroundColor;
-
-    // Draw the full board offset by the selection position
-    ctx.save();
-    ctx.translate(-Math.round(s.x), -Math.round(s.y));
-    this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.getLayerCount(), bgColor);
-    ctx.restore();
+    this._drawExportSource(ctx, -Math.round(s.x), -Math.round(s.y));
 
     return canvas;
   }
@@ -874,12 +872,7 @@ export class SaveMode {
       y: p.y - bounds.y
     }));
 
-    const bgColor = this.transparent ? null : this.board.backgroundColor;
-
-    ctx.save();
-    ctx.translate(-bounds.x, -bounds.y);
-    this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.getLayerCount(), bgColor);
-    ctx.restore();
+    this._drawExportSource(ctx, -bounds.x, -bounds.y);
 
     // Apply lasso mask using destination-in (keeps content only where mask is drawn)
     ctx.globalCompositeOperation = 'destination-in';
@@ -894,17 +887,38 @@ export class SaveMode {
     return canvas;
   }
 
+  _drawExportSource(ctx, offsetX = 0, offsetY = 0) {
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+
+    if (this.preExistingCanvas) {
+      if (!this.transparent) {
+        const [r, g, b, a] = this.board.backgroundColor;
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+        ctx.fillRect(-offsetX, -offsetY, this.preExistingCanvas.width, this.preExistingCanvas.height);
+      }
+      ctx.drawImage(this.preExistingCanvas, 0, 0);
+    } else {
+      const bgColor = this.transparent ? null : this.board.backgroundColor;
+      this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.getLayerCount(), bgColor);
+    }
+
+    ctx.restore();
+  }
+
   /**
    * Opens save mode with a pre-existing canvas (e.g., from SelectTool).
    * Shows the canvas centered with options to save locally or to gallery.
    * @param {HTMLCanvasElement} canvas - The canvas to save
    */
-  openWithCanvas(canvas) {
+  openWithCanvas(canvas, options = {}) {
     if (this.isActive) return;
     this.isActive = true;
+    const fixedSelection = options.fixedSelection ?? true;
 
     // Store the pre-existing canvas
     this.preExistingCanvas = canvas;
+    this.preExistingCanvasFixedSelection = fixedSelection;
 
     // Ensure overlay is in DOM
     if (!this.overlay.parentNode) {
@@ -915,10 +929,13 @@ export class SaveMode {
     }
 
     // Reset state
+    this.selection = null;
     this.lassoPoints = [];
     this.transparent = false;
-    this.activeTool = 'pan';
+    this.galleryCaption = '';
+    this.activeTool = fixedSelection ? 'pan' : 'select';
     this.optionsPanel.querySelector('#saveModeTransparent').checked = false;
+    if (this.captionInput) this.captionInput.value = '';
 
     // Size canvases to match the pre-existing canvas
     this.snapshotCanvas.width = canvas.width;
@@ -926,8 +943,10 @@ export class SaveMode {
     this.selectionCanvas.width = canvas.width;
     this.selectionCanvas.height = canvas.height;
 
-    // Set selection to cover the full canvas (it's already cropped)
-    this.selection = { x: 0, y: 0, width: canvas.width, height: canvas.height };
+    // Set selection to cover the full canvas only for fixed selections.
+    if (fixedSelection) {
+      this.selection = { x: 0, y: 0, width: canvas.width, height: canvas.height };
+    }
 
     // Draw the canvas as the snapshot
     this._drawPreExistingSnapshot();
@@ -935,13 +954,15 @@ export class SaveMode {
     // Show overlay
     this.overlay.style.display = 'flex';
 
-    // Hide mode toggle (selection is fixed)
-    this.modeToggle.style.display = 'none';
+    // Hide mode toggle only when the selection is fixed.
+    this.modeToggle.style.display = fixedSelection ? 'none' : '';
 
     // Update options hint
     const hint = this.optionsPanel.querySelector('.saveModeOptionsHint');
     if (hint) {
-      hint.textContent = 'Save selection to file or gallery';
+      hint.textContent = fixedSelection
+        ? 'Save selection to file or gallery'
+        : 'Draw a selection or save the entire snapshot';
     }
 
     // Center the canvas in the viewport
@@ -1005,6 +1026,7 @@ export class SaveMode {
     this.selection = null;
     this.lassoPoints = [];
     this.preExistingCanvas = null;
+    this.preExistingCanvasFixedSelection = false;
 
     // Reset pan/zoom state
     this._isPanning = false;

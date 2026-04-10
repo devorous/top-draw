@@ -9,6 +9,10 @@ import { uploadSnapshotBundle, getSnapshotBundle, deleteSnapshotBundle } from '.
 const DEFAULT_SNAPSHOT_MAX_PER_ROOM = 100;
 const SNAPSHOT_LIST_PAGE_SIZE = 20;
 
+function canViewSnapshotHistory(ws) {
+  return Number(ws?.userRole || 0) >= 1;
+}
+
 function getSnapshotMaxPerRoom() {
   const parsed = Number.parseInt(process.env.SNAPSHOT_MAX_PER_ROOM || '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SNAPSHOT_MAX_PER_ROOM;
@@ -164,7 +168,7 @@ export async function handleSnapshotSave(ws, data, room) {
  * @param {Room} room - The room instance.
  */
 export async function handleSnapshotList(ws, data, room) {
-  if (!authorize(ws, Action.MOD_MUTE, null)) return; // Helper+ only
+  if (!canViewSnapshotHistory(ws)) return;
 
   console.log(`[Snapshot] List requested for room ${room.id} by ${ws.username}`);
   const db = getDB();
@@ -311,7 +315,7 @@ export async function handleSnapshotRestore(ws, data, room) {
  * @param {Room} room
  */
 export async function handleSnapshotGet(ws, data, room) {
-  if (!authorize(ws, Action.MOD_MUTE, null)) return; // Helper+ only
+  if (!canViewSnapshotHistory(ws)) return;
 
   const snapshotId = data.snapshotId;
   let snapshotData = null; // Will hold { id, ts, issuer, layers, thumb }
