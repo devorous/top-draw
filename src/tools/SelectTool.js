@@ -543,15 +543,48 @@ export class SelectTool extends Tool {
     const wasVisible = menu.style.display !== 'none';
     const hasMoved = this.hasBeenMoved();
 
-    this.menuElements.clear.classList.toggle('hidden', hasMoved);
+    this.menuElements.clear.classList.toggle('hidden', false);
     this.menuElements.fill.classList.toggle('hidden', hasMoved);
     this.menuElements.flip.classList.toggle('hidden', false);
     this.menuElements.stamp.classList.toggle('hidden', !hasMoved);
     this.menuElements.apply.classList.toggle('hidden', !hasMoved);
     this.menuElements.save.classList.toggle('hidden', false);
-    this.menuElements.cancel.classList.toggle('hidden', !hasMoved);
+    this.menuElements.cancel.classList.toggle('hidden', false);
 
-    menu.classList.toggle('grid', hasMoved);
+    this.menuElements.clear.textContent = hasMoved ? 'Remove' : 'Clear';
+    this.menuElements.clear.title = hasMoved ? 'Delete selection contents' : 'Clear selection contents';
+    this.menuElements.cancel.title = hasMoved ? 'Restore the lifted selection' : 'Cancel selection';
+
+    const menuOrder = hasMoved
+      ? {
+          apply: 0,
+          cancel: 1,
+          clear: 2,
+          stamp: 3,
+          copy: 4,
+          brush: 5,
+          flip: 6,
+          save: 7,
+          fill: 8
+        }
+      : {
+          fill: 0,
+          clear: 1,
+          cancel: 2,
+          copy: 3,
+          brush: 4,
+          flip: 5,
+          stamp: 6,
+          apply: 7,
+          save: 8
+        };
+
+    Object.entries(menuOrder).forEach(([key, order]) => {
+      const el = this.menuElements[key];
+      if (el) el.style.order = String(order);
+    });
+
+    menu.classList.add('grid');
     menu.style.display = '';
 
     // Skip repositioning if menu was already visible and we're just updating buttons
@@ -3278,30 +3311,26 @@ export class SelectTool extends Tool {
   }
 
   /**
-   * Cancel selection - delete the floating selection without restoring original content
-   * (New behavior - different from UNDO)
+   * Cancel a lifted selection by discarding it, then undoing the lift erase.
    */
   cancelSelection() {
-    if (!this.floatingCanvas || !this.selection) return false;
+    if (!this.selection) return false;
 
-    // Do NOT restore the erased area - let it stay erased
-    // Clear the restore data without using it
-    this._restoreData = null;
-
-    // Broadcast cancel to other users
-    if (this.board.app?.wsClient) {
-      this.board.app.wsClient.broadcastSelectionCancel();
+    if (!this.floatingCanvas) {
+      this.hideContextMenu();
+      this.clearSelection();
+      return true;
     }
 
-    // Clear floating state
-    this.floatingCanvas = null;
-    this.floatingCtx = null;
-    this.selectedImageData = null;
+    const app = this.board.app;
+    const didDelete = this.deleteSelection();
+    if (!didDelete) return false;
 
-    // Clear selection and UI
-    this.hideContextMenu();
-    this.clearSelection();
-    this.board.clearTop();
+    if (typeof app?.handleUndo === 'function') {
+      app.handleUndo();
+    } else {
+      this.board.undo(app?.self?.activeLayer ?? 0, app?.self?.id ?? 0);
+    }
 
     return true;
   }
