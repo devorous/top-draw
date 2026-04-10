@@ -36,6 +36,8 @@ export class Board {
     this.upperLayersCanvas = null;
     this.selectionOverlay = null;
     this.selectionOverlayPadding = 500;
+    this.interactionBlockOverlay = null;
+    this.interactionBlockCtx = null;
     this.mainCtx = null;
     this.topCtx = null;
     this.upperLayersCtx = null;
@@ -49,6 +51,10 @@ export class Board {
     this.app = null;
 
     this.activeSelectionLayer = -1;
+    this.interactionBlocks = [];
+    this.interactionBlockOverlayPadding = 500;
+    this.interactionBlockDashOffset = 0;
+    this.interactionBlockAnimationId = null;
 
     this._needsComposite = false;
     this._compositeScheduled = false;
@@ -115,6 +121,16 @@ export class Board {
     this.selectionOverlay.id = 'selectionOverlay';
     this.boardsWrapper.appendChild(this.selectionOverlay);
     this.selectionCtx = this.selectionOverlay.getContext('2d');
+
+    this.interactionBlockOverlay = document.createElement('canvas');
+    this.interactionBlockOverlay.id = 'interactionBlockOverlay';
+    this.interactionBlockOverlay.style.position = 'absolute';
+    this.interactionBlockOverlay.style.top = '0';
+    this.interactionBlockOverlay.style.left = '0';
+    this.interactionBlockOverlay.style.pointerEvents = 'none';
+    this.interactionBlockOverlay.style.zIndex = '4';
+    this.boardsWrapper.appendChild(this.interactionBlockOverlay);
+    this.interactionBlockCtx = this.interactionBlockOverlay.getContext('2d');
 
     this.upperLayersCanvas = document.createElement('canvas');
     this.upperLayersCanvas.id = 'upperLayersBoard';
@@ -193,6 +209,13 @@ export class Board {
       this.selectionOverlay.style.left = `${-pad}px`;
       this.selectionOverlay.style.top = `${-pad}px`;
     }
+    if (this.interactionBlockOverlay) {
+      const pad = this.interactionBlockOverlayPadding;
+      this.interactionBlockOverlay.width = width + pad * 2;
+      this.interactionBlockOverlay.height = height + pad * 2;
+      this.interactionBlockOverlay.style.left = `${-pad}px`;
+      this.interactionBlockOverlay.style.top = `${-pad}px`;
+    }
 
     this.mainCtx.globalCompositeOperation = 'source-over';
     this.mainCtx.imageSmoothingQuality = 'high';
@@ -214,6 +237,7 @@ export class Board {
       this.mirrorRegionsLayer.style.width = `${width}px`;
       this.mirrorRegionsLayer.style.height = `${height}px`;
     }
+    this.renderInteractionBlocks();
     this.renderMirrorRegions();
   }
 
@@ -488,6 +512,45 @@ export class Board {
     }
   }
 
+  addInteractionBlock(region) {
+    const normalized = this._normalizeInteractionBlock(region);
+    if (!normalized) return null;
+    this.interactionBlocks = [...this.interactionBlocks, normalized];
+    this.renderInteractionBlocks();
+    this._updateInteractionBlockAnimation();
+    return normalized.id;
+  }
+
+  removeInteractionBlock(id) {
+    if (!id) return;
+    const nextBlocks = this.interactionBlocks.filter(block => block.id !== id);
+    if (nextBlocks.length === this.interactionBlocks.length) return;
+    this.interactionBlocks = nextBlocks;
+    this.renderInteractionBlocks();
+    this._updateInteractionBlockAnimation();
+  }
+
+  clearInteractionBlocks() {
+    if (this.interactionBlocks.length === 0) return;
+    this.interactionBlocks = [];
+    this.renderInteractionBlocks();
+    this._updateInteractionBlockAnimation();
+  }
+
+  hasInteractionBlocks() {
+    return this.interactionBlocks.length > 0;
+  }
+
+  isPointInInteractionBlock(point) {
+    if (!point) return false;
+    return this.interactionBlocks.some(block => this._pointInInteractionBlock(point, block));
+  }
+
+  segmentIntersectsInteractionBlock(start, end) {
+    if (!start || !end) return false;
+    return this.interactionBlocks.some(block => this._segmentIntersectsInteractionBlock(start, end, block));
+  }
+
   /**
    * Gets active mirror regions, with full-board mirror taking precedence.
    * @returns {Array<Object>}
@@ -701,6 +764,39 @@ export class Board {
     }
   }
 
+  renderInteractionBlocks() {
+    if (!this.interactionBlockCtx || !this.interactionBlockOverlay) return;
+
+    const pad = this.interactionBlockOverlayPadding;
+    const [height, width] = this.dimensions;
+    this.interactionBlockCtx.clearRect(0, 0, width + pad * 2, height + pad * 2);
+
+    if (this.interactionBlocks.length === 0) return;
+
+    this.interactionBlockCtx.save();
+    this.interactionBlockCtx.translate(pad, pad);
+
+    for (const block of this.interactionBlocks) {
+      this.interactionBlockCtx.save();
+      this._traceInteractionBlockPath(this.interactionBlockCtx, block);
+      this.interactionBlockCtx.fillStyle = 'rgba(34, 34, 34, 0.14)';
+      this.interactionBlockCtx.fill();
+
+      this.interactionBlockCtx.lineWidth = 1;
+      this.interactionBlockCtx.setLineDash([4, 4]);
+      this.interactionBlockCtx.strokeStyle = '#000';
+      this.interactionBlockCtx.lineDashOffset = -this.interactionBlockDashOffset;
+      this.interactionBlockCtx.stroke();
+
+      this.interactionBlockCtx.strokeStyle = '#fff';
+      this.interactionBlockCtx.lineDashOffset = -this.interactionBlockDashOffset + 4;
+      this.interactionBlockCtx.stroke();
+      this.interactionBlockCtx.restore();
+    }
+
+    this.interactionBlockCtx.restore();
+  }
+
   _normalizeMirrorRegion(region) {
     if (!region) return null;
     const x = Math.floor(Number(region.x));
@@ -724,6 +820,196 @@ export class Board {
       showLine: region.showLine !== false,
       owner: region.owner || region.createdBy || null
     };
+  }
+
+  _normalizeInteractionBlock(region) {
+    if (!region) return null;
+
+    const id = String(region.id || `ib_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+    const type = region.type === 'lasso' ? 'lasso' : 'rect';
+
+    if (type === 'lasso') {
+      const points = Array.isArray(region.points)
+        ? region.points
+          .map(point => ({
+            x: Math.floor(Number(point?.x)),
+            y: Math.floor(Number(point?.y))
+          }))
+          .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y))
+        : [];
+
+      if (points.length < 3) return null;
+
+      let minX = points[0].x;
+      let minY = points[0].y;
+      let maxX = points[0].x;
+      let maxY = points[0].y;
+      for (const point of points) {
+        minX = Math.min(minX, point.x);
+        minY = Math.min(minY, point.y);
+        maxX = Math.max(maxX, point.x);
+        maxY = Math.max(maxY, point.y);
+      }
+
+      return {
+        id,
+        type,
+        points,
+        x: minX,
+        y: minY,
+        width: Math.max(1, maxX - minX),
+        height: Math.max(1, maxY - minY)
+      };
+    }
+
+    const x = Math.floor(Number(region.x));
+    const y = Math.floor(Number(region.y));
+    const width = Math.floor(Number(region.width));
+    const height = Math.floor(Number(region.height));
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) {
+      return null;
+    }
+
+    return {
+      id,
+      type,
+      x: Math.max(0, x),
+      y: Math.max(0, y),
+      width: Math.max(1, width),
+      height: Math.max(1, height)
+    };
+  }
+
+  _traceInteractionBlockPath(ctx, block) {
+    ctx.beginPath();
+    if (block.type === 'lasso' && block.points?.length >= 3) {
+      ctx.moveTo(block.points[0].x, block.points[0].y);
+      for (let i = 1; i < block.points.length; i++) {
+        ctx.lineTo(block.points[i].x, block.points[i].y);
+      }
+      ctx.closePath();
+      return;
+    }
+
+    ctx.rect(block.x, block.y, block.width, block.height);
+  }
+
+  _updateInteractionBlockAnimation() {
+    if (this.interactionBlocks.length > 0) {
+      if (this.interactionBlockAnimationId !== null) return;
+      const tick = () => {
+        if (this.interactionBlocks.length === 0) {
+          this.interactionBlockAnimationId = null;
+          return;
+        }
+        this.interactionBlockDashOffset = (this.interactionBlockDashOffset + 1) % 8;
+        this.renderInteractionBlocks();
+        this.interactionBlockAnimationId = requestAnimationFrame(tick);
+      };
+      this.interactionBlockAnimationId = requestAnimationFrame(tick);
+      return;
+    }
+
+    if (this.interactionBlockAnimationId !== null) {
+      cancelAnimationFrame(this.interactionBlockAnimationId);
+      this.interactionBlockAnimationId = null;
+    }
+    this.interactionBlockDashOffset = 0;
+  }
+
+  _pointInInteractionBlock(point, block) {
+    if (!this._rectIntersects(
+      { x: point.x, y: point.y, width: 1, height: 1 },
+      { x: block.x, y: block.y, width: block.width, height: block.height }
+    )) {
+      return false;
+    }
+
+    if (block.type !== 'lasso') {
+      return point.x >= block.x
+        && point.x <= block.x + block.width
+        && point.y >= block.y
+        && point.y <= block.y + block.height;
+    }
+
+    let inside = false;
+    const points = block.points || [];
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+      const xi = points[i].x;
+      const yi = points[i].y;
+      const xj = points[j].x;
+      const yj = points[j].y;
+      const intersects = ((yi > point.y) !== (yj > point.y))
+        && (point.x < ((xj - xi) * (point.y - yi)) / ((yj - yi) || Number.EPSILON) + xi);
+      if (intersects) inside = !inside;
+    }
+    return inside;
+  }
+
+  _segmentIntersectsInteractionBlock(start, end, block) {
+    const minX = Math.min(start.x, end.x);
+    const minY = Math.min(start.y, end.y);
+    const maxX = Math.max(start.x, end.x);
+    const maxY = Math.max(start.y, end.y);
+
+    if (!this._rectIntersects(
+      { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) },
+      { x: block.x, y: block.y, width: block.width, height: block.height }
+    )) {
+      return false;
+    }
+
+    if (this._pointInInteractionBlock(start, block) || this._pointInInteractionBlock(end, block)) {
+      return true;
+    }
+
+    if (block.type === 'lasso' && block.points?.length >= 3) {
+      for (let i = 0; i < block.points.length; i++) {
+        const a = block.points[i];
+        const b = block.points[(i + 1) % block.points.length];
+        if (this._segmentsIntersect(start, end, a, b)) return true;
+      }
+      return false;
+    }
+
+    const corners = [
+      { x: block.x, y: block.y },
+      { x: block.x + block.width, y: block.y },
+      { x: block.x + block.width, y: block.y + block.height },
+      { x: block.x, y: block.y + block.height }
+    ];
+    for (let i = 0; i < corners.length; i++) {
+      if (this._segmentsIntersect(start, end, corners[i], corners[(i + 1) % corners.length])) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  _segmentsIntersect(a, b, c, d) {
+    const orientation = (p, q, r) => {
+      const value = ((q.y - p.y) * (r.x - q.x)) - ((q.x - p.x) * (r.y - q.y));
+      if (Math.abs(value) < 0.0001) return 0;
+      return value > 0 ? 1 : 2;
+    };
+
+    const onSegment = (p, q, r) => (
+      q.x <= Math.max(p.x, r.x) && q.x >= Math.min(p.x, r.x)
+      && q.y <= Math.max(p.y, r.y) && q.y >= Math.min(p.y, r.y)
+    );
+
+    const o1 = orientation(a, b, c);
+    const o2 = orientation(a, b, d);
+    const o3 = orientation(c, d, a);
+    const o4 = orientation(c, d, b);
+
+    if (o1 !== o2 && o3 !== o4) return true;
+    if (o1 === 0 && onSegment(a, c, b)) return true;
+    if (o2 === 0 && onSegment(a, d, b)) return true;
+    if (o3 === 0 && onSegment(c, a, d)) return true;
+    if (o4 === 0 && onSegment(c, b, d)) return true;
+    return false;
   }
 
   _normalizeMirrorMode(mode) {

@@ -3663,6 +3663,32 @@ export class DrawingApp {
     }
   }
 
+  _toolMutatesCanvas(toolName = this.self?.tool) {
+    return !['pan', 'rotate', 'inkdropper'].includes(toolName);
+  }
+
+  _isCanvasRegionLocked(pos, previousPos = null) {
+    if (!this.board || !this._toolMutatesCanvas()) return false;
+    if (!this.board.hasInteractionBlocks?.()) return false;
+    if (previousPos && this.board.segmentIntersectsInteractionBlock(previousPos, pos)) return true;
+    return this.board.isPointInInteractionBlock(pos);
+  }
+
+  _notifyCanvasRegionLocked() {
+    if (this._lastInteractionBlockToast && Date.now() - this._lastInteractionBlockToast < 1500) {
+      return;
+    }
+    this._lastInteractionBlockToast = Date.now();
+    this.ui.showToast('That region is being restored right now', 2000);
+  }
+
+  _cancelBlockedCanvasInteraction() {
+    this._pendingPenDown = null;
+    this.inputBufferManager.inputBuffer.points = [];
+    this.inputBufferManager.inputBuffer.dirty = false;
+    this.cancelCurrentStroke();
+  }
+
   handlePointerMove(e) {
     if (this.mirrorRegionController?.isActive()) {
       const consumed = this.mirrorRegionController.handlePointerMove(e);
@@ -3714,6 +3740,15 @@ export class DrawingApp {
     const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
     const x = pos.x;
     const y = pos.y;
+
+    if (this.self.mousedown && !this.self.panning) {
+      const previousPos = this.inputBufferManager.inputBuffer.lastPosition || { x: this.self.x, y: this.self.y };
+      if (this._isCanvasRegionLocked(pos, previousPos)) {
+        this._cancelBlockedCanvasInteraction();
+        this._notifyCanvasRegionLocked();
+        return;
+      }
+    }
 
     // Text tool: update pending position for touch drag preview
     if (this.self.tool === 'text' && this.self._pendingTextPos && e.pointerType === 'touch') {
@@ -3955,6 +3990,10 @@ export class DrawingApp {
     }
 
     const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
+    if (this._isCanvasRegionLocked(pos)) {
+      this._notifyCanvasRegionLocked();
+      return;
+    }
 
     // Initialize input buffer for this stroke
     this.inputBufferManager.inputBuffer.position = pos;

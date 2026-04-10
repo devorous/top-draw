@@ -41,10 +41,9 @@ export function setupSnapshotHandlers(wsClient, app) {
   // Handle region restoration (broadcast from server)
   wsClient.on('board_snapshot_region_restore', (data) => {
     if (!data.snapshotLayers || data.snapshotLayers.length === 0) return;
-    applyRegionRestore(app.board, data.snapshotLayers, data.isLasso, {
+    void applyRegionRestore(app.board, data.snapshotLayers, data.isLasso, {
       sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh
     }, data.cr || []);
-    app.ui.showToast('A region was restored from a snapshot', 3000);
   });
 
   // Handle board restoration
@@ -80,7 +79,7 @@ export function setupSnapshotHandlers(wsClient, app) {
  * @param {{sx,sy,sw,sh}} rect - Rectangle selection coords (board space)
  * @param {number[]} lassoFlat - Flat [x0,y0,x1,y1,...] lasso points
  */
-export function applyRegionRestore(board, layerDatas, isLasso, rect, lassoFlat) {
+export async function applyRegionRestore(board, layerDatas, isLasso, rect, lassoFlat) {
   const lm = board.layerManager;
   const [height, width] = board.dimensions;
 
@@ -90,82 +89,99 @@ export function applyRegionRestore(board, layerDatas, isLasso, rect, lassoFlat) 
     lassoPoints.push({ x: lassoFlat[i], y: lassoFlat[i + 1] });
   }
 
-  for (let i = 0; i < layerDatas.length; i++) {
-    const qoi = layerDatas[i];
-    if (!qoi || qoi.length === 0) continue;
+  const interactionBlockId = board.addInteractionBlock(
+    isLasso
+      ? { type: 'lasso', points: lassoPoints }
+      : { type: 'rect', x: rect.sx, y: rect.sy, width: rect.sw, height: rect.sh }
+  );
 
-    let pixels;
-    try {
-      pixels = wasm.qoi_decode(qoi);
-      if (!pixels || pixels.length === 0) continue;
-    } catch (e) { continue; }
+  try {
+    await new Promise(resolve => requestAnimationFrame(resolve));
 
-    const snapshotCanvas = document.createElement('canvas');
-    snapshotCanvas.width = width; snapshotCanvas.height = height;
-    snapshotCanvas.getContext('2d').putImageData(
-      new ImageData(new Uint8ClampedArray(pixels.buffer), width, height), 0, 0
-    );
+    for (let i = 0; i < layerDatas.length; i++) {
+      const qoi = layerDatas[i];
+      if (!qoi || qoi.length === 0) continue;
 
-    const group = lm?.layerGroups[i];
-    if (!group) continue;
+      let pixels;
+      try {
+        pixels = wasm.qoi_decode(qoi);
+        if (!pixels || pixels.length === 0) continue;
+      } catch (e) { continue; }
 
-    // Bake all pending strokes into the base so the region clear is complete.
-    // strokeStack entries composite on top of flatCanvas/bakedSequences, so
-    // clearing the base without baking first leaves recent strokes untouched.
-    for (const stroke of group.strokeStack) {
-      lm.addToBaseBin(i, stroke.canvas, stroke.x, stroke.y, stroke.blendMode);
+      const snapshotCanvas = document.createElement('canvas');
+      snapshotCanvas.width = width; snapshotCanvas.height = height;
+      snapshotCanvas.getContext('2d').putImageData(
+        new ImageData(new Uint8ClampedArray(pixels.buffer), width, height), 0, 0
+      );
+
+      const group = lm?.layerGroups[i];
+      if (!group) continue;
+
+      // Bake all pending strokes into the base so the region clear is complete.
+      // strokeStack entries composite on top of flatCanvas/bakedSequences, so
+      // clearing the base without baking first leaves recent strokes untouched.
+      for (const stroke of group.strokeStack) {
+        lm.addToBaseBin(i, stroke.canvas, stroke.x, stroke.y, stroke.blendMode);
+      }
+      group.strokeStack = [];
+      group.userStrokeCounts = new Map();
+
+      if (group.flatCanvas) {
+        // Layer 0: direct pixel manipulation on the flat canvas
+        const ctx = group.flatCtx;
+        ctx.save();
+        if (!isLasso) {
+          const { sx: x, sy: y, sw: w, sh: h } = rect;
+          ctx.clearRect(x, y, w, h);
+          ctx.drawImage(snapshotCanvas, x, y, w, h, x, y, w, h);
+        } else {
+          _buildLassoPath(ctx, lassoPoints);
+          ctx.clip();
+          ctx.clearRect(0, 0, width, height);
+          ctx.drawImage(snapshotCanvas, 0, 0);
+        }
+        ctx.restore();
+      } else {
+        // Layers 1+: append destination-out erase then source-over fill to bakedSequences
+        const eraseCanvas = document.createElement('canvas');
+        eraseCanvas.width = width; eraseCanvas.height = height;
+        const eraseCtx = eraseCanvas.getContext('2d');
+        eraseCtx.fillStyle = '#000';
+        if (!isLasso) {
+          eraseCtx.fillRect(rect.sx, rect.sy, rect.sw, rect.sh);
+        } else {
+          _buildLassoPath(eraseCtx, lassoPoints);
+          eraseCtx.fill();
+        }
+        lm.addToBaseBin(i, eraseCanvas, 0, 0, 'destination-out');
+
+        const fillCanvas = document.createElement('canvas');
+        fillCanvas.width = width; fillCanvas.height = height;
+        const fillCtx = fillCanvas.getContext('2d');
+        fillCtx.save();
+        if (!isLasso) {
+          const { sx: x, sy: y, sw: w, sh: h } = rect;
+          fillCtx.drawImage(snapshotCanvas, x, y, w, h, x, y, w, h);
+        } else {
+          _buildLassoPath(fillCtx, lassoPoints);
+          fillCtx.clip();
+          fillCtx.drawImage(snapshotCanvas, 0, 0);
+        }
+        fillCtx.restore();
+        lm.addToBaseBin(i, fillCanvas, 0, 0, 'source-over');
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 0));
     }
-    group.strokeStack = [];
-    group.userStrokeCounts = new Map();
 
-    if (group.flatCanvas) {
-      // Layer 0: direct pixel manipulation on the flat canvas
-      const ctx = group.flatCtx;
-      ctx.save();
-      if (!isLasso) {
-        const { sx: x, sy: y, sw: w, sh: h } = rect;
-        ctx.clearRect(x, y, w, h);
-        ctx.drawImage(snapshotCanvas, x, y, w, h, x, y, w, h);
-      } else {
-        _buildLassoPath(ctx, lassoPoints);
-        ctx.clip();
-        ctx.clearRect(0, 0, width, height);
-        ctx.drawImage(snapshotCanvas, 0, 0);
-      }
-      ctx.restore();
-    } else {
-      // Layers 1+: append destination-out erase then source-over fill to bakedSequences
-      const eraseCanvas = document.createElement('canvas');
-      eraseCanvas.width = width; eraseCanvas.height = height;
-      const eraseCtx = eraseCanvas.getContext('2d');
-      eraseCtx.fillStyle = '#000';
-      if (!isLasso) {
-        eraseCtx.fillRect(rect.sx, rect.sy, rect.sw, rect.sh);
-      } else {
-        _buildLassoPath(eraseCtx, lassoPoints);
-        eraseCtx.fill();
-      }
-      lm.addToBaseBin(i, eraseCanvas, 0, 0, 'destination-out');
-
-      const fillCanvas = document.createElement('canvas');
-      fillCanvas.width = width; fillCanvas.height = height;
-      const fillCtx = fillCanvas.getContext('2d');
-      fillCtx.save();
-      if (!isLasso) {
-        const { sx: x, sy: y, sw: w, sh: h } = rect;
-        fillCtx.drawImage(snapshotCanvas, x, y, w, h, x, y, w, h);
-      } else {
-        _buildLassoPath(fillCtx, lassoPoints);
-        fillCtx.clip();
-        fillCtx.drawImage(snapshotCanvas, 0, 0);
-      }
-      fillCtx.restore();
-      lm.addToBaseBin(i, fillCanvas, 0, 0, 'source-over');
+    board.compositeAllLayers();
+    if (board.tileGrid) board.tileGrid.markAllDirty();
+    board.app?.ui?.showToast('A region was restored from a snapshot', 3000);
+  } finally {
+    if (interactionBlockId) {
+      board.removeInteractionBlock(interactionBlockId);
     }
   }
-
-  board.compositeAllLayers();
-  if (board.tileGrid) board.tileGrid.markAllDirty();
 }
 
 function _buildLassoPath(ctx, points) {
