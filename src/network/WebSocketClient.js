@@ -1078,6 +1078,22 @@ export class WebSocketClient {
   }
 
   /**
+   * Returns the best currently-available identity payload without waiting.
+   * This keeps auth messages from being dropped during reconnect races.
+   * @returns {Object}
+   */
+  _getImmediateIdentityPayload() {
+    return {
+      clientDeviceId: this.clientIdentity.deviceId || '',
+      clientFingerprintId: this.clientIdentity.cachedFingerprintId || '',
+      clientIdentityJson: this.clientIdentity.cachedIdentityJson || '',
+      client_device_id: this.clientIdentity.deviceId || '',
+      client_fingerprint_id: this.clientIdentity.cachedFingerprintId || '',
+      client_identity_json: this.clientIdentity.cachedIdentityJson || '',
+    };
+  }
+
+  /**
    * Broadcasts freehand movement points.
    * @param {Array<number>} points - Flattened [x, y, ...] coordinates.
    * @returns {void}
@@ -1771,8 +1787,8 @@ export class WebSocketClient {
    * @param {string} password - Chosen password.
    * @returns {void}
    */
-  async sendAuthRegister(username, password, { email = '', secretQuestion = '', secretAnswer = '' } = {}) {
-    const identityPayload = await this.clientIdentity.getPayload({ waitForFingerprintMs: 800 });
+  sendAuthRegister(username, password, { email = '', secretQuestion = '', secretAnswer = '' } = {}) {
+    const identityPayload = this._getImmediateIdentityPayload();
     const msg = { t: T.AUTH_REGISTER, authUsername: username, authPassword: password, ...identityPayload };
     if (email) msg.authEmail = email;
     if (secretQuestion) msg.authSecretQuestion = secretQuestion;
@@ -1786,8 +1802,8 @@ export class WebSocketClient {
    * @param {string} password - Password.
    * @returns {void}
    */
-  async sendAuthLogin(username, password) {
-    const identityPayload = await this.clientIdentity.getPayload({ waitForFingerprintMs: 500 });
+  sendAuthLogin(username, password) {
+    const identityPayload = this._getImmediateIdentityPayload();
     this.send({ t: T.AUTH_LOGIN, authUsername: username, authPassword: password, ...identityPayload });
   }
 
@@ -1796,8 +1812,8 @@ export class WebSocketClient {
    * @param {string} token - JWT or session token.
    * @returns {void}
    */
-  async sendAuthTokenLogin(token) {
-    const identityPayload = await this.clientIdentity.getPayload({ waitForFingerprintMs: 250 });
+  sendAuthTokenLogin(token) {
+    const identityPayload = this._getImmediateIdentityPayload();
     this.send({ t: T.AUTH_LOGIN, authToken: token, ...identityPayload });
   }
 

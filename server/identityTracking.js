@@ -29,11 +29,36 @@ export function getIpSubnet(ip) {
     return `${v4Match[1]}.${v4Match[2]}.${v4Match[3]}.0/24`;
   }
 
-  const expanded = value.split('%')[0];
-  const segments = expanded.split(':').filter(Boolean);
-  if (segments.length >= 4) {
-    return `${segments.slice(0, 4).join(':')}::/64`;
+  const expanded = value.split('%')[0].toLowerCase();
+  const doubleColonIndex = expanded.indexOf('::');
+  if (expanded.includes(':')) {
+    let segments = [];
+
+    if (doubleColonIndex >= 0) {
+      const [leftRaw, rightRaw] = expanded.split('::');
+      const leftSegments = leftRaw ? leftRaw.split(':').filter(Boolean) : [];
+      const rightSegments = rightRaw ? rightRaw.split(':').filter(Boolean) : [];
+      const missingCount = 8 - (leftSegments.length + rightSegments.length);
+      if (missingCount > 0) {
+        segments = [
+          ...leftSegments,
+          ...Array(missingCount).fill('0'),
+          ...rightSegments
+        ];
+      }
+    } else {
+      segments = expanded.split(':').filter(Boolean);
+    }
+
+    if (segments.length >= 4) {
+      const normalizedSegments = segments.slice(0, 4).map((segment) => {
+        const parsed = Number.parseInt(segment, 16);
+        return Number.isFinite(parsed) ? parsed.toString(16) : segment;
+      });
+      return `${normalizedSegments.join(':')}::/64`;
+    }
   }
+
   return expanded.slice(0, 64);
 }
 

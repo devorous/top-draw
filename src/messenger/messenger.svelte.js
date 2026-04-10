@@ -44,8 +44,8 @@ class MessengerState {
     return groups;
   });
 
-  syncUnreadBadge() {
-    const total = Object.values(this.unreadCounts).reduce((sum, count) => sum + (Number(count) || 0), 0);
+  syncUnreadBadge(counts = this.unreadCounts) {
+    const total = Object.values(counts).reduce((sum, count) => sum + (Number(count) || 0), 0);
     appState.messengerUnreadCount = total;
   }
 
@@ -238,7 +238,7 @@ class MessengerState {
     this.view = 'inbox';
     this._pendingInboxRefresh = false;
     this._pendingTargetUser = null;
-    this.syncUnreadBadge();
+    this.syncUnreadBadge({});
   }
 }
 
