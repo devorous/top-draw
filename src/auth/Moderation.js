@@ -64,6 +64,41 @@ export class Moderation {
     return this.localRole >= 9;  // DEITY(9) only
   }
 
+  canManageRoomRoles() {
+    return this.localRole >= 5;  // ADMIN(5)+
+  }
+
+  canMute() {
+    return this.localRole >= 3;  // HELPER(3)+
+  }
+
+  canKickBanOrWipe() {
+    return this.localRole >= 4;  // MOD(4)+
+  }
+
+  canUseMenuAction(action, targetUser, isGroup = false) {
+    switch (action) {
+      case 'mute':
+        return this.canMute();
+      case 'kick':
+      case 'ban':
+      case 'wipe':
+        return this.canKickBanOrWipe();
+      case 'shadowban':
+      case 'promoteNoble':
+      case 'promoteHoly':
+      case 'demoteGlobal':
+        return !isGroup && this.isDeity();
+      case 'promote':
+      case 'demote':
+        return !isGroup && !!targetUser && this.canManageRoomRoles();
+      case 'profile':
+        return !isGroup;
+      default:
+        return true;
+    }
+  }
+
   static roleName(role) {
     const names = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
     return names[role] || 'Guest';
@@ -280,33 +315,27 @@ export class Moderation {
     const menu = document.getElementById('userContextMenu');
     if (!menu) return;
 
-    // Show/hide group-specific menu items
-    const groupItems = menu.querySelectorAll('.group-only');
     const isGroup = ipHash && !targetSessionIndex && targetSessionIndex !== 0;
-    groupItems.forEach(item => {
-      item.style.display = isGroup ? 'block' : 'none';
-    });
+    const isRegistered = targetUser && (targetUser.registeredName || targetUser.role >= 1);
+    const isDeity = this.localRole >= 9;
 
     this._renderContextMenuInfo(menu, targetUser, ipHash);
 
     // Update mute button text based on whether user is already muted
-    if (this.isMod()) {
-      const muteBtn = menu.querySelector('[data-action="mute"]');
-      if (muteBtn && targetUser) {
-        muteBtn.textContent = targetUser.isMuted ? 'Unmute' : 'Mute';
-      }
+    const muteBtn = menu.querySelector('[data-action="mute"]');
+    if (muteBtn && targetUser && this.canMute()) {
+      muteBtn.textContent = targetUser.isMuted ? 'Unmute' : 'Mute';
     }
 
-    // Show promote/demote and profile only for registered users
-    const isRegistered = targetUser && (targetUser.registeredName || targetUser.role >= 1);
-    menu.querySelectorAll('.registered-only').forEach(el => {
-      el.style.display = isRegistered ? '' : 'none';
-    });
+    menu.querySelectorAll('.menuItem').forEach(item => {
+      const action = item.dataset.action;
+      const visible =
+        (!item.classList.contains('group-only') || isGroup) &&
+        (!item.classList.contains('registered-only') || isRegistered) &&
+        (!item.classList.contains('deityOnly') || isDeity) &&
+        (!action || this.canUseMenuAction(action, targetUser, isGroup));
 
-    // Show deity-only items only for DEITY users (role 9)
-    const isDeity = this.localRole >= 9;
-    menu.querySelectorAll('.deityOnly').forEach(el => {
-      el.style.display = isDeity ? '' : 'none';
+      item.style.display = visible ? '' : 'none';
     });
 
     menu.style.display = 'flex';
@@ -325,6 +354,7 @@ export class Moderation {
     }
     this.targetSessionIndex = null;
     this.targetUser = null;
+    this.targetIpHash = null;
   }
 
   /**

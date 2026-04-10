@@ -11,20 +11,53 @@
 #userList {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 5px;
-  padding-top: 8px;
+  gap: 0px;
+  padding: 2.5px;
+  padding-top: 1px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-subtle);
   overflow-y: auto;
   /* Height is dynamically managed by ResizableSections */
 }
 
+.userListControls {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.userListSortLabel {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.userListSort {
+  min-width: 102px;
+  height: 24px;
+  padding: 0 22px 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.userListSort:hover {
+  background: var(--bg-elevated);
+}
+
 .userEntry {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 2px 5px;
+  gap: 2px;
+  padding: 1px 5px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   font-size: 13px;

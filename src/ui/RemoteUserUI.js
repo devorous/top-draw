@@ -22,6 +22,63 @@ export class RemoteUserUI {
     this.userGroups = new Map(); // ipHash -> { element, userIds: Set }
     this._replayModeActive = false;
     this._cursorIdleTimers = new Map();
+    this.userListSortMode = 'recent';
+    this._recentActivity = new Map();
+
+    this._initUserListSortControl();
+  }
+
+  _initUserListSortControl() {
+    const sortSelect = document.getElementById('userListSort');
+    if (!sortSelect) return;
+
+    sortSelect.value = this.userListSortMode;
+    sortSelect.addEventListener('change', () => {
+      this.userListSortMode = sortSelect.value === 'alphabetical' ? 'alphabetical' : 'recent';
+      this._applyUserListSort();
+    });
+  }
+
+  _markUserRecentActivity(userId, timestamp = Date.now()) {
+    this._recentActivity.set(String(userId), timestamp);
+  }
+
+  _setEntrySortMetadata(element, { name = '', recent = Date.now() } = {}) {
+    if (!element) return;
+    element.dataset.sortName = String(name || '').trim().toLocaleLowerCase();
+    element.dataset.recentActivity = String(Number.isFinite(recent) ? recent : Date.now());
+  }
+
+  _getSortableUserListChildren() {
+    if (!this.elements?.userList) return [];
+    return Array.from(this.elements.userList.children).filter((child) => {
+      if (!(child instanceof HTMLElement)) return false;
+      if (child.classList.contains('userListControls')) return false;
+      if (child.classList.contains('self')) return false;
+      return true;
+    });
+  }
+
+  _applyUserListSort() {
+    const userList = this.elements?.userList;
+    if (!userList) return;
+
+    const items = this._getSortableUserListChildren();
+    items.sort((a, b) => {
+      if (this.userListSortMode === 'alphabetical') {
+        const nameCompare = (a.dataset.sortName || '').localeCompare(b.dataset.sortName || '');
+        if (nameCompare !== 0) return nameCompare;
+        return Number(b.dataset.recentActivity || 0) - Number(a.dataset.recentActivity || 0);
+      }
+
+      const recentCompare = Number(b.dataset.recentActivity || 0) - Number(a.dataset.recentActivity || 0);
+      if (recentCompare !== 0) return recentCompare;
+      return (a.dataset.sortName || '').localeCompare(b.dataset.sortName || '');
+    });
+
+    for (const item of items) {
+      userList.appendChild(item);
+    }
   }
 
   _iconToElement(iconData) {
@@ -336,11 +393,13 @@ export class RemoteUserUI {
    * @param {Object} userData - User state data
    */
   createUserListEntry(userId, userData) {
+    this._markUserRecentActivity(userId);
     const ipHash = userData.ipHash || userData.iph;
 
     // If no IP hash, just add normally to the flat list
     if (!ipHash) {
       this._createSingleUserEntry(userId, userData, this.elements.userList);
+      this._applyUserListSort();
       return;
     }
 
@@ -357,6 +416,7 @@ export class RemoteUserUI {
     // If no one else has this IP yet, just add as a normal entry
     if (existingUsersWithSameIp.length === 0) {
       this._createSingleUserEntry(userId, userData, this.elements.userList);
+      this._applyUserListSort();
       return;
     }
 
@@ -380,6 +440,8 @@ export class RemoteUserUI {
     group.userIds.add(userId);
     this._createSingleUserEntry(userId, userData, group.usersContainer);
     this._updateGroupSummary(ipHash);
+    this._syncGroupSortMetadata(ipHash);
+    this._applyUserListSort();
   }
 
   /**
@@ -448,6 +510,10 @@ export class RemoteUserUI {
       pendingDisplayUpdate: null,
     };
     this.userGroups.set(ipHash, group);
+    this._setEntrySortMetadata(groupEl, {
+      name: displayUserData.name || displayUserData.username || displayUserId,
+      recent: this._recentActivity.get(String(displayUserId)) || Date.now()
+    });
     return group;
   }
 
@@ -489,6 +555,8 @@ export class RemoteUserUI {
         if (srcName.classList.contains('admin')) group.headerNameEl.classList.add('admin');
         else if (srcName.classList.contains('mod')) group.headerNameEl.classList.add('mod');
       }
+      this._syncGroupSortMetadata(ipHash);
+      this._applyUserListSort();
     }, 33);
   }
 
@@ -497,12 +565,25 @@ export class RemoteUserUI {
    * @param {string} userId - User ID
    */
   notifyUserActive(userId) {
+    this._markUserRecentActivity(userId);
+
+    const entry = document.querySelector(`.userEntry.u${userId}`);
+    if (entry) {
+      this._setEntrySortMetadata(entry, {
+        name: entry.querySelector(`.listUser.u${userId}`)?.textContent || userId,
+        recent: this._recentActivity.get(String(userId))
+      });
+    }
+
     for (const [ipHash, group] of this.userGroups.entries()) {
       if (group.userIds.has(userId)) {
+        this._syncGroupSortMetadata(ipHash);
         this._setGroupDisplayUser(ipHash, userId);
         break;
       }
     }
+
+    this._applyUserListSort();
   }
 
   /**
@@ -559,6 +640,10 @@ export class RemoteUserUI {
     entry.appendChild(activeEntry);
     entry.appendChild(syncBtn);
 
+    this._setEntrySortMetadata(entry, {
+      name: userData.name || userData.username || userId,
+      recent: this._recentActivity.get(String(userId)) || Date.now()
+    });
     container.appendChild(entry);
   }
 
@@ -567,6 +652,21 @@ export class RemoteUserUI {
     if (!group) return;
     const extra = group.userIds.size - 1;
     group.headerCountEl.textContent = `+${extra}`;
+  }
+
+  _syncGroupSortMetadata(ipHash) {
+    const group = this.userGroups.get(ipHash);
+    if (!group) return;
+
+    let mostRecent = 0;
+    for (const userId of group.userIds) {
+      mostRecent = Math.max(mostRecent, this._recentActivity.get(String(userId)) || 0);
+    }
+
+    this._setEntrySortMetadata(group.element, {
+      name: group.headerNameEl?.textContent || group.displayUserId,
+      recent: mostRecent || Date.now()
+    });
   }
 
   toggleGroup(ipHash) {
@@ -688,17 +788,27 @@ export class RemoteUserUI {
     const id = `u${userId}`;
     const nameEl = document.querySelector(`.name.${id}`);
     const userEl = document.querySelector(`.listUser.${id}`);
+    const entry = document.querySelector(`.userEntry.${id}`);
 
     if (nameEl) nameEl.textContent = name;
     if (userEl) userEl.textContent = name;
+    if (entry) {
+      this._setEntrySortMetadata(entry, {
+        name,
+        recent: this._recentActivity.get(String(userId)) || Number(entry.dataset.recentActivity || 0) || Date.now()
+      });
+    }
 
     // Propagate to group header if this is the display user
     for (const [ipHash, group] of this.userGroups.entries()) {
       if (group.userIds.has(userId) && group.displayUserId === userId) {
         group.headerNameEl.textContent = name;
+        this._syncGroupSortMetadata(ipHash);
         break;
       }
     }
+
+    this._applyUserListSort();
   }
 
   setRemoteUserMuted(userId, muted) {
@@ -812,7 +922,9 @@ export class RemoteUserUI {
     document.querySelector(`.userEntry.${id}`)?.remove();
     document.querySelector(`.userBoard.${id}`)?.remove();
     this.cursors.delete(userId);
+    this._recentActivity.delete(String(userId));
     this.removeRemoteUserFromGroup(userId);
+    this._applyUserListSort();
   }
 
   removeRemoteUserFromGroup(userId) {
@@ -843,6 +955,7 @@ export class RemoteUserUI {
             group.displayUserId = nextId;
             this._setGroupDisplayUser(ipHash, nextId);
           }
+          this._syncGroupSortMetadata(ipHash);
         }
         break;
       }
