@@ -26,8 +26,8 @@ COPY --from=wasm-builder /app/src/wasm/ ./src/wasm/
 # Copy the rest of the app
 COPY . .
 
-# Run the brushes script and build the frontend
-RUN npm run brushes && npm run vite build
+# Build the frontend
+RUN npm run build
 
 # Stage 3: Final Production Image
 FROM node:20-slim
