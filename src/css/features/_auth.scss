@@ -415,7 +415,8 @@
 .landingChangelogWindow {
   width: 100%;
   max-width: 1000px;
-  margin-top: 16px;
+  margin: 16px auto 0;
+  align-self: center;
   padding: 18px 24px;
   background: color-mix(in srgb, var(--bg-secondary) 88%, black 12%);
   border: 1px solid var(--border-subtle);
