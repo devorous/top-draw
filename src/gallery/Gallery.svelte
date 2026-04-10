@@ -865,7 +865,16 @@
               {/if}
             </div>
             <div class="card-meta">
-              <button class="card-author" onclick={(e) => { e.stopPropagation(); profileDialog.show(item.author); }}>{item.author}</button>
+              <div class="card-meta-main">
+                <button class="card-author" onclick={(e) => { e.stopPropagation(); profileDialog.show(item.author); }}>{item.author}</button>
+                {#if item.tags?.length}
+                  <div class="card-tags-inline">
+                    {#each item.tags as tag}
+                      <button class="tag-chip card-tag-chip" onclick={(e) => { e.stopPropagation(); filterByTag(tag); }}>#{tag}</button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
               <button
                 class="like-btn"
                 class:liked={likedIds.has(item.id)}
@@ -875,13 +884,6 @@
                 ♥ {item.likes || 0}
               </button>
             </div>
-            {#if item.tags?.length}
-              <div class="card-tags">
-                {#each item.tags as tag}
-                  <button class="tag-chip" onclick={(e) => { e.stopPropagation(); filterByTag(tag); }}>#{tag}</button>
-                {/each}
-              </div>
-            {/if}
           </div>
         {/each}
       </div>
@@ -1476,6 +1478,7 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: 1.25rem;
+    align-items: start;
   }
 
   .card {
@@ -1483,6 +1486,7 @@
     border: 2px solid var(--border);
     border-radius: 8px;
     overflow: hidden;
+    align-self: start;
     cursor: pointer;
     transition: border-color 0.25s, transform 0.25s, box-shadow 0.25s;
     text-align: left;
@@ -1559,8 +1563,17 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 0.75rem;
     background: var(--bg2);
     border-top: 1px solid var(--border);
+  }
+  .card-meta-main {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex: 1;
+    overflow: hidden;
   }
   .card-author {
     font-size: 0.8rem;
@@ -1574,12 +1587,17 @@
   }
   .card-author:hover { color: var(--accent); }
 
-  .card-tags {
+  .card-tags-inline {
     display: flex;
     flex-wrap: wrap;
     gap: 0.45rem;
-    padding: 0 0.75rem 0.75rem;
-    background: var(--bg2);
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .card-tag-chip {
+    padding: 0.22rem 0.55rem;
+    font-size: 0.68rem;
   }
 
   .tag-chip {

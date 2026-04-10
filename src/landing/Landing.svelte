@@ -145,7 +145,7 @@
     { video: 'https://assets.ddraw.ca/drawing.mp4', title: 'Smooth Drawing', desc: 'Designed to make every stroke feel smooth and responsive, runs at a crisp 60 FPS, and keeps everyone in sync and drawing without a hitch.' },
     { video: 'https://assets.ddraw.ca/mirror.mp4', title: 'Mirrored Regions', desc: 'Can\'t draw a face? Just draw half! Our mirror modes applies region based reflections on the canvas perfect for symmetrical pieces with zero effort.' },
     { video: 'https://assets.ddraw.ca/pattern.mp4', title: 'Customizable Patterns', desc: 'Why use a normal brush when you can paint with patterns? Stamp your art with custom textures or use the image brush to paint with whatever!' },
-    { video: 'https://assets.ddraw.ca/homography.mp4', title: 'The Selector', desc: 'Grab a chunk of the canvas, wiggle it around, resize it, or stamp it a thousand times. Our selection tool is fast, floaty, and lets you rearrange reality however you like.' },
+    { video: 'https://assets.ddraw.ca/homography.mp4', title: 'The Selector', desc: 'Grab a chunk of the canvas, wiggle it around, resize it, or stamp it a thousand times. The selection tool is fast, accurate, and lets you rearrange reality however you like.' },
   ];
 
   const whyDdraw = [
