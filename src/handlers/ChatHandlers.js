@@ -2,6 +2,14 @@
 
 import { broadcastChatPopoutEvent } from '../platform/chatPopoutBridge.js';
 
+function chatNameColor(color) {
+  if (!Array.isArray(color)) return color || '#8ba3c7';
+  const [r = 139, g = 163, b = 199] = color;
+  const luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
+  if (luminance < 72) return 'var(--role-user)';
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 /**
  * Sets up WebSocket event handlers for chat functionality.
  * @param {WebSocketClient} wsClient - The WebSocket client instance.
@@ -17,14 +25,14 @@ export function setupChatHandlers(wsClient, app) {
       app.svelteComponents.chat.addChatMessage(
         user.username,
         data.message,
-        `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
+        chatNameColor(user.color),
         data.sessionIndex,
         data.messageId
       );
       broadcastChatPopoutEvent('addChatMessage', [
         user.username,
         data.message,
-        `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
+        chatNameColor(user.color),
         data.sessionIndex,
         data.messageId
       ]);
@@ -47,14 +55,14 @@ export function setupChatHandlers(wsClient, app) {
       app.svelteComponents.chat.addStaffMessage(
         user.username,
         data.message,
-        `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
+        chatNameColor(user.color),
         data.sessionIndex,
         data.messageId
       );
       broadcastChatPopoutEvent('addStaffMessage', [
         user.username,
         data.message,
-        `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
+        chatNameColor(user.color),
         data.sessionIndex,
         data.messageId
       ]);

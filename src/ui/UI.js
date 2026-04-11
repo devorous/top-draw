@@ -222,6 +222,7 @@ export class UI {
       hudRedoBtn: document.getElementById('hudRedoBtn'),
 menuBtn: document.getElementById('menuBtn'),
       collapsibleBtns: document.getElementById('collapsibleBtns'),
+      fullscreenBtn: document.getElementById('fullscreenBtn'),
       sidebarToggleBtn: document.getElementById('sidebarToggleBtn'),
       sideMenu: document.getElementById('sideMenu'),
       toolOptions: document.getElementById('toolOptions'),
@@ -1470,6 +1471,7 @@ menuBtn: document.getElementById('menuBtn'),
     if (toolOptions) {
       const isCollapsed = toolOptions.classList.toggle('collapsed');
       if (btn) btn.classList.toggle('active', isCollapsed);
+      if (btn) btn.title = isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar';
       return isCollapsed;
     }
     return false;
@@ -1485,6 +1487,7 @@ menuBtn: document.getElementById('menuBtn'),
     if (toolOptions) {
       toolOptions.classList.toggle('collapsed', collapsed);
       if (btn) btn.classList.toggle('active', collapsed);
+      if (btn) btn.title = collapsed ? 'Expand Sidebar' : 'Collapse Sidebar';
     }
   }
 

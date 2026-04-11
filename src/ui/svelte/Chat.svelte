@@ -392,9 +392,14 @@
   function handleSend() {
     const msg = messageInput.trim();
     const recipientId = activeView === 'dm' && recipient ? recipient.id : null;
-    const hasImage = !!composerImage;
+    const pendingImage = composerImage;
+    const hasImage = !!pendingImage;
 
     if (!msg && !hasImage) return;
+
+    messageInput = '';
+    composerImage = null;
+    showEmojiPicker = false;
 
     if (msg) {
       if (activeView === 'all' && onSend) onSend(msg);
@@ -404,15 +409,11 @@
 
     if (hasImage) {
       if (activeView === 'staff' && onStaffSendImage) {
-        onStaffSendImage(composerImage.dataUrl);
+        onStaffSendImage(pendingImage.dataUrl);
       } else if (onSendImage) {
-        onSendImage(composerImage.dataUrl, recipientId);
+        onSendImage(pendingImage.dataUrl, recipientId);
       }
     }
-
-    messageInput = '';
-    composerImage = null;
-    showEmojiPicker = false;
   }
 
   function handleKeydown(event) {
@@ -430,12 +431,44 @@
     );
   }
 
+  function colorToCss(color, { opaque = false } = {}) {
+    if (!color) return opaque ? '#8ba3c7' : '#8ba3c7';
+    if (!Array.isArray(color)) {
+      if (!opaque) return color;
+      const rgbaMatch = color.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+)\s*)?\)$/i);
+      if (!rgbaMatch) return color;
+      const [, r, g, b] = rgbaMatch;
+      return readableNameColor([Number(r), Number(g), Number(b)]);
+    }
+
+    const [r = 139, g = 163, b = 199, alpha = 1] = color;
+    if (opaque) return readableNameColor([r, g, b]);
+    const normalizedAlpha = alpha > 1 ? alpha / 255 : alpha;
+    return `rgba(${r}, ${g}, ${b}, ${normalizedAlpha})`;
+  }
+
+  function readableNameColor([r = 139, g = 163, b = 199]) {
+    const luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
+    if (luminance >= 72) return `rgb(${r}, ${g}, ${b})`;
+
+    const lift = Math.min(1, 72 / Math.max(luminance, 1));
+    const nextR = Math.min(255, Math.round(r * lift));
+    const nextG = Math.min(255, Math.round(g * lift));
+    const nextB = Math.min(255, Math.round(b * lift));
+
+    if ((0.2126 * nextR) + (0.7152 * nextG) + (0.0722 * nextB) < 72) {
+      return 'var(--role-user)';
+    }
+
+    return `rgb(${nextR}, ${nextG}, ${nextB})`;
+  }
+
   function formatTime(timestamp) {
-    return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
   }
 
   function formatShortTime(timestamp) {
-    return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
   }
 
   function getChatUser(userId) {
@@ -444,7 +477,7 @@
       return {
         id: userId,
         username: window.app.self.username || window.app.self.name || 'You',
-        color: `rgba(${window.app.self.color[0]}, ${window.app.self.color[1]}, ${window.app.self.color[2]}, ${window.app.self.color[3] / 255})`,
+        color: colorToCss(window.app.self.color, { opaque: true }),
         role: window.app.self.role || appState.selfRole || 0
       };
     }
@@ -459,7 +492,7 @@
     dmMeta.set(user.id, {
       id: user.id,
       username: user.username || user.name || `User ${user.id}`,
-      color: user.color || '#6f86a3',
+      color: colorToCss(user.color, { opaque: true }),
       role: user.role || 0,
       visibleIp: user.visibleIp || ''
     });
@@ -663,16 +696,16 @@
     return user.visibleIp ? `${roleName} | ${user.visibleIp}` : roleName;
   }
 
-  function getRoleColor(userId) {
+  function getRoleClass(userId) {
     const role = getChatUser(userId)?.role ?? 0;
-    if (role >= 9) return 'var(--role-deity)';
-    if (role === 8) return 'var(--role-holy)';
-    if (role === 7) return 'var(--role-noble)';
-    if (role >= 5) return 'var(--role-admin)';
-    if (role === 4) return 'var(--role-mod)';
-    if (role === 3) return 'var(--role-helper)';
-    if (role >= 1) return 'var(--role-user)';
-    return 'var(--role-guest)';
+    if (role >= 9) return 'rank-deity';
+    if (role === 8) return 'rank-holy';
+    if (role === 7) return 'rank-noble';
+    if (role >= 5) return 'rank-admin';
+    if (role === 4) return 'rank-mod';
+    if (role === 3) return 'rank-helper';
+    if (role >= 1) return 'rank-user';
+    return 'rank-guest';
   }
 
   function openUserContextMenu(event, userId) {
@@ -883,18 +916,14 @@
       type: 'message',
       text: message,
       username,
-      color,
+      color: colorToCss(color, { opaque: true }),
       userId
     }));
   }
 
   export function addChatImage(imageData, user, messageId = createMessageId()) {
     const username = user?.username || user?.name || 'User';
-    const color = user?.color
-      ? (Array.isArray(user.color)
-          ? `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`
-          : user.color)
-      : '#8ba3c7';
+    const color = colorToCss(user?.color, { opaque: true });
     const userId = user?.id ?? user?.sessionIndex ?? null;
 
     addPublicMessage(createBaseMessage({
@@ -920,11 +949,7 @@
 
   export function addStaffImage(imageData, user, messageId = createMessageId()) {
     const username = user?.username || user?.name || 'User';
-    const color = user?.color
-      ? (Array.isArray(user.color)
-          ? `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`
-          : user.color)
-      : '#8ba3c7';
+    const color = colorToCss(user?.color, { opaque: true });
     const userId = user?.id ?? user?.sessionIndex ?? null;
 
     addStaffChannelMessage(createBaseMessage({
@@ -1136,23 +1161,6 @@
           <p class="message-text">{@html linkify(message.text)}</p>
         {/if}
       </div>
-      <div class="reaction-row">
-        <div class="reaction-pills">
-          {#each normalizedReactionPills(message) as reaction (reaction.emoji)}
-            <button class="reaction-pill" class:active={reaction.reactedBySelf} onclick={() => toggleReaction(message, reaction.emoji)} title={reactionUsersLabel(reaction)} type="button">
-              <span>{reaction.emoji}</span>
-              <span>{reaction.count}</span>
-            </button>
-          {/each}
-        </div>
-        <div class="reaction-actions">
-          {#each selectableHoverReactionEmojis(message) as emoji (emoji)}
-            <button class="quick-reaction" onclick={() => toggleReaction(message, emoji)} title={`React with ${emoji}`} type="button">
-              {emoji}
-            </button>
-          {/each}
-        </div>
-      </div>
     </div>
   {/if}
 {/snippet}
@@ -1182,9 +1190,9 @@
 {#if visible}
   <section class="chat-shell" class:full={effectiveChatMode === 'full'} class:compact={effectiveChatMode === 'compact'} class:dragging={isDragging} class:popout={isPopout} class:desktop-popout={isPopout && isDesktopClient} bind:this={chatEl}>
     <WindowTitleBar
-      title={isPopout && isDesktopClient ? 'DDraw!' : 'Chat'}
+      title="Chat"
       subtitle=""
-      branded={isPopout && isDesktopClient}
+      branded={true}
       draggable={!isPopout}
       tauriDragRegion={isPopout && isDesktopClient}
       onDragStart={startDrag}
@@ -1334,7 +1342,7 @@
                     <span class="message-time">{msg.groupedWithPrevious ? '' : formatTime(msg.timestamp)}</span>
                     <div class="message-body">
                       {#if msg.type !== 'system' && !msg.groupedWithPrevious}
-                        <button class="message-user" oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button" style="color: {msg.color || getRoleColor(msg.userId)}">
+                        <button class={`message-user ${getRoleClass(msg.userId)}`} oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button">
                           {msg.username}
                         </button>
                       {/if}
@@ -1356,7 +1364,7 @@
                     <span class="message-time">{msg.groupedWithPrevious ? '' : formatTime(msg.timestamp)}</span>
                     <div class="message-body">
                       {#if msg.type !== 'system' && !msg.groupedWithPrevious}
-                        <button class="message-user" oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button" style="color: {msg.color || getRoleColor(msg.userId)}">
+                        <button class={`message-user ${getRoleClass(msg.userId)}`} oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button">
                           {msg.username}
                         </button>
                       {/if}
@@ -1934,6 +1942,7 @@
     font-size: 0.7rem;
     font-weight: 700;
     letter-spacing: 0.04em;
+    white-space: nowrap;
   }
 
   .message-row.grouped .message-time {
@@ -1962,16 +1971,51 @@
   }
 
   .message-user {
-    display: inline-flex;
-    align-items: center;
+    display: block;
     padding: 0;
+    margin: 0 0 0.02rem;
     background: transparent;
     font-size: 0.88rem;
     font-weight: 700;
     border: 0;
     box-shadow: none;
     cursor: context-menu;
-    line-height: 1.15;
+    line-height: 1.04;
+  }
+
+  .message-user.rank-guest {
+    color: var(--role-guest);
+  }
+
+  .message-user.rank-user {
+    color: var(--role-user);
+  }
+
+  .message-user.rank-helper {
+    color: var(--role-helper);
+  }
+
+  .message-user.rank-mod {
+    color: var(--role-mod);
+  }
+
+  .message-user.rank-admin {
+    color: var(--role-admin);
+  }
+
+  .message-user.rank-noble {
+    color: var(--role-noble);
+    text-shadow: 0 0 6px color-mix(in srgb, var(--role-noble), transparent 65%);
+  }
+
+  .message-user.rank-holy {
+    color: var(--role-holy);
+    text-shadow: 0 0 7px color-mix(in srgb, var(--role-holy), transparent 62%);
+  }
+
+  .message-user.rank-deity {
+    color: var(--role-deity);
+    text-shadow: 0 0 7px color-mix(in srgb, var(--role-deity), transparent 58%);
   }
 
   .thread-tab {
@@ -1993,10 +2037,10 @@
   }
 
   .message-text {
-    margin: 0.08rem 0 0;
+    margin: 0 0 0;
     color: var(--text-primary);
     font-size: 0.9rem;
-    line-height: 1.16;
+    line-height: 1.08;
     word-break: break-word;
     user-select: text;
     -webkit-user-select: text;
@@ -2025,93 +2069,6 @@
     object-fit: cover;
   }
 
-  .reaction-row {
-    position: relative;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.22rem;
-    width: fit-content;
-    max-width: 100%;
-    margin-top: 0.18rem;
-  }
-
-  .reaction-pills,
-  .reaction-actions {
-    display: flex;
-    gap: 0.24rem;
-  }
-
-  .reaction-pills {
-    flex-wrap: wrap;
-  }
-
-  .reaction-actions {
-    flex-wrap: nowrap;
-    align-items: center;
-    position: absolute;
-    top: -0.02rem;
-    left: calc(100% + 1rem);
-    right: auto;
-    bottom: auto;
-    z-index: 2;
-    padding: 0.16rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--bg-elevated) 92%, black 12%);
-    border: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
-    box-shadow: 0 10px 24px rgba(0, 0, 0,14);
-    opacity: 0;
-    pointer-events: none;
-    white-space: nowrap;
-    transform: translate(6px, 0) scale(0.96);
-    transition: opacity 0.14s ease, transform 0.14s ease;
-  }
-
-  .dm-bubble-row.self .reaction-actions {
-    left: auto;
-    right: calc(100% + 0.28rem);
-    transform: translate(-6px, 0) scale(0.96);
-  }
-
-  .message-body:hover .reaction-actions,
-  .dm-bubble:hover .reaction-actions {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translate(0, 0) scale(1);
-  }
-
-  .dm-bubble-row.self .dm-bubble:hover .reaction-actions {
-    transform: translate(0, 0) scale(1);
-  }
-
-  .reaction-pill,
-  .quick-reaction {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    min-height: 20px;
-    padding: 0 0.42rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--bg-elevated) 78%, transparent);
-    color: var(--chat-text);
-    font-size: 0.68rem;
-    line-height: 1;
-  }
-
-  .reaction-pill.active {
-    background: color-mix(in srgb, var(--accent-primary) 24%, transparent);
-    color: color-mix(in srgb, var(--accent-primary) 72%, white);
-  }
-
-  .quick-reaction {
-    width: 22px;
-    min-height: 22px;
-    justify-content: center;
-    padding: 0;
-    border-radius: 999px;
-    background: transparent;
-    opacity: 0.88;
-  }
 
   .emoji-picker {
     display: flex;
@@ -2220,6 +2177,7 @@
     margin-top: 0.25rem;
     font-size: 0.7rem;
     color: color-mix(in srgb, var(--text-secondary) 68%, transparent);
+    white-space: nowrap;
   }
 
   .dm-bubble :global(a),

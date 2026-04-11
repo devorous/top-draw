@@ -27,6 +27,14 @@ import {
   openChatPopoutWindow
 } from '../../platform/chatPopoutBridge.js';
 
+function chatNameColor(color) {
+  if (!Array.isArray(color)) return color || '#8ba3c7';
+  const [r = 139, g = 163, b = 199] = color;
+  const luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
+  if (luminance < 72) return 'var(--role-user)';
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 // Internal wrapper to handle conditional rendering of Messenger based on appState
 const MessengerWrapper = (function() {
   return class {
@@ -451,7 +459,7 @@ export function syncStoresFromApp(app) {
       userMap.set(id, {
         id,
         username: user.username || user.name || '',
-        color: `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
+        color: chatNameColor(user.color),
         registeredName: user.registeredName || '',
         role: user.role || 0,
         isSelf: id === app.sessionIndex

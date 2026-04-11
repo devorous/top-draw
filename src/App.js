@@ -634,6 +634,25 @@ export class DrawingApp {
       });
     }
 
+    if (elements.fullscreenBtn) {
+      if (isTauriDesktop()) {
+        elements.fullscreenBtn.style.display = 'none';
+      } else {
+        elements.fullscreenBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          try {
+            if (document.fullscreenElement) {
+              await document.exitFullscreen();
+            } else {
+              await document.documentElement.requestFullscreen();
+            }
+          } catch (err) {
+            console.warn('[App] Fullscreen toggle failed:', err);
+          }
+        });
+      }
+    }
+
     elements.panBtn.addEventListener('click', () => this.selectTool('pan'));
     elements.rotateBtn.addEventListener('click', () => this.selectTool('rotate'));
     elements.selectBtn.addEventListener('click', () => this.selectTool('select'));
@@ -3512,7 +3531,7 @@ export class DrawingApp {
       this.svelteComponents.chat.addChatMessage(
         this.self.username,
         message,
-        `rgba(${this.self.color[0]}, ${this.self.color[1]}, ${this.self.color[2]}, ${this.self.color[3] / 255})`,
+        this._chatNameColor(this.self.color),
         this.sessionIndex,
         messageId
       );
@@ -3520,7 +3539,7 @@ export class DrawingApp {
     broadcastChatPopoutEvent('addChatMessage', [
       this.self.username,
       message,
-      `rgba(${this.self.color[0]}, ${this.self.color[1]}, ${this.self.color[2]}, ${this.self.color[3] / 255})`,
+      this._chatNameColor(this.self.color),
       this.sessionIndex,
       messageId
     ]);
@@ -3533,7 +3552,7 @@ export class DrawingApp {
       this.svelteComponents.chat.addStaffMessage(
         this.self.username,
         message,
-        `rgba(${this.self.color[0]}, ${this.self.color[1]}, ${this.self.color[2]}, ${this.self.color[3] / 255})`,
+        this._chatNameColor(this.self.color),
         this.sessionIndex,
         messageId
       );
@@ -3541,7 +3560,7 @@ export class DrawingApp {
     broadcastChatPopoutEvent('addStaffMessage', [
       this.self.username,
       message,
-      `rgba(${this.self.color[0]}, ${this.self.color[1]}, ${this.self.color[2]}, ${this.self.color[3] / 255})`,
+      this._chatNameColor(this.self.color),
       this.sessionIndex,
       messageId
     ]);
@@ -3592,6 +3611,14 @@ export class DrawingApp {
     return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
+  _chatNameColor(color) {
+    if (!Array.isArray(color)) return color || '#8ba3c7';
+    const [r = 139, g = 163, b = 199] = color;
+    const luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
+    if (luminance < 72) return 'var(--role-user)';
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
   updateChatUserList() {
     // Update the users store for Svelte Chat component
     const userMap = new Map();
@@ -3600,7 +3627,7 @@ export class DrawingApp {
         userMap.set(id, {
           id,
           username: user.username || user.name || '',
-          color: `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
+          color: this._chatNameColor(user.color),
           registeredName: user.registeredName || '',
           role: user.role || 0,
           visibleIp: user.visibleIp || '',
