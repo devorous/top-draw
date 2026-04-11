@@ -1981,14 +1981,16 @@
   .message-user {
     display: block;
     padding: 0;
-    margin: 0 0 0.02rem;
+    margin: 0;
     background: transparent;
+    font-family: inherit;
     font-size: 0.88rem;
     font-weight: 700;
     border: 0;
     box-shadow: none;
     cursor: context-menu;
-    line-height: 1.04;
+    line-height: 1.2;
+    text-align: left;
   }
 
   .message-user.rank-guest {
