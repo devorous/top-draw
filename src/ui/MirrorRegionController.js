@@ -195,14 +195,10 @@ export class MirrorRegionController {
   handlePointerDown(e) {
     if (!this.active) return false;
     if (this._shouldAllowPanGesture(e)) return false;
-    if (this.stage !== 'selecting' || e.button !== 0) return true;
+    if (e.button !== 0) return true;
     const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
     this.ui.updateSelfCursor(pos.x, pos.y, this.app.self?.size || 1);
-    this.startPos = pos;
-    this.selection = { x: pos.x, y: pos.y, width: 0, height: 0 };
-    this.editingRegionId = null;
-    this._hidePanel();
-    this._drawSelection();
+    this._beginSelectionAt(pos);
     return true;
   }
 
@@ -327,6 +323,15 @@ export class MirrorRegionController {
     this._clearOverlay();
     this.stage = 'selecting';
     this._syncMirrorDisplay();
+  }
+
+  _beginSelectionAt(pos) {
+    this.stage = 'selecting';
+    this.startPos = pos;
+    this.selection = { x: pos.x, y: pos.y, width: 0, height: 0 };
+    this.editingRegionId = null;
+    this._hidePanel();
+    this._drawSelection();
   }
 
   _resetSelectionState() {
@@ -511,7 +516,7 @@ export class MirrorRegionController {
     const wrapper = document.createElement('div');
     wrapper.style.position = 'absolute';
     wrapper.style.left = `${region.x + region.width - 58}px`;
-    wrapper.style.top = `${Math.max(0, region.y + 6)}px`;
+    wrapper.style.top = `${Math.max(0, region.y - 28)}px`;
     wrapper.style.display = 'flex';
     wrapper.style.gap = '6px';
     wrapper.style.pointerEvents = 'none';
