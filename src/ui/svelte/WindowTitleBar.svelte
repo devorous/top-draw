@@ -165,6 +165,7 @@
 
   function handleBarMouseDown(event) {
     if (event.target instanceof HTMLElement && event.target.closest('button')) return;
+    event.preventDefault();
     if (tauriDragRegion && desktopWindowApi) {
       void beginWindowDrag(event);
       return;
@@ -292,10 +293,18 @@
     justify-content: space-between;
     gap: 0.45rem;
     min-height: 28px;
-    padding: 2px 0 2px 0.3rem;
+    padding: 0 0 0 0.3rem;
     border-bottom: 1px solid var(--border-subtle);
     background: color-mix(in srgb, var(--bg-elevated) 56%, #1a1f29);
     color: var(--text-primary);
+    cursor: default;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .window-titlebar,
+  .window-titlebar * {
+    -webkit-user-select: none;
     user-select: none;
   }
 
@@ -312,6 +321,7 @@
   .titlebar-copy {
     min-width: 0;
     flex: 1 1 auto;
+    cursor: default;
   }
 
   .titlebar-brand {
@@ -324,6 +334,7 @@
     transform: translateY(2px) rotate(-2deg);
     transform-origin: left center;
     line-height: 0.92;
+    cursor: default;
   }
 
   .titlebar-title {
@@ -334,6 +345,7 @@
     letter-spacing: 0.14em;
     text-transform: uppercase;
     line-height: 1;
+    cursor: default;
   }
 
   .titlebar-subtitle {
@@ -345,6 +357,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     line-height: 1.1;
+    cursor: default;
   }
 
   .window-titlebar.branded .titlebar-subtitle {

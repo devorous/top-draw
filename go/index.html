@@ -27,7 +27,7 @@
 
     <style id="desktop-titlebar-bootstrap-style">
       html[data-desktop-app='true'] {
-        --desktop-titlebar-height: 32px;
+        --desktop-titlebar-height: 26px;
       }
       html[data-desktop-app='true'] body {
         padding-top: var(--desktop-titlebar-height);
@@ -51,9 +51,17 @@
         justify-content: space-between;
         width: 100%;
         height: 100%;
-        padding: 2px 0 2px 0.3rem;
+        padding: 0 0 0 0.3rem;
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         background: linear-gradient(180deg, rgba(48, 54, 68, 0.98) 0%, rgba(40, 45, 57, 0.96) 100%);
+        cursor: default;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      .desktop-titlebar-fallback,
+      .desktop-titlebar-fallback * {
+        -webkit-user-select: none;
+        user-select: none;
       }
       .desktop-titlebar-fallback .titlebar-actions {
         display: flex;

@@ -144,6 +144,7 @@ async function initEarlyDesktopChrome() {
 
   mount.addEventListener('mousedown', (event) => {
     if (event.target instanceof HTMLElement && event.target.closest('[data-window-action]')) return;
+    event.preventDefault();
     void beginWindowDrag(event);
   });
 
