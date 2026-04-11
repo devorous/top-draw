@@ -152,6 +152,8 @@
     { title: 'Privacy First', desc: 'Your secrets are safe with us. Our messenger uses end-to-end encryption, and rooms are ephemeral. We don\'t peek, and we definitely don\'t track your every move.' },
     { title: 'No Nonsense', desc: 'No paywalls, no "premium brushes," and no annoying ads. It\'s a pure creative space built for the love of digital art.' },
   ];
+
+  const WINDOWS_DOWNLOAD_URL = 'https://github.com/devorous/top-draw/releases/download/v1.0.0-beta/Ddraw_1.0.0-beta_x64-setup.exe';
 </script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -184,7 +186,7 @@
           <a href="/go/" class="btn-primary main-cta">Start Scribbling!</a>
           <div class="download-mini">
             <span>Windows user?</span>
-            <a href="#download">Grab the app ↓</a>
+            <a href={WINDOWS_DOWNLOAD_URL}>Grab the app ↓</a>
           </div>
         </div>
       </div>
@@ -220,7 +222,7 @@
       <div class="card-content">
         <h2>Desktop App!</h2>
         <p>Want it to go even faster? Grab the Windows app. It's lightweight (&lt; 10MB), runs even smoother and looks great on your taskbar.</p>
-        <a href="/download" class="btn-primary download-btn">
+        <a href={WINDOWS_DOWNLOAD_URL} class="btn-primary download-btn">
           Download for Windows
         </a>
         <p class="tiny-print">v0.1.0 • Built with Tauri 2</p>
