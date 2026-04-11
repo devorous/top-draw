@@ -1,6 +1,15 @@
-use std::{fs, path::Path, process::Command, sync::Mutex};
+use std::{
+  fs,
+  path::Path,
+  process::Command,
+  sync::Mutex,
+  thread,
+  time::Duration,
+};
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
+use log::{info, warn};
 use serde::Serialize;
 use tauri::{
   menu::MenuBuilder,
@@ -11,6 +20,13 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 
 const UPDATER_ENDPOINT: Option<&str> = option_env!("TAURI_UPDATER_ENDPOINT");
 const UPDATER_PUBLIC_KEY: Option<&str> = option_env!("TAURI_UPDATER_PUBLIC_KEY");
+const DISCORD_APP_ID: &str = "1492446544882958386";
+const DISCORD_PRESENCE_OPTIONS: [&str; 4] = [
+  "is doodling",
+  "is drawing",
+  "is sketching",
+  "is scribbling"
+];
 
 struct PendingUpdate(Mutex<Option<Update>>);
 
@@ -194,6 +210,52 @@ fn updater_configuration() -> Option<(String, String)> {
   Some((endpoint.to_string(), pubkey.to_string()))
 }
 
+fn start_discord_presence() {
+  thread::spawn(|| {
+    let random_index = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .map(|duration| duration.subsec_nanos() as usize % DISCORD_PRESENCE_OPTIONS.len())
+      .unwrap_or(0);
+    let activity = activity::Activity::new().state(DISCORD_PRESENCE_OPTIONS[random_index]);
+
+    loop {
+      let mut client = match DiscordIpcClient::new(DISCORD_APP_ID) {
+        Ok(client) => client,
+        Err(error) => {
+          warn!("Failed to create Discord IPC client: {error}");
+          thread::sleep(Duration::from_secs(30));
+          continue;
+        }
+      };
+
+      if let Err(error) = client.connect() {
+        warn!("Discord Rich Presence unavailable: {error}");
+        thread::sleep(Duration::from_secs(30));
+        continue;
+      }
+
+      if let Err(error) = client.set_activity(activity.clone()) {
+        warn!("Failed to set Discord Rich Presence activity: {error}");
+        let _ = client.close();
+        thread::sleep(Duration::from_secs(30));
+        continue;
+      }
+
+      info!("Discord Rich Presence connected.");
+
+      loop {
+        thread::sleep(Duration::from_secs(60));
+
+        if let Err(error) = client.set_activity(activity.clone()) {
+          warn!("Discord Rich Presence disconnected: {error}");
+          let _ = client.close();
+          break;
+        }
+      }
+    }
+  });
+}
+
 #[tauri::command]
 fn open_image_via_dialog() -> Result<Option<NativeImageSelection>, String> {
   let Some(path) = show_open_image_dialog()? else {
@@ -312,6 +374,7 @@ pub fn run() {
     .setup(|app| {
       app.manage(PendingUpdate(Mutex::new(None)));
       build_tray(app)?;
+      start_discord_presence();
 
       #[cfg(debug_assertions)]
       {
