@@ -555,35 +555,25 @@ export class RemoteUserUI {
         if (srcName.classList.contains('admin')) group.headerNameEl.classList.add('admin');
         else if (srcName.classList.contains('mod')) group.headerNameEl.classList.add('mod');
       }
-      this._syncGroupSortMetadata(ipHash);
-      this._applyUserListSort();
+      // Rotating the display user is a header-only visual change — do NOT
+      // re-sort here, or the list flickers as remote cursors move around.
     }, 33);
   }
 
   /**
-   * Notify that a user was active — updates the group header to show their name.
+   * Notify that a user was active — rotates the group header to show their
+   * name, but does NOT update sort order. "Recent" sort means recently joined,
+   * not recently active: activity-driven sorting flickers on every cursor move
+   * and makes entries unclickable.
    * @param {string} userId - User ID
    */
   notifyUserActive(userId) {
-    this._markUserRecentActivity(userId);
-
-    const entry = document.querySelector(`.userEntry.u${userId}`);
-    if (entry) {
-      this._setEntrySortMetadata(entry, {
-        name: entry.querySelector(`.listUser.u${userId}`)?.textContent || userId,
-        recent: this._recentActivity.get(String(userId))
-      });
-    }
-
     for (const [ipHash, group] of this.userGroups.entries()) {
       if (group.userIds.has(userId)) {
-        this._syncGroupSortMetadata(ipHash);
         this._setGroupDisplayUser(ipHash, userId);
         break;
       }
     }
-
-    this._applyUserListSort();
   }
 
   /**
