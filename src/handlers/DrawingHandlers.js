@@ -58,6 +58,8 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('ct', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
+      const previousTool = user.tool;
+
       // Defensively clean up any dangling selection state when switching away from select
       if (data.tool !== 'select' && (user.floatingCanvas || user.pendingSelection)) {
         if (user.floatingCanvas) {
@@ -69,6 +71,15 @@ export function setupDrawingHandlers(wrapHandler, app) {
           user.context.clearRect(0, 0, board.getWidth(), board.getHeight());
         }
       }
+
+      if (previousTool === 'text' && data.tool !== 'text') {
+        if (user.context) {
+          user.context.clearRect(0, 0, board.getWidth(), board.getHeight());
+        }
+        ui.setRemoteTextDomVisible(data.sessionIndex, true);
+        ui.updateRemoteText(data.sessionIndex, '');
+      }
+
       user.setTool(data.tool);
       // Track eraser mode so remote erase-all works correctly
       if (data.tool === 'erase') {

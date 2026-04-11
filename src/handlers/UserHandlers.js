@@ -23,6 +23,15 @@ function formatRoomPresenceMessage(user, verb) {
   return `${getRoleName(user?.role ?? 0)} ${formatPresenceName(user)} ${verb}`;
 }
 
+function clearRemoteTextDraft(app, user) {
+  if (!user) return;
+  if (user.context) {
+    user.context.clearRect(0, 0, app.board.getWidth(), app.board.getHeight());
+  }
+  app.ui.setRemoteTextDomVisible(user.id, true);
+  app.ui.updateRemoteText(user.id, '');
+}
+
 /**
  * Sets up WebSocket event handlers for user-related actions and state changes.
  * @param {WebSocketClient} wsClient - The WebSocket client instance.
@@ -193,6 +202,9 @@ export function setupUserHandlers(wsClient, app) {
         }
 
         if (userData.tool && userData.tool !== user.tool) {
+          if (user.tool === 'text' && userData.tool !== 'text') {
+            clearRemoteTextDraft(app, user);
+          }
           user.setTool(userData.tool);
           ui.updateRemoteToolDisplay(userData.sessionIndex, userData.tool);
         }
@@ -401,7 +413,12 @@ export function setupUserHandlers(wsClient, app) {
       user.setUsername(data.name);
 
       if (data.size !== undefined) user.setSize(data.size);
-      if (data.tool !== undefined) user.setTool(data.tool);
+      if (data.tool !== undefined) {
+        if (user.tool === 'text' && data.tool !== 'text') {
+          clearRemoteTextDraft(app, user);
+        }
+        user.setTool(data.tool);
+      }
       if (data.color !== undefined) {
         user.setColor(data.color);
         user.setOpacity(data.color[3]);

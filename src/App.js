@@ -3070,6 +3070,19 @@ export class DrawingApp {
 
     this.brushModeManager.updateModeFromTool(tool);
 
+    if (previousTool === 'text' && tool !== 'text') {
+      this.self._pendingTextPos = null;
+      this.self._pendingTextPointerType = null;
+      this.ui.updateSelfTextInput('');
+      if (this.ui.elements.selfTextInput) {
+        this.ui.elements.selfTextInput.style.visibility = '';
+      }
+      if (this.ui.elements.touchInput) {
+        this.ui.elements.touchInput.value = ' ';
+        this.ui.elements.touchInput.blur();
+      }
+      this.board.clearTop();
+    }
 
     this.self.setTool(tool);
     this.toolManager.setTool(tool);
