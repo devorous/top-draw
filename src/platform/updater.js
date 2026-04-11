@@ -1,6 +1,7 @@
 import { isTauriDesktop } from './desktop.js';
 
 let startupCheckScheduled = false;
+const UPDATER_DISABLED = true;
 
 function formatUpdatePrompt(update) {
   const parts = [`A new desktop build is available: ${update.currentVersion} -> ${update.version}.`];
@@ -20,6 +21,14 @@ function formatUpdatePrompt(update) {
 export async function checkForDesktopUpdates({ silent = false } = {}) {
   if (!isTauriDesktop()) {
     return { status: 'not-desktop' };
+  }
+
+  if (UPDATER_DISABLED) {
+    if (!silent) {
+      console.info('[Updater] Desktop updater is temporarily disabled.');
+    }
+
+    return { status: 'disabled' };
   }
 
   try {
@@ -55,7 +64,7 @@ export async function checkForDesktopUpdates({ silent = false } = {}) {
 }
 
 export function scheduleStartupUpdateCheck() {
-  if (startupCheckScheduled || !isTauriDesktop()) {
+  if (UPDATER_DISABLED || startupCheckScheduled || !isTauriDesktop()) {
     return;
   }
 

@@ -1,9 +1,12 @@
 name: Tauri Release
 
+# Auto-trigger disabled — releases handled manually for now.
+# To re-enable, restore the push.tags trigger below.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+  # push:
+  #   tags:
+  #     - 'v*'
 
 jobs:
   publish-tauri:
