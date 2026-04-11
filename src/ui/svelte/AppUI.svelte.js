@@ -125,6 +125,9 @@ export function initSvelteUI(app) {
   }
 
   const chatBadgeEffect = $effect.root(() => {
+    const onWindowFocus = () => { document.title = 'DDraw'; };
+    window.addEventListener('focus', onWindowFocus);
+
     $effect(() => {
       const unread = appState.chatUnreadCount;
       const badgeEl = document.getElementById('chatBadge');
@@ -136,13 +139,19 @@ export function initSvelteUI(app) {
         badgeEl.style.display = 'inline-flex';
         chatBtn.setAttribute('data-has-unread', 'true');
         chatBtn.setAttribute('aria-label', `Chat (${unread} unread)`);
+        if (!document.hasFocus()) {
+          document.title = `DDraw (${unread > 99 ? '99+' : unread})`;
+        }
       } else {
         badgeEl.textContent = '';
         badgeEl.style.display = 'none';
         chatBtn.removeAttribute('data-has-unread');
         chatBtn.setAttribute('aria-label', 'Chat');
+        document.title = 'DDraw';
       }
     });
+
+    return () => window.removeEventListener('focus', onWindowFocus);
   });
   cleanupFns.push(chatBadgeEffect);
 
