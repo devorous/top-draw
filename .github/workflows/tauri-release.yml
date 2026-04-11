@@ -43,6 +43,6 @@ jobs:
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-beta') }}
           includeRelease: true
-          uploadUpdaterJson: true
+          includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: --config src-tauri/tauri.conf.json
