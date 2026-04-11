@@ -50,3 +50,19 @@ export class PanTool {
    */
   onPointerUp(user, pos, e) {}
 }
+
+/**
+ * ZoomTool handles viewport zooming via drag interactions managed by the app.
+ */
+export class ZoomTool {
+  constructor(board) {
+    this.name = 'zoom';
+    this.board = board;
+  }
+
+  activate() {}
+  deactivate() {}
+  onPointerDown(user, pos, e) {}
+  onPointerMove(user, pos, lastPos, e) {}
+  onPointerUp(user, pos, e) {}
+}

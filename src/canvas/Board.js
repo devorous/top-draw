@@ -389,13 +389,13 @@ export class Board {
 
   /**
    * Set viewport zoom level
-   * @param {number} zoom - Zoom level (0.2 to 3)
+   * @param {number} zoom - Zoom level (0.2 to 5)
    * @param {Object} [cursorPos=null] - Pivot point for zoom {x, y}
    * @returns {number} The applied zoom level
    */
   setZoom(zoom, cursorPos = null) {
     const oldZoom = this.zoom;
-    this.zoom = Math.max(0.2, Math.min(3, zoom));
+    this.zoom = Math.max(0.2, Math.min(5, zoom));
 
     if (cursorPos) {
       const screenX = cursorPos.x * oldZoom + this.panX;
@@ -438,7 +438,7 @@ export class Board {
     const boardY = (-dx * sin + dy * cos) / oldZoom;
 
     // Apply new zoom
-    this.zoom = Math.max(0.2, Math.min(3, newZoom));
+    this.zoom = Math.max(0.2, Math.min(5, newZoom));
 
     // Calculate new pan to keep pivot fixed
     this.panX = pivotX - this.zoom * (boardX * cos - boardY * sin);

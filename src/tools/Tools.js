@@ -12,7 +12,7 @@ import { InkdropperTool } from './InkdropperTool.js';
 import { BlurTool } from './BlurTool.js';
 import { CircleBlurTool } from './CircleBlurTool.js';
 import { GlitchBlurTool } from './GlitchBlurTool.js';
-import { PanTool } from './PanRotateTool.js';
+import { PanTool, ZoomTool } from './PanRotateTool.js';
 import { RotateTool } from './RotateTool.js';
 import { FloodFillTool } from './FloodFillTool.js';
 
@@ -68,6 +68,7 @@ export class ToolManager {
       circleBlur: new CircleBlurTool(board),
       glitchBlur: new GlitchBlurTool(board),
       pan: new PanTool(board),
+      zoom: new ZoomTool(board),
       rotate: new RotateTool(board),
       fill: new FloodFillTool(board)
     };

@@ -171,6 +171,15 @@ export class DrawingApp {
     this._lastPanPointerY = 0;
     this._boardDragDepth = 0;
 
+    // Right-click drag zoom state
+    this._rightDragZoomActive = false;
+    this._rightDragZoomPointerId = null;
+    this._rightDragZoomStartClientY = 0;
+    this._rightDragZoomStartZoom = 1;
+    this._rightDragZoomPivotX = 0;
+    this._rightDragZoomPivotY = 0;
+    this._temporaryZoomPreviousTool = null;
+
     // Rotate tool state
     this._rotateToolActive = false;  // true while rotate-tool drag is in progress
     this._rotatePivotX = 0;          // boardContainer-relative pivot
@@ -654,6 +663,7 @@ export class DrawingApp {
     }
 
     elements.panBtn.addEventListener('click', () => this.selectTool('pan'));
+    elements.zoomBtn.addEventListener('click', () => this.selectTool('zoom'));
     elements.rotateBtn.addEventListener('click', () => this.selectTool('rotate'));
     elements.selectBtn.addEventListener('click', () => this.selectTool('select'));
     elements.brushBtn.addEventListener('click', () => {
@@ -3006,6 +3016,10 @@ export class DrawingApp {
     if (this.self.tool === 'pan') {
       this.self.panning = false;
     }
+    if (this.self.tool === 'zoom') {
+      this._rightDragZoomActive = false;
+      this._rightDragZoomPointerId = null;
+    }
     if (this.self.tool === 'rotate') {
       this._rotateToolActive = false;
       this._rotatePrevAngle = null;
@@ -3040,6 +3054,10 @@ export class DrawingApp {
     } else if (previousTool !== 'inkdropper' && tool !== 'inkdropper' && this.previousTool) {
       // Normal tool switching (not involving inkdropper)
       this.previousTool = null;
+    }
+
+    if (previousTool === 'zoom' && tool !== 'zoom' && this._temporaryZoomPreviousTool) {
+      this._temporaryZoomPreviousTool = null;
     }
 
     if (previousTool && this.toolLockManager.toolLocks[previousTool]) {
@@ -3800,7 +3818,7 @@ export class DrawingApp {
   }
 
   _toolMutatesCanvas(toolName = this.self?.tool) {
-    return !['pan', 'rotate', 'inkdropper'].includes(toolName);
+    return !['pan', 'zoom', 'rotate', 'inkdropper'].includes(toolName);
   }
 
   _isCanvasRegionLocked(pos, previousPos = null) {
@@ -3860,6 +3878,20 @@ export class DrawingApp {
       return;
     }
 
+    if (this._rightDragZoomActive && e.pointerId === this._rightDragZoomPointerId) {
+      const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
+      this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);
+      const deltaY = e.clientY - this._rightDragZoomStartClientY;
+      const zoomFactor = Math.pow(2, -deltaY / 240);
+      this.board.setZoomAround(
+        this._rightDragZoomStartZoom * zoomFactor,
+        this._rightDragZoomPivotX,
+        this._rightDragZoomPivotY
+      );
+      this.ui.updateZoomDisplay(this.board.getZoomPercent());
+      return;
+    }
+
     // Pointer moves are listened to on window so active drags can continue off-canvas.
     // When the pointer is simply hovering outside the board, suppress local buffering
     // and remote broadcasts so replay/history do not accumulate phantom cursor moves.
@@ -3867,6 +3899,7 @@ export class DrawingApp {
       this.self.mousedown ||
       this.self.panning ||
       this._containerPanActive ||
+      this._rightDragZoomActive ||
       !!this.self._pendingTextPos;
     this.syncBoardHoverState(this.isPointerOverBoard(e.clientX, e.clientY), { event: e });
     if (!this.isOnBoard && !hasActiveBoardInteraction) {
@@ -4043,6 +4076,24 @@ export class DrawingApp {
       return;
     }
 
+    if (this.self.tool === 'zoom') {
+      if (e.button === 0) {
+        const containerRect = this.ui.elements.boardContainer.getBoundingClientRect();
+        const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
+        this._rightDragZoomActive = true;
+        this._rightDragZoomPointerId = e.pointerId;
+        this._rightDragZoomStartClientY = e.clientY;
+        this._rightDragZoomStartZoom = this.board.zoom;
+        this._rightDragZoomPivotX = e.clientX - containerRect.left;
+        this._rightDragZoomPivotY = e.clientY - containerRect.top;
+        this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);
+        this.ui.showZoomCursor();
+        this.self.mousedown = true;
+        e.target.setPointerCapture?.(e.pointerId);
+      }
+      return;
+    }
+
     // Rotate tool: left drag rotates around the click point
     if (this.self.tool === 'rotate') {
       if (e.button === 0) {
@@ -4059,9 +4110,20 @@ export class DrawingApp {
       return;
     }
 
-    // Right-click cancels current stroke
+    // Right-click drag zooms around the clicked point
     if (e.button === 2) {
-      this.cancelCurrentStroke();
+      e.preventDefault();
+      const containerRect = this.ui.elements.boardContainer.getBoundingClientRect();
+      const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
+      this._rightDragZoomActive = true;
+      this._rightDragZoomPointerId = e.pointerId;
+      this._rightDragZoomStartClientY = e.clientY;
+      this._rightDragZoomStartZoom = this.board.zoom;
+      this._rightDragZoomPivotX = e.clientX - containerRect.left;
+      this._rightDragZoomPivotY = e.clientY - containerRect.top;
+      this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);
+      this.ui.showZoomCursor();
+      e.target.setPointerCapture?.(e.pointerId);
       return;
     }
 
@@ -4271,6 +4333,17 @@ export class DrawingApp {
     }
 
     if (this.syncClient?.isCanvasInputBlocked()) return;
+    if (this._rightDragZoomActive && e.pointerId === this._rightDragZoomPointerId) {
+      this._rightDragZoomActive = false;
+      this._rightDragZoomPointerId = null;
+      if (this.self.tool === 'zoom') {
+        this.self.mousedown = false;
+      }
+      this.ui.hidePanCursor(this.self.tool, this.self);
+      this.ui.updateZoomDisplay(this.board.getZoomPercent());
+      return;
+    }
+
     // Middle-click release disables temporary panning regardless of active tool
     if (e.button === 1) {
       this.self.panning = false;
@@ -4285,6 +4358,13 @@ export class DrawingApp {
     if (this.self.tool === 'pan') {
       if (e.button === 0) {
         this.self.panning = false;
+        this.self.mousedown = false;
+      }
+      return;
+    }
+
+    if (this.self.tool === 'zoom') {
+      if (e.button === 0) {
         this.self.mousedown = false;
       }
       return;
@@ -4440,6 +4520,22 @@ export class DrawingApp {
       return;
     }
 
+    if (this.self.tool === 'zoom' && e.button === 0) {
+      const containerRect = this.ui.elements.boardContainer.getBoundingClientRect();
+      const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
+      this._rightDragZoomActive = true;
+      this._rightDragZoomPointerId = e.pointerId;
+      this._rightDragZoomStartClientY = e.clientY;
+      this._rightDragZoomStartZoom = this.board.zoom;
+      this._rightDragZoomPivotX = e.clientX - containerRect.left;
+      this._rightDragZoomPivotY = e.clientY - containerRect.top;
+      this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);
+      this.ui.showZoomCursor();
+      this.self.mousedown = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
     if (e.button !== 0) return;
 
     // Left-click on background: pan if space is held
@@ -4490,7 +4586,7 @@ export class DrawingApp {
     if (this.syncClient?.isCanvasInputBlocked()) return;
     e.preventDefault();
 
-    if (this.self.panning || this.self.tool === 'pan' || this.self.tool === 'rotate') {
+    if (this.self.panning || this.self.tool === 'pan' || this.self.tool === 'zoom' || this.self.tool === 'rotate') {
       const cursorPos = { x: this.self.x, y: this.self.y };
       if (e.deltaY > 0) {
         this.board.zoomOut(0.1, cursorPos);

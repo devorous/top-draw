@@ -99,6 +99,13 @@ export const KEYBIND_ACTIONS = [
     defaultBinding: 'H'
   },
   {
+    id: 'tool.zoom',
+    label: 'Zoom tool',
+    description: 'Switch to the zoom tool.',
+    category: 'Tools',
+    defaultBinding: 'Z'
+  },
+  {
     id: 'tool.rotate',
     label: 'Rotate tool',
     description: 'Switch to the rotate tool.',
@@ -183,6 +190,28 @@ export const KEYBIND_ACTIONS = [
     category: 'Canvas Navigation',
     defaultBinding: 'Space',
     isHoldAction: true
+  },
+  {
+    id: 'canvas.temporaryZoom',
+    label: 'Temporary zoom mode',
+    description: 'Hold to temporarily switch drag interactions into zoom mode.',
+    category: 'Canvas Navigation',
+    defaultBinding: 'Q',
+    isHoldAction: true
+  },
+  {
+    id: 'canvas.zoomIn',
+    label: 'Zoom in',
+    description: 'Zoom the canvas in around the current cursor position.',
+    category: 'Canvas Navigation',
+    defaultBinding: 'Equal'
+  },
+  {
+    id: 'canvas.zoomOut',
+    label: 'Zoom out',
+    description: 'Zoom the canvas out around the current cursor position.',
+    category: 'Canvas Navigation',
+    defaultBinding: 'Minus'
   },
   {
     id: 'panel.performanceDebug',

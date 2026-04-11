@@ -35,6 +35,7 @@ import patternIconUrl from '../assets/icons/pattern-icon.svg';
 
 const fillBucketIconUrl = '/images/fillbucket-icon.svg';
 const blendIconUrl = '/images/blend-icon.svg';
+const zoomIconUrl = '/images/magnifying-glass.svg';
 
 /**
  * UI Manager class
@@ -186,6 +187,7 @@ export class UI {
       selfPressureSquare: document.querySelector('.pressureSquare.self'),
       selfCrosshair: document.querySelector('.crosshair.self'),
       selfHand: document.querySelector('.hand.self'),
+      selfZoom: document.querySelector('.zoom.self'),
       selfMutedIndicator: document.querySelector('.mutedIndicator.self'),
       selfText: document.querySelector('.text.self'),
       selfTextInput: document.querySelector('.textInput.self'),
@@ -193,6 +195,7 @@ export class UI {
       mirrorLine: document.querySelector('.mirrorLine'),
 
       panBtn: document.getElementById('panBtn'),
+      zoomBtn: document.getElementById('zoomBtn'),
       rotateBtn: document.getElementById('rotateBtn'),
       selectBtn: document.getElementById('selectBtn'),
       brushBtn: document.getElementById('brushBtn'),
@@ -411,6 +414,7 @@ menuBtn: document.getElementById('menuBtn'),
       glitchBlur: glitchIconUrl,
       inkdropper: inkdropperIconUrl,
       pan: moveIconUrl,
+      zoom: zoomIconUrl,
       rotate: rotateIconUrl,
       pattern: patternIconUrl,
       lockClosed: '/images/lock-closed.svg', // Preload from static assets
@@ -513,6 +517,7 @@ menuBtn: document.getElementById('menuBtn'),
     const pressureSquare = this.elements.selfPressureSquare;
     const crosshair = this.elements.selfCrosshair;
     const hand = this.elements.selfHand;
+    const zoom = this.elements.selfZoom;
     const mutedIndicator = this.elements.selfMutedIndicator;
 
     this._lastCursorX = x;
@@ -537,6 +542,9 @@ menuBtn: document.getElementById('menuBtn'),
     crosshair.setAttribute('transform', `translate(${x}, ${y})`);
     if (hand) {
       hand.setAttribute('transform', `translate(${x}, ${y})`);
+    }
+    if (zoom) {
+      zoom.setAttribute('transform', `translate(${x}, ${y})`);
     }
     if (mutedIndicator) {
       mutedIndicator.setAttribute('transform', `translate(${x}, ${y})`);
@@ -625,7 +633,7 @@ menuBtn: document.getElementById('menuBtn'),
    * hiding whatever cursor shape was previously visible.
    */
   showPanCursor() {
-    const { selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText, selfName } = this.elements;
+    const { selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfZoom, selfText, selfName } = this.elements;
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
     selfCrosshair.style.display = 'none';
@@ -633,7 +641,21 @@ menuBtn: document.getElementById('menuBtn'),
     selfName.style.display = 'none';
     if (selfPressureCircle) selfPressureCircle.style.display = 'none';
     if (selfPressureSquare) selfPressureSquare.style.display = 'none';
+    if (selfZoom) selfZoom.style.display = 'none';
     selfHand.style.display = 'block';
+  }
+
+  showZoomCursor() {
+    const { selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfZoom, selfText, selfName } = this.elements;
+    selfCircle.style.display = 'none';
+    selfSquare.style.display = 'none';
+    selfCrosshair.style.display = 'none';
+    selfText.style.display = 'none';
+    selfName.style.display = 'none';
+    if (selfPressureCircle) selfPressureCircle.style.display = 'none';
+    if (selfPressureSquare) selfPressureSquare.style.display = 'none';
+    if (selfHand) selfHand.style.display = 'none';
+    if (selfZoom) selfZoom.style.display = 'block';
   }
 
   /**
@@ -654,11 +676,13 @@ menuBtn: document.getElementById('menuBtn'),
     if (isHand) {
       this.elements.selfCrosshair.style.display = 'none';
       this.elements.selfName.style.display = 'none';
+      if (this.elements.selfZoom) this.elements.selfZoom.style.display = 'none';
       this.elements.selfHand.style.display = 'block';
     } else {
       this.elements.selfCrosshair.style.display = 'block';
       this.elements.selfName.style.display = '';
       this.elements.selfHand.style.display = 'none';
+      if (this.elements.selfZoom) this.elements.selfZoom.style.display = 'none';
     }
   }
 
@@ -673,6 +697,7 @@ menuBtn: document.getElementById('menuBtn'),
       selfPressureSquare,
       selfCrosshair,
       selfHand,
+      selfZoom,
       selfText
     } = this.elements;
 
@@ -680,6 +705,7 @@ menuBtn: document.getElementById('menuBtn'),
     selfSquare.style.display = 'none';
     selfCrosshair.style.display = 'block';
     selfHand.style.display = 'none';
+    if (selfZoom) selfZoom.style.display = 'none';
     selfText.style.display = 'none';
     if (selfPressureCircle) selfPressureCircle.style.display = 'none';
     if (selfPressureSquare) selfPressureSquare.style.display = 'none';
@@ -719,7 +745,7 @@ menuBtn: document.getElementById('menuBtn'),
    */
   updateToolDisplay(tool, user = null) {
     const {
-      selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfText, selfName,
+      selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfZoom, selfText, selfName,
       brushImage, brushFileInput, sizeContainer, pressureContainer, smoothingContainer,
       brushSpacing, brushHardness, opacityContainer, blurRadiusContainer,
       selectionModeOptions, eraserModeOptions, inkdropperModeOptions, brushModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions, fontContainer, textPositionMultiplierContainer, textPositionOffsetContainer
@@ -729,6 +755,7 @@ menuBtn: document.getElementById('menuBtn'),
     selfSquare.style.display = 'none';
     selfCrosshair.style.display = 'none';
     selfHand.style.display = 'none';
+    if (selfZoom) selfZoom.style.display = 'none';
     selfText.style.display = 'none';
     brushImage.style.display = 'none';
     brushFileInput.style.display = 'none';
@@ -764,7 +791,7 @@ menuBtn: document.getElementById('menuBtn'),
 
     if (selfPressureCircle) selfPressureCircle.style.display = 'none';
     if (selfPressureSquare) selfPressureSquare.style.display = 'none';
-    if (selfName) selfName.style.display = tool === 'pan' ? 'none' : '';
+    if (selfName) selfName.style.display = (tool === 'pan' || tool === 'zoom') ? 'none' : '';
 
     switch (tool) {
       case 'select':
@@ -900,6 +927,14 @@ menuBtn: document.getElementById('menuBtn'),
         opacityContainer.style.display = 'none';
         break;
 
+      case 'zoom':
+        if (selfZoom) selfZoom.style.display = 'block';
+        sizeContainer.style.display = 'none';
+        pressureContainer.style.display = 'none';
+        smoothingContainer.style.display = 'none';
+        opacityContainer.style.display = 'none';
+        break;
+
       case 'rotate':
         selfCrosshair.style.display = 'block';
         sizeContainer.style.display = 'none';
@@ -919,7 +954,7 @@ menuBtn: document.getElementById('menuBtn'),
    * @returns {boolean}
    */
   toolSupportsBlendMode(tool) {
-    const noBlendTools = ['erase', 'select', 'pan', 'rotate', 'inkdropper'];
+    const noBlendTools = ['erase', 'select', 'pan', 'zoom', 'rotate', 'inkdropper'];
     return !noBlendTools.includes(tool);
   }
 
@@ -930,6 +965,7 @@ menuBtn: document.getElementById('menuBtn'),
   updateToolButton(tool) {
     const buttons = {
       pan: this.elements.panBtn,
+      zoom: this.elements.zoomBtn,
       rotate: this.elements.rotateBtn,
       select: this.elements.selectBtn,
       brush: this.elements.brushBtn,

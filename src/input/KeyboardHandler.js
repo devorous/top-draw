@@ -135,6 +135,22 @@ export class KeyboardHandler {
         app.ui.showPanCursor();
         return true;
 
+      case 'canvas.temporaryZoom':
+        if (app.self.tool === 'text' || app.self.mousedown || app._temporaryZoomPreviousTool) return false;
+        if (!e.repeat && app.self.tool !== 'zoom') {
+          app._temporaryZoomPreviousTool = app.self.tool;
+          app.selectTool('zoom');
+        }
+        return true;
+
+      case 'canvas.zoomIn':
+        app.handleZoomIn();
+        return true;
+
+      case 'canvas.zoomOut':
+        app.handleZoomOut();
+        return true;
+
       case 'tool.temporaryEyedropper':
         if (app.self.tool === 'text') return false;
         if (!e.repeat && app.self.tool !== 'inkdropper') {
@@ -248,6 +264,10 @@ export class KeyboardHandler {
         app.selectTool('pan');
         return true;
 
+      case 'tool.zoom':
+        app.selectTool('zoom');
+        return true;
+
       case 'tool.rotate':
         app.selectTool('rotate');
         return true;
@@ -342,6 +362,16 @@ export class KeyboardHandler {
         app.wsClient.broadcastPan(false);
         app.wsClient.broadcastShowCursor();
         app.ui.hidePanCursor(app.self.tool, app.self);
+      }
+      return;
+    }
+
+    if (binding && this.getBindingsForAction('canvas.temporaryZoom').includes(binding)) {
+      if (app.self.tool === 'zoom' && app._temporaryZoomPreviousTool) {
+        e.preventDefault();
+        const previousTool = app._temporaryZoomPreviousTool;
+        app._temporaryZoomPreviousTool = null;
+        app.selectTool(previousTool);
       }
       return;
     }

@@ -83,6 +83,22 @@
 .zoomBtns {
   display: flex;
   gap: 4px;
+
+  .btn img {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+    filter: brightness(0) invert(0.7);
+    transition: filter var(--transition-fast);
+  }
+
+  .btn:hover img {
+    filter: brightness(0) invert(1);
+  }
+
+  .btn.selected img {
+    filter: brightness(0) invert(0.1);
+  }
 }
 
 #recordBtn {

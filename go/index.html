@@ -451,8 +451,12 @@
           <!-- Always Visible Controls -->
           <div class="zoomGroup">
             <div class="zoomBtns">
-              <a class="btn" id="minusBtn" title="Zoom Out">-</a>
-              <a class="btn" id="plusBtn" title="Zoom In">+</a>
+              <a class="btn" id="minusBtn" title="Zoom Out">
+                <img src="/images/magnifying-glass-minus.svg" alt="Zoom Out" width="18" height="18">
+              </a>
+              <a class="btn" id="plusBtn" title="Zoom In">
+                <img src="/images/magnifying-glass-plus.svg" alt="Zoom In" width="18" height="18">
+              </a>
               <a class="btn" id="rotationResetBtn" title="Reset board">&#x21BA;</a>
             </div>
             <span class="zoomPercent">100%</span>
@@ -665,6 +669,9 @@
               <g class="hand self" style="display: none;">
                 <image href="/images/move-icon.svg" x="-12" y="-12" width="24" height="24" style="filter: drop-shadow(0px 0px 1px rgba(0,0,0,0.5)); opacity: 0.8;" />
               </g>
+              <g class="zoom self" style="display: none;">
+                <image href="/images/magnifying-glass.svg" x="-12" y="-12" width="24" height="24" style="filter: drop-shadow(0px 0px 1px rgba(0,0,0,0.5)); opacity: 0.9;" />
+              </g>
               <g class="mutedIndicator self" style="display: none;">
                 <circle r="14" cx="0" cy="0" stroke="#ef4444" stroke-width="2" fill="none"/>
                 <line x1="-10" y1="10" x2="10" y2="-10" stroke="#ef4444" stroke-width="2"/>
@@ -734,6 +741,9 @@
               <img src="/images/move-icon.svg" alt="Pan">
             </a>
             <div class="toolSubgroup">
+              <a class="tool btn" id="zoomBtn" title="Zoom (Z / hold Q)">
+                <img src="/images/magnifying-glass.svg" alt="Zoom">
+              </a>
               <a class="tool btn" id="rotateBtn" title="Rotate (N)">
                 <img src="/images/rotate-icon.svg" alt="Rotate">
               </a>
@@ -748,6 +758,12 @@
           </a>
           <a class="tool btn selected" id="brushBtn" title="Brush (B/P)">
             <img src="/images/brush-icon.svg" alt="Brush">
+          </a>
+          <a class="tool btn" id="eraseBtn" title="Eraser (E)">
+            <img src="/images/eraser-icon.svg" alt="Eraser">
+          </a>
+          <a class="tool btn" id="textBtn" title="Text (T)">
+            <img src="/images/text-icon.svg" alt="Text">
           </a>
 
           <!-- Group: Shapes -->
@@ -764,15 +780,8 @@
               </a>
             </div>
           </div>
-
-          <a class="tool btn" id="textBtn" title="Text (T)">
-            <img src="/images/text-icon.svg" alt="Text">
-          </a>
           <a class="tool btn" id="fillBtn" title="Fill (F)">
             <img src="/images/fillbucket-icon.svg" alt="Fill">
-          </a>
-          <a class="tool btn" id="eraseBtn" title="Eraser (E)">
-            <img src="/images/eraser-icon.svg" alt="Eraser">
           </a>
 
           <!-- Group: Blur -->
