@@ -19,6 +19,11 @@
   z-index: 9999;
 }
 
+body.desktop-window-chrome #overlay {
+  top: var(--desktop-titlebar-height);
+  bottom: 0;
+}
+
 .overlayWindow {
   padding: 32px 40px;
   background: var(--bg-secondary);
@@ -396,6 +401,12 @@
   z-index: 1000;
 }
 
+body.desktop-window-chrome #landingPage {
+  top: 0;
+  bottom: 0;
+  padding-top: calc(20px + 10px);
+}
+
 .landingContainer {
   display: flex;
   gap: 0;
@@ -513,9 +524,13 @@
 
 .landingRooms {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
   background: var(--bg-primary);
+  overflow-y: auto;
+  overflow-x: hidden;
 
   h3 {
     margin: 0;
@@ -837,7 +852,9 @@
   .landingContainer {
     flex-direction: column;
     min-height: 0;
-    max-height: none;
+    max-height: calc(100dvh - 56px);
+    overflow-y: auto;
+    overflow-x: hidden;
   }
 
   .landingChangelogWindow {
@@ -852,14 +869,24 @@
     width: 100%;
     border-right: none;
     border-bottom: 1px solid var(--border-subtle);
+    overflow: visible;
   }
 
   .landingPanel {
     padding: 24px;
   }
 
+  .landingRooms {
+    overflow: visible;
+  }
+
+  .roomListSection {
+    flex: 0 0 auto;
+  }
+
   .roomList {
-    max-height: 300px;
+    max-height: none;
+    overflow: visible;
   }
 }
 

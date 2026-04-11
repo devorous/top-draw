@@ -4,11 +4,37 @@
 
 @use '../abstracts' as *;
 
+:root {
+  --desktop-titlebar-height: 32px;
+}
+
 #main {
   display: flex;
   width: 100%;
   height: 100%;
   background: linear-gradient(135deg, var(--bg-primary) 0%, #1e2228 100%);
+}
+
+body.desktop-window-chrome {
+  box-sizing: border-box;
+  height: 100dvh;
+  padding-top: var(--desktop-titlebar-height);
+  overflow: hidden;
+}
+
+body.desktop-window-chrome #desktopTitlebarMount {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: var(--desktop-titlebar-height);
+  z-index: 12050;
+}
+
+body.desktop-window-chrome #main {
+  height: calc(100dvh - var(--desktop-titlebar-height));
+  min-height: 0;
 }
 
 html[data-sidebar-side='left'] #main {

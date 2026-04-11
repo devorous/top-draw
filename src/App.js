@@ -41,6 +41,7 @@ import {
   openImageViaNativeDialog,
   saveCanvasViaNativeDialog
 } from './platform/desktop.js';
+import { broadcastChatPopoutEvent, focusChatPopout } from './platform/chatPopoutBridge.js';
 import initWasm from './wasm/ddraw_wasm.js';
 
 // Svelte UI Components
@@ -707,7 +708,11 @@ export class DrawingApp {
     if (elements.hudUndoBtn) elements.hudUndoBtn.addEventListener('click', () => this.handleUndo());
     if (elements.hudRedoBtn) elements.hudRedoBtn.addEventListener('click', () => this.handleRedo());
 
-    elements.chatBtn.addEventListener('click', () => { appState.chatVisible = !appState.chatVisible; });
+    elements.chatBtn.addEventListener('click', () => {
+      if (focusChatPopout()) return;
+      appState.chatVisible = !appState.chatVisible;
+      if (appState.chatVisible) appState.chatUnreadCount = 0;
+    });
     if (elements.adminTopBtn) {
       elements.adminTopBtn.addEventListener('click', () => {
         if (this.selfRole < 9) return;
@@ -3512,6 +3517,13 @@ export class DrawingApp {
         messageId
       );
     }
+    broadcastChatPopoutEvent('addChatMessage', [
+      this.self.username,
+      message,
+      `rgba(${this.self.color[0]}, ${this.self.color[1]}, ${this.self.color[2]}, ${this.self.color[3] / 255})`,
+      this.sessionIndex,
+      messageId
+    ]);
     this.wsClient.broadcastChat(message, messageId);
   }
 
@@ -3526,12 +3538,20 @@ export class DrawingApp {
         messageId
       );
     }
+    broadcastChatPopoutEvent('addStaffMessage', [
+      this.self.username,
+      message,
+      `rgba(${this.self.color[0]}, ${this.self.color[1]}, ${this.self.color[2]}, ${this.self.color[3] / 255})`,
+      this.sessionIndex,
+      messageId
+    ]);
     this.wsClient.broadcastStaffChat(message, messageId);
   }
 
   handleStaffChatImageSend(imageData) {
     const messageId = this._createChatMessageId();
     this.svelteComponents?.chat?.addStaffImage(imageData, this.self, messageId);
+    broadcastChatPopoutEvent('addStaffImage', [imageData, this.self, messageId]);
     this.wsClient.broadcastStaffChatImage(imageData, messageId);
   }
 
@@ -3539,6 +3559,7 @@ export class DrawingApp {
     if (this.connected) {
       const messageId = this._createChatMessageId();
       this.svelteComponents?.chat?.addChatDM(message, recipientId, true, messageId);
+      broadcastChatPopoutEvent('addChatDM', [message, recipientId, true, messageId]);
       this.wsClient.broadcastDM(message, recipientId, messageId);
     }
   }
@@ -3548,8 +3569,10 @@ export class DrawingApp {
       const messageId = this._createChatMessageId();
       if (recipientId !== null && recipientId !== undefined) {
         this.svelteComponents?.chat?.addDMImage(imageData, recipientId, true, messageId);
+        broadcastChatPopoutEvent('addDMImage', [imageData, recipientId, true, messageId]);
       } else {
         this.svelteComponents?.chat?.addChatImage(imageData, this.self, messageId);
+        broadcastChatPopoutEvent('addChatImage', [imageData, this.self, messageId]);
       }
       this.wsClient.broadcastChatImage(imageData, recipientId, messageId);
     }
@@ -3557,6 +3580,7 @@ export class DrawingApp {
 
   handleChatReaction(payload) {
     if (this.connected && payload?.messageId && payload?.emoji) {
+      broadcastChatPopoutEvent('applyReaction', [payload]);
       this.wsClient.broadcastChatReaction(payload);
     }
   }

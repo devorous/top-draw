@@ -190,23 +190,17 @@
   }
 
   .profile-dialog-close {
-    background: none;
+    background: transparent;
     border: none;
-    color: rgba(255,255,255,0.4);
-    font-size: 1.5rem;
+    color: #f0f2f5;
+    font-size: 1.75rem;
     cursor: pointer;
     padding: 0;
     line-height: 1;
-    width: 28px;
-    height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
+    display: block;
   }
   .profile-dialog-close:hover {
     color: #fff;
-    background: rgba(255,255,255,0.1);
   }
 
   .profile-dialog-body {

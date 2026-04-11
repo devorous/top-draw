@@ -436,7 +436,7 @@
       <span class="snap-title">Board History</span>
       <div class="snap-header-right">
         <button class="snap-reload-btn" onclick={refresh} title="Refresh">&#8635;</button>
-        <button class="snap-close-btn" onclick={close}>&times;</button>
+        <button class="snap-close-btn" onclick={close} title="Close">&times;</button>
       </div>
     </div>
 
@@ -632,7 +632,7 @@
     gap: 8px;
   }
 
-  .snap-reload-btn, .snap-close-btn {
+  .snap-reload-btn {
     background: none;
     border: none;
     cursor: pointer;
@@ -645,9 +645,23 @@
     justify-content: center;
     border-radius: 4px;
   }
-  .snap-reload-btn:hover, .snap-close-btn:hover {
+  .snap-reload-btn:hover {
     background: var(--bg-elevated, #2a2a2a);
     color: var(--text-primary, #fff);
+  }
+
+  .snap-close-btn {
+    background: transparent;
+    border: none;
+    color: #f0f2f5;
+    font-size: 1.75rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .snap-close-btn:hover {
+    color: #fff;
   }
 
   .snap-preview-wrap {

@@ -279,27 +279,18 @@
       position: absolute;
       top: 12px;
       right: 12px;
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      background: var(--bg-elevated);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-secondary);
-      font-size: 1.5rem;
+      background: transparent;
+      border: none;
+      color: var(--text-primary);
+      font-size: 1.75rem;
       line-height: 1;
-      padding-bottom: 2px;
+      padding: 0;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
       z-index: 1010;
-      transition: all var(--transition-fast);
+      transition: color var(--transition-fast);
 
       &:hover {
-        background: #ff4d4d;
         color: white;
-        border-color: #ff4d4d;
-        transform: scale(1.1);
       }
     }
   }

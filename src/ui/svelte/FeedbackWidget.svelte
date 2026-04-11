@@ -147,20 +147,24 @@
   }
 
   .feedback-close-btn {
-    background: none;
+    background: transparent;
     border: none;
-    color: rgba(255, 255, 255, 0.4);
+    color: #f0f2f5;
     cursor: pointer;
-    font-size: 16px;
-    padding: 2px 6px;
+    font-size: 0;
+    padding: 0;
     line-height: 1;
-    border-radius: 4px;
-    transition: all 0.15s;
+    transition: color 0.15s;
   }
 
   .feedback-close-btn:hover {
     color: #fff;
-    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .feedback-close-btn::before {
+    content: '\00d7';
+    font-size: 1.75rem;
+    line-height: 1;
   }
 
   textarea {

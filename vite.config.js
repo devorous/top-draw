@@ -49,6 +49,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         go: resolve(__dirname, 'go/index.html'),
+        chat: resolve(__dirname, 'chat/index.html'),
         gallery: resolve(__dirname, 'gallery/index.html'),
       },
       output: {

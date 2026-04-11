@@ -17,6 +17,15 @@ import SnapshotMenu from './SnapshotMenu.svelte';
 
 import { appState, showProfile as showProfileFromState, toggleMessenger } from '../../state.svelte.js';
 import { messenger } from '../../messenger/messenger.svelte.js';
+import { isTauriDesktop } from '../../platform/desktop.js';
+import {
+  broadcastChatPopoutState,
+  closeChatPopout,
+  focusChatPopout,
+  getChatSharedState,
+  initMainChatPopoutBridge,
+  openChatPopoutWindow
+} from '../../platform/chatPopoutBridge.js';
 
 // Internal wrapper to handle conditional rendering of Messenger based on appState
 const MessengerWrapper = (function() {
@@ -100,6 +109,12 @@ const SnapshotMenuWrapper = (function() {
 export function initSvelteUI(app) {
   const components = {};
   const cleanupFns = [];
+  const desktopClient = isTauriDesktop();
+
+  if (desktopClient) {
+    document.body.classList.add('desktop-window-chrome');
+    cleanupFns.push(() => document.body.classList.remove('desktop-window-chrome'));
+  }
 
   const chatBadgeEffect = $effect.root(() => {
     $effect(() => {
@@ -122,6 +137,18 @@ export function initSvelteUI(app) {
     });
   });
   cleanupFns.push(chatBadgeEffect);
+
+  const chatPopoutStateEffect = $effect.root(() => {
+    $effect(() => {
+      appState.users;
+      appState.sessionIndex;
+      appState.selfRole;
+      appState.dmRecipient;
+      appState.chatUnreadCount;
+      broadcastChatPopoutState(getChatSharedState());
+    });
+  });
+  cleanupFns.push(chatPopoutStateEffect);
 
   const messengerConnectionEffect = $effect.root(() => {
     $effect(() => {
@@ -270,6 +297,10 @@ export function initSvelteUI(app) {
     components.chat = mount(Chat, {
       target: chatTarget,
       props: {
+        onPopout: () => {
+          appState.chatVisible = false;
+          openChatPopoutWindow();
+        },
         onSend: (message) => app.handleChatSend?.(message),
         onStaffSend: (message) => app.handleStaffChatSend?.(message),
         onStaffSendImage: (imageData) => app.handleStaffChatImageSend?.(imageData),
@@ -278,6 +309,54 @@ export function initSvelteUI(app) {
         onReact: (payload) => app.handleChatReaction?.(payload)
       }
     });
+  }
+
+  initMainChatPopoutBridge({
+    getSnapshot: () => ({
+      chat: components.chat?.getSnapshot?.() ?? null,
+      sharedState: getChatSharedState()
+    }),
+    handleAction: (action) => {
+      if (!action || typeof action !== 'object') return;
+
+      switch (action.type) {
+        case 'send':
+          app.handleChatSend?.(action.message);
+          break;
+        case 'staff-send':
+          app.handleStaffChatSend?.(action.message);
+          break;
+        case 'staff-send-image':
+          app.handleStaffChatImageSend?.(action.imageData);
+          break;
+        case 'dm-send':
+          app.handleDMSend?.(action.message, action.recipientId);
+          break;
+        case 'send-image':
+          app.handleChatImageSend?.(action.imageData, action.recipientId);
+          break;
+        case 'react':
+          components.chat?.applyReaction?.(action.payload);
+          if (app.connected && action.payload?.messageId && action.payload?.emoji) {
+            app.wsClient.broadcastChatReaction(action.payload);
+          }
+          break;
+        default:
+          break;
+      }
+    }
+  });
+
+  // Listen for tray "Open Chat" event; close popout when main window closes
+  if (isTauriDesktop()) {
+    void import('@tauri-apps/api/event').then(({ listen }) => {
+      listen('open-chat', () => {
+        if (!focusChatPopout()) {
+          appState.chatVisible = true;
+        }
+      });
+    });
+    window.addEventListener('beforeunload', () => closeChatPopout(), { once: true });
   }
 
   // Mount FeedbackWidget (in landing page form)
@@ -331,6 +410,7 @@ export function showProfile(username) {
  * Toggle chat visibility
  */
 export function toggleChat() {
+  if (focusChatPopout()) return;
   appState.chatVisible = !appState.chatVisible;
 }
 

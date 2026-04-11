@@ -246,7 +246,7 @@ export class Board {
    */
   calculateDefaultView() {
     const containerWidth = this.container.clientWidth;
-    const containerHeight = this.container.clientHeight - 50;
+    const containerHeight = this.container.clientHeight;
     const [height, width] = this.dimensions;
 
     const padding = 20;
@@ -260,7 +260,7 @@ export class Board {
     const scaledWidth = width * zoom;
     const scaledHeight = height * zoom;
     const panX = (containerWidth - scaledWidth) / 2;
-    const panY = (containerHeight - scaledHeight) / 2 + 50;
+    const panY = (containerHeight - scaledHeight) / 2;
 
     this.defaultZoom = Math.round(zoom * 1000) / 1000;
     this.defaultPanX = panX;

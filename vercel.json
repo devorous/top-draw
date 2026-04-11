@@ -13,6 +13,9 @@
     }
   ],
   "rewrites": [
+    { "source": "/chat", "destination": "/chat/index.html" },
+    { "source": "/chat/(.*)", "destination": "/chat/index.html" },
+    { "source": "/download", "destination": "/api/download" },
     { "source": "/go", "destination": "/go/index.html" },
     { "source": "/go/(.*)", "destination": "/go/index.html" },
     { "source": "/gallery", "destination": "/gallery/index.html" },

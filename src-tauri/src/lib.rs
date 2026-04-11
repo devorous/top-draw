@@ -5,7 +5,7 @@ use serde::Serialize;
 use tauri::{
   menu::MenuBuilder,
   tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-  AppHandle, Manager, State,
+  AppHandle, Emitter, Manager, State,
 };
 use tauri_plugin_updater::{Update, UpdaterExt};
 
@@ -138,6 +138,7 @@ fn reveal_main_window(app: &tauri::AppHandle) {
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
   let menu = MenuBuilder::new(app)
     .text("show", "Show Ddraw")
+    .text("open-chat", "Open Chat")
     .separator()
     .text("quit", "Quit")
     .build()?;
@@ -148,6 +149,18 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     .show_menu_on_left_click(false)
     .on_menu_event(|app, event| match event.id().as_ref() {
       "show" => reveal_main_window(app),
+      "open-chat" => {
+        if let Some(chat_window) = app.get_webview_window("chat-popout") {
+          let _ = chat_window.show();
+          let _ = chat_window.unminimize();
+          let _ = chat_window.set_focus();
+        } else {
+          reveal_main_window(app);
+          if let Some(main_window) = app.get_webview_window("main") {
+            let _ = main_window.emit("open-chat", ());
+          }
+        }
+      }
       "quit" => app.exit(0),
       _ => {}
     })
@@ -280,17 +293,22 @@ async fn install_update(pending_update: State<'_, PendingUpdate>) -> Result<(), 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
+  let mut builder = tauri::Builder::default()
     .plugin(tauri_plugin_log::Builder::default().build())
     .plugin(tauri_plugin_shell::init())
     .plugin(tauri_plugin_process::init())
-    .plugin(tauri_plugin_updater::Builder::new().build())
     .invoke_handler(tauri::generate_handler![
       open_image_via_dialog,
       save_png_via_dialog,
       fetch_update,
       install_update
-    ])
+    ]);
+
+  if updater_configuration().is_some() {
+    builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+  }
+
+  builder
     .setup(|app| {
       app.manage(PendingUpdate(Mutex::new(None)));
       build_tray(app)?;

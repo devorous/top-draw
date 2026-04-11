@@ -138,6 +138,23 @@ That is the simplest production option because GitHub Releases hosts both the in
 
 If you later want Vercel involved, use it as a mirror or redirect layer, not as the place where release binaries are manually managed.
 
+## Website Download Link
+
+The website download page uses a separate Vercel redirect:
+
+- `ddraw.ca/download`
+- implemented by `api/download.js`
+
+That route calls the GitHub Releases API, finds the newest non-draft Windows `.exe` asset, and redirects the browser straight to GitHub's hosted installer file.
+
+This means:
+
+- you do not need to upload the `.exe` to Vercel
+- the file still downloads from GitHub Releases
+- `ddraw.ca/download` stays stable even though the installer filename changes with each version
+
+If no Windows installer is available yet, the route falls back to the GitHub Releases page.
+
 ## What Still Needs Real Credentials
 
 The code scaffolding is in place, but real auto-updates still depend on:

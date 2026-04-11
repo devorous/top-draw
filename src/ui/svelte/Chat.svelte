@@ -1,5 +1,9 @@
 <script>
+  import { onMount } from 'svelte';
   import { appState } from '../../state.svelte.js';
+  import { isTauriDesktop } from '../../platform/desktop.js';
+  import { isChatPopoutOpen } from '../../platform/chatPopoutBridge.js';
+  import WindowTitleBar from './WindowTitleBar.svelte';
 
   const CHAT_MODE_STORAGE_KEY = 'topdraw-chat-mode';
   const CHAT_POSITION_STORAGE_KEY = 'topdraw-chat-position';
@@ -33,7 +37,16 @@
     'image/gif'
   ]);
 
-  let { onSend = null, onStaffSend = null, onStaffSendImage = null, onDM = null, onSendImage = null, onReact = null } = $props();
+  let {
+    onSend = null,
+    onStaffSend = null,
+    onStaffSendImage = null,
+    onDM = null,
+    onSendImage = null,
+    onReact = null,
+    onPopout = null,
+    isPopout = false
+  } = $props();
 
   let activeView = $state('all');
   let messageInput = $state('');
@@ -58,7 +71,14 @@
   let emojiUsage = $state(loadEmojiUsage());
   let expandedImage = $state(null);
 
-  let visible = $derived(appState.chatVisible);
+  let visible = $derived(isPopout || appState.chatVisible);
+  let effectiveChatMode = $derived(isPopout ? 'full' : chatMode);
+  let isDesktopClient = $state(false);
+  let desktopWindowApi = null;
+  let desktopWindowState = $state({
+    maximized: false,
+    fullscreen: false
+  });
   let recipient = $derived.by(() => {
     const selected = appState.dmRecipient;
     if (!selected) return null;
@@ -286,10 +306,47 @@
   }
 
   function hide() {
+    if (isPopout) {
+      window.close();
+      return;
+    }
+
     appState.chatVisible = false;
   }
 
+  function popoutChat() {
+    onPopout?.();
+  }
+
+  async function syncDesktopWindowState() {
+    if (!desktopWindowApi) return;
+
+    desktopWindowState = {
+      maximized: await desktopWindowApi.isMaximized(),
+      fullscreen: await desktopWindowApi.isFullscreen()
+    };
+  }
+
+  async function minimizeDesktopWindow() {
+    if (!desktopWindowApi) return;
+    await desktopWindowApi.minimize();
+  }
+
+  async function toggleMaximizeDesktopWindow() {
+    if (!desktopWindowApi) return;
+    await desktopWindowApi.toggleMaximize();
+    await syncDesktopWindowState();
+  }
+
+  async function toggleFullscreenDesktopWindow() {
+    if (!desktopWindowApi) return;
+    const nextFullscreen = !(await desktopWindowApi.isFullscreen());
+    await desktopWindowApi.setFullscreen(nextFullscreen);
+    await syncDesktopWindowState();
+  }
+
   function toggleMode() {
+    if (isPopout) return;
     persistCurrentChatPosition();
     chatMode = chatMode === 'compact' ? 'full' : 'compact';
     persistChatMode(chatMode);
@@ -547,7 +604,7 @@
 
   function addPublicMessage(message) {
     messages.all = [...messages.all, message];
-    if (!visible) {
+    if (!visible && !isChatPopoutOpen()) {
       appState.chatUnreadCount++;
       const preview = message.type === 'image' ? `${message.text ? `${message.text} ` : ''}[image]` : message.text;
       showToast(message.username, preview || '[image]', message.color);
@@ -556,7 +613,8 @@
 
   function addStaffChannelMessage(message) {
     messages.staff = [...messages.staff, message];
-    const shouldCountUnread = !visible || activeView !== 'staff';
+    const popoutOpen = isChatPopoutOpen();
+    const shouldCountUnread = !popoutOpen && (!visible || activeView !== 'staff');
     if (shouldCountUnread) {
       appState.chatUnreadCount++;
       const preview = message.type === 'image' ? `${message.text ? `${message.text} ` : ''}[image]` : message.text;
@@ -574,7 +632,7 @@
       dms: nextDms
     };
 
-    if (!message.fromSelf && !visible) {
+    if (!message.fromSelf && !visible && !isChatPopoutOpen()) {
       appState.chatUnreadCount++;
       const user = getChatUser(userId);
       const preview = message.type === 'image' ? `${message.text ? `${message.text} ` : ''}[image]` : message.text;
@@ -618,6 +676,7 @@
   }
 
   function openUserContextMenu(event, userId) {
+    if (isPopout) return;
     if (!window.app || userId === null || userId === undefined) return;
 
     if (Number(userId) === Number(appState.sessionIndex)) {
@@ -693,6 +752,7 @@
   }
 
   function startDrag(event) {
+    if (isPopout) return;
     if (event.target.closest('button, textarea, input, a, label')) return;
     if (!chatEl) return;
 
@@ -914,6 +974,86 @@
     applyReactionLocally(payload);
   }
 
+  function serializeMessages() {
+    return {
+      all: messages.all.map(cloneMessage),
+      staff: messages.staff.map(cloneMessage),
+      dms: [...messages.dms.entries()].map(([userId, threadMessages]) => [
+        userId,
+        threadMessages.map(cloneMessage)
+      ])
+    };
+  }
+
+  export function getSnapshot() {
+    return {
+      messages: serializeMessages(),
+      dmMeta: [...dmMeta.entries()].map(([userId, user]) => [userId, { ...user }]),
+      activeView,
+      recipient: recipient ? { ...recipient } : null,
+      chatMode
+    };
+  }
+
+  export function applySnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return;
+
+    if (snapshot.messages) {
+      messages = {
+        all: (snapshot.messages.all || []).map(cloneMessage),
+        staff: (snapshot.messages.staff || []).map(cloneMessage),
+        dms: new Map(
+          (snapshot.messages.dms || []).map(([userId, threadMessages]) => [
+            userId,
+            (threadMessages || []).map(cloneMessage)
+          ])
+        )
+      };
+    }
+
+    if (Array.isArray(snapshot.dmMeta)) {
+      dmMeta = new Map(snapshot.dmMeta.map(([userId, user]) => [userId, { ...user }]));
+    }
+
+    if (typeof snapshot.activeView === 'string') {
+      activeView = snapshot.activeView;
+    }
+
+    if ('recipient' in snapshot) {
+      appState.dmRecipient = snapshot.recipient;
+    }
+
+    if (!isPopout && (snapshot.chatMode === 'full' || snapshot.chatMode === 'compact')) {
+      chatMode = snapshot.chatMode;
+    }
+  }
+
+  onMount(() => {
+    isDesktopClient = isTauriDesktop();
+
+    if (!isPopout || !isDesktopClient) {
+      return;
+    }
+
+    let unlistenResize = null;
+    let active = true;
+
+    void import('@tauri-apps/api/webviewWindow').then(async ({ getCurrentWebviewWindow }) => {
+      if (!active) return;
+      desktopWindowApi = getCurrentWebviewWindow();
+      await syncDesktopWindowState();
+      unlistenResize = await desktopWindowApi.onResized(() => {
+        void syncDesktopWindowState();
+      });
+    });
+
+    return () => {
+      active = false;
+      desktopWindowApi = null;
+      unlistenResize?.();
+    };
+  });
+
   $effect(() => {
     messages.all.length;
     if (visible && activeView === 'all') scrollToBottom(publicMessagesEl);
@@ -946,15 +1086,15 @@
 
   $effect(() => {
     visible;
-    chatMode;
+    effectiveChatMode;
     chatEl;
-    if (visible && chatEl) {
-      scheduleApplyStoredPosition(chatMode);
+    if (!isPopout && visible && chatEl) {
+      scheduleApplyStoredPosition(effectiveChatMode);
     }
   });
 
   $effect(() => {
-    if (!visible || !chatEl) return;
+    if (isPopout || !visible || !chatEl) return;
 
     const handleResize = () => {
       const computed = window.getComputedStyle(chatEl);
@@ -1040,58 +1180,102 @@
 {/if}
 
 {#if visible}
-  <section class="chat-shell" class:full={chatMode === 'full'} class:compact={chatMode === 'compact'} class:dragging={isDragging} bind:this={chatEl}>
-    <aside class="chat-rail">
-      <button class="rail-tab public-tab" class:active={activeView === 'all'} onclick={showPublic} title="Public" type="button">
-        <span class="rail-tab-name">Public</span>
-      </button>
+  <section class="chat-shell" class:full={effectiveChatMode === 'full'} class:compact={effectiveChatMode === 'compact'} class:dragging={isDragging} class:popout={isPopout} class:desktop-popout={isPopout && isDesktopClient} bind:this={chatEl}>
+    <WindowTitleBar
+      title={isPopout && isDesktopClient ? 'DDraw!' : 'Chat'}
+      subtitle=""
+      branded={isPopout && isDesktopClient}
+      draggable={!isPopout}
+      tauriDragRegion={isPopout && isDesktopClient}
+      onDragStart={startDrag}
+      showPopoutButton={!isPopout && isDesktopClient}
+      onPopout={popoutChat}
+      showModeToggle={!isPopout}
+      mode={effectiveChatMode}
+      onModeToggle={toggleMode}
+      showWindowControls={isPopout && isDesktopClient}
+      showCloseButton={!isPopout}
+      onClose={!isPopout ? hide : null}
+      className="chat-titlebar"
+    />
 
-      {#if canAccessStaff}
-        <button class="rail-tab public-tab" class:active={activeView === 'staff'} onclick={showStaff} title="Staff" type="button">
-          <span class="rail-tab-name">Staff</span>
-        </button>
-      {/if}
-
-      {#if activeThreads.length > 0}
-        <div class="rail-section-label">DMs</div>
-      {/if}
-
-      <div class="rail-thread-list">
-        {#each activeThreads as thread (thread.id)}
-          <button class="rail-tab thread-tab" class:active={activeView === 'dm' && Number(recipient?.id) === Number(thread.id)} onclick={() => openThreadById(thread.id)} title={thread.user?.username || 'Direct message'} type="button">
-            <span class="rail-tab-name">{thread.user?.username || 'Unknown'}</span>
-            {#if getUnreadCount(thread.id) > 0}
-              <span class="rail-badge">{getUnreadCount(thread.id)}</span>
-            {/if}
-          </button>
-        {/each}
-      </div>
-
-      <button class="rail-action" class:active={activeView === 'directory'} onclick={showDirectory} title="Start direct message" type="button">
-        <span>+</span>
-        <span>New DM</span>
-      </button>
-    </aside>
-    <div class="chat-main">
-      <header class="chat-topbar" onmousedown={startDrag} role="presentation" aria-label="Chat window header">
-        <div class="chat-topbar-copy">
+    <header class="chat-topbar" data-refactor-placeholder="true" style="display: none;" onmousedown={startDrag} role="presentation" aria-label="Chat window header" data-tauri-drag-region={isPopout && isDesktopClient ? 'true' : undefined}>
+      <div class="chat-topbar-copy">
+        {#if isPopout && isDesktopClient}
+          <div class="chat-wordmark-wrap" data-tauri-drag-region="true">
+            <div class="chat-wordmark-copy" data-tauri-drag-region="true">
+              <p class="chat-kicker">DDraw!</p>
+              <span>{activeHeaderTitle()}{#if activeHeaderSubtitle()} • {activeHeaderSubtitle()}{/if}</span>
+            </div>
+          </div>
+        {:else}
           <p class="chat-kicker">{activeHeaderTitle()}</p>
           {#if activeHeaderSubtitle()}
             <span>{activeHeaderSubtitle()}</span>
           {/if}
-        </div>
+        {/if}
+      </div>
 
-        <div class="chat-topbar-actions">
-          <button class="topbar-btn" onclick={toggleMode} title={chatMode === 'full' ? 'Use compact mode' : 'Use full mode'} type="button">
-            {chatMode === 'full' ? 'Small' : 'Full'}
+      <div class="chat-topbar-actions">
+        {#if !isPopout && isDesktopClient}
+          <button class="topbar-btn" onclick={popoutChat} title="Open chat in a separate window" type="button">
+            Pop Out
           </button>
-          <button class="topbar-btn close" onclick={hide} title="Close chat" type="button">X</button>
-        </div>
-      </header>
+        {/if}
+        {#if isPopout && isDesktopClient}
+          <button class="topbar-btn chrome-btn" onclick={minimizeDesktopWindow} title="Minimize chat" type="button">_</button>
+          <button class="topbar-btn chrome-btn" onclick={toggleMaximizeDesktopWindow} title={desktopWindowState.maximized ? 'Restore window' : 'Maximize window'} type="button">
+            {desktopWindowState.maximized ? '❐' : '□'}
+          </button>
+          <button class="topbar-btn chrome-btn" onclick={toggleFullscreenDesktopWindow} title={desktopWindowState.fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} type="button">
+            {desktopWindowState.fullscreen ? '🡼' : '⛶'}
+          </button>
+        {/if}
+        {#if !isPopout}
+          <button class="topbar-btn" onclick={toggleMode} title={effectiveChatMode === 'full' ? 'Use compact mode' : 'Use full mode'} type="button">
+            {effectiveChatMode === 'full' ? 'Small' : 'Full'}
+          </button>
+        {/if}
+        <button class="topbar-btn close" onclick={hide} title="Close chat" type="button">X</button>
+      </div>
+    </header>
 
-      <div class="chat-stage" class:drop-target={isDropTarget} ondragenter={handleDragEnter} ondragover={handleDragOver} ondragleave={handleDragLeave} ondrop={handleDrop} role="region" aria-label="Chat messages">
-        {#if isDropTarget}
-          <div class="drop-overlay">Drop an image into chat</div>
+    <div class="chat-content">
+      <aside class="chat-rail">
+        <button class="rail-tab public-tab" class:active={activeView === 'all'} onclick={showPublic} title="Public" type="button">
+          <span class="rail-tab-name">Public</span>
+        </button>
+
+        {#if canAccessStaff}
+          <button class="rail-tab public-tab" class:active={activeView === 'staff'} onclick={showStaff} title="Staff" type="button">
+            <span class="rail-tab-name">Staff</span>
+          </button>
+        {/if}
+
+        {#if activeThreads.length > 0}
+          <div class="rail-section-label">DMs</div>
+        {/if}
+
+        <div class="rail-thread-list">
+          {#each activeThreads as thread (thread.id)}
+            <button class="rail-tab thread-tab" class:active={activeView === 'dm' && Number(recipient?.id) === Number(thread.id)} onclick={() => openThreadById(thread.id)} title={thread.user?.username || 'Direct message'} type="button">
+              <span class="rail-tab-name">{thread.user?.username || 'Unknown'}</span>
+              {#if getUnreadCount(thread.id) > 0}
+                <span class="rail-badge">{getUnreadCount(thread.id)}</span>
+              {/if}
+            </button>
+          {/each}
+        </div>
+
+        <button class="rail-action" class:active={activeView === 'directory'} onclick={showDirectory} title="Start direct message" type="button">
+          <span>+</span>
+          <span>New DM</span>
+        </button>
+      </aside>
+      <div class="chat-main">
+        <div class="chat-stage" class:drop-target={isDropTarget} ondragenter={handleDragEnter} ondragover={handleDragOver} ondragleave={handleDragLeave} ondrop={handleDrop} role="region" aria-label="Chat messages">
+          {#if isDropTarget}
+            <div class="drop-overlay">Drop an image into chat</div>
         {/if}
 
         {#if activeView === 'directory'}
@@ -1150,7 +1334,7 @@
                     <span class="message-time">{msg.groupedWithPrevious ? '' : formatTime(msg.timestamp)}</span>
                     <div class="message-body">
                       {#if msg.type !== 'system' && !msg.groupedWithPrevious}
-                        <button class="message-user" oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button" style="color: {getRoleColor(msg.userId)}">
+                        <button class="message-user" oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button" style="color: {msg.color || getRoleColor(msg.userId)}">
                           {msg.username}
                         </button>
                       {/if}
@@ -1172,7 +1356,7 @@
                     <span class="message-time">{msg.groupedWithPrevious ? '' : formatTime(msg.timestamp)}</span>
                     <div class="message-body">
                       {#if msg.type !== 'system' && !msg.groupedWithPrevious}
-                        <button class="message-user" oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button" style="color: {getRoleColor(msg.userId)}">
+                        <button class="message-user" oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button" style="color: {msg.color || getRoleColor(msg.userId)}">
                           {msg.username}
                         </button>
                       {/if}
@@ -1244,6 +1428,7 @@
         </div>
       </footer>
     </div>
+    </div>
   </section>
 {/if}
 
@@ -1260,7 +1445,7 @@
     bottom: 22px;
     z-index: 1200;
     display: grid;
-    grid-template-columns: 116px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
     width: min(420px, calc(100vw - 24px));
     height: min(560px, calc(100vh - 110px));
     min-height: 0;
@@ -1271,6 +1456,21 @@
     overflow: hidden;
     box-shadow: var(--chat-shadow);
     backdrop-filter: blur(18px);
+    font-family: 'Inter', sans-serif;
+  }
+
+  .chat-shell.popout,
+  .chat-shell.popout.full,
+  .chat-shell.popout.compact {
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    min-width: 100vw;
+    min-height: 100vh;
+    border-radius: 0;
+    border: 0;
+    box-shadow: none;
+    backdrop-filter: none;
   }
 
   .chat-shell.full {
@@ -1280,6 +1480,19 @@
 
   .chat-shell.compact {
     width: min(420px, calc(100vw - 24px));
+  }
+
+  .chat-content {
+    display: grid;
+    grid-template-columns: 116px minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .chat-shell.popout .chat-content {
+    height: 100%;
+  }
+
+  .chat-shell.compact .chat-content {
     grid-template-columns: 92px minmax(0, 1fr);
   }
 
@@ -1477,10 +1690,17 @@
 
   .chat-main {
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-rows: minmax(0, 1fr) auto;
     min-width: 0;
     min-height: 0;
     background: color-mix(in srgb, var(--bg-secondary) 95%, black);
+  }
+
+  .chat-shell.popout .chat-main,
+  .chat-shell.popout .chat-stage,
+  .chat-shell.popout .conversation-view,
+  .chat-shell.popout .directory-view {
+    height: 100%;
   }
 
   .chat-topbar {
@@ -1494,8 +1714,44 @@
     cursor: move;
   }
 
+  .chat-shell.popout .chat-topbar {
+    border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 85%, transparent);
+    border-radius: 0;
+  }
+
   .chat-topbar-copy {
     min-width: 0;
+  }
+
+  .chat-wordmark-wrap {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .chat-wordmark-copy {
+    min-width: 0;
+  }
+
+  .chat-wordmark-copy .chat-kicker {
+    margin: 0;
+    font-family: 'Fredoka', sans-serif;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #00d4aa;
+    transform: rotate(-2deg);
+    transform-origin: left center;
+    letter-spacing: 0.01em;
+  }
+
+  .chat-wordmark-copy span {
+    display: block;
+    margin-top: 0.18rem;
+    color: var(--chat-muted);
+    font-size: 0.76rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .chat-kicker {
@@ -1543,6 +1799,12 @@
   .topbar-btn.close {
     width: 36px;
     padding: 0;
+  }
+
+  .chrome-btn {
+    width: 36px;
+    padding: 0;
+    font-size: 0.95rem;
   }
 
   .topbar-btn.close:hover {
@@ -1705,7 +1967,7 @@
     padding: 0;
     background: transparent;
     font-size: 0.88rem;
-    font-weight: 500;
+    font-weight: 700;
     border: 0;
     box-shadow: none;
     cursor: context-menu;
@@ -2426,6 +2688,10 @@
       width: calc(100vw - 16px);
       height: calc(100vh - 90px);
       border-radius: 18px;
+    }
+
+    .chat-content,
+    .chat-shell.compact .chat-content {
       grid-template-columns: 84px minmax(0, 1fr);
     }
 

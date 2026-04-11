@@ -1,5 +1,7 @@
 /** @fileoverview Handles chat-related WebSocket events including public messages, DMs, and images. */
 
+import { broadcastChatPopoutEvent } from '../platform/chatPopoutBridge.js';
+
 /**
  * Sets up WebSocket event handlers for chat functionality.
  * @param {WebSocketClient} wsClient - The WebSocket client instance.
@@ -19,6 +21,13 @@ export function setupChatHandlers(wsClient, app) {
         data.sessionIndex,
         data.messageId
       );
+      broadcastChatPopoutEvent('addChatMessage', [
+        user.username,
+        data.message,
+        `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
+        data.sessionIndex,
+        data.messageId
+      ]);
     }
   });
 
@@ -27,6 +36,7 @@ export function setupChatHandlers(wsClient, app) {
     const user = users.get(data.sessionIndex);
     if (user && app.svelteComponents?.chat) {
       app.svelteComponents.chat.addChatDM(data.message, data.sessionIndex, false, data.messageId);
+      broadcastChatPopoutEvent('addChatDM', [data.message, data.sessionIndex, false, data.messageId]);
     }
   });
 
@@ -41,6 +51,13 @@ export function setupChatHandlers(wsClient, app) {
         data.sessionIndex,
         data.messageId
       );
+      broadcastChatPopoutEvent('addStaffMessage', [
+        user.username,
+        data.message,
+        `rgba(${user.color[0]}, ${user.color[1]}, ${user.color[2]}, ${user.color[3] / 255})`,
+        data.sessionIndex,
+        data.messageId
+      ]);
     }
   });
 
@@ -49,6 +66,7 @@ export function setupChatHandlers(wsClient, app) {
     const user = users.get(data.sessionIndex);
     if (user) {
       app.svelteComponents?.chat?.addStaffImage(data.imageData, user, data.messageId);
+      broadcastChatPopoutEvent('addStaffImage', [data.imageData, user, data.messageId]);
     }
   });
 
@@ -60,8 +78,10 @@ export function setupChatHandlers(wsClient, app) {
     if (user) {
       if (data.recipientId !== undefined && data.recipientId !== null) {
         app.svelteComponents.chat?.addDMImage(data.imageData, data.sessionIndex, false, data.messageId);
+        broadcastChatPopoutEvent('addDMImage', [data.imageData, data.sessionIndex, false, data.messageId]);
       } else {
         app.svelteComponents.chat?.addChatImage(data.imageData, user, data.messageId);
+        broadcastChatPopoutEvent('addChatImage', [data.imageData, user, data.messageId]);
       }
     } else {
       console.warn('[CHAT_IMG] User not found for sessionIndex:', data.sessionIndex);
@@ -71,5 +91,6 @@ export function setupChatHandlers(wsClient, app) {
   wsClient.on('chat_reaction', (data) => {
     if (data.sessionIndex === app.sessionIndex) return;
     app.svelteComponents?.chat?.applyReaction(data);
+    broadcastChatPopoutEvent('applyReaction', [data]);
   });
 }
