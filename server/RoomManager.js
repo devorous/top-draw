@@ -33,6 +33,7 @@ export class Room {
       joinPolicy: 'open',
       autoMuteGuests: false,
       autoMuteVpnUsers: false,
+      hideChatNotifications: false,
       dedicatedReplayUser: null
     };
 
@@ -225,6 +226,7 @@ export class Room {
         this.settings.joinPolicy = doc.settings?.joinPolicy || 'open';
         this.settings.autoMuteGuests = !!doc.settings?.autoMuteGuests;
         this.settings.autoMuteVpnUsers = !!doc.settings?.autoMuteVpnUsers;
+        this.settings.hideChatNotifications = !!doc.settings?.hideChatNotifications;
         this.settings.mirrorRegions = Array.isArray(doc.settings?.mirrorRegions) ? doc.settings.mirrorRegions : [];
         this.settings.dedicatedReplayUser = doc.settings?.dedicatedReplayUser || null;
         console.log(`[Room] Loaded "${this.id}" from DB`);
@@ -244,6 +246,7 @@ export class Room {
             joinPolicy: 'open',
             autoMuteGuests: false,
             autoMuteVpnUsers: false,
+            hideChatNotifications: false,
             mirrorRegions: [],
             dedicatedReplayUser: null
           }
@@ -284,6 +287,7 @@ export class Room {
               joinPolicy: this.settings.joinPolicy,
               autoMuteGuests: this.settings.autoMuteGuests,
               autoMuteVpnUsers: this.settings.autoMuteVpnUsers,
+              hideChatNotifications: this.settings.hideChatNotifications,
               mirrorRegions: this.settings.mirrorRegions,
               dedicatedReplayUser: this.settings.dedicatedReplayUser
             }

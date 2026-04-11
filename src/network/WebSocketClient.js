@@ -461,6 +461,7 @@ export class WebSocketClient {
           joinPolicy: data.roomJoinPolicy || 'open',
           autoMuteGuests: !!data.roomAutoMuteGuests,
           autoMuteVpnUsers: !!data.roomAutoMuteVpnUsers,
+          hideChatNotifications: !!data.roomHideChatNotifications,
           dedicatedReplayUser: data.roomDedicatedReplayUser || null,
           electedUploader: data.electedUploader || null
         });

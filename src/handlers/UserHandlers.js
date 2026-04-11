@@ -315,6 +315,9 @@ export function setupUserHandlers(wsClient, app) {
     if (data.autoMuteVpnUsers !== undefined) {
       app.currentRoomData.autoMuteVpnUsers = data.autoMuteVpnUsers;
     }
+    if (data.hideChatNotifications !== undefined) {
+      app.currentRoomData.hideChatNotifications = data.hideChatNotifications;
+    }
     if (data.dedicatedReplayUser !== undefined) {
       app.currentRoomData.dedicatedReplayUser = data.dedicatedReplayUser;
     }

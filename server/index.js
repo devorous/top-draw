@@ -1050,6 +1050,7 @@ function buildSettingsPayload(room) {
     roomJoinPolicy: room.settings.joinPolicy,
     roomAutoMuteGuests: room.settings.autoMuteGuests,
     roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers,
+    roomHideChatNotifications: room.settings.hideChatNotifications,
     roomDedicatedReplayUser: room.settings.dedicatedReplayUser,
     electedUploader: room._electedUploader || ''
   };
@@ -2423,6 +2424,9 @@ wss.on('connection', async (ws, req) => {
             }
             if (data.roomAutoMuteVpnUsers !== undefined) {
               room.settings.autoMuteVpnUsers = !!data.roomAutoMuteVpnUsers;
+            }
+            if (data.roomHideChatNotifications !== undefined) {
+              room.settings.hideChatNotifications = !!data.roomHideChatNotifications;
             }
             if (data.roomDedicatedReplayUser !== undefined) {
               // null clears the dedicated user, otherwise store the username string

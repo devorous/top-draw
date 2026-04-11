@@ -41,6 +41,7 @@
   let joinPolicy = $state('open');
   let autoMuteGuests = $state(false);
   let autoMuteVpnUsers = $state(false);
+  let hideChatNotifications = $state(false);
   let dedicatedReplayUser = $state('');
   let message = $state('');
   let messageType = $state('success');
@@ -99,6 +100,7 @@
     joinPolicy = data.joinPolicy || 'open';
     autoMuteGuests = !!data.autoMuteGuests;
     autoMuteVpnUsers = !!data.autoMuteVpnUsers;
+    hideChatNotifications = !!data.hideChatNotifications;
     dedicatedReplayUser = data.dedicatedReplayUser || '';
 
     if (board) {
@@ -167,7 +169,8 @@
             modInactiveImmune,
             joinPolicy,
             autoMuteGuests,
-            autoMuteVpnUsers
+            autoMuteVpnUsers,
+            hideChatNotifications,
           });
         }
       } else {
@@ -185,6 +188,7 @@
       roomJoinPolicy: joinPolicy,
       roomAutoMuteGuests: autoMuteGuests,
       roomAutoMuteVpnUsers: autoMuteVpnUsers,
+      roomHideChatNotifications: hideChatNotifications,
       roomDedicatedReplayUser: dedicatedReplayUser.trim() || null
     });
   }
@@ -456,6 +460,13 @@
             <label>
               <input type="checkbox" bind:checked={autoMuteVpnUsers} />
               <span>Auto-mute VPN or datacenter users by ASN (mods and above exempt)</span>
+            </label>
+          </div>
+
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" bind:checked={hideChatNotifications} />
+              <span>Hide chat pop-up notifications in this room</span>
             </label>
           </div>
 

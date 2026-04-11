@@ -73,11 +73,18 @@
 
   let visible = $derived(isPopout || appState.chatVisible);
   let effectiveChatMode = $derived(isPopout ? 'full' : chatMode);
+  let hideRoomNotifications = $derived(!!appState.currentRoomData?.hideChatNotifications);
   let isDesktopClient = $state(false);
   let desktopWindowApi = null;
   let desktopWindowState = $state({
     maximized: false,
     fullscreen: false
+  });
+
+  $effect(() => {
+    if (hideRoomNotifications && toasts.length > 0) {
+      toasts = [];
+    }
   });
   let recipient = $derived.by(() => {
     const selected = appState.dmRecipient;
@@ -528,6 +535,7 @@
   }
 
   function showToast(username, message, color) {
+    if (hideRoomNotifications) return;
     const id = ++toastIdCounter;
     const truncated = message.length > 90 ? `${message.slice(0, 90)}...` : message;
     toasts = [...toasts, { id, username, message: truncated, color }];
@@ -2537,7 +2545,7 @@
   }
 
   .chat-toasts {
-    position: fixed;
+    position: absolute;
     right: 22px;
     bottom: 22px;
     z-index: 1300;
@@ -2628,6 +2636,11 @@
   }
 
   @media (max-width: 900px) {
+    .chat-toasts {
+      right: 12px;
+      bottom: 12px;
+    }
+
     .chat-shell.full,
     .chat-shell.compact {
       right: 12px;
@@ -2638,6 +2651,18 @@
   }
 
   @media (max-width: 640px) {
+    .chat-toasts {
+      right: 8px;
+      bottom: 8px;
+      left: 8px;
+      align-items: stretch;
+    }
+
+    .chat-toast {
+      min-width: 0;
+      max-width: none;
+    }
+
     .chat-shell,
     .chat-shell.full,
     .chat-shell.compact {
