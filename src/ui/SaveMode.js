@@ -121,10 +121,6 @@ export class SaveMode {
           <input type="checkbox" id="saveModeTransparent">
           <span>Transparent Background</span>
         </label>
-        <label class="saveModeOptionsField" for="saveModeCaption">
-          <span>Caption</span>
-          <textarea id="saveModeCaption" rows="2" maxlength="280" placeholder="Add a short caption for the gallery (optional)"></textarea>
-        </label>
       </div>
       <div class="saveModeOptionsPanelFooter">
         <button class="btn secondary" id="saveModeCancelInteractive">Cancel</button>
@@ -132,6 +128,15 @@ export class SaveMode {
         <button class="btn secondary" id="saveModeGalleryInteractive">Save to Gallery</button>
         <button class="btn primary" id="saveModeLocalInteractive">Save Locally</button>
       </div>
+    `;
+
+    this.captionPanel = document.createElement('div');
+    this.captionPanel.className = 'saveModeCaptionPanel';
+    this.captionPanel.innerHTML = `
+      <label class="saveModeOptionsField saveModeCaptionField" for="saveModeCaption">
+        <span>Gallery Caption</span>
+        <textarea id="saveModeCaption" rows="6" maxlength="280" placeholder="Add a short caption for the gallery (optional)"></textarea>
+      </label>
     `;
 
     // Close button (top right)
@@ -144,14 +149,15 @@ export class SaveMode {
     this.overlay.appendChild(this.selectionCanvas);
     this.overlay.appendChild(controls);
     this.overlay.appendChild(this.optionsPanel);
+    this.overlay.appendChild(this.captionPanel);
     this.overlay.appendChild(closeBtn);
 
-    // Insert into DOM
-    const boardContainer = document.getElementById('boardContainer');
-    if (boardContainer) {
-      boardContainer.appendChild(this.overlay);
+    // Insert into the top-level document layer so the save UI can stack above
+    // other fixed overlays such as history/snapshot modals.
+    if (document.body) {
+      document.body.appendChild(this.overlay);
     } else {
-      console.warn('[SaveMode] boardContainer not found, deferring DOM insertion');
+      console.warn('[SaveMode] document.body not found, deferring DOM insertion');
     }
 
     // Get contexts
@@ -214,7 +220,7 @@ export class SaveMode {
       this._drawSnapshot();
     });
 
-    this.captionInput = this.optionsPanel.querySelector('#saveModeCaption');
+    this.captionInput = this.captionPanel.querySelector('#saveModeCaption');
     this.captionInput?.addEventListener('input', (e) => {
       this.galleryCaption = e.target.value;
     });
@@ -235,11 +241,10 @@ export class SaveMode {
     if (this.isActive) return;
     this.isActive = true;
 
-    // Ensure overlay is in DOM (in case boardContainer wasn't available at construction)
+    // Ensure overlay is in DOM (in case document.body wasn't available at construction)
     if (!this.overlay.parentNode) {
-      const boardContainer = document.getElementById('boardContainer');
-      if (boardContainer) {
-        boardContainer.appendChild(this.overlay);
+      if (document.body) {
+        document.body.appendChild(this.overlay);
       }
     }
 
@@ -394,15 +399,7 @@ export class SaveMode {
 
     // Clear
     ctx.clearRect(0, 0, width, height);
-
-    if (this.transparent) {
-      // For transparent preview, show checkerboard then composite layers without background
-      this._drawCheckerboard(ctx, 0, 0, width, height);
-      this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.getLayerCount(), null);
-    } else {
-      // For normal preview, just copy the mainCanvas which already has the background
-      ctx.drawImage(this.board.mainCanvas, 0, 0);
-    }
+    this._drawBoardPreview(ctx, 0, 0, width, height);
 
     // Only draw dark overlay if there's a selection (to highlight what's selected)
     const hasRectSelection = this.selection && this.selection.width > 0 && this.selection.height > 0;
@@ -445,6 +442,33 @@ export class SaveMode {
     }
   }
 
+  _drawRoomBackground(ctx, x, y, w, h) {
+    const [r, g, b, a] = this.board.backgroundColor;
+    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+    ctx.fillRect(x, y, w, h);
+  }
+
+  _drawBoardPreview(ctx, x, y, w, h) {
+    if (this.transparent) {
+      this._drawCheckerboard(ctx, x, y, w, h);
+      this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.getLayerCount(), null);
+      return;
+    }
+
+    // Mirror the export behavior for opaque saves by previewing the board over
+    // the room background color rather than a transparency checkerboard.
+    ctx.drawImage(this.board.mainCanvas, 0, 0);
+  }
+
+  _drawCanvasPreview(ctx, canvas, x, y, w, h) {
+    if (this.transparent) {
+      this._drawCheckerboard(ctx, x, y, w, h);
+    } else {
+      this._drawRoomBackground(ctx, x, y, w, h);
+    }
+    ctx.drawImage(canvas, 0, 0);
+  }
+
   /**
    * Draws the selection cutout (shows the selected area without dark overlay).
    */
@@ -470,13 +494,7 @@ export class SaveMode {
 
     // Clear and redraw this region
     ctx.clearRect(s.x, s.y, s.width, s.height);
-
-    if (this.transparent) {
-      this._drawCheckerboard(ctx, s.x, s.y, s.width, s.height);
-      this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.getLayerCount(), null);
-    } else {
-      ctx.drawImage(this.board.mainCanvas, 0, 0);
-    }
+    this._drawBoardPreview(ctx, s.x, s.y, s.width, s.height);
 
     ctx.restore();
   }
@@ -519,13 +537,7 @@ export class SaveMode {
     ctx.clip();
 
     ctx.clearRect(bounds.x, bounds.y, bounds.width, bounds.height);
-
-    if (this.transparent) {
-      this._drawCheckerboard(ctx, bounds.x, bounds.y, bounds.width, bounds.height);
-      this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.getLayerCount(), null);
-    } else {
-      ctx.drawImage(this.board.mainCanvas, 0, 0);
-    }
+    this._drawBoardPreview(ctx, bounds.x, bounds.y, bounds.width, bounds.height);
 
     ctx.restore();
   }
@@ -931,9 +943,8 @@ export class SaveMode {
 
     // Ensure overlay is in DOM
     if (!this.overlay.parentNode) {
-      const boardContainer = document.getElementById('boardContainer');
-      if (boardContainer) {
-        boardContainer.appendChild(this.overlay);
+      if (document.body) {
+        document.body.appendChild(this.overlay);
       }
     }
 
@@ -989,19 +1000,7 @@ export class SaveMode {
     const w = this.snapshotCanvas.width;
     const h = this.snapshotCanvas.height;
     ctx.clearRect(0, 0, w, h);
-
-    if (this.transparent) {
-      // Show checkerboard to indicate transparency
-      this._drawCheckerboard(ctx, 0, 0, w, h);
-    } else {
-      // Draw board background color first
-      const [r, g, b, a] = this.board.backgroundColor;
-      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-      ctx.fillRect(0, 0, w, h);
-    }
-
-    // Draw the selection on top
-    ctx.drawImage(this.preExistingCanvas, 0, 0);
+    this._drawCanvasPreview(ctx, this.preExistingCanvas, 0, 0, w, h);
   }
 
   /**

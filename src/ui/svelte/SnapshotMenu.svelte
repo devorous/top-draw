@@ -99,6 +99,7 @@
   let previewCanvas = $state(null);
   let selectionCanvas = $state(null);
   let previewWrap = $state(null);
+  let snapshotExportCanvas = null;
 
   // Thumb URL cache
   let thumbUrls = {};
@@ -147,6 +148,7 @@
   function selectSnapshot(id) {
     if (id === selectedId) return;
     window.app.snapshotPreviewCanvas = null;
+    snapshotExportCanvas = null;
     selectedId = id;
     selectedLayers = null;
     selection = null;
@@ -191,12 +193,18 @@
     selectionCanvas.width = w;
     selectionCanvas.height = h;
 
-    const ctx = previewCanvas.getContext('2d');
-    const bg = window.app.board.backgroundColor || '#ffffff';
-    ctx.fillStyle = typeof bg === 'string' ? bg : `rgb(${bg[0]},${bg[1]},${bg[2]})`;
-    ctx.fillRect(0, 0, w, h);
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = w;
+    exportCanvas.height = h;
+    const exportCtx = exportCanvas.getContext('2d');
+    exportCtx.clearRect(0, 0, w, h);
 
-    if (!layerDatas || layerDatas.length === 0) return;
+    if (!layerDatas || layerDatas.length === 0) {
+      snapshotExportCanvas = exportCanvas;
+      const ctx = previewCanvas.getContext('2d');
+      ctx.clearRect(0, 0, w, h);
+      return;
+    }
 
     const tmp = document.createElement('canvas');
     tmp.width = w;
@@ -209,18 +217,27 @@
         const pixels = wasm.qoi_decode(qoi);
         if (!pixels || pixels.length === 0) continue;
         tmpCtx.putImageData(new ImageData(new Uint8ClampedArray(pixels.buffer), w, h), 0, 0);
-        ctx.drawImage(tmp, 0, 0);
+        exportCtx.drawImage(tmp, 0, 0);
       } catch (e) {
         console.warn('[SnapshotMenu] QOI decode error', e);
       }
     }
 
-    window.app.snapshotPreviewCanvas = previewCanvas;
+    snapshotExportCanvas = exportCanvas;
+
+    const ctx = previewCanvas.getContext('2d');
+    const bg = window.app.board.backgroundColor || '#ffffff';
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = typeof bg === 'string' ? bg : `rgb(${bg[0]},${bg[1]},${bg[2]})`;
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(exportCanvas, 0, 0);
+
+    window.app.snapshotPreviewCanvas = exportCanvas;
   }
 
   function openSnapshotSaveDialog() {
-    if (!selectedId || !previewCanvas) return;
-    window.app?.openSaveDialogForCanvas?.(previewCanvas);
+    if (!selectedId || !snapshotExportCanvas) return;
+    window.app?.openSaveDialogForCanvas?.(snapshotExportCanvas);
   }
 
   function doRestore() {
@@ -416,9 +433,10 @@
     if (animId) cancelAnimationFrame(animId);
     if (previewRequestTimeout) clearTimeout(previewRequestTimeout);
     window.app?.wsClient?.messageHandlers?.delete('board_snapshot_get_response');
-    if (window.app?.snapshotPreviewCanvas === previewCanvas) {
+    if (window.app?.snapshotPreviewCanvas === previewCanvas || window.app?.snapshotPreviewCanvas === snapshotExportCanvas) {
       window.app.snapshotPreviewCanvas = null;
     }
+    snapshotExportCanvas = null;
     for (const url of Object.values(thumbUrls)) URL.revokeObjectURL(url);
   });
 
