@@ -110,7 +110,7 @@ The resulting installers will be located in `src-tauri/target/release/bundle/`.
 | Command | Action |
 |---------|--------|
 | `npm run dev` | Run development environment (Concurrent Vite + Server) |
-| `npm run build` | Compile WASM, process brushes, and build for production |
+| `npm run build` | Build for production |
 | `npm run wasm` | Rebuild Rust/WASM modules |
 | `npm run tauri:dev` | Start the native desktop app in development mode |
 | `npm run tauri:build` | Build the standalone Windows installer |
