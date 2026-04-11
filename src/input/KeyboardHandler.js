@@ -39,6 +39,7 @@ const BLOCKED_BROWSER_BINDINGS = new Set([
 export class KeyboardHandler {
   constructor(app) {
     this.app = app;
+    this._pendingInternalPaste = null;
   }
 
   /**
@@ -62,6 +63,12 @@ export class KeyboardHandler {
     const items = (e.clipboardData || e.originalEvent.clipboardData).items;
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
+        // A system-clipboard image wins over the internal clipboard — cancel any
+        // pending internal paste queued by the Ctrl+V keydown so we don't double-paste.
+        if (this._pendingInternalPaste) {
+          clearTimeout(this._pendingInternalPaste);
+          this._pendingInternalPaste = null;
+        }
         if (!app.canUseImageFeatures(true)) {
           e.preventDefault();
           break;
@@ -186,8 +193,14 @@ export class KeyboardHandler {
 
       case 'selection.paste':
         if (selectTool && selectTool.hasClipboard()) {
-          app.selectTool('select');
-          selectTool.paste();
+          // Defer to a microtask so the browser's `paste` event (which fires
+          // after keydown) can cancel this if the system clipboard has an image.
+          if (this._pendingInternalPaste) clearTimeout(this._pendingInternalPaste);
+          this._pendingInternalPaste = setTimeout(() => {
+            this._pendingInternalPaste = null;
+            app.selectTool('select');
+            selectTool.paste();
+          }, 0);
           return true;
         }
         return false;

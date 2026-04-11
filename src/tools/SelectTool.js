@@ -568,8 +568,8 @@ export class SelectTool extends Tool {
           fill: 8
         }
       : {
-          fill: 0,
-          clear: 1,
+          clear: 0,
+          fill: 1,
           cancel: 2,
           copy: 3,
           brush: 4,
@@ -2619,7 +2619,6 @@ export class SelectTool extends Tool {
   // Copy selection to clipboard
   copy() {
     if (!this.selection) return false;
-    if (!this.board.app?.canUseImageFeatures?.(true)) return false;
 
     const s = this.selection;
 
@@ -2648,7 +2647,11 @@ export class SelectTool extends Tool {
       this.board.app.ui.showToast('Copied to clipboard!');
     }
 
-    void this.board.app?.copyImageDataToClipboard?.(this.clipboard, { silent: true });
+    // Only sync to the system clipboard for registered users — guests still get
+    // internal copy/paste, but we don't push pixels out to the OS clipboard.
+    if (this.board.app?.canUseImageFeatures?.(false)) {
+      void this.board.app?.copyImageDataToClipboard?.(this.clipboard, { silent: true });
+    }
 
     return true;
   }
@@ -2665,7 +2668,6 @@ export class SelectTool extends Tool {
   // Paste from clipboard
   paste() {
     if (!this.clipboard) return false;
-    if (!this.board.app?.canUseImageFeatures?.(true)) return false;
 
     // Commit any existing selection
     this.commitSelection();
