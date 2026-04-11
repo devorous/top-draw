@@ -1,6 +1,7 @@
 /** @fileoverview Lightweight landing bootstrap that background-loads the drawing app. */
 
 import './css/main.scss';
+import { scheduleStartupUpdateCheck } from './platform/updater.js';
 
 // Auto-reload once when a dynamically imported chunk fails to load (stale cache after deploy)
 window.addEventListener('unhandledrejection', (event) => {
@@ -266,6 +267,8 @@ function init() {
       setTimeout(startBackgroundBoot, 0);
     });
   }
+
+  scheduleStartupUpdateCheck();
 }
 
 if (document.readyState === 'loading') {

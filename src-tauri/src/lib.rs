@@ -1,12 +1,18 @@
-use std::{fs, path::Path, process::Command};
+use std::{fs, path::Path, process::Command, sync::Mutex};
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::Serialize;
 use tauri::{
   menu::MenuBuilder,
   tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-  Manager,
+  AppHandle, Manager, State,
 };
+use tauri_plugin_updater::{Update, UpdaterExt};
+
+const UPDATER_ENDPOINT: Option<&str> = option_env!("TAURI_UPDATER_ENDPOINT");
+const UPDATER_PUBLIC_KEY: Option<&str> = option_env!("TAURI_UPDATER_PUBLIC_KEY");
+
+struct PendingUpdate(Mutex<Option<Update>>);
 
 #[derive(Serialize)]
 struct NativeImageSelection {
@@ -18,6 +24,13 @@ struct NativeImageSelection {
 struct SaveDialogResult {
   saved: bool,
   path: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateMetadata {
+  version: String,
+  current_version: String,
 }
 
 #[cfg(target_os = "windows")]
@@ -157,6 +170,17 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
   Ok(())
 }
 
+fn updater_configuration() -> Option<(String, String)> {
+  let endpoint = UPDATER_ENDPOINT?.trim();
+  let pubkey = UPDATER_PUBLIC_KEY?.trim();
+
+  if endpoint.is_empty() || pubkey.is_empty() {
+    return None;
+  }
+
+  Some((endpoint.to_string(), pubkey.to_string()))
+}
+
 #[tauri::command]
 fn open_image_via_dialog() -> Result<Option<NativeImageSelection>, String> {
   let Some(path) = show_open_image_dialog()? else {
@@ -197,13 +221,78 @@ fn save_png_via_dialog(base64_png: String, suggested_name: Option<String>) -> Re
   })
 }
 
+#[tauri::command]
+async fn fetch_update(app: AppHandle, pending_update: State<'_, PendingUpdate>) -> Result<Option<UpdateMetadata>, String> {
+  let Some((endpoint, pubkey)) = updater_configuration() else {
+    return Ok(None);
+  };
+
+  let update = app
+    .updater_builder()
+    .endpoints(vec![
+      endpoint
+        .parse()
+        .map_err(|error| format!("Invalid update endpoint: {error}"))?
+    ])
+    .map_err(|error| format!("Failed to configure update endpoint: {error}"))?
+    .pubkey(pubkey)
+    .build()
+    .map_err(|error| format!("Failed to prepare update check: {error}"))?
+    .check()
+    .await
+    .map_err(|error| format!("Failed to check for updates: {error}"))?;
+
+  let metadata = update.as_ref().map(|update| UpdateMetadata {
+    version: update.version.clone(),
+    current_version: update.current_version.clone(),
+  });
+
+  let mut pending = pending_update
+    .0
+    .lock()
+    .map_err(|_| "Failed to store pending update state.".to_string())?;
+  *pending = update;
+
+  Ok(metadata)
+}
+
+#[tauri::command]
+async fn install_update(pending_update: State<'_, PendingUpdate>) -> Result<(), String> {
+  let update = {
+    let mut pending = pending_update
+      .0
+      .lock()
+      .map_err(|_| "Failed to access pending update state.".to_string())?;
+    pending.take()
+  };
+
+  let Some(update) = update else {
+    return Err("No pending update is available.".into());
+  };
+
+  update
+    .download_and_install(|_, _| {}, || {})
+    .await
+    .map_err(|error| format!("Failed to install update: {error}"))?;
+
+  Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_log::Builder::default().build())
     .plugin(tauri_plugin_shell::init())
-    .invoke_handler(tauri::generate_handler![open_image_via_dialog, save_png_via_dialog])
+    .plugin(tauri_plugin_process::init())
+    .plugin(tauri_plugin_updater::Builder::new().build())
+    .invoke_handler(tauri::generate_handler![
+      open_image_via_dialog,
+      save_png_via_dialog,
+      fetch_update,
+      install_update
+    ])
     .setup(|app| {
+      app.manage(PendingUpdate(Mutex::new(None)));
       build_tray(app)?;
 
       #[cfg(debug_assertions)]

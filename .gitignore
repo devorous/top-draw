@@ -14,7 +14,8 @@ CLAUDE.md
 NOTES.md
 
 # Docs
-docs/
+docs/*
+!docs/desktop-versioning-and-updates.md
 TODO.txt
 testing/legacy
 
