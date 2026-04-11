@@ -35,6 +35,14 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Inject updater config
+        shell: pwsh
+        run: |
+          $config = Get-Content src-tauri/tauri.conf.json -Raw
+          $config = $config -replace '__TAURI_UPDATER_PUBLIC_KEY__', '${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}'
+          $config = $config -replace '__TAURI_UPDATER_ENDPOINT__', "https://github.com/${{ github.repository }}/releases/latest/download/latest.json"
+          Set-Content src-tauri/tauri.conf.json $config
+
       - name: Publish Tauri release
         uses: tauri-apps/tauri-action@v0.6.0
         with:

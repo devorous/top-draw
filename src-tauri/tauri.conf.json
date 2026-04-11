@@ -32,6 +32,12 @@
   "plugins": {
     "shell": {
       "open": true
+    },
+    "updater": {
+      "pubkey": "__TAURI_UPDATER_PUBLIC_KEY__",
+      "endpoints": [
+        "__TAURI_UPDATER_ENDPOINT__"
+      ]
     }
   },
   "bundle": {
