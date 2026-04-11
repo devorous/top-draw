@@ -276,10 +276,10 @@
       {/if}
 
       <button class="titlebar-btn chrome-btn close-btn" onclick={closeWindow} title="Close window" type="button" aria-label="Close window">
-        <span class="close-glyph" aria-hidden="true">X</span>
+        <span class="close-glyph" aria-hidden="true">&times;</span>
       </button>
     {:else if showCloseButton}
-      <button class="titlebar-btn close-btn" onclick={onClose} title="Close chat" type="button">X</button>
+      <button class="titlebar-btn close-btn" onclick={onClose} title="Close chat" type="button">&times;</button>
     {/if}
   </div>
 </header>
@@ -292,7 +292,7 @@
     justify-content: space-between;
     gap: 0.45rem;
     min-height: 28px;
-    padding: 0 0.3rem;
+    padding: 2px 0 2px 0.3rem;
     border-bottom: 1px solid var(--border-subtle);
     background: color-mix(in srgb, var(--bg-elevated) 56%, #1a1f29);
     color: var(--text-primary);
@@ -355,7 +355,7 @@
 
   .titlebar-actions {
     display: flex;
-    gap: 4px;
+    gap: 0;
     align-self: stretch;
     align-items: stretch;
     flex-shrink: 0;
@@ -368,7 +368,7 @@
     margin: 0;
     padding: 0 0.72rem;
     border: 0;
-    border-radius: 12px;
+    border-radius: 0;
     background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
     color: var(--text-primary);
     font-size: 0.68rem;
@@ -477,8 +477,8 @@
   }
 
   .close-glyph {
-    font-size: 0.74rem;
-    font-weight: 800;
+    font-size: 1.45rem;
+    font-weight: 500;
     line-height: 1;
   }
 

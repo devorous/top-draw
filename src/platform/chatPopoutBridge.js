@@ -3,6 +3,16 @@ import { isTauriDesktop } from './desktop.js';
 
 const CHANNEL_NAME = 'ddraw-chat-popout';
 
+const ALLOWED_POPOUT_METHODS = new Set([
+  'addChatMessage',
+  'addChatDM',
+  'addStaffMessage',
+  'addStaffImage',
+  'addDMImage',
+  'addChatImage',
+  'applyReaction'
+]);
+
 let mainChannel = null;
 let popupChannel = null;
 let popupWindowRef = null;
@@ -144,6 +154,11 @@ export function openChatPopoutWindow() {
       chatWindow.once('tauri://error', (error) => {
         console.error('[ChatPopout] Failed to create popout window:', error);
       });
+
+      chatWindow.once('tauri://destroyed', () => {
+        popupWindowRef = null;
+        mainBridgeConfig?.onPopupClosed?.();
+      });
     });
 
     return null;
@@ -190,7 +205,7 @@ export function initChatPopoutClient({ component }) {
 
     if (message.type === 'chat-popout-event') {
       const method = message.method;
-      if (typeof component?.[method] === 'function') {
+      if (ALLOWED_POPOUT_METHODS.has(method) && typeof component?.[method] === 'function') {
         component[method](...(Array.isArray(message.args) ? message.args : []));
       }
     }

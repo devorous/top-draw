@@ -321,6 +321,15 @@ pub fn run() {
 
       Ok(())
     })
+    .on_window_event(|window, event| {
+      if let tauri::WindowEvent::Destroyed = event {
+        if window.label() == "main" {
+          if let Some(chat_window) = window.app_handle().get_webview_window("chat-popout") {
+            let _ = chat_window.close();
+          }
+        }
+      }
+    })
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

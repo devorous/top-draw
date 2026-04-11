@@ -352,7 +352,7 @@ export function initSvelteUI(app) {
     void import('@tauri-apps/api/event').then(({ listen }) => {
       listen('open-chat', () => {
         if (!focusChatPopout()) {
-          appState.chatVisible = true;
+          openChatPopoutWindow();
         }
       });
     });
