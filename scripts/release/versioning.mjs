@@ -64,30 +64,13 @@ function withPrereleaseBump(version, level) {
     throw new Error(`Unknown prerelease bump: ${level}`);
   }
 
-  next.prerelease = 'beta.0';
+  next.prerelease = 'beta';
   return formatVersion(next);
 }
 
 function withNextBeta(version) {
   const current = parseVersion(version);
-  if (!current.prerelease) {
-    current.prerelease = 'beta.0';
-    return formatVersion(current);
-  }
-
-  if (current.prerelease === 'beta') {
-    current.prerelease = 'beta.0';
-    return formatVersion(current);
-  }
-
-  const betaMatch = /^beta(?:\.(\d+))?$/.exec(current.prerelease);
-  if (!betaMatch) {
-    current.prerelease = 'beta.0';
-    return formatVersion(current);
-  }
-
-  const currentIndex = betaMatch[1] ? Number(betaMatch[1]) : 0;
-  current.prerelease = `beta.${currentIndex + 1}`;
+  current.prerelease = 'beta';
   return formatVersion(current);
 }
 
