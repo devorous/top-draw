@@ -509,6 +509,7 @@ export class SelectTool extends Tool {
     this.menuElements = {
       menu: document.getElementById('selectionMenu'),
       clear: document.getElementById('selMenuClear'),
+      clone: document.getElementById('selMenuClone'),
       fill: document.getElementById('selMenuFill'),
       copy: document.getElementById('selMenuCopy'),
       brush: document.getElementById('selMenuBrush'),
@@ -522,6 +523,7 @@ export class SelectTool extends Tool {
     if (!this.menuElements.menu) return;
 
     this.menuElements.clear.addEventListener('click', () => this.deleteSelection());
+    this.menuElements.clone?.addEventListener('click', () => this.clone());
     this.menuElements.fill.addEventListener('click', () => this.fillSelection());
     this.menuElements.copy.addEventListener('click', () => this.copy());
     this.menuElements.brush.addEventListener('click', () => this.toImageBrush());
@@ -543,16 +545,22 @@ export class SelectTool extends Tool {
     const wasVisible = menu.style.display !== 'none';
     const hasMoved = this.hasBeenMoved();
 
+    // A floating selection without _restoreData was cloned/pasted, not lifted —
+    // there is nothing to put back, so the Cancel button is removed entirely.
+    const isEphemeralFloat = hasMoved && !this._restoreData;
+
     this.menuElements.clear.classList.toggle('hidden', false);
+    this.menuElements.clone?.classList.toggle('hidden', hasMoved);
     this.menuElements.fill.classList.toggle('hidden', hasMoved);
     this.menuElements.flip.classList.toggle('hidden', false);
     this.menuElements.stamp.classList.toggle('hidden', !hasMoved);
     this.menuElements.apply.classList.toggle('hidden', !hasMoved);
     this.menuElements.save.classList.toggle('hidden', false);
-    this.menuElements.cancel.classList.toggle('hidden', false);
+    this.menuElements.cancel.classList.toggle('hidden', isEphemeralFloat);
 
     this.menuElements.clear.textContent = hasMoved ? 'Remove' : 'Clear';
     this.menuElements.clear.title = hasMoved ? 'Delete selection contents' : 'Clear selection contents';
+    this.menuElements.cancel.textContent = hasMoved ? 'Put back' : 'Cancel';
     this.menuElements.cancel.title = hasMoved ? 'Restore the lifted selection' : 'Cancel selection';
 
     const menuOrder = hasMoved
@@ -565,18 +573,20 @@ export class SelectTool extends Tool {
           brush: 5,
           flip: 6,
           save: 7,
-          fill: 8
+          clone: 8,
+          fill: 9
         }
       : {
           clear: 0,
-          fill: 1,
-          cancel: 2,
-          copy: 3,
-          brush: 4,
-          flip: 5,
-          stamp: 6,
-          apply: 7,
-          save: 8
+          clone: 1,
+          fill: 2,
+          cancel: 3,
+          copy: 4,
+          brush: 5,
+          flip: 6,
+          stamp: 7,
+          apply: 8,
+          save: 9
         };
 
     Object.entries(menuOrder).forEach(([key, order]) => {
@@ -2716,9 +2726,44 @@ export class SelectTool extends Tool {
     return true;
   }
 
+  // Clone the current selection in place as a floating duplicate. The source
+  // pixels stay on the layer; the clone can then be dragged/transformed like a
+  // pasted selection. No-op if the selection has already been lifted/moved.
+  clone() {
+    if (!this.selection || this.floatingCanvas) return false;
+
+    if (!this.copy()) return false;
+
+    const s = this.selection;
+    const cloneX = s.x;
+    const cloneY = s.y;
+
+    this.floatingCanvas = document.createElement('canvas');
+    this.floatingCanvas.width = this.clipboard.width;
+    this.floatingCanvas.height = this.clipboard.height;
+    this.floatingCtx = this.floatingCanvas.getContext('2d');
+    this.floatingCtx.putImageData(this.clipboard.imageData, 0, 0);
+
+    // Mark as "moved" so committing drops the clone without erasing the source.
+    this.originalSelectionPos = { x: -1, y: -1 };
+
+    this.initializeCorners();
+    this.updateHandles();
+    this.board.clearTop();
+    this.drawSelectionUI();
+    this.showContextMenu();
+
+    if (this.board.app?.wsClient) {
+      const dataUrl = this.floatingCanvas.toDataURL('image/png');
+      this.board.app.wsClient.broadcastImagePaste(cloneX, cloneY, this.clipboard.width, this.clipboard.height, dataUrl);
+    }
+
+    return true;
+  }
+
   /**
    * Paste an image from an external source (clipboard, drag-drop, file upload)
-   * @param {HTMLImageElement|HTMLCanvasElement|ImageData} imageSource 
+   * @param {HTMLImageElement|HTMLCanvasElement|ImageData} imageSource
    */
   pasteImage(imageSource) {
     if (!this.board.app?.canUseImageFeatures?.(true)) return false;
@@ -3326,14 +3371,21 @@ export class SelectTool extends Tool {
       return true;
     }
 
+    // Only roll back an undo step if a lift actually erased pixels from the
+    // canvas. Clones and pastes never touched the canvas, so calling
+    // handleUndo() would pop an unrelated prior action instead.
+    const hasLiftToUndo = !!this._restoreData;
+
     const app = this.board.app;
     const didDelete = this.deleteSelection();
     if (!didDelete) return false;
 
-    if (typeof app?.handleUndo === 'function') {
-      app.handleUndo();
-    } else {
-      this.board.undo(app?.self?.activeLayer ?? 0, app?.self?.id ?? 0);
+    if (hasLiftToUndo) {
+      if (typeof app?.handleUndo === 'function') {
+        app.handleUndo();
+      } else {
+        this.board.undo(app?.self?.activeLayer ?? 0, app?.self?.id ?? 0);
+      }
     }
 
     return true;

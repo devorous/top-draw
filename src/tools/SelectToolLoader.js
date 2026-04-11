@@ -293,6 +293,15 @@ export class SelectToolLoader extends Tool {
   }
 
   /**
+   * Clone the current selection in place as a floating duplicate.
+   * @returns {Promise}
+   */
+  async clone() {
+    if (!this.realTool) await this.loadRealTool();
+    if (this.realTool) return this.realTool.clone();
+  }
+
+  /**
    * Checks if there is an active selection.
    * @returns {boolean}
    */
