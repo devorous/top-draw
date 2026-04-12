@@ -275,7 +275,6 @@ export class FlowPenTool extends Tool {
     this.clearStroke();
     user.penPoints = [];
 
-    this.board.compositeAllLayers();
     this.board.endStroke(user);
     this.board.clearTop();
   }

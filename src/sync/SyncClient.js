@@ -302,6 +302,7 @@ export class SyncClient {
     if (this.board?.layerManager) {
       console.log('[SyncClient] Clearing existing canvas before sync...');
       this.board.layerManager.clearAll();
+      this.board.markCompositeFull();
       this.board.compositeAllLayers();
     }
 
@@ -739,7 +740,10 @@ export class SyncClient {
     this._pendingImports = [];
 
     const finalize = () => {
-      if (this.board) this.board.compositeAllLayers();
+      if (this.board) {
+        this.board.markCompositeFull();
+        this.board.compositeAllLayers();
+      }
       this.replayBuffer();
       this.hideOverlay();
       this.syncing = false;

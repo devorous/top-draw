@@ -154,7 +154,6 @@ export class BrushTool extends Tool {
     this.trackDirtyRect(user, user.currentLine);
     user.clearLine();
 
-    this.board.compositeAllLayers();
     this.board.endStroke(user);
   }
 

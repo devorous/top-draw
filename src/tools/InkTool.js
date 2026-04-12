@@ -288,7 +288,6 @@ export class InkTool extends Tool {
     }
 
     this.clearStroke();
-    this.board.compositeAllLayers();
     this.board.endStroke(user);
   }
 

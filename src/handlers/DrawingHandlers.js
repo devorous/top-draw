@@ -194,6 +194,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
         ui.setRemoteTextDomVisible(user.id, !hasBlend);
       }
       if (data.layerIndex !== null && data.layerIndex !== undefined) {
+        board.markCompositeFull();
         board.compositeAllLayers();
       }
     }

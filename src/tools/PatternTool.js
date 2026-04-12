@@ -141,7 +141,6 @@ export class PatternTool extends Tool {
     this.strokePoints = [];
     this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
     this.dirtyBounds = null;
-    this.board.compositeAllLayers();
     this.board.endStroke(user);
     this.lastStampPos.delete(user.id);
     this.board.clearTop();

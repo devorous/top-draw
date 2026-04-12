@@ -216,6 +216,8 @@ export class RemoteSelectionHandler {
 
     // Activate split-composite mode so upper layers render above the floating selection
     this.board.activeSelectionLayer = user.activeLayer ?? 0;
+    this.board.markCompositeFull();
+    this.board.compositeAllLayers();
 
     // Initialize corners for transform
     user.selectionCorners = {
@@ -484,6 +486,7 @@ export class RemoteSelectionHandler {
     // Pass the restore data captured during lift so Board.undo can reverse the erase
     lm.commitUserStroke(layerIdx, user.id, { selectionRestoreData: user._selectionRestoreData });
     this.board.activeSelectionLayer = -1;
+    this.board.markCompositeFull();
     this.board.compositeAllLayers();
 
     // Add tile ownership for visible tiles in the pasted region (must be after composite)
@@ -523,6 +526,7 @@ export class RemoteSelectionHandler {
     }
 
     this.board.activeSelectionLayer = -1;
+    this.board.markCompositeFull();
     this.board.compositeAllLayers();
     this._cleanupUserSelection(user);
   }
@@ -670,6 +674,7 @@ export class RemoteSelectionHandler {
       }
 
       lm.commitUserStroke(layerIdx, user.id);
+      this.board.markCompositeFull();
       this.board.compositeAllLayers();
 
       // Add tile ownership for visible filled tiles (after composite)
@@ -752,6 +757,7 @@ export class RemoteSelectionHandler {
     }
 
     lm.commitUserStroke(layerIdx, user.id);
+    this.board.markCompositeFull();
     this.board.compositeAllLayers();
 
     // Add tile ownership for visible stamped tiles (after composite)
@@ -835,6 +841,7 @@ export class RemoteSelectionHandler {
     }
 
     this.board.activeSelectionLayer = -1;
+    this.board.markCompositeFull();
     this.board.compositeAllLayers();
     this._cleanupUserSelection(user);
   }
@@ -883,6 +890,8 @@ export class RemoteSelectionHandler {
 
     // Activate split-composite mode for the pasted floating selection
     this.board.activeSelectionLayer = user.activeLayer ?? 0;
+    this.board.markCompositeFull();
+    this.board.compositeAllLayers();
 
     // Load the image and draw once ready — by then SEL_MOVE may have already updated
     // selectionCorners, so drawFloatingSelection will render at the correct position.
@@ -1277,6 +1286,7 @@ export class RemoteSelectionHandler {
     });
 
     lm.needsComposite = true;
+    this.board.markCompositeFull();
     this.board.compositeAllLayers();
 
     return {

@@ -160,7 +160,6 @@ export class LineTool extends Tool {
     this.board.clearTop();
     this.startPos = null;
 
-    this.board.compositeAllLayers();
     this.board.endStroke(user);
   }
 
@@ -343,7 +342,6 @@ export class RectangleTool extends Tool {
     this.board.clearTop();
     this.startPos = null;
 
-    this.board.compositeAllLayers();
     this.board.endStroke(user);
   }
 
@@ -531,7 +529,6 @@ export class CircleTool extends Tool {
     this.board.clearTop();
     this.startPos = null;
 
-    this.board.compositeAllLayers();
     this.board.endStroke(user);
   }
 

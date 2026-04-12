@@ -182,6 +182,7 @@ export async function applyRegionRestore(board, layerDatas, isLasso, rect, lasso
       await new Promise(resolve => setTimeout(resolve, 0));
     }
 
+    board.markCompositeFull();
     board.compositeAllLayers();
     board.app?.ui?.showToast('A region was restored from a snapshot', 3000);
   } finally {

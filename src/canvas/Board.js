@@ -1,4 +1,5 @@
 import { LayerManager } from './LayerManager.js';
+import { CompositeTileGrid } from './CompositeTileGrid.js';
 import { TileTracker } from './TileTracker.js';
 import * as wasm from '../wasm/ddraw_wasm.js';
 
@@ -66,6 +67,7 @@ export class Board {
     this._lastCompositeTime = 0;
     /** @type {number|null} RAF ID for the persistent render loop */
     this._rafLoopId = null;
+    this.compositeTileGrid = null;
   }
 
   /**
@@ -86,6 +88,7 @@ export class Board {
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
     this.backgroundColor = [r, g, b, 1];
+    this.markCompositeFull();
     this.requestUpdate();
   }
 
@@ -146,6 +149,7 @@ export class Board {
     this._createLayerManager();
 
     const [height, width] = this.dimensions;
+    this.compositeTileGrid = new CompositeTileGrid(width, height, 32);
     this.tileTracker = new TileTracker(width, height);
 
     this.calculateDefaultView();
@@ -189,6 +193,7 @@ export class Board {
       this.upperLayersCanvas.height = height;
       this.upperLayersCanvas.width = width;
     }
+    this.compositeTileGrid?.resize(width, height);
     if (this.selectionOverlay) {
       const pad = this.selectionOverlayPadding;
       this.selectionOverlay.width = width + pad * 2;
@@ -1162,10 +1167,13 @@ export class Board {
 
     if (this.layerManager) {
       this.layerManager.clearAll();
+      this.markCompositeFull();
       this.compositeAllLayers();
     } else {
       this.mainCtx.clearRect(0, 0, width, height);
     }
+
+    this.compositeTileGrid?.clear?.();
 
     // Clear tile tracker when board is cleared
     if (this.tileTracker) {
@@ -1190,6 +1198,7 @@ export class Board {
     if (this.upperLayersCtx) {
       this.upperLayersCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
     }
+    this.markCompositeFull();
     this.tileTracker?.clear?.();
 
     if (layerSnapshot?.length) {
@@ -1325,11 +1334,19 @@ export class Board {
     // Skip for erasers - they use TILE_CLEAR instead of TILE_UPDATE
     let tilesToBroadcast = null;
     const isLocalUser = userId === this.app?.self?.id;
+    const active = this.layerManager.getActiveStroke(activeLayer, userId);
     if (isLocalUser && this.app?.wsClient && this.app?.connected) {
-      const active = this.layerManager.getActiveStroke(activeLayer, userId);
       if (active?.affectedTiles?.size > 0 && active.blendMode !== 'destination-out') {
         tilesToBroadcast = Array.from(active.affectedTiles);
       }
+    }
+    if (active?.dirtyRect?.maxX !== -1) {
+      this.compositeTileGrid?.markRect(
+        active.dirtyRect.minX,
+        active.dirtyRect.minY,
+        active.dirtyRect.maxX - active.dirtyRect.minX + 1,
+        active.dirtyRect.maxY - active.dirtyRect.minY + 1
+      );
     }
 
     if (extraProps.filterType === 'glitchBlur') {
@@ -1357,6 +1374,52 @@ export class Board {
     this.app.wsClient.broadcastGlitchResult(result.x, result.y, result.width, result.height, dataUrl);
   }
 
+  markCompositeFull() {
+    this.compositeTileGrid?.markFull?.();
+  }
+
+  _applyCompositeClip(ctx, dirtyRects) {
+    if (!ctx || !dirtyRects || dirtyRects.length === 0) return false;
+    ctx.save();
+    ctx.beginPath();
+    for (const rect of dirtyRects) {
+      ctx.rect(rect.x, rect.y, rect.width, rect.height);
+    }
+    ctx.clip();
+    return true;
+  }
+
+  _clearCompositeContext(ctx, dirtyRects) {
+    if (!ctx) return;
+    if (dirtyRects && dirtyRects.length > 0) {
+      for (const rect of dirtyRects) {
+        ctx.clearRect(rect.x, rect.y, rect.width, rect.height);
+      }
+      return;
+    }
+    ctx.clearRect(0, 0, this.getWidth(), this.getHeight());
+  }
+
+  _fillCompositeContext(ctx, dirtyRects) {
+    if (!ctx) return;
+    if (dirtyRects && dirtyRects.length > 0) {
+      for (const rect of dirtyRects) {
+        ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+      }
+      return;
+    }
+    ctx.fillRect(0, 0, this.getWidth(), this.getHeight());
+  }
+
+  _drawCompositeCanvas(ctx, canvas, dirtyRects) {
+    if (!ctx || !canvas) return;
+    const clipped = this._applyCompositeClip(ctx, dirtyRects);
+    ctx.drawImage(canvas, 0, 0);
+    if (clipped) {
+      ctx.restore();
+    }
+  }
+
   /**
    * Expand the dirty rectangle for a user's active stroke so the stroke
    * bake step can crop to a tight content bound.
@@ -1370,6 +1433,7 @@ export class Board {
     const active = group.activeStrokeByUser.get(userId);
     if (!active || !active.dirtyRect) return;
     this.layerManager._expandDirtyRect(active.dirtyRect, x, y, width, height);
+    this.compositeTileGrid?.markRect(x, y, width, height);
   }
 
   /**
@@ -1384,12 +1448,25 @@ export class Board {
     if (!group) return;
 
     const active = group.activeStrokeByUser.get(userId);
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
     if (active?.dirtyRect) {
       for (const pt of points) {
-        this.layerManager._expandDirtyRect(active.dirtyRect, pt.x - radius, pt.y - radius, radius * 2, radius * 2);
+        const x = pt.x - radius;
+        const y = pt.y - radius;
+        const size = radius * 2;
+        this.layerManager._expandDirtyRect(active.dirtyRect, x, y, size, size);
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x + size > maxX) maxX = x + size;
+        if (y + size > maxY) maxY = y + size;
       }
     }
-
+    if (maxX > minX && maxY > minY) {
+      this.compositeTileGrid?.markRect(minX, minY, maxX - minX, maxY - minY);
+    }
   }
 
   /**
@@ -1406,6 +1483,7 @@ export class Board {
       if (!active || !active.dirtyRect) continue;
       this.layerManager._expandDirtyRect(active.dirtyRect, x, y, width, height);
     }
+    this.compositeTileGrid?.markRect(x, y, width, height);
   }
 
   /**
@@ -1445,6 +1523,7 @@ export class Board {
     }
     // Preserve the local preview/selection overlays during undo so another
     // user's history change cannot blank an in-progress stroke preview.
+    this.markCompositeFull();
     this.compositeAllLayers();
 
     // After composite, check affected tiles and update tracker state based on current pixels
@@ -1484,6 +1563,7 @@ export class Board {
     this.layerManager.redoLastStroke(userId);
     // Preserve the local preview/selection overlays during redo for the same
     // reason as undo: previews are transient UI state, not history state.
+    this.markCompositeFull();
     this.compositeAllLayers();
 
     // Re-check tiles to update tracker state
@@ -1559,57 +1639,67 @@ export class Board {
     const activeLayerIdx = this.app?.self?.activeLayer ?? 0;
     const userId = this.app?.self?.id ?? 0;
     const totalLayers = this.layerManager.getLayerCount();
-    const [height, width] = this.dimensions;
-
-    const dirtyRects = null;
-
     const activeGroup = this.layerManager.getLayerGroup(activeLayerIdx);
     const isDrawing = activeGroup?.activeStrokeByUser?.has(userId) ?? false;
     const isEraser = this.app?.activeTool === 'erase';
     const eraseAll = isEraser && (this.app?.eraseAllLayers ?? false);
-    
+    const pendingDirtyRects = this.compositeTileGrid?.consumeDirtyRects?.() ?? null;
+
     const hasActiveSelection = this.activeSelectionLayer >= 0;
     const splitLayer = hasActiveSelection ? this.activeSelectionLayer : activeLayerIdx;
-    
+    const dirtyRects = Array.isArray(pendingDirtyRects) && pendingDirtyRects.length > 0
+      ? pendingDirtyRects
+      : null;
+
+    if (Array.isArray(pendingDirtyRects) &&
+        pendingDirtyRects.length === 0 &&
+        !this.layerManager.needsComposite &&
+        !isDrawing &&
+        !hasActiveSelection) {
+      this.layerManager.needsComposite = false;
+      this.layerManager._notifyHistoryPanel();
+      return;
+    }
+
     const upperLayersHaveBlendModes = this.layerManager.rangeHasBlendModeStrokes(splitLayer + 1, totalLayers);
 
     if (isDrawing && eraseAll) {
       this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, null, dirtyRects);
-      
+
       this.mainCtx.globalCompositeOperation = 'destination-out';
       this.mainCtx.globalAlpha = this.app?.self?.opacity ?? 1.0;
-      this.mainCtx.drawImage(this.topCanvas, 0, 0);
-      
+      this._drawCompositeCanvas(this.mainCtx, this.topCanvas, dirtyRects);
+
       this.mainCtx.globalCompositeOperation = 'destination-over';
       const [r, g, b, a] = this.backgroundColor;
       this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-      this.mainCtx.fillRect(0, 0, width, height);
-      
+      this._fillCompositeContext(this.mainCtx, dirtyRects);
+
       this.mainCtx.globalCompositeOperation = 'source-over';
       this.mainCtx.globalAlpha = 1.0;
-      
+
       if (this.upperLayersCtx) {
-        this.upperLayersCtx.clearRect(0, 0, width, height);
+        this._clearCompositeContext(this.upperLayersCtx, dirtyRects);
       }
-    } 
+    }
     else if ((isDrawing || hasActiveSelection) && splitLayer + 1 < totalLayers && !upperLayersHaveBlendModes) {
       this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.backgroundColor, dirtyRects);
-      
+
       if (isDrawing) {
         if (isEraser) {
           this.mainCtx.globalCompositeOperation = 'destination-out';
           this.mainCtx.globalAlpha = this.app?.self?.opacity ?? 1.0;
-          this.mainCtx.drawImage(this.topCanvas, 0, 0);
-          
+          this._drawCompositeCanvas(this.mainCtx, this.topCanvas, dirtyRects);
+
           this.mainCtx.globalCompositeOperation = 'destination-over';
           const [r, g, b, a] = this.backgroundColor;
           this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-          this.mainCtx.fillRect(0, 0, width, height);
+          this._fillCompositeContext(this.mainCtx, dirtyRects);
         } else {
           const blendMode = this.getActiveLayerBlendMode();
           if (blendMode !== 'source-over') {
             this.mainCtx.globalCompositeOperation = blendMode;
-            this.mainCtx.drawImage(this.topCanvas, 0, 0);
+            this._drawCompositeCanvas(this.mainCtx, this.topCanvas, dirtyRects);
           }
         }
         this.mainCtx.globalCompositeOperation = 'source-over';
@@ -1621,22 +1711,22 @@ export class Board {
       }
     } else {
       this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.backgroundColor, dirtyRects);
-      
+
       if (isDrawing) {
         if (isEraser) {
           this.mainCtx.globalCompositeOperation = 'destination-out';
           this.mainCtx.globalAlpha = this.app?.self?.opacity ?? 1.0;
-          this.mainCtx.drawImage(this.topCanvas, 0, 0);
-          
+          this._drawCompositeCanvas(this.mainCtx, this.topCanvas, dirtyRects);
+
           this.mainCtx.globalCompositeOperation = 'destination-over';
           const [r, g, b, a] = this.backgroundColor;
           this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-          this.mainCtx.fillRect(0, 0, width, height);
+          this._fillCompositeContext(this.mainCtx, dirtyRects);
         } else {
           const blendMode = this.getActiveLayerBlendMode();
           if (blendMode !== 'source-over') {
             this.mainCtx.globalCompositeOperation = blendMode;
-            this.mainCtx.drawImage(this.topCanvas, 0, 0);
+            this._drawCompositeCanvas(this.mainCtx, this.topCanvas, dirtyRects);
           }
         }
         this.mainCtx.globalCompositeOperation = 'source-over';
@@ -1644,7 +1734,7 @@ export class Board {
       }
 
       if (this.upperLayersCtx) {
-        this.upperLayersCtx.clearRect(0, 0, width, height);
+        this._clearCompositeContext(this.upperLayersCtx, dirtyRects);
       }
     }
 
@@ -1861,6 +1951,7 @@ export class Board {
       }
     }
 
+    this.markCompositeFull();
     this.compositeAllLayers();
   }
 

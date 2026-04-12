@@ -243,7 +243,6 @@ export class PixelBrushTool {
     this.strokePoints = [];
 
     this.board.clearTop();
-    this.board.compositeAllLayers();
     this.board.endStroke(user);
     this.lastStampPos.delete(user.id);
   }

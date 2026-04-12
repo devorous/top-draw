@@ -186,7 +186,6 @@ export class ImageBrushTool extends Tool {
     }
     this.strokePoints = [];
 
-    this.board.compositeAllLayers();
     this.board.endStroke(user);
     this.board.clearTop();
 

@@ -251,6 +251,7 @@ export function setupAuthModHandlers(wsClient, app) {
     if (app.board?.layerManager) {
       const removed = app.board.layerManager.wipeUserStrokes(targetIndex);
       if (removed) {
+        app.board.markCompositeFull();
         app.board.compositeAllLayers();
         app.board.requestUpdate();
       }
