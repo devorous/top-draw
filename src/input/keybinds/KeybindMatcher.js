@@ -54,6 +54,23 @@ function normalizeMainKey(key) {
   return normalized;
 }
 
+function normalizeModifierKey(key) {
+  if (!key) return null;
+
+  switch (key) {
+    case 'Control':
+      return 'Ctrl';
+    case 'Alt':
+      return 'Alt';
+    case 'Shift':
+      return 'Shift';
+    case 'Meta':
+      return 'Meta';
+    default:
+      return null;
+  }
+}
+
 export function normalizeBinding(binding) {
   if (!binding || typeof binding !== 'string') return null;
 
@@ -93,13 +110,23 @@ export function normalizeBinding(binding) {
     mainKey = normalizeMainKey(part);
   }
 
-  if (!mainKey) return null;
+  if (!mainKey) {
+    if (parts.length === 1 && modifiers.length === 1) {
+      return modifiers[0];
+    }
+    return null;
+  }
 
   const ordered = ['Mod', 'Ctrl', 'Alt', 'Shift', 'Meta'].filter((modifier) => modifiers.includes(modifier));
   return [...ordered, mainKey].join('+');
 }
 
 export function eventToBinding(event) {
+  const modifierKey = normalizeModifierKey(event.key);
+  if (modifierKey) {
+    return normalizeBinding(modifierKey);
+  }
+
   const mainKey = normalizeMainKey(event.key);
   if (!mainKey) return null;
 

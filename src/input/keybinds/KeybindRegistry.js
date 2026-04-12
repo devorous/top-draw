@@ -89,7 +89,7 @@ export const KEYBIND_ACTIONS = [
     label: 'Eyedropper tool',
     description: 'Switch to the eyedropper tool.',
     category: 'Tools',
-    defaultBinding: 'I'
+    defaultBinding: 'Alt'
   },
   {
     id: 'tool.pan',
