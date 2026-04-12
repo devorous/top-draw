@@ -246,7 +246,8 @@ export class RemoteUserHandler {
             });
           }
         }
-        this.board.requestUpdate();
+        this.board.markCompositeFull();
+        this.board.compositeAllLayers(); // Immediate composite for remote eraser visibility
         break;
       }
 
@@ -380,6 +381,45 @@ export class RemoteUserHandler {
         }
         break;
 
+      case 'erase':
+        // Draw eraser path preview
+        if (user.currentLine.length >= 2) {
+          user.context.save();
+          user.context.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+          user.context.lineWidth = user.size * 2;
+          user.context.lineCap = 'round';
+          user.context.lineJoin = 'round';
+          user.context.globalCompositeOperation = 'source-over';
+
+          user.context.beginPath();
+          user.context.moveTo(user.currentLine[0], user.currentLine[1]);
+          for (let i = 2; i < user.currentLine.length; i += 2) {
+            user.context.lineTo(user.currentLine[i], user.currentLine[i + 1]);
+          }
+          user.context.stroke();
+          user.context.restore();
+
+          // Draw on mirrored regions
+          this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
+            const mirroredLine = this.board.mirrorPointsToRegion(user.currentLine, region);
+            this.board.withMirrorRegionClip(user.context, region, () => {
+              user.context.save();
+              user.context.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+              user.context.lineWidth = user.size * 2;
+              user.context.lineCap = 'round';
+              user.context.lineJoin = 'round';
+              user.context.beginPath();
+              user.context.moveTo(mirroredLine[0], mirroredLine[1]);
+              for (let i = 2; i < mirroredLine.length; i += 2) {
+                user.context.lineTo(mirroredLine[i], mirroredLine[i + 1]);
+              }
+              user.context.stroke();
+              user.context.restore();
+            });
+          });
+        }
+        break;
+
       case 'glitchBlur':
         const glitchBlurTool = this.toolManager.getTool('glitchBlur');
         if (glitchBlurTool) {
@@ -470,7 +510,8 @@ export class RemoteUserHandler {
             const eraseGroup = this.board.layerManager.getLayerGroup(this.getStrokeLayer(user));
             if (eraseGroup) eraserTool.eraseOnGroup(eraseGroup, pos.x, pos.y, pos.x, pos.y, eraseSize, 1.0, user.id);
           }
-          this.board.requestUpdate();
+          this.board.markCompositeFull();
+          this.board.compositeAllLayers(); // Immediate composite for remote eraser visibility
         }
         break;
 

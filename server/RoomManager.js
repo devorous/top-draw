@@ -63,12 +63,12 @@ export class Room {
     /** @type {Set<number>} Set of occupied tile indices */
     this.tileDirtySet = new Set();
 
-    /** @type {Array<Object>} Rolling buffer of board snapshots (max 24, every 5s for 2 min) */
+    /** @type {Array<Object>} Rolling buffer of board snapshots (max 24, every 10s for 4 min) */
     this.snapshots = [];
 
     /** @type {NodeJS.Timeout|null} Server-driven snapshot request interval */
     this._snapshotTimer = null;
-    this._snapshotIntervalMs = 5000;
+    this._snapshotIntervalMs = 10000;
   }
 
   /**

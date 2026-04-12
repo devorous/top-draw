@@ -75,7 +75,6 @@ export async function uploadSnapshotBundle(r2Key, bundleData) {
 
   try {
     await requireSnapshotClient().send(new PutObjectCommand(params));
-    console.log(`Successfully uploaded snapshot bundle to R2: ${r2Key}`);
   } catch (error) {
     console.error(`Error uploading snapshot bundle to R2 (${r2Key}):`, error);
     throw error; // Re-throw to indicate failure
@@ -135,7 +134,6 @@ export async function deleteSnapshotBundle(r2Key) {
 
   try {
     await requireSnapshotClient().send(new DeleteObjectCommand(params));
-    console.log(`Successfully deleted snapshot bundle from R2: ${r2Key}`);
   } catch (error) {
     console.error(`Error deleting snapshot bundle from R2 (${r2Key}):`, error);
     throw error;

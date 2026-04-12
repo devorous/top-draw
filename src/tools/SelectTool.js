@@ -736,7 +736,7 @@ export class SelectTool extends Tool {
     if (this.corners && this.hasTransformedCorners()) {
       this.drawTransformOutline(overlayCtx);
       this.drawTransformHandles(overlayCtx);
-    } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.hasScaledSelection()) {
+    } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.floatingCanvas) {
       overlayCtx.strokeStyle = '#000';
       overlayCtx.lineWidth = 1;
       overlayCtx.setLineDash([4, 4]);
@@ -894,7 +894,7 @@ export class SelectTool extends Tool {
       ctx.lineTo(mc.bl.x, mc.bl.y);
       ctx.closePath();
       ctx.stroke();
-    } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.hasScaledSelection()) {
+    } else if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.floatingCanvas) {
       const mLasso = this.lassoSimplified.map(p => ({ x: bw - p.x, y: p.y }));
       ctx.strokeStyle = '#000';
       ctx.lineDashOffset = -this.marchingAntsOffset;
@@ -1986,8 +1986,8 @@ export class SelectTool extends Tool {
       overlayCtx.lineWidth = 1;
       overlayCtx.setLineDash([4, 4]);
 
-      if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.hasScaledSelection()) {
-        // Lasso mode - draw simplified polygon (only if not scaled)
+      if (this.mode === 'lasso' && this.lassoSimplified && this.lassoSimplified.length > 0 && !this.floatingCanvas) {
+        // Lasso mode - draw simplified polygon (only if not lifted)
         overlayCtx.strokeStyle = '#000';
         overlayCtx.lineDashOffset = -this.marchingAntsOffset;
         overlayCtx.beginPath();

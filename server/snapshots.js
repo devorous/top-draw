@@ -21,8 +21,6 @@ function getSnapshotMaxPerRoom() {
 async function deleteSnapshotRecord(db, room, doc) {
   if (doc.r2Key) {
     await deleteSnapshotBundle(doc.r2Key);
-  } else {
-    console.log(`[Snapshot] Deleting legacy snapshot without R2 bundle: ${doc.snapshotId}`);
   }
 
   await db.collection('board_snapshots').deleteOne({ _id: doc._id });
@@ -42,9 +40,6 @@ async function pruneSnapshotsForRoom(db, room) {
     await deleteSnapshotRecord(db, room, doc);
   }
 
-  if (overflowDocs.length > 0) {
-    console.log(`[Snapshot] Pruned ${overflowDocs.length} old snapshot(s) for room ${room.id}; limit=${maxSnapshots}`);
-  }
 }
 
 
@@ -77,13 +72,11 @@ async function maybeCreateInitialCheckpoint(roomId, bgColor, ts) {
     bgColor
   });
   getRecorder(roomId).onCheckpoint(id);
-  console.log(`[Snapshot] Created initial checkpoint for room "${roomId}" (${bgColor})`);
 }
 
 export async function handleSnapshotSave(ws, data, room) {
   if (!authorize(ws, Action.MOD_MUTE, null)) return; // Helper+ can save
   if (!room?.isRegistered?.()) {
-    console.log(`[Snapshot] Ignoring snapshot save for unregistered room ${room?.id || 'unknown'}`);
     return;
   }
 
@@ -169,8 +162,6 @@ export async function handleSnapshotSave(ws, data, room) {
  */
 export async function handleSnapshotList(ws, data, room) {
   if (!canViewSnapshotHistory(ws)) return;
-
-  console.log(`[Snapshot] List requested for room ${room.id} by ${ws.username}`);
   const db = getDB();
   let dbSnapshots = [];
   const beforeTs = Number(data?.snapshotTs || 0);
@@ -291,8 +282,6 @@ export async function handleSnapshotRestore(ws, data, room) {
     console.warn(`[Snapshot] Restore failed: Snapshot ${snapshotId} data could not be loaded.`);
     return;
   }
-
-  console.log(`[Snapshot] Restoring board in room ${room.id} to snapshot ${snapshotId} (Issuer: ${ws.username})`);
 
   // Broadcast restoration to everyone
   room.broadcastToAll({
@@ -482,7 +471,6 @@ export async function handleSnapshotDelete(ws, data, room) {
       const doc = await db.collection('board_snapshots').findOne({ roomId: room.id, snapshotId });
       if (doc) {
         await deleteSnapshotRecord(db, room, doc);
-        console.log(`[Snapshot Delete] Removed ${snapshotId} from MongoDB and R2.`);
       }
     } catch (err) {
       console.error(`[Snapshot Delete] Error checking/deleting R2 object for ${snapshotId}:`, err);

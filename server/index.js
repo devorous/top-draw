@@ -685,6 +685,7 @@ wss.on('error', (err) => {
 let Msg;
 let POOLED_MSG;
 let roomManager;
+let onlineUsersLogInterval;
 
 // Messenger: username -> WebSocket
 const messengerClients = new Map();
@@ -916,6 +917,14 @@ async function init() {
   roomManager = new RoomManager(wss, sendTo);
   roomManager.setMsgEncoder(Msg, createRoomBroadcaster);
   console.log('[Server] RoomManager initialized');
+  if (!onlineUsersLogInterval) {
+    onlineUsersLogInterval = setInterval(() => {
+      const onlineUsers = [...roomManager.rooms.values()]
+        .filter(room => room.id !== '_discovery')
+        .reduce((total, room) => total + room.getClientCount(), 0);
+      console.log(`[Presence] ${onlineUsers} user(s) online`);
+    }, 60 * 1000);
+  }
   initAsnCheck();
 
   startBatchTimer();
