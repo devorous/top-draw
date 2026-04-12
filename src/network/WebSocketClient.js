@@ -8,6 +8,10 @@ import { packColor, unpackColor } from '../../shared/ColorUtils.js';
 import { normalizeTextFont } from '../config/textFonts.js';
 import { ClientIdentity } from './ClientIdentity.js';
 
+function hasOwnField(message, key) {
+  return !!message && Object.prototype.hasOwnProperty.call(message, key);
+}
+
 /**
  * WebSocketClient manages the bidirectional binary communication with the server.
  * It uses Protocol Buffers for efficient serialization and handles high-frequency
@@ -677,7 +681,7 @@ export class WebSocketClient {
         this.emit(data.t === T.STAFF_CHAT_IMG ? 'staff_chat_img' : 'chat_img', {
           sessionIndex: data.u,
           imageData: imageDataUrl,
-          recipientId: data.r,
+          recipientId: hasOwnField(data, 'r') ? data.r : null,
           messageId: data.chatMessageId
         });
         break;
@@ -688,7 +692,7 @@ export class WebSocketClient {
           messageId: data.chatMessageId,
           emoji: data.chatReaction,
           remove: !!data.chatReactionRemove,
-          recipientId: data.r
+          recipientId: hasOwnField(data, 'r') ? data.r : null
         });
         break;
 

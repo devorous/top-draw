@@ -33,6 +33,10 @@ import { authLimiter, uploadLimiter, likeLimiter, wsMessageLimiter, wsConnection
 import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
 import { getIpSubnet, mergeHistory, normalizeIdentityPayload, recordConnectionEvent } from './identityTracking.js';
 
+function hasOwnField(message, key) {
+  return !!message && Object.prototype.hasOwnProperty.call(message, key);
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -1885,7 +1889,7 @@ wss.on('connection', async (ws, req) => {
           if (ws.isShadowBanned) break;
           if (ws.sessionIndex !== undefined) {
             let imageBytes = data.cimg;
-            const imageRecipientId = data.r;
+            const imageRecipientId = hasOwnField(data, 'r') ? data.r : null;
 
             if (!imageBytes || imageBytes.length === 0) break;
 
@@ -1895,7 +1899,7 @@ wss.on('connection', async (ws, req) => {
               imageBytes = new Uint8Array(imageBytes);
             }
 
-            if (imageRecipientId !== undefined) {
+            if (imageRecipientId !== null) {
               for (const client of wss.clients) {
                 if (client.sessionIndex === imageRecipientId && client.readyState === WebSocket.OPEN) {
                   sendTo(client, {
@@ -1985,7 +1989,7 @@ wss.on('connection', async (ws, req) => {
               chatReactionRemove: !!data.chatReactionRemove
             };
 
-            if (data.r !== undefined) {
+            if (hasOwnField(data, 'r')) {
               reactionPayload.r = data.r;
               for (const client of wss.clients) {
                 if (client.sessionIndex === data.r && client.readyState === WebSocket.OPEN) {

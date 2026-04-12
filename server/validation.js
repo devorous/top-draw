@@ -3,6 +3,10 @@
 import { T, Tool } from '../shared/MessageTypes.js';
 import { CHAT_IMAGE_MIME_TYPES, INLINE_IMAGE_MIME_TYPES, validateDataUrlImage, validateImageBytes } from './imageValidation.js';
 
+function hasOwnField(message, key) {
+  return !!message && Object.prototype.hasOwnProperty.call(message, key);
+}
+
 const MIN_BRUSH_SIZE = 25;
 const MAX_BRUSH_SIZE = 10000;
 const MAX_SPACING = 2000;
@@ -282,7 +286,7 @@ export async function sanitizeMessage(data) {
       sanitized.chatMessageId = sanitizeString(data.chatMessageId ?? data.chat_message_id, MAX_CHAT_MESSAGE_ID_LENGTH);
       sanitized.chatReaction = sanitizeString(data.chatReaction ?? data.chat_reaction, MAX_CHAT_REACTION_LENGTH);
       sanitized.chatReactionRemove = sanitizeBoolean(data.chatReactionRemove ?? data.chat_reaction_remove);
-      if (data.r !== undefined) sanitized.r = clampInt(data.r, 0, 65535, 0);
+      if (hasOwnField(data, 'r')) sanitized.r = clampInt(data.r, 0, 65535, 0);
       return sanitized.chatMessageId && sanitized.chatReaction ? sanitized : null;
 
     case T.KP:
@@ -553,7 +557,7 @@ export async function sanitizeMessage(data) {
       sanitized.cimg = new Uint8Array(imageValidation.buffer);
       sanitized.chatMessageId = sanitizeString(data.chatMessageId ?? data.chat_message_id, MAX_CHAT_MESSAGE_ID_LENGTH);
       if (!sanitized.chatMessageId) return null;
-      if (data.r !== undefined) sanitized.r = clampInt(data.r, 0, 65535, 0);
+      if (hasOwnField(data, 'r')) sanitized.r = clampInt(data.r, 0, 65535, 0);
       return sanitized;
     }
 
