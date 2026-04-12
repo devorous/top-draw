@@ -4,8 +4,41 @@ import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
+
+// Inject APP_VERSION from package.json
+function versionInjectionPlugin() {
+  const packageJson = JSON.parse(fs.readFileSync(resolve(__dirname, 'package.json'), 'utf8'));
+  const version = packageJson.version;
+
+  return {
+    name: 'version-injection',
+    resolveId(id) {
+      if (id === 'virtual-version') {
+        return id;
+      }
+    },
+    load(id) {
+      if (id === 'virtual-version') {
+        return `export const APP_VERSION = '${version}';`;
+      }
+    },
+    transform(code) {
+      // Inject into HTML as global variable
+      if (code.includes('<!DOCTYPE html>') || code.includes('<html')) {
+        return {
+          code: code.replace(
+            '</head>',
+            `<script>window.APP_VERSION = '${version}';</script>\n  </head>`
+          ),
+          map: null
+        };
+      }
+    }
+  };
+}
 
 export default defineConfig({
   root: '.',
@@ -14,6 +47,7 @@ export default defineConfig({
   appType: 'mpa',
   plugins: [
     svelte(),
+    versionInjectionPlugin(),
     {
       name: 'go-spa-fallback',
       configureServer(server) {
@@ -57,7 +91,7 @@ export default defineConfig({
           if (id.includes('protobufjs')) return 'vendor-proto';
           if (id.includes('perfect-freehand')) return 'vendor-freehand';
           if (id.includes('stackblur')) return 'vendor-blur';
-          if (id.includes('svelte')) return 'vendor-svelte';
+          if (id.includes('node_modules/svelte')) return 'vendor-svelte';
         },
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',

@@ -75,7 +75,14 @@ async function maybeCreateInitialCheckpoint(roomId, bgColor, ts) {
 }
 
 export async function handleSnapshotSave(ws, data, room) {
-  if (!authorize(ws, Action.MOD_MUTE, null)) return; // Helper+ can save
+  // Server-initiated auto-snapshots: any user who was explicitly asked may respond.
+  // Manual saves require Helper+ authorization.
+  const isServerRequested = room?._pendingSnapshotRequests?.has(ws.sessionIndex);
+  if (isServerRequested) {
+    room._pendingSnapshotRequests.delete(ws.sessionIndex);
+  } else if (!authorize(ws, Action.MOD_MUTE, null)) {
+    return; // Helper+ required for manual saves
+  }
   if (!room?.isRegistered?.()) {
     return;
   }

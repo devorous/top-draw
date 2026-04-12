@@ -2,6 +2,7 @@
 
 import './css/main.scss';
 import { scheduleStartupUpdateCheck } from './platform/updater.js';
+import { initializeVersionCheck } from './VersionChecker.js';
 
 // Auto-reload once when a dynamically imported chunk fails to load (stale cache after deploy)
 window.addEventListener('unhandledrejection', (event) => {
@@ -228,7 +229,7 @@ function attachDeferredLandingHandlers() {
   });
 }
 
-function init() {
+async function init() {
   revealLandingShell();
   attachDeferredLandingHandlers();
 
@@ -245,7 +246,7 @@ function init() {
         if (isExternal || link.target === '_blank') {
           e.preventDefault();
           e.stopImmediatePropagation();
-          
+
           import('@tauri-apps/plugin-shell').then(({ open }) => {
             open(link.href);
           }).catch(err => {
@@ -257,6 +258,9 @@ function init() {
       }
     }, true); // Use capture phase to intercept before other handlers
   }
+
+  // Check for outdated client version
+  await initializeVersionCheck();
 
   if (isFirefox) {
     showFirefoxWarning().then(() => {

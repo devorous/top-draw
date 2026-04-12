@@ -40,6 +40,7 @@ export const RoleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 
 
 const AFK_TIMEOUT = 5 * 60 * 1000;
 const AFK_CHECK_INTERVAL = 30 * 1000;
+const ALL_AFK_RESTORE_DELAY = 2 * 60 * 1000;
 
 /**
  * Manages user session indices, user data, and AFK tracking.
@@ -57,6 +58,8 @@ export class SessionManager {
     this.broadcastToAll = broadcastCallback;
     this.isDiscovery = isDiscovery;
     this.isImmuneToInactivity = options.isImmuneToInactivity || (() => false);
+    this.onAllUsersAfk = options.onAllUsersAfk || null;
+    this._allAfkSince = null;
 
     this.afkCheckInterval = setInterval(() => this.checkAfkUsers(), AFK_CHECK_INTERVAL);
   }
@@ -221,11 +224,10 @@ export class SessionManager {
   checkAfkUsers() {
     const now = Date.now();
     const joinedUsers = this.getJoinedUsers();
-    const shouldSuspendInactivity = joinedUsers.length <= 1;
 
     this.users.forEach((user, sessionIndex) => {
       if (!user.name) return;
-      if (shouldSuspendInactivity || this.isImmuneToInactivity(sessionIndex, user)) {
+      if (this.isImmuneToInactivity(sessionIndex, user)) {
         if (user.afk) {
           user.afk = false;
           this.broadcastToAll({ t: T.AFK, u: sessionIndex, a: false });
@@ -238,6 +240,19 @@ export class SessionManager {
         console.log(`User ${sessionIndex} marked as AFK`);
       }
     });
+
+    // Track when all joined users become AFK to trigger snapshot restore
+    if (joinedUsers.length > 0 && joinedUsers.every(u => u.afk)) {
+      if (!this._allAfkSince) {
+        this._allAfkSince = now;
+        console.log(`[AFK] All users in room are AFK, will restore snapshot in ${ALL_AFK_RESTORE_DELAY / 1000}s`);
+      } else if (this.onAllUsersAfk && (now - this._allAfkSince >= ALL_AFK_RESTORE_DELAY)) {
+        this._allAfkSince = null;
+        this.onAllUsersAfk();
+      }
+    } else {
+      this._allAfkSince = null;
+    }
   }
 
   /**

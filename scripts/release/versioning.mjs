@@ -6,6 +6,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..', '..');
 const packageJsonPath = path.join(repoRoot, 'package.json');
 const cargoTomlPath = path.join(repoRoot, 'src-tauri', 'Cargo.toml');
+const versionJsonPath = path.join(repoRoot, 'public', 'version.json');
 
 const VERSION_RE = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
 
@@ -96,10 +97,31 @@ function setVersionInCargoToml(nextVersion) {
   fs.writeFileSync(cargoTomlPath, nextCargoToml);
 }
 
+function setVersionInVersionJson(nextVersion) {
+  // Read existing version.json to preserve downloadUrl and notes
+  let existing = { downloadUrl: 'https://github.com/yourusername/top-draw/releases', notes: '' };
+  try {
+    existing = JSON.parse(fs.readFileSync(versionJsonPath, 'utf8'));
+  } catch (e) {
+    // File doesn't exist or is invalid, use defaults
+  }
+
+  const versionJson = {
+    latest: nextVersion,
+    minRequired: nextVersion,
+    releaseDate: new Date().toISOString().split('T')[0],
+    notes: existing.notes || '',
+    downloadUrl: existing.downloadUrl || 'https://github.com/yourusername/top-draw/releases'
+  };
+
+  fs.writeFileSync(versionJsonPath, `${JSON.stringify(versionJson, null, 2)}\n`);
+}
+
 function setVersion(nextVersion) {
   parseVersion(nextVersion);
   setVersionInPackageJson(nextVersion);
   setVersionInCargoToml(nextVersion);
+  setVersionInVersionJson(nextVersion);
   console.log(nextVersion);
 }
 

@@ -3,10 +3,10 @@
 import { SessionManager } from './SessionManager.js';
 import { SyncCoordinator } from './SyncCoordinator.js';
 import { T } from '../shared/MessageTypes.js';
-import { Role } from './SessionManager.js';
 import { WebSocket } from 'ws';
 import { getDB } from './db.js';
 import { scoreProvider } from './providerScoring.js';
+import { getSnapshotBundle } from './r2.js';
 
 /**
  * Represents a single drawing room.
@@ -54,7 +54,8 @@ export class Room {
       isImmuneToInactivity: (_sessionIndex, user) => {
         const role = user.role || 0;
         return role >= 5 || (!!this.settings.modInactiveImmune && role >= 4);
-      }
+      },
+      onAllUsersAfk: () => this._onAllUsersAfk()
     });
     this.syncCoordinator = new SyncCoordinator(this.sessionManager, { clients: this.clients }, this.sendTo, this);
 
@@ -69,6 +70,9 @@ export class Room {
     /** @type {NodeJS.Timeout|null} Server-driven snapshot request interval */
     this._snapshotTimer = null;
     this._snapshotIntervalMs = 10000;
+
+    /** @type {Set<number>} Session indices that were asked for a server-initiated snapshot */
+    this._pendingSnapshotRequests = new Set();
   }
 
   /**
@@ -92,7 +96,7 @@ export class Room {
 
   /**
    * Starts the periodic snapshot request timer.
-   * Called when a Helper+ user joins the room.
+   * Called when any user joins the room.
    */
   startSnapshotTimer() {
     if (this._snapshotTimer) return;
@@ -101,7 +105,7 @@ export class Room {
 
   /**
    * Stops the snapshot request timer.
-   * Called when no Helper+ users remain in the room.
+   * Called when no users remain in the room.
    */
   stopSnapshotTimer() {
     if (!this._snapshotTimer) return;
@@ -113,8 +117,8 @@ export class Room {
    * Checks if the snapshot timer should be running based on current clients.
    */
   updateSnapshotTimer() {
-    const hasHelper = this._getHelperClients().length > 0;
-    const shouldRun = this.isRegistered() && hasHelper;
+    const hasClients = this._getSnapshotCandidates().length > 0;
+    const shouldRun = this.isRegistered() && hasClients;
     if (shouldRun && !this._snapshotTimer) {
       this.startSnapshotTimer();
     } else if (!shouldRun && this._snapshotTimer) {
@@ -123,31 +127,32 @@ export class Room {
   }
 
   /**
-   * Returns Helper+ clients, preferring active (non-AFK) ones.
+   * Returns all open clients as snapshot candidates, scored and sorted best-first.
+   * Any connected user can be asked for a snapshot — not just Helper+.
    * @returns {WebSocket[]}
    * @private
    */
-  _getHelperClients() {
-    const helpers = [];
+  _getSnapshotCandidates() {
+    const candidates = [];
     for (const ws of this.clients) {
-      if (ws.readyState === WebSocket.OPEN && (ws.userRole || 0) >= Role.HELPER) {
-        helpers.push(ws);
+      if (ws.readyState === WebSocket.OPEN) {
+        candidates.push(ws);
       }
     }
-    return helpers;
+    return candidates;
   }
 
   /**
-   * Picks a random Helper+ client (preferring non-AFK) and sends a snapshot request.
+   * Picks the best-scoring connected client and sends a snapshot request.
    * @private
    */
   _requestSnapshot() {
     if (!this.isRegistered()) return;
 
-    const helpers = this._getHelperClients();
-    if (helpers.length === 0) return;
+    const candidates = this._getSnapshotCandidates();
+    if (candidates.length === 0) return;
 
-    const ranked = helpers
+    const ranked = candidates
       .map((ws) => ({
         ws,
         score: scoreProvider(ws, this.sessionManager.getUser(ws.sessionIndex))
@@ -157,6 +162,7 @@ export class Room {
     const chosen = ranked[0]?.ws;
     if (!chosen) return;
 
+    this._pendingSnapshotRequests.add(chosen.sessionIndex);
     this.sendTo(chosen, { t: T.BOARD_SNAPSHOT_REQUEST });
   }
 
@@ -196,6 +202,73 @@ export class Room {
    */
   clearAllTiles() {
     this.tileDirtySet.clear();
+  }
+
+  /**
+   * Fetches the most recent snapshot data, checking in-memory buffer then DB/R2.
+   * @returns {Promise<{id: string, ts: number, issuer: string, layers: Array}|null>}
+   */
+  async getLatestSnapshotData() {
+    // Check in-memory rolling buffer first (most recent auto-saves)
+    for (let i = this.snapshots.length - 1; i >= 0; i--) {
+      const s = this.snapshots[i];
+      if (s.layers && s.layers.length > 0) {
+        return { id: s.id, ts: s.ts, issuer: s.issuer, layers: s.layers };
+      }
+    }
+
+    // Fall back to DB/R2
+    const db = getDB();
+    if (!db) return null;
+
+    try {
+      const doc = await db.collection('board_snapshots')
+        .findOne({ roomId: this.id }, { sort: { timestamp: -1, _id: -1 } });
+
+      if (!doc) return null;
+
+      if (doc.r2Key) {
+        const bundle = await getSnapshotBundle(doc.r2Key);
+        if (!bundle) return null;
+        return { id: doc.snapshotId, ts: doc.timestamp, issuer: doc.issuer, layers: bundle.layers };
+      } else {
+        return {
+          id: doc.snapshotId,
+          ts: doc.timestamp,
+          issuer: doc.issuer,
+          layers: (doc.layers || []).map(l => l.buffer || l)
+        };
+      }
+    } catch (err) {
+      console.error(`[Room] Failed to fetch latest snapshot for "${this.id}":`, err);
+      return null;
+    }
+  }
+
+  /**
+   * Called when all users in the room have been AFK for the configured delay.
+   * Restores the last snapshot to reset the canvas to a known good state.
+   * @private
+   */
+  async _onAllUsersAfk() {
+    if (!this.isRegistered()) return;
+    console.log(`[Room] All users AFK in "${this.id}", restoring last snapshot`);
+
+    const snapshot = await this.getLatestSnapshotData();
+    if (!snapshot) {
+      console.log(`[Room] No snapshot available for "${this.id}", skipping restore`);
+      return;
+    }
+
+    this.broadcastToAll({
+      t: T.BOARD_SNAPSHOT_RESTORE,
+      snapshotLayers: snapshot.layers,
+      snapshotId: snapshot.id,
+      snapshotTs: snapshot.ts,
+      snapshotIssuer: 'server'
+    });
+    this.clearAllTiles();
+    console.log(`[Room] Restored snapshot ${snapshot.id} to all users in "${this.id}"`);
   }
 
   /**

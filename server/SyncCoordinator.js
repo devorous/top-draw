@@ -4,6 +4,9 @@ import { WebSocket } from 'ws';
 import { T } from '../shared/MessageTypes.js';
 import { isRecentlyActive, scoreProvider } from './providerScoring.js';
 
+const SYNC_PROVIDER_TIMEOUT_MS = 2000;
+const MAX_SYNC_CANDIDATES = 3;
+
 /**
  * Handles the multi-step canvas synchronization flow for new users.
  */
@@ -18,12 +21,14 @@ export class SyncCoordinator {
     this.sessionManager = sessionManager;
     this.wss = wss;
     this.sendTo = sendToCallback;
+    /** @type {Map<number, {providerIdx: number, candidates: number[], candidatePos: number, responded: boolean, timeoutHandle: NodeJS.Timeout|null}>} */
     this.pendingSyncRequests = new Map();
     this.room = room;
   }
 
   /**
    * Handles a sync request from a new user by selecting a provider and initiating the flow.
+   * Tries up to MAX_SYNC_CANDIDATES non-AFK providers with a timeout each before falling back.
    * @param {WebSocket} ws - The WebSocket of the requesting user.
    * @param {Object} data - The sync request message data.
    */
@@ -32,51 +37,132 @@ export class SyncCoordinator {
     this.sessionManager.markUserActive(requesterSessionIndex);
     console.log(`[Sync] User ${requesterSessionIndex} requested sync`);
 
-    let providerSessionIndex = null;
-
+    // Honor an explicit provider request, but skip AFK users
+    let candidates = null;
     if (data.tu !== undefined && data.tu !== null) {
       const requestedProvider = Number(data.tu);
       const providerData = this.sessionManager.users.get(requestedProvider);
-
-      if (providerData && providerData.name && requestedProvider !== requesterSessionIndex) {
-        providerSessionIndex = requestedProvider;
-        console.log(`[Sync] Using requested provider ${providerSessionIndex} (${providerData.name}) hidden=${!!this._findClient(providerSessionIndex)?.tabHidden} afk=${!!providerData.afk}`);
+      if (providerData && providerData.name && !providerData.afk && requestedProvider !== requesterSessionIndex) {
+        candidates = [requestedProvider];
+        console.log(`[Sync] Using requested provider ${requestedProvider} (${providerData.name})`);
       } else {
-        console.log(`[Sync] Requested provider ${requestedProvider} not available or invalid, using auto-select`);
+        console.log(`[Sync] Requested provider ${requestedProvider} is AFK, invalid, or self — using auto-select`);
       }
     }
 
-    if (providerSessionIndex === null) {
-      providerSessionIndex = this.selectBestProvider(ws);
-      if (providerSessionIndex !== null) {
-        const providerData = this.sessionManager.users.get(providerSessionIndex);
-        const providerClient = this._findClient(providerSessionIndex);
-        console.log(`[Sync] Auto-selected provider ${providerSessionIndex} (${providerData.name}) hidden=${!!providerClient?.tabHidden} afk=${!!providerData?.afk}`);
-      }
+    if (!candidates) {
+      candidates = this._getRankedCandidates(ws);
     }
 
-    if (providerSessionIndex !== null) {
-      this.pendingSyncRequests.set(requesterSessionIndex, providerSessionIndex);
+    if (candidates.length === 0) {
+      console.log(`[Sync] No non-AFK providers available for user ${requesterSessionIndex}`);
+      this._fallbackToSnapshotOrComplete(ws, requesterSessionIndex);
+      return;
+    }
 
-      const providerClient = this._findClient(providerSessionIndex);
-      if (providerClient) {
-        console.log(`[Sync] Asking user ${providerSessionIndex} to provide canvas for user ${requesterSessionIndex}`);
-        this.sendTo(providerClient, {
-          t: T.SYNC_PROVIDE,
-          tu: requesterSessionIndex
+    this._tryNextCandidate(ws, requesterSessionIndex, candidates, 0);
+  }
+
+  /**
+   * Attempts to sync from the candidate at the given index.
+   * If the candidate doesn't respond within SYNC_PROVIDER_TIMEOUT_MS, tries the next one.
+   * @param {WebSocket} ws - The requester's WebSocket.
+   * @param {number} requesterSessionIndex
+   * @param {number[]} candidates - Ranked list of provider session indices.
+   * @param {number} idx - Current candidate index to try.
+   * @private
+   */
+  _tryNextCandidate(ws, requesterSessionIndex, candidates, idx) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+
+    if (idx >= candidates.length) {
+      console.log(`[Sync] All ${candidates.length} candidate(s) exhausted for user ${requesterSessionIndex}`);
+      this.pendingSyncRequests.delete(requesterSessionIndex);
+      this._fallbackToSnapshotOrComplete(ws, requesterSessionIndex);
+      return;
+    }
+
+    const providerIdx = candidates[idx];
+    const providerClient = this._findClient(providerIdx);
+
+    if (!providerClient) {
+      // Client disconnected between selection and now — skip immediately
+      this._tryNextCandidate(ws, requesterSessionIndex, candidates, idx + 1);
+      return;
+    }
+
+    const state = {
+      providerIdx,
+      candidates,
+      candidatePos: idx,
+      responded: false,
+      timeoutHandle: null
+    };
+    this.pendingSyncRequests.set(requesterSessionIndex, state);
+
+    state.timeoutHandle = setTimeout(() => {
+      const currentState = this.pendingSyncRequests.get(requesterSessionIndex);
+      if (!currentState || currentState.responded || currentState.providerIdx !== providerIdx) return;
+      console.log(`[Sync] Provider ${providerIdx} timed out for user ${requesterSessionIndex}, trying next candidate`);
+      this._tryNextCandidate(ws, requesterSessionIndex, candidates, idx + 1);
+    }, SYNC_PROVIDER_TIMEOUT_MS);
+
+    const providerData = this.sessionManager.users.get(providerIdx);
+    console.log(`[Sync] Asking user ${providerIdx} (${providerData?.name}, candidate ${idx + 1}/${candidates.length}) to provide for ${requesterSessionIndex}`);
+    this.sendTo(providerClient, { t: T.SYNC_PROVIDE, tu: requesterSessionIndex });
+  }
+
+  /**
+   * Falls back to the last snapshot if no users are actively drawing, otherwise sends SYNC_COMPLETE.
+   * @param {WebSocket} ws - The requester's WebSocket.
+   * @param {number} requesterSessionIndex
+   * @private
+   */
+  async _fallbackToSnapshotOrComplete(ws, requesterSessionIndex) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+
+    // If someone is actively drawing right now, don't load a stale snapshot —
+    // they'll sync naturally as strokes come in.
+    const anyoneDrawing = this._isAnyoneActivelyDrawing(requesterSessionIndex);
+    if (!anyoneDrawing && this.room?.isRegistered?.()) {
+      const snapshot = await this.room.getLatestSnapshotData?.();
+      if (snapshot) {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        console.log(`[Sync] Restoring snapshot ${snapshot.id} for user ${requesterSessionIndex}`);
+        this.sendTo(ws, {
+          t: T.BOARD_SNAPSHOT_RESTORE,
+          snapshotLayers: snapshot.layers,
+          snapshotId: snapshot.id,
+          snapshotTs: snapshot.ts,
+          snapshotIssuer: snapshot.issuer
         });
+        this.sendTo(ws, { t: T.SYNC_COMPLETE });
         return;
       }
     }
 
-    this.pendingSyncRequests.delete(requesterSessionIndex);
-    console.log(`[Sync] No provider available, sending empty sync complete to user ${requesterSessionIndex}`);
+    console.log(`[Sync] No snapshot fallback${anyoneDrawing ? ' (someone is drawing)' : ''}, sending empty sync complete to user ${requesterSessionIndex}`);
     this.sendTo(ws, { t: T.SYNC_COMPLETE });
+  }
+
+  /**
+   * Returns whether any non-AFK user (other than the given session) currently has a stroke in progress.
+   * @param {number} excludeSessionIndex
+   * @returns {boolean}
+   * @private
+   */
+  _isAnyoneActivelyDrawing(excludeSessionIndex) {
+    for (const [idx, userData] of this.sessionManager.users) {
+      if (Number(idx) === excludeSessionIndex) continue;
+      if (userData.mousedown && !userData.afk) return true;
+    }
+    return false;
   }
 
   /**
    * Returns whether the provider sending sync data is still the active provider
    * for the requester associated with the payload.
+   * Cancels the timeout on first response from the provider.
    * @param {WebSocket} ws
    * @param {Object} data
    * @returns {number|null}
@@ -84,44 +170,50 @@ export class SyncCoordinator {
    */
   _getActiveSyncTarget(ws, data) {
     const targetUser = Number(data.tu);
-    const activeProvider = this.pendingSyncRequests.get(targetUser);
-    if (activeProvider === undefined) {
+    const state = this.pendingSyncRequests.get(targetUser);
+    if (!state) {
       console.log(`[Sync] Ignoring sync data from ${ws.sessionIndex}; no active request for ${targetUser}`);
       return null;
     }
-    if (Number(ws.sessionIndex) !== Number(activeProvider)) {
-      console.log(`[Sync] Ignoring stale sync data from ${ws.sessionIndex}; active provider for ${targetUser} is ${activeProvider}`);
+    if (Number(ws.sessionIndex) !== state.providerIdx) {
+      console.log(`[Sync] Ignoring stale sync data from ${ws.sessionIndex}; active provider for ${targetUser} is ${state.providerIdx}`);
       return null;
+    }
+    // First response from provider — cancel the timeout
+    if (!state.responded) {
+      state.responded = true;
+      if (state.timeoutHandle) {
+        clearTimeout(state.timeoutHandle);
+        state.timeoutHandle = null;
+        console.log(`[Sync] Provider ${ws.sessionIndex} responded for user ${targetUser}`);
+      }
     }
     return targetUser;
   }
 
   /**
-   * Selects the most suitable user to provide the canvas state.
-   * @param {WebSocket} requesterWs - The WebSocket of the requester to exclude.
-   * @returns {number|null} - The session index of the selected provider, or null.
+   * Returns up to MAX_SYNC_CANDIDATES ranked non-AFK providers for the requester.
+   * @param {WebSocket} requesterWs
+   * @returns {number[]} Session indices, best first.
+   * @private
    */
-  selectBestProvider(requesterWs) {
+  _getRankedCandidates(requesterWs) {
     const candidates = [];
     const excludeIdx = Number(requesterWs.sessionIndex);
 
     for (const [sessionIndex, userData] of this.sessionManager.users) {
       const idx = Number(sessionIndex);
-      if (idx !== excludeIdx && userData.name) {
-        // Also exclude by WS reference to be ultra-safe against uninitialized sessionIndex
-        const client = this._findClient(idx);
-        if (client && client !== requesterWs) {
-          candidates.push({
-            sessionIndex: idx,
-            score: scoreProvider(client, userData),
-            active: isRecentlyActive(userData),
-            hidden: !!client.tabHidden,
-          });
-        }
+      if (idx === excludeIdx || !userData.name || userData.afk) continue;
+      const client = this._findClient(idx);
+      if (client && client !== requesterWs) {
+        candidates.push({
+          sessionIndex: idx,
+          score: scoreProvider(client, userData),
+          active: isRecentlyActive(userData),
+          hidden: !!client.tabHidden,
+        });
       }
     }
-
-    if (candidates.length === 0) return null;
 
     candidates.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
@@ -130,7 +222,7 @@ export class SyncCoordinator {
       return b.sessionIndex - a.sessionIndex;
     });
 
-    return candidates[0].sessionIndex;
+    return candidates.slice(0, MAX_SYNC_CANDIDATES).map(c => c.sessionIndex);
   }
 
   /**
@@ -182,11 +274,11 @@ export class SyncCoordinator {
     if (targetUser === null) return;
     const client = this._findClient(targetUser);
     if (client) {
-      this.sendTo(client, { 
-        t: T.SYNC_LAYER_BASE, 
-        ly: data.ly, 
-        bm: data.bm, 
-        img: data.img 
+      this.sendTo(client, {
+        t: T.SYNC_LAYER_BASE,
+        ly: data.ly,
+        bm: data.bm,
+        img: data.img
       });
     }
   }
@@ -208,7 +300,7 @@ export class SyncCoordinator {
         ly: data.ly,
         sx: data.sx,
         sy: data.sy,
-        sw: data.sw, 
+        sw: data.sw,
         sh: data.sh,
         bm: data.bm,
         strokeTs: data.strokeTs ?? data.stroke_ts ?? 0,
@@ -320,6 +412,9 @@ export class SyncCoordinator {
    * Clears all tracking for pending sync requests.
    */
   clearPendingRequests() {
+    for (const state of this.pendingSyncRequests.values()) {
+      if (state.timeoutHandle) clearTimeout(state.timeoutHandle);
+    }
     this.pendingSyncRequests.clear();
   }
 }
