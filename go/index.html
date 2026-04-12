@@ -744,6 +744,8 @@
             <span class="sidebarIcon">◫</span>
           </button>
 
+          <div class="tools-resizer" id="toolsResizer"></div>
+
           <!-- Group: Movement -->
           <div class="toolGroup" id="moveGroup">
             <a class="tool btn" id="panBtn" title="Pan (H)">
@@ -817,187 +819,385 @@
         </div>
 
         <!-- Tool Options Panel -->
+        <div id="sidebarResizeHandle"></div>
         <div id="toolOptions">
-          <!-- Connected Users -->
-          <div id="userList">
-            <div class="userListControls">
-              <label class="userListSortLabel" for="userListSort">Sort</label>
-              <select id="userListSort" class="userListSort" aria-label="Sort connected users">
-                <option value="recent">Most Recent</option>
-                <option value="alphabetical">Alphabetical</option>
-              </select>
+          <div id="sidebarTop">
+            <!-- Connected Users -->
+            <div id="userList">
+              <div class="userListControls">
+                <label class="userListSortLabel" for="userListSort">Sort</label>
+                <select id="userListSort" class="userListSort" aria-label="Sort connected users">
+                  <option value="recent">Most Recent</option>
+                  <option value="alphabetical">Alphabetical</option>
+                </select>
+              </div>
+              <div class="userEntry self">
+                <a class="listTool self"></a>
+                <a class="listColor self"></a>
+                <span class="listUser self">You</span>
+                <span class="listActive self"></span>
+              </div>
             </div>
-            <div class="userEntry self">
-              <a class="listTool self"></a>
-              <a class="listColor self"></a>
-              <span class="listUser self">You</span>
-              <span class="listActive self"></span>
-            </div>
-          </div>
 
-          <!-- Tool Sliders -->
-          <div id="toolSliders">
-            <div class="sliders">
-                <div class="sliderContainer" id="font-container">
-                  <div class="sliderLabel">Font</div>
-                  <div class="fontSelectWrap">
-                    <select id="font-select" aria-label="Font selection"></select>
+            <!-- Tool Sliders -->
+            <div id="toolSliders">
+              <div class="sliders">
+                  <div class="sliderContainer" id="font-container">
+                    <div class="sliderLabel">Font</div>
+                    <div class="fontSelectWrap">
+                      <select id="font-select" aria-label="Font selection"></select>
+                    </div>
+                  </div>
+                  <div class="sliderContainer" id="text-position-multiplier-container" style="display: none;">
+                    <div class="sliderLabel">Size Mult <span class="sliderValue" id="textPositionMultiplierValue">0.00</span></div>
+                    <input autocomplete="off" type="range" min="-1" max="1" value="0" step="0.01" class="slider textPositionMultiplier" aria-label="Applied text size multiplier">
+                  </div>
+                  <div class="sliderContainer" id="text-position-offset-container" style="display: none;">
+                    <div class="sliderLabel">Text Offset <span class="sliderValue" id="textPositionOffsetValue">0</span></div>
+                    <input autocomplete="off" type="range" min="-20" max="20" value="0" step="0.25" class="slider textPositionOffset" aria-label="Applied text position offset">
+                  </div>
+                  <div class="sliderContainer" id="size-container">
+                    <div class="sliderLabel">Size <span class="sliderValue" id="sizeValue">10</span><button class="lock-btn" id="sizeLock" title="Lock size for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
+                    <input autocomplete="off" type="range" min="0.25" max="100" value="10" step="0.25" class="slider size" aria-label="Brush size">
+                  </div>
+
+                <div class="sliderContainer" id="ink-thinning" style="display: none;">
+                  <div class="sliderLabel">
+                    <label class="pressureToggle">
+                      <span>Thinning</span>
+                      <input type="checkbox" id="thinningEnabled" checked>
+                    </label>
+                    <span class="sliderValue" id="thinningValue">50</span><button class="lock-btn" id="thinningLock" title="Lock thinning for current tool"><img src="/images/lock-open.svg" alt="unlock"></button>
+                  </div>
+                  <div id="thinningSlider">
+                    <input autocomplete="off" type="range" min="0" max="100" value="50" class="slider thinning" aria-label="Thinning">
                   </div>
                 </div>
-                <div class="sliderContainer" id="text-position-multiplier-container" style="display: none;">
-                  <div class="sliderLabel">Size Mult <span class="sliderValue" id="textPositionMultiplierValue">0.00</span></div>
-                  <input autocomplete="off" type="range" min="-1" max="1" value="0" step="0.01" class="slider textPositionMultiplier" aria-label="Applied text size multiplier">
+
+                <div class="sliderContainer" id="pressure-container">
+                  <div class="sliderLabel">
+                    <label class="pressureToggle">
+                      <span>Pressure</span>
+                      <input type="checkbox" id="pressureEnabled" checked>
+                    </label>
+                    <span class="sliderValue" id="pressureValue">0-100</span>
+                    <button class="lock-btn" id="pressureLock" title="Lock pressure for current tool"><img src="/images/lock-open.svg" alt="unlock"></button>
+                  </div>
+                  <div class="dual-slider" id="pressureDualSlider">
+                    <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider pressureMin" id="pressureMinSlider" aria-label="Minimum pressure">
+                    <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider pressureMax" id="pressureMaxSlider" aria-label="Maximum pressure">
+                  </div>
                 </div>
-                <div class="sliderContainer" id="text-position-offset-container" style="display: none;">
-                  <div class="sliderLabel">Text Offset <span class="sliderValue" id="textPositionOffsetValue">0</span></div>
-                  <input autocomplete="off" type="range" min="-20" max="20" value="0" step="0.25" class="slider textPositionOffset" aria-label="Applied text position offset">
-                </div>
-                <div class="sliderContainer" id="size-container">
-                  <div class="sliderLabel">Size <span class="sliderValue" id="sizeValue">10</span><button class="lock-btn" id="sizeLock" title="Lock size for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
-                  <input autocomplete="off" type="range" min="0.25" max="100" value="10" step="0.25" class="slider size" aria-label="Brush size">
+
+                <div class="sliderContainer" id="smoothing-container">
+                  <div class="sliderLabel">Smoothing <span class="sliderValue" id="smoothingValue">30%</span><button class="lock-btn" id="smoothingLock" title="Lock smoothing for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
+                  <input autocomplete="off" type="range" min="0" max="50" value="15" class="slider smoothing" aria-label="Smoothing">
                 </div>
 
-              <div class="sliderContainer" id="ink-thinning" style="display: none;">
-                <div class="sliderLabel">
-                  <label class="pressureToggle">
-                    <span>Thinning</span>
-                    <input type="checkbox" id="thinningEnabled" checked>
-                  </label>
-                  <span class="sliderValue" id="thinningValue">50</span><button class="lock-btn" id="thinningLock" title="Lock thinning for current tool"><img src="/images/lock-open.svg" alt="unlock"></button>
+                <div class="sliderContainer" id="brush-spacing" style="display: none;">
+                  <div class="sliderLabel">Spacing <span class="sliderValue" id="spacingValue">0</span><button class="lock-btn" id="spacingLock" title="Lock spacing for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
+                  <input autocomplete="off" type="range" min="0" max="50" value="0" class="slider spacing" aria-label="Spacing">
                 </div>
-                <div id="thinningSlider">
-                  <input autocomplete="off" type="range" min="0" max="100" value="50" class="slider thinning" aria-label="Thinning">
+
+                <div class="sliderContainer" id="brush-hardness" style="display: none;">
+                  <div class="sliderLabel">Hardness <span class="sliderValue" id="hardnessValue">100</span><button class="lock-btn" id="hardnessLock" title="Lock hardness for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
+                  <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider hardness" aria-label="Hardness">
                 </div>
-              </div>
 
-              <div class="sliderContainer" id="pressure-container">
-                <div class="sliderLabel">
-                  <label class="pressureToggle">
-                    <span>Pressure</span>
-                    <input type="checkbox" id="pressureEnabled" checked>
-                  </label>
-                  <span class="sliderValue" id="pressureValue">0-100</span>
-                  <button class="lock-btn" id="pressureLock" title="Lock pressure for current tool"><img src="/images/lock-open.svg" alt="unlock"></button>
+                <div class="sliderContainer" id="blur-radius" style="display: none;">
+                  <div class="sliderLabel">Blur Radius <span class="sliderValue" id="blurRadiusValue">5</span><button class="lock-btn" id="blurRadiusLock" title="Lock blur radius"><img src="/images/lock-open.svg" alt="unlock"></button></div>
+                  <input autocomplete="off" type="range" min="1" max="10" value="5" step="1" class="slider blurRadius" aria-label="Blur radius">
                 </div>
-                <div class="dual-slider" id="pressureDualSlider">
-                  <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider pressureMin" id="pressureMinSlider" aria-label="Minimum pressure">
-                  <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider pressureMax" id="pressureMaxSlider" aria-label="Maximum pressure">
+
+                <div class="sliderContainer" id="brush-opacity" style="display: none;">
+                  <div class="sliderLabel">Opacity <span class="sliderValue" id="opacityValue">100%</span><button class="lock-btn" id="opacityLock" title="Lock opacity for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
+                  <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider opacity" aria-label="Opacity">
                 </div>
+
+                <input autocomplete="off" type="file" id="brush-file-input" accept=".gih,.gbr,.png,.jpg,.jpeg,.webp" style="display: none;">
+                <img id="brushImage" alt="Brush preview" style="display: none;">
               </div>
-
-              <div class="sliderContainer" id="smoothing-container">
-                <div class="sliderLabel">Smoothing <span class="sliderValue" id="smoothingValue">30%</span><button class="lock-btn" id="smoothingLock" title="Lock smoothing for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
-                <input autocomplete="off" type="range" min="0" max="50" value="15" class="slider smoothing" aria-label="Smoothing">
-              </div>
-
-              <div class="sliderContainer" id="brush-spacing" style="display: none;">
-                <div class="sliderLabel">Spacing <span class="sliderValue" id="spacingValue">0</span><button class="lock-btn" id="spacingLock" title="Lock spacing for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
-                <input autocomplete="off" type="range" min="0" max="50" value="0" class="slider spacing" aria-label="Spacing">
-              </div>
-
-              <div class="sliderContainer" id="brush-hardness" style="display: none;">
-                <div class="sliderLabel">Hardness <span class="sliderValue" id="hardnessValue">100</span><button class="lock-btn" id="hardnessLock" title="Lock hardness for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
-                <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider hardness" aria-label="Hardness">
-              </div>
-
-              <div class="sliderContainer" id="blur-radius" style="display: none;">
-                <div class="sliderLabel">Blur Radius <span class="sliderValue" id="blurRadiusValue">5</span><button class="lock-btn" id="blurRadiusLock" title="Lock blur radius"><img src="/images/lock-open.svg" alt="unlock"></button></div>
-                <input autocomplete="off" type="range" min="1" max="10" value="5" step="1" class="slider blurRadius" aria-label="Blur radius">
-              </div>
-
-              <div class="sliderContainer" id="brush-opacity" style="display: none;">
-                <div class="sliderLabel">Opacity <span class="sliderValue" id="opacityValue">100%</span><button class="lock-btn" id="opacityLock" title="Lock opacity for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
-                <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider opacity" aria-label="Opacity">
-              </div>
-
-              <input autocomplete="off" type="file" id="brush-file-input" accept=".gih,.gbr,.png,.jpg,.jpeg,.webp" style="display: none;">
-              <img id="brushImage" alt="Brush preview" style="display: none;">
-            </div>
-            <div class="scroll-indicator" id="toolSlidersScrollIndicator"></div>
-          </div>
-
-          <!-- Tool Extras (Galleries & Mode Options) -->
-          <div id="toolExtras">
-            <div id="brushGallery" style="display: none;">
-              <label>Brush Gallery</label>
-              <div id="brushList"></div>
+              <div class="scroll-indicator" id="toolSlidersScrollIndicator"></div>
             </div>
 
-            <!-- Selection Mode Options -->
-            <div id="selectionModeOptions" style="display: none;">
-              <div class="selection-mode-container">
-                <label class="modeLabel">Selection Mode</label>
-                <div class="radio-group">
-                  <label class="radio-option">
-                    <input type="radio" name="selectionMode" value="lasso" checked>
-                    <span>Lasso</span>
-                  </label>
-                  <label class="radio-option">
-                    <input type="radio" name="selectionMode" value="rectangle">
-                    <span>Rect</span>
-                  </label>
-                </div>
-              </div>
-              <div class="selection-mode-container">
-                <label class="modeLabel">Layer Mode</label>
-                <div class="radio-group">
-                  <label class="radio-option">
-                    <input type="radio" name="selectionLayerMode" value="active" checked>
-                    <span>Active</span>
-                  </label>
-                  <label class="radio-option">
-                    <input type="radio" name="selectionLayerMode" value="all">
-                    <span>All</span>
-                  </label>
-                </div>
-              </div>
-              <div class="selection-mode-container">
-                <label class="modeLabel">Fill Mode</label>
-                <div class="radio-group">
-                  <label class="radio-option">
-                    <input type="checkbox" id="selectionPatternCheck">
-                    <span>Pattern</span>
-                  </label>
-                </div>
+            <!-- Tool Extras (Galleries & Mode Options) -->
+            <div id="toolExtras">
+              <div id="brushGallery" style="display: none;">
+                <label>Brush Gallery</label>
+                <div id="brushList"></div>
               </div>
 
-              <!-- Selection Pattern Settings (shown when Pattern is checked) -->
-              <div id="selectionPatternSettings" style="display: none;">
-
+              <!-- Selection Mode Options -->
+              <div id="selectionModeOptions" style="display: none;">
                 <div class="selection-mode-container">
-                  <label class="modeLabel">Color Mode</label>
+                  <label class="modeLabel">Selection Mode</label>
                   <div class="radio-group">
                     <label class="radio-option">
-                      <input type="radio" name="selectionPatternColorMode" value="original" checked>
+                      <input type="radio" name="selectionMode" value="lasso" checked>
+                      <span>Lasso</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" name="selectionMode" value="rectangle">
+                      <span>Rect</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="selection-mode-container">
+                  <label class="modeLabel">Layer Mode</label>
+                  <div class="radio-group">
+                    <label class="radio-option">
+                      <input type="radio" name="selectionLayerMode" value="active" checked>
+                      <span>Active</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" name="selectionLayerMode" value="all">
+                      <span>All</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="selection-mode-container">
+                  <label class="modeLabel">Fill Mode</label>
+                  <div class="radio-group">
+                    <label class="radio-option">
+                      <input type="checkbox" id="selectionPatternCheck">
+                      <span>Pattern</span>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Selection Pattern Settings (shown when Pattern is checked) -->
+                <div id="selectionPatternSettings" style="display: none;">
+
+                  <div class="selection-mode-container">
+                    <label class="modeLabel">Color Mode</label>
+                    <div class="radio-group">
+                      <label class="radio-option">
+                        <input type="radio" name="selectionPatternColorMode" value="original" checked>
+                        <span>Original</span>
+                      </label>
+                      <label class="radio-option">
+                        <input type="radio" name="selectionPatternColorMode" value="tinted">
+                        <span>User Color</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <input type="file" id="selectionPatternImageUploadInput" accept="image/*" style="display: none;">
+
+                  <div id="selectionPatternGallery">
+                    <label>Grid Image</label>
+                    <div id="selectionPatternBrushList"></div>
+                  </div>
+
+                  <div class="sliderContainer" id="selection-pattern-scale">
+                    <div class="sliderLabel">Image Scale <span class="sliderValue" id="selectionPatternScaleValue">100%</span></div>
+                    <input autocomplete="off" type="range" min="5" max="500" value="100" class="slider selectionPatternScale">
+                  </div>
+
+                  <div class="sliderContainer" id="selection-pattern-rotation">
+                    <div class="sliderLabel">Grid Rotation <span class="sliderValue" id="selectionPatternRotationValue">0°</span></div>
+                    <input autocomplete="off" type="range" min="0" max="360" value="0" class="slider selectionPatternRotation">
+                  </div>
+
+                  <div class="sliderContainer" id="selection-pattern-spacing">
+                    <div class="sliderLabel">Grid Spacing <span class="sliderValue" id="selectionPatternSpacingValue">0</span></div>
+                    <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider selectionPatternSpacing">
+                  </div>
+
+                  <div class="sliderContainer dual-offset-container">
+                    <div class="sliderLabel">Offset</div>
+                    <div class="dual-offset-sliders">
+                      <div class="offset-slider-group">
+                        <label class="offset-label">X</label>
+                        <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider selectionPatternOffsetX">
+                        <span class="sliderValue offset-value" id="selectionPatternOffsetXValue">0</span>
+                      </div>
+                      <div class="offset-slider-group">
+                        <label class="offset-label">Y</label>
+                        <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider selectionPatternOffsetY">
+                        <span class="sliderValue offset-value" id="selectionPatternOffsetYValue">0</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Eraser Mode Options -->
+              <div id="eraserModeOptions" style="display: none;">
+                <div class="selection-mode-container">
+                  <label class="modeLabel">Erase Mode</label>
+                  <div class="radio-group">
+                    <label class="radio-option">
+                      <input type="radio" name="eraserMode" value="layer" checked>
+                      <span>Active Layer</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" name="eraserMode" value="all">
+                      <span>All Layers</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Inkdropper Options -->
+              <div id="inkdropperModeOptions" style="display: none;">
+                <div class="selection-mode-container">
+                  <label class="modeLabel">Inkdropper Options</label>
+                  <div class="radio-group">
+                    <label class="radio-option">
+                      <input type="checkbox" id="inkdropperAutoSwitch" checked>
+                      <span>Auto-Switch After Use</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Brush Mode Options -->
+              <div id="brushModeOptions" style="display: none;">
+                <div class="selection-mode-container">
+                  <label class="modeLabel">Brush Mode</label>
+                  <div class="radio-group brush-mode-grid">
+                    <label class="radio-option">
+                      <input type="radio" name="brushMode" value="ink">
+                      <span>Ink</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" name="brushMode" value="fluid" checked>
+                      <span>Fluid</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" name="brushMode" value="pixel">
+                      <span>Pixel</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" name="brushMode" value="classic">
+                      <span>Classic</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Fill Mode Options -->
+              <div id="fillModeOptions" style="display: none;">
+                <div class="selection-mode-container">
+                  <label class="modeLabel">Fill Mode</label>
+                  <div class="radio-group">
+                    <label class="radio-option">
+                      <input type="checkbox" id="fillAdvancedCheck">
+                      <span>Advanced</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="checkbox" id="fillPatternCheck">
+                      <span>Pattern</span>
+                    </label>
+                  </div>
+                  <div id="fillAdvancedSettings" style="display: none;">
+                    <div class="sliderContainer">
+                      <div class="sliderLabel">Offset <span class="sliderValue" id="fillExpansionValue">0</span></div>
+                      <input autocomplete="off" type="range" id="fillExpansionSlider" min="-50" max="50" step="1" value="0" class="slider">
+                    </div>
+                    <div class="sliderContainer">
+                      <div class="sliderLabel">Blur <span class="sliderValue" id="fillBlurValue">0</span></div>
+                      <input autocomplete="off" type="range" id="fillBlurSlider" min="0" max="25" step="1" value="0" class="slider">
+                    </div>
+                    <div style="font-size: 11px; color: #888; margin-top: 2px; padding: 0 4px;">
+                      Drag after click to adjust
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Fill Pattern Settings (shown when Pattern is checked) -->
+                <div id="fillPatternSettings" style="display: none;">
+                  <div class="selection-mode-container">
+                    <label class="modeLabel">Color Mode</label>
+                    <div class="radio-group">
+                      <label class="radio-option">
+                        <input type="radio" name="fillPatternColorMode" value="original" checked>
+                        <span>Original</span>
+                      </label>
+                      <label class="radio-option">
+                        <input type="radio" name="fillPatternColorMode" value="tinted">
+                        <span>User Color</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <input type="file" id="fillPatternImageUploadInput" accept="image/*" style="display: none;">
+
+                  <div id="fillPatternGallery">
+                    <label>Grid Image</label>
+                    <div id="fillPatternBrushList"></div>
+                  </div>
+
+                  <div class="sliderContainer" id="fill-pattern-scale">
+                    <div class="sliderLabel">Image Scale <span class="sliderValue" id="fillPatternScaleValue">100%</span></div>
+                    <input autocomplete="off" type="range" min="5" max="500" value="100" class="slider fillPatternScale">
+                  </div>
+
+                  <div class="sliderContainer" id="fill-pattern-rotation">
+                    <div class="sliderLabel">Grid Rotation <span class="sliderValue" id="fillPatternRotationValue">0°</span></div>
+                    <input autocomplete="off" type="range" min="0" max="360" value="0" class="slider fillPatternRotation">
+                  </div>
+
+                  <div class="sliderContainer" id="fill-pattern-spacing">
+                    <div class="sliderLabel">Grid Spacing <span class="sliderValue" id="fillPatternSpacingValue">0</span></div>
+                    <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider fillPatternSpacing">
+                  </div>
+
+                  <div class="sliderContainer dual-offset-container">
+                    <div class="sliderLabel">Offset</div>
+                    <div class="dual-offset-sliders">
+                      <div class="offset-slider-group">
+                        <label class="offset-label">X</label>
+                        <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider fillPatternOffsetX">
+                        <span class="sliderValue offset-value" id="fillPatternOffsetXValue">0</span>
+                      </div>
+                      <div class="offset-slider-group">
+                        <label class="offset-label">Y</label>
+                        <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider fillPatternOffsetY">
+                        <span class="sliderValue offset-value" id="fillPatternOffsetYValue">0</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Pattern Mode Options -->
+              <div id="patternModeOptions" style="display: none;">
+                <div class="selection-mode-container pattern-colour-mode">
+                  <label class="modeLabel">Colour Mode</label>
+                  <div class="radio-group pattern-colour-mode-group">
+                    <label class="radio-option">
+                      <input type="radio" name="patternColorMode" value="original" checked>
                       <span>Original</span>
                     </label>
                     <label class="radio-option">
-                      <input type="radio" name="selectionPatternColorMode" value="tinted">
-                      <span>User Color</span>
+                      <input type="radio" name="patternColorMode" value="tinted">
+                      <span>Colour</span>
                     </label>
                   </div>
                 </div>
 
-                <input type="file" id="selectionPatternImageUploadInput" accept="image/*" style="display: none;">
+                <input type="file" id="patternImageUploadInput" accept="image/*" style="display: none;">
 
-                <div id="selectionPatternGallery">
+                <div id="patternGallery">
                   <label>Grid Image</label>
-                  <div id="selectionPatternBrushList"></div>
+                  <div id="patternBrushList"></div>
                 </div>
 
-                <div class="sliderContainer" id="selection-pattern-scale">
-                  <div class="sliderLabel">Image Scale <span class="sliderValue" id="selectionPatternScaleValue">100%</span></div>
-                  <input autocomplete="off" type="range" min="5" max="500" value="100" class="slider selectionPatternScale">
+                <div class="sliderContainer" id="pattern-scale">
+                  <div class="sliderLabel">Image Scale <span class="sliderValue" id="patternScaleValue">100%</span></div>
+                  <input autocomplete="off" type="range" min="5" max="500" value="100" class="slider patternScale">
                 </div>
 
-                <div class="sliderContainer" id="selection-pattern-rotation">
-                  <div class="sliderLabel">Grid Rotation <span class="sliderValue" id="selectionPatternRotationValue">0°</span></div>
-                  <input autocomplete="off" type="range" min="0" max="360" value="0" class="slider selectionPatternRotation">
+                <div class="sliderContainer" id="pattern-rotation">
+                  <div class="sliderLabel">Grid Rotation <span class="sliderValue" id="patternRotationValue">0°</span></div>
+                  <input autocomplete="off" type="range" min="0" max="360" value="0" class="slider patternRotation">
                 </div>
 
-                <div class="sliderContainer" id="selection-pattern-spacing">
-                  <div class="sliderLabel">Grid Spacing <span class="sliderValue" id="selectionPatternSpacingValue">0</span></div>
-                  <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider selectionPatternSpacing">
+                <div class="sliderContainer" id="pattern-spacing">
+                  <div class="sliderLabel">Grid Spacing <span class="sliderValue" id="patternSpacingValue">0</span></div>
+                  <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider patternSpacing">
                 </div>
 
                 <div class="sliderContainer dual-offset-container">
@@ -1005,308 +1205,115 @@
                   <div class="dual-offset-sliders">
                     <div class="offset-slider-group">
                       <label class="offset-label">X</label>
-                      <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider selectionPatternOffsetX">
-                      <span class="sliderValue offset-value" id="selectionPatternOffsetXValue">0</span>
+                      <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider patternOffsetX">
+                      <span class="sliderValue offset-value" id="patternOffsetXValue">0</span>
                     </div>
                     <div class="offset-slider-group">
                       <label class="offset-label">Y</label>
-                      <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider selectionPatternOffsetY">
-                      <span class="sliderValue offset-value" id="selectionPatternOffsetYValue">0</span>
+                      <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider patternOffsetY">
+                      <span class="sliderValue offset-value" id="patternOffsetYValue">0</span>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <!-- Eraser Mode Options -->
-            <div id="eraserModeOptions" style="display: none;">
-              <div class="selection-mode-container">
-                <label class="modeLabel">Erase Mode</label>
-                <div class="radio-group">
-                  <label class="radio-option">
-                    <input type="radio" name="eraserMode" value="layer" checked>
-                    <span>Active Layer</span>
-                  </label>
-                  <label class="radio-option">
-                    <input type="radio" name="eraserMode" value="all">
-                    <span>All Layers</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <!-- Inkdropper Options -->
-            <div id="inkdropperModeOptions" style="display: none;">
-              <div class="selection-mode-container">
-                <label class="modeLabel">Inkdropper Options</label>
-                <div class="radio-group">
-                  <label class="radio-option">
-                    <input type="checkbox" id="inkdropperAutoSwitch" checked>
-                    <span>Auto-Switch After Use</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <!-- Brush Mode Options -->
-            <div id="brushModeOptions" style="display: none;">
-              <div class="selection-mode-container">
-                <label class="modeLabel">Brush Mode</label>
-                <div class="radio-group brush-mode-grid">
-                  <label class="radio-option">
-                    <input type="radio" name="brushMode" value="ink">
-                    <span>Ink</span>
-                  </label>
-                  <label class="radio-option">
-                    <input type="radio" name="brushMode" value="fluid" checked>
-                    <span>Fluid</span>
-                  </label>
-                  <label class="radio-option">
-                    <input type="radio" name="brushMode" value="pixel">
-                    <span>Pixel</span>
-                  </label>
-                  <label class="radio-option">
-                    <input type="radio" name="brushMode" value="classic">
-                    <span>Classic</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <!-- Fill Mode Options -->
-            <div id="fillModeOptions" style="display: none;">
-              <div class="selection-mode-container">
-                <label class="modeLabel">Fill Mode</label>
-                <div class="radio-group">
-                  <label class="radio-option">
-                    <input type="checkbox" id="fillAdvancedCheck">
-                    <span>Advanced</span>
-                  </label>
-                  <label class="radio-option">
-                    <input type="checkbox" id="fillPatternCheck">
-                    <span>Pattern</span>
-                  </label>
-                </div>
-                <div id="fillAdvancedSettings" style="display: none;">
-                  <div class="sliderContainer">
-                    <div class="sliderLabel">Offset <span class="sliderValue" id="fillExpansionValue">0</span></div>
-                    <input autocomplete="off" type="range" id="fillExpansionSlider" min="-50" max="50" step="1" value="0" class="slider">
+              <!-- Stroke History Panel (Dev Mode Only) -->
+              <div id="strokeHistoryPanel" style="display: none;">
+                <label>Stroke History <span class="strokeHistoryHint">(Dev Mode)</span></label>
+                <div id="strokeHistoryContent">
+                  <div class="strokeHistorySection">
+                    <span class="strokeSectionLabel">Base</span>
+                    <div id="baseCanvasThumbnails" class="strokeThumbnailGrid"></div>
                   </div>
-                  <div class="sliderContainer">
-                    <div class="sliderLabel">Blur <span class="sliderValue" id="fillBlurValue">0</span></div>
-                    <input autocomplete="off" type="range" id="fillBlurSlider" min="0" max="25" step="1" value="0" class="slider">
+                  <div class="strokeHistorySection">
+                    <span class="strokeSectionLabel">Stack</span>
+                    <div id="strokeStackThumbnails" class="strokeThumbnailGrid"></div>
                   </div>
-                  <div style="font-size: 11px; color: #888; margin-top: 2px; padding: 0 4px;">
-                    Drag after click to adjust
+                  <div class="strokeHistorySection">
+                    <span class="strokeSectionLabel">Active</span>
+                    <div id="activeStrokeThumbnails" class="strokeThumbnailGrid"></div>
                   </div>
                 </div>
               </div>
-
-              <!-- Fill Pattern Settings (shown when Pattern is checked) -->
-              <div id="fillPatternSettings" style="display: none;">
-                <div class="selection-mode-container">
-                  <label class="modeLabel">Color Mode</label>
-                  <div class="radio-group">
-                    <label class="radio-option">
-                      <input type="radio" name="fillPatternColorMode" value="original" checked>
-                      <span>Original</span>
-                    </label>
-                    <label class="radio-option">
-                      <input type="radio" name="fillPatternColorMode" value="tinted">
-                      <span>User Color</span>
-                    </label>
-                  </div>
-                </div>
-
-                <input type="file" id="fillPatternImageUploadInput" accept="image/*" style="display: none;">
-
-                <div id="fillPatternGallery">
-                  <label>Grid Image</label>
-                  <div id="fillPatternBrushList"></div>
-                </div>
-
-                <div class="sliderContainer" id="fill-pattern-scale">
-                  <div class="sliderLabel">Image Scale <span class="sliderValue" id="fillPatternScaleValue">100%</span></div>
-                  <input autocomplete="off" type="range" min="5" max="500" value="100" class="slider fillPatternScale">
-                </div>
-
-                <div class="sliderContainer" id="fill-pattern-rotation">
-                  <div class="sliderLabel">Grid Rotation <span class="sliderValue" id="fillPatternRotationValue">0°</span></div>
-                  <input autocomplete="off" type="range" min="0" max="360" value="0" class="slider fillPatternRotation">
-                </div>
-
-                <div class="sliderContainer" id="fill-pattern-spacing">
-                  <div class="sliderLabel">Grid Spacing <span class="sliderValue" id="fillPatternSpacingValue">0</span></div>
-                  <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider fillPatternSpacing">
-                </div>
-
-                <div class="sliderContainer dual-offset-container">
-                  <div class="sliderLabel">Offset</div>
-                  <div class="dual-offset-sliders">
-                    <div class="offset-slider-group">
-                      <label class="offset-label">X</label>
-                      <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider fillPatternOffsetX">
-                      <span class="sliderValue offset-value" id="fillPatternOffsetXValue">0</span>
-                    </div>
-                    <div class="offset-slider-group">
-                      <label class="offset-label">Y</label>
-                      <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider fillPatternOffsetY">
-                      <span class="sliderValue offset-value" id="fillPatternOffsetYValue">0</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <div class="scroll-indicator" id="toolExtrasScrollIndicator"></div>
             </div>
-
-            <!-- Pattern Mode Options -->
-            <div id="patternModeOptions" style="display: none;">
-              <div class="selection-mode-container pattern-colour-mode">
-                <label class="modeLabel">Colour Mode</label>
-                <div class="radio-group pattern-colour-mode-group">
-                  <label class="radio-option">
-                    <input type="radio" name="patternColorMode" value="original" checked>
-                    <span>Original</span>
-                  </label>
-                  <label class="radio-option">
-                    <input type="radio" name="patternColorMode" value="tinted">
-                    <span>Colour</span>
-                  </label>
-                </div>
-              </div>
-
-              <input type="file" id="patternImageUploadInput" accept="image/*" style="display: none;">
-
-              <div id="patternGallery">
-                <label>Grid Image</label>
-                <div id="patternBrushList"></div>
-              </div>
-
-              <div class="sliderContainer" id="pattern-scale">
-                <div class="sliderLabel">Image Scale <span class="sliderValue" id="patternScaleValue">100%</span></div>
-                <input autocomplete="off" type="range" min="5" max="500" value="100" class="slider patternScale">
-              </div>
-
-              <div class="sliderContainer" id="pattern-rotation">
-                <div class="sliderLabel">Grid Rotation <span class="sliderValue" id="patternRotationValue">0°</span></div>
-                <input autocomplete="off" type="range" min="0" max="360" value="0" class="slider patternRotation">
-              </div>
-
-              <div class="sliderContainer" id="pattern-spacing">
-                <div class="sliderLabel">Grid Spacing <span class="sliderValue" id="patternSpacingValue">0</span></div>
-                <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider patternSpacing">
-              </div>
-
-              <div class="sliderContainer dual-offset-container">
-                <div class="sliderLabel">Offset</div>
-                <div class="dual-offset-sliders">
-                  <div class="offset-slider-group">
-                    <label class="offset-label">X</label>
-                    <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider patternOffsetX">
-                    <span class="sliderValue offset-value" id="patternOffsetXValue">0</span>
-                  </div>
-                  <div class="offset-slider-group">
-                    <label class="offset-label">Y</label>
-                    <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider patternOffsetY">
-                    <span class="sliderValue offset-value" id="patternOffsetYValue">0</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Stroke History Panel (Dev Mode Only) -->
-            <div id="strokeHistoryPanel" style="display: none;">
-              <label>Stroke History <span class="strokeHistoryHint">(Dev Mode)</span></label>
-              <div id="strokeHistoryContent">
-                <div class="strokeHistorySection">
-                  <span class="strokeSectionLabel">Base</span>
-                  <div id="baseCanvasThumbnails" class="strokeThumbnailGrid"></div>
-                </div>
-                <div class="strokeHistorySection">
-                  <span class="strokeSectionLabel">Stack</span>
-                  <div id="strokeStackThumbnails" class="strokeThumbnailGrid"></div>
-                </div>
-                <div class="strokeHistorySection">
-                  <span class="strokeSectionLabel">Active</span>
-                  <div id="activeStrokeThumbnails" class="strokeThumbnailGrid"></div>
-                </div>
-              </div>
-            </div>
-            <div class="scroll-indicator" id="toolExtrasScrollIndicator"></div>
           </div>
 
-          <!-- Color Palette (Svelte) -->
-          <div id="colorPaletteMount"></div>
+          <div id="sidebarBottom">
+            <!-- Color Palette (Svelte) -->
+            <div id="colorPaletteMount"></div>
 
-          <!-- Color Picker -->
-          <div id="pickerContainer">
-            <div id="colorPicker"></div>
-            <button class="colorInputBtn" id="colorInputBtn" title="Color input (RGB/HSV)">#</button>
-          </div>
-
-          <!-- Color Input Menu -->
-          <div id="colorInputMenu" class="colorInputMenu" style="display: none;">
-            <div class="colorInputHeader">
-              <div class="colorInputTabs">
-                <button class="colorInputTab active" data-mode="rgb">RGB</button>
-                <button class="colorInputTab" data-mode="hsv">HSV</button>
-                <button class="colorInputTab" data-mode="hex">HEX</button>
-              </div>
-              <button class="colorInputClose" id="colorInputClose">&times;</button>
+            <!-- Color Picker -->
+            <div id="pickerContainer">
+              <div id="colorPicker"></div>
+              <button class="colorInputBtn" id="colorInputBtn" title="Color input (RGB/HSV)">#</button>
             </div>
-            <div class="colorInputBody">
-              <!-- RGB Mode -->
-              <div class="colorInputMode" id="rgbMode">
-                <div class="colorInputField">
-                  <label>R</label>
-                  <input type="number" id="inputR" min="0" max="255" value="0">
+
+            <!-- Color Input Menu -->
+            <div id="colorInputMenu" class="colorInputMenu" style="display: none;">
+              <div class="colorInputHeader">
+                <div class="colorInputTabs">
+                  <button class="colorInputTab active" data-mode="rgb">RGB</button>
+                  <button class="colorInputTab" data-mode="hsv">HSV</button>
+                  <button class="colorInputTab" data-mode="hex">HEX</button>
                 </div>
-                <div class="colorInputField">
-                  <label>G</label>
-                  <input type="number" id="inputG" min="0" max="255" value="0">
-                </div>
-                <div class="colorInputField">
-                  <label>B</label>
-                  <input type="number" id="inputB" min="0" max="255" value="0">
-                </div>
-                <div class="colorInputField">
-                  <label>A</label>
-                  <input type="number" id="inputA" min="0" max="100" value="100">
-                  <span class="fieldUnit">%</span>
-                </div>
+                <button class="colorInputClose" id="colorInputClose">&times;</button>
               </div>
-              <!-- HSV Mode -->
-              <div class="colorInputMode" id="hsvMode" style="display: none;">
-                <div class="colorInputField">
-                  <label>H</label>
-                  <input type="number" id="inputH" min="0" max="360" value="0">
-                  <span class="fieldUnit">°</span>
+              <div class="colorInputBody">
+                <!-- RGB Mode -->
+                <div class="colorInputMode" id="rgbMode">
+                  <div class="colorInputField">
+                    <label>R</label>
+                    <input type="number" id="inputR" min="0" max="255" value="0">
+                  </div>
+                  <div class="colorInputField">
+                    <label>G</label>
+                    <input type="number" id="inputG" min="0" max="255" value="0">
+                  </div>
+                  <div class="colorInputField">
+                    <label>B</label>
+                    <input type="number" id="inputB" min="0" max="255" value="0">
+                  </div>
+                  <div class="colorInputField">
+                    <label>A</label>
+                    <input type="number" id="inputA" min="0" max="100" value="100">
+                    <span class="fieldUnit">%</span>
+                  </div>
                 </div>
-                <div class="colorInputField">
-                  <label>S</label>
-                  <input type="number" id="inputS" min="0" max="100" value="0">
-                  <span class="fieldUnit">%</span>
+                <!-- HSV Mode -->
+                <div class="colorInputMode" id="hsvMode" style="display: none;">
+                  <div class="colorInputField">
+                    <label>H</label>
+                    <input type="number" id="inputH" min="0" max="360" value="0">
+                    <span class="fieldUnit">°</span>
+                  </div>
+                  <div class="colorInputField">
+                    <label>S</label>
+                    <input type="number" id="inputS" min="0" max="100" value="0">
+                    <span class="fieldUnit">%</span>
+                  </div>
+                  <div class="colorInputField">
+                    <label>V</label>
+                    <input type="number" id="inputV" min="0" max="100" value="0">
+                    <span class="fieldUnit">%</span>
+                  </div>
+                  <div class="colorInputField">
+                    <label>A</label>
+                    <input type="number" id="inputA_hsv" min="0" max="100" value="100">
+                    <span class="fieldUnit">%</span>
+                  </div>
                 </div>
-                <div class="colorInputField">
-                  <label>V</label>
-                  <input type="number" id="inputV" min="0" max="100" value="0">
-                  <span class="fieldUnit">%</span>
-                </div>
-                <div class="colorInputField">
-                  <label>A</label>
-                  <input type="number" id="inputA_hsv" min="0" max="100" value="100">
-                  <span class="fieldUnit">%</span>
-                </div>
-              </div>
-              <!-- HEX Mode -->
-              <div class="colorInputMode" id="hexMode" style="display: none;">
-                <div class="colorInputField hexField">
-                  <label>#</label>
-                  <input type="text" id="inputHex" maxlength="8" value="000000" placeholder="RRGGBB">
-                </div>
-                <div class="colorInputField">
-                  <label>A</label>
-                  <input type="number" id="inputA_hex" min="0" max="100" value="100">
-                  <span class="fieldUnit">%</span>
+                <!-- HEX Mode -->
+                <div class="colorInputMode" id="hexMode" style="display: none;">
+                  <div class="colorInputField hexField">
+                    <label>#</label>
+                    <input type="text" id="inputHex" maxlength="8" value="000000" placeholder="RRGGBB">
+                  </div>
+                  <div class="colorInputField">
+                    <label>A</label>
+                    <input type="number" id="inputA_hex" min="0" max="100" value="100">
+                    <span class="fieldUnit">%</span>
+                  </div>
                 </div>
               </div>
             </div>

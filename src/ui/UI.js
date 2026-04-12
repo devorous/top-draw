@@ -62,13 +62,19 @@ export class UI {
     this.layerPreview.init();
     this.setupScrollIndicator();
     this.initResizableSections();
+    this.setupSidebarResizers();
+    
+    // Initial application from preferences
+    if (window.app?.appPreferences) {
+      this.applySidebarWidths(window.app.appPreferences);
+    }
   }
 
   /**
    * Initializes resizable sections in the tool options panel
    */
   initResizableSections() {
-    this.resizableSections = new ResizableSections('toolOptions', [
+    this.resizableSections = new ResizableSections('sidebarTop', [
       { id: 'userList', minHeight: 40, defaultHeight: 150 },
       { id: 'toolSliders', minHeight: 100, defaultHeight: 250, contentSelector: '.sliders' },
       { id: 'toolExtras', minHeight: 100, defaultHeight: 300 }
@@ -76,6 +82,78 @@ export class UI {
       getContextKey: () => window.app?.self?.tool || 'default',
       sharedSectionIds: ['userList']
     });
+  }
+
+  /**
+   * Setup sidebar and toolbar drag resizers.
+   */
+  setupSidebarResizers() {
+    const { sidebarResizeHandle, toolsResizer } = this.elements;
+
+    const setupResizer = (handle, cssVar, prefKey, min, max, isToolbar = false) => {
+      if (!handle) return;
+
+      let startX, startWidth;
+
+      const onMouseMove = (e) => {
+        const isLeft = document.documentElement.dataset.sidebarSide === 'left';
+        let delta = e.clientX - startX;
+        
+        // If sidebar is on the right, dragging left (negative delta) increases width
+        // If sidebar is on the left, dragging right (positive delta) increases width
+        if (!isLeft) {
+          delta = -delta;
+        }
+        
+        const newWidth = Math.min(Math.max(startWidth + delta, min), max);
+        document.documentElement.style.setProperty(cssVar, `${newWidth}px`);
+
+        // Update preference in memory (save on mouseup)
+        if (window.app?.appPreferences) {
+          window.app.appPreferences.general[prefKey] = newWidth;
+        }
+      };
+
+      const onMouseUp = () => {
+        handle.classList.remove('dragging');
+        document.body.classList.remove('resizing');
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        document.documentElement.style.cursor = '';
+
+        if (window.app?.appPreferences) {
+          window.app.saveAppPreferences(window.app.appPreferences);
+        }
+      };
+
+      handle.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        startX = e.clientX;
+        const currentStyle = getComputedStyle(document.documentElement).getPropertyValue(cssVar);
+        startWidth = parseInt(currentStyle, 10) || (isToolbar ? 48 : 200);
+        
+        handle.classList.add('dragging');
+        document.body.classList.add('resizing');
+        document.documentElement.style.cursor = 'col-resize';
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      });
+    };
+
+    setupResizer(sidebarResizeHandle, '--sidebar-width', 'sidebarWidth', 160, 600);
+    setupResizer(toolsResizer, '--tools-width', 'toolsWidth', 32, 120, true);
+  }
+
+  /**
+   * Apply sidebar and toolbar widths from preferences.
+   * @param {Object} preferences - App preferences object
+   */
+  applySidebarWidths(preferences) {
+    const sidebarWidth = preferences?.general?.sidebarWidth ?? 200;
+    const toolsWidth = preferences?.general?.toolsWidth ?? 48;
+
+    document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`);
+    document.documentElement.style.setProperty('--tools-width', `${toolsWidth}px`);
   }
 
   /**
@@ -360,6 +438,10 @@ menuBtn: document.getElementById('menuBtn'),
       fontSelect: document.getElementById('font-select'),
 
       colorPicker: document.getElementById('colorPicker'),
+      sidebarTop: document.getElementById('sidebarTop'),
+      sidebarBottom: document.getElementById('sidebarBottom'),
+      sidebarResizeHandle: document.getElementById('sidebarResizeHandle'),
+      toolsResizer: document.getElementById('toolsResizer'),
 
       touchInput: document.getElementById('touchInput'),
 

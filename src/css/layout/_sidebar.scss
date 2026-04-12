@@ -8,6 +8,12 @@
    Side Menu
    ======================================== */
 
+:root {
+  // Default width variables (overridden by JS)
+  --sidebar-width: 200px;
+  --tools-width: 48px;
+}
+
 #sideMenu {
   display: flex;
   flex-direction: row;
@@ -29,7 +35,7 @@ html[data-sidebar-side='left'] #sideMenu {
 #toolOptions {
   display: flex;
   flex-direction: column;
-  width: 200px;
+  width: var(--sidebar-width);
   background: var(--bg-tertiary);
   border-left: 1px solid var(--border-subtle);
   transition: width var(--transition-normal), opacity var(--transition-normal), transform var(--transition-normal);
@@ -41,6 +47,69 @@ html[data-sidebar-side='left'] #sideMenu {
     border-left-width: 0;
     pointer-events: none;
     transform: translateX(20px);
+  }
+}
+
+#sidebarTop {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+#sidebarBottom {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+}
+
+/* Resizer Handles */
+#sidebarResizeHandle {
+  width: 6px;
+  margin-left: -3px;
+  margin-right: -3px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background var(--transition-fast);
+  z-index: 120;
+  flex-shrink: 0;
+  position: relative;
+
+  &:hover, &.dragging {
+    background: var(--accent-primary);
+  }
+}
+
+.resizing * {
+  transition: none !important;
+}
+
+.tools-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  transition: background var(--transition-fast);
+  z-index: 10;
+
+  &:hover, &.dragging {
+    background: var(--accent-primary);
+  }
+}
+
+html[data-sidebar-side='left'] {
+  #sidebarResizeHandle {
+    order: -1; // Put handle on the other side of toolOptions
+  }
+  .tools-resizer {
+    right: auto;
+    left: -2px;
   }
 }
 
@@ -62,10 +131,47 @@ html[data-sidebar-side='left'] #toolOptions.collapsed {
   padding: 5px 0 0;
   padding-top: 2px;
   background: var(--bg-secondary);
-  width: 48px;
+  width: var(--tools-width);
   flex-shrink: 0;
   position: relative;
   align-items: center;
+}
+
+/* Color Picker Scaling for low screen heights */
+#pickerContainer {
+  width: 100%;
+  max-width: 240px; // Prevent it from getting too huge on wide sidebars
+  margin: 0 auto;
+  transform-origin: bottom center;
+  margin-bottom: 8px;
+}
+
+@media (max-height: 750px) {
+  #pickerContainer {
+    transform: scale(0.9);
+    margin-bottom: 10px;
+  }
+}
+
+@media (max-height: 650px) {
+  #pickerContainer {
+    transform: scale(0.8);
+    margin-bottom: 12px;
+  }
+  .paletteSection {
+    margin-bottom: 8px;
+  }
+}
+
+@media (max-height: 550px) {
+  #pickerContainer {
+    transform: scale(0.75);
+    margin-bottom: 16px;
+  }
+  .paletteSection {
+    margin-bottom: 4px;
+    label { margin-bottom: 4px; }
+  }
 }
 
 .tool.btn.sidebarUtilityBtn,

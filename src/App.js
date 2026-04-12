@@ -229,8 +229,10 @@ export class DrawingApp {
    * @returns {Promise<void>}
    */
   async init() {
+    window.app = this; // Set global reference early
     await initWasm();
     this.ui.init();
+    this.ui.applySidebarWidths(this.appPreferences);
     this.createSelf();
     this.board.init('#boardContainer');
     this.board.setApp(this);

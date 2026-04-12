@@ -22,6 +22,8 @@ export function createDefaultAppPreferences() {
     version: APP_PREFERENCES_VERSION,
     general: {
       sidebarSide: 'right',
+      sidebarWidth: 200,
+      toolsWidth: 48,
       themeColors: {}
     },
     keybinds: getDefaultKeybindings()
@@ -84,6 +86,16 @@ function sanitizeSidebarSide(rawSidebarSide) {
   return SIDEBAR_SIDES.has(normalized) ? normalized : 'right';
 }
 
+function sanitizeSidebarWidth(rawWidth) {
+  const width = parseInt(rawWidth, 10);
+  return isNaN(width) ? 200 : Math.min(Math.max(width, 160), 400);
+}
+
+function sanitizeToolsWidth(rawWidth) {
+  const width = parseInt(rawWidth, 10);
+  return isNaN(width) ? 48 : Math.min(Math.max(width, 32), 64);
+}
+
 function sanitizePreferences(rawPreferences) {
   const defaults = createDefaultAppPreferences();
   const parsed = rawPreferences && typeof rawPreferences === 'object' ? rawPreferences : {};
@@ -93,6 +105,8 @@ function sanitizePreferences(rawPreferences) {
     general: {
       ...defaults.general,
       sidebarSide: sanitizeSidebarSide(parsed.general?.sidebarSide),
+      sidebarWidth: sanitizeSidebarWidth(parsed.general?.sidebarWidth),
+      toolsWidth: sanitizeToolsWidth(parsed.general?.toolsWidth),
       themeColors: sanitizeThemeColors(parsed.general?.themeColors)
     },
     keybinds: sanitizeKeybinds(parsed.keybinds)
