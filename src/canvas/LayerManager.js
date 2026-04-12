@@ -513,7 +513,8 @@ export class LayerManager {
     if (undoneStrokes.length === 0) return null;
 
     this.needsComposite = true;
-    this.cleanupEmptySequencesAll();
+    // Undo only removes live stroke-stack entries; baked sequences are unchanged here,
+    // so scanning every full-size baked canvas for emptiness just adds readback cost.
     this._notifyHistoryPanel(true);
     return undoneStrokes;
   }
