@@ -194,7 +194,9 @@ export class DrawingApp {
       init: () => {},
       setLayerManager: () => {},
       setActiveLayer: () => {},
-      setEnabled: () => {}
+      setEnabled: () => {},
+      update: () => {},
+      queueUpdate: () => {}
     }; // Stub for compatibility
 
     // Performance debug panel
