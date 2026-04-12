@@ -66,7 +66,7 @@ export class FloodFillTool {
     if (expSlider) expSlider.value = this._expansion;
     if (expValue) expValue.textContent = this._expansion;
     if (blurSlider) blurSlider.value = this._blurRadius;
-    if (blurValue) blurValue.textContent = this._blurRadius;
+    if (blurValue) blurValue.textContent = this._blurRadius.toFixed(1);
   }
 
   activate() {
@@ -108,11 +108,11 @@ export class FloodFillTool {
 
   _getFillParams(user) {
     const fillColor = user?.color ?? this.board.app?.self?.color ?? [0, 0, 0, 1];
-    const colorAlpha = fillColor[3];
     const opacitySlider = user?.opacity !== undefined
       ? user.opacity
       : (this.board.app?.self?.opacity !== undefined ? this.board.app.self.opacity : 1);
-    const userOpacity = colorAlpha * opacitySlider;
+    // Use only the opacity slider, not color alpha (avoids double application)
+    const userOpacity = opacitySlider;
     return {
       fillR: Math.round(fillColor[0]),
       fillG: Math.round(fillColor[1]),
@@ -242,10 +242,10 @@ export class FloodFillTool {
     }
 
     const br = Math.ceil(blurRadius);
-    const padMinX = Math.max(0, minX - br * 2);
-    const padMinY = Math.max(0, minY - br * 2);
-    const padMaxX = Math.min(width - 1, maxX + br * 2);
-    const padMaxY = Math.min(height - 1, maxY + br * 2);
+    const padMinX = Math.max(0, minX - br * 3);
+    const padMinY = Math.max(0, minY - br * 3);
+    const padMaxX = Math.min(width - 1, maxX + br * 3);
+    const padMaxY = Math.min(height - 1, maxY + br * 3);
     const padW = padMaxX - padMinX + 1;
     const padH = padMaxY - padMinY + 1;
 
@@ -282,10 +282,13 @@ export class FloodFillTool {
       }
       ctx.putImageData(padded, padMinX, padMinY);
     } else {
+      // CSS fallback: Do NOT manually premultiply - canvas handles it internally
+      // Manual premultiplication + putImageData causes double premultiplication
       const tmp = document.createElement('canvas');
       tmp.width = padW;
       tmp.height = padH;
       tmp.getContext('2d').putImageData(padded, 0, 0);
+
       ctx.save();
       ctx.filter = `blur(${blurRadius}px)`;
       ctx.drawImage(tmp, padMinX, padMinY);
@@ -318,10 +321,10 @@ export class FloodFillTool {
     const rotation = user.patternRotation || 0;
 
     const br = blurRadius > 0 ? Math.ceil(blurRadius) : 0;
-    const padMinX = Math.max(0, minX - br * 2);
-    const padMinY = Math.max(0, minY - br * 2);
-    const padMaxX = Math.min(width - 1, maxX + br * 2);
-    const padMaxY = Math.min(height - 1, maxY + br * 2);
+    const padMinX = Math.max(0, minX - br * 3);
+    const padMinY = Math.max(0, minY - br * 3);
+    const padMaxX = Math.min(width - 1, maxX + br * 3);
+    const padMaxY = Math.min(height - 1, maxY + br * 3);
     const padW = padMaxX - padMinX + 1;
     const padH = padMaxY - padMinY + 1;
 
@@ -426,7 +429,7 @@ export class FloodFillTool {
 
     this._renderMask(strokeCtx, result, params.fillR, params.fillG, params.fillB, params.userOpacity, blurRadius, width, height, user);
 
-    const pad = Math.ceil(blurRadius * 2) + Math.ceil(Math.abs(expansion));
+    const pad = Math.ceil(blurRadius * 3) + Math.ceil(Math.abs(expansion));
     const bx = Math.max(0, result.minX - pad);
     const by = Math.max(0, result.minY - pad);
     const bw = Math.min(width, result.maxX + pad + 1) - bx;
@@ -445,10 +448,11 @@ export class FloodFillTool {
       } else {
         this._renderMaskComposite(strokeCtx, mirrorResult, params.fillR, params.fillG, params.fillB, params.userOpacity, blurRadius, width, height, user);
       }
-      const mbx = Math.max(0, mirrorResult.minX - pad);
-      const mby = Math.max(0, mirrorResult.minY - pad);
-      const mbw = Math.min(width, mirrorResult.maxX + pad + 1) - mbx;
-      const mbh = Math.min(height, mirrorResult.maxY + pad + 1) - mby;
+      const mpad = Math.ceil(blurRadius * 3) + Math.ceil(Math.abs(expansion));
+      const mbx = Math.max(0, mirrorResult.minX - mpad);
+      const mby = Math.max(0, mirrorResult.minY - mpad);
+      const mbw = Math.min(width, mirrorResult.maxX + mpad + 1) - mbx;
+      const mbh = Math.min(height, mirrorResult.maxY + mpad + 1) - mby;
       this.board.expandDirtyRect(user, mbx, mby, mbw, mbh);
     }
   }
@@ -495,6 +499,18 @@ export class FloodFillTool {
         data, width, height, x, y, 10, 0, null
       );
       if (!result) { this._committed = true; return; }
+
+      // Check fill size limit (~40% of canvas) - count actual filled pixels
+      let filledPixels = 0;
+      for (let i = 0; i < result.mask.length; i++) {
+        if (result.mask[i]) filledPixels++;
+      }
+      const canvasArea = width * height;
+      if (filledPixels > canvasArea * 0.4) {
+        console.warn(`Fill rejected: ${filledPixels} pixels exceeds 40% of canvas (${Math.round(canvasArea * 0.4)})`);
+        this._committed = true;
+        return;
+      }
 
       const mirrorResults = await this._computeMirrorFillResults(
         this.board.mainCtx.getImageData(0, 0, width, height).data,
@@ -544,7 +560,7 @@ export class FloodFillTool {
     const dy = (pos.y - this._startPos.y) * zoom;
 
     this._expansion = Math.round(Math.max(-50, Math.min(50, this._dragStartExpansion + dx * 0.3)) * 10) / 10;
-    this._blurRadius = Math.max(0, Math.min(25, this._dragStartBlur + dy * 0.12));
+    this._blurRadius = Math.round(Math.max(0, Math.min(25, this._dragStartBlur + dy * 0.12)) * 10) / 10;
     this._updateSliders();
 
     this._requestPreviewUpdate();
@@ -644,6 +660,20 @@ export class FloodFillTool {
     this.board.topCtx.clearRect(0, 0, width, height);
 
     if (result) {
+      // Check fill size limit (~40% of canvas) - count actual filled pixels
+      let filledPixels = 0;
+      for (let i = 0; i < result.mask.length; i++) {
+        if (result.mask[i]) filledPixels++;
+      }
+      const canvasArea = width * height;
+      if (filledPixels > canvasArea * 0.4) {
+        console.warn(`Fill rejected: ${filledPixels} pixels exceeds 40% of canvas (${Math.round(canvasArea * 0.4)})`);
+        this._active = false;
+        this._imageData = null;
+        this._fillParams = null;
+        return;
+      }
+
       const mirrorResults = await this._computeMirrorFillResults(
         this._imageData.data.slice(0),
         width,

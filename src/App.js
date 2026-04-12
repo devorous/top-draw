@@ -938,8 +938,9 @@ export class DrawingApp {
     if (fillBlurSlider) {
       fillBlurSlider.addEventListener('input', (e) => {
         const fillTool = this.toolManager.getTool('fill');
-        if (fillTool) fillTool._blurRadius = Number(e.target.value);
-        if (fillBlurValue) fillBlurValue.textContent = e.target.value;
+        const val = Math.round(Number(e.target.value) * 10) / 10;
+        if (fillTool) fillTool._blurRadius = val;
+        if (fillBlurValue) fillBlurValue.textContent = val.toFixed(1);
       });
     }
 
