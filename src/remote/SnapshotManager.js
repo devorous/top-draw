@@ -77,6 +77,12 @@ export class SnapshotManager {
     this.app.wsClient.send(msg);
   }
 
+  clearListCache() {
+    this.snapshots = [];
+    this.lastListAppend = false;
+    this.hasMoreSnapshots = true;
+  }
+
   /**
    * Request restoration of a specific snapshot.
    * @param {string} id

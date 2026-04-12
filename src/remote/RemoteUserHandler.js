@@ -1261,30 +1261,10 @@ export class RemoteUserHandler {
     if (x < 0 || x >= width || y < 0 || y >= height) return;
 
     const imageData = this.board.mainCtx.getImageData(0, 0, width, height);
-    let result = await fillTool._fillWorker.computeFill(
+    const result = await fillTool._fillWorker.computeFill(
       imageData.data, width, height, x, y, 10, 0, null
     );
     if (!result || previewToken !== (user._fillPreviewToken || 0) || !user.mousedown || user.tool !== 'fill') return;
-
-    // Apply tile constraint if fill is too large (same logic as local FloodFillTool)
-    if (fillTool._isFillTooLarge(result, width, height)) {
-      const tileRects = fillTool._getOccupiedTileRects(x, y);
-      if (tileRects) {
-        const constrainedResult = await fillTool._fillWorker.computeFill(
-          this.board.mainCtx.getImageData(0, 0, width, height).data,
-          width, height, x, y, 10, 0, tileRects
-        );
-        if (constrainedResult) {
-          result = constrainedResult;
-        } else {
-          return; // Can't constrain a too-large fill
-        }
-      } else {
-        return; // No tiles occupied, can't allow huge fill
-      }
-    }
-
-    if (previewToken !== (user._fillPreviewToken || 0) || !user.mousedown || user.tool !== 'fill') return;
 
     const { mask, minX, minY, maxX, maxY } = result;
     const regionW = maxX - minX + 1;
@@ -1350,24 +1330,6 @@ export class RemoteUserHandler {
       const mh = Math.ceil(Math.max(p1.y, p2.y) - Math.min(p1.y, p2.y) + margin * 2);
       this.board.expandDirtyRect(user, mx, my, mw, mh);
     });
-
-    // Track occupied tiles for remote users (non-erase operations)
-    const tt = this.board.tileTracker;
-    if (tt && user.tool !== 'erase') {
-      const userId = user.id;
-      const radius = user.size || margin;
-
-      // Get the active stroke to collect affectedTiles (same as local implementation)
-      const group = this.board.layerManager?.layerGroups[this.getStrokeLayer(user)];
-      const active = group?.activeStrokeByUser?.get(userId);
-
-      tt.markPathDirty(points, radius, active?.affectedTiles);
-
-      // Also track mirrored tiles
-      this.board.forEachMirrorRegion({ points }, (region) => {
-        tt.markPathDirty(this.board.mirrorPointsToRegion(points, region), radius, active?.affectedTiles);
-      });
-    }
   }
 
   /**

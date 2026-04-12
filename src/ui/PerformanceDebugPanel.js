@@ -1,5 +1,5 @@
 /**
- * @fileoverview Debug panel showing device detection, TPS, live render metrics, and overlay toggles.
+ * @fileoverview Debug panel showing device detection, TPS, and overlay toggles.
  */
 
 export class PerformanceDebugPanel {
@@ -66,32 +66,7 @@ export class PerformanceDebugPanel {
     const info = this.inputBufferManager.getPerformanceInfo();
     const detection = info.detection;
     const debugOverlay = this.app?.debugOverlay;
-    const monitor = this.app?.board?.performanceMonitor;
-
     let html = '<strong>PERFORMANCE DEBUG</strong><br>';
-
-    // Live render metrics
-    if (monitor) {
-      const targetFPS = this.app?.board?.targetFPS ?? 0;
-      const composites = monitor.getCompositeRate();
-      const frameTime = monitor.getAvgFrameTime().toFixed(1);
-      const latency = monitor.lastLatency.toFixed(1);
-      const memory = monitor.getMemory();
-      const targetLabel = targetFPS === 0 ? 'uncapped' : `${targetFPS}`;
-      const compositesColor = targetFPS > 0 && composites > targetFPS * 1.1 ? '#f80' : '#0f0';
-
-      html += `Target FPS: ${targetLabel}<br>`;
-      html += `Composites/s: <span style="color:${compositesColor}">${composites}</span>`;
-      if (targetFPS === 0) html += ` <span style="color:#888">(brush/ink bypass throttle)</span>`;
-      html += `<br>`;
-      html += `Composite time: ${frameTime}ms<br>`;
-      html += `Input latency: ${latency}ms<br>`;
-      if (memory !== null) {
-        html += `JS Heap: ${(memory / 1048576).toFixed(1)} MB <span style="color:#888">(Chrome)</span><br>`;
-      }
-    }
-
-    html += '<br>';
 
     // TPS
     html += `Input TPS: <span id="tpsValue" style="color: ${info.tickRate === 60 ? '#f00' : '#0f0'}; cursor: pointer; text-decoration: underline;">${info.tickRate}</span> <span style="color:#888; font-size:9px;">(click to toggle)</span><br>`;

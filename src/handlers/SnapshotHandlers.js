@@ -4,6 +4,10 @@ import { T } from '../../shared/MessageTypes.js';
 import { appState } from '../state.svelte.js';
 import * as wasm from '../wasm/ddraw_wasm.js';
 
+function isSnapshotHistoryOpen(app) {
+  return !!(appState.snapshotMenuVisible || app.historyPanel?.isOpen);
+}
+
 /**
  * Registers WebSocket event listeners for board snapshot messages.
  * @param {WebSocketClient} wsClient - The WebSocket client instance.
@@ -13,6 +17,10 @@ export function setupSnapshotHandlers(wsClient, app) {
   // Handle snapshot list response
   wsClient.on('board_snapshot_list', (data) => {
     if (!data.snapshotList) return;
+    if (!isSnapshotHistoryOpen(app)) {
+      app.snapshotManager.clearListCache();
+      return;
+    }
 
     const append = !!app.snapshotManager.lastListAppend;
     const nextSnapshots = append
@@ -175,7 +183,6 @@ export async function applyRegionRestore(board, layerDatas, isLasso, rect, lasso
     }
 
     board.compositeAllLayers();
-    if (board.tileGrid) board.tileGrid.markAllDirty();
     board.app?.ui?.showToast('A region was restored from a snapshot', 3000);
   } finally {
     if (interactionBlockId) {

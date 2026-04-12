@@ -143,8 +143,32 @@ export function toggleMessenger() {
   console.log('Messenger visible:', appState.messengerVisible);
 }
 
+export function clearSnapshotHistoryState() {
+  const hadSnapshotState = appState.snapshots.length > 0 || !appState.snapshotHasMore;
+  appState.snapshots = [];
+  appState.snapshotHasMore = true;
+  if (hadSnapshotState) {
+    appState.snapshotListVersion += 1;
+  }
+}
+
+export function openSnapshotMenu() {
+  appState.snapshotMenuVisible = true;
+}
+
+export function closeSnapshotMenu() {
+  if (!appState.snapshotMenuVisible) return;
+  appState.snapshotMenuVisible = false;
+  clearSnapshotHistoryState();
+}
+
 export function toggleSnapshotMenu() {
-  appState.snapshotMenuVisible = !appState.snapshotMenuVisible;
+  if (appState.snapshotMenuVisible) {
+    closeSnapshotMenu();
+    return;
+  }
+
+  openSnapshotMenu();
 }
 
 export function openMessengerWithUser(id, name) {

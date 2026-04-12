@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
-  import { appState, toggleSnapshotMenu } from '../../state.svelte.js';
+  import { appState, clearSnapshotHistoryState, toggleSnapshotMenu } from '../../state.svelte.js';
   import { T } from '../../../shared/MessageTypes.js';
   import * as wasm from '../../wasm/ddraw_wasm.js';
 
@@ -433,6 +433,8 @@
     if (animId) cancelAnimationFrame(animId);
     if (previewRequestTimeout) clearTimeout(previewRequestTimeout);
     window.app?.wsClient?.messageHandlers?.delete('board_snapshot_get_response');
+    window.app?.snapshotManager?.clearListCache?.();
+    clearSnapshotHistoryState();
     if (window.app?.snapshotPreviewCanvas === previewCanvas || window.app?.snapshotPreviewCanvas === snapshotExportCanvas) {
       window.app.snapshotPreviewCanvas = null;
     }

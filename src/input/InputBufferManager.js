@@ -94,6 +94,8 @@ export class InputBufferManager {
     this.tickTimer = null;
     /** @type {number|null} */
     this.lastTickTime = null;
+    /** @type {number|null} */
+    this.localFrameId = null;
 
     /** @type {Object} */
     this.inputBuffer = {
@@ -125,6 +127,8 @@ export class InputBufferManager {
 
     /** @type {Object} */
     this.broadcastSmoothBuffer = { x: 0, y: 0, p: 1, isFirst: true };
+    /** @type {Array<number>} */
+    this.pendingBroadcastPoints = [];
   }
 
   /**
@@ -163,11 +167,23 @@ export class InputBufferManager {
       clearInterval(this.tickTimer);
       this.tickTimer = null;
     }
+    if (this.localFrameId !== null) {
+      cancelAnimationFrame(this.localFrameId);
+      this.localFrameId = null;
+    }
+  }
+
+  requestLocalFrame() {
+    if (this.localFrameId !== null) return;
+    this.localFrameId = requestAnimationFrame(() => {
+      this.localFrameId = null;
+      this.processLocalFrame();
+    });
   }
 
   /**
    * Performs a single tick of input processing.
-   * Processes buffered points, applies smoothing/reduction, and broadcasts to peers.
+   * Prioritizes any pending local frame work, then flushes network state to peers.
    *
    * @returns {void}
    */
@@ -178,113 +194,140 @@ export class InputBufferManager {
     const { app } = this;
 
     if (app.syncClient?.isSyncing()) return;
+    this.processLocalFrame();
+    this.flushPendingNetwork();
+  }
 
-    const needsCatchup = this.needsSmoothingCatchup();
-    if (!this.inputBuffer.dirty && !needsCatchup) return;
+  processLocalFrame() {
+    const { app } = this;
+    if (app.syncClient?.isSyncing()) return;
 
-    const { points } = this.inputBuffer;
-
+    const points = this._consumeBufferedPoints();
     if (points.length >= 3) {
-      const smoothingTools = ['brush', 'flowPen', 'imageBrush', 'ink'];
-      const blurTools = ['blur', 'circleBlur', 'glitchBlur'];
-      const useSmoothing = app.self.mousedown && !app.self.panning && smoothingTools.includes(app.self.tool);
-      const useBlur = app.self.mousedown && !app.self.panning && blurTools.includes(app.self.tool);
-
-      let smoothedPoints;
-      let broadcastPoints;
-      let localPoints;
-
-      if (useSmoothing) {
-        // Tools that smooth: apply EMA, broadcast the smoothed (+ reduced) result
-        smoothedPoints = this.applyBroadcastSmoothing(points);
-        broadcastPoints = this.applyPointReduction(smoothedPoints);
-        localPoints = smoothedPoints;
-      } else if (useBlur) {
-        // Blur tools: smooth + reduce for both local and broadcast
-        smoothedPoints = this.applyBroadcastSmoothing(points);
-        broadcastPoints = this.applyPointReduction(smoothedPoints);
-        localPoints = broadcastPoints;
-      } else {
-        // All other tools (pixel, line, shapes, etc.): no smoothing
-        // Broadcast exactly what is rendered locally so remote matches
-        smoothedPoints = points;
-        broadcastPoints = this.applyPointReduction(points);
-        localPoints = points;
-      }
-
-      const lastRawX = points[points.length - 3];
-      const lastRawY = points[points.length - 2];
-      app.self.setTarget(lastRawX, lastRawY);
-
-      const lastX = localPoints[localPoints.length - 3];
-      const lastY = localPoints[localPoints.length - 2];
-      const lastP = localPoints[localPoints.length - 1];
-      app.self.setPosition(lastX, lastY);
-      app.self.setPressure(lastP);
-
-      if (app.self.mousedown && !app.self.panning) {
-        const tool = app.toolManager.getCurrentTool();
-        if (tool) {
-          // Track whether we need to flush rendering (for tools like InkTool that render globally)
-          const isInk = app.self.tool === 'ink';
-          
-          for (let i = 0; i < localPoints.length; i += 3) {
-              const currentPos = { x: localPoints[i], y: localPoints[i+1] };
-              const currentPressure = localPoints[i+2];
-              const prevPos = i === 0 ? (this.inputBuffer.lastPosition || currentPos) : { x: localPoints[i-3], y: localPoints[i-2] };
-              
-              // Update user pressure before each move to ensure smooth thickness transitions
-              app.self.setPressure(currentPressure);
-
-              // Ink tool: buffer points but defer rendering until end of tick for performance
-              if (isInk && tool.onPointerMoveNoRender) {
-                tool.onPointerMoveNoRender(app.self, currentPos, prevPos);
-              } else {
-                tool.onPointerMove(app.self, currentPos, prevPos);
-              }
-              
-              app.self._mainCtxDrawCount++;
-              app.debugOverlay.addStrokePoint(app.self.id, currentPos.x, currentPos.y, 'tick');
-          }
-
-          // Final flush for tools that deferred rendering
-          if (isInk && tool.renderStroke) {
-            tool.renderStroke(false, app.self);
-            if (app.board) {
-              app.board.clearTop();
-              if (tool.drawPreview) tool.drawPreview();
-            }
-          }
-        }
-      }
-
-      const stampTools = ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush', 'pattern'];
-      if (stampTools.includes(app.self.tool) && app.self.mousedown && !app.self.panning) {
-        const tool = app.toolManager.getCurrentTool();
-        const drain = app.self.tool === 'ink' ? tool.drainPointBuffer() : tool.drainStampBuffer();
-        if (drain.ps.length > 0) {
-          app.wsClient.broadcastStampMove(drain.ps, drain.rs);
-        }
-      } else {
-        if (broadcastPoints.length > 0) {
-          // Strip pressure for standard broadcastMove (which doesn't support per-point pressure yet)
-          const xyPoints = [];
-          for (let i = 0; i < broadcastPoints.length; i += 3) {
-            xyPoints.push(broadcastPoints[i], broadcastPoints[i+1]);
-          }
-          app.wsClient.broadcastMove(xyPoints);
-        }
-      }
-
-      this.inputBuffer.lastPosition = { x: lastX, y: lastY };
+      this._processBufferedPoints(points);
     }
 
-    if (needsCatchup) {
+    if (this.needsSmoothingCatchup()) {
       this.processSmoothingCatchup();
     }
 
+    if (this.inputBuffer.dirty || this.needsSmoothingCatchup()) {
+      this.requestLocalFrame();
+    }
+  }
+
+  flushPendingNetwork() {
+    const { app } = this;
+    if (app.syncClient?.isSyncing()) return;
+
+    const tool = app.toolManager.getCurrentTool();
+    if (tool && this._isStampTool(app.self.tool)) {
+      const drain = app.self.tool === 'ink' ? tool.drainPointBuffer?.() : tool.drainStampBuffer?.();
+      if (drain?.ps?.length > 0) {
+        app.wsClient.broadcastStampMove(drain.ps, drain.rs);
+      }
+    }
+
+    if (this.pendingBroadcastPoints.length > 0) {
+      const reducedPoints = this.applyPointReduction(this.pendingBroadcastPoints);
+      this.pendingBroadcastPoints = [];
+      if (reducedPoints.length > 0) {
+        const xyPoints = [];
+        for (let i = 0; i < reducedPoints.length; i += 3) {
+          xyPoints.push(reducedPoints[i], reducedPoints[i + 1]);
+        }
+        app.wsClient.broadcastMove(xyPoints);
+      }
+    }
+  }
+
+  _consumeBufferedPoints() {
+    if (!this.inputBuffer.dirty || this.inputBuffer.points.length === 0) return [];
+    const points = this.inputBuffer.points;
     this.inputBuffer.points = [];
     this.inputBuffer.dirty = false;
+    return points;
+  }
+
+  _processBufferedPoints(points) {
+    const { app } = this;
+    const smoothingTools = ['brush', 'flowPen', 'imageBrush', 'ink'];
+    const blurTools = ['blur', 'circleBlur', 'glitchBlur'];
+    const useSmoothing = app.self.mousedown && !app.self.panning && smoothingTools.includes(app.self.tool);
+    const useBlur = app.self.mousedown && !app.self.panning && blurTools.includes(app.self.tool);
+
+    let smoothedPoints;
+    let localPoints;
+    let networkPoints;
+
+    if (useSmoothing) {
+      smoothedPoints = this.applyBroadcastSmoothing(points);
+      localPoints = smoothedPoints;
+      networkPoints = smoothedPoints;
+    } else if (useBlur) {
+      smoothedPoints = this.applyBroadcastSmoothing(points);
+      localPoints = this.applyPointReduction(smoothedPoints);
+      networkPoints = localPoints;
+    } else {
+      smoothedPoints = points;
+      localPoints = points;
+      networkPoints = points;
+    }
+
+    const lastRawX = points[points.length - 3];
+    const lastRawY = points[points.length - 2];
+    app.self.setTarget(lastRawX, lastRawY);
+
+    const lastX = localPoints[localPoints.length - 3];
+    const lastY = localPoints[localPoints.length - 2];
+    const lastP = localPoints[localPoints.length - 1];
+    app.self.setPosition(lastX, lastY);
+    app.self.setPressure(lastP);
+
+    if (app.self.mousedown && !app.self.panning) {
+      const tool = app.toolManager.getCurrentTool();
+      if (tool) {
+        const isInk = app.self.tool === 'ink';
+
+        for (let i = 0; i < localPoints.length; i += 3) {
+          const currentPos = { x: localPoints[i], y: localPoints[i + 1] };
+          const currentPressure = localPoints[i + 2];
+          const prevPos = i === 0
+            ? (this.inputBuffer.lastPosition || currentPos)
+            : { x: localPoints[i - 3], y: localPoints[i - 2] };
+
+          app.self.setPressure(currentPressure);
+
+          if (isInk && tool.onPointerMoveNoRender) {
+            tool.onPointerMoveNoRender(app.self, currentPos, prevPos);
+          } else {
+            tool.onPointerMove(app.self, currentPos, prevPos);
+          }
+
+          app.self._mainCtxDrawCount++;
+          app.debugOverlay.addStrokePoint(app.self.id, currentPos.x, currentPos.y, 'tick');
+        }
+
+        if (isInk && tool.renderStroke) {
+          tool.renderStroke(false, app.self);
+          if (app.board) {
+            app.board.clearTop();
+            if (tool.drawPreview) tool.drawPreview();
+          }
+        }
+      }
+    }
+
+    const usesStampBroadcast = this._isStampTool(app.self.tool) && app.self.mousedown && !app.self.panning;
+    if (!usesStampBroadcast && networkPoints.length > 0) {
+      this.pendingBroadcastPoints.push(...networkPoints);
+    }
+
+    this.inputBuffer.lastPosition = { x: lastX, y: lastY };
+  }
+
+  _isStampTool(toolName) {
+    return ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush', 'pattern'].includes(toolName);
   }
 
   /**
@@ -327,23 +370,21 @@ export class InputBufferManager {
     app.self.setPosition(smoothedPos.x, smoothedPos.y);
     app.self.setPressure(smoothedP);
     
-    tool.onPointerMove(app.self, smoothedPos, prevPos);
-    app.self._mainCtxDrawCount++;
-
-    const stampTools = ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush', 'pattern'];
-    if (stampTools.includes(app.self.tool)) {
-      const drain = app.self.tool === 'ink' ? tool.drainPointBuffer() : tool.drainStampBuffer();
-      if (drain.ps.length > 0) {
-        app.wsClient.broadcastStampMove(drain.ps, drain.rs);
+    if (app.self.tool === 'ink' && tool.onPointerMoveNoRender) {
+      tool.onPointerMoveNoRender(app.self, smoothedPos, prevPos);
+      if (tool.renderStroke) {
+        tool.renderStroke(false, app.self);
+        if (app.board) {
+          app.board.clearTop();
+          if (tool.drawPreview) tool.drawPreview();
+        }
       }
     } else {
-      const reducedPoints = this.applyPointReduction(smoothedPoints);
-      // Strip pressure for standard broadcastMove
-      const xyPoints = [];
-      for (let i = 0; i < reducedPoints.length; i += 3) {
-        xyPoints.push(reducedPoints[i], reducedPoints[i+1]);
-      }
-      app.wsClient.broadcastMove(xyPoints);
+      tool.onPointerMove(app.self, smoothedPos, prevPos);
+    }
+    app.self._mainCtxDrawCount++;
+    if (!this._isStampTool(app.self.tool)) {
+      this.pendingBroadcastPoints.push(...smoothedPoints);
     }
 
     app.debugOverlay.addStrokePoint(app.self.id, targetPos.x, targetPos.y, 'catchup');
@@ -396,6 +437,7 @@ export class InputBufferManager {
     this.inputBuffer.lastPosition = null;
     this.inputBuffer.points = [];
     this.inputBuffer.dirty = false;
+    this.pendingBroadcastPoints = [];
   }
 
   /**

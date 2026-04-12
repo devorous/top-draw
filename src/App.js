@@ -3285,10 +3285,6 @@ export class DrawingApp {
       }
     }
 
-    if (this.board.tileGrid) {
-      this.board.tileGrid.markAllDirty();
-    }
-
     this.board.compositeAllLayers();
     this.refreshRemoteLayerVisibilityStates();
     this._updateBlurCannotDraw();
@@ -3599,10 +3595,17 @@ export class DrawingApp {
   }
 
   handleStaffChatImageSend(imageData) {
+    if (!this.connected) return;
+
     const messageId = this._createChatMessageId();
+    const result = this.wsClient.broadcastStaffChatImage(imageData, messageId);
+    if (!result?.ok) {
+      this.ui?.showToast(result?.error || 'Failed to send chat image', 3000, 'error');
+      return;
+    }
+
     this.svelteComponents?.chat?.addStaffImage(imageData, this.self, messageId);
     broadcastChatPopoutEvent('addStaffImage', [imageData, this.self, messageId]);
-    this.wsClient.broadcastStaffChatImage(imageData, messageId);
   }
 
   handleDMSend(message, recipientId) {
@@ -3615,16 +3618,21 @@ export class DrawingApp {
   }
 
   handleChatImageSend(imageData, recipientId = null) {
-    if (this.connected) {
-      const messageId = this._createChatMessageId();
-      if (recipientId !== null && recipientId !== undefined) {
-        this.svelteComponents?.chat?.addDMImage(imageData, recipientId, true, messageId);
-        broadcastChatPopoutEvent('addDMImage', [imageData, recipientId, true, messageId]);
-      } else {
-        this.svelteComponents?.chat?.addChatImage(imageData, this.self, messageId);
-        broadcastChatPopoutEvent('addChatImage', [imageData, this.self, messageId]);
-      }
-      this.wsClient.broadcastChatImage(imageData, recipientId, messageId);
+    if (!this.connected) return;
+
+    const messageId = this._createChatMessageId();
+    const result = this.wsClient.broadcastChatImage(imageData, recipientId, messageId);
+    if (!result?.ok) {
+      this.ui?.showToast(result?.error || 'Failed to send chat image', 3000, 'error');
+      return;
+    }
+
+    if (recipientId !== null && recipientId !== undefined) {
+      this.svelteComponents?.chat?.addDMImage(imageData, recipientId, true, messageId);
+      broadcastChatPopoutEvent('addDMImage', [imageData, recipientId, true, messageId]);
+    } else {
+      this.svelteComponents?.chat?.addChatImage(imageData, this.self, messageId);
+      broadcastChatPopoutEvent('addChatImage', [imageData, this.self, messageId]);
     }
   }
 
@@ -4017,8 +4025,7 @@ export class DrawingApp {
     this.inputBufferManager.inputBuffer.points.push(x, y, pressure);
     this.inputBufferManager.inputBuffer.pointerType = e.pointerType;
     this.inputBufferManager.inputBuffer.dirty = true;
-    this.board.performanceMonitor.recordInput();
-
+    this.inputBufferManager.requestLocalFrame();
     // Handle panning instantaneously (bypasses input buffer for better responsiveness)
     if (this.self.panning && this.self.mousedown) {
       const dx = e.clientX - this._lastPanPointerX;
@@ -4426,10 +4433,9 @@ export class DrawingApp {
       }
     }
 
-    // Process any remaining buffered input before ending stroke
-    if (this.inputBufferManager.inputBuffer.dirty) {
-      this.inputBufferManager.tick();
-    }
+    // Flush any locally-rendered-but-not-yet-sent points before ending the stroke.
+    this.inputBufferManager.processLocalFrame();
+    this.inputBufferManager.flushPendingNetwork();
 
     if (!this.self.panning) {
       const tool = this.toolManager.getCurrentTool();

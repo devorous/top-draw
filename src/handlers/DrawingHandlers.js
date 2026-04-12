@@ -355,29 +355,10 @@ export function setupDrawingHandlers(wrapHandler, app) {
     const expansion = data.expansion || 0;
     const blurRadius = data.blurRadius || 0;
 
-    // Try unconstrained fill first
-    let result = await fillTool._fillWorker.computeFill(
+    const result = await fillTool._fillWorker.computeFill(
       imgData, width, height, x, y, 10, expansion, null
     );
     if (!result) return;
-
-    // Apply tile constraint if fill is too large (same logic as local FloodFillTool)
-    if (fillTool._isFillTooLarge(result, width, height)) {
-      const tileRects = fillTool._getOwnedTileRects(x, y, userId);
-      if (tileRects) {
-        const constrainedResult = await fillTool._fillWorker.computeFill(
-          board.mainCtx.getImageData(0, 0, width, height).data,
-          width, height, x, y, 10, expansion, tileRects
-        );
-        if (constrainedResult) {
-          result = constrainedResult;
-        } else {
-          return; // Can't constrain a too-large fill
-        }
-      } else {
-        return; // No tiles owned, can't allow huge fill
-      }
-    }
 
     const blendMode = user.blendMode || 'source-over';
     board.layerManager.beginUserStroke(layerIndex, userId, blendMode);
@@ -393,29 +374,15 @@ export function setupDrawingHandlers(wrapHandler, app) {
     const bh = Math.min(height, result.maxY + pad + 1) - by;
     board.expandDirtyRect(user, bx, by, bw, bh);
 
-    // Track tile ownership for remote user's fill
-    fillTool._markFilledTiles(result, width, userId, layerIndex);
-
     for (const region of board.getActiveMirrorRegions()) {
       const mirrored = board.mirrorPointToRegion({ x, y }, region);
       const mx = Math.round(mirrored.x);
       const my = Math.round(mirrored.y);
       if (mx < 0 || mx >= width || my < 0 || my >= height) continue;
       const mirrorData = board.mainCtx.getImageData(0, 0, width, height).data;
-      let mResult = await fillTool._fillWorker.computeFill(
+      const mResult = await fillTool._fillWorker.computeFill(
         mirrorData, width, height, mx, my, 10, expansion, null
       );
-      if (mResult && fillTool._isFillTooLarge(mResult, width, height)) {
-        const mirrorTileRects = fillTool._getOwnedTileRects(mx, my, userId);
-        if (mirrorTileRects) {
-          mResult = await fillTool._fillWorker.computeFill(
-            board.mainCtx.getImageData(0, 0, width, height).data,
-            width, height, mx, my, 10, expansion, mirrorTileRects
-          );
-        } else {
-          mResult = null;
-        }
-      }
       if (mResult) {
         board.withMirrorRegionClip(strokeCtx, region, () => {
           fillTool._renderMaskComposite(strokeCtx, mResult, fillR, fillG, fillB, userOpacity, blurRadius, width, height, user);
@@ -425,7 +392,6 @@ export function setupDrawingHandlers(wrapHandler, app) {
         const mbw = Math.min(width, mResult.maxX + pad + 1) - mbx;
         const mbh = Math.min(height, mResult.maxY + pad + 1) - mby;
         board.expandDirtyRect(user, mbx, mby, mbw, mbh);
-        fillTool._markFilledTiles(mResult, width, userId, layerIndex);
       }
     }
 

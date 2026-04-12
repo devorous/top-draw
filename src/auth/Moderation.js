@@ -190,30 +190,6 @@ export class Moderation {
       clearBtn.addEventListener('click', () => { if (this.onClear) this.onClear(); });
       fragment.appendChild(clearBtn);
 
-      // Dev container
-      const devContainer = document.createElement('div');
-      devContainer.className = 'devContainer modOnly';
-      const devBtn = document.createElement('a');
-      devBtn.className = 'btn';
-      devBtn.id = 'devBtn';
-      devBtn.textContent = 'Dev';
-      devBtn.addEventListener('click', () => { if (this.onToggleDevMode) this.onToggleDevMode(); });
-      const devOption = document.createElement('span');
-      devOption.className = 'devOption';
-      devOption.textContent = 'OFF';
-      devContainer.appendChild(devBtn);
-      devContainer.appendChild(devOption);
-      fragment.appendChild(devContainer);
-
-      // Perf button (lazy-loads PerformanceSettings on click)
-      const perfBtn = document.createElement('a');
-      perfBtn.className = 'btn modOnly';
-      perfBtn.id = 'perfSettingsBtn';
-      perfBtn.title = 'Performance Settings';
-      perfBtn.textContent = 'Perf';
-      perfBtn.addEventListener('click', () => this._showPerformanceSettings());
-      fragment.appendChild(perfBtn);
-
       // Mod button
       const modBtn = document.createElement('a');
       modBtn.className = 'btn modOnly';

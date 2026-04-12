@@ -36,6 +36,9 @@
     'image/webp',
     'image/gif'
   ]);
+  const MAX_CHAT_UPLOAD_BYTES = Math.floor(4.5 * 1024 * 1024);
+  const MAX_CHAT_UPLOAD_DIMENSION = 4096;
+  const MAX_CHAT_UPLOAD_PIXELS = 8_388_608;
 
   let {
     onSend = null,
@@ -808,6 +811,10 @@
 
   function onDrag(event) {
     if (!isDragging || !chatEl) return;
+    if ((event.buttons & 1) === 0) {
+      endDrag();
+      return;
+    }
 
     const nextLeft = Math.max(8, Math.min(window.innerWidth - chatEl.offsetWidth - 8, event.clientX - dragOffsetX));
     const nextTop = Math.max(8, Math.min(window.innerHeight - chatEl.offsetHeight - 8, event.clientY - dragOffsetY));
@@ -841,16 +848,146 @@
     });
   }
 
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Failed to read processed image'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function canvasToBlob(canvas, type, quality) {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          reject(new Error('Failed to process image'));
+        }
+      }, type, quality);
+    });
+  }
+
+  async function loadImageForCompression(file) {
+    if (typeof createImageBitmap === 'function') {
+      return createImageBitmap(file);
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const image = new Image();
+      image.decoding = 'async';
+      await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = () => reject(new Error('Failed to decode image'));
+        image.src = objectUrl;
+      });
+      return image;
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  function constrainImageSize(width, height, scale = 1) {
+    let nextScale = Math.min(1, scale);
+    if (width * nextScale > MAX_CHAT_UPLOAD_DIMENSION) {
+      nextScale = Math.min(nextScale, MAX_CHAT_UPLOAD_DIMENSION / width);
+    }
+    if (height * nextScale > MAX_CHAT_UPLOAD_DIMENSION) {
+      nextScale = Math.min(nextScale, MAX_CHAT_UPLOAD_DIMENSION / height);
+    }
+    const pixels = width * height * nextScale * nextScale;
+    if (pixels > MAX_CHAT_UPLOAD_PIXELS) {
+      nextScale = Math.min(nextScale, Math.sqrt(MAX_CHAT_UPLOAD_PIXELS / (width * height)));
+    }
+
+    return {
+      width: Math.max(1, Math.round(width * nextScale)),
+      height: Math.max(1, Math.round(height * nextScale))
+    };
+  }
+
+  async function compressChatImage(file) {
+    const source = await loadImageForCompression(file);
+    const sourceWidth = source.width || source.naturalWidth || 0;
+    const sourceHeight = source.height || source.naturalHeight || 0;
+
+    if (!sourceWidth || !sourceHeight) {
+      source.close?.();
+      throw new Error('Unable to read image dimensions');
+    }
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { alpha: true });
+    if (!ctx) {
+      source.close?.();
+      throw new Error('Failed to prepare image for chat upload.');
+    }
+    let bestBlob = null;
+    const targetTypes = file.type === 'image/png'
+      ? ['image/webp', 'image/png', 'image/jpeg']
+      : ['image/webp', 'image/jpeg', file.type];
+    const scaleSteps = [1, 0.85, 0.7, 0.55, 0.4];
+    const qualitySteps = [0.92, 0.84, 0.76, 0.68, 0.6];
+
+    try {
+      for (const scaleStep of scaleSteps) {
+        const { width, height } = constrainImageSize(sourceWidth, sourceHeight, scaleStep);
+        canvas.width = width;
+        canvas.height = height;
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(source, 0, 0, width, height);
+
+        for (const type of targetTypes) {
+          const attempts = type === 'image/png' ? [undefined] : qualitySteps;
+          for (const quality of attempts) {
+            const blob = await canvasToBlob(canvas, type, quality);
+            if (!bestBlob || blob.size < bestBlob.size) {
+              bestBlob = blob;
+            }
+            if (blob.size <= MAX_CHAT_UPLOAD_BYTES) {
+              return blob;
+            }
+          }
+        }
+      }
+    } finally {
+      source.close?.();
+    }
+
+    throw new Error(
+      bestBlob
+        ? 'Image is still too large for chat after compression. Try a smaller image.'
+        : 'Failed to process image for chat upload.'
+    );
+  }
+
   async function queueComposerImage(file) {
     if (!isImageFile(file)) {
       showToast('Chat', 'Only PNG, JPEG, WebP, and GIF are supported in chat.', '#ff9b73');
       return;
     }
-    const dataUrl = await readFileAsDataUrl(file);
-    composerImage = {
-      name: file.name || 'image',
-      dataUrl
-    };
+    try {
+      let dataUrl = '';
+      if (file.type === 'image/gif') {
+        if (file.size > MAX_CHAT_UPLOAD_BYTES) {
+          showToast('Chat', 'GIFs must be under 4.5 MB for chat.', '#ff9b73');
+          return;
+        }
+        dataUrl = await readFileAsDataUrl(file);
+      } else {
+        const processedBlob = await compressChatImage(file);
+        dataUrl = await blobToDataUrl(processedBlob);
+      }
+
+      composerImage = {
+        name: file.name || 'image',
+        dataUrl
+      };
+    } catch (error) {
+      showToast('Chat', error?.message || 'Failed to prepare image for chat.', '#ff9b73');
+    }
   }
 
   async function handleFileInputChange(event) {
@@ -1144,12 +1281,22 @@
   });
 
   $effect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') {
+        endDrag();
+      }
+    };
+
     window.addEventListener('mousemove', onDrag);
     window.addEventListener('mouseup', endDrag);
+    window.addEventListener('blur', endDrag);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('mousemove', onDrag);
       window.removeEventListener('mouseup', endDrag);
+      window.removeEventListener('blur', endDrag);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   });
 </script>

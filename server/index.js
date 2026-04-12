@@ -111,7 +111,6 @@ function shouldAllowWsMessage(ws, data) {
     case T.DM:
     case T.CHAT_REACTION:
     case T.STAFF_MSG:
-    case T.STAFF_CHAT_IMG:
     case T.BOARD_SNAPSHOT_LIST_REQUEST:
     case T.BOARD_SNAPSHOT_GET:
       suffix = 'chat';
@@ -119,6 +118,7 @@ function shouldAllowWsMessage(ws, data) {
       break;
 
     case T.CHAT_IMG:
+    case T.STAFF_CHAT_IMG:
       suffix = 'chatimg';
       config = WS_CHAT_IMAGE_LIMIT;
       break;
@@ -1654,15 +1654,32 @@ wss.on('connection', async (ws, req) => {
         return;
       }
 
+      const requestedType = Number(data?.t);
       data = await sanitizeMessage(data);
       if (!data) {
         console.warn(`[WS] Rejected invalid message from session ${ws.sessionIndex ?? 'unassigned'}`);
+        if (requestedType === T.CHAT_IMG || requestedType === T.STAFF_CHAT_IMG) {
+          sendTo(ws, {
+            t: T.MOD_RESULT,
+            a: false,
+            authError: 'Chat image upload failed. Use PNG, JPEG, WebP, or GIF under 5 MB.'
+          });
+          return;
+        }
         ws.close(1008, 'Invalid message');
         return;
       }
 
       if (!DISABLE_RATE_LIMITS && !shouldAllowWsMessage(ws, data)) {
         console.warn(`[WS] Rate limited message from ${ws.clientIp} (type=${data.t})`);
+        if (data.t === T.CHAT_IMG || data.t === T.STAFF_CHAT_IMG) {
+          sendTo(ws, {
+            t: T.MOD_RESULT,
+            a: false,
+            authError: 'Chat image upload is being rate limited. Please wait a moment and try again.'
+          });
+          return;
+        }
         ws.close(4408, 'Rate limit exceeded');
         return;
       }

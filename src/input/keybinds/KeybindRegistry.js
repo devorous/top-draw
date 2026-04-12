@@ -103,7 +103,7 @@ export const KEYBIND_ACTIONS = [
     label: 'Zoom tool',
     description: 'Switch to the zoom tool.',
     category: 'Tools',
-    defaultBinding: 'Z'
+    defaultBinding: null
   },
   {
     id: 'tool.rotate',

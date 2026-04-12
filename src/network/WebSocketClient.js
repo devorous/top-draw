@@ -68,6 +68,38 @@ export class WebSocketClient {
     this.clientIdentity = new ClientIdentity();
   }
 
+  _encodeChatImageDataUrl(imageData, maxBytes = 5 * 1024 * 1024) {
+    if (typeof imageData !== 'string') {
+      return { ok: false, error: 'Invalid chat image data' };
+    }
+
+    const match = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i.exec(imageData);
+    if (!match) {
+      return { ok: false, error: 'Invalid chat image format' };
+    }
+
+    try {
+      const base64Data = match[2].replace(/\s+/g, '');
+      const binaryString = atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      if (bytes.length === 0) {
+        return { ok: false, error: 'Chat image is empty' };
+      }
+
+      if (bytes.length > maxBytes) {
+        return { ok: false, error: 'Chat image is too large' };
+      }
+
+      return { ok: true, bytes };
+    } catch {
+      return { ok: false, error: 'Failed to encode chat image' };
+    }
+  }
+
   /**
    * Lazy-loads the Protocol Buffer schema.
    * @returns {Promise<void>}
@@ -1412,37 +1444,31 @@ export class WebSocketClient {
    * Broadcasts a staff-only image.
    * @param {string} imageData
    * @param {string} messageId
-   * @returns {void}
+   * @returns {{ok: boolean, error?: string}}
    */
   broadcastStaffChatImage(imageData, messageId = '') {
-    const base64Data = imageData.split(',')[1];
-    const binaryString = atob(base64Data);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    this.send({ t: T.STAFF_CHAT_IMG, cimg: bytes, chatMessageId: messageId });
+    const encoded = this._encodeChatImageDataUrl(imageData);
+    if (!encoded.ok) return encoded;
+    this.send({ t: T.STAFF_CHAT_IMG, cimg: encoded.bytes, chatMessageId: messageId });
+    return { ok: true };
   }
 
   /**
    * Broadcasts an image to the chat or a specific user.
    * @param {string} imageData - Base64 encoded image data URL.
    * @param {number|null} [recipientId=null] - Optional private recipient.
-   * @returns {void}
+   * @returns {{ok: boolean, error?: string}}
    */
   broadcastChatImage(imageData, recipientId = null, messageId = '') {
-    const base64Data = imageData.split(',')[1];
-    const binaryString = atob(base64Data);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
+    const encoded = this._encodeChatImageDataUrl(imageData);
+    if (!encoded.ok) return encoded;
 
     if (recipientId !== null) {
-      this.send({ t: T.CHAT_IMG, cimg: bytes, r: recipientId, chatMessageId: messageId });
+      this.send({ t: T.CHAT_IMG, cimg: encoded.bytes, r: recipientId, chatMessageId: messageId });
     } else {
-      this.send({ t: T.CHAT_IMG, cimg: bytes, chatMessageId: messageId });
+      this.send({ t: T.CHAT_IMG, cimg: encoded.bytes, chatMessageId: messageId });
     }
+    return { ok: true };
   }
 
   /**

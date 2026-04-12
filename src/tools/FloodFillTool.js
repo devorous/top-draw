@@ -124,102 +124,6 @@ export class FloodFillTool {
   }
 
   /**
-   * Get the occupied tile island as an array of tile rectangles for constraining fill.
-   * @param {number} clickX - Click X position
-   * @param {number} clickY - Click Y position
-   * @returns {Array<{x,y,width,height}>|null} Array of tile rects, or null if no tiles
-   */
-  _getOccupiedTileRects(clickX, clickY) {
-    const tt = this.board.tileTracker;
-    if (!tt) return null;
-
-    const clickTileIdx = tt.getTileIndex(clickX, clickY);
-    if (clickTileIdx === -1 || !tt.isTileDirty(clickTileIdx)) return null;
-
-    const cols = tt.cols;
-    const rows = tt.rows;
-    const tileSize = tt.tileSize;
-
-    // Flood-fill to find the connected tile island of occupied tiles
-    const visited = new Set();
-    const stack = [clickTileIdx];
-
-    while (stack.length > 0) {
-      const idx = stack.pop();
-      if (visited.has(idx)) continue;
-      if (!tt.isTileDirty(idx)) continue;
-
-      visited.add(idx);
-      const col = idx % cols;
-      const row = Math.floor(idx / cols);
-
-      if (col > 0) stack.push(idx - 1);
-      if (col < cols - 1) stack.push(idx + 1);
-      if (row > 0) stack.push(idx - cols);
-      if (row < rows - 1) stack.push(idx + cols);
-    }
-
-    if (visited.size === 0) return null;
-
-    // Convert tile indices to rectangles
-    const rects = [];
-    for (const idx of visited) {
-      const col = idx % cols;
-      const row = Math.floor(idx / cols);
-      rects.push({
-        x: col * tileSize,
-        y: row * tileSize,
-        width: tileSize,
-        height: tileSize
-      });
-    }
-
-    return rects;
-  }
-
-  /**
-   * Check if a fill result stays within the bounding box of tile rects.
-   * Used to determine if unconstrained fill needs to be re-run with constraints.
-   * @param {Object} result - Fill result with minX, minY, maxX, maxY
-   * @param {Array<{x,y,width,height}>} tileRects - Array of tile rectangles
-   * @returns {boolean} True if fill is within tile bounds
-   */
-  _isFillWithinTileBounds(result, tileRects) {
-    if (!tileRects || tileRects.length === 0) return false;
-
-    // Get bounding box of all tile rects
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const r of tileRects) {
-      if (r.x < minX) minX = r.x;
-      if (r.y < minY) minY = r.y;
-      if (r.x + r.width > maxX) maxX = r.x + r.width;
-      if (r.y + r.height > maxY) maxY = r.y + r.height;
-    }
-
-    // Check if fill result is within bounds (with small tolerance)
-    const tolerance = 2;
-    return result.minX >= minX - tolerance && result.maxX <= maxX + tolerance &&
-           result.minY >= minY - tolerance && result.maxY <= maxY + tolerance;
-  }
-
-  /**
-   * Check if a fill result is too large (likely an error/overflow).
-   * @param {Object} result - Fill result with minX, minY, maxX, maxY
-   * @param {number} canvasWidth - Canvas width
-   * @param {number} canvasHeight - Canvas height
-   * @returns {boolean} True if fill is suspiciously large
-   */
-  _isFillTooLarge(result, canvasWidth, canvasHeight) {
-    if (!result) return false;
-    const fillWidth = result.maxX - result.minX + 1;
-    const fillHeight = result.maxY - result.minY + 1;
-    const fillArea = fillWidth * fillHeight;
-    const canvasArea = canvasWidth * canvasHeight;
-    // Reject fills covering more than 50% of canvas
-    return fillArea > canvasArea * 0.5;
-  }
-
-  /**
    * Get pattern tile for fill (reuses PatternTool's tile generation logic).
    * @private
    */
@@ -547,14 +451,6 @@ export class FloodFillTool {
       const mbh = Math.min(height, mirrorResult.maxY + pad + 1) - mby;
       this.board.expandDirtyRect(user, mbx, mby, mbw, mbh);
     }
-
-    // Track tile ownership only for tiles that actually have filled pixels
-    // Also tracks in active stroke for undo support
-    this._markFilledTiles(result, width, params.userId, params.activeLayer);
-    for (const entry of mirrors) {
-      const mirrorResult = entry?.result || entry;
-      if (mirrorResult) this._markFilledTiles(mirrorResult, width, params.userId, params.activeLayer);
-    }
   }
 
   async _computeMirrorFillResults(imageData, width, height, x, y, expansion, userId) {
@@ -564,73 +460,10 @@ export class FloodFillTool {
       const mx = Math.round(mirrored.x);
       const my = Math.round(mirrored.y);
       if (mx < 0 || mx >= width || my < 0 || my >= height) continue;
-      let mirrorResult = await this._fillWorker.computeFill(imageData, width, height, mx, my, 10, expansion, null);
-      if (mirrorResult && this._isFillTooLarge(mirrorResult, width, height)) {
-        const mirrorTileRects = this._getOccupiedTileRects(mx, my, userId);
-        if (mirrorTileRects) {
-          mirrorResult = await this._fillWorker.computeFill(imageData, width, height, mx, my, 10, expansion, mirrorTileRects);
-        } else {
-          mirrorResult = null;
-        }
-      }
+      const mirrorResult = await this._fillWorker.computeFill(imageData, width, height, mx, my, 10, expansion, null);
       if (mirrorResult) results.push({ region, result: mirrorResult });
     }
     return results;
-  }
-
-  /**
-   * Mark only the tiles that actually contain filled pixels.
-   * Also tracks tiles in the active stroke for undo support.
-   * @private
-   */
-  _markFilledTiles(result, canvasWidth, userId, layerIndex) {
-    const tom = this.board.tileTracker;
-    if (!tom) return;
-
-    const { mask, minX, minY, maxX, maxY } = result;
-    const tileSize = tom.tileSize;
-
-    // Get the active stroke to track affected tiles for undo
-    const active = this.board.layerManager?.getActiveStroke(layerIndex, userId);
-
-    // Get tile range covered by fill bounds
-    const startCol = Math.floor(minX / tileSize);
-    const endCol = Math.floor(maxX / tileSize);
-    const startRow = Math.floor(minY / tileSize);
-    const endRow = Math.floor(maxY / tileSize);
-
-    // Check each tile to see if it has any filled pixels
-    for (let row = startRow; row <= endRow; row++) {
-      for (let col = startCol; col <= endCol; col++) {
-        const tileX = col * tileSize;
-        const tileY = row * tileSize;
-        const tileEndX = Math.min(tileX + tileSize, maxX + 1);
-        const tileEndY = Math.min(tileY + tileSize, maxY + 1);
-        const checkStartX = Math.max(tileX, minX);
-        const checkStartY = Math.max(tileY, minY);
-
-        // Check if any pixel in this tile is filled
-        let hasFill = false;
-        outer:
-        for (let py = checkStartY; py < tileEndY; py++) {
-          for (let px = checkStartX; px < tileEndX; px++) {
-            if (mask[py * canvasWidth + px]) {
-              hasFill = true;
-              break outer;
-            }
-          }
-        }
-
-        if (hasFill) {
-          const tileIdx = row * tom.cols + col;
-          tom.markTileDirty(tileIdx);
-          // Track for undo
-          if (active?.affectedTiles) {
-            active.affectedTiles.add(tileIdx);
-          }
-        }
-      }
-    }
   }
 
   // -- pointer events --
@@ -657,26 +490,11 @@ export class FloodFillTool {
     }
 
     if (!this.advancedMode) {
-      // -- Standard mode: try unconstrained fill first --
-      let result = await this._fillWorker.computeFill(
+      // -- Standard mode --
+      const result = await this._fillWorker.computeFill(
         data, width, height, x, y, 10, 0, null
       );
       if (!result) { this._committed = true; return; }
-
-      // Only apply tile constraint if fill is too large (>50% of canvas)
-      if (this._isFillTooLarge(result, width, height)) {
-        const tileRects = this._getOccupiedTileRects(x, y, params.userId);
-        if (tileRects) {
-          const constrainedResult = await this._fillWorker.computeFill(
-            this.board.mainCtx.getImageData(0, 0, width, height).data,
-            width, height, x, y, 10, 0, tileRects
-          );
-          if (constrainedResult) result = constrainedResult;
-          else result = null; // Reject if can't constrain a too-large fill
-        } else {
-          result = null; // No tiles owned, can't allow huge fill
-        }
-      }
 
       const mirrorResults = await this._computeMirrorFillResults(
         this.board.mainCtx.getImageData(0, 0, width, height).data,
@@ -703,29 +521,12 @@ export class FloodFillTool {
     this._dragStartBlur = this._blurRadius;
     this._imageData = this.board.mainCtx.getImageData(0, 0, width, height);
 
-    // Get occupied tile rects for fallback constraint (used if fill is too large)
-    const tileRects = this._getOccupiedTileRects(x, y);
-    this._fillParams = { ...params, width, height, user, tileRects };
+    this._fillParams = { ...params, width, height, user };
 
-    // Try unconstrained fill first
-    let initialResult = await this._fillWorker.computeFill(
+    const initialResult = await this._fillWorker.computeFill(
       data, width, height, x, y, 10, 0, null
     );
     if (!initialResult) { this._active = false; return; }
-
-    // Only apply tile constraint if fill is too large
-    if (this._isFillTooLarge(initialResult, width, height)) {
-      if (tileRects) {
-        const constrained = await this._fillWorker.computeFill(
-          this.board.mainCtx.getImageData(0, 0, width, height).data,
-          width, height, x, y, 10, 0, tileRects
-        );
-        if (constrained) initialResult = constrained;
-        else { this._active = false; return; }
-      } else {
-        this._active = false; return; // No tiles, can't allow huge fill
-      }
-    }
 
     // Show initial preview (move events may have already updated expansion/blur)
     if (this._expansion !== 0 || this._blurRadius !== 0) {
@@ -768,28 +569,14 @@ export class FloodFillTool {
   async _updatePreviewAsync() {
     if (!this._active || !this._fillParams) return;
 
-    const { width, height, userId, tileRects, user } = this._fillParams;
+    const { width, height, userId, user } = this._fillParams;
     const { fillR, fillG, fillB, userOpacity } = this._fillParams;
     const { x, y } = this._clickPos;
 
-    // Try unconstrained fill first
-    let result = await this._fillWorker.computeFill(
+    const result = await this._fillWorker.computeFill(
       this._imageData.data.slice(0), width, height,
       x, y, 10, this._expansion, null
     );
-
-    // Only apply tile constraint if fill is too large
-    if (result && this._isFillTooLarge(result, width, height)) {
-      if (tileRects) {
-        const constrained = await this._fillWorker.computeFill(
-          this._imageData.data.slice(0), width, height,
-          x, y, 10, this._expansion, tileRects
-        );
-        result = constrained; // Use constrained or null
-      } else {
-        result = null;
-      }
-    }
 
     // If we've been cancelled while waiting, don't render
     if (!this._active) return;
@@ -837,7 +624,7 @@ export class FloodFillTool {
       return;
     }
 
-    const { width, height, activeLayer, userId, tileRects } = this._fillParams;
+    const { width, height, activeLayer, userId } = this._fillParams;
     const params = this._fillParams;
     const { x, y } = this._clickPos;
 
@@ -848,24 +635,10 @@ export class FloodFillTool {
     }
     this._pendingPreview = false;
 
-    // Try unconstrained fill first
-    let result = await this._fillWorker.computeFill(
+    const result = await this._fillWorker.computeFill(
       this._imageData.data.slice(0), width, height,
       x, y, 10, this._expansion, null
     );
-
-    // Only apply tile constraint if fill is too large
-    if (result && this._isFillTooLarge(result, width, height)) {
-      if (tileRects) {
-        const constrained = await this._fillWorker.computeFill(
-          this._imageData.data.slice(0), width, height,
-          x, y, 10, this._expansion, tileRects
-        );
-        result = constrained;
-      } else {
-        result = null;
-      }
-    }
 
     // Clear preview
     this.board.topCtx.clearRect(0, 0, width, height);

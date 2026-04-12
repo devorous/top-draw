@@ -22,6 +22,7 @@ export class RemoteUserUI {
     this.userGroups = new Map(); // ipHash -> { element, userIds: Set }
     this._replayModeActive = false;
     this._cursorIdleTimers = new Map();
+    this._cursorIdleDeadlines = new Map();
     this.userListSortMode = 'recent';
     this._recentActivity = new Map();
 
@@ -125,6 +126,7 @@ export class RemoteUserUI {
       clearTimeout(existingTimer);
       this._cursorIdleTimers.delete(userId);
     }
+    this._cursorIdleDeadlines.delete(userId);
   }
 
   _isRemoteTextActive(userId) {
@@ -151,29 +153,49 @@ export class RemoteUserUI {
   }
 
   _scheduleCursorIdleHide(userId) {
-    this._clearCursorIdleTimer(userId);
-
     if (this._shouldSuppressLiveUser(userId) || this._isRemoteTextActive(userId)) {
+      this._clearCursorIdleTimer(userId);
       return;
     }
 
+    this._cursorIdleDeadlines.set(userId, Date.now() + REMOTE_CURSOR_IDLE_MS);
+    if (this._cursorIdleTimers.has(userId)) return;
+
+    this._armCursorIdleHide(userId, REMOTE_CURSOR_IDLE_MS);
+  }
+
+  _armCursorIdleHide(userId, delayMs) {
+    const safeDelay = Math.max(0, Math.ceil(delayMs));
     const timer = setTimeout(() => {
       this._cursorIdleTimers.delete(userId);
+
       if (this._shouldSuppressLiveUser(userId) || this._isRemoteTextActive(userId)) {
+        this._cursorIdleDeadlines.delete(userId);
         return;
       }
+
+      const deadline = this._cursorIdleDeadlines.get(userId);
+      if (!deadline) return;
+
+      const remaining = deadline - Date.now();
+      if (remaining > 16) {
+        this._armCursorIdleHide(userId, remaining);
+        return;
+      }
+
+      this._cursorIdleDeadlines.delete(userId);
       this._setCursorLayerVisibility(userId, false);
-    }, REMOTE_CURSOR_IDLE_MS);
+    }, safeDelay);
 
     this._cursorIdleTimers.set(userId, timer);
   }
 
   _applyRemoteToolDisplay(userId, tool) {
-    const id = `u${userId}`;
-    const circle = document.querySelector(`.circle.${id}`);
-    const square = document.querySelector(`.square.${id}`);
-    const crosshair = document.querySelector(`.crosshair.${id}`);
-    const text = document.querySelector(`.text.${id}`);
+    const cursorElements = this.cursors.get(userId);
+    const circle = cursorElements?.circle;
+    const square = cursorElements?.square;
+    const crosshair = cursorElements?.crosshair;
+    const text = cursorElements?.text;
 
     if (!circle || !square || !crosshair || !text) return;
 
@@ -215,7 +237,10 @@ export class RemoteUserUI {
       return;
     }
 
-    this._setCursorLayerVisibility(userId, true);
+    const cursorElements = this.cursors.get(userId);
+    if (cursorElements?.cursor?.style.display === 'none') {
+      this._setCursorLayerVisibility(userId, true);
+    }
     this._scheduleCursorIdleHide(userId);
   }
 
@@ -679,11 +704,11 @@ export class RemoteUserUI {
     }
     this.notifyUserActive(userId);
     this.markRemoteCursorActivity(userId);
-    const id = `u${userId}`;
-    const cursor = document.querySelector(`.cursor.${id}`);
-    const circle = document.querySelector(`.circle.${id}`);
-    const square = document.querySelector(`.square.${id}`);
-    const crosshair = document.querySelector(`.crosshair.${id}`);
+    const cursorElements = this.cursors.get(userId);
+    const cursor = cursorElements?.cursor;
+    const circle = cursorElements?.circle;
+    const square = cursorElements?.square;
+    const crosshair = cursorElements?.crosshair;
 
     if (cursor) {
       cursor.style.left = `${x - 100}px`;
@@ -723,10 +748,10 @@ export class RemoteUserUI {
    */
   updateRemoteSize(userId, size) {
     if (this._shouldSuppressLiveUser(userId)) return;
-    const id = `u${userId}`;
-    const circle = document.querySelector(`.circle.${id}`);
-    const square = document.querySelector(`.square.${id}`);
-    const text = document.querySelector(`.text.${id}`);
+    const cursorElements = this.cursors.get(userId);
+    const circle = cursorElements?.circle;
+    const square = cursorElements?.square;
+    const text = cursorElements?.text;
 
     if (circle) circle.setAttribute('r', size);
     if (square) {

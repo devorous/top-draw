@@ -215,6 +215,7 @@ export class HistoryPanel {
   _registerWsHandlers() {
     // List response
     this.wsClient.on('board_snapshot_list', ({ snapshotList }) => {
+      if (!this.isOpen) return;
       this.snapshots = snapshotList || [];
       this._renderStrip();
       this._setStatus('');
@@ -225,6 +226,7 @@ export class HistoryPanel {
 
     // Private get response
     this.wsClient.on('board_snapshot_get_response', ({ snapshotId, snapshotLayers }) => {
+      if (!this.isOpen) return;
       if (snapshotId !== this.selectedId) return;
       this.selectedLayers = snapshotLayers;
       this._renderPreview(snapshotLayers);
@@ -242,6 +244,8 @@ export class HistoryPanel {
     if (this.isOpen) return;
     this.isOpen = true;
 
+    this.app.snapshotManager?.clearListCache?.();
+    this.snapshots = [];
     this.selectedId = null;
     this.selectedLayers = null;
     this.selection = null;
@@ -250,6 +254,8 @@ export class HistoryPanel {
     const [h, w] = this.board.dimensions;
     this._setupCanvases(w, h);
     this._resetView();
+    this._renderStrip();
+    this._clearPreview();
 
     this.overlay.style.display = 'flex';
     this._setStatus('Loading…');
@@ -262,7 +268,15 @@ export class HistoryPanel {
     this.isOpen = false;
     this.overlay.style.display = 'none';
     this._stopMarchingAnts();
+    this.app.snapshotManager?.clearListCache?.();
+    this.snapshots = [];
+    this.selectedId = null;
     this.selectedLayers = null;
+    this.selection = null;
+    this.lassoPoints = [];
+    this.isLoading = false;
+    this._renderStrip();
+    this._clearPreview();
   }
 
   // ---------------------------------------------------------------------------
@@ -662,7 +676,6 @@ export class HistoryPanel {
       mainCtx.restore();
     }
 
-    if (this.board.tileGrid) this.board.tileGrid.markAllDirty();
     this.close();
   }
 

@@ -84,6 +84,10 @@
     }
 
     const onMove = (moveEvent) => {
+      if ((moveEvent.buttons & 1) === 0) {
+        stop();
+        return;
+      }
       const deltaX = (moveEvent.screenX - cursorScreenX) * scaleFactor;
       const deltaY = (moveEvent.screenY - cursorScreenY) * scaleFactor;
       pendingX = Math.round(baseX + deltaX);
@@ -98,11 +102,19 @@
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', stop);
       window.removeEventListener('blur', stop);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') {
+        stop();
+      }
     };
 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', stop, { once: true });
     window.addEventListener('blur', stop, { once: true });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
   }
 
   async function beginWindowDrag(event) {
