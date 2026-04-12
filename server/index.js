@@ -1743,10 +1743,27 @@ wss.on('connection', async (ws, req) => {
           const sessionIndex = room.sessionManager.allocateSessionIndex();
           ws.sessionIndex = sessionIndex;
 
+          console.log('[IdentityDebug][server] JOIN message data fields:', {
+            client_device_id: data.client_device_id,
+            client_fingerprint_id: data.client_fingerprint_id,
+            client_identity_json: data.client_identity_json,
+            clientDeviceId: data.clientDeviceId,
+            clientFingerprintId: data.clientFingerprintId,
+            clientIdentityJson: data.clientIdentityJson
+          });
+
           const identity = normalizeIdentityPayload(data);
-          ws.deviceId = identity.deviceId;
-          ws.fingerprintId = identity.fingerprintId;
-          ws.identitySummary = identity.identitySummary;
+          console.log('[IdentityDebug][server] Normalized identity:', identity);
+          console.log('[IdentityDebug][server] Existing ws values:', {
+            deviceId: ws.deviceId,
+            fingerprintId: ws.fingerprintId,
+            identitySummary: ws.identitySummary
+          });
+
+          // Preserve existing values if new values are empty
+          ws.deviceId = identity.deviceId || ws.deviceId;
+          ws.fingerprintId = identity.fingerprintId || ws.fingerprintId;
+          ws.identitySummary = identity.identitySummary || ws.identitySummary;
           const requestedUsername = normalizeUsername(data.n || '');
           const username = room.sessionManager.getUniqueName(requestedUsername || 'Guest');
           console.log(`[CONNECT] Session ${sessionIndex} joining room ${room.id} as "${username}"`);
