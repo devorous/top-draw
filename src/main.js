@@ -117,7 +117,7 @@ async function bootApp() {
     ]);
 
     const instance = new DrawingApp({
-      dimensions: [1080, 1920],
+      dimensions: [2160, 1920],
       serverUrl: wsServerUrl
     });
 

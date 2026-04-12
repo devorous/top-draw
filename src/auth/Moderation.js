@@ -190,6 +190,14 @@ export class Moderation {
       clearBtn.addEventListener('click', () => { if (this.onClear) this.onClear(); });
       fragment.appendChild(clearBtn);
 
+      // Dev button (toggles debug overlay)
+      const devBtn = document.createElement('a');
+      devBtn.className = 'btn modOnly';
+      devBtn.id = 'devBtn';
+      devBtn.innerHTML = '<span class="devOption">Dev</span>';
+      devBtn.addEventListener('click', () => { if (this.onToggleDevMode) this.onToggleDevMode(); });
+      fragment.appendChild(devBtn);
+
       // Mod button
       const modBtn = document.createElement('a');
       modBtn.className = 'btn modOnly';

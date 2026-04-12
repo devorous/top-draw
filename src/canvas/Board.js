@@ -1378,6 +1378,38 @@ export class Board {
     this.compositeTileGrid?.markFull?.();
   }
 
+  _markBatchDirtyRects(batch) {
+    const pad = 2;
+    let marked = false;
+    for (const { record } of batch) {
+      if (record.x != null && record.y != null && record.width > 0 && record.height > 0) {
+        this.compositeTileGrid?.markRect(
+          record.x - pad, record.y - pad,
+          record.width + pad * 2, record.height + pad * 2
+        );
+        marked = true;
+      }
+    }
+    if (!marked) {
+      this.markCompositeFull();
+    }
+  }
+
+  _markSelectionRestoreDirtyRects(restoreData) {
+    if (!restoreData) return;
+    const { snapshots, eraseS } = restoreData;
+    if (eraseS) {
+      this.compositeTileGrid?.markRect(eraseS.x, eraseS.y, eraseS.width, eraseS.height);
+    }
+    if (snapshots) {
+      for (const { canvas, x, y } of snapshots) {
+        if (canvas) {
+          this.compositeTileGrid?.markRect(x, y, canvas.width, canvas.height);
+        }
+      }
+    }
+  }
+
   _applyCompositeClip(ctx, dirtyRects) {
     if (!ctx || !dirtyRects || dirtyRects.length === 0) return false;
     ctx.save();
@@ -1507,12 +1539,14 @@ export class Board {
     if (!this.layerManager) return;
     const batch = this.layerManager.undoLastStrokeGlobal(userId);
     let tilesToRecheck = null;
+    let needsFullRedraw = false;
 
     if (batch) {
       this.layerManager._pushToRedoStack(userId, batch);
       for (const { record } of batch) {
         if (record.selectionRestoreData) {
           this._applySelectionRestore(record.selectionRestoreData.snapshots);
+          this._markSelectionRestoreDirtyRects(record.selectionRestoreData);
           break;
         }
         if (record.affectedTiles) {
@@ -1521,12 +1555,13 @@ export class Board {
         }
       }
     }
-    // Preserve the local preview/selection overlays during undo so another
-    // user's history change cannot blank an in-progress stroke preview.
-    this.markCompositeFull();
+
+    if (!batch) {
+      return;
+    }
+    this._markBatchDirtyRects(batch);
     this.compositeAllLayers();
 
-    // After composite, check affected tiles and update tracker state based on current pixels
     if (tilesToRecheck && this.tileTracker) {
       this.checkErasedTilesByIndices(tilesToRecheck, userId === this.app?.self?.id);
     }
@@ -1546,12 +1581,15 @@ export class Board {
     if (!this.layerManager) return;
     const redoStack = this.layerManager.redoStackByUser.get(userId);
     let tilesToRecheck = null;
+    let needsFullRedraw = false;
+    let batch = null;
 
     if (redoStack && redoStack.length > 0) {
-      const batch = redoStack[redoStack.length - 1];
+      batch = redoStack[redoStack.length - 1];
       for (const { record } of batch) {
         if (record.selectionRestoreData) {
           this._applySelectionReErase(record.selectionRestoreData);
+          this._markSelectionRestoreDirtyRects(record.selectionRestoreData);
           break;
         }
         if (record.affectedTiles) {
@@ -1561,12 +1599,13 @@ export class Board {
       }
     }
     this.layerManager.redoLastStroke(userId);
-    // Preserve the local preview/selection overlays during redo for the same
-    // reason as undo: previews are transient UI state, not history state.
-    this.markCompositeFull();
+
+    if (!batch) {
+      return;
+    }
+    this._markBatchDirtyRects(batch);
     this.compositeAllLayers();
 
-    // Re-check tiles to update tracker state
     if (tilesToRecheck && this.tileTracker) {
       this.checkErasedTilesByIndices(tilesToRecheck, userId === this.app?.self?.id);
     }
@@ -1650,6 +1689,11 @@ export class Board {
     const dirtyRects = Array.isArray(pendingDirtyRects) && pendingDirtyRects.length > 0
       ? pendingDirtyRects
       : null;
+
+    if (this.onCompositeDirtyRects) {
+      const isFullRedraw = pendingDirtyRects === null;
+      this.onCompositeDirtyRects(dirtyRects, isFullRedraw);
+    }
 
     if (Array.isArray(pendingDirtyRects) &&
         pendingDirtyRects.length === 0 &&

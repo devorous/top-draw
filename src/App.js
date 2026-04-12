@@ -23,7 +23,7 @@ import { InputBufferManager } from './input/InputBufferManager.js';
 import { KeyboardHandler } from './input/KeyboardHandler.js';
 import { BrushModeManager } from './tools/BrushModeManager.js';
 import { BlendModeManager } from './canvas/BlendModeManager.js';
-import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js';
+// import { StrokeHistoryPanel } from './ui/StrokeHistoryPanel.js'; // Hidden - stroke history panel disabled
 import { PerformanceDebugPanel } from './ui/PerformanceDebugPanel.js';
 import { TimeMachine } from './timebar/TimeMachine.svelte.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
@@ -188,8 +188,14 @@ export class DrawingApp {
     this._rotatePivotClientY = 0;
     this._rotatePrevAngle = null;    // previous angle from pivot to pointer
 
-    // Stroke history panel (dev mode)
-    this.strokeHistoryPanel = new StrokeHistoryPanel();
+    // Stroke history panel (dev mode) - DISABLED
+    // this.strokeHistoryPanel = new StrokeHistoryPanel();
+    this.strokeHistoryPanel = {
+      init: () => {},
+      setLayerManager: () => {},
+      setActiveLayer: () => {},
+      setEnabled: () => {}
+    }; // Stub for compatibility
 
     // Performance debug panel
     this.performanceDebugPanel = new PerformanceDebugPanel(this.inputBufferManager, this);

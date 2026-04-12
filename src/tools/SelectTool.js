@@ -2260,7 +2260,7 @@ export class SelectTool extends Tool {
 
     // Activate split-composite mode so upper layers render above the floating selection
     this.board.activeSelectionLayer = this.board.app?.self?.activeLayer ?? 0;
-    this.board.markCompositeFull();
+    this.board.compositeTileGrid?.markRect(s.x, s.y, s.width, s.height);
     this.board.compositeAllLayers();
 
     // Draw floating selection on top canvas
@@ -2347,7 +2347,7 @@ export class SelectTool extends Tool {
         lm.commitUserStroke(groupIdx, userId, { selectionRestoreData: this._restoreData, timestamp: commitBatchTimestamp });
       }
 
-      this.board.markCompositeFull();
+      this.board.compositeTileGrid?.markRect(dirtyX, dirtyY, dirtyW, dirtyH);
       this.board.compositeAllLayers();
 
       // Add tile ownership for visible tiles in the pasted region (must be after composite)
@@ -2437,7 +2437,7 @@ export class SelectTool extends Tool {
     // Commit as an undoable stroke record.
     // Attach restore data so Board.undo/redo can also reverse the source-area erase.
     lm.commitUserStroke(activeLayer, userId, { selectionRestoreData: this._restoreData });
-    this.board.markCompositeFull();
+    this.board.compositeTileGrid?.markRect(dirtyX, dirtyY, dirtyWidth, dirtyHeight);
     this.board.compositeAllLayers();
 
     // Add tile ownership for visible tiles in the pasted region (must be after composite)
@@ -2461,7 +2461,11 @@ export class SelectTool extends Tool {
   clearSelection() {
     // Deactivate split-composite mode — no floating selection in flight
     this.board.activeSelectionLayer = -1;
-    this.board.markCompositeFull();
+    if (this.selection) {
+      this.board.compositeTileGrid?.markRect(this.selection.x, this.selection.y, this.selection.width, this.selection.height);
+    } else {
+      this.board.markCompositeFull();
+    }
     this.board.compositeAllLayers();
 
     this.selection = null;
@@ -2622,7 +2626,7 @@ export class SelectTool extends Tool {
       eraseGroup(this.board.app?.self?.activeLayer ?? 0);
     }
 
-    this.board.markCompositeFull();
+    this.board.compositeTileGrid?.markRect(s.x, s.y, s.width, s.height);
     this.board.compositeAllLayers();
 
     // Return snapshots + the original erase shape so Board.undo/redo can replay it

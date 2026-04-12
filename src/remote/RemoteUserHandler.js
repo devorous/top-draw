@@ -34,7 +34,7 @@ export class RemoteUserHandler {
     );
 
     /** @type {number} */
-    this.catchupInterval = 16;
+    this.catchupInterval = 33; // 30 FPS (was 16ms / 62.5 FPS)
     /** @type {number|null} */
     this.catchupTimer = null;
   }

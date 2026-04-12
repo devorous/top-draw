@@ -5,5 +5,10 @@
 @use '../abstracts' as *;
 
 #debugOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
   display: none;
+  z-index: 5;
 }

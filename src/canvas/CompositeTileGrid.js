@@ -115,7 +115,16 @@ export class CompositeTileGrid {
     });
 
     this.clear();
-    if (rects.length > maxRects) return null;
+    if (rects.length > maxRects) {
+      let minX = Infinity, minY = Infinity, maxRX = -Infinity, maxRY = -Infinity;
+      for (const r of rects) {
+        if (r.x < minX) minX = r.x;
+        if (r.y < minY) minY = r.y;
+        if (r.x + r.width > maxRX) maxRX = r.x + r.width;
+        if (r.y + r.height > maxRY) maxRY = r.y + r.height;
+      }
+      return [{ x: minX, y: minY, width: maxRX - minX, height: maxRY - minY }];
+    }
     return rects;
   }
 }
