@@ -301,7 +301,7 @@ export class DrawingApp {
     this.landingPage = new LandingPage({
       wsClient: this.wsClient,
       auth: this.auth,
-      onRoomSelected: (roomId, password) => this.handleRoomSelected(roomId, password),
+      onRoomSelected: (roomId, password, settings) => this.handleRoomSelected(roomId, password, settings),
       onOffline: () => this.handleOffline()
     });
     this.landingPage.init();
@@ -1668,7 +1668,7 @@ export class DrawingApp {
    * @param {string} [password=null] - The room password, if any.
    * @returns {Promise<void>}
    */
-  async handleRoomSelected(roomId, password = null) {
+  async handleRoomSelected(roomId, password = null, pendingSettings = null) {
     // Handle /go/offline as draw alone mode
     if (roomId === 'offline') {
       this.handleOffline();
@@ -1680,6 +1680,7 @@ export class DrawingApp {
     this.isOfflineMode = false;
     this.currentRoomId = roomId;
     this.currentRoomPassword = password;
+    this._pendingRoomSettings = pendingSettings || null;
 
     const usernameInput = this.ui.elements.loginUsername;
     if (usernameInput && usernameInput.value && !this.self.username) {
@@ -2240,6 +2241,20 @@ export class DrawingApp {
 
     this.moderation.setRole(this.selfRole);
     this.inputBufferManager.startTickLoop();
+
+    // Apply pending room settings from "Create Room" dialog
+    if (this._pendingRoomSettings) {
+      const s = this._pendingRoomSettings;
+      this._pendingRoomSettings = null;
+      this.wsClient.send({
+        t: T.ROOM_UPDATE,
+        roomDescription: s.roomDescription,
+        roomBackgroundColor: s.roomBackgroundColor,
+        roomLocked: s.roomLocked,
+        roomMaxUsers: s.roomMaxUsers,
+        roomJoinPolicy: s.roomJoinPolicy
+      });
+    }
 
     // Eligibility determined by election or manual pin — let the handler decide
     this._updatePreviewUploadEligibility();

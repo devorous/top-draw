@@ -393,6 +393,9 @@
                 </div>
               </div>
 
+              <!-- Create Room CTA -->
+              <button class="btn createRoomBtn" id="createRoomBtn">+ Create your own room!</button>
+
               <!-- Active Rooms List -->
               <div class="roomListSection">
                 <div class="roomListHeader">
@@ -401,6 +404,70 @@
                 <div id="roomList" class="roomList">
                   <div class="roomListEmpty">Loading rooms...</div>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Create Room Dialog -->
+          <div id="createRoomDialog" class="createRoomOverlay" style="display:none;">
+            <div class="createRoomPanel">
+              <h3 class="createRoomTitle">Create a Room</h3>
+
+              <div class="createRoomNotice">
+                <span class="noticeIcon">&#9888;</span>
+                <span>This room will be <strong>temporary</strong> unless you register an account first! Registered rooms keep their settings, history, and let you moderate.</span>
+              </div>
+
+              <div class="createRoomForm">
+                <div class="createRoomField">
+                  <label for="createRoomId">Room Name</label>
+                  <div class="roomInputGroup">
+                    <input type="text" id="createRoomId" class="authInput" maxlength="20" placeholder="e.g. my-room" spellcheck="false" />
+                    <button class="btn secondary small" id="createRoomRandomBtn" title="Generate random ID">&#8635;</button>
+                  </div>
+                  <span class="createRoomFieldHint">2–20 characters: letters, numbers, dashes, underscores</span>
+                </div>
+
+                <div class="createRoomField">
+                  <label for="createRoomDesc">Description <span class="optionalTag">optional</span></label>
+                  <input type="text" id="createRoomDesc" class="authInput" maxlength="80" placeholder="What's this room for?" />
+                </div>
+
+                <div class="createRoomRow">
+                  <div class="createRoomField half">
+                    <label for="createRoomMaxUsers">Max Users</label>
+                    <input type="number" id="createRoomMaxUsers" class="authInput" min="2" max="60" value="40" />
+                  </div>
+                  <div class="createRoomField half">
+                    <label for="createRoomBgColor">Background</label>
+                    <input type="color" id="createRoomBgColor" class="authInput colorInput" value="#ffffff" />
+                  </div>
+                </div>
+
+                <div class="createRoomField">
+                  <label for="createRoomJoinPolicy">Who can join?</label>
+                  <select id="createRoomJoinPolicy" class="authInput authSelect">
+                    <option value="open">Anyone</option>
+                    <option value="registered">Registered users only</option>
+                    <option value="trusted">Trusted users only</option>
+                  </select>
+                </div>
+
+                <div class="createRoomCheckRow">
+                  <input type="checkbox" id="createRoomLocked" class="createRoomCheck" />
+                  <label for="createRoomLocked">Lock room (invite only)</label>
+                </div>
+              </div>
+
+              <div class="createRoomModNote">
+                <strong>Want to moderate your own room?</strong>
+                Register an account and you'll be able to set user roles, kick/ban troublemakers,
+                clear the canvas, and keep your room's settings between sessions.
+              </div>
+
+              <div class="createRoomActions">
+                <button class="btn" id="createRoomCancelBtn">Cancel</button>
+                <button class="btn selected" id="createRoomConfirmBtn">Create Room</button>
               </div>
             </div>
           </div>

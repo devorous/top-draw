@@ -37,8 +37,21 @@ export class LandingPage {
       refreshRoomsBtn: document.getElementById('refreshRoomsBtn'),
       joinBtn: document.getElementById('joinBtn'),
       loginOfflineBtn: document.getElementById('loginOfflineBtn'),
-      landingConnectionStatus: document.getElementById('landingConnectionStatus')
+      landingConnectionStatus: document.getElementById('landingConnectionStatus'),
+      createRoomBtn: document.getElementById('createRoomBtn'),
+      createRoomDialog: document.getElementById('createRoomDialog'),
+      createRoomIdInput: document.getElementById('createRoomId'),
+      createRoomRandomBtn: document.getElementById('createRoomRandomBtn'),
+      createRoomDescInput: document.getElementById('createRoomDesc'),
+      createRoomMaxUsersInput: document.getElementById('createRoomMaxUsers'),
+      createRoomBgColorInput: document.getElementById('createRoomBgColor'),
+      createRoomJoinPolicyInput: document.getElementById('createRoomJoinPolicy'),
+      createRoomLockedInput: document.getElementById('createRoomLocked'),
+      createRoomCancelBtn: document.getElementById('createRoomCancelBtn'),
+      createRoomConfirmBtn: document.getElementById('createRoomConfirmBtn')
     };
+
+    this.pendingRoomSettings = null;
 
     this.setupListeners();
 
@@ -75,6 +88,91 @@ export class LandingPage {
       e.preventDefault();
       document.getElementById('loginForm')?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
     });
+
+    this.els.createRoomBtn?.addEventListener('click', () => this.openCreateRoomDialog());
+    this.els.createRoomCancelBtn?.addEventListener('click', () => this.closeCreateRoomDialog());
+    this.els.createRoomRandomBtn?.addEventListener('click', () => {
+      if (this.els.createRoomIdInput) {
+        this.els.createRoomIdInput.value = this.generateRoomId();
+      }
+    });
+    this.els.createRoomConfirmBtn?.addEventListener('click', () => this.handleCreateRoom());
+    this.els.createRoomDialog?.addEventListener('click', (e) => {
+      if (e.target === this.els.createRoomDialog) this.closeCreateRoomDialog();
+    });
+    this.els.createRoomIdInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this.handleCreateRoom();
+      if (e.key === 'Escape') this.closeCreateRoomDialog();
+    });
+  }
+
+  /**
+   * Open the create room dialog.
+   */
+  openCreateRoomDialog() {
+    if (!this.els.createRoomDialog) return;
+    if (this.els.createRoomIdInput) {
+      this.els.createRoomIdInput.value = this.generateRoomId();
+    }
+    this.els.createRoomDialog.style.display = 'flex';
+    this.els.createRoomIdInput?.focus();
+  }
+
+  /**
+   * Close the create room dialog.
+   */
+  closeCreateRoomDialog() {
+    if (this.els.createRoomDialog) {
+      this.els.createRoomDialog.style.display = 'none';
+    }
+  }
+
+  /**
+   * Handle create room form submission.
+   */
+  handleCreateRoom() {
+    const roomId = this.els.createRoomIdInput?.value.trim();
+    if (!roomId) {
+      this.els.createRoomIdInput?.focus();
+      return;
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(roomId)) {
+      this.showCreateRoomError('Room name can only contain letters, numbers, dashes, and underscores');
+      return;
+    }
+    if (roomId.length < 2 || roomId.length > 20) {
+      this.showCreateRoomError('Room name must be 2–20 characters');
+      return;
+    }
+
+    let maxUsers = parseInt(this.els.createRoomMaxUsersInput?.value) || 40;
+    maxUsers = Math.max(2, Math.min(60, maxUsers));
+
+    this.pendingRoomSettings = {
+      roomDescription: this.els.createRoomDescInput?.value.trim() || '',
+      roomBackgroundColor: this.els.createRoomBgColorInput?.value || '#ffffff',
+      roomMaxUsers: maxUsers,
+      roomJoinPolicy: this.els.createRoomJoinPolicyInput?.value || 'open',
+      roomLocked: this.els.createRoomLockedInput?.checked || false
+    };
+
+    this.closeCreateRoomDialog();
+    this.proceedToRoom(roomId, null);
+  }
+
+  /**
+   * Show an error inside the create room dialog.
+   * @param {string} message
+   */
+  showCreateRoomError(message) {
+    let errEl = this.els.createRoomDialog?.querySelector('.createRoomError');
+    if (!errEl) {
+      errEl = document.createElement('div');
+      errEl.className = 'createRoomError landingError';
+      this.els.createRoomDialog?.querySelector('.createRoomActions')?.before(errEl);
+    }
+    errEl.textContent = message;
+    errEl.style.display = 'block';
   }
 
   /**
@@ -397,7 +495,9 @@ export class LandingPage {
 
     this.hide();
     if (this.onRoomSelected) {
-      this.onRoomSelected(roomId, password);
+      const settings = this.pendingRoomSettings;
+      this.pendingRoomSettings = null;
+      this.onRoomSelected(roomId, password, settings);
     }
   }
 
