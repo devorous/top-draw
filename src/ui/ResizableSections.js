@@ -202,12 +202,15 @@ export class ResizableSections {
   }
 
   getVisibleSections() {
-    return this.sections
+    this._visibilityCache = new Map();
+    const visible = this.sections
       .map(section => ({
         ...section,
         element: document.getElementById(section.id)
       }))
       .filter(section => section.element && this.sectionHasVisibleContent(section));
+    this._visibilityCache = null;
+    return visible;
   }
 
   sectionHasVisibleContent(section) {
@@ -239,24 +242,48 @@ export class ResizableSections {
 
     if (element.hidden) return false;
 
+    // Use cached result if available within the same refresh cycle
+    if (this._visibilityCache?.has(element)) {
+      return this._visibilityCache.get(element);
+    }
+
+    // Checking display property first is much faster as it doesn't always trigger style recalc
+    if (element.style.display === 'none') {
+      this._visibilityCache?.set(element, false);
+      return false;
+    }
+
     const style = window.getComputedStyle(element);
-    return style.display !== 'none' && style.visibility !== 'hidden';
+    const isVisible = style.display !== 'none' && style.visibility !== 'hidden';
+    
+    this._visibilityCache?.set(element, isVisible);
+    return isVisible;
   }
 
   refreshLayout(contextKey = this.getContextKey()) {
     if (!this.container) return;
 
-    this.currentContextKey = this.getContextStorageKey(contextKey);
-
+    const newContextKey = this.getContextStorageKey(contextKey);
     const visibleSections = this.getVisibleSections();
-    const visibleSectionIds = new Set(visibleSections.map(section => section.id));
+    const visibleSectionIds = visibleSections.map(section => section.id).join(',');
+
+    // Skip if context hasn't changed AND visible sections are the same
+    if (this._lastContextKey === newContextKey && this._lastVisibleSectionIds === visibleSectionIds) {
+      return;
+    }
+
+    this._lastContextKey = newContextKey;
+    this._lastVisibleSectionIds = visibleSectionIds;
+    this.currentContextKey = newContextKey;
+
+    const visibleSectionIdSet = new Set(visibleSections.map(section => section.id));
     const savedHeights = this.loadHeights(this.currentContextKey);
 
     this.sections.forEach(section => {
       const element = document.getElementById(section.id);
       if (!element) return;
 
-      const isVisible = visibleSectionIds.has(section.id);
+      const isVisible = visibleSectionIdSet.has(section.id);
       element.style.display = isVisible ? 'flex' : 'none';
 
       if (!isVisible) {

@@ -3809,7 +3809,19 @@ export class DrawingApp {
     const boardEl = this.ui?.elements?.board;
     if (!boardEl || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
 
-    const rect = boardEl.getBoundingClientRect();
+    if (!this._boardRect) {
+      this._boardRect = boardEl.getBoundingClientRect();
+      // Update rect on resize or scroll
+      const updateRect = () => {
+        if (this.ui?.elements?.board) {
+          this._boardRect = this.ui.elements.board.getBoundingClientRect();
+        }
+      };
+      window.addEventListener('resize', updateRect, { passive: true });
+      window.addEventListener('scroll', updateRect, { passive: true, capture: true });
+    }
+
+    const rect = this._boardRect;
     if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return false;
 
     // Check that the topmost element at this position is the board or a child of it,

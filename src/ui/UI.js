@@ -171,17 +171,24 @@ export class UI {
 
       if (!panel || !indicator) return;
 
+      let scheduledUpdate = null;
       const updateScrollIndicator = () => {
-        const hasScroll = panel.scrollHeight > panel.clientHeight;
-        const scrollTop = panel.scrollTop;
-        const isNearBottom = panel.scrollHeight - scrollTop <= panel.clientHeight + 20;
+        if (scheduledUpdate) return;
 
-        // Show only when: has scroll, at top (not scrolled), and not at bottom
-        if (hasScroll && scrollTop < 10 && !isNearBottom) {
-          indicator.classList.add('visible');
-        } else {
-          indicator.classList.remove('visible');
-        }
+        scheduledUpdate = requestAnimationFrame(() => {
+          scheduledUpdate = null;
+          const hasScroll = panel.scrollHeight > panel.clientHeight;
+          const scrollTop = panel.scrollTop;
+          const isNearBottom = panel.scrollHeight - scrollTop <= panel.clientHeight + 20;
+
+          // Show only when: has scroll, at top (not scrolled), and not at bottom
+          const shouldShow = hasScroll && scrollTop < 10 && !isNearBottom;
+          if (shouldShow) {
+            indicator.classList.add('visible');
+          } else {
+            indicator.classList.remove('visible');
+          }
+        });
       };
 
       // Initial check

@@ -319,25 +319,29 @@ export function drawTangentStroke(ctx, points, color) {
 
 /**
  * Calculate perpendicular distance from point to line segment
- * @param {Object} point - Point {x, y}
- * @param {Object} lineStart - Line start {x, y}
- * @param {Object} lineEnd - Line end {x, y}
+ * @param {number} px - Point X
+ * @param {number} py - Point Y
+ * @param {number} x1 - Line start X
+ * @param {number} y1 - Line start Y
+ * @param {number} x2 - Line end X
+ * @param {number} y2 - Line end Y
  * @returns {number} - Perpendicular distance
  */
-function perpendicularDistance(point, lineStart, lineEnd) {
-  const dx = lineEnd.x - lineStart.x;
-  const dy = lineEnd.y - lineStart.y;
+function perpendicularDistance(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
 
   // Handle degenerate case where line segment is a point
   const lengthSquared = dx * dx + dy * dy;
   if (lengthSquared === 0) {
-    const pdx = point.x - lineStart.x;
-    const pdy = point.y - lineStart.y;
+    const pdx = px - x1;
+    const pdy = py - y1;
     return Math.sqrt(pdx * pdx + pdy * pdy);
   }
 
   // Calculate perpendicular distance using cross product
-  const numerator = Math.abs(dy * point.x - dx * point.y + lineEnd.x * lineStart.y - lineEnd.y * lineStart.x);
+  // numerator = |(y2-y1)px - (x2-x1)py + x2y1 - y2x1|
+  const numerator = Math.abs(dy * px - dx * py + x2 * y1 - y2 * x1);
   const denominator = Math.sqrt(lengthSquared);
 
   return numerator / denominator;
@@ -346,40 +350,66 @@ function perpendicularDistance(point, lineStart, lineEnd) {
 /**
  * Douglas-Peucker point reduction algorithm
  * Recursively simplifies a polyline while preserving its shape
- * @param {Array} points - Array of {x, y} points
+ * @param {Array<number>} points - Flattened array of points [x, y, p, x, y, p...]
  * @param {number} epsilon - Tolerance (larger = more reduction)
- * @returns {Array} - Simplified array of points
+ * @returns {Array<number>} - Simplified flattened array of points
  */
 export function douglasPeucker(points, epsilon) {
-  if (points.length <= 2) {
+  const len = points.length;
+  if (len < 6) {
     return points;
   }
 
-  // Find the point with maximum distance from line between first and last
+  const kept = new Uint8Array(len / 3);
+  kept[0] = 1;
+  kept[(len / 3) - 1] = 1;
+
+  simplifyStep(points, 0, (len / 3) - 1, epsilon, kept);
+
+  const result = [];
+  for (let i = 0; i < kept.length; i++) {
+    if (kept[i]) {
+      result.push(points[i * 3], points[i * 3 + 1], points[i * 3 + 2]);
+    }
+  }
+  return result;
+}
+
+/**
+ * Recursive step for Douglas-Peucker using indices to avoid slicing.
+ * @param {Array<number>} points - Original flattened points.
+ * @param {number} start - Start index of the current segment.
+ * @param {number} end - End index of the current segment.
+ * @param {number} epsilon - Tolerance.
+ * @param {Uint8Array} kept - Mask of kept points.
+ */
+function simplifyStep(points, start, end, epsilon, kept) {
+  if (end <= start + 1) return;
+
   let maxDistance = 0;
   let maxIndex = 0;
-  const start = points[0];
-  const end = points[points.length - 1];
 
-  for (let i = 1; i < points.length - 1; i++) {
-    const distance = perpendicularDistance(points[i], start, end);
+  const x1 = points[start * 3];
+  const y1 = points[start * 3 + 1];
+  const x2 = points[end * 3];
+  const y2 = points[end * 3 + 1];
+
+  for (let i = start + 1; i < end; i++) {
+    const distance = perpendicularDistance(
+      points[i * 3], points[i * 3 + 1],
+      x1, y1, x2, y2
+    );
+
     if (distance > maxDistance) {
       maxDistance = distance;
       maxIndex = i;
     }
   }
 
-  // If max distance is greater than epsilon, recursively simplify
   if (maxDistance > epsilon) {
-    // Recursive call on both segments
-    const left = douglasPeucker(points.slice(0, maxIndex + 1), epsilon);
-    const right = douglasPeucker(points.slice(maxIndex), epsilon);
-
-    // Combine results (remove duplicate middle point)
-    return left.slice(0, -1).concat(right);
-  } else {
-    // All points between start and end can be removed
-    return [start, end];
+    kept[maxIndex] = 1;
+    simplifyStep(points, start, maxIndex, epsilon, kept);
+    simplifyStep(points, maxIndex, end, epsilon, kept);
   }
 }
 

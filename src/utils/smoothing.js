@@ -12,12 +12,16 @@
  * @param {number} targetP - Target pressure (0-1).
  * @param {number} userSmoothing - User smoothing setting (0-50).
  * @param {number} [baseline=0.12] - Baseline smoothing factor (12% default).
+ * @param {Object} [out] - Optional output object to write results into.
  * @returns {Object} - Smoothed position and pressure {x, y, p}.
  */
-export function applySmoothingEMA(buffer, targetX, targetY, targetP, userSmoothing, baseline = 0.12) {
+export function applySmoothingEMA(buffer, targetX, targetY, targetP, userSmoothing, baseline = 0.12, out) {
   // Calculate total smoothing: baseline (always on) + user contribution
   // userSmoothing is now 0-50 integer, so divide by 50.0 to get 0-1 range
   const totalSmoothing = baseline + (userSmoothing / 50.0) * (1 - baseline);
+
+  // Use out object if provided, otherwise create a temporary one (for compatibility)
+  const result = out || {};
 
   // First point: initialize buffer with target (no smoothing)
   if (buffer.isFirst || totalSmoothing === 0) {
@@ -25,7 +29,11 @@ export function applySmoothingEMA(buffer, targetX, targetY, targetP, userSmoothi
     buffer.y = targetY;
     buffer.p = targetP !== undefined ? targetP : 1;
     buffer.isFirst = false;
-    return { x: targetX, y: targetY, p: buffer.p };
+    
+    result.x = targetX;
+    result.y = targetY;
+    result.p = buffer.p;
+    return result;
   }
 
   // Calculate interpolation factor
@@ -52,7 +60,10 @@ export function applySmoothingEMA(buffer, targetX, targetY, targetP, userSmoothi
     buffer.p = (buffer.p !== undefined ? buffer.p : 1) + dp;
   }
 
-  return { x: buffer.x, y: buffer.y, p: buffer.p };
+  result.x = buffer.x;
+  result.y = buffer.y;
+  result.p = buffer.p;
+  return result;
 }
 
 /**

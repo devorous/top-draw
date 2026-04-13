@@ -5,6 +5,7 @@
 
 import { douglasPeucker, distanceBasedCulling } from '../utils/drawing.js';
 import { applySmoothingEMA, resetSmoothingBuffer } from '../utils/smoothing.js';
+import * as wasm from '../wasm/ddraw_wasm.js';
 
 const TPS_NORMAL = 60;
 const TPS_LOW_POWER = 30;
@@ -126,9 +127,14 @@ export class InputBufferManager {
     };
 
     /** @type {Object} */
-    this.broadcastSmoothBuffer = { x: 0, y: 0, p: 1, isFirst: true };
+    this.broadcastSmoothBuffer = { x: 0, y: 0, p: 1, isFirst: true, resultOut: { x: 0, y: 0, p: 1 } };
     /** @type {Array<number>} */
     this.pendingBroadcastPoints = [];
+
+    // Scratchpad objects for zero-allocation point processing
+    this._currentPosScratch = { x: 0, y: 0 };
+    this._prevPosScratch = { x: 0, y: 0 };
+    this._smoothedPosScratch = { x: 0, y: 0 };
   }
 
   /**
@@ -290,22 +296,37 @@ export class InputBufferManager {
         const isInk = app.self.tool === 'ink';
 
         for (let i = 0; i < localPoints.length; i += 3) {
-          const currentPos = { x: localPoints[i], y: localPoints[i + 1] };
+          const currentX = localPoints[i];
+          const currentY = localPoints[i + 1];
           const currentPressure = localPoints[i + 2];
-          const prevPos = i === 0
-            ? (this.inputBuffer.lastPosition || currentPos)
-            : { x: localPoints[i - 3], y: localPoints[i - 2] };
+
+          // Use scratchpads
+          this._currentPosScratch.x = currentX;
+          this._currentPosScratch.y = currentY;
+
+          if (i === 0) {
+            if (this.inputBuffer.lastPosition) {
+              this._prevPosScratch.x = this.inputBuffer.lastPosition.x;
+              this._prevPosScratch.y = this.inputBuffer.lastPosition.y;
+            } else {
+              this._prevPosScratch.x = currentX;
+              this._prevPosScratch.y = currentY;
+            }
+          } else {
+            this._prevPosScratch.x = localPoints[i - 3];
+            this._prevPosScratch.y = localPoints[i - 2];
+          }
 
           app.self.setPressure(currentPressure);
 
           if (isInk && tool.onPointerMoveNoRender) {
-            tool.onPointerMoveNoRender(app.self, currentPos, prevPos);
+            tool.onPointerMoveNoRender(app.self, this._currentPosScratch, this._prevPosScratch);
           } else {
-            tool.onPointerMove(app.self, currentPos, prevPos);
+            tool.onPointerMove(app.self, this._currentPosScratch, this._prevPosScratch);
           }
 
           app.self._mainCtxDrawCount++;
-          app.debugOverlay.addStrokePoint(app.self.id, currentPos.x, currentPos.y, 'tick');
+          app.debugOverlay.addStrokePoint(app.self.id, currentX, currentY, 'tick');
         }
 
         if (isInk && tool.renderStroke) {
@@ -400,15 +421,21 @@ export class InputBufferManager {
     if (!this.pointReduction.enabled || points.length < 6) return points;
     const userSmoothing = this.app.self.smoothing !== undefined ? this.app.self.smoothing : 15;
     const baseline = this.baselineSmoothing.pointReduction;
-    const pointObjects = [];
-    for (let i = 0; i < points.length; i += 3) {
-      pointObjects.push({ x: points[i], y: points[i + 1], p: points[i + 2] });
-    }
     const epsilon = baseline.minEpsilon + (baseline.maxEpsilon - baseline.minEpsilon) * (userSmoothing / 50);
-    const reduced = douglasPeucker(pointObjects, epsilon);
-    const result = [];
-    for (const p of reduced) result.push(p.x, p.y, p.p);
-    return result;
+
+    // Prefer WASM if available (already optimized for flat arrays)
+    if (typeof wasm.douglas_peucker_wasm === 'function') {
+      try {
+        // Rust expects a Float32Array
+        const floatPoints = points instanceof Float32Array ? points : new Float32Array(points);
+        return wasm.douglas_peucker_wasm(floatPoints, epsilon);
+      } catch (e) {
+        console.error('WASM Douglas-Peucker failed, falling back to JS:', e);
+      }
+    }
+
+    // Fallback to JS (now also optimized for flat arrays)
+    return douglasPeucker(points, epsilon);
   }
 
   /**
@@ -422,7 +449,15 @@ export class InputBufferManager {
     const userSmoothing = this.app.self.smoothing || 0;
     const result = [];
     for (let i = 0; i < points.length; i += 3) {
-      const smoothed = applySmoothingEMA(this.broadcastSmoothBuffer, points[i], points[i+1], points[i+2], userSmoothing);
+      const smoothed = applySmoothingEMA(
+        this.broadcastSmoothBuffer, 
+        points[i], 
+        points[i+1], 
+        points[i+2], 
+        userSmoothing,
+        0.12,
+        this.broadcastSmoothBuffer.resultOut
+      );
       result.push(smoothed.x, smoothed.y, smoothed.p);
     }
     return result;

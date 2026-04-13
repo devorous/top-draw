@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
 import protobuf from 'protobufjs';
 import { ObjectId } from 'mongodb';
-import path from 'path';
+import pathModule from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { connectDB, getDB, getMongoDatabase } from './db.js';
@@ -38,7 +38,7 @@ function hasOwnField(message, key) {
 }
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = pathModule.dirname(__filename);
 
 const PORT = process.env.PORT || 8000;
 const DISABLE_RATE_LIMITS = process.env.DISABLE_RATE_LIMITS === 'true';
@@ -671,7 +671,7 @@ const server = createServer(async (req, res) => {
   // Version endpoint: returns current server version and minimum supported client version
   if (path === '/api/version' && req.method === 'GET') {
     try {
-      const versionJsonPath = path.join(__dirname, '..', 'public', 'version.json');
+      const versionJsonPath = pathModule.join(__dirname, '..', 'public', 'version.json');
       const fs = await import('fs/promises');
       const versionData = JSON.parse(await fs.readFile(versionJsonPath, 'utf8'));
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -918,7 +918,7 @@ async function applyMuteStateToClient(client, room, options = {}) {
  * @returns {Promise<void>}
  */
 async function init() {
-  const protoPath = path.join(__dirname, '..', 'public', 'messages.proto');
+  const protoPath = pathModule.join(__dirname, '..', 'public', 'messages.proto');
   const root = await protobuf.load(protoPath);
   Msg = root.lookupType('Msg');
   POOLED_MSG = Msg.create();
