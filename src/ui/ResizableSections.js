@@ -217,10 +217,12 @@ export class ResizableSections {
     const element = section.element || document.getElementById(section.id);
     if (!element) return false;
 
-    // Optimization: Skip scanning children for sections we KNOW are always visible
-    // or if the element itself is explicitly hidden via inline style.
+    // Optimization: Skip scanning children for sections we KNOW are always visible.
+    // Do not trust the section shell's current inline display state here because
+    // refreshLayout() manages that value. If we treat a previously hidden shell as
+    // permanently empty, sections like tool sliders/extras never come back after
+    // visiting a tool with no options.
     if (section.hasPersistentContent) return true;
-    if (element.style.display === 'none') return false;
 
     const contentRoot = section.contentSelector
       ? element.querySelector(section.contentSelector)
