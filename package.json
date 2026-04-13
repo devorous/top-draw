@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "concurrently \"npm run server\" \"vite --open /go/\"",
     "build": "vite build",
+    "build:itch": "vite build && node scripts/itch-patch.js",
     "build:preview": "npm run build && npm run preview",
     "vite": "vite",
     "preview": "vite preview",

@@ -32,7 +32,7 @@ export class PatternBrushGallery extends BrushGallery {
 
         try {
           const brushPath = entry.path || `/brushes/${entry.file}`;
-          const brush = await this.loadBrush(brushPath);
+          const brush = await this.loadBrush(brushPath, entry.file);
           if (brush) {
             this.brushes.push(brush);
             this.addBrushToGallery(brush);

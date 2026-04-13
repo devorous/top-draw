@@ -42,7 +42,7 @@ function versionInjectionPlugin() {
 
 export default defineConfig({
   root: '.',
-  base: '/',
+  base: './',
   publicDir: 'public',
   appType: 'mpa',
   plugins: [

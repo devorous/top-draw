@@ -1340,7 +1340,7 @@ export class Board {
         tilesToBroadcast = Array.from(active.affectedTiles);
       }
     }
-    if (active?.dirtyRect?.maxX !== -1) {
+    if (active?.dirtyRect && active.dirtyRect.maxX !== -1) {
       this.compositeTileGrid?.markRect(
         active.dirtyRect.minX,
         active.dirtyRect.minY,

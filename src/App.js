@@ -2592,7 +2592,7 @@ export class DrawingApp {
     appSettingsBtn.id = 'appSettingsBtn';
     appSettingsBtn.innerHTML = `
       <span class="btnText">Settings</span>
-      <span class="btnIcon" style="display: none;"><img src="/images/settings-icon.svg" alt="Settings"></span>
+      <span class="btnIcon" style="display: none;"><img src="../images/settings-icon.svg" alt="Settings"></span>
     `;
     collapsible.appendChild(appSettingsBtn);
   }

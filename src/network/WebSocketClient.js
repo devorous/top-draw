@@ -113,8 +113,7 @@ export class WebSocketClient {
 
     try {
       const protobuf = await import('protobufjs');
-      const baseUrl = import.meta.env.BASE_URL || '/';
-      const protoUrl = `${baseUrl}messages.proto`.replace('//', '/');
+      const protoUrl = '../messages.proto';
       const response = await fetch(protoUrl, { cache: 'no-store' });
       if (!response.ok) {
         throw new Error(`Failed to fetch protobuf schema: ${response.status}`);

@@ -33,9 +33,9 @@ import rotateIconUrl from '../assets/icons/rotate-icon.svg';
 import pepperIconUrl from '../assets/icons/pepper.png';
 import patternIconUrl from '../assets/icons/pattern-icon.svg';
 
-const fillBucketIconUrl = '/images/fillbucket-icon.svg';
-const blendIconUrl = '/images/blend-icon.svg';
-const zoomIconUrl = '/images/magnifying-glass.svg';
+const fillBucketIconUrl = '../images/fillbucket-icon.svg';
+const blendIconUrl = '../images/blend-icon.svg';
+const zoomIconUrl = '../images/magnifying-glass.svg';
 
 /**
  * UI Manager class
@@ -499,8 +499,8 @@ menuBtn: document.getElementById('menuBtn'),
       zoom: zoomIconUrl,
       rotate: rotateIconUrl,
       pattern: patternIconUrl,
-      lockClosed: '/images/lock-closed.svg', // Preload from static assets
-      lockOpen: '/images/lock-open.svg'
+      lockClosed: '../images/lock-closed.svg', // Preload from static assets
+      lockOpen: '../images/lock-open.svg'
     };
 
     const fetchPromises = Object.entries(iconMap).map(async ([toolName, url]) => {
@@ -1451,7 +1451,7 @@ menuBtn: document.getElementById('menuBtn'),
       btn.innerHTML = cachedIcon.content;
     } else {
       // Fallback
-      btn.innerHTML = locked ? '<img src="/images/lock-closed.svg" alt="lock">' : '<img src="/images/lock-open.svg" alt="unlock">';
+      btn.innerHTML = locked ? '<img src="../images/lock-closed.svg" alt="lock">' : '<img src="../images/lock-open.svg" alt="unlock">';
     }
 
     btn.classList.toggle('locked', locked);

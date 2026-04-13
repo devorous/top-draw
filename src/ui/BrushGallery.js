@@ -43,7 +43,7 @@ export class BrushGallery {
       for (const entry of BRUSH_MANIFEST) {
         try {
           const brushPath = entry.path || `/brushes/${entry.file}`;
-          const brush = await this.loadBrush(brushPath);
+          const brush = await this.loadBrush(brushPath, entry.file);
           if (brush) {
             this.brushes.push(brush);
             this.addBrushToGallery(brush);
@@ -62,13 +62,13 @@ export class BrushGallery {
    * @param {string} filePath - Path to the brush file
    * @returns {Promise<Object|null>} - Parsed brush data or null
    */
-  async loadBrush(filePath) {
+  async loadBrush(filePath, hintFileName) {
     const response = await fetch(filePath);
     if (!response.ok) {
       throw new Error(`Failed to fetch ${filePath}`);
     }
 
-    const fileName = filePath.split('/').pop();
+    const fileName = hintFileName || filePath.split('/').pop();
     const fileType = fileName.split('.').pop().toLowerCase();
 
     let brushData = null;

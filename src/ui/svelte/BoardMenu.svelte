@@ -115,7 +115,7 @@
           title="Toggle visibility"
         >
           {#if appState.layerVisibility[layer.index]}
-            <img src="/images/eye-open.svg" alt="Visible" width="14" height="14" style="filter: invert(1) brightness(1.5);" />
+            <img src="../images/eye-open.svg" alt="Visible" width="14" height="14" style="filter: invert(1) brightness(1.5);" />
           {:else}
             <img src="/images/eye-closed.svg" alt="Hidden" width="14" height="14" />
           {/if}
@@ -173,7 +173,7 @@
       onclick={toggleSnapshotMenu}
       title="Board History / Snapshots"
     >
-      <img src="/images/undo-icon.svg" alt="History" width="14" height="14" style="filter: invert(1) brightness(1.5);" />
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 7H15C16.8692 7 17.8039 7 18.5 7.40193C18.9561 7.66523 19.3348 8.04394 19.5981 8.49999C20 9.19615 20 10.1308 20 12C20 13.8692 20 14.8038 19.5981 15.5C19.3348 15.9561 18.9561 16.3348 18.5 16.5981C17.8039 17 16.8692 17 15 17H8.00001M4 7L7 4M4 7L7 10" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span>History</span>
     </button>
   </div>
