@@ -31,6 +31,42 @@ export class RemoteSelectionHandler {
     }
   }
 
+  _cloneSelectionRestoreData(restoreData) {
+    if (!restoreData) return null;
+
+    const snapshots = Array.isArray(restoreData.snapshots)
+      ? restoreData.snapshots.map((snap) => {
+          const sourceCanvas = snap?.canvas;
+          let clonedCanvas = null;
+
+          if (sourceCanvas) {
+            clonedCanvas = document.createElement('canvas');
+            clonedCanvas.width = sourceCanvas.width;
+            clonedCanvas.height = sourceCanvas.height;
+            const clonedCtx = clonedCanvas.getContext('2d');
+            clonedCtx.drawImage(sourceCanvas, 0, 0);
+          }
+
+          return {
+            groupIdx: snap?.groupIdx ?? 0,
+            canvas: clonedCanvas,
+            x: snap?.x ?? 0,
+            y: snap?.y ?? 0
+          };
+        })
+      : [];
+
+    return {
+      snapshots,
+      eraseS: restoreData.eraseS ? { ...restoreData.eraseS } : null,
+      eraseLassoPath: Array.isArray(restoreData.eraseLassoPath)
+        ? restoreData.eraseLassoPath.map((pt) => ({ ...pt }))
+        : null,
+      eraseTimestamp: restoreData.eraseTimestamp,
+      eraseUserId: restoreData.eraseUserId
+    };
+  }
+
   /**
    * Generate a pattern tile from a user's pattern brush settings.
    * @private
@@ -483,8 +519,10 @@ export class RemoteSelectionHandler {
       }
     }
 
-    // Pass the restore data captured during lift so Board.undo can reverse the erase
-    lm.commitUserStroke(layerIdx, user.id, { selectionRestoreData: user._selectionRestoreData });
+    // Hand history its own snapshot copy so cleanup of the live remote selection
+    // doesn't destroy the canvases needed for later undo/redo replay.
+    const historyRestoreData = this._cloneSelectionRestoreData(user._selectionRestoreData);
+    lm.commitUserStroke(layerIdx, user.id, { selectionRestoreData: historyRestoreData });
     this.board.activeSelectionLayer = -1;
     this.board.markCompositeFull();
     this.board.compositeAllLayers();
@@ -599,7 +637,7 @@ export class RemoteSelectionHandler {
       const lm = this.board.layerManager;
       const layerIdx = layerIndex ?? user.activeLayer ?? 0;
 
-      lm.beginUserStroke(layerIdx, user.id, 'source-over');
+      lm.beginUserStroke(layerIdx, user.id, user.blendMode || 'source-over');
       const active = lm.layerGroups[layerIdx]?.activeStrokeByUser.get(user.id);
       if (!active) return;
 
@@ -1041,6 +1079,13 @@ export class RemoteSelectionHandler {
     const s = user.selection;
     const c = user.selectionCorners;
 
+    // Draw floating selection without blend mode — blend mode only applies on fill/commit,
+    // not during the move preview.
+    const prevBlendMode = user.board?.style.mixBlendMode;
+    if (user.board && prevBlendMode && prevBlendMode !== 'normal') {
+      user.board.style.mixBlendMode = 'normal';
+    }
+
     // Check if we need to use cached transform preview
     if (c && user.originalCorners && this.hasTransformedCorners(user)) {
       // Use cached preview canvas if available
@@ -1134,6 +1179,10 @@ export class RemoteSelectionHandler {
         ctx.setLineDash([]);
         ctx.lineDashOffset = 0;
       }
+    }
+
+    if (user.board && prevBlendMode && prevBlendMode !== 'normal') {
+      user.board.style.mixBlendMode = prevBlendMode;
     }
   }
 
@@ -1280,9 +1329,11 @@ export class RemoteSelectionHandler {
     const user = this.getUsersMap().get(userId);
     this.board.expandDirtyRect(user, ix, iy, iw, ih);
 
-    // Commit the stroke. Selection erasures are usually atomic/independent for remote users.
+    // Commit the stroke. Use an explicit timestamp so it can be found during undo.
+    const eraseTimestamp = Date.now();
     lm.commitUserStroke(layerIdx, userId, {
-      isSelectionErase: true
+      isSelectionErase: true,
+      timestamp: eraseTimestamp
     });
 
     lm.needsComposite = true;
@@ -1292,7 +1343,9 @@ export class RemoteSelectionHandler {
     return {
       snapshots,
       eraseS: { ...s },
-      eraseLassoPath: lassoPath ? lassoPath.map(p => ({ ...p })) : null
+      eraseLassoPath: lassoPath ? lassoPath.map(p => ({ ...p })) : null,
+      eraseTimestamp,
+      eraseUserId: userId
     };
   }
 }

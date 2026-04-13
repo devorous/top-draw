@@ -132,7 +132,15 @@ class ReplayBoard {
       this.layerManager._pushToRedoStack(userId, batch);
       for (const { record } of batch) {
         if (record.selectionRestoreData) {
-          this._applySelectionRestore(record.selectionRestoreData.snapshots);
+          const rd = record.selectionRestoreData;
+          const removedLiveErase = rd.eraseTimestamp !== undefined
+            ? this._takeSelectionEraseStroke(rd.eraseUserId ?? userId, rd.eraseTimestamp)
+            : null;
+          if (removedLiveErase) {
+            rd._redoEraseRecord = removedLiveErase;
+          } else {
+            this._applySelectionRestore(rd.snapshots);
+          }
           break;
         }
       }
@@ -153,7 +161,13 @@ class ReplayBoard {
       const batch = redoStack[redoStack.length - 1];
       for (const { record } of batch) {
         if (record.selectionRestoreData) {
-          this._applySelectionReErase(record.selectionRestoreData);
+          const rd = record.selectionRestoreData;
+          if (rd._redoEraseRecord) {
+            this._restoreSelectionEraseStroke(rd._redoEraseRecord);
+            rd._redoEraseRecord = null;
+          } else {
+            this._applySelectionReErase(rd);
+          }
           break;
         }
       }
@@ -176,6 +190,42 @@ class ReplayBoard {
       if (!group) continue;
       lm.addToBaseBin(groupIdx, canvas, x, y, 'source-over');
     }
+  }
+
+  _takeSelectionEraseStroke(userId, eraseTimestamp) {
+    const lm = this.layerManager;
+    for (let groupIdx = 0; groupIdx < lm.layerGroups.length; groupIdx++) {
+      const group = lm.layerGroups[groupIdx];
+      for (let i = group.strokeStack.length - 1; i >= 0; i--) {
+        const s = group.strokeStack[i];
+        if (s.userId === userId && s.timestamp === eraseTimestamp && s.isSelectionErase) {
+          group.strokeStack.splice(i, 1);
+          const cnt = group.userStrokeCounts.get(userId) || 0;
+          if (cnt > 0) group.userStrokeCounts.set(userId, cnt - 1);
+          return { groupIdx, record: s };
+        }
+      }
+    }
+    return null;
+  }
+
+  _restoreSelectionEraseStroke(eraseStrokeEntry) {
+    const lm = this.layerManager;
+    const group = lm?.layerGroups?.[eraseStrokeEntry?.groupIdx];
+    const record = eraseStrokeEntry?.record;
+    if (!group || !record) return false;
+
+    let insertIdx = group.strokeStack.length;
+    for (let i = 0; i < group.strokeStack.length; i++) {
+      if (group.strokeStack[i].timestamp > record.timestamp) {
+        insertIdx = i;
+        break;
+      }
+    }
+    group.strokeStack.splice(insertIdx, 0, record);
+    const cnt = group.userStrokeCounts.get(record.userId) || 0;
+    group.userStrokeCounts.set(record.userId, cnt + 1);
+    return true;
   }
 
   /**

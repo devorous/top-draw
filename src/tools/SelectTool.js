@@ -329,6 +329,7 @@ export class SelectTool extends Tool {
    */
   activate() {
     this.board.mainCtx.globalCompositeOperation = 'source-over';
+    this.board.topCanvas.style.mixBlendMode = 'normal';
     this.startMarchingAnts();
     this.setupMenuListeners();
   }
@@ -344,6 +345,11 @@ export class SelectTool extends Tool {
     this.board.container.style.cursor = '';
     // Reset topCtx line dash to prevent dotted lines bleeding into other tools
     this.board.topCtx.setLineDash([]);
+    // Restore blend mode from user state
+    if (this.board.app) {
+      const cssMode = this.board.app.blendModeManager.toCSSBlendMode(this.board.app.self.blendMode);
+      this.board.topCanvas.style.mixBlendMode = cssMode;
+    }
     if (this.board.app?.ui) {
       this.board.app.ui.setSelectCursor(false);
     }
@@ -2633,7 +2639,9 @@ export class SelectTool extends Tool {
     return {
       snapshots,
       eraseS: { ...s },
-      eraseLassoPath: lassoPath ? lassoPath.map(p => ({ ...p })) : null
+      eraseLassoPath: lassoPath ? lassoPath.map(p => ({ ...p })) : null,
+      eraseTimestamp: batchTimestamp,
+      eraseUserId: userId
     };
   }
 
