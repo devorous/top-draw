@@ -217,24 +217,44 @@ export class ResizableSections {
     const element = section.element || document.getElementById(section.id);
     if (!element) return false;
 
+    // Optimization: Skip scanning children for sections we KNOW are always visible
+    // or if the element itself is explicitly hidden via inline style.
+    if (section.hasPersistentContent) return true;
+    if (element.style.display === 'none') return false;
+
     const contentRoot = section.contentSelector
       ? element.querySelector(section.contentSelector)
       : element;
 
     if (!contentRoot) return false;
 
-    const childElements = Array.from(contentRoot.children);
-    if (childElements.length === 0) {
+    // Optimization: Skip children scan if the content root itself is explicitly hidden
+    if (contentRoot !== element && contentRoot.style.display === 'none') return false;
+
+    const children = contentRoot.children;
+    const len = children.length;
+    
+    if (len === 0) {
       return this.isElementVisible(contentRoot) && !!contentRoot.textContent?.trim();
     }
 
-    return childElements.some(child => {
-      if (child.classList.contains('scroll-indicator') || child.classList.contains('resize-handle')) {
-        return false;
+    // Faster for loop to avoid Array.from/some overhead
+    for (let i = 0; i < len; i++) {
+      const child = children[i];
+      const classList = child.classList;
+      if (classList.contains('scroll-indicator') || classList.contains('resize-handle')) {
+        continue;
       }
 
-      return this.isElementVisible(child);
-    });
+      // Check explicit display style before expensive computed check
+      if (child.style.display === 'none') continue;
+
+      if (this.isElementVisible(child)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   isElementVisible(element) {
