@@ -122,7 +122,9 @@ export class UI {
         document.documentElement.style.cursor = '';
 
         if (window.app?.appPreferences) {
-          window.app.saveAppPreferences(window.app.appPreferences);
+          if (typeof window.app.setAppPreferences === 'function') {
+            window.app.setAppPreferences(window.app.appPreferences);
+          }
         }
       };
 
