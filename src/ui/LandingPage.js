@@ -47,6 +47,7 @@ export class LandingPage {
       createRoomBgColorInput: document.getElementById('createRoomBgColor'),
       createRoomJoinPolicyInput: document.getElementById('createRoomJoinPolicy'),
       createRoomLockedInput: document.getElementById('createRoomLocked'),
+      createRoomPrivateInput: document.getElementById('createRoomPrivate'),
       createRoomCancelBtn: document.getElementById('createRoomCancelBtn'),
       createRoomConfirmBtn: document.getElementById('createRoomConfirmBtn')
     };
@@ -153,7 +154,8 @@ export class LandingPage {
       roomBackgroundColor: this.els.createRoomBgColorInput?.value || '#ffffff',
       roomMaxUsers: maxUsers,
       roomJoinPolicy: this.els.createRoomJoinPolicyInput?.value || 'open',
-      roomLocked: this.els.createRoomLockedInput?.checked || false
+      roomLocked: this.els.createRoomLockedInput?.checked || false,
+      roomPrivate: this.els.createRoomPrivateInput?.checked || false
     };
 
     this.closeCreateRoomDialog();

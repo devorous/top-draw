@@ -42,6 +42,7 @@
   let autoMuteGuests = $state(false);
   let autoMuteVpnUsers = $state(false);
   let hideChatNotifications = $state(false);
+  let roomPrivate = $state(false);
   let dedicatedReplayUser = $state('');
   let message = $state('');
   let messageType = $state('success');
@@ -101,6 +102,7 @@
     autoMuteGuests = !!data.autoMuteGuests;
     autoMuteVpnUsers = !!data.autoMuteVpnUsers;
     hideChatNotifications = !!data.hideChatNotifications;
+    roomPrivate = !!data.private;
     dedicatedReplayUser = data.dedicatedReplayUser || '';
 
     if (board) {
@@ -171,6 +173,7 @@
             autoMuteGuests,
             autoMuteVpnUsers,
             hideChatNotifications,
+            private: roomPrivate,
           });
         }
       } else {
@@ -189,6 +192,7 @@
       roomAutoMuteGuests: autoMuteGuests,
       roomAutoMuteVpnUsers: autoMuteVpnUsers,
       roomHideChatNotifications: hideChatNotifications,
+      roomPrivate: roomPrivate,
       roomDedicatedReplayUser: dedicatedReplayUser.trim() || null
     });
   }
@@ -452,14 +456,14 @@
           <div class="form-group checkbox-group">
             <label>
               <input type="checkbox" bind:checked={autoMuteGuests} />
-              <span>Auto-mute unregistered guests until they log in</span>
+              <span>Auto-mute unregistered guests</span>
             </label>
           </div>
 
           <div class="form-group checkbox-group">
             <label>
               <input type="checkbox" bind:checked={autoMuteVpnUsers} />
-              <span>Auto-mute VPN or datacenter users by ASN (mods and above exempt)</span>
+              <span>Auto-mute VPN or datacenter users</span>
             </label>
           </div>
 
@@ -467,6 +471,13 @@
             <label>
               <input type="checkbox" bind:checked={hideChatNotifications} />
               <span>Hide chat pop-up notifications in this room</span>
+            </label>
+          </div>
+
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" bind:checked={roomPrivate} />
+              <span>Private room (unlisted — won't appear in the room browser)</span>
             </label>
           </div>
 

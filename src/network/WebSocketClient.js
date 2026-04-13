@@ -498,7 +498,8 @@ export class WebSocketClient {
           autoMuteVpnUsers: !!data.roomAutoMuteVpnUsers,
           hideChatNotifications: !!data.roomHideChatNotifications,
           dedicatedReplayUser: data.roomDedicatedReplayUser || null,
-          electedUploader: data.electedUploader || null
+          electedUploader: data.electedUploader || null,
+          private: !!data.roomPrivate
         });
         break;
 

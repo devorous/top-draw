@@ -305,6 +305,7 @@ message Msg {
   string room_join_policy = 93;       // ROOM_UPDATE/SETTINGS: open|registered|trusted
   bool room_auto_mute_guests = 94;    // ROOM_UPDATE/SETTINGS: auto-mute unauthenticated guests
   bool room_auto_mute_vpn_users = 95; // ROOM_UPDATE/SETTINGS: auto-mute VPN/datacenter ASN traffic
+  bool room_private = 128;            // ROOM_UPDATE/SETTINGS: private (unlisted) room
 
   // === Ink Thinning Fields ===
   uint32 th = 59;               // Thinning * 100 (0-100)

@@ -336,6 +336,9 @@ export function setupUserHandlers(wsClient, app) {
     if (data.electedUploader !== undefined) {
       app.currentRoomData.electedUploader = data.electedUploader;
     }
+    if (data.private !== undefined) {
+      app.currentRoomData.private = data.private;
+    }
     // Re-evaluate on any settings change that could affect upload eligibility
     app._updatePreviewUploadEligibility();
     // Mirror is not persisted to DB, but update it locally

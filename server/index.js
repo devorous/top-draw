@@ -1073,6 +1073,7 @@ function buildSettingsPayload(room) {
     roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers,
     roomHideChatNotifications: room.settings.hideChatNotifications,
     roomDedicatedReplayUser: room.settings.dedicatedReplayUser,
+    roomPrivate: room.settings.private,
     electedUploader: room._electedUploader || ''
   };
 }
@@ -2486,6 +2487,9 @@ wss.on('connection', async (ws, req) => {
             if (data.roomDedicatedReplayUser !== undefined) {
               // null clears the dedicated user, otherwise store the username string
               room.settings.dedicatedReplayUser = data.roomDedicatedReplayUser || null;
+            }
+            if (data.roomPrivate !== undefined) {
+              room.settings.private = !!data.roomPrivate;
             }
 
             await room.saveToDB();

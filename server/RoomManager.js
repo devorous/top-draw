@@ -34,7 +34,8 @@ export class Room {
       autoMuteGuests: false,
       autoMuteVpnUsers: false,
       hideChatNotifications: false,
-      dedicatedReplayUser: null
+      dedicatedReplayUser: null,
+      private: false
     };
 
     this.description = '';
@@ -302,6 +303,7 @@ export class Room {
         this.settings.hideChatNotifications = !!doc.settings?.hideChatNotifications;
         this.settings.mirrorRegions = Array.isArray(doc.settings?.mirrorRegions) ? doc.settings.mirrorRegions : [];
         this.settings.dedicatedReplayUser = doc.settings?.dedicatedReplayUser || null;
+        this.settings.private = !!doc.settings?.private;
         console.log(`[Room] Loaded "${this.id}" from DB`);
       } else {
         const newDoc = {
@@ -321,7 +323,8 @@ export class Room {
             autoMuteVpnUsers: false,
             hideChatNotifications: false,
             mirrorRegions: [],
-            dedicatedReplayUser: null
+            dedicatedReplayUser: null,
+            private: false
           }
         };
         await db.collection('rooms').insertOne(newDoc);
@@ -362,7 +365,8 @@ export class Room {
               autoMuteVpnUsers: this.settings.autoMuteVpnUsers,
               hideChatNotifications: this.settings.hideChatNotifications,
               mirrorRegions: this.settings.mirrorRegions,
-              dedicatedReplayUser: this.settings.dedicatedReplayUser
+              dedicatedReplayUser: this.settings.dedicatedReplayUser,
+              private: this.settings.private
             }
           }
         }
@@ -496,6 +500,7 @@ export class RoomManager {
     const list = [];
     for (const room of this.rooms.values()) {
       if (room.id === '_discovery') continue;
+      if (room.settings.private) continue;
       const roomInfo = {
         id: room.id,
         description: room.description || '',

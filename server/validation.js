@@ -409,6 +409,7 @@ export async function sanitizeMessage(data) {
         const joinPolicy = sanitizeString(data.roomJoinPolicy, 16);
         sanitized.roomJoinPolicy = VALID_JOIN_POLICIES.has(joinPolicy) ? joinPolicy : 'open';
       }
+      if (data.roomPrivate !== undefined) sanitized.roomPrivate = sanitizeBoolean(data.roomPrivate);
       if (data.roomDedicatedReplayUser !== undefined) {
         // null or empty string clears, otherwise sanitize as username
         sanitized.roomDedicatedReplayUser = data.roomDedicatedReplayUser
