@@ -217,16 +217,18 @@ export function initSvelteUI(app) {
   // Mount ProfileDialog (modal)
   const profileDialogTarget = document.getElementById('profileDialogMount');
   if (profileDialogTarget) {
+    // In Tauri, relative URLs resolve to tauri://localhost — use absolute URL instead
+    const galleryBase = isTauriDesktop() ? 'https://ddraw.ca/gallery' : '/gallery';
     components.profileDialog = mount(ProfileDialog, {
       target: profileDialogTarget,
       props: {
-        galleryBaseUrl: '/gallery',
+        galleryBaseUrl: galleryBase,
         apiBaseUrl: '',
         onViewGallery: (username) => {
-          window.open(`/gallery?author=${encodeURIComponent(username)}`, '_blank');
+          window.open(`${galleryBase}?author=${encodeURIComponent(username)}`, '_blank');
         },
         onImageClick: (item) => {
-          window.open(`/gallery?id=${item.id}`, '_blank');
+          window.open(`${galleryBase}?id=${item.id}`, '_blank');
         }
       }
     });
