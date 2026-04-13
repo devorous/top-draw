@@ -4481,6 +4481,10 @@ export class DrawingApp {
         // This is correct behavior: dots should only appear with intentional pen pressure
         const tool = this.toolManager.getCurrentTool();
         if (tool) {
+          // Keep remote pressure state in sync for deferred pen taps. Without this,
+          // remote clients reuse the previous stroke's pressure when MD arrives,
+          // which can produce a large start dot for pressure-sensitive tools.
+          this.wsClient.broadcastPressureChange(this.self.pressure);
           this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y]);
           tool.onPointerDown(this.self, pending.pos, pending.event);
         }
