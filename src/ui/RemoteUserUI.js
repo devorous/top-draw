@@ -6,6 +6,7 @@ import { normalizeTextFont } from '../config/textFonts.js';
 import { getPreviewTextLayout } from '../utils/textLayout.js';
 
 const REMOTE_CURSOR_IDLE_MS = 5000;
+const GROUP_HEADER_REFRESH_MS = 5000;
 
 /**
  * RemoteUserUI class
@@ -25,6 +26,7 @@ export class RemoteUserUI {
     this._cursorIdleDeadlines = new Map();
     this.userListSortMode = 'recent';
     this._recentActivity = new Map();
+    this._groupUserIndex = new Map();
 
     this._initUserListSortControl();
   }
@@ -457,12 +459,14 @@ export class RemoteUserUI {
         if (otherEntry && otherEntry.parentElement === this.elements.userList) {
           group.usersContainer.appendChild(otherEntry);
           group.userIds.add(otherId);
+          this._groupUserIndex.set(String(otherId), ipHash);
         }
       });
     }
 
     // Add the new user to the group
     group.userIds.add(userId);
+    this._groupUserIndex.set(String(userId), ipHash);
     this._createSingleUserEntry(userId, userData, group.usersContainer);
     this._updateGroupSummary(ipHash);
     this._syncGroupSortMetadata(ipHash);
@@ -533,8 +537,11 @@ export class RemoteUserUI {
       headerNameEl: nameEl,
       headerCountEl: countBadge,
       pendingDisplayUpdate: null,
+      pendingRefreshTimer: null,
+      lastHeaderRefreshAt: 0,
     };
     this.userGroups.set(ipHash, group);
+    this._groupUserIndex.set(String(displayUserId), ipHash);
     this._setEntrySortMetadata(groupEl, {
       name: displayUserData.name || displayUserData.username || displayUserId,
       recent: this._recentActivity.get(String(displayUserId)) || Date.now()
@@ -585,6 +592,45 @@ export class RemoteUserUI {
     }, 33);
   }
 
+  _getGroupForUser(userId) {
+    const ipHash = this._groupUserIndex.get(String(userId));
+    if (!ipHash) return null;
+    const group = this.userGroups.get(ipHash);
+    return group?.userIds?.has(userId) ? { ipHash, group } : null;
+  }
+
+  _getMostRecentGroupUser(group) {
+    let nextUserId = group.displayUserId;
+    let mostRecent = this._recentActivity.get(String(nextUserId)) || 0;
+
+    for (const candidateUserId of group.userIds) {
+      const candidateRecent = this._recentActivity.get(String(candidateUserId)) || 0;
+      if (candidateRecent > mostRecent) {
+        mostRecent = candidateRecent;
+        nextUserId = candidateUserId;
+      }
+    }
+
+    return nextUserId;
+  }
+
+  _refreshGroupDisplayUser(ipHash) {
+    const group = this.userGroups.get(ipHash);
+    if (!group) return;
+    group.lastHeaderRefreshAt = Date.now();
+    this._setGroupDisplayUser(ipHash, this._getMostRecentGroupUser(group));
+  }
+
+  _scheduleGroupDisplayRefresh(ipHash, delayMs = GROUP_HEADER_REFRESH_MS) {
+    const group = this.userGroups.get(ipHash);
+    if (!group || group.pendingRefreshTimer !== null) return;
+
+    group.pendingRefreshTimer = setTimeout(() => {
+      group.pendingRefreshTimer = null;
+      this._refreshGroupDisplayUser(ipHash);
+    }, Math.max(0, Math.ceil(delayMs)));
+  }
+
   /**
    * Notify that a user was active — rotates the group header to show their
    * name, but does NOT update sort order. "Recent" sort means recently joined,
@@ -593,12 +639,21 @@ export class RemoteUserUI {
    * @param {string} userId - User ID
    */
   notifyUserActive(userId) {
-    for (const [ipHash, group] of this.userGroups.entries()) {
-      if (group.userIds.has(userId)) {
-        this._setGroupDisplayUser(ipHash, userId);
-        break;
-      }
+    const activityAt = Date.now();
+    this._markUserRecentActivity(userId, activityAt);
+
+    const groupInfo = this._getGroupForUser(userId);
+    if (!groupInfo) return;
+
+    const { ipHash, group } = groupInfo;
+    const elapsedSinceRefresh = activityAt - (group.lastHeaderRefreshAt || 0);
+
+    if (!group.lastHeaderRefreshAt || elapsedSinceRefresh >= GROUP_HEADER_REFRESH_MS) {
+      this._refreshGroupDisplayUser(ipHash);
+      return;
     }
+
+    this._scheduleGroupDisplayRefresh(ipHash, GROUP_HEADER_REFRESH_MS - elapsedSinceRefresh);
   }
 
   /**
@@ -946,6 +1001,7 @@ export class RemoteUserUI {
     for (const [ipHash, group] of this.userGroups.entries()) {
       if (group.userIds.has(userId)) {
         group.userIds.delete(userId);
+        this._groupUserIndex.delete(String(userId));
         
         // If only 1 user left, dissolve the group
         if (group.userIds.size === 1) {
@@ -956,10 +1012,13 @@ export class RemoteUserUI {
             this.elements.userList.insertBefore(lastEntry, group.element);
           }
           if (group.pendingDisplayUpdate !== null) clearTimeout(group.pendingDisplayUpdate);
+          if (group.pendingRefreshTimer !== null) clearTimeout(group.pendingRefreshTimer);
+          this._groupUserIndex.delete(String(lastUserId));
           group.element.remove();
           this.userGroups.delete(ipHash);
         } else if (group.userIds.size === 0) {
           if (group.pendingDisplayUpdate !== null) clearTimeout(group.pendingDisplayUpdate);
+          if (group.pendingRefreshTimer !== null) clearTimeout(group.pendingRefreshTimer);
           group.element.remove();
           this.userGroups.delete(ipHash);
         } else {
@@ -1033,13 +1092,11 @@ export class RemoteUserUI {
     }
 
     // Propagate to group header if this is the display user
-    for (const [ipHash, group] of this.userGroups.entries()) {
-      if (group.userIds.has(userId) && group.displayUserId === userId) {
-        group.headerToolEl.innerHTML = '';
-        const iconEl = this._iconToElement(this.icons[tool] || this.icons.brush);
-        if (iconEl) group.headerToolEl.appendChild(iconEl);
-        break;
-      }
+    const groupInfo = this._getGroupForUser(userId);
+    if (groupInfo?.group.displayUserId === userId) {
+      groupInfo.group.headerToolEl.innerHTML = '';
+      const iconEl = this._iconToElement(this.icons[tool] || this.icons.brush);
+      if (iconEl) groupInfo.group.headerToolEl.appendChild(iconEl);
     }
   }
 
