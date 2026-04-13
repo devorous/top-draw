@@ -1364,6 +1364,21 @@ export class DrawingApp {
       }, 0);
     });
 
+    // Push a sentinel state so the back button doesn't immediately leave the page.
+    // On popstate (back/forward), show a confirmation dialog instead of navigating away.
+    if (!window.history.state?._topDrawSentinel) {
+      window.history.pushState({ _topDrawSentinel: true }, '');
+    }
+    window.addEventListener('popstate', (e) => {
+      if (!e.state?._topDrawSentinel) {
+        // Re-push sentinel so back button is re-armed
+        window.history.pushState({ _topDrawSentinel: true }, '');
+        if (window.confirm('Are you sure you want to leave DDraw?')) {
+          window.history.go(-2);
+        }
+      }
+    });
+
     // Pattern options listeners
     if (elements.patternScaleSlider) {
       elements.patternScaleSlider.addEventListener('input', (e) => this.handlePatternScaleChange(e));
