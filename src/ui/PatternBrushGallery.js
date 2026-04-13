@@ -31,8 +31,13 @@ export class PatternBrushGallery extends BrushGallery {
         if (entry.file.endsWith('.gih')) continue;
 
         try {
-          const brushPath = entry.path || `/brushes/${entry.file}`;
-          const brush = await this.loadBrush(brushPath, entry.file);
+          let brush;
+          if (entry.svgContent) {
+            brush = await this.loadBrushFromSvgContent(entry.svgContent, entry.file);
+          } else {
+            const brushPath = entry.path || `/brushes/${entry.file}`;
+            brush = await this.loadBrush(brushPath, entry.file);
+          }
           if (brush) {
             this.brushes.push(brush);
             this.addBrushToGallery(brush);

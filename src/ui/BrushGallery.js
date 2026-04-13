@@ -42,8 +42,13 @@ export class BrushGallery {
     try {
       for (const entry of BRUSH_MANIFEST) {
         try {
-          const brushPath = entry.path || `/brushes/${entry.file}`;
-          const brush = await this.loadBrush(brushPath, entry.file);
+          let brush;
+          if (entry.svgContent) {
+            brush = await this.loadBrushFromSvgContent(entry.svgContent, entry.file);
+          } else {
+            const brushPath = entry.path || `/brushes/${entry.file}`;
+            brush = await this.loadBrush(brushPath, entry.file);
+          }
           if (brush) {
             this.brushes.push(brush);
             this.addBrushToGallery(brush);
@@ -152,6 +157,37 @@ export class BrushGallery {
       brushData.image = image;
     }
 
+    return brushData;
+  }
+
+  async loadBrushFromSvgContent(svgText, fileName) {
+    const svgBlob = new Blob([svgText], { type: 'image/svg+xml' });
+    const previewUrl = URL.createObjectURL(svgBlob);
+    const brushData = {
+      type: 'svg',
+      fileName: fileName,
+      brushName: fileName.replace(/\.[^/.]+$/, ''),
+      gimpUrl: null,
+      previewUrl: previewUrl,
+      svgContent: svgText,
+      width: 0,
+      height: 0
+    };
+
+    const image = new Image();
+    await new Promise((resolve, reject) => {
+      image.onload = () => {
+        brushData.width = image.naturalWidth || image.width;
+        brushData.height = image.naturalHeight || image.height;
+        resolve();
+      };
+      image.onerror = () => {
+        URL.revokeObjectURL(previewUrl);
+        reject(new Error(`Failed to load SVG brush ${fileName}`));
+      };
+      image.src = previewUrl;
+    });
+    brushData.image = image;
     return brushData;
   }
 
