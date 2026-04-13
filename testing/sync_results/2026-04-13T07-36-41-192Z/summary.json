@@ -1,0 +1,175 @@
+{
+  "runId": "2026-04-13T07-36-41-192Z",
+  "url": "http://localhost:3000/go/",
+  "bots": 1,
+  "propagationMs": 4000,
+  "passed": 15,
+  "total": 15,
+  "results": [
+    {
+      "tool": "brush",
+      "label": "Brush",
+      "concurrent": false,
+      "pass": true,
+      "elapsed": 4344,
+      "hashes": [
+        "-7671e9b2"
+      ],
+      "error": null
+    },
+    {
+      "tool": "flowPen",
+      "label": "Flow Pen",
+      "concurrent": false,
+      "pass": true,
+      "elapsed": 4283,
+      "hashes": [
+        "1e3528fd"
+      ],
+      "error": null
+    },
+    {
+      "tool": "ink",
+      "label": "Ink",
+      "concurrent": false,
+      "pass": true,
+      "elapsed": 4296,
+      "hashes": [
+        "-4c01b51f"
+      ],
+      "error": null
+    },
+    {
+      "tool": "pixel",
+      "label": "Pixel Brush",
+      "concurrent": false,
+      "pass": true,
+      "elapsed": 4280,
+      "hashes": [
+        "24d24285"
+      ],
+      "error": null
+    },
+    {
+      "tool": "line",
+      "label": "Line",
+      "concurrent": false,
+      "pass": true,
+      "elapsed": 4093,
+      "hashes": [
+        "-2c04d945"
+      ],
+      "error": null
+    },
+    {
+      "tool": "rectangle",
+      "label": "Rectangle",
+      "concurrent": false,
+      "pass": true,
+      "elapsed": 4088,
+      "hashes": [
+        "-2c04d945"
+      ],
+      "error": null
+    },
+    {
+      "tool": "circle",
+      "label": "Circle",
+      "concurrent": false,
+      "pass": true,
+      "elapsed": 4092,
+      "hashes": [
+        "38b0ca7c"
+      ],
+      "error": null
+    },
+    {
+      "tool": "erase",
+      "label": "Eraser",
+      "concurrent": false,
+      "pass": true,
+      "elapsed": 5118,
+      "hashes": [
+        "28aa5b89"
+      ],
+      "error": null
+    },
+    {
+      "tool": "fill",
+      "label": "Flood Fill",
+      "concurrent": false,
+      "pass": true,
+      "elapsed": 5472,
+      "hashes": [
+        "28aa5b89"
+      ],
+      "error": null
+    },
+    {
+      "tool": "blur",
+      "label": "Blur",
+      "concurrent": false,
+      "pass": true,
+      "elapsed": 5251,
+      "hashes": [
+        "-7f8eb400"
+      ],
+      "error": null
+    },
+    {
+      "tool": "circleBlur",
+      "label": "Circle Blur",
+      "concurrent": false,
+      "pass": true,
+      "elapsed": 5188,
+      "hashes": [
+        "-2aa6ac02"
+      ],
+      "error": null
+    },
+    {
+      "tool": "imageBrush",
+      "label": "Image Brush",
+      "concurrent": false,
+      "pass": true,
+      "elapsed": 4394,
+      "hashes": [
+        "-2aa6ac02"
+      ],
+      "error": null
+    },
+    {
+      "tool": "select",
+      "label": "Select + Move",
+      "concurrent": false,
+      "pass": true,
+      "elapsed": 5347,
+      "hashes": [
+        "-2aa6ac02"
+      ],
+      "error": null
+    },
+    {
+      "tool": "brush",
+      "label": "Brush (concurrent)",
+      "concurrent": true,
+      "pass": true,
+      "elapsed": 4289,
+      "hashes": [
+        "29f0eb99"
+      ],
+      "error": null
+    },
+    {
+      "tool": "ink",
+      "label": "Ink (concurrent)",
+      "concurrent": true,
+      "pass": true,
+      "elapsed": 4259,
+      "hashes": [
+        "-2f4219b9"
+      ],
+      "error": null
+    }
+  ]
+}
