@@ -153,7 +153,7 @@ export class InkdropperTool {
     }
 
     if (app.connected) {
-      app.wsClient.broadcastColorChange(rgba);
+      app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastColorChange(rgba));
     }
 
     if (app.colorPalette) {

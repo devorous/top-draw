@@ -279,7 +279,7 @@ export class ToolLockManager {
         ui.updateCursorSize(value);
         if (elements.sizeSlider) elements.sizeSlider.value = value;
         if (connected) {
-          wsClient.broadcastSizeChange(value);
+          this.app.inputBufferManager.queueBroadcast(() => wsClient.broadcastSizeChange(value));
         }
       }
       else if (prop === 'pressure') {
@@ -299,7 +299,7 @@ export class ToolLockManager {
         ui.updateSmoothingValue(value);
         if (elements.smoothingSlider) elements.smoothingSlider.value = value;
         if (connected) {
-          wsClient.broadcastSmoothingChange(value);
+          this.app.inputBufferManager.queueBroadcast(() => wsClient.broadcastSmoothingChange(value));
         }
       }
       else if (prop === 'spacing') {
@@ -307,7 +307,7 @@ export class ToolLockManager {
         ui.updateSpacingValue(value);
         if (elements.spacingSlider) elements.spacingSlider.value = value;
         if (connected) {
-          wsClient.broadcastSpacingChange(value);
+          this.app.inputBufferManager.queueBroadcast(() => wsClient.broadcastSpacingChange(value));
         }
       }
       else if (prop === 'hardness') {
@@ -315,7 +315,7 @@ export class ToolLockManager {
         ui.updateHardnessValue(value);
         if (elements.hardnessSlider) elements.hardnessSlider.value = value;
         if (connected) {
-          wsClient.broadcastHardnessChange(value);
+          this.app.inputBufferManager.queueBroadcast(() => wsClient.broadcastHardnessChange(value));
         }
       }
       else if (prop === 'opacity') {
@@ -329,7 +329,7 @@ export class ToolLockManager {
           colorPicker.setColor(`rgba(${currentColor.join(',')})`, true);
         }
         if (connected) {
-          wsClient.broadcastColorChange(currentColor);
+          this.app.inputBufferManager.queueBroadcast(() => wsClient.broadcastColorChange(currentColor));
         }
       }
       else if (prop === 'blurRadius') {
@@ -337,7 +337,7 @@ export class ToolLockManager {
         ui.updateBlurRadiusValue(value);
         if (elements.blurRadiusSlider) elements.blurRadiusSlider.value = value;
         if (connected) {
-          wsClient.broadcastBlurRadiusChange(value);
+          this.app.inputBufferManager.queueBroadcast(() => wsClient.broadcastBlurRadiusChange(value));
         }
       }
       else if (prop === 'thinning') {

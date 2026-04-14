@@ -90,11 +90,13 @@ export class SyncClient {
    * @param {Object} options - Configuration options
    * @param {WebSocketClient} options.wsClient - WebSocket client instance
    * @param {Board} options.board - Board instance for canvas operations
+   * @param {App} options.app - App instance for buffer management
    * @returns {void}
    */
-  init({ wsClient, board }) {
+  init({ wsClient, board, app }) {
     this.wsClient = wsClient;
     this.board = board;
+    this.app = app;
     this.overlayEl = document.getElementById('syncOverlay');
     this.overlayContentEl = this.overlayEl?.querySelector('.sync-content');
     this.progressTextEl = this.overlayEl?.querySelector('.sync-text');
@@ -425,6 +427,9 @@ export class SyncClient {
   async handleSyncProvide(data) {
     const { targetUser } = data;
     console.log('[SyncClient] Asked to provide layer state for user', targetUser);
+
+    // Drain any pending broadcasts before snapshotting, so snapshot is consistent with sent state
+    this.app?.inputBufferManager?.drainBroadcastQueue?.();
 
     if (!this.board?.layerManager) {
       console.warn('[SyncClient] No layer manager to provide');

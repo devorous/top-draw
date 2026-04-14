@@ -131,6 +131,9 @@ export class InputBufferManager {
     /** @type {Array<number>} */
     this.pendingBroadcastPoints = [];
 
+    /** @type {Array<Function>} Ordered queue of broadcast callbacks */
+    this.broadcastQueue = [];
+
     // Scratchpad objects for zero-allocation point processing
     this._currentPosScratch = { x: 0, y: 0 };
     this._prevPosScratch = { x: 0, y: 0 };
@@ -200,8 +203,9 @@ export class InputBufferManager {
     const { app } = this;
 
     if (app.syncClient?.isSyncing()) return;
-    this.processLocalFrame();
-    this.flushPendingNetwork();
+    this.processLocalFrame();         // render locally, populate pendingBroadcastPoints
+    this._snapshotStrokesToQueue();   // commit strokes to queue (no-op if buffer already drained)
+    this.drainBroadcastQueue();       // send all queued actions in order
   }
 
   processLocalFrame() {
@@ -223,17 +227,37 @@ export class InputBufferManager {
   }
 
   flushPendingNetwork() {
-    const { app } = this;
-    if (app.syncClient?.isSyncing()) return;
+    this._snapshotStrokesToQueue();
+    this.drainBroadcastQueue();
+  }
 
+  /**
+   * Moves current pending strokes into the ordered broadcast queue.
+   * This ensures that any strokes drawn before a discrete action (like undo)
+   * are sent before that action.
+   * 
+   * @private
+   */
+  _snapshotStrokesToQueue() {
+    // Process any unrendered input buffer points first
+    const points = this._consumeBufferedPoints();
+    if (points.length >= 3) {
+      this._processBufferedPoints(points); // populates pendingBroadcastPoints
+    }
+
+    const { app } = this;
+
+    // Commit stamp tool buffers (ink, gimp, etc.)
     const tool = app.toolManager.getCurrentTool();
     if (tool && this._isStampTool(app.self.tool)) {
       const drain = app.self.tool === 'ink' ? tool.drainPointBuffer?.() : tool.drainStampBuffer?.();
       if (drain?.ps?.length > 0) {
-        app.wsClient.broadcastStampMove(drain.ps, drain.rs);
+        const captured = drain;
+        this.broadcastQueue.push(() => app.wsClient.broadcastStampMove(captured.ps, captured.rs));
       }
     }
 
+    // Commit pending move points
     if (this.pendingBroadcastPoints.length > 0) {
       const reducedPoints = this.applyPointReduction(this.pendingBroadcastPoints);
       this.pendingBroadcastPoints = [];
@@ -242,7 +266,34 @@ export class InputBufferManager {
         for (let i = 0; i < reducedPoints.length; i += 3) {
           xyPoints.push(reducedPoints[i], reducedPoints[i + 1]);
         }
-        app.wsClient.broadcastMove(xyPoints);
+        this.broadcastQueue.push(() => app.wsClient.broadcastMove(xyPoints));
+      }
+    }
+  }
+
+  /**
+   * Enqueues a broadcast action, ensuring it is sent in order relative to strokes.
+   * 
+   * @param {Function} fn - The broadcast callback to enqueue.
+   */
+  queueBroadcast(fn) {
+    if (this.app.syncClient?.isSyncing()) return; // dropped during sync; sync replay handles ordering
+    this._snapshotStrokesToQueue();
+    this.broadcastQueue.push(fn);
+  }
+
+  /**
+   * Drains the ordered broadcast queue, executing each callback.
+   */
+  drainBroadcastQueue() {
+    if (this.broadcastQueue.length === 0) return;
+    const queue = this.broadcastQueue;
+    this.broadcastQueue = [];
+    for (const fn of queue) {
+      try {
+        fn();
+      } catch (e) {
+        console.error('[InputBufferManager] broadcast error', e);
       }
     }
   }

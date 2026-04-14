@@ -370,7 +370,8 @@ export class DrawingApp {
     this.syncClient = new SyncClient();
     this.syncClient.init({
       wsClient: this.wsClient,
-      board: this.board
+      board: this.board,
+      app: this
     });
     this.syncClient.onSyncComplete = () => {
       console.log('[App] Sync complete');
@@ -691,7 +692,7 @@ export class DrawingApp {
           }
 
           if (this.connected) {
-            this.wsClient.broadcastColorChange(rgba);
+            this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(rgba));
           }
         }
       });
@@ -968,7 +969,7 @@ export class DrawingApp {
         this.self.setSimulatePressure(simulate);
         localStorage.setItem('topDrawSimulatePressure', simulate);
         if (this.connected) {
-          this.wsClient.broadcastSimulatePressureChange(simulate);
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSimulatePressureChange(simulate));
         }
       });
     }
@@ -978,7 +979,7 @@ export class DrawingApp {
     eraserModeRadios.forEach(radio => {
       radio.addEventListener('change', (e) => {
         this.eraseAllLayers = (e.target.value === 'all');
-        this.wsClient.broadcastEraserModeChange(this.eraseAllLayers);
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastEraserModeChange(this.eraseAllLayers));
       });
     });
 
@@ -1047,7 +1048,7 @@ export class DrawingApp {
         // Sync pattern mode to user object and broadcast
         this.self.patternMode = e.target.checked;
         if (this.connected && this.wsClient) {
-          this.wsClient.broadcastPatternMode(e.target.checked);
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternMode(e.target.checked));
         }
 
         // Show/hide pattern preview window
@@ -1078,7 +1079,7 @@ export class DrawingApp {
         // Sync pattern mode to user object and broadcast
         this.self.patternMode = e.target.checked;
         if (this.connected && this.wsClient) {
-          this.wsClient.broadcastPatternMode(e.target.checked);
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternMode(e.target.checked));
         }
 
         // Show/hide pattern preview window
@@ -1131,7 +1132,7 @@ export class DrawingApp {
         this.ui.updateCursorSize(val);
         this.ui.updateSelfTextStyle(val, this.self.color, this.self.font);
         this.board.mainCtx.lineWidth = val * 2;
-        this.wsClient.broadcastSizeChange(val);
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(val));
       }
     });
 
@@ -1167,7 +1168,7 @@ export class DrawingApp {
       onCommit: (val) => {
         this.self.setSmoothing(val);
         elements.smoothingSlider.value = val;
-        this.wsClient.broadcastSmoothingChange(val);
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSmoothingChange(val));
       }
     });
 
@@ -1176,7 +1177,7 @@ export class DrawingApp {
       onCommit: (val) => {
         this.self.setSpacing(val);
         elements.spacingSlider.value = val;
-        this.wsClient.broadcastSpacingChange(val);
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSpacingChange(val));
       }
     });
 
@@ -1185,7 +1186,7 @@ export class DrawingApp {
       onCommit: (val) => {
         this.self.setHardness(val);
         elements.hardnessSlider.value = val;
-        this.wsClient.broadcastHardnessChange(val);
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHardnessChange(val));
       }
     });
 
@@ -1200,7 +1201,7 @@ export class DrawingApp {
         this.self.setColor(currentColor);
         this.colorPicker.setColor(`rgba(${currentColor.join(',')})`);
         if (this.connected) {
-          this.wsClient.broadcastColorChange(currentColor);
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(currentColor));
         }
       }
     });
@@ -1212,7 +1213,7 @@ export class DrawingApp {
           this.self.setBlurRadius(val);
           elements.blurRadiusSlider.value = val;
           if (this.connected) {
-            this.wsClient.broadcastBlurRadiusChange(val);
+            this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBlurRadiusChange(val));
           }
         }
       });
@@ -1566,7 +1567,7 @@ export class DrawingApp {
     }
 
     if (this.connected && this.self.patternBrush) {
-      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
     }
   }
 
@@ -1619,7 +1620,7 @@ export class DrawingApp {
     }
 
     if (this.connected && this.self.patternBrush) {
-      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
     }
   }
 
@@ -1642,7 +1643,7 @@ export class DrawingApp {
     }
 
     if (this.connected && this.self.patternBrush) {
-      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
     }
   }
 
@@ -1665,7 +1666,7 @@ export class DrawingApp {
     }
 
     if (this.connected && this.self.patternBrush) {
-      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
     }
   }
 
@@ -1688,7 +1689,7 @@ export class DrawingApp {
     }
 
     if (this.connected && this.self.patternBrush) {
-      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
     }
   }
 
@@ -1709,7 +1710,7 @@ export class DrawingApp {
     document.querySelectorAll('input[name="patternColorMode"], input[name="fillPatternColorMode"], input[name="selectionPatternColorMode"]').forEach(r => r.checked = r.value === colorMode);
 
     if (this.connected && this.self.patternBrush) {
-      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
     }
   }
 
@@ -1742,7 +1743,7 @@ export class DrawingApp {
     }
 
     if (this.connected) {
-      this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
     }
   }
 
@@ -2629,7 +2630,7 @@ export class DrawingApp {
     if (name !== null && name.trim() !== '') {
       this.self.setUsername(name.trim());
       this.ui.updateSelfName(name.trim());
-      this.wsClient.broadcastNameChange(name.trim());
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastNameChange(name.trim()));
     }
   }
 
@@ -3169,7 +3170,7 @@ export class DrawingApp {
         }
       }
       this.self.mousedown = false;
-      this.wsClient.broadcastMouseUp();
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseUp());
     }
 
     const previousTool = this.self.tool;
@@ -3220,9 +3221,9 @@ export class DrawingApp {
     this._updateBlurCannotDraw();
 
     if (tool === 'pan') {
-      if (this.connected) this.wsClient.broadcastHideCursor();
+      if (this.connected) this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
     } else if (previousTool === 'pan') {
-      if (this.connected) this.wsClient.broadcastShowCursor();
+      if (this.connected) this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastShowCursor());
     }
 
     if (tool === 'text') {
@@ -3245,7 +3246,7 @@ export class DrawingApp {
     }
 
     this.ui.updateSelfToolIcon(tool);
-    this.wsClient.broadcastToolChange(tool, tool === 'erase' ? this.eraseAllLayers : false);
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastToolChange(tool, tool === 'erase' ? this.eraseAllLayers : false));
 
     if (tool === 'erase') {
       this.board.topCanvas.style.mixBlendMode = 'normal';
@@ -3304,6 +3305,11 @@ export class DrawingApp {
    * @param {Object} brush - Selected brush configuration.
    */
   handleBrushSelect(brush) {
+    // Queue the brush change FIRST (snapshots pending strokes with old brush)
+    // BEFORE setting the new brush locally
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBrush(brush));
+
+    // NOW set the new brush so future strokes use it
     this.self.imageBrush = brush;
 
     if (brush.type === 'gih' && brush.gBrushes && brush.gBrushes.length > 0) {
@@ -3311,8 +3317,6 @@ export class DrawingApp {
     } else {
       this.ui.setBrushPreview(brush.previewUrl || brush.gimpUrl);
     }
-
-    this.wsClient.broadcastBrush(brush);
   }
 
   /**
@@ -3327,11 +3331,11 @@ export class DrawingApp {
     this.ui.updateSelfTextStyle(this.self.size, this.self.color, font);
     this._updateTextPreview(); // Update preview with new font
     if (this.connected) {
-      this.wsClient.broadcastFontChange(
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastFontChange(
         this.self.font,
         this.self.textPositionMultiplier,
         this.self.textPositionOffset
-      );
+      ));
     }
   }
 
@@ -3342,11 +3346,11 @@ export class DrawingApp {
     this.ui.updateSelfTextStyle(this.self.size, this.self.color, this.self.font);
     this._updateTextPreview();
     if (this.connected) {
-      this.wsClient.broadcastFontChange(
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastFontChange(
         this.self.font,
         this.self.textPositionMultiplier,
         this.self.textPositionOffset
-      );
+      ));
     }
   }
 
@@ -3357,11 +3361,11 @@ export class DrawingApp {
     this.ui.updateSelfTextStyle(this.self.size, this.self.color, this.self.font);
     this._updateTextPreview();
     if (this.connected) {
-      this.wsClient.broadcastFontChange(
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastFontChange(
         this.self.font,
         this.self.textPositionMultiplier,
         this.self.textPositionOffset
-      );
+      ));
     }
   }
 
@@ -3396,7 +3400,7 @@ export class DrawingApp {
     this.strokeHistoryPanel.setActiveLayer(layerIndex);
 
     if (this.connected) {
-      this.wsClient.broadcastLayerChange(layerIndex);
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastLayerChange(layerIndex));
     }
   }
 
@@ -3507,7 +3511,7 @@ export class DrawingApp {
     this._updateTextPreview();
 
     if (this.connected) {
-      this.wsClient.broadcastLayerBlendModeChange(activeLayer, blendMode);
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastLayerBlendModeChange(activeLayer, blendMode));
     }
   }
 
@@ -3521,7 +3525,7 @@ export class DrawingApp {
     }
     this.board.clear();
     this.board.tileTracker?.clear();
-    this.wsClient.broadcastClear();
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastClear());
     if (this.debugOverlay) {
       this.debugOverlay.clearAll();
     }
@@ -3599,28 +3603,28 @@ export class DrawingApp {
     this.ui.updateSelfTextStyle(size, this.self.color, this.self.font);
     this.ui.updateSizeValue(size);
     this.board.mainCtx.lineWidth = size * 2;
-    this.wsClient.broadcastSizeChange(size);
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(size));
   }
 
   handleSpacingChange(e) {
     const spacing = Number(e.target.value);
     this.self.setSpacing(spacing);
     this.ui.updateSpacingValue(spacing);
-    this.wsClient.broadcastSpacingChange(spacing);
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSpacingChange(spacing));
   }
 
   handleSmoothingChange(e) {
     const smoothing = Number(e.target.value);
     this.self.setSmoothing(smoothing);
     this.ui.updateSmoothingValue(smoothing);
-    this.wsClient.broadcastSmoothingChange(smoothing);
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSmoothingChange(smoothing));
   }
 
   handleHardnessChange(e) {
     const hardness = Number(e.target.value);
     this.self.setHardness(hardness);
     this.ui.updateHardnessValue(hardness);
-    this.wsClient.broadcastHardnessChange(hardness);
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHardnessChange(hardness));
   }
 
   handleopacityChange(e) {
@@ -3638,7 +3642,7 @@ export class DrawingApp {
 
     // Broadcast to other users
     if (this.connected) {
-      this.wsClient.broadcastColorChange(currentColor);
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(currentColor));
     }
   }
 
@@ -3647,7 +3651,7 @@ export class DrawingApp {
     this.self.setBlurRadius(radius);
     this.ui.updateBlurRadiusValue(radius);
     if (this.connected) {
-      this.wsClient.broadcastBlurRadiusChange(radius);
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBlurRadiusChange(radius));
     }
   }
 
@@ -3656,7 +3660,7 @@ export class DrawingApp {
     this.self.setThinning(thinning);
     this.ui.updateThinningValue(Math.round(thinning * 100));
     if (this.connected) {
-      this.wsClient.broadcastThinningChange(thinning);
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastThinningChange(thinning));
     }
   }
 
@@ -3664,7 +3668,7 @@ export class DrawingApp {
     const simulate = e.target.checked;
     this.self.setSimulatePressure(simulate);
     if (this.connected) {
-      this.wsClient.broadcastSimulatePressureChange(simulate);
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSimulatePressureChange(simulate));
     }
   }
 
@@ -3677,7 +3681,18 @@ export class DrawingApp {
 
     if (brushData) {
       this.ui.setBrushPreview(brushData.previewUrl || brushData.gimpUrl || brushData.gBrushes[0].gimpUrl);
-      this.wsClient.broadcastBrush(brushData);
+
+      // Clone brushData without image/images properties for transmission
+      const broadcastData = { ...brushData };
+      delete broadcastData.image;
+      delete broadcastData.images;
+
+      // Queue the brush change (snapshots pending strokes with old brush FIRST)
+      // BEFORE updating this.self.imageBrush
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBrush(broadcastData));
+
+      // NOW update to the new brush for future strokes
+      this.self.imageBrush = brushData;
     }
   }
 
@@ -3700,7 +3715,7 @@ export class DrawingApp {
       this.sessionIndex,
       messageId
     ]);
-    this.wsClient.broadcastChat(message, messageId);
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastChat(message, messageId));
   }
 
   handleStaffChatSend(message) {
@@ -3721,21 +3736,23 @@ export class DrawingApp {
       this.sessionIndex,
       messageId
     ]);
-    this.wsClient.broadcastStaffChat(message, messageId);
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastStaffChat(message, messageId));
   }
 
   handleStaffChatImageSend(imageData) {
     if (!this.connected) return;
 
     const messageId = this._createChatMessageId();
-    const result = this.wsClient.broadcastStaffChatImage(imageData, messageId);
-    if (!result?.ok) {
-      this.ui?.showToast(result?.error || 'Failed to send chat image', 3000, 'error');
-      return;
-    }
+    this.inputBufferManager.queueBroadcast(() => {
+      const result = this.wsClient.broadcastStaffChatImage(imageData, messageId);
+      if (!result?.ok) {
+        this.ui?.showToast(result?.error || 'Failed to send chat image', 3000, 'error');
+        return;
+      }
 
-    this.svelteComponents?.chat?.addStaffImage(imageData, this.self, messageId);
-    broadcastChatPopoutEvent('addStaffImage', [imageData, this.self, messageId]);
+      this.svelteComponents?.chat?.addStaffImage(imageData, this.self, messageId);
+      broadcastChatPopoutEvent('addStaffImage', [imageData, this.self, messageId]);
+    });
   }
 
   handleDMSend(message, recipientId) {
@@ -3743,7 +3760,7 @@ export class DrawingApp {
       const messageId = this._createChatMessageId();
       this.svelteComponents?.chat?.addChatDM(message, recipientId, true, messageId);
       broadcastChatPopoutEvent('addChatDM', [message, recipientId, true, messageId]);
-      this.wsClient.broadcastDM(message, recipientId, messageId);
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastDM(message, recipientId, messageId));
     }
   }
 
@@ -3751,25 +3768,27 @@ export class DrawingApp {
     if (!this.connected) return;
 
     const messageId = this._createChatMessageId();
-    const result = this.wsClient.broadcastChatImage(imageData, recipientId, messageId);
-    if (!result?.ok) {
-      this.ui?.showToast(result?.error || 'Failed to send chat image', 3000, 'error');
-      return;
-    }
+    this.inputBufferManager.queueBroadcast(() => {
+      const result = this.wsClient.broadcastChatImage(imageData, recipientId, messageId);
+      if (!result?.ok) {
+        this.ui?.showToast(result?.error || 'Failed to send chat image', 3000, 'error');
+        return;
+      }
 
-    if (recipientId !== null && recipientId !== undefined) {
-      this.svelteComponents?.chat?.addDMImage(imageData, recipientId, true, messageId);
-      broadcastChatPopoutEvent('addDMImage', [imageData, recipientId, true, messageId]);
-    } else {
-      this.svelteComponents?.chat?.addChatImage(imageData, this.self, messageId);
-      broadcastChatPopoutEvent('addChatImage', [imageData, this.self, messageId]);
-    }
+      if (recipientId !== null && recipientId !== undefined) {
+        this.svelteComponents?.chat?.addDMImage(imageData, recipientId, true, messageId);
+        broadcastChatPopoutEvent('addDMImage', [imageData, recipientId, true, messageId]);
+      } else {
+        this.svelteComponents?.chat?.addChatImage(imageData, this.self, messageId);
+        broadcastChatPopoutEvent('addChatImage', [imageData, this.self, messageId]);
+      }
+    });
   }
 
   handleChatReaction(payload) {
     if (this.connected && payload?.messageId && payload?.emoji) {
       broadcastChatPopoutEvent('applyReaction', [payload]);
-      this.wsClient.broadcastChatReaction(payload);
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastChatReaction(payload));
     }
   }
 
@@ -3847,7 +3866,7 @@ export class DrawingApp {
     }
 
     if (this.connected) {
-      this.wsClient.broadcastColorChange(color);
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(color));
     }
 
     addRecentColor(color);
@@ -3885,7 +3904,7 @@ export class DrawingApp {
 
     // Broadcast to other users if connected
     if (this.connected) {
-      this.wsClient.broadcastColorChange(rgba);
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(rgba));
     }
 
     // Add to recent colors (Svelte store)
@@ -3946,9 +3965,9 @@ export class DrawingApp {
       }
       if (this.connected) {
         if ((this.self.panning || this.self.tool === 'pan') && !isTextWithContent) {
-          this.wsClient.broadcastHideCursor();
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
         } else {
-          this.wsClient.broadcastShowCursor();
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastShowCursor());
         }
       }
       return;
@@ -3976,7 +3995,7 @@ export class DrawingApp {
 
     this.ui.hideCursor();
     if (this.connected) {
-      this.wsClient.broadcastHideCursor();
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
     }
   }
 
@@ -4090,7 +4109,7 @@ export class DrawingApp {
       
       // Broadcast movement so remote users see the text cursor updating
       if (this.connected) {
-        this.wsClient.broadcastMouseMove(x, y);
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseMove(x, y));
       }
       return;
     }
@@ -4132,8 +4151,8 @@ export class DrawingApp {
         this._pendingPenDown = null;
         this.self.setPressure(pressure);
         this.inputBufferManager.inputBuffer.pressure = pressure;
-        this.wsClient.broadcastPressureChange(pressure);
-        this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y]);
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(pressure));
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y]));
 
         const tool = this.toolManager.getCurrentTool();
         if (tool) {
@@ -4153,7 +4172,7 @@ export class DrawingApp {
       } else if (pressure !== this.inputBufferManager.inputBuffer.pressure) {
         // Commit BEFORE updating pressure so old segment draws at correct width
         if (pressure !== this.self.pressure && this.self.mousedown) {
-          this.wsClient.broadcastPressureChange(pressure);
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(pressure));
           if (this.self.tool === 'brush') {
             this.commitSelfLine(pressure, this.self.size);
           }
@@ -4217,11 +4236,11 @@ export class DrawingApp {
       this.self.mousedown = true;
       this._lastPanPointerX = e.clientX;
       this._lastPanPointerY = e.clientY;
-      this.wsClient.broadcastPan(true);
-      
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPan(true));
+
       const isTextWithContent = this.self.tool === 'text' && this.self.text;
       if (!isTextWithContent) {
-        this.wsClient.broadcastHideCursor();
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
         this.ui.showPanCursor();
       }
       return;
@@ -4330,7 +4349,7 @@ export class DrawingApp {
         this.ui.elements.thinningEnabled.checked = false;
       }
       if (this.connected) {
-        this.wsClient.broadcastSimulatePressureChange(false);
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSimulatePressureChange(false));
       }
 
       // Show toast - defer to not block stroke
@@ -4342,7 +4361,7 @@ export class DrawingApp {
     if (e.pointerType === 'mouse' || !this.pressureEnabled) {
       this.self.setPressure(1);
       this.inputBufferManager.inputBuffer.pressure = 1;
-      this.wsClient.broadcastPressureChange(1);
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(1));
     } else if (e.pointerType === 'pen' && this.pressureEnabled) {
       // Start pen input at 0 pressure until real pressure data arrives
       this.self.setPressure(0);
@@ -4435,7 +4454,7 @@ export class DrawingApp {
           if (this.self.tool === 'text' && this.self.text) {
             this._broadcastExplicitTextApply({ x: this.self.x, y: this.self.y });
           }
-          this.wsClient.broadcastMouseDown(broadcastPos);
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown(broadcastPos));
 
           tool.onPointerDown(this.self, pos, e);
 
@@ -4473,7 +4492,7 @@ export class DrawingApp {
     if (!this.connected || !this.wsClient || !this.self?.text) return;
 
     const textPosition = position || { x: this.self.x, y: this.self.y };
-    this.wsClient.broadcastTextApply({
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastTextApply({
       text: this.self.text,
       x: textPosition.x,
       y: textPosition.y,
@@ -4485,7 +4504,7 @@ export class DrawingApp {
       font: this.self.font,
       textPositionMultiplier: this.self.textPositionMultiplier,
       textPositionOffset: this.self.textPositionOffset
-    });
+    }));
   }
 
   handlePointerUp(e) {
@@ -4510,8 +4529,8 @@ export class DrawingApp {
     if (e.button === 1) {
       this.self.panning = false;
       this.self.mousedown = false;
-      this.wsClient.broadcastPan(false);
-      this.wsClient.broadcastShowCursor();
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPan(false));
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastShowCursor());
       this.ui.hidePanCursor(this.self.tool, this.self);
       return;
     }
@@ -4550,7 +4569,7 @@ export class DrawingApp {
       this.self._pendingTextPos = null;
       this.self._pendingTextPointerType = null;
       this.self.mousedown = false;
-      this.wsClient.broadcastMouseUp();
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseUp());
       this.inputBufferManager.inputBuffer.dirty = false;
       return;
     }
@@ -4572,8 +4591,8 @@ export class DrawingApp {
           // Keep remote pressure state in sync for deferred pen taps. Without this,
           // remote clients reuse the previous stroke's pressure when MD arrives,
           // which can produce a large start dot for pressure-sensitive tools.
-          this.wsClient.broadcastPressureChange(this.self.pressure);
-          this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y]);
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(this.self.pressure));
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y]));
           tool.onPointerDown(this.self, pending.pos, pending.event);
         }
       }
@@ -4595,7 +4614,7 @@ export class DrawingApp {
             if (this.self.text) {
               this._broadcastExplicitTextApply(this.self._pendingTextPos);
             }
-            this.wsClient.broadcastMouseDown([this.self._pendingTextPos.x, this.self._pendingTextPos.y]);
+            this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([this.self._pendingTextPos.x, this.self._pendingTextPos.y]));
           }
           textTool.onPointerDown(this.self, this.self._pendingTextPos, e);
           this.ui.updateSelfTextInput(this.self.text);
@@ -4631,7 +4650,7 @@ export class DrawingApp {
     }
 
     this.self.mousedown = false;
-    this.wsClient.broadcastMouseUp();
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseUp());
 
     // Reset input buffer
     this.inputBufferManager.inputBuffer.dirty = false;
@@ -4672,14 +4691,14 @@ export class DrawingApp {
       this.self.panning = true;
       this._lastPanPointerX = e.clientX;
       this._lastPanPointerY = e.clientY;
-      this.wsClient.broadcastPan(true);
-      
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPan(true));
+
       const isTextWithContent = this.self.tool === 'text' && this.self.text;
       if (!isTextWithContent) {
-        this.wsClient.broadcastHideCursor();
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
         this.ui.showPanCursor();
       }
-      
+
       this._containerPanActive = true;
       e.currentTarget.setPointerCapture(e.pointerId);
       return;
@@ -4739,8 +4758,8 @@ export class DrawingApp {
 
     if (e.button === 1) {
       this.self.panning = false;
-      this.wsClient.broadcastPan(false);
-      this.wsClient.broadcastShowCursor();
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPan(false));
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastShowCursor());
       this.ui.hidePanCursor(this.self.tool, this.self);
     }
   }
@@ -4795,7 +4814,7 @@ export class DrawingApp {
     this.ui.updateSizeValue(size);
     this.ui.updateSelfTextStyle(size, this.self.color, this.self.font);
     this.board.mainCtx.lineWidth = size * 2;
-    this.wsClient.broadcastSizeChange(size);
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(size));
   }
 
   /**
@@ -4876,17 +4895,21 @@ export class DrawingApp {
     // Cancel debug overlay tracking
     this.debugOverlay.cancelDrawing(this.self.id);
 
-    this.wsClient.broadcastCancel();
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastCancel());
   }
 
   handleUndo() {
     this.board.undo(this.self.activeLayer, this.self.id);
-    if (this.connected) this.wsClient.broadcastUndo();
+    if (this.connected) {
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastUndo());
+    }
   }
 
   handleRedo() {
     this.board.redo(this.self.id);
-    if (this.connected) this.wsClient.broadcastRedo();
+    if (this.connected) {
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastRedo());
+    }
   }
 
   updateUndoRedoHud() {

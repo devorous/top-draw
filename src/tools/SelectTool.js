@@ -367,7 +367,7 @@ export class SelectTool extends Tool {
     const elapsed = now - this.lastSelectionBroadcastTime;
 
     if (force || elapsed >= this.selectionMoveThrottleInterval) {
-      this.board.app.wsClient.broadcastSelectionMove(corners);
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(corners));
       this.lastSelectionBroadcastTime = now;
       this.pendingSelectionBroadcast = null;
     } else {
@@ -380,7 +380,7 @@ export class SelectTool extends Tool {
    */
   flushPendingSelectionBroadcast() {
     if (this.pendingSelectionBroadcast && this.board.app && this.board.app.wsClient) {
-      this.board.app.wsClient.broadcastSelectionMove(this.pendingSelectionBroadcast);
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(this.pendingSelectionBroadcast));
       this.pendingSelectionBroadcast = null;
       this.lastSelectionBroadcastTime = performance.now();
     }
@@ -1238,7 +1238,7 @@ export class SelectTool extends Tool {
 
       // Broadcast the selection marquee (not yet lifted)
       if (this.board.app?.wsClient) {
-        this.board.app.wsClient.broadcastSelectionPending(this.selection, this.lassoPath);
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionPending(this.selection, this.lassoPath));
       }
     } else {
       // Rectangle mode (existing code)
@@ -1276,7 +1276,7 @@ export class SelectTool extends Tool {
 
       // Broadcast the selection marquee (not yet lifted)
       if (this.board.app?.wsClient) {
-        this.board.app.wsClient.broadcastSelectionPending(this.selection);
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionPending(this.selection));
       }
     }
   }
@@ -2276,7 +2276,7 @@ export class SelectTool extends Tool {
     // Send the data via the websocket client
     if (this.board.app?.wsClient) {
       const imageData = this.floatingCanvas ? this.floatingCanvas.toDataURL('image/png') : null;
-      this.board.app.wsClient.broadcastSelectionLift(this.selection, this.lassoPath, imageData);
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionLift(this.selection, this.lassoPath, imageData));
     }
   }
 
@@ -2364,7 +2364,7 @@ export class SelectTool extends Tool {
         if (commitTileIndices.length > 0) {
           this.board.app.wsClient.broadcastTileUpdate(commitTileIndices);
         }
-        this.board.app.wsClient.broadcastSelectionCommit();
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionCommit());
       }
 
       this.floatingCanvas = null;
@@ -2454,7 +2454,7 @@ export class SelectTool extends Tool {
       if (tilesToBroadcast.length > 0) {
         this.board.app.wsClient.broadcastTileUpdate(tilesToBroadcast);
       }
-      this.board.app.wsClient.broadcastSelectionCommit();
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionCommit());
     }
 
     this.floatingCanvas = null;
@@ -2739,7 +2739,7 @@ export class SelectTool extends Tool {
     if (this.board.app?.wsClient) {
       // Convert floating canvas to data URL for transmission
       const dataUrl = this.floatingCanvas.toDataURL('image/png');
-      this.board.app.wsClient.broadcastImagePaste(pasteX, pasteY, this.clipboard.width, this.clipboard.height, dataUrl);
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastImagePaste(pasteX, pasteY, this.clipboard.width, this.clipboard.height, dataUrl));
     }
 
     return true;
@@ -2774,7 +2774,7 @@ export class SelectTool extends Tool {
 
     if (this.board.app?.wsClient) {
       const dataUrl = this.floatingCanvas.toDataURL('image/png');
-      this.board.app.wsClient.broadcastImagePaste(cloneX, cloneY, this.clipboard.width, this.clipboard.height, dataUrl);
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastImagePaste(cloneX, cloneY, this.clipboard.width, this.clipboard.height, dataUrl));
     }
 
     return true;
@@ -2875,7 +2875,7 @@ export class SelectTool extends Tool {
     // Broadcast paste to other users
     if (this.board.app?.wsClient) {
       const dataUrl = this.floatingCanvas.toDataURL('image/png');
-      this.board.app.wsClient.broadcastImagePaste(pasteX, pasteY, width, height, dataUrl);
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastImagePaste(pasteX, pasteY, width, height, dataUrl));
     }
 
     // Switch to select tool if not already active
@@ -2931,7 +2931,7 @@ export class SelectTool extends Tool {
 
     // Broadcast delete to other users
     if (app.wsClient) {
-      app.wsClient.broadcastSelectionDelete(app.self.activeLayer);
+      app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastSelectionDelete(app.self.activeLayer));
     }
 
     this.hideContextMenu();
@@ -3048,7 +3048,7 @@ export class SelectTool extends Tool {
     }
 
     if (this.board.app?.wsClient) {
-      this.board.app.wsClient.broadcastSelectionFill(app.self.color, app.self.activeLayer);
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionFill(app.self.color, app.self.activeLayer));
     }
 
     // Keep selection active, update menu buttons only (don't reposition)
@@ -3144,7 +3144,7 @@ export class SelectTool extends Tool {
       if (stampTileIndices.length > 0) {
         this.board.app.wsClient.broadcastTileUpdate(stampTileIndices);
       }
-      this.board.app.wsClient.broadcastSelectionStamp();
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionStamp());
     }
 
     // Redraw the floating selection on top canvas
@@ -3206,7 +3206,7 @@ export class SelectTool extends Tool {
 
     // Broadcast flip to other users
     if (this.board.app?.wsClient) {
-      this.board.app.wsClient.broadcastSelectionFlip();
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionFlip());
     }
 
     // Redraw the selection with flipped content
@@ -3306,8 +3306,8 @@ export class SelectTool extends Tool {
       app.ui.setBrushPreview(brushData.gimpUrl);
 
       // Broadcast brush to other users
-      app.wsClient.broadcastBrush(brushData);
-      app.wsClient.broadcastSelectionToBrush(brushData);
+      app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastBrush(brushData));
+      app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastSelectionToBrush(brushData));
     };
     img.src = brushData.gimpUrl;
 

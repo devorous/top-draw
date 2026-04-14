@@ -397,7 +397,7 @@ export class FloodFillTool {
   _broadcastFill(user, x, y, layerIndex, expansion, blurRadius) {
     const wsClient = this.board.app?.wsClient;
     if (wsClient && user === this.board.app?.self) {
-      wsClient.broadcastFill(x, y, layerIndex, expansion, blurRadius);
+      this.board.app.inputBufferManager.queueBroadcast(() => wsClient.broadcastFill(x, y, layerIndex, expansion, blurRadius));
     }
   }
 

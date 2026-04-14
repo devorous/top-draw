@@ -97,8 +97,12 @@ export class RemoteUserHandler {
       if (user.tool === 'ink') {
         this.inkHandler.handleInkPoints(user, smoothedPoints, radii);
       } else if (user.tool === 'pixel' || user.tool === 'imageBrush') {
-        const tool = this.toolManager.getTool(user.tool);
-        if (tool) tool.applyStamps(user, smoothedPoints);
+        if (user.tool === 'imageBrush' && user.imageBrush?._pendingStrokes) {
+          user.imageBrush._pendingStrokes.push({ type: 'stamps', pts: [...smoothedPoints] });
+        } else {
+          const tool = this.toolManager.getTool(user.tool);
+          if (tool) tool.applyStamps(user, smoothedPoints);
+        }
       } else if (user.tool === 'circleBlur') {
         const tool = this.toolManager.getTool(user.tool);
         if (tool) tool.applyStamps(user, smoothedPoints, radii);
@@ -565,6 +569,10 @@ export class RemoteUserHandler {
 
       case 'imageBrush':
         if (user.imageBrush && !user.panning) {
+          if (user.imageBrush._pendingStrokes) {
+            user.imageBrush._pendingStrokes.push({ type: 'down', pos: { ...pos } });
+            return;
+          }
           if (user.imageBrush.type === 'gih' && user.imageBrush.reset) {
             user.imageBrush.reset();
           }
@@ -616,6 +624,13 @@ export class RemoteUserHandler {
    */
   handleMouseUp(user) {
     if (!user.mousedown) return;
+
+    if (user.tool === 'imageBrush' && user.imageBrush?._pendingStrokes) {
+      user.imageBrush._pendingStrokes.push({ type: 'up' });
+      user.mousedown = false; // Stop further mouse move processing
+      return;
+    }
+
     const pos = { x: user.x, y: user.y };
     const strokeLayer = this.getStrokeLayer(user);
     user.remoteTarget = null;
@@ -914,11 +929,47 @@ export class RemoteUserHandler {
   handleBrushLoad(user, brushDataStr) {
     const brushData = typeof brushDataStr === 'string' ? JSON.parse(brushDataStr) : brushDataStr;
 
+    // Assign immediately so that MD/stamp messages arriving before the image
+    // element finishes decoding still see the correct brush identity.
+    // Strokes that arrive while the image is still loading are buffered in
+    // brushData._pendingStrokes and replayed once the image is ready.
+    user.imageBrush = brushData;
+    brushData._pendingStrokes = [];
+
+    const replayPending = () => {
+      const pending = brushData._pendingStrokes;
+      delete brushData._pendingStrokes;
+      if (!pending || pending.length === 0) return;
+      
+      const tool = this.toolManager.getTool('imageBrush');
+      if (!tool) return;
+      
+      // Temporary swap to ensure we use the brush we JUST loaded during replay
+      const currentBrush = user.imageBrush;
+      user.imageBrush = brushData;
+
+      for (const entry of pending) {
+        if (entry.type === 'down') {
+          tool.lastStampPos.set(user.id, entry.pos);
+          tool.drawStamp(user, entry.pos);
+        } else if (entry.type === 'stamps') {
+          tool.applyStamps(user, entry.pts);
+        } else if (entry.type === 'up') {
+          this.handleMouseUp(user);
+        }
+      }
+      
+      // Restore the current brush (it might have changed since this load started)
+      user.imageBrush = currentBrush;
+      this.board.requestUpdate?.();
+    };
+
     if (brushData.type === 'gbr' || brushData.type === 'image' || brushData.type === 'svg') {
       this._loadBrushImage(brushData, () => {
-        user.imageBrush = brushData;
         console.log(`[ImageBrush] Remote user ${user.id} loaded ${brushData.type} brush:`, brushData.brushName || brushData.fileName);
+        replayPending();
       }, () => {
+        delete brushData._pendingStrokes;
         console.error(`[ImageBrush] Failed to load brush image for remote user ${user.id}`);
       });
     } else if (brushData.type === 'gih' && brushData.gBrushes && brushData.gBrushes.length > 0) {
@@ -958,16 +1009,20 @@ export class RemoteUserHandler {
               };
             }
 
-            user.imageBrush = brushData;
             console.log(`[ImageBrush] Remote user ${user.id} loaded GIH brush with ${totalImages} cells:`, brushData.brushName);
+            replayPending();
           }
         };
         img.onerror = () => {
+          delete brushData._pendingStrokes;
           console.error(`[ImageBrush] Failed to load GIH image ${idx} for remote user ${user.id}`);
         };
         img.src = brush.gimpUrl;
         return img;
       });
+    } else {
+      // Unknown type or no async loading needed
+      user._pendingBrushStrokes = null;
     }
   }
 
