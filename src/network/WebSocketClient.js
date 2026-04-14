@@ -374,6 +374,10 @@ export class WebSocketClient {
 
   /**
    * Decodes a length-delimited batched frame.
+   * Instead of decoding all messages synchronously (which blocks the main
+   * thread on slow devices), slices the raw bytes for each message and pushes
+   * them into the queue as Uint8Arrays. They are decoded lazily under the
+   * time budget in _processMessageQueue.
    * @private
    * @param {Uint8Array} raw - Raw binary data.
    * @returns {void}
@@ -385,25 +389,18 @@ export class WebSocketClient {
       const len = view.getUint32(offset);
       offset += 4;
       if (offset + len > raw.length) break;
-      const msgBytes = raw.subarray(offset, offset + len);
+      // slice() copies the bytes so the original buffer can be GC'd after
+      // the onmessage handler returns.
+      this._messageQueue.push(raw.slice(offset, offset + len));
       offset += len;
-      try {
-        const data = this.Msg.decode(msgBytes);
-
-        // Record decoded message for TimeMachine (JSON, not protobuf)
-        if (window.app?.TimeMachine) {
-          window.app.TimeMachine.recordAction(data, 'inbound');
-        }
-
-        this.handleMessage(data);
-      } catch (err) {
-        console.error('Failed to decode batched message:', err);
-      }
     }
+    this._scheduleProcessing();
   }
 
   /**
    * Processes queued messages within a fixed time budget per frame.
+   * Items in the queue may be raw Uint8Arrays (from batched frames, decoded
+   * here lazily) or pre-decoded message objects (from handleMessage).
    * @private
    * @returns {void}
    */
@@ -414,7 +411,25 @@ export class WebSocketClient {
     let processed = 0;
 
     while (this._messageQueue.length > 0) {
-      const data = this._messageQueue.shift();
+      const item = this._messageQueue.shift();
+
+      let data;
+      if (item instanceof Uint8Array) {
+        try {
+          data = this.Msg.decode(item);
+          if (window.app?.TimeMachine) {
+            window.app.TimeMachine.recordAction(data, 'inbound');
+          }
+        } catch (err) {
+          console.error('Failed to decode batched message:', err);
+          processed++;
+          if (processed % 10 === 0 && performance.now() - start > BUDGET_MS) break;
+          continue;
+        }
+      } else {
+        data = item;
+      }
+
       this._processMessage(data);
       processed++;
 
