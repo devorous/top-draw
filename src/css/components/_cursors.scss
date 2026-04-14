@@ -26,6 +26,9 @@
   pointer-events: none;
   height: 204px;
   width: 204px;
+  left: 0;
+  top: 0;
+  will-change: transform;
 }
 
 .self.square {

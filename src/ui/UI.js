@@ -614,8 +614,7 @@ menuBtn: document.getElementById('menuBtn'),
     this._lastCursorX = x;
     this._lastCursorY = y;
 
-    cursor.style.left = `${x - 100}px`;
-    cursor.style.top = `${y - 100}px`;
+    cursor.style.transform = `translate(${x - 100}px, ${y - 100}px)`;
     circle.setAttribute('cx', x);
     circle.setAttribute('cy', y);
     if (pressureCircle) {

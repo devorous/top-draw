@@ -293,8 +293,7 @@ export class RemoteUserUI {
 
     const cursor = document.createElement('div');
     cursor.className = `cursor ${id}`;
-    cursor.style.left = `${userData.x}px`;
-    cursor.style.top = `${userData.y}px`;
+    cursor.style.transform = `translate(${(userData.x ?? 0) - 100}px, ${(userData.y ?? 0) - 100}px)`;
 
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     circle.setAttribute('class', `circle ${id}`);
@@ -766,8 +765,7 @@ export class RemoteUserUI {
     const crosshair = cursorElements?.crosshair;
 
     if (cursor) {
-      cursor.style.left = `${x - 100}px`;
-      cursor.style.top = `${y - 100}px`;
+      cursor.style.transform = `translate(${x - 100}px, ${y - 100}px)`;
     }
     if (circle) {
       circle.setAttribute('cx', x);
