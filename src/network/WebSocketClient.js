@@ -62,11 +62,26 @@ export class WebSocketClient {
      * @type {Set<number>}
      */
     this._batchableMessages = new Set([
-      // KP must stay in the same receive queue as MD/MU so remote text commits
-      // cannot be applied with a stale or future string due to frame-deferred
-      // pointer events interleaving with immediately-processed key events.
+      // Drawing events — must stay in receive order relative to each other.
+      // KP/TEXT_APPLY must queue with MD/MU so remote text commits can't race
+      // with stale or future pointer events.
       T.MM, T.MD, T.MU, T.KP, T.TEXT_APPLY, T.CP, T.CS, T.CT, T.CC,
-      T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL, T.CF
+      T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL, T.CF,
+      // Tool-parameter changes that affect how an in-progress stroke is rendered.
+      // Must stay ordered with the drawing events above.
+      T.CTHN, T.CSIM, T.GMP, T.GPT, T.CPM,
+      // Canvas-state operations that mutate the stroke history.
+      // These MUST be queued so they execute AFTER any drawing events (MD/MM/MU)
+      // that preceded them in real time.  If they bypass the queue they can
+      // execute on a stale stroke stack while the tab is hidden (rAF-throttled),
+      // causing a different stroke history than every other client (desync).
+      T.UNDO, T.REDO, T.CLR, T.FILL,
+      // Selection operations — all mutate canvas state in ways that must stay
+      // ordered with the surrounding drawing events.
+      T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL,
+      T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_FLIP, T.SEL_PENDING,
+      // Image paste and async computation results must also respect draw order.
+      T.IMG_PASTE, T.GLITCH_RESULT,
     ]);
 
     this.clientIdentity = new ClientIdentity();
