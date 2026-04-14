@@ -715,7 +715,7 @@ export class SelectTool extends Tool {
 
     const animate = () => {
       this.marchingAntsOffset = (this.marchingAntsOffset + 1) % 16;
-      if (this.selection && !this.isDragging && !this.isTransforming && !this.isSelecting && !this.isRotating) {
+      if (this.selection && !this.isDragging && !this.isTransforming && !this.activeHandle && !this.isSelecting && !this.isRotating) {
         this.board.clearTop();
         if (this.floatingCanvas) {
           this.drawFloatingSelection();
