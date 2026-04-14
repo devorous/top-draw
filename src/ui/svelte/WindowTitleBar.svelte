@@ -327,7 +327,11 @@
 
   .window-titlebar.branded {
     background:
-      linear-gradient(180deg, rgba(48, 54, 68, 0.98) 0%, rgba(40, 45, 57, 0.96) 100%);
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--bg-elevated) 92%, white 8%) 0%,
+        color-mix(in srgb, var(--bg-tertiary) 96%, black 4%) 100%
+      );
   }
 
   .titlebar-copy {
@@ -341,7 +345,7 @@
     font-family: 'Fredoka', sans-serif;
     font-size: 1.2rem;
     font-weight: 700;
-    color: #00d4aa;
+    color: var(--accent-primary);
     letter-spacing: 0.01em;
     transform: translateY(2px) rotate(-2deg);
     transform-origin: left center;

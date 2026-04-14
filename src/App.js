@@ -32,7 +32,7 @@ import { SaveMode } from './ui/SaveMode.js';
 import { HistoryPanel } from './ui/HistoryPanel.js';
 import { MirrorRegionController } from './ui/MirrorRegionController.js';
 import { SnapshotManager } from './remote/SnapshotManager.js';
-import { loadAppPreferences, saveAppPreferences, THEME_COLOR_KEYS } from './config/AppPreferences.js';
+import { loadAppPreferences, saveAppPreferences } from './config/AppPreferences.js';
 import { getTextFontDefaults, normalizeTextFont } from './config/textFonts.js';
 import {
   copyCanvasToSystemClipboard,
@@ -50,15 +50,100 @@ import { appState, addRecentColor } from './state.svelte.js';
 
 const TEXT_FONT_SETTINGS_STORAGE_KEY = 'topDrawTextFontSettings';
 
+function _hexToRgb(hex) {
+  const c = hex.replace('#', '');
+  return [parseInt(c.slice(0, 2), 16), parseInt(c.slice(2, 4), 16), parseInt(c.slice(4, 6), 16)];
+}
+
+function _rgbToHex(r, g, b) {
+  return '#' + [r, g, b].map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+}
+
+function _rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l * 100];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return [h / 6 * 360, s * 100, l * 100];
+}
+
+function _hslToRgb(h, s, l) {
+  h /= 360; s /= 100; l /= 100;
+  if (s === 0) { const v = l * 255; return [v, v, v]; }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hue2 = (t) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
+  };
+  return [hue2(h + 1/3) * 255, hue2(h) * 255, hue2(h - 1/3) * 255];
+}
+
+function _shiftL(hex, delta) {
+  const [r, g, b] = _hexToRgb(hex);
+  const [h, s, l] = _rgbToHsl(r, g, b);
+  return _rgbToHex(..._hslToRgb(h, s, Math.max(0, Math.min(100, l + delta))));
+}
+
+function _blend(hex1, hex2, t) {
+  const [r1, g1, b1] = _hexToRgb(hex1);
+  const [r2, g2, b2] = _hexToRgb(hex2);
+  return _rgbToHex(r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t);
+}
+
+const DERIVED_THEME_CSS_KEYS = [
+  'bg-primary', 'bg-secondary', 'bg-tertiary', 'bg-elevated',
+  'surface-glass', 'surface-overlay',
+  'accent-primary', 'accent-secondary', 'accent-hover',
+  'accent-glow',
+  'text-primary', 'text-secondary', 'text-muted',
+  'border-subtle', 'border-active'
+];
+
 function applyThemeColors(themeColors = {}) {
   if (typeof document === 'undefined') return;
 
   const rootStyle = document.documentElement.style;
-  for (const key of THEME_COLOR_KEYS) {
-    const value = themeColors?.[key];
-    if (typeof value === 'string' && value.trim()) {
-      rootStyle.setProperty(`--${key}`, value.trim());
-    } else {
+  const { bg, accent, text } = themeColors ?? {};
+
+  if (bg && accent && text) {
+    // Scale the layer step with the base lightness so darker backgrounds
+    // stay dark — e.g. near-black bg uses ~2pt steps instead of 5pt.
+    const [, , bgL] = _rgbToHsl(..._hexToRgb(bg));
+    const step = Math.min(5, Math.max(1.5, bgL * 0.44));
+
+    const vars = {
+      'bg-primary':       bg,
+      'bg-secondary':     _shiftL(bg, step),
+      'bg-tertiary':      _shiftL(bg, step * 2),
+      'bg-elevated':      _shiftL(bg, step * 3),
+      'surface-glass':    _blend(_shiftL(bg, step * 1.35), '#000000', 0.08),
+      'surface-overlay':  _blend(bg, '#000000', 0.5),
+      'accent-primary':   accent,
+      'accent-secondary': _shiftL(accent, -6),
+      'accent-hover':     _shiftL(accent, 4),
+      'accent-glow':      _blend(accent, bg, 0.7),
+      'text-primary':     text,
+      'text-secondary':   _blend(text, bg, 0.38),
+      'text-muted':       _blend(text, bg, 0.62),
+      'border-subtle':    _blend(text, bg, 0.9),
+      'border-active':    _blend(accent, bg, 0.5),
+    };
+    for (const [key, val] of Object.entries(vars)) {
+      rootStyle.setProperty(`--${key}`, val);
+    }
+  } else {
+    for (const key of DERIVED_THEME_CSS_KEYS) {
       rootStyle.removeProperty(`--${key}`);
     }
   }
@@ -237,6 +322,7 @@ export class DrawingApp {
     this.board.init('#boardContainer');
     this.board.setApp(this);
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
+    this.ui.setHideOwnLabelZoom(this.appPreferences?.general?.hideOwnLabelAbove150);
     appState.board = this.board;
     appState.appPreferences = this.appPreferences;
     TimeMachine.init(this.board, this.wsClient);
@@ -1633,6 +1719,7 @@ export class DrawingApp {
     // Strip non-serializable Image/HTMLImageElement references, keep data URLs
     const brushData = { type: brush.type, brushName: brush.brushName, fileName: brush.fileName, width: brush.width, height: brush.height };
     if (brush.gimpUrl) brushData.gimpUrl = brush.gimpUrl;
+    if (brush.svgContent) brushData.svgContent = brush.svgContent;
     if (brush.colorDepth !== undefined) brushData.colorDepth = brush.colorDepth;
     if (brush.gBrushes) brushData.gBrushes = brush.gBrushes.map(b => ({ gimpUrl: b.gimpUrl, width: b.width, height: b.height }));
     return {
@@ -2675,6 +2762,7 @@ export class DrawingApp {
     this.appPreferences = saveAppPreferences(preferences);
     applyThemeColors(this.appPreferences?.general?.themeColors);
     applySidebarSide(this.appPreferences?.general?.sidebarSide);
+    this.ui.setHideOwnLabelZoom(this.appPreferences?.general?.hideOwnLabelAbove150);
     appState.appPreferences = this.appPreferences;
     return this.appPreferences;
   }

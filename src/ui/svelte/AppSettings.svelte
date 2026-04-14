@@ -1,6 +1,6 @@
 <script>
   import { appState } from '../../state.svelte.js';
-  import { createDefaultAppPreferences, THEME_COLOR_KEYS } from '../../config/AppPreferences.js';
+  import { createDefaultAppPreferences, THEME_BASE_COLORS } from '../../config/AppPreferences.js';
   import {
     KEYBIND_ACTIONS,
     KEYBIND_ACTIONS_BY_ID,
@@ -29,20 +29,29 @@
   let themeColorDrafts = $state({});
 
   const THEME_COLOR_FIELDS = [
-    { key: 'bg-primary', label: 'Base Background' },
-    { key: 'bg-secondary', label: 'Panel Background' },
-    { key: 'bg-tertiary', label: 'Raised Background' },
-    { key: 'bg-elevated', label: 'Elevated Surface' },
-    { key: 'accent-primary', label: 'Primary Accent' },
-    { key: 'accent-secondary', label: 'Secondary Accent' },
-    { key: 'accent-hover', label: 'Accent Hover' },
-    { key: 'text-primary', label: 'Primary Text' },
-    { key: 'text-secondary', label: 'Secondary Text' },
-    { key: 'text-muted', label: 'Muted Text' }
+    { key: 'bg',     label: 'Background' },
+    { key: 'accent', label: 'Accent' },
+    { key: 'text',   label: 'Text' }
   ];
 
   function isSidebarOnLeft() {
     return appPreferences?.general?.sidebarSide === 'left';
+  }
+
+  function isHideOwnLabelAbove150() {
+    return !!appPreferences?.general?.hideOwnLabelAbove150;
+  }
+
+  function updateHideOwnLabelAbove150(enabled) {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        hideOwnLabelAbove150: enabled
+      }
+    };
+
+    updatePreferences(nextPreferences, enabled ? 'Username label hidden above 150% zoom' : 'Username label always shown');
   }
 
   function updateSidebarSide(enabled) {
@@ -106,35 +115,24 @@
     updatePreferences(defaults, 'Default app settings restored');
   }
 
-  function resolveThemeColorValue(key) {
-    return getComputedStyle(document.documentElement).getPropertyValue(`--${key}`).trim() || '#000000';
-  }
-
   function syncThemeColorDrafts() {
-    const nextDrafts = {};
-    for (const { key } of THEME_COLOR_FIELDS) {
-      nextDrafts[key] = resolveThemeColorValue(key);
-    }
-    themeColorDrafts = nextDrafts;
+    const saved = appPreferences?.general?.themeColors ?? {};
+    themeColorDrafts = {
+      bg:     saved.bg     || THEME_BASE_COLORS.bg,
+      accent: saved.accent || THEME_BASE_COLORS.accent,
+      text:   saved.text   || THEME_BASE_COLORS.text
+    };
   }
 
   function updateThemeColor(key, value) {
-    if (!THEME_COLOR_KEYS.includes(key)) return;
-    themeColorDrafts = {
-      ...themeColorDrafts,
-      [key]: value
-    };
-
-    const nextThemeColors = {
-      ...(appPreferences?.general?.themeColors ?? {}),
-      [key]: value
-    };
+    if (!['bg', 'accent', 'text'].includes(key)) return;
+    themeColorDrafts = { ...themeColorDrafts, [key]: value };
 
     const nextPreferences = {
       ...appPreferences,
       general: {
         ...(appPreferences?.general ?? {}),
-        themeColors: nextThemeColors
+        themeColors: { ...(appPreferences?.general?.themeColors ?? {}), [key]: value }
       }
     };
 
@@ -144,10 +142,7 @@
   function restoreThemeDefaults() {
     const nextPreferences = {
       ...appPreferences,
-      general: {
-        ...(appPreferences?.general ?? {}),
-        themeColors: {}
-      }
+      general: { ...(appPreferences?.general ?? {}), themeColors: {} }
     };
 
     updatePreferences(nextPreferences, 'Default colours restored');
@@ -328,38 +323,39 @@
 
         {#if activeTab === TAB_GENERAL}
           <section class="settings-panel">
-            <div class="settings-option-card">
-              <div class="settings-option-copy">
-                <h4>Sidebar on Left</h4>
-                <p>Move the tool sidebar to the left side of the canvas and pin the board menu to the top-left corner.</p>
-              </div>
-              <label class="settings-toggle">
+            <div class="settings-toggles-row">
+              <label class="settings-toggle-compact">
                 <input
                   type="checkbox"
                   checked={isSidebarOnLeft()}
                   onchange={(event) => updateSidebarSide(event.currentTarget.checked)}
                 />
-                <span>{isSidebarOnLeft() ? 'On' : 'Off'}</span>
+                <span>Sidebar on Left</span>
+              </label>
+              <label class="settings-toggle-compact">
+                <input
+                  type="checkbox"
+                  checked={isHideOwnLabelAbove150()}
+                  onchange={(event) => updateHideOwnLabelAbove150(event.currentTarget.checked)}
+                />
+                <span>Hide Own Username at High Zoom</span>
               </label>
             </div>
 
             <h4>App Colours</h4>
-            <p>
-              Tune the app's main background, text, and accent colours. Changes save immediately and
-              apply without a reload.
-            </p>
-            <div class="theme-grid">
+            <p>Pick three base colours — the rest of the palette is derived automatically.</p>
+            <div class="theme-grid-compact">
               {#each THEME_COLOR_FIELDS as field (field.key)}
-                <label class="theme-color-field">
+                <label class="theme-color-field-compact">
                   <span>{field.label}</span>
                   <div class="theme-color-input-wrap">
                     <input
                       type="color"
                       class="theme-color-picker"
-                      value={themeColorDrafts[field.key] ?? '#000000'}
+                      value={themeColorDrafts[field.key] ?? THEME_BASE_COLORS[field.key]}
                       onchange={(event) => updateThemeColor(field.key, event.currentTarget.value)}
                     />
-                    <code>{themeColorDrafts[field.key] ?? '#000000'}</code>
+                    <code>{themeColorDrafts[field.key] ?? THEME_BASE_COLORS[field.key]}</code>
                   </div>
                 </label>
               {/each}
@@ -610,6 +606,32 @@
     background: var(--bg-primary);
   }
 
+  .settings-toggles-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .settings-toggle-compact {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.84rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .settings-toggle-compact input {
+    margin: 0;
+    accent-color: var(--accent-primary);
+  }
+
   .settings-option-copy {
     display: flex;
     flex-direction: column;
@@ -645,21 +667,21 @@
     accent-color: var(--accent-primary);
   }
 
-  .theme-grid {
+  .theme-grid-compact {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 0.9rem;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
     margin-top: 1rem;
   }
 
-  .theme-color-field {
+  .theme-color-field-compact {
     display: flex;
     flex-direction: column;
     gap: 0.45rem;
     min-width: 0;
   }
 
-  .theme-color-field span {
+  .theme-color-field-compact span {
     color: var(--text-secondary);
     font-size: 0.84rem;
     font-weight: 600;

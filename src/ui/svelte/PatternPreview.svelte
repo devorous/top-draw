@@ -64,10 +64,10 @@
     gap: 5px;
     height: 24px;
     padding: 0 8px;
-    background: rgba(20, 23, 28, 0.6);
+    background: color-mix(in srgb, var(--surface-glass) 78%, transparent);
     border: none;
     border-radius: 5px;
-    color: rgba(255, 255, 255, 0.75);
+    color: var(--text-secondary);
     font-size: 0.75rem;
     font-family: inherit;
     cursor: pointer;
@@ -78,8 +78,8 @@
   }
 
   .pattern-preview-header:hover {
-    background: rgba(30, 34, 42, 0.75);
-    color: rgba(255, 255, 255, 0.95);
+    background: color-mix(in srgb, var(--bg-elevated) 86%, transparent);
+    color: var(--text-primary);
   }
 
   .collapsed .pattern-preview-header {
@@ -93,15 +93,15 @@
   .pattern-preview-body {
     margin-top: 1px;
     padding: 3px;
-    background: rgba(20, 23, 28, 0.6);
+    background: color-mix(in srgb, var(--surface-glass) 78%, transparent);
     border-radius: 5px;
     display: flex;
     justify-content: center;
   }
 
   canvas {
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(15, 17, 21, 0.8);
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--bg-primary) 88%, black);
     border-radius: 3px;
     display: block;
     width: 90px;

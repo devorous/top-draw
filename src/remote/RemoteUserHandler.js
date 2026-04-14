@@ -915,16 +915,12 @@ export class RemoteUserHandler {
     const brushData = typeof brushDataStr === 'string' ? JSON.parse(brushDataStr) : brushDataStr;
 
     if (brushData.type === 'gbr' || brushData.type === 'image' || brushData.type === 'svg') {
-      const image = new Image();
-      image.onload = () => {
-        brushData.image = image;
+      this._loadBrushImage(brushData, () => {
         user.imageBrush = brushData;
         console.log(`[ImageBrush] Remote user ${user.id} loaded ${brushData.type} brush:`, brushData.brushName || brushData.fileName);
-      };
-      image.onerror = () => {
+      }, () => {
         console.error(`[ImageBrush] Failed to load brush image for remote user ${user.id}`);
-      };
-      image.src = brushData.gimpUrl;
+      });
     } else if (brushData.type === 'gih' && brushData.gBrushes && brushData.gBrushes.length > 0) {
       let loadedCount = 0;
       const totalImages = brushData.gBrushes.length;
@@ -993,15 +989,11 @@ export class RemoteUserHandler {
     if (patternTool) patternTool._tileCache.clear();
 
     if (brushData.type === 'gbr' || brushData.type === 'image' || brushData.type === 'svg') {
-      const image = new Image();
-      image.onload = () => {
-        brushData.image = image;
+      this._loadBrushImage(brushData, () => {
         user.patternBrush = brushData;
-      };
-      image.onerror = () => {
+      }, () => {
         console.error(`[PatternBrush] Failed to load brush image for remote user ${user.id}`);
-      };
-      image.src = brushData.gimpUrl;
+      });
     } else if (brushData.type === 'gih' && brushData.gBrushes && brushData.gBrushes.length > 0) {
       let loadedCount = 0;
       const totalImages = brushData.gBrushes.length;
@@ -1021,6 +1013,25 @@ export class RemoteUserHandler {
         return img;
       });
     }
+  }
+
+  _loadBrushImage(brushData, onLoad, onError) {
+    const image = new Image();
+    image.onload = () => {
+      brushData.image = image;
+      if (!brushData.width) brushData.width = image.naturalWidth || image.width;
+      if (!brushData.height) brushData.height = image.naturalHeight || image.height;
+      onLoad();
+    };
+    image.onerror = onError;
+
+    if (brushData.type === 'svg' && brushData.svgContent) {
+      const svgBlob = new Blob([brushData.svgContent], { type: 'image/svg+xml' });
+      image.src = URL.createObjectURL(svgBlob);
+      return;
+    }
+
+    image.src = brushData.gimpUrl;
   }
 
   /**

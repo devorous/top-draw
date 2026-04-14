@@ -1106,6 +1106,20 @@ menuBtn: document.getElementById('menuBtn'),
    */
   updateZoomDisplay(percent) {
     this.elements.zoomPercent.textContent = percent;
+    if (this._hideOwnLabelZoom) {
+      const zoomValue = parseInt(percent, 10);
+      this.elements.selfCursor?.classList.toggle('zoom-hide-name', zoomValue > 150);
+    }
+  }
+
+  setHideOwnLabelZoom(enabled) {
+    this._hideOwnLabelZoom = !!enabled;
+    if (!enabled) {
+      this.elements.selfCursor?.classList.remove('zoom-hide-name');
+    } else {
+      const zoomValue = parseInt(this.elements.zoomPercent?.textContent ?? '100', 10);
+      this.elements.selfCursor?.classList.toggle('zoom-hide-name', zoomValue > 150);
+    }
   }
 
   /**

@@ -210,10 +210,10 @@
     gap: 5px;
     height: 24px;
     padding: 0 8px;
-    background: rgba(20, 23, 28, 0.6);
+    background: color-mix(in srgb, var(--surface-glass) 78%, transparent);
     border: none;
     border-radius: 5px;
-    color: rgba(255, 255, 255, 0.75);
+    color: var(--text-secondary);
     font-size: 0.75rem;
     font-family: inherit;
     cursor: pointer;
@@ -222,13 +222,13 @@
     box-sizing: border-box;
   }
   .blend-btn:hover {
-    background: rgba(30, 34, 42, 0.75);
-    color: rgba(255, 255, 255, 0.95);
+    background: color-mix(in srgb, var(--bg-elevated) 86%, transparent);
+    color: var(--text-primary);
   }
 
   .blend-btn.open {
-    background: rgba(0, 212, 170, 0.15);
-    color: #00d4aa;
+    background: color-mix(in srgb, var(--accent-primary) 15%, var(--bg-secondary));
+    color: var(--accent-primary);
   }
 
   .blend-dropdown {
@@ -236,11 +236,11 @@
     top: calc(100% + 4px);
     right: 0;
     min-width: 130px;
-    background: rgba(26, 29, 35, 0.96);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+    border: 1px solid var(--border-subtle);
     border-radius: 7px;
     backdrop-filter: blur(12px);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--shadow-lg);
     padding: 4px;
     display: flex;
     flex-direction: column;
@@ -263,7 +263,7 @@
     background: none;
     border: none;
     border-radius: 4px;
-    color: rgba(255, 255, 255, 0.65);
+    color: var(--text-secondary);
     font-size: 0.8rem;
     font-family: inherit;
     cursor: pointer;
@@ -272,13 +272,13 @@
   }
 
   .blend-option:hover {
-    background: rgba(255, 255, 255, 0.07);
-    color: rgba(255, 255, 255, 0.9);
+    background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+    color: var(--text-primary);
   }
 
   .blend-option.active {
-    color: #00d4aa;
-    background: rgba(0, 212, 170, 0.1);
+    color: var(--accent-primary);
+    background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
   }
 
   /* ── Layers ── */
@@ -292,7 +292,7 @@
     display: flex;
     align-items: center;
     gap: 0;
-    background: rgba(20, 23, 28, 0.6);
+    background: color-mix(in srgb, var(--surface-glass) 78%, transparent);
     border-radius: 5px;
     overflow: hidden;
   }
@@ -307,14 +307,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--text-secondary);
     transition: color 0.1s ease;
     padding: 0;
     flex-shrink: 0;
   }
 
   .eye-btn:hover {
-    color: rgba(255, 255, 255, 0.95);
+    color: var(--text-primary);
   }
 
   .eye-btn.faded {
@@ -325,7 +325,7 @@
     padding: 3px 8px 3px 2px;
     background: none;
     border: none;
-    color: rgba(255, 255, 255, 0.75);
+    color: var(--text-secondary);
     font-size: 0.75rem;
     font-family: inherit;
     cursor: pointer;
@@ -335,11 +335,11 @@
   }
 
   .layer-btn:hover {
-    color: rgba(255, 255, 255, 0.95);
+    color: var(--text-primary);
   }
 
   .layer-btn.active {
-    color: #00d4aa;
+    color: var(--accent-primary);
   }
 
   /* ── History ── */
@@ -356,10 +356,10 @@
     height: 24px;
     padding: 0 8px;
     width: 100%;
-    background: rgba(20, 23, 28, 0.6);
+    background: color-mix(in srgb, var(--surface-glass) 78%, transparent);
     border: none;
     border-radius: 5px;
-    color: rgba(255, 255, 255, 0.75);
+    color: var(--text-secondary);
     font-size: 0.75rem;
     font-family: inherit;
     cursor: pointer;
@@ -369,7 +369,7 @@
   }
 
   .history-btn:hover {
-    background: rgba(30, 34, 42, 0.75);
-    color: rgba(255, 255, 255, 0.95);
+    background: color-mix(in srgb, var(--bg-elevated) 86%, transparent);
+    color: var(--text-primary);
   }
 </style>

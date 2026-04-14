@@ -4,18 +4,13 @@ import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
 const APP_PREFERENCES_VERSION = 1;
 const SIDEBAR_SIDES = new Set(['left', 'right']);
-export const THEME_COLOR_KEYS = [
-  'bg-primary',
-  'bg-secondary',
-  'bg-tertiary',
-  'bg-elevated',
-  'accent-primary',
-  'accent-secondary',
-  'accent-hover',
-  'text-primary',
-  'text-secondary',
-  'text-muted'
-];
+// The 3 base colors from which all theme CSS variables are derived.
+// Empty string means "use the CSS default".
+export const THEME_BASE_COLORS = {
+  bg: '#1a1d23',
+  accent: '#00d4aa',
+  text: '#f0f2f5'
+};
 
 export function createDefaultAppPreferences() {
   return {
@@ -24,7 +19,8 @@ export function createDefaultAppPreferences() {
       sidebarSide: 'right',
       sidebarWidth: 200,
       toolsWidth: 48,
-      themeColors: {}
+      themeColors: {},
+      hideOwnLabelAbove150: false
     },
     keybinds: getDefaultKeybindings()
   };
@@ -70,10 +66,10 @@ function sanitizeThemeColors(rawThemeColors) {
   const sanitized = {};
   const source = rawThemeColors && typeof rawThemeColors === 'object' ? rawThemeColors : {};
 
-  for (const key of THEME_COLOR_KEYS) {
+  for (const key of ['bg', 'accent', 'text']) {
     const value = source[key];
-    if (typeof value === 'string' && value.trim()) {
-      sanitized[key] = value.trim();
+    if (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value.trim())) {
+      sanitized[key] = value.trim().toLowerCase();
     }
   }
 
@@ -107,7 +103,8 @@ function sanitizePreferences(rawPreferences) {
       sidebarSide: sanitizeSidebarSide(parsed.general?.sidebarSide),
       sidebarWidth: sanitizeSidebarWidth(parsed.general?.sidebarWidth),
       toolsWidth: sanitizeToolsWidth(parsed.general?.toolsWidth),
-      themeColors: sanitizeThemeColors(parsed.general?.themeColors)
+      themeColors: sanitizeThemeColors(parsed.general?.themeColors),
+      hideOwnLabelAbove150: !!parsed.general?.hideOwnLabelAbove150
     },
     keybinds: sanitizeKeybinds(parsed.keybinds)
   };

@@ -1167,14 +1167,15 @@ export class ReplayEngine {
         return;
       }
 
-      if ((brushData.type === 'gbr' || brushData.type === 'image' || brushData.type === 'svg') && brushData.gimpUrl) {
-        const image = new Image();
-        image.onload = () => {
-          brushData.image = image;
-          resolve(patternData);
-        };
-        image.onerror = () => resolve(null);
-        image.src = brushData.gimpUrl;
+      if (brushData.type === 'gbr' || brushData.type === 'image' || brushData.type === 'svg') {
+        this._loadSerializedBrushImage(brushData).then((loadedBrush) => {
+          if (loadedBrush) {
+            patternData.brush = loadedBrush;
+            resolve(patternData);
+            return;
+          }
+          resolve(null);
+        });
         return;
       }
 
@@ -1201,6 +1202,32 @@ export class ReplayEngine {
       }
 
       resolve(patternData);
+    });
+  }
+
+  _loadSerializedBrushImage(brushData) {
+    return new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => {
+        brushData.image = image;
+        if (!brushData.width) brushData.width = image.naturalWidth || image.width;
+        if (!brushData.height) brushData.height = image.naturalHeight || image.height;
+        resolve(brushData);
+      };
+      image.onerror = () => resolve(null);
+
+      if (brushData.type === 'svg' && brushData.svgContent) {
+        const svgBlob = new Blob([brushData.svgContent], { type: 'image/svg+xml' });
+        image.src = URL.createObjectURL(svgBlob);
+        return;
+      }
+
+      if (!brushData.gimpUrl) {
+        resolve(null);
+        return;
+      }
+
+      image.src = brushData.gimpUrl;
     });
   }
 
@@ -2141,18 +2168,11 @@ export class ReplayEngine {
 
       const brushData = typeof raw === 'string' ? JSON.parse(raw) : { ...raw };
 
-      if (brushData.type === 'gbr' || brushData.type === 'image') {
+      if (brushData.type === 'gbr' || brushData.type === 'image' || brushData.type === 'svg') {
         // Reserve slot immediately so duplicates are skipped
         this._brushCache.set(brushKey, null);
-        loadPromises.push(new Promise((resolve) => {
-          const image = new Image();
-          image.onload = () => {
-            brushData.image = image;
-            this._brushCache.set(brushKey, brushData);
-            resolve();
-          };
-          image.onerror = () => resolve();
-          image.src = brushData.gimpUrl;
+        loadPromises.push(this._loadSerializedBrushImage(brushData).then((loadedBrush) => {
+          if (loadedBrush) this._brushCache.set(brushKey, loadedBrush);
         }));
       } else if (brushData.type === 'gih' && brushData.gBrushes?.length > 0) {
         this._brushCache.set(brushKey, null);

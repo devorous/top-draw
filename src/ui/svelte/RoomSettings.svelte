@@ -718,7 +718,7 @@
   .room-settings-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.85);
+    background: color-mix(in srgb, var(--surface-overlay) 92%, black);
     z-index: 10000;
     display: flex;
     align-items: center;
@@ -728,8 +728,8 @@
   }
 
   .room-settings-dialog {
-    background: #242830;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
     border-radius: 8px;
     max-width: 920px;
     width: 100%;
@@ -738,14 +738,14 @@
     display: flex;
     flex-direction: column;
     position: relative;
-    color: #f0f2f5;
+    color: var(--text-primary);
     font-family: 'Inter', -apple-system, sans-serif;
   }
 
   .room-settings-header {
     padding: 1.25rem 1.5rem 0;
-    background: #2d323c;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-subtle);
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -767,14 +767,14 @@
 
   .moderation-panel p {
     margin: 0.35rem 0 0;
-    color: #a8b0bf;
+    color: var(--text-secondary);
     font-size: 0.92rem;
   }
 
   .room-settings-close {
     background: transparent;
     border: none;
-    color: #f0f2f5;
+    color: var(--text-primary);
     font-size: 1.75rem;
     line-height: 1;
     cursor: pointer;
@@ -787,10 +787,10 @@
   }
 
   .room-settings-tab {
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border-subtle);
     border-bottom: none;
-    background: rgba(12, 15, 20, 0.4);
-    color: #b4bece;
+    background: color-mix(in srgb, var(--bg-primary) 62%, transparent);
+    color: var(--text-secondary);
     padding: 0.7rem 1rem;
     border-radius: 8px 8px 0 0;
     cursor: pointer;
@@ -799,14 +799,14 @@
   }
 
   .room-settings-tab:hover {
-    background: rgba(39, 45, 56, 0.85);
-    color: #f0f2f5;
+    background: color-mix(in srgb, var(--bg-tertiary) 86%, transparent);
+    color: var(--text-primary);
   }
 
   .room-settings-tab.active {
-    background: #394252;
-    border-color: rgba(140, 225, 205, 0.22);
-    color: #fff;
+    background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 22%, var(--border-subtle));
+    color: var(--text-primary);
   }
 
   .room-settings-body {
@@ -823,15 +823,15 @@
   }
 
   .room-settings-message.success {
-    background: rgba(80, 200, 120, 0.14);
-    border: 1px solid rgba(80, 200, 120, 0.28);
-    color: #aef0c2;
+    background: color-mix(in srgb, #50c878 14%, transparent);
+    border: 1px solid color-mix(in srgb, #50c878 28%, transparent);
+    color: color-mix(in srgb, #50c878 70%, white);
   }
 
   .room-settings-message.error {
-    background: rgba(220, 80, 90, 0.14);
-    border: 1px solid rgba(220, 80, 90, 0.28);
-    color: #ffb7bd;
+    background: color-mix(in srgb, #dc505a 14%, transparent);
+    border: 1px solid color-mix(in srgb, #dc505a 28%, transparent);
+    color: color-mix(in srgb, #dc505a 52%, white);
   }
 
   .form-grid {
@@ -848,27 +848,27 @@
 
   .form-group label {
     font-size: 0.84rem;
-    color: #cfd6e3;
+    color: var(--text-primary);
   }
 
   .form-hint {
     font-size: 0.76rem;
-    color: #7a8494;
+    color: var(--text-muted);
     line-height: 1.4;
   }
 
   .form-hint strong {
-    color: #90f0da;
+    color: color-mix(in srgb, var(--accent-primary) 72%, white);
   }
 
   .room-input,
   .room-textarea,
   .table-rank-select {
     width: 100%;
-    background: #1d2128;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: color-mix(in srgb, var(--bg-primary) 82%, black);
+    border: 1px solid var(--border-subtle);
     border-radius: 6px;
-    color: #f0f2f5;
+    color: var(--text-primary);
     padding: 0.62rem 0.72rem;
     font: inherit;
   }
@@ -910,8 +910,8 @@
   }
 
   .moderation-panel {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent);
     border-radius: 10px;
     padding: 0.8rem 0.9rem;
   }
@@ -926,19 +926,19 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.9rem 1rem;
-    border: 1px solid rgba(220, 80, 90, 0.28);
+    border: 1px solid color-mix(in srgb, #dc505a 28%, transparent);
     border-radius: 10px;
-    background: rgba(220, 80, 90, 0.08);
+    background: color-mix(in srgb, #dc505a 8%, transparent);
   }
 
   .danger-zone-copy h4 {
     margin: 0;
-    color: #ffd7db;
+    color: color-mix(in srgb, #dc505a 25%, white);
   }
 
   .danger-zone-copy p {
     margin: 0.25rem 0 0;
-    color: #f0b9c0;
+    color: color-mix(in srgb, #dc505a 40%, white);
     font-size: 0.86rem;
   }
 
@@ -963,9 +963,9 @@
 
   .moderation-table-wrap {
     overflow-x: auto;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent);
     border-radius: 8px;
-    background: #1b1f27;
+    background: color-mix(in srgb, var(--bg-primary) 88%, black);
   }
 
   .moderation-table {
@@ -979,7 +979,7 @@
   .moderation-table td {
     text-align: left;
     padding: 0.55rem 0.7rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent);
     vertical-align: middle;
   }
 
@@ -987,8 +987,8 @@
     font-size: 0.74rem;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: #95a1b4;
-    background: rgba(255, 255, 255, 0.02);
+    color: var(--text-muted);
+    background: color-mix(in srgb, var(--text-primary) 2%, transparent);
   }
 
   .moderation-table tbody tr:last-child td {
@@ -1004,13 +1004,13 @@
 
   .table-subtle,
   .table-muted {
-    color: #9ea7b6;
+    color: var(--text-secondary);
     font-size: 0.77rem;
   }
 
   .table-empty {
     text-align: center;
-    color: #a8b0bf;
+    color: var(--text-secondary);
   }
 
   .rank-action-cell {
@@ -1067,14 +1067,14 @@
     justify-content: flex-end;
     gap: 0.75rem;
     padding: 0.8rem 1.1rem 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-    background: #242830;
+    border-top: 1px solid var(--border-subtle);
+    background: var(--bg-secondary);
   }
 
   .dialog-confirm-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(10, 12, 16, 0.72);
+    background: color-mix(in srgb, var(--surface-overlay) 78%, black);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1083,11 +1083,11 @@
 
   .dialog-confirm {
     width: min(100%, 420px);
-    background: #1f232b;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: color-mix(in srgb, var(--bg-primary) 92%, black);
+    border: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent);
     border-radius: 12px;
     padding: 1rem 1rem 0.95rem;
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+    box-shadow: var(--shadow-lg);
   }
 
   .dialog-confirm h4 {
@@ -1096,7 +1096,7 @@
 
   .dialog-confirm p {
     margin: 0 0 0.55rem;
-    color: #b8c0cd;
+    color: var(--text-secondary);
     line-height: 1.4;
   }
 
