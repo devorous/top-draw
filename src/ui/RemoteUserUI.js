@@ -239,6 +239,13 @@ export class RemoteUserUI {
       return;
     }
 
+    const user = window.app?.users?.get(Number(userId));
+    if (user?.cursorHidden) {
+      this._clearCursorIdleTimer(userId);
+      this._setCursorLayerVisibility(userId, false);
+      return;
+    }
+
     const cursorElements = this.cursors.get(userId);
     if (cursorElements?.cursor?.style.display === 'none') {
       this._setCursorLayerVisibility(userId, true);

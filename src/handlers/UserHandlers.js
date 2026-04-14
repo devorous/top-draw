@@ -460,12 +460,16 @@ export function setupUserHandlers(wsClient, app) {
     if (user && user.tool === 'text' && user.text) {
       return;
     }
+    if (user) {
+      user.cursorHidden = true;
+    }
     ui.hideRemoteCursor(data.sessionIndex);
   });
 
   wsClient.on('show_cursor', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
+      user.cursorHidden = false;
       ui.showRemoteCursor(data.sessionIndex);
       ui.updateRemoteToolDisplay(data.sessionIndex, user.tool);
     }
