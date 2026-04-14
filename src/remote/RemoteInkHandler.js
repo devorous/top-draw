@@ -71,7 +71,9 @@ export class RemoteInkHandler {
     user._inkSize = user.size;
 
     const pressure = Math.round(user.pressure * 255) / 255;
-    user._inkPoints = [[pos.x, pos.y, pressure]];
+    // Skip the initial point if pressure is 0 — a stale or liftoff pressure value
+    // would create a misshapen blob at the start of the stroke in tablet mode.
+    user._inkPoints = pressure > 0 ? [[pos.x, pos.y, pressure]] : [];
     user._inkStrokeActive = true;
 
     this.renderInkStroke(user, false);
@@ -95,6 +97,9 @@ export class RemoteInkHandler {
     for (let i = 0, pi = 0; i < points.length; i += 2, pi++) {
       const raw = pressures[pi] !== undefined ? pressures[pi] : user.pressure * 255;
       const pressure = raw / 255;
+      // Skip pressure=0 points — they indicate a liftoff sample and produce
+      // artefacts (sharp blobs) when fed into the perfect-freehand pipeline.
+      if (pressure === 0) continue;
       user._inkPoints.push([points[i], points[i + 1], pressure]);
     }
 

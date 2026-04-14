@@ -222,32 +222,35 @@ export class RemoteUserHandler {
       case 'erase': {
         const eraserTool = this.toolManager.getTool('erase');
         const eraseSize = user.pressure * user.size * 2;
-        if (user.eraseAllLayers) {
-          const count = this.board.layerManager.getLayerCount();
-          for (let i = 0; i < count; i++) {
-            const g = this.board.layerManager.getLayerGroup(i);
-            if (g) {
-              eraserTool.eraseOnGroup(g, pos.x, pos.y, lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
+        // Skip erasing if pressure is 0 — liftoff sample, no visible effect intended.
+        if (eraseSize > 0) {
+          if (user.eraseAllLayers) {
+            const count = this.board.layerManager.getLayerCount();
+            for (let i = 0; i < count; i++) {
+              const g = this.board.layerManager.getLayerGroup(i);
+              if (g) {
+                eraserTool.eraseOnGroup(g, pos.x, pos.y, lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
+                this.board.forEachMirrorRegion({ points: [pos, lastPos] }, (region) => {
+                  const p1 = this.board.mirrorPointToRegion(pos, region);
+                  const p2 = this.board.mirrorPointToRegion(lastPos, region);
+                  eraserTool.eraseOnGroup(g, p1.x, p1.y, p2.x, p2.y, eraseSize, user.opacity, user.id);
+                });
+              }
+            }
+          } else {
+            const group = this.board.layerManager.getLayerGroup(this.getStrokeLayer(user));
+            if (group) {
+              eraserTool.eraseOnGroup(group, pos.x, pos.y, lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
               this.board.forEachMirrorRegion({ points: [pos, lastPos] }, (region) => {
                 const p1 = this.board.mirrorPointToRegion(pos, region);
                 const p2 = this.board.mirrorPointToRegion(lastPos, region);
-                eraserTool.eraseOnGroup(g, p1.x, p1.y, p2.x, p2.y, eraseSize, user.opacity, user.id);
+                eraserTool.eraseOnGroup(group, p1.x, p1.y, p2.x, p2.y, eraseSize, user.opacity, user.id);
               });
             }
           }
-        } else {
-          const group = this.board.layerManager.getLayerGroup(this.getStrokeLayer(user));
-          if (group) {
-            eraserTool.eraseOnGroup(group, pos.x, pos.y, lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
-            this.board.forEachMirrorRegion({ points: [pos, lastPos] }, (region) => {
-              const p1 = this.board.mirrorPointToRegion(pos, region);
-              const p2 = this.board.mirrorPointToRegion(lastPos, region);
-              eraserTool.eraseOnGroup(group, p1.x, p1.y, p2.x, p2.y, eraseSize, user.opacity, user.id);
-            });
-          }
+          this.board.markCompositeFull();
+          this.board.compositeAllLayers(); // Immediate composite for remote eraser visibility
         }
-        this.board.markCompositeFull();
-        this.board.compositeAllLayers(); // Immediate composite for remote eraser visibility
         break;
       }
 
@@ -500,18 +503,21 @@ export class RemoteUserHandler {
         if (!user.panning) {
           const eraserTool = this.toolManager.getTool('erase');
           const eraseSize = user.pressure * user.size * 2;
-          if (user.eraseAllLayers) {
-            const count = this.board.layerManager.getLayerCount();
-            for (let i = 0; i < count; i++) {
-              const g = this.board.layerManager.getLayerGroup(i);
-              if (g) eraserTool.eraseOnGroup(g, pos.x, pos.y, pos.x, pos.y, eraseSize, 1.0, user.id);
+          // Skip the initial dot if pressure is 0 — same guard as the ink tool.
+          if (eraseSize > 0) {
+            if (user.eraseAllLayers) {
+              const count = this.board.layerManager.getLayerCount();
+              for (let i = 0; i < count; i++) {
+                const g = this.board.layerManager.getLayerGroup(i);
+                if (g) eraserTool.eraseOnGroup(g, pos.x, pos.y, pos.x, pos.y, eraseSize, 1.0, user.id);
+              }
+            } else {
+              const eraseGroup = this.board.layerManager.getLayerGroup(this.getStrokeLayer(user));
+              if (eraseGroup) eraserTool.eraseOnGroup(eraseGroup, pos.x, pos.y, pos.x, pos.y, eraseSize, 1.0, user.id);
             }
-          } else {
-            const eraseGroup = this.board.layerManager.getLayerGroup(this.getStrokeLayer(user));
-            if (eraseGroup) eraserTool.eraseOnGroup(eraseGroup, pos.x, pos.y, pos.x, pos.y, eraseSize, 1.0, user.id);
+            this.board.markCompositeFull();
+            this.board.compositeAllLayers(); // Immediate composite for remote eraser visibility
           }
-          this.board.markCompositeFull();
-          this.board.compositeAllLayers(); // Immediate composite for remote eraser visibility
         }
         break;
 
