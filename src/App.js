@@ -177,12 +177,27 @@ export class DrawingApp {
     applySidebarSide(this.appPreferences?.general?.sidebarSide);
     this._warnOnNextUnload = false;
 
+    // Selection state for asynchronous imageData loading
+    this._pendingSelLiftImageDataUrl = null;
+    this._pendingSelLiftRect = null;
+    this._pendingSelLiftLassoPath = null;
+    this._pendingSelMoveData = null; // Stores { corners, x, y }
+    this._isSelLiftDataLoading = false;
+
+    // Selection state for asynchronous imageData loading
+    this._pendingSelLiftImageDataUrl = null;
+    this._pendingSelLiftRect = null;
+    this._pendingSelLiftLassoPath = null;
+    this._pendingSelMoveData = null; // Stores { corners, x, y }
+    this._isSelLiftDataLoading = false;
+
     this.board = new Board({
       dimensions: options.dimensions || [1080, 1920]
     });
 
     this.toolManager = new ToolManager(this.board);
     this.ui = new UI();
+
 
     // Vanilla JS components (to be replaced by Svelte)
     // this.chat = new Chat({...});
@@ -3215,6 +3230,10 @@ export class DrawingApp {
       this.board.clearTop();
     }
 
+    if (this.connected) {
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastToolChange(tool, tool === 'erase' ? this.eraseAllLayers : false));
+    }
+
     this.self.setTool(tool);
     this.toolManager.setTool(tool);
     this.ui.updateToolDisplay(tool, this.self);
@@ -3246,7 +3265,6 @@ export class DrawingApp {
     }
 
     this.ui.updateSelfToolIcon(tool);
-    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastToolChange(tool, tool === 'erase' ? this.eraseAllLayers : false));
 
     if (tool === 'erase') {
       this.board.topCanvas.style.mixBlendMode = 'normal';
@@ -3589,6 +3607,7 @@ export class DrawingApp {
 
   handleSizeChange(e) {
     const size = Number(e.target.value);
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(size));
     this.self.setSize(size);
     this.ui.updateCursorSize(size);
     this.ui.updateSquarePositions(size);
@@ -3603,73 +3622,73 @@ export class DrawingApp {
     this.ui.updateSelfTextStyle(size, this.self.color, this.self.font);
     this.ui.updateSizeValue(size);
     this.board.mainCtx.lineWidth = size * 2;
-    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(size));
   }
 
   handleSpacingChange(e) {
     const spacing = Number(e.target.value);
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSpacingChange(spacing));
     this.self.setSpacing(spacing);
     this.ui.updateSpacingValue(spacing);
-    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSpacingChange(spacing));
   }
 
   handleSmoothingChange(e) {
     const smoothing = Number(e.target.value);
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSmoothingChange(smoothing));
     this.self.setSmoothing(smoothing);
     this.ui.updateSmoothingValue(smoothing);
-    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSmoothingChange(smoothing));
   }
 
   handleHardnessChange(e) {
     const hardness = Number(e.target.value);
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHardnessChange(hardness));
     this.self.setHardness(hardness);
     this.ui.updateHardnessValue(hardness);
-    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHardnessChange(hardness));
   }
 
   handleopacityChange(e) {
     const opacity = Number(e.target.value) / 100; // Convert to 0-1 range
 
     // Update user opacity (same as color picker alpha)
-    this.self.setOpacity(opacity);
-    this.ui.updateopacityValue(opacity);
-
-    // Update color picker to match
     const currentColor = [...this.self.color];
     currentColor[3] = opacity;
-    this.self.setColor(currentColor);
-    this.colorPicker.setColor(`rgba(${currentColor.join(',')})`);
-
+    
     // Broadcast to other users
     if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(currentColor));
     }
+
+    this.self.setOpacity(opacity);
+    this.ui.updateopacityValue(opacity);
+
+    // Update color picker to match
+    this.self.setColor(currentColor);
+    this.colorPicker.setColor(`rgba(${currentColor.join(',')})`);
   }
 
   handleBlurRadiusChange(e) {
     const radius = Number(e.target.value);
-    this.self.setBlurRadius(radius);
-    this.ui.updateBlurRadiusValue(radius);
     if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBlurRadiusChange(radius));
     }
+    this.self.setBlurRadius(radius);
+    this.ui.updateBlurRadiusValue(radius);
   }
 
   handleThinningChange(e) {
     const thinning = Number(e.target.value) / 100; // Convert to 0-1 range
-    this.self.setThinning(thinning);
-    this.ui.updateThinningValue(Math.round(thinning * 100));
     if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastThinningChange(thinning));
     }
+    this.self.setThinning(thinning);
+    this.ui.updateThinningValue(Math.round(thinning * 100));
   }
 
   handleSimulatePressureChange(e) {
     const simulate = e.target.checked;
-    this.self.setSimulatePressure(simulate);
     if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSimulatePressureChange(simulate));
     }
+    this.self.setSimulatePressure(simulate);
   }
 
   async handleBrushFileLoad(e) {
@@ -3680,8 +3699,6 @@ export class DrawingApp {
     const brushData = await brushTool.loadBrush(file, this.self);
 
     if (brushData) {
-      this.ui.setBrushPreview(brushData.previewUrl || brushData.gimpUrl || brushData.gBrushes[0].gimpUrl);
-
       // Clone brushData without image/images properties for transmission
       const broadcastData = { ...brushData };
       delete broadcastData.image;
@@ -3693,6 +3710,7 @@ export class DrawingApp {
 
       // NOW update to the new brush for future strokes
       this.self.imageBrush = brushData;
+      this.ui.setBrushPreview(brushData.previewUrl || brushData.gimpUrl || brushData.gBrushes[0].gimpUrl);
     }
   }
 

@@ -363,6 +363,30 @@ export class SelectTool extends Tool {
   throttledBroadcastSelectionMove(corners, force = false) {
     if (!this.board.app || !this.board.app.wsClient) return;
 
+    // Ensure corners data is valid and has all required numerical properties before broadcasting
+    // Check if 'corners' is a valid object
+    if (!corners || typeof corners !== 'object') {
+      console.warn('[SelectTool] Attempted to broadcast invalid corners: "corners" is null or not an object.');
+      return;
+    }
+
+    // Check if all corner points (tl, tr, bl, br) exist and are objects
+    if (!corners.tl || !corners.tr || !corners.bl || !corners.br ||
+        typeof corners.tl !== 'object' || typeof corners.tr !== 'object' ||
+        typeof corners.bl !== 'object' || typeof corners.br !== 'object') {
+      console.warn('[SelectTool] Attempted to broadcast invalid corners: missing or invalid corner points (tl, tr, bl, br).');
+      return;
+    }
+
+    // Check if each corner point has valid numeric x and y properties
+    if (typeof corners.tl.x !== 'number' || typeof corners.tl.y !== 'number' ||
+        typeof corners.tr.x !== 'number' || typeof corners.tr.y !== 'number' ||
+        typeof corners.bl.x !== 'number' || typeof corners.bl.y !== 'number' ||
+        typeof corners.br.x !== 'number' || typeof corners.br.y !== 'number') {
+      console.warn('[SelectTool] Attempted to broadcast invalid corners: missing or non-numeric x/y coordinates on corner points.');
+      return;
+    }
+
     const now = performance.now();
     const elapsed = now - this.lastSelectionBroadcastTime;
 
@@ -380,9 +404,20 @@ export class SelectTool extends Tool {
    */
   flushPendingSelectionBroadcast() {
     if (this.pendingSelectionBroadcast && this.board.app && this.board.app.wsClient) {
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(this.pendingSelectionBroadcast));
-      this.pendingSelectionBroadcast = null;
-      this.lastSelectionBroadcastTime = performance.now();
+      const corners = this.pendingSelectionBroadcast;
+      // Ensure pending corners data is valid before broadcasting
+      if (corners && corners.tl && corners.tr && corners.bl && corners.br &&
+          typeof corners.tl.x === 'number' && typeof corners.tl.y === 'number' &&
+          typeof corners.tr.x === 'number' && typeof corners.tr.y === 'number' &&
+          typeof corners.bl.x === 'number' && typeof corners.bl.y === 'number' &&
+          typeof corners.br.x === 'number' && typeof corners.br.y === 'number') {
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(corners));
+        this.pendingSelectionBroadcast = null;
+        this.lastSelectionBroadcastTime = performance.now();
+      } else {
+        console.warn('[SelectTool] Attempted to flush pending broadcast with invalid corners data.');
+        this.pendingSelectionBroadcast = null; // Clear invalid data
+      }
     }
   }
 

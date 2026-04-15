@@ -201,13 +201,32 @@ export class ImageBrushTool extends Tool {
   }
 
   applyStamps(user, ps) {
+    // Check if the user object and its ID are valid (allow ID 0).
+    // Changed from 'user && user.id' to 'user && user.id != null' to correctly handle user ID 0.
+    const isUserValid = user && user.id != null;
+
+    if (!isUserValid) {
+        console.error(`ImageBrushTool: Skipping stroke application for invalid user/ID. User data:`, user);
+        return;
+    }
+
+    // If activeLayer is not set for this user (e.g., remote user receiving stroke data),
+    // initiate a new stroke to create it. This mimics behavior for local users.
+    if (!user.activeLayer) {
+        console.warn(`ImageBrushTool: User ${user.id} has no activeLayer. Initiating new stroke.`);
+        this.board.beginStroke(user); // This should create user.activeLayer
+    }
+    
+    // After ensuring activeLayer is set, proceed with drawing.
+    // The drawStamp method itself still checks if the context is valid.
     const points = [];
     for (let i = 0; i < ps.length; i += 2) {
       const pos = { x: ps[i], y: ps[i + 1] };
       this.drawStamp(user, pos);
       points.push(pos);
     }
-    // Track tile ownership for remote user
+
+    // Track tile ownership
     if (points.length > 0) {
       this.board.markDirtyPath(user, points, user.size);
       this.board.forEachMirrorRegion({ points }, (region) => {
@@ -249,7 +268,11 @@ export class ImageBrushTool extends Tool {
     const scaledSize = size * pressure;
 
     const ctx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
-    if (!ctx) return;
+    if (!ctx) {
+      // Log an error to indicate that drawing failed due to an invalid context.
+      console.error(`ImageBrushTool: Failed to get active layer context for user ${user.id}. Active layer:`, user.activeLayer);
+      return;
+    }
 
     let height, width, image;
 
@@ -287,13 +310,14 @@ export class ImageBrushTool extends Tool {
 
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     ctx.globalAlpha = opacity;
-    ctx.beginPath();
+    ctx.beginPath(); // Start a new path for this stamp
     ctx.fillStyle = user.getColorString();
 
     const stampX = pos.x - scaledSize * ratioX;
     const stampY = pos.y - scaledSize * ratioY;
     const stampW = scaledSize * 2 * ratioX;
     const stampH = scaledSize * 2 * ratioY;
+    
     const drawStampImage = (targetCtx) => {
       const prevSmoothing = targetCtx.imageSmoothingEnabled;
       if (brush.type === 'svg') {
@@ -303,15 +327,23 @@ export class ImageBrushTool extends Tool {
       targetCtx.imageSmoothingEnabled = prevSmoothing;
     };
 
+    // Draw the main stamp
     drawStampImage(ctx);
 
+    // Save context state before mirroring operations to ensure it's restored correctly.
+    // This is a defensive measure in case board.withMirroredRegionTransform does not fully restore state.
+    ctx.save(); 
+    
     this.board.forEachMirrorRegion({ rect: { x: stampX, y: stampY, width: stampW, height: stampH } }, (region) => {
       this.board.withMirroredRegionTransform(ctx, region, () => {
-        drawStampImage(ctx);
+        drawStampImage(ctx); // Draw mirrored stamp
       });
     });
 
-    ctx.stroke();
+    // Restore context state after mirroring operations
+    ctx.restore();
+
+    ctx.stroke(); // Apply the path (all draws since beginPath)
     ctx.globalAlpha = 1.0;
 
     if (this.dirtyBounds) {

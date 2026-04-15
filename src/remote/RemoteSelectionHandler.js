@@ -294,6 +294,7 @@ export class RemoteSelectionHandler {
     if (imageData) {
       const img = new Image();
       img.onload = () => {
+        if (!user.floatingCtx) return;
         user.floatingCtx.clearRect(0, 0, s.width, s.height);
         user.floatingCtx.drawImage(img, 0, 0, s.width, s.height);
         finalizeLiftPreview();
@@ -935,6 +936,7 @@ export class RemoteSelectionHandler {
     // selectionCorners, so drawFloatingSelection will render at the correct position.
     const img = new Image();
     img.onload = () => {
+      if (!user.floatingCtx) return;
       user.floatingCtx.drawImage(img, 0, 0);
       // A SEL_MOVE replay may have already run _regeneratePreviewCache on the empty
       // canvas, producing a stale (blank) cached preview. Invalidate and rebuild now
