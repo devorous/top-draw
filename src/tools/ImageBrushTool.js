@@ -212,9 +212,15 @@ export class ImageBrushTool extends Tool {
 
     // If activeLayer is not set for this user (e.g., remote user receiving stroke data),
     // initiate a new stroke to create it. This mimics behavior for local users.
-    if (!user.activeLayer) {
-        console.warn(`ImageBrushTool: User ${user.id} has no activeLayer. Initiating new stroke.`);
-        this.board.beginStroke(user); // This should create user.activeLayer
+    // Target the layer where the stroke actually started, fallback to activeLayer
+    const strokeLayer = user._strokeLayer ?? user.activeLayer ?? 0;
+
+    // Check if there is already an active stroke for this user on that layer.
+    const hasActiveStroke = this.board.layerManager?.getActiveStroke(strokeLayer, user.id);
+
+    if (!hasActiveStroke) {
+        console.warn(`ImageBrushTool: User ${user.id} has no active stroke on layer ${strokeLayer}. Initiating new stroke.`);
+        this.board.beginStroke(user); 
     }
     
     // After ensuring activeLayer is set, proceed with drawing.
@@ -267,10 +273,10 @@ export class ImageBrushTool extends Tool {
     const pressure = user.pressure ?? 1;
     const scaledSize = size * pressure;
 
-    const ctx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
+    const strokeLayer = user._strokeLayer ?? user.activeLayer ?? 0;
+    const ctx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id);
     if (!ctx) {
-      // Log an error to indicate that drawing failed due to an invalid context.
-      console.error(`ImageBrushTool: Failed to get active layer context for user ${user.id}. Active layer:`, user.activeLayer);
+      console.error(`ImageBrushTool: Failed to get active layer context for user ${user.id}. Layer:`, strokeLayer);
       return;
     }
 

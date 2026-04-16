@@ -951,10 +951,11 @@ export class RemoteUserHandler {
       for (const entry of pending) {
         if (entry.type === 'down') {
           tool.lastStampPos.set(user.id, entry.pos);
-          tool.drawStamp(user, entry.pos);
+          user.mousedown = true;
         } else if (entry.type === 'stamps') {
           tool.applyStamps(user, entry.pts);
         } else if (entry.type === 'up') {
+          user.mousedown = true; 
           this.handleMouseUp(user);
         }
       }
