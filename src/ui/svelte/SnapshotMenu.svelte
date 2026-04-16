@@ -561,6 +561,7 @@
               <div class="snap-thumb-placeholder">{snap.auto ? 'Auto' : 'Manual'}</div>
             {/if}
             <span class="snap-thumb-time">{formatDate(snap.ts)}</span>
+            <spam class="snap-thumb-issuer">{snap.issuer}</spam>
           </div>
         {/each}
         {#if isLoadingMore}
@@ -796,6 +797,7 @@
     position: relative;
     background: #0a0a0a;
   }
+  
   .snap-thumb-item:hover { border-color: #555; }
   .snap-thumb-item.selected { border-color: var(--accent-primary, #7c5cbf); }
   .snap-thumb-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -824,7 +826,27 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-
+  .snap-thumb-issuer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    font-size: 8px;
+    font-weight: 600;
+    text-align: center;
+    background: rgba(0, 0, 0, 0.5);
+    color: var(--accent-primary);
+    padding: 2px;
+    text-transform: uppercase;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  
+  .snap-thumb-item:hover .snap-thumb-issuer,
+  .snap-thumb-item.selected .snap-thumb-issuer {
+    opacity: 1;
+  }
   .snap-footer {
     display: flex;
     align-items: center;

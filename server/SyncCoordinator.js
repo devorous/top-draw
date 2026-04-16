@@ -124,6 +124,7 @@ export class SyncCoordinator {
     // If someone is actively drawing right now, don't load a stale snapshot —
     // they'll sync naturally as strokes come in.
     const anyoneDrawing = this._isAnyoneActivelyDrawing(requesterSessionIndex);
+    
     if (!anyoneDrawing && this.room?.isRegistered?.()) {
       const snapshot = await this.room.getLatestSnapshotData?.();
       if (snapshot) {

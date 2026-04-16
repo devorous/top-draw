@@ -75,6 +75,16 @@ async function maybeCreateInitialCheckpoint(roomId, bgColor, ts) {
 }
 
 export async function handleSnapshotSave(ws, data, room) {
+
+
+  // Only allow saving if in production or specifically enabled for dev
+  const isProd = process.env.NODE_ENV === 'production';
+  const allowDevSaves = process.env.ALLOW_DEV_SNAPSHOTS === 'true';
+  
+  // Manual saves and auto-saves still go to in-memory buffer regardless of DB
+  // but we skip the expensive DB/R2 part if not authorized
+  const shouldPersist = isProd || allowDevSaves;
+
   // Server-initiated auto-snapshots: any user who was explicitly asked may respond.
   // Manual saves require Helper+ authorization.
   const isServerRequested = room?._pendingSnapshotRequests?.has(ws.sessionIndex);
@@ -112,7 +122,7 @@ export async function handleSnapshotSave(ws, data, room) {
   // Add to in-memory rolling buffer for quick access/restore before DB/R2 operation
   room.addSnapshot(snapshotInMemory);
 
-  if (db) {
+  if (db && shouldPersist) {
     try {
       // Handle initial checkpointing for auto snapshots
       if (isAuto) {
