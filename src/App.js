@@ -3342,19 +3342,27 @@ export class DrawingApp {
    * @param {string} font - The selected font family string.
    */
   handleFontChange(font) {
+    const nextFont = normalizeTextFont(font);
+
+    // Queue broadcast using current values
+    if (this.connected) {
+      const snapshot = {
+        font: nextFont,
+        mult: this.self.textPositionMultiplier,
+        off: this.self.textPositionOffset
+      };
+      this.inputBufferManager.queueBroadcast(() => 
+        this.wsClient.broadcastFontChange(snapshot.font, snapshot.mult, snapshot.off)
+      );
+    }
+
+    //Local update
     this.self.setFont(font);
     this._applyStoredTextFontSettings(this.self.font);
     this.ui.updateTextPositionMultiplierValue(this.self.textPositionMultiplier);
     this.ui.updateTextPositionOffsetValue(this.self.textPositionOffset);
     this.ui.updateSelfTextStyle(this.self.size, this.self.color, font);
-    this._updateTextPreview(); // Update preview with new font
-    if (this.connected) {
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastFontChange(
-        this.self.font,
-        this.self.textPositionMultiplier,
-        this.self.textPositionOffset
-      ));
-    }
+    this._updateTextPreview(); 
   }
 
   handleTextPositionMultiplierChange(multiplier) {
@@ -4508,21 +4516,23 @@ export class DrawingApp {
 
   _broadcastExplicitTextApply(position = null) {
     if (!this.connected || !this.wsClient || !this.self?.text) return;
-
-    const textPosition = position || { x: this.self.x, y: this.self.y };
-    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastTextApply({
+    const snapshot = {
       text: this.self.text,
-      x: textPosition.x,
-      y: textPosition.y,
+      x: position?.x ?? this.self.x,
+      y: position?.y ?? this.self.y,
       size: this.self.size,
-      color: this.self.color,
+      color: [...this.self.color], // spread to clone the array
       opacity: this.self.opacity,
       layerIndex: this.self.activeLayer ?? 0,
       blendMode: this.self.blendMode || 'source-over',
       font: this.self.font,
       textPositionMultiplier: this.self.textPositionMultiplier,
       textPositionOffset: this.self.textPositionOffset
-    }));
+    };
+
+    this.inputBufferManager.queueBroadcast(() => {
+      this.wsClient.broadcastTextApply(snapshot);
+    });
   }
 
   handlePointerUp(e) {

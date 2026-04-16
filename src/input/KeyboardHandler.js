@@ -329,7 +329,7 @@ export class KeyboardHandler {
     }
 
     if (app.self.tool === 'text') {
-      app.wsClient.broadcastKeyPress(e.key);
+      app.inputBufferManager.queueBroadcast(()=> app.wsClient.broadcastKeyPress(e.key));
       const textTool = app.toolManager.getTool('text');
       const text = textTool.onKeyPress(app.self, e.key);
       app.ui.updateSelfTextInput(text);
