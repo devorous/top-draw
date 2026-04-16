@@ -648,6 +648,9 @@
 
   function addPublicMessage(message) {
     messages.all = [...messages.all, message];
+
+    if (message.type === 'system') return;
+
     if (!visible && !isChatPopoutOpen()) {
       appState.chatUnreadCount++;
       const preview = message.type === 'image' ? `${message.text ? `${message.text} ` : ''}[image]` : message.text;
