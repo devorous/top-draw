@@ -1585,7 +1585,7 @@ export class WebSocketClient {
     };
 
     if (lassoPath && lassoPath.length > 0) {
-      msg.cr = lassoPath.flatMap(p => [Math.round(p.x), Math.round(p.y)]);
+      msg.cr = lassoPath.flatMap(p => [p.x, p.y]);
     }
     if (imageData) {
       msg.g = imageData;
@@ -1609,7 +1609,7 @@ export class WebSocketClient {
     };
 
     if (lassoPath && lassoPath.length > 0) {
-      msg.ps = lassoPath.flatMap(p => [Math.round(p.x), Math.round(p.y)]);
+      msg.ps = lassoPath.flatMap(p => [p.x, p.y]);
     }
     this.send(msg);
   }

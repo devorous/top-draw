@@ -1501,7 +1501,7 @@ export class SelectTool extends Tool {
       // Use cached transformed image
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'medium';
-      ctx.drawImage(this._cachedTransform.canvas, bounds.minX, bounds.minY, bounds.width, bounds.height);
+      ctx.drawImage(this._cachedTransform.canvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
     } else {
       // Need to recalculate transform - use downsampled preview for better performance
       const srcMaxDim = Math.max(this.floatingCanvas.width, this.floatingCanvas.height);
@@ -1533,7 +1533,7 @@ export class SelectTool extends Tool {
         // Draw the warped result scaled up to full size
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'medium';
-        ctx.drawImage(tempCanvas, bounds.minX, bounds.minY, bounds.width, bounds.height);
+        ctx.drawImage(tempCanvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
       } else {
         // Fallback: just draw the original floating selection
         this.drawFloatingSelection();
@@ -2179,7 +2179,7 @@ export class SelectTool extends Tool {
         // Use cached transformed image, just draw at new position
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'low';
-        ctx.drawImage(this._cachedTransform.canvas, bounds.minX, bounds.minY, bounds.width, bounds.height);
+        ctx.drawImage(this._cachedTransform.canvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
         return;
       }
 
@@ -2213,7 +2213,7 @@ export class SelectTool extends Tool {
         // Draw the warped result scaled up to full size
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'low';
-        ctx.drawImage(tempCanvas, bounds.minX, bounds.minY, bounds.width, bounds.height);
+        ctx.drawImage(tempCanvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
         return;
       }
     }
@@ -2331,10 +2331,10 @@ export class SelectTool extends Tool {
 
       if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners) {
         const bounds = calculateCornerBounds(this.corners);
-        dirtyX = bounds.minX;
-        dirtyY = bounds.minY;
-        dirtyW = bounds.width;
-        dirtyH = bounds.height;
+        dirtyX = Math.round(bounds.minX);
+        dirtyY = Math.round(bounds.minY);
+        dirtyW = Math.ceil(bounds.width);
+        dirtyH = Math.ceil(bounds.height);
       }
 
       // Get affected tile indices for undo tracking
@@ -2377,12 +2377,12 @@ export class SelectTool extends Tool {
           });
           if (result) {
             const tempCanvas = imageDataToCanvas(result.imageData);
-            active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
+            active.ctx.drawImage(tempCanvas, Math.round(result.bounds.minX), Math.round(result.bounds.minY));
           } else {
-            active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
+            active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y));
           }
         } else {
-          active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
+          active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y));
         }
 
         lm.commitUserStroke(groupIdx, userId, { selectionRestoreData: this._restoreData, timestamp: commitBatchTimestamp });
@@ -2441,22 +2441,28 @@ export class SelectTool extends Tool {
 
       if (result) {
         const tempCanvas = imageDataToCanvas(result.imageData);
-        active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
-        dirtyX = result.bounds.minX;
-        dirtyY = result.bounds.minY;
-        dirtyWidth = result.bounds.width;
-        dirtyHeight = result.bounds.height;
+        const drawX = Math.round(result.bounds.minX);
+        const drawY = Math.round(result.bounds.minY);
+        active.ctx.drawImage(tempCanvas, drawX, drawY);
+        dirtyX = drawX;
+        dirtyY = drawY;
+        dirtyWidth = Math.ceil(result.bounds.width);
+        dirtyHeight = Math.ceil(result.bounds.height);
       } else {
-        active.ctx.drawImage(this.floatingCanvas, this.selection.x, this.selection.y, this.selection.width, this.selection.height);
-        dirtyX = this.selection.x;
-        dirtyY = this.selection.y;
+        const drawX = Math.round(this.selection.x);
+        const drawY = Math.round(this.selection.y);
+        active.ctx.drawImage(this.floatingCanvas, drawX, drawY, this.selection.width, this.selection.height);
+        dirtyX = drawX;
+        dirtyY = drawY;
         dirtyWidth = this.selection.width;
         dirtyHeight = this.selection.height;
       }
     } else {
-      active.ctx.drawImage(this.floatingCanvas, this.selection.x, this.selection.y, this.selection.width, this.selection.height);
-      dirtyX = this.selection.x;
-      dirtyY = this.selection.y;
+      const drawX = Math.round(this.selection.x);
+      const drawY = Math.round(this.selection.y);
+      active.ctx.drawImage(this.floatingCanvas, drawX, drawY, this.selection.width, this.selection.height);
+      dirtyX = drawX;
+      dirtyY = drawY;
       dirtyWidth = this.selection.width;
       dirtyHeight = this.selection.height;
     }
@@ -3114,10 +3120,10 @@ export class SelectTool extends Tool {
 
     if (hasTransform && this.corners) {
       const bounds = calculateCornerBounds(this.corners);
-      dirtyX = bounds.minX;
-      dirtyY = bounds.minY;
-      dirtyW = bounds.width;
-      dirtyH = bounds.height;
+      dirtyX = Math.round(bounds.minX);
+      dirtyY = Math.round(bounds.minY);
+      dirtyW = Math.ceil(bounds.width);
+      dirtyH = Math.ceil(bounds.height);
     }
 
     // Get affected tile indices for undo tracking
@@ -3156,12 +3162,12 @@ export class SelectTool extends Tool {
         });
         if (result) {
           const tempCanvas = imageDataToCanvas(result.imageData);
-          active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
+          active.ctx.drawImage(tempCanvas, Math.round(result.bounds.minX), Math.round(result.bounds.minY));
         } else {
-          active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
+          active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y));
         }
       } else {
-        active.ctx.drawImage(canvas, this.selection.x, this.selection.y);
+        active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y));
       }
 
       lm.commitUserStroke(groupIdx, userId, {});

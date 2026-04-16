@@ -274,9 +274,12 @@ export class RemoteSelectionHandler {
     user.homography = new Homography('projective');
     user.previewHomography = new Homography('projective');
 
-    const finalizeLiftPreview = () => {
-      if (lassoPath && lassoPath.length >= 3) {
+    const finalizeLiftPreview = (alreadyMasked) => {
+      if (!alreadyMasked && lassoPath && lassoPath.length >= 3) {
         this.applyLassoMask(user.floatingCtx, s.x, s.y, lassoPath);
+      }
+
+      if (lassoPath && lassoPath.length >= 3) {
         user.lassoPath = lassoPath;
       }
 
@@ -291,22 +294,44 @@ export class RemoteSelectionHandler {
       this.startRemoteSelectionAnimation();
     };
 
+    // SYNCHRONOUS FALLBACK: Populate from layer immediately so fast commits
+    // during inactive tab replay don't commit an empty canvas.
+    this._populateLiftedSelectionFromLayer(user, s);
+    finalizeLiftPreview(false);
+
     if (imageData) {
+      let resolveLoad;
+      user.pendingImageLoad = new Promise((r) => {
+        resolveLoad = r;
+      });
+
       const img = new Image();
       img.onload = () => {
-        if (!user.floatingCtx) return;
+        if (!user.floatingCtx) {
+          user.pendingImageLoad = null;
+          resolveLoad();
+          return;
+        }
         user.floatingCtx.clearRect(0, 0, s.width, s.height);
         user.floatingCtx.drawImage(img, 0, 0, s.width, s.height);
-        finalizeLiftPreview();
+
+        user._cachedPreviewCanvas = null;
+        user._cachedPreviewBounds = null;
+        if (this.hasTransformedCorners(user)) {
+          this._regeneratePreviewCache(user);
+        }
+
+        user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+        this.drawFloatingSelection(user);
+
+        user.pendingImageLoad = null;
+        resolveLoad();
       };
       img.onerror = () => {
-        this._populateLiftedSelectionFromLayer(user, s);
-        finalizeLiftPreview();
+        user.pendingImageLoad = null;
+        resolveLoad();
       };
       img.src = imageData;
-    } else {
-      this._populateLiftedSelectionFromLayer(user, s);
-      finalizeLiftPreview();
     }
   }
 
@@ -337,6 +362,16 @@ export class RemoteSelectionHandler {
       selection.width,
       selection.height
     );
+  }
+
+  _queueIfLoading(user, action) {
+    if (user.pendingImageLoad) {
+      user.pendingImageLoad = user.pendingImageLoad.then(() => {
+        action();
+      });
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -436,6 +471,7 @@ export class RemoteSelectionHandler {
   }
 
   handleSelectionCommit(user, layerIndex) {
+    if (this._queueIfLoading(user, () => this.handleSelectionCommit(user, layerIndex))) return;
     if (!user.floatingCanvas || !user.selection) return;
 
     const lm = this.board.layerManager;
@@ -480,11 +516,13 @@ export class RemoteSelectionHandler {
 
         if (result) {
           const tempCanvas = imageDataToCanvas(result.imageData);
-          active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
-          dirtyX = result.bounds.minX;
-          dirtyY = result.bounds.minY;
-          dirtyWidth = result.bounds.width;
-          dirtyHeight = result.bounds.height;
+          const drawX = Math.round(result.bounds.minX);
+          const drawY = Math.round(result.bounds.minY);
+          active.ctx.drawImage(tempCanvas, drawX, drawY);
+          dirtyX = drawX;
+          dirtyY = drawY;
+          dirtyWidth = Math.ceil(result.bounds.width);
+          dirtyHeight = Math.ceil(result.bounds.height);
         } else {
           active.ctx.drawImage(user.floatingCanvas, ix, iy, iw, ih);
           dirtyX = ix;
@@ -535,6 +573,7 @@ export class RemoteSelectionHandler {
   }
 
   handleSelectionDelete(user) {
+    if (this._queueIfLoading(user, () => this.handleSelectionDelete(user))) return;
     // Use selection if available, otherwise fall back to pendingSelection
     const s = user.selection || user.pendingSelection;
     if (!s) return;
@@ -571,6 +610,7 @@ export class RemoteSelectionHandler {
   }
 
   handleSelectionFill(user, color, layerIndex) {
+    if (this._queueIfLoading(user, () => this.handleSelectionFill(user, color, layerIndex))) return;
     const s = user.selection || user.pendingSelection;
     if (!s) return;
     const colorString = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3]})`;
@@ -722,6 +762,7 @@ export class RemoteSelectionHandler {
   }
 
   handleSelectionStamp(user, layerIndex) {
+    if (this._queueIfLoading(user, () => this.handleSelectionStamp(user, layerIndex))) return;
     // Same as commit but keep floating canvas active for further moves/stamps
     if (!user.floatingCanvas || !user.selection) return;
 
@@ -755,11 +796,13 @@ export class RemoteSelectionHandler {
 
         if (result) {
           const tempCanvas = imageDataToCanvas(result.imageData);
-          active.ctx.drawImage(tempCanvas, result.bounds.minX, result.bounds.minY);
-          dirtyX = result.bounds.minX;
-          dirtyY = result.bounds.minY;
-          dirtyWidth = result.bounds.width;
-          dirtyHeight = result.bounds.height;
+          const drawX = Math.round(result.bounds.minX);
+          const drawY = Math.round(result.bounds.minY);
+          active.ctx.drawImage(tempCanvas, drawX, drawY);
+          dirtyX = drawX;
+          dirtyY = drawY;
+          dirtyWidth = Math.ceil(result.bounds.width);
+          dirtyHeight = Math.ceil(result.bounds.height);
         } else {
           active.ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
           dirtyX = s.x;
@@ -808,6 +851,7 @@ export class RemoteSelectionHandler {
   }
 
   handleSelectionFlip(user) {
+    if (this._queueIfLoading(user, () => this.handleSelectionFlip(user))) return;
     if (!user.floatingCanvas || !user.selection) return;
 
     // Create a temporary canvas for the flipped image
@@ -855,6 +899,7 @@ export class RemoteSelectionHandler {
   }
 
   handleSelectionCancel(user) {
+    if (this._queueIfLoading(user, () => this.handleSelectionCancel(user))) return;
     if (!user.floatingCanvas || !user.selection || !user.originalSelectionPos) return;
 
     // Restore the lifted pixels back to the layer at their original position
@@ -886,6 +931,7 @@ export class RemoteSelectionHandler {
   }
 
   handleSelectionToBrush(user, brushDataJson) {
+    if (this._queueIfLoading(user, () => this.handleSelectionToBrush(user, brushDataJson))) return;
     // This is mostly informational - the brush data is being set on the remote user
     // The actual brush will be loaded when they receive the GMP message
     // This handler exists for consistency but may not need implementation
@@ -989,6 +1035,7 @@ export class RemoteSelectionHandler {
     user._selectionRestoreData = null;
     user._cachedPreviewCanvas = null;
     user._cachedPreviewBounds = null;
+    user.pendingImageLoad = null;
   }
 
   hasTransformedCorners(user) {
@@ -1095,7 +1142,7 @@ export class RemoteSelectionHandler {
         const bounds = user._cachedPreviewBounds;
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'low';
-        ctx.drawImage(user._cachedPreviewCanvas, bounds.minX, bounds.minY, bounds.width, bounds.height);
+        ctx.drawImage(user._cachedPreviewCanvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
       } else {
         // Fallback: regenerate if cache missing (shouldn't happen)
         this._regeneratePreviewCache(user);
@@ -1103,7 +1150,7 @@ export class RemoteSelectionHandler {
           const bounds = user._cachedPreviewBounds;
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'low';
-          ctx.drawImage(user._cachedPreviewCanvas, bounds.minX, bounds.minY, bounds.width, bounds.height);
+          ctx.drawImage(user._cachedPreviewCanvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
         } else {
           // Final fallback
           ctx.drawImage(user.floatingCanvas, s.x, s.y, s.width, s.height);
