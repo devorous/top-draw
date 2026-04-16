@@ -2021,6 +2021,7 @@ export class Board {
 
     for (let i = 0; i < this.layerManager.layerGroups.length; i++) {
       const { canvas, ctx } = this.layerManager._createCanvas();
+      ctx.clearRect(0,0,width,height);
       this.layerManager.compositeLayerRange(ctx, i, i + 1, null);
       const imageData = ctx.getImageData(0, 0, width, height);
       layers.push(wasm.qoi_encode(new Uint8Array(imageData.data.buffer), width, height));
