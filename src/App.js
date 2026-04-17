@@ -3248,9 +3248,16 @@ export class DrawingApp {
     }
 
     this.self.setTool(tool);
-    this.toolManager.setTool(tool);
     this.ui.updateToolDisplay(tool, this.self);
     this._updateBlurCannotDraw();
+
+    // Restore locked tool values before activation so any activate-time preview
+    // uses the new tool's resolved settings instead of the previous tool's state.
+    if (this.toolLockManager.toolLocks[tool]) {
+      this.toolLockManager.restoreToolValues(tool);
+    }
+
+    this.toolManager.setTool(tool);
 
     if (tool === 'pan') {
       if (this.connected) this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
@@ -3299,10 +3306,6 @@ export class DrawingApp {
     const blendModeOptions = this.ui.elements.blendModeOptions;
     if (blendModeOptions && !this.ui.toolSupportsBlendMode(tool)) {
       blendModeOptions.style.display = 'none';
-    }
-
-    if (this.toolLockManager.toolLocks[tool]) {
-      this.toolLockManager.restoreToolValues(tool);
     }
 
     this.toolLockManager.updateAllLockButtons(tool);
