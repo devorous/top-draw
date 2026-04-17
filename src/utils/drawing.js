@@ -529,9 +529,10 @@ export function drawLineArray(points, ctx, user, board = null, blendMode = 'sour
 
   const colorString = user.getColorString();
 
-  // Apply softness using shadow blur
+  // Apply softness using shadow blur - matches circle blur's linear hardness mapping
   if (hardness < 1.0) {
-    const blurAmount = (1 - hardness) * (20 + user.size * 0.2);
+    const radius = user.pressure * user.size;
+    const blurAmount = radius * (1 - hardness);
     const offset = 100000;
 
     ctx.strokeStyle = colorString;

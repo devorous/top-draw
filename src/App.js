@@ -1045,6 +1045,14 @@ export class DrawingApp {
     document.addEventListener('keydown', this._boundSuppressButtonKeyboardActivation, true);
     document.addEventListener('keyup', this._boundSuppressButtonKeyboardActivation, true);
 
+    // Blur buttons/checkboxes after click so they don't capture keyboard focus (Space key, Ctrl+Z, etc)
+    document.addEventListener('click', (e) => {
+      const el = e.target.closest('button, [role="button"], input[type="checkbox"]');
+      if (el) {
+        setTimeout(() => el.blur(), 0);
+      }
+    }, true);
+
     // Form submit triggers join (both logged-in and not-logged-in join buttons are type="submit")
     elements.loginForm?.addEventListener('submit', (e) => {
       e.preventDefault();

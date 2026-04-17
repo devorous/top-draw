@@ -184,7 +184,7 @@ export class BrushTool extends Tool {
     const hardnessFloat = hardness / 100.0;
 
     const radius = user.pressure * user.size;
-    const blurAmount = hardness < 100 ? (1 - hardnessFloat) * (20 + user.size * 0.2) : 0;
+    const blurAmount = hardness < 100 ? radius * (1 - hardnessFloat) : 0;
     const safetyMargin = radius * 0.25;
     const totalRadius = radius + blurAmount + safetyMargin + 2;
 
