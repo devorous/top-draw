@@ -462,8 +462,7 @@ export function bridgeGap(ctx, from, to, fromRadius, toRadius, user, blendMode =
   const distance = Math.sqrt(dx * dx + dy * dy);
 
   // Spacing: 20% of average radius
-  const avgRadius = (fromRadius + toRadius) / 2;
-  const spacing = Math.max(1, avgRadius * 0.2);
+  const spacing = getStampSpacing(fromRadius, toRadius);
   const steps = Math.ceil(distance / spacing);
 
   ctx.save();
@@ -477,11 +476,33 @@ export function bridgeGap(ctx, from, to, fromRadius, toRadius, user, blendMode =
     const r = fromRadius + (toRadius - fromRadius) * t;
 
     ctx.beginPath();
-    ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
+    ctx.arc(x, y, getRenderableStampRadius(r), 0, Math.PI * 2);
     ctx.fill();
   }
 
   ctx.restore();
+}
+
+/**
+ * Returns a stamp spacing that still works for sub-pixel brushes without
+ * collapsing into obviously separated dots.
+ * @param {number} fromRadius
+ * @param {number} [toRadius=fromRadius]
+ * @returns {number}
+ */
+export function getStampSpacing(fromRadius, toRadius = fromRadius) {
+  const avgRadius = Math.max(0, (fromRadius + toRadius) / 2);
+  return Math.max(0.05, avgRadius * 0.2);
+}
+
+/**
+ * Returns the actual radius used for a circular stamp. Keep tiny radii intact
+ * so remote stamp rendering matches local sub-pixel strokes.
+ * @param {number} radius
+ * @returns {number}
+ */
+export function getRenderableStampRadius(radius) {
+  return Math.max(0.01, radius);
 }
 
 /**

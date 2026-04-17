@@ -1,5 +1,7 @@
 /** @fileoverview Handles pen and flowPen tool rendering for remote users using offscreen canvasing. */
 
+import { getRenderableStampRadius, getStampSpacing } from '../utils/drawing.js';
+
 /**
  * Handles pen/flowPen tool rendering for remote users.
  * Uses an offscreen canvas to prevent opacity stacking during a single stroke.
@@ -51,7 +53,7 @@ export class RemotePenHandler {
 
     const ctx = user._penOffscreenCtx;
     ctx.beginPath();
-    ctx.arc(pos.x, pos.y, Math.max(0.5, radius), 0, Math.PI * 2);
+    ctx.arc(pos.x, pos.y, getRenderableStampRadius(radius), 0, Math.PI * 2);
     ctx.fill();
 
     user._penLastStampPos = { x: pos.x, y: pos.y, radius };
@@ -84,7 +86,7 @@ export class RemotePenHandler {
       const pressure = radii[ri] / 255;
       const r = pressure * user.size;
       ctx.beginPath();
-      ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
+      ctx.arc(x, y, getRenderableStampRadius(r), 0, Math.PI * 2);
       ctx.fill();
       if (user.penPoints) {
         user.penPoints.push({ x, y, radius: r });
@@ -110,8 +112,7 @@ export class RemotePenHandler {
     const pressure = Math.round(user.pressure * 255) / 255;
     const radius = pressure * user.size;
 
-    const avgRadius = (user._penLastStampPos.radius + radius) / 2;
-    const spacing = Math.max(1, avgRadius * 0.2);
+    const spacing = getStampSpacing(user._penLastStampPos.radius, radius);
     const dx = pos.x - user._penLastStampPos.x;
     const dy = pos.y - user._penLastStampPos.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
@@ -127,7 +128,7 @@ export class RemotePenHandler {
         const y = user._penLastStampPos.y + dy * t;
         const r = user._penLastStampPos.radius + (radius - user._penLastStampPos.radius) * t;
         ctx.beginPath();
-        ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
+        ctx.arc(x, y, getRenderableStampRadius(r), 0, Math.PI * 2);
         ctx.fill();
       }
 

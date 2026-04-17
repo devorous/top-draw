@@ -3,6 +3,8 @@
  * Uses an offscreen canvas to prevent opacity stacking when circles overlap.
  */
 
+import { getRenderableStampRadius, getStampSpacing } from '../utils/drawing.js';
+
 /**
  * Base tool class.
  */
@@ -165,8 +167,7 @@ export class FlowPenTool extends Tool {
     const pressure = this.quantizePressure(user.pressure);
     const radius = pressure * user.size;
 
-    const avgRadius = (this.lastStampPos.radius + radius) / 2;
-    const spacing = Math.max(1, avgRadius * 0.2);
+    const spacing = getStampSpacing(this.lastStampPos.radius, radius);
     const distance = this.getDistance(this.lastStampPos, pos);
 
     if (distance >= spacing) {
@@ -201,8 +202,7 @@ export class FlowPenTool extends Tool {
       const pressure = this.quantizePressure(user.pressure);
       const radius = pressure * user.size;
 
-      const avgRadius = (this.lastStampPos.radius + radius) / 2;
-      const spacing = Math.max(1, avgRadius * 0.2);
+      const spacing = getStampSpacing(this.lastStampPos.radius, radius);
       const distance = this.getDistance(this.lastStampPos, pos);
 
       if (distance > 0.5) {
@@ -291,7 +291,7 @@ export class FlowPenTool extends Tool {
 
     ctx.fillStyle = this.strokeColor;
     ctx.beginPath();
-    ctx.arc(x, y, Math.max(0.5, radius), 0, Math.PI * 2);
+    ctx.arc(x, y, getRenderableStampRadius(radius), 0, Math.PI * 2);
     ctx.fill();
 
     if (this.dirtyBounds) {

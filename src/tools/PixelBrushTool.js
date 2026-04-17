@@ -73,9 +73,12 @@ export class PixelBrushTool {
 
     // Special handling for size 1: draw every pixel along the line (no gaps)
     if (size === 1) {
-      this.drawPixelLine(user, lastStamp, pos, true);
+      const linePoints = this.drawPixelLine(user, lastStamp, pos, true);
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-      this.strokePoints.push({ x: pos.x, y: pos.y });
+      for (const point of linePoints) {
+        this.stampBuffer.push(point.x, point.y);
+        this.strokePoints.push(point);
+      }
     } else {
       const dx = pos.x - lastStamp.x;
       const dy = pos.y - lastStamp.y;
@@ -156,6 +159,7 @@ export class PixelBrushTool {
     let y0 = Math.floor(from.y);
     const x1 = Math.floor(to.x);
     const y1 = Math.floor(to.y);
+    const points = [];
 
     const dx = Math.abs(x1 - x0);
     const dy = Math.abs(y1 - y0);
@@ -165,7 +169,9 @@ export class PixelBrushTool {
 
     // Bresenham's line algorithm for pixel-perfect lines
     while (true) {
-      this.drawSquare(user, { x: x0, y: y0 }, useTemp);
+      const point = { x: x0, y: y0 };
+      this.drawSquare(user, point, useTemp);
+      points.push(point);
 
       if (x0 === x1 && y0 === y1) break;
 
@@ -179,6 +185,8 @@ export class PixelBrushTool {
         y0 += sy;
       }
     }
+
+    return points;
   }
 
   /**
