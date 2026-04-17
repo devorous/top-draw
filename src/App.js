@@ -226,6 +226,7 @@ export class DrawingApp {
     this.secondaryColor = [255, 255, 255, 1];
     this.activeColorSlot = 'primary';
     this.colorSlotElements = null;
+    this.colorPickerHexInput = null;
 
     this.wsClient = new WebSocketClient({
       serverUrl: options.serverUrl,
@@ -724,6 +725,12 @@ export class DrawingApp {
         return null;
       };
 
+      const syncHexInput = (rgba) => {
+        if (this.colorPickerHexInput) {
+          this.colorPickerHexInput.value = _rgbToHex(rgba[0], rgba[1], rgba[2]).toUpperCase();
+        }
+      };
+
       const getWheelDiameter = () => {
         const bounds = container.getBoundingClientRect();
         const styles = getComputedStyle(container);
@@ -746,10 +753,12 @@ export class DrawingApp {
 
       container.innerHTML = '';
       this._setupColorSlotControls(container);
+      this._setupColorPickerHexInput(container);
       this.primaryColor = this.self?.color ? [...this.self.color] : [0, 0, 0, 1];
       this.activeColorSlot = 'primary';
       this._syncActiveColorSlot(this.primaryColor);
       this._updateColorSlotUI();
+      syncHexInput(this.primaryColor);
       const initialMetrics = getWheelMetrics();
       const wheel = new ColorWheel({
         appendTo: container,
@@ -769,6 +778,7 @@ export class DrawingApp {
           this.self.setColor(rgba);
           this.self.setOpacity(opacity);
           this._syncActiveColorSlot(rgba);
+          syncHexInput(rgba);
           this.ui.updateSelfColor(rgba);
           this.ui.updateSelfTextStyle(this.self.size, rgba, this.self.font);
           this.ui.updateopacityValue(opacity);
@@ -816,6 +826,7 @@ export class DrawingApp {
         wheel.rgb = rgba.slice(0, 3);
         suppressChange = false;
         this._syncActiveColorSlot(rgba);
+        syncHexInput(rgba);
       };
 
       const resizeWheel = () => {
@@ -850,12 +861,12 @@ export class DrawingApp {
     const controls = document.createElement('div');
     controls.className = 'colorSlotControls';
     controls.innerHTML = `
-      <button type="button" class="colorSlotSwatch primary active" data-slot="primary" title="Primary color"></button>
-      <button type="button" class="colorSlotSwap" title="Swap colors" aria-label="Swap primary and secondary colors">⇄</button>
       <button type="button" class="colorSlotSwatch secondary" data-slot="secondary" title="Secondary color"></button>
+      <button type="button" class="colorSlotSwatch primary active" data-slot="primary" title="Primary color"></button>
+      <button type="button" class="colorSlotSwap" title="Swap colors" aria-label="Swap primary and secondary colors"></button>
     `;
 
-    const [primaryButton, swapButton, secondaryButton] = controls.children;
+    const [secondaryButton, primaryButton, swapButton] = controls.children;
     primaryButton.addEventListener('click', () => this.selectColorSlot('primary'));
     secondaryButton.addEventListener('click', () => this.selectColorSlot('secondary'));
     swapButton.addEventListener('click', () => this.swapColorSlots());
@@ -867,6 +878,55 @@ export class DrawingApp {
       secondaryButton,
       swapButton
     };
+  }
+
+  _setupColorPickerHexInput(container) {
+    container.querySelector('.colorPickerHexField')?.remove();
+
+    const field = document.createElement('div');
+    field.className = 'colorPickerHexField';
+    field.innerHTML = `
+      <input id="colorPickerHexInput" type="text" inputmode="text" maxlength="6" spellcheck="false" autocomplete="off">
+    `;
+
+    const input = field.querySelector('input');
+    const commitHex = () => {
+      let hex = input.value.replace(/[^0-9A-Fa-f]/g, '');
+      if (hex.length === 3) {
+        hex = hex.split('').map(c => c + c).join('');
+      }
+      if (hex.length === 0) {
+        hex = _rgbToHex(this.self.color[0], this.self.color[1], this.self.color[2]);
+      }
+      while (hex.length < 6) {
+        hex = `0${hex}`;
+      }
+      hex = hex.substring(0, 6).toUpperCase();
+      input.value = hex;
+
+      const color = [
+        parseInt(hex.substring(0, 2), 16),
+        parseInt(hex.substring(2, 4), 16),
+        parseInt(hex.substring(4, 6), 16),
+        this.self?.color?.[3] ?? 1
+      ];
+      this.handleColorInputChange(color);
+    };
+
+    input.addEventListener('input', () => {
+      input.value = input.value.replace(/[^0-9A-Fa-f]/g, '').substring(0, 6).toUpperCase();
+    });
+    input.addEventListener('change', commitHex);
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        commitHex();
+        input.blur();
+      }
+    });
+
+    container.prepend(field);
+    this.colorPickerHexInput = input;
   }
 
   _syncActiveColorSlot(rgba) {
@@ -893,20 +953,7 @@ export class DrawingApp {
 
     this.activeColorSlot = slot;
     const color = slot === 'primary' ? [...this.primaryColor] : [...this.secondaryColor];
-    this.self.setColor(color);
-    this.self.setOpacity(color[3]);
-    this.ui.updateSelfColor(color);
-    this.ui.updateSelfTextStyle(this.self.size, color, this.self.font);
-    this.ui.updateopacityValue(color[3]);
-    if (this.ui.elements.opacitySlider) {
-      this.ui.elements.opacitySlider.value = color[3] * 100;
-    }
-    if (this.colorInputMenu) {
-      this.colorInputMenu.updateColor(color);
-    }
-    if (this.colorPicker) {
-      this.colorPicker.setColor(color, true);
-    }
+    this.handlePaletteColorSelect(color);
     this._updateColorSlotUI();
   }
 

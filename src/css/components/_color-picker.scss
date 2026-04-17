@@ -103,8 +103,8 @@
 
 .colorInputBtn {
   position: absolute;
-  bottom: -5px;
-  left: -29px;
+  bottom: 8px;
+  left: 6px;
   right: auto;
   width: 28px;
   height: 28px;
@@ -124,7 +124,7 @@
 
 html[data-sidebar-side='left'] .colorInputBtn {
   left: auto;
-  right: -24px;
+  right: 6px;
 }
 
 .colorInputBtn:hover {

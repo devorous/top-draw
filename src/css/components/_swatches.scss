@@ -20,13 +20,122 @@
   overflow: visible;
   width: 100%;
   max-width: 100%;
-  padding: 8px 10px 14px;
+  padding: 36px 10px 14px;
   box-sizing: border-box;
+  position: relative;
 }
 
 #colorPicker .reinvented-color-wheel {
   display: inline-flex;
   max-width: 100%;
+}
+
+.colorSlotControls {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  width: 42px;
+  height: 42px;
+  z-index: 2;
+}
+
+.colorPickerHexField {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  z-index: 2;
+}
+
+.colorPickerHexField input {
+  width: 76px;
+  padding: 4px 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: 'Inter', monospace;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  transition: border-color var(--transition-fast);
+}
+
+.colorPickerHexField input:focus {
+  outline: none;
+  border-color: var(--border-active);
+}
+
+.colorSlotSwatch {
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 85%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+
+.colorSlotSwatch {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.colorSlotSwatch.primary {
+  top: 0;
+  left: 0;
+  z-index: 2;
+}
+
+.colorSlotSwatch.secondary {
+  right: 4px;
+  bottom: 0;
+  z-index: 1;
+}
+
+.colorSlotSwatch.active {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 45%, transparent), var(--shadow-sm);
+}
+
+.colorSlotSwatch:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-active);
+}
+
+.colorSlotSwap {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background-color: transparent;
+  background-image: url('/images/swatch-switch.svg');
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 12px 12px;
+  box-shadow: none;
+  filter: brightness(0) saturate(100%) invert(86%) sepia(7%) saturate(243%) hue-rotate(180deg) brightness(94%) contrast(88%);
+  font-size: 0;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transform: rotate(180deg);
+  transition: transform var(--transition-fast), opacity var(--transition-fast);
+  opacity: 0.82;
+  z-index: 3;
+}
+
+.colorSlotSwap:hover {
+  transform: rotate(180deg) scale(1.05);
+  filter: brightness(0) saturate(100%) invert(96%) sepia(4%) saturate(180%) hue-rotate(180deg) brightness(102%) contrast(92%);
+  opacity: 1;
 }
 
 #colorPicker .reinvented-color-wheel--hue-wheel,
