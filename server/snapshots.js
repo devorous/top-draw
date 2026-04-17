@@ -517,6 +517,12 @@ export async function handleSnapshotJoinNotify(ws, room) {
     return;
   }
 
+  // Only offer loading a server snapshot when the joiner is alone in the room.
+  // If other users are present, the client should sync from a live provider instead.
+  if (typeof room.getClientCount === 'function' && room.getClientCount() !== 1) {
+    return;
+  }
+
   // Prefer in-memory snapshots that have both a thumb AND layers (auto-saves).
   for (let i = room.snapshots.length - 1; i >= 0; i--) {
     const s = room.snapshots[i];
