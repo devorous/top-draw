@@ -3135,7 +3135,12 @@ export class SelectTool extends Tool {
         }
       }
 
-      this.board.markCompositeFull();
+      this.board.compositeTileGrid?.markRect(s.x, s.y, s.width, s.height);
+      if (this.board.mirror) {
+        const bw = this.board.getWidth();
+        const mx = bw - s.x - s.width;
+        this.board.compositeTileGrid?.markRect(mx, s.y, s.width, s.height);
+      }
       this.board.compositeAllLayers();
       this.board.endStroke(app.self);
 
