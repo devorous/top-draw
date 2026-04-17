@@ -103,8 +103,9 @@
 
 .colorInputBtn {
   position: absolute;
-  bottom: 8px;
-  right: 12px;
+  bottom: -5px;
+  left: -29px;
+  right: auto;
   width: 28px;
   height: 28px;
   background: var(--bg-tertiary);
@@ -118,12 +119,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10;
+  z-index: 120;
 }
 
 html[data-sidebar-side='left'] .colorInputBtn {
-  left: 12px;
-  right: auto;
+  left: auto;
+  right: -24px;
 }
 
 .colorInputBtn:hover {
@@ -135,21 +136,22 @@ html[data-sidebar-side='left'] .colorInputBtn {
 
 .colorInputMenu {
   position: absolute;
-  bottom: 45px;
-  right: 8px;
+  bottom: 50px;
+  left: -29px;
+  right: auto;
   width: 200px;
   height:200px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
-  z-index: 100;
+  z-index: 220;
   overflow: hidden;
 }
 
 html[data-sidebar-side='left'] .colorInputMenu {
-  left: 8px;
-  right: auto;
+  left: auto;
+  right: -24px;
 }
 
 .colorInputHeader {

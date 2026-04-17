@@ -39,7 +39,9 @@ html[data-sidebar-side='left'] #sideMenu {
   background: var(--bg-tertiary);
   border-left: 1px solid var(--border-subtle);
   transition: width var(--transition-normal), opacity var(--transition-normal), transform var(--transition-normal);
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
+  z-index: 130;
   
   &.collapsed {
     width: 0;
@@ -47,6 +49,7 @@ html[data-sidebar-side='left'] #sideMenu {
     border-left-width: 0;
     pointer-events: none;
     transform: translateX(20px);
+    overflow: hidden;
   }
 }
 
@@ -64,6 +67,9 @@ html[data-sidebar-side='left'] #sideMenu {
   flex-direction: column;
   border-top: 1px solid var(--border-subtle);
   background: var(--bg-secondary);
+  position: relative;
+  z-index: 131;
+  overflow: visible;
 }
 
 /* Resizer Handles */
@@ -134,6 +140,7 @@ html[data-sidebar-side='left'] #toolOptions.collapsed {
   width: var(--tools-width);
   flex-shrink: 0;
   position: relative;
+  z-index: 1;
   align-items: center;
 }
 
@@ -144,6 +151,8 @@ html[data-sidebar-side='left'] #toolOptions.collapsed {
   margin: 0 auto;
   transform-origin: bottom center;
   margin-bottom: 8px;
+  position: relative;
+  z-index: 132;
 }
 
 @media (max-height: 750px) {
