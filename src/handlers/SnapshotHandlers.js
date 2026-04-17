@@ -54,6 +54,19 @@ export function setupSnapshotHandlers(wsClient, app) {
     }, data.cr || []);
   });
 
+  // Notify joining user about the most recent snapshot
+  wsClient.on('board_snapshot_join_notify', (data) => {
+    if (!data.snapshotId) return;
+    app.ui.showSnapshotJoinToast({
+      snapshotId: data.snapshotId,
+      ts: data.snapshotTs,
+      issuer: data.snapshotIssuer || 'Unknown',
+      thumb: data.snapshotThumb || null
+    }, () => {
+      app.snapshotManager.restoreSnapshot(data.snapshotId);
+    });
+  });
+
   // Handle board restoration
   wsClient.on('board_snapshot_restore', (data) => {
     if (!data.snapshotLayers || data.snapshotLayers.length === 0) return;

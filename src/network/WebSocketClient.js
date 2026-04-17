@@ -1072,6 +1072,15 @@ export class WebSocketClient {
         });
         break;
 
+      case T.BOARD_SNAPSHOT_JOIN_NOTIFY:
+        this.emit('board_snapshot_join_notify', {
+          snapshotId: data.snapshotId,
+          snapshotTs: data.snapshotTs,
+          snapshotIssuer: data.snapshotIssuer,
+          snapshotThumb: data.snapshotThumb
+        });
+        break;
+
       case T.BOARD_SNAPSHOT_REQUEST:
         this.emit('board_snapshot_request');
         break;

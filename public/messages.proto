@@ -106,6 +106,7 @@ message Msg {
     BOARD_SNAPSHOT_REQUEST = 101; // Server asks a client to capture a snapshot
     BOARD_SNAPSHOT_GET = 102;     // Client privately fetches one snapshot's layer data
     BOARD_SNAPSHOT_REGION_RESTORE = 103; // Restore a region from a snapshot (broadcast)
+    BOARD_SNAPSHOT_JOIN_NOTIFY = 104; // Server notifies a newly joined user about the latest snapshot
     CHECKPOINT_UPLOAD = 110;       // Dedicated user uploads full board checkpoint
     CHECKPOINT_LIST = 111;         // Request list of checkpoints for replay
     CHECKPOINT_LIST_RESPONSE = 112; // Response with checkpoint metadata

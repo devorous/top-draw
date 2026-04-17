@@ -1711,7 +1711,74 @@ menuBtn: document.getElementById('menuBtn'),
       toast.classList.remove('show', 'error');
     }, duration);
   }
-  
+
+  /**
+   * Shows a rich snapshot join notification with thumbnail and a "Load" button.
+   * @param {{ snapshotId: string, ts: number, issuer: string, thumb: Uint8Array|null }} snapshot
+   * @param {Function} onLoad - Called when the user clicks "Load"
+   */
+  showSnapshotJoinToast(snapshot, onLoad) {
+    // Dismiss any existing snapshot join toast
+    this._dismissSnapshotJoinToast();
+
+    const el = document.createElement('div');
+    el.className = 'snapshotJoinToast';
+
+    // Build thumbnail if available
+    let thumbHtml = '';
+    if (snapshot.thumb) {
+      try {
+        const bytes = snapshot.thumb instanceof Uint8Array ? snapshot.thumb : new Uint8Array(snapshot.thumb);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        const b64 = btoa(binary);
+        thumbHtml = `<img class="snapshotJoinToast__thumb" src="data:image/jpeg;base64,${b64}" alt="Snapshot preview">`;
+      } catch (_) { /* ignore */ }
+    }
+
+    const timeStr = snapshot.ts ? new Date(Number(snapshot.ts)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const issuer = snapshot.issuer || 'Unknown';
+
+    el.innerHTML = `
+      ${thumbHtml}
+      <div class="snapshotJoinToast__body">
+        <div class="snapshotJoinToast__title">Previous session available</div>
+        <div class="snapshotJoinToast__meta">Saved by ${issuer}${timeStr ? ` at ${timeStr}` : ''}</div>
+        <div class="snapshotJoinToast__actions">
+          <button class="snapshotJoinToast__load btn primary small">Load</button>
+          <button class="snapshotJoinToast__dismiss btn secondary small">Dismiss</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(el);
+    this._snapshotJoinToastEl = el;
+
+    const dismiss = () => this._dismissSnapshotJoinToast();
+
+    el.querySelector('.snapshotJoinToast__load').addEventListener('click', () => {
+      dismiss();
+      onLoad?.();
+    });
+    el.querySelector('.snapshotJoinToast__dismiss').addEventListener('click', dismiss);
+
+    // Auto-dismiss after 20 seconds
+    this._snapshotJoinToastTimeout = setTimeout(dismiss, 20000);
+
+    // Trigger enter animation on next frame
+    requestAnimationFrame(() => el.classList.add('show'));
+  }
+
+  _dismissSnapshotJoinToast() {
+    clearTimeout(this._snapshotJoinToastTimeout);
+    const el = this._snapshotJoinToastEl;
+    if (!el) return;
+    el.classList.remove('show');
+    el.addEventListener('transitionend', () => el.remove(), { once: true });
+    setTimeout(() => el.remove(), 400); // fallback if transitionend never fires
+    this._snapshotJoinToastEl = null;
+  }
+
   /**
    * Updates the global connection status indicator.
    * @param {string} state - Connection state string

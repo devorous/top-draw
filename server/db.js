@@ -40,10 +40,6 @@ export async function connectDB() {
     await db.collection('rooms').createIndex({ lastActiveAt: 1 });
     await db.collection('moderation').createIndex({ active: 1, type: 1, targetIp: 1 });
     await db.collection('moderation').createIndex({ active: 1, type: 1, roomId: 1, targetUserId: 1 });
-    await db.collection('room_roles').createIndex(
-      { roomId: 1, userId: 1 },
-      { unique: true }
-    );
     await db.collection('gallery').createIndex({ createdAt: -1 });
     await db.collection('gallery').createIndex({ author: 1, createdAt: -1 });
     await db.collection('gallery').createIndex({ likes: -1 });
@@ -63,10 +59,6 @@ export async function connectDB() {
     await db.collection('connection_events').createIndex({ deviceId: 1, createdAt: -1 });
     await db.collection('connection_events').createIndex({ fingerprintId: 1, createdAt: -1 });
     await db.collection('connection_events').createIndex({ userId: 1, createdAt: -1 });
-
-    // Snapshots: for longterm undo and rolling buffer
-    await db.collection('board_snapshots').createIndex({ roomId: 1, timestamp: -1 });
-    await db.collection('board_snapshots').createIndex({ timestamp: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 7 }); // Keep snapshots for 1 week
 
     console.log(`[DB] Connected to MongoDB: ${uri} (${DB_NAME})`);
     return db;

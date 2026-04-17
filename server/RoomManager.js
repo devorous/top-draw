@@ -223,9 +223,12 @@ export class Room {
     if (!db) return null;
 
     try {
-      const doc = await db.collection('board_snapshots')
-        .findOne({ roomId: this.id }, { sort: { timestamp: -1, _id: -1 } });
+      const roomDoc = await db.collection('rooms').findOne(
+        { _id: this.id },
+        { projection: { snapshots: 1 } }
+      );
 
+      const doc = (roomDoc?.snapshots || []).sort((a, b) => b.timestamp - a.timestamp)[0];
       if (!doc) return null;
 
       if (doc.r2Key) {
@@ -325,7 +328,9 @@ export class Room {
             mirrorRegions: [],
             dedicatedReplayUser: null,
             private: false
-          }
+          },
+          roles: [],
+          snapshots: []
         };
         await db.collection('rooms').insertOne(newDoc);
         console.log(`[Room] Created "${this.id}" in DB`);

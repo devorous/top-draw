@@ -23,23 +23,29 @@ async function deleteSnapshotRecord(db, room, doc) {
     await deleteSnapshotBundle(doc.r2Key);
   }
 
-  await db.collection('board_snapshots').deleteOne({ _id: doc._id });
+  await db.collection('rooms').updateOne(
+    { _id: room.id },
+    { $pull: { snapshots: { snapshotId: doc.snapshotId } } }
+  );
   room.snapshots = room.snapshots.filter(s => s.id !== doc.snapshotId);
 }
 
 async function pruneSnapshotsForRoom(db, room) {
   const maxSnapshots = getSnapshotMaxPerRoom();
-  const overflowDocs = await db.collection('board_snapshots')
-    .find({ roomId: room.id })
-    .sort({ timestamp: -1, _id: -1 })
-    .skip(maxSnapshots)
-    .project({ _id: 1, snapshotId: 1, r2Key: 1 })
-    .toArray();
 
-  for (const doc of overflowDocs) {
+  const roomDoc = await db.collection('rooms').findOne(
+    { _id: room.id },
+    { projection: { snapshots: 1 } }
+  );
+
+  if (!roomDoc?.snapshots?.length) return;
+
+  const sorted = [...roomDoc.snapshots].sort((a, b) => (b.timestamp - a.timestamp));
+  const overflow = sorted.slice(maxSnapshots);
+
+  for (const doc of overflow) {
     await deleteSnapshotRecord(db, room, doc);
   }
-
 }
 
 
@@ -53,34 +59,40 @@ async function pruneSnapshotsForRoom(db, room) {
 async function maybeCreateInitialCheckpoint(roomId, bgColor, ts) {
   const db = getDB();
   if (!db) return;
-  const existing = await db.collection('board_snapshots')
-    .countDocuments({ roomId, auto: true });
-  if (existing > 0) return;
+
+  const existing = await db.collection('rooms').findOne(
+    { _id: roomId, 'snapshots.auto': true },
+    { projection: { _id: 1 } }
+  );
+  if (existing) return;
 
   const id = `snap_initial_${roomId}`;
-  await db.collection('board_snapshots').insertOne({
-    roomId,
-    snapshotId: id,
-    timestamp: ts,
-    issuer: 'server',
-    // Layers are expected to be empty for initial checkpoint as client fills with bg color on restore.
-    // The actual layer data for this initial state is not stored in DB as it's just a blank canvas.
-    layers: [],
-    thumb: null,
-    auto: true,
-    initial: true,
-    bgColor
-  });
+  await db.collection('rooms').updateOne(
+    { _id: roomId },
+    {
+      $push: {
+        snapshots: {
+          snapshotId: id,
+          timestamp: ts,
+          issuer: 'server',
+          layers: [],
+          thumb: null,
+          auto: true,
+          initial: true,
+          bgColor
+        }
+      }
+    }
+  );
   getRecorder(roomId).onCheckpoint(id);
 }
 
 export async function handleSnapshotSave(ws, data, room) {
 
-
   // Only allow saving if in production or specifically enabled for dev
   const isProd = process.env.NODE_ENV === 'production';
   const allowDevSaves = process.env.ALLOW_DEV_SNAPSHOTS === 'true';
-  
+
   // Manual saves and auto-saves still go to in-memory buffer regardless of DB
   // but we skip the expensive DB/R2 part if not authorized
   const shouldPersist = isProd || allowDevSaves;
@@ -111,10 +123,7 @@ export async function handleSnapshotSave(ws, data, room) {
     id: snapshotId,
     ts: snapshotTs,
     issuer: issuer,
-    // Store QOI layers directly in memory for quick access if needed.
-    // These won't be persisted to DB/R2 in the new scheme for manual/auto saves.
-    // Initial checkpoint is handled differently and doesn't store layers here.
-    layers: isAuto ? layers : [], // Only store layers in memory for auto snapshots for now
+    layers: isAuto ? layers : [],
     thumb: thumbBytes,
     auto: isAuto
   };
@@ -136,37 +145,35 @@ export async function handleSnapshotSave(ws, data, room) {
       // Prepare data for R2 and MongoDB
       const r2Key = `snapshots/${room.id}/${snapshotId}.bundle`;
       const bundleData = {
-        layers: layers, // QOI encoded layers
-        thumbnail: thumbBytes // JPEG encoded thumbnail
+        layers: layers,
+        thumbnail: thumbBytes
       };
 
       // Upload snapshot bundle to R2
       await uploadSnapshotBundle(r2Key, bundleData);
 
-      // Store metadata and R2 key in MongoDB
       const mongoDoc = {
-        roomId: room.id,
         snapshotId: snapshotId,
         timestamp: snapshotTs,
         issuer: issuer,
         auto: isAuto,
-        thumbnail: thumbBytes, // Keep thumbnail in MongoDB for fast listing
-        r2Key: r2Key, // Store the key to the bundle in R2
+        thumbnail: thumbBytes,
+        r2Key: r2Key,
         name: data.n || (isAuto ? `Auto-save ${new Date(snapshotTs).toLocaleTimeString()}` : `Snapshot ${new Date(snapshotTs).toLocaleString()}`)
       };
 
-      await db.collection('board_snapshots').insertOne(mongoDoc);
+      await db.collection('rooms').updateOne(
+        { _id: room.id },
+        { $push: { snapshots: mongoDoc } }
+      );
       await pruneSnapshotsForRoom(db, room);
 
-      // Notify deltaRecorder if it's an auto snapshot (checkpoint)
       if (isAuto) {
         getRecorder(room.id).onCheckpoint(snapshotId);
       }
 
     } catch (err) {
       console.error(`[Snapshot] Failed to save snapshot ${snapshotId} for room ${room.id}:`, err);
-      // Consider cleanup if R2 upload succeeded but DB insert failed, or vice-versa.
-      // For now, error is logged and re-thrown.
       throw err;
     }
   }
@@ -185,42 +192,31 @@ export async function handleSnapshotList(ws, data, room) {
 
   if (db) {
     try {
-      // Fetch snapshot metadata from MongoDB, which includes thumbnail and r2Key
-      const filter = { roomId: room.id };
-      if (beforeTs > 0) {
-        filter.timestamp = { $lt: beforeTs };
-      }
+      const roomDoc = await db.collection('rooms').findOne(
+        { _id: room.id },
+        { projection: { snapshots: 1 } }
+      );
 
-      dbSnapshots = await db.collection('board_snapshots')
-        .find(filter)
-        .sort({ timestamp: -1, _id: -1 })
-        .limit(SNAPSHOT_LIST_PAGE_SIZE)
-        .toArray();
+      const allSnapshots = (roomDoc?.snapshots || [])
+        .filter(s => !beforeTs || s.timestamp < beforeTs)
+        .sort((a, b) => b.timestamp - a.timestamp);
+
+      dbSnapshots = allSnapshots.slice(0, SNAPSHOT_LIST_PAGE_SIZE);
     } catch (err) {
       console.error('[Snapshot] DB list error:', err);
     }
   }
 
-  const list = [
-    // Snapshots in the in-memory rolling buffer (these might not be persisted yet or are recent auto-saves)
-    // For simplicity, we'll primarily rely on DB snapshots for the list response,
-    // as they are guaranteed to be persisted or have an R2 counterpart.
-    // If a snapshot is in memory AND in DB, the DB version (with r2Key) is preferred.
-    // In-memory snapshots that aren't in DB yet might not have full data.
-    // For now, focus on listing what's in the DB.
+  const list = dbSnapshots.map(s => ({
+    id: s.snapshotId,
+    ts: s.timestamp,
+    issuer: s.issuer,
+    auto: s.auto,
+    thumb: s.thumbnail ? (s.thumbnail.buffer || s.thumbnail) : null,
+    name: s.name || (s.auto ? `Auto-save ${new Date(s.timestamp).toLocaleTimeString()}` : `Saved ${new Date(s.timestamp).toLocaleString()}`)
+  }));
 
-    ...dbSnapshots.map(s => ({
-      id: s.snapshotId,
-      ts: s.timestamp,
-      issuer: s.issuer,
-      auto: s.auto,
-      // Thumbnail is directly from MongoDB as per plan
-      thumb: s.thumbnail ? (s.thumbnail.buffer || s.thumbnail) : null,
-      name: s.name || (s.auto ? `Auto-save ${new Date(s.timestamp).toLocaleTimeString()}` : `Saved ${new Date(s.timestamp).toLocaleString()}`)
-    }))
-  ];
-
-  // De-dupe by ID and sort by TS (though DB query should already be sorted)
+  // De-dupe by ID (in-memory and DB may overlap) and sort by TS
   const uniqueList = Array.from(new Map(list.map(s => [s.id, s])).values())
     .sort((a, b) => b.ts - a.ts);
 
@@ -240,14 +236,12 @@ export async function handleSnapshotRestore(ws, data, room) {
   if (!authorize(ws, Action.MOD_MUTE, null)) return; // Trusted+ only
 
   const snapshotId = data.snapshotId;
-  let snapshotData = null; // Will hold { id, ts, issuer, layers }
+  let snapshotData = null;
 
   // 1. Check in-memory buffer first for very recent/auto snapshots
   let snapshotInMemory = room.snapshots.find(s => s.id === snapshotId);
 
   if (snapshotInMemory && snapshotInMemory.layers && snapshotInMemory.layers.length > 0) {
-    // Found layers in memory (likely auto-save or recently saved manual)
-    // No need to fetch from DB/R2 if layers are readily available.
     snapshotData = {
       id: snapshotInMemory.id,
       ts: snapshotInMemory.ts,
@@ -255,20 +249,23 @@ export async function handleSnapshotRestore(ws, data, room) {
       layers: snapshotInMemory.layers
     };
   } else {
-    // 2. If not in memory or no layers, fetch metadata from MongoDB and then bundle from R2
+    // 2. Fetch from the room's embedded snapshots array and then R2
     const db = getDB();
     if (db) {
       try {
-        const doc = await db.collection('board_snapshots').findOne({ roomId: room.id, snapshotId });
+        const roomDoc = await db.collection('rooms').findOne(
+          { _id: room.id, 'snapshots.snapshotId': snapshotId },
+          { projection: { 'snapshots.$': 1 } }
+        );
+        const doc = roomDoc?.snapshots?.[0];
 
         if (!doc) {
-          console.warn(`[Snapshot] Restore failed: Snapshot ${snapshotId} metadata not found in DB.`);
+          console.warn(`[Snapshot] Restore failed: Snapshot ${snapshotId} not found in room "${room.id}".`);
           return;
         }
 
-        // If doc has r2Key, fetch the bundle from R2
         if (doc.r2Key) {
-          const bundle = await getSnapshotBundle(doc.r2Key); // Use the new R2 fetch utility
+          const bundle = await getSnapshotBundle(doc.r2Key);
           if (!bundle) {
             console.warn(`[Snapshot] Restore failed: Snapshot bundle not found in R2 for key ${doc.r2Key}.`);
             return;
@@ -277,20 +274,19 @@ export async function handleSnapshotRestore(ws, data, room) {
             id: doc.snapshotId,
             ts: doc.timestamp,
             issuer: doc.issuer,
-            layers: bundle.layers // Layers from R2 bundle
+            layers: bundle.layers
           };
         } else {
-          // Fallback for older snapshots that might only have layers in MongoDB
           snapshotData = {
             id: doc.snapshotId,
             ts: doc.timestamp,
             issuer: doc.issuer,
-            layers: (doc.layers || []).map(l => l.buffer || l) // Directly from old DB doc
+            layers: (doc.layers || []).map(l => l.buffer || l)
           };
         }
       } catch (err) {
         console.error(`[Snapshot] DB/R2 fetch error during restore for ${snapshotId}:`, err);
-        return; // Stop restore if fetching fails
+        return;
       }
     }
   }
@@ -300,7 +296,6 @@ export async function handleSnapshotRestore(ws, data, room) {
     return;
   }
 
-  // Broadcast restoration to everyone
   room.broadcastToAll({
     t: T.BOARD_SNAPSHOT_RESTORE,
     snapshotLayers: snapshotData.layers,
@@ -309,7 +304,6 @@ export async function handleSnapshotRestore(ws, data, room) {
     snapshotIssuer: snapshotData.issuer
   });
 
-  // Clear server-side tile tracking as the board has been reset
   room.clearAllTiles();
 }
 
@@ -324,7 +318,7 @@ export async function handleSnapshotGet(ws, data, room) {
   if (!canViewSnapshotHistory(ws)) return;
 
   const snapshotId = data.snapshotId;
-  let snapshotData = null; // Will hold { id, ts, issuer, layers, thumb }
+  let snapshotData = null;
 
   // 1. Check in-memory buffer first
   let snapshotInMemory = room.snapshots.find(s => s.id === snapshotId);
@@ -338,20 +332,23 @@ export async function handleSnapshotGet(ws, data, room) {
       thumb: snapshotInMemory.thumb
     };
   } else {
-    // 2. Fetch metadata from MongoDB and bundle from R2
+    // 2. Fetch from the room's embedded snapshots array and then R2
     const db = getDB();
     if (db) {
       try {
-        const doc = await db.collection('board_snapshots').findOne({ roomId: room.id, snapshotId });
+        const roomDoc = await db.collection('rooms').findOne(
+          { _id: room.id, 'snapshots.snapshotId': snapshotId },
+          { projection: { 'snapshots.$': 1 } }
+        );
+        const doc = roomDoc?.snapshots?.[0];
 
         if (!doc) {
-          console.warn(`[Snapshot] Get failed: Snapshot ${snapshotId} metadata not found in DB.`);
+          console.warn(`[Snapshot] Get failed: Snapshot ${snapshotId} not found in room "${room.id}".`);
           return;
         }
 
-        // If doc has r2Key, fetch the bundle from R2
         if (doc.r2Key) {
-          const bundle = await getSnapshotBundle(doc.r2Key); // Use the new R2 fetch utility
+          const bundle = await getSnapshotBundle(doc.r2Key);
           if (!bundle) {
             console.warn(`[Snapshot] Get failed: Snapshot bundle not found in R2 for key ${doc.r2Key}.`);
             return;
@@ -360,11 +357,10 @@ export async function handleSnapshotGet(ws, data, room) {
             id: doc.snapshotId,
             ts: doc.timestamp,
             issuer: doc.issuer,
-            layers: bundle.layers, // Layers from R2 bundle
-            thumb: bundle.thumbnail // Thumbnail from R2 bundle
+            layers: bundle.layers,
+            thumb: bundle.thumbnail
           };
         } else {
-          // Fallback for older snapshots
           snapshotData = {
             id: doc.snapshotId,
             ts: doc.timestamp,
@@ -385,14 +381,13 @@ export async function handleSnapshotGet(ws, data, room) {
     return;
   }
 
-  // Send snapshot data back to the requesting client
   ws.send(room.Msg.encode(room.Msg.create({
-    t: T.BOARD_SNAPSHOT_SAVE, // Re-using save message type to send data
+    t: T.BOARD_SNAPSHOT_SAVE,
     snapshotId: snapshotData.id,
     snapshotTs: snapshotData.ts,
     snapshotIssuer: snapshotData.issuer,
     snapshotLayers: snapshotData.layers,
-    snapshotThumb: snapshotData.thumb // Sending thumb data as well
+    snapshotThumb: snapshotData.thumb
   })).finish());
 }
 
@@ -406,7 +401,7 @@ export async function handleSnapshotRegionRestore(ws, data, room) {
   if (!authorize(ws, Action.MOD_MUTE, null)) return; // Trusted+ only
 
   const snapshotId = data.snapshotId;
-  let snapshotData = null; // Will hold { id, layers }
+  let snapshotData = null;
 
   // 1. Check in-memory buffer
   let snapshotInMemory = room.snapshots.find(s => s.id === snapshotId);
@@ -417,14 +412,18 @@ export async function handleSnapshotRegionRestore(ws, data, room) {
       layers: snapshotInMemory.layers
     };
   } else {
-    // 2. Fetch metadata from MongoDB and bundle from R2
+    // 2. Fetch from the room's embedded snapshots array and then R2
     const db = getDB();
     if (db) {
       try {
-        const doc = await db.collection('board_snapshots').findOne({ roomId: room.id, snapshotId });
+        const roomDoc = await db.collection('rooms').findOne(
+          { _id: room.id, 'snapshots.snapshotId': snapshotId },
+          { projection: { 'snapshots.$': 1 } }
+        );
+        const doc = roomDoc?.snapshots?.[0];
 
         if (!doc) {
-          console.warn(`[Snapshot] Region restore failed: Snapshot ${snapshotId} metadata not found in DB.`);
+          console.warn(`[Snapshot] Region restore failed: Snapshot ${snapshotId} not found in room "${room.id}".`);
           return;
         }
 
@@ -439,7 +438,6 @@ export async function handleSnapshotRegionRestore(ws, data, room) {
             layers: bundle.layers
           };
         } else {
-          // Fallback for older snapshots
           snapshotData = {
             id: doc.snapshotId,
             layers: (doc.layers || []).map(l => l.buffer || l)
@@ -461,12 +459,12 @@ export async function handleSnapshotRegionRestore(ws, data, room) {
     t: T.BOARD_SNAPSHOT_REGION_RESTORE,
     snapshotId: snapshotData.id,
     snapshotLayers: snapshotData.layers,
-    a: !!data.a,         // isLasso
+    a: !!data.a,
     sx: data.sx || 0,
     sy: data.sy || 0,
     sw: data.sw || 0,
     sh: data.sh || 0,
-    cr: data.cr || []    // lasso points
+    cr: data.cr || []
   });
 }
 
@@ -481,19 +479,71 @@ export async function handleSnapshotDelete(ws, data, room) {
 
   const snapshotId = data.snapshotId;
 
-  // Attempt to remove from R2 if it exists
   const db = getDB();
   if (db) {
     try {
-      const doc = await db.collection('board_snapshots').findOne({ roomId: room.id, snapshotId });
+      const roomDoc = await db.collection('rooms').findOne(
+        { _id: room.id, 'snapshots.snapshotId': snapshotId },
+        { projection: { 'snapshots.$': 1 } }
+      );
+      const doc = roomDoc?.snapshots?.[0];
       if (doc) {
         await deleteSnapshotRecord(db, room, doc);
       }
     } catch (err) {
-      console.error(`[Snapshot Delete] Error checking/deleting R2 object for ${snapshotId}:`, err);
+      console.error(`[Snapshot Delete] Error deleting snapshot ${snapshotId}:`, err);
     }
   }
 
-  // Remove from in-memory buffer
   room.snapshots = room.snapshots.filter(s => s.id !== snapshotId);
+}
+
+/**
+ * Sends the most recent snapshot metadata (with thumbnail) to a newly joined user.
+ * Called once per join, only if snapshots exist for the room.
+ * @param {WebSocket} ws - The joining user's socket.
+ * @param {Room} room - The room instance.
+ */
+export async function handleSnapshotJoinNotify(ws, room) {
+  // Prefer in-memory snapshots that have both a thumb AND layers (auto-saves).
+  for (let i = room.snapshots.length - 1; i >= 0; i--) {
+    const s = room.snapshots[i];
+    if (s.thumb && s.layers && s.layers.length > 0) {
+      ws.send(room.Msg.encode(room.Msg.create({
+        t: T.BOARD_SNAPSHOT_JOIN_NOTIFY,
+        snapshotId: s.id,
+        snapshotTs: s.ts,
+        snapshotIssuer: s.issuer || 'Unknown',
+        snapshotThumb: s.thumb
+      })).finish());
+      return;
+    }
+  }
+
+  // Fall back to DB — find the most recent snapshot with a thumbnail
+  const db = getDB();
+  if (!db) return;
+
+  try {
+    const roomDoc = await db.collection('rooms').findOne(
+      { _id: room.id },
+      { projection: { snapshots: 1 } }
+    );
+
+    const doc = (roomDoc?.snapshots || [])
+      .filter(s => s.thumbnail)
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
+
+    if (!doc) return;
+
+    ws.send(room.Msg.encode(room.Msg.create({
+      t: T.BOARD_SNAPSHOT_JOIN_NOTIFY,
+      snapshotId: doc.snapshotId,
+      snapshotTs: doc.timestamp,
+      snapshotIssuer: doc.issuer || 'Unknown',
+      snapshotThumb: doc.thumbnail?.buffer || doc.thumbnail
+    })).finish());
+  } catch (err) {
+    console.error(`[Snapshot] Failed to fetch latest snapshot for join notify in room "${room.id}":`, err);
+  }
 }

@@ -1,9 +1,8 @@
 /**
  * Per-room role assignment CRUD and effective-role computation.
  *
- * Room roles are stored in the `room_roles` collection with a compound
- * unique index on (roomId, userId).  Global roles live on the user doc;
- * the effective role in a room is max(globalRole, roomRole).
+ * Room roles are stored as an embedded `roles` array within each room document.
+ * Global roles live on the user doc; effective role in a room is max(globalRole, roomRole).
  */
 
 import { ObjectId } from 'mongodb';
@@ -19,7 +18,11 @@ import { Role } from './SessionManager.js';
 export async function getRoomRole(roomId, userId) {
   const db = getDB();
   if (!db || !roomId || !userId) return null;
-  return db.collection('room_roles').findOne({ roomId, userId });
+  const room = await db.collection('rooms').findOne(
+    { _id: roomId, 'roles.userId': userId },
+    { projection: { 'roles.$': 1 } }
+  );
+  return room?.roles?.[0] || null;
 }
 
 /**
@@ -34,23 +37,11 @@ export async function setRoomRole(roomId, { userId, username = '', role, assigne
   if (!db) return null;
   const assignedAt = new Date();
   const changeType = role > previousRole ? 'promoted' : role < previousRole ? 'demoted' : 'assigned';
-  return db.collection('room_roles').updateOne(
-    { roomId, userId },
-    {
-      $set: {
-        roomId,
-        userId,
-        username,
-        role,
-        assignedBy,
-        assignedByUsername,
-        assignedAt,
-        previousRole,
-        changeType
-      }
-    },
-    { upsert: true }
-  );
+  const roleDoc = { userId, username, role, assignedBy, assignedByUsername, assignedAt, previousRole, changeType };
+
+  // Remove any existing entry for this user, then push the new one.
+  await db.collection('rooms').updateOne({ _id: roomId }, { $pull: { roles: { userId } } });
+  return db.collection('rooms').updateOne({ _id: roomId }, { $push: { roles: roleDoc } });
 }
 
 /**
@@ -61,7 +52,7 @@ export async function setRoomRole(roomId, { userId, username = '', role, assigne
 export async function removeRoomRole(roomId, userId) {
   const db = getDB();
   if (!db) return null;
-  return db.collection('room_roles').deleteOne({ roomId, userId });
+  return db.collection('rooms').updateOne({ _id: roomId }, { $pull: { roles: { userId } } });
 }
 
 /**
@@ -72,7 +63,8 @@ export async function removeRoomRole(roomId, userId) {
 export async function getRoomRoles(roomId) {
   const db = getDB();
   if (!db) return [];
-  return db.collection('room_roles').find({ roomId }).toArray();
+  const room = await db.collection('rooms').findOne({ _id: roomId }, { projection: { roles: 1 } });
+  return room?.roles || [];
 }
 
 /**
@@ -84,10 +76,14 @@ export async function getRoomRoleRoster(room) {
   const db = getDB();
   if (!db || !room?.id) return [];
 
-  const docs = await db.collection('room_roles')
-    .find({ roomId: room.id, role: { $gte: Role.TRUSTED } })
-    .sort({ role: -1, assignedAt: -1, username: 1 })
-    .toArray();
+  const roomDoc = await db.collection('rooms').findOne({ _id: room.id }, { projection: { roles: 1 } });
+  const docs = (roomDoc?.roles || [])
+    .filter(r => r.role >= Role.TRUSTED)
+    .sort((a, b) =>
+      (b.role - a.role) ||
+      ((b.assignedAt instanceof Date ? b.assignedAt.getTime() : 0) - (a.assignedAt instanceof Date ? a.assignedAt.getTime() : 0)) ||
+      (a.username || '').localeCompare(b.username || '')
+    );
 
   const userIdsToHydrate = [];
   const assignerIdsToHydrate = [];

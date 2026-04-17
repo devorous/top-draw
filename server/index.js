@@ -11,7 +11,7 @@ import { connectDB, getDB, getMongoDatabase } from './db.js';
 import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate } from './gallery.js';
 import { handleAuthLogin, handleAuthRegister, handleAuthMe } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
-import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore } from './snapshots.js';
+import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore, handleSnapshotJoinNotify } from './snapshots.js';
 import { handleCheckpointUpload, handleCheckpointList, handleCheckpointGet } from './checkpoints.js';
 import { getRecorder, removeRecorder, getReplayData } from './deltaRecorder.js';
 import { startElection, stopElection } from './uploaderElection.js';
@@ -62,7 +62,6 @@ const ADMIN_COLLECTIONS = new Set([
   'rooms',
   'moderation',
   'connection_events',
-  'room_roles',
   'gallery',
   'favorites',
   'comments',
@@ -1827,6 +1826,9 @@ wss.on('connection', async (ws, req) => {
           }
 
           sendTo(ws, buildSettingsPayload(room));
+
+          // Notify joining user of the most recent snapshot (if any)
+          handleSnapshotJoinNotify(ws, room).catch(() => {});
 
           // Start/continue election when first user joins (auto mode only)
           if (room.getClientCount() === 1 && !room.settings.dedicatedReplayUser) {
