@@ -33,7 +33,8 @@ const BLOCKED_BROWSER_BINDINGS = new Set([
   'Mod+T',
   'Mod+Shift+N',
   'Mod+Shift+T',
-  'Mod+Shift+W'
+  'Mod+Shift+W',
+  'Ctrl+Space'
 ]);
 
 export class KeyboardHandler {
@@ -207,6 +208,10 @@ export class KeyboardHandler {
         if (!e.repeat && app.self.tool !== 'inkdropper') {
           app.selectTool('inkdropper');
         }
+        return true;
+
+      case 'tool.swapColors':
+        app.swapColorSlots();
         return true;
 
       case 'history.undo':

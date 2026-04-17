@@ -122,6 +122,13 @@ export const KEYBIND_ACTIONS = [
     isHoldAction: true
   },
   {
+    id: 'tool.swapColors',
+    label: 'Swap colors',
+    description: 'Swap the primary and secondary saved colors.',
+    category: 'Tools',
+    defaultBinding: 'X'
+  },
+  {
     id: 'selection.copy',
     label: 'Copy selection',
     description: 'Copy the current selection.',

@@ -2,7 +2,7 @@ import { getDefaultKeybindings, KEYBIND_ACTIONS_BY_ID } from '../input/keybinds/
 import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
 
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
-const APP_PREFERENCES_VERSION = 1;
+const APP_PREFERENCES_VERSION = 2;
 const SIDEBAR_SIDES = new Set(['left', 'right']);
 // The 3 base colors from which all theme CSS variables are derived.
 // Empty string means "use the CSS default".
@@ -95,6 +95,20 @@ function sanitizeToolsWidth(rawWidth) {
 function sanitizePreferences(rawPreferences) {
   const defaults = createDefaultAppPreferences();
   const parsed = rawPreferences && typeof rawPreferences === 'object' ? rawPreferences : {};
+  const parsedVersion = Number(parsed.version) || 0;
+  const migratedKeybinds = parsed.keybinds && typeof parsed.keybinds === 'object'
+    ? JSON.parse(JSON.stringify(parsed.keybinds))
+    : parsed.keybinds;
+
+  if (parsedVersion < 2 && migratedKeybinds?.['tool.swapColors']) {
+    const binding = migratedKeybinds['tool.swapColors'];
+    if (binding && typeof binding === 'object') {
+      if (binding.primary === 'Ctrl+Space') binding.primary = 'Shift+Space';
+      if (binding.secondary === 'Ctrl+Space') binding.secondary = 'Shift+Space';
+    } else if (binding === 'Ctrl+Space') {
+      migratedKeybinds['tool.swapColors'] = 'Shift+Space';
+    }
+  }
 
   return {
     version: APP_PREFERENCES_VERSION,
@@ -106,7 +120,7 @@ function sanitizePreferences(rawPreferences) {
       themeColors: sanitizeThemeColors(parsed.general?.themeColors),
       hideOwnLabelAbove150: !!parsed.general?.hideOwnLabelAbove150
     },
-    keybinds: sanitizeKeybinds(parsed.keybinds)
+    keybinds: sanitizeKeybinds(migratedKeybinds)
   };
 }
 
