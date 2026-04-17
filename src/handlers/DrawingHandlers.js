@@ -338,9 +338,9 @@ export function setupDrawingHandlers(wrapHandler, app) {
     const fillR = Math.round(fillColor[0]);
     const fillG = Math.round(fillColor[1]);
     const fillB = Math.round(fillColor[2]);
-    const colorAlpha = fillColor[3];
+    // Match local fill behavior: use the opacity slider only so alpha is not applied twice.
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
-    const userOpacity = colorAlpha * opacitySlider;
+    const userOpacity = opacitySlider;
 
     const imageData = board.mainCtx.getImageData(0, 0, width, height);
     const imgData = imageData.data;
@@ -368,7 +368,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
 
     fillTool._renderMask(strokeCtx, result, fillR, fillG, fillB, userOpacity, blurRadius, width, height, user);
 
-    const pad = Math.ceil(blurRadius * 2) + Math.ceil(Math.abs(expansion));
+    const pad = Math.ceil(blurRadius * 3) + Math.ceil(Math.abs(expansion));
     const bx = Math.max(0, result.minX - pad);
     const by = Math.max(0, result.minY - pad);
     const bw = Math.min(width, result.maxX + pad + 1) - bx;
