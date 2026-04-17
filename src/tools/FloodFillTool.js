@@ -44,6 +44,7 @@ export class FloodFillTool {
     // Debounce timer for advanced mode preview updates
     this._previewTimer = null;
     this._pendingPreview = false;
+    this._lastTooLargeToast = 0;
   }
 
   get advancedMode() { return this._advancedMode; }
@@ -416,6 +417,33 @@ export class FloodFillTool {
     this._pendingPreview = false;
   }
 
+  _countFilledPixels(result) {
+    if (!result?.mask) return 0;
+    let filledPixels = 0;
+    for (let i = 0; i < result.mask.length; i++) {
+      if (result.mask[i]) filledPixels++;
+    }
+    return filledPixels;
+  }
+
+  _isFillTooLarge(result, width, height) {
+    const filledPixels = this._countFilledPixels(result);
+    const maxPixels = Math.round(width * height * 0.4);
+    return filledPixels > maxPixels
+      ? { filledPixels, maxPixels }
+      : null;
+  }
+
+  _warnFillTooLarge(fillLimit, showToast = false) {
+    if (!fillLimit) return;
+    console.warn(`Fill rejected: ${fillLimit.filledPixels} pixels exceeds 40% of canvas (${fillLimit.maxPixels})`);
+    if (!showToast) return;
+    const now = Date.now();
+    if (now - this._lastTooLargeToast < 1500) return;
+    this._lastTooLargeToast = now;
+    this.board.app?.ui?.showToast('Fill region too large', 2000);
+  }
+
   /**
    * Commit a fill result to the stroke canvas.
    * @private
@@ -500,14 +528,9 @@ export class FloodFillTool {
       );
       if (!result) { this._committed = true; return; }
 
-      // Check fill size limit (~40% of canvas) - count actual filled pixels
-      let filledPixels = 0;
-      for (let i = 0; i < result.mask.length; i++) {
-        if (result.mask[i]) filledPixels++;
-      }
-      const canvasArea = width * height;
-      if (filledPixels > canvasArea * 0.4) {
-        console.warn(`Fill rejected: ${filledPixels} pixels exceeds 40% of canvas (${Math.round(canvasArea * 0.4)})`);
+      const fillLimit = this._isFillTooLarge(result, width, height);
+      if (fillLimit) {
+        this._warnFillTooLarge(fillLimit, true);
         this._committed = true;
         return;
       }
@@ -543,6 +566,14 @@ export class FloodFillTool {
       data, width, height, x, y, 10, 0, null
     );
     if (!initialResult) { this._active = false; return; }
+
+    const initialFillLimit = this._isFillTooLarge(initialResult, width, height);
+    if (initialFillLimit) {
+      this._warnFillTooLarge(initialFillLimit, true);
+      this._cancelInteractive();
+      this._committed = true;
+      return;
+    }
 
     // Show initial preview (move events may have already updated expansion/blur)
     if (this._expansion !== 0 || this._blurRadius !== 0) {
@@ -596,6 +627,14 @@ export class FloodFillTool {
 
     // If we've been cancelled while waiting, don't render
     if (!this._active) return;
+
+    const fillLimit = this._isFillTooLarge(result, width, height);
+    if (fillLimit) {
+      this._warnFillTooLarge(fillLimit, true);
+      this._cancelInteractive();
+      this._committed = true;
+      return;
+    }
 
     const topCtx = this.board.topCtx;
     topCtx.clearRect(0, 0, width, height);
@@ -660,17 +699,13 @@ export class FloodFillTool {
     this.board.topCtx.clearRect(0, 0, width, height);
 
     if (result) {
-      // Check fill size limit (~40% of canvas) - count actual filled pixels
-      let filledPixels = 0;
-      for (let i = 0; i < result.mask.length; i++) {
-        if (result.mask[i]) filledPixels++;
-      }
-      const canvasArea = width * height;
-      if (filledPixels > canvasArea * 0.4) {
-        console.warn(`Fill rejected: ${filledPixels} pixels exceeds 40% of canvas (${Math.round(canvasArea * 0.4)})`);
+      const fillLimit = this._isFillTooLarge(result, width, height);
+      if (fillLimit) {
+        this._warnFillTooLarge(fillLimit, true);
         this._active = false;
         this._imageData = null;
         this._fillParams = null;
+        this._committed = true;
         return;
       }
 

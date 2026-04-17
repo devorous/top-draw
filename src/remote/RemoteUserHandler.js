@@ -1380,6 +1380,13 @@ export class RemoteUserHandler {
     );
     if (!result || previewToken !== (user._fillPreviewToken || 0) || !user.mousedown || user.tool !== 'fill') return;
 
+    const fillLimit = fillTool._isFillTooLarge?.(result, width, height);
+    if (fillLimit) {
+      fillTool._warnFillTooLarge?.(fillLimit, false);
+      this._invalidateFillPreview(user);
+      return;
+    }
+
     const { mask, minX, minY, maxX, maxY } = result;
     const regionW = maxX - minX + 1;
     const regionH = maxY - minY + 1;
