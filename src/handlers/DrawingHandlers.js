@@ -282,6 +282,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
     ui.updateRemoteFont(data.sessionIndex, data.font);
     ui.updateRemoteTextLayout(data.sessionIndex, user);
+    app._refreshTextRenderingAfterFontLoad?.(data.font);
 
     if (user.tool !== 'text' || !user.text) return;
 

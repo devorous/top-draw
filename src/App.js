@@ -33,7 +33,7 @@ import { HistoryPanel } from './ui/HistoryPanel.js';
 import { MirrorRegionController } from './ui/MirrorRegionController.js';
 import { SnapshotManager } from './remote/SnapshotManager.js';
 import { loadAppPreferences, saveAppPreferences } from './config/AppPreferences.js';
-import { getTextFontDefaults, normalizeTextFont } from './config/textFonts.js';
+import { getTextFontDefaults, loadTextFont, normalizeTextFont } from './config/textFonts.js';
 import {
   copyCanvasToSystemClipboard,
   copyImageDataToSystemClipboard,
@@ -3728,7 +3728,8 @@ export class DrawingApp {
     this.ui.updateTextPositionMultiplierValue(this.self.textPositionMultiplier);
     this.ui.updateTextPositionOffsetValue(this.self.textPositionOffset);
     this.ui.updateSelfTextStyle(this.self.size, this.self.color, font);
-    this._updateTextPreview(); 
+    this._updateTextPreview();
+    this._refreshTextRenderingAfterFontLoad(nextFont);
   }
 
   handleTextPositionMultiplierChange(multiplier) {
@@ -5320,6 +5321,31 @@ export class DrawingApp {
       this.ui.elements.selfTextInput.style.visibility = '';
       this.board.clearTop();
     }
+  }
+
+  _refreshTextRenderingAfterFontLoad(font) {
+    const targetFont = normalizeTextFont(font);
+    loadTextFont(targetFont).then(() => {
+      if (this.self?.font === targetFont) {
+        this.ui.updateSelfTextStyle(this.self.size, this.self.color, this.self.font);
+        this._updateTextPreview();
+      }
+
+      for (const [userId, user] of this.users.entries()) {
+        if (!user || userId === this.sessionIndex || user.font !== targetFont) continue;
+
+        this.ui.updateRemoteFont(userId, user.font);
+        this.ui.updateRemoteTextLayout(userId, user);
+
+        if (user.tool === 'text' && user.text) {
+          if (user.blendMode && user.blendMode !== 'source-over') {
+            this.remoteUserHandler?._renderRemoteTextToCanvas?.(user);
+          } else {
+            this.ui.updateRemoteText(userId, user.text);
+          }
+        }
+      }
+    });
   }
 
   // Line utilities
