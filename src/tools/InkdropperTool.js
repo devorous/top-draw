@@ -29,6 +29,53 @@ export class InkdropperTool {
   }
 
   /**
+   * Convert a board-space pointer position into a valid pixel coordinate.
+   * Using floor keeps sampling inside the pixel cell under the cursor instead
+   * of rounding into a neighboring pixel near cell boundaries.
+   * @private
+   * @param {Object} pos - {x, y} position on canvas.
+   * @returns {{x: number, y: number}}
+   */
+  _getSamplePixel(pos) {
+    const [height, width] = this.board.dimensions;
+
+    return {
+      x: Math.max(0, Math.min(width - 1, Math.floor(pos.x))),
+      y: Math.max(0, Math.min(height - 1, Math.floor(pos.y)))
+    };
+  }
+
+  /**
+   * Snap near-extreme color channels to exact endpoints.
+   * This avoids 1-step drift like 254/254/255 or 1/1/0 when sampling
+   * visually pure white/black from the composited board.
+   * @private
+   * @param {number} value
+   * @returns {number}
+   */
+  _normalizeChannel(value) {
+    if (value <= 1) return 0;
+    if (value >= 254) return 255;
+    return value;
+  }
+
+  /**
+   * Normalize RGB channels for sampled colors.
+   * @private
+   * @param {number} r
+   * @param {number} g
+   * @param {number} b
+   * @returns {[number, number, number]}
+   */
+  _normalizeSampledRgb(r, g, b) {
+    return [
+      this._normalizeChannel(r),
+      this._normalizeChannel(g),
+      this._normalizeChannel(b)
+    ];
+  }
+
+  /**
    * Handles pointer down event.
    * @param {Object} user - The user performing the action.
    * @param {Object} pos - The current pointer position.
@@ -69,10 +116,9 @@ export class InkdropperTool {
   _drawColorPreview(pos) {
     this.board.clearTop();
 
-    const [height, width] = this.board.dimensions;
-    const x = Math.round(pos.x);
-    const y = Math.round(pos.y);
-    if (x < 0 || y < 0 || x >= width || y >= height) return;
+    if (!Number.isFinite(pos?.x) || !Number.isFinite(pos?.y)) return;
+
+    const { x, y } = this._getSamplePixel(pos);
 
     const imageData = this.board.mainCtx.getImageData(x, y, 1, 1);
     let [r, g, b, a] = imageData.data;
@@ -84,6 +130,8 @@ export class InkdropperTool {
       g = Math.round(g * alpha + bg[1] * (1 - alpha));
       b = Math.round(b * alpha + bg[2] * (1 - alpha));
     }
+
+    [r, g, b] = this._normalizeSampledRgb(r, g, b);
 
     const ctx = this.board.topCtx;
     const size = 22;
@@ -108,9 +156,9 @@ export class InkdropperTool {
    */
   sampleColor(pos) {
     const ctx = this.board.mainCtx;
+    if (!Number.isFinite(pos?.x) || !Number.isFinite(pos?.y)) return;
 
-    const x = Math.round(pos.x);
-    const y = Math.round(pos.y);
+    const { x, y } = this._getSamplePixel(pos);
 
     const imageData = ctx.getImageData(x, y, 1, 1);
     let [r, g, b, a] = imageData.data;
@@ -126,6 +174,8 @@ export class InkdropperTool {
       a = 255;
     }
 
+    [r, g, b] = this._normalizeSampledRgb(r, g, b);
+
     const rgba = [r, g, b, a / 255];
 
     app.self.setColor(rgba);
@@ -136,16 +186,7 @@ export class InkdropperTool {
     app.ui.updateopacityValue(rgba[3]);
 
     if (app.colorPicker) {
-      const isGrayscale = (r === g && g === b);
-      if (isGrayscale) {
-        const lightness = r / 255 * 100;
-        app.colorPicker.setColor(`hsl(0, 0%, ${lightness}%)`, true);
-        if (rgba[3] !== 1) {
-          app.colorPicker.setColor([r, g, b, rgba[3]], true);
-        }
-      } else {
-        app.colorPicker.setColor([r, g, b, rgba[3]], true);
-      }
+      app.colorPicker.setColor([r, g, b, rgba[3]], true);
     }
 
     if (app.colorInputMenu) {
