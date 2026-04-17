@@ -6,6 +6,14 @@ let cachedVersionStatus = null;
 let versionStatusPromise = null;
 let shownWarningKey = null;
 
+function getVersionEndpointUrl() {
+  const configuredApiBase = String(import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (isTauriDesktop() && configuredApiBase) {
+    return `${configuredApiBase}/api/version`;
+  }
+  return '/api/version';
+}
+
 /**
  * Parse a version string into { major, minor, patch, prerelease }
  * Supports semver: "1.2.3", "1.2.3-beta", "1.2.0-beta.1", etc.
@@ -110,7 +118,7 @@ export async function getVersionStatus({ force = false } = {}) {
 
     let status;
     try {
-      const response = await fetch('/api/version', { cache: 'no-store' });
+      const response = await fetch(getVersionEndpointUrl(), { cache: 'no-store' });
       if (!response.ok) {
         console.warn('[VersionChecker] Server version check failed:', response.status);
         status = {
