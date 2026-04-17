@@ -9,8 +9,16 @@ import { uploadSnapshotBundle, getSnapshotBundle, deleteSnapshotBundle } from '.
 const DEFAULT_SNAPSHOT_MAX_PER_ROOM = 100;
 const SNAPSHOT_LIST_PAGE_SIZE = 20;
 
-function canViewSnapshotHistory(ws) {
-  return Number(ws?.userRole || 0) >= 1;
+function isSoloRoomOccupant(room) {
+  return room?.getClientCount?.() === 1;
+}
+
+function canViewSnapshotHistory(ws, room) {
+  return Number(ws?.userRole || 0) >= 1 || isSoloRoomOccupant(room);
+}
+
+function canLoadSnapshot(ws, room) {
+  return authorize(ws, Action.MOD_MUTE, null) || isSoloRoomOccupant(room);
 }
 
 function getSnapshotMaxPerRoom() {
@@ -185,7 +193,7 @@ export async function handleSnapshotSave(ws, data, room) {
  * @param {Room} room - The room instance.
  */
 export async function handleSnapshotList(ws, data, room) {
-  if (!canViewSnapshotHistory(ws)) return;
+  if (!canViewSnapshotHistory(ws, room)) return;
   const db = getDB();
   let dbSnapshots = [];
   const beforeTs = Number(data?.snapshotTs || 0);
@@ -233,7 +241,7 @@ export async function handleSnapshotList(ws, data, room) {
  * @param {Room} room - The room instance.
  */
 export async function handleSnapshotRestore(ws, data, room) {
-  if (!authorize(ws, Action.MOD_MUTE, null)) return; // Trusted+ only
+  if (!canLoadSnapshot(ws, room)) return; // Trusted+ only unless user is alone in the room
 
   const snapshotId = data.snapshotId;
   let snapshotData = null;
@@ -315,7 +323,7 @@ export async function handleSnapshotRestore(ws, data, room) {
  * @param {Room} room
  */
 export async function handleSnapshotGet(ws, data, room) {
-  if (!canViewSnapshotHistory(ws)) return;
+  if (!canViewSnapshotHistory(ws, room)) return;
 
   const snapshotId = data.snapshotId;
   let snapshotData = null;
@@ -398,7 +406,7 @@ export async function handleSnapshotGet(ws, data, room) {
  * @param {Room} room
  */
 export async function handleSnapshotRegionRestore(ws, data, room) {
-  if (!authorize(ws, Action.MOD_MUTE, null)) return; // Trusted+ only
+  if (!canLoadSnapshot(ws, room)) return; // Trusted+ only unless user is alone in the room
 
   const snapshotId = data.snapshotId;
   let snapshotData = null;
