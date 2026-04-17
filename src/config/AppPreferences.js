@@ -2,7 +2,7 @@ import { getDefaultKeybindings, KEYBIND_ACTIONS_BY_ID } from '../input/keybinds/
 import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
 
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
-const APP_PREFERENCES_VERSION = 2;
+const APP_PREFERENCES_VERSION = 3;
 const SIDEBAR_SIDES = new Set(['left', 'right']);
 // The 3 base colors from which all theme CSS variables are derived.
 // Empty string means "use the CSS default".
@@ -107,6 +107,20 @@ function sanitizePreferences(rawPreferences) {
       if (binding.secondary === 'Ctrl+Space') binding.secondary = 'Shift+Space';
     } else if (binding === 'Ctrl+Space') {
       migratedKeybinds['tool.swapColors'] = 'Shift+Space';
+    }
+  }
+
+  if (parsedVersion < 3 && migratedKeybinds?.['tool.swapColors']) {
+    const binding = migratedKeybinds['tool.swapColors'];
+    if (binding && typeof binding === 'object') {
+      if (binding.primary === 'Shift+Space' || binding.primary === 'Ctrl+Space') {
+        binding.primary = 'X';
+      }
+      if (binding.secondary === 'Shift+Space' || binding.secondary === 'Ctrl+Space') {
+        binding.secondary = null;
+      }
+    } else if (binding === 'Shift+Space' || binding === 'Ctrl+Space') {
+      migratedKeybinds['tool.swapColors'] = 'X';
     }
   }
 

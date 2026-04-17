@@ -86,7 +86,7 @@ export class TextTool extends Tool {
     if (!user.text) return;
     const ctx = this.board.topCtx;
     const opacity = user.opacity !== undefined ? user.opacity : 1;
-    const { fontSize, drawX, baselineY } = getPreviewTextLayout(user);
+    const { fontSize, drawX, baselineY } = getAppliedTextLayout(user);
     ctx.save();
     ctx.globalAlpha = opacity;
     ctx.fillStyle = user.getColorString();
