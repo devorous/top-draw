@@ -1,6 +1,7 @@
 /** @fileoverview Server-side uploader election — picks the best client to upload board checkpoints. */
 
 import { isRecentlyActive, scoreProvider } from './providerScoring.js';
+import { getUploaderIdentity } from './uploaderIdentity.js';
 
 const ELECTION_INTERVAL_MS = 30_000;
 
@@ -14,11 +15,12 @@ export function runElection(room) {
   const candidates = [];
 
   for (const ws of room.clients) {
-    if (!ws.username) continue;
     const user = room.sessionManager.getUser(ws.sessionIndex);
+    const username = getUploaderIdentity(room, ws);
+    if (!username) continue;
     const score = scoreProvider(ws, user);
     candidates.push({
-      username: ws.registeredName || ws.username,
+      username,
       ping: ws.pingRtt,
       lowPower: ws.lowPowerMode,
       hidden: !!ws.tabHidden,

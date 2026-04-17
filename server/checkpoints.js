@@ -4,6 +4,7 @@ import { getDB } from './db.js';
 import { T } from '../shared/MessageTypes.js';
 import { Action, canPerform } from './permissions.js';
 import { ENABLE_SERVER_REPLAY_DB } from './replayConfig.js';
+import { getUploaderIdentity } from './uploaderIdentity.js';
 
 const COLLECTION = 'checkpoints';
 const MAX_CHECKPOINTS_PER_ROOM = 1440; // 24h at 1/min
@@ -36,7 +37,7 @@ export async function handleCheckpointUpload(ws, data, room) {
   // Only the designated uploader may upload checkpoints.
   // Prefer the manually-set dedicated user; fall back to the auto-elected uploader.
   const dedicated = room.settings.dedicatedReplayUser || room._electedUploader;
-  const senderName = ws.registeredName || ws.username;
+  const senderName = getUploaderIdentity(room, ws);
   if (!dedicated || senderName !== dedicated) {
     console.warn(`[Checkpoint] Rejected upload from "${senderName}" — dedicated user is "${dedicated}"`);
     return;
