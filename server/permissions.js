@@ -17,9 +17,9 @@ export const Action = Object.freeze({
   CLEAR_CANVAS:     'clear_canvas',
 
   // Moderation — room-scoped
-  MOD_MUTE:         'mod_mute',         // HELPER+
-  MOD_UNMUTE:       'mod_unmute',       // HELPER+
-  MOD_UPDATE:       'mod_update_reason',// HELPER+
+  MOD_MUTE:         'mod_mute',         // TRUSTED+
+  MOD_UNMUTE:       'mod_unmute',       // TRUSTED+
+  MOD_UPDATE:       'mod_update_reason',// TRUSTED+
   MOD_KICK:         'mod_kick',         // MOD+
   MOD_BAN:          'mod_ban',          // MOD+
   MOD_UNBAN:        'mod_unban',        // MOD+
@@ -45,9 +45,9 @@ export const Action = Object.freeze({
 const ACTION_MIN_ROLE = Object.freeze({
   [Action.CLEAR_CANVAS]:   Role.MOD,     // 4
 
-  [Action.MOD_MUTE]:       Role.HELPER,  // 3
-  [Action.MOD_UNMUTE]:     Role.HELPER,  // 3
-  [Action.MOD_UPDATE]:     Role.HELPER,  // 3
+  [Action.MOD_MUTE]:       Role.TRUSTED, // 2
+  [Action.MOD_UNMUTE]:     Role.TRUSTED, // 2
+  [Action.MOD_UPDATE]:     Role.TRUSTED, // 2
   [Action.MOD_KICK]:       Role.MOD,     // 4
   [Action.MOD_BAN]:        Role.MOD,     // 4
   [Action.MOD_UNBAN]:      Role.MOD,     // 4

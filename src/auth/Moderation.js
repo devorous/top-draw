@@ -69,7 +69,7 @@ export class Moderation {
   }
 
   canMute() {
-    return this.localRole >= 3;  // HELPER(3)+
+    return this.localRole >= 2;  // TRUSTED(2)+
   }
 
   canKickBanOrWipe() {

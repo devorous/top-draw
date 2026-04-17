@@ -86,12 +86,12 @@ export async function handleSnapshotSave(ws, data, room) {
   const shouldPersist = isProd || allowDevSaves;
 
   // Server-initiated auto-snapshots: any user who was explicitly asked may respond.
-  // Manual saves require Helper+ authorization.
+  // Manual saves require Trusted+ authorization.
   const isServerRequested = room?._pendingSnapshotRequests?.has(ws.sessionIndex);
   if (isServerRequested) {
     room._pendingSnapshotRequests.delete(ws.sessionIndex);
   } else if (!authorize(ws, Action.MOD_MUTE, null)) {
-    return; // Helper+ required for manual saves
+    return; // Trusted+ required for manual saves
   }
   if (!room?.isRegistered?.()) {
     return;
@@ -237,7 +237,7 @@ export async function handleSnapshotList(ws, data, room) {
  * @param {Room} room - The room instance.
  */
 export async function handleSnapshotRestore(ws, data, room) {
-  if (!authorize(ws, Action.MOD_MUTE, null)) return; // Helper+ only
+  if (!authorize(ws, Action.MOD_MUTE, null)) return; // Trusted+ only
 
   const snapshotId = data.snapshotId;
   let snapshotData = null; // Will hold { id, ts, issuer, layers }
@@ -403,7 +403,7 @@ export async function handleSnapshotGet(ws, data, room) {
  * @param {Room} room
  */
 export async function handleSnapshotRegionRestore(ws, data, room) {
-  if (!authorize(ws, Action.MOD_MUTE, null)) return; // Helper+ only
+  if (!authorize(ws, Action.MOD_MUTE, null)) return; // Trusted+ only
 
   const snapshotId = data.snapshotId;
   let snapshotData = null; // Will hold { id, layers }
@@ -477,7 +477,7 @@ export async function handleSnapshotRegionRestore(ws, data, room) {
  * @param {Room} room - The room instance.
  */
 export async function handleSnapshotDelete(ws, data, room) {
-  if (!authorize(ws, Action.MOD_MUTE, null)) return; // Helper+ only
+  if (!authorize(ws, Action.MOD_MUTE, null)) return; // Trusted+ only
 
   const snapshotId = data.snapshotId;
 

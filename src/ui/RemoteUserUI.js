@@ -1117,6 +1117,7 @@ export class RemoteUserUI {
     if (role >= 5) return 'rank-admin';
     if (role >= 4) return 'rank-mod';
     if (role >= 3) return 'rank-helper';
+    if (role >= 2) return 'rank-trusted';
     if (role >= 1) return 'rank-user';
     return 'rank-guest';
   }

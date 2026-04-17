@@ -155,6 +155,10 @@
   color: var(--role-user);
 }
 
+.listUser.rank-trusted {
+  color: var(--role-trusted);
+}
+
 .listUser.rank-helper {
   color: var(--role-helper);
 }

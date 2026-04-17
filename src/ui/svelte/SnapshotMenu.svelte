@@ -9,7 +9,7 @@
   let snapshotListVersion = $derived(appState.snapshotListVersion);
   let hasLoadedOlderSnapshots = $derived(snapshots.length > 20);
   let canViewHistory = $derived(appState.selfRole >= 1);
-  let canRestoreHistory = $derived(appState.selfRole >= 3);
+  let canRestoreHistory = $derived(appState.selfRole >= 2);
 
   let selectedId = $state(null);
   let selectedLayers = $state(null);
@@ -580,7 +580,7 @@
     <div class="snap-footer">
       <span class="snap-hint">
         {#if !canRestoreHistory}
-          View-only mode for registered users. Helpers and above can restore snapshots.
+          View-only mode for registered users. Trusted users and above can restore snapshots.
         {:else if !selectedId}
           Select a snapshot below
         {:else if hasSelection}

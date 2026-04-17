@@ -2529,6 +2529,7 @@ export class DrawingApp {
       nameEl.className = 'selfRoleName';
       const rankClass = role >= 9 ? 'rank-deity' : role >= 8 ? 'rank-holy' : role >= 7 ? 'rank-noble'
         : role >= 5 ? 'rank-admin' : role >= 4 ? 'rank-mod' : role >= 3 ? 'rank-helper'
+        : role >= 2 ? 'rank-trusted'
         : role >= 1 ? 'rank-user' : 'rank-guest';
       if (rankClass) nameEl.classList.add(rankClass);
     }

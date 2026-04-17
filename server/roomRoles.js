@@ -85,7 +85,7 @@ export async function getRoomRoleRoster(room) {
   if (!db || !room?.id) return [];
 
   const docs = await db.collection('room_roles')
-    .find({ roomId: room.id, role: { $gte: Role.HELPER } })
+    .find({ roomId: room.id, role: { $gte: Role.TRUSTED } })
     .sort({ role: -1, assignedAt: -1, username: 1 })
     .toArray();
 

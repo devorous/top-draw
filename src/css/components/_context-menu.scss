@@ -135,6 +135,7 @@
 
   &.rank-guest  { color: var(--role-guest); }
   &.rank-user   { color: var(--role-user); }
+  &.rank-trusted { color: var(--role-trusted); }
   &.rank-helper { color: var(--role-helper); }
   &.rank-mod    { color: var(--role-mod); }
   &.rank-admin  { color: var(--role-admin); }

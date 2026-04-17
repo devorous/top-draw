@@ -165,7 +165,7 @@
   </div>
   {/if}
 
-  <!-- Snapshot/History Button (Helper+) -->
+  <!-- Snapshot/History Button (Trusted+) -->
   {#if isRegistered}
   <div class="history-wrap">
     <button

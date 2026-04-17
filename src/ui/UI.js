@@ -1830,7 +1830,7 @@ menuBtn: document.getElementById('menuBtn'),
     if (!el) return;
 
     // Remove all possible rank classes
-    const rankClasses = ['rank-guest', 'rank-user', 'rank-helper', 'rank-mod', 'rank-admin', 'rank-noble', 'rank-holy', 'rank-deity'];
+    const rankClasses = ['rank-guest', 'rank-user', 'rank-trusted', 'rank-helper', 'rank-mod', 'rank-admin', 'rank-noble', 'rank-holy', 'rank-deity'];
     el.classList.remove(...rankClasses);
 
     const roleClass = RemoteUserUI.roleToClass(role);
@@ -1856,7 +1856,7 @@ menuBtn: document.getElementById('menuBtn'),
    */
   updateRemoteUserRank(sessionIndex, role) {
     const id = `u${sessionIndex}`;
-    const rankClasses = ['rank-guest', 'rank-user', 'rank-helper', 'rank-mod', 'rank-admin', 'rank-noble', 'rank-holy', 'rank-deity'];
+    const rankClasses = ['rank-guest', 'rank-user', 'rank-trusted', 'rank-helper', 'rank-mod', 'rank-admin', 'rank-noble', 'rank-holy', 'rank-deity'];
 
     const roleClass = RemoteUserUI.roleToClass(role);
 

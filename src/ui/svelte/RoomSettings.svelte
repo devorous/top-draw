@@ -6,6 +6,7 @@
   const TAB_MODERATION = 'moderation';
   const ROLE_OPTIONS = [
     { value: 0, label: 'None' },
+    { value: 2, label: 'Trusted' },
     { value: 3, label: 'Helper' },
     { value: 4, label: 'Moderator' },
     { value: 5, label: 'Admin' }
