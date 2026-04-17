@@ -15,6 +15,8 @@ export class ResizableSections {
     this.getContextKey = options.getContextKey || (() => 'default');
     this.currentContextKey = 'default';
     this.sharedSectionIds = new Set(options.sharedSectionIds || []);
+    this._pendingRefreshKey = null;
+    this._pendingRefreshTimer = null;
 
     this.init();
   }
@@ -286,6 +288,34 @@ export class ResizableSections {
     if (!this.container) return;
 
     const newContextKey = this.getContextStorageKey(contextKey);
+
+    // If the tool context changed, run immediately and cancel any pending throttled refresh
+    if (newContextKey !== this._lastContextKey) {
+      if (this._pendingRefreshTimer !== null) {
+        clearTimeout(this._pendingRefreshTimer);
+        this._pendingRefreshTimer = null;
+        this._pendingRefreshKey = null;
+      }
+      this._doRefreshLayout(newContextKey);
+      return;
+    }
+
+    // Throttle repeated calls with the same context to 150ms — getVisibleSections
+    // calls getComputedStyle which is expensive and doesn't need 60fps resolution.
+    if (this._pendingRefreshTimer === null) {
+      this._pendingRefreshKey = newContextKey;
+      this._pendingRefreshTimer = setTimeout(() => {
+        this._pendingRefreshTimer = null;
+        const key = this._pendingRefreshKey;
+        this._pendingRefreshKey = null;
+        this._doRefreshLayout(key);
+      }, 150);
+    }
+  }
+
+  _doRefreshLayout(newContextKey) {
+    if (!this.container) return;
+
     const visibleSections = this.getVisibleSections();
     const visibleSectionIds = visibleSections.map(section => section.id).join(',');
 

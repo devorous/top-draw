@@ -186,8 +186,11 @@ export class RemoteSelectionHandler {
                 this.drawFloatingSelection(user);
               }
             } else if (user.pendingSelection) {
-              user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-              this.drawPendingSelection(user);
+              const isLivePreview = (performance.now() - (user._pendingSelectionUpdatedAt ?? 0)) < 120;
+              if (!isLivePreview) {
+                user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+                this.drawPendingSelection(user, false);
+              }
             }
           }
         }
@@ -224,6 +227,7 @@ export class RemoteSelectionHandler {
     // Clear pending selection since it's now being lifted
     user.pendingSelection = null;
     user.pendingLassoPath = null;
+    user._pendingSelectionUpdatedAt = null;
 
     // Store selection info on user for rendering
     user.selection = selection;
@@ -386,6 +390,12 @@ export class RemoteSelectionHandler {
   handleSelectionPending(user, selection, lassoPath = null) {
     user.pendingSelection = selection;
     user.pendingLassoPath = lassoPath;
+    user._pendingSelectionUpdatedAt = performance.now();
+
+    if (user.context) {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+      this.drawPendingSelection(user, true);
+    }
 
     // Start animation loop if not running to show the marquee
     this.startRemoteSelectionAnimation();
@@ -956,6 +966,7 @@ export class RemoteSelectionHandler {
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     user.pendingSelection = null;
     user.pendingLassoPath = null;
+    user._pendingSelectionUpdatedAt = null;
 
     // Create floating canvas for the pasted image
     user.floatingCanvas = document.createElement('canvas');
@@ -1037,6 +1048,7 @@ export class RemoteSelectionHandler {
     user.selection = null;
     user.pendingSelection = null;
     user.pendingLassoPath = null;
+    user._pendingSelectionUpdatedAt = null;
     user.selectionCorners = null;
     user.originalCorners = null;
     user.originalSelectionPos = null;
@@ -1244,7 +1256,7 @@ export class RemoteSelectionHandler {
     }
   }
 
-  drawPendingSelection(user) {
+  drawPendingSelection(user, isLivePreview = false) {
     if (!user.pendingSelection) return;
 
     const ctx = user.context;
@@ -1252,30 +1264,31 @@ export class RemoteSelectionHandler {
 
     // Check if we have a lasso path to draw
     if (user.pendingLassoPath && user.pendingLassoPath.length >= 2) {
-      // Draw lasso polygon outline
+      const shouldClosePath = !isLivePreview && user.pendingLassoPath.length >= 3;
+
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
 
       // Black dashes with animated offset
       ctx.strokeStyle = '#000';
-      ctx.lineDashOffset = -this.remoteSelectionOffset;
+      ctx.lineDashOffset = isLivePreview ? 0 : -this.remoteSelectionOffset;
       ctx.beginPath();
       ctx.moveTo(user.pendingLassoPath[0].x, user.pendingLassoPath[0].y);
       for (let i = 1; i < user.pendingLassoPath.length; i++) {
         ctx.lineTo(user.pendingLassoPath[i].x, user.pendingLassoPath[i].y);
       }
-      ctx.closePath();
+      if (shouldClosePath) ctx.closePath();
       ctx.stroke();
 
       // White dashes offset to create marching effect
       ctx.strokeStyle = '#fff';
-      ctx.lineDashOffset = -this.remoteSelectionOffset + 4;
+      ctx.lineDashOffset = isLivePreview ? 4 : -this.remoteSelectionOffset + 4;
       ctx.beginPath();
       ctx.moveTo(user.pendingLassoPath[0].x, user.pendingLassoPath[0].y);
       for (let i = 1; i < user.pendingLassoPath.length; i++) {
         ctx.lineTo(user.pendingLassoPath[i].x, user.pendingLassoPath[i].y);
       }
-      ctx.closePath();
+      if (shouldClosePath) ctx.closePath();
       ctx.stroke();
 
       ctx.setLineDash([]);

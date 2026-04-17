@@ -114,6 +114,12 @@ export class SelectTool extends Tool {
     this.lastSelectionBroadcastTime = 0;
     this.pendingSelectionBroadcast = null;
 
+    // Throttling for in-progress selection marquee broadcasts (30 TPS)
+    this.selectionPendingThrottleRate = 30;
+    this.selectionPendingThrottleInterval = 1000 / this.selectionPendingThrottleRate;
+    this.lastSelectionPendingBroadcastTime = 0;
+    this.pendingSelectionPreviewBroadcast = null;
+
     // Lasso-specific state
     this.lassoPoints = [];
     this.lassoSimplified = null;
@@ -428,6 +434,34 @@ export class SelectTool extends Tool {
         console.warn('[SelectTool] Attempted to flush pending broadcast with invalid corners data.');
         this.pendingSelectionBroadcast = null; // Clear invalid data
       }
+    }
+  }
+
+  throttledBroadcastSelectionPending(selection, lassoPath = null, force = false) {
+    if (!selection || !this.board.app?.wsClient) return;
+
+    const now = performance.now();
+
+    if (force || (now - this.lastSelectionPendingBroadcastTime >= this.selectionPendingThrottleInterval)) {
+      this.lastSelectionPendingBroadcastTime = now;
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionPending(selection, lassoPath));
+      this.pendingSelectionPreviewBroadcast = null;
+    } else {
+      this.pendingSelectionPreviewBroadcast = {
+        selection: cloneSelectionRect(selection),
+        lassoPath: clonePathPoints(lassoPath)
+      };
+    }
+  }
+
+  flushPendingSelectionPreviewBroadcast() {
+    if (this.pendingSelectionPreviewBroadcast && this.board.app?.wsClient) {
+      const { selection, lassoPath } = this.pendingSelectionPreviewBroadcast;
+      if (selection) {
+        this.lastSelectionPendingBroadcastTime = performance.now();
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionPending(selection, lassoPath));
+      }
+      this.pendingSelectionPreviewBroadcast = null;
     }
   }
 
@@ -991,6 +1025,7 @@ export class SelectTool extends Tool {
     // Initialize lasso points if in lasso mode and starting new selection
     if (this.mode === 'lasso' && !this.selection) {
       this.lassoPoints = [{ x: pos.x, y: pos.y }];
+      this.pendingSelectionPreviewBroadcast = null;
     }
 
     // Check if clicking a transform handle FIRST (higher priority than dragging)
@@ -1161,6 +1196,11 @@ export class SelectTool extends Tool {
       // Redraw lasso preview
       this.board.clearTop();
       this.drawLassoPreview(this.board.topCtx, this.lassoPoints);
+
+      if (this.lassoPoints.length >= 2) {
+        const pendingBounds = this.getBoundsFromPoints(this.lassoPoints);
+        this.throttledBroadcastSelectionPending(pendingBounds, this.lassoPoints);
+      }
     } else {
       // Rectangle mode (existing code)
       this.board.clearTop();
@@ -1186,6 +1226,8 @@ export class SelectTool extends Tool {
         this.drawSelectionBox(ctx, { x: mx, y }, { x: mx + width, y: y + height });
         ctx.restore();
       }
+
+      this.throttledBroadcastSelectionPending({ x, y, width, height });
     }
   }
 
@@ -1236,6 +1278,7 @@ export class SelectTool extends Tool {
     if (!this.isSelecting || !this.startPos) return;
 
     this.isSelecting = false;
+    this.flushPendingSelectionPreviewBroadcast();
 
     if (this.mode === 'lasso') {
       // Finalize lasso selection
@@ -2554,6 +2597,7 @@ export class SelectTool extends Tool {
     this.lassoPoints = [];
     this.lassoPath = null;
     this.lassoSimplified = null;
+    this.pendingSelectionPreviewBroadcast = null;
 
     // Reset active handle to prevent glitches when switching tools mid-drag
     this.activeHandle = null;
