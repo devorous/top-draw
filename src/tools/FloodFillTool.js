@@ -488,6 +488,7 @@ export class FloodFillTool {
   async _computeMirrorFillResults(imageData, width, height, x, y, expansion, userId) {
     const results = [];
     for (const region of this.board.getActiveMirrorRegions()) {
+      if (!region?.synthetic) continue;
       const mirrored = this.board.mirrorPointToRegion({ x, y }, region);
       const mx = Math.round(mirrored.x);
       const my = Math.round(mirrored.y);

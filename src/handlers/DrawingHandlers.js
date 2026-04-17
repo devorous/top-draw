@@ -384,6 +384,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     board.expandDirtyRect(user, bx, by, bw, bh);
 
     for (const region of board.getActiveMirrorRegions()) {
+      if (!region?.synthetic) continue;
       const mirrored = board.mirrorPointToRegion({ x, y }, region);
       const mx = Math.round(mirrored.x);
       const my = Math.round(mirrored.y);
