@@ -573,6 +573,14 @@ export class LandingPage {
       this.els.refreshRoomsBtn.disabled = !enabled;
       this.els.refreshRoomsBtn.classList.toggle('disabled', !enabled);
     }
+    if (this.els.joinBtn) {
+      this.els.joinBtn.disabled = !enabled;
+      this.els.joinBtn.classList.toggle('disabled', !enabled);
+    }
+    if (this.els.createRoomBtn) {
+      this.els.createRoomBtn.disabled = !enabled;
+      this.els.createRoomBtn.classList.toggle('disabled', !enabled);
+    }
   }
 
   /**
