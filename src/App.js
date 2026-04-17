@@ -47,6 +47,8 @@ import initWasm from './wasm/ddraw_wasm.js';
 // Svelte UI Components
 import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } from './ui/svelte/AppUI.svelte.js';
 import { appState, addRecentColor } from './state.svelte.js';
+import ColorWheel from 'reinvented-color-wheel';
+import 'reinvented-color-wheel/css/reinvented-color-wheel.css';
 
 const TEXT_FONT_SETTINGS_STORAGE_KEY = 'topDrawTextFontSettings';
 
@@ -219,6 +221,11 @@ export class DrawingApp {
     });
 
     this.colorPicker = null;
+    this.colorPickerResizeObserver = null;
+    this.primaryColor = [0, 0, 0, 1];
+    this.secondaryColor = [255, 255, 255, 1];
+    this.activeColorSlot = 'primary';
+    this.colorSlotElements = null;
 
     this.wsClient = new WebSocketClient({
       serverUrl: options.serverUrl,
@@ -353,6 +360,14 @@ export class DrawingApp {
     this.brushGallery.init();
     this.patternGallery.init();
     this.colorInputMenu.init();
+
+    // Wire color input menu changes to sync with color wheel
+    this.colorInputMenu.onColorChange = (rgba) => {
+      const hsv = this.rgbToHsv(rgba[0], rgba[1], rgba[2]);
+      if (this.colorPicker) {
+        this.colorPicker.setColor(hsv);
+      }
+    };
 
     this.initSelfFromUI();
     this.setupColorPicker();
@@ -667,25 +682,100 @@ export class DrawingApp {
    * Sets up the color picker component.
    */
   setupColorPicker() {
-    if (typeof Picker !== 'undefined') {
-      this.colorPicker = new Picker({
-        parent: this.ui.elements.colorPicker,
-        popup: false,
-        alpha: true,
-        editor: true,
-        color: '#000',
+    try {
+      const container = document.getElementById('colorPicker');
+      if (!container) {
+        console.warn('[App] Color picker container #colorPicker not found');
+        return;
+      }
+
+      let suppressChange = false;
+      const parseColorValue = (value) => {
+        if (Array.isArray(value)) {
+          return value;
+        }
+
+        if (typeof value !== 'string') {
+          return null;
+        }
+
+        const rgbaMatch = value.match(/^rgba?\(([^)]+)\)$/i);
+        if (rgbaMatch) {
+          const parts = rgbaMatch[1].split(',').map(part => Number(part.trim()));
+          if (parts.length >= 3 && parts.every(part => Number.isFinite(part))) {
+            return [parts[0], parts[1], parts[2], parts[3] ?? this.self?.opacity ?? 1];
+          }
+        }
+
+        const hslMatch = value.match(/^hsla?\(([^)]+)\)$/i);
+        if (hslMatch) {
+          const parts = hslMatch[1].split(',').map(part => part.trim());
+          if (parts.length >= 3) {
+            const h = Number(parts[0]);
+            const s = Number(parts[1].replace('%', ''));
+            const l = Number(parts[2].replace('%', ''));
+            if (Number.isFinite(h) && Number.isFinite(s) && Number.isFinite(l)) {
+              const [r, g, b] = _hslToRgb(h, s, l);
+              return [Math.round(r), Math.round(g), Math.round(b), this.self?.opacity ?? 1];
+            }
+          }
+        }
+
+        return null;
+      };
+
+      const getWheelDiameter = () => {
+        const bounds = container.getBoundingClientRect();
+        const styles = getComputedStyle(container);
+        const horizontalPadding = parseFloat(styles.paddingLeft || '0') + parseFloat(styles.paddingRight || '0');
+        const availableWidth = Math.floor((bounds.width || container.clientWidth || 0) - horizontalPadding);
+        const maxDiameter = 200;
+        const minDiameter = 120;
+        return Math.max(minDiameter, Math.min(maxDiameter, availableWidth));
+      };
+
+      const getWheelMetrics = () => {
+        const diameter = getWheelDiameter();
+        const scale = diameter / 200;
+        return {
+          diameter,
+          thickness: Math.max(12, Math.round(20 * scale)),
+          handleDiameter: Math.max(12, Math.round(16 * scale))
+        };
+      };
+
+      container.innerHTML = '';
+      this._setupColorSlotControls(container);
+      this.primaryColor = this.self?.color ? [...this.self.color] : [0, 0, 0, 1];
+      this.activeColorSlot = 'primary';
+      this._syncActiveColorSlot(this.primaryColor);
+      this._updateColorSlotUI();
+      const initialMetrics = getWheelMetrics();
+      const wheel = new ColorWheel({
+        appendTo: container,
+        rgb: this.self?.color ? this.self.color.slice(0, 3) : [0, 0, 0],
+        wheelDiameter: initialMetrics.diameter,
+        wheelThickness: initialMetrics.thickness,
+        handleDiameter: initialMetrics.handleDiameter,
+        wheelReflectsSaturation: false,
         onChange: (color) => {
-          const rgba = color.rgba;
-          this.commitSelfEraserSegment(this.self.pressure, this.self.size, rgba[3]);
+          if (suppressChange) return;
+
+          const rgb = this.hsvToRgb(color.hsv[0], color.hsv[1], color.hsv[2]);
+          const opacity = this.ui.elements.opacitySlider?.value ? parseInt(this.ui.elements.opacitySlider.value) / 100 : 1;
+          const rgba = [rgb.r, rgb.g, rgb.b, opacity];
+
+          this.commitSelfEraserSegment(this.self.pressure, this.self.size, opacity);
           this.self.setColor(rgba);
-          this.self.setOpacity(rgba[3]);
+          this.self.setOpacity(opacity);
+          this._syncActiveColorSlot(rgba);
           this.ui.updateSelfColor(rgba);
           this.ui.updateSelfTextStyle(this.self.size, rgba, this.self.font);
-          this.ui.updateopacityValue(rgba[3]);
+          this.ui.updateopacityValue(opacity);
 
           const { elements } = this.ui;
           if (elements.opacitySlider) {
-            elements.opacitySlider.value = rgba[3] * 100;
+            elements.opacitySlider.value = opacity * 100;
           }
 
           if (this.colorInputMenu) {
@@ -713,7 +803,186 @@ export class DrawingApp {
           }
         }
       });
+
+      wheel.element = wheel.rootElement;
+      wheel.setColor = (value, silent = false) => {
+        const rgba = parseColorValue(value);
+        if (!rgba) {
+          console.warn('[App] Unsupported color picker value:', value);
+          return;
+        }
+
+        suppressChange = silent;
+        wheel.rgb = rgba.slice(0, 3);
+        suppressChange = false;
+        this._syncActiveColorSlot(rgba);
+      };
+
+      const resizeWheel = () => {
+        const nextMetrics = getWheelMetrics();
+        if (
+          nextMetrics.diameter === wheel.wheelDiameter &&
+          nextMetrics.thickness === wheel.wheelThickness &&
+          nextMetrics.handleDiameter === wheel.handleDiameter
+        ) return;
+
+        wheel.wheelDiameter = nextMetrics.diameter;
+        wheel.wheelThickness = nextMetrics.thickness;
+        wheel.handleDiameter = nextMetrics.handleDiameter;
+        wheel.redraw();
+      };
+
+      this.colorPickerResizeObserver?.disconnect();
+      if (typeof ResizeObserver !== 'undefined') {
+        this.colorPickerResizeObserver = new ResizeObserver(() => resizeWheel());
+        this.colorPickerResizeObserver.observe(container);
+      }
+
+      this.colorPicker = wheel;
+    } catch (err) {
+      console.error('[App] Failed to setup color picker:', err);
     }
+  }
+
+  _setupColorSlotControls(container) {
+    container.querySelector('.colorSlotControls')?.remove();
+
+    const controls = document.createElement('div');
+    controls.className = 'colorSlotControls';
+    controls.innerHTML = `
+      <button type="button" class="colorSlotSwatch primary active" data-slot="primary" title="Primary color"></button>
+      <button type="button" class="colorSlotSwap" title="Swap colors" aria-label="Swap primary and secondary colors">⇄</button>
+      <button type="button" class="colorSlotSwatch secondary" data-slot="secondary" title="Secondary color"></button>
+    `;
+
+    const [primaryButton, swapButton, secondaryButton] = controls.children;
+    primaryButton.addEventListener('click', () => this.selectColorSlot('primary'));
+    secondaryButton.addEventListener('click', () => this.selectColorSlot('secondary'));
+    swapButton.addEventListener('click', () => this.swapColorSlots());
+
+    container.prepend(controls);
+    this.colorSlotElements = {
+      controls,
+      primaryButton,
+      secondaryButton,
+      swapButton
+    };
+  }
+
+  _syncActiveColorSlot(rgba) {
+    const normalized = [...rgba];
+    if (this.activeColorSlot === 'secondary') {
+      this.secondaryColor = normalized;
+    } else {
+      this.primaryColor = normalized;
+    }
+    this._updateColorSlotUI();
+  }
+
+  _updateColorSlotUI() {
+    if (!this.colorSlotElements) return;
+
+    this.colorSlotElements.primaryButton.style.backgroundColor = `rgba(${this.primaryColor.join(',')})`;
+    this.colorSlotElements.secondaryButton.style.backgroundColor = `rgba(${this.secondaryColor.join(',')})`;
+    this.colorSlotElements.primaryButton.classList.toggle('active', this.activeColorSlot === 'primary');
+    this.colorSlotElements.secondaryButton.classList.toggle('active', this.activeColorSlot === 'secondary');
+  }
+
+  selectColorSlot(slot) {
+    if (slot !== 'primary' && slot !== 'secondary') return;
+
+    this.activeColorSlot = slot;
+    const color = slot === 'primary' ? [...this.primaryColor] : [...this.secondaryColor];
+    this.self.setColor(color);
+    this.self.setOpacity(color[3]);
+    this.ui.updateSelfColor(color);
+    this.ui.updateSelfTextStyle(this.self.size, color, this.self.font);
+    this.ui.updateopacityValue(color[3]);
+    if (this.ui.elements.opacitySlider) {
+      this.ui.elements.opacitySlider.value = color[3] * 100;
+    }
+    if (this.colorInputMenu) {
+      this.colorInputMenu.updateColor(color);
+    }
+    if (this.colorPicker) {
+      this.colorPicker.setColor(color, true);
+    }
+    this._updateColorSlotUI();
+  }
+
+  swapColorSlots() {
+    [this.primaryColor, this.secondaryColor] = [this.secondaryColor, this.primaryColor];
+    const currentSlot = this.activeColorSlot;
+    this._updateColorSlotUI();
+    this.selectColorSlot(currentSlot);
+  }
+
+  /**
+   * Convert HSV to RGB.
+   * @param {number} h - Hue (0-360)
+   * @param {number} s - Saturation (0-100)
+   * @param {number} v - Value (0-100)
+   * @returns {Object} {r: 0-255, g: 0-255, b: 0-255}
+   */
+  hsvToRgb(h, s, v) {
+    h = h / 360;
+    s = s / 100;
+    v = v / 100;
+
+    const i = Math.floor(h * 6);
+    const f = h * 6 - i;
+    const p = v * (1 - s);
+    const q = v * (1 - f * s);
+    const t = v * (1 - (1 - f) * s);
+
+    let r, g, b;
+    switch (i % 6) {
+      case 0: r = v; g = t; b = p; break;
+      case 1: r = q; g = v; b = p; break;
+      case 2: r = p; g = v; b = t; break;
+      case 3: r = p; g = q; b = v; break;
+      case 4: r = t; g = p; b = v; break;
+      case 5: r = v; g = p; b = q; break;
+    }
+
+    return {
+      r: Math.round(r * 255),
+      g: Math.round(g * 255),
+      b: Math.round(b * 255)
+    };
+  }
+
+  /**
+   * Convert RGB to HSV.
+   * @param {number} r - Red (0-255)
+   * @param {number} g - Green (0-255)
+   * @param {number} b - Blue (0-255)
+   * @returns {Array} [h: 0-360, s: 0-100, v: 0-100]
+   */
+  rgbToHsv(r, g, b) {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const delta = max - min;
+
+    let h = 0;
+    let s = max === 0 ? 0 : (delta / max);
+    let v = max;
+
+    if (delta !== 0) {
+      if (max === r) {
+        h = ((g - b) / delta + (g < b ? 6 : 0)) / 6;
+      } else if (max === g) {
+        h = ((b - r) / delta + 2) / 6;
+      } else {
+        h = ((r - g) / delta + 4) / 6;
+      }
+    }
+
+    return [h * 360, s * 100, v * 100];
   }
 
   /**

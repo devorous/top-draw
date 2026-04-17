@@ -14,34 +14,25 @@
 }
 
 #colorPicker {
-  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: visible;
   width: 100%;
   max-width: 100%;
-}
-
-.picker_wrapper {
-  background: var(--bg-secondary) !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  padding: 10px !important;
-  box-sizing: border-box !important;
-}
-
-.picker_wrapper .picker_slider,
-.picker_wrapper .picker_selector {
+  padding: 8px 10px 14px;
   box-sizing: border-box;
 }
 
-.picker_sample {
-  display: none;
-  height: 35px;
-  width: 70%;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-subtle);
+#colorPicker .reinvented-color-wheel {
+  display: inline-flex;
+  max-width: 100%;
 }
 
-.picker_done,
-.picker_editor {
-  display: none;
+#colorPicker .reinvented-color-wheel--hue-wheel,
+#colorPicker .reinvented-color-wheel--sv-space,
+#colorPicker .reinvented-color-wheel--hue-handle,
+#colorPicker .reinvented-color-wheel--sv-handle {
+  cursor: crosshair !important;
 }
 

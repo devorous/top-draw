@@ -148,9 +148,8 @@ html[data-sidebar-side='left'] #toolOptions.collapsed {
 #pickerContainer {
   width: 100%;
   max-width: 240px; // Prevent it from getting too huge on wide sidebars
-  margin: 0 auto;
+  margin: auto auto 0;
   transform-origin: bottom center;
-  margin-bottom: 8px;
   position: relative;
   z-index: 132;
 }
@@ -158,14 +157,12 @@ html[data-sidebar-side='left'] #toolOptions.collapsed {
 @media (max-height: 750px) {
   #pickerContainer {
     transform: scale(0.9);
-    margin-bottom: 10px;
   }
 }
 
 @media (max-height: 650px) {
   #pickerContainer {
     transform: scale(0.8);
-    margin-bottom: 12px;
   }
   .paletteSection {
     margin-bottom: 8px;
@@ -175,7 +172,6 @@ html[data-sidebar-side='left'] #toolOptions.collapsed {
 @media (max-height: 550px) {
   #pickerContainer {
     transform: scale(0.75);
-    margin-bottom: 16px;
   }
   .paletteSection {
     margin-bottom: 4px;
