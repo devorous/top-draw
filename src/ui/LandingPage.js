@@ -32,6 +32,7 @@ export class LandingPage {
   init() {
     this.els = {
       landingPage: document.getElementById('landingPage'),
+      landingVersion: document.getElementById('landingVersion'),
       roomList: document.getElementById('roomList'),
       roomIdInput: document.getElementById('roomIdInput'),
       refreshRoomsBtn: document.getElementById('refreshRoomsBtn'),
@@ -53,6 +54,7 @@ export class LandingPage {
     };
 
     this.pendingRoomSettings = null;
+    this.setVersionLabel();
 
     this.setupListeners();
 
@@ -193,6 +195,12 @@ export class LandingPage {
     }
 
     this.loadRooms();
+  }
+
+  setVersionLabel() {
+    if (!this.els.landingVersion) return;
+    const version = typeof window !== 'undefined' ? window.APP_VERSION : '';
+    this.els.landingVersion.textContent = version ? `Version ${version}` : 'Version unknown';
   }
 
   /**
