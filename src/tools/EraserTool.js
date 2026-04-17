@@ -60,8 +60,6 @@ export class EraserTool extends Tool {
     super('erase', board);
     this.userSize = 10;
     this.lastPos = null;
-    // Track erased tile indices for ownership checking
-    this._erasedTiles = null;
   }
 
   /**
@@ -73,10 +71,14 @@ export class EraserTool extends Tool {
    * Deactivates the tool.
    */
   deactivate() {
-    if (this.lastPos && this._activeUser) {
+    if (this._activeUser?.currentLine?.length > 0) {
       this.onPointerUp(this._activeUser);
     }
     this._activeUser = null;
+  }
+
+  usesDeferredPreview() {
+    return true;
   }
 
   /**
@@ -96,16 +98,12 @@ export class EraserTool extends Tool {
   onPointerDown(user, pos) {
     this._activeUser = user;
     this.lastPos = { x: pos.x, y: pos.y };
-    // Initialize erased tiles tracking
-    this._erasedTiles = new Set();
-
-    if (this._eraseAllLayers()) {
-      this.board.beginStrokeAllLayers(user, 'destination-out', 1.0);
-    } else {
-      this.board.beginStroke(user, 'destination-out', 1.0);
-    }
-
-    this._drawSegment(user, pos, pos);
+    user.clearLine();
+    this._beginStroke(user);
+    this._resetStrokeState(user);
+    this.appendBufferedPoint(user, pos);
+    this.board.clearTop();
+    this.drawPreview(user);
   }
 
   /**
@@ -117,7 +115,9 @@ export class EraserTool extends Tool {
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
-    this._drawSegment(user, this.lastPos, pos);
+    this.appendBufferedPoint(user, pos);
+    this.board.clearTop();
+    this.drawPreview(user);
     this.lastPos = { x: pos.x, y: pos.y };
   }
 
@@ -126,193 +126,414 @@ export class EraserTool extends Tool {
    * @param {Object} user - The user performing the action.
    */
   onPointerUp(user) {
-    // Copy erased tiles to active stroke's affectedTiles before committing
-    if (this._erasedTiles && this._erasedTiles.size > 0) {
-      const activeLayer = user?.activeLayer ?? 0;
-      const userId = user?.id ?? 0;
+    this.board.clearTop();
+    this.commitCurrentLine(user, user.pressure, user.size, user.opacity, false);
 
-      if (this._eraseAllLayers()) {
-        // For erase-all, add to all layers' active strokes
-        const lm = this.board.layerManager;
-        if (lm) {
-          for (const group of lm.layerGroups) {
-            const active = group.activeStrokeByUser.get(userId);
-            if (active?.affectedTiles) {
-              for (const idx of this._erasedTiles) active.affectedTiles.add(idx);
-            }
-          }
-        }
-      } else {
-        const group = this.board.layerManager?.layerGroups[activeLayer];
-        const active = group?.activeStrokeByUser.get(userId);
-        if (active?.affectedTiles) {
-          for (const idx of this._erasedTiles) active.affectedTiles.add(idx);
-        }
-      }
-    }
+    const erasedTiles = this.collectErasedTiles(user);
 
-    if (this._eraseAllLayers()) {
+    if (this._shouldEraseAllLayers(user)) {
       this.board.endStrokeAllLayers(user);
     } else {
       this.board.endStroke(user);
     }
 
-    // Check tile ownership after erase
-    if (this._erasedTiles && this._erasedTiles.size > 0) {
-      // Force composite so mainCtx reflects the erased state before checking
+    if (erasedTiles.size > 0) {
       this.board.compositeAllLayers();
-
-      this.board.checkErasedTilesByIndices(this._erasedTiles);
+      this.board.checkErasedTilesByIndices(erasedTiles);
     }
 
     this.lastPos = null;
-    this._erasedTiles = null;
+    user.clearLine();
+    this._clearStrokeState(user);
   }
 
-  /**
-   * Draw a segment at 100% opacity into the active stroke canvas(es).
-   * @private
-   * @param {Object} user - The user performing the action.
-   * @param {Object} p1 - Start point of the segment.
-   * @param {Object} p2 - End point of the segment.
-   */
-  _drawSegment(user, p1, p2) {
-    const size = user.pressure * user.size * 2;
-    if (size <= 0) return;
-    const userId = user.id;
+  appendBufferedPoint(user, pos, pressure = user.pressure, size = user.size, opacity = user.opacity) {
+    if (!user) return;
+    const point = this._createBufferedPoint(pos.x, pos.y, pressure, size, opacity);
+    if (point.size <= 0 || point.opacity <= 0) return;
 
-    if (this._eraseAllLayers()) {
-      const ctxs = this.board.getAllLayerContexts(userId);
-      for (const ctx of ctxs) {
-        this._renderSegmentToCtx(ctx, p1, p2, size);
-      }
-    } else {
-      const ctx = this.board.getActiveLayerContext('destination-out');
-      if (ctx) {
-        this._renderSegmentToCtx(ctx, p1, p2, size);
-      }
-    }
+    user.addToLine(point);
+    const state = this._ensureStrokeState(user);
+    this._stampPoint(user, state, point);
+  }
 
-    this.board.forEachMirrorRegion({ points: [p1, p2] }, (region) => {
-      const m1 = this.board.mirrorPointToRegion(p1, region);
-      const m2 = this.board.mirrorPointToRegion(p2, region);
-      if (this._eraseAllLayers()) {
-        const ctxs = this.board.getAllLayerContexts(userId);
-        for (const ctx of ctxs) {
-          this.board.withMirrorRegionClip(ctx, region, () => this._renderSegmentToCtx(ctx, m1, m2, size));
-        }
-      } else {
-        const ctx = this.board.getActiveLayerContext('destination-out');
-        if (ctx) {
-          this.board.withMirrorRegionClip(ctx, region, () => this._renderSegmentToCtx(ctx, m1, m2, size));
-        }
-      }
+  drawPreview(user, ctx = this.board.topCtx) {
+    if (!ctx || !user?.currentLine?.length) return;
+    const state = this._getStrokeState(user);
+    if (!state || !this._hasDirtyBounds(state)) return;
+    const [r, g, b] = this.board.backgroundColor;
+    this._renderPreviewPath(ctx, user.currentLine, r, g, b, user);
+
+    this.board.forEachMirrorRegion({ rect: this._boundsToRect(state.dirtyBounds) }, (region) => {
+      this.board.drawMirroredCanvas(ctx, state.previewCanvas, region, 0, 0);
     });
+  }
 
-    const radius = size / 2;
-    const safetyMargin = radius * 0.25;
-    const margin = radius + safetyMargin + 2;
+  commitCurrentLine(user, newPressure = user.pressure, newSize = user.size, newOpacity = user.opacity, continueStroke = true) {
+    if (!user?.currentLine?.length) return false;
+    const state = this._getStrokeState(user);
+    if (!state || !this._hasDirtyBounds(state)) return false;
 
-    const minX = Math.min(p1.x, p2.x) - margin;
-    const minY = Math.min(p1.y, p2.y) - margin;
-    const maxX = Math.max(p1.x, p2.x) + margin;
-    const maxY = Math.max(p1.y, p2.y) + margin;
-
-    const x = Math.floor(minX);
-    const y = Math.floor(minY);
-    const w = Math.ceil(maxX) - x;
-    const h = Math.ceil(maxY) - y;
-
-    // Track erased tiles along the stroke path
-    if (this._erasedTiles && this.board.tileTracker) {
-      this.board.tileTracker.collectTilesFromPath([p1, p2], radius, this._erasedTiles);
+    if (user.context) {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
 
-    if (this._eraseAllLayers()) {
-      this.board.expandDirtyRectAllLayers(user, x, y, w, h);
-    } else {
-      this.board.expandDirtyRect(user, x, y, w, h);
+    const bufferedPoints = user.currentLine.map((point) => ({ ...point }));
+    const committed = this._commitBufferedPath(user, bufferedPoints, state);
+    const lastPoint = bufferedPoints[bufferedPoints.length - 1];
+
+    user.clearLine();
+    this._clearStrokeState(user);
+    if (continueStroke && lastPoint) {
+      this.appendBufferedPoint(user, { x: lastPoint.x, y: lastPoint.y }, newPressure, newSize, newOpacity);
     }
 
-    this.board.forEachMirrorRegion({ rect: { x, y, width: w, height: h } }, (region) => {
-      const m1 = this.board.mirrorPointToRegion(p1, region);
-      const m2 = this.board.mirrorPointToRegion(p2, region);
-      const mirrorMinX = Math.min(m1.x, m2.x) - margin;
-      const mirrorMinY = Math.min(m1.y, m2.y) - margin;
-      const mirrorMaxX = Math.max(m1.x, m2.x) + margin;
-      const mirrorMaxY = Math.max(m1.y, m2.y) + margin;
-      const mx = Math.floor(mirrorMinX);
-      const my = Math.floor(mirrorMinY);
-      const mw = Math.ceil(mirrorMaxX) - mx;
-      const mh = Math.ceil(mirrorMaxY) - my;
-      if (this._eraseAllLayers()) {
-        this.board.expandDirtyRectAllLayers(user, mx, my, mw, mh);
-      } else {
-        this.board.expandDirtyRect(user, mx, my, mw, mh);
-      }
-      if (this._erasedTiles && this.board.tileTracker) {
-        this.board.tileTracker.collectTilesFromPath([m1, m2], radius, this._erasedTiles);
-      }
-    });
+    if (committed) {
+      this.board.requestUpdate();
+    }
 
-    this.board.requestUpdate();
+    return committed;
+  }
+
+  collectErasedTiles(user) {
+    const erasedTiles = new Set();
+    const lm = this.board.layerManager;
+    if (!lm || !user) return erasedTiles;
+
+    if (this._shouldEraseAllLayers(user)) {
+      const count = lm.getLayerCount();
+      for (let i = 0; i < count; i++) {
+        const active = lm.getLayerGroup(i)?.activeStrokeByUser?.get(user.id);
+        if (active?.affectedTiles) {
+          for (const idx of active.affectedTiles) erasedTiles.add(idx);
+        }
+      }
+      return erasedTiles;
+    }
+
+    const group = lm.getLayerGroup(this._getStrokeLayer(user));
+    const active = group?.activeStrokeByUser?.get(user.id);
+    if (active?.affectedTiles) {
+      for (const idx of active.affectedTiles) erasedTiles.add(idx);
+    }
+    return erasedTiles;
+  }
+
+  _beginStroke(user) {
+    if (!this.board.layerManager || user?.panning) return;
+
+    if (this._shouldEraseAllLayers(user)) {
+      const count = this.board.layerManager.getLayerCount();
+      for (let i = 0; i < count; i++) {
+        this.board.layerManager.beginUserStroke(i, user.id, 'destination-out');
+      }
+      return;
+    }
+
+    this.board.layerManager.beginUserStroke(this._getStrokeLayer(user), user.id, 'destination-out');
+  }
+
+  _commitBufferedPath(user, points, state) {
+    if (!points || points.length === 0 || !state || !this._hasDirtyBounds(state)) return false;
+
+    let committed = false;
+    const groups = this._getTargetGroups(user);
+    if (groups.length === 0) return false;
+    const opacity = state.opacity ?? points[0]?.opacity ?? 1;
+    if (opacity <= 0) return false;
+
+    for (const group of groups) {
+      this.eraseMaskOnGroup(group, state, opacity, user.id);
+      this.board.forEachMirrorRegion({ rect: this._boundsToRect(state.dirtyBounds) }, (region) => {
+        this.eraseMaskOnGroup(group, state, opacity, user.id, region);
+      });
+      committed = true;
+    }
+
+    if (committed) {
+      this._markDirtyBounds(user, state.dirtyBounds);
+      const maxRadius = Math.max(0.5, state.maxRadius ?? 0);
+      if (maxRadius > 0 && points.length > 0) {
+        this._markDirtyPath(user, points, maxRadius);
+      }
+    }
+
+    return committed;
+  }
+
+  _getTargetGroups(user) {
+    if (!this.board.layerManager) return [];
+
+    if (this._shouldEraseAllLayers(user)) {
+      const groups = [];
+      const count = this.board.layerManager.getLayerCount();
+      for (let i = 0; i < count; i++) {
+        const group = this.board.layerManager.getLayerGroup(i);
+        if (group) groups.push(group);
+      }
+      return groups;
+    }
+
+    const group = this.board.layerManager.getLayerGroup(this._getStrokeLayer(user));
+    return group ? [group] : [];
+  }
+
+  _getStrokeLayer(user) {
+    return user?._strokeLayer ?? user?.activeLayer ?? 0;
+  }
+
+  _shouldEraseAllLayers(user) {
+    return user?.eraseAllLayers ?? this._eraseAllLayers();
+  }
+
+  _createBufferedPoint(x, y, pressure, size, opacity) {
+    return {
+      x,
+      y,
+      size: Math.max(0, pressure * size * 2),
+      opacity: opacity !== undefined ? opacity : 1
+    };
+  }
+
+  _renderPreviewPath(ctx, points, r, g, b, user) {
+    const state = this._getStrokeState(user);
+    if (!state || !this._hasDirtyBounds(state)) return;
+    this._renderPreviewMask(state, `rgb(${r}, ${g}, ${b})`);
+    ctx.drawImage(state.previewCanvas, 0, 0);
   }
 
   /**
-   * Renders a segment to the given context.
-   * @private
-   * @param {CanvasRenderingContext2D} ctx - The target context.
-   * @param {Object} p1 - Start point.
-   * @param {Object} p2 - End point.
-   * @param {number} size - Line width.
-   */
-  _renderSegmentToCtx(ctx, p1, p2, size) {
-    ctx.save();
-    ctx.globalAlpha = 1.0;
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = size;
-    ctx.strokeStyle = 'rgba(255,255,255,1)';
-    ctx.beginPath();
-    ctx.moveTo(p1.x, p1.y);
-    ctx.lineTo(p2.x, p2.y);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  /**
-   * Remote drawing handler for erasers.
+   * Draw an eraser path into a user's active stroke group.
    * @param {Object} group - The layer group.
-   * @param {number} x1 - Start x.
-   * @param {number} y1 - Start y.
-   * @param {number} x2 - End x.
-   * @param {number} y2 - End y.
+   * @param {Array<Object>} points - Buffered path points.
    * @param {number} size - Eraser size.
-   * @param {number} _opacity - Unused opacity.
+   * @param {number} opacity - Eraser opacity.
    * @param {string} userId - ID of the user erasing.
    */
-  eraseOnGroup(group, x1, y1, x2, y2, size, _opacity, userId) {
-    if (size <= 0) return;
+  eraseMaskOnGroup(group, state, opacity, userId, mirrorRegion = null) {
     const active = group.activeStrokeByUser?.get(userId);
     if (active?.ctx) {
-      active.opacity = 1.0;
-      this._renderSegmentToCtx(active.ctx, { x: x1, y: y1 }, { x: x2, y: y2 }, size);
-      const radius = size / 2;
-      if (active.dirtyRect) {
-        const margin = radius * 1.25 + 2;
-        const dr = active.dirtyRect;
-        dr.minX = Math.min(dr.minX, Math.floor(Math.min(x1, x2) - margin));
-        dr.minY = Math.min(dr.minY, Math.floor(Math.min(y1, y2) - margin));
-        dr.maxX = Math.max(dr.maxX, Math.ceil(Math.max(x1, x2) + margin));
-        dr.maxY = Math.max(dr.maxY, Math.ceil(Math.max(y1, y2) + margin));
+      active.opacity = opacity;
+      active.ctx.save();
+      active.ctx.globalCompositeOperation = 'source-over';
+      active.ctx.globalAlpha = opacity;
+      if (mirrorRegion) {
+        this.board.drawMirroredCanvas(active.ctx, state.maskCanvas, mirrorRegion, 0, 0);
+      } else {
+        active.ctx.drawImage(state.maskCanvas, 0, 0);
       }
-      // Track erased tiles for remote users (same as local eraser)
-      if (active.affectedTiles && this.board.tileTracker) {
-        this.board.tileTracker.collectTilesFromPath(
-          [{ x: x1, y: y1 }, { x: x2, y: y2 }], radius, active.affectedTiles
-        );
+      active.ctx.restore();
+    }
+  }
+
+  _ensureStrokeState(user) {
+    const width = this.board.getWidth();
+    const height = this.board.getHeight();
+
+    if (!user._eraserStrokeState) {
+      user._eraserStrokeState = this._createStrokeState(width, height);
+    }
+
+    const state = user._eraserStrokeState;
+    if (state.maskCanvas.width !== width || state.maskCanvas.height !== height) {
+      user._eraserStrokeState = this._createStrokeState(width, height);
+      return user._eraserStrokeState;
+    }
+
+    return state;
+  }
+
+  _createStrokeState(width, height) {
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = width;
+    maskCanvas.height = height;
+
+    const previewCanvas = document.createElement('canvas');
+    previewCanvas.width = width;
+    previewCanvas.height = height;
+
+    return {
+      maskCanvas,
+      maskCtx: maskCanvas.getContext('2d'),
+      previewCanvas,
+      previewCtx: previewCanvas.getContext('2d'),
+      lastStampPos: null,
+      dirtyBounds: null,
+      maxRadius: 0,
+      opacity: 1
+    };
+  }
+
+  _getStrokeState(user) {
+    return user?._eraserStrokeState ?? null;
+  }
+
+  _resetStrokeState(user) {
+    const state = this._ensureStrokeState(user);
+    state.maskCtx.clearRect(0, 0, state.maskCanvas.width, state.maskCanvas.height);
+    state.previewCtx.clearRect(0, 0, state.previewCanvas.width, state.previewCanvas.height);
+    state.lastStampPos = null;
+    state.dirtyBounds = null;
+    state.maxRadius = 0;
+    state.opacity = user?.opacity ?? 1;
+  }
+
+  _clearStrokeState(user) {
+    const state = this._getStrokeState(user);
+    if (!state) return;
+    state.maskCtx.clearRect(0, 0, state.maskCanvas.width, state.maskCanvas.height);
+    state.previewCtx.clearRect(0, 0, state.previewCanvas.width, state.previewCanvas.height);
+    state.lastStampPos = null;
+    state.dirtyBounds = null;
+    state.maxRadius = 0;
+  }
+
+  _stampPoint(user, state, point) {
+    const radius = Math.max(0.5, point.size / 2);
+    state.opacity = point.opacity;
+
+    if (!state.lastStampPos) {
+      this._stampCircle(state, point.x, point.y, radius);
+      state.lastStampPos = { x: point.x, y: point.y, radius };
+      state.maxRadius = Math.max(state.maxRadius, radius);
+      return;
+    }
+
+    const distance = this._getDistance(state.lastStampPos, point);
+    const avgRadius = (state.lastStampPos.radius + radius) / 2;
+    const spacing = Math.max(0.75, avgRadius * 0.2);
+    const steps = Math.max(1, Math.ceil(distance / spacing));
+
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const x = state.lastStampPos.x + (point.x - state.lastStampPos.x) * t;
+      const y = state.lastStampPos.y + (point.y - state.lastStampPos.y) * t;
+      const r = state.lastStampPos.radius + (radius - state.lastStampPos.radius) * t;
+      this._stampCircle(state, x, y, r);
+      state.maxRadius = Math.max(state.maxRadius, r);
+    }
+
+    state.lastStampPos = { x: point.x, y: point.y, radius };
+  }
+
+  _stampCircle(state, x, y, radius) {
+    const ctx = state.maskCtx;
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(255,255,255,1)';
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    this._expandBounds(state, x - radius, y - radius, x + radius, y + radius);
+  }
+
+  _renderPreviewMask(state, fillStyle) {
+    const { previewCtx, previewCanvas, maskCanvas } = state;
+    previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+    previewCtx.drawImage(maskCanvas, 0, 0);
+    previewCtx.save();
+    previewCtx.globalCompositeOperation = 'source-in';
+    previewCtx.globalAlpha = state.opacity ?? 1;
+    previewCtx.fillStyle = fillStyle;
+    previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+    previewCtx.restore();
+  }
+
+  _expandBounds(state, minX, minY, maxX, maxY) {
+    if (!state.dirtyBounds) {
+      state.dirtyBounds = { minX, minY, maxX, maxY };
+      return;
+    }
+
+    state.dirtyBounds.minX = Math.min(state.dirtyBounds.minX, minX);
+    state.dirtyBounds.minY = Math.min(state.dirtyBounds.minY, minY);
+    state.dirtyBounds.maxX = Math.max(state.dirtyBounds.maxX, maxX);
+    state.dirtyBounds.maxY = Math.max(state.dirtyBounds.maxY, maxY);
+  }
+
+  _markDirtyBounds(user, bounds) {
+    if (!bounds) return;
+    const expanded = this._expandBoundsForComposite(bounds);
+    this._expandActiveDirtyRect(user, expanded);
+    this.board.compositeTileGrid?.markRect(expanded.x, expanded.y, expanded.width, expanded.height);
+
+    this.board.forEachMirrorRegion({ rect: expanded }, (region) => {
+      const mirrored = this._mirrorRect(expanded, region);
+      this._expandActiveDirtyRect(user, mirrored);
+      this.board.compositeTileGrid?.markRect(mirrored.x, mirrored.y, mirrored.width, mirrored.height);
+    });
+  }
+
+  _markDirtyPath(user, points, radius) {
+    if (!points?.length || radius <= 0) return;
+
+    const targetGroups = this._getTargetGroups(user);
+    for (const group of targetGroups) {
+      const active = group?.activeStrokeByUser?.get(user.id);
+      if (active?.affectedTiles && this.board.tileTracker) {
+        this.board.tileTracker.collectTilesFromPath(points, radius, active.affectedTiles);
       }
     }
+  }
+
+  _expandActiveDirtyRect(user, rect) {
+    const count = this.board.layerManager?.getLayerCount?.() ?? 0;
+    const userId = user?.id;
+    const applyRect = (group) => {
+      const active = group?.activeStrokeByUser?.get(userId);
+      if (!active?.dirtyRect) return;
+      this.board.layerManager._expandDirtyRect(active.dirtyRect, rect.x, rect.y, rect.width, rect.height);
+    };
+
+    if (this._shouldEraseAllLayers(user)) {
+      for (let i = 0; i < count; i++) {
+        applyRect(this.board.layerManager.getLayerGroup(i));
+      }
+      return;
+    }
+
+    applyRect(this.board.layerManager?.getLayerGroup(this._getStrokeLayer(user)));
+  }
+
+  _expandBoundsForComposite(bounds) {
+    const margin = 2;
+    const x = Math.floor(bounds.minX - margin);
+    const y = Math.floor(bounds.minY - margin);
+    const width = Math.ceil(bounds.maxX - bounds.minX + margin * 2);
+    const height = Math.ceil(bounds.maxY - bounds.minY + margin * 2);
+    return { x, y, width, height };
+  }
+
+  _mirrorRect(rect, region) {
+    const p1 = this.board.mirrorPointToRegion({ x: rect.x, y: rect.y }, region);
+    const p2 = this.board.mirrorPointToRegion({ x: rect.x + rect.width, y: rect.y + rect.height }, region);
+    return {
+      x: Math.floor(Math.min(p1.x, p2.x)),
+      y: Math.floor(Math.min(p1.y, p2.y)),
+      width: Math.ceil(Math.abs(p2.x - p1.x)),
+      height: Math.ceil(Math.abs(p2.y - p1.y))
+    };
+  }
+
+  _boundsToRect(bounds) {
+    if (!bounds) return null;
+    return {
+      x: bounds.minX,
+      y: bounds.minY,
+      width: bounds.maxX - bounds.minX,
+      height: bounds.maxY - bounds.minY
+    };
+  }
+
+  _hasDirtyBounds(state) {
+    return !!(state?.dirtyBounds && state.dirtyBounds.maxX > state.dirtyBounds.minX && state.dirtyBounds.maxY > state.dirtyBounds.minY);
+  }
+
+  _getDistance(p1, p2) {
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    return Math.sqrt(dx * dx + dy * dy);
   }
 }

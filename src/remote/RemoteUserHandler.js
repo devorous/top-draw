@@ -225,37 +225,11 @@ export class RemoteUserHandler {
 
       case 'erase': {
         const eraserTool = this.toolManager.getTool('erase');
-        const eraseSize = user.pressure * user.size * 2;
-        // Skip erasing if pressure is 0 — liftoff sample, no visible effect intended.
-        if (eraseSize > 0) {
-          if (user.eraseAllLayers) {
-            const count = this.board.layerManager.getLayerCount();
-            for (let i = 0; i < count; i++) {
-              const g = this.board.layerManager.getLayerGroup(i);
-              if (g) {
-                eraserTool.eraseOnGroup(g, pos.x, pos.y, lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
-                this.board.forEachMirrorRegion({ points: [pos, lastPos] }, (region) => {
-                  const p1 = this.board.mirrorPointToRegion(pos, region);
-                  const p2 = this.board.mirrorPointToRegion(lastPos, region);
-                  eraserTool.eraseOnGroup(g, p1.x, p1.y, p2.x, p2.y, eraseSize, user.opacity, user.id);
-                });
-              }
-            }
-          } else {
-            const group = this.board.layerManager.getLayerGroup(this.getStrokeLayer(user));
-            if (group) {
-              eraserTool.eraseOnGroup(group, pos.x, pos.y, lastPos.x, lastPos.y, eraseSize, user.opacity, user.id);
-              this.board.forEachMirrorRegion({ points: [pos, lastPos] }, (region) => {
-                const p1 = this.board.mirrorPointToRegion(pos, region);
-                const p2 = this.board.mirrorPointToRegion(lastPos, region);
-                eraserTool.eraseOnGroup(group, p1.x, p1.y, p2.x, p2.y, eraseSize, user.opacity, user.id);
-              });
-            }
-          }
-          this.board.markCompositeFull();
-          this.board.compositeAllLayers(); // Immediate composite for remote eraser visibility
+        if (eraserTool) {
+          eraserTool.appendBufferedPoint(user, pos);
         }
         break;
+        // Skip erasing if pressure is 0 — liftoff sample, no visible effect intended.
       }
 
       case 'blur':
@@ -389,42 +363,7 @@ export class RemoteUserHandler {
         break;
 
       case 'erase':
-        // Draw eraser path preview
-        if (user.currentLine.length >= 2) {
-          user.context.save();
-          user.context.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-          user.context.lineWidth = user.size * 2;
-          user.context.lineCap = 'round';
-          user.context.lineJoin = 'round';
-          user.context.globalCompositeOperation = 'source-over';
-
-          user.context.beginPath();
-          user.context.moveTo(user.currentLine[0], user.currentLine[1]);
-          for (let i = 2; i < user.currentLine.length; i += 2) {
-            user.context.lineTo(user.currentLine[i], user.currentLine[i + 1]);
-          }
-          user.context.stroke();
-          user.context.restore();
-
-          // Draw on mirrored regions
-          this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
-            const mirroredLine = this.board.mirrorPointsToRegion(user.currentLine, region);
-            this.board.withMirrorRegionClip(user.context, region, () => {
-              user.context.save();
-              user.context.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-              user.context.lineWidth = user.size * 2;
-              user.context.lineCap = 'round';
-              user.context.lineJoin = 'round';
-              user.context.beginPath();
-              user.context.moveTo(mirroredLine[0], mirroredLine[1]);
-              for (let i = 2; i < mirroredLine.length; i += 2) {
-                user.context.lineTo(mirroredLine[i], mirroredLine[i + 1]);
-              }
-              user.context.stroke();
-              user.context.restore();
-            });
-          });
-        }
+        this.toolManager.getTool('erase')?.drawPreview(user, user.context);
         break;
 
       case 'glitchBlur':
@@ -504,24 +443,17 @@ export class RemoteUserHandler {
         break;
 
       case 'erase':
-        if (!user.panning) {
+        if (user.panning) {
+          break;
+        }
+        {
           const eraserTool = this.toolManager.getTool('erase');
-          const eraseSize = user.pressure * user.size * 2;
-          // Skip the initial dot if pressure is 0 — same guard as the ink tool.
-          if (eraseSize > 0) {
-            if (user.eraseAllLayers) {
-              const count = this.board.layerManager.getLayerCount();
-              for (let i = 0; i < count; i++) {
-                const g = this.board.layerManager.getLayerGroup(i);
-                if (g) eraserTool.eraseOnGroup(g, pos.x, pos.y, pos.x, pos.y, eraseSize, 1.0, user.id);
-              }
-            } else {
-              const eraseGroup = this.board.layerManager.getLayerGroup(this.getStrokeLayer(user));
-              if (eraseGroup) eraserTool.eraseOnGroup(eraseGroup, pos.x, pos.y, pos.x, pos.y, eraseSize, 1.0, user.id);
-            }
-            this.board.markCompositeFull();
-            this.board.compositeAllLayers(); // Immediate composite for remote eraser visibility
+          if (eraserTool) {
+            eraserTool._resetStrokeState?.(user);
+            eraserTool.appendBufferedPoint(user, pos);
           }
+          break;
+          // Skip the initial dot if pressure is 0 — same guard as the ink tool.
         }
         break;
 
@@ -751,6 +683,14 @@ export class RemoteUserHandler {
           }
         }
         break;
+
+      case 'erase': {
+        const eraserTool = this.toolManager.getTool('erase');
+        if (eraserTool) {
+          eraserTool.commitCurrentLine(user, user.pressure, user.size, user.opacity, false);
+        }
+        break;
+      }
 
       case 'text':
         break;

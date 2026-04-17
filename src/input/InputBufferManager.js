@@ -308,7 +308,7 @@ export class InputBufferManager {
 
   _processBufferedPoints(points) {
     const { app } = this;
-    const smoothingTools = ['brush', 'flowPen', 'imageBrush', 'ink'];
+    const smoothingTools = ['brush', 'flowPen', 'imageBrush', 'ink', 'erase'];
     const blurTools = ['blur', 'circleBlur', 'glitchBlur'];
     const useSmoothing = app.self.mousedown && !app.self.panning && smoothingTools.includes(app.self.tool);
     const useBlur = app.self.mousedown && !app.self.panning && blurTools.includes(app.self.tool);
@@ -412,7 +412,7 @@ export class InputBufferManager {
   needsSmoothingCatchup() {
     const { app } = this;
     if (!app.self.mousedown || app.self.panning) return false;
-    const smoothingTools = ['brush', 'flowPen', 'imageBrush', 'ink'];
+    const smoothingTools = ['brush', 'flowPen', 'imageBrush', 'ink', 'erase'];
     if (!smoothingTools.includes(app.self.tool)) return false;
     if (app.self.tool !== 'ink' && (!app.self.smoothing || app.self.smoothing === 0)) return false;
     if (this.broadcastSmoothBuffer.isFirst) return false;

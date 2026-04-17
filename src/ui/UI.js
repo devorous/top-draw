@@ -937,8 +937,6 @@ menuBtn: document.getElementById('menuBtn'),
 
       case 'erase':
         selfCircle.style.display = 'block';
-        opacityContainer.style.display = 'none';
-        smoothingContainer.style.display = 'none';
         brushHardness.style.display = 'none';
         if (eraserModeOptions) eraserModeOptions.style.display = 'block';
         break;

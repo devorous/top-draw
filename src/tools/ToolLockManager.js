@@ -151,7 +151,7 @@ export class ToolLockManager {
       line: ['size', 'hardness', 'opacity'],
       rectangle: ['size', 'hardness', 'opacity'],
       circle: ['size', 'hardness', 'opacity'],
-      erase: ['size', 'pressure', 'hardness', 'opacity'],
+      erase: ['size', 'pressure', 'smoothing', 'hardness', 'opacity'],
       blur: ['size', 'pressure', 'spacing', 'blurRadius', 'opacity'],
       circleBlur: ['size', 'pressure', 'smoothing', 'hardness', 'spacing', 'opacity'],
       glitchBlur: ['size', 'pressure', 'spacing', 'blurRadius', 'opacity'],

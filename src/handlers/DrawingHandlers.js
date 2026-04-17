@@ -32,23 +32,27 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
-  // Pressure change - commit BEFORE updating so old segment draws at correct width
+  // Pressure change - brush still commits per segment before updating.
   wrapHandler('cp', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      if (user.mousedown && user.tool === 'brush' && !user._penStrokeActive && !user._inkStrokeActive) {
-        remoteUserHandler.commitLine(user, data.pressure, user.size);
+      if (user.mousedown && !user._penStrokeActive && !user._inkStrokeActive) {
+        if (user.tool === 'brush') {
+          remoteUserHandler.commitLine(user, data.pressure, user.size);
+        }
       }
       user.setPressure(data.pressure);
     }
   });
 
-  // Size change - commit BEFORE updating so old segment draws at correct width
+  // Size change - brush still commits per segment before updating.
   wrapHandler('cs', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      if (user.mousedown && user.tool === 'brush' && !user._penStrokeActive && !user._inkStrokeActive) {
-        remoteUserHandler.commitLine(user, user.pressure, data.size);
+      if (user.mousedown && !user._penStrokeActive && !user._inkStrokeActive) {
+        if (user.tool === 'brush') {
+          remoteUserHandler.commitLine(user, user.pressure, data.size);
+        }
       }
       user.setSize(data.size);
       ui.updateRemoteSize(data.sessionIndex, data.size);
@@ -92,8 +96,12 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('cc', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
+      const nextOpacity = data.color[3];
+      if (user.mousedown && user.tool === 'erase') {
+        app.toolManager.getTool('erase')?.commitCurrentLine(user, user.pressure, user.size, nextOpacity);
+      }
       user.setColor(data.color);
-      user.setOpacity(data.color[3]); // Sync opacity from color alpha (matches local behavior)
+      user.setOpacity(nextOpacity); // Sync opacity from color alpha (matches local behavior)
       ui.updateRemoteColor(data.sessionIndex, data.color);
 
       const patternTool = app.toolManager.getTool('pattern');

@@ -675,6 +675,7 @@ export class DrawingApp {
         color: '#000',
         onChange: (color) => {
           const rgba = color.rgba;
+          this.commitSelfEraserSegment(this.self.pressure, this.self.size, rgba[3]);
           this.self.setColor(rgba);
           this.self.setOpacity(rgba[3]);
           this.ui.updateSelfColor(rgba);
@@ -1209,6 +1210,7 @@ export class DrawingApp {
       min: 0, max: 100, step: 1, suffix: '%',
       onCommit: (val) => {
         const opacity = val / 100;
+        this.commitSelfEraserSegment(this.self.pressure, this.self.size, opacity);
         this.self.setOpacity(opacity);
         elements.opacitySlider.value = val;
         const currentColor = [...this.self.color];
@@ -3684,6 +3686,7 @@ export class DrawingApp {
 
   handleopacityChange(e) {
     const opacity = Number(e.target.value) / 100; // Convert to 0-1 range
+    this.commitSelfEraserSegment(this.self.pressure, this.self.size, opacity);
 
     // Update user opacity (same as color picker alpha)
     const currentColor = [...this.self.color];
@@ -3928,6 +3931,7 @@ export class DrawingApp {
   }
 
   handleColorInputChange(rgba) {
+    this.commitSelfEraserSegment(this.self.pressure, this.self.size, rgba[3]);
     // Update self's color
     this.self.setColor(rgba);
     this.self.setOpacity(rgba[3]);
@@ -4225,7 +4229,7 @@ export class DrawingApp {
           this.debugOverlay.addStrokePoint(this.self.id, pending.pos.x, pending.pos.y, 'pointerDown');
         }
       } else if (pressure !== this.inputBufferManager.inputBuffer.pressure) {
-        // Commit BEFORE updating pressure so old segment draws at correct width
+        // Brush still commits per segment before updating pressure.
         if (pressure !== this.self.pressure && this.self.mousedown) {
           this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(pressure));
           if (this.self.tool === 'brush') {
@@ -4899,6 +4903,12 @@ export class DrawingApp {
   commitSelfLine(newPressure, newSize) {
     const brushTool = this.toolManager.getTool('brush');
     brushTool.commitCurrentLine(this.self, newPressure, newSize);
+  }
+
+  commitSelfEraserSegment(newPressure = this.self.pressure, newSize = this.self.size, newOpacity = this.self.opacity) {
+    if (!this.self?.mousedown || this.self.tool !== 'erase') return;
+    const eraserTool = this.toolManager.getTool('erase');
+    eraserTool?.commitCurrentLine(this.self, newPressure, newSize, newOpacity);
   }
 
   cancelCurrentStroke() {
