@@ -33,6 +33,7 @@ export class LayerManager {
     this.onGlitchBlurReady = null; // Callback fired when local user's glitch blur completes: ({userId, x, y, width, height, canvas})
     this.localUserId = null; // Set by Board/App so we can distinguish local vs remote strokes
     this._pixelsWorker = new PixelsWorkerClient();
+    this._lastCommittedStrokeTimestamp = 0;
     
     this.initLayerGroups(3);
   }
@@ -265,6 +266,7 @@ export class LayerManager {
 
     // Capture affected tiles before releasing active stroke
     const affectedTiles = active.affectedTiles ? Array.from(active.affectedTiles) : [];
+    const timestamp = this._getNextCommittedStrokeTimestamp(extraProps.timestamp);
 
     // Handle filter strokes (blur) differently - they need metadata and potentially special rendering
     if (extraProps.filterType === 'blur' || extraProps.filterType === 'glitchBlur') {
@@ -278,7 +280,7 @@ export class LayerManager {
         height: cropBounds.height,
         blendMode: active.blendMode,
         userId,
-        timestamp: Date.now(),
+        timestamp,
         filterType: extraProps.filterType,
         blurRadius: extraProps.blurRadius,
         maskCanvas: active.canvas,
@@ -332,7 +334,7 @@ export class LayerManager {
 
     this._releaseCanvas(active);
 
-    const record = { canvas: croppedCanvas, ctx: croppedCtx, x, y, width, height, blendMode: active.blendMode, userId, timestamp: Date.now(), affectedTiles, ...extraProps };
+    const record = { canvas: croppedCanvas, ctx: croppedCtx, x, y, width, height, blendMode: active.blendMode, userId, timestamp, affectedTiles, ...extraProps };
     group.strokeStack.push(record);
 
     const prev = group.userStrokeCounts.get(userId) || 0;
@@ -342,6 +344,35 @@ export class LayerManager {
     this._clearRedoStack(userId);
     this.needsComposite = true;
     this._notifyHistoryPanel();
+  }
+
+  /**
+   * Generate a monotonic stroke timestamp.
+   * Preserves explicit timestamps so intentional multi-layer batches still undo together.
+   * @param {number|undefined} explicitTimestamp
+   * @returns {number}
+   * @private
+   */
+  _getNextCommittedStrokeTimestamp(explicitTimestamp) {
+    if (Number.isFinite(explicitTimestamp)) {
+      this._lastCommittedStrokeTimestamp = Math.max(this._lastCommittedStrokeTimestamp, explicitTimestamp);
+      return explicitTimestamp;
+    }
+
+    const now = Date.now();
+    const nextTimestamp = now > this._lastCommittedStrokeTimestamp
+      ? now
+      : this._lastCommittedStrokeTimestamp + 1;
+    this._lastCommittedStrokeTimestamp = nextTimestamp;
+    return nextTimestamp;
+  }
+
+  /**
+   * Reserve a unique timestamp for a multi-stroke history batch.
+   * @returns {number}
+   */
+  allocateHistoryTimestamp() {
+    return this._getNextCommittedStrokeTimestamp();
   }
 
   /**

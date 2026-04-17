@@ -2355,7 +2355,9 @@ export class SelectTool extends Tool {
         : [];
 
       // Shared timestamp so all per-layer commit strokes get undone together in one Ctrl+Z
-      const commitBatchTimestamp = Date.now();
+      const commitBatchTimestamp = typeof lm?.allocateHistoryTimestamp === 'function'
+        ? lm.allocateHistoryTimestamp()
+        : Date.now();
 
       for (const { canvas, groupIdx } of this.floatingLayers) {
         lm.beginUserStroke(groupIdx, userId, 'source-over');
@@ -2396,7 +2398,7 @@ export class SelectTool extends Tool {
           active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y));
         }
 
-        lm.commitUserStroke(groupIdx, userId, { selectionRestoreData: this._restoreData, timestamp: commitBatchTimestamp });
+        lm.commitUserStroke(groupIdx, userId, { timestamp: commitBatchTimestamp });
       }
 
       this.board.compositeTileGrid?.markRect(dirtyX, dirtyY, dirtyW, dirtyH);
@@ -2492,9 +2494,10 @@ export class SelectTool extends Tool {
       tilesToBroadcast = tileIndices;
     }
 
-    // Commit as an undoable stroke record.
-    // Attach restore data so Board.undo/redo can also reverse the source-area erase.
-    lm.commitUserStroke(activeLayer, userId, { selectionRestoreData: this._restoreData });
+    // Commit as an undoable placement stroke only. The lifted source-area erase
+    // remains its own older history entry so undo peels back apply, then stamps,
+    // and only later restores the original lifted pixels.
+    lm.commitUserStroke(activeLayer, userId, {});
     this.board.compositeTileGrid?.markRect(dirtyX, dirtyY, dirtyWidth, dirtyHeight);
     this.board.compositeAllLayers();
 
@@ -2602,7 +2605,9 @@ export class SelectTool extends Tool {
     const lm = this.board.layerManager;
     const isMultiLayer = this.copyAllLayers;
     const userId = this.board.app?.self?.id ?? 0;
-    const batchTimestamp = Date.now();
+    const batchTimestamp = typeof lm?.allocateHistoryTimestamp === 'function'
+      ? lm.allocateHistoryTimestamp()
+      : Date.now();
     const snapshots = [];
 
     const eraseGroup = (groupIdx) => {
@@ -3118,6 +3123,9 @@ export class SelectTool extends Tool {
     const lm = this.board.layerManager;
     const userId = app.self?.id ?? 0;
     const hasTransform = (this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners;
+    const stampBatchTimestamp = typeof lm?.allocateHistoryTimestamp === 'function'
+      ? lm.allocateHistoryTimestamp()
+      : Date.now();
 
     const layers = (this.copyAllLayers && this.floatingLayers && this.floatingLayers.length > 0)
       ? this.floatingLayers
@@ -3181,7 +3189,7 @@ export class SelectTool extends Tool {
         active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y));
       }
 
-      lm.commitUserStroke(groupIdx, userId, {});
+      lm.commitUserStroke(groupIdx, userId, { timestamp: stampBatchTimestamp });
     }
 
     // Composite and commit the stroke

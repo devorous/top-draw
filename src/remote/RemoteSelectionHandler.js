@@ -570,10 +570,9 @@ export class RemoteSelectionHandler {
       }
     }
 
-    // Hand history its own snapshot copy so cleanup of the live remote selection
-    // doesn't destroy the canvases needed for later undo/redo replay.
-    const historyRestoreData = this._cloneSelectionRestoreData(user._selectionRestoreData);
-    lm.commitUserStroke(layerIdx, user.id, { selectionRestoreData: historyRestoreData });
+    // Commit only the applied placement. The source-area erase from lift remains
+    // as its own older undo step so remote history matches local undo ordering.
+    lm.commitUserStroke(layerIdx, user.id, {});
     this.board.activeSelectionLayer = -1;
     this.board.markCompositeFull();
     this.board.compositeAllLayers();
