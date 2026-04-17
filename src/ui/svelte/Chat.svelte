@@ -2274,14 +2274,6 @@
     line-height: 1;
   }
 
-  .upload-tool img {
-    display: block;
-    width: 16px;
-    height: 16px;
-    filter: invert(1);
-    opacity: 0.9;
-  }
-
   .dm-stream {
     display: flex;
     flex-direction: column;
@@ -2474,11 +2466,6 @@
   .chat-shell.compact .emoji-tool {
     grid-column: 1;
     grid-row: 2;
-  }
-
-  .chat-shell.compact .upload-tool img {
-    width: 14px;
-    height: 14px;
   }
 
   .composer-tool:hover {

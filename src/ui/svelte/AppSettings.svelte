@@ -700,41 +700,6 @@
     accent-color: var(--accent-primary);
   }
 
-  .settings-option-copy {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    min-width: 0;
-  }
-
-  .settings-option-copy h4 {
-    margin: 0;
-  }
-
-  .settings-option-copy p {
-    margin: 0;
-  }
-
-  .settings-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.55rem;
-    flex-shrink: 0;
-    padding: 0.55rem 0.75rem;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border-subtle);
-    background: color-mix(in srgb, var(--bg-elevated) 65%, transparent);
-    color: var(--text-primary);
-    font-size: 0.84rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .settings-toggle input {
-    margin: 0;
-    accent-color: var(--accent-primary);
-  }
-
   .theme-grid-compact {
     display: grid;
     grid-template-columns: repeat(3, 1fr);

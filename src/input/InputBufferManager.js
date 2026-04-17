@@ -3,9 +3,17 @@
  * Orchestrates local drawing feedback and network broadcast rates based on device performance.
  */
 
-import { douglasPeucker, distanceBasedCulling } from '../utils/drawing.js';
+import { douglasPeucker } from '../utils/drawing.js';
 import { applySmoothingEMA, resetSmoothingBuffer } from '../utils/smoothing.js';
 import * as wasm from '../wasm/ddraw_wasm.js';
+
+let douglasPeuckerWasm = null;
+for (const [exportName, exportValue] of Object.entries(wasm)) {
+  if (exportName === 'douglas_peucker_wasm' && typeof exportValue === 'function') {
+    douglasPeuckerWasm = exportValue;
+    break;
+  }
+}
 
 const TPS_NORMAL = 60;
 const TPS_LOW_POWER = 30;
@@ -475,11 +483,11 @@ export class InputBufferManager {
     const epsilon = baseline.minEpsilon + (baseline.maxEpsilon - baseline.minEpsilon) * (userSmoothing / 50);
 
     // Prefer WASM if available (already optimized for flat arrays)
-    if (typeof wasm.douglas_peucker_wasm === 'function') {
+    if (typeof douglasPeuckerWasm === 'function') {
       try {
         // Rust expects a Float32Array
         const floatPoints = points instanceof Float32Array ? points : new Float32Array(points);
-        return wasm.douglas_peucker_wasm(floatPoints, epsilon);
+        return douglasPeuckerWasm(floatPoints, epsilon);
       } catch (e) {
         console.error('WASM Douglas-Peucker failed, falling back to JS:', e);
       }

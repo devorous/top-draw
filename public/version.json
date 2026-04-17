@@ -1,6 +1,6 @@
 {
-  "latest": "1.1.2-beta",
-  "minRequired": "1.1.2-beta",
+  "latest": "1.2.0-beta",
+  "minRequired": "1.2.0-beta",
   "releaseDate": "2026-04-17",
   "notes": "Initial beta release",
   "downloadUrl": "https://www.ddraw.ca/download"
