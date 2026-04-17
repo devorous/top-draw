@@ -38,7 +38,12 @@ export class TextTool extends Tool {
     super('text', board);
   }
 
-  activate() {}
+  activate() {
+    if (this.board.app?.ui) {
+      this.board.app.ui.elements.selfCrosshair.style.display = 'none';
+      this.board.app.ui.elements.selfHand.style.display = 'none';
+    }
+  }
 
   /**
    * Handle pointer down: if user has text, draw it; otherwise set text position.
