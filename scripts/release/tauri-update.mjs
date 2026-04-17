@@ -194,15 +194,23 @@ function stageWindowsUpdaterArtifacts() {
 
 function runCommand(command, args, extraEnv = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: repoRoot,
-      stdio: 'inherit',
-      shell: false,
-      env: {
-        ...process.env,
-        ...extraEnv
-      }
-    });
+    const env = {
+      ...process.env,
+      ...extraEnv
+    };
+    const child = process.platform === 'win32'
+      ? spawn('cmd.exe', ['/d', '/s', '/c', command, ...args], {
+          cwd: repoRoot,
+          stdio: 'inherit',
+          shell: false,
+          env
+        })
+      : spawn(command, args, {
+          cwd: repoRoot,
+          stdio: 'inherit',
+          shell: false,
+          env
+        });
 
     child.on('exit', (code) => {
       if (code === 0) {

@@ -1,0 +1,11 @@
+{
+  "version": "1.1.2-beta",
+  "notes": "Initial beta release",
+  "pub_date": "2026-04-17T00:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.1.2-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenE1eGs5b2JXRVFYdGM2YXhUQmk4MHJMRm1CTXFreG11bFV0V1YxQW1tQXkrY2RwT3phNEpwc04xMWV1a1NlM1ZRYng4eEhPNHY1K3RVQ1JNUHlkL3dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2NDQ4NTU5CWZpbGU6RGRyYXdfMS4xLjItYmV0YV94NjQtc2V0dXAuZXhlCmpSelJQUTllanhoNllpWnJFL3plZE5BY3lZUTVyaUwzQmUxU3VXR2UvYllpdExZSDFZL29VZ3BUSUo0WXo5WkIxME1QZHl2MzlaWDNJNEZEaWFYZUNRPT0K"
+    }
+  }
+}
