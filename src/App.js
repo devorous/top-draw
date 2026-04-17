@@ -2691,7 +2691,12 @@ export class DrawingApp {
     }
 
     try {
-      const reconnectRoomId = this.currentRoomId || '_discovery';
+      // Try to preserve the room from currentRoomId, or fall back to URL
+      let reconnectRoomId = this.currentRoomId;
+      if (!reconnectRoomId || reconnectRoomId === '_discovery') {
+        const urlRoom = this.landingPage?.getRoomFromURL();
+        reconnectRoomId = urlRoom || 'lobby';
+      }
       await this.wsClient.connect(this.self.toJSON(), reconnectRoomId);
       // Connection successful - banner will be hidden by handleJoinAfterConnect
     } catch (err) {
