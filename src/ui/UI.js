@@ -601,7 +601,7 @@ menuBtn: document.getElementById('menuBtn'),
    * @param {number} y - Board Y
    * @param {number} size - Base tool size
    */
-  updateSelfCursor(x, y, size) {
+  updateSelfCursor(bx, by, size) {
     const cursor = this.elements.selfCursor;
     const circle = this.elements.selfCircle;
     const pressureCircle = this.elements.selfPressureCircle;
@@ -612,33 +612,38 @@ menuBtn: document.getElementById('menuBtn'),
     const zoom = this.elements.selfZoom;
     const mutedIndicator = this.elements.selfMutedIndicator;
 
+    // Convert board coordinates to screen coordinates
+    const screenPos = window.app?.board?.getBoardToScreenPos(bx, by) || { x: bx, y: by };
+    const x = screenPos.x;
+    const y = screenPos.y;
+
     this._lastCursorX = x;
     this._lastCursorY = y;
 
     cursor.style.transform = `translate(${x - 100}px, ${y - 100}px)`;
-    circle.setAttribute('cx', x);
-    circle.setAttribute('cy', y);
+    circle.setAttribute('cx', 100);
+    circle.setAttribute('cy', 100);
     if (pressureCircle) {
-      pressureCircle.setAttribute('cx', x);
-      pressureCircle.setAttribute('cy', y);
+      pressureCircle.setAttribute('cx', 100);
+      pressureCircle.setAttribute('cy', 100);
     }
-    square.setAttribute('x', x - size);
-    square.setAttribute('y', y - size);
+    square.setAttribute('x', 100 - size);
+    square.setAttribute('y', 100 - size);
     if (pressureSquare && pressureSquare.style.display !== 'none') {
       const psizeAttr = pressureSquare.getAttribute('width') || 10;
       const psize = parseFloat(psizeAttr) / 2;
-      pressureSquare.setAttribute('x', x - psize);
-      pressureSquare.setAttribute('y', y - psize);
+      pressureSquare.setAttribute('x', 100 - psize);
+      pressureSquare.setAttribute('y', 100 - psize);
     }
-    crosshair.setAttribute('transform', `translate(${x}, ${y})`);
+    crosshair.setAttribute('transform', `translate(100, 100)`);
     if (hand) {
-      hand.setAttribute('transform', `translate(${x}, ${y})`);
+      hand.setAttribute('transform', `translate(100, 100)`);
     }
     if (zoom) {
-      zoom.setAttribute('transform', `translate(${x}, ${y})`);
+      zoom.setAttribute('transform', `translate(100, 100)`);
     }
     if (mutedIndicator) {
-      mutedIndicator.setAttribute('transform', `translate(${x}, ${y})`);
+      mutedIndicator.setAttribute('transform', `translate(100, 100)`);
     }
   }
 

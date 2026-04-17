@@ -350,6 +350,31 @@ export class Board {
   }
 
   /**
+   * Convert board-relative coordinates to screen coordinates
+   * @param {number} bx - Board X coordinate
+   * @param {number} by - Board Y coordinate
+   * @returns {{x: number, y: number}} - Screen coordinates
+   */
+  getBoardToScreenPos(bx, by) {
+    const containerRect = this.container.getBoundingClientRect();
+
+    // Reverse of getBoardRelativePos: multiply by zoom, rotate, add pan, add container offset
+    const rx = bx * this.zoom;
+    const ry = by * this.zoom;
+
+    const rad = this.rotation * Math.PI / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const sx = rx * cos - ry * sin;
+    const sy = rx * sin + ry * cos;
+
+    return {
+      x: Math.round((sx + this.panX + containerRect.left) * 100) / 100,
+      y: Math.round((sy + this.panY + containerRect.top) * 100) / 100
+    };
+  }
+
+  /**
    * Set board rotation
    * @param {number} angle - Rotation angle in degrees
    */
