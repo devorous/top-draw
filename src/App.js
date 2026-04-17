@@ -4835,6 +4835,7 @@ export class DrawingApp {
       this.commitSelfLine(this.self.pressure, size);
     }
 
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(size));
     this.self.setSize(size);
     this.ui.elements.sizeSlider.value = size;
     this.ui.updateCursorSize(size);
@@ -4842,7 +4843,6 @@ export class DrawingApp {
     this.ui.updateSizeValue(size);
     this.ui.updateSelfTextStyle(size, this.self.color, this.self.font);
     this.board.mainCtx.lineWidth = size * 2;
-    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(size));
   }
 
   /**

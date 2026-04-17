@@ -95,7 +95,6 @@ export class EraserTool extends Tool {
    */
   onPointerDown(user, pos) {
     this._activeUser = user;
-    this.userSize = user.size;
     this.lastPos = { x: pos.x, y: pos.y };
     // Initialize erased tiles tracking
     this._erasedTiles = new Set();
@@ -178,7 +177,7 @@ export class EraserTool extends Tool {
    * @param {Object} p2 - End point of the segment.
    */
   _drawSegment(user, p1, p2) {
-    const size = user.pressure * this.userSize * 2;
+    const size = user.pressure * user.size * 2;
     if (size <= 0) return;
     const userId = user.id;
 
