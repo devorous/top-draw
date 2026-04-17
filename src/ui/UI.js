@@ -508,6 +508,7 @@ menuBtn: document.getElementById('menuBtn'),
       zoom: zoomIconUrl,
       rotate: rotateIconUrl,
       pattern: patternIconUrl,
+      afk: '../images/zzz-icon.svg',
       lockClosed: '../images/lock-closed.svg', // Preload from static assets
       lockOpen: '../images/lock-open.svg'
     };
@@ -1740,10 +1741,10 @@ menuBtn: document.getElementById('menuBtn'),
     el.innerHTML = `
       ${thumbHtml}
       <div class="snapshotJoinToast__body">
-        <div class="snapshotJoinToast__title">Previous session available</div>
-        <div class="snapshotJoinToast__meta">Saved by ${issuer}${timeStr ? ` at ${timeStr}` : ''}</div>
+        <div class="snapshotJoinToast__title">Server snapshot available</div>
+        <div class="snapshotJoinToast__meta">Saved on the server by ${issuer}${timeStr ? ` at ${timeStr}` : ''}</div>
         <div class="snapshotJoinToast__actions">
-          <button class="snapshotJoinToast__load btn primary small">Load</button>
+          <button class="snapshotJoinToast__load btn primary small">Load server snapshot</button>
           <button class="snapshotJoinToast__dismiss btn secondary small">Dismiss</button>
         </div>
       </div>
@@ -1753,18 +1754,27 @@ menuBtn: document.getElementById('menuBtn'),
     this._snapshotJoinToastEl = el;
 
     const dismiss = () => this._dismissSnapshotJoinToast();
+    const resetAutoDismiss = () => this._scheduleSnapshotJoinToastDismiss(dismiss);
 
     el.querySelector('.snapshotJoinToast__load').addEventListener('click', () => {
       dismiss();
       onLoad?.();
     });
     el.querySelector('.snapshotJoinToast__dismiss').addEventListener('click', dismiss);
+    el.addEventListener('pointerenter', resetAutoDismiss);
+    el.addEventListener('pointermove', resetAutoDismiss);
+    el.addEventListener('focusin', resetAutoDismiss);
+    el.addEventListener('keydown', resetAutoDismiss);
 
-    // Auto-dismiss after 20 seconds
-    this._snapshotJoinToastTimeout = setTimeout(dismiss, 20000);
+    this._scheduleSnapshotJoinToastDismiss(dismiss);
 
     // Trigger enter animation on next frame
     requestAnimationFrame(() => el.classList.add('show'));
+  }
+
+  _scheduleSnapshotJoinToastDismiss(dismiss) {
+    clearTimeout(this._snapshotJoinToastTimeout);
+    this._snapshotJoinToastTimeout = setTimeout(dismiss, 5000);
   }
 
   _dismissSnapshotJoinToast() {

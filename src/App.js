@@ -264,6 +264,7 @@ export class DrawingApp {
 
     // Keyboard handler
     this.keyboardHandler = new KeyboardHandler(this);
+    this._boundSuppressButtonKeyboardActivation = (e) => this.suppressButtonKeyboardActivation(e);
 
     // boardContainer background pan tracking
     this._containerPanActive = false;
@@ -416,7 +417,7 @@ export class DrawingApp {
       showProfileDialog(username);
     };
     this.moderation.onSync = (sessionIndex) => {
-      this.syncClient.requestSync();
+      this.syncClient.requestSync(sessionIndex);
       this.ui.showToast('Sync requested');
     };
     this.moderation.onPM = (sessionIndex, user) => {
@@ -720,6 +721,9 @@ export class DrawingApp {
    */
   setupEventListeners() {
     const { elements } = this.ui;
+
+    document.addEventListener('keydown', this._boundSuppressButtonKeyboardActivation, true);
+    document.addEventListener('keyup', this._boundSuppressButtonKeyboardActivation, true);
 
     // Form submit triggers join (both logged-in and not-logged-in join buttons are type="submit")
     elements.loginForm?.addEventListener('submit', (e) => {
@@ -2687,7 +2691,8 @@ export class DrawingApp {
     }
 
     try {
-      await this.wsClient.connect(this.self.toJSON());
+      const reconnectRoomId = this.currentRoomId || '_discovery';
+      await this.wsClient.connect(this.self.toJSON(), reconnectRoomId);
       // Connection successful - banner will be hidden by handleJoinAfterConnect
     } catch (err) {
       console.error('Reconnect failed:', err);
@@ -3594,6 +3599,47 @@ export class DrawingApp {
       }
       handler(e);
     });
+  }
+
+  /**
+   * Disables keyboard button activation and focus navigation while the drawing UI is active.
+   * This keeps focused controls from re-firing on Space/Enter and stops Tab from
+   * cycling through the app chrome during drawing.
+   * @param {KeyboardEvent} event
+   */
+  suppressButtonKeyboardActivation(event) {
+    if (!event) {
+      return;
+    }
+
+    if (this.landingPage?.isVisible) {
+      return;
+    }
+
+    const target = event.target instanceof Element ? event.target : null;
+    const editableTarget = target?.closest('input, textarea, select, [contenteditable="true"]');
+
+    if (event.key === 'Tab' || event.key === 'Alt') {
+      if (!editableTarget) {
+        event.preventDefault();
+      }
+      return;
+    }
+
+    if (event.key !== ' ' && event.key !== 'Spacebar' && event.key !== 'Enter') {
+      return;
+    }
+
+    const buttonTarget = target
+      ? target.closest('button, [role="button"], input[type="button"], input[type="submit"], input[type="reset"]')
+      : null;
+
+    if (!buttonTarget || buttonTarget.disabled) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
   }
 
   /**

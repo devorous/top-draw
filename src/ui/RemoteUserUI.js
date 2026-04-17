@@ -98,6 +98,13 @@ export class RemoteUserUI {
     return iconData.cloneNode ? iconData.cloneNode(true) : null;
   }
 
+  _getUserListIcon(tool, afk = false) {
+    if (afk && this.icons.afk) {
+      return this.icons.afk;
+    }
+    return this.icons[tool] || this.icons.brush;
+  }
+
   _isReplayBotUser(userId) {
     return Number(userId) < 0;
   }
@@ -394,6 +401,10 @@ export class RemoteUserUI {
     );
     this._scheduleCursorIdleHide(userId);
 
+    if (userData.afk) {
+      this.setRemoteUserAfk(userId, true);
+    }
+
     if (this._shouldSuppressLiveUser(userId)) {
       this._setUserVisibility(userId, false);
     }
@@ -503,7 +514,7 @@ export class RemoteUserUI {
 
     const toolEl = document.createElement('a');
     toolEl.className = 'listTool groupHeaderTool';
-    const iconEl = this._iconToElement(this.icons[displayUserData.tool] || this.icons.brush);
+    const iconEl = this._iconToElement(this._getUserListIcon(displayUserData.tool, displayUserData.afk));
     if (iconEl) toolEl.appendChild(iconEl);
 
     const colorEl = document.createElement('a');
@@ -673,7 +684,7 @@ export class RemoteUserUI {
 
     const toolEntry = document.createElement('a');
     toolEntry.className = `listTool ${id}`;
-    const iconEl = this._iconToElement(this.icons[userData.tool] || this.icons.brush);
+    const iconEl = this._iconToElement(this._getUserListIcon(userData.tool, userData.afk));
     if (iconEl) toolEntry.appendChild(iconEl);
 
     const colorEntry = document.createElement('a');
@@ -981,6 +992,9 @@ export class RemoteUserUI {
     if (square) square.style.opacity = opacity;
     if (crosshair) crosshair.style.opacity = opacity;
     if (userEntry) userEntry.style.opacity = opacity;
+
+    const tool = window.app?.users?.get(Number(userId))?.tool ?? 'brush';
+    this.updateRemoteToolIcon(userId, tool);
   }
 
   /**
@@ -1089,10 +1103,11 @@ export class RemoteUserUI {
    */
   updateRemoteToolIcon(userId, tool) {
     const id = `u${userId}`;
+    const afk = !!window.app?.users?.get(Number(userId))?.afk;
     const toolEntry = document.querySelector(`.listTool.${id}`);
     if (toolEntry) {
       toolEntry.innerHTML = '';
-      const iconEl = this._iconToElement(this.icons[tool] || this.icons.brush);
+      const iconEl = this._iconToElement(this._getUserListIcon(tool, afk));
       if (iconEl) toolEntry.appendChild(iconEl);
     }
 
@@ -1100,7 +1115,7 @@ export class RemoteUserUI {
     const groupInfo = this._getGroupForUser(userId);
     if (groupInfo?.group.displayUserId === userId) {
       groupInfo.group.headerToolEl.innerHTML = '';
-      const iconEl = this._iconToElement(this.icons[tool] || this.icons.brush);
+      const iconEl = this._iconToElement(this._getUserListIcon(tool, afk));
       if (iconEl) groupInfo.group.headerToolEl.appendChild(iconEl);
     }
   }

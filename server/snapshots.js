@@ -513,6 +513,10 @@ export async function handleSnapshotDelete(ws, data, room) {
  * @param {Room} room - The room instance.
  */
 export async function handleSnapshotJoinNotify(ws, room) {
+  if (!room || room.id === '_discovery' || room.id === 'default') {
+    return;
+  }
+
   // Prefer in-memory snapshots that have both a thumb AND layers (auto-saves).
   for (let i = room.snapshots.length - 1; i >= 0; i--) {
     const s = room.snapshots[i];

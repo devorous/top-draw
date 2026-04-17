@@ -2547,7 +2547,7 @@ wss.on('connection', async (ws, req) => {
           }
 
           // Prevent registering lobby or discovery rooms
-          if (room.id === 'lobby' || room.id === '_discovery') {
+          if (room.id === 'lobby' || room.id === '_discovery' || room.id === 'default') {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Cannot register this room' });
             break;
           }

@@ -93,6 +93,7 @@ export class Moderation {
       case 'demote':
         return !isGroup && !!targetUser && this.canManageRoomRoles();
       case 'profile':
+      case 'sync':
         return !isGroup;
       default:
         return true;
