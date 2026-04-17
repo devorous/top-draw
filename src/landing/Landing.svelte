@@ -153,7 +153,7 @@
     { title: 'No Nonsense', desc: 'No paywalls, no "premium brushes," and no annoying ads. It\'s a pure creative space built for the love of digital art.' },
   ];
 
-  const WINDOWS_DOWNLOAD_URL = 'https://github.com/devorous/top-draw/releases/download/v1.1.1-beta/Ddraw_1.1.1_x64-setup.exe';
+  const WINDOWS_DOWNLOAD_URL = 'https://www.ddraw.ca/download';
 </script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
