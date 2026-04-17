@@ -100,8 +100,8 @@ export class BrushTool extends Tool {
     user.clearLine();
 
     // Push twice so a click without movement draws a dot on commit
-    user.currentLine.push(pos);
-    user.currentLine.push(pos);
+    user.addToLine({ x: pos.x, y: pos.y });
+    user.addToLine({ x: pos.x, y: pos.y });
   }
 
   /**
@@ -115,9 +115,9 @@ export class BrushTool extends Tool {
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
-    user.currentLine.push(pos);
+    // Snapshot the current point because local input reuses mutable scratch objects.
+    user.addToLine({ x: pos.x, y: pos.y });
     this.board.clearTop();
-    this.board.topCtx.beginPath();
     drawLineArray(user.currentLine, this.board.topCtx, user);
 
     this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
@@ -126,6 +126,9 @@ export class BrushTool extends Tool {
         drawLineArray(mirrored, this.board.topCtx, user);
       });
     });
+
+    // Clear lingering path so nothing else accidentally re-strokes it
+    this.board.topCtx.beginPath();
 
     user.lineLength += manhattanDistance(pos, lastPos);
   }
@@ -244,7 +247,7 @@ export class BrushTool extends Tool {
     }
 
     user.clearLine();
-    user.currentLine.push(lastSmoothedPos);
+    user.addToLine({ x: lastSmoothedPos.x, y: lastSmoothedPos.y });
 
     this.board.compositeAllLayers();
   }
