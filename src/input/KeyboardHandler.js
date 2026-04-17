@@ -40,6 +40,7 @@ export class KeyboardHandler {
   constructor(app) {
     this.app = app;
     this._pendingInternalPaste = null;
+    this._holdActionIntervals = new Map();
   }
 
   /**
@@ -49,6 +50,7 @@ export class KeyboardHandler {
     document.addEventListener('keydown', (e) => this.handleKeyDown(e));
     document.addEventListener('keyup', (e) => this.handleKeyUp(e));
     document.addEventListener('paste', (e) => this.handlePaste(e));
+    window.addEventListener('blur', () => this.clearAllHoldActions());
   }
 
   handlePaste(e) {
@@ -101,10 +103,7 @@ export class KeyboardHandler {
     return getEffectiveKeybindings(this.app.appPreferences, actionId) ?? [];
   }
 
-  getActionForEvent(e) {
-    const binding = eventToBinding(e);
-    if (!binding) return null;
-
+  getActionForBinding(binding) {
     for (const action of KEYBIND_ACTIONS) {
       const actionBindings = this.getBindingsForAction(action.id);
       if (actionBindings.includes(binding)) {
@@ -115,8 +114,45 @@ export class KeyboardHandler {
     return null;
   }
 
+  getActionForEvent(e) {
+    const binding = eventToBinding(e);
+    if (!binding) return null;
+    return this.getActionForBinding(binding);
+  }
+
   shouldSuppressBrowserShortcut(binding) {
     return !!binding && BLOCKED_BROWSER_BINDINGS.has(binding);
+  }
+
+  startHoldAction(actionId, e) {
+    if (this._holdActionIntervals.has(actionId)) return true;
+
+    const dispatched = this.dispatchAction(actionId, e);
+    if (!dispatched) return false;
+
+    const intervalId = setInterval(() => {
+      const syntheticEvent = { ...e, repeat: true };
+      this.dispatchAction(actionId, syntheticEvent);
+    }, 40);
+    this._holdActionIntervals.set(actionId, intervalId);
+    return true;
+  }
+
+  stopHoldAction(actionId) {
+    const intervalId = this._holdActionIntervals.get(actionId);
+    if (intervalId) {
+      clearInterval(intervalId);
+      this._holdActionIntervals.delete(actionId);
+      return true;
+    }
+    return false;
+  }
+
+  clearAllHoldActions() {
+    for (const intervalId of this._holdActionIntervals.values()) {
+      clearInterval(intervalId);
+    }
+    this._holdActionIntervals.clear();
   }
 
   dispatchAction(actionId, e) {
@@ -156,6 +192,14 @@ export class KeyboardHandler {
 
       case 'canvas.zoomOut':
         app.handleZoomOut();
+        return true;
+
+      case 'tool.sizeUp':
+        app.adjustToolSize(1);
+        return true;
+
+      case 'tool.sizeDown':
+        app.adjustToolSize(-1);
         return true;
 
       case 'tool.temporaryEyedropper':
@@ -204,12 +248,6 @@ export class KeyboardHandler {
           return true;
         }
         return false;
-
-      case 'selection.selectAll':
-        if (!selectTool) return false;
-        app.selectTool('select');
-        selectTool.selectAll();
-        return true;
 
       case 'selection.deselect':
         if (selectTool && selectTool.hasSelection()) {
@@ -290,12 +328,101 @@ export class KeyboardHandler {
     }
   }
 
+  shouldIgnoreShortcutTarget(target) {
+    if (!target) return false;
+    return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+  }
+
+  handleBindingRelease(binding, e) {
+    const { app } = this;
+
+    const releaseActionId = binding ? this.getActionForBinding(binding) : null;
+    if (releaseActionId) {
+      this.stopHoldAction(releaseActionId);
+    }
+
+    if (binding && this.getBindingsForAction('canvas.temporaryPan').includes(binding)) {
+      if (app.self.tool !== 'text' && app.self.tool !== 'pan' && app.self.tool !== 'rotate') {
+        app.self.panning = false;
+        app.wsClient.broadcastPan(false);
+        app.wsClient.broadcastShowCursor();
+        app.ui.hidePanCursor(app.self.tool, app.self);
+      }
+      return true;
+    }
+
+    if (binding && this.getBindingsForAction('canvas.temporaryZoom').includes(binding)) {
+      if (app.self.tool === 'zoom' && app._temporaryZoomPreviousTool) {
+        e.preventDefault?.();
+        const previousTool = app._temporaryZoomPreviousTool;
+        app._temporaryZoomPreviousTool = null;
+        app.selectTool(previousTool);
+      }
+      return true;
+    }
+
+    if (binding && this.getBindingsForAction('tool.temporaryEyedropper').includes(binding)) {
+      if (app.self.tool === 'inkdropper' && app.previousTool) {
+        e.preventDefault?.();
+        app.selectTool(app.previousTool);
+        app.previousTool = null;
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  handlePointerDown(e) {
+    const { app } = this;
+
+    if (this.shouldIgnoreShortcutTarget(e.target)) {
+      return false;
+    }
+
+    if (app.landingPage?.isVisible || appState.appSettingsVisible || appState.roomSettingsVisible || appState.adminPanelVisible) {
+      return false;
+    }
+
+    if (e.pointerType === 'touch') {
+      return false;
+    }
+
+    const binding = eventToBinding(e);
+    if (!binding) return false;
+
+    const actionId = this.getActionForBinding(binding);
+    const action = actionId ? KEYBIND_ACTIONS.find((candidate) => candidate.id === actionId) : null;
+    if (!actionId) return false;
+
+    if (actionId !== 'app.openSettings' && actionId !== 'panel.performanceDebug' && !app.inputBufferManager.tickTimer) {
+      return false;
+    }
+
+    e.preventDefault?.();
+    e.stopPropagation?.();
+    if (action?.isHoldAction) {
+      return this.startHoldAction(actionId, e);
+    }
+    return this.dispatchAction(actionId, e);
+  }
+
+  handlePointerUp(e) {
+    if (this.shouldIgnoreShortcutTarget(e.target) || e.pointerType === 'touch') {
+      return false;
+    }
+
+    const binding = eventToBinding(e);
+    if (!binding) return false;
+    return this.handleBindingRelease(binding, e);
+  }
+
   handleKeyDown(e) {
     const { app } = this;
 
     // Skip keyboard shortcuts/input if user is typing in a form field or the touch keyboard hidden input
     const target = e.target;
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+    if (this.shouldIgnoreShortcutTarget(target)) {
       return;
     }
 
@@ -338,6 +465,7 @@ export class KeyboardHandler {
     }
 
     const actionId = this.getActionForEvent(e);
+    const action = actionId ? KEYBIND_ACTIONS.find((candidate) => candidate.id === actionId) : null;
 
     if (actionId === 'app.openSettings' || actionId === 'panel.performanceDebug') {
       if (this.dispatchAction(actionId, e)) {
@@ -362,39 +490,16 @@ export class KeyboardHandler {
       return;
     }
 
+    if (action?.isHoldAction) {
+      this.startHoldAction(actionId, e);
+      return;
+    }
+
     this.dispatchAction(actionId, e);
   }
 
   handleKeyUp(e) {
-    const { app } = this;
     const binding = eventToBinding(e);
-
-    if (binding && this.getBindingsForAction('canvas.temporaryPan').includes(binding)) {
-      if (app.self.tool !== 'text' && app.self.tool !== 'pan' && app.self.tool !== 'rotate') {
-        app.self.panning = false;
-        app.wsClient.broadcastPan(false);
-        app.wsClient.broadcastShowCursor();
-        app.ui.hidePanCursor(app.self.tool, app.self);
-      }
-      return;
-    }
-
-    if (binding && this.getBindingsForAction('canvas.temporaryZoom').includes(binding)) {
-      if (app.self.tool === 'zoom' && app._temporaryZoomPreviousTool) {
-        e.preventDefault();
-        const previousTool = app._temporaryZoomPreviousTool;
-        app._temporaryZoomPreviousTool = null;
-        app.selectTool(previousTool);
-      }
-      return;
-    }
-
-    if (binding && this.getBindingsForAction('tool.temporaryEyedropper').includes(binding)) {
-      if (app.self.tool === 'inkdropper' && app.previousTool) {
-        e.preventDefault();
-        app.selectTool(app.previousTool);
-        app.previousTool = null;
-      }
-    }
+    this.handleBindingRelease(binding, e);
   }
 }

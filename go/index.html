@@ -434,7 +434,7 @@
 
                 <div class="createRoomField">
                   <label for="createRoomDesc">Description <span class="optionalTag">optional</span></label>
-                  <input type="text" id="createRoomDesc" class="authInput" maxlength="80" placeholder="What's this room for?" />
+                  <textarea id="createRoomDesc" class="authInput" maxlength="80" placeholder="What's this room for?" rows="1" style="resize: none; height: 2.5rem;"></textarea>
                 </div>
 
                 <div class="createRoomRow">
@@ -466,12 +466,6 @@
                   <input type="checkbox" id="createRoomPrivate" class="createRoomCheck" />
                   <label for="createRoomPrivate">Private room (won't appear in room list)</label>
                 </div>
-              </div>
-
-              <div class="createRoomModNote">
-                <strong>Want to moderate your own room?</strong>
-                Register an account and you'll be able to set user roles, kick/ban troublemakers,
-                clear the canvas, and keep your room's settings between sessions.
               </div>
 
               <div class="createRoomActions">

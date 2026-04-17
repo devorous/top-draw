@@ -4332,6 +4332,10 @@ export class DrawingApp {
       return;
     }
 
+    if (this.keyboardHandler?.handlePointerDown(e)) {
+      return;
+    }
+
     this.syncBoardHoverState(true, { forceRefresh: true, event: e });
 
     // Middle-click enables panning mode
@@ -4620,6 +4624,8 @@ export class DrawingApp {
       if (consumed) return;
     }
 
+    if (this.keyboardHandler?.handlePointerUp(e)) return;
+
     if (this.syncClient?.isCanvasInputBlocked()) return;
     if (this._rightDragZoomActive && e.pointerId === this._rightDragZoomPointerId) {
       this._rightDragZoomActive = false;
@@ -4774,6 +4780,8 @@ export class DrawingApp {
     // Only handle events on the boardContainer background itself (not bubbled from canvas/children)
     if (e.target !== this.ui.elements.boardContainer) return;
 
+    if (this.keyboardHandler?.handlePointerDown(e)) return;
+
     // Check if select tool is active and has a handle at this position
     if (e.button === 0 && this.self.tool === 'select' && !this.self.panning) {
       const selectToolLoader = this.toolManager.tools.select;
@@ -4860,6 +4868,7 @@ export class DrawingApp {
 
   handleBoardContainerPointerUp(e) {
     if (this.syncClient?.isCanvasInputBlocked()) return;
+    if (this.keyboardHandler?.handlePointerUp(e)) return;
     if (!this._containerPanActive) return;
     this._containerPanActive = false;
 
@@ -4922,6 +4931,11 @@ export class DrawingApp {
     this.ui.updateSizeValue(size);
     this.ui.updateSelfTextStyle(size, this.self.color, this.self.font);
     this.board.mainCtx.lineWidth = size * 2;
+  }
+
+  adjustToolSize(direction) {
+    if (direction === 0) return;
+    this.handleSizeScroll(direction > 0 ? -1 : 1);
   }
 
   /**

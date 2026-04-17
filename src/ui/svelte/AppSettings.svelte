@@ -23,6 +23,7 @@
 
   let search = $state('');
   let listeningTarget = $state(null);
+  let listeningDraftBinding = $state(null);
   let message = $state('');
   let messageType = $state('success');
   let showMessage = $state(false);
@@ -69,6 +70,7 @@
   function hide() {
     appState.appSettingsVisible = false;
     listeningTarget = null;
+    listeningDraftBinding = null;
     search = '';
   }
 
@@ -84,6 +86,7 @@
   function setTab(tab) {
     appState.appSettingsTab = tab;
     listeningTarget = null;
+    listeningDraftBinding = null;
   }
 
   function updatePreferences(nextPreferences, toastMessage = '') {
@@ -170,11 +173,13 @@
 
   function startListening(actionId, slot) {
     listeningTarget = { actionId, slot };
+    listeningDraftBinding = null;
     showMessage = false;
   }
 
   function stopListening() {
     listeningTarget = null;
+    listeningDraftBinding = null;
   }
 
   function keybindSlots(actionId) {
@@ -194,6 +199,34 @@
 
   function bindingForSlot(actionId, slot) {
     return keybindSlots(actionId)[slot];
+  }
+
+  function captureListeningBinding(event) {
+    if (!visible || !listeningTarget) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const binding = eventToBinding(event);
+    if (!binding) return;
+    listeningDraftBinding = binding;
+  }
+
+  function applyListeningBinding() {
+    if (!visible || !listeningTarget || !listeningDraftBinding) return;
+
+    const binding = normalizeBinding(listeningDraftBinding);
+    if (!binding) return;
+
+    const conflict = findConflict(listeningTarget.actionId, listeningTarget.slot, binding);
+    if (conflict) {
+      const slotLabel = conflict.slot === 'primary' ? 'primary' : 'secondary';
+      displayMessage(`Already used by "${conflict.action.label}" (${slotLabel})`, 'error');
+      return;
+    }
+
+    updateKeybinding(listeningTarget.actionId, listeningTarget.slot, binding);
+    stopListening();
   }
 
   function findConflict(actionId, slot, binding) {
@@ -267,18 +300,7 @@
           return;
         }
 
-        const binding = eventToBinding(event);
-        if (!binding) return;
-
-        const conflict = findConflict(listeningTarget.actionId, listeningTarget.slot, binding);
-        if (conflict) {
-          const slotLabel = conflict.slot === 'primary' ? 'primary' : 'secondary';
-          displayMessage(`Already used by "${conflict.action.label}" (${slotLabel})`, 'error');
-          return;
-        }
-
-        updateKeybinding(listeningTarget.actionId, listeningTarget.slot, binding);
-        stopListening();
+        captureListeningBinding(event);
         return;
       }
 
@@ -289,6 +311,26 @@
 
     document.addEventListener('keydown', handleKeydown);
     return () => document.removeEventListener('keydown', handleKeydown);
+  });
+
+  $effect(() => {
+    function handlePointerdown(event) {
+      if (event.target?.closest?.('[data-keybind-capture-control]')) return;
+      captureListeningBinding(event);
+    }
+
+    function suppressContextMenu(event) {
+      if (!visible || !listeningTarget) return;
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    document.addEventListener('pointerdown', handlePointerdown, true);
+    document.addEventListener('contextmenu', suppressContextMenu, true);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerdown, true);
+      document.removeEventListener('contextmenu', suppressContextMenu, true);
+    };
   });
 </script>
 
@@ -373,7 +415,7 @@
             <div class="keybind-toolbar">
               <div>
                 <h4>Custom Keybinds</h4>
-                <p>Edit shortcuts, clear them, or restore defaults one action at a time.</p>
+                <p>Edit shortcuts, pointer buttons, then apply them once the full combo looks right.</p>
               </div>
               <div class="keybind-toolbar-actions">
                 <input
@@ -405,33 +447,59 @@
                             <span class="keybind-slot-label">Primary</span>
                             <span class:capturing={listeningTarget?.actionId === action.id && listeningTarget?.slot === 'primary'} class="keybind-binding">
                               {#if listeningTarget?.actionId === action.id && listeningTarget?.slot === 'primary'}
-                                Press a shortcut
+                                {#if listeningDraftBinding}
+                                  {formatBindingForDisplay(listeningDraftBinding)}
+                                {:else}
+                                  Press a shortcut or button
+                                {/if}
                               {:else}
                                 {formatBindingForDisplay(bindingForSlot(action.id, 'primary'))}
                               {/if}
                             </span>
-                            <button class="btn secondary small" type="button" onclick={() => startListening(action.id, 'primary')}>
-                              {listeningTarget?.actionId === action.id && listeningTarget?.slot === 'primary' ? 'Listening...' : 'Edit'}
-                            </button>
-                            <button class="btn secondary small" type="button" onclick={() => clearActionBinding(action.id, 'primary')}>
-                              Clear
-                            </button>
+                            {#if listeningTarget?.actionId === action.id && listeningTarget?.slot === 'primary'}
+                              <button class="btn secondary small" type="button" onclick={applyListeningBinding} disabled={!listeningDraftBinding} data-keybind-capture-control="true">
+                                Apply
+                              </button>
+                              <button class="btn secondary small" type="button" onclick={stopListening} data-keybind-capture-control="true">
+                                Cancel
+                              </button>
+                            {:else}
+                              <button class="btn secondary small" type="button" onclick={() => startListening(action.id, 'primary')}>
+                                Edit
+                              </button>
+                              <button class="btn secondary small" type="button" onclick={() => clearActionBinding(action.id, 'primary')}>
+                                Clear
+                              </button>
+                            {/if}
                           </div>
                           <div class="keybind-slot-row">
                             <span class="keybind-slot-label">Secondary</span>
                             <span class:capturing={listeningTarget?.actionId === action.id && listeningTarget?.slot === 'secondary'} class="keybind-binding">
                               {#if listeningTarget?.actionId === action.id && listeningTarget?.slot === 'secondary'}
-                                Press a shortcut
+                                {#if listeningDraftBinding}
+                                  {formatBindingForDisplay(listeningDraftBinding)}
+                                {:else}
+                                  Press a shortcut or button
+                                {/if}
                               {:else}
                                 {formatBindingForDisplay(bindingForSlot(action.id, 'secondary'))}
                               {/if}
                             </span>
-                            <button class="btn secondary small" type="button" onclick={() => startListening(action.id, 'secondary')}>
-                              {listeningTarget?.actionId === action.id && listeningTarget?.slot === 'secondary' ? 'Listening...' : 'Edit'}
-                            </button>
-                            <button class="btn secondary small" type="button" onclick={() => clearActionBinding(action.id, 'secondary')}>
-                              Clear
-                            </button>
+                            {#if listeningTarget?.actionId === action.id && listeningTarget?.slot === 'secondary'}
+                              <button class="btn secondary small" type="button" onclick={applyListeningBinding} disabled={!listeningDraftBinding} data-keybind-capture-control="true">
+                                Apply
+                              </button>
+                              <button class="btn secondary small" type="button" onclick={stopListening} data-keybind-capture-control="true">
+                                Cancel
+                              </button>
+                            {:else}
+                              <button class="btn secondary small" type="button" onclick={() => startListening(action.id, 'secondary')}>
+                                Edit
+                              </button>
+                              <button class="btn secondary small" type="button" onclick={() => clearActionBinding(action.id, 'secondary')}>
+                                Clear
+                              </button>
+                            {/if}
                           </div>
                           <span class="keybind-default">
                             Default: {formatBindingForDisplay(KEYBIND_ACTIONS_BY_ID[action.id]?.defaultBinding)}

@@ -143,13 +143,6 @@ export const KEYBIND_ACTIONS = [
     defaultBinding: 'Mod+V'
   },
   {
-    id: 'selection.selectAll',
-    label: 'Select all',
-    description: 'Select the entire canvas.',
-    category: 'Selection',
-    defaultBinding: 'Mod+A'
-  },
-  {
     id: 'selection.deselect',
     label: 'Deselect',
     description: 'Clear the current selection.',
@@ -205,14 +198,32 @@ export const KEYBIND_ACTIONS = [
     label: 'Zoom in',
     description: 'Zoom the canvas in around the current cursor position.',
     category: 'Canvas Navigation',
-    defaultBinding: 'Equal'
+    defaultBinding: 'Equal',
+    defaultSecondaryBinding: 'NumpadAdd'
   },
   {
     id: 'canvas.zoomOut',
     label: 'Zoom out',
     description: 'Zoom the canvas out around the current cursor position.',
     category: 'Canvas Navigation',
-    defaultBinding: 'Minus'
+    defaultBinding: 'Minus',
+    defaultSecondaryBinding: 'NumpadSubtract'
+  },
+  {
+    id: 'tool.sizeUp',
+    label: 'Increase brush size',
+    description: 'Hold to increase the active tool size using the same stepped sizing as wheel changes.',
+    category: 'Tools',
+    defaultBinding: null,
+    isHoldAction: true
+  },
+  {
+    id: 'tool.sizeDown',
+    label: 'Decrease brush size',
+    description: 'Hold to decrease the active tool size using the same stepped sizing as wheel changes.',
+    category: 'Tools',
+    defaultBinding: null,
+    isHoldAction: true
   },
   {
     id: 'panel.performanceDebug',
