@@ -3110,11 +3110,7 @@ wss.on('connection', async (ws, req) => {
             break;
           }
 
-          const loginLimit = wsRateLimiter.consume(rateLimitKey('wsauth:login', ws.clientIp), WS_AUTH_LIMIT);
-          if (!loginLimit.allowed) {
-            sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Too many login attempts. Please try again later.' });
-            break;
-          }
+          const wsLoginKey = rateLimitKey('wsauth:login', ws.clientIp);
 
           try {
             let userDoc = null;
@@ -3137,20 +3133,30 @@ wss.on('connection', async (ws, req) => {
                 break;
               }
             } else if (data.authUsername && data.authPassword) {
+              const loginLimit = wsRateLimiter.inspect(wsLoginKey);
+              if (loginLimit.blocked) {
+                sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Too many login attempts. Please try again later.' });
+                break;
+              }
+
               const normalizedLoginUsername = normalizeUsername(data.authUsername);
               userDoc = await db.collection('users').findOne(
                 { username: normalizedLoginUsername },
                 { collation: { locale: 'en', strength: 2 } }
               );
               if (!userDoc) {
+                wsRateLimiter.consume(wsLoginKey, WS_AUTH_LIMIT);
                 sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Invalid username or password' });
                 break;
               }
               const passwordValid = await verifyPassword(data.authPassword, userDoc.passwordHash);
               if (!passwordValid) {
+                wsRateLimiter.consume(wsLoginKey, WS_AUTH_LIMIT);
                 sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Invalid username or password' });
                 break;
               }
+
+              wsRateLimiter.reset(wsLoginKey);
             } else {
               sendTo(ws, { t: T.AUTH_RESULT, a: false, authError: 'Missing credentials' });
               break;

@@ -122,6 +122,43 @@ export class FixedWindowRateLimiter {
       remaining: Math.max(0, max - entry.count)
     };
   }
+
+  /**
+   * Checks whether a key is currently blocked without consuming capacity.
+   *
+   * @param {string} key
+   * @returns {{ blocked: boolean, retryAfterMs: number }}
+   */
+  inspect(key) {
+    const now = Date.now();
+    const entry = this.entries.get(key);
+    if (!entry) {
+      return { blocked: false, retryAfterMs: 0 };
+    }
+
+    if (entry.blockedUntil > now) {
+      return {
+        blocked: true,
+        retryAfterMs: entry.blockedUntil - now
+      };
+    }
+
+    if (entry.resetAt <= now) {
+      this.entries.delete(key);
+    }
+
+    return { blocked: false, retryAfterMs: 0 };
+  }
+
+  /**
+   * Clears any tracked state for a key.
+   *
+   * @param {string} key
+   * @returns {void}
+   */
+  reset(key) {
+    this.entries.delete(key);
+  }
 }
 
 export const httpRateLimiter = new FixedWindowRateLimiter('http');

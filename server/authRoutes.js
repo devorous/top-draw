@@ -50,8 +50,9 @@ export async function handleAuthLogin(req, res) {
 
   const clientIp = getClientIp(req);
   const clientSubnet = getIpSubnet(clientIp);
-  const loginLimit = httpRateLimiter.consume(`auth:login:${clientIp}`, LOGIN_RATE_LIMIT);
-  if (!loginLimit.allowed) {
+  const loginKey = `auth:login:${clientIp}`;
+  const loginLimit = httpRateLimiter.inspect(loginKey);
+  if (loginLimit.blocked) {
     return json(res, 429, { success: false, error: 'Too many login attempts. Please try again later.' });
   }
 
@@ -79,13 +80,17 @@ export async function handleAuthLogin(req, res) {
     );
 
     if (!user) {
+      httpRateLimiter.consume(loginKey, LOGIN_RATE_LIMIT);
       return json(res, 401, { success: false, error: 'Invalid username or password' });
     }
 
     const valid = await verifyPassword(password, user.passwordHash);
     if (!valid) {
+      httpRateLimiter.consume(loginKey, LOGIN_RATE_LIMIT);
       return json(res, 401, { success: false, error: 'Invalid username or password' });
     }
+
+    httpRateLimiter.reset(loginKey);
 
     const ipHistory = mergeHistory(user.ipHistory, clientIp);
     const subnetHistory = mergeHistory(user.subnetHistory, clientSubnet);
