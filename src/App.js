@@ -347,7 +347,9 @@ export class DrawingApp {
     this.createSelf();
     this.board.init('#boardContainer');
     this.board.setApp(this);
+    this.board.setShowRawPixelsAtHighZoom(this.appPreferences?.general?.showRawPixelsAtHighZoom);
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
+    this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
     this.ui.setHideOwnLabelZoom(this.appPreferences?.general?.hideOwnLabelAbove150);
     appState.board = this.board;
     appState.appPreferences = this.appPreferences;
@@ -3131,6 +3133,7 @@ export class DrawingApp {
     applyThemeColors(this.appPreferences?.general?.themeColors);
     applySidebarSide(this.appPreferences?.general?.sidebarSide);
     this.ui.setHideOwnLabelZoom(this.appPreferences?.general?.hideOwnLabelAbove150);
+    this.board?.setShowRawPixelsAtHighZoom?.(this.appPreferences?.general?.showRawPixelsAtHighZoom);
     appState.appPreferences = this.appPreferences;
     return this.appPreferences;
   }
@@ -3918,6 +3921,7 @@ export class DrawingApp {
   handleResetBoard() {
     this.board.resetView();
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
+    this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
   }
 
   /**
@@ -4017,6 +4021,7 @@ export class DrawingApp {
     const cursorPos = this.isOnBoard ? { x: this.self.x, y: this.self.y } : null;
     this.board.zoomIn(0.1, cursorPos);
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
+    this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
   }
 
   /**
@@ -4026,6 +4031,7 @@ export class DrawingApp {
     const cursorPos = this.isOnBoard ? { x: this.self.x, y: this.self.y } : null;
     this.board.zoomOut(0.1, cursorPos);
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
+    this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
   }
 
   /**
@@ -4517,13 +4523,14 @@ export class DrawingApp {
       this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);
       const deltaY = e.clientY - this._rightDragZoomStartClientY;
       const zoomFactor = Math.pow(2, -deltaY / 240);
-      this.board.setZoomAround(
-        this._rightDragZoomStartZoom * zoomFactor,
-        this._rightDragZoomPivotX,
-        this._rightDragZoomPivotY
-      );
-      this.ui.updateZoomDisplay(this.board.getZoomPercent());
-      return;
+        this.board.setZoomAround(
+          this._rightDragZoomStartZoom * zoomFactor,
+          this._rightDragZoomPivotX,
+          this._rightDragZoomPivotY
+        );
+        this.ui.updateZoomDisplay(this.board.getZoomPercent());
+        this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
+        return;
     }
 
     // Pointer moves are listened to on window so active drags can continue off-canvas.
@@ -4980,9 +4987,10 @@ export class DrawingApp {
       if (this.self.tool === 'zoom') {
         this.self.mousedown = false;
       }
-      this.ui.hidePanCursor(this.self.tool, this.self);
-      this.ui.updateZoomDisplay(this.board.getZoomPercent());
-      return;
+        this.ui.hidePanCursor(this.self.tool, this.self);
+        this.ui.updateZoomDisplay(this.board.getZoomPercent());
+        this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
+        return;
     }
 
     // Middle-click release disables temporary panning regardless of active tool
@@ -5241,6 +5249,7 @@ export class DrawingApp {
         this.board.zoomIn(0.1, cursorPos);
       }
       this.ui.updateZoomDisplay(this.board.getZoomPercent());
+      this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
     } else if (!(this.self.tool === 'ink' && this.self.mousedown)) {
       this.handleSizeScroll(e.deltaY);
     }

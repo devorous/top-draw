@@ -653,6 +653,32 @@ menuBtn: document.getElementById('menuBtn'),
   }
 
   /**
+   * Reduces SVG cursor stroke widths at high zoom so the smallest pixel-brush
+   * cursors stay visually precise.
+   * @param {number} zoom
+   */
+  updateCursorStrokeWidthsForZoom(zoom) {
+    const strokeWidth = zoom >= 5 ? '0.25' : '1';
+    const {
+      selfCircle,
+      selfPressureCircle,
+      selfSquare,
+      selfPressureSquare,
+      selfCrosshair
+    } = this.elements;
+
+    if (selfCircle) selfCircle.setAttribute('stroke-width', strokeWidth);
+    if (selfPressureCircle) selfPressureCircle.setAttribute('stroke-width', strokeWidth);
+    if (selfSquare) selfSquare.setAttribute('stroke-width', strokeWidth);
+    if (selfPressureSquare) selfPressureSquare.setAttribute('stroke-width', strokeWidth);
+
+    if (selfCrosshair) {
+      const lines = selfCrosshair.querySelectorAll('line');
+      lines.forEach((line) => line.setAttribute('stroke-width', strokeWidth));
+    }
+  }
+
+  /**
    * Updates the pressure-sensitive feedback circle radius.
    * @param {number} r - Pressure-scaled radius
    * @param {number} baseSize - Unscaled base size

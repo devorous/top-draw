@@ -11,6 +11,10 @@ import * as wasm from '../wasm/ddraw_wasm.js';
  * Manages the drawing boards, viewport transformations, and compositing logic.
  */
 export class Board {
+  static MAX_ZOOM = 10;
+  static MIN_ZOOM = 0.2;
+  static HIGH_ZOOM_THRESHOLD = 5;
+
   /**
    * @param {Object} [options={}] - Configuration options for the board
    */
@@ -33,6 +37,7 @@ export class Board {
     this.mainCanvas = null;
     this.topCanvas = null;
     this.upperLayersCanvas = null;
+    this.pixelGridOverlay = null;
     this.selectionOverlay = null;
     this.selectionOverlayPadding = 500;
     this.interactionBlockOverlay = null;
@@ -68,6 +73,11 @@ export class Board {
     /** @type {number|null} RAF ID for the persistent render loop */
     this._rafLoopId = null;
     this.compositeTileGrid = null;
+    this.showRawPixelsAtHighZoom = true;
+    this._lastPixelGridZoom = null;
+    this._lastPixelGridVisible = null;
+    this._lastPixelGridPanX = null;
+    this._lastPixelGridPanY = null;
   }
 
   /**
@@ -132,6 +142,17 @@ export class Board {
     this.upperLayersCanvas.style.zIndex = '2';
     this.boardsWrapper.appendChild(this.upperLayersCanvas);
     this.upperLayersCtx = this.upperLayersCanvas.getContext('2d');
+
+    this.pixelGridOverlay = document.createElement('div');
+    this.pixelGridOverlay.id = 'pixelGridBoard';
+    this.pixelGridOverlay.style.position = 'absolute';
+    this.pixelGridOverlay.style.top = '0';
+    this.pixelGridOverlay.style.left = '0';
+    this.pixelGridOverlay.style.pointerEvents = 'none';
+    this.pixelGridOverlay.style.zIndex = '250';
+    this.pixelGridOverlay.style.display = 'none';
+    this.pixelGridOverlay.style.backgroundRepeat = 'repeat';
+    this.container.appendChild(this.pixelGridOverlay);
 
     this.mirrorRegionsLayer = document.createElement('div');
     this.mirrorRegionsLayer.id = 'mirrorRegionsLayer';
@@ -217,7 +238,6 @@ export class Board {
     this.topCtx.imageSmoothingQuality = 'high';
     this.topCtx.lineCap = 'round';
     this.topCtx.lineJoin = 'round';
-
     this.mirrorLine.setAttribute('x1', width / 2);
     this.mirrorLine.setAttribute('y1', 0);
     this.mirrorLine.setAttribute('x2', width / 2);
@@ -231,6 +251,8 @@ export class Board {
     }
     this.renderInteractionBlocks();
     this.renderMirrorRegions();
+    this.renderPixelGrid();
+    this.updateHighZoomRenderingMode();
   }
 
   /**
@@ -280,6 +302,8 @@ export class Board {
     this.boardsWrapper.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom}) rotate(${this.rotation}deg)`;
     this.boardsWrapper.style.left = '';
     this.boardsWrapper.style.top = '';
+    this.renderPixelGrid();
+    this.updateHighZoomRenderingMode();
   }
 
   /**
@@ -381,13 +405,13 @@ export class Board {
 
   /**
    * Set viewport zoom level
-   * @param {number} zoom - Zoom level (0.2 to 5)
+   * @param {number} zoom - Zoom level
    * @param {Object} [cursorPos=null] - Pivot point for zoom {x, y}
    * @returns {number} The applied zoom level
    */
   setZoom(zoom, cursorPos = null) {
     const oldZoom = this.zoom;
-    this.zoom = Math.max(0.2, Math.min(5, zoom));
+    this.zoom = this._clampZoom(zoom);
 
     if (cursorPos) {
       const screenX = cursorPos.x * oldZoom + this.panX;
@@ -430,7 +454,7 @@ export class Board {
     const boardY = (-dx * sin + dy * cos) / oldZoom;
 
     // Apply new zoom
-    this.zoom = Math.max(0.2, Math.min(5, newZoom));
+    this.zoom = this._clampZoom(newZoom);
 
     // Calculate new pan to keep pivot fixed
     this.panX = pivotX - this.zoom * (boardX * cos - boardY * sin);
@@ -446,7 +470,7 @@ export class Board {
    * @returns {number} The applied zoom level
    */
   zoomIn(step = 0.1, cursorPos = null) {
-    return this.setZoom(Math.round((this.zoom + step) * 10) / 10, cursorPos);
+    return this.setZoom(this._getNextZoomStep('in', step), cursorPos);
   }
 
   /**
@@ -456,7 +480,7 @@ export class Board {
    * @returns {number} The applied zoom level
    */
   zoomOut(step = 0.1, cursorPos = null) {
-    return this.setZoom(Math.round((this.zoom - step) * 10) / 10, cursorPos);
+    return this.setZoom(this._getNextZoomStep('out', step), cursorPos);
   }
 
   /**
@@ -465,6 +489,100 @@ export class Board {
    */
   getZoomPercent() {
     return `${(this.zoom * 100).toFixed(1)}%`;
+  }
+
+  _clampZoom(zoom) {
+    return Math.max(Board.MIN_ZOOM, Math.min(Board.MAX_ZOOM, zoom));
+  }
+
+  _getNextZoomStep(direction, requestedStep = 0.1) {
+    const step = this.zoom >= Board.HIGH_ZOOM_THRESHOLD
+      ? 0.25
+      : requestedStep;
+    const nextZoom = direction === 'out'
+      ? this.zoom - step
+      : this.zoom + step;
+    const precision = step >= 0.25 ? 100 : 1000;
+    return Math.round(nextZoom * precision) / precision;
+  }
+
+  shouldShowPixelGrid() {
+    return this.zoom >= Board.HIGH_ZOOM_THRESHOLD && this.rotation === 0;
+  }
+
+  setShowRawPixelsAtHighZoom(enabled) {
+    this.showRawPixelsAtHighZoom = !!enabled;
+    this.updateHighZoomRenderingMode();
+  }
+
+  updateHighZoomRenderingMode() {
+    const crisp = this.showRawPixelsAtHighZoom && this.zoom >= Board.HIGH_ZOOM_THRESHOLD;
+    const imageRendering = crisp ? 'pixelated' : 'auto';
+    const smoothingEnabled = !crisp;
+    const smoothingQuality = crisp ? 'low' : 'high';
+    const canvases = [
+      this.mainCanvas,
+      this.topCanvas,
+      this.upperLayersCanvas,
+      this.selectionOverlay,
+      this.interactionBlockOverlay
+    ].filter(Boolean);
+    const contexts = [
+      this.mainCtx,
+      this.topCtx,
+      this.upperLayersCtx,
+      this.selectionCtx,
+      this.interactionBlockCtx
+    ].filter(Boolean);
+
+    for (const canvas of canvases) {
+      canvas.style.imageRendering = imageRendering;
+    }
+
+    for (const ctx of contexts) {
+      ctx.imageSmoothingEnabled = smoothingEnabled;
+      if ('imageSmoothingQuality' in ctx) {
+        ctx.imageSmoothingQuality = smoothingQuality;
+      }
+    }
+  }
+
+  renderPixelGrid() {
+    if (!this.pixelGridOverlay || !this.container) return;
+
+    const visible = this.shouldShowPixelGrid();
+    if (
+      this._lastPixelGridVisible === visible &&
+      this._lastPixelGridZoom === this.zoom &&
+      this._lastPixelGridPanX === this.panX &&
+      this._lastPixelGridPanY === this.panY
+    ) {
+      return;
+    }
+    this._lastPixelGridVisible = visible;
+    this._lastPixelGridZoom = this.zoom;
+    this._lastPixelGridPanX = this.panX;
+    this._lastPixelGridPanY = this.panY;
+
+    this.pixelGridOverlay.style.display = visible ? 'block' : 'none';
+    if (!visible) return;
+
+    const width = Math.round(this.getWidth() * this.zoom);
+    const height = Math.round(this.getHeight() * this.zoom);
+    const left = Math.round(this.panX);
+    const top = Math.round(this.panY);
+    const cellSize = this.zoom;
+
+    this.pixelGridOverlay.style.left = `${left}px`;
+    this.pixelGridOverlay.style.top = `${top}px`;
+    this.pixelGridOverlay.style.width = `${width}px`;
+    this.pixelGridOverlay.style.height = `${height}px`;
+    this.pixelGridOverlay.style.backgroundSize = `${cellSize}px ${cellSize}px`;
+    this.pixelGridOverlay.style.backgroundPosition = '0 0, 0 0';
+    this.pixelGridOverlay.style.backgroundImage = [
+      'linear-gradient(to right, rgba(150, 150, 150, 0.16) 1px, transparent 1px)',
+      'linear-gradient(to bottom, rgba(150, 150, 150, 0.16) 1px, transparent 1px)'
+    ].join(', ');
   }
 
   /**

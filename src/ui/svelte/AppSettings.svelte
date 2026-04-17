@@ -55,6 +55,22 @@
     updatePreferences(nextPreferences, enabled ? 'Username label hidden above 150% zoom' : 'Username label always shown');
   }
 
+  function isShowRawPixelsAtHighZoom() {
+    return !!appPreferences?.general?.showRawPixelsAtHighZoom;
+  }
+
+  function updateShowRawPixelsAtHighZoom(enabled) {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        showRawPixelsAtHighZoom: enabled
+      }
+    };
+
+    updatePreferences(nextPreferences, enabled ? 'Raw pixels enabled above 500% zoom' : 'High-zoom smoothing restored');
+  }
+
   function updateSidebarSide(enabled) {
     const nextPreferences = {
       ...appPreferences,
@@ -381,6 +397,14 @@
                   onchange={(event) => updateHideOwnLabelAbove150(event.currentTarget.checked)}
                 />
                 <span>Hide Own Username at High Zoom</span>
+              </label>
+              <label class="settings-toggle-compact">
+                <input
+                  type="checkbox"
+                  checked={isShowRawPixelsAtHighZoom()}
+                  onchange={(event) => updateShowRawPixelsAtHighZoom(event.currentTarget.checked)}
+                />
+                <span>Show Raw Pixels Above 500%</span>
               </label>
             </div>
 

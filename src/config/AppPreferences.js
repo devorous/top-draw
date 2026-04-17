@@ -2,7 +2,7 @@ import { getDefaultKeybindings, KEYBIND_ACTIONS_BY_ID } from '../input/keybinds/
 import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
 
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
-const APP_PREFERENCES_VERSION = 3;
+const APP_PREFERENCES_VERSION = 4;
 const SIDEBAR_SIDES = new Set(['left', 'right']);
 // The 3 base colors from which all theme CSS variables are derived.
 // Empty string means "use the CSS default".
@@ -20,7 +20,8 @@ export function createDefaultAppPreferences() {
       sidebarWidth: 200,
       toolsWidth: 48,
       themeColors: {},
-      hideOwnLabelAbove150: false
+      hideOwnLabelAbove150: false,
+      showRawPixelsAtHighZoom: true
     },
     keybinds: getDefaultKeybindings()
   };
@@ -124,6 +125,10 @@ function sanitizePreferences(rawPreferences) {
     }
   }
 
+  const migratedShowRawPixelsAtHighZoom = parsedVersion < 4
+    ? true
+    : !!parsed.general?.showRawPixelsAtHighZoom;
+
   return {
     version: APP_PREFERENCES_VERSION,
     general: {
@@ -132,7 +137,8 @@ function sanitizePreferences(rawPreferences) {
       sidebarWidth: sanitizeSidebarWidth(parsed.general?.sidebarWidth),
       toolsWidth: sanitizeToolsWidth(parsed.general?.toolsWidth),
       themeColors: sanitizeThemeColors(parsed.general?.themeColors),
-      hideOwnLabelAbove150: !!parsed.general?.hideOwnLabelAbove150
+      hideOwnLabelAbove150: !!parsed.general?.hideOwnLabelAbove150,
+      showRawPixelsAtHighZoom: migratedShowRawPixelsAtHighZoom
     },
     keybinds: sanitizeKeybinds(migratedKeybinds)
   };
