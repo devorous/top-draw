@@ -7,6 +7,7 @@ const repoRoot = path.resolve(scriptDir, '..', '..');
 const packageJsonPath = path.join(repoRoot, 'package.json');
 const cargoTomlPath = path.join(repoRoot, 'src-tauri', 'Cargo.toml');
 const versionJsonPath = path.join(repoRoot, 'public', 'version.json');
+const DEFAULT_DOWNLOAD_URL = 'https://www.ddraw.ca/download';
 
 const VERSION_RE = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
 
@@ -102,7 +103,7 @@ function setVersionInVersionJson(nextVersion, { minRequired = nextVersion } = {}
   let existing = {
     latest: nextVersion,
     minRequired: nextVersion,
-    downloadUrl: 'https://github.com/yourusername/top-draw/releases',
+    downloadUrl: DEFAULT_DOWNLOAD_URL,
     notes: ''
   };
   try {
@@ -116,7 +117,7 @@ function setVersionInVersionJson(nextVersion, { minRequired = nextVersion } = {}
     minRequired,
     releaseDate: new Date().toISOString().split('T')[0],
     notes: existing.notes || '',
-    downloadUrl: existing.downloadUrl || 'https://github.com/yourusername/top-draw/releases'
+    downloadUrl: existing.downloadUrl || DEFAULT_DOWNLOAD_URL
   };
 
   fs.writeFileSync(versionJsonPath, `${JSON.stringify(versionJson, null, 2)}\n`);

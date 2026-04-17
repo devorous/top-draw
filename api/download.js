@@ -1,46 +1,49 @@
-const GITHUB_RELEASES_URL = 'https://api.github.com/repos/devorous/top-draw/releases?per_page=10';
-const RELEASES_PAGE_URL = 'https://github.com/devorous/top-draw/releases';
+const DEFAULT_PUBLIC_BASE_URL = 'https://www.ddraw.ca';
+const UPDATE_PREFIX = 'desktop-updates';
 
-function pickWindowsInstaller(releases) {
-  for (const release of releases) {
-    if (release?.draft) continue;
+function normalizeBaseUrl(request) {
+  const envBase = process.env.TAURI_UPDATE_BASE_URL?.trim()
+    || process.env.TAURI_UPDATER_BASE_URL?.trim()
+    || process.env.DESKTOP_UPDATES_PUBLIC_URL?.trim()
+    || DEFAULT_PUBLIC_BASE_URL;
 
-    const asset = release.assets?.find((candidate) =>
-      typeof candidate?.browser_download_url === 'string'
-      && /\.exe$/i.test(candidate.browser_download_url)
-    );
-
-    if (asset) {
-      return asset.browser_download_url;
+  try {
+    return new URL(envBase).toString().replace(/\/+$/, '');
+  } catch {
+    const host = request?.headers?.host;
+    const protocol = request?.headers?.['x-forwarded-proto'] || 'https';
+    if (host) {
+      return `${protocol}://${host}`.replace(/\/+$/, '');
     }
+    return DEFAULT_PUBLIC_BASE_URL;
   }
-
-  return null;
 }
 
-export default async function handler(_request, response) {
+export default async function handler(request, response) {
+  const baseUrl = normalizeBaseUrl(request);
+  const manifestUrl = `${baseUrl}/${UPDATE_PREFIX}/latest.json`;
+
   try {
-    const githubResponse = await fetch(GITHUB_RELEASES_URL, {
+    const manifestResponse = await fetch(manifestUrl, {
       headers: {
-        Accept: 'application/vnd.github+json',
+        Accept: 'application/json',
         'User-Agent': 'ddraw-download-redirect'
       }
     });
 
-    if (!githubResponse.ok) {
-      return response.redirect(302, RELEASES_PAGE_URL);
+    if (!manifestResponse.ok) {
+      return response.redirect(302, manifestUrl);
     }
 
-    const releases = await githubResponse.json();
-    const downloadUrl = pickWindowsInstaller(Array.isArray(releases) ? releases : []);
-
-    if (!downloadUrl) {
-      return response.redirect(302, RELEASES_PAGE_URL);
+    const manifest = await manifestResponse.json();
+    const downloadUrl = manifest?.platforms?.['windows-x86_64']?.url;
+    if (typeof downloadUrl !== 'string' || !downloadUrl.trim()) {
+      return response.redirect(302, manifestUrl);
     }
 
     response.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=3600');
     return response.redirect(302, downloadUrl);
   } catch {
-    return response.redirect(302, RELEASES_PAGE_URL);
+    return response.redirect(302, manifestUrl);
   }
 }
