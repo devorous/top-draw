@@ -71,18 +71,14 @@ export class ColorInputMenu {
     });
 
     ['inputR', 'inputG', 'inputB', 'inputA'].forEach(key => {
-      this.elements[key].addEventListener('input', () => this.handleRGBChange());
       this.elements[key].addEventListener('change', () => this.handleRGBChange());
     });
 
     ['inputH', 'inputS', 'inputV', 'inputA_hsv'].forEach(key => {
-      this.elements[key].addEventListener('input', () => this.handleHSVChange());
       this.elements[key].addEventListener('change', () => this.handleHSVChange());
     });
 
-    this.elements.inputHex.addEventListener('input', () => this.handleHexChange());
     this.elements.inputHex.addEventListener('change', () => this.handleHexChange());
-    this.elements.inputA_hex.addEventListener('input', () => this.handleHexChange());
     this.elements.inputA_hex.addEventListener('change', () => this.handleHexChange());
 
     document.addEventListener('click', (e) => {
