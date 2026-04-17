@@ -740,7 +740,7 @@ export class DrawingApp {
     }
 
     if (elements.menuBtn) {
-      elements.menuBtn.addEventListener('click', (e) => {
+      this.bindPressAction(elements.menuBtn, (e) => {
         e.stopPropagation();
         this.ui.toggleMenu();
       });
@@ -823,8 +823,8 @@ export class DrawingApp {
     // Moderation._injectModUI() when the user's role is confirmed as mod+.
     // Their event listeners are wired there, not here.
 
-    elements.resetBtn.addEventListener('click', () => this.handleResetBoard());
-    elements.mirrorBtn.addEventListener('click', () => this.handleToggleMirror());
+    this.bindPressAction(elements.resetBtn, () => this.handleResetBoard());
+    this.bindPressAction(elements.mirrorBtn, () => this.handleToggleMirror());
     if (elements.undoBtn) elements.undoBtn.addEventListener('click', () => this.handleUndo());
     elements.plusBtn.addEventListener('click', () => this.handleZoomIn());
     elements.minusBtn.addEventListener('click', () => this.handleZoomOut());
@@ -3564,6 +3564,34 @@ export class DrawingApp {
   handleResetBoard() {
     this.board.resetView();
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
+  }
+
+  /**
+   * Binds a button-like element so touch/pen pointer releases activate
+   * immediately without waiting for a synthesized click.
+   * @param {HTMLElement|null} element
+   * @param {(event: Event) => void} handler
+   */
+  bindPressAction(element, handler) {
+    if (!element || typeof handler !== 'function') return;
+
+    let lastPointerActivationAt = 0;
+    const activationWindowMs = 400;
+
+    element.addEventListener('pointerup', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      lastPointerActivationAt = performance.now();
+      e.preventDefault();
+      handler(e);
+    });
+
+    element.addEventListener('click', (e) => {
+      if (performance.now() - lastPointerActivationAt < activationWindowMs) {
+        e.preventDefault();
+        return;
+      }
+      handler(e);
+    });
   }
 
   /**

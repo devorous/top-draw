@@ -542,11 +542,24 @@ export class MirrorRegionController {
     button.style.fontSize = '11px';
     button.style.cursor = 'pointer';
     button.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25)';
+    let lastPointerActivationAt = 0;
     button.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();
     });
+    button.addEventListener('pointerup', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      lastPointerActivationAt = performance.now();
+      e.preventDefault();
+      e.stopPropagation();
+      onClick();
+    });
     button.addEventListener('click', (e) => {
+      if (performance.now() - lastPointerActivationAt < 400) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       onClick();
