@@ -301,6 +301,14 @@ export class SyncClient {
 
     this._resetSyncAttempt();
 
+    if (this.app?.users && this.app?.remoteUserHandler) {
+      for (const [userId, user] of this.app.users.entries()) {
+        if (userId === this.app.sessionIndex) continue;
+        this.app.remoteUserHandler._cleanupTransientUserState?.(user);
+      }
+      this.app.remoteUserHandler.resetTransientState?.();
+    }
+
     if (this.board?.layerManager) {
       console.log('[SyncClient] Clearing existing canvas before sync...');
       this.board.layerManager.clearAll();
@@ -427,6 +435,13 @@ export class SyncClient {
   async handleSyncProvide(data) {
     const { targetUser } = data;
     console.log('[SyncClient] Asked to provide layer state for user', targetUser);
+
+    // Selection moves are throttled separately from the general input buffer.
+    // Flush any pending final corners before we snapshot so inactive-tab replay
+    // does not stop on an older move/rotation state.
+    const selectToolLoader = this.app?.toolManager?.getTool?.('select');
+    const selectTool = selectToolLoader?.realTool ?? selectToolLoader;
+    selectTool?.flushPendingSelectionBroadcast?.();
 
     // Drain any pending broadcasts before snapshotting, so snapshot is consistent with sent state
     this.app?.inputBufferManager?.drainBroadcastQueue?.();

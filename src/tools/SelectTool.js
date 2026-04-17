@@ -7,6 +7,16 @@ import { Homography } from '../utils/homography.js';
 import { performHomographyTransform, imageDataToCanvas, calculateCornerBounds } from '../utils/homographyUtils.js';
 import { pointInHull, distanceBasedCulling } from '../utils/drawing.js';
 
+function cloneSelectionRect(rect) {
+  if (!rect) return null;
+  return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+}
+
+function clonePathPoints(path) {
+  if (!Array.isArray(path)) return null;
+  return path.map((point) => ({ x: point.x, y: point.y }));
+}
+
 /**
  * Base tool class for all interactive board tools.
  */
@@ -1506,7 +1516,6 @@ export class SelectTool extends Tool {
       // Need to recalculate transform - use downsampled preview for better performance
       const srcMaxDim = Math.max(this.floatingCanvas.width, this.floatingCanvas.height);
       const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
-
       // Reuse or create preview homography instance
       if (!this.previewHomography) {
         this.previewHomography = new Homography('projective');
@@ -1536,6 +1545,7 @@ export class SelectTool extends Tool {
         ctx.drawImage(tempCanvas, Math.round(bounds.minX), Math.round(bounds.minY), bounds.width, bounds.height);
       } else {
         // Fallback: just draw the original floating selection
+        this._cachedTransform = null;
         this.drawFloatingSelection();
       }
     }
@@ -2186,7 +2196,6 @@ export class SelectTool extends Tool {
       // Need to recalculate transform
       const srcMaxDim = Math.max(this.floatingCanvas.width, this.floatingCanvas.height);
       const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
-
       // Reuse or create preview homography instance
       if (!this.previewHomography) {
         this.previewHomography = new Homography('projective');
@@ -2311,7 +2320,9 @@ export class SelectTool extends Tool {
     // Send the data via the websocket client
     if (this.board.app?.wsClient) {
       const imageData = this.floatingCanvas ? this.floatingCanvas.toDataURL('image/png') : null;
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionLift(this.selection, this.lassoPath, imageData));
+      const selectionSnapshot = cloneSelectionRect(this.selection);
+      const lassoPathSnapshot = clonePathPoints(this.lassoPath);
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionLift(selectionSnapshot, lassoPathSnapshot, imageData));
     }
   }
 

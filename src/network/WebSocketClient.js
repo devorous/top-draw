@@ -368,7 +368,12 @@ export class WebSocketClient {
   _scheduleProcessing() {
     if (!this._processingScheduled) {
       this._processingScheduled = true;
-      requestAnimationFrame(() => this._processMessageQueue());
+      const isHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+      if (isHidden) {
+        setTimeout(() => this._processMessageQueue(), 0);
+      } else {
+        requestAnimationFrame(() => this._processMessageQueue());
+      }
     }
   }
 

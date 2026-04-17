@@ -13,7 +13,7 @@ export class RemoteSelectionHandler {
     this.remoteSelectionAnimationId = null;
     this.remoteSelectionOffset = 0;
 
-    // Preview downscaling settings (same as SelectTool)
+    // Preview downscaling settings (same as the original remote path)
     this.previewMaxSize = 256; // Max dimension for preview warps
 
     // Pattern tile cache for pattern fills
@@ -175,6 +175,9 @@ export class RemoteSelectionHandler {
             hasActiveSelection = true;
 
             if (user.floatingCanvas && user.selection) {
+              if (user.pendingImageLoad) {
+                continue;
+              }
               // Skip during active movement (like local SelectTool's !isDragging guard).
               // handleSelectionMove already drew synchronously.
               // When idle, redraw to animate marching ants.
@@ -456,6 +459,15 @@ export class RemoteSelectionHandler {
         x: p.x + dx,
         y: p.y + dy
       }));
+    }
+
+    // If the authoritative lifted raster is still decoding, don't build or draw
+    // transformed previews from the temporary fallback pixels. Hidden tabs are
+    // especially prone to delayed image decode, which can otherwise leave the
+    // selection visually wrong until the tab becomes active again.
+    if (user.pendingImageLoad) {
+      this.startRemoteSelectionAnimation();
+      return;
     }
 
     // Regenerate preview cache if corners are transformed
@@ -1076,12 +1088,11 @@ export class RemoteSelectionHandler {
       // REMOTE USER: Stay at lower resolution to avoid hitching the observer's frame rate.
       const srcMaxDim = Math.max(user.floatingCanvas.width, user.floatingCanvas.height);
       const previewScale = srcMaxDim > this.previewMaxSize ? this.previewMaxSize / srcMaxDim : 1;
+      const fullBounds = calculateCornerBounds(user.selectionCorners);
 
-      // Reuse or create preview homography instance
       if (!user.previewHomography) {
         user.previewHomography = new Homography('projective');
       }
-
       const result = performHomographyTransform({
         sourceCanvas: user.floatingCanvas,
         sourceCorners: user.originalCorners,
@@ -1101,8 +1112,6 @@ export class RemoteSelectionHandler {
         cacheCtx.putImageData(result.imageData, 0, 0);
 
         // Calculate FULL SIZE bounds for drawing the preview scaled up
-        const fullBounds = calculateCornerBounds(user.selectionCorners);
-
         // Store bounds for drawing
         user._cachedPreviewBounds = {
           minX: fullBounds.minX,
@@ -1123,6 +1132,7 @@ export class RemoteSelectionHandler {
 
   drawFloatingSelection(user) {
     if (!user.floatingCanvas || !user.selection) return;
+    if (user.pendingImageLoad) return;
 
     const ctx = user.context;
     const s = user.selection;

@@ -59,24 +59,29 @@ export function performHomographyTransform({
     // Calculate scaled dimensions for source
     const srcWidth = scale === 1 ? undefined : Math.max(1, Math.round(sourceCanvas.width * scale));
     const srcHeight = scale === 1 ? undefined : Math.max(1, Math.round(sourceCanvas.height * scale));
+    const effectiveScaleX = srcWidth === undefined ? 1 : srcWidth / sourceCanvas.width;
+    const effectiveScaleY = srcHeight === undefined ? 1 : srcHeight / sourceCanvas.height;
 
-    // Build source points array (scaled if needed)
+    // Build source points array using the effective scale that matches the
+    // actual resized raster dimensions. Using the requested scale directly can
+    // drift from the integer preview size after rounding and skew the warp.
     const srcPoints = [
-      [sourceCorners.tl.x * scale, sourceCorners.tl.y * scale],
-      [sourceCorners.tr.x * scale, sourceCorners.tr.y * scale],
-      [sourceCorners.bl.x * scale, sourceCorners.bl.y * scale],
-      [sourceCorners.br.x * scale, sourceCorners.br.y * scale]
+      [sourceCorners.tl.x * effectiveScaleX, sourceCorners.tl.y * effectiveScaleY],
+      [sourceCorners.tr.x * effectiveScaleX, sourceCorners.tr.y * effectiveScaleY],
+      [sourceCorners.bl.x * effectiveScaleX, sourceCorners.bl.y * effectiveScaleY],
+      [sourceCorners.br.x * effectiveScaleX, sourceCorners.br.y * effectiveScaleY]
     ];
 
     // Calculate destination bounds
     const bounds = calculateCornerBounds(destCorners);
 
-    // Build destination points array (scaled and offset to 0,0 origin)
+    // Build destination points array in the same effective coordinate space as
+    // the resized preview raster.
     const dstPoints = [
-      [(destCorners.tl.x - bounds.minX) * scale, (destCorners.tl.y - bounds.minY) * scale],
-      [(destCorners.tr.x - bounds.minX) * scale, (destCorners.tr.y - bounds.minY) * scale],
-      [(destCorners.bl.x - bounds.minX) * scale, (destCorners.bl.y - bounds.minY) * scale],
-      [(destCorners.br.x - bounds.minX) * scale, (destCorners.br.y - bounds.minY) * scale]
+      [(destCorners.tl.x - bounds.minX) * effectiveScaleX, (destCorners.tl.y - bounds.minY) * effectiveScaleY],
+      [(destCorners.tr.x - bounds.minX) * effectiveScaleX, (destCorners.tr.y - bounds.minY) * effectiveScaleY],
+      [(destCorners.bl.x - bounds.minX) * effectiveScaleX, (destCorners.bl.y - bounds.minY) * effectiveScaleY],
+      [(destCorners.br.x - bounds.minX) * effectiveScaleX, (destCorners.br.y - bounds.minY) * effectiveScaleY]
     ];
 
     // Configure homography with source and destination points
