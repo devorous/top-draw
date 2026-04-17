@@ -1,7 +1,7 @@
 import { isTauriDesktop } from './desktop.js';
 
 let startupCheckScheduled = false;
-const UPDATER_DISABLED = true;
+const UPDATER_DISABLED = false;
 
 function formatUpdatePrompt(update) {
   const parts = [`A new desktop build is available: ${update.currentVersion} -> ${update.version}.`];

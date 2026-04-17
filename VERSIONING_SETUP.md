@@ -43,6 +43,10 @@ npm run release:patch   # or minor/major
 ```
 This updates all three files automatically.
 
+Default compatibility behavior:
+- Patch releases keep the previous `minRequired` as a grace period.
+- Minor and major releases set `minRequired` to the new version.
+
 ### Step 2: Update Download URL (if needed)
 Edit `public/version.json` and update the `downloadUrl` field to point to your latest release.
 
@@ -99,7 +103,7 @@ Edit `public/version.json`:
 ```
 
 ### Grace Period for Old Clients
-Allow older clients to connect temporarily by setting `minRequired` lower:
+Patch releases already do this by default. To customize it further, set `minRequired` lower manually:
 ```json
 {
   "latest": "1.0.5",

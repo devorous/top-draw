@@ -41,6 +41,7 @@ import {
   openImageViaNativeDialog,
   saveCanvasViaNativeDialog
 } from './platform/desktop.js';
+import { ensureClientCanConnect, formatOutdatedClientMessage } from './VersionChecker.js';
 import { broadcastChatPopoutEvent, focusChatPopout } from './platform/chatPopoutBridge.js';
 import initWasm from './wasm/ddraw_wasm.js';
 
@@ -178,6 +179,7 @@ export class DrawingApp {
     applyThemeColors(this.appPreferences?.general?.themeColors);
     applySidebarSide(this.appPreferences?.general?.sidebarSide);
     this._warnOnNextUnload = false;
+    this.isOfflineMode = false;
 
     // Selection state for asynchronous imageData loading
     this._pendingSelLiftImageDataUrl = null;
@@ -2121,6 +2123,18 @@ export class DrawingApp {
     this.syncClient.showOverlay();
     this.syncClient.updateProgress('Connecting...');
 
+    const versionStatus = await ensureClientCanConnect({ showWarning: true });
+    if (!versionStatus.allowed) {
+      this.syncClient.hideOverlay();
+      this.ui.showToast('Update required before connecting', 3500, 'error');
+      if (this.landingPage) {
+        this.landingPage.show();
+        this.landingPage.showError(formatOutdatedClientMessage(versionStatus));
+        this.landingPage.updateConnectionStatus('disconnected');
+      }
+      return;
+    }
+
     try {
       await this.wsClient.connect(this.self.toJSON(), roomId);
     } catch (err) {
@@ -2310,6 +2324,15 @@ export class DrawingApp {
 
     if (this.landingPage) {
       this.landingPage.updateConnectionStatus('connecting');
+    }
+
+    const versionStatus = await ensureClientCanConnect({ showWarning: false });
+    if (!versionStatus.allowed) {
+      if (this.landingPage) {
+        this.landingPage.updateConnectionStatus('disconnected');
+        this.landingPage.showError(formatOutdatedClientMessage(versionStatus));
+      }
+      return;
     }
 
     try {

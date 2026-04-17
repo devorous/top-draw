@@ -76,7 +76,12 @@ When a client is outdated, a modal appears with:
 
 ### Setting a Grace Period
 
-If you want to support older clients temporarily:
+Patch releases keep a grace period automatically. By default:
+
+- `npm run release:patch` updates `latest` but preserves the previous `minRequired`
+- `npm run release:minor` and `npm run release:major` update both `latest` and `minRequired`
+
+If you want to support older clients temporarily beyond that default:
 
 Edit `public/version.json` manually to set different `minRequired`:
 
@@ -91,6 +96,12 @@ Edit `public/version.json` manually to set different `minRequired`:
 ```
 
 Then clients on versions 1.0.3+ can connect, but 1.0.2 and below see the warning.
+
+Example default behavior:
+
+- `1.1.1` -> `npm run release:patch` -> `latest: 1.1.2`, `minRequired: 1.1.1`
+- `1.1.1` -> `npm run release:minor` -> `latest: 1.2.0`, `minRequired: 1.2.0`
+- `1.1.1` -> `npm run release:major` -> `latest: 2.0.0`, `minRequired: 2.0.0`
 
 ### Custom Release Notes
 
@@ -234,6 +245,9 @@ A: The version check silently fails (`try/catch`). Clients can still draw offlin
 
 **Q: Can I enforce an immediate update?**
 A: Yes. Set `minRequired` to the current version in `public/version.json`. Only the latest version can connect (warning modal shows but no offline option).
+
+**Q: Do patch releases force everyone to update?**
+A: Not by default. `npm run release:patch` keeps the previous `minRequired` as a grace period. Minor and major releases move `minRequired` to the new version automatically.
 
 **Q: Do I need GitHub Actions anymore?**
 A: No. Versioning is manual (run `npm run release:*` locally). You build and upload binaries yourself, then update the version files.

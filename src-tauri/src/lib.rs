@@ -47,6 +47,8 @@ struct SaveDialogResult {
 struct UpdateMetadata {
   version: String,
   current_version: String,
+  notes: Option<String>,
+  date: Option<String>,
 }
 
 #[cfg(target_os = "windows")]
@@ -320,6 +322,8 @@ async fn fetch_update(app: AppHandle, pending_update: State<'_, PendingUpdate>) 
   let metadata = update.as_ref().map(|update| UpdateMetadata {
     version: update.version.clone(),
     current_version: update.current_version.clone(),
+    notes: update.body.clone(),
+    date: update.date.map(|value| value.to_string()),
   });
 
   let mut pending = pending_update

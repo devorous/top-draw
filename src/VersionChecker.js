@@ -2,6 +2,10 @@
 
 import { isTauriDesktop } from './platform/desktop.js';
 
+let cachedVersionStatus = null;
+let versionStatusPromise = null;
+let shownWarningKey = null;
+
 /**
  * Parse a version string into { major, minor, patch, prerelease }
  * Supports semver: "1.2.3", "1.2.3-beta", "1.2.0-beta.1", etc.
@@ -45,53 +49,106 @@ function compareVersions(a, b) {
   return a.prerelease < b.prerelease ? -1 : a.prerelease > b.prerelease ? 1 : 0;
 }
 
+function buildVersionStatus(serverVersion, clientVersion) {
+  if (!clientVersion || !serverVersion?.minRequired) {
+    console.warn('[VersionChecker] Missing version info');
+    return { allowed: true, reason: 'missing-version-info', clientVersion, serverVersion };
+  }
+
+  const clientParsed = parseVersion(clientVersion);
+  const minParsed = parseVersion(serverVersion.minRequired);
+
+  if (!clientParsed || !minParsed) {
+    console.warn('[VersionChecker] Invalid version format');
+    return { allowed: true, reason: 'invalid-version-format', clientVersion, serverVersion };
+  }
+
+  const isCompatible = compareVersions(clientParsed, minParsed) >= 0;
+  if (isCompatible) {
+    console.info('[VersionChecker] Client version is compatible', {
+      client: clientVersion,
+      minRequired: serverVersion.minRequired
+    });
+    return { allowed: true, reason: 'compatible', clientVersion, serverVersion };
+  }
+
+  return {
+    allowed: false,
+    reason: 'outdated-client',
+    clientVersion,
+    latestVersion: serverVersion.latest,
+    minRequired: serverVersion.minRequired,
+    releaseDate: serverVersion.releaseDate,
+    notes: serverVersion.notes,
+    downloadUrl: serverVersion.downloadUrl,
+    serverVersion
+  };
+}
+
+/**
+ * Fetch and compare client/server versions, with a small in-memory cache.
+ */
+export async function getVersionStatus({ force = false } = {}) {
+  if (!force && cachedVersionStatus) {
+    return cachedVersionStatus;
+  }
+
+  if (!force && versionStatusPromise) {
+    return versionStatusPromise;
+  }
+
+  versionStatusPromise = (async () => {
+    const clientVersion = window.APP_VERSION;
+
+    if (!navigator.onLine) {
+      return {
+        allowed: true,
+        reason: 'offline',
+        clientVersion
+      };
+    }
+
+    let status;
+    try {
+      const response = await fetch('/api/version', { cache: 'no-store' });
+      if (!response.ok) {
+        console.warn('[VersionChecker] Server version check failed:', response.status);
+        status = {
+          allowed: true,
+          reason: 'version-endpoint-unavailable',
+          clientVersion,
+          httpStatus: response.status
+        };
+      } else {
+        const serverVersion = await response.json();
+        status = buildVersionStatus(serverVersion, clientVersion);
+      }
+    } catch (err) {
+      console.warn('[VersionChecker] Failed to check version:', err);
+      status = {
+        allowed: true,
+        reason: 'version-check-failed',
+        clientVersion,
+        error: err
+      };
+    }
+
+    cachedVersionStatus = status;
+    versionStatusPromise = null;
+    return status;
+  })();
+
+  return versionStatusPromise;
+}
+
 /**
  * Check if client version is supported by the server.
  * Returns null if compatible, or an object with version info if outdated.
  */
 export async function checkVersionCompatibility() {
   try {
-    // Fetch server's version requirements
-    const response = await fetch('/api/version');
-    if (!response.ok) {
-      console.warn('[VersionChecker] Server version check failed:', response.status);
-      return null;
-    }
-
-    const serverVersion = await response.json();
-    const clientVersion = window.APP_VERSION;
-
-    if (!clientVersion || !serverVersion.minRequired) {
-      console.warn('[VersionChecker] Missing version info');
-      return null;
-    }
-
-    const clientParsed = parseVersion(clientVersion);
-    const minParsed = parseVersion(serverVersion.minRequired);
-
-    if (!clientParsed || !minParsed) {
-      console.warn('[VersionChecker] Invalid version format');
-      return null;
-    }
-
-    const isCompatible = compareVersions(clientParsed, minParsed) >= 0;
-
-    if (isCompatible) {
-      console.info('[VersionChecker] Client version is compatible', {
-        client: clientVersion,
-        minRequired: serverVersion.minRequired
-      });
-      return null;
-    }
-
-    return {
-      clientVersion,
-      latestVersion: serverVersion.latest,
-      minRequired: serverVersion.minRequired,
-      releaseDate: serverVersion.releaseDate,
-      notes: serverVersion.notes,
-      downloadUrl: serverVersion.downloadUrl
-    };
+    const status = await getVersionStatus();
+    return status.allowed ? null : status;
   } catch (err) {
     console.warn('[VersionChecker] Failed to check version:', err);
     return null;
@@ -193,18 +250,38 @@ export function showOutdatedClientWarning(versionInfo) {
   });
 }
 
+export function formatOutdatedClientMessage(versionInfo) {
+  if (!versionInfo || versionInfo.allowed !== false) {
+    return 'This client is out of date. Update to continue online.';
+  }
+
+  const latest = versionInfo.latestVersion || 'the latest release';
+  const minimum = versionInfo.minRequired || latest;
+  return `This client is out of date (${versionInfo.clientVersion || 'unknown'}). Update to ${latest} to connect. Minimum supported version is ${minimum}.`;
+}
+
+export async function ensureClientCanConnect({ showWarning = true } = {}) {
+  const status = await getVersionStatus();
+  if (status.allowed) {
+    return status;
+  }
+
+  const warningKey = `${status.clientVersion || 'unknown'}->${status.minRequired || 'unknown'}`;
+  if (showWarning && shownWarningKey !== warningKey) {
+    shownWarningKey = warningKey;
+    await showOutdatedClientWarning(status);
+  }
+
+  return status;
+}
+
 /**
  * Initialize version checking and show warning if needed.
  */
 export async function initializeVersionCheck() {
-  // Only do network checks if connected to internet
-  if (!navigator.onLine) {
+  const status = await ensureClientCanConnect({ showWarning: true });
+  if (status.reason === 'offline') {
     console.info('[VersionChecker] Offline mode - skipping version check');
-    return;
   }
-
-  const outdatedInfo = await checkVersionCompatibility();
-  if (outdatedInfo) {
-    await showOutdatedClientWarning(outdatedInfo);
-  }
+  return status;
 }

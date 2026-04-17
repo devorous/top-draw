@@ -1,6 +1,6 @@
 {
   "name": "top-draw",
-  "version": "1.1.1",
+  "version": "1.1.2-beta",
   "description": "A multiplayer drawing application with WebSocket support",
   "type": "module",
   "scripts": {
@@ -22,6 +22,9 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "tauri:update": "node scripts/release/tauri-update.mjs",
+    "tauri:update:publish": "node scripts/release/tauri-update.mjs --publish-only",
+    "tauri:update:stage": "node scripts/release/tauri-update.mjs --stage-only",
     "release:set": "node scripts/release/versioning.mjs set",
     "release:patch": "node scripts/release/versioning.mjs patch",
     "release:minor": "node scripts/release/versioning.mjs minor",

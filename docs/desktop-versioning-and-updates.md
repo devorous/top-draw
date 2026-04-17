@@ -5,7 +5,7 @@
 - Start the desktop app at `1.0.0-beta`.
 - Keep one source of truth for the release version.
 - Support predictable `patch`, `minor`, and `major` bumps.
-- Ship signed Tauri updater artifacts from CI instead of hand-uploading installers.
+- Ship signed Tauri updater artifacts from local builds instead of hand-uploading installers.
 - Let release builds auto-check for updates when the app starts.
 
 ## Source Of Truth
@@ -56,35 +56,23 @@ The app is set up to use Tauri's v2 updater flow.
 - The frontend schedules a startup check through `src/platform/updater.js`.
 - The Rust side enables the updater plugin only when build-time updater values are present.
 
-That last point is intentional: local dev builds should not pretend updates are configured. Release builds embed the updater endpoint and public key during CI.
+That last point is intentional: local dev builds should not pretend updates are configured. Release builds embed the updater endpoint and public key during the local updater build flow.
 
-## CI Release Flow
-
-The release workflow lives at `.github/workflows/tauri-release.yml`.
+## Local Release Flow
 
 The intended flow is:
 
 1. Bump the version locally.
-2. Commit the release bump.
-3. Tag the commit as `vX.Y.Z` or `vX.Y.Z-beta.N`.
-4. Push the tag.
-5. GitHub Actions builds the Windows Tauri bundle.
-6. Tauri Action uploads the installer, signatures, and `latest.json` to the GitHub Release.
-7. Installed desktop clients poll `latest.json` and can download the new signed installer.
-
-This is more efficient than building the `.exe` by hand before each push because the binary is generated from the exact tagged source revision that users will install.
-
-## Required GitHub Secrets
-
-Set these in the repository before using the release workflow:
-
-- `TAURI_SIGNING_PRIVATE_KEY`
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
-- `TAURI_UPDATER_PUBLIC_KEY`
+2. Run `npm run tauri:update`.
+3. The script runs `tauri build` with updater signing enabled.
+4. It copies the generated NSIS installer and signature into `public/desktop-updates/windows-x86_64/`.
+5. It generates `public/desktop-updates/latest.json`.
+6. If R2 is configured, it uploads the installer, signature, and manifest automatically.
+7. Installed desktop clients poll that static JSON and can download the new signed installer.
 
 Generate the signing keypair once with the Tauri CLI, keep the private key in GitHub secrets, and keep the public key as both:
 
-- a GitHub secret for CI embedding
+- an environment variable or local key file for build embedding
 - a copy in your own secure records in case you need to rebuild the pipeline later
 
 ## Local Key Files
@@ -116,27 +104,24 @@ npm run tauri signer generate -- -w "$env:USERPROFILE\.tauri\top-draw.key" -p "y
 
 If you rotate the key after users have already installed a signed build, existing installs will not trust updates signed by the new key. Rotate before your first public update channel goes live.
 
-## Adding The Secrets To GitHub
-
-In GitHub, open the repository and go to:
-
-`Settings -> Secrets and variables -> Actions`
-
-Add these values:
-
-- `TAURI_SIGNING_PRIVATE_KEY`: the full contents of `C:\Users\Kyle\.tauri\top-draw.key`
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: leave blank for the current key, or set the password if you regenerate it with `-p`
-- `TAURI_UPDATER_PUBLIC_KEY`: the full contents of `C:\Users\Kyle\.tauri\top-draw.key.pub`
-
 ## Endpoint Strategy
 
-The workflow currently embeds this updater endpoint into release builds:
+The local build flow embeds this updater endpoint into release builds by default:
 
-`https://github.com/<owner>/<repo>/releases/latest/download/latest.json`
+`https://www.ddraw.ca/desktop-updates/latest.json`
 
-That is the simplest production option because GitHub Releases hosts both the installer assets and the updater manifest together.
+That keeps everything on your own domain. The updater script writes a static manifest with the latest version, release notes, installer URL, and embedded signature.
 
-If you later want Vercel involved, use it as a mirror or redirect layer, not as the place where release binaries are manually managed.
+If you ever want a different host, set `TAURI_UPDATE_BASE_URL` before running the updater build.
+
+By default the upload script uses:
+
+- `R2_ENDPOINT`
+- `R2_ACCESS_KEY_ID`
+- `R2_SECRET_ACCESS_KEY`
+- `R2_BUCKET_NAME`
+
+It publishes under the `desktop-updates/` prefix. You can override that with `TAURI_UPDATE_PREFIX`.
 
 ## Website Download Link
 
@@ -155,22 +140,27 @@ This means:
 
 If no Windows installer is available yet, the route falls back to the GitHub Releases page.
 
-## What Still Needs Real Credentials
+## Required Environment
 
 The code scaffolding is in place, but real auto-updates still depend on:
 
-- installing the upgraded npm and Cargo dependencies
 - generating the Tauri signing keypair
-- storing the three GitHub secrets
-- running one tagged release build to publish the first signed `latest.json`
+- `TAURI_SIGNING_PRIVATE_KEY` being available when you build
+- `TAURI_UPDATER_PUBLIC_KEY` being available, or `C:\Users\Kyle\.tauri\top-draw.key.pub` existing locally
+
+Optional variables:
+
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+- `TAURI_UPDATE_BASE_URL`
+- `TAURI_UPDATER_ENDPOINT`
 
 ## Recommended First Release
 
 For the first public desktop release, use:
 
 1. `npm run release:set -- 1.0.0-beta`
-2. Commit the version bump
-3. Tag it as `v1.0.0-beta`
-4. Push the tag
-5. Install that build on one test machine
-6. Repeat with `npm run release:beta`, tag `v1.0.0-beta.1`, and verify the updater installs it cleanly
+2. `npm run tauri:update`
+3. Deploy the updated site so `desktop-updates/latest.json` is live
+4. Install that build on one test machine
+5. Repeat with `npm run release:beta` and `npm run tauri:update`
+6. Verify the updater installs the new build cleanly

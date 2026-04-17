@@ -97,9 +97,14 @@ function setVersionInCargoToml(nextVersion) {
   fs.writeFileSync(cargoTomlPath, nextCargoToml);
 }
 
-function setVersionInVersionJson(nextVersion) {
+function setVersionInVersionJson(nextVersion, { minRequired = nextVersion } = {}) {
   // Read existing version.json to preserve downloadUrl and notes
-  let existing = { downloadUrl: 'https://github.com/yourusername/top-draw/releases', notes: '' };
+  let existing = {
+    latest: nextVersion,
+    minRequired: nextVersion,
+    downloadUrl: 'https://github.com/yourusername/top-draw/releases',
+    notes: ''
+  };
   try {
     existing = JSON.parse(fs.readFileSync(versionJsonPath, 'utf8'));
   } catch (e) {
@@ -108,7 +113,7 @@ function setVersionInVersionJson(nextVersion) {
 
   const versionJson = {
     latest: nextVersion,
-    minRequired: nextVersion,
+    minRequired,
     releaseDate: new Date().toISOString().split('T')[0],
     notes: existing.notes || '',
     downloadUrl: existing.downloadUrl || 'https://github.com/yourusername/top-draw/releases'
@@ -117,11 +122,20 @@ function setVersionInVersionJson(nextVersion) {
   fs.writeFileSync(versionJsonPath, `${JSON.stringify(versionJson, null, 2)}\n`);
 }
 
-function setVersion(nextVersion) {
+function getDefaultMinRequired(previousVersion, nextVersion, releaseKind) {
+  if (releaseKind === 'patch') {
+    return previousVersion;
+  }
+
+  return nextVersion;
+}
+
+function setVersion(nextVersion, { releaseKind = 'set' } = {}) {
   parseVersion(nextVersion);
+  const minRequired = getDefaultMinRequired(rawVersion, nextVersion, releaseKind);
   setVersionInPackageJson(nextVersion);
   setVersionInCargoToml(nextVersion);
-  setVersionInVersionJson(nextVersion);
+  setVersionInVersionJson(nextVersion, { minRequired });
   console.log(nextVersion);
 }
 
@@ -137,15 +151,16 @@ if (action === 'set') {
   if (!explicitVersion) {
     throw new Error('Usage: npm run release:set -- <version>');
   }
-  setVersion(explicitVersion);
+  setVersion(explicitVersion, { releaseKind: 'set' });
 } else if (action === 'patch' || action === 'minor' || action === 'major') {
-  setVersion(withStableBump(rawVersion, action));
+  setVersion(withStableBump(rawVersion, action), { releaseKind: action });
 } else if (action === 'prepatch' || action === 'preminor' || action === 'premajor') {
-  setVersion(withPrereleaseBump(rawVersion, action.replace('pre', '')));
+  const releaseKind = action.replace('pre', '');
+  setVersion(withPrereleaseBump(rawVersion, releaseKind), { releaseKind });
 } else if (action === 'beta') {
-  setVersion(withNextBeta(rawVersion));
+  setVersion(withNextBeta(rawVersion), { releaseKind: 'beta' });
 } else if (action === 'promote') {
-  setVersion(promoteToStable(rawVersion));
+  setVersion(promoteToStable(rawVersion), { releaseKind: 'promote' });
 } else {
   throw new Error(`Unknown versioning action: ${action}`);
 }
