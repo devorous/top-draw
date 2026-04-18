@@ -94,7 +94,6 @@ export class PatternTool extends Tool {
         const t = i / steps;
         const interpPos = { x: lastStamp.x + dx * t, y: lastStamp.y + dy * t };
         this._stampMask(interpPos, user.size * (user.pressure || 1));
-        this.stampBuffer.push(interpPos.x, interpPos.y);
         this.strokePoints.push(interpPos);
       }
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
@@ -420,13 +419,6 @@ export class PatternTool extends Tool {
     ctx.restore();
   }
 
-  drainStampBuffer() {
-    const ps = this.stampBuffer;
-    this.stampBuffer = [];
-    const rs = Array(ps.length / 2).fill(0);
-    return { ps, rs };
-  }
-
   remoteBeginStroke(user, pos) {
     const w = this.board.mainCanvas.width;
     const h = this.board.mainCanvas.height;
@@ -452,12 +444,33 @@ export class PatternTool extends Tool {
     const offscreen = this.remoteOffscreens.get(user.id);
     if (!offscreen) return;
     const radius = user.size * (user.pressure || 1);
+    const minSpacing = Math.max(1, user.size * 0.1);
+    const stampCircle = (x, y) => {
+      offscreen.ctx.beginPath();
+      offscreen.ctx.arc(x, y, Math.max(0.5, radius), 0, Math.PI * 2);
+      offscreen.ctx.fill();
+      offscreen.strokePoints.push({ x, y });
+    };
+
     for (let i = 0; i < ps.length; i += 2) {
       const pos = { x: ps[i], y: ps[i + 1] };
-      offscreen.ctx.beginPath();
-      offscreen.ctx.arc(pos.x, pos.y, Math.max(0.5, radius), 0, Math.PI * 2);
-      offscreen.ctx.fill();
-      offscreen.strokePoints.push(pos);
+      const lastStamp = this.lastStampPos.get(user.id);
+      if (!lastStamp) {
+        stampCircle(pos.x, pos.y);
+        this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+        continue;
+      }
+      const dx = pos.x - lastStamp.x;
+      const dy = pos.y - lastStamp.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance >= minSpacing) {
+        const steps = Math.max(1, Math.floor(distance / minSpacing));
+        for (let s = 1; s <= steps; s++) {
+          const t = s / steps;
+          stampCircle(lastStamp.x + dx * t, lastStamp.y + dy * t);
+        }
+        this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+      }
     }
     this._drawRemotePreview(user, offscreen.canvas, offscreen.strokePoints);
   }

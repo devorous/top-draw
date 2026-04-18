@@ -407,7 +407,7 @@ export class InputBufferManager {
   }
 
   _isStampTool(toolName) {
-    return ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush', 'pattern'].includes(toolName);
+    return ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush'].includes(toolName);
   }
 
   /**
