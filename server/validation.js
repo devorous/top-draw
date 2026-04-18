@@ -42,6 +42,11 @@ const MAX_ROOM_DESCRIPTION_LENGTH = 200;
 const MAX_USERNAME_LOOKUP_LENGTH = 32;
 const MAX_COORD = 50000;
 const MIN_COORD = -50000;
+// ps is transmitted as quantized (x10) delta-encoded sint32. Absolute values
+// fit in ±MAX_COORD * 10; deltas can briefly exceed that after a big jump, so
+// keep comfortable headroom without letting pathological values through.
+const MAX_PS_VALUE = 600000;
+const MIN_PS_VALUE = -600000;
 const MAX_DIMENSION = 10000;
 const MAX_DURATION_MINUTES = 60 * 24 * 365;
 const MAX_ROOM_USERS = 60;
@@ -184,7 +189,11 @@ export async function sanitizeMessage(data) {
 
     case T.MM:
     case T.MD: {
-      sanitized.ps = sanitizeFloatArray(data.ps, { requireEvenLength: true });
+      sanitized.ps = sanitizeFloatArray(data.ps, {
+        requireEvenLength: true,
+        min: MIN_PS_VALUE,
+        max: MAX_PS_VALUE
+      });
       if (!sanitized.ps.length) return null;
       if (Array.isArray(data.rs)) {
         sanitized.rs = sanitizeFloatArray(data.rs, {
@@ -295,7 +304,12 @@ export async function sanitizeMessage(data) {
 
     case T.TEXT_APPLY:
       sanitized.g = sanitizeString(data.g, 2000, { trim: false });
-      sanitized.ps = sanitizeFloatArray(data.ps, { requireEvenLength: true, maxLength: 2 });
+      sanitized.ps = sanitizeFloatArray(data.ps, {
+        requireEvenLength: true,
+        maxLength: 2,
+        min: MIN_PS_VALUE,
+        max: MAX_PS_VALUE
+      });
       sanitized.s = clampInt(data.s, MIN_BRUSH_SIZE, MAX_BRUSH_SIZE, 1000);
       sanitized.c = Number.isInteger(data.c) ? data.c >>> 0 : 0;
       sanitized.p = clampInt(data.p, 0, MAX_PRESSURE, 100);
@@ -331,7 +345,9 @@ export async function sanitizeMessage(data) {
       if (Array.isArray(data.ps)) {
         sanitized.ps = sanitizeFloatArray(data.ps, {
           requireEvenLength: true,
-          maxLength: MAX_SELECTION_POINTS
+          maxLength: MAX_SELECTION_POINTS,
+          min: MIN_PS_VALUE,
+          max: MAX_PS_VALUE
         });
       }
       return sanitized;

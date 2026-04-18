@@ -143,8 +143,12 @@ message Msg {
   T t = 1;              // Message type
   uint32 u = 2;         // User session index (0-255)
   
-  // Packed repeated field for processing multiple points per tick [x1, y1, x2, y2...]
-  repeated float ps = 3; 
+  // Packed repeated field for multiple points per tick.
+  // Wire format: quantized to 0.1px (values are floor(coord * 10)), delta-encoded
+  // within each message. First pair (ps[0], ps[1]) is absolute; subsequent pairs
+  // are deltas from the previous reconstructed point. sint32 (ZigZag) keeps small
+  // deltas in 1 byte. Deltas reset at each message — packets are self-contained.
+  repeated sint32 ps = 3;
 
   uint32 p = 4;         // Pressure * 100 (0-100)
   int32 s = 5;          // Size * 100 (allows 0.01 precision) — signed for fill shrink
@@ -159,7 +163,7 @@ message Msg {
 
   // === Lower-frequency fields (16+ = 2-byte tags) ===
   uint32 sp = 16;       // Spacing * 100
-  uint32 sm = 23;       // Smoothing * 10000 (0.0-1.0 range becomes 0-10000)
+  uint32 sm = 23;       // Smoothing (integer 0-50, raw slider value)
   uint32 hd = 28;       // Hardness * 100 (0.0-1.0 range becomes 0-100)
   uint32 br = 43;       // Blur radius * 100
   uint32 ly = 44;       // Active layer index
@@ -178,7 +182,7 @@ message Msg {
     uint32 p = 9;       // Pressure * 100
     string n = 10;      // Name
     string tx = 11;     // Current text
-    uint32 sm = 12;     // Smoothing * 10000 (0.0-1.0 range becomes 0-10000)
+    uint32 sm = 12;     // Smoothing (integer 0-50, raw slider value)
     uint32 hd = 13;     // Hardness * 100 (0.0-1.0 range becomes 0-100)
     uint32 role = 14;   // 0=guest,1=user,2=mod,3=admin
     bool ch = 15;       // Cursor hidden

@@ -12,6 +12,58 @@ function hasOwnField(message, key) {
   return !!message && Object.prototype.hasOwnProperty.call(message, key);
 }
 
+// ps wire format: quantized to 0.1px, delta-encoded within each packet.
+// Keep these helpers in sync with messages.proto `repeated sint32 ps` docs.
+const PS_SCALE = 10;
+
+/**
+ * Encode an absolute float [x0, y0, x1, y1, ...] array into quantized sint32
+ * delta-encoded form. First pair absolute, rest deltas from previous pair.
+ * Returns a new array — does not mutate input.
+ * @param {number[]} floats
+ * @returns {number[]}
+ */
+function encodePs(floats) {
+  const n = floats.length;
+  if (n < 2) return [];
+  const out = new Array(n);
+  let prevX = Math.round(floats[0] * PS_SCALE);
+  let prevY = Math.round(floats[1] * PS_SCALE);
+  out[0] = prevX;
+  out[1] = prevY;
+  for (let i = 2; i < n; i += 2) {
+    const qx = Math.round(floats[i] * PS_SCALE);
+    const qy = Math.round(floats[i + 1] * PS_SCALE);
+    out[i] = qx - prevX;
+    out[i + 1] = qy - prevY;
+    prevX = qx;
+    prevY = qy;
+  }
+  return out;
+}
+
+/**
+ * Decode quantized delta-encoded sint32 array back to absolute float pixels.
+ * @param {number[]} ints
+ * @returns {number[]}
+ */
+function decodePs(ints) {
+  const n = ints.length;
+  if (n < 2) return [];
+  const out = new Array(n);
+  let accX = ints[0];
+  let accY = ints[1];
+  out[0] = accX / PS_SCALE;
+  out[1] = accY / PS_SCALE;
+  for (let i = 2; i < n; i += 2) {
+    accX += ints[i];
+    accY += ints[i + 1];
+    out[i] = accX / PS_SCALE;
+    out[i + 1] = accY / PS_SCALE;
+  }
+  return out;
+}
+
 /**
  * WebSocketClient manages the bidirectional binary communication with the server.
  * It uses Protocol Buffers for efficient serialization and handles high-frequency
@@ -276,6 +328,10 @@ export class WebSocketClient {
           this._decodeBatchedFrame(raw);
         } else {
           const data = this.Msg.decode(raw);
+          // Reconstruct absolute float points from quantized deltas on the wire.
+          if (Array.isArray(data.ps) && data.ps.length >= 2) {
+            data.ps = decodePs(data.ps);
+          }
 
           // Record decoded message for TimeMachine (JSON, not protobuf)
           if (window.app?.TimeMachine) {
@@ -422,6 +478,9 @@ export class WebSocketClient {
       if (item instanceof Uint8Array) {
         try {
           data = this.Msg.decode(item);
+          if (Array.isArray(data.ps) && data.ps.length >= 2) {
+            data.ps = decodePs(data.ps);
+          }
           if (window.app?.TimeMachine) {
             window.app.TimeMachine.recordAction(data, 'inbound');
           }
@@ -1147,7 +1206,14 @@ export class WebSocketClient {
    */
   send(data) {
     if (this.socket && this.socket.readyState === WebSocket.OPEN && this.Msg) {
-      const message = this.Msg.create(data);
+      // ps is transmitted as quantized delta-encoded sint32 on the wire.
+      // Encode into a cloned payload so the original (absolute floats) reaches
+      // TimeMachine unchanged.
+      let encData = data;
+      if (Array.isArray(data.ps) && data.ps.length >= 2) {
+        encData = { ...data, ps: encodePs(data.ps) };
+      }
+      const message = this.Msg.create(encData);
       const buffer = this.Msg.encode(message).finish();
       this.socket.send(buffer);
 

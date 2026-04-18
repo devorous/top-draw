@@ -1092,11 +1092,19 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
   switch (data.t) {
     case T.MM:
       if (data.ps && data.ps.length >= 2) {
-        const len = data.ps.length;
+        // ps is quantized (x10) sint32 delta-encoded on the wire. Sum all
+        // deltas to recover the final absolute position without allocating a
+        // decoded copy — the server only needs the last coord pair.
+        let accX = 0;
+        let accY = 0;
+        for (let i = 0; i < data.ps.length; i += 2) {
+          accX += data.ps[i];
+          accY += data.ps[i + 1];
+        }
         user.lastx = user.x;
         user.lasty = user.y;
-        user.x = data.ps[len - 2];
-        user.y = data.ps[len - 1];
+        user.x = accX / 10;
+        user.y = accY / 10;
       }
       room.sessionManager.updateUserActivity(sessionIndex);
       break;
