@@ -71,6 +71,27 @@
     updatePreferences(nextPreferences, enabled ? 'Raw pixels enabled above 500% zoom' : 'High-zoom smoothing restored');
   }
 
+  function getChatOpacity() {
+    const value = Number(appPreferences?.general?.chatOpacity);
+    return Number.isFinite(value) ? Math.min(1, Math.max(0.3, value)) : 1;
+  }
+
+  function updateChatOpacity(rawValue) {
+    const value = Number(rawValue);
+    if (!Number.isFinite(value)) return;
+    const clamped = Math.min(1, Math.max(0.3, value));
+
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        chatOpacity: clamped
+      }
+    };
+
+    updatePreferences(nextPreferences);
+  }
+
   function updateSidebarSide(enabled) {
     const nextPreferences = {
       ...appPreferences,
@@ -408,6 +429,22 @@
               </label>
             </div>
 
+            <div class="chat-opacity-row">
+              <label class="chat-opacity-label">
+                <span class="chat-opacity-title">Chat Opacity</span>
+                <span class="chat-opacity-value">{Math.round(getChatOpacity() * 100)}%</span>
+              </label>
+              <input
+                type="range"
+                class="chat-opacity-slider"
+                min="0.3"
+                max="1"
+                step="0.05"
+                value={getChatOpacity()}
+                oninput={(event) => updateChatOpacity(event.currentTarget.value)}
+              />
+            </div>
+
             <h4>App Colours</h4>
             <p>Pick three base colours — the rest of the palette is derived automatically.</p>
             <div class="theme-grid-compact">
@@ -722,6 +759,67 @@
   .settings-toggle-compact input {
     margin: 0;
     accent-color: var(--accent-primary);
+  }
+
+  .chat-opacity-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.65rem 0.8rem;
+    margin-bottom: 1rem;
+    width: min(320px, 100%);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+  }
+
+  .chat-opacity-label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.6rem;
+    color: var(--text-primary);
+    font-size: 0.84rem;
+    font-weight: 600;
+  }
+
+  .chat-opacity-value {
+    font-variant-numeric: tabular-nums;
+    color: var(--accent-primary);
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  .chat-opacity-slider {
+    appearance: none;
+    width: min(220px, 100%);
+    height: 6px;
+    margin: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent-primary) 28%, var(--bg-elevated));
+    outline: none;
+    accent-color: var(--accent-primary);
+  }
+
+  .chat-opacity-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    border: 2px solid var(--bg-primary);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+  }
+
+  .chat-opacity-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    border: 2px solid var(--bg-primary);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
   }
 
   .theme-grid-compact {

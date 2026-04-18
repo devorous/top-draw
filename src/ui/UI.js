@@ -272,6 +272,7 @@ export class UI {
       selfCursor: document.querySelector('.cursor.self'),
       selfCircle: document.querySelector('.circle.self'),
       selfPressureCircle: document.querySelector('.pressureCircle.self'),
+      selfDot: document.querySelector('.dot.self'),
       selfSquare: document.querySelector('.square.self'),
       selfPressureSquare: document.querySelector('.pressureSquare.self'),
       selfCrosshair: document.querySelector('.crosshair.self'),
@@ -410,6 +411,8 @@ menuBtn: document.getElementById('menuBtn'),
       brushSpacing: document.getElementById('brush-spacing'),
       brushHardness: document.getElementById('brush-hardness'),
       opacityContainer: document.getElementById('brush-opacity'),
+      cursorStyleContainer: document.getElementById('cursor-style-container'),
+      cursorStyleSelect: document.getElementById('cursorStyleSelect'),
       blurRadiusContainer: document.getElementById('blur-radius'),
       inkThinningContainer: document.getElementById('ink-thinning'),
       fontContainer: document.getElementById('font-container'),
@@ -588,6 +591,9 @@ menuBtn: document.getElementById('menuBtn'),
     this.elements.selfCircle.style.display = 'none';
     this.elements.selfSquare.style.display = 'none';
     this.elements.selfCrosshair.style.display = 'none';
+    if (this.elements.selfDot) {
+      this.elements.selfDot.style.display = 'none';
+    }
     this.elements.selfText.style.display = 'none';
     if (this.elements.selfPressureCircle) {
       this.elements.selfPressureCircle.style.display = 'none';
@@ -607,6 +613,7 @@ menuBtn: document.getElementById('menuBtn'),
     const cursor = this.elements.selfCursor;
     const circle = this.elements.selfCircle;
     const pressureCircle = this.elements.selfPressureCircle;
+    const dot = this.elements.selfDot;
     const square = this.elements.selfSquare;
     const pressureSquare = this.elements.selfPressureSquare;
     const crosshair = this.elements.selfCrosshair;
@@ -623,6 +630,10 @@ menuBtn: document.getElementById('menuBtn'),
     if (pressureCircle) {
       pressureCircle.setAttribute('cx', x);
       pressureCircle.setAttribute('cy', y);
+    }
+    if (dot) {
+      dot.setAttribute('cx', x);
+      dot.setAttribute('cy', y);
     }
     square.setAttribute('x', x - size);
     square.setAttribute('y', y - size);
@@ -654,6 +665,69 @@ menuBtn: document.getElementById('menuBtn'),
     this.elements.selfSquare.setAttribute('height', size * 2);
   }
 
+  getSupportedCursorStyleTools() {
+    return ['brush', 'flowPen', 'ink', 'erase'];
+  }
+
+  toolSupportsCursorStyle(tool) {
+    return this.getSupportedCursorStyleTools().includes(tool);
+  }
+
+  getCursorStyleForTool(tool, user = null) {
+    if (!this.toolSupportsCursorStyle(tool)) {
+      if (tool === 'imageBrush' || tool === 'blur' || tool === 'glitchBlur' || tool === 'pixel') return 'square';
+      if (tool === 'select' || tool === 'fill' || tool === 'inkdropper' || tool === 'rotate') return 'crosshair';
+      if (tool === 'pan') return 'hand';
+      if (tool === 'zoom') return 'zoom';
+      if (tool === 'text') return 'text';
+      return 'circle';
+    }
+
+    const style = user?.cursorStyle || 'circle';
+    return ['circle', 'crosshair', 'dot', 'square'].includes(style) ? style : 'circle';
+  }
+
+  applyLocalCursorStyle(tool, user = null) {
+    const {
+      selfCircle,
+      selfPressureCircle,
+      selfDot,
+      selfSquare,
+      selfPressureSquare,
+      selfCrosshair,
+      selfHand,
+      selfZoom,
+      selfText
+    } = this.elements;
+
+    selfCircle.style.display = 'none';
+    selfSquare.style.display = 'none';
+    selfCrosshair.style.display = 'none';
+    if (selfDot) selfDot.style.display = 'none';
+    if (selfHand) selfHand.style.display = 'none';
+    if (selfZoom) selfZoom.style.display = 'none';
+    if (selfText) selfText.style.display = 'none';
+    if (selfPressureCircle) selfPressureCircle.style.display = 'none';
+    if (selfPressureSquare) selfPressureSquare.style.display = 'none';
+
+    const style = this.getCursorStyleForTool(tool, user);
+    if (style === 'square') {
+      selfSquare.style.display = 'block';
+    } else if (style === 'crosshair') {
+      selfCrosshair.style.display = 'block';
+    } else if (style === 'dot') {
+      if (selfDot) selfDot.style.display = 'block';
+    } else if (style === 'hand') {
+      if (selfHand) selfHand.style.display = 'block';
+    } else if (style === 'zoom') {
+      if (selfZoom) selfZoom.style.display = 'block';
+    } else if (style === 'text') {
+      selfText.style.display = 'block';
+    } else {
+      selfCircle.style.display = 'block';
+    }
+  }
+
   /**
    * Reduces SVG cursor stroke widths at high zoom so the smallest pixel-brush
    * cursors stay visually precise.
@@ -664,6 +738,7 @@ menuBtn: document.getElementById('menuBtn'),
     const {
       selfCircle,
       selfPressureCircle,
+      selfDot,
       selfSquare,
       selfPressureSquare,
       selfCrosshair
@@ -671,6 +746,7 @@ menuBtn: document.getElementById('menuBtn'),
 
     if (selfCircle) selfCircle.setAttribute('stroke-width', strokeWidth);
     if (selfPressureCircle) selfPressureCircle.setAttribute('stroke-width', strokeWidth);
+    if (selfDot) selfDot.setAttribute('stroke-width', strokeWidth);
     if (selfSquare) selfSquare.setAttribute('stroke-width', strokeWidth);
     if (selfPressureSquare) selfPressureSquare.setAttribute('stroke-width', strokeWidth);
 
@@ -689,6 +765,10 @@ menuBtn: document.getElementById('menuBtn'),
   updatePressureCursorRadius(r, baseSize, tabletDetected = false) {
     const el = this.elements.selfPressureCircle;
     if (!el) return;
+    if (this.getCursorStyleForTool(window.app?.self?.tool, window.app?.self) !== 'circle') {
+      el.style.display = 'none';
+      return;
+    }
 
     // Only show inner circle if tablet is detected and pressure is less than full size
     if (tabletDetected && baseSize !== undefined && r < baseSize) {
@@ -710,6 +790,10 @@ menuBtn: document.getElementById('menuBtn'),
   updatePressureSquareSize(squareSize, baseSize, tabletDetected = false) {
     const el = this.elements.selfPressureSquare;
     if (!el) return;
+    if (this.getCursorStyleForTool(window.app?.self?.tool, window.app?.self) !== 'square') {
+      el.style.display = 'none';
+      return;
+    }
 
     // Only show inner square if tablet is detected and pressure is less than full size
     if (tabletDetected && baseSize !== undefined && squareSize < baseSize) {
@@ -864,15 +948,16 @@ menuBtn: document.getElementById('menuBtn'),
    */
   updateToolDisplay(tool, user = null) {
     const {
-      selfCircle, selfPressureCircle, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfZoom, selfText, selfName,
+      selfCircle, selfPressureCircle, selfDot, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfZoom, selfText, selfName,
       brushImage, brushFileInput, sizeContainer, pressureContainer, smoothingContainer,
-      brushSpacing, brushHardness, opacityContainer, blurRadiusContainer,
+      brushSpacing, brushHardness, opacityContainer, cursorStyleContainer, cursorStyleSelect, blurRadiusContainer,
       selectionModeOptions, eraserModeOptions, inkdropperModeOptions, brushModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions, fontContainer, textPositionMultiplierContainer, textPositionOffsetContainer
     } = this.elements;
 
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
     selfCrosshair.style.display = 'none';
+    if (selfDot) selfDot.style.display = 'none';
     selfHand.style.display = 'none';
     if (selfZoom) selfZoom.style.display = 'none';
     selfText.style.display = 'none';
@@ -880,6 +965,7 @@ menuBtn: document.getElementById('menuBtn'),
     brushFileInput.style.display = 'none';
     brushSpacing.style.display = 'none';
     brushHardness.style.display = 'none';
+    if (cursorStyleContainer) cursorStyleContainer.style.display = 'none';
     if (fontContainer) fontContainer.style.display = 'none'; // Hide by default
     if (textPositionMultiplierContainer) textPositionMultiplierContainer.style.display = 'none';
     if (textPositionOffsetContainer) textPositionOffsetContainer.style.display = 'none';
@@ -914,7 +1000,7 @@ menuBtn: document.getElementById('menuBtn'),
 
     switch (tool) {
       case 'select':
-        selfCrosshair.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         sizeContainer.style.display = 'none';
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
@@ -928,29 +1014,31 @@ menuBtn: document.getElementById('menuBtn'),
 
       case 'brush':
       case 'flowPen':
-        selfCircle.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         brushHardness.style.display = 'block';
         if (brushModeOptions) brushModeOptions.style.display = 'block';
+        if (cursorStyleContainer) cursorStyleContainer.style.display = 'block';
         break;
 
       case 'ink':
-        selfCircle.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         brushHardness.style.display = 'block';
         if (brushModeOptions) brushModeOptions.style.display = 'block';
+        if (cursorStyleContainer) cursorStyleContainer.style.display = 'block';
         if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'block';
         break;
 
       case 'line':
       case 'rectangle':
       case 'circle':
-        selfCircle.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         brushHardness.style.display = 'block';
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
         break;
 
       case 'text':
-        selfText.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
         if (fontContainer) fontContainer.style.display = 'block'; // Show font dropdown
@@ -965,33 +1053,34 @@ menuBtn: document.getElementById('menuBtn'),
         break;
 
       case 'erase':
-        selfCircle.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         brushHardness.style.display = 'none';
         if (eraserModeOptions) eraserModeOptions.style.display = 'block';
+        if (cursorStyleContainer) cursorStyleContainer.style.display = 'block';
         break;
 
       case 'circleBlur':
-        selfCircle.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         brushSpacing.style.display = 'block';
         brushHardness.style.display = 'block';
         break;
 
       case 'glitchBlur':
-        selfSquare.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         brushSpacing.style.display = 'block';
         smoothingContainer.style.display = 'none';
         if (blurRadiusContainer) blurRadiusContainer.style.display = 'block';
         break;
 
       case 'blur':
-        selfSquare.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         brushSpacing.style.display = 'block';
         smoothingContainer.style.display = 'none';
         if (blurRadiusContainer) blurRadiusContainer.style.display = 'block';
         break;
 
       case 'imageBrush':
-        selfSquare.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         if (user && user.imageBrush) brushImage.style.display = 'block';
         brushFileInput.style.display = 'block';
         brushSpacing.style.display = 'block';
@@ -1010,13 +1099,13 @@ menuBtn: document.getElementById('menuBtn'),
         break;
 
       case 'pixel':
-        selfSquare.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         brushSpacing.style.display = 'block';
         if (brushModeOptions) brushModeOptions.style.display = 'block';
         break;
 
       case 'fill':
-        selfCrosshair.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         sizeContainer.style.display = 'none';
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
@@ -1028,7 +1117,7 @@ menuBtn: document.getElementById('menuBtn'),
         break;
 
       case 'inkdropper':
-        selfCrosshair.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         sizeContainer.style.display = 'none';
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
@@ -1037,7 +1126,7 @@ menuBtn: document.getElementById('menuBtn'),
         break;
 
       case 'pan':
-        selfHand.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         sizeContainer.style.display = 'none';
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
@@ -1045,7 +1134,7 @@ menuBtn: document.getElementById('menuBtn'),
         break;
 
       case 'zoom':
-        if (selfZoom) selfZoom.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         sizeContainer.style.display = 'none';
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
@@ -1053,12 +1142,16 @@ menuBtn: document.getElementById('menuBtn'),
         break;
 
       case 'rotate':
-        selfCrosshair.style.display = 'block';
+        this.applyLocalCursorStyle(tool, user);
         sizeContainer.style.display = 'none';
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
         opacityContainer.style.display = 'none';
         break;
+    }
+
+    if (cursorStyleSelect) {
+      cursorStyleSelect.value = this.getCursorStyleForTool(tool, user);
     }
 
     this.updateToolButton(tool);

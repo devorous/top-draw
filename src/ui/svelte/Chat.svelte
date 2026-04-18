@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { appState } from '../../state.svelte.js';
   import { isTauriDesktop } from '../../platform/desktop.js';
   import { isChatPopoutOpen } from '../../platform/chatPopoutBridge.js';
@@ -7,8 +7,6 @@
 
   const CHAT_MODE_STORAGE_KEY = 'topdraw-chat-mode';
   const CHAT_POSITION_STORAGE_KEY = 'topdraw-chat-position';
-  const EMOJI_USAGE_STORAGE_KEY = 'topdraw-chat-emoji-usage';
-  const PEPPER_EMOJI = '__pepper__';
   const COMPOSER_EMOJIS = [
     '\u{1F600}', '\u{1F603}', '\u{1F604}', '\u{1F601}', '\u{1F606}', '\u{1F605}',
     '\u{1F923}', '\u{1F602}', '\u{1F642}', '\u{1F643}', '\u{1F609}', '\u{1F60A}',
@@ -21,8 +19,7 @@
     '\u{1F921}', '\u{1F975}', '\u{1F976}', '\u{1F383}', '\u{1F921}', '\u{1F47D}',
     '\u{1F47B}', '\u{1F480}', '\u{1F916}', '\u{1F47A}', '\u{1F47F}', '\u{1F32E}',
     '\u{1F34C}', '\u{1F355}', '\u{1F354}', '\u{1F36A}', '\u{1F37F}', '\u{1F3A8}',
-    '\u{1F3AE}', '\u{1F3C6}', '\u{1F3C1}', '\u{1F680}', '\u{1F4A1}', '\u{1F44C}',
-    PEPPER_EMOJI
+    '\u{1F3AE}', '\u{1F3C6}', '\u{1F3C1}', '\u{1F680}', '\u{1F4A1}', '\u{1F44C}'
   ];
   const REACTION_EMOJIS = [
     '\u{1F44D}', '\u2764\uFE0F', '\u{1F525}', '\u{1F602}', '\u{1F62E}', '\u{1F3A8}',
@@ -65,14 +62,19 @@
   let publicMessagesEl = $state(null);
   let dmMessagesEl = $state(null);
   let fileInputEl = $state(null);
+  let composerInputEl = $state(null);
   let dragOffsetX = 0;
   let dragOffsetY = 0;
   let isDropTarget = $state(false);
   let dropDepth = 0;
   let showEmojiPicker = $state(false);
   let composerImage = $state(null);
-  let emojiUsage = $state(loadEmojiUsage());
   let expandedImage = $state(null);
+  let chatPinnedToBottom = $state({
+    all: true,
+    staff: true,
+    dm: true
+  });
 
   let visible = $derived(isPopout || appState.chatVisible);
   let effectiveChatMode = $derived(isPopout ? 'full' : chatMode);
@@ -190,25 +192,6 @@
     }
   }
 
-  function loadEmojiUsage() {
-    try {
-      const raw = localStorage.getItem(EMOJI_USAGE_STORAGE_KEY);
-      if (!raw) return {};
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' ? parsed : {};
-    } catch {
-      return {};
-    }
-  }
-
-  function persistEmojiUsage(nextUsage) {
-    try {
-      localStorage.setItem(EMOJI_USAGE_STORAGE_KEY, JSON.stringify(nextUsage));
-    } catch {
-      // Ignore storage failures.
-    }
-  }
-
   function createMessageId() {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
       return crypto.randomUUID();
@@ -220,36 +203,12 @@
     return message?.type === 'message' || message?.type === 'image';
   }
 
-  function allEmojiChoices() {
-    return [...new Set([...REACTION_EMOJIS, ...COMPOSER_EMOJIS])];
-  }
-
-  function sortedEmojis(source) {
-    return [...source].sort((a, b) => {
-      const usageA = emojiUsage[a] || { count: 0, lastUsed: 0 };
-      const usageB = emojiUsage[b] || { count: 0, lastUsed: 0 };
-      if (usageB.count !== usageA.count) return usageB.count - usageA.count;
-      if (usageB.lastUsed !== usageA.lastUsed) return usageB.lastUsed - usageA.lastUsed;
-      return source.indexOf(a) - source.indexOf(b);
-    });
-  }
-
-  function recentEmojis(limit = 6) {
-    return allEmojiChoices()
-      .filter((emoji) => (emojiUsage[emoji]?.lastUsed || 0) > 0)
-      .sort((a, b) => (emojiUsage[b]?.lastUsed || 0) - (emojiUsage[a]?.lastUsed || 0))
-      .slice(0, limit);
-  }
-
   function rankedComposerEmojis() {
-    return sortedEmojis([...new Set([...COMPOSER_EMOJIS, ...REACTION_EMOJIS])]);
+    return [...new Set([...COMPOSER_EMOJIS, ...REACTION_EMOJIS])];
   }
 
   function hoverReactionEmojis(limit = 6) {
-    const recent = recentEmojis(limit);
-    const fallback = sortedEmojis(REACTION_EMOJIS);
-    const combined = [...new Set([...recent, ...fallback])];
-    return combined.slice(0, limit);
+    return [...new Set(REACTION_EMOJIS)].slice(0, limit);
   }
 
   function selectableHoverReactionEmojis(message, limit = 5) {
@@ -257,18 +216,6 @@
     return hoverReactionEmojis(limit + existing.size)
       .filter((emoji) => !existing.has(emoji))
       .slice(0, limit);
-  }
-
-  function recordEmojiUsage(emoji) {
-    const nextUsage = {
-      ...emojiUsage,
-      [emoji]: {
-        count: (emojiUsage[emoji]?.count || 0) + 1,
-        lastUsed: Date.now()
-      }
-    };
-    emojiUsage = nextUsage;
-    persistEmojiUsage(nextUsage);
   }
 
   function createBaseMessage({
@@ -435,9 +382,13 @@
 
   function linkify(text) {
     const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return escaped.replace(
+    const withLinks = escaped.replace(
       /https?:\/\/[^\s<>"]+/g,
       (url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" class="chat-link">${url}</a>`
+    );
+    return withLinks.replace(
+      /(\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)/gu,
+      '<span class="chat-inline-emoji">$1</span>'
     );
   }
 
@@ -537,11 +488,17 @@
     };
   }
 
-  function showToast(username, message, color) {
+  function showToast(username, message, color, options = {}) {
     if (hideRoomNotifications) return;
     const id = ++toastIdCounter;
     const truncated = message.length > 90 ? `${message.slice(0, 90)}...` : message;
-    toasts = [...toasts, { id, username, message: truncated, color }];
+    toasts = [...toasts, {
+      id,
+      username,
+      message: truncated,
+      color,
+      recipientId: options.recipientId ?? null
+    }];
     setTimeout(() => dismissToast(id), 4000);
     if (toasts.length > 3) toasts = toasts.slice(toasts.length - 3);
   }
@@ -551,7 +508,12 @@
   }
 
   function openFromToast(id) {
+    const toast = toasts.find((entry) => entry.id === id);
     dismissToast(id);
+    if (toast?.recipientId !== null && toast?.recipientId !== undefined) {
+      void openDMThread(toast.recipientId);
+      return;
+    }
     show();
   }
 
@@ -625,7 +587,6 @@
     };
 
     applyReactionLocally(payload);
-    recordEmojiUsage(emoji);
     onReact(payload);
   }
 
@@ -683,7 +644,12 @@
       appState.chatUnreadCount++;
       const user = getChatUser(userId);
       const preview = message.type === 'image' ? `${message.text ? `${message.text} ` : ''}[image]` : message.text;
-      showToast(user?.username || 'DM', `[DM] ${preview || '[image]'}`, user?.color || '#8ba3c7');
+      showToast(
+        user?.username || 'DM',
+        `[DM] ${preview || '[image]'}`,
+        user?.color || '#8ba3c7',
+        { recipientId: userId }
+      );
     }
   }
 
@@ -743,6 +709,33 @@
     });
   }
 
+  function isNearBottom(element, threshold = 28) {
+    if (!element) return true;
+    return (element.scrollHeight - element.scrollTop - element.clientHeight) <= threshold;
+  }
+
+  function syncPinnedState(view, element) {
+    if (!view) return;
+    chatPinnedToBottom = {
+      ...chatPinnedToBottom,
+      [view]: isNearBottom(element)
+    };
+  }
+
+  function handleMessageScroll(view, event) {
+    syncPinnedState(view, event.currentTarget);
+  }
+
+  function jumpToPresent() {
+    const view = activeView === 'staff' ? 'staff' : activeView === 'dm' ? 'dm' : 'all';
+    const element = view === 'dm' ? dmMessagesEl : publicMessagesEl;
+    scrollToBottom(element);
+    chatPinnedToBottom = {
+      ...chatPinnedToBottom,
+      [view]: true
+    };
+  }
+
   function clampChatPosition(left, top) {
     if (!chatEl) return { left, top };
     const maxLeft = Math.max(8, window.innerWidth - chatEl.offsetWidth - 8);
@@ -782,7 +775,10 @@
   }
 
   function scheduleApplyStoredPosition(mode = chatMode) {
-    requestAnimationFrame(() => applyStoredPositionForMode(mode));
+    requestAnimationFrame(() => {
+      applyStoredPositionForMode(mode);
+      applyStoredSizeForMode(mode);
+    });
   }
 
   function persistCurrentChatPosition(mode = chatMode) {
@@ -795,7 +791,9 @@
     if (!Number.isFinite(left) || !Number.isFinite(top)) return;
 
     const positions = loadChatPositions();
-    positions[mode] = clampChatPosition(left, top);
+    const existing = positions[mode] || {};
+    const clamped = clampChatPosition(left, top);
+    positions[mode] = { ...existing, left: clamped.left, top: clamped.top };
     persistChatPositions(positions);
   }
 
@@ -831,16 +829,119 @@
     isDragging = false;
   }
 
+  const MIN_CHAT_WIDTH = 280;
+  const MIN_CHAT_HEIGHT = 240;
+  let isResizing = $state(false);
+  let resizeStart = null;
+  let resizeDirection = $state('');
+
+  function applyStoredSizeForMode(mode = chatMode) {
+    if (!chatEl) return;
+    const positions = loadChatPositions();
+    const saved = positions?.[mode];
+    if (saved && Number.isFinite(saved.width) && Number.isFinite(saved.height)) {
+      chatEl.style.width = `${saved.width}px`;
+      chatEl.style.height = `${saved.height}px`;
+    } else {
+      chatEl.style.width = '';
+      chatEl.style.height = '';
+    }
+  }
+
+  function startResize(event, direction = 'se') {
+    if (isPopout || !chatEl || !direction) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rect = chatEl.getBoundingClientRect();
+    setChatPosition(rect.left, rect.top);
+    chatEl.style.width = `${rect.width}px`;
+    chatEl.style.height = `${rect.height}px`;
+
+    resizeStart = {
+      x: event.clientX,
+      y: event.clientY,
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height
+    };
+    resizeDirection = direction;
+    isResizing = true;
+  }
+
+  function onResize(event) {
+    if (!isResizing || !chatEl || !resizeStart) return;
+    if ((event.buttons & 1) === 0) {
+      endResize();
+      return;
+    }
+
+    const deltaX = event.clientX - resizeStart.x;
+    const deltaY = event.clientY - resizeStart.y;
+    let nextLeft = resizeStart.left;
+    let nextTop = resizeStart.top;
+    let nextWidth = resizeStart.width;
+    let nextHeight = resizeStart.height;
+
+    if (resizeDirection.includes('e')) {
+      const maxWidth = Math.max(MIN_CHAT_WIDTH, window.innerWidth - resizeStart.left - 8);
+      nextWidth = Math.max(MIN_CHAT_WIDTH, Math.min(maxWidth, resizeStart.width + deltaX));
+    }
+
+    if (resizeDirection.includes('s')) {
+      const maxHeight = Math.max(MIN_CHAT_HEIGHT, window.innerHeight - resizeStart.top - 8);
+      nextHeight = Math.max(MIN_CHAT_HEIGHT, Math.min(maxHeight, resizeStart.height + deltaY));
+    }
+
+    if (resizeDirection.includes('w')) {
+      const maxLeft = resizeStart.left + resizeStart.width - MIN_CHAT_WIDTH;
+      nextLeft = Math.max(8, Math.min(maxLeft, resizeStart.left + deltaX));
+      nextWidth = Math.max(MIN_CHAT_WIDTH, resizeStart.width - (nextLeft - resizeStart.left));
+    }
+
+    if (resizeDirection.includes('n')) {
+      const maxTop = resizeStart.top + resizeStart.height - MIN_CHAT_HEIGHT;
+      nextTop = Math.max(8, Math.min(maxTop, resizeStart.top + deltaY));
+      nextHeight = Math.max(MIN_CHAT_HEIGHT, resizeStart.height - (nextTop - resizeStart.top));
+    }
+
+    setChatPosition(nextLeft, nextTop);
+    chatEl.style.width = `${nextWidth}px`;
+    chatEl.style.height = `${nextHeight}px`;
+  }
+
+  function endResize() {
+    if (!isResizing) return;
+    isResizing = false;
+    resizeStart = null;
+    resizeDirection = '';
+    persistCurrentChatSize();
+  }
+
+  function persistCurrentChatSize(mode = chatMode) {
+    if (!chatEl) return;
+    const rect = chatEl.getBoundingClientRect();
+    if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height)) return;
+
+    const positions = loadChatPositions();
+    const existing = positions[mode] || {};
+    positions[mode] = {
+      ...existing,
+      left: Number.isFinite(existing.left) ? existing.left : rect.left,
+      top: Number.isFinite(existing.top) ? existing.top : rect.top,
+      width: rect.width,
+      height: rect.height
+    };
+    persistChatPositions(positions);
+  }
+
   function isImageFile(file) {
     return !!file && typeof file.type === 'string' && CHAT_UPLOAD_MIME_TYPES.has(file.type);
   }
 
   function emojiInsertValue(emoji) {
-    return emoji === PEPPER_EMOJI ? '\u{1F336}\uFE0F' : emoji;
-  }
-
-  function isPepperEmoji(emoji) {
-    return emoji === PEPPER_EMOJI;
+    return emoji;
   }
 
   function readFileAsDataUrl(file) {
@@ -1044,7 +1145,6 @@
 
   function insertEmoji(emoji) {
     messageInput = `${messageInput}${emojiInsertValue(emoji)}`;
-    recordEmojiUsage(emoji);
   }
 
   function openEmojiPicker() {
@@ -1057,6 +1157,47 @@
 
   function closeImageViewer() {
     expandedImage = null;
+  }
+
+  function normalizeRecipient(userOrId, fallback = null) {
+    const user = typeof userOrId === 'object' && userOrId
+      ? userOrId
+      : fallback || getChatUser(userOrId) || dmMeta.get(userOrId) || null;
+    const userId = user?.id ?? userOrId;
+    if (userId === undefined || userId === null) return null;
+
+    return {
+      id: userId,
+      username: user?.username || user?.name || `User ${userId}`,
+      color: colorToCss(user?.color, { opaque: true }),
+      role: user?.role || 0,
+      visibleIp: user?.visibleIp || ''
+    };
+  }
+
+  async function openDMThread(userOrId, fallback = null) {
+    const nextRecipient = normalizeRecipient(userOrId, fallback);
+    if (!nextRecipient) return false;
+
+    rememberDMUser(nextRecipient);
+    if (!visible) {
+      appState.chatVisible = true;
+      await tick();
+    }
+
+    appState.dmRecipient = nextRecipient;
+    activeView = 'dm';
+    appState.chatVisible = true;
+    appState.chatUnreadCount = 0;
+    toasts = [];
+    await tick();
+
+    if (!isPopout && chatEl) scheduleApplyStoredPosition(chatMode);
+    if (nextRecipient.id !== undefined && nextRecipient.id !== null) markThreadRead(nextRecipient.id);
+    if (chatPinnedToBottom.dm) scrollToBottom(dmMessagesEl);
+    composerInputEl?.focus();
+
+    return true;
   }
 
   export function addChatMessage(username, message, color, userId = null, messageId = createMessageId()) {
@@ -1148,6 +1289,10 @@
     applyReactionLocally(payload);
   }
 
+  export function openDM(userId, user = null) {
+    void openDMThread(userId, user);
+  }
+
   function serializeMessages() {
     return {
       all: messages.all.map(cloneMessage),
@@ -1230,12 +1375,12 @@
 
   $effect(() => {
     messages.all.length;
-    if (visible && activeView === 'all') scrollToBottom(publicMessagesEl);
+    if (visible && activeView === 'all' && chatPinnedToBottom.all) scrollToBottom(publicMessagesEl);
   });
 
   $effect(() => {
     messages.staff.length;
-    if (visible && activeView === 'staff') scrollToBottom(publicMessagesEl);
+    if (visible && activeView === 'staff' && chatPinnedToBottom.staff) scrollToBottom(publicMessagesEl);
   });
 
   $effect(() => {
@@ -1245,13 +1390,31 @@
   });
 
   $effect(() => {
+    const recipientId = recipient?.id;
+    if (recipientId === undefined || recipientId === null) return;
+    if (activeView !== 'dm') activeView = 'dm';
+    markThreadRead(recipientId);
+  });
+
+  $effect(() => {
     activeView;
     recipient?.id;
     activeDMMessages.length;
     if (visible && activeView === 'dm' && recipient) {
       markThreadRead(recipient.id);
-      scrollToBottom(dmMessagesEl);
+      if (chatPinnedToBottom.dm) scrollToBottom(dmMessagesEl);
     }
+  });
+
+  $effect(() => {
+    activeView;
+    visible;
+    if (!visible) return;
+    Promise.resolve().then(() => {
+      if (activeView === 'dm') syncPinnedState('dm', dmMessagesEl);
+      else if (activeView === 'staff') syncPinnedState('staff', publicMessagesEl);
+      else if (activeView === 'all') syncPinnedState('all', publicMessagesEl);
+    });
   });
 
   $effect(() => {
@@ -1291,15 +1454,24 @@
       }
     };
 
+    const handleBlurOrHide = () => {
+      endDrag();
+      endResize();
+    };
+
     window.addEventListener('mousemove', onDrag);
     window.addEventListener('mouseup', endDrag);
-    window.addEventListener('blur', endDrag);
+    window.addEventListener('mousemove', onResize);
+    window.addEventListener('mouseup', endResize);
+    window.addEventListener('blur', handleBlurOrHide);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('mousemove', onDrag);
       window.removeEventListener('mouseup', endDrag);
-      window.removeEventListener('blur', endDrag);
+      window.removeEventListener('mousemove', onResize);
+      window.removeEventListener('mouseup', endResize);
+      window.removeEventListener('blur', handleBlurOrHide);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   });
@@ -1322,6 +1494,24 @@
       </div>
     </div>
   {/if}
+{/snippet}
+
+{#snippet channelRow(msg)}
+  <article class="message-row" class:system={msg.type === 'system'} class:grouped={msg.groupedWithPrevious} class:group-tail={!msg.groupedWithNext}>
+    <span class="message-time" title={formatTime(msg.timestamp)}>{msg.groupedWithPrevious ? '' : formatTime(msg.timestamp)}</span>
+    <div class="message-body">
+      {#if msg.type === 'system'}
+        <p class="message-line system"><span class="message-text-inline">{msg.text}</span></p>
+      {:else}
+        <p class="message-line">{#if !msg.groupedWithPrevious}<button class={`message-user ${getRoleClass(msg.userId)}`} oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button">{msg.username}</button>{' '}{/if}{#if msg.text}<span class="message-text-inline">{@html linkify(msg.text)}</span>{/if}</p>
+        {#if msg.type === 'image' && msg.imageData}
+          <button class="chat-image-card" onclick={() => openImageViewer(msg.imageData)} type="button">
+            <img src={msg.imageData} alt="Chat upload" class="chat-image" />
+          </button>
+        {/if}
+      {/if}
+    </div>
+  </article>
 {/snippet}
 
 {#if toasts.length > 0}
@@ -1347,7 +1537,7 @@
 {/if}
 
 {#if visible}
-  <section class="chat-shell" class:full={effectiveChatMode === 'full'} class:compact={effectiveChatMode === 'compact'} class:dragging={isDragging} class:popout={isPopout} class:desktop-popout={isPopout && isDesktopClient} bind:this={chatEl}>
+  <section class="chat-shell" class:dragging={isDragging} class:resizing={isResizing} class:popout={isPopout} class:desktop-popout={isPopout && isDesktopClient} bind:this={chatEl}>
     <WindowTitleBar
       title="Chat"
       subtitle=""
@@ -1357,7 +1547,7 @@
       onDragStart={startDrag}
       showPopoutButton={!isPopout && isDesktopClient}
       onPopout={popoutChat}
-      showModeToggle={!isPopout}
+      showModeToggle={false}
       mode={effectiveChatMode}
       onModeToggle={toggleMode}
       showWindowControls={isPopout && isDesktopClient}
@@ -1441,6 +1631,11 @@
       </aside>
       <div class="chat-main">
         <div class="chat-stage" class:drop-target={isDropTarget} ondragenter={handleDragEnter} ondragover={handleDragOver} ondragleave={handleDragLeave} ondrop={handleDrop} role="region" aria-label="Chat messages">
+          {#if (activeView === 'all' && !chatPinnedToBottom.all) || (activeView === 'staff' && !chatPinnedToBottom.staff) || (activeView === 'dm' && !chatPinnedToBottom.dm)}
+            <button class="return-to-present" onclick={jumpToPresent} type="button">
+              Return to present
+            </button>
+          {/if}
           {#if isDropTarget}
             <div class="drop-overlay">Drop an image into chat</div>
         {/if}
@@ -1475,7 +1670,7 @@
           </section>
         {:else if activeView === 'dm' && recipient}
           <section class="conversation-view">
-            <div class="message-stream dm-stream" bind:this={dmMessagesEl}>
+            <div class="message-stream dm-stream" bind:this={dmMessagesEl} onscroll={(event) => handleMessageScroll('dm', event)}>
               {#if activeDMMessages.length === 0}
                 <div class="message-empty">This thread is empty. Say hi.</div>
               {:else}
@@ -1492,110 +1687,86 @@
           </section>
         {:else if activeView === 'staff'}
           <section class="conversation-view">
-            <div class="message-stream" bind:this={publicMessagesEl}>
+            <div class="message-stream" bind:this={publicMessagesEl} onscroll={(event) => handleMessageScroll('staff', event)}>
               {#if messages.staff.length === 0}
                 <div class="message-empty">Staff chat is empty.</div>
               {:else}
                 {#each groupedStaffMessages as msg (msg.id)}
-                  <article class="message-row" class:system={msg.type === 'system'} class:grouped={msg.groupedWithPrevious} class:group-tail={!msg.groupedWithNext}>
-                    <span class="message-time">{msg.groupedWithPrevious ? '' : formatTime(msg.timestamp)}</span>
-                    <div class="message-body">
-                      {#if msg.type !== 'system' && !msg.groupedWithPrevious}
-                        <button class={`message-user ${getRoleClass(msg.userId)}`} oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button">
-                          {msg.username}
-                        </button>
-                      {/if}
-                      {@render messageContent(msg)}
-                    </div>
-                  </article>
+                  {@render channelRow(msg)}
                 {/each}
               {/if}
             </div>
           </section>
         {:else}
           <section class="conversation-view">
-            <div class="message-stream" bind:this={publicMessagesEl}>
+            <div class="message-stream" bind:this={publicMessagesEl} onscroll={(event) => handleMessageScroll('all', event)}>
               {#if messages.all.length === 0}
                 <div class="message-empty"></div>
               {:else}
                 {#each groupedPublicMessages as msg (msg.id)}
-                  <article class="message-row" class:system={msg.type === 'system'} class:grouped={msg.groupedWithPrevious} class:group-tail={!msg.groupedWithNext}>
-                    <span class="message-time">{msg.groupedWithPrevious ? '' : formatTime(msg.timestamp)}</span>
-                    <div class="message-body">
-                      {#if msg.type !== 'system' && !msg.groupedWithPrevious}
-                        <button class={`message-user ${getRoleClass(msg.userId)}`} oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button">
-                          {msg.username}
-                        </button>
-                      {/if}
-                      {@render messageContent(msg)}
-                    </div>
-                  </article>
+                  {@render channelRow(msg)}
                 {/each}
               {/if}
             </div>
           </section>
         {/if}
-      </div>
+        </div>
 
-      <footer class="chat-composer">
-        {#if composerImage}
-          <div class="composer-preview">
-            <img src={composerImage.dataUrl} alt="Upload preview" />
-            <div class="composer-preview-copy">
-              <strong>{composerImage.name}</strong>
-              <span>Ready to send</span>
-            </div>
-            <button class="composer-preview-remove" onclick={removeComposerImage} type="button">Remove</button>
+        <footer class="chat-composer">
+      {#if composerImage}
+        <div class="composer-preview">
+          <img src={composerImage.dataUrl} alt="Upload preview" />
+          <div class="composer-preview-copy">
+            <strong>{composerImage.name}</strong>
+            <span>Ready to send</span>
           </div>
-        {/if}
+          <button class="composer-preview-remove" onclick={removeComposerImage} type="button">Remove</button>
+        </div>
+      {/if}
 
         {#if showEmojiPicker}
           <div class="emoji-picker">
-            {#if recentEmojis().length > 0}
-              <div class="emoji-picker-section">
-                <span class="reaction-picker-label">Recent</span>
-                <div class="reaction-picker-grid">
-                  {#each recentEmojis() as emoji (emoji)}
-                    <button class="emoji-btn" onclick={() => insertEmoji(emoji)} type="button">
-                      {#if isPepperEmoji(emoji)}
-                        <img src="/images/pepper.png" alt="Pepper" class="emoji-btn-image" />
-                      {:else}
-                        {emoji}
-                      {/if}
-                    </button>
-                  {/each}
-                </div>
-              </div>
-            {/if}
             <div class="emoji-picker-section">
               <span class="reaction-picker-label">Emojis</span>
-              <div class="reaction-picker-grid">
-            {#each rankedComposerEmojis() as emoji (emoji)}
-              <button class="emoji-btn" onclick={() => insertEmoji(emoji)} type="button">
-                {#if isPepperEmoji(emoji)}
-                  <img src="/images/pepper.png" alt="Pepper" class="emoji-btn-image" />
-                {:else}
-                  {emoji}
-                {/if}
-              </button>
-            {/each}
+              <div class="reaction-picker-grid composer-emoji-grid">
+                {#each rankedComposerEmojis() as emoji (emoji)}
+                  <button class="emoji-btn" onclick={() => insertEmoji(emoji)} type="button">
+                    {emoji}
+                  </button>
+                {/each}
               </div>
             </div>
           </div>
         {/if}
 
-        <div class="composer-row">
-          <input class="composer-file-input" bind:this={fileInputEl} onchange={handleFileInputChange} accept="image/*" type="file" />
-          <button class="composer-tool upload-tool" onclick={openFilePicker} disabled={activeView === 'directory'} title="Upload image" type="button">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M1 1H15V15H1V1ZM6 9L8 11L13 6V13H3V12L6 9ZM6.5 7C7.32843 7 8 6.32843 8 5.5C8 4.67157 7.32843 4 6.5 4C5.67157 4 5 4.67157 5 5.5C5 6.32843 5.67157 7 6.5 7Z" fill="currentColor"/></svg>
-          </button>
-          <button class="composer-tool emoji-tool" onclick={openEmojiPicker} disabled={activeView === 'directory'} title="Add emoji" type="button">{COMPOSER_EMOJIS[0]}</button>
-          <textarea class="chat-input" bind:value={messageInput} onkeydown={handleKeydown} placeholder={activeView === 'all' ? 'Message the room...' : activeView === 'staff' ? 'Message staff...' : activeView === 'dm' && recipient ? `Message ${recipient.username}...` : 'Select someone to start a DM...'} rows="1" disabled={activeView === 'directory'}></textarea>
-          <button class="chat-send" onclick={handleSend} disabled={activeView === 'directory'} type="button">Send</button>
+      <div class="composer-row">
+        <input class="composer-file-input" bind:this={fileInputEl} onchange={handleFileInputChange} accept="image/*" type="file" />
+        <button class="composer-tool upload-tool" onclick={openFilePicker} disabled={activeView === 'directory'} title="Upload image" type="button">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M1 1H15V15H1V1ZM6 9L8 11L13 6V13H3V12L6 9ZM6.5 7C7.32843 7 8 6.32843 8 5.5C8 4.67157 7.32843 4 6.5 4C5.67157 4 5 4.67157 5 5.5C5 6.32843 5.67157 7 6.5 7Z" fill="currentColor"/></svg>
+        </button>
+        <button class="composer-tool emoji-tool" onclick={openEmojiPicker} disabled={activeView === 'directory'} title="Add emoji" type="button">{COMPOSER_EMOJIS[0]}</button>
+        <div class="chat-input-wrap">
+          <textarea class="chat-input" bind:this={composerInputEl} bind:value={messageInput} onkeydown={handleKeydown} placeholder={activeView === 'all' ? 'Message the room...' : activeView === 'staff' ? 'Message staff...' : activeView === 'dm' && recipient ? `Message ${recipient.username}...` : 'Select someone to start a DM...'} rows="1" disabled={activeView === 'directory'}></textarea>
         </div>
-      </footer>
+        <button class="chat-send" onclick={handleSend} disabled={activeView === 'directory'} type="button">Send</button>
+      </div>
+        </footer>
     </div>
-    </div>
+    {#if !isPopout}
+      <div class="chat-resize-handle edge-n" onmousedown={(event) => startResize(event, 'n')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-handle edge-e" onmousedown={(event) => startResize(event, 'e')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-handle edge-s" onmousedown={(event) => startResize(event, 's')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-handle edge-w" onmousedown={(event) => startResize(event, 'w')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-handle corner-ne" onmousedown={(event) => startResize(event, 'ne')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-handle corner-nw" onmousedown={(event) => startResize(event, 'nw')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-handle corner-se" onmousedown={(event) => startResize(event, 'se')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-handle corner-sw" onmousedown={(event) => startResize(event, 'sw')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-grip" class:active={isResizing} onmousedown={(event) => startResize(event, 'se')} role="presentation" aria-hidden="true" title="Drag to resize">
+        <svg viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
+          <path d="M13 3L3 13 M13 7L7 13 M13 11L11 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+        </svg>
+      </div>
+    {/if}
   </section>
 {/if}
 
@@ -1607,6 +1778,11 @@
     --chat-muted: var(--text-secondary);
     --chat-accent: var(--accent-primary);
     --chat-shadow: var(--shadow-lg);
+    --chat-opacity-raw: var(--chat-opacity, 1);
+    --chat-surface-idle: 0.64;
+    --chat-surface-active: 1;
+    --chat-message-idle: 0.74;
+    --chat-message-active: 0.96;
     position: fixed;
     right: 18px;
     bottom: 22px;
@@ -1615,15 +1791,156 @@
     grid-template-rows: auto minmax(0, 1fr);
     width: min(420px, calc(100vw - 24px));
     height: min(560px, calc(100vh - 110px));
-    min-height: 0;
+    min-width: 280px;
+    min-height: 240px;
     color: var(--chat-text);
-    background: var(--chat-bg);
-    border: 1px solid var(--chat-border);
+    background: transparent;
+    border: 0;
     border-radius: 10px;
     overflow: hidden;
     box-shadow: var(--chat-shadow);
-    backdrop-filter: blur(18px);
     font-family: 'Inter', sans-serif;
+    isolation: isolate;
+  }
+
+  .chat-shell::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: var(--chat-bg);
+    border: 1px solid var(--chat-border);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    opacity: var(--chat-opacity-raw);
+    pointer-events: none;
+  }
+
+  .chat-shell :global(.chat-titlebar) {
+    background: color-mix(in srgb, black 15%, transparent);
+  }
+
+  .chat-shell :global(.chat-titlebar *),
+  .rail-tab *,
+  .rail-action *,
+  .topbar-btn *,
+  .directory-user *,
+  .composer-tool *,
+  .composer-preview-remove *,
+  .emoji-picker .emoji-btn *,
+  .chat-send * {
+    opacity: 1;
+  }
+
+  .chat-shell.popout :global(.chat-titlebar) {
+    background: color-mix(in srgb, var(--bg-elevated) 56%, #1a1f29);
+  }
+
+  .chat-resize-handle {
+    position: absolute;
+    z-index: 16;
+  }
+
+  .chat-resize-handle.edge-n,
+  .chat-resize-handle.edge-s {
+    left: 12px;
+    right: 12px;
+    height: 10px;
+  }
+
+  .chat-resize-handle.edge-e,
+  .chat-resize-handle.edge-w {
+    top: 12px;
+    bottom: 12px;
+    width: 10px;
+  }
+
+  .chat-resize-handle.edge-n {
+    top: 0;
+    cursor: ns-resize;
+  }
+
+  .chat-resize-handle.edge-e {
+    right: 0;
+    cursor: ew-resize;
+  }
+
+  .chat-resize-handle.edge-s {
+    bottom: 0;
+    cursor: ns-resize;
+  }
+
+  .chat-resize-handle.edge-w {
+    left: 0;
+    cursor: ew-resize;
+  }
+
+  .chat-resize-handle.corner-ne,
+  .chat-resize-handle.corner-nw,
+  .chat-resize-handle.corner-se,
+  .chat-resize-handle.corner-sw {
+    width: 16px;
+    height: 16px;
+  }
+
+  .chat-resize-handle.corner-ne {
+    top: 0;
+    right: 0;
+    cursor: nesw-resize;
+  }
+
+  .chat-resize-handle.corner-nw {
+    top: 0;
+    left: 0;
+    cursor: nwse-resize;
+  }
+
+  .chat-resize-handle.corner-se {
+    right: 0;
+    bottom: 0;
+    cursor: nwse-resize;
+  }
+
+  .chat-resize-handle.corner-sw {
+    left: 0;
+    bottom: 0;
+    cursor: nesw-resize;
+  }
+
+  .chat-resize-grip {
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    width: 18px;
+    height: 18px;
+    display: grid;
+    place-items: center;
+    color: color-mix(in srgb, var(--text-secondary) 55%, transparent);
+    cursor: nwse-resize;
+    z-index: 20;
+    border-radius: 0 0 10px 0;
+    transition: color 0.15s ease, background 0.15s ease;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .chat-resize-grip:hover,
+  .chat-resize-grip.active {
+    color: var(--accent-primary);
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  }
+
+  .chat-shell.popout .chat-resize-grip {
+    display: none;
+  }
+
+  .chat-shell.popout .chat-resize-handle {
+    display: none;
+  }
+
+  .chat-shell.dragging .chat-resize-grip {
+    pointer-events: none;
   }
 
   .chat-shell.popout,
@@ -1640,6 +1957,16 @@
     backdrop-filter: none;
   }
 
+  .chat-shell.popout::before {
+    opacity: 1;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: 0;
+    box-shadow: none;
+    border-radius: 0;
+    background: color-mix(in srgb, var(--bg-secondary) 95%, black);
+  }
+
   .chat-shell.full {
     width: min(880px, calc(100vw - 44px));
     height: min(612px, calc(100vh - 56px));
@@ -1651,8 +1978,9 @@
 
   .chat-content {
     display: grid;
-    grid-template-columns: 116px minmax(0, 1fr);
+    grid-template-columns: 90px minmax(0, 1fr);
     min-height: 0;
+    overflow: hidden;
   }
 
   .chat-shell.popout .chat-content {
@@ -1666,7 +1994,8 @@
   .chat-shell.compact .chat-main {
     position: relative;
     min-width: 0;
-    overflow: visible;
+    min-height: 0;
+    overflow: hidden;
     z-index: 3;
   }
 
@@ -1676,7 +2005,7 @@
     gap: 10px;
     min-height: 0;
     padding: 14px 12px;
-    background: color-mix(in srgb, var(--bg-secondary) 92%, black);
+    background: color-mix(in srgb, black 12%, transparent);
     border-right: 1px solid var(--border-subtle);
     position: relative;
     z-index: 1;
@@ -1772,20 +2101,32 @@
 
   .rail-action {
     margin-top: auto;
-    padding-top: 0.85rem;
-    padding-bottom: 0.85rem;
-    background: color-mix(in srgb, var(--accent-primary) 24%, var(--bg-elevated));
-    color: var(--chat-text);
+    justify-content: center;
+    text-align: left;
+    min-height: 46px;
+    width: calc(100% + 24px);
+    margin-left: -12px;
+    padding-top: 0.7rem;
+    padding-bottom: 0.7rem;
+    padding-left: 12px;
+    padding-right: 12px;
+    background: color-mix(in srgb, var(--bg-elevated) 42%, transparent);
+    color: var(--chat-muted);
+    border-radius: 0;
   }
 
   .rail-action:hover,
   .rail-action.active {
-    background: color-mix(in srgb, var(--accent-primary) 32%, var(--bg-elevated));
+    background: color-mix(in srgb, var(--accent-primary) 16%, var(--bg-elevated));
+    color: var(--chat-text);
   }
 
   .public-tab,
+  .rail-action,
   .rail-tab.public-tab.active,
-  .rail-tab.public-tab:hover {
+  .rail-tab.public-tab:hover,
+  .rail-action.active,
+  .rail-action:hover {
     border-radius: 0;
   }
 
@@ -1830,7 +2171,7 @@
   }
 
   .rail-action span:first-child {
-    font-size: 1.2rem;
+    font-size: 1rem;
     line-height: 1;
   }
 
@@ -1860,7 +2201,7 @@
     grid-template-rows: minmax(0, 1fr) auto;
     min-width: 0;
     min-height: 0;
-    background: color-mix(in srgb, var(--bg-secondary) 95%, black);
+    background: transparent;
   }
 
   .chat-shell.popout .chat-main,
@@ -1956,6 +2297,7 @@
     color: var(--chat-text);
     font-size: 0.76rem;
     font-weight: 700;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
   }
 
   .topbar-btn:hover {
@@ -1983,6 +2325,28 @@
     position: relative;
     min-height: 0;
     overflow: hidden;
+    transition: background 0.18s ease;
+  }
+
+  .chat-stage:hover,
+  .chat-stage:focus-within,
+  .chat-shell.dragging .chat-stage,
+  .chat-shell.resizing .chat-stage {
+    background: transparent;
+  }
+
+  .chat-stage :global(.message-row),
+  .chat-stage :global(.message-body),
+  .chat-stage :global(.message-line),
+  .chat-stage :global(.message-text),
+  .chat-stage :global(.message-text-inline),
+  .chat-stage :global(.message-user),
+  .chat-stage :global(.message-time),
+  .chat-stage :global(.dm-bubble),
+  .chat-stage :global(.dm-bubble span),
+  .chat-stage :global(.message-empty),
+  .chat-stage :global(.directory-empty) {
+    opacity: 1;
   }
 
   .chat-stage.drop-target {
@@ -2014,11 +2378,27 @@
     pointer-events: none;
   }
 
+  .return-to-present {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    z-index: 8;
+    min-height: 34px;
+    padding: 0 0.9rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent-primary) 82%, black 18%);
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 800;
+    box-shadow: 0 10px 24px color-mix(in srgb, var(--accent-primary) 28%, transparent);
+  }
+
   .conversation-view,
   .directory-view {
     display: grid;
     height: 100%;
     min-height: 0;
+    background: color-mix(in srgb, var(--bg-elevated) 6%, transparent);
   }
 
   .directory-view {
@@ -2069,17 +2449,18 @@
 
   .message-row {
     display: grid;
-    grid-template-columns: 58px minmax(0, 1fr);
-    gap: 0.65rem;
+    grid-template-columns: 46px minmax(0, 1fr);
+    gap: 0.55rem;
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    padding: 0.18rem 0;
+    padding: 0.1rem 0;
     border-bottom: 0;
+    align-items: baseline;
   }
 
   .message-row.system {
-    grid-template-columns: 58px minmax(0, 1fr);
+    grid-template-columns: 46px minmax(0, 1fr);
   }
 
   .message-row.grouped {
@@ -2087,21 +2468,24 @@
     padding-bottom: 0;
   }
 
-  .message-row.group-tail {
-    border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 45%, transparent);
-    padding-bottom: 0.22rem;
+  .message-row.group-tail:not(.grouped) {
+    margin-bottom: 0.18rem;
   }
 
-  .message-row.group-tail:not(.grouped) {
-    margin-bottom: 0.06rem;
+  .message-row + .message-row:not(.grouped) {
+    margin-top: 0.14rem;
   }
 
   .message-time {
-    color: color-mix(in srgb, var(--text-secondary) 72%, transparent);
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
+    color: color-mix(in srgb, var(--text-secondary) 46%, transparent);
+    font-size: 0.66rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
     white-space: nowrap;
+    text-align: right;
+    padding-right: 0.1rem;
+    user-select: none;
   }
 
   .message-row.grouped .message-time {
@@ -2113,6 +2497,46 @@
     position: relative;
     min-width: 0;
     max-width: 100%;
+  }
+
+  .message-line {
+    display: block;
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    line-height: 1.32;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  .message-line.system {
+    color: color-mix(in srgb, var(--text-secondary) 72%, transparent);
+    font-style: italic;
+    font-size: 0.82rem;
+  }
+
+  .message-text-inline {
+    display: inline;
+  }
+
+  .message-text-inline :global(a) {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  :global(.chat-inline-emoji) {
+    display: inline-block;
+    font-size: 1.35em;
+    line-height: 1;
+    vertical-align: -0.08em;
+  }
+
+  :global(.chat-inline-emoji-image) {
+    width: 1.35em;
+    height: 1.35em;
+    object-fit: contain;
   }
 
   .message-content-row {
@@ -2130,18 +2554,32 @@
   }
 
   .message-user {
-    display: block;
+    display: inline;
     padding: 0;
     margin: 0;
     background: transparent;
     font-family: inherit;
-    font-size: 0.88rem;
+    font-size: inherit;
     font-weight: 700;
     border: 0;
     box-shadow: none;
     cursor: context-menu;
-    line-height: 1.2;
+    line-height: inherit;
     text-align: left;
+    vertical-align: baseline;
+  }
+
+  .message-user::after {
+    content: '';
+    display: inline;
+    width: 0;
+  }
+
+  .message-line .message-user + .message-text-inline::before {
+    content: ' · ';
+    color: color-mix(in srgb, var(--text-secondary) 35%, transparent);
+    margin: 0 0.08rem 0 0.12rem;
+    font-weight: 500;
   }
 
   .message-user.rank-guest {
@@ -2205,15 +2643,15 @@
     margin: 0 0 0;
     color: var(--text-primary);
     font-size: 0.9rem;
-    line-height: 1.08;
+    line-height: 1.32;
     word-break: break-word;
     user-select: text;
     -webkit-user-select: text;
   }
 
-  .message-row.grouped .message-text {
+  .message-row.grouped .message-text,
+  .message-row.grouped .message-line {
     margin-top: 0;
-    line-height: 1.08;
   }
 
   .chat-image-card {
@@ -2238,11 +2676,12 @@
   .emoji-picker {
     display: flex;
     flex-direction: column;
-    gap: 0.42rem;
-    padding: 0.42rem;
+    gap: 0.55rem;
+    padding: 0.6rem;
     border: 1px solid color-mix(in srgb, var(--border-subtle) 85%, transparent);
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--bg-elevated) 82%, black 6%);
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--bg-elevated) 86%, black 6%);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
   }
 
   .emoji-picker-section {
@@ -2262,16 +2701,28 @@
   .reaction-picker-grid {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.22rem;
+    gap: 0.3rem;
+    padding-left: 0.1rem;
+  }
+
+  .composer-emoji-grid {
+    max-height: 164px;
+    overflow-y: auto;
+    padding-top: 0.1rem;
+    padding-right: 0.1rem;
   }
 
   .emoji-picker .emoji-btn {
-    min-width: 28px;
-    min-height: 28px;
+    display: grid;
+    place-items: center;
+    min-width: 32px;
+    min-height: 32px;
     padding: 0;
-    border-radius: 10px;
-    font-size: 0.98rem;
+    border-radius: 12px;
+    font-size: 1.08rem;
     line-height: 1;
+    background: color-mix(in srgb, var(--bg-secondary) 64%, transparent);
+    border: 1px solid color-mix(in srgb, var(--border-subtle) 74%, transparent);
   }
 
   .dm-stream {
@@ -2363,6 +2814,7 @@
     background: color-mix(in srgb, var(--bg-elevated) 55%, transparent);
     color: var(--chat-text);
     text-align: left;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
   }
 
   .directory-avatar {
@@ -2403,7 +2855,7 @@
     min-height: 0;
     padding: 1rem 1.15rem 1.1rem;
     border-top: 1px solid var(--border-subtle);
-    background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
+    background: color-mix(in srgb, black 10%, transparent);
     flex-shrink: 0;
   }
 
@@ -2416,8 +2868,6 @@
     min-width: 0;
     max-width: none;
     overflow: hidden;
-    position: relative;
-    z-index: 4;
   }
 
   .composer-row {
@@ -2449,6 +2899,7 @@
     color: var(--chat-text);
     font-size: 1rem;
     font-weight: 800;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
   }
 
   .chat-shell.compact .composer-tool {
@@ -2529,6 +2980,7 @@
     color: var(--chat-text);
     font-size: 0.76rem;
     font-weight: 700;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
   }
 
   .emoji-picker {
@@ -2602,16 +3054,8 @@
     background: color-mix(in srgb, var(--accent-primary) 58%, var(--bg-elevated));
   }
 
-  .emoji-btn-image {
-    display: block;
-    width: 18px;
-    height: 18px;
-    object-fit: contain;
-  }
-
-  .chat-shell.compact .emoji-btn-image {
-    width: 16px;
-    height: 16px;
+  .emoji-picker .emoji-btn {
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
   }
 
   .emoji-btn {
@@ -2622,17 +3066,24 @@
     font-size: 1rem;
   }
 
+  .chat-input-wrap {
+    position: relative;
+    min-width: 0;
+  }
+
   .chat-input {
     min-height: 46px;
     max-height: 120px;
     padding: 0.8rem 1rem;
     border: 1px solid var(--border-subtle);
     border-radius: 14px;
+    width: 100%;
     background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
     color: var(--chat-text);
     font-family: inherit;
     font-size: 0.88rem;
     line-height: 1.35;
+    box-sizing: border-box;
     resize: none;
     outline: none;
   }
@@ -2644,8 +3095,15 @@
     padding: 0.7rem 0.85rem;
   }
 
-  .chat-input::placeholder {
-    color: color-mix(in srgb, var(--text-secondary) 60%, transparent);
+
+  .chat-shell.compact .chat-input-wrap {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .chat-shell.compact .chat-input {
+    min-height: 78px;
+    padding: 0.7rem 0.85rem;
   }
 
   .chat-input:focus {
@@ -2667,6 +3125,7 @@
     color: var(--bg-primary);
     font-size: 0.84rem;
     font-weight: 800;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
   }
 
   .chat-shell.compact .chat-send {

@@ -21,7 +21,8 @@ export function createDefaultAppPreferences() {
       toolsWidth: 48,
       themeColors: {},
       hideOwnLabelAbove150: false,
-      showRawPixelsAtHighZoom: true
+      showRawPixelsAtHighZoom: true,
+      chatOpacity: 0.7
     },
     keybinds: getDefaultKeybindings()
   };
@@ -93,6 +94,12 @@ function sanitizeToolsWidth(rawWidth) {
   return isNaN(width) ? 48 : Math.min(Math.max(width, 32), 64);
 }
 
+function sanitizeChatOpacity(rawOpacity) {
+  const value = Number(rawOpacity);
+  if (!Number.isFinite(value)) return 0.7;
+  return Math.min(1, Math.max(0.3, value));
+}
+
 function sanitizePreferences(rawPreferences) {
   const defaults = createDefaultAppPreferences();
   const parsed = rawPreferences && typeof rawPreferences === 'object' ? rawPreferences : {};
@@ -138,7 +145,8 @@ function sanitizePreferences(rawPreferences) {
       toolsWidth: sanitizeToolsWidth(parsed.general?.toolsWidth),
       themeColors: sanitizeThemeColors(parsed.general?.themeColors),
       hideOwnLabelAbove150: !!parsed.general?.hideOwnLabelAbove150,
-      showRawPixelsAtHighZoom: migratedShowRawPixelsAtHighZoom
+      showRawPixelsAtHighZoom: migratedShowRawPixelsAtHighZoom,
+      chatOpacity: sanitizeChatOpacity(parsed.general?.chatOpacity)
     },
     keybinds: sanitizeKeybinds(migratedKeybinds)
   };

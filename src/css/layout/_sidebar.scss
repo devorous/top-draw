@@ -505,7 +505,8 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
   background: var(--bg-elevated);
 }
 
-#font-container {
+#font-container,
+#cursor-style-container {
   .fontSelectWrap {
     position: relative;
 
@@ -525,7 +526,8 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
     }
   }
 
-  #font-select {
+  #font-select,
+  #cursorStyleSelect {
     width: 100%;
     appearance: none;
     padding: 10px 38px 10px 12px;
@@ -553,14 +555,16 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
       background var(--transition-fast);
   }
 
-  #font-select:hover {
+  #font-select:hover,
+  #cursorStyleSelect:hover {
     border-color: color-mix(in srgb, var(--accent-primary), transparent 38%);
     box-shadow:
       inset 0 1px 0 color-mix(in srgb, white, transparent 86%),
       0 10px 22px color-mix(in srgb, var(--accent-primary), transparent 82%);
   }
 
-  #font-select:focus {
+  #font-select:focus,
+  #cursorStyleSelect:focus {
     border-color: var(--accent-primary);
     background:
       linear-gradient(135deg,
@@ -572,7 +576,8 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
       0 12px 24px color-mix(in srgb, var(--accent-primary), transparent 80%);
   }
 
-  #font-select option {
+  #font-select option,
+  #cursorStyleSelect option {
     background: var(--bg-secondary);
     color: var(--text-primary);
     font-weight: 600;

@@ -159,6 +159,14 @@ function applySidebarSide(sidebarSide = 'right') {
   document.documentElement.dataset.sidebarSide = normalized;
 }
 
+function applyChatOpacity(opacity) {
+  if (typeof document === 'undefined') return;
+
+  const value = Number(opacity);
+  const clamped = Number.isFinite(value) ? Math.min(1, Math.max(0.3, value)) : 0.7;
+  document.documentElement.style.setProperty('--chat-opacity', clamped);
+}
+
 /**
  * Main Drawing Application class.
  * @class
@@ -178,7 +186,10 @@ export class DrawingApp {
     this.appPreferences = loadAppPreferences();
     applyThemeColors(this.appPreferences?.general?.themeColors);
     applySidebarSide(this.appPreferences?.general?.sidebarSide);
+    applyChatOpacity(this.appPreferences?.general?.chatOpacity);
     this._warnOnNextUnload = false;
+    this.supportedCursorStyleTools = ['brush', 'flowPen', 'ink', 'erase'];
+    this.toolCursorStyles = this.loadToolCursorStyles();
     this.isOfflineMode = false;
 
     // Selection state for asynchronous imageData loading
@@ -334,6 +345,65 @@ export class DrawingApp {
     this.snapshotManager = new SnapshotManager(this);
   }
 
+  loadToolCursorStyles() {
+    const defaults = {
+      brush: 'circle',
+      flowPen: 'circle',
+      ink: 'circle',
+      erase: 'circle'
+    };
+
+    try {
+      const saved = localStorage.getItem('topDrawToolCursorStyles');
+      if (!saved) return { ...defaults };
+      const parsed = JSON.parse(saved);
+      for (const tool of this.supportedCursorStyleTools) {
+        const style = parsed?.[tool];
+        if (['circle', 'crosshair', 'dot', 'square'].includes(style)) {
+          defaults[tool] = style;
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load tool cursor styles:', error);
+    }
+
+    return defaults;
+  }
+
+  saveToolCursorStyles() {
+    try {
+      localStorage.setItem('topDrawToolCursorStyles', JSON.stringify(this.toolCursorStyles));
+    } catch (error) {
+      console.warn('Failed to save tool cursor styles:', error);
+    }
+  }
+
+  getCursorStyleForTool(tool) {
+    if (!this.supportedCursorStyleTools.includes(tool)) return 'circle';
+    return this.toolCursorStyles[tool] || 'circle';
+  }
+
+  applyCursorStyleForTool(tool) {
+    this.self.setCursorStyle(this.getCursorStyleForTool(tool));
+  }
+
+  handleCursorStyleChange(style) {
+    const tool = this.self.tool;
+    if (!this.supportedCursorStyleTools.includes(tool)) return;
+    const nextStyle = ['circle', 'crosshair', 'dot', 'square'].includes(style) ? style : 'circle';
+    this.toolCursorStyles[tool] = nextStyle;
+    this.self.setCursorStyle(nextStyle);
+    this.saveToolCursorStyles();
+    this.ui.updateToolDisplay(tool, this.self);
+    this.ui.updateSelfCursor(this.self.x, this.self.y, this.self.size);
+    this.ui.updateSquarePositions(this.self.size);
+    if (nextStyle === 'circle') {
+      this.ui.updatePressureCursorRadius(this.self.pressure * this.self.size, this.self.size, this.tabletDetected);
+    } else if (nextStyle === 'square') {
+      this.ui.updatePressureSquareSize(this.self.pressure * this.self.size, this.self.size, this.tabletDetected);
+    }
+  }
+
   /**
    * Initializes the application, components, and event listeners.
    * @async
@@ -441,10 +511,14 @@ export class DrawingApp {
       this.ui.showToast('Sync requested');
     };
     this.moderation.onPM = (sessionIndex, user) => {
-      if (user && this.svelteComponents?.chat) {
-        // TODO: Implement DM recipient selection in Svelte Chat
+      if (!this.svelteComponents?.chat) return;
+
+      const targetUser = user || this.users.get(sessionIndex);
+      if (!targetUser || (targetUser.id === undefined && sessionIndex === undefined)) {
         appState.chatVisible = true;
+        return;
       }
+      this.svelteComponents.chat.openDM(targetUser.id ?? sessionIndex, targetUser);
     };
     this.moderation.onModAction = (actionType, sessionIndex, reason, duration) => {
       this.wsClient.sendModAction(actionType, sessionIndex, reason, duration);
@@ -511,6 +585,7 @@ export class DrawingApp {
     setupWebSocketHandlers(this);
 
     const initialTool = this.brushModeManager.getCurrentToolName();
+    this.applyCursorStyleForTool(initialTool);
     this.self.setTool(initialTool);
     this.toolManager.setTool(initialTool);
     this.ui.updateToolDisplay(initialTool, this.self);
@@ -537,6 +612,7 @@ export class DrawingApp {
       context: this.board.topCtx,
       board: this.board.mainCanvas
     });
+    this.applyCursorStyleForTool(this.self.tool);
 
     this._migrateLegacyTextFontSettings();
     this._migrateTextFontPresetDefaults();
@@ -1724,6 +1800,12 @@ export class DrawingApp {
         }
       });
     });
+
+    if (elements.cursorStyleSelect) {
+      elements.cursorStyleSelect.addEventListener('change', (e) => {
+        this.handleCursorStyleChange(e.target.value);
+      });
+    }
 
     // Lock button event listeners
     if (elements.sizeLock) elements.sizeLock.addEventListener('click', () => this.toolLockManager.toggleLock('size'));
@@ -3140,6 +3222,7 @@ export class DrawingApp {
     this.appPreferences = saveAppPreferences(preferences);
     applyThemeColors(this.appPreferences?.general?.themeColors);
     applySidebarSide(this.appPreferences?.general?.sidebarSide);
+    applyChatOpacity(this.appPreferences?.general?.chatOpacity);
     this.ui.setHideOwnLabelZoom(this.appPreferences?.general?.hideOwnLabelAbove150);
     this.board?.setShowRawPixelsAtHighZoom?.(this.appPreferences?.general?.showRawPixelsAtHighZoom);
     appState.appPreferences = this.appPreferences;
@@ -3597,9 +3680,8 @@ export class DrawingApp {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastToolChange(tool, tool === 'erase' ? this.eraseAllLayers : false));
     }
 
+    this.applyCursorStyleForTool(tool);
     this.self.setTool(tool);
-    this.ui.updateToolDisplay(tool, this.self);
-    this._updateBlurCannotDraw();
 
     // Restore locked tool values before activation so any activate-time preview
     // uses the new tool's resolved settings instead of the previous tool's state.
@@ -3608,6 +3690,8 @@ export class DrawingApp {
     }
 
     this.toolManager.setTool(tool);
+    this.ui.updateToolDisplay(tool, this.self);
+    this._updateBlurCannotDraw();
 
     if (tool === 'pan') {
       if (this.connected) this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
@@ -4058,12 +4142,13 @@ export class DrawingApp {
     this.self.setSize(size);
     this.ui.updateCursorSize(size);
     this.ui.updateSquarePositions(size);
+    const cursorStyle = this.ui.getCursorStyleForTool(this.self.tool, this.self);
     // Update pressure indicators only for tools that use pressure
     const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur'];
-    if (pressureTools.includes(this.self.tool)) {
+    if (pressureTools.includes(this.self.tool) && cursorStyle === 'circle') {
       this.ui.updatePressureCursorRadius(this.self.pressure * size, size, this.tabletDetected);
     }
-    if (this.self.tool === 'imageBrush') {
+    if ((this.self.tool === 'imageBrush' || cursorStyle === 'square') && this.self.tool !== 'glitchBlur') {
       this.ui.updatePressureSquareSize(this.self.pressure * size, size, this.tabletDetected);
     }
     this.ui.updateSelfTextStyle(size, this.self.color, this.self.font);
@@ -4606,10 +4691,11 @@ export class DrawingApp {
 
       // Update pressure indicators only for tools that use pressure
       const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur'];
-      if (pressureTools.includes(this.self.tool)) {
+      const cursorStyle = this.ui.getCursorStyleForTool(this.self.tool, this.self);
+      if (pressureTools.includes(this.self.tool) && cursorStyle === 'circle') {
         this.ui.updatePressureCursorRadius(pressure * this.self.size, this.self.size, this.tabletDetected);
       }
-      if (this.self.tool === 'imageBrush') {
+      if ((this.self.tool === 'imageBrush' || cursorStyle === 'square') && this.self.tool !== 'glitchBlur') {
         this.ui.updatePressureSquareSize(pressure * this.self.size, this.self.size, this.tabletDetected);
       }
 
@@ -4861,9 +4947,10 @@ export class DrawingApp {
     if (e.pointerType === 'pen' && this.pressureEnabled && this.self.tool !== 'text') {
       const estimatedPressure = 0.5; // Reasonable default for initial pen pressure
       const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur'];
-      if (pressureTools.includes(this.self.tool)) {
+      const cursorStyle = this.ui.getCursorStyleForTool(this.self.tool, this.self);
+      if (pressureTools.includes(this.self.tool) && cursorStyle === 'circle') {
         this.ui.updatePressureCursorRadius(estimatedPressure * this.self.size, this.self.size, this.tabletDetected);
-      } else if (this.self.tool === 'imageBrush') {
+      } else if ((this.self.tool === 'imageBrush' || cursorStyle === 'square') && this.self.tool !== 'glitchBlur') {
         this.ui.updatePressureSquareSize(estimatedPressure * this.self.size, this.self.size, this.tabletDetected);
       }
       this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);

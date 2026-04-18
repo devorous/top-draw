@@ -59,6 +59,7 @@ export class User {
     this.context = options.context || null;
     this.board = options.board || null;
     this.imageBrush = null;
+    this.cursorStyle = options.cursorStyle || 'circle';
     this.blendMode = options.blendMode || 'source-over';
     this.activeLayer = options.activeLayer || 0;
     this.font = normalizeTextFont(options.font);
@@ -142,6 +143,10 @@ export class User {
     if (tool !== 'text') {
       this.text = '';
     }
+  }
+
+  setCursorStyle(style) {
+    this.cursorStyle = style || 'circle';
   }
 
   /**
@@ -356,6 +361,7 @@ export class User {
       color: this.color,
       tool: this.tool,
       text: this.text,
+      cursorStyle: this.cursorStyle,
       username: this.username,
       blendMode: this.blendMode,
       activeLayer: this.activeLayer,
@@ -380,7 +386,7 @@ export class User {
    * @returns {void}
    */
   updateFrom(data) {
-    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'username', 'blendMode', 'activeLayer', 'patternScale', 'patternShape', 'patternName', 'patternRotation', 'patternSpacing', 'font', 'textPositionMultiplier', 'textPositionOffset'];
+    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'cursorStyle', 'username', 'blendMode', 'activeLayer', 'patternScale', 'patternShape', 'patternName', 'patternRotation', 'patternSpacing', 'font', 'textPositionMultiplier', 'textPositionOffset'];
       fields.forEach(field => {
         if (data[field] !== undefined) {
           if (field === 'font') {

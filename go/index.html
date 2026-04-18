@@ -724,6 +724,15 @@
                   r="1"
                   style="display:none">
               </circle>
+              <circle class="dot self"
+                  stroke="grey"
+                  stroke-width="1"
+                  fill="grey"
+                  cx="0"
+                  cy="0"
+                  r="2"
+                  style="display:none">
+              </circle>
               <rect class="square self"
                     stroke="grey"
                     stroke-width="1"
@@ -984,6 +993,18 @@
                 <div class="sliderContainer" id="brush-opacity" style="display: none;">
                   <div class="sliderLabel">Opacity <span class="sliderValue" id="opacityValue">100%</span><button class="lock-btn" id="opacityLock" title="Lock opacity for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
                   <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider opacity" aria-label="Opacity">
+                </div>
+
+                <div class="sliderContainer" id="cursor-style-container" style="display: none;">
+                  <div class="sliderLabel">Cursor</div>
+                  <div class="fontSelectWrap">
+                    <select id="cursorStyleSelect" aria-label="Cursor style">
+                      <option value="circle">Circle</option>
+                      <option value="crosshair">Crosshair</option>
+                      <option value="dot">Dot</option>
+                      <option value="square">Square</option>
+                    </select>
+                  </div>
                 </div>
 
                 <input autocomplete="off" type="file" id="brush-file-input" accept=".gih,.gbr,.png,.jpg,.jpeg,.webp" style="display: none;">
