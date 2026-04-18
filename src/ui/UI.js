@@ -1899,7 +1899,7 @@ menuBtn: document.getElementById('menuBtn'),
 
   _scheduleSnapshotJoinToastDismiss(dismiss) {
     clearTimeout(this._snapshotJoinToastTimeout);
-    this._snapshotJoinToastTimeout = setTimeout(dismiss, 5000);
+    this._snapshotJoinToastTimeout = setTimeout(dismiss, 3000);
   }
 
   _dismissSnapshotJoinToast() {
