@@ -282,7 +282,7 @@ export class RemoteUserHandler {
    * @returns {void}
    */
   renderRemotePreview(user, pos) {
-    const needsClear = ['brush', 'line', 'rectangle', 'circle', 'select', 'erase', 'text', 'glitchBlur'].includes(user.tool);
+    const needsClear = ['brush', 'line', 'rectangle', 'circle', 'erase', 'text', 'glitchBlur'].includes(user.tool);
     if (needsClear && !(user.tool === 'select' && user.floatingCanvas)) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
@@ -347,19 +347,9 @@ export class RemoteUserHandler {
         break;
 
       case 'select':
-        if (!user.floatingCanvas && user.startPos) {
-          const selectTool = this.toolManager.getTool('select');
-          if (!user.lassoPoints) user.lassoPoints = [];
-          const lastPoint = user.lassoPoints[user.lassoPoints.length - 1];
-          if (!lastPoint || Math.hypot(pos.x - lastPoint.x, pos.y - lastPoint.y) >= 3) {
-            user.lassoPoints.push({ x: pos.x, y: pos.y });
-          }
-          if (user.lassoPoints.length >= 2) {
-            selectTool.drawLassoPreview(user.context, user.lassoPoints);
-          } else {
-            selectTool.drawSelectionBox(user.context, user.startPos, pos);
-          }
-        }
+        // Selection previews are rendered from SEL_PENDING so remote viewers
+        // follow the authoritative selection path/bounds instead of a second
+        // local reconstruction from cursor motion.
         break;
 
       case 'erase':

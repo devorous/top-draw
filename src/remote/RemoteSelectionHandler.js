@@ -20,6 +20,92 @@ export class RemoteSelectionHandler {
     this._patternTileCache = new Map();
   }
 
+  _clearUserOverlay(user) {
+    if (!user?.context) return;
+    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+  }
+
+  _drawDashedRect(ctx, rect, offset) {
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+
+    ctx.strokeStyle = '#000';
+    ctx.lineDashOffset = -offset;
+    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+    ctx.strokeStyle = '#fff';
+    ctx.lineDashOffset = -offset + 4;
+    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+    ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
+  }
+
+  _drawDashedPath(ctx, points, offset, closePath = true) {
+    if (!points || points.length < 2) return;
+
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+
+    ctx.strokeStyle = '#000';
+    ctx.lineDashOffset = -offset;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    if (closePath) ctx.closePath();
+    ctx.stroke();
+
+    ctx.strokeStyle = '#fff';
+    ctx.lineDashOffset = -offset + 4;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    if (closePath) ctx.closePath();
+    ctx.stroke();
+
+    ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
+  }
+
+  _drawPendingSelectionLikeLocal(user) {
+    if (!user?.pendingSelection) return;
+
+    const ctx = user.context;
+    const s = user.pendingSelection;
+    const isLivePreview = !!(user.mousedown && user.startPos && !user.floatingCanvas);
+
+    if (user.pendingLassoPath && user.pendingLassoPath.length >= 2) {
+      this._drawDashedPath(ctx, user.pendingLassoPath, this.remoteSelectionOffset, !isLivePreview);
+      if (!isLivePreview && user.pendingLassoPath.length >= 3) {
+        ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(s.x, s.y, s.width, s.height);
+      }
+      return;
+    }
+
+    this._drawDashedRect(ctx, s, this.remoteSelectionOffset);
+  }
+
+  _drawFloatingOutlineLikeLocal(user) {
+    if (!user?.selectionCorners || !user?.selection) return;
+
+    const ctx = user.context;
+    const s = user.selection;
+    const c = user.selectionCorners;
+
+    if (c && user.originalCorners && this.hasTransformedCorners(user)) {
+      this._drawDashedPath(ctx, [c.tl, c.tr, c.br, c.bl], this.remoteSelectionOffset, true);
+      return;
+    }
+
+    this._drawDashedRect(ctx, s, this.remoteSelectionOffset);
+  }
+
   _disposeCanvas(canvas) {
     if (!canvas) return;
     if (typeof canvas.close === 'function') {
@@ -171,7 +257,9 @@ export class RemoteSelectionHandler {
           // Skip local user
           if (id === sessionIndex) continue;
 
-          if (user.floatingCanvas || user.pendingSelection) {
+          const isLivePendingPreview = !!(user.pendingSelection && user.mousedown && user.startPos && !user.floatingCanvas);
+
+          if (user.floatingCanvas || (user.pendingSelection && !isLivePendingPreview)) {
             hasActiveSelection = true;
 
             if (user.floatingCanvas && user.selection) {
@@ -182,15 +270,12 @@ export class RemoteSelectionHandler {
               // handleSelectionMove already drew synchronously.
               // When idle, redraw to animate marching ants.
               if (!user._selectionMoving) {
-                user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+                this._clearUserOverlay(user);
                 this.drawFloatingSelection(user);
               }
             } else if (user.pendingSelection) {
-              const isLivePreview = (performance.now() - (user._pendingSelectionUpdatedAt ?? 0)) < 120;
-              if (!isLivePreview) {
-                user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-                this.drawPendingSelection(user, false);
-              }
+              this._clearUserOverlay(user);
+              this.drawPendingSelection(user, false);
             }
           }
         }
@@ -296,7 +381,7 @@ export class RemoteSelectionHandler {
         this._regeneratePreviewCache(user);
       }
 
-      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+      this._clearUserOverlay(user);
       this.drawFloatingSelection(user);
       this.startRemoteSelectionAnimation();
     };
@@ -328,7 +413,7 @@ export class RemoteSelectionHandler {
           this._regeneratePreviewCache(user);
         }
 
-        user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+        this._clearUserOverlay(user);
         this.drawFloatingSelection(user);
 
         user.pendingImageLoad = null;
@@ -392,10 +477,8 @@ export class RemoteSelectionHandler {
     user.pendingLassoPath = lassoPath;
     user._pendingSelectionUpdatedAt = performance.now();
 
-    if (user.context) {
-      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-      this.drawPendingSelection(user, true);
-    }
+    this._clearUserOverlay(user);
+    this.drawPendingSelection(user, false);
 
     // Start animation loop if not running to show the marquee
     this.startRemoteSelectionAnimation();
@@ -485,7 +568,7 @@ export class RemoteSelectionHandler {
 
     // SYNCHRONOUS clear + redraw (matches local SelectTool pattern:
     // board.clearTop() then drawSelectionUI() in onPointerMove)
-    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    this._clearUserOverlay(user);
     this.drawFloatingSelection(user);
 
     // Keep animation loop alive (for marching ants when idle)
@@ -867,7 +950,7 @@ export class RemoteSelectionHandler {
     this.board.addOccupancyForVisibleTilesInRect(user.id, dirtyX, dirtyY, dirtyWidth, dirtyHeight);
 
     // Keep selection active — redraw floating selection on user's overlay layer
-    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    this._clearUserOverlay(user);
     this.drawFloatingSelection(user);
   }
 
@@ -1184,71 +1267,7 @@ export class RemoteSelectionHandler {
 
     // Draw animated marching ants border
     if (c) {
-      // Determine if we should show lasso outline or quadrilateral
-      const shouldShowLassoOutline =
-        user.lassoPath &&
-        user.lassoPath.length >= 3 &&
-        !this.hasTransformedCorners(user);
-
-      if (shouldShowLassoOutline) {
-        // Draw lasso polygon outline (matches local SelectTool.drawMarchingAntsOnly pattern)
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-
-        // Black dashes
-        ctx.strokeStyle = '#000';
-        ctx.lineDashOffset = -this.remoteSelectionOffset;
-        ctx.beginPath();
-        ctx.moveTo(user.lassoPath[0].x, user.lassoPath[0].y);
-        for (let i = 1; i < user.lassoPath.length; i++) {
-          ctx.lineTo(user.lassoPath[i].x, user.lassoPath[i].y);
-        }
-        ctx.closePath();
-        ctx.stroke();
-
-        // White dashes (offset for marching effect)
-        ctx.strokeStyle = '#fff';
-        ctx.lineDashOffset = -this.remoteSelectionOffset + 4;
-        ctx.beginPath();
-        ctx.moveTo(user.lassoPath[0].x, user.lassoPath[0].y);
-        for (let i = 1; i < user.lassoPath.length; i++) {
-          ctx.lineTo(user.lassoPath[i].x, user.lassoPath[i].y);
-        }
-        ctx.closePath();
-        ctx.stroke();
-
-        ctx.setLineDash([]);
-        ctx.lineDashOffset = 0;
-      } else {
-        // Draw quadrilateral outline (existing code for rectangle/transformed selections)
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-
-        // Black dashes
-        ctx.strokeStyle = '#000';
-        ctx.lineDashOffset = -this.remoteSelectionOffset;
-        ctx.beginPath();
-        ctx.moveTo(c.tl.x, c.tl.y);
-        ctx.lineTo(c.tr.x, c.tr.y);
-        ctx.lineTo(c.br.x, c.br.y);
-        ctx.lineTo(c.bl.x, c.bl.y);
-        ctx.closePath();
-        ctx.stroke();
-
-        // White dashes (offset to create marching effect)
-        ctx.strokeStyle = '#fff';
-        ctx.lineDashOffset = -this.remoteSelectionOffset + 4;
-        ctx.beginPath();
-        ctx.moveTo(c.tl.x, c.tl.y);
-        ctx.lineTo(c.tr.x, c.tr.y);
-        ctx.lineTo(c.br.x, c.br.y);
-        ctx.lineTo(c.bl.x, c.bl.y);
-        ctx.closePath();
-        ctx.stroke();
-
-        ctx.setLineDash([]);
-        ctx.lineDashOffset = 0;
-      }
+      this._drawFloatingOutlineLikeLocal(user);
     }
 
     if (user.board && prevBlendMode && prevBlendMode !== 'normal') {
@@ -1258,59 +1277,7 @@ export class RemoteSelectionHandler {
 
   drawPendingSelection(user, isLivePreview = false) {
     if (!user.pendingSelection) return;
-
-    const ctx = user.context;
-    const s = user.pendingSelection;
-
-    // Check if we have a lasso path to draw
-    if (user.pendingLassoPath && user.pendingLassoPath.length >= 2) {
-      const shouldClosePath = !isLivePreview && user.pendingLassoPath.length >= 3;
-
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-
-      // Black dashes with animated offset
-      ctx.strokeStyle = '#000';
-      ctx.lineDashOffset = isLivePreview ? 0 : -this.remoteSelectionOffset;
-      ctx.beginPath();
-      ctx.moveTo(user.pendingLassoPath[0].x, user.pendingLassoPath[0].y);
-      for (let i = 1; i < user.pendingLassoPath.length; i++) {
-        ctx.lineTo(user.pendingLassoPath[i].x, user.pendingLassoPath[i].y);
-      }
-      if (shouldClosePath) ctx.closePath();
-      ctx.stroke();
-
-      // White dashes offset to create marching effect
-      ctx.strokeStyle = '#fff';
-      ctx.lineDashOffset = isLivePreview ? 4 : -this.remoteSelectionOffset + 4;
-      ctx.beginPath();
-      ctx.moveTo(user.pendingLassoPath[0].x, user.pendingLassoPath[0].y);
-      for (let i = 1; i < user.pendingLassoPath.length; i++) {
-        ctx.lineTo(user.pendingLassoPath[i].x, user.pendingLassoPath[i].y);
-      }
-      if (shouldClosePath) ctx.closePath();
-      ctx.stroke();
-
-      ctx.setLineDash([]);
-      ctx.lineDashOffset = 0;
-    } else {
-      // Draw rectangle (default/rectangle mode)
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-
-      // Black dashes with animated offset
-      ctx.strokeStyle = '#000';
-      ctx.lineDashOffset = -this.remoteSelectionOffset;
-      ctx.strokeRect(s.x, s.y, s.width, s.height);
-
-      // White dashes offset to create marching effect
-      ctx.strokeStyle = '#fff';
-      ctx.lineDashOffset = -this.remoteSelectionOffset + 4;
-      ctx.strokeRect(s.x, s.y, s.width, s.height);
-
-      ctx.setLineDash([]);
-      ctx.lineDashOffset = 0;
-    }
+    this._drawPendingSelectionLikeLocal(user);
   }
 
   /**

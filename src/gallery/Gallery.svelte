@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { ProfileDialog } from '../ui/ProfileDialog.js';
+  import { ClientIdentity } from '../network/ClientIdentity.js';
 
   // API base URL - defaults to relative (dev proxy) or can be set via env var for production
   const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -67,6 +68,9 @@
   let showAuthModal = $state(false);
   let authMode = $state('login'); // 'login' | 'register'
   let authForm = $state({ username: '', password: '', email: '' });
+
+  // Device identity
+  const clientIdentity = new ClientIdentity();
 
   async function fetchGallery() {
     loading = true;
@@ -647,25 +651,30 @@
     localStorage.setItem('ddraw_liked', JSON.stringify([...nextLikedIds]));
   }
 
-  function updateLikeCount(itemId, likes) {
-    items = items.map((entry) => entry.id === itemId ? { ...entry, likes } : entry);
+  function updateLikeCount(itemId, likesCount) {
+    items = items.map((entry) => entry.id === itemId ? { ...entry, likesCount } : entry);
     if (lightbox?.id === itemId) {
-      lightbox = { ...lightbox, likes };
+      lightbox = { ...lightbox, likesCount };
     }
   }
 
   async function like(item) {
     const wasLiked = likedIds.has(item.id);
-    const previousLikes = item.likes || 0;
+    const previousLikesCount = item.likesCount || 0;
     const nextLikedIds = new Set(likedIds);
     if (wasLiked) nextLikedIds.delete(item.id);
     else nextLikedIds.add(item.id);
 
     persistLikedIds(nextLikedIds);
-    updateLikeCount(item.id, Math.max(0, previousLikes + (wasLiked ? -1 : 1)));
+    updateLikeCount(item.id, Math.max(0, previousLikesCount + (wasLiked ? -1 : 1)));
 
     try {
-      const res = await fetch(`${API_BASE}/api/gallery/${item.id}/like`, { method: 'POST' });
+      const body = JSON.stringify({ deviceId: clientIdentity.deviceId });
+      const res = await fetch(`${API_BASE}/api/gallery/${item.id}/like`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body
+      });
       if (!res.ok) throw new Error('Failed to update like');
 
       const data = await res.json().catch(() => ({}));
@@ -673,15 +682,15 @@
       if (data.liked) syncedLikedIds.add(item.id);
       else syncedLikedIds.delete(item.id);
       persistLikedIds(syncedLikedIds);
-      if (typeof data.likes === 'number') {
-        updateLikeCount(item.id, data.likes);
+      if (typeof data.likesCount === 'number') {
+        updateLikeCount(item.id, data.likesCount);
       }
     } catch {
       const revertedLikedIds = new Set(nextLikedIds);
       if (wasLiked) revertedLikedIds.add(item.id);
       else revertedLikedIds.delete(item.id);
       persistLikedIds(revertedLikedIds);
-      updateLikeCount(item.id, previousLikes);
+      updateLikeCount(item.id, previousLikesCount);
     }
   }
 
@@ -867,13 +876,6 @@
             <div class="card-meta">
               <div class="card-meta-main">
                 <button class="card-author" onclick={(e) => { e.stopPropagation(); profileDialog.show(item.author); }}>{item.author}</button>
-                {#if item.tags?.length}
-                  <div class="card-tags-inline">
-                    {#each item.tags as tag}
-                      <button class="tag-chip card-tag-chip" onclick={(e) => { e.stopPropagation(); filterByTag(tag); }}>#{tag}</button>
-                    {/each}
-                  </div>
-                {/if}
               </div>
               <button
                 class="like-btn"
@@ -881,9 +883,22 @@
                 onclick={(e) => { e.stopPropagation(); like(item); }}
                 aria-label="Like"
               >
-                ♥ {item.likes || 0}
+                <svg class="like-icon" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M1.24264 8.24264L8 15L14.7574 8.24264C15.553 7.44699 16 6.36786 16 5.24264V5.05234C16 2.8143 14.1857 1 11.9477 1C10.7166 1 9.55233 1.55959 8.78331 2.52086L8 3.5L7.21669 2.52086C6.44767 1.55959 5.28338 1 4.05234 1C1.8143 1 0 2.8143 0 5.05234V5.24264C0 6.36786 0.44699 7.44699 1.24264 8.24264Z"/>
+                </svg>
+                {item.likesCount || 0}
               </button>
             </div>
+            {#if item.tags?.length}
+              <div class="card-tags-row">
+                {#each item.tags.slice(0, 4) as tag}
+                  <button class="tag-chip card-tag-chip" onclick={(e) => { e.stopPropagation(); filterByTag(tag); }}>#{tag}</button>
+                {/each}
+                {#if item.tags.length > 4}
+                  <span class="tag-more">...</span>
+                {/if}
+              </div>
+            {/if}
           </div>
         {/each}
       </div>
@@ -1006,7 +1021,10 @@
               class:liked={likedIds.has(lightbox.id)}
               onclick={() => like(lightbox)}
             >
-              &hearts; {lightbox.likes || 0}
+              <svg class="like-icon" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M1.24264 8.24264L8 15L14.7574 8.24264C15.553 7.44699 16 6.36786 16 5.24264V5.05234C16 2.8143 14.1857 1 11.9477 1C10.7166 1 9.55233 1.55959 8.78331 2.52086L8 3.5L7.21669 2.52086C6.44767 1.55959 5.28338 1 4.05234 1C1.8143 1 0 2.8143 0 5.05234V5.24264C0 6.36786 0.44699 7.44699 1.24264 8.24264Z"/>
+              </svg>
+              {lightbox.likesCount || 0}
             </button>
             {#if user}
               <button
@@ -1015,7 +1033,9 @@
                 onclick={() => toggleFavorite(lightbox)}
                 title={favoritedIds.has(lightbox.id) ? 'Remove from favorites' : 'Add to favorites'}
               >
-                &#9733;
+                <svg class="fav-icon" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                </svg>
               </button>
             {/if}
             <button class="btn-ghost small" onclick={() => downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)}>Download</button>
@@ -1587,17 +1607,25 @@
   }
   .card-author:hover { color: var(--accent); }
 
-  .card-tags-inline {
+  .card-tags-row {
     display: flex;
     flex-wrap: wrap;
     gap: 0.45rem;
-    min-width: 0;
-    overflow: hidden;
+    padding: 0.5rem 0.75rem 0.65rem;
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    align-items: center;
   }
 
   .card-tag-chip {
-    padding: 0.22rem 0.55rem;
-    font-size: 0.68rem;
+    padding: 0.28rem 0.65rem;
+    font-size: 0.72rem;
+  }
+
+  .tag-more {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    font-weight: 500;
   }
 
   .tag-chip {
@@ -1633,31 +1661,65 @@
     background: none;
     border: none;
     color: var(--text-dim);
-    font-size: 0.78rem;
+    font-size: 0.85rem;
     cursor: pointer;
     font-family: 'Inter', -apple-system, sans-serif;
-    padding: 2px 6px;
-    border-radius: 2px;
+    padding: 6px 10px;
+    border-radius: 4px;
     transition: color 0.15s, background 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .like-icon {
+    width: 1.2em;
+    height: 1.2em;
+    flex-shrink: 0;
   }
   .like-btn:hover { color: #e07070; }
   .like-btn.liked { color: #e07070; }
-  .like-btn.large { font-size: 0.9rem; padding: 6px 12px; border: 1px solid var(--border); }
-  .like-btn.large:hover, .like-btn.large.liked { border-color: #e07070; }
+  .like-btn.large {
+    font-size: 1rem;
+    padding: 8px 14px;
+    border: 1.5px solid var(--border);
+    gap: 0.75rem;
+  }
+  .like-btn.large .like-icon {
+    width: 1.4em;
+    height: 1.4em;
+  }
+  .like-btn.large:hover, .like-btn.large.liked {
+    border-color: #e07070;
+    background: rgba(224, 112, 112, 0.08);
+  }
 
   /* ── Favorite Button ── */
   .fav-btn {
     background: none;
-    border: 1px solid var(--border);
+    border: 1.5px solid var(--border);
     color: var(--text-dim);
-    font-size: 1rem;
     cursor: pointer;
-    padding: 5px 12px;
-    border-radius: 2px;
-    transition: color 0.15s, border-color 0.15s;
+    padding: 8px 14px;
+    border-radius: 4px;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
-  .fav-btn:hover { color: #f0c040; border-color: #f0c040; }
-  .fav-btn.favorited { color: #f0c040; border-color: #f0c040; }
+  .fav-icon {
+    width: 1.4em;
+    height: 1.4em;
+  }
+  .fav-btn:hover {
+    color: #f0c040;
+    border-color: #f0c040;
+    background: rgba(240, 192, 64, 0.08);
+  }
+  .fav-btn.favorited {
+    color: #f0c040;
+    border-color: #f0c040;
+    background: rgba(240, 192, 64, 0.08);
+  }
 
   /* ── Pagination ── */
   .pagination {

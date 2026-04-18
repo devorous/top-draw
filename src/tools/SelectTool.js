@@ -60,6 +60,7 @@ export class SelectTool extends Tool {
     this.floatingCtx = null;
     this.dragOffset = { x: 0, y: 0 };
     this.marchingAntsOffset = 0;
+    this.livePreviewDashOffset = 0;
     this.animationId = null;
 
     // Transform handles
@@ -514,11 +515,12 @@ export class SelectTool extends Tool {
    */
   drawLassoPreview(ctx, points) {
     if (points.length < 2) return;
+    const livePreviewOffset = this.livePreviewDashOffset;
 
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
-    ctx.lineDashOffset = -this.marchingAntsOffset;
+    ctx.lineDashOffset = -livePreviewOffset;
 
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
@@ -528,7 +530,7 @@ export class SelectTool extends Tool {
     ctx.stroke();
 
     ctx.strokeStyle = '#fff';
-    ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+    ctx.lineDashOffset = -livePreviewOffset + 4;
 
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
@@ -547,13 +549,13 @@ export class SelectTool extends Tool {
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
       ctx.strokeStyle = '#000';
-      ctx.lineDashOffset = -this.marchingAntsOffset;
+      ctx.lineDashOffset = -livePreviewOffset;
       ctx.beginPath();
       ctx.moveTo(mPoints[0].x, mPoints[0].y);
       for (let i = 1; i < mPoints.length; i++) ctx.lineTo(mPoints[i].x, mPoints[i].y);
       ctx.stroke();
       ctx.strokeStyle = '#fff';
-      ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+      ctx.lineDashOffset = -livePreviewOffset + 4;
       ctx.beginPath();
       ctx.moveTo(mPoints[0].x, mPoints[0].y);
       for (let i = 1; i < mPoints.length; i++) ctx.lineTo(mPoints[i].x, mPoints[i].y);
@@ -1083,6 +1085,7 @@ export class SelectTool extends Tool {
     // Start new selection
     this.isSelecting = true;
     this.startPos = { x: pos.x, y: pos.y };
+    this.livePreviewDashOffset = 0;
   }
 
   onPointerMove(user, pos) {
@@ -1190,6 +1193,7 @@ export class SelectTool extends Tool {
 
     // Mode-specific selection drawing
     if (this.mode === 'lasso') {
+      this.livePreviewDashOffset = (this.livePreviewDashOffset + 0.35) % 16;
       // Collect lasso points
       this.lassoPoints.push({ x: pos.x, y: pos.y });
 
@@ -1203,6 +1207,7 @@ export class SelectTool extends Tool {
       }
     } else {
       // Rectangle mode (existing code)
+      this.livePreviewDashOffset = (this.livePreviewDashOffset + 0.35) % 16;
       this.board.clearTop();
       
       const minX = Math.min(this.startPos.x, pos.x);
@@ -1999,18 +2004,19 @@ export class SelectTool extends Tool {
     const y = Math.min(startPos.y, endPos.y);
     const width = Math.abs(endPos.x - startPos.x);
     const height = Math.abs(endPos.y - startPos.y);
+    const livePreviewOffset = this.livePreviewDashOffset;
 
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
 
     // Black dashes
     ctx.strokeStyle = '#000';
-    ctx.lineDashOffset = -this.marchingAntsOffset;
+    ctx.lineDashOffset = -livePreviewOffset;
     ctx.strokeRect(x, y, width, height);
 
     // White dashes (offset to create "marching ants" effect)
     ctx.strokeStyle = '#fff';
-    ctx.lineDashOffset = -this.marchingAntsOffset + 4;
+    ctx.lineDashOffset = -livePreviewOffset + 4;
     ctx.strokeRect(x, y, width, height);
 
     ctx.setLineDash([]);
@@ -2101,11 +2107,6 @@ export class SelectTool extends Tool {
         }
         overlayCtx.closePath();
         overlayCtx.stroke();
-
-        // Also draw a subtle bounding rectangle
-        overlayCtx.setLineDash([]);
-        overlayCtx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
-        overlayCtx.strokeRect(s.x, s.y, s.width, s.height);
       } else {
         // Rectangle mode OR lasso after lifting - draw bounding box
         overlayCtx.strokeStyle = '#000';

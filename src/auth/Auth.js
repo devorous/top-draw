@@ -4,6 +4,10 @@
 const TOKEN_KEY = 'topDrawAuthToken';
 const REMEMBER_ME_KEY = 'topDrawRememberMe';
 const USERNAME_KEY = 'topDrawUsername';
+const TOKEN_INVALID_ERRORS = new Set([
+  'Invalid or expired token',
+  'Account not found',
+]);
 
 export class Auth {
   constructor({ wsClient, onSuccess, onError, onLoggedInStateChange }) {
@@ -485,15 +489,16 @@ export class Auth {
       this._pendingUsername = null;
       this._pendingRegister = false;
 
-      // If auto-login failed, clear the invalid token and remember me preference
-      if (this.getStoredToken()) {
+      const errorMessage = data.error || 'Authentication failed';
+      const shouldClearStoredToken = this.getStoredToken() && TOKEN_INVALID_ERRORS.has(errorMessage);
+
+      // Only clear saved auth when the token itself is actually invalid.
+      if (shouldClearStoredToken) {
         this.clearToken();
         this.clearStoredUsername();
         this.setRememberMe(false);
         this.showNotLoggedInState();
       }
-
-      const errorMessage = data.error || 'Authentication failed';
 
       if (this.onError) {
         this.onError(errorMessage);

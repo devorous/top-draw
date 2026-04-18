@@ -154,7 +154,7 @@ function toClientGalleryItem(item) {
     author: item.author,
     title: item.title || '',
     tags: Array.isArray(item.tags) ? item.tags : [],
-    likes: item.likes || 0,
+    likesCount: item.likesCount || 0,
     views: item.views || 0,
     createdAt: item.createdAt,
   };
@@ -182,7 +182,7 @@ export async function handleGalleryList(req, res) {
   const sortParam = urlObj.searchParams.get('sort') || 'newest';
   const sortOptions = {
     newest: { createdAt: -1 },
-    top: { likes: -1, createdAt: -1 },
+    top: { likesCount: -1, createdAt: -1 },
     views: { views: -1, createdAt: -1 },
   };
   const sort = sortOptions[sortParam] || sortOptions.newest;
@@ -367,7 +367,8 @@ export async function handleGalleryUpload(req, res) {
     authorId: authUser._id.toString(),
     title: (title || '').substring(0, 100).trim(),
     tags: normalizedTags,
-    likes: 0,
+    likes: [],
+    likesCount: 0,
     views: 0,
     createdAt: new Date(),
   };
@@ -381,7 +382,7 @@ export async function handleGalleryUpload(req, res) {
       author: authUser.username,
       title: doc.title,
       tags: doc.tags,
-      likes: 0,
+      likesCount: 0,
       views: 0,
       createdAt: doc.createdAt,
     });
@@ -415,7 +416,9 @@ export async function handleGalleryItem(req, res, id) {
 }
 
 /**
- * POST /api/gallery/:id/like — increment like counter.
+ * POST /api/gallery/:id/like — toggle like (one per device, account, or IP).
+ * Body: { deviceId?: string }
+ * Rules: Same device/account/IP cannot vote twice. Voting again from same source removes the vote.
  */
 export async function handleGalleryLike(req, res, id) {
   const db = getDB();
@@ -426,43 +429,88 @@ export async function handleGalleryLike(req, res, id) {
     return json(res, 429, { error: 'Too many like requests. Please try again later.' });
   }
 
-  // Validate id is a 24-char hex string
   if (!/^[a-f0-9]{24}$/.test(id)) return json(res, 400, { error: 'Invalid id' });
+
+  let body = {};
+  try {
+    const bodyStr = await readBody(req, 1024);
+    if (bodyStr) body = JSON.parse(bodyStr);
+  } catch {
+    // Continue without body
+  }
+
+  const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : null;
 
   try {
     const token = getBearerToken(req);
     const authUser = token ? await getUserFromToken(token, { projection: { username: 1 } }) : null;
-    const actorKey = authUser?._id
-      ? `user:${authUser._id.toString()}`
-      : `ip:${crypto.createHash('sha256').update(clientIp || 'unknown').digest('hex')}`;
+    const ipHash = crypto.createHash('sha256').update(clientIp || 'unknown').digest('hex');
+    const userId = authUser?._id?.toString() || null;
+    const username = authUser?.username || null;
     const objectId = new ObjectId(id);
 
-    const item = await db.collection('gallery').findOne({ _id: objectId }, { projection: { _id: 1, likes: 1 } });
-    if (!item) return json(res, 404, { error: 'Item not found' });
-
-    const existing = await db.collection('gallery_likes').findOne({ galleryId: id, actorKey });
-
-    if (existing) {
-      await Promise.all([
-        db.collection('gallery_likes').deleteOne({ _id: existing._id }),
-        db.collection('gallery').updateOne({ _id: objectId }, { $inc: { likes: -1 } })
-      ]);
-      const updated = await db.collection('gallery').findOne({ _id: objectId }, { projection: { likes: 1 } });
-      return json(res, 200, { liked: false, likes: Math.max(0, updated?.likes || 0) });
+    // Check if item exists
+    if (!await db.collection('gallery').findOne({ _id: objectId }, { projection: { _id: 1 } })) {
+      return json(res, 404, { error: 'Item not found' });
     }
 
-    await db.collection('gallery_likes').insertOne({
+    // Find any existing vote from this user/device/IP
+    const existingLike = await db.collection('gallery_likes').findOne({
       galleryId: id,
-      actorKey,
+      $or: [
+        userId ? { userId } : null,
+        deviceId ? { deviceId } : null,
+        { ipHash }
+      ].filter(Boolean)
+    });
+
+    if (existingLike) {
+      // Remove the existing vote (toggle off)
+      await db.collection('gallery_likes').deleteOne({ _id: existingLike._id });
+      // Remove from likes array and decrement likesCount
+      await db.collection('gallery').updateOne(
+        { _id: objectId },
+        {
+          $pull: { likes: { _id: existingLike._id } },
+          $inc: { likesCount: -1 }
+        }
+      );
+      const updated = await db.collection('gallery').findOne({ _id: objectId }, { projection: { likesCount: 1 } });
+      return json(res, 200, { liked: false, likesCount: updated?.likesCount || 0 });
+    }
+
+    // Create new vote
+    const likeId = new ObjectId();
+    const voteRecord = {
+      _id: likeId,
+      userId: userId,
+      username: username,
+      deviceId: deviceId || null,
+      ipHash: ipHash,
+      createdAt: new Date(),
+    };
+
+    await db.collection('gallery_likes').insertOne({
+      _id: likeId,
+      galleryId: id,
+      userId: userId,
+      username: username,
+      deviceId: deviceId || null,
+      ipHash: ipHash,
       createdAt: new Date(),
     });
+
+    // Add to likes array and increment likesCount
     const updated = await db.collection('gallery').findOneAndUpdate(
       { _id: objectId },
-      { $inc: { likes: 1 } },
-      { returnDocument: 'after', projection: { likes: 1 } }
+      {
+        $push: { likes: voteRecord },
+        $inc: { likesCount: 1 }
+      },
+      { returnDocument: 'after', projection: { likesCount: 1 } }
     );
 
-    json(res, 200, { liked: true, likes: updated?.likes || (item.likes || 0) + 1 });
+    json(res, 200, { liked: true, likesCount: updated?.likesCount || 1 });
   } catch (err) {
     console.error('[Gallery] Like error:', err);
     json(res, 500, { error: 'Failed to update likes' });
