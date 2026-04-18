@@ -73,6 +73,12 @@
     let dirty = false;
     let inFlight = false;
 
+    const overlay = document.getElementById('desktopDragOverlay');
+    if (overlay) {
+      overlay.style.display = 'block';
+      overlay.style.pointerEvents = 'auto';
+    }
+
     function flushPosition() {
       if (inFlight || !dirty) return;
       dirty = false;
@@ -103,6 +109,10 @@
       window.removeEventListener('mouseup', stop);
       window.removeEventListener('blur', stop);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (overlay) {
+        overlay.style.display = 'none';
+        overlay.style.pointerEvents = 'none';
+      }
     };
 
     const handleVisibilityChange = () => {
@@ -172,7 +182,19 @@
       return;
     }
 
-    await desktopWindowApi.startDragging();
+    // Use manual dragging for normal drags too, so overlay works
+    const [{ PhysicalPosition }, { cursorPosition, currentMonitor }] = await Promise.all([
+      import('@tauri-apps/api/dpi'),
+      import('@tauri-apps/api/window')
+    ]);
+    const [cursor, position, monitor, scaleFactor] = await Promise.all([
+      cursorPosition(),
+      desktopWindowApi.outerPosition(),
+      currentMonitor(),
+      desktopWindowApi.scaleFactor()
+    ]);
+    const monitorY = monitor?.position?.y ?? 0;
+    startManualWindowDrag(cursor.x / scaleFactor, cursor.y / scaleFactor, position, scaleFactor, desktopWindowApi, monitorY);
   }
 
   function handleBarMouseDown(event) {

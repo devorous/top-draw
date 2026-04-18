@@ -11,19 +11,91 @@ async function initEarlyDesktopChrome() {
   mount.dataset.chromeInitialized = 'true';
   mount.dataset.earlyChrome = 'true';
 
-  const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-  const [{ PhysicalPosition }, { cursorPosition, currentMonitor }] = await Promise.all([
+  const { getCurrentWebviewWindow, WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+  const [{ PhysicalPosition, PhysicalSize }, { cursorPosition, currentMonitor }] = await Promise.all([
     import('@tauri-apps/api/dpi'),
     import('@tauri-apps/api/window')
   ]);
 
   const appWindow = getCurrentWebviewWindow();
+  let dragOverlayWindow = null;
 
   async function syncState() {
     const maximized = await appWindow.isMaximized();
     const fullscreen = await appWindow.isFullscreen();
     mount.dataset.maximized = maximized ? 'true' : 'false';
     mount.dataset.fullscreen = fullscreen ? 'true' : 'false';
+  }
+
+  async function createDragOverlay(monitor) {
+    if (dragOverlayWindow) {
+      try {
+        await dragOverlayWindow.show();
+        return;
+      } catch (e) {
+        dragOverlayWindow = null;
+      }
+    }
+
+    const monitorWidth = monitor?.size?.width ?? 1920;
+    const monitorHeight = monitor?.size?.height ?? 1080;
+    const monitorX = monitor?.position?.x ?? 0;
+    const monitorY = monitor?.position?.y ?? 0;
+
+    const overlayHTML = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <style>
+            body {
+              margin: 0;
+              padding: 0;
+              width: 100vw;
+              height: 100vh;
+              background: rgba(255, 0, 0, 0.1);
+              cursor: default;
+            }
+          </style>
+        </head>
+        <body></body>
+      </html>
+    `;
+
+    try {
+      dragOverlayWindow = new WebviewWindow('drag-overlay', {
+        url: 'data:text/html,' + encodeURIComponent(overlayHTML),
+        title: 'Drag Overlay',
+        x: monitorX,
+        y: monitorY,
+        width: monitorWidth,
+        height: monitorHeight,
+        skipTaskbar: true,
+        decorations: false,
+        transparent: true,
+        alwaysOnTop: true,
+        resizable: false,
+        fullscreen: false,
+        focus: false,
+        visible: false
+      });
+
+      await dragOverlayWindow.once('tauri://created', async () => {
+        await dragOverlayWindow.setIgnoreCursorEvents(true);
+        await dragOverlayWindow.show();
+      });
+    } catch (error) {
+      console.error('Failed to create drag overlay:', error);
+    }
+  }
+
+  async function hideDragOverlay() {
+    if (dragOverlayWindow) {
+      try {
+        await dragOverlayWindow.hide();
+      } catch (e) {
+        dragOverlayWindow = null;
+      }
+    }
   }
 
   function startManualWindowDrag(cursorScreenX, cursorScreenY, startPosition, scaleFactor, minY) {
@@ -60,6 +132,7 @@ async function initEarlyDesktopChrome() {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', stop);
       window.removeEventListener('blur', stop);
+      void hideDragOverlay();
     };
 
     window.addEventListener('mousemove', onMove);
@@ -81,6 +154,8 @@ async function initEarlyDesktopChrome() {
     const wasMaximized = isFullscreen ? false : await appWindow.isMaximized();
 
     if (isFullscreen || wasMaximized) {
+      const monitor = await currentMonitor();
+      await createDragOverlay(monitor);
       await appWindow.hide();
 
       if (isFullscreen) {
@@ -90,10 +165,9 @@ async function initEarlyDesktopChrome() {
       }
       await syncState();
 
-      const [cursor, size, monitor, scaleFactor] = await Promise.all([
+      const [cursor, size, scaleFactor] = await Promise.all([
         cursorPosition(),
         appWindow.outerSize(),
-        currentMonitor(),
         appWindow.scaleFactor()
       ]);
 
@@ -114,6 +188,7 @@ async function initEarlyDesktopChrome() {
       }
 
       await appWindow.show();
+      await hideDragOverlay();
       return;
     }
 
