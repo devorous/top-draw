@@ -323,7 +323,9 @@ async fn fetch_update(app: AppHandle, pending_update: State<'_, PendingUpdate>) 
     version: update.version.clone(),
     current_version: update.current_version.clone(),
     notes: update.body.clone(),
-    date: update.date.map(|value| value.to_string()),
+    date: update.date.as_ref().and_then(|dt| {
+      dt.format(&time::format_description::well_known::Rfc3339).ok()
+    }),
   });
 
   let mut pending = pending_update

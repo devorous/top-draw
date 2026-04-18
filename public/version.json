@@ -1,7 +1,7 @@
 {
-  "latest": "1.2.1",
+  "latest": "1.2.1-beta",
   "minRequired": "1.2.1-beta",
   "releaseDate": "2026-04-18",
-  "notes": "Initial beta release",
+  "notes": "Updated version checking and desktop update UI. Fixed date formatting in update dialogs.",
   "downloadUrl": "https://www.ddraw.ca/download"
 }
