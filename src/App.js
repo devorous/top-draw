@@ -3713,6 +3713,36 @@ export class DrawingApp {
       }
     }
 
+    if (tool === 'pattern') {
+      // Ensure we have a default pattern (circle) if none is set
+      if (!this.self.patternBrush) {
+        if (this.patternGallery.selectedBrush) {
+          this.self.patternBrush = this.patternGallery.selectedBrush;
+        } else {
+          // Fallback: create a default circle pattern
+          const canvas = document.createElement('canvas');
+          canvas.width = canvas.height = 40;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ccc';
+          ctx.beginPath();
+          ctx.arc(20, 20, 18, 0, Math.PI * 2);
+          ctx.fill();
+          const circleImg = new Image();
+          circleImg.src = canvas.toDataURL();
+          this.self.patternBrush = {
+            type: 'image',
+            brushName: 'Circle',
+            gimpUrl: canvas.toDataURL(),
+            image: circleImg
+          };
+        }
+      }
+      // Broadcast pattern state when switching to pattern tool
+      if (this.self.patternBrush && this.connected) {
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
+      }
+    }
+
     if (tool === 'line' || tool === 'rectangle' || tool === 'circle') {
       this.self.setSmoothing(50);
       this.ui.updateSmoothingValue(50);
