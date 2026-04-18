@@ -461,12 +461,35 @@ export class KeyboardHandler {
     }
 
     if (app.self.tool === 'text') {
-      app.inputBufferManager.queueBroadcast(()=> app.wsClient.broadcastKeyPress(e.key));
-      const textTool = app.toolManager.getTool('text');
-      const text = textTool.onKeyPress(app.self, e.key);
-      app.ui.updateSelfTextInput(text);
-      app._updateTextPreview();
-      return;
+      const binding = eventToBinding(e);
+      const isCtrlOrModBinding = binding && (binding.startsWith('Ctrl+') || binding.startsWith('Mod+'));
+      // Only let through Ctrl/Mod shortcuts that have actual keybinding actions (like undo/redo)
+      const hasAction = isCtrlOrModBinding && !!this.getActionForBinding(binding);
+
+      if (!hasAction) {
+        const textTool = app.toolManager.getTool('text');
+        const result = textTool.onKeyPress(app.self, e.key, e.ctrlKey || e.metaKey, e.shiftKey);
+
+        // Build the key string with modifiers for broadcast
+        let broadcastKey = e.key;
+        if (e.ctrlKey || e.metaKey) {
+          broadcastKey = 'Ctrl+' + e.key;
+        } else if (e.shiftKey && e.key === 'Enter') {
+          broadcastKey = 'Shift+Enter';
+        }
+        app.inputBufferManager.queueBroadcast(()=> app.wsClient.broadcastKeyPress(broadcastKey));
+
+        // null result means swap back to previous tool
+        if (result === null) {
+          if (app.previousTool) {
+            app.selectTool(app.previousTool);
+          }
+        } else {
+          app.ui.updateSelfTextInput(result);
+          app._updateTextPreview();
+        }
+        return;
+      }
     }
 
     const actionId = this.getActionForEvent(e);

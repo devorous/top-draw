@@ -3,10 +3,36 @@
  */
 
 import { normalizeTextFont } from '../config/textFonts.js';
-import { getPreviewTextLayout } from '../utils/textLayout.js';
+import { getPreviewTextLayout, getTextLineHeight } from '../utils/textLayout.js';
 
 const REMOTE_CURSOR_IDLE_MS = 5000;
 const GROUP_HEADER_REFRESH_MS = 5000;
+
+function renderRemotePreviewContent(element, text = '') {
+  if (!element) return;
+
+  element.replaceChildren();
+
+  const lines = String(text ?? '').split('\n');
+  lines.forEach((line, index) => {
+    if (line.length > 0) {
+      element.appendChild(document.createTextNode(line));
+    }
+
+    const isLastLine = index === lines.length - 1;
+    if (!isLastLine) {
+      element.appendChild(document.createElement('br'));
+      return;
+    }
+
+    // Keep the caret visually on the trailing blank line.
+    if (line.length === 0 && lines.length > 1) {
+      element.appendChild(document.createTextNode('\u200b'));
+    }
+  });
+
+  element.appendChild(document.createTextNode('|'));
+}
 
 /**
  * RemoteUserUI class
@@ -357,13 +383,16 @@ export class RemoteUserUI {
     name.className = `name ${id}`;
     name.textContent = userData.username || userId;
 
-    const text = document.createElement('text');
+    const text = document.createElement('div');
     text.className = `text ${id}`;
     text.style.width = '400px';
     text.style.color = `rgb(${userData.color[0]}, ${userData.color[1]}, ${userData.color[2]})`;
     text.style.opacity = userData.color[3] ?? 1;
     text.style.fontSize = `${userData.size + 5}px`;
-    text.style.fontFamily = normalizeTextFont(userData.font);
+    const normalizedFont = normalizeTextFont(userData.font);
+    const lineHeight = getTextLineHeight(userData.size + 5, normalizedFont);
+    text.style.fontFamily = normalizedFont;
+    text.style.lineHeight = `${lineHeight}px`;
     const textLayout = getPreviewTextLayout(userData);
     text.style.left = `${textLayout.domLeft}px`;
     text.style.top = `${textLayout.domTop}px`;
@@ -372,16 +401,13 @@ export class RemoteUserUI {
       text.style.display = 'none';
     }
 
-    const textInput = document.createElement('text');
+    const textInput = document.createElement('span');
     textInput.className = `textInput ${id}`;
-    textInput.textContent = userData.text || '';
-    textInput.style.fontFamily = normalizeTextFont(userData.font);
-
-    const line = document.createElement('text');
-    line.textContent = '|';
+    textInput.style.fontFamily = normalizedFont;
+    textInput.style.lineHeight = `${lineHeight}px`;
+    renderRemotePreviewContent(textInput, userData.text || '');
 
     text.appendChild(textInput);
-    text.appendChild(line);
 
     this.elements.cursorsSvg.appendChild(circle);
     this.elements.cursorsSvg.appendChild(square);
@@ -922,7 +948,7 @@ export class RemoteUserUI {
     if (this._shouldSuppressLiveUser(userId)) return;
     const cursorElements = this.cursors.get(userId);
     if (cursorElements && cursorElements.textInput) {
-      cursorElements.textInput.textContent = textContent;
+      renderRemotePreviewContent(cursorElements.textInput, textContent);
     }
     if (textContent) {
       this._setCursorLayerVisibility(userId, true);
@@ -949,12 +975,16 @@ export class RemoteUserUI {
     if (!cursorElements?.text || !user) return;
 
     const layout = getPreviewTextLayout(user);
+    const normalizedFont = normalizeTextFont(user.font);
+    const lineHeight = getTextLineHeight(layout.fontSize, normalizedFont);
     cursorElements.text.style.left = `${layout.domLeft}px`;
     cursorElements.text.style.top = `${layout.domTop}px`;
     cursorElements.text.style.fontSize = `${layout.fontSize}px`;
-    cursorElements.text.style.fontFamily = normalizeTextFont(user.font);
+    cursorElements.text.style.fontFamily = normalizedFont;
+    cursorElements.text.style.lineHeight = `${lineHeight}px`;
     if (cursorElements.textInput) {
-      cursorElements.textInput.style.fontFamily = normalizeTextFont(user.font);
+      cursorElements.textInput.style.fontFamily = normalizedFont;
+      cursorElements.textInput.style.lineHeight = `${lineHeight}px`;
     }
   }
 
