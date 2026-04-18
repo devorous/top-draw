@@ -15,7 +15,9 @@ import {
 import {
   DEFAULT_APPLIED_TEXT_OFFSET,
   DEFAULT_APPLIED_TEXT_SIZE_MULTIPLIER,
-  getPreviewTextLayout
+  getPreviewTextContent,
+  getPreviewTextLayout,
+  getTextLineHeight
 } from '../utils/textLayout.js';
 
 import selectIconUrl from '../assets/icons/select-icon.svg';
@@ -1269,7 +1271,7 @@ menuBtn: document.getElementById('menuBtn'),
    * @param {string} text - Current text input
    */
   updateSelfTextInput(text) {
-    this.elements.selfTextInput.innerHTML = text;
+    this.elements.selfTextInput.textContent = getPreviewTextContent(text);
   }
 
   /**
@@ -1321,12 +1323,16 @@ menuBtn: document.getElementById('menuBtn'),
       x: 0,
       y: 0
     });
+    const normalizedFont = normalizeTextFont(font);
+    const lineHeight = getTextLineHeight(layout.fontSize, normalizedFont);
     this.elements.selfText.style.fontSize = `${layout.fontSize}px`;
+    this.elements.selfText.style.lineHeight = `${lineHeight}px`;
     const [r, g, b, a] = color;
     this.elements.selfText.style.color = `rgba(${r}, ${g}, ${b}, ${a * a})`;
-    this.elements.selfText.style.fontFamily = normalizeTextFont(font);
+    this.elements.selfText.style.fontFamily = normalizedFont;
     if (this.elements.selfTextInput) {
-      this.elements.selfTextInput.style.fontFamily = normalizeTextFont(font);
+      this.elements.selfTextInput.style.fontFamily = normalizedFont;
+      this.elements.selfTextInput.style.lineHeight = `${lineHeight}px`;
     }
     this.elements.selfText.style.left = `${layout.domLeft}px`;
     this.elements.selfText.style.top = `${layout.domTop}px`;

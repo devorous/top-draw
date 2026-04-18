@@ -6,7 +6,7 @@
 import { drawLineArray, bridgeGap } from '../utils/drawing.js';
 import { SELECTION_MODES, getNextBrushIndex } from '../utils/parseGimp.js';
 import { resetSmoothingBuffer } from '../utils/smoothing.js';
-import { getPreviewTextLayout } from '../utils/textLayout.js';
+import { getPreviewTextLayout, getUserTextLineHeight } from '../utils/textLayout.js';
 import { RemotePenHandler } from './RemotePenHandler.js';
 import { RemoteInkHandler } from './RemoteInkHandler.js';
 import { RemoteSelectionHandler } from './RemoteSelectionHandler.js';
@@ -771,13 +771,54 @@ export class RemoteUserHandler {
    */
   handleKeyPress(user, key) {
     this.ui.markRemoteCursorActivity(user.id);
-    if (key.length === 1) {
-      user.text += key;
-    } else if (key === 'Enter') {
-      user.text = '';
-    } else if (key === 'Backspace') {
-      user.text = user.text.slice(0, -1);
+
+    // Parse modifiers from key string
+    const isCtrlAction = key.startsWith('Ctrl+');
+    const isShiftEnter = key === 'Shift+Enter';
+
+    let actualKey = key;
+    let ctrlKey = false;
+    if (isCtrlAction) {
+      actualKey = key.substring(5); // Remove 'Ctrl+' prefix
+      ctrlKey = true;
+    } else if (isShiftEnter) {
+      actualKey = 'Enter';
     }
+
+    if (actualKey.length === 1) {
+      user.text += actualKey;
+    } else if (actualKey === 'Enter') {
+      if (isShiftEnter) {
+        user.text += '\n';
+      } else {
+        user.text = '';
+      }
+    } else if (actualKey === 'Backspace') {
+      if (ctrlKey) {
+        // Ctrl+Backspace: delete word backwards including preceding whitespace
+        const text = user.text;
+        let i = text.length - 1;
+        // Skip word characters backwards
+        while (i >= 0 && /\S/.test(text[i])) i--;
+        // Skip whitespace backwards
+        while (i >= 0 && /\s/.test(text[i])) i--;
+        user.text = text.slice(0, i + 1);
+      } else {
+        user.text = user.text.slice(0, -1);
+      }
+    } else if (actualKey === 'Delete') {
+      if (ctrlKey) {
+        // Ctrl+Delete: same as Ctrl+Backspace since cursor is at end
+        const text = user.text;
+        let i = text.length - 1;
+        // Skip word characters backwards
+        while (i >= 0 && /\S/.test(text[i])) i--;
+        // Skip whitespace backwards
+        while (i >= 0 && /\s/.test(text[i])) i--;
+        user.text = text.slice(0, i + 1);
+      }
+    }
+
     const hasBlendMode = user.blendMode && user.blendMode !== 'source-over';
     if (hasBlendMode) {
       this.ui.setRemoteTextDomVisible(user.id, false);
@@ -839,13 +880,16 @@ export class RemoteUserHandler {
     ctx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     if (!user.text) return;
     const { fontSize, drawX, baselineY } = getPreviewTextLayout(user);
+    const lineHeight = getUserTextLineHeight(user);
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     ctx.save();
     ctx.globalAlpha = opacity;
     ctx.fillStyle = user.getColorString();
     ctx.font = `${fontSize}px ${user.font}`;
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(user.text, drawX, baselineY);
+    user.text.split('\n').forEach((line, i) => {
+      ctx.fillText(line, drawX, baselineY + (i * lineHeight));
+    });
     ctx.restore();
   }
 

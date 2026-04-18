@@ -334,8 +334,8 @@ export class TouchHandler {
 
       case 'insertLineBreak':
       case 'insertParagraph':
-        textTool.onKeyPress(this.self, 'Enter');
-        this.wsClient.broadcastKeyPress('Enter');
+        textTool.onKeyPress(this.self, 'Enter', false, true);
+        this.wsClient.broadcastKeyPress('Shift+Enter');
         break;
 
       case 'deleteContentBackward':
