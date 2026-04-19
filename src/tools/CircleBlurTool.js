@@ -116,6 +116,11 @@ export class CircleBlurTool extends Tool {
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
+    const isHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+    if (isHidden) {
+      this.board.compositeAllLayers();
+    }
+
     const radius = user.pressure * user.size;
     const lastStamp = this.lastStampPos.get(user.id);
 
