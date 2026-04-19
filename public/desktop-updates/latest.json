@@ -1,11 +1,11 @@
 {
-  "version": "1.2.1",
-  "notes": "Initial beta release",
-  "pub_date": "2026-04-18T00:00:00Z",
+  "version": "1.2.3-beta",
+  "notes": "Updated version checking and desktop update UI. Fixed date formatting in update dialogs.",
+  "pub_date": "2026-04-19T00:00:00Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.2.1_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenRtZUtqZmlJOEtvTVIwZ0xPVUcrS3J2TURhUkFTQ1ovZFJNdHZ6MGZPN1FJWGVsNzZwbEc4Sit4RjRoR3JNemdKNnErN1U1TzZ5WG5KeFA5YUFKU3cwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2NTQ3MzMxCWZpbGU6RGRyYXdfMS4yLjFfeDY0LXNldHVwLmV4ZQpJdDY1NEZQZFk5QnJCeEhRajNrcktRZDEwd0dtWjY1ZEZ0YUJBZUV6bXhGUFl0SDlhOFBiY2xLeGF1VEs2YWo5RDg2NXg1YjlrdjAyU3loVkpwS0JBZz09Cg=="
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.2.3-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem4rNEp4RGhPNzZkRWp6ZGE2ZE04WTlkTmZIMEZDc3dVTUlQek1JTFFFcU5VcFM1cjdkcGhCVlVha1BRTkUrUlpySWxZTEFpTE0xdnlYZ0o1RThPdndZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2NTc0NjM5CWZpbGU6RGRyYXdfMS4yLjMtYmV0YV94NjQtc2V0dXAuZXhlClk2djNza1p0Y2NnVm5uRE9PdzZSbGp1WWU2aGdHVjd1bVk5MEZxWDF4UWk1enZWK0R2N0pVSkthSFRUaWxEdjJLNHBKZ29odkdLNDFiQWxma2Q5Q0N3PT0K"
     }
   }
 }
