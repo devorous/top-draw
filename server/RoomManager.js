@@ -276,7 +276,8 @@ export class Room {
   }
 
   /**
-   * Lazy loads or creates the room document from the database.
+   * Lazy loads the room document from the database if it exists.
+   * Does not create unregistered rooms; they are only persisted when explicitly registered.
    * @returns {Promise<void>}
    */
   async ensureLoaded() {
@@ -308,32 +309,6 @@ export class Room {
         this.settings.dedicatedReplayUser = doc.settings?.dedicatedReplayUser || null;
         this.settings.private = !!doc.settings?.private;
         console.log(`[Room] Loaded "${this.id}" from DB`);
-      } else {
-        const newDoc = {
-          _id: this.id,
-          description: '',
-          ownerId: null,
-          ownerUsername: null,
-          createdAt: new Date(),
-          lastActiveAt: new Date(),
-          settings: {
-            locked: false,
-            maxUsers: 40,
-            backgroundColor: '#ffffff',
-            modInactiveImmune: false,
-            joinPolicy: 'open',
-            autoMuteGuests: false,
-            autoMuteVpnUsers: false,
-            hideChatNotifications: false,
-            mirrorRegions: [],
-            dedicatedReplayUser: null,
-            private: false
-          },
-          roles: [],
-          snapshots: []
-        };
-        await db.collection('rooms').insertOne(newDoc);
-        console.log(`[Room] Created "${this.id}" in DB`);
       }
 
       this.dbLoaded = true;
@@ -345,6 +320,7 @@ export class Room {
 
   /**
    * Saves the current room metadata and settings to the database.
+   * Creates the room document if it doesn't exist (upsert mode).
    * @returns {Promise<void>}
    */
   async saveToDB() {
@@ -373,8 +349,14 @@ export class Room {
               dedicatedReplayUser: this.settings.dedicatedReplayUser,
               private: this.settings.private
             }
+          },
+          $setOnInsert: {
+            createdAt: new Date(),
+            roles: [],
+            snapshots: []
           }
-        }
+        },
+        { upsert: true }
       );
     } catch (err) {
       console.error(`[Room] Save error for "${this.id}":`, err);
