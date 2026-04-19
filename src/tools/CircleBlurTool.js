@@ -473,11 +473,11 @@ export class CircleBlurTool extends Tool {
    * @private
    */
   _drawBlurCircle(ctx, x, y, radius, color, user) {
-    const { r, g, b, a } = color;
+    const { r, g, b } = color;
     const hardness = user.hardness !== undefined ? user.hardness / 100 : 1.0;
 
     ctx.save();
-    ctx.globalAlpha = (user.opacity !== undefined ? user.opacity : 1) * a;
+    ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
 
     if (hardness < 1.0) {
       const innerR = radius * hardness;
