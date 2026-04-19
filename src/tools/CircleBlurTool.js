@@ -192,6 +192,8 @@ export class CircleBlurTool extends Tool {
         this.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
       }
     }
+
+    this.board.requestUpdate();
   }
 
   /**
@@ -353,8 +355,6 @@ export class CircleBlurTool extends Tool {
     this.board.expandDirtyRect(user,
       Math.floor(x - radius - 2), Math.floor(y - radius - 2),
       Math.ceil(radius * 2 + 4), Math.ceil(radius * 2 + 4));
-
-    this.board.requestUpdate();
   }
 
   /**
@@ -406,8 +406,6 @@ export class CircleBlurTool extends Tool {
     this.board.expandDirtyRect(user,
       Math.floor(x - radius - 2), Math.floor(y - radius - 2),
       Math.ceil(radius * 2 + 4), Math.ceil(radius * 2 + 4));
-
-    this.board.requestUpdate();
   }
 
   /**
