@@ -520,8 +520,10 @@ export async function handleSnapshotJoinNotify(ws, room) {
   // Only offer loading a server snapshot when the joiner is alone in the room.
   // If other users are present, the client should sync from a live provider instead.
   if (typeof room.getClientCount === 'function' && room.getClientCount() !== 1) {
+    console.log(`[Snapshot] Skipping join notify: room.getClientCount() = ${room.getClientCount()} (expected 1)`);
     return;
   }
+  console.log(`[Snapshot] Sending join notify: room.getClientCount() = ${room.getClientCount()}`);
 
   // Prefer in-memory snapshots that have both a thumb AND layers (auto-saves).
   for (let i = room.snapshots.length - 1; i >= 0; i--) {

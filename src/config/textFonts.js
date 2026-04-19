@@ -97,13 +97,6 @@ export function ensureTextFontsLoaded(doc = document) {
 
 export function loadTextFont(font, doc = document) {
   ensureTextFontsLoaded(doc);
-
   const normalizedFont = normalizeTextFont(font);
-  const primaryFamily = normalizedFont.split(',')[0]?.trim()?.replace(/^['"]|['"]$/g, '');
-  if (!primaryFamily) return Promise.resolve(normalizedFont);
-
-  const fontSet = doc?.fonts;
-  if (!fontSet?.load) return Promise.resolve(normalizedFont);
-
-  return fontSet.load(`16px "${primaryFamily}"`).then(() => normalizedFont).catch(() => normalizedFont);
+  return Promise.resolve(normalizedFont);
 }

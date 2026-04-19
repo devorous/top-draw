@@ -1634,9 +1634,10 @@ wss.on('connection', async (ws, req) => {
     console.log(`[Room] Parsed room ID: ${roomId}`);
 
     const room = roomManager.getOrCreateRoom(roomId);
+    console.log(`[Room.Connection] About to add client to room: ${roomId}, current client count: ${room.getClientCount()}`);
     room.addClient(ws);
 
-    console.log(`[Room] Client joined room: ${roomId}, total clients: ${room.getClientCount()}`);
+    console.log(`[Room.Connection] Client joined room: ${roomId}, total clients after addClient: ${room.getClientCount()}`);
 
     ws.pingRtt = null;
     ws.lowPowerMode = false;
@@ -1836,6 +1837,7 @@ wss.on('connection', async (ws, req) => {
           sendTo(ws, buildSettingsPayload(room));
 
           // Notify joining user of the most recent snapshot (if any)
+          console.log(`[Room.CONNECT] Before handleSnapshotJoinNotify: room client count = ${room.getClientCount()}`);
           handleSnapshotJoinNotify(ws, room).catch(() => {});
 
           // Start/continue election when first user joins (auto mode only)
