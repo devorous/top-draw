@@ -961,8 +961,8 @@ menuBtn: document.getElementById('menuBtn'),
     selfHand.style.display = 'none';
     if (selfZoom) selfZoom.style.display = 'none';
     selfText.style.display = 'none';
-    brushImage.style.display = 'none';
-    brushFileInput.style.display = 'none';
+    if (brushImage) brushImage.style.display = 'none';
+    if (brushFileInput) brushFileInput.style.display = 'none';
     brushSpacing.style.display = 'none';
     brushHardness.style.display = 'none';
     if (cursorStyleContainer) cursorStyleContainer.style.display = 'none';
@@ -985,6 +985,7 @@ menuBtn: document.getElementById('menuBtn'),
     if (patternModeOptions) patternModeOptions.style.display = 'none';
     if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'none';
     appState.patternPreviewVisible = false;
+    appState.patternPreviewMode = 'pattern';
     
     const { blendModeOptions } = this.elements;
     if (blendModeOptions) {
@@ -1081,9 +1082,9 @@ menuBtn: document.getElementById('menuBtn'),
 
       case 'imageBrush':
         this.applyLocalCursorStyle(tool, user);
-        if (user && user.imageBrush) brushImage.style.display = 'block';
-        brushFileInput.style.display = 'block';
         brushSpacing.style.display = 'block';
+        appState.patternPreviewVisible = !!user?.imageBrush;
+        appState.patternPreviewMode = 'imageBrush';
         break;
 
       case 'pattern':
@@ -1468,8 +1469,13 @@ menuBtn: document.getElementById('menuBtn'),
    * @param {string} url - Image data URL
    */
   setBrushPreview(url) {
-    this.elements.brushImage.src = url;
-    this.elements.brushImage.style.display = 'block';
+    if (this.elements.brushImage) {
+      this.elements.brushImage.src = url;
+      this.elements.brushImage.style.display = 'block';
+    }
+    appState.imageBrushPreviewUrl = url || '';
+    appState.patternPreviewMode = 'imageBrush';
+    appState.patternPreviewVisible = !!url;
   }
 
   /**

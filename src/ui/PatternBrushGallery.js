@@ -2,11 +2,10 @@
  * @fileoverview Pattern Brush Gallery - selects the image used for the grid pattern.
  */
 import { BrushGallery } from './BrushGallery.js';
-import { BRUSH_MANIFEST } from './brushManifest.js';
 
 export class PatternBrushGallery extends BrushGallery {
   constructor(options = {}) {
-    super(options);
+    super({ ...options, kind: 'pattern', includeGih: false });
     this.brushListEl = null;
   }
 
@@ -15,6 +14,7 @@ export class PatternBrushGallery extends BrushGallery {
     this.brushListEl = document.getElementById('patternBrushList');
     this.fillBrushListEl = document.getElementById('fillPatternBrushList');
     this.selectionBrushListEl = document.getElementById('selectionPatternBrushList');
+    this.listElements = [this.brushListEl, this.fillBrushListEl, this.selectionBrushListEl].filter(Boolean);
 
     if (!this.brushListEl) {
       console.warn('Pattern brush list element not found');
@@ -22,33 +22,9 @@ export class PatternBrushGallery extends BrushGallery {
     }
 
     this._initDefaultShapes();
+    this.renderUploadTile();
+    this.initHeaderActions();
     this.loadBrushes();
-  }
-
-  async loadBrushes() {
-    try {
-      for (const entry of BRUSH_MANIFEST) {
-        if (entry.file.endsWith('.gih')) continue;
-
-        try {
-          let brush;
-          if (entry.svgContent) {
-            brush = await this.loadBrushFromSvgContent(entry.svgContent, entry.file);
-          } else {
-            const brushPath = entry.path || `/brushes/${entry.file}`;
-            brush = await this.loadBrush(brushPath, entry.file);
-          }
-          if (brush) {
-            this.brushes.push(brush);
-            this.addBrushToGallery(brush);
-          }
-        } catch (err) {
-          console.warn(`Failed to load brush: ${entry.file}`, err);
-        }
-      }
-    } catch (err) {
-      console.warn('Failed to load brushes:', err);
-    }
   }
 
   _initDefaultShapes() {
@@ -61,8 +37,12 @@ export class PatternBrushGallery extends BrushGallery {
     const circleImg = new Image();
     circleImg.src = circleBrush.gimpUrl;
     circleBrush.image = circleImg;
-    this.brushes.push(circleBrush);
-    this.addBrushToGallery(circleBrush);
+    this.registerBrush({
+      ...circleBrush,
+      id: 'builtin:pattern:circle',
+      source: 'builtin',
+      kind: this.kind
+    });
 
     // Square image
     const squareBrush = {
@@ -73,8 +53,12 @@ export class PatternBrushGallery extends BrushGallery {
     const squareImg = new Image();
     squareImg.src = squareBrush.gimpUrl;
     squareBrush.image = squareImg;
-    this.brushes.push(squareBrush);
-    this.addBrushToGallery(squareBrush);
+    this.registerBrush({
+      ...squareBrush,
+      id: 'builtin:pattern:square',
+      source: 'builtin',
+      kind: this.kind
+    });
 
   }
 
@@ -93,53 +77,18 @@ export class PatternBrushGallery extends BrushGallery {
     return canvas.toDataURL();
   }
 
-
   addBrushToGallery(brush) {
-    const createGalleryItem = (brush) => {
-      const item = document.createElement('div');
-      item.className = 'brushItem';
-      item.title = brush.brushName || brush.name || brush.fileName;
-
-      if (brush.svgContent) {
-        // If SVG content is available, inject it directly
-        item.innerHTML = brush.svgContent;
-        // Optionally, you might want to size the SVG or its container
-        item.style.width = '40px'; // Example size, adjust as needed
-        item.style.height = '40px';
-        item.style.display = 'flex';
-        item.style.alignItems = 'center';
-        item.style.justifyContent = 'center';
-      } else {
-        // Fallback for non-SVG brushes (or if svgContent isn't available)
-        const img = document.createElement('img');
-        img.src = brush.gimpUrl;
-        img.alt = brush.brushName || brush.name || 'Brush';
-        item.appendChild(img);
-      }
-
-      item.addEventListener('click', () => this.selectBrush(brush, item));
-      return item;
-    };
-
-    const item = createGalleryItem(brush);
-    this.brushListEl.appendChild(item);
-
-    // Also add to fill pattern brush list if it exists
-    if (this.fillBrushListEl) {
-      const fillItem = createGalleryItem(brush);
-      this.fillBrushListEl.appendChild(fillItem);
-    }
-
-    // Also add to selection pattern brush list if it exists
-    if (this.selectionBrushListEl) {
-      const selectionItem = createGalleryItem(brush);
-      this.selectionBrushListEl.appendChild(selectionItem);
-    }
-
-    // Default selection
+    super.addBrushToGallery(brush);
     if (brush.brushName === 'Circle' && !this.selectedBrush) {
-      this.selectBrush(brush, item);
+      const defaultItem = this.brushListEl?.querySelector(`.brushItem[data-asset-id="${brush.id}"]`);
+      if (defaultItem) {
+        this.selectBrush(brush, defaultItem);
+      }
     }
+  }
+
+  getBuiltinAssetCount() {
+    return super.getBuiltinAssetCount() + 2;
   }
 
   /**

@@ -16,12 +16,14 @@
   function toggleCollapse() {
     appState.patternPreviewCollapsed = !appState.patternPreviewCollapsed;
   }
+
+  const previewTitle = $derived(appState.patternPreviewMode === 'imageBrush' ? 'Brush Preview' : 'Pattern');
 </script>
 
 {#if appState.patternPreviewVisible}
   <div class="pattern-preview-window" class:collapsed={appState.patternPreviewCollapsed}>
     <button class="pattern-preview-header" onclick={toggleCollapse}>
-      <span class="pattern-preview-title">Pattern</span>
+      <span class="pattern-preview-title">{previewTitle}</span>
       <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5">
         {#if appState.patternPreviewCollapsed}
           <polyline points="2,4 5,7 8,4" />
@@ -32,12 +34,20 @@
     </button>
     {#if !appState.patternPreviewCollapsed}
       <div class="pattern-preview-body">
-        <canvas
-          bind:this={canvasEl}
-          id="patternPreviewCanvas"
-          width="90"
-          height="90"
-        ></canvas>
+        {#if appState.patternPreviewMode === 'imageBrush' && appState.imageBrushPreviewUrl}
+          <img
+            class="image-preview"
+            src={appState.imageBrushPreviewUrl}
+            alt="Selected brush preview"
+          />
+        {:else}
+          <canvas
+            bind:this={canvasEl}
+            id="patternPreviewCanvas"
+            width="90"
+            height="90"
+          ></canvas>
+        {/if}
       </div>
     {/if}
   </div>
@@ -107,5 +117,18 @@
     width: 90px;
     height: 90px;
     flex: 0 0 90px;
+  }
+
+  .image-preview {
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--bg-primary) 88%, black);
+    border-radius: 3px;
+    display: block;
+    width: 90px;
+    height: 90px;
+    flex: 0 0 90px;
+    object-fit: contain;
+    padding: 6px;
+    box-sizing: border-box;
   }
 </style>

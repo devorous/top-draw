@@ -50,6 +50,8 @@ class DrawingState {
   colorPaletteVisible = $state(true);
   patternPreviewVisible = $state(false);
   patternPreviewCollapsed = $state(false);
+  patternPreviewMode = $state('pattern');
+  imageBrushPreviewUrl = $state('');
   toastState = $state({ text: '', visible: false });
   connectionState = $state({ connected: false, roomId: null, text: '' });
 
