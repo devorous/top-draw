@@ -9,6 +9,7 @@ import { WebSocketClient } from './network/WebSocketClient.js';
 import { UI } from './ui/index.js';
 import { BrushGalleryLoader } from './ui/BrushGalleryLoader.js';
 import { PatternBrushGallery } from './ui/PatternBrushGallery.js';
+import { assetLibrary } from './ui/AssetLibrary.js';
 import { RemoteUserHandler } from './remote/RemoteUserHandler.js';
 import { TouchHandler } from './input/TouchHandler.js';
 import { setupWebSocketHandlers } from './network/WebSocketHandlers.js';
@@ -220,10 +221,14 @@ export class DrawingApp {
     // NOTE: Chat and ColorPalette now managed by Svelte components
 
     this.brushGallery = new BrushGalleryLoader({
-      onSelect: (brush) => this.handleBrushSelect(brush)
+      onSelect: (brush) => this.handleBrushSelect(brush),
+      onUpload: () => this.ui.elements.brushFileInput?.click(),
+      assetLibrary
     });
     this.patternGallery = new PatternBrushGallery({
-      onSelect: (brush) => this.handlePatternBrushSelect(brush)
+      onSelect: (brush) => this.handlePatternBrushSelect(brush),
+      onUpload: () => this.handlePatternImageBtnClick(),
+      assetLibrary
     });
 
     // Svelte components will be initialized in init()
@@ -2004,17 +2009,30 @@ export class DrawingApp {
     reader.onload = (event) => {
       const img = new Image();
       img.onload = () => {
-        const customBrush = {
+        const customBrush = assetLibrary.addCustomAsset({
+          kind: 'pattern',
+          type: 'image',
+          fileName: file.name,
+          fileType: file.name.split('.').pop().toLowerCase(),
+          dataUrl: event.target.result,
+          gimpUrl: event.target.result,
+          brushName: file.name.replace(/\.[^/.]+$/, '') || 'Uploaded Image'
+        });
+        const runtimeBrush = {
+          ...customBrush,
           type: 'image',
           image: img,
           gimpUrl: event.target.result,
-          brushName: 'Uploaded Image'
+          width: img.width,
+          height: img.height
         };
-        this.handlePatternBrushSelect(customBrush);
+        this.patternGallery.registerBrush(runtimeBrush);
+        this.handlePatternBrushSelect(runtimeBrush);
       };
       img.src = event.target.result;
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   }
 
   handlePatternRotationChange(e) {
@@ -4247,6 +4265,28 @@ export class DrawingApp {
     const brushData = await brushTool.loadBrush(file, this.self);
 
     if (brushData) {
+      const lowerType = file.name.split('.').pop().toLowerCase();
+      if (['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(lowerType)) {
+        const customAsset = assetLibrary.addCustomAsset({
+          kind: 'imageBrush',
+          type: brushData.type,
+          fileName: file.name,
+          fileType: lowerType,
+          dataUrl: brushData.previewUrl || brushData.gimpUrl,
+          gimpUrl: brushData.previewUrl || brushData.gimpUrl,
+          svgContent: brushData.svgContent || null,
+          brushName: brushData.brushName || file.name.replace(/\.[^/.]+$/, '')
+        });
+        if (this.brushGallery.realGallery) {
+          this.brushGallery.realGallery.registerBrush({
+            ...brushData,
+            ...customAsset,
+            image: brushData.image,
+            images: brushData.images
+          });
+        }
+      }
+
       // Clone brushData without image/images properties for transmission
       const broadcastData = { ...brushData };
       delete broadcastData.image;
@@ -4260,6 +4300,7 @@ export class DrawingApp {
       this.self.imageBrush = brushData;
       this.ui.setBrushPreview(brushData.previewUrl || brushData.gimpUrl || brushData.gBrushes[0].gimpUrl);
     }
+    e.target.value = '';
   }
 
   handleChatSend(message) {
