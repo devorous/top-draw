@@ -159,7 +159,7 @@ export class ToolLockManager {
       pattern: ['size', 'pressure', 'opacity'],
       fill: ['opacity'],
       text: ['size', 'opacity'],
-      select: [],
+      select: ['opacity'],
       inkdropper: [],
       pan: [],
       rotate: []

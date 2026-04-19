@@ -1005,7 +1005,7 @@ menuBtn: document.getElementById('menuBtn'),
         sizeContainer.style.display = 'none';
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
-        opacityContainer.style.display = 'none';
+        opacityContainer.style.display = 'block';
         if (selectionModeOptions) selectionModeOptions.style.display = 'block';
         {
           const selectTool = window.app?.toolManager?.getTool('select');

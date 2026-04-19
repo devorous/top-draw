@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Ddraw",
   "version": "../package.json",
-  "identifier": "com.topdraw.app",
+  "identifier": "com.ddraw.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3000",

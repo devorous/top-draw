@@ -1134,6 +1134,14 @@ export class DrawingApp {
       }
     }, true);
 
+    // Also blur selects on change so keyboard-selected options don't keep focus trapped.
+    document.addEventListener('change', (e) => {
+      const select = e.target instanceof Element ? e.target.closest('select') : null;
+      if (select) {
+        setTimeout(() => select.blur(), 0);
+      }
+    }, true);
+
     // Form submit triggers join (both logged-in and not-logged-in join buttons are type="submit")
     elements.loginForm?.addEventListener('submit', (e) => {
       e.preventDefault();
