@@ -45,6 +45,9 @@ export class FloodFillTool {
     this._previewTimer = null;
     this._pendingPreview = false;
     this._lastTooLargeToast = 0;
+
+    // Pattern mode
+    this.patternMode = false;
   }
 
   get advancedMode() { return this._advancedMode; }

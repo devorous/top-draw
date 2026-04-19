@@ -1468,21 +1468,6 @@ export class DrawingApp {
         const fillTool = this.toolManager.getTool('fill');
         if (fillTool) fillTool.patternMode = e.target.checked;
         if (fillPatternSettings) fillPatternSettings.style.display = e.target.checked ? 'block' : 'none';
-
-        // Sync pattern mode to user object and broadcast
-        this.self.patternMode = e.target.checked;
-        if (this.connected && this.wsClient) {
-          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternMode(e.target.checked));
-        }
-
-        // Show/hide pattern preview window
-        appState.patternPreviewVisible = e.target.checked;
-
-        // Update preview if pattern tool exists
-        const patternTool = this.toolManager.getTool('pattern');
-        if (patternTool && e.target.checked) {
-          patternTool.updatePreview(this.self);
-        }
       });
     }
 
