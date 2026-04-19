@@ -479,6 +479,7 @@ export class RemoteUserHandler {
           const circleBlurTool = this.toolManager.getTool(user.tool);
           if (circleBlurTool) {
             const radius = user.pressure * user.size;
+            circleBlurTool.beginSnapshot(user.id);
             circleBlurTool.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
             circleBlurTool.stampBlurredCircle(pos.x, pos.y, radius, user);
             this.board.forEachMirrorRegion({ point: pos }, (region) => {
@@ -742,7 +743,10 @@ export class RemoteUserHandler {
     user.lassoPoints = null;
 
     const circleBlurTool = this.toolManager.getTool('circleBlur');
-    if (circleBlurTool) circleBlurTool.lastStampPos.delete(user.id);
+    if (circleBlurTool) {
+      circleBlurTool.lastStampPos.delete(user.id);
+      circleBlurTool.clearSnapshot(user.id);
+    }
 
     const glitchBlurTool = this.toolManager.getTool('glitchBlur');
     if (glitchBlurTool) glitchBlurTool.lastStampPos.delete(user.id);

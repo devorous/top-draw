@@ -62,6 +62,45 @@ export class CircleBlurTool extends Tool {
     this.lastStampPos = new Map(); // userId -> {x, y, radius}
     this.stampBuffer = []; // [x, y, radius, x, y, radius, ...] for broadcast
     this.strokePoints = []; // Track points for tile ownership
+    this._snapshotCanvases = new Map(); // userId -> canvas with snapshot of mainCtx at stroke start
+  }
+
+  /**
+   * Captures a snapshot of mainCtx at the start of a stroke.
+   * All subsequent stamps in the stroke will sample from this snapshot
+   * to ensure deterministic, consistent color sampling regardless of RAF timing.
+   * @param {number} userId
+   */
+  beginSnapshot(userId) {
+    let canvas = this._snapshotCanvases.get(userId);
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      this._snapshotCanvases.set(userId, canvas);
+    }
+    canvas.width = this.board.mainCanvas.width;
+    canvas.height = this.board.mainCanvas.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(this.board.mainCanvas, 0, 0);
+  }
+
+  /**
+   * Clears the snapshot for a user after their stroke ends.
+   * @param {number} userId
+   */
+  clearSnapshot(userId) {
+    this._snapshotCanvases.delete(userId);
+  }
+
+  /**
+   * Gets the 2d context for sampling (either snapshot or fallback to mainCtx).
+   * @param {number} userId
+   * @returns {CanvasRenderingContext2D}
+   * @private
+   */
+  _getSnapshotCtx(userId) {
+    const canvas = this._snapshotCanvases.get(userId);
+    if (!canvas) return this.board.mainCtx;
+    return canvas.getContext('2d', { willReadFrequently: true });
   }
 
   /**
@@ -77,6 +116,7 @@ export class CircleBlurTool extends Tool {
       this.onPointerUp(this._activeUser);
     }
     this.lastStampPos.clear();
+    this._snapshotCanvases.clear();
     this._activeUser = null;
   }
 
@@ -89,8 +129,12 @@ export class CircleBlurTool extends Tool {
     this._activeUser = user;
     this.board.beginStroke(user);
     const radius = user.pressure * user.size;
+    const userId = user.id ?? this.board.app?.self?.id ?? 0;
 
     this.strokePoints = [{ x: pos.x, y: pos.y }];
+
+    // Capture snapshot of mainCtx before drawing any circles
+    this.beginSnapshot(userId);
 
     // Stamp averaged circle (now synchronous and fast)
     this.stampBlurredCircle(pos.x, pos.y, radius, user);
@@ -171,10 +215,12 @@ export class CircleBlurTool extends Tool {
         const width = right - left;
         const height = bottom - top;
 
-        // Fetch imageData once for the entire batch
+        // Fetch imageData once for the entire batch (sample from snapshot for deterministic colors)
         let cachedImageData = null;
         if (width > 0 && height > 0) {
-          cachedImageData = this.board.mainCtx.getImageData(left, top, width, height);
+          const userId = user.id ?? this.board.app?.self?.id ?? 0;
+          const sampleCtx = this._getSnapshotCtx(userId);
+          cachedImageData = sampleCtx.getImageData(left, top, width, height);
         }
 
         // Now stamp using cached data
@@ -209,7 +255,9 @@ export class CircleBlurTool extends Tool {
     }
     this.strokePoints = [];
 
+    const userId = user.id ?? this.board.app?.self?.id ?? 0;
     this.board.endStroke(user);
+    this.clearSnapshot(userId);
     this.lastStampPos.delete(user.id);
   }
 
@@ -279,10 +327,12 @@ export class CircleBlurTool extends Tool {
     const width = right - left;
     const height = bottom - top;
 
-    // Fetch imageData once
+    // Fetch imageData once (sample from snapshot for deterministic colors)
     let cachedImageData = null;
     if (width > 0 && height > 0) {
-      cachedImageData = this.board.mainCtx.getImageData(left, top, width, height);
+      const userId = user.id ?? 0;
+      const sampleCtx = this._getSnapshotCtx(userId);
+      cachedImageData = sampleCtx.getImageData(left, top, width, height);
     }
 
     // Apply all stamps
@@ -334,8 +384,9 @@ export class CircleBlurTool extends Tool {
 
     if (width <= 0 || height <= 0) return;
 
-    // Get pixel data from the main canvas
-    const imageData = this.board.mainCtx.getImageData(left, top, width, height);
+    // Get pixel data from snapshot (deterministic sampling at stroke start)
+    const sampleCtx = this._getSnapshotCtx(userId);
+    const imageData = sampleCtx.getImageData(left, top, width, height);
 
     // Use shared sampling logic
     const color = this._sampleAverageColor(imageData.data, width, height, x - left, y - top, sampleRadius, radius);
