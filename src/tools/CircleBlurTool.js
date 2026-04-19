@@ -482,14 +482,14 @@ export class CircleBlurTool extends Tool {
     if (hardness < 1.0) {
       const innerR = radius * hardness;
       const grad = ctx.createRadialGradient(x, y, innerR, x, y, radius);
-      grad.addColorStop(0, `rgb(${r}, ${g}, ${b})`);
+      grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, 1)`);
       grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
       ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 1)`;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.fill();
