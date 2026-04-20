@@ -1,7 +1,7 @@
 {
-  "latest": "1.3.0-beta",
-  "minRequired": "1.3.0-beta",
-  "releaseDate": "2026-04-19",
+  "latest": "1.3.1-beta",
+  "minRequired": "1.3.1-beta",
+  "releaseDate": "2026-04-20",
   "notes": "Updated chat visuals and added new mirror mode. Added new image brush/pattern brush handling and permanent custom brush uploading.",
   "downloadUrl": "https://www.ddraw.ca/download"
 }

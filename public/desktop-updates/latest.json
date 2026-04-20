@@ -1,11 +1,11 @@
 {
-  "version": "1.3.0-beta",
-  "notes": "Updated version checking and desktop update UI. Fixed date formatting in update dialogs.",
-  "pub_date": "2026-04-19T00:00:00Z",
+  "version": "1.3.1-beta",
+  "notes": "Updated chat visuals and added new mirror mode. Added new image brush/pattern brush handling and permanent custom brush uploading.",
+  "pub_date": "2026-04-20T00:00:00Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.3.0-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem16dHFuM2QwTXZEYzJ4ZHgxYUpxMlpqVzhCWGdMMVNLRzg1Z1VabURIMTNkRUlwUnNSeXdLRll6bUtHbElRcnp3bmtpSGpoQlFTU3NOalg2TlVPUWdJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2NjQyNTY1CWZpbGU6RGRyYXdfMS4zLjAtYmV0YV94NjQtc2V0dXAuZXhlCnBXWHQrbm5BUGlkQm1hWlYrYWhUZGxDT215QytRRXhwS0xaVUk5U0N2TFVEUDJjRnhqeUFRRVpyVUZRTTdvK1laQmtvemwwaFFpZlROWjNmdG1KdUFBPT0K"
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.3.1-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenRZdFE5aWx3MHE5SUp4R21sd3Q3UVgxa05aTTF1SS92bVlCajUyYUJhTk9aUWJXK0k0a0Y2cXp0Wmd3RHBhdVdDdUROZzZod1FONG52Y3NlUUdJaEFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2NzA5NzIxCWZpbGU6RGRyYXdfMS4zLjEtYmV0YV94NjQtc2V0dXAuZXhlCmRCMnl0RnB2aEdPVlJtQzFENllYWERpRHB0QTBEaCtiR2FVK0puLzRsSmwxemQ1QVVVOWdRbWY3YllOWVQxaUtJRUVFUHprdllxa09MWWtYU29NbEFnPT0K"
     }
   }
 }
