@@ -137,6 +137,30 @@ function getPublicManifestUrl() {
   return `${resolveUpdateBaseUrl()}/${resolveUpdatePrefix()}/latest.json`;
 }
 
+function cleanOldDistUpdates() {
+  // Clean up old installers from dist/desktop-updates to prevent bundling bloat
+  const distWindowsDir = path.join(distUpdatesRoot, 'windows-x86_64');
+  if (!fs.existsSync(distWindowsDir)) {
+    return; // No old files to clean
+  }
+
+  try {
+    const files = fs.readdirSync(distWindowsDir);
+    const exeFiles = files.filter(f => f.endsWith('.exe') || f.endsWith('.exe.sig'));
+    
+    if (exeFiles.length > 0) {
+      exeFiles.forEach(f => {
+        const filePath = path.join(distWindowsDir, f);
+        fs.unlinkSync(filePath);
+      });
+      console.log(`[Updater] Cleaned ${exeFiles.length} old installer file(s) from dist/desktop-updates`);
+    }
+  } catch (error) {
+    console.warn(`[Updater] Warning: Could not clean old dist files: ${error.message}`);
+    // Continue anyway, this is not critical
+  }
+}
+
 function stageWindowsUpdaterArtifacts() {
   const nsisDir = path.join(bundleRoot, 'nsis');
   if (!fs.existsSync(nsisDir)) {
@@ -157,6 +181,9 @@ function stageWindowsUpdaterArtifacts() {
 
   ensureDir(windowsUpdatesDir);
   const exeFileName = path.basename(exePath);
+
+  // Clean old files from dist before copying new ones (prevents bundling bloat)
+  cleanOldDistUpdates();
 
   copyFileToTargets(exePath, path.join('windows-x86_64', exeFileName));
   copyFileToTargets(sigPath, path.join('windows-x86_64', path.basename(sigPath)));

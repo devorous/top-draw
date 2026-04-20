@@ -5,6 +5,7 @@
   let canvasEl = $state(null);
   let canvasReady = $state(false);
   let mounted = $state(false);
+  let appVersion = $state(typeof window !== 'undefined' ? window.APP_VERSION || '1.3.0' : '1.3.0');
 
   // Virtual canvas space
   const VW = 480, VH = 300;
@@ -221,11 +222,11 @@
     <div class="funky-card">
       <div class="card-content">
         <h2>Desktop App!</h2>
-        <p>Want it to go even faster? Grab the Windows app. It's lightweight (&lt; 10MB), runs even smoother and looks great on your taskbar.</p>
+        <p>Want it to go even faster? Grab the Windows app. It's lightweight (&lt; 20MB), has a cleaner UI and looks great on your taskbar.</p>
         <a href={WINDOWS_DOWNLOAD_URL} class="btn-primary download-btn">
           Download for Windows
         </a>
-        <p class="tiny-print">v0.1.0 • Built with Tauri 2</p>
+        <p class="tiny-print">v{appVersion} • Built with Tauri 2</p>
       </div>
       <div class="card-decorations">
         <div class="star s1">★</div>
