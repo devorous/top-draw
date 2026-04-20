@@ -11,6 +11,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
   // Preload stackblur so remote fill blur uses the same renderer as local
   blurImageData(new ImageData(1, 1), 1, 1, 1).catch(() => {});
   const { users, ui, board, remoteUserHandler } = app;
+  const pressureTools = new Set(['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur', 'imageBrush']);
 
   wrapHandler('mm', (data) => {
     const user = users.get(data.sessionIndex);
@@ -36,6 +37,9 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('cp', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
+      if (!pressureTools.has(user.tool)) {
+        return;
+      }
       if (user.mousedown && !user._penStrokeActive && !user._inkStrokeActive) {
         if (user.tool === 'brush') {
           remoteUserHandler.commitLine(user, data.pressure, user.size);

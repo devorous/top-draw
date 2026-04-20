@@ -4733,6 +4733,10 @@ export class DrawingApp {
     return !['pan', 'zoom', 'rotate', 'inkdropper'].includes(toolName);
   }
 
+  _toolUsesPressure(toolName = this.self?.tool) {
+    return ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur', 'imageBrush'].includes(toolName);
+  }
+
   _isCanvasRegionLocked(pos, previousPos = null) {
     if (!this.board || !this._toolMutatesCanvas()) return false;
     if (!this.board.hasInteractionBlocks?.()) return false;
@@ -4857,7 +4861,8 @@ export class DrawingApp {
     // Handle pressure for pen input — default to current pressure so non-pen
     // events (e.g. palm touch) mid-stroke don't slam pressure to 1
     let pressure = this.self.pressure;
-    if (!this.pressureEnabled) {
+    const toolUsesPressure = this._toolUsesPressure(this.self.tool);
+    if (!toolUsesPressure || !this.pressureEnabled) {
       pressure = 1;
     } else if (e.pointerType === 'pen' && !this.self.panning) {
       // On pen lift (e.pressure === 0), keep the last known pressure if mid-stroke.
@@ -5101,14 +5106,21 @@ export class DrawingApp {
       }, 100);
     }
 
-    if (e.pointerType === 'mouse' || !this.pressureEnabled) {
+    const toolUsesPressure = this._toolUsesPressure(this.self.tool);
+    if (toolUsesPressure) {
+      if (e.pointerType === 'mouse' || !this.pressureEnabled) {
+        this.self.setPressure(1);
+        this.inputBufferManager.inputBuffer.pressure = 1;
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(1));
+      } else if (e.pointerType === 'pen' && this.pressureEnabled) {
+        // Start pen input at 0 pressure until real pressure data arrives
+        this.self.setPressure(0);
+        this.inputBufferManager.inputBuffer.pressure = 0;
+      }
+    } else {
+      // Non-pressure tools keep pressure at full to avoid side effects.
       this.self.setPressure(1);
       this.inputBufferManager.inputBuffer.pressure = 1;
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(1));
-    } else if (e.pointerType === 'pen' && this.pressureEnabled) {
-      // Start pen input at 0 pressure until real pressure data arrives
-      this.self.setPressure(0);
-      this.inputBufferManager.inputBuffer.pressure = 0;
     }
 
     const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
@@ -5129,7 +5141,7 @@ export class DrawingApp {
     // Fully reset self position state for new stroke to prevent jumping
     this.self.resetPosition(pos.x, pos.y);
     // For pen input that will be deferred, update cursor with estimated pressure to avoid showing full-size dot
-    if (e.pointerType === 'pen' && this.pressureEnabled && this.self.tool !== 'text') {
+    if (e.pointerType === 'pen' && this.pressureEnabled && this.self.tool !== 'text' && toolUsesPressure) {
       const estimatedPressure = 0.5; // Reasonable default for initial pen pressure
       const pressureTools = ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur'];
       const cursorStyle = this.ui.getCursorStyleForTool(this.self.tool, this.self);
@@ -5179,7 +5191,7 @@ export class DrawingApp {
           this.ui.activateTouchInput(e.clientX, e.clientY);
           
           // DO NOT broadcastMouseDown here. We wait until pointerUp for text+touch.
-        } else if (e.pointerType === 'pen' && this.pressureEnabled && this.self.tool !== 'text') {
+        } else if (e.pointerType === 'pen' && this.pressureEnabled && this.self.tool !== 'text' && toolUsesPressure) {
           // Defer pen stroke start until first pointerMove provides real pressure
           this._pendingPenDown = { pos, event: e };
         } else {
@@ -5343,7 +5355,9 @@ export class DrawingApp {
           // Keep remote pressure state in sync for deferred pen taps. Without this,
           // remote clients reuse the previous stroke's pressure when MD arrives,
           // which can produce a large start dot for pressure-sensitive tools.
-          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(this.self.pressure));
+          if (this._toolUsesPressure(this.self.tool)) {
+            this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(this.self.pressure));
+          }
           this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y]));
           tool.onPointerDown(this.self, pending.pos, pending.event);
         }

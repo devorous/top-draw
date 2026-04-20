@@ -49,7 +49,7 @@ const LEGACY_MESSENGER_DB_NAME = process.env.MONGODB_MESSENGER_DB_NAME || 'ddraw
 const WS_CONNECTION_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 10 * 60 * 1000 };
 const MESSENGER_CONNECTION_LIMIT = { max: 20, windowMs: 60 * 1000, blockMs: 10 * 60 * 1000 };
 const MESSENGER_MESSAGE_LIMIT = { max: 120, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
-const WS_DRAW_LIMIT = { max: 5000, windowMs: 10 * 1000, blockMs: 15 * 1000 };
+const WS_DRAW_LIMIT = { max: 12000, windowMs: 10 * 1000, blockMs: 15 * 1000 };
 const WS_CHAT_LIMIT = { max: 20, windowMs: 10 * 1000, blockMs: 30 * 1000 };
 const WS_CHAT_IMAGE_LIMIT = { max: 4, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
 const WS_HEAVY_IMAGE_LIMIT = { max: 180, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
@@ -1674,7 +1674,9 @@ wss.on('connection', async (ws, req) => {
   ws.on('message', async (rawData) => {
     // Per-connection message rate limiting
     if (!DISABLE_RATE_LIMITS) {
-      const wsKey = ws.clientIp || 'unknown';
+      // Use per-connection keying here so one noisy socket (or another local tab)
+      // does not starve peers behind the same IP/NAT.
+      const wsKey = ws.rateLimitId || ws.clientIp || 'unknown';
       if (!wsMessageLimiter.check(wsKey)) {
         return; // Silently drop excess messages
       }

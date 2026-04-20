@@ -55,8 +55,8 @@ export const uploadLimiter = createRateLimiter({ windowMs: 60 * 60 * 1000, max: 
 /** Gallery likes: 30 per minute (prevent spam-clicking) */
 export const likeLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 30 });
 
-/** WebSocket messages: 200 per second per connection (burst protection) */
-export const wsMessageLimiter = createRateLimiter({ windowMs: 1000, max: 200 });
+/** WebSocket messages: coarse burst guard, keyed per connection by caller */
+export const wsMessageLimiter = createRateLimiter({ windowMs: 1000, max: 1200 });
 
 /** WebSocket connections: 20 per minute per IP */
 export const wsConnectionLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 20 });

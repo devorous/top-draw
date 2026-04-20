@@ -438,9 +438,14 @@ export class WebSocketClient {
       this._processingScheduled = true;
       const isHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
       if (isHidden) {
-        setTimeout(() => this._processMessageQueue(), 0);
+        const defer = typeof queueMicrotask === 'function'
+          ? queueMicrotask
+          : (fn) => Promise.resolve().then(fn);
+        // Hidden tabs heavily throttle timers/rAF; drain promptly to avoid
+        // multi-second remote stroke stalls and segment jumps.
+        defer(() => this._processMessageQueue(true));
       } else {
-        requestAnimationFrame(() => this._processMessageQueue());
+        requestAnimationFrame(() => this._processMessageQueue(false));
       }
     }
   }
@@ -477,9 +482,9 @@ export class WebSocketClient {
    * @private
    * @returns {void}
    */
-  _processMessageQueue() {
+  _processMessageQueue(forceDrain = false) {
     this._processingScheduled = false;
-    const BUDGET_MS = 8;
+    const BUDGET_MS = forceDrain ? Number.POSITIVE_INFINITY : 8;
     const start = performance.now();
     let processed = 0;
 
@@ -499,7 +504,7 @@ export class WebSocketClient {
         } catch (err) {
           console.error('Failed to decode batched message:', err);
           processed++;
-          if (processed % 10 === 0 && performance.now() - start > BUDGET_MS) break;
+          if (!forceDrain && processed % 10 === 0 && performance.now() - start > BUDGET_MS) break;
           continue;
         }
       } else {
@@ -509,7 +514,7 @@ export class WebSocketClient {
       this._processMessage(data);
       processed++;
 
-      if (processed % 10 === 0 && performance.now() - start > BUDGET_MS) {
+      if (!forceDrain && processed % 10 === 0 && performance.now() - start > BUDGET_MS) {
         break;
       }
     }
