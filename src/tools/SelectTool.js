@@ -880,6 +880,8 @@ export class SelectTool extends Tool {
    * @param {CanvasRenderingContext2D} ctx
    */
   _drawHandles(ctx) {
+    const { drawSize } = this._getHandleMetrics();
+
     for (const handle of this.handles) {
       if (handle.isRotation) {
         const tm = this.handles.find(h => h.id === 'tm');
@@ -895,7 +897,7 @@ export class SelectTool extends Tool {
         ctx.fillStyle = '#fff';
         ctx.strokeStyle = '#000';
         ctx.beginPath();
-        ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+        ctx.arc(handle.x, handle.y, drawSize / 2 + 2, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       } else if (handle.isPerspective) {
@@ -916,7 +918,7 @@ export class SelectTool extends Tool {
           ctx.strokeStyle = '#000';
           ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+          ctx.arc(handle.x, handle.y, drawSize / 2 + 2, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
         }
@@ -925,16 +927,16 @@ export class SelectTool extends Tool {
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 1;
         ctx.fillRect(
-          handle.x - this.handleSize / 2,
-          handle.y - this.handleSize / 2,
-          this.handleSize,
-          this.handleSize
+          handle.x - drawSize / 2,
+          handle.y - drawSize / 2,
+          drawSize,
+          drawSize
         );
         ctx.strokeRect(
-          handle.x - this.handleSize / 2,
-          handle.y - this.handleSize / 2,
-          this.handleSize,
-          this.handleSize
+          handle.x - drawSize / 2,
+          handle.y - drawSize / 2,
+          drawSize,
+          drawSize
         );
       }
     }
@@ -1643,6 +1645,8 @@ export class SelectTool extends Tool {
   drawTransformHandles(ctx) {
     if (!this.corners) return;
 
+    const { drawSize } = this._getHandleMetrics();
+
     const c = this.corners;
     const center = this.getSelectionCenter();
 
@@ -1682,16 +1686,16 @@ export class SelectTool extends Tool {
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 1;
       ctx.fillRect(
-        pos.x - this.handleSize / 2,
-        pos.y - this.handleSize / 2,
-        this.handleSize,
-        this.handleSize
+        pos.x - drawSize / 2,
+        pos.y - drawSize / 2,
+        drawSize,
+        drawSize
       );
       ctx.strokeRect(
-        pos.x - this.handleSize / 2,
-        pos.y - this.handleSize / 2,
-        this.handleSize,
-        this.handleSize
+        pos.x - drawSize / 2,
+        pos.y - drawSize / 2,
+        drawSize,
+        drawSize
       );
     }
 
@@ -1735,7 +1739,7 @@ export class SelectTool extends Tool {
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(handle.x, handle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+      ctx.arc(handle.x, handle.y, drawSize / 2 + 2, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
     }
@@ -1755,7 +1759,7 @@ export class SelectTool extends Tool {
     ctx.fillStyle = '#fff';
     ctx.strokeStyle = '#000';
     ctx.beginPath();
-    ctx.arc(rotHandle.x, rotHandle.y, this.handleSize / 2 + 2, 0, Math.PI * 2);
+    ctx.arc(rotHandle.x, rotHandle.y, drawSize / 2 + 2, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
   }
@@ -1808,12 +1812,57 @@ export class SelectTool extends Tool {
            pos.y >= s.y && pos.y <= s.y + s.height;
   }
 
+  _getSelectionBoundsForHandles() {
+    if (!this.selection) {
+      return { width: 0, height: 0 };
+    }
+
+    if (!this.corners) {
+      return {
+        width: this.selection.width,
+        height: this.selection.height
+      };
+    }
+
+    const c = this.corners;
+    const minX = Math.min(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+    const maxX = Math.max(c.tl.x, c.tr.x, c.bl.x, c.br.x);
+    const minY = Math.min(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+    const maxY = Math.max(c.tl.y, c.tr.y, c.bl.y, c.br.y);
+
+    return {
+      width: Math.max(0, maxX - minX),
+      height: Math.max(0, maxY - minY)
+    };
+  }
+
+  _getHandleMetrics() {
+    const zoom = Math.max(0.01, this.board.zoom || 1);
+    const bounds = this._getSelectionBoundsForHandles();
+    const minDimScreen = Math.min(bounds.width, bounds.height) * zoom;
+
+    // Keep handles stable on-screen while shrinking hit zones for tiny selections.
+    const minScreenSize = 5;
+    const minScreenHit = 6;
+    const sizeCapFromSelection = Math.max(minScreenSize, minDimScreen * 0.18);
+    const hitCapFromSelection = Math.max(minScreenHit, minDimScreen * 0.24);
+
+    const effectiveScreenSize = Math.min(this.handleSize, sizeCapFromSelection);
+    const effectiveScreenHit = Math.min(this.handleHitArea, hitCapFromSelection);
+
+    return {
+      drawSize: effectiveScreenSize / zoom,
+      hitArea: effectiveScreenHit / zoom
+    };
+  }
+
   getHandleAtPoint(pos) {
+    const { hitArea } = this._getHandleMetrics();
+
     for (const handle of this.handles) {
       const dx = pos.x - handle.x;
       const dy = pos.y - handle.y;
-      // Use larger hit area for easier clicking
-      if (Math.abs(dx) <= this.handleHitArea && Math.abs(dy) <= this.handleHitArea) {
+      if (Math.abs(dx) <= hitArea && Math.abs(dy) <= hitArea) {
         return handle;
       }
     }
