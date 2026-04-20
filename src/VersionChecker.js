@@ -168,6 +168,12 @@ export async function checkVersionCompatibility() {
  * Allows user to dismiss and continue with offline drawing.
  */
 export function showOutdatedClientWarning(versionInfo) {
+  // Desktop uses the dedicated updater prompt in src/platform/updater.js.
+  // Skip this legacy red warning modal to avoid duplicate update dialogs.
+  if (isTauriDesktop()) {
+    return Promise.resolve();
+  }
+
   return new Promise((resolve) => {
     const backdrop = document.createElement('div');
     backdrop.style.cssText = `

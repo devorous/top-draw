@@ -18,13 +18,16 @@ function ensureUpdaterModalStyles() {
   style.textContent = `
     .desktopUpdaterBackdrop {
       position: fixed;
-      inset: 0;
+      top: var(--desktop-titlebar-height, 0px);
+      right: 0;
+      bottom: 0;
+      left: 0;
       display: flex;
       align-items: center;
       justify-content: center;
       background: rgba(7, 10, 14, 0.72);
       backdrop-filter: blur(8px);
-      z-index: 100001;
+      z-index: 12000;
       padding: 20px;
     }
 
@@ -143,6 +146,14 @@ function ensureUpdaterModalStyles() {
       font-size: 13px;
       color: var(--text-muted, #8b93a1);
     }
+
+    .desktopUpdaterDialog.isInstalling .desktopUpdaterBtn {
+      pointer-events: none;
+    }
+
+    .desktopUpdaterDialog.isInstalling .desktopUpdaterBtnPrimary {
+      opacity: 0.72;
+    }
   `;
 
   document.head.appendChild(style);
@@ -192,13 +203,18 @@ function promptForDesktopUpdate(update) {
     const laterBtn = dialog.querySelector('[data-action="later"]');
     const installBtn = dialog.querySelector('[data-action="install"]');
 
-    function finish(result) {
+    function close() {
       backdrop.remove();
-      resolve(result);
     }
 
-    laterBtn.addEventListener('click', () => finish({ action: 'later' }));
-    installBtn.addEventListener('click', () => finish({ action: 'install', statusEl, installBtn, laterBtn }));
+    laterBtn.addEventListener('click', () => {
+      close();
+      resolve({ action: 'later' });
+    });
+
+    installBtn.addEventListener('click', () => {
+      resolve({ action: 'install', statusEl, installBtn, laterBtn, dialog, close });
+    });
 
     backdrop.appendChild(dialog);
     document.body.appendChild(backdrop);
@@ -234,12 +250,25 @@ export async function checkForDesktopUpdates({ silent = false } = {}) {
       return { status: 'deferred', version: update.version };
     }
 
+    promptResult.dialog.classList.add('isInstalling');
     promptResult.installBtn.disabled = true;
     promptResult.laterBtn.disabled = true;
     promptResult.statusEl.textContent = 'Installing update... The app will restart when it finishes.';
-    await invoke('install_update');
-    await relaunch();
-    return { status: 'installed', version: update.version };
+
+    try {
+      await invoke('install_update');
+      await relaunch();
+      return { status: 'installed', version: update.version };
+    } catch (installError) {
+      promptResult.dialog.classList.remove('isInstalling');
+      promptResult.installBtn.disabled = false;
+      promptResult.laterBtn.disabled = false;
+      promptResult.statusEl.textContent = 'Update failed. Please try again in a moment.';
+      return {
+        status: 'error',
+        error: installError instanceof Error ? installError.message : String(installError)
+      };
+    }
   } catch (error) {
     if (!silent) {
       console.warn('[Updater] Desktop update check failed:', error);
