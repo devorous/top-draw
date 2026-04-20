@@ -170,6 +170,14 @@ export async function handleSnapshotSave(ws, data, room) {
         name: data.n || (isAuto ? `Auto-save ${new Date(snapshotTs).toLocaleTimeString()}` : `Snapshot ${new Date(snapshotTs).toLocaleString()}`)
       };
 
+      // Include mirror region settings with manual snapshots so full restore can match room state.
+      if (!isAuto) {
+        const mirrorRegions = room.settings?.mirrorRegions || [];
+        if (mirrorRegions.length > 0) {
+          mongoDoc.mirrorRegions = mirrorRegions;
+        }
+      }
+
       await db.collection('rooms').updateOne(
         { _id: room.id },
         { $push: { snapshots: mongoDoc } }

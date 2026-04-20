@@ -55,9 +55,17 @@ export class SyncCoordinator {
     }
 
     if (candidates.length === 0) {
-      console.log(`[Sync] No non-AFK providers available for user ${requesterSessionIndex}`);
-      this._fallbackToSnapshotOrComplete(ws, requesterSessionIndex);
-      return;
+      // Prefer an AFK provider over snapshot fallback so joiners still receive
+      // the latest live canvas state (e.g. history region restores).
+      const afkCandidates = this._getRankedCandidates(ws, { includeAfk: true });
+      if (afkCandidates.length > 0) {
+        console.log(`[Sync] No active providers; using AFK fallback provider list for user ${requesterSessionIndex}`);
+        candidates = afkCandidates;
+      } else {
+        console.log(`[Sync] No providers available for user ${requesterSessionIndex}`);
+        this._fallbackToSnapshotOrComplete(ws, requesterSessionIndex);
+        return;
+      }
     }
 
     this._tryNextCandidate(ws, requesterSessionIndex, candidates, 0);
@@ -198,13 +206,15 @@ export class SyncCoordinator {
    * @returns {number[]} Session indices, best first.
    * @private
    */
-  _getRankedCandidates(requesterWs) {
+  _getRankedCandidates(requesterWs, options = {}) {
+    const includeAfk = options.includeAfk === true;
     const candidates = [];
     const excludeIdx = Number(requesterWs.sessionIndex);
 
     for (const [sessionIndex, userData] of this.sessionManager.users) {
       const idx = Number(sessionIndex);
-      if (idx === excludeIdx || !userData.name || userData.afk) continue;
+      if (idx === excludeIdx || !userData.name) continue;
+      if (!includeAfk && userData.afk) continue;
       const client = this._findClient(idx);
       if (client && client !== requesterWs) {
         candidates.push({

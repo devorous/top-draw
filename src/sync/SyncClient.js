@@ -436,6 +436,18 @@ export class SyncClient {
     const { targetUser } = data;
     console.log('[SyncClient] Asked to provide layer state for user', targetUser);
 
+    // History-menu region restores are applied asynchronously. Wait until they
+    // finish so the provider does not export a partial pre-restore state.
+    const pendingRegionRestore = this.app?._pendingSnapshotRegionRestorePromise;
+    if (pendingRegionRestore) {
+      try {
+        console.log('[SyncClient] Waiting for pending snapshot region restore before providing sync');
+        await pendingRegionRestore;
+      } catch (err) {
+        console.warn('[SyncClient] Pending snapshot region restore failed before sync provide', err);
+      }
+    }
+
     // Selection moves are throttled separately from the general input buffer.
     // Flush any pending final corners before we snapshot so inactive-tab replay
     // does not stop on an older move/rotation state.

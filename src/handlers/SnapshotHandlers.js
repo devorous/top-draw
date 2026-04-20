@@ -49,9 +49,19 @@ export function setupSnapshotHandlers(wsClient, app) {
   // Handle region restoration (broadcast from server)
   wsClient.on('board_snapshot_region_restore', (data) => {
     if (!data.snapshotLayers || data.snapshotLayers.length === 0) return;
-    void applyRegionRestore(app.board, data.snapshotLayers, data.isLasso, {
+    const restorePromise = applyRegionRestore(app.board, data.snapshotLayers, data.isLasso, {
       sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh
-    }, data.cr || []);
+    }, data.cr || []).catch((err) => {
+      console.warn('[Snapshot] Failed to apply region restore', err);
+    });
+
+    // Expose in-flight region restores so sync providers can wait for stable state.
+    app._pendingSnapshotRegionRestorePromise = restorePromise;
+    restorePromise.finally(() => {
+      if (app._pendingSnapshotRegionRestorePromise === restorePromise) {
+        app._pendingSnapshotRegionRestorePromise = null;
+      }
+    });
   });
 
   // Notify joining user about the most recent snapshot
@@ -94,7 +104,7 @@ export function setupSnapshotHandlers(wsClient, app) {
       group.activeStrokeByUser.clear();
     }
     app.updateUndoRedoHud();
-    
+
     // Re-request sync for everything else if needed
     // app.syncClient.requestSync();
   });
