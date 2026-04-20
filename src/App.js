@@ -182,6 +182,7 @@ export class DrawingApp {
   constructor(options = {}) {
     this.sessionIndex = null;
     this.users = new Map();
+    this.fingerprintIdUserColorCache = new Map(); // Map fingerprint ID -> color for persistent user identification
     this.connected = false;
     this.previousTool = null;
     this.intentionalDisconnect = false;
@@ -5262,7 +5263,8 @@ export class DrawingApp {
 
     if (this.keyboardHandler?.handlePointerUp(e)) return;
 
-    if (this.syncClient?.isCanvasInputBlocked()) return;
+    // Block local input while syncing
+    if (this.syncClient?.isSyncing() || this.syncClient?.isCanvasInputBlocked()) return;
     if (this._rightDragZoomActive && e.pointerId === this._rightDragZoomPointerId) {
       this._rightDragZoomActive = false;
       this._rightDragZoomPointerId = null;

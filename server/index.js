@@ -794,7 +794,8 @@ function mapUsersForBroadcast(users, viewer = null, room = null) {
     sim: u.simulatePressure,
     rn: u.registeredName || '',
     mt: !!u.isMuted,
-    vip: room ? getVisibleIpForViewer(viewer, u, room) : ''
+    vip: room ? getVisibleIpForViewer(viewer, u, room) : '',
+    fpId: u.fingerprintId || '' // Include fingerprintId for persistent user tracking
   }));
 }
 

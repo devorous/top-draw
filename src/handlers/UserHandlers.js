@@ -152,8 +152,19 @@ export function setupUserHandlers(wsClient, app) {
           textPositionOffset: userData.textPositionOffset
         };
 
-        const pendingFontChange = app._pendingRemoteFontChanges?.get(userData.sessionIndex);
-        if (pendingFontChange) {
+      // Use persistent color based on fingerprintId if available
+      const fpId = userData.fpId || userData.fingerprintId;
+      if (fpId && app.fingerprintIdUserColorCache.has(fpId)) {
+        userOptions.color = app.fingerprintIdUserColorCache.get(fpId);
+      } else if (fpId && userData.color) {
+        // Cache the color for this fingerprintId for future rejoins
+        app.fingerprintIdUserColorCache.set(fpId, userData.color);
+      }
+      
+      userOptions.fingerprintId = fpId || '';
+
+      const pendingFontChange = app._pendingRemoteFontChanges?.get(userData.sessionIndex);
+      if (pendingFontChange) {
           userOptions.font = pendingFontChange.font ?? userOptions.font;
           if (pendingFontChange.textPositionMultiplier !== undefined) {
             userOptions.textPositionMultiplier = pendingFontChange.textPositionMultiplier;
