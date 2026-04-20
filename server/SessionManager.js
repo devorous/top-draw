@@ -148,7 +148,9 @@ export class SessionManager {
       isMuted: false,
       isShadowBanned: false,
       isVPN: false,
-      ipHash
+      ipHash,
+      uploadBps: null,        // Measured upload throughput in bytes/sec (null = never measured)
+      lastProbeTs: 0,         // Timestamp of last successful bandwidth probe
     };
     this.users.set(sessionIndex, newUser);
     return newUser;

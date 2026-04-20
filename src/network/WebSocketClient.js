@@ -318,6 +318,18 @@ export class WebSocketClient {
       const identityPayload = await this.clientIdentity.getPayload({ waitForFingerprintMs: 1200 });
       if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
       this.send({ t: T.CONNECT, n: username, ...identityPayload });
+
+      // Replay a recent bandwidth measurement so the new room/server has a
+      // baseline before the next probe tick. Cached by _runProbe echo handler.
+      try {
+        const cached = JSON.parse(localStorage.getItem('topDrawUploadBps') || 'null');
+        if (cached && typeof cached.bps === 'number' && cached.bps > 0) {
+          const age = Date.now() - (cached.ts || 0);
+          if (age < 10 * 60_000) {
+            this.send({ t: T.BW_REPORT, uploadBps: Math.round(cached.bps) });
+          }
+        }
+      } catch (_) {}
     };
 
     this.socket.onmessage = (event) => {
@@ -531,6 +543,22 @@ export class WebSocketClient {
           lowPowerMode: this.getLowPowerMode ? !!this.getLowPowerMode() : false,
           tabHidden: typeof document !== 'undefined' ? document.visibilityState === 'hidden' : false
         });
+        break;
+
+      case T.BW_PROBE_START:
+        this._runProbe(data.probeId, data.probeTotal || 20, data.probeBlobSize || 30720);
+        break;
+
+      case T.BW_REPORT:
+        // Server echoes our measured bps back so we can persist it across reconnects.
+        if (data.uploadBps && data.uploadBps > 0) {
+          try {
+            localStorage.setItem('topDrawUploadBps', JSON.stringify({
+              bps: data.uploadBps,
+              ts: Date.now()
+            }));
+          } catch (_) {}
+        }
         break;
 
       case T.USERS:
@@ -1228,6 +1256,40 @@ export class WebSocketClient {
       if (window.app?.TimeMachine && this.sessionIndex != null) {
         window.app.TimeMachine.recordAction({ ...data, u: this.sessionIndex }, 'outbound');
       }
+    }
+  }
+
+  /**
+   * Respond to a server bandwidth probe. Generates `total` random blobs of size
+   * `blobSize` and pushes them back-to-back. Server times from first chunk arrival
+   * to last and derives bytes/sec.
+   * @param {string} probeId
+   * @param {number} total
+   * @param {number} blobSize
+   * @private
+   */
+  _runProbe(probeId, total, blobSize) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.Msg) return;
+    if (!probeId || total <= 0 || blobSize <= 0) return;
+
+    for (let seq = 0; seq < total; seq++) {
+      const bytes = new Uint8Array(blobSize);
+      // Random data is required: compressible/zeroed buffers would inflate
+      // measured throughput on connections that use WebSocket compression.
+      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        // getRandomValues has a 64KB quota — chunk if needed
+        const MAX = 65536;
+        for (let off = 0; off < blobSize; off += MAX) {
+          crypto.getRandomValues(bytes.subarray(off, Math.min(off + MAX, blobSize)));
+        }
+      }
+      const message = this.Msg.create({
+        t: T.BW_PROBE_CHUNK,
+        probeId,
+        probeSeq: seq,
+        probeData: bytes
+      });
+      this.socket.send(this.Msg.encode(message).finish());
     }
   }
 

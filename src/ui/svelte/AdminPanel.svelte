@@ -125,6 +125,13 @@
     return String(value);
   }
 
+  function formatBps(bps) {
+    if (bps == null) return '—';
+    if (bps >= 1_000_000) return `${(bps / 1_048_576).toFixed(2)} MB/s`;
+    if (bps >= 1_000) return `${(bps / 1024).toFixed(1)} KB/s`;
+    return `${bps} B/s`;
+  }
+
   function getDocLabel(doc) {
     if (!doc || typeof doc !== 'object') return 'Document';
     return (
@@ -272,6 +279,7 @@
                           <thead>
                             <tr>
                               <th>User</th>
+                              <th>Upload</th>
                               <th>Ping</th>
                               <th>Score</th>
                               <th>Active</th>
@@ -282,6 +290,7 @@
                             {#each room.candidates as c}
                               <tr class:elected={c.username === (room.dedicatedUploader || room.electedUploader)}>
                                 <td>{c.username}</td>
+                                <td>{formatBps(c.uploadBps)}</td>
                                 <td>{c.ping != null ? `${c.ping}ms` : '—'}</td>
                                 <td>{c.score === -Infinity ? 'DQ' : c.score}</td>
                                 <td>{c.active ? '✓' : '—'}</td>

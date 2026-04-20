@@ -651,6 +651,23 @@ export async function sanitizeMessage(data) {
       if (!sanitized.checkpointId) return null;
       return sanitized;
 
+    case T.BW_PROBE_CHUNK: {
+      sanitized.probeId = sanitizeString(data.probeId ?? data.probe_id, 64);
+      sanitized.probeSeq = clampInt(data.probeSeq ?? data.probe_seq, 0, 1000, 0);
+      let buf = data.probeData ?? data.probe_data;
+      if (buf && typeof buf === 'object' && !Buffer.isBuffer(buf) && !(buf instanceof Uint8Array)) {
+        buf = null;
+      }
+      // Cap per-chunk size at 128 KB
+      if (!buf || buf.length > 131072) return null;
+      sanitized.probeData = buf;
+      return sanitized.probeId ? sanitized : null;
+    }
+
+    case T.BW_REPORT:
+      sanitized.uploadBps = clampInt(data.uploadBps ?? data.upload_bps, 0, 1_000_000_000, 0);
+      return sanitized;
+
     case T.REPLAY_REQUEST:
       sanitized.replayStartTs = Number(data.replayStartTs);
       sanitized.replayEndTs = Number(data.replayEndTs);

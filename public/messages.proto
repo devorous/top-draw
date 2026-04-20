@@ -117,6 +117,9 @@ message Msg {
     CHAT_REACTION = 117;           // Chat reaction toggle
     STAFF_MSG = 118;               // Staff-only chat message
     STAFF_CHAT_IMG = 119;          // Staff-only chat image
+    BW_PROBE_START = 130;          // Server→client: start a bandwidth probe (returns N chunks)
+    BW_PROBE_CHUNK = 131;          // Client→server: one probe chunk (random bytes)
+    BW_REPORT = 132;               // Client→server: report a previously measured uploadBps (e.g. from _discovery)
   }
 
   // Tool enum
@@ -406,6 +409,14 @@ message Msg {
   string client_device_id = 122;  // First-party persisted device identifier
   string client_fingerprint_id = 123; // Browser fingerprint visitor id
   string client_identity_json = 127; // Compact client-side identity summary
+
+  // === Bandwidth Probe Fields (135+) ===
+  string probe_id      = 135;  // BW_PROBE_*: unique ID for the probe run
+  uint32 probe_seq     = 136;  // BW_PROBE_CHUNK: 0-based chunk index
+  uint32 probe_total   = 137;  // BW_PROBE_START: total chunk count
+  uint32 probe_blob_size = 138; // BW_PROBE_START: expected chunk size in bytes
+  bytes  probe_data    = 139;  // BW_PROBE_CHUNK: random payload bytes
+  uint32 upload_bps    = 140;  // BW_REPORT: measured bytes-per-second (rounded)
 }
 
 // New message for storing snapshot layers and thumbnail bundled in R2

@@ -15,6 +15,7 @@ import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSn
 import { handleCheckpointUpload, handleCheckpointList, handleCheckpointGet } from './checkpoints.js';
 import { getRecorder, removeRecorder, getReplayData } from './deltaRecorder.js';
 import { startElection, stopElection } from './uploaderElection.js';
+import { handleProbeChunk, cancelProbesForSocket, startProbe as startBandwidthProbe } from './bandwidthProbe.js';
 import { hashPassword, verifyPassword, generateToken, verifyToken } from './auth.js';
 import { getUserFromToken } from './authUser.js';
 import { issueModAction, revokeModAction, revokeMatchingModActions, updateModActionReason, getModEntries, obfuscateIp, checkBan, checkMute, checkShadowBan } from './moderation.js';
@@ -595,6 +596,8 @@ const server = createServer(async (req, res) => {
         lowPower: c.lowPower,
         hidden: !!c.hidden,
         active: c.active,
+        uploadBps: c.uploadBps != null ? Math.round(c.uploadBps) : null,
+        lastProbeTs: c.lastProbeTs || null,
         score: Math.round(c.score * 10) / 10
       }));
 
@@ -1850,7 +1853,25 @@ wss.on('connection', async (ws, req) => {
 
           // Start/continue election when first user joins (auto mode only)
           if (room.getClientCount() === 1 && !room.settings.dedicatedReplayUser) {
-            startElection(room, (r) => broadcastToRoom(r, buildSettingsPayload(r)));
+            startElection(room, (r) => broadcastToRoom(r, buildSettingsPayload(r)), sendTo);
+          }
+
+          // Trigger an immediate bandwidth probe unless we just hydrated a fresh
+          // measurement (from the DB or a BW_REPORT). This gives the _discovery
+          // lobby a seed value the client can replay on room-switch, and gives
+          // newly-joined real-room users a measurement before the 30s election tick.
+          if (!ws.uploadBps || !ws.lastProbeTs || (Date.now() - ws.lastProbeTs) > 60_000) {
+            startBandwidthProbe(ws, {
+              sendTo,
+              username,
+              onPersist: (bps) => {
+                const user = room.sessionManager.getUser(sessionIndex);
+                if (user) {
+                  user.uploadBps = bps;
+                  user.lastProbeTs = Date.now();
+                }
+              }
+            });
           }
 
           // If user is muted (IP-based for guests), hide their cursor for everyone
@@ -2532,7 +2553,7 @@ wss.on('connection', async (ws, req) => {
             if (room.settings.dedicatedReplayUser) {
               stopElection(room);
             } else if (!room._electionTimer) {
-              startElection(room, (r) => broadcastToRoom(r, buildSettingsPayload(r)));
+              startElection(room, (r) => broadcastToRoom(r, buildSettingsPayload(r)), sendTo);
             }
 
             // Broadcast updated settings to all clients in the room
@@ -2696,6 +2717,40 @@ wss.on('connection', async (ws, req) => {
           ws.lowPowerMode = !!data.lowPowerMode;
           ws.tabHidden = !!data.tabHidden;
           break;
+
+        case T.BW_PROBE_CHUNK:
+          handleProbeChunk(ws, data);
+          break;
+
+        case T.BW_REPORT: {
+          // Client is reporting a previously measured bps (e.g. from _discovery probe).
+          // Only accept if we don't already have a better/recent measurement.
+          const reported = Number(data.uploadBps) || 0;
+          if (reported > 0) {
+            const existing = ws.uploadBps || 0;
+            const recent = ws.lastProbeTs && (Date.now() - ws.lastProbeTs) < 60_000;
+            if (!recent || reported > existing) {
+              ws.uploadBps = reported;
+              ws.lastProbeTs = Date.now();
+              const user = room.sessionManager.getUser(ws.sessionIndex);
+              if (user) {
+                user.uploadBps = reported;
+                user.lastProbeTs = ws.lastProbeTs;
+              }
+              // Persist on user doc if logged-in
+              if (ws.userId) {
+                const db = getDB();
+                if (db) {
+                  db.collection('users').updateOne(
+                    { _id: new ObjectId(ws.userId) },
+                    { $set: { uploadBps: reported, uploadBpsAt: new Date() } }
+                  ).catch(() => {});
+                }
+              }
+            }
+          }
+          break;
+        }
 
         case T.ROOM_ROLE_SET: {
           if (!ws.userId) {
@@ -3277,6 +3332,11 @@ wss.on('connection', async (ws, req) => {
               user.isMuted = !!ws.isMuted;
               user.isShadowBanned = !!ws.isShadowBanned;
               user.isVPN = !!ws.isVPN;
+              // Hydrate persisted bandwidth estimate so the first election has data
+              if (typeof userDoc.uploadBps === 'number' && userDoc.uploadBps > 0) {
+                user.uploadBps = userDoc.uploadBps;
+                ws.uploadBps = userDoc.uploadBps;
+              }
             }
 
             sendTo(ws, {
@@ -3416,6 +3476,7 @@ wss.on('connection', async (ws, req) => {
 
   ws.on('close', () => {
     clientOutbox.delete(ws);
+    cancelProbesForSocket(ws);
 
     if (ws.pingInterval) {
       clearInterval(ws.pingInterval);

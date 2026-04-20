@@ -5,6 +5,7 @@ const HIDDEN_TAB_PENALTY = 300;
 const AFK_PENALTY = 90;
 const MISSING_PING_PENALTY = 20;
 const ACTIVELY_DRAWING_BONUS = 50; // Prefer users with active strokes
+const MISSING_UPLOAD_BPS_PENALTY = 60; // Haven't measured throughput yet — prefer anyone we have measured
 
 /**
  * Score a client as a provider candidate.
@@ -46,8 +47,18 @@ export function scoreProvider(ws, user, options = {}) {
     score -= HIDDEN_TAB_PENALTY;
   }
 
+  // Upload throughput — dominant metric. We measure bytes/sec via periodic probes.
+  // Map log10(bps) so: 50 KB/s → ~+34, 500 KB/s → ~+234, 5 MB/s → ~+434.
+  // A fast uploader dwarfs ping/activity differences, which is the point.
+  if (typeof ws.uploadBps === 'number' && ws.uploadBps > 0) {
+    score += Math.max(0, (Math.log10(ws.uploadBps) - 4) * 200);
+  } else {
+    score -= MISSING_UPLOAD_BPS_PENALTY;
+  }
+
+  // Ping is now a tiebreaker rather than a dominant factor — divide by 20 instead of 5.
   if (ws.pingRtt != null) {
-    score -= ws.pingRtt / 5;
+    score -= ws.pingRtt / 20;
   } else {
     score -= MISSING_PING_PENALTY;
   }
