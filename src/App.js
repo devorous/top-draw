@@ -4737,6 +4737,13 @@ export class DrawingApp {
     return ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur', 'imageBrush'].includes(toolName);
   }
 
+  _isPointerOnUiControl(eventTarget) {
+    if (!(eventTarget instanceof Element)) return false;
+    return !!eventTarget.closest(
+      'input, select, textarea, button, .slider, .sliderValue, .dual-slider, #toolSliders, #toolExtras'
+    );
+  }
+
   _isCanvasRegionLocked(pos, previousPos = null) {
     if (!this.board || !this._toolMutatesCanvas()) return false;
     if (!this.board.hasInteractionBlocks?.()) return false;
@@ -4761,6 +4768,17 @@ export class DrawingApp {
 
   handlePointerMove(e) {
     this.updateModifierKeysFromEvent(e);
+
+    const hasActiveBoardInteraction =
+      this.self.mousedown ||
+      this.self.panning ||
+      this._containerPanActive ||
+      this._rightDragZoomActive ||
+      this._rotateToolActive ||
+      !!this.self._pendingTextPos;
+    if (!hasActiveBoardInteraction && this._isPointerOnUiControl(e.target)) {
+      return;
+    }
 
     if (this.mirrorRegionController?.isActive()) {
       const consumed = this.mirrorRegionController.handlePointerMove(e);
@@ -4814,12 +4832,6 @@ export class DrawingApp {
     // Pointer moves are listened to on window so active drags can continue off-canvas.
     // When the pointer is simply hovering outside the board, suppress local buffering
     // and remote broadcasts so replay/history do not accumulate phantom cursor moves.
-    const hasActiveBoardInteraction =
-      this.self.mousedown ||
-      this.self.panning ||
-      this._containerPanActive ||
-      this._rightDragZoomActive ||
-      !!this.self._pendingTextPos;
     this.syncBoardHoverState(this.isPointerOverBoard(e.clientX, e.clientY), { event: e });
     if (!this.isOnBoard && !hasActiveBoardInteraction) {
       return;
