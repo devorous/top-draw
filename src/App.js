@@ -1513,7 +1513,7 @@ export class DrawingApp {
     eraserModeRadios.forEach(radio => {
       radio.addEventListener('change', (e) => {
         this.eraseAllLayers = (e.target.value === 'all');
-        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastEraserModeChange(this.eraseAllLayers));
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastEraserModeChange(this.eraseAllLayers, this.self.tool));
       });
     });
 
@@ -4474,7 +4474,7 @@ export class DrawingApp {
       }
 
       this.svelteComponents?.chat?.addStaffImage(imageData, this.self, messageId);
-      broadcastChatPopoutEvent('addStaffImage', [imageData, this.self, messageId]);
+      broadcastChatPopoutEvent('addStaffImage', [imageData, this._chatPopoutUser(this.self, this.sessionIndex), messageId]);
     });
   }
 
@@ -4503,7 +4503,7 @@ export class DrawingApp {
         broadcastChatPopoutEvent('addDMImage', [imageData, recipientId, true, messageId]);
       } else {
         this.svelteComponents?.chat?.addChatImage(imageData, this.self, messageId);
-        broadcastChatPopoutEvent('addChatImage', [imageData, this.self, messageId]);
+        broadcastChatPopoutEvent('addChatImage', [imageData, this._chatPopoutUser(this.self, this.sessionIndex), messageId]);
       }
     });
   }
@@ -4528,6 +4528,20 @@ export class DrawingApp {
     const luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
     if (luminance < 72) return 'var(--role-user)';
     return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  _chatPopoutUser(user, fallbackSessionIndex = null) {
+    if (!user || typeof user !== 'object') return null;
+    return {
+      id: user.id ?? user.sessionIndex ?? fallbackSessionIndex ?? null,
+      sessionIndex: user.sessionIndex ?? user.id ?? fallbackSessionIndex ?? null,
+      username: user.username || user.name || '',
+      name: user.name || user.username || '',
+      color: user.color,
+      registeredName: user.registeredName || '',
+      role: user.role || 0,
+      visibleIp: user.visibleIp || ''
+    };
   }
 
   updateChatUserList() {

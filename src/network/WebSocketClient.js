@@ -1378,6 +1378,16 @@ export class WebSocketClient {
   }
 
   /**
+   * Broadcasts eraser scope mode changes while preserving current tool state.
+   * @param {boolean} eraseAll - True to erase all layers, false for active layer only.
+   * @param {string} [tool='erase'] - Current local tool to preserve for peers.
+   * @returns {void}
+   */
+  broadcastEraserModeChange(eraseAll, tool = 'erase') {
+    this.send({ t: T.CT, l: ToolToEnum[tool] || 0, a: !!eraseAll });
+  }
+
+  /**
    * Broadcasts an active layer change.
    * @param {number} layerIndex - New layer index.
    * @returns {void}

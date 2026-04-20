@@ -10,6 +10,20 @@ function chatNameColor(color) {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
+function chatPopoutUser(user, fallbackSessionIndex = null) {
+  if (!user || typeof user !== 'object') return null;
+  return {
+    id: user.id ?? user.sessionIndex ?? fallbackSessionIndex ?? null,
+    sessionIndex: user.sessionIndex ?? user.id ?? fallbackSessionIndex ?? null,
+    username: user.username || user.name || '',
+    name: user.name || user.username || '',
+    color: user.color,
+    registeredName: user.registeredName || '',
+    role: user.role || 0,
+    visibleIp: user.visibleIp || ''
+  };
+}
+
 /**
  * Sets up WebSocket event handlers for chat functionality.
  * @param {WebSocketClient} wsClient - The WebSocket client instance.
@@ -74,7 +88,7 @@ export function setupChatHandlers(wsClient, app) {
     const user = users.get(data.sessionIndex);
     if (user) {
       app.svelteComponents?.chat?.addStaffImage(data.imageData, user, data.messageId);
-      broadcastChatPopoutEvent('addStaffImage', [data.imageData, user, data.messageId]);
+      broadcastChatPopoutEvent('addStaffImage', [data.imageData, chatPopoutUser(user, data.sessionIndex), data.messageId]);
     }
   });
 
@@ -89,7 +103,7 @@ export function setupChatHandlers(wsClient, app) {
         broadcastChatPopoutEvent('addDMImage', [data.imageData, data.sessionIndex, false, data.messageId]);
       } else {
         app.svelteComponents.chat?.addChatImage(data.imageData, user, data.messageId);
-        broadcastChatPopoutEvent('addChatImage', [data.imageData, user, data.messageId]);
+        broadcastChatPopoutEvent('addChatImage', [data.imageData, chatPopoutUser(user, data.sessionIndex), data.messageId]);
       }
     } else {
       console.warn('[CHAT_IMG] User not found for sessionIndex:', data.sessionIndex);

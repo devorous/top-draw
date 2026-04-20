@@ -29,6 +29,73 @@ function createChannel(onMessage) {
   return channel;
 }
 
+function isUnsupportedCloneType(value) {
+  if (!value || typeof value !== 'object') return false;
+  if (typeof CanvasRenderingContext2D !== 'undefined' && value instanceof CanvasRenderingContext2D) return true;
+  if (typeof HTMLCanvasElement !== 'undefined' && value instanceof HTMLCanvasElement) return true;
+  if (typeof HTMLImageElement !== 'undefined' && value instanceof HTMLImageElement) return true;
+  if (typeof Element !== 'undefined' && value instanceof Element) return true;
+  return false;
+}
+
+function sanitizeForBroadcast(value, seen = new WeakSet()) {
+  if (value === null || value === undefined) return value;
+
+  const valueType = typeof value;
+  if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') {
+    return value;
+  }
+  if (valueType === 'bigint') {
+    return Number(value);
+  }
+  if (valueType === 'function' || valueType === 'symbol') {
+    return undefined;
+  }
+
+  if (isUnsupportedCloneType(value)) {
+    return undefined;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (value instanceof Map) {
+    return Array.from(value.entries()).map(([k, v]) => [sanitizeForBroadcast(k, seen), sanitizeForBroadcast(v, seen)]);
+  }
+
+  if (value instanceof Set) {
+    return Array.from(value.values()).map((entry) => sanitizeForBroadcast(entry, seen));
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeForBroadcast(entry, seen));
+  }
+
+  if (seen.has(value)) {
+    return undefined;
+  }
+  seen.add(value);
+
+  const out = {};
+  for (const [key, entry] of Object.entries(value)) {
+    const sanitized = sanitizeForBroadcast(entry, seen);
+    if (sanitized !== undefined) {
+      out[key] = sanitized;
+    }
+  }
+  return out;
+}
+
+function safePostMessage(channel, payload) {
+  if (!channel) return;
+  try {
+    channel.postMessage(payload);
+  } catch (error) {
+    console.warn('[ChatPopout] Failed to post message payload', error);
+  }
+}
+
 function serializeUsers(users) {
   return [...users.values()].map((user) => ({ ...user }));
 }
@@ -80,7 +147,8 @@ export function initMainChatPopoutBridge({ getSnapshot, handleAction, onPopupClo
     if (message.type === 'chat-popout-request-snapshot') {
       const snapshot = mainBridgeConfig?.getSnapshot?.();
       if (snapshot) {
-        mainChannel.postMessage({ type: 'chat-popout-snapshot', snapshot });
+        const payload = sanitizeForBroadcast({ type: 'chat-popout-snapshot', snapshot });
+        safePostMessage(mainChannel, payload);
       }
       return;
     }
@@ -169,17 +237,20 @@ export function openChatPopoutWindow() {
 
 export function broadcastChatPopoutSnapshot(snapshot) {
   if (!mainChannel || !snapshot) return;
-  mainChannel.postMessage({ type: 'chat-popout-snapshot', snapshot });
+  const payload = sanitizeForBroadcast({ type: 'chat-popout-snapshot', snapshot });
+  safePostMessage(mainChannel, payload);
 }
 
 export function broadcastChatPopoutState(sharedState = getChatSharedState()) {
   if (!mainChannel) return;
-  mainChannel.postMessage({ type: 'chat-popout-state', sharedState });
+  const payload = sanitizeForBroadcast({ type: 'chat-popout-state', sharedState });
+  safePostMessage(mainChannel, payload);
 }
 
 export function broadcastChatPopoutEvent(method, args = []) {
   if (!mainChannel) return;
-  mainChannel.postMessage({ type: 'chat-popout-event', method, args });
+  const payload = sanitizeForBroadcast({ type: 'chat-popout-event', method, args });
+  safePostMessage(mainChannel, payload);
 }
 
 export function initChatPopoutClient({ component }) {
