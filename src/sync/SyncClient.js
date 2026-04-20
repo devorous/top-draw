@@ -73,6 +73,8 @@ export class SyncClient {
     this.syncTimeout = null;
     /** @type {number|null} */
     this.currentSyncTargetId = null;
+    /** @type {string|null} */
+    this.currentSyncTargetUsername = null;
 
     /** @type {Function|null} */
     this.onSyncComplete = null;
@@ -326,6 +328,15 @@ export class SyncClient {
     this.receivedMessages = 0;
     this.currentSyncTargetId = normalizedTarget;
 
+    // Look up the target username if syncing from a specific user
+    this.currentSyncTargetUsername = null;
+    if (normalizedTarget !== null && this.app?.users) {
+      const targetUser = this.app.users.get(normalizedTarget);
+      if (targetUser) {
+        this.currentSyncTargetUsername = targetUser.username;
+      }
+    }
+
     this._armSyncTimeout(this.SYNC_INITIAL_TIMEOUT_MS);
 
     this.showOverlay();
@@ -368,6 +379,7 @@ export class SyncClient {
     this.expectedMessages = 0;
     this.receivedMessages = 0;
     this.currentSyncTargetId = null;
+    this.currentSyncTargetUsername = null;
   }
 
   /**
@@ -905,14 +917,19 @@ export class SyncClient {
     let percentage = 0;
     let text = 'Syncing...';
 
+    // Build the sync text with target username if available
+    const syncPrefix = this.currentSyncTargetUsername
+      ? `Syncing to ${this.currentSyncTargetUsername}`
+      : 'Syncing...';
+
     if (this.expectedMessages > 0) {
       percentage = Math.min(100, Math.round((this.receivedMessages / this.expectedMessages) * 100));
-      text = `Syncing... ${this.receivedMessages}/${this.expectedMessages} (${percentage}%)`;
+      text = `${syncPrefix} ${this.receivedMessages}/${this.expectedMessages} (${percentage}%)`;
       if (this.progressFillEl) {
         this.progressFillEl.style.width = `${percentage}%`;
       }
     } else {
-      text = 'Syncing...';
+      text = syncPrefix;
       if (this.progressFillEl) {
         this.progressFillEl.style.width = '0%';
       }
@@ -1006,6 +1023,7 @@ export class SyncClient {
     this.expectedMessages = 0;
     this.receivedMessages = 0;
     this.currentSyncTargetId = null;
+    this.currentSyncTargetUsername = null;
     this.eventBuffer = [];
     this._pendingImports = [];
     this.hideInactiveUi();
