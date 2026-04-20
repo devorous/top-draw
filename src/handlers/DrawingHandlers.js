@@ -293,6 +293,10 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
+  wrapHandler('csdm', (data) => {
+    app.applyShapeDrawMode(data.shapeDrawMode, { broadcast: false, persist: true });
+  });
+
   wrapHandler('glitch_result', (data) => {
     const user = users.get(data.sessionIndex);
     if (!user || !data.imageData) return;

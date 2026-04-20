@@ -53,6 +53,7 @@ import ColorWheel from 'reinvented-color-wheel';
 import 'reinvented-color-wheel/css/reinvented-color-wheel.css';
 
 const TEXT_FONT_SETTINGS_STORAGE_KEY = 'topDrawTextFontSettings';
+const SHAPE_DRAW_MODE_STORAGE_KEY = 'topDrawShapeDrawMode';
 
 function _hexToRgb(hex) {
   const c = hex.replace('#', '');
@@ -276,6 +277,14 @@ export class DrawingApp {
     this.inputBufferManager = new InputBufferManager(this);
     this.wsClient.getLowPowerMode = () => this.inputBufferManager.lowPowerMode;
 
+    this.shapeDrawMode = 'corner-to-corner';
+    this.modifierKeys = {
+      shift: false,
+      alt: false,
+      ctrl: false,
+      meta: false
+    };
+
     this.pressureEnabled = true;
     this.tabletDetected = false;
     this.tabletThinningWarningShown = false;
@@ -407,6 +416,91 @@ export class DrawingApp {
     } else if (nextStyle === 'square') {
       this.ui.updatePressureSquareSize(this.self.pressure * this.self.size, this.self.size, this.tabletDetected);
     }
+  }
+
+  normalizeShapeDrawMode(mode) {
+    return mode === 'center-scaling' ? 'center-scaling' : 'corner-to-corner';
+  }
+
+  isShiftModifierActive() {
+    return !!this.modifierKeys.shift;
+  }
+
+  updateModifierKeysFromEvent(event) {
+    if (!event) return;
+    this.modifierKeys.shift = !!event.shiftKey;
+    this.modifierKeys.alt = !!event.altKey;
+    this.modifierKeys.ctrl = !!event.ctrlKey;
+    this.modifierKeys.meta = !!event.metaKey;
+  }
+
+  clearModifierKeys() {
+    this.modifierKeys.shift = false;
+    this.modifierKeys.alt = false;
+    this.modifierKeys.ctrl = false;
+    this.modifierKeys.meta = false;
+  }
+
+  applyShapeDrawMode(mode, { broadcast = false, persist = true } = {}) {
+    const normalizedMode = this.normalizeShapeDrawMode(mode);
+    this.shapeDrawMode = normalizedMode;
+
+    const rectangleTool = this.toolManager.getTool('rectangle');
+    const circleTool = this.toolManager.getTool('circle');
+    if (rectangleTool?.setDrawMode) rectangleTool.setDrawMode(normalizedMode);
+    if (circleTool?.setDrawMode) circleTool.setDrawMode(normalizedMode);
+
+    document.querySelectorAll('input[name="shapeDrawMode"]').forEach((radio) => {
+      radio.checked = radio.value === normalizedMode;
+    });
+
+    if (persist) {
+      localStorage.setItem(SHAPE_DRAW_MODE_STORAGE_KEY, normalizedMode);
+    }
+
+    if (broadcast && this.connected && this.wsClient) {
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastShapeDrawModeChange(normalizedMode));
+    }
+  }
+
+  getConstrainedShapeDragPoint(rawX, rawY) {
+    if (!this.self?.mousedown || this.self.panning) return { x: rawX, y: rawY };
+    if (this.self.tool !== 'rectangle' && this.self.tool !== 'circle') return { x: rawX, y: rawY };
+
+    const tool = this.toolManager?.getCurrentTool?.();
+    const start = tool?.startPos;
+    if (!start) return { x: rawX, y: rawY };
+
+    const mode = this.normalizeShapeDrawMode(this.shapeDrawMode);
+    const dx = rawX - start.x;
+    const dy = rawY - start.y;
+
+    // Center-scaling shapes are always perfect square/circle, so normalize the drag vector.
+    if (mode === 'center-scaling') {
+      if (this.self.tool === 'rectangle') {
+        const side = Math.max(Math.abs(dx), Math.abs(dy));
+        const sx = dx === 0 ? (dy < 0 ? -1 : 1) : Math.sign(dx);
+        const sy = dy === 0 ? (dx < 0 ? -1 : 1) : Math.sign(dy);
+        return {
+          x: start.x + sx * side,
+          y: start.y + sy * side
+        };
+      }
+      return { x: rawX, y: rawY };
+    }
+
+    // Corner mode: only constrain when Shift is held.
+    if (!this.isShiftModifierActive()) {
+      return { x: rawX, y: rawY };
+    }
+
+    const side = Math.max(Math.abs(dx), Math.abs(dy));
+    const sx = dx === 0 ? (dy < 0 ? -1 : 1) : Math.sign(dx);
+    const sy = dy === 0 ? (dx < 0 ? -1 : 1) : Math.sign(dy);
+    return {
+      x: start.x + sx * side,
+      y: start.y + sy * side
+    };
   }
 
   /**
@@ -762,6 +856,9 @@ export class DrawingApp {
       this.self.setSimulatePressure(simulate);
       this.ui.updateSimulatePressure(simulate);
     }
+
+    const savedShapeDrawMode = localStorage.getItem(SHAPE_DRAW_MODE_STORAGE_KEY);
+    this.applyShapeDrawMode(savedShapeDrawMode, { broadcast: false, persist: false });
   }
 
   /**
@@ -1428,6 +1525,14 @@ export class DrawingApp {
       });
     });
 
+    // Shape draw mode radio buttons
+    const shapeDrawModeRadios = document.querySelectorAll('input[name="shapeDrawMode"]');
+    shapeDrawModeRadios.forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        this.applyShapeDrawMode(e.target.value, { broadcast: true, persist: true });
+      });
+    });
+
 
     // Fill advanced mode checkbox
     const fillAdvancedCheck = document.getElementById('fillAdvancedCheck');
@@ -1819,6 +1924,9 @@ export class DrawingApp {
     window.addEventListener('pointermove', (e) => this.handlePointerMove(e));
     window.addEventListener('pointerup', (e) => this.handlePointerUp(e));
     window.addEventListener('pointercancel', (e) => this.handlePointerUp(e));
+    window.addEventListener('keydown', (e) => this.updateModifierKeysFromEvent(e), true);
+    window.addEventListener('keyup', (e) => this.updateModifierKeysFromEvent(e), true);
+    window.addEventListener('blur', () => this.clearModifierKeys());
 
     elements.board.addEventListener('pointerenter', (e) => {
       this.syncBoardHoverState(true, { forceRefresh: true, event: e });
@@ -4633,6 +4741,8 @@ export class DrawingApp {
   }
 
   handlePointerMove(e) {
+    this.updateModifierKeysFromEvent(e);
+
     if (this.mirrorRegionController?.isActive()) {
       const consumed = this.mirrorRegionController.handlePointerMove(e);
       if (consumed) return;
@@ -4699,6 +4809,9 @@ export class DrawingApp {
     const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
     const x = pos.x;
     const y = pos.y;
+    const constrainedPos = this.getConstrainedShapeDragPoint(x, y);
+    const drawX = constrainedPos.x;
+    const drawY = constrainedPos.y;
 
     if (this.self.mousedown && !this.self.panning) {
       const previousPos = this.inputBufferManager.inputBuffer.lastPosition || { x: this.self.x, y: this.self.y };
@@ -4792,7 +4905,7 @@ export class DrawingApp {
     }
 
     // Buffer the input for processing (x, y, pressure)
-    this.inputBufferManager.inputBuffer.points.push(x, y, pressure);
+    this.inputBufferManager.inputBuffer.points.push(drawX, drawY, pressure);
     this.inputBufferManager.inputBuffer.pointerType = e.pointerType;
     this.inputBufferManager.inputBuffer.dirty = true;
     this.inputBufferManager.requestLocalFrame();
@@ -4812,6 +4925,8 @@ export class DrawingApp {
   }
 
   handlePointerDown(e) {
+    this.updateModifierKeysFromEvent(e);
+
     if (this.mirrorRegionController?.isActive()) {
       const consumed = this.mirrorRegionController.handlePointerDown(e);
       if (consumed) return;
@@ -5124,6 +5239,8 @@ export class DrawingApp {
   }
 
   handlePointerUp(e) {
+    this.updateModifierKeysFromEvent(e);
+
     if (this.mirrorRegionController?.isActive()) {
       const consumed = this.mirrorRegionController.handlePointerUp(e);
       if (consumed) return;
@@ -5673,8 +5790,31 @@ export class DrawingApp {
     img.src = dataUrl;
   }
 
+  isImageFilename(name = '') {
+    return /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico|tiff?)$/i.test(name);
+  }
+
+  isImageFile(file) {
+    if (!file) return false;
+    if (file.type?.startsWith('image/')) return true;
+    return this.isImageFilename(file.name || '');
+  }
+
+  isImageDropPayload(dataTransfer) {
+    if (!dataTransfer) return false;
+
+    const items = [...(dataTransfer.items || [])];
+    if (items.some((item) => item.type?.startsWith('image/'))) return true;
+
+    const files = [...(dataTransfer.files || [])];
+    if (files.some((file) => this.isImageFile(file))) return true;
+
+    // Some desktop drags expose file items with empty MIME/type until drop.
+    return items.some((item) => item.kind === 'file');
+  }
+
   handleImageFile(file) {
-    if (!file || !file.type.startsWith('image/')) return;
+    if (!this.isImageFile(file)) return;
     if (!this.canUseImageFeatures(true)) return;
 
     const reader = new FileReader();
@@ -5688,8 +5828,12 @@ export class DrawingApp {
     e.preventDefault();
     this.clearBoardImageDragState();
     if (!this.canUseImageFeatures(true)) return;
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      this.handleImageFile(e.dataTransfer.files[0]);
+    const files = [...(e.dataTransfer?.files || [])];
+    const imageFile = files.find((file) => this.isImageFile(file));
+    if (imageFile) {
+      this.handleImageFile(imageFile);
+    } else if (files.length > 0) {
+      this.ui.showToast('Dropped file is not a supported image', 3000, 'error');
     } else {
       // Handle dropped image URLs if any
       const html = e.dataTransfer.getData('text/html');
@@ -5709,7 +5853,7 @@ export class DrawingApp {
   }
 
   handleBoardImageDragEnter(e) {
-    if (![...(e.dataTransfer?.items || [])].some((item) => item.type?.startsWith('image/'))) return;
+    if (!this.isImageDropPayload(e.dataTransfer)) return;
     if (e.target?.closest?.('.chat-shell')) return;
     e.preventDefault();
     this._boardDragDepth += 1;
@@ -5717,14 +5861,14 @@ export class DrawingApp {
   }
 
   handleBoardImageDragOver(e) {
-    if (![...(e.dataTransfer?.items || [])].some((item) => item.type?.startsWith('image/'))) return;
+    if (!this.isImageDropPayload(e.dataTransfer)) return;
     if (e.target?.closest?.('.chat-shell')) return;
     e.preventDefault();
     this.ui.elements.boardContainer?.classList.add('image-dragover');
   }
 
   handleBoardImageDragLeave(e) {
-    if (![...(e.dataTransfer?.items || [])].some((item) => item.type?.startsWith('image/'))) return;
+    if (!this.isImageDropPayload(e.dataTransfer)) return;
     if (e.target?.closest?.('.chat-shell')) return;
     e.preventDefault();
     this._boardDragDepth = Math.max(0, this._boardDragDepth - 1);

@@ -424,6 +424,7 @@ menuBtn: document.getElementById('menuBtn'),
       inkdropperModeOptions: document.getElementById('inkdropperModeOptions'),
       inkdropperAutoSwitch: document.getElementById('inkdropperAutoSwitch'),
       brushModeOptions: document.getElementById('brushModeOptions'),
+      shapeModeOptions: document.getElementById('shapeModeOptions'),
       circleBlurModeOptions: document.getElementById('circleBlurModeOptions'),
       fillModeOptions: document.getElementById('fillModeOptions'),
       patternModeOptions: document.getElementById('patternModeOptions'),
@@ -951,7 +952,7 @@ menuBtn: document.getElementById('menuBtn'),
       selfCircle, selfPressureCircle, selfDot, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfZoom, selfText, selfName,
       brushImage, brushFileInput, sizeContainer, pressureContainer, smoothingContainer,
       brushSpacing, brushHardness, opacityContainer, cursorStyleContainer, cursorStyleSelect, blurRadiusContainer,
-      selectionModeOptions, eraserModeOptions, inkdropperModeOptions, brushModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions, fontContainer, textPositionMultiplierContainer, textPositionOffsetContainer
+      selectionModeOptions, eraserModeOptions, inkdropperModeOptions, brushModeOptions, shapeModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions, fontContainer, textPositionMultiplierContainer, textPositionOffsetContainer
     } = this.elements;
 
     selfCircle.style.display = 'none';
@@ -980,6 +981,7 @@ menuBtn: document.getElementById('menuBtn'),
     if (eraserModeOptions) eraserModeOptions.style.display = 'none';
     if (inkdropperModeOptions) inkdropperModeOptions.style.display = 'none';
     if (brushModeOptions) brushModeOptions.style.display = 'none';
+    if (shapeModeOptions) shapeModeOptions.style.display = 'none';
     if (circleBlurModeOptions) circleBlurModeOptions.style.display = 'none';
     if (this.elements.fillModeOptions) this.elements.fillModeOptions.style.display = 'none';
     if (patternModeOptions) patternModeOptions.style.display = 'none';
@@ -1036,6 +1038,9 @@ menuBtn: document.getElementById('menuBtn'),
         brushHardness.style.display = 'block';
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
+        if ((tool === 'rectangle' || tool === 'circle') && shapeModeOptions) {
+          shapeModeOptions.style.display = 'block';
+        }
         break;
 
       case 'text':

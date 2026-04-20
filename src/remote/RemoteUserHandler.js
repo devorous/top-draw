@@ -607,10 +607,11 @@ export class RemoteUserHandler {
 
       case 'rectangle':
         if (activeStrokeCtx) {
-          this.toolManager.getTool('rectangle').drawRect(activeStrokeCtx, user, user.startPos, pos);
+          const rectangleTool = this.toolManager.getTool('rectangle');
+          rectangleTool.drawRect(activeStrokeCtx, user, user.startPos, pos);
           this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
             this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
-              this.toolManager.getTool('rectangle').drawRect(
+              rectangleTool.drawRect(
                 activeStrokeCtx,
                 user,
                 this.board.mirrorPointToRegion(user.startPos, region),
@@ -618,17 +619,19 @@ export class RemoteUserHandler {
               );
             });
           });
-          const rectMargin = user.size + 2;
-          this._expandDirtyRectFromPoints(user, [user.startPos, pos], rectMargin);
+          const rectMargin = this._brushMargin(user);
+          const rectBounds = rectangleTool.getRectBounds(user.startPos, pos, false);
+          this._expandDirtyRectFromRect(user, rectBounds, rectMargin);
         }
         break;
 
       case 'circle':
         if (activeStrokeCtx) {
-          this.toolManager.getTool('circle').drawEllipse(activeStrokeCtx, user, user.startPos, pos);
+          const circleTool = this.toolManager.getTool('circle');
+          circleTool.drawEllipse(activeStrokeCtx, user, user.startPos, pos);
           this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
             this.board.withMirrorRegionClip(activeStrokeCtx, region, () => {
-              this.toolManager.getTool('circle').drawEllipse(
+              circleTool.drawEllipse(
                 activeStrokeCtx,
                 user,
                 this.board.mirrorPointToRegion(user.startPos, region),
@@ -636,8 +639,14 @@ export class RemoteUserHandler {
               );
             });
           });
-          const circleMargin = user.size + 2;
-          this._expandDirtyRectFromPoints(user, [user.startPos, pos], circleMargin);
+          const circleMargin = this._brushMargin(user);
+          const ellipse = circleTool.getEllipseParams(user.startPos, pos, false);
+          this._expandDirtyRectFromRect(user, {
+            x: ellipse.cx - ellipse.rx,
+            y: ellipse.cy - ellipse.ry,
+            w: ellipse.rx * 2,
+            h: ellipse.ry * 2
+          }, circleMargin);
         }
         break;
 
@@ -1412,6 +1421,32 @@ export class RemoteUserHandler {
       if (pt.y < minY) minY = pt.y;
       if (pt.y > maxY) maxY = pt.y;
     }
+
+    const x = Math.floor(minX - margin);
+    const y = Math.floor(minY - margin);
+    const w = Math.ceil(maxX - minX + margin * 2);
+    const h = Math.ceil(maxY - minY + margin * 2);
+
+    this.board.expandDirtyRect(user, x, y, w, h);
+
+    this.board.forEachMirrorRegion({ rect: { x, y, width: w, height: h } }, (region) => {
+      const p1 = this.board.mirrorPointToRegion({ x: minX, y: minY }, region);
+      const p2 = this.board.mirrorPointToRegion({ x: maxX, y: maxY }, region);
+      const mx = Math.floor(Math.min(p1.x, p2.x) - margin);
+      const my = Math.floor(Math.min(p1.y, p2.y) - margin);
+      const mw = Math.ceil(Math.max(p1.x, p2.x) - Math.min(p1.x, p2.x) + margin * 2);
+      const mh = Math.ceil(Math.max(p1.y, p2.y) - Math.min(p1.y, p2.y) + margin * 2);
+      this.board.expandDirtyRect(user, mx, my, mw, mh);
+    });
+  }
+
+  _expandDirtyRectFromRect(user, rect, margin) {
+    if (!rect) return;
+
+    const minX = rect.x;
+    const minY = rect.y;
+    const maxX = rect.x + rect.w;
+    const maxY = rect.y + rect.h;
 
     const x = Math.floor(minX - margin);
     const y = Math.floor(minY - margin);

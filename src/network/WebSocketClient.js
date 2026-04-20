@@ -121,7 +121,7 @@ export class WebSocketClient {
       T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL, T.CF,
       // Tool-parameter changes that affect how an in-progress stroke is rendered.
       // Must stay ordered with the drawing events above.
-      T.CTHN, T.CSIM, T.GMP, T.GPT, T.CPM,
+      T.CTHN, T.CSIM, T.GMP, T.GPT, T.CPM, T.CSDM,
       // Canvas-state operations that mutate the stroke history.
       // These MUST be queued so they execute AFTER any drawing events (MD/MM/MU)
       // that preceded them in real time.  If they bypass the queue they can
@@ -808,6 +808,13 @@ export class WebSocketClient {
           font: normalizeTextFont(data.fo),
           textPositionMultiplier: data.tm,
           textPositionOffset: data.to
+        });
+        break;
+
+      case T.CSDM:
+        this.emit('csdm', {
+          sessionIndex: data.u,
+          shapeDrawMode: data.sdm || 'corner-to-corner'
         });
         break;
 
@@ -1633,6 +1640,15 @@ export class WebSocketClient {
    */
   broadcastPatternMode(enabled) {
     this.send({ t: T.CPM, pm: enabled });
+  }
+
+  /**
+   * Broadcasts shape draw mode change.
+   * @param {string} mode - 'corner-to-corner' or 'center-scaling'.
+   * @returns {void}
+   */
+  broadcastShapeDrawModeChange(mode) {
+    this.send({ t: T.CSDM, sdm: mode });
   }
 
   /**

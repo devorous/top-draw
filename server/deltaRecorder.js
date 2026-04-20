@@ -18,7 +18,7 @@ const NULL_RECORDER = Object.freeze({
 const REPLAY_TYPES = new Set([
   T.MD, T.MM, T.MU,
   T.CT, T.CC, T.CS, T.CP, T.CSP, T.CSM, T.CHD, T.CTHN, T.CSIM,
-  T.CBM, T.CL, T.CBR, T.CPM,
+  T.CBM, T.CL, T.CBR, T.CPM, T.CSDM,
   T.MIR, T.CLR, T.CANCEL,
   T.KP, T.TEXT_APPLY, T.FILL,
   T.GMP, T.GPT, T.GLITCH_RESULT,

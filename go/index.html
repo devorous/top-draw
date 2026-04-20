@@ -328,7 +328,7 @@
           <div class="landingContainer">
             <!-- Left Panel -->
             <div class="landingPanel landingAuth">
-              <a href="https://ddraw.ca" class="wordmark" style="display: inline-block; text-decoration: none;">DDraw</a>
+              <a href="https://ddraw.ca" target="_blank" rel="noopener noreferrer" class="wordmark" style="display: inline-block; text-decoration: none;">DDraw</a>
               <p class="landingSubtitle">Draw stuff + things</p>
               <p class="landingVersion" id="landingVersion">Version --</p>
 
@@ -384,6 +384,7 @@
               </div>
 
               <div class="landingDivider">or</div>
+              <button class="btn offline" id="downloadBtn" onclick="window.open('https://www.ddraw.ca/download')">Download Windows App</button>
               <button class="btn offline" id="loginOfflineBtn">Draw Alone</button>
 
               <div id="feedbackWidgetMount"></div>
@@ -481,14 +482,14 @@
             <h3>Recent updates</h3>
             <ul>
 
-              <li>Ctrl+Z to undo! (Up to 20 strokes) Ctrl+Y/Ctrl+Shift+Z to redo</li>
+              <li>Undo/redo with Ctrl+Z/Y (up to 20 strokes)</li>
               <li>Customizable keybinds in the settings</li>
-              <li>New radial mirror mode</li>
-              <li>Updated <a style="color:white" href="https://ddraw.ca/gallery/">gallery page</a></li>
-              <li>New zoom tool with keybind (Right click by default)</li>
-              <li>3 new fonts for the text tool</li>
-              <li>Long-term snapshot history and undo (for mods)</li>
-              <li>Downloadable <a style="color:white" href="https://www.ddraw.ca/download">windows app</a></li>
+              <li>New fibonacci mirror mode</li>
+              <li>Updated <a style="color:white" href="https://ddraw.ca/gallery/">gallery page</a> with tags and comments</li>
+              <li>Snapshot history and undo (for mods)</li>
+              <li>Improved chat visuals and functionality</li>
+              <li>VPN detection to prevent trolling</li>
+              <li>Improved tablet and stylus support</li>
             </ul>
           </section>
         </div>
@@ -1166,6 +1167,23 @@
                     <label class="radio-option">
                       <input type="radio" name="brushMode" value="classic">
                       <span>Classic</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Shape Draw Mode Options -->
+              <div id="shapeModeOptions" style="display: none;">
+                <div class="selection-mode-container">
+                  <label class="modeLabel">Shape Draw Mode</label>
+                  <div class="radio-group">
+                    <label class="radio-option">
+                      <input type="radio" name="shapeDrawMode" value="corner-to-corner" checked>
+                      <span>Corner to corner</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" name="shapeDrawMode" value="center-scaling">
+                      <span>Center scaling</span>
                     </label>
                   </div>
                 </div>

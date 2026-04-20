@@ -240,6 +240,70 @@ export class RectangleTool extends Tool {
   constructor(board) {
     super('rectangle', board);
     this.startPos = null;
+    this.drawMode = 'corner-to-corner';
+  }
+
+  /**
+   * Updates rectangle draw mode.
+   * @param {string} mode - Draw mode value.
+   */
+  setDrawMode(mode) {
+    this.drawMode = mode === 'center-scaling' ? 'center-scaling' : 'corner-to-corner';
+  }
+
+  /**
+   * Returns whether Shift snapping is currently active.
+   * @returns {boolean}
+   */
+  isSnapConstrained() {
+    return !!this.board?.app?.isShiftModifierActive?.();
+  }
+
+  /**
+   * Computes rectangle bounds for current draw mode.
+   * @param {Object} start - Start point.
+   * @param {Object} end - End point.
+   * @param {boolean} constrain - Whether to enforce square proportions.
+   * @returns {{x:number, y:number, w:number, h:number}}
+   */
+  getRectBounds(start, end, constrain) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+
+    if (this.drawMode === 'center-scaling') {
+      const side = Math.max(Math.abs(dx), Math.abs(dy));
+      const halfW = side;
+      const halfH = side;
+
+      return {
+        x: start.x - halfW,
+        y: start.y - halfH,
+        w: halfW * 2,
+        h: halfH * 2
+      };
+    }
+
+    if (!constrain) {
+      return {
+        x: Math.min(start.x, end.x),
+        y: Math.min(start.y, end.y),
+        w: Math.abs(dx),
+        h: Math.abs(dy)
+      };
+    }
+
+    const side = Math.max(Math.abs(dx), Math.abs(dy));
+    const sx = dx === 0 ? (dy < 0 ? -1 : 1) : Math.sign(dx);
+    const sy = dy === 0 ? (dx < 0 ? -1 : 1) : Math.sign(dy);
+    const x2 = start.x + sx * side;
+    const y2 = start.y + sy * side;
+
+    return {
+      x: Math.min(start.x, x2),
+      y: Math.min(start.y, y2),
+      w: Math.abs(x2 - start.x),
+      h: Math.abs(y2 - start.y)
+    };
   }
 
   /**
@@ -284,6 +348,9 @@ export class RectangleTool extends Tool {
   onPointerUp(user, pos) {
     if (user.panning || !this.startPos) return;
 
+    const constrained = this.isSnapConstrained();
+    const rectBounds = this.getRectBounds(this.startPos, pos, constrained);
+
     const layerCtx = this.board.getActiveLayerContext();
     this.drawRect(layerCtx, user, this.startPos, pos);
 
@@ -304,10 +371,10 @@ export class RectangleTool extends Tool {
     const safetyMargin = radius * 0.1;
     const margin = radius + blurAmount + safetyMargin + 2;
 
-    const minX = Math.min(this.startPos.x, pos.x) - margin;
-    const minY = Math.min(this.startPos.y, pos.y) - margin;
-    const maxX = Math.max(this.startPos.x, pos.x) + margin;
-    const maxY = Math.max(this.startPos.y, pos.y) + margin;
+    const minX = rectBounds.x - margin;
+    const minY = rectBounds.y - margin;
+    const maxX = rectBounds.x + rectBounds.w + margin;
+    const maxY = rectBounds.y + rectBounds.h + margin;
 
     const x = Math.floor(minX);
     const y = Math.floor(minY);
@@ -319,20 +386,21 @@ export class RectangleTool extends Tool {
     this.board.forEachMirrorRegion({ rect: { x, y, width, height } }, (region) => {
       const mirroredStart = this.board.mirrorPointToRegion(this.startPos, region);
       const mirroredEnd = this.board.mirrorPointToRegion(pos, region);
-      const rx1 = Math.min(mirroredStart.x, mirroredEnd.x) - margin;
-      const ry1 = Math.min(mirroredStart.y, mirroredEnd.y) - margin;
-      const rx2 = Math.max(mirroredStart.x, mirroredEnd.x) + margin;
-      const ry2 = Math.max(mirroredStart.y, mirroredEnd.y) + margin;
+      const mirroredBounds = this.getRectBounds(mirroredStart, mirroredEnd, constrained);
+      const rx1 = mirroredBounds.x - margin;
+      const ry1 = mirroredBounds.y - margin;
+      const rx2 = mirroredBounds.x + mirroredBounds.w + margin;
+      const ry2 = mirroredBounds.y + mirroredBounds.h + margin;
       this.board.expandDirtyRect(user, Math.floor(rx1), Math.floor(ry1), Math.ceil(rx2) - Math.floor(rx1), Math.ceil(ry2) - Math.floor(ry1));
     });
 
     // Track tile ownership for the rectangle perimeter
     const rectPoints = [
-      this.startPos,
-      { x: pos.x, y: this.startPos.y },
-      pos,
-      { x: this.startPos.x, y: pos.y },
-      this.startPos
+      { x: rectBounds.x, y: rectBounds.y },
+      { x: rectBounds.x + rectBounds.w, y: rectBounds.y },
+      { x: rectBounds.x + rectBounds.w, y: rectBounds.y + rectBounds.h },
+      { x: rectBounds.x, y: rectBounds.y + rectBounds.h },
+      { x: rectBounds.x, y: rectBounds.y }
     ];
     this.board.markDirtyPath(user, rectPoints, margin);
     this.board.forEachMirrorRegion({ points: rectPoints }, (region) => {
@@ -373,10 +441,8 @@ export class RectangleTool extends Tool {
    * @param {Object} end - End point.
    */
   drawRect(ctx, user, start, end) {
-    const x = Math.min(start.x, end.x);
-    const y = Math.min(start.y, end.y);
-    const w = Math.abs(end.x - start.x);
-    const h = Math.abs(end.y - start.y);
+    const constrain = this.isSnapConstrained();
+    const { x, y, w, h } = this.getRectBounds(start, end, constrain);
 
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = (user.hardness !== undefined ? user.hardness : 100) / 100;
@@ -424,6 +490,67 @@ export class CircleTool extends Tool {
   constructor(board) {
     super('circle', board);
     this.startPos = null;
+    this.drawMode = 'corner-to-corner';
+  }
+
+  /**
+   * Updates circle draw mode.
+   * @param {string} mode - Draw mode value.
+   */
+  setDrawMode(mode) {
+    this.drawMode = mode === 'center-scaling' ? 'center-scaling' : 'corner-to-corner';
+  }
+
+  /**
+   * Returns whether Shift snapping is currently active.
+   * @returns {boolean}
+   */
+  isSnapConstrained() {
+    return !!this.board?.app?.isShiftModifierActive?.();
+  }
+
+  /**
+   * Computes ellipse geometry for current draw mode.
+   * @param {Object} start - Start point.
+   * @param {Object} end - End point.
+   * @param {boolean} constrain - Whether to enforce circle proportions.
+   * @returns {{cx:number, cy:number, rx:number, ry:number}}
+   */
+  getEllipseParams(start, end, constrain) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+
+    if (this.drawMode === 'center-scaling') {
+      const radius = Math.hypot(dx, dy);
+      return {
+        cx: start.x,
+        cy: start.y,
+        rx: radius,
+        ry: radius
+      };
+    }
+
+    if (!constrain) {
+      return {
+        cx: (start.x + end.x) / 2,
+        cy: (start.y + end.y) / 2,
+        rx: Math.abs(dx) / 2,
+        ry: Math.abs(dy) / 2
+      };
+    }
+
+    const side = Math.max(Math.abs(dx), Math.abs(dy));
+    const sx = dx === 0 ? (dy < 0 ? -1 : 1) : Math.sign(dx);
+    const sy = dy === 0 ? (dx < 0 ? -1 : 1) : Math.sign(dy);
+    const x2 = start.x + sx * side;
+    const y2 = start.y + sy * side;
+
+    return {
+      cx: (start.x + x2) / 2,
+      cy: (start.y + y2) / 2,
+      rx: Math.abs(x2 - start.x) / 2,
+      ry: Math.abs(y2 - start.y) / 2
+    };
   }
 
   /**
@@ -468,6 +595,9 @@ export class CircleTool extends Tool {
   onPointerUp(user, pos) {
     if (user.panning || !this.startPos) return;
 
+    const constrained = this.isSnapConstrained();
+    const ellipse = this.getEllipseParams(this.startPos, pos, constrained);
+
     const layerCtx = this.board.getActiveLayerContext();
     this.drawEllipse(layerCtx, user, this.startPos, pos);
 
@@ -488,10 +618,10 @@ export class CircleTool extends Tool {
     const safetyMargin = radius * 0.1;
     const margin = radius + blurAmount + safetyMargin + 2;
 
-    const minX = Math.min(this.startPos.x, pos.x) - margin;
-    const minY = Math.min(this.startPos.y, pos.y) - margin;
-    const maxX = Math.max(this.startPos.x, pos.x) + margin;
-    const maxY = Math.max(this.startPos.y, pos.y) + margin;
+    const minX = (ellipse.cx - ellipse.rx) - margin;
+    const minY = (ellipse.cy - ellipse.ry) - margin;
+    const maxX = (ellipse.cx + ellipse.rx) + margin;
+    const maxY = (ellipse.cy + ellipse.ry) + margin;
 
     const x = Math.floor(minX);
     const y = Math.floor(minY);
@@ -503,23 +633,20 @@ export class CircleTool extends Tool {
     this.board.forEachMirrorRegion({ rect: { x, y, width, height } }, (region) => {
       const mirroredStart = this.board.mirrorPointToRegion(this.startPos, region);
       const mirroredEnd = this.board.mirrorPointToRegion(pos, region);
-      const ex1 = Math.min(mirroredStart.x, mirroredEnd.x) - margin;
-      const ey1 = Math.min(mirroredStart.y, mirroredEnd.y) - margin;
-      const ex2 = Math.max(mirroredStart.x, mirroredEnd.x) + margin;
-      const ey2 = Math.max(mirroredStart.y, mirroredEnd.y) + margin;
+      const mirroredEllipse = this.getEllipseParams(mirroredStart, mirroredEnd, constrained);
+      const ex1 = (mirroredEllipse.cx - mirroredEllipse.rx) - margin;
+      const ey1 = (mirroredEllipse.cy - mirroredEllipse.ry) - margin;
+      const ex2 = (mirroredEllipse.cx + mirroredEllipse.rx) + margin;
+      const ey2 = (mirroredEllipse.cy + mirroredEllipse.ry) + margin;
       this.board.expandDirtyRect(user, Math.floor(ex1), Math.floor(ey1), Math.ceil(ex2) - Math.floor(ex1), Math.ceil(ey2) - Math.floor(ey1));
     });
 
     // Track tile ownership for the ellipse perimeter
-    const cx = (this.startPos.x + pos.x) / 2;
-    const cy = (this.startPos.y + pos.y) / 2;
-    const rx = Math.abs(pos.x - this.startPos.x) / 2;
-    const ry = Math.abs(pos.y - this.startPos.y) / 2;
     const ellipsePoints = [];
-    const steps = Math.max(16, Math.ceil(Math.max(rx, ry) / 8));
+    const steps = Math.max(16, Math.ceil(Math.max(ellipse.rx, ellipse.ry) / 8));
     for (let i = 0; i <= steps; i++) {
       const angle = (i / steps) * Math.PI * 2;
-      ellipsePoints.push({ x: cx + rx * Math.cos(angle), y: cy + ry * Math.sin(angle) });
+      ellipsePoints.push({ x: ellipse.cx + ellipse.rx * Math.cos(angle), y: ellipse.cy + ellipse.ry * Math.sin(angle) });
     }
     this.board.markDirtyPath(user, ellipsePoints, margin);
     this.board.forEachMirrorRegion({ points: ellipsePoints }, (region) => {
@@ -560,10 +687,8 @@ export class CircleTool extends Tool {
    * @param {Object} end - End point.
    */
   drawEllipse(ctx, user, start, end) {
-    const cx = (start.x + end.x) / 2;
-    const cy = (start.y + end.y) / 2;
-    const rx = Math.abs(end.x - start.x) / 2;
-    const ry = Math.abs(end.y - start.y) / 2;
+    const constrain = this.isSnapConstrained();
+    const { cx, cy, rx, ry } = this.getEllipseParams(start, end, constrain);
 
     const opacity = user.opacity !== undefined ? user.opacity : 1;
     const hardness = (user.hardness !== undefined ? user.hardness : 100) / 100;

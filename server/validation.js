@@ -332,6 +332,12 @@ export async function sanitizeMessage(data) {
       sanitized.pm = sanitizeBoolean(data.pm);
       return sanitized;
 
+    case T.CSDM: {
+      const mode = sanitizeString(data.sdm, 24);
+      sanitized.sdm = mode === 'center-scaling' ? 'center-scaling' : 'corner-to-corner';
+      return sanitized;
+    }
+
     case T.CF:
       sanitized.fo = sanitizeString(data.fo, 120, { trim: true });
       sanitized.tm = Math.min(Math.max(Number(data.tm), -1), 1);

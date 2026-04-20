@@ -1446,10 +1446,13 @@ export class SelectTool extends Tool {
       const scaleX = oldWidth > 0 ? newWidth / oldWidth : 1;
       const scaleY = oldHeight > 0 ? newHeight / oldHeight : 1;
 
+      // Use uniform scale to maintain aspect ratio (use smaller absolute scale)
+      const uniformScale = Math.abs(scaleX) < Math.abs(scaleY) ? scaleX : scaleY;
+
       // Scale all corners relative to the opposite corner
       const scaleCorner = (corner) => ({
-        x: oppositeBBoxCorner.x + (corner.x - oppositeBBoxCorner.x) * scaleX,
-        y: oppositeBBoxCorner.y + (corner.y - oppositeBBoxCorner.y) * scaleY
+        x: oppositeBBoxCorner.x + (corner.x - oppositeBBoxCorner.x) * uniformScale,
+        y: oppositeBBoxCorner.y + (corner.y - oppositeBBoxCorner.y) * uniformScale
       });
 
       c.tl = scaleCorner(c.tl);

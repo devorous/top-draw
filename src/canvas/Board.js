@@ -120,6 +120,8 @@ export class Board {
     // Create selection overlay canvas with padding to allow handles to extend beyond board
     this.selectionOverlay = document.createElement('canvas');
     this.selectionOverlay.id = 'selectionOverlay';
+    this.selectionOverlay.style.position = 'absolute';
+    this.selectionOverlay.style.pointerEvents = 'none';
     this.boardsWrapper.appendChild(this.selectionOverlay);
     this.selectionCtx = this.selectionOverlay.getContext('2d');
 
@@ -154,16 +156,16 @@ export class Board {
     this.pixelGridOverlay.style.backgroundRepeat = 'repeat';
     this.container.appendChild(this.pixelGridOverlay);
 
-    this.mirrorRegionsLayer = document.createElement('div');
+    this.mirrorRegionsLayer = document.createElement('canvas');
     this.mirrorRegionsLayer.id = 'mirrorRegionsLayer';
     this.mirrorRegionsLayer.style.position = 'absolute';
     this.mirrorRegionsLayer.style.top = '0';
     this.mirrorRegionsLayer.style.left = '0';
-    this.mirrorRegionsLayer.style.width = '100%';
-    this.mirrorRegionsLayer.style.height = '100%';
     this.mirrorRegionsLayer.style.pointerEvents = 'none';
     this.mirrorRegionsLayer.style.zIndex = '3';
     this.boardsWrapper.appendChild(this.mirrorRegionsLayer);
+
+    this.mirrorRegionsCtx = this.mirrorRegionsLayer.getContext('2d');
 
     this.setupCanvas();
 
@@ -238,14 +240,19 @@ export class Board {
     this.topCtx.imageSmoothingQuality = 'high';
     this.topCtx.lineCap = 'round';
     this.topCtx.lineJoin = 'round';
-    this.mirrorLine.setAttribute('x1', width / 2);
-    this.mirrorLine.setAttribute('y1', 0);
-    this.mirrorLine.setAttribute('x2', width / 2);
-    this.mirrorLine.setAttribute('y2', height);
-    this.mirrorLine.style.display = 'none';
+
+    if (this.mirrorLine) {
+      this.mirrorLine.setAttribute('x1', width / 2);
+      this.mirrorLine.setAttribute('y1', 0);
+      this.mirrorLine.setAttribute('x2', width / 2);
+      this.mirrorLine.setAttribute('y2', height);
+      this.mirrorLine.style.display = this.mirror ? 'block' : 'none';
+    }
 
     this.boardsWrapper.style.transformOrigin = 'top left';
     if (this.mirrorRegionsLayer) {
+      this.mirrorRegionsLayer.width = width;
+      this.mirrorRegionsLayer.height = height;
       this.mirrorRegionsLayer.style.width = `${width}px`;
       this.mirrorRegionsLayer.style.height = `${height}px`;
     }
@@ -713,6 +720,32 @@ export class Board {
       };
     }
 
+    if (transform === 'fibStep') {
+      const invPHI = 0.6180339887;
+      const step = region.fibStep || 1;
+      
+      // Fixed point (eye) of the golden spiral in a rectangle [0, w]x[0, h]
+      // with the first square on the left and the second on top-right.
+      const eyeX = region.x + region.width * invPHI;
+      const eyeY = region.y + region.height * invPHI;
+      
+      const angle = step * (Math.PI / 2); // 90 degrees clockwise per step
+      const scale = Math.pow(invPHI, step);
+      
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const dx = point.x - eyeX;
+      const dy = point.y - eyeY;
+      
+      const rdx = dx * cos - dy * sin;
+      const rdy = dx * sin + dy * cos;
+      
+      return {
+        x: eyeX + rdx * scale,
+        y: eyeY + rdy * scale
+      };
+    }
+
     switch (transform) {
       case 'horizontal':
       case 'flipY':
@@ -804,6 +837,18 @@ export class Board {
           ctx.rotate(Number(region.rotationAngle || 0));
           ctx.translate(-centerX, -centerY);
           break;
+        case 'fibStep':
+          const invPHI = 0.6180339887;
+          const step = region.fibStep || 1;
+          const eyeX = region.x + region.width * invPHI;
+          const eyeY = region.y + region.height * invPHI;
+          const angle = step * (Math.PI / 2);
+          const scale = Math.pow(invPHI, step);
+          ctx.translate(eyeX, eyeY);
+          ctx.rotate(angle);
+          ctx.scale(scale, scale);
+          ctx.translate(-eyeX, -eyeY);
+          break;
         default:
           ctx.translate(centerX * 2, 0);
           ctx.scale(-1, 1);
@@ -848,30 +893,110 @@ export class Board {
    * Renders the persistent mirror region overlays.
    */
   renderMirrorRegions() {
-    if (!this.mirrorRegionsLayer) return;
-    this.mirrorRegionsLayer.innerHTML = '';
-
-    if (this.mirror) return;
+    if (!this.mirrorRegionsCtx || !this.mirrorRegionsLayer) return;
+    this.mirrorRegionsCtx.clearRect(0, 0, this.mirrorRegionsLayer.width, this.mirrorRegionsLayer.height);
 
     for (const region of this.mirrorRegions) {
-      const regionEl = document.createElement('div');
-      regionEl.className = 'mirror-region';
-      regionEl.style.position = 'absolute';
-      regionEl.style.left = `${region.x}px`;
-      regionEl.style.top = `${region.y}px`;
-      regionEl.style.width = `${region.width}px`;
-      regionEl.style.height = `${region.height}px`;
-      regionEl.style.border = '1px solid rgba(0, 212, 170, 0.9)';
-      regionEl.style.boxSizing = 'border-box';
-      regionEl.style.background = 'transparent';
-      regionEl.style.overflow = 'hidden';
+      this.mirrorRegionsCtx.save();
+      this.mirrorRegionsCtx.strokeStyle = 'rgba(0, 212, 170, 0.9)';
+      this.mirrorRegionsCtx.lineWidth = 1;
+      this.mirrorRegionsCtx.strokeRect(region.x, region.y, region.width, region.height);
 
       if (region.showLine) {
-        this._appendMirrorRegionGuide(regionEl, region);
+        this.mirrorRegionsCtx.setLineDash([4, 4]);
+        this.mirrorRegionsCtx.lineWidth = 0.75;
+        this.mirrorRegionsCtx.strokeStyle = 'rgba(0, 212, 170, 0.85)';
+        Board.drawMirrorGuide(this.mirrorRegionsCtx, region);
       }
-
-      this.mirrorRegionsLayer.appendChild(regionEl);
+      this.mirrorRegionsCtx.restore();
     }
+  }
+
+  /**
+   * Shared helper for drawing mirror mode guides.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Object} region
+   */
+  static drawMirrorGuide(ctx, region) {
+    const cx = region.x + region.width / 2;
+    const cy = region.y + region.height / 2;
+    const axis = region.mode || region.axis || 'vertical';
+
+    ctx.save();
+    if (axis === 'horizontal') {
+      ctx.beginPath();
+      ctx.moveTo(region.x, cy);
+      ctx.lineTo(region.x + region.width, cy);
+      ctx.stroke();
+    } else if (axis === 'vertical') {
+      ctx.beginPath();
+      ctx.moveTo(cx, region.y);
+      ctx.lineTo(cx, region.y + region.height);
+      ctx.stroke();
+    } else if (axis === 'radial') {
+      const radius = Math.max(region.width, region.height) / 2;
+      const slices = region.slices || 6;
+      ctx.beginPath();
+      for (let step = 0; step < slices; step += 1) {
+        const angle = ((Math.PI * 2) / slices) * step - (Math.PI / 2);
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
+      }
+      ctx.stroke();
+    } else if (axis === 'fib') {
+      const depth = region.fibDepth || 4;
+      const previewDepth = 8;
+      const invPHI = 0.6180339887;
+      const fibAngleOffset = Math.PI;
+      const eyeX = region.x + region.width * invPHI;
+      const eyeY = region.y + region.height * invPHI;
+
+      // Always draw the guide rectangle from the exact selected region bounds.
+      ctx.strokeRect(region.x, region.y, region.width, region.height);
+
+      // Keep all Fibonacci preview geometry hard-clipped to the selected region.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(region.x, region.y, region.width, region.height);
+      ctx.clip();
+
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1.15;
+      ctx.strokeStyle = 'rgba(0, 212, 170, 0.9)';
+      ctx.beginPath();
+      const startX = region.x;
+      const startY = region.y + region.height;
+      const startDx = startX - eyeX;
+      const startDy = startY - eyeY;
+      const offsetCos = Math.cos(fibAngleOffset);
+      const offsetSin = Math.sin(fibAngleOffset);
+      // Phase-compensate the start vector so t=0 remains anchored at bottom-left.
+      const baseDx = (startDx * offsetCos) + (startDy * offsetSin);
+      const baseDy = (-startDx * offsetSin) + (startDy * offsetCos);
+      const steps = Math.max(20, previewDepth * 48);
+      for (let i = 0; i <= steps; i += 1) {
+        const t = (previewDepth * i) / steps;
+        const angle = fibAngleOffset + (t * (Math.PI / 2));
+        const scale = Math.pow(invPHI, t);
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const x = eyeX + ((baseDx * cos) - (baseDy * sin)) * scale;
+        const y = eyeY + ((baseDx * sin) + (baseDy * cos)) * scale;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      // Quad / Rotational
+      ctx.beginPath();
+      ctx.moveTo(region.x, cy);
+      ctx.lineTo(region.x + region.width, cy);
+      ctx.moveTo(cx, region.y);
+      ctx.lineTo(cx, region.y + region.height);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   renderInteractionBlocks() {
@@ -927,6 +1052,7 @@ export class Board {
       mode: this._normalizeMirrorMode(region.mode || region.axis),
       axis: this._normalizeMirrorMode(region.mode || region.axis),
       slices: this._normalizeMirrorSlices(region.slices),
+      fibDepth: this._normalizeFibDepth(region.fibDepth),
       showLine: region.showLine !== false,
       owner: region.owner || region.createdBy || null
     };
@@ -1123,13 +1249,19 @@ export class Board {
   }
 
   _normalizeMirrorMode(mode) {
-    return ['horizontal', 'quad', 'rotational', 'radial'].includes(mode) ? mode : 'vertical';
+    return ['horizontal', 'quad', 'rotational', 'radial', 'fib'].includes(mode) ? mode : 'vertical';
   }
 
   _normalizeMirrorSlices(slices) {
     const parsed = Math.floor(Number(slices));
     if (!Number.isFinite(parsed)) return 6;
     return Math.max(3, Math.min(16, parsed));
+  }
+
+  _normalizeFibDepth(depth) {
+    const parsed = Math.floor(Number(depth));
+    if (!Number.isFinite(parsed)) return 4;
+    return Math.max(1, Math.min(8, parsed));
   }
 
   _expandMirrorRegionTransforms(region) {
@@ -1159,6 +1291,21 @@ export class Board {
           rotationStep: step,
           synthetic: true,
           id: `${baseRegion.id}_radial_${step}`
+        });
+      }
+      return transforms;
+    }
+
+    if (baseRegion.mode === 'fib') {
+      const transforms = [];
+      const depth = baseRegion.fibDepth || 4;
+      for (let step = 1; step <= depth; step += 1) {
+        transforms.push({
+          ...baseRegion,
+          transform: 'fibStep',
+          fibStep: step,
+          synthetic: true,
+          id: `${baseRegion.id}_fib_${step}`
         });
       }
       return transforms;
