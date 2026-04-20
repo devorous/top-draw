@@ -255,6 +255,16 @@ export class RemoteUserHandler {
         break;
       }
 
+      case 'flowPen':
+        this.penHandler.handlePenMove(user, pos);
+        break;
+
+      case 'ink': {
+        const pressure255 = Math.round((user.pressure ?? 1) * 255);
+        this.inkHandler.handleInkPoints(user, [pos.x, pos.y], [pressure255]);
+        break;
+      }
+
       case 'circleBlur': {
         const circleBlurTool = this.toolManager.getTool(user.tool);
         if (circleBlurTool) {

@@ -261,7 +261,11 @@ export class InputBufferManager {
       const drain = app.self.tool === 'ink' ? tool.drainPointBuffer?.() : tool.drainStampBuffer?.();
       if (drain?.ps?.length > 0) {
         const captured = drain;
-        this.broadcastQueue.push(() => app.wsClient.broadcastStampMove(captured.ps, captured.rs));
+        if ((app.self.tool === 'flowPen' || app.self.tool === 'ink') && this._hasUniformRadii(captured.rs)) {
+          this.broadcastQueue.push(() => app.wsClient.broadcastMove(captured.ps));
+        } else {
+          this.broadcastQueue.push(() => app.wsClient.broadcastStampMove(captured.ps, captured.rs));
+        }
       }
     }
 
@@ -404,6 +408,15 @@ export class InputBufferManager {
     }
 
     this.inputBuffer.lastPosition = { x: lastX, y: lastY };
+  }
+
+  _hasUniformRadii(radii) {
+    if (!Array.isArray(radii) || radii.length <= 1) return true;
+    const first = radii[0];
+    for (let i = 1; i < radii.length; i++) {
+      if (radii[i] !== first) return false;
+    }
+    return true;
   }
 
   _isStampTool(toolName) {
