@@ -57,6 +57,7 @@ const WS_GLITCH_RESULT_LIMIT = { max: 360, windowMs: 60 * 1000, blockMs: 60 * 10
 const WS_AUTH_LIMIT = { max: 8, windowMs: 10 * 60 * 1000, blockMs: 15 * 60 * 1000 };
 const WS_ADMIN_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
 const VALID_ROOM_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+const DEFAULT_ROOM_ID = 'lobby';
 const ROOM_JOIN_POLICIES = new Set(['open', 'registered', 'trusted']);
 const ADMIN_COLLECTIONS = new Set([
   'users',
@@ -76,8 +77,12 @@ function getJoinPolicyMinRole(joinPolicy) {
 }
 
 function sanitizeRoomId(roomId) {
-  const normalized = String(roomId || 'default').trim();
-  return VALID_ROOM_ID_RE.test(normalized) ? normalized : 'default';
+  const normalized = String(roomId || DEFAULT_ROOM_ID).trim();
+  if (!VALID_ROOM_ID_RE.test(normalized)) {
+    return DEFAULT_ROOM_ID;
+  }
+  // Legacy clients may still send "default"; normalize it to the real public lobby.
+  return normalized === 'default' ? DEFAULT_ROOM_ID : normalized;
 }
 
 function rateLimitKey(prefix, ip, suffix = '') {

@@ -50,7 +50,7 @@ export class Room {
     /** @type {number} Timestamp of last preview update */
     this.previewUpdatedAt = 0;
 
-    const isDiscovery = id === '_discovery' || id === 'default';
+    const isDiscovery = id === '_discovery';
     this.sessionManager = new SessionManager(this.broadcastToAll.bind(this), isDiscovery, {
       isImmuneToInactivity: (_sessionIndex, user) => {
         const role = user.role || 0;
@@ -527,7 +527,7 @@ export class RoomManager {
       }))
     };
 
-    const discoveryRooms = ['default', '_discovery'];
+    const discoveryRooms = ['lobby', '_discovery'];
     for (const roomId of discoveryRooms) {
       const room = this.rooms.get(roomId);
       if (room) {
