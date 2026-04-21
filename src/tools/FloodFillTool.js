@@ -211,6 +211,47 @@ export class FloodFillTool {
   }
 
   /**
+   * Maps horizontal drag distance to expansion with finer control near zero.
+   * - Outside [-2, 2]: 0.3 expansion units per pixel
+   * - Inside  [-2, 2]: 0.1 expansion units per pixel
+   * This keeps precision where users need it most while retaining speed at larger offsets.
+   * @private
+   */
+  _computeExpansionFromDrag(startExpansion, dx) {
+    let current = Math.max(-50, Math.min(50, startExpansion));
+    let remainingPx = Math.abs(dx);
+    const direction = dx >= 0 ? 1 : -1;
+
+    const advanceToBoundary = (boundary, unitsPerPx) => {
+      if (remainingPx <= 0) return;
+
+      const distanceToBoundary = direction > 0
+        ? boundary - current
+        : current - boundary;
+
+      if (distanceToBoundary <= 0) return;
+
+      const pxNeeded = distanceToBoundary / unitsPerPx;
+      const pxUsed = Math.min(remainingPx, pxNeeded);
+      current += direction * pxUsed * unitsPerPx;
+      remainingPx -= pxUsed;
+    };
+
+    if (direction > 0) {
+      if (current < -2) advanceToBoundary(-2, 0.3);
+      if (current < 2) advanceToBoundary(2, 0.1);
+      if (remainingPx > 0) current += remainingPx * 0.3;
+    } else {
+      if (current > 2) advanceToBoundary(2, 0.3);
+      if (current > -2) advanceToBoundary(-2, 0.1);
+      if (remainingPx > 0) current -= remainingPx * 0.3;
+    }
+
+    current = Math.max(-50, Math.min(50, current));
+    return Math.round(current * 10) / 10;
+  }
+
+  /**
    * Render a mask to a target canvas context, optionally blurring edges.
    * Runs on main thread (needs canvas context).
    */
@@ -594,7 +635,7 @@ export class FloodFillTool {
     const dx = (pos.x - this._startPos.x) * zoom;
     const dy = (pos.y - this._startPos.y) * zoom;
 
-    this._expansion = Math.round(Math.max(-50, Math.min(50, this._dragStartExpansion + dx * 0.3)) * 10) / 10;
+    this._expansion = this._computeExpansionFromDrag(this._dragStartExpansion, dx);
     this._blurRadius = Math.round(Math.max(0, Math.min(25, this._dragStartBlur + dy * 0.12)) * 10) / 10;
     this._updateSliders();
 
