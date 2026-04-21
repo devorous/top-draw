@@ -1,7 +1,6 @@
 use std::{
   fs,
   path::Path,
-  process::Command,
   sync::Mutex,
   thread,
   time::Duration,
@@ -51,83 +50,23 @@ struct UpdateMetadata {
   date: Option<String>,
 }
 
-#[cfg(target_os = "windows")]
-fn powershell_single_quote(value: &str) -> String {
-  value.replace('\'', "''")
-}
-
-#[cfg(target_os = "windows")]
-fn run_powershell(script: &str) -> Result<String, String> {
-  let output = Command::new("powershell")
-    .args(["-NoProfile", "-NonInteractive", "-Sta", "-Command", script])
-    .output()
-    .map_err(|error| format!("Failed to launch PowerShell: {error}"))?;
-
-  if !output.status.success() {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    return Err(if stderr.is_empty() {
-      format!("PowerShell exited with status {}", output.status)
-    } else {
-      stderr
-    });
-  }
-
-  Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-#[cfg(target_os = "windows")]
 fn show_open_image_dialog() -> Result<Option<String>, String> {
-  let script = r#"
-    Add-Type -AssemblyName System.Windows.Forms
-    $dialog = New-Object System.Windows.Forms.OpenFileDialog
-    $dialog.Filter = 'Image Files|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp'
-    $dialog.Multiselect = $false
-    if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-      [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-      Write-Output $dialog.FileName
-    }
-  "#;
-
-  let output = run_powershell(script)?;
-  if output.is_empty() {
-    Ok(None)
-  } else {
-    Ok(Some(output))
-  }
+  Ok(
+    rfd::FileDialog::new()
+      .add_filter("Image Files", &["png", "jpg", "jpeg", "gif", "bmp", "webp"])
+      .pick_file()
+      .map(|path| path.to_string_lossy().to_string()),
+  )
 }
 
-#[cfg(target_os = "windows")]
 fn show_save_png_dialog(suggested_name: &str) -> Result<Option<String>, String> {
-  let escaped_name = powershell_single_quote(suggested_name);
-  let script = format!(
-    r#"
-      Add-Type -AssemblyName System.Windows.Forms
-      $dialog = New-Object System.Windows.Forms.SaveFileDialog
-      $dialog.Filter = 'PNG Image|*.png'
-      $dialog.FileName = '{escaped_name}'
-      if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{
-        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-        Write-Output $dialog.FileName
-      }}
-    "#
-  );
-
-  let output = run_powershell(&script)?;
-  if output.is_empty() {
-    Ok(None)
-  } else {
-    Ok(Some(output))
-  }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn show_open_image_dialog() -> Result<Option<String>, String> {
-  Err("Native image import is currently implemented for Windows only".into())
-}
-
-#[cfg(not(target_os = "windows"))]
-fn show_save_png_dialog(_suggested_name: &str) -> Result<Option<String>, String> {
-  Err("Native image export is currently implemented for Windows only".into())
+  Ok(
+    rfd::FileDialog::new()
+      .add_filter("PNG Image", &["png"])
+      .set_file_name(suggested_name)
+      .save_file()
+      .map(|path| path.to_string_lossy().to_string()),
+  )
 }
 
 fn image_mime_for_path(path: &Path) -> &'static str {
