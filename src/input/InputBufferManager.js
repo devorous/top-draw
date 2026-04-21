@@ -270,7 +270,9 @@ export class InputBufferManager {
     if (tool && this._isStampTool(app.self.tool)) {
       const drain = app.self.tool === 'ink' ? tool.drainPointBuffer?.() : tool.drainStampBuffer?.();
       if (drain?.ps?.length > 0) {
-        const reduced = this._reduceStampPayload(drain.ps, drain.rs);
+        const reduced = this._shouldPreserveStampPayload(app.self.tool)
+          ? { ps: drain.ps, rs: Array.isArray(drain.rs) ? drain.rs : [] }
+          : this._reduceStampPayload(drain.ps, drain.rs);
         if ((app.self.tool === 'flowPen' || app.self.tool === 'ink') && this._hasUniformRadii(reduced.rs)) {
           this._recordOutgoingPoints(reduced.ps.length / 2);
           this.broadcastQueue.push(() => app.wsClient.broadcastMove(reduced.ps));
@@ -435,6 +437,10 @@ export class InputBufferManager {
 
   _isStampTool(toolName) {
     return ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush'].includes(toolName);
+  }
+
+  _shouldPreserveStampPayload(toolName) {
+    return ['circleBlur', 'imageBrush', 'pixel'].includes(toolName);
   }
 
   _reduceStampPayload(ps, rs) {
