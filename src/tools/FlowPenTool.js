@@ -137,9 +137,8 @@ export class FlowPenTool extends Tool {
     this.color = color; 
     this.offscreenCtx.fillStyle = this.strokeColor;
 
-    const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
-    this.userAlpha = colorAlpha * opacitySlider;
+    this.userAlpha = opacitySlider;
     
     const rawHardness = user.hardness !== undefined ? user.hardness : 100;
     this.userHardness = rawHardness > 1.0 ? rawHardness / 100.0 : rawHardness;

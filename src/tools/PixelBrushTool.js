@@ -220,9 +220,8 @@ export class PixelBrushTool {
     if (tempCanvas) {
       const ctx = this.board.layerManager.getUserStrokeContext(user.activeLayer, user.id);
       if (ctx) {
-        const colorAlpha = user.color[3];
         const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
-        const finalAlpha = colorAlpha * opacitySlider;
+        const finalAlpha = opacitySlider;
 
         ctx.globalAlpha = finalAlpha;
         ctx.drawImage(tempCanvas, 0, 0);
@@ -263,9 +262,8 @@ export class PixelBrushTool {
     const tempCanvas = this.tempCanvases.get(user.id);
     if (!tempCanvas) return;
 
-    const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
-    const finalAlpha = colorAlpha * opacitySlider;
+    const finalAlpha = opacitySlider;
 
     const ctx = this.board.topCtx;
     if (!ctx) return;

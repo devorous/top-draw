@@ -144,9 +144,8 @@ export class InkTool extends Tool {
     this.strokeColor = `rgb(${color.join(',')})`;
     this.offscreenCtx.fillStyle = this.strokeColor;
 
-    const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
-    this.userAlpha = colorAlpha * opacitySlider;
+    this.userAlpha = opacitySlider;
     this.userHardness = user.hardness !== undefined ? user.hardness : 100;
 
     this._strokeSize = user.size;

@@ -527,7 +527,8 @@ export function drawLineArray(points, ctx, user, board = null, blendMode = 'sour
   ctx.lineJoin = 'round';
   ctx.lineWidth = user.pressure * user.size * 2;
 
-  const colorString = user.getColorString();
+  const color = user?.color ?? [0, 0, 0, 1];
+  const colorString = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
 
   // Apply softness using shadow blur - matches circle blur's linear hardness mapping
   if (hardness < 1.0) {
