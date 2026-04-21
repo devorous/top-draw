@@ -48,6 +48,7 @@ export class UI {
     this.svgCache = new Map(); // Initialize SVG cache
     this.icons = {}; // Will store references to cached SVG data or image elements
     this.cursors = new Map();
+    this._savingPopupEl = null;
     this.editableHandler = new EditableValueHandler();
     this.remoteUserUI = null;
     this.layerPreview = new LayerPreview();
@@ -1921,6 +1922,55 @@ menuBtn: document.getElementById('menuBtn'),
     el.addEventListener('transitionend', () => el.remove(), { once: true });
     setTimeout(() => el.remove(), 400); // fallback if transitionend never fires
     this._snapshotJoinToastEl = null;
+  }
+
+  /**
+   * Shows a centered blocking popup while an operation is in progress.
+   * @param {string} [message='Saving...']
+   */
+  showSavingPopup(message = 'Saving...') {
+    let popup = this._savingPopupEl;
+    if (!popup) {
+      popup = document.createElement('div');
+      popup.className = 'savingPopup';
+
+      const card = document.createElement('div');
+      card.className = 'savingPopup__card';
+
+      const spinner = document.createElement('div');
+      spinner.className = 'savingPopup__spinner';
+      spinner.setAttribute('aria-hidden', 'true');
+
+      const text = document.createElement('div');
+      text.className = 'savingPopup__text';
+      text.textContent = message;
+
+      card.append(spinner, text);
+      popup.appendChild(card);
+      document.body.appendChild(popup);
+      this._savingPopupEl = popup;
+
+      requestAnimationFrame(() => popup.classList.add('show'));
+      return;
+    }
+
+    const text = popup.querySelector('.savingPopup__text');
+    if (text) {
+      text.textContent = message;
+    }
+  }
+
+  /**
+   * Hides the centered saving popup.
+   */
+  hideSavingPopup() {
+    const popup = this._savingPopupEl;
+    if (!popup) return;
+
+    popup.classList.remove('show');
+    popup.addEventListener('transitionend', () => popup.remove(), { once: true });
+    setTimeout(() => popup.remove(), 250); // fallback if transitionend never fires
+    this._savingPopupEl = null;
   }
 
   /**

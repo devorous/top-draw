@@ -1,6 +1,7 @@
 /** @fileoverview Version checking and outdated client detection. */
 
 import { isTauriDesktop } from './platform/desktop.js';
+import { promptUpdateForVersionMismatch } from './platform/updater.js';
 
 let cachedVersionStatus = null;
 let versionStatusPromise = null;
@@ -278,6 +279,14 @@ export async function ensureClientCanConnect({ showWarning = true } = {}) {
   const status = await getVersionStatus();
   if (status.allowed) {
     return status;
+  }
+
+  if (isTauriDesktop()) {
+    try {
+      await promptUpdateForVersionMismatch();
+    } catch (err) {
+      console.warn('[VersionChecker] Failed to prompt desktop updater on mismatch:', err);
+    }
   }
 
   const warningKey = `${status.clientVersion || 'unknown'}->${status.minRequired || 'unknown'}`;

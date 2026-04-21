@@ -2,6 +2,8 @@ import { isTauriDesktop } from './desktop.js';
 
 let startupCheckScheduled = false;
 const UPDATER_DISABLED = false;
+let mismatchPromptInFlight = null;
+let mismatchPrompted = false;
 
 function formatPublishedDate(rawDate) {
   if (!rawDate) return '';
@@ -290,4 +292,27 @@ export function scheduleStartupUpdateCheck() {
   window.setTimeout(() => {
     void checkForDesktopUpdates({ silent: true });
   }, 4000);
+}
+
+/**
+ * Trigger a one-time desktop update check when server version policy rejects the client.
+ * This avoids relying only on the delayed silent startup check for mismatch cases.
+ */
+export async function promptUpdateForVersionMismatch() {
+  if (UPDATER_DISABLED || mismatchPrompted || !isTauriDesktop()) {
+    return { status: 'skipped' };
+  }
+
+  if (mismatchPromptInFlight) {
+    return mismatchPromptInFlight;
+  }
+
+  mismatchPromptInFlight = (async () => {
+    const result = await checkForDesktopUpdates({ silent: false });
+    mismatchPrompted = true;
+    mismatchPromptInFlight = null;
+    return result;
+  })();
+
+  return mismatchPromptInFlight;
 }

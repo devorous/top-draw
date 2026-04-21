@@ -103,3 +103,59 @@
     margin-top: 6px;
   }
 }
+
+// ========================================
+// Blocking Saving Popup
+// ========================================
+
+.savingPopup {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(7, 11, 20, 0.35);
+  backdrop-filter: blur(2px);
+  z-index: 10200;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease;
+  pointer-events: all;
+
+  &.show {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  &__card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 170px;
+    padding: 12px 16px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--accent-primary);
+    background: var(--surface-glass);
+    box-shadow: var(--shadow-md), 0 0 20px var(--accent-glow);
+    color: var(--text-primary);
+  }
+
+  &__spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.22);
+    border-top-color: var(--accent-primary);
+    border-radius: 50%;
+    animation: savingPopupSpin 0.75s linear infinite;
+  }
+
+  &__text {
+    font-size: 13px;
+    font-weight: 600;
+  }
+}
+
+@keyframes savingPopupSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}

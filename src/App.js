@@ -3628,9 +3628,7 @@ export class DrawingApp {
     const btn = this.ui.elements.saveToGalleryBtn;
     const originalText = btn?.textContent;
     if (btn) btn.textContent = 'Saving...';
-
-    // Show saving toast immediately
-    this.ui.showToast('Saving...', 10000);
+    this.ui.showSavingPopup('Saving to gallery...');
 
     try {
       const imageData = targetCanvas.toDataURL('image/png');
@@ -3662,6 +3660,7 @@ export class DrawingApp {
       this.ui.showToast(`Gallery save failed: ${err.message}`, 3000, 'error');
       await this._offerLocalSave(targetCanvas);
     } finally {
+      this.ui.hideSavingPopup();
       if (btn && originalText) btn.textContent = originalText;
     }
   }
