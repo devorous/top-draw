@@ -54,6 +54,9 @@ import 'reinvented-color-wheel/css/reinvented-color-wheel.css';
 
 const TEXT_FONT_SETTINGS_STORAGE_KEY = 'topDrawTextFontSettings';
 const SHAPE_DRAW_MODE_STORAGE_KEY = 'topDrawShapeDrawMode';
+const NORMAL_TPS = 60;
+const LOW_POWER_TPS = 30;
+const LOW_POWER_FPS = 30;
 
 function _hexToRgb(hex) {
   const c = hex.replace('#', '');
@@ -277,6 +280,7 @@ export class DrawingApp {
 
     this.inputBufferManager = new InputBufferManager(this);
     this.wsClient.getLowPowerMode = () => this.inputBufferManager.lowPowerMode;
+    this._applyLowPowerPreference();
 
     this.shapeDrawMode = 'corner-to-corner';
     this.modifierKeys = {
@@ -518,6 +522,7 @@ export class DrawingApp {
     this.board.setUseDesynchronizedBoardContexts(this.appPreferences?.general?.useDesynchronizedBoardContexts);
     this.board.init('#boardContainer');
     this.board.setApp(this);
+    this._applyLowPowerPreference();
     this.board.setShowRawPixelsAtHighZoom(this.appPreferences?.general?.showRawPixelsAtHighZoom);
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
     this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
@@ -560,6 +565,7 @@ export class DrawingApp {
     const debugCanvas = document.getElementById('debugOverlay');
     this.debugOverlay.init(debugCanvas, this.board.getWidth(), this.board.getHeight());
     this.debugOverlay.setBoard(this.board);
+    this.debugOverlay.setInputBufferManager(this.inputBufferManager);
     this.debugOverlay.setTileTracker(this.board.tileTracker);
 
     this.strokeHistoryPanel.init();
@@ -3339,6 +3345,20 @@ export class DrawingApp {
     appState.appSettingsVisible = true;
   }
 
+  _applyLowPowerPreference() {
+    const lowPowerEnabled = !!this.appPreferences?.general?.lowPowerMode;
+    const targetTickRate = lowPowerEnabled ? LOW_POWER_TPS : NORMAL_TPS;
+    const targetFPS = lowPowerEnabled ? LOW_POWER_FPS : 0;
+
+    if (this.inputBufferManager?.tickRate !== targetTickRate) {
+      this.inputBufferManager.setTickRate(targetTickRate);
+    }
+
+    if (this.board?.targetFPS !== targetFPS) {
+      this.board.setTargetFPS(targetFPS);
+    }
+  }
+
   setAppPreferences(preferences) {
     this.appPreferences = saveAppPreferences(preferences);
     applyThemeColors(this.appPreferences?.general?.themeColors);
@@ -3350,6 +3370,7 @@ export class DrawingApp {
     if (desyncChangeNeedsRefresh) {
       this.ui?.showToast?.('Low-latency canvas setting will apply after refresh', 3500);
     }
+    this._applyLowPowerPreference();
     appState.appPreferences = this.appPreferences;
     return this.appPreferences;
   }
@@ -4844,9 +4865,6 @@ export class DrawingApp {
     const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
     const x = pos.x;
     const y = pos.y;
-    const constrainedPos = this.getConstrainedShapeDragPoint(x, y);
-    const drawX = constrainedPos.x;
-    const drawY = constrainedPos.y;
 
     if (this.self.mousedown && !this.self.panning) {
       const previousPos = this.inputBufferManager.inputBuffer.lastPosition || { x: this.self.x, y: this.self.y };
@@ -4940,9 +4958,48 @@ export class DrawingApp {
       }
     }
 
-    // Buffer the input for processing (x, y, pressure)
-    this.inputBufferManager.inputBuffer.points.push(drawX, drawY, pressure);
-    this.inputBufferManager.inputBuffer.pointerType = e.pointerType;
+    const getPressureForBufferedSample = (sampleEvent) => {
+      const samplePointerType = sampleEvent.pointerType || e.pointerType;
+      if (!toolUsesPressure || !this.pressureEnabled) {
+        return 1;
+      }
+      if (samplePointerType !== 'pen' || this.self.panning) {
+        return pressure;
+      }
+      if (sampleEvent.pressure === 0) {
+        return this.self.mousedown ? this.self.pressure : 0;
+      }
+      const minP = Number(this.ui.elements.pressureMinSlider.value) / 100;
+      const maxP = Number(this.ui.elements.pressureMaxSlider.value) / 100;
+      const mappedPressure = minP + (maxP - minP) * sampleEvent.pressure;
+      return Math.round(mappedPressure * 100) / 100;
+    };
+
+    const pushBufferedSample = (sampleEvent) => {
+      const samplePos = this.board.getBoardRelativePos(sampleEvent.clientX, sampleEvent.clientY);
+      const sampleConstrainedPos = this.getConstrainedShapeDragPoint(samplePos.x, samplePos.y);
+      const samplePressure = getPressureForBufferedSample(sampleEvent);
+      this.inputBufferManager.inputBuffer.points.push(sampleConstrainedPos.x, sampleConstrainedPos.y, samplePressure);
+      return {
+        x: sampleConstrainedPos.x,
+        y: sampleConstrainedPos.y,
+        pointerType: sampleEvent.pointerType || e.pointerType,
+      };
+    };
+
+    const shouldUseCoalescedSamples = this.self.mousedown && !this.self.panning;
+    const coalescedSamples = shouldUseCoalescedSamples ? e.getCoalescedEvents?.() : null;
+    const samples = shouldUseCoalescedSamples && coalescedSamples?.length ? coalescedSamples : [e];
+
+    let lastBufferedSample = null;
+    for (const sample of samples) {
+      lastBufferedSample = pushBufferedSample(sample);
+    }
+
+    this.inputBufferManager.inputBuffer.pointerType = lastBufferedSample?.pointerType || e.pointerType;
+    if (lastBufferedSample) {
+      this.inputBufferManager.inputBuffer.lastPosition = { x: lastBufferedSample.x, y: lastBufferedSample.y };
+    }
     this.inputBufferManager.inputBuffer.dirty = true;
     this.inputBufferManager.requestLocalFrame();
     // Handle panning instantaneously (bypasses input buffer for better responsiveness)
@@ -4956,7 +5013,8 @@ export class DrawingApp {
 
     // Track drawing for debug overlay (pass brush size and user info)
     if (this.self.mousedown && !this.self.panning) {
-      this.debugOverlay.addDrawingPoint(x, y, this.self.size, this.self.id);
+      const debugPoint = lastBufferedSample || { x, y };
+      this.debugOverlay.addDrawingPoint(debugPoint.x, debugPoint.y, this.self.size, this.self.id);
     }
   }
 

@@ -146,6 +146,16 @@ export class InputBufferManager {
     this._currentPosScratch = { x: 0, y: 0 };
     this._prevPosScratch = { x: 0, y: 0 };
     this._smoothedPosScratch = { x: 0, y: 0 };
+
+    this.pointTelemetry = {
+      windowStartMs: performance.now(),
+      bufferedInWindow: 0,
+      outgoingInWindow: 0,
+      bufferedPerSec: 0,
+      outgoingPerSec: 0,
+      reductionPercent: 0,
+      lastUpdatedMs: performance.now()
+    };
   }
 
   /**
@@ -260,11 +270,13 @@ export class InputBufferManager {
     if (tool && this._isStampTool(app.self.tool)) {
       const drain = app.self.tool === 'ink' ? tool.drainPointBuffer?.() : tool.drainStampBuffer?.();
       if (drain?.ps?.length > 0) {
-        const captured = drain;
-        if ((app.self.tool === 'flowPen' || app.self.tool === 'ink') && this._hasUniformRadii(captured.rs)) {
-          this.broadcastQueue.push(() => app.wsClient.broadcastMove(captured.ps));
+        const reduced = this._reduceStampPayload(drain.ps, drain.rs);
+        if ((app.self.tool === 'flowPen' || app.self.tool === 'ink') && this._hasUniformRadii(reduced.rs)) {
+          this._recordOutgoingPoints(reduced.ps.length / 2);
+          this.broadcastQueue.push(() => app.wsClient.broadcastMove(reduced.ps));
         } else {
-          this.broadcastQueue.push(() => app.wsClient.broadcastStampMove(captured.ps, captured.rs));
+          this._recordOutgoingPoints(reduced.ps.length / 2);
+          this.broadcastQueue.push(() => app.wsClient.broadcastStampMove(reduced.ps, reduced.rs));
         }
       }
     }
@@ -278,6 +290,7 @@ export class InputBufferManager {
         for (let i = 0; i < reducedPoints.length; i += 3) {
           xyPoints.push(reducedPoints[i], reducedPoints[i + 1]);
         }
+        this._recordOutgoingPoints(xyPoints.length / 2);
         this.broadcastQueue.push(() => app.wsClient.broadcastMove(xyPoints));
       }
     }
@@ -313,6 +326,7 @@ export class InputBufferManager {
   _consumeBufferedPoints() {
     if (!this.inputBuffer.dirty || this.inputBuffer.points.length === 0) return [];
     const points = this.inputBuffer.points;
+    this._recordBufferedPoints(points.length / 3);
     this.inputBuffer.points = [];
     this.inputBuffer.dirty = false;
     return points;
@@ -421,6 +435,94 @@ export class InputBufferManager {
 
   _isStampTool(toolName) {
     return ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush'].includes(toolName);
+  }
+
+  _reduceStampPayload(ps, rs) {
+    if (!Array.isArray(ps) || ps.length < 6) {
+      return { ps: ps || [], rs: Array.isArray(rs) ? rs : [] };
+    }
+
+    const pointCount = Math.floor(ps.length / 2);
+    const indexedTriples = [];
+    for (let i = 0; i < pointCount; i++) {
+      const pointOffset = i * 2;
+      indexedTriples.push(ps[pointOffset], ps[pointOffset + 1], i);
+    }
+
+    const reducedTriples = this.applyPointReduction(indexedTriples);
+    if (!Array.isArray(reducedTriples) || reducedTriples.length < 6) {
+      return { ps, rs: Array.isArray(rs) ? rs : [] };
+    }
+
+    const reducedPs = [];
+    const reducedRs = [];
+    const hasRadii = Array.isArray(rs) && rs.length >= pointCount;
+    let lastIndex = -1;
+
+    for (let i = 0; i < reducedTriples.length; i += 3) {
+      const pointIndex = Math.max(0, Math.min(pointCount - 1, Math.round(reducedTriples[i + 2])));
+      if (pointIndex === lastIndex) continue;
+      lastIndex = pointIndex;
+
+      const pointOffset = pointIndex * 2;
+      reducedPs.push(ps[pointOffset], ps[pointOffset + 1]);
+      if (hasRadii) {
+        reducedRs.push(rs[pointIndex]);
+      }
+    }
+
+    if (reducedPs.length < 2) {
+      return { ps, rs: Array.isArray(rs) ? rs : [] };
+    }
+
+    return { ps: reducedPs, rs: hasRadii ? reducedRs : [] };
+  }
+
+  _rollPointTelemetry(now = performance.now()) {
+    const elapsed = now - this.pointTelemetry.windowStartMs;
+    if (elapsed < 1000) return;
+
+    const bufferedRate = (this.pointTelemetry.bufferedInWindow * 1000) / elapsed;
+    const outgoingRate = (this.pointTelemetry.outgoingInWindow * 1000) / elapsed;
+    const reduction = this.pointTelemetry.bufferedInWindow > 0
+      ? (1 - this.pointTelemetry.outgoingInWindow / this.pointTelemetry.bufferedInWindow) * 100
+      : 0;
+
+    this.pointTelemetry.bufferedPerSec = Math.max(0, bufferedRate);
+    this.pointTelemetry.outgoingPerSec = Math.max(0, outgoingRate);
+    this.pointTelemetry.reductionPercent = Math.min(100, Math.max(-100, reduction));
+    this.pointTelemetry.windowStartMs = now;
+    this.pointTelemetry.bufferedInWindow = 0;
+    this.pointTelemetry.outgoingInWindow = 0;
+    this.pointTelemetry.lastUpdatedMs = now;
+  }
+
+  _recordBufferedPoints(count) {
+    if (!Number.isFinite(count) || count <= 0) return;
+    const now = performance.now();
+    this._rollPointTelemetry(now);
+    this.pointTelemetry.bufferedInWindow += count;
+    this.pointTelemetry.lastUpdatedMs = now;
+  }
+
+  _recordOutgoingPoints(count) {
+    if (!Number.isFinite(count) || count <= 0) return;
+    const now = performance.now();
+    this._rollPointTelemetry(now);
+    this.pointTelemetry.outgoingInWindow += count;
+    this.pointTelemetry.lastUpdatedMs = now;
+  }
+
+  getPointTelemetry() {
+    this._rollPointTelemetry(performance.now());
+    return {
+      bufferedPerSec: this.pointTelemetry.bufferedPerSec,
+      outgoingPerSec: this.pointTelemetry.outgoingPerSec,
+      reductionPercent: this.pointTelemetry.reductionPercent,
+      bufferedInWindow: this.pointTelemetry.bufferedInWindow,
+      outgoingInWindow: this.pointTelemetry.outgoingInWindow,
+      lastUpdatedMs: this.pointTelemetry.lastUpdatedMs
+    };
   }
 
   /**
@@ -560,9 +662,11 @@ export class InputBufferManager {
    * @returns {Object}
    */
   getPerformanceInfo() {
+    this._rollPointTelemetry(performance.now());
     return {
       tickRate: this.tickRate,
       lowPowerMode: this.lowPowerMode,
+      pointTelemetry: this.getPointTelemetry(),
       detection: window.__performanceDetection || {}
     };
   }

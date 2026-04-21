@@ -75,6 +75,10 @@
     return !!appPreferences?.general?.useDesynchronizedBoardContexts;
   }
 
+  function isLowPowerMode() {
+    return !!appPreferences?.general?.lowPowerMode;
+  }
+
   function updateUseDesynchronizedBoardContexts(enabled) {
     const nextPreferences = {
       ...appPreferences,
@@ -90,6 +94,18 @@
         ? 'Low-latency canvas requested (refresh to apply)'
         : 'Low-latency canvas disabled (refresh to apply)'
     );
+  }
+
+  function updateLowPowerMode(enabled) {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        lowPowerMode: enabled
+      }
+    };
+
+    updatePreferences(nextPreferences, enabled ? 'Low-power mode enabled (30 TPS / 30 FPS)' : 'Low-power mode disabled');
   }
 
   function getChatOpacity() {
@@ -455,6 +471,14 @@
                   onchange={(event) => updateUseDesynchronizedBoardContexts(event.currentTarget.checked)}
                 />
                 <span>Low-Latency Canvas (Refresh)</span>
+              </label>
+              <label class="settings-toggle-compact">
+                <input
+                  type="checkbox"
+                  checked={isLowPowerMode()}
+                  onchange={(event) => updateLowPowerMode(event.currentTarget.checked)}
+                />
+                <span>Low-Power Mode (30 TPS / 30 FPS)</span>
               </label>
             </div>
 

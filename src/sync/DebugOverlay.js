@@ -23,6 +23,7 @@ export class DebugOverlay {
     this.canvas = null;
     this.ctx = null;
     this.board = null;
+    this.inputBufferManager = null;
     this.tileSize = 32;
     this.entries = [];
     this.fullEvents = [];
@@ -73,6 +74,10 @@ export class DebugOverlay {
         board.onCompositeDirtyRects = this._dirtyRectsHandler;
       }
     }
+  }
+
+  setInputBufferManager(inputBufferManager) {
+    this.inputBufferManager = inputBufferManager || null;
   }
 
   // Compatibility shims for older callers — no-ops now.
@@ -226,7 +231,11 @@ export class DebugOverlay {
     const liveRects = this.entries.reduce((sum, e) => sum + e.rects.length, 0);
     ctx.font = '14px monospace';
     ctx.textBaseline = 'top';
-    const label = `dirty rects: ${liveRects}   full redraws (recent): ${this.fullEvents.length}`;
+    const pointTelemetry = this.inputBufferManager?.getPointTelemetry?.();
+    const pointLabel = pointTelemetry
+      ? `   in: ${Math.round(pointTelemetry.bufferedPerSec)}/s out: ${Math.round(pointTelemetry.outgoingPerSec)}/s red: ${Math.round(pointTelemetry.reductionPercent)}%`
+      : '';
+    const label = `dirty rects: ${liveRects}   full redraws (recent): ${this.fullEvents.length}${pointLabel}`;
     const padX = 6;
     const padY = 4;
     const metrics = ctx.measureText(label);

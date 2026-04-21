@@ -2,7 +2,7 @@ import { getDefaultKeybindings, KEYBIND_ACTIONS_BY_ID } from '../input/keybinds/
 import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
 
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
-const APP_PREFERENCES_VERSION = 5;
+const APP_PREFERENCES_VERSION = 6;
 const SIDEBAR_SIDES = new Set(['left', 'right']);
 // The 3 base colors from which all theme CSS variables are derived.
 // Empty string means "use the CSS default".
@@ -23,6 +23,7 @@ export function createDefaultAppPreferences() {
       hideOwnLabelAbove150: false,
       showRawPixelsAtHighZoom: true,
       useDesynchronizedBoardContexts: false,
+      lowPowerMode: false,
       chatOpacity: 0.7
     },
     keybinds: getDefaultKeybindings()
@@ -139,6 +140,9 @@ function sanitizePreferences(rawPreferences) {
   const migratedUseDesynchronizedBoardContexts = parsedVersion < 5
     ? false
     : !!parsed.general?.useDesynchronizedBoardContexts;
+  const migratedLowPowerMode = parsedVersion < 6
+    ? false
+    : !!parsed.general?.lowPowerMode;
 
   return {
     version: APP_PREFERENCES_VERSION,
@@ -151,6 +155,7 @@ function sanitizePreferences(rawPreferences) {
       hideOwnLabelAbove150: !!parsed.general?.hideOwnLabelAbove150,
       showRawPixelsAtHighZoom: migratedShowRawPixelsAtHighZoom,
       useDesynchronizedBoardContexts: migratedUseDesynchronizedBoardContexts,
+      lowPowerMode: migratedLowPowerMode,
       chatOpacity: sanitizeChatOpacity(parsed.general?.chatOpacity)
     },
     keybinds: sanitizeKeybinds(migratedKeybinds)
