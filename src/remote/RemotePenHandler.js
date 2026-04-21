@@ -46,9 +46,8 @@ export class RemotePenHandler {
     user._penStrokeColor = `rgb(${color.join(',')})`;
     user._penOffscreenCtx.fillStyle = user._penStrokeColor;
 
-    const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
-    user._penAlpha = colorAlpha * opacitySlider;
+    user._penAlpha = opacitySlider;
     user._penHardness = user.hardness !== undefined ? user.hardness / 100 : 1.0;
 
     const ctx = user._penOffscreenCtx;

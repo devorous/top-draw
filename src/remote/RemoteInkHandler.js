@@ -63,9 +63,8 @@ export class RemoteInkHandler {
     const color = user.color.slice(0, 3);
     user._inkStrokeColor = `rgb(${color.join(',')})`;
 
-    const colorAlpha = user.color[3];
     const opacitySlider = user.opacity !== undefined ? user.opacity : 1;
-    user._inkAlpha = colorAlpha * opacitySlider;
+    user._inkAlpha = opacitySlider;
     user._inkHardness = user.hardness !== undefined ? user.hardness / 100 : 1.0;
 
     user._inkSize = user.size;
