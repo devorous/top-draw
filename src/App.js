@@ -515,6 +515,7 @@ export class DrawingApp {
     this.ui.init();
     this.ui.applySidebarWidths(this.appPreferences);
     this.createSelf();
+    this.board.setUseDesynchronizedBoardContexts(this.appPreferences?.general?.useDesynchronizedBoardContexts);
     this.board.init('#boardContainer');
     this.board.setApp(this);
     this.board.setShowRawPixelsAtHighZoom(this.appPreferences?.general?.showRawPixelsAtHighZoom);
@@ -3345,6 +3346,10 @@ export class DrawingApp {
     applyChatOpacity(this.appPreferences?.general?.chatOpacity);
     this.ui.setHideOwnLabelZoom(this.appPreferences?.general?.hideOwnLabelAbove150);
     this.board?.setShowRawPixelsAtHighZoom?.(this.appPreferences?.general?.showRawPixelsAtHighZoom);
+    const desyncChangeNeedsRefresh = this.board?.setUseDesynchronizedBoardContexts?.(this.appPreferences?.general?.useDesynchronizedBoardContexts);
+    if (desyncChangeNeedsRefresh) {
+      this.ui?.showToast?.('Low-latency canvas setting will apply after refresh', 3500);
+    }
     appState.appPreferences = this.appPreferences;
     return this.appPreferences;
   }

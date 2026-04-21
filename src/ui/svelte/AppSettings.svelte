@@ -71,6 +71,27 @@
     updatePreferences(nextPreferences, enabled ? 'Raw pixels enabled above 500% zoom' : 'High-zoom smoothing restored');
   }
 
+  function isUseDesynchronizedBoardContexts() {
+    return !!appPreferences?.general?.useDesynchronizedBoardContexts;
+  }
+
+  function updateUseDesynchronizedBoardContexts(enabled) {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        useDesynchronizedBoardContexts: enabled
+      }
+    };
+
+    updatePreferences(
+      nextPreferences,
+      enabled
+        ? 'Low-latency canvas requested (refresh to apply)'
+        : 'Low-latency canvas disabled (refresh to apply)'
+    );
+  }
+
   function getChatOpacity() {
     const value = Number(appPreferences?.general?.chatOpacity);
     return Number.isFinite(value) ? Math.min(1, Math.max(0.3, value)) : 1;
@@ -426,6 +447,14 @@
                   onchange={(event) => updateShowRawPixelsAtHighZoom(event.currentTarget.checked)}
                 />
                 <span>Show Raw Pixels Above 500%</span>
+              </label>
+              <label class="settings-toggle-compact">
+                <input
+                  type="checkbox"
+                  checked={isUseDesynchronizedBoardContexts()}
+                  onchange={(event) => updateUseDesynchronizedBoardContexts(event.currentTarget.checked)}
+                />
+                <span>Low-Latency Canvas (Refresh)</span>
               </label>
             </div>
 

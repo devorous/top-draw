@@ -74,6 +74,10 @@ export class Board {
     this._rafLoopId = null;
     this.compositeTileGrid = null;
     this.showRawPixelsAtHighZoom = true;
+    this.useDesynchronizedBoardContexts = false;
+    this._boardContextsInitialized = false;
+    this._desyncDiagnosticsLogged = false;
+    this._contextDesyncSupport = {};
     this._lastPixelGridZoom = null;
     this._lastPixelGridVisible = null;
     this._lastPixelGridPanX = null;
@@ -86,6 +90,56 @@ export class Board {
    */
   setApp(app) {
     this.app = app;
+  }
+
+  /**
+   * Configure whether board canvases should request low-latency 2D contexts.
+   * Returns true when a refresh is required for the change to take effect.
+   * @param {boolean} enabled
+   * @returns {boolean}
+   */
+  setUseDesynchronizedBoardContexts(enabled) {
+    const next = !!enabled;
+    const changed = this.useDesynchronizedBoardContexts !== next;
+    this.useDesynchronizedBoardContexts = next;
+    return changed && this._boardContextsInitialized;
+  }
+
+  _createBoard2DContext(canvas, role, baseOptions = null) {
+    const options = {
+      ...(baseOptions || {})
+    };
+
+    if (this.useDesynchronizedBoardContexts) {
+      options.desynchronized = true;
+    }
+
+    const ctx = canvas.getContext('2d', options);
+    const attrs = typeof ctx?.getContextAttributes === 'function'
+      ? ctx.getContextAttributes()
+      : null;
+
+    this._contextDesyncSupport[role] = {
+      requested: !!this.useDesynchronizedBoardContexts,
+      effective: !!attrs?.desynchronized,
+      reported: !!attrs && typeof attrs.desynchronized === 'boolean'
+    };
+
+    return ctx;
+  }
+
+  _logDesyncDiagnostics() {
+    if (this._desyncDiagnosticsLogged) return;
+
+    const entries = Object.entries(this._contextDesyncSupport);
+    const detail = entries.map(([role, state]) => ({
+      role,
+      requested: state.requested,
+      effective: state.reported ? state.effective : 'unknown'
+    }));
+
+    console.info('[Board] Canvas2D desynchronized context status', detail);
+    this._desyncDiagnosticsLogged = true;
   }
 
   /**
@@ -114,8 +168,8 @@ export class Board {
     this.cursorsSvg = document.getElementById('cursorsSvg');
     this.mirrorLine = document.querySelector('.mirrorLine');
 
-    this.mainCtx = this.mainCanvas.getContext('2d', { willReadFrequently: true });
-    this.topCtx = this.topCanvas.getContext('2d');
+    this.mainCtx = this._createBoard2DContext(this.mainCanvas, 'main', { willReadFrequently: true });
+    this.topCtx = this._createBoard2DContext(this.topCanvas, 'top');
 
     // Create selection overlay canvas with padding to allow handles to extend beyond board
     this.selectionOverlay = document.createElement('canvas');
@@ -123,7 +177,7 @@ export class Board {
     this.selectionOverlay.style.position = 'absolute';
     this.selectionOverlay.style.pointerEvents = 'none';
     this.boardsWrapper.appendChild(this.selectionOverlay);
-    this.selectionCtx = this.selectionOverlay.getContext('2d');
+    this.selectionCtx = this._createBoard2DContext(this.selectionOverlay, 'selection');
 
     this.interactionBlockOverlay = document.createElement('canvas');
     this.interactionBlockOverlay.id = 'interactionBlockOverlay';
@@ -133,7 +187,7 @@ export class Board {
     this.interactionBlockOverlay.style.pointerEvents = 'none';
     this.interactionBlockOverlay.style.zIndex = '4';
     this.boardsWrapper.appendChild(this.interactionBlockOverlay);
-    this.interactionBlockCtx = this.interactionBlockOverlay.getContext('2d');
+    this.interactionBlockCtx = this._createBoard2DContext(this.interactionBlockOverlay, 'interaction');
 
     this.upperLayersCanvas = document.createElement('canvas');
     this.upperLayersCanvas.id = 'upperLayersBoard';
@@ -143,7 +197,7 @@ export class Board {
     this.upperLayersCanvas.style.pointerEvents = 'none';
     this.upperLayersCanvas.style.zIndex = '2';
     this.boardsWrapper.appendChild(this.upperLayersCanvas);
-    this.upperLayersCtx = this.upperLayersCanvas.getContext('2d');
+    this.upperLayersCtx = this._createBoard2DContext(this.upperLayersCanvas, 'upper');
 
     this.pixelGridOverlay = document.createElement('div');
     this.pixelGridOverlay.id = 'pixelGridBoard';
@@ -165,7 +219,9 @@ export class Board {
     this.mirrorRegionsLayer.style.zIndex = '3';
     this.boardsWrapper.appendChild(this.mirrorRegionsLayer);
 
-    this.mirrorRegionsCtx = this.mirrorRegionsLayer.getContext('2d');
+    this.mirrorRegionsCtx = this._createBoard2DContext(this.mirrorRegionsLayer, 'mirror');
+    this._boardContextsInitialized = true;
+    this._logDesyncDiagnostics();
 
     this.setupCanvas();
 
