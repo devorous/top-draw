@@ -24,6 +24,8 @@ const LOW_POWER_GPU_PATTERNS = [
   'vivante', 'videocore', 'tegra',
 ];
 
+const REDUCE_BEFORE_RENDER_TOOLS = new Set(['brush', 'flowPen', 'ink']);
+
 /**
  * Detects if the current device is low-power to adjust the tick rate.
  * Uses hardware concurrency, device memory, and WebGL renderer hints.
@@ -138,6 +140,7 @@ export class InputBufferManager {
     this.broadcastSmoothBuffer = { x: 0, y: 0, p: 1, isFirst: true, resultOut: { x: 0, y: 0, p: 1 } };
     /** @type {Array<number>} */
     this.pendingBroadcastPoints = [];
+    this.pendingBroadcastPointsAreReduced = false;
 
     /** @type {Array<Function>} Ordered queue of broadcast callbacks */
     this.broadcastQueue = [];
@@ -285,8 +288,11 @@ export class InputBufferManager {
 
     // Commit pending move points
     if (this.pendingBroadcastPoints.length > 0) {
-      const reducedPoints = this.applyPointReduction(this.pendingBroadcastPoints);
+      const reducedPoints = this.pendingBroadcastPointsAreReduced
+        ? this.pendingBroadcastPoints
+        : this.applyPointReduction(this.pendingBroadcastPoints);
       this.pendingBroadcastPoints = [];
+      this.pendingBroadcastPointsAreReduced = false;
       if (reducedPoints.length > 0) {
         const xyPoints = [];
         for (let i = 0; i < reducedPoints.length; i += 3) {
@@ -347,8 +353,13 @@ export class InputBufferManager {
 
     if (useSmoothing) {
       smoothedPoints = this.applyBroadcastSmoothing(points);
-      localPoints = smoothedPoints;
-      networkPoints = smoothedPoints;
+      if (REDUCE_BEFORE_RENDER_TOOLS.has(app.self.tool)) {
+        localPoints = this.applyPointReduction(smoothedPoints);
+        networkPoints = localPoints;
+      } else {
+        localPoints = smoothedPoints;
+        networkPoints = smoothedPoints;
+      }
     } else if (useBlur) {
       smoothedPoints = this.applyBroadcastSmoothing(points);
       localPoints = this.applyPointReduction(smoothedPoints);
@@ -421,6 +432,11 @@ export class InputBufferManager {
     const usesStampBroadcast = this._isStampTool(app.self.tool) && app.self.mousedown && !app.self.panning;
     if (!usesStampBroadcast && networkPoints.length > 0) {
       this.pendingBroadcastPoints.push(...networkPoints);
+      if (localPoints === networkPoints && REDUCE_BEFORE_RENDER_TOOLS.has(app.self.tool)) {
+        this.pendingBroadcastPointsAreReduced = true;
+      } else {
+        this.pendingBroadcastPointsAreReduced = false;
+      }
     }
 
     this.inputBuffer.lastPosition = { x: lastX, y: lastY };
@@ -440,7 +456,7 @@ export class InputBufferManager {
   }
 
   _shouldPreserveStampPayload(toolName) {
-    return ['circleBlur', 'imageBrush', 'pixel'].includes(toolName);
+    return ['circleBlur', 'flowPen', 'imageBrush', 'ink', 'pixel'].includes(toolName);
   }
 
   _reduceStampPayload(ps, rs) {
@@ -653,6 +669,7 @@ export class InputBufferManager {
     this.inputBuffer.points = [];
     this.inputBuffer.dirty = false;
     this.pendingBroadcastPoints = [];
+    this.pendingBroadcastPointsAreReduced = false;
   }
 
   /**
