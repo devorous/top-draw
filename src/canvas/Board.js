@@ -1617,7 +1617,7 @@ export class Board {
     for (let i = 0; i < count; i++) {
       this.layerManager.commitUserStroke(i, userId, { eraseAll: true, timestamp: batchTimestamp });
     }
-    this.requestUpdate();
+    this._compositeCommittedStrokeNow();
   }
 
   /**
@@ -1675,12 +1675,18 @@ export class Board {
     }
 
     this.layerManager.commitUserStroke(activeLayer, userId, extraProps);
-    this.requestUpdate();
+    this._compositeCommittedStrokeNow();
 
     // Broadcast tile ownership update for local user
     if (tilesToBroadcast && tilesToBroadcast.length > 0) {
       this.app.wsClient.broadcastTileUpdate(tilesToBroadcast);
     }
+  }
+
+  _compositeCommittedStrokeNow() {
+    this._needsComposite = false;
+    this._lastCompositeTime = performance.now();
+    this.compositeAllLayers();
   }
 
   /**

@@ -1594,6 +1594,17 @@ export class DrawingApp {
         const fillTool = this.toolManager.getTool('fill');
         if (fillTool) fillTool.patternMode = e.target.checked;
         if (fillPatternSettings) fillPatternSettings.style.display = e.target.checked ? 'block' : 'none';
+
+        this.self.patternMode = e.target.checked;
+        if (this.connected && this.wsClient) {
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternMode(e.target.checked));
+        }
+
+        appState.patternPreviewVisible = e.target.checked;
+        const patternTool = this.toolManager.getTool('pattern');
+        if (patternTool && e.target.checked) {
+          patternTool.updatePreview(this.self);
+        }
       });
     }
 
@@ -4997,9 +5008,6 @@ export class DrawingApp {
     }
 
     this.inputBufferManager.inputBuffer.pointerType = lastBufferedSample?.pointerType || e.pointerType;
-    if (lastBufferedSample) {
-      this.inputBufferManager.inputBuffer.lastPosition = { x: lastBufferedSample.x, y: lastBufferedSample.y };
-    }
     this.inputBufferManager.inputBuffer.dirty = true;
     this.inputBufferManager.requestLocalFrame();
     // Handle panning instantaneously (bypasses input buffer for better responsiveness)

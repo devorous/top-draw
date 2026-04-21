@@ -259,8 +259,12 @@ export class FloodFillTool {
     if (!result) return;
     const { mask, minX, minY, maxX, maxY } = result;
 
-    // If pattern mode is enabled and user has a pattern brush, use pattern fill
-    if (user && user.patternMode && user.patternBrush) {
+    // If pattern mode is enabled and user has a pattern brush, use pattern fill.
+    // Local fill mode is owned by the fill tool; remote/replay fill mode arrives
+    // on the user state. Keep those separated because this tool instance is shared.
+    const isLocalUser = user === this.board.app?.self;
+    const usePatternFill = user?.patternBrush && (isLocalUser ? this.patternMode : user.patternMode);
+    if (user && usePatternFill) {
       return this._renderMaskPattern(ctx, result, userOpacity, blurRadius, width, height, user);
     }
 

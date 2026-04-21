@@ -718,8 +718,6 @@ export class RemoteUserHandler {
       this.debugOverlay.endStrokeTracking(user.id);
     }
 
-    this.board.compositeAllLayers();
-
     // Collect erased tiles before committing (for tile ownership check)
     let erasedTiles = null;
     if (user.tool === 'erase') {
@@ -748,6 +746,8 @@ export class RemoteUserHandler {
       // Fill tool commits its own stroke via the dedicated FILL message handler
       this.board.layerManager.commitUserStroke(strokeLayer, user.id);
     }
+
+    this.board.compositeAllLayers();
 
     // Check erased tiles and clear ownership for empty ones (don't broadcast - remote user handles that)
     if (erasedTiles && erasedTiles.size > 0) {
