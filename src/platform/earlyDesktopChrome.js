@@ -5,6 +5,8 @@ function isDesktopApp() {
 async function initEarlyDesktopChrome() {
   if (!isDesktopApp()) return;
 
+  const DRAG_START_THRESHOLD_PX = 10;
+
   const mount = document.getElementById('desktopTitlebarMount');
   if (!mount || mount.dataset.chromeInitialized === 'true') return;
 
@@ -19,6 +21,7 @@ async function initEarlyDesktopChrome() {
 
   const appWindow = getCurrentWebviewWindow();
   let dragOverlayWindow = null;
+  let pendingDrag = null;
 
   async function syncState() {
     const maximized = await appWindow.isMaximized();
@@ -52,7 +55,7 @@ async function initEarlyDesktopChrome() {
               padding: 0;
               width: 100vw;
               height: 100vh;
-              background: rgba(255, 0, 0, 0.1);
+              background: rgba(0, 0, 0, 0);
               cursor: default;
             }
           </style>
@@ -98,46 +101,19 @@ async function initEarlyDesktopChrome() {
     }
   }
 
-  function startManualWindowDrag(cursorScreenX, cursorScreenY, startPosition, scaleFactor, minY) {
-    const baseX = Math.round(startPosition.x);
-    const baseY = Math.round(startPosition.y);
-
-    let pendingX = baseX;
-    let pendingY = baseY;
-    let dirty = false;
-    let inFlight = false;
-
-    function flushPosition() {
-      if (inFlight || !dirty) return;
-      dirty = false;
-      inFlight = true;
-      appWindow.setPosition(new PhysicalPosition(pendingX, pendingY)).finally(() => {
-        inFlight = false;
-        if (dirty) requestAnimationFrame(flushPosition);
-      });
-    }
-
-    const onMove = (moveEvent) => {
-      const deltaX = (moveEvent.screenX - cursorScreenX) * scaleFactor;
-      const deltaY = (moveEvent.screenY - cursorScreenY) * scaleFactor;
-      pendingX = Math.round(baseX + deltaX);
-      pendingY = Math.max(minY, Math.round(baseY + deltaY));
-      if (!dirty) {
-        dirty = true;
-        requestAnimationFrame(flushPosition);
-      }
-    };
-
-    const stop = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', stop);
-      window.removeEventListener('blur', stop);
+  function armOverlayCleanup() {
+    let active = true;
+    const cleanup = () => {
+      if (!active) return;
+      active = false;
+      window.removeEventListener('mouseup', cleanup);
+      window.removeEventListener('blur', cleanup);
       void hideDragOverlay();
     };
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', stop, { once: true });
-    window.addEventListener('blur', stop, { once: true });
+    window.addEventListener('mouseup', cleanup, { once: true });
+    window.addEventListener('blur', cleanup, { once: true });
+    return cleanup;
   }
 
   async function beginWindowDrag(event) {
@@ -156,7 +132,6 @@ async function initEarlyDesktopChrome() {
     if (isFullscreen || wasMaximized) {
       const monitor = await currentMonitor();
       await createDragOverlay(monitor);
-      await appWindow.hide();
 
       if (isFullscreen) {
         await appWindow.setFullscreen(false);
@@ -165,10 +140,9 @@ async function initEarlyDesktopChrome() {
       }
       await syncState();
 
-      const [cursor, size, scaleFactor] = await Promise.all([
+      const [cursor, size] = await Promise.all([
         cursorPosition(),
-        appWindow.outerSize(),
-        appWindow.scaleFactor()
+        appWindow.outerSize()
       ]);
 
       if (cursor && size) {
@@ -182,17 +156,63 @@ async function initEarlyDesktopChrome() {
         const nextY = Math.round(Math.max(monitorY, Math.min(maxY, cursor.y - pointerOffsetY)));
         const restoredPosition = new PhysicalPosition(nextX, nextY);
         await appWindow.setPosition(restoredPosition);
-        await appWindow.show();
-        startManualWindowDrag(cursor.x / scaleFactor, cursor.y / scaleFactor, restoredPosition, scaleFactor, monitorY);
+        const cleanup = armOverlayCleanup();
+        try {
+          await appWindow.startDragging();
+        } finally {
+          cleanup();
+        }
         return;
       }
 
-      await appWindow.show();
       await hideDragOverlay();
       return;
     }
 
     await appWindow.startDragging();
+  }
+
+  function cancelPendingDrag() {
+    if (!pendingDrag) return;
+    window.removeEventListener('mousemove', pendingDrag.onMove);
+    window.removeEventListener('mouseup', pendingDrag.onUp);
+    pendingDrag = null;
+  }
+
+  function armWindowDrag(event) {
+    cancelPendingDrag();
+
+    const startClientX = event.clientX;
+    const startClientY = event.clientY;
+    const dragTarget = event.currentTarget;
+
+    const onMove = (moveEvent) => {
+      if ((moveEvent.buttons & 1) === 0) {
+        cancelPendingDrag();
+        return;
+      }
+
+      const deltaX = moveEvent.clientX - startClientX;
+      const deltaY = moveEvent.clientY - startClientY;
+      if ((deltaX * deltaX) + (deltaY * deltaY) < (DRAG_START_THRESHOLD_PX * DRAG_START_THRESHOLD_PX)) {
+        return;
+      }
+
+      cancelPendingDrag();
+      void beginWindowDrag({
+        clientX: moveEvent.clientX,
+        clientY: moveEvent.clientY,
+        currentTarget: dragTarget
+      });
+    };
+
+    const onUp = () => {
+      cancelPendingDrag();
+    };
+
+    pendingDrag = { onMove, onUp };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp, { once: true });
   }
 
   mount.addEventListener('click', (event) => {
@@ -219,8 +239,9 @@ async function initEarlyDesktopChrome() {
 
   mount.addEventListener('mousedown', (event) => {
     if (event.target instanceof HTMLElement && event.target.closest('[data-window-action]')) return;
+    if (event.button !== 0) return;
     event.preventDefault();
-    void beginWindowDrag(event);
+    armWindowDrag(event);
   });
 
   mount.addEventListener('dblclick', (event) => {
@@ -233,6 +254,7 @@ async function initEarlyDesktopChrome() {
   });
 
   window.addEventListener('beforeunload', () => {
+    cancelPendingDrag();
     unlistenResize?.();
   }, { once: true });
 

@@ -22,6 +22,8 @@
   } = $props();
 
   let desktopWindowApi = null;
+  const DRAG_START_THRESHOLD_PX = 10;
+  let pendingBarDrag = null;
   let desktopWindowState = $state({
     maximized: false,
     fullscreen: false
@@ -64,67 +66,79 @@
     await desktopWindowApi.close();
   }
 
-  function startManualWindowDrag(cursorScreenX, cursorScreenY, startPosition, scaleFactor, windowApi, minY) {
-    const baseX = Math.round(startPosition.x);
-    const baseY = Math.round(startPosition.y);
-
-    let pendingX = baseX;
-    let pendingY = baseY;
-    let dirty = false;
-    let inFlight = false;
-
+  function showLocalDragOverlay() {
     const overlay = document.getElementById('desktopDragOverlay');
     if (overlay) {
       overlay.style.display = 'block';
       overlay.style.pointerEvents = 'auto';
     }
+    return overlay;
+  }
 
-    function flushPosition() {
-      if (inFlight || !dirty) return;
-      dirty = false;
-      inFlight = true;
-      windowApi.setPosition(new PhysicalPosition(pendingX, pendingY)).finally(() => {
-        inFlight = false;
-        if (dirty) requestAnimationFrame(flushPosition);
-      });
-    }
+  function hideLocalDragOverlay(overlay) {
+    if (!overlay) return;
+    overlay.style.display = 'none';
+    overlay.style.pointerEvents = 'none';
+  }
+
+  function armLocalOverlayCleanup(overlay) {
+    let active = true;
+    const cleanup = () => {
+      if (!active) return;
+      active = false;
+      window.removeEventListener('mouseup', cleanup);
+      window.removeEventListener('blur', cleanup);
+      hideLocalDragOverlay(overlay);
+    };
+
+    window.addEventListener('mouseup', cleanup, { once: true });
+    window.addEventListener('blur', cleanup, { once: true });
+    return cleanup;
+  }
+
+  function cancelPendingBarDrag() {
+    if (!pendingBarDrag) return;
+    window.removeEventListener('mousemove', pendingBarDrag.onMove);
+    window.removeEventListener('mouseup', pendingBarDrag.onUp);
+    pendingBarDrag = null;
+  }
+
+  function armWindowDrag(event) {
+    if (!desktopWindowApi) return;
+
+    cancelPendingBarDrag();
+
+    const startClientX = event.clientX;
+    const startClientY = event.clientY;
+    const dragTarget = event.currentTarget;
 
     const onMove = (moveEvent) => {
       if ((moveEvent.buttons & 1) === 0) {
-        stop();
+        cancelPendingBarDrag();
         return;
       }
-      const deltaX = (moveEvent.screenX - cursorScreenX) * scaleFactor;
-      const deltaY = (moveEvent.screenY - cursorScreenY) * scaleFactor;
-      pendingX = Math.round(baseX + deltaX);
-      pendingY = Math.max(minY, Math.round(baseY + deltaY));
-      if (!dirty) {
-        dirty = true;
-        requestAnimationFrame(flushPosition);
+
+      const deltaX = moveEvent.clientX - startClientX;
+      const deltaY = moveEvent.clientY - startClientY;
+      if ((deltaX * deltaX) + (deltaY * deltaY) < (DRAG_START_THRESHOLD_PX * DRAG_START_THRESHOLD_PX)) {
+        return;
       }
+
+      cancelPendingBarDrag();
+      void beginWindowDrag({
+        clientX: moveEvent.clientX,
+        clientY: moveEvent.clientY,
+        currentTarget: dragTarget
+      });
     };
 
-    const stop = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', stop);
-      window.removeEventListener('blur', stop);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (overlay) {
-        overlay.style.display = 'none';
-        overlay.style.pointerEvents = 'none';
-      }
+    const onUp = () => {
+      cancelPendingBarDrag();
     };
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState !== 'visible') {
-        stop();
-      }
-    };
-
+    pendingBarDrag = { onMove, onUp };
     window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', stop, { once: true });
-    window.addEventListener('blur', stop, { once: true });
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('mouseup', onUp, { once: true });
   }
 
   async function beginWindowDrag(event) {
@@ -142,7 +156,7 @@
     const wasMaximized = isFullscreen ? false : await desktopWindowApi.isMaximized();
 
     if (isFullscreen || wasMaximized) {
-      await desktopWindowApi.hide();
+      const overlay = showLocalDragOverlay();
 
       if (isFullscreen) {
         await desktopWindowApi.setFullscreen(false);
@@ -155,11 +169,10 @@
         import('@tauri-apps/api/dpi'),
         import('@tauri-apps/api/window')
       ]);
-      const [cursor, size, monitor, scaleFactor] = await Promise.all([
+      const [cursor, size, monitor] = await Promise.all([
         cursorPosition(),
         desktopWindowApi.outerSize(),
-        currentMonitor(),
-        desktopWindowApi.scaleFactor()
+        currentMonitor()
       ]);
 
       if (cursor && size) {
@@ -173,35 +186,28 @@
         const nextY = Math.round(Math.max(monitorY, Math.min(maxY, cursor.y - pointerOffsetY)));
         const restoredPosition = new PhysicalPosition(nextX, nextY);
         await desktopWindowApi.setPosition(restoredPosition);
-        await desktopWindowApi.show();
-        startManualWindowDrag(cursor.x / scaleFactor, cursor.y / scaleFactor, restoredPosition, scaleFactor, desktopWindowApi, monitorY);
+        const cleanup = armLocalOverlayCleanup(overlay);
+        try {
+          await desktopWindowApi.startDragging();
+        } finally {
+          cleanup();
+        }
         return;
       }
 
-      await desktopWindowApi.show();
+      hideLocalDragOverlay(overlay);
       return;
     }
 
-    // Use manual dragging for normal drags too, so overlay works
-    const [{ PhysicalPosition }, { cursorPosition, currentMonitor }] = await Promise.all([
-      import('@tauri-apps/api/dpi'),
-      import('@tauri-apps/api/window')
-    ]);
-    const [cursor, position, monitor, scaleFactor] = await Promise.all([
-      cursorPosition(),
-      desktopWindowApi.outerPosition(),
-      currentMonitor(),
-      desktopWindowApi.scaleFactor()
-    ]);
-    const monitorY = monitor?.position?.y ?? 0;
-    startManualWindowDrag(cursor.x / scaleFactor, cursor.y / scaleFactor, position, scaleFactor, desktopWindowApi, monitorY);
+    await desktopWindowApi.startDragging();
   }
 
   function handleBarMouseDown(event) {
     if (event.target instanceof HTMLElement && event.target.closest('button')) return;
+    if (event.button !== 0) return;
     event.preventDefault();
     if (tauriDragRegion && desktopWindowApi) {
-      void beginWindowDrag(event);
+      armWindowDrag(event);
       return;
     }
     if (draggable) onDragStart?.(event);
@@ -235,6 +241,7 @@
 
     return () => {
       active = false;
+      cancelPendingBarDrag();
       desktopWindowApi = null;
       unlistenResize?.();
     };
