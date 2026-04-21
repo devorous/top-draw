@@ -193,7 +193,6 @@ export class SessionManager {
 
   /**
    * Updates a user's activity timestamp.
-   * Once marked inactive, a user remains inactive until an explicit resync.
    * @param {number} sessionIndex - The session index of the user.
    */
   updateUserActivity(sessionIndex) {

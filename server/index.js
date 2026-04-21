@@ -1732,6 +1732,17 @@ wss.on('connection', async (ws, req) => {
         return;
       }
 
+      // Activity policy: any valid room packet counts as activity except keepalive ping/pong.
+      // This keeps chat-only users from being marked inactive while still ignoring transport liveness.
+      if (ws.sessionIndex !== undefined && data.t !== T.PING && data.t !== T.PONG) {
+        const activeUser = room.sessionManager.getUser(ws.sessionIndex);
+        if (activeUser?.afk) {
+          room.sessionManager.markUserActive(ws.sessionIndex);
+        } else {
+          room.sessionManager.updateUserActivity(ws.sessionIndex);
+        }
+      }
+
       switch (data.t) {
         case T.CONNECT:
           await room.ensureLoaded();
