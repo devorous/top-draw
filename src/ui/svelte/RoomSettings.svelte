@@ -232,6 +232,10 @@
     return ROLE_LABELS[role] || `Role ${role}`;
   }
 
+  function roleOptionLabel(role) {
+    return ROLE_OPTIONS.find((option) => option.value === Number(role))?.label || 'None';
+  }
+
   function formatTimestamp(timestamp) {
     if (!timestamp) return 'Unknown';
     return dateFormatter.format(new Date(timestamp));
@@ -557,16 +561,24 @@
                         <td>{lastUpdatedBy(entry)}</td>
                         <td>
                           <div class="rank-action-cell">
-                            <select
-                              class="table-rank-select"
-                              value={String(pendingRoleValue(entry.userId, entry.role))}
-                              disabled={entry.isOwner || roleSavingTarget === entry.userId}
-                              onchange={(e) => setPendingRole(entry.userId, Number(e.currentTarget.value))}
-                            >
-                              {#each ROLE_OPTIONS as option}
-                                <option value={option.value}>{option.label}</option>
-                              {/each}
-                            </select>
+                            <div class="rank-select-shell" class:disabled={entry.isOwner || roleSavingTarget === entry.userId}>
+                              <span class="rank-select-value">{roleOptionLabel(pendingRoleValue(entry.userId, entry.role))}</span>
+                              <select
+                                class="table-rank-select"
+                                aria-label={`Rank for ${entry.username}`}
+                                disabled={entry.isOwner || roleSavingTarget === entry.userId}
+                                onchange={(e) => setPendingRole(entry.userId, Number(e.currentTarget.value))}
+                              >
+                                {#each ROLE_OPTIONS as option}
+                                  <option
+                                    value={option.value}
+                                    selected={option.value === pendingRoleValue(entry.userId, entry.role)}
+                                  >
+                                    {option.label}
+                                  </option>
+                                {/each}
+                              </select>
+                            </div>
                             <button
                               class="btn primary small"
                               type="button"
@@ -624,16 +636,24 @@
                             <td class="table-muted">Pending</td>
                             <td>
                               <div class="rank-action-cell">
-                                <select
-                                  class="table-rank-select"
-                                  value={String(pendingRoleValue(candidate.id, 0))}
-                                  disabled={roleSavingTarget === candidate.id}
-                                  onchange={(e) => setPendingRole(candidate.id, Number(e.currentTarget.value))}
-                                >
-                                  {#each ROLE_OPTIONS as option}
-                                    <option value={option.value}>{option.label}</option>
-                                  {/each}
-                                </select>
+                                <div class="rank-select-shell" class:disabled={roleSavingTarget === candidate.id}>
+                                  <span class="rank-select-value">{roleOptionLabel(pendingRoleValue(candidate.id, 0))}</span>
+                                  <select
+                                    class="table-rank-select"
+                                    aria-label={`Rank for ${candidate.username}`}
+                                    disabled={roleSavingTarget === candidate.id}
+                                    onchange={(e) => setPendingRole(candidate.id, Number(e.currentTarget.value))}
+                                  >
+                                    {#each ROLE_OPTIONS as option}
+                                      <option
+                                        value={option.value}
+                                        selected={option.value === pendingRoleValue(candidate.id, 0)}
+                                      >
+                                        {option.label}
+                                      </option>
+                                    {/each}
+                                  </select>
+                                </div>
                                 <button
                                   class="btn primary small"
                                   type="button"
@@ -870,8 +890,17 @@
     border: 1px solid var(--border-subtle);
     border-radius: 6px;
     color: var(--text-primary);
+    -webkit-text-fill-color: var(--text-primary);
+    color-scheme: dark;
     padding: 0.62rem 0.72rem;
     font: inherit;
+  }
+
+  .room-input option,
+  .table-rank-select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    -webkit-text-fill-color: var(--text-primary);
   }
 
   .compact-input {
@@ -1021,10 +1050,67 @@
   }
 
   .table-rank-select {
+    position: absolute;
+    inset: 0;
     min-width: 96px;
-    max-width: 108px;
+    max-width: none;
+    height: 100%;
+    background: transparent;
+    border: 0;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
     padding: 0.38rem 0.48rem;
     font-size: 0.88rem;
+    appearance: none;
+    cursor: pointer;
+  }
+
+  .rank-select-shell {
+    position: relative;
+    flex: 0 0 108px;
+    min-width: 108px;
+    height: 32px;
+    background: color-mix(in srgb, var(--bg-primary) 82%, black);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    color: var(--text-primary);
+  }
+
+  .rank-select-shell::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: 0.56rem;
+    width: 0.42rem;
+    height: 0.42rem;
+    border-right: 1.5px solid var(--text-secondary);
+    border-bottom: 1.5px solid var(--text-secondary);
+    transform: translateY(-65%) rotate(45deg);
+    pointer-events: none;
+  }
+
+  .rank-select-shell:focus-within {
+    border-color: var(--border-active);
+  }
+
+  .rank-select-shell.disabled {
+    opacity: 0.75;
+    cursor: not-allowed;
+  }
+
+  .rank-select-value {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    padding: 0 1.35rem 0 0.48rem;
+    color: var(--text-primary);
+    font-size: 0.88rem;
+    line-height: 1;
+    pointer-events: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .moderation-split {
