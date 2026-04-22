@@ -1111,6 +1111,20 @@ const MUTED_BLOCKED = new Set([
   T.MIR, T.MIRROR_REGION
 ]);
 
+const USER_ACTIVITY_TYPES = new Set([
+  T.MD, T.MU, T.KP, T.TEXT_APPLY, T.CLR, T.UNDO, T.REDO, T.FILL,
+  T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL, T.SEL_STAMP,
+  T.SEL_FLIP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.IMG_PASTE,
+  T.MSG, T.DM, T.CHAT_IMG, T.CHAT_REACTION, T.STAFF_MSG, T.STAFF_CHAT_IMG
+]);
+
+function isUserActivityMessage(messageType, user) {
+  if (messageType === T.MM) {
+    return !!user?.mousedown;
+  }
+  return USER_ACTIVITY_TYPES.has(messageType);
+}
+
 /**
  * Builds the T.SETTINGS payload for a room.
  * Single source of truth — used by join, MIRROR_REGION, and ROOM_UPDATE broadcasts.
@@ -1170,7 +1184,6 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
           metricsTracker.onStrokeMove(ws.userId, user.x, user.y);
         }
       }
-      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.MD:
@@ -1205,37 +1218,30 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
 
     case T.CS:
       user.size = data.s;
-      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CSP:
       user.spacing = data.sp;
-      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CSM:
       user.smoothing = data.sm;
-      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CHD:
       user.hardness = data.hd;
-      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CBR:
       user.blurRadius = Math.min(data.br, user.tool === Tool.BLUR ? 10 : 25);
-      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CL:
       user.activeLayer = data.ly;
-      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CBM:
       user.blendMode = data.bm;
-      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CP:
@@ -1245,29 +1251,24 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
     case T.CT:
       user.tool = data.l;
       user.text = '';
-      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CC:
       user.color = data.c;
-      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CF:
       user.font = data.fo;
       user.textPositionMultiplier = data.tm;
       user.textPositionOffset = data.to;
-      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CSDM:
-      room.sessionManager.updateUserActivity(sessionIndex);
       break;
 
     case T.CN:
       const uniqueName = room.sessionManager.getUniqueName(data.n, sessionIndex);
       user.name = uniqueName;
-      room.sessionManager.updateUserActivity(sessionIndex);
 
       console.log(`[CN] Session ${sessionIndex} changing name to "${data.n}" (unique: "${uniqueName}")`);
 
@@ -1815,14 +1816,16 @@ wss.on('connection', async (ws, req) => {
         return;
       }
 
-      // Activity policy: any valid room packet counts as activity except keepalive ping/pong.
-      // This keeps chat-only users from being marked inactive while still ignoring transport liveness.
-      if (ws.sessionIndex !== undefined && data.t !== T.PING && data.t !== T.PONG) {
+      // Only deliberate chat/drawing actions affect AFK state. Background traffic
+      // such as bandwidth probes, sync packets, and presence pings must not.
+      if (ws.sessionIndex !== undefined) {
         const activeUser = room.sessionManager.getUser(ws.sessionIndex);
-        if (activeUser?.afk) {
-          room.sessionManager.markUserActive(ws.sessionIndex);
-        } else {
-          room.sessionManager.updateUserActivity(ws.sessionIndex);
+        if (isUserActivityMessage(data.t, activeUser)) {
+          if (activeUser?.afk) {
+            room.sessionManager.markUserActive(ws.sessionIndex);
+          } else {
+            room.sessionManager.updateUserActivity(ws.sessionIndex);
+          }
         }
       }
 

@@ -34,7 +34,6 @@ export class SyncCoordinator {
    */
   handleSyncRequest(ws, data) {
     const requesterSessionIndex = Number(ws.sessionIndex);
-    this.sessionManager.markUserActive(requesterSessionIndex);
     console.log(`[Sync] User ${requesterSessionIndex} requested sync`);
 
     // Honor an explicit provider request, but skip AFK users
