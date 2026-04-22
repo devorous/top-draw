@@ -9,11 +9,11 @@ function hasOwnField(message, key) {
 
 const MIN_BRUSH_SIZE = 25;
 const MAX_BRUSH_SIZE = 10000;
-const MAX_SPACING = 2000;
+const MAX_SPACING = 5000;
 const MAX_SMOOTHING = 50;
 const MAX_HARDNESS = 100;
 const MAX_PRESSURE = 100;
-const MAX_BLUR_RADIUS = 100;
+const MAX_BLUR_RADIUS = 25;
 const MAX_FILL_BLUR_RADIUS = 25;
 const MAX_LAYER_INDEX = 4;
 const MAX_NAME_LENGTH = 20;

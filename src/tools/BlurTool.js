@@ -95,8 +95,8 @@ export class BlurTool extends Tool {
     // which includes the white background, so it can't work on transparent layers
     const activeLayerIdx = 0;
 
-    // Store blur radius for this user
-    user.blurRadius = user.blurRadius || 10;
+    const rawBlurRadius = Number(user.blurRadius);
+    user.blurRadius = Math.max(1, Math.min(10, Number.isFinite(rawBlurRadius) ? rawBlurRadius : 10));
 
     // Get the stroke context - this will be our mask canvas
     // Pass metadata so the active stroke is marked as a blur filter from the start

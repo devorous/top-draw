@@ -43,6 +43,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = pathModule.dirname(__filename);
 
 const PORT = process.env.PORT || 8000;
+const HOST = process.env.HOST || '0.0.0.0';
 const DISABLE_RATE_LIMITS = process.env.DISABLE_RATE_LIMITS === 'true';
 const MAX_WS_PAYLOAD_BYTES = 16 * 1024 * 1024;
 const MESSENGER_QUERY_LIMIT = { max: 30, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
@@ -952,8 +953,8 @@ async function init() {
   // Start metrics tracker
   metricsTracker.start();
 
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`WebSocket server running on port ${PORT}`);
+  server.listen(PORT, HOST, () => {
+    console.log(`WebSocket server running on ${HOST}:${PORT}`);
     if (DISABLE_RATE_LIMITS) console.warn('[SERVER] ⚠ Rate limits DISABLED (DISABLE_RATE_LIMITS=true)');
   });
 }
@@ -1193,7 +1194,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       break;
 
     case T.CBR:
-      user.blurRadius = data.br;
+      user.blurRadius = Math.min(data.br, user.tool === Tool.BLUR ? 10 : 25);
       room.sessionManager.updateUserActivity(sessionIndex);
       break;
 

@@ -43,7 +43,8 @@ export class GlitchBlurTool extends Tool {
   onPointerDown(user, pos) {
     this._activeUser = user;
     const activeLayerIdx = 0;
-    user.blurRadius = user.blurRadius || 10;
+    const rawBlurRadius = Number(user.blurRadius);
+    user.blurRadius = Math.max(1, Math.min(25, Number.isFinite(rawBlurRadius) ? rawBlurRadius : 10));
 
     const maskCtx = this.board.layerManager?.getUserStrokeContext(
       activeLayerIdx,

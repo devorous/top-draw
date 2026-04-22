@@ -333,11 +333,14 @@ export class ToolLockManager {
         }
       }
       else if (prop === 'blurRadius') {
-        self.setBlurRadius(value);
-        ui.updateBlurRadiusValue(value);
-        if (elements.blurRadiusSlider) elements.blurRadiusSlider.value = value;
+        const radius = this.app.clampBlurRadiusForTool
+          ? this.app.clampBlurRadiusForTool(value, self.tool)
+          : value;
+        self.setBlurRadius(radius);
+        ui.updateBlurRadiusValue(radius);
+        if (elements.blurRadiusSlider) elements.blurRadiusSlider.value = radius;
         if (connected) {
-          this.app.inputBufferManager.queueBroadcast(() => wsClient.broadcastBlurRadiusChange(value));
+          this.app.inputBufferManager.queueBroadcast(() => wsClient.broadcastBlurRadiusChange(radius));
         }
       }
       else if (prop === 'thinning') {

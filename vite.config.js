@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const devBackendTarget = process.env.VITE_DEV_BACKEND_TARGET || 'http://127.0.0.1:8030';
 
 // Inject APP_VERSION from package.json
 function versionInjectionPlugin() {
@@ -66,13 +67,13 @@ export default defineConfig({
     open: '/go',
     proxy: {
       '/ws': {
-        target: 'http://127.0.0.1:8000',
+        target: devBackendTarget,
         ws: true,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/ws/, '') || '/',
       },
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: devBackendTarget,
         changeOrigin: true,
       },
     },

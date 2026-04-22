@@ -58,6 +58,8 @@ const SHAPE_DRAW_MODE_STORAGE_KEY = 'topDrawShapeDrawMode';
 const NORMAL_TPS = 60;
 const LOW_POWER_TPS = 30;
 const LOW_POWER_FPS = 30;
+const BLUR_RADIUS_MAX = 10;
+const GLITCH_BLUR_RADIUS_MAX = 25;
 const COALESCED_INPUT_TOOLS = new Set([
   'brush',
   'flowPen',
@@ -872,7 +874,7 @@ export class DrawingApp {
     }
 
     if (elements.blurRadiusSlider) {
-      this.self.setBlurRadius(Number(elements.blurRadiusSlider.value));
+      this.self.setBlurRadius(this.clampBlurRadiusForTool(Number(elements.blurRadiusSlider.value)));
     }
 
     if (elements.hardnessSlider) {
@@ -1785,12 +1787,12 @@ export class DrawingApp {
 
     if (elements.blurRadiusValue) {
       this.ui.makeValueEditable(elements.blurRadiusValue, {
-        min: 1, max: 10, step: 1, suffix: '',
+        min: 1, max: () => this.getBlurRadiusMaxForTool(), step: 1, suffix: '',
         onCommit: (val) => {
-          this.self.setBlurRadius(val);
-          elements.blurRadiusSlider.value = val;
+          const radius = this.setSelfBlurRadiusForCurrentTool(val);
+          elements.blurRadiusSlider.value = radius;
           if (this.connected) {
-            this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBlurRadiusChange(val));
+            this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBlurRadiusChange(radius));
           }
         }
       });
@@ -3957,6 +3959,7 @@ export class DrawingApp {
 
     this.toolManager.setTool(tool);
     this.ui.updateToolDisplay(tool, this.self);
+    this.applyBlurRadiusLimitForTool(tool, { broadcast: this.connected });
     this._updateBlurCannotDraw();
 
     if (tool === 'pan') {
@@ -4544,13 +4547,51 @@ export class DrawingApp {
 
   handleBlurRadiusChange(e) {
     this.clearActiveCustomPreset();
-    const radius = Number(e.target.value);
+    const radius = this.setSelfBlurRadiusForCurrentTool(Number(e.target.value));
+    if (e.target) e.target.value = radius;
     if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBlurRadiusChange(radius));
     }
-    this.self.setBlurRadius(radius);
     this.ui.updateBlurRadiusValue(radius);
     this.updateCurrentToolPresetSettings();
+  }
+
+  getBlurRadiusMaxForTool(toolName = this.self?.tool) {
+    return toolName === 'blur' ? BLUR_RADIUS_MAX : GLITCH_BLUR_RADIUS_MAX;
+  }
+
+  clampBlurRadiusForTool(radius, toolName = this.self?.tool) {
+    const value = Number(radius);
+    const max = this.getBlurRadiusMaxForTool(toolName);
+    return Math.max(1, Math.min(max, Number.isFinite(value) ? value : 5));
+  }
+
+  setSelfBlurRadiusForCurrentTool(radius) {
+    const clamped = this.clampBlurRadiusForTool(radius);
+    this.self.setBlurRadius(clamped);
+    return clamped;
+  }
+
+  applyBlurRadiusLimitForTool(toolName = this.self?.tool, options = {}) {
+    const max = this.getBlurRadiusMaxForTool(toolName);
+    const slider = this.ui?.elements?.blurRadiusSlider;
+    if (slider) {
+      slider.max = String(max);
+    }
+
+    const clamped = this.clampBlurRadiusForTool(this.self.blurRadius, toolName);
+    const changed = clamped !== this.self.blurRadius;
+    if (changed) {
+      this.self.setBlurRadius(clamped);
+    }
+    if (slider) {
+      slider.value = clamped;
+    }
+    this.ui.updateBlurRadiusValue(clamped);
+
+    if (changed && options.broadcast && this.connected) {
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBlurRadiusChange(clamped));
+    }
   }
 
   handleThinningChange(e) {

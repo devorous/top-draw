@@ -18,8 +18,8 @@ export class EditableValueHandler {
    * Make a span element editable with click-to-edit and drag-to-adjust
    * @param {HTMLElement} spanEl - The span element to make editable
    * @param {Object} opts - Configuration options
-   * @param {number} opts.min - Minimum value
-   * @param {number} opts.max - Maximum value
+   * @param {number|Function} opts.min - Minimum value or function returning it
+   * @param {number|Function} opts.max - Maximum value or function returning it
    * @param {number} opts.step - Step size for snapping
    * @param {string} [opts.suffix=''] - Suffix to append to display value (e.g., 'px', '%')
    * @param {Function} opts.onCommit - Callback when value changes: (newValue) => {}
@@ -27,6 +27,10 @@ export class EditableValueHandler {
    */
   makeEditable(spanEl, opts) {
     const { min, max, step, suffix = '', onCommit, dragStep } = opts;
+    const resolveBound = (bound) => {
+      const value = typeof bound === 'function' ? bound() : bound;
+      return Number.isFinite(Number(value)) ? Number(value) : 0;
+    };
 
     let dragState = null;
 
@@ -37,15 +41,17 @@ export class EditableValueHandler {
       if (spanEl.querySelector('.sliderValueInput')) return;
 
       const originalText = spanEl.textContent;
+      const currentMin = resolveBound(min);
+      const currentMax = resolveBound(max);
       const currentVal = parseFloat(originalText.replace(suffix, '').trim());
 
       const input = document.createElement('input');
       input.type = 'number';
       input.className = 'sliderValueInput';
-      input.min = min;
-      input.max = max;
+      input.min = currentMin;
+      input.max = currentMax;
       input.step = step;
-      input.value = isNaN(currentVal) ? min : currentVal;
+      input.value = isNaN(currentVal) ? currentMin : currentVal;
 
       spanEl.textContent = '';
       spanEl.appendChild(input);
@@ -53,9 +59,11 @@ export class EditableValueHandler {
       input.select();
 
       const commit = () => {
+        const commitMin = resolveBound(min);
+        const commitMax = resolveBound(max);
         let val = parseFloat(input.value);
-        if (isNaN(val)) val = min;
-        val = Math.max(min, Math.min(max, val));
+        if (isNaN(val)) val = commitMin;
+        val = Math.max(commitMin, Math.min(commitMax, val));
         val = Math.round(val / step) * step;
         val = parseFloat(val.toFixed(10));
 
@@ -87,7 +95,8 @@ export class EditableValueHandler {
       e.preventDefault();
 
       const currentText = spanEl.textContent;
-      const startVal = parseFloat(currentText.replace(suffix, '').trim()) || min;
+      const currentMin = resolveBound(min);
+      const startVal = parseFloat(currentText.replace(suffix, '').trim()) || currentMin;
 
       dragState = {
         startY: e.clientY,
@@ -118,7 +127,7 @@ export class EditableValueHandler {
       else if (e.altKey) sensitivity = currentStep * 0.1;
 
       let val = dragState.startVal + dy * sensitivity;
-      val = Math.max(min, Math.min(max, val));
+      val = Math.max(resolveBound(min), Math.min(resolveBound(max), val));
       const snapStep = dragStep ? dragStep(val) : step;
       val = Math.round(val / snapStep) * snapStep;
       val = parseFloat(val.toFixed(10));

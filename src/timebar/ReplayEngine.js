@@ -1780,7 +1780,7 @@ export class ReplayEngine {
 
         case T.CSP:
           if (msg.sp !== undefined) {
-            user.setSpacing(msg.sp);
+            user.setSpacing(msg.sp / 100);
           }
           break;
 
