@@ -1094,6 +1094,38 @@ export class LayerManager {
     }
   }
 
+  _fillDirtyRegion(ctx, dirtyRects) {
+    if (dirtyRects) {
+      for (const r of dirtyRects) {
+        ctx.fillRect(r.x, r.y, r.width, r.height);
+      }
+      return;
+    }
+    ctx.fillRect(0, 0, this.width, this.height);
+  }
+
+  _drawCanvasRegion(ctx, canvas, dirtyRects = null, dx = 0, dy = 0) {
+    if (!ctx || !canvas) return;
+    if (!dirtyRects || dirtyRects.length === 0) {
+      ctx.drawImage(canvas, dx, dy);
+      return;
+    }
+
+    for (const rect of dirtyRects) {
+      const left = Math.max(rect.x, dx);
+      const top = Math.max(rect.y, dy);
+      const right = Math.min(rect.x + rect.width, dx + canvas.width);
+      const bottom = Math.min(rect.y + rect.height, dy + canvas.height);
+      if (right <= left || bottom <= top) continue;
+
+      const sx = left - dx;
+      const sy = top - dy;
+      const width = right - left;
+      const height = bottom - top;
+      ctx.drawImage(canvas, sx, sy, width, height, left, top, width, height);
+    }
+  }
+
   /**
    * Expand a dirty rectangle to include new bounds
    * @param {Object} dirtyRect - {minX, minY, maxX, maxY}
@@ -1285,23 +1317,23 @@ export class LayerManager {
    * @param {Object} group - Layer group
    * @private
    */
-  _compositeGroupInto(ctx, group) {
+  _compositeGroupInto(ctx, group, dirtyRects = null) {
     for (const item of group.bakedSequences) {
       if (item.type === 'group') {
         for (const stroke of item.strokes) {
-          this._compositeStroke(ctx, stroke, false);
+          this._compositeStroke(ctx, stroke, false, dirtyRects);
         }
       } else {
-        this._compositeStroke(ctx, item, false);
+        this._compositeStroke(ctx, item, false, dirtyRects);
       }
     }
 
     for (const stroke of group.strokeStack) {
-      this._compositeStroke(ctx, stroke, false);
+      this._compositeStroke(ctx, stroke, false, dirtyRects);
     }
 
     for (const [, active] of group.activeStrokeByUser) {
-      this._compositeStroke(ctx, active, true);
+      this._compositeStroke(ctx, active, true, dirtyRects);
     }
 
     ctx.globalCompositeOperation = 'source-over';
@@ -1314,16 +1346,12 @@ export class LayerManager {
    * @param {boolean} [isActive=false] - Whether this is an active (in-progress) stroke
    * @private
    */
-  _compositeStroke(ctx, stroke, isActive = false) {
+  _compositeStroke(ctx, stroke, isActive = false, dirtyRects = null) {
     if (stroke.filterType === 'blur' || stroke.filterType === 'glitchBlur') {
       this._applyBlurFilter(ctx, stroke, isActive);
     } else {
       ctx.globalCompositeOperation = stroke.blendMode;
-      if (stroke.x !== undefined && stroke.y !== undefined) {
-        ctx.drawImage(stroke.canvas, stroke.x, stroke.y);
-      } else {
-        ctx.drawImage(stroke.canvas, 0, 0);
-      }
+      this._drawCanvasRegion(ctx, stroke.canvas, dirtyRects, stroke.x ?? 0, stroke.y ?? 0);
     }
   }
 
@@ -1703,7 +1731,7 @@ export class LayerManager {
           this._compositeGroupIsolated(targetCtx, group, activeRects);
         }
       } else {
-        this._compositeGroupInto(targetCtx, group);
+        this._compositeGroupInto(targetCtx, group, activeRects);
       }
     }
 
@@ -1724,7 +1752,7 @@ export class LayerManager {
 
     if (!hasUnbaked) {
       targetCtx.globalCompositeOperation = 'source-over';
-      targetCtx.drawImage(group.flatCanvas, 0, 0);
+      this._drawCanvasRegion(targetCtx, group.flatCanvas, dirtyRects);
       return;
     }
 
@@ -1736,30 +1764,30 @@ export class LayerManager {
     if (bgColor) {
       const [r, g, b, a] = bgColor;
       bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-      bufferCtx.fillRect(0, 0, this.width, this.height);
+      this._fillDirtyRegion(bufferCtx, dirtyRects);
     }
 
     bufferCtx.globalCompositeOperation = 'source-over';
-    bufferCtx.drawImage(group.flatCanvas, 0, 0);
+    this._drawCanvasRegion(bufferCtx, group.flatCanvas, dirtyRects);
 
     for (const stroke of group.strokeStack) {
-      this._compositeStroke(bufferCtx, stroke, false);
+      this._compositeStroke(bufferCtx, stroke, false, dirtyRects);
       if (stroke.blendMode === 'destination-out' && bgColor) {
         const [r, g, b, a] = bgColor;
         bufferCtx.globalCompositeOperation = 'destination-over';
         bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-        bufferCtx.fillRect(0, 0, this.width, this.height);
+        this._fillDirtyRegion(bufferCtx, dirtyRects);
         bufferCtx.globalCompositeOperation = 'source-over';
       }
     }
 
     for (const [, active] of group.activeStrokeByUser) {
-      this._compositeStroke(bufferCtx, active, true);
+      this._compositeStroke(bufferCtx, active, true, dirtyRects);
       if (active.blendMode === 'destination-out' && bgColor) {
         const [r, g, b, a] = bgColor;
         bufferCtx.globalCompositeOperation = 'destination-over';
         bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-        bufferCtx.fillRect(0, 0, this.width, this.height);
+        this._fillDirtyRegion(bufferCtx, dirtyRects);
       }
     }
 
@@ -1767,14 +1795,14 @@ export class LayerManager {
       const [r, g, b, a] = bgColor;
       bufferCtx.globalCompositeOperation = 'destination-over';
       bufferCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-      bufferCtx.fillRect(0, 0, this.width, this.height);
+      this._fillDirtyRegion(bufferCtx, dirtyRects);
     }
 
     bufferCtx.globalCompositeOperation = 'source-over';
     if (dirtyRects) bufferCtx.restore();
 
     targetCtx.globalCompositeOperation = 'source-over';
-    targetCtx.drawImage(buffer, 0, 0);
+    this._drawCanvasRegion(targetCtx, buffer, dirtyRects);
   }
 
   /**
@@ -1791,25 +1819,25 @@ export class LayerManager {
     if (dirtyRects) {
       this._applyDirtyClip(lowerCtx, dirtyRects);
     }
-    lowerCtx.drawImage(targetCtx.canvas, 0, 0);
+    this._drawCanvasRegion(lowerCtx, targetCtx.canvas, dirtyRects);
     if (dirtyRects) lowerCtx.restore();
 
     for (const item of group.bakedSequences) {
       if (item.type === 'group') {
         for (const stroke of item.strokes) {
-          this._compositeStrokeSequential(targetCtx, stroke, lowerSnap, false);
+          this._compositeStrokeSequential(targetCtx, stroke, lowerSnap, false, dirtyRects);
         }
       } else {
-        this._compositeStrokeSequential(targetCtx, { canvas: item.canvas, blendMode: item.blendMode }, lowerSnap, false);
+        this._compositeStrokeSequential(targetCtx, { canvas: item.canvas, blendMode: item.blendMode }, lowerSnap, false, dirtyRects);
       }
     }
 
     for (const stroke of group.strokeStack) {
-      this._compositeStrokeSequential(targetCtx, stroke, lowerSnap, false);
+      this._compositeStrokeSequential(targetCtx, stroke, lowerSnap, false, dirtyRects);
     }
 
     for (const [, active] of group.activeStrokeByUser) {
-      this._compositeStrokeSequential(targetCtx, active, lowerSnap, true);
+      this._compositeStrokeSequential(targetCtx, active, lowerSnap, true, dirtyRects);
     }
 
     targetCtx.globalCompositeOperation = 'source-over';
@@ -1823,7 +1851,7 @@ export class LayerManager {
    * @param {boolean} [isActive=false] - Whether this is an active stroke
    * @private
    */
-  _compositeStrokeSequential(ctx, stroke, lowerSnap, isActive = false) {
+  _compositeStrokeSequential(ctx, stroke, lowerSnap, isActive = false, dirtyRects = null) {
     if (stroke.filterType === 'blur' || stroke.filterType === 'glitchBlur') {
       this._applyBlurFilter(ctx, stroke, isActive);
       return;
@@ -1834,12 +1862,12 @@ export class LayerManager {
 
     if (stroke.blendMode === 'destination-out') {
       ctx.globalCompositeOperation = 'destination-out';
-      ctx.drawImage(stroke.canvas, x, y);
+      this._drawCanvasRegion(ctx, stroke.canvas, dirtyRects, x, y);
       ctx.globalCompositeOperation = 'destination-over';
-      ctx.drawImage(lowerSnap, 0, 0);
+      this._drawCanvasRegion(ctx, lowerSnap, dirtyRects);
     } else {
       ctx.globalCompositeOperation = stroke.blendMode;
-      ctx.drawImage(stroke.canvas, x, y);
+      this._drawCanvasRegion(ctx, stroke.canvas, dirtyRects, x, y);
     }
   }
 
@@ -1858,26 +1886,26 @@ export class LayerManager {
     for (const item of group.bakedSequences) {
       if (item.type === 'group') {
         for (const stroke of item.strokes) {
-          this._compositeStroke(bufferCtx, stroke, false);
+          this._compositeStroke(bufferCtx, stroke, false, dirtyRects);
         }
       } else {
-        this._compositeStroke(bufferCtx, item, false);
+        this._compositeStroke(bufferCtx, item, false, dirtyRects);
       }
     }
 
     for (const stroke of group.strokeStack) {
-      this._compositeStroke(bufferCtx, stroke, false);
+      this._compositeStroke(bufferCtx, stroke, false, dirtyRects);
     }
 
     for (const [, active] of group.activeStrokeByUser) {
-      this._compositeStroke(bufferCtx, active, true);
+      this._compositeStroke(bufferCtx, active, true, dirtyRects);
     }
 
     bufferCtx.globalCompositeOperation = 'source-over';
     if (dirtyRects) bufferCtx.restore();
 
     targetCtx.globalCompositeOperation = 'source-over';
-    targetCtx.drawImage(buffer, 0, 0);
+    this._drawCanvasRegion(targetCtx, buffer, dirtyRects);
   }
 
   /**

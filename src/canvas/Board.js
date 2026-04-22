@@ -1806,11 +1806,39 @@ export class Board {
 
   _drawCompositeCanvas(ctx, canvas, dirtyRects) {
     if (!ctx || !canvas) return;
+    if (dirtyRects && dirtyRects.length > 0) {
+      for (const rect of dirtyRects) {
+        const sourceRect = this._clampRectToCanvas(rect, canvas);
+        if (!sourceRect) continue;
+        ctx.drawImage(
+          canvas,
+          sourceRect.x,
+          sourceRect.y,
+          sourceRect.width,
+          sourceRect.height,
+          sourceRect.x,
+          sourceRect.y,
+          sourceRect.width,
+          sourceRect.height
+        );
+      }
+      return;
+    }
+
     const clipped = this._applyCompositeClip(ctx, dirtyRects);
     ctx.drawImage(canvas, 0, 0);
     if (clipped) {
       ctx.restore();
     }
+  }
+
+  _clampRectToCanvas(rect, canvas) {
+    const x = Math.max(0, Math.floor(rect.x));
+    const y = Math.max(0, Math.floor(rect.y));
+    const right = Math.min(canvas.width, Math.ceil(rect.x + rect.width));
+    const bottom = Math.min(canvas.height, Math.ceil(rect.y + rect.height));
+    if (right <= x || bottom <= y) return null;
+    return { x, y, width: right - x, height: bottom - y };
   }
 
   /**
