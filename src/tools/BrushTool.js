@@ -98,10 +98,12 @@ export class BrushTool extends Tool {
     this._activeUser = user;
     this.board.beginStroke(user);
     user.clearLine();
+    user._brushPreviewBounds = null;
 
     // Push twice so a click without movement draws a dot on commit
     user.addToLine({ x: pos.x, y: pos.y });
     user.addToLine({ x: pos.x, y: pos.y });
+    this._expandPreviewBounds(user, pos.x, pos.y);
   }
 
   /**
@@ -117,15 +119,11 @@ export class BrushTool extends Tool {
 
     // Snapshot the current point because local input reuses mutable scratch objects.
     user.addToLine({ x: pos.x, y: pos.y });
-    this.board.clearTop();
-    drawLineArray(user.currentLine, this.board.topCtx, user);
+    this._expandPreviewBounds(user, pos.x, pos.y);
 
-    this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
-      const mirrored = this.board.mirrorPointsToRegion(user.currentLine, region);
-      this.board.withMirrorRegionClip(this.board.topCtx, region, () => {
-        drawLineArray(mirrored, this.board.topCtx, user);
-      });
-    });
+    const rect = this.getPreviewDirtyRect(user);
+    this.board.clearTop(rect === false ? null : rect);
+    this.drawPreview(user, rect === false ? null : rect);
 
     // Clear lingering path so nothing else accidentally re-strokes it
     this.board.topCtx.beginPath();
@@ -156,6 +154,7 @@ export class BrushTool extends Tool {
 
     this.trackDirtyRect(user, user.currentLine);
     user.clearLine();
+    user._brushPreviewBounds = null;
 
     this.board.endStroke(user);
   }
@@ -166,8 +165,30 @@ export class BrushTool extends Tool {
    * @param {User} user - The user to render the preview for.
    * @returns {void}
    */
-  drawPreview(user) {
-    drawLineArray(user.currentLine, this.board.topCtx, user);
+  drawPreview(user, rect = null) {
+    const ctx = this.board.topCtx;
+    const draw = () => {
+      drawLineArray(user.currentLine, ctx, user);
+
+      this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
+        const mirrored = this.board.mirrorPointsToRegion(user.currentLine, region);
+        this.board.withMirrorRegionClip(ctx, region, () => {
+          drawLineArray(mirrored, ctx, user);
+        });
+      });
+    };
+
+    if (rect) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(rect.x, rect.y, rect.width, rect.height);
+      ctx.clip();
+      draw();
+      ctx.restore();
+      return;
+    }
+
+    draw();
   }
 
   /**
@@ -250,5 +271,36 @@ export class BrushTool extends Tool {
     user.addToLine({ x: lastSmoothedPos.x, y: lastSmoothedPos.y });
 
     this.board.compositeAllLayers();
+  }
+
+  getPreviewDirtyRect(user) {
+    const bounds = user?._brushPreviewBounds;
+    if (!bounds || bounds.maxX < bounds.minX || bounds.maxY < bounds.minY) return false;
+    if (this.board.mirrorRegions?.length > 0) return null;
+
+    const hardness = user.hardness !== undefined ? user.hardness : 100;
+    const hardnessFloat = hardness / 100.0;
+    const radius = (user.pressure ?? 1) * user.size;
+    const blurAmount = hardness < 100 ? radius * (1 - hardnessFloat) : 0;
+    const margin = radius + blurAmount + radius * 0.25 + 4;
+    return {
+      x: Math.floor(bounds.minX - margin),
+      y: Math.floor(bounds.minY - margin),
+      width: Math.ceil(bounds.maxX - bounds.minX + margin * 2),
+      height: Math.ceil(bounds.maxY - bounds.minY + margin * 2)
+    };
+  }
+
+  _expandPreviewBounds(user, x, y) {
+    if (!user) return;
+    if (!user._brushPreviewBounds) {
+      user._brushPreviewBounds = { minX: x, minY: y, maxX: x, maxY: y };
+      return;
+    }
+
+    user._brushPreviewBounds.minX = Math.min(user._brushPreviewBounds.minX, x);
+    user._brushPreviewBounds.minY = Math.min(user._brushPreviewBounds.minY, y);
+    user._brushPreviewBounds.maxX = Math.max(user._brushPreviewBounds.maxX, x);
+    user._brushPreviewBounds.maxY = Math.max(user._brushPreviewBounds.maxY, y);
   }
 }

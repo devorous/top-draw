@@ -681,7 +681,9 @@ export class InputBufferManager {
       tool.drawPreview(user, previewRect);
     }
 
-    app.board?.requestUpdate();
+    if (toolName === 'blur' || toolName === 'circleBlur' || toolName === 'imageBrush') {
+      app.board?.requestUpdate();
+    }
   }
 
   /**

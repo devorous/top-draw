@@ -174,8 +174,9 @@ export class InkTool extends Tool {
   onPointerMove(user, pos, lastPos, e) {
     this.onPointerMoveNoRender(user, pos, lastPos, e);
     this.renderStroke(false, user);
-    this.board.clearTop();
-    this.drawPreview();
+    const rect = this.getPreviewDirtyRect(user);
+    this.board.clearTop(rect === false ? null : rect);
+    this.drawPreview(user, rect === false ? null : rect);
   }
 
   /**
@@ -388,12 +389,27 @@ export class InkTool extends Tool {
   /**
    * Draws the current stroke preview on the top canvas.
    */
-  drawPreview() {
+  drawPreview(user = this._activeUser, rect = null) {
     if (!this.offscreenCanvas) return;
     const ctx = this.board.topCtx;
     ctx.globalAlpha = this.userAlpha;
-    const hardnessCanvas = this.getHardnessCanvas(this.offscreenCanvas, this._strokeSize);
-    ctx.drawImage(hardnessCanvas, 0, 0);
+    const hardnessCanvas = this.getHardnessCanvas(this.offscreenCanvas, this._strokeSize, rect);
+    const sourceRect = rect ? this._clampRectToCanvas(rect, hardnessCanvas) : null;
+    if (sourceRect) {
+      ctx.drawImage(
+        hardnessCanvas,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height
+      );
+    } else {
+      ctx.drawImage(hardnessCanvas, 0, 0);
+    }
 
     this.board.forEachMirrorRegion({ rect: this.dirtyBounds ? {
       x: this.dirtyBounds.minX,
@@ -406,7 +422,7 @@ export class InkTool extends Tool {
     ctx.globalAlpha = 1.0;
   }
 
-  getHardnessCanvas(sourceCanvas, size) {
+  getHardnessCanvas(sourceCanvas, size, rect = null) {
     if (!this.hardnessCanvas ||
         this.hardnessCanvas.width !== sourceCanvas.width ||
         this.hardnessCanvas.height !== sourceCanvas.height) {
@@ -416,8 +432,15 @@ export class InkTool extends Tool {
       this.hardnessCtx = this.hardnessCanvas.getContext('2d');
     }
 
-    this.hardnessCtx.clearRect(0, 0, this.hardnessCanvas.width, this.hardnessCanvas.height);
-    this.compositeWithHardness(this.hardnessCtx, sourceCanvas, size, 0, 0);
+    if (rect) {
+      const clearRect = this._clampRectToCanvas(rect, this.hardnessCanvas);
+      if (clearRect) {
+        this.hardnessCtx.clearRect(clearRect.x, clearRect.y, clearRect.width, clearRect.height);
+      }
+    } else {
+      this.hardnessCtx.clearRect(0, 0, this.hardnessCanvas.width, this.hardnessCanvas.height);
+    }
+    this.compositeWithHardness(this.hardnessCtx, sourceCanvas, size, 0, 0, rect);
     return this.hardnessCanvas;
   }
 
@@ -429,8 +452,9 @@ export class InkTool extends Tool {
    * @param {number} x - The x-coordinate.
    * @param {number} y - The y-coordinate.
    */
-  compositeWithHardness(ctx, sourceCanvas, size, x, y) {
+  compositeWithHardness(ctx, sourceCanvas, size, x, y, rect = null) {
     const blurAmount = (1 - this.userHardness / 100) * (20 + size * 0.2);
+    const sourceRect = rect ? this._clampRectToCanvas(rect, sourceCanvas) : null;
 
     if (blurAmount > 0) {
       const offset = 100000;
@@ -439,11 +463,62 @@ export class InkTool extends Tool {
       ctx.shadowColor = this.strokeColor;
       ctx.shadowOffsetX = -offset;
       ctx.shadowOffsetY = 0;
-      ctx.drawImage(sourceCanvas, x + offset, y);
+      if (sourceRect) {
+        ctx.drawImage(
+          sourceCanvas,
+          sourceRect.x,
+          sourceRect.y,
+          sourceRect.width,
+          sourceRect.height,
+          x + sourceRect.x + offset,
+          y + sourceRect.y,
+          sourceRect.width,
+          sourceRect.height
+        );
+      } else {
+        ctx.drawImage(sourceCanvas, x + offset, y);
+      }
       ctx.restore();
+    } else if (sourceRect) {
+      ctx.drawImage(
+        sourceCanvas,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height,
+        x + sourceRect.x,
+        y + sourceRect.y,
+        sourceRect.width,
+        sourceRect.height
+      );
     } else {
       ctx.drawImage(sourceCanvas, x, y);
     }
+  }
+
+  getPreviewDirtyRect(user = this._activeUser) {
+    const bounds = this.dirtyBounds;
+    if (!bounds || bounds.maxX <= bounds.minX || bounds.maxY <= bounds.minY) return false;
+    if (this.board.mirrorRegions?.length > 0) return null;
+
+    const size = user?.size ?? this._strokeSize;
+    const blurAmount = (1 - this.userHardness / 100) * (20 + size * 0.2);
+    const margin = size + (blurAmount * 2.5) + size * 0.5 + 15;
+    return {
+      x: Math.floor(bounds.minX - margin),
+      y: Math.floor(bounds.minY - margin),
+      width: Math.ceil(bounds.maxX - bounds.minX + margin * 2),
+      height: Math.ceil(bounds.maxY - bounds.minY + margin * 2)
+    };
+  }
+
+  _clampRectToCanvas(rect, canvas) {
+    const x = Math.max(0, Math.floor(rect.x));
+    const y = Math.max(0, Math.floor(rect.y));
+    const right = Math.min(canvas.width, Math.ceil(rect.x + rect.width));
+    const bottom = Math.min(canvas.height, Math.ceil(rect.y + rect.height));
+    if (right <= x || bottom <= y) return null;
+    return { x, y, width: right - x, height: bottom - y };
   }
 
   /**
