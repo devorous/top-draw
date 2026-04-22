@@ -793,9 +793,8 @@ function getVisibleIpForViewer(viewer, targetUser, room) {
   const targetIp = targetClient?.clientIp || '';
   if (!targetIp) return '';
 
-  return (viewer.userRole || Role.GUEST) >= Role.DEITY
-    ? targetIp
-    : obfuscateIp(targetIp);
+  // Always obfuscate IPs server-side - no raw IPs sent to clients
+  return obfuscateIp(targetIp);
 }
 
 function isShadowHiddenFromViewer(subjectUser, viewer) {

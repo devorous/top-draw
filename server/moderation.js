@@ -1,6 +1,7 @@
 /** @fileoverview Provides utilities for moderation actions, including IP obfuscation, ban/mute checks, and logging. */
 
 import { getDB } from './db.js';
+import { obfuscateIp as obfuscateIpFromIdentity } from './ipIdentity.js';
 
 function buildTargetConditions({
   targetUserId = null,
@@ -25,25 +26,17 @@ function buildRoomCondition(roomId = null) {
 }
 
 /**
- * Obfuscates an IP address by showing only the first two octets or groups.
+ * Obfuscates an IP address for display to moderators.
+ * Uses the IP identity system to ensure consistent obfuscation.
+ *
+ * For IPv4: shows first 3 octets, masks last (e.g., "203.0.113.x")
+ * For IPv6: shows the /64 network (e.g., "2001:db8:abcd:1200::/64")
+ *
  * @param {string} ip - The IP address to obfuscate.
  * @returns {string} - The obfuscated IP address.
  */
 export function obfuscateIp(ip) {
-  if (!ip) return 'unknown';
-
-  const v4Match = ip.match(/(?:::ffff:)?(\d+\.\d+\.\d+\.\d+)/i);
-  if (v4Match) {
-    const parts = v4Match[1].split('.');
-    return `${parts[0]}.${parts[1]}.x.x`;
-  }
-
-  const v6Parts = ip.split(':');
-  if (v6Parts.length > 2) {
-    return `${v6Parts[0]}:${v6Parts[1]}:x:x`;
-  }
-
-  return 'unknown';
+  return obfuscateIpFromIdentity(ip);
 }
 
 /**

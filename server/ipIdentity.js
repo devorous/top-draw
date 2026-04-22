@@ -1,0 +1,263 @@
+/** @fileoverview IP identity and normalization for moderation enforcement and display. */
+
+import { isIPv4, isIPv6 } from 'net';
+
+/**
+ * Parses and normalizes an IP address string into a canonical form.
+ * Handles IPv4, IPv6, and IPv4-mapped IPv6 addresses.
+ * @param {string} ip - The IP address to normalize
+ * @returns {{family: 'ipv4'|'ipv6', canonical: string} | null}
+ */
+function normalizeIp(ip) {
+  if (!ip) return null;
+
+  // Check for IPv4-mapped IPv6 (::ffff:x.x.x.x)
+  const v4MappedMatch = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (v4MappedMatch) {
+    return { family: 'ipv4', canonical: v4MappedMatch[1] };
+  }
+
+  // Try IPv4
+  if (isIPv4(ip)) {
+    return { family: 'ipv4', canonical: ip };
+  }
+
+  // Try IPv6 - normalize by expanding and then re-compressing
+  if (isIPv6(ip)) {
+    const canonical = normalizeIpv6(ip);
+    return { family: 'ipv6', canonical };
+  }
+
+  return null;
+}
+
+/**
+ * Normalizes an IPv6 address to a canonical compressed form.
+ * Expands :: notation and ensures consistent formatting.
+ * @param {string} ip - IPv6 address
+ * @returns {string} - Canonical IPv6 address
+ */
+function normalizeIpv6(ip) {
+  // Expand :: notation
+  const parts = ip.toLowerCase().split('::');
+  let groups;
+
+  if (parts.length === 2) {
+    const left = parts[0] ? parts[0].split(':') : [];
+    const right = parts[1] ? parts[1].split(':') : [];
+    const missing = 8 - left.length - right.length;
+    groups = [...left, ...Array(missing).fill('0'), ...right];
+  } else {
+    groups = ip.toLowerCase().split(':');
+  }
+
+  // Pad each group to 4 hex digits for normalization
+  groups = groups.map(g => g.padStart(4, '0'));
+
+  // Find longest run of zeros for compression
+  let maxZeroStart = -1;
+  let maxZeroLen = 0;
+  let currentZeroStart = -1;
+  let currentZeroLen = 0;
+
+  for (let i = 0; i < groups.length; i++) {
+    if (groups[i] === '0000') {
+      if (currentZeroStart === -1) {
+        currentZeroStart = i;
+        currentZeroLen = 1;
+      } else {
+        currentZeroLen++;
+      }
+    } else {
+      if (currentZeroLen > maxZeroLen) {
+        maxZeroStart = currentZeroStart;
+        maxZeroLen = currentZeroLen;
+      }
+      currentZeroStart = -1;
+      currentZeroLen = 0;
+    }
+  }
+
+  // Check final run
+  if (currentZeroLen > maxZeroLen) {
+    maxZeroStart = currentZeroStart;
+    maxZeroLen = currentZeroLen;
+  }
+
+  // Compress longest zero run
+  if (maxZeroLen > 1) {
+    const before = groups.slice(0, maxZeroStart).map(g => g.replace(/^0+/, '') || '0');
+    const after = groups.slice(maxZeroStart + maxZeroLen).map(g => g.replace(/^0+/, '') || '0');
+
+    if (before.length === 0 && after.length === 0) {
+      return '::';
+    } else if (before.length === 0) {
+      return '::' + after.join(':');
+    } else if (after.length === 0) {
+      return before.join(':') + '::';
+    } else {
+      return before.join(':') + '::' + after.join(':');
+    }
+  }
+
+  // No compression, just remove leading zeros
+  return groups.map(g => g.replace(/^0+/, '') || '0').join(':');
+}
+
+/**
+ * Computes an IPv4 /24 network address.
+ * @param {string} ip - IPv4 address (e.g., "203.0.113.42")
+ * @returns {string} - Network address (e.g., "203.0.113.0")
+ */
+function getIpv4Network24(ip) {
+  const parts = ip.split('.');
+  return `${parts[0]}.${parts[1]}.${parts[2]}.0`;
+}
+
+/**
+ * Computes an IPv6 /64 network prefix.
+ * @param {string} ip - Canonical IPv6 address
+ * @returns {string} - /64 network prefix (e.g., "2001:db8:abcd:1200::")
+ */
+function getIpv6Network64(ip) {
+  // Expand to full form for easier manipulation
+  const parts = ip.split('::');
+  let groups;
+
+  if (parts.length === 2) {
+    const left = parts[0] ? parts[0].split(':') : [];
+    const right = parts[1] ? parts[1].split(':') : [];
+    const missing = 8 - left.length - right.length;
+    groups = [...left, ...Array(missing).fill('0'), ...right];
+  } else {
+    groups = ip.split(':');
+  }
+
+  // Pad to 8 groups
+  while (groups.length < 8) groups.push('0');
+
+  // Take first 4 groups (64 bits), zero out the rest
+  const network = [...groups.slice(0, 4), '0', '0', '0', '0'];
+
+  // Convert back to standard notation
+  return normalizeIpv6(network.join(':'));
+}
+
+/**
+ * Computes an IPv6 /48 network prefix.
+ * @param {string} ip - Canonical IPv6 address
+ * @returns {string} - /48 network prefix
+ */
+function getIpv6Network48(ip) {
+  const parts = ip.split('::');
+  let groups;
+
+  if (parts.length === 2) {
+    const left = parts[0] ? parts[0].split(':') : [];
+    const right = parts[1] ? parts[1].split(':') : [];
+    const missing = 8 - left.length - right.length;
+    groups = [...left, ...Array(missing).fill('0'), ...right];
+  } else {
+    groups = ip.split(':');
+  }
+
+  while (groups.length < 8) groups.push('0');
+
+  // Take first 3 groups (48 bits), zero out the rest
+  const network = [...groups.slice(0, 3), '0', '0', '0', '0', '0'];
+
+  return normalizeIpv6(network.join(':'));
+}
+
+/**
+ * Builds a complete IP identity object for enforcement and display.
+ * @param {string} ip - Raw IP address from connection
+ * @returns {Object|null} - IP identity object or null if invalid
+ *
+ * Example IPv4:
+ * {
+ *   family: "ipv4",
+ *   canonicalIp: "203.0.113.42",
+ *   exactKey: "ip4:203.0.113.42/32",
+ *   rangeKeys: ["ip4:203.0.113.42/32", "ip4:203.0.113.0/24"],
+ *   defaultRangeKey: "ip4:203.0.113.0/24",
+ *   displayExact: "203.0.113.x",
+ *   displayRange: "203.0.113.0/24"
+ * }
+ *
+ * Example IPv6:
+ * {
+ *   family: "ipv6",
+ *   canonicalIp: "2001:db8:abcd:1200::1234",
+ *   exactKey: "ip6:2001:db8:abcd:1200::1234/128",
+ *   rangeKeys: [
+ *     "ip6:2001:db8:abcd:1200::1234/128",
+ *     "ip6:2001:db8:abcd:1200::/64",
+ *     "ip6:2001:db8:abcd::/48"
+ *   ],
+ *   defaultRangeKey: "ip6:2001:db8:abcd:1200::/64",
+ *   displayExact: "2001:db8:abcd:1200::/64",
+ *   displayRange: "2001:db8:abcd:1200::/64"
+ * }
+ */
+export function buildIpIdentity(ip) {
+  const normalized = normalizeIp(ip);
+  if (!normalized) return null;
+
+  const { family, canonical } = normalized;
+
+  if (family === 'ipv4') {
+    const network24 = getIpv4Network24(canonical);
+    const parts = canonical.split('.');
+
+    return {
+      family: 'ipv4',
+      canonicalIp: canonical,
+      exactKey: `ip4:${canonical}/32`,
+      rangeKeys: [
+        `ip4:${canonical}/32`,
+        `ip4:${network24}/24`
+      ],
+      defaultRangeKey: `ip4:${network24}/24`,
+      displayExact: `${parts[0]}.${parts[1]}.${parts[2]}.x`,
+      displayRange: `${network24}/24`
+    };
+  }
+
+  // IPv6
+  const network64 = getIpv6Network64(canonical);
+  const network48 = getIpv6Network48(canonical);
+
+  return {
+    family: 'ipv6',
+    canonicalIp: canonical,
+    exactKey: `ip6:${canonical}/128`,
+    rangeKeys: [
+      `ip6:${canonical}/128`,
+      `ip6:${network64}/64`,
+      `ip6:${network48}/48`
+    ],
+    defaultRangeKey: `ip6:${network64}/64`,
+    displayExact: `${network64}/64`,
+    displayRange: `${network64}/64`
+  };
+}
+
+/**
+ * Obfuscates an IP address for display to moderators.
+ * Uses the IP identity system to ensure consistent obfuscation.
+ *
+ * For IPv4: shows first 3 octets, masks last (e.g., "203.0.113.x")
+ * For IPv6: shows the /64 network (e.g., "2001:db8:abcd:1200::/64")
+ *
+ * @param {string} ip - The IP address to obfuscate
+ * @returns {string} - The obfuscated IP address
+ */
+export function obfuscateIp(ip) {
+  if (!ip) return 'unknown';
+
+  const identity = buildIpIdentity(ip);
+  if (!identity) return 'unknown';
+
+  return identity.displayExact;
+}
