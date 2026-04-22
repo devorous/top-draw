@@ -30,8 +30,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 34px;
-  padding: 6px 8px 6px 10px;
+  padding: 0px 4px 0px 10px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-tertiary);
   cursor: move;
@@ -101,8 +100,7 @@
 }
 
 .boardViewerControls {
-  min-height: 36px;
-  padding: 4px 8px;
+  padding: 0px 6px;
   border-top: 1px solid var(--border-subtle);
   background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
 }
@@ -117,7 +115,7 @@
 .boardViewerLaunch {
   position: absolute;
   top: 42px;
-  left: 16px;
+  left: 8px;
   z-index: 840;
   height: 32px;
   padding: 0 12px;
