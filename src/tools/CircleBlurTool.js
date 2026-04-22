@@ -158,85 +158,99 @@ export class CircleBlurTool extends Tool {
    * @param {Object} lastPos - The previous pointer position.
    */
   onPointerMove(user, pos, lastPos) {
+    this._moveStroke(user, pos, false);
+  }
+
+  onPointerMoveNoRender(user, pos, lastPos) {
+    this._moveStroke(user, pos, true);
+  }
+
+  _moveStroke(user, pos, suppressRender) {
     if (!user.mousedown || user.panning) return;
 
+    const previousSuppressRender = this._suppressRequestUpdate;
+    this._suppressRequestUpdate = suppressRender;
     const radius = user.pressure * user.size;
     const lastStamp = this.lastStampPos.get(user.id);
 
-    if (lastStamp) {
-      const dx = pos.x - lastStamp.x;
-      const dy = pos.y - lastStamp.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
+    try {
+      if (lastStamp) {
+        const dx = pos.x - lastStamp.x;
+        const dy = pos.y - lastStamp.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
 
-      const avgRadius = (lastStamp.radius + radius) / 2;
-      const spacingPercent = 0.3 + user.spacing * 0.035;
-      const minSpacing = Math.max(5, avgRadius * spacingPercent);
+        const avgRadius = (lastStamp.radius + radius) / 2;
+        const spacingPercent = 0.3 + user.spacing * 0.035;
+        const minSpacing = Math.max(5, avgRadius * spacingPercent);
 
-      if (distance >= minSpacing) {
-        const steps = Math.floor(distance / minSpacing);
+        if (distance >= minSpacing) {
+          const steps = Math.floor(distance / minSpacing);
 
-        // Pre-calculate all stamp positions
-        const stamps = [];
-        for (let i = 1; i <= steps; i++) {
-          const t = i / steps;
-          const sx = lastStamp.x + dx * t;
-          const sy = lastStamp.y + dy * t;
-          const sr = lastStamp.radius + (radius - lastStamp.radius) * t;
-          stamps.push({ x: sx, y: sy, r: sr });
+          // Pre-calculate all stamp positions
+          const stamps = [];
+          for (let i = 1; i <= steps; i++) {
+            const t = i / steps;
+            const sx = lastStamp.x + dx * t;
+            const sy = lastStamp.y + dy * t;
+            const sr = lastStamp.radius + (radius - lastStamp.radius) * t;
+            stamps.push({ x: sx, y: sy, r: sr });
+          }
+
+          // Calculate bounding box for all stamps (with sample radius padding)
+          const canvasWidth = this.board.getWidth();
+          const canvasHeight = this.board.getHeight();
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+          for (const stamp of stamps) {
+            const sampleRadius = Math.min(stamp.r * 1.2, stamp.r + 10);
+            minX = Math.min(minX, stamp.x - sampleRadius);
+            minY = Math.min(minY, stamp.y - sampleRadius);
+            maxX = Math.max(maxX, stamp.x + sampleRadius);
+            maxY = Math.max(maxY, stamp.y + sampleRadius);
+
+            // Include mirrored stamps in bbox calculation
+            this.board.forEachMirrorRegion({ point: stamp }, (region) => {
+              const mirrored = this.board.mirrorPointToRegion(stamp, region);
+              minX = Math.min(minX, mirrored.x - sampleRadius);
+              minY = Math.min(minY, mirrored.y - sampleRadius);
+              maxX = Math.max(maxX, mirrored.x + sampleRadius);
+              maxY = Math.max(maxY, mirrored.y + sampleRadius);
+            });
+          }
+
+          // Clamp to canvas bounds
+          const left = Math.max(0, Math.floor(minX));
+          const top = Math.max(0, Math.floor(minY));
+          const right = Math.min(canvasWidth, Math.ceil(maxX));
+          const bottom = Math.min(canvasHeight, Math.ceil(maxY));
+          const width = right - left;
+          const height = bottom - top;
+
+          // Fetch imageData once for the entire batch (sample from snapshot for deterministic colors)
+          let cachedImageData = null;
+          if (width > 0 && height > 0) {
+            const userId = user.id ?? this.board.app?.self?.id ?? 0;
+            const sampleCtx = this._getSnapshotCtx(userId);
+            cachedImageData = sampleCtx.getImageData(left, top, width, height);
+          }
+
+          // Now stamp using cached data
+          for (const stamp of stamps) {
+            this.stampBlurredCircleFromCache(stamp.x, stamp.y, stamp.r, user, cachedImageData, left, top);
+            this.stampBuffer.push(stamp.x, stamp.y, stamp.r);
+            this.strokePoints.push({ x: stamp.x, y: stamp.y });
+
+            this.board.forEachMirrorRegion({ point: stamp }, (region) => {
+              const mirrored = this.board.mirrorPointToRegion(stamp, region);
+              this.stampBlurredCircleFromCache(mirrored.x, mirrored.y, stamp.r, user, cachedImageData, left, top, region);
+            });
+          }
+
+          this.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
         }
-
-        // Calculate bounding box for all stamps (with sample radius padding)
-        const canvasWidth = this.board.getWidth();
-        const canvasHeight = this.board.getHeight();
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-        for (const stamp of stamps) {
-          const sampleRadius = Math.min(stamp.r * 1.2, stamp.r + 10);
-          minX = Math.min(minX, stamp.x - sampleRadius);
-          minY = Math.min(minY, stamp.y - sampleRadius);
-          maxX = Math.max(maxX, stamp.x + sampleRadius);
-          maxY = Math.max(maxY, stamp.y + sampleRadius);
-
-          // Include mirrored stamps in bbox calculation
-          this.board.forEachMirrorRegion({ point: stamp }, (region) => {
-            const mirrored = this.board.mirrorPointToRegion(stamp, region);
-            minX = Math.min(minX, mirrored.x - sampleRadius);
-            minY = Math.min(minY, mirrored.y - sampleRadius);
-            maxX = Math.max(maxX, mirrored.x + sampleRadius);
-            maxY = Math.max(maxY, mirrored.y + sampleRadius);
-          });
-        }
-
-        // Clamp to canvas bounds
-        const left = Math.max(0, Math.floor(minX));
-        const top = Math.max(0, Math.floor(minY));
-        const right = Math.min(canvasWidth, Math.ceil(maxX));
-        const bottom = Math.min(canvasHeight, Math.ceil(maxY));
-        const width = right - left;
-        const height = bottom - top;
-
-        // Fetch imageData once for the entire batch (sample from snapshot for deterministic colors)
-        let cachedImageData = null;
-        if (width > 0 && height > 0) {
-          const userId = user.id ?? this.board.app?.self?.id ?? 0;
-          const sampleCtx = this._getSnapshotCtx(userId);
-          cachedImageData = sampleCtx.getImageData(left, top, width, height);
-        }
-
-        // Now stamp using cached data
-        for (const stamp of stamps) {
-          this.stampBlurredCircleFromCache(stamp.x, stamp.y, stamp.r, user, cachedImageData, left, top);
-          this.stampBuffer.push(stamp.x, stamp.y, stamp.r);
-          this.strokePoints.push({ x: stamp.x, y: stamp.y });
-
-          this.board.forEachMirrorRegion({ point: stamp }, (region) => {
-            const mirrored = this.board.mirrorPointToRegion(stamp, region);
-            this.stampBlurredCircleFromCache(mirrored.x, mirrored.y, stamp.r, user, cachedImageData, left, top, region);
-          });
-        }
-
-        this.lastStampPos.set(user.id, { x: pos.x, y: pos.y, radius });
       }
+    } finally {
+      this._suppressRequestUpdate = previousSuppressRender;
     }
   }
 
@@ -405,7 +419,7 @@ export class CircleBlurTool extends Tool {
       Math.floor(x - radius - 2), Math.floor(y - radius - 2),
       Math.ceil(radius * 2 + 4), Math.ceil(radius * 2 + 4));
 
-    this.board.requestUpdate();
+    if (!this._suppressRequestUpdate) this.board.requestUpdate();
   }
 
   /**
@@ -458,7 +472,7 @@ export class CircleBlurTool extends Tool {
       Math.floor(x - radius - 2), Math.floor(y - radius - 2),
       Math.ceil(radius * 2 + 4), Math.ceil(radius * 2 + 4));
 
-    this.board.requestUpdate();
+    if (!this._suppressRequestUpdate) this.board.requestUpdate();
   }
 
   /**

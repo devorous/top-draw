@@ -143,6 +143,14 @@ export class BlurTool extends Tool {
    * @param {Object} lastPos - The previous pointer position.
    */
   onPointerMove(user, pos, lastPos) {
+    this._moveStroke(user, pos, true);
+  }
+
+  onPointerMoveNoRender(user, pos, lastPos) {
+    this._moveStroke(user, pos, false);
+  }
+
+  _moveStroke(user, pos, shouldRequestUpdate) {
     if (!user.mousedown || user.panning) return;
 
     const activeLayerIdx = 0;
@@ -179,7 +187,7 @@ export class BlurTool extends Tool {
         }
 
         this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-        this.board.requestUpdate();
+        if (shouldRequestUpdate) this.board.requestUpdate();
       }
     } else {
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });

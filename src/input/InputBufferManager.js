@@ -24,7 +24,26 @@ const LOW_POWER_GPU_PATTERNS = [
   'vivante', 'videocore', 'tegra',
 ];
 
-const REDUCE_BEFORE_RENDER_TOOLS = new Set(['brush', 'flowPen', 'ink']);
+const REDUCE_BEFORE_RENDER_TOOLS = new Set([
+  'brush',
+  'flowPen',
+  'ink',
+  'erase',
+  'blur',
+  'circleBlur',
+  'glitchBlur',
+  'pixel',
+  'imageBrush'
+]);
+const BATCH_RENDER_TOOLS = new Set([
+  'ink',
+  'erase',
+  'blur',
+  'circleBlur',
+  'glitchBlur',
+  'pixel',
+  'imageBrush'
+]);
 const LATEST_POINT_ONLY_TOOLS = new Set(['select']);
 
 /**
@@ -398,7 +417,7 @@ export class InputBufferManager {
     if (app.self.mousedown && !app.self.panning) {
       const tool = app.toolManager.getCurrentTool();
       if (tool) {
-        const isInk = app.self.tool === 'ink';
+        const isBatchRenderable = BATCH_RENDER_TOOLS.has(app.self.tool) && tool.onPointerMoveNoRender;
 
         for (let i = 0; i < localPoints.length; i += 3) {
           const currentX = localPoints[i];
@@ -424,7 +443,7 @@ export class InputBufferManager {
 
           app.self.setPressure(currentPressure);
 
-          if (isInk && tool.onPointerMoveNoRender) {
+          if (isBatchRenderable) {
             tool.onPointerMoveNoRender(app.self, this._currentPosScratch, this._prevPosScratch);
           } else {
             tool.onPointerMove(app.self, this._currentPosScratch, this._prevPosScratch);
@@ -434,12 +453,8 @@ export class InputBufferManager {
           app.debugOverlay.addStrokePoint(app.self.id, currentX, currentY, 'tick');
         }
 
-        if (isInk && tool.renderStroke) {
-          tool.renderStroke(false, app.self);
-          if (app.board) {
-            app.board.clearTop();
-            if (tool.drawPreview) tool.drawPreview();
-          }
+        if (isBatchRenderable) {
+          this._renderBatchTool(tool, app.self, app.self.tool);
         }
       }
     }
@@ -602,15 +617,10 @@ export class InputBufferManager {
     app.self.setPosition(smoothedPos.x, smoothedPos.y);
     app.self.setPressure(smoothedP);
     
-    if (app.self.tool === 'ink' && tool.onPointerMoveNoRender) {
+    const isBatchRenderable = BATCH_RENDER_TOOLS.has(app.self.tool) && tool.onPointerMoveNoRender;
+    if (isBatchRenderable) {
       tool.onPointerMoveNoRender(app.self, smoothedPos, prevPos);
-      if (tool.renderStroke) {
-        tool.renderStroke(false, app.self);
-        if (app.board) {
-          app.board.clearTop();
-          if (tool.drawPreview) tool.drawPreview();
-        }
-      }
+      this._renderBatchTool(tool, app.self, app.self.tool);
     } else {
       tool.onPointerMove(app.self, smoothedPos, prevPos);
     }
@@ -647,6 +657,27 @@ export class InputBufferManager {
 
     // Fallback to JS (now also optimized for flat arrays)
     return douglasPeucker(points, epsilon);
+  }
+
+  _renderBatchTool(tool, user, toolName) {
+    const { app } = this;
+    if (!tool || !user) return;
+
+    if (tool.renderStroke) {
+      tool.renderStroke(false, user);
+    }
+
+    const usesTopPreview = toolName === 'erase' || toolName === 'pixel' || toolName === 'glitchBlur' || toolName === 'ink';
+
+    if (app.board && usesTopPreview) {
+      app.board.clearTop();
+    }
+
+    if (usesTopPreview && tool.drawPreview) {
+      tool.drawPreview(user);
+    }
+
+    app.board?.requestUpdate();
   }
 
   /**

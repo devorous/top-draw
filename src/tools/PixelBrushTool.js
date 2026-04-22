@@ -59,13 +59,21 @@ export class PixelBrushTool {
    * @param {Event} e - Pointer event
    */
   onPointerMove(user, pos, lastPos, e) {
+    this._moveStroke(user, pos, true);
+  }
+
+  onPointerMoveNoRender(user, pos, lastPos, e) {
+    this._moveStroke(user, pos, false);
+  }
+
+  _moveStroke(user, pos, shouldRender) {
     if (!user.mousedown || user.panning) return;
 
     const lastStamp = this.lastStampPos.get(user.id);
     if (!lastStamp) {
       this.drawSquare(user, pos);
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-      this.board.requestUpdate();
+      if (shouldRender) this.board.requestUpdate();
       return;
     }
 
@@ -105,8 +113,10 @@ export class PixelBrushTool {
       }
     }
 
-    this.board.clearTop();
-    this.drawPreview(user);
+    if (shouldRender) {
+      this.board.clearTop();
+      this.drawPreview(user);
+    }
   }
 
   /**

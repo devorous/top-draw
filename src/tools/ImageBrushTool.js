@@ -111,13 +111,21 @@ export class ImageBrushTool extends Tool {
    * @param {Object} pos - The current pointer position.
    */
   onPointerMove(user, pos) {
+    this._moveStroke(user, pos, true);
+  }
+
+  onPointerMoveNoRender(user, pos) {
+    this._moveStroke(user, pos, false);
+  }
+
+  _moveStroke(user, pos, shouldRequestUpdate) {
     if (!user.mousedown || user.panning || !user.imageBrush) return;
 
     const lastStamp = this.lastStampPos.get(user.id);
     if (!lastStamp) {
       this.drawStamp(user, pos);
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-      this.board.requestUpdate();
+      if (shouldRequestUpdate) this.board.requestUpdate();
       return;
     }
 
@@ -141,7 +149,7 @@ export class ImageBrushTool extends Tool {
       }
 
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-      this.board.requestUpdate();
+      if (shouldRequestUpdate) this.board.requestUpdate();
     }
   }
 

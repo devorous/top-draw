@@ -78,6 +78,14 @@ export class GlitchBlurTool extends Tool {
   }
 
   onPointerMove(user, pos, lastPos) {
+    this._moveStroke(user, pos, true);
+  }
+
+  onPointerMoveNoRender(user, pos, lastPos) {
+    this._moveStroke(user, pos, false);
+  }
+
+  _moveStroke(user, pos, shouldRender) {
     if (!user.mousedown || user.panning) return;
 
     const maskCtx = this.board.layerManager?.getUserStrokeContext(0, user.id);
@@ -93,14 +101,14 @@ export class GlitchBlurTool extends Tool {
 
       if (distance >= minSpacing) {
         this._stampAlongPath(user, prevStamp, pos, minSpacing, maskCtx);
-        this.board.requestUpdate();
+        if (shouldRender) this.board.requestUpdate();
       }
     } else {
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
     }
 
     // Draw preview for local user
-    if (user === this.board.app?.self) {
+    if (shouldRender && user === this.board.app?.self) {
       this.drawPreview(user);
     }
   }

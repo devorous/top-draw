@@ -121,6 +121,13 @@ export class EraserTool extends Tool {
     this.lastPos = { x: pos.x, y: pos.y };
   }
 
+  onPointerMoveNoRender(user, pos, lastPos) {
+    if (!user.mousedown || user.panning) return;
+
+    this.appendBufferedPoint(user, pos);
+    this.lastPos = { x: pos.x, y: pos.y };
+  }
+
   /**
    * Handles pointer up event.
    * @param {Object} user - The user performing the action.
