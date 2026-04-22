@@ -30,6 +30,42 @@
   }
 }
 
+#flipCanvasBtn.iconBtn {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
+
+  .btnText {
+    display: none;
+  }
+
+  .btnIcon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+  }
+
+  img {
+    display: block;
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+    filter: brightness(0) invert(0.7);
+    transform: translateX(4px);
+    transition: filter var(--transition-fast);
+  }
+
+  &:hover img {
+    filter: brightness(0) invert(1);
+  }
+
+  &.selected img {
+    filter: brightness(0) invert(0.1);
+  }
+}
+
 // Accent button style (e.g., Register Room)
 .btn.accent {
   background: linear-gradient(135deg, #7c3aed, #a855f7);
@@ -292,6 +328,7 @@
     }
 
     #mirrorBtn,
+    #flipCanvasBtn,
     #appSettingsBtn {
       width: 100%;
       min-width: 0;
@@ -300,12 +337,14 @@
 
     .btnText,
     #mirrorBtn .btnText,
+    #flipCanvasBtn .btnText,
     #appSettingsBtn .btnText {
       display: inline !important;
     }
 
     .btnIcon,
     #mirrorBtn .btnIcon,
+    #flipCanvasBtn .btnIcon,
     #appSettingsBtn .btnIcon {
       display: none !important;
       margin-right: 8px;
@@ -357,6 +396,7 @@
     }
 
     #mirrorBtn,
+    #flipCanvasBtn,
     #appSettingsBtn {
       width: 100%;
       min-width: 0;
@@ -365,12 +405,14 @@
 
     .btnText,
     #mirrorBtn .btnText,
+    #flipCanvasBtn .btnText,
     #appSettingsBtn .btnText {
       display: inline !important;
     }
 
     .btnIcon,
     #mirrorBtn .btnIcon,
+    #flipCanvasBtn .btnIcon,
     #appSettingsBtn .btnIcon {
       display: none !important;
       margin-right: 8px;

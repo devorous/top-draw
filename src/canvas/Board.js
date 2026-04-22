@@ -28,6 +28,7 @@ export class Board {
     this.defaultPanY = 0;
     this.rotation = 0;
     this.defaultRotation = 0;
+    this.canvasFlipped = false;
     this.mirror = false;
     this.mirrorRegions = [];
     this.backgroundColor = options.backgroundColor || [255, 255, 255, 1];
@@ -362,7 +363,10 @@ export class Board {
    */
   applyTransform() {
     this.boardsWrapper.style.transformOrigin = '0 0';
-    this.boardsWrapper.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom}) rotate(${this.rotation}deg)`;
+    const flipTransform = this.canvasFlipped
+      ? ` translate(${this.getWidth()}px, 0) scaleX(-1)`
+      : '';
+    this.boardsWrapper.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom}) rotate(${this.rotation}deg)${flipTransform}`;
     this.boardsWrapper.style.left = '';
     this.boardsWrapper.style.top = '';
     this.renderPixelGrid();
@@ -406,10 +410,36 @@ export class Board {
     const ry = bx * sin + by * cos;
 
 
+    let boardX = rx / this.zoom;
+    const boardY = ry / this.zoom;
+
+    if (this.canvasFlipped) {
+      boardX = this.getWidth() - boardX;
+    }
+
     return {
-      x: Math.round((rx / this.zoom) * 100) / 100,
-      y: Math.round((ry / this.zoom) * 100) / 100
+      x: Math.round(boardX * 100) / 100,
+      y: Math.round(boardY * 100) / 100
     };
+  }
+
+  /**
+   * Toggle a local-only horizontal flip of the viewport.
+   * @returns {boolean} New flip state
+   */
+  toggleCanvasFlip() {
+    this.canvasFlipped = !this.canvasFlipped;
+    this.applyTransform();
+    return this.canvasFlipped;
+  }
+
+  /**
+   * Set local-only horizontal flip of the viewport.
+   * @param {boolean} enabled
+   */
+  setCanvasFlip(enabled) {
+    this.canvasFlipped = !!enabled;
+    this.applyTransform();
   }
 
   /**

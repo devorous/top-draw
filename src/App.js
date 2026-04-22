@@ -1376,6 +1376,7 @@ export class DrawingApp {
     // Their event listeners are wired there, not here.
 
     this.bindPressAction(elements.resetBtn, () => this.handleResetBoard());
+    this.bindPressAction(elements.flipCanvasBtn, () => this.handleToggleCanvasFlip());
     this.bindPressAction(elements.mirrorBtn, () => this.handleToggleMirror());
     if (elements.undoBtn) elements.undoBtn.addEventListener('click', () => this.handleUndo());
     elements.plusBtn.addEventListener('click', () => this.handleZoomIn());
@@ -4316,6 +4317,14 @@ export class DrawingApp {
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
     this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
     this.boardViewer?.setMainZoom(this.board.zoom);
+  }
+
+  /**
+   * Toggles a local-only horizontal flip of the canvas viewport.
+   */
+  handleToggleCanvasFlip() {
+    const enabled = this.board.toggleCanvasFlip();
+    this.ui.updateCanvasFlipDisplay(enabled);
   }
 
   _ensureUserContextMenu() {

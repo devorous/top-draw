@@ -307,6 +307,7 @@ export class UI {
 
       clearBtn: null, // injected dynamically by Moderation._injectModUI()
       resetBtn: document.getElementById('resetBtn'),
+      flipCanvasBtn: document.getElementById('flipCanvasBtn'),
       mirrorBtn: document.getElementById('mirrorBtn'),
       plusBtn: document.getElementById('plusBtn'),
       minusBtn: document.getElementById('minusBtn'),
@@ -1256,6 +1257,10 @@ menuBtn: document.getElementById('menuBtn'),
   updateMirrorDisplay(enabled) {
     const mirrorModeActive = !!window.app?.mirrorRegionController?.isActive?.();
     this.elements.mirrorBtn?.classList.toggle('selected', !!enabled || mirrorModeActive);
+  }
+
+  updateCanvasFlipDisplay(enabled) {
+    this.elements.flipCanvasBtn?.classList.toggle('selected', !!enabled);
   }
 
   /**
