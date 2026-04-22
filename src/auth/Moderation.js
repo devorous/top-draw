@@ -42,6 +42,7 @@ export class Moderation {
     this.onRoomRoleSet = null;       // (targetUserId, role)
     this.onGlobalRoleSet = null;     // (targetUsername, newGlobalRole)
     this._wipePromptDismiss = null;
+    this._clearPromptDismiss = null;
   }
 
   setRole(role) {
@@ -186,12 +187,19 @@ export class Moderation {
       const fragment = document.createDocumentFragment();
 
       // Clear button (inserted at the start of collapsible)
+      const clearWrap = document.createElement('div');
+      clearWrap.className = 'clearConfirmWrap modOnly';
+
       const clearBtn = document.createElement('a');
-      clearBtn.className = 'btn modOnly';
+      clearBtn.className = 'btn';
       clearBtn.id = 'clearBtn';
       clearBtn.textContent = 'Clear';
-      clearBtn.addEventListener('click', () => { if (this.onClear) this.onClear(); });
-      fragment.appendChild(clearBtn);
+      clearBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        this._showClearPrompt(clearBtn);
+      });
+      clearWrap.appendChild(clearBtn);
+      fragment.appendChild(clearWrap);
 
       // Dev button (toggles debug overlay)
       const devBtn = document.createElement('a');
@@ -504,6 +512,77 @@ export class Moderation {
         this.showReasonCard('shadowban', sessionIndex, targetName, false, ipHash);
         break;
     }
+  }
+
+  _showClearPrompt(anchor) {
+    const existing = document.getElementById('clearConfirmPrompt');
+    if (existing) existing.remove();
+    if (this._clearPromptDismiss) {
+      this._clearPromptDismiss();
+      this._clearPromptDismiss = null;
+    }
+
+    const prompt = document.createElement('div');
+    prompt.id = 'clearConfirmPrompt';
+    prompt.className = 'clearConfirmPrompt';
+    prompt.innerHTML = `
+      <div class="clearConfirmText">Clear ALL layers?</div>
+      <div class="clearConfirmActions">
+        <button class="clearConfirmBtn clearConfirmBtn-danger" type="button">Clear</button>
+        <button class="clearConfirmBtn" type="button">Cancel</button>
+      </div>
+    `;
+    document.body.appendChild(prompt);
+    this._positionClearPrompt(prompt, anchor);
+    requestAnimationFrame(() => prompt.classList.add('clearConfirmPrompt-visible'));
+
+    const clearBtn = prompt.querySelector('.clearConfirmBtn-danger');
+    const cancelBtn = prompt.querySelectorAll('.clearConfirmBtn')[1];
+
+    let dismissed = false;
+    const dismiss = () => {
+      if (dismissed) return;
+      dismissed = true;
+      prompt.classList.remove('clearConfirmPrompt-visible');
+      setTimeout(() => prompt.remove(), 180);
+      if (this._clearPromptDismiss === dismiss) {
+        this._clearPromptDismiss = null;
+      }
+    };
+    this._clearPromptDismiss = dismiss;
+
+    clearBtn?.addEventListener('click', () => {
+      if (this.onClear) this.onClear();
+      dismiss();
+    });
+    cancelBtn?.addEventListener('click', dismiss);
+  }
+
+  _positionClearPrompt(prompt, anchor) {
+    const margin = 8;
+    const anchorRect = anchor?.getBoundingClientRect?.();
+    if (!anchorRect) {
+      prompt.style.left = `${margin}px`;
+      prompt.style.top = `${margin}px`;
+      return;
+    }
+
+    const promptRect = prompt.getBoundingClientRect();
+    let left = anchorRect.left;
+    let top = anchorRect.bottom + 8;
+
+    if (left + promptRect.width > window.innerWidth - margin) {
+      left = window.innerWidth - promptRect.width - margin;
+    }
+    if (left < margin) left = margin;
+
+    if (top + promptRect.height > window.innerHeight - margin) {
+      const aboveTop = anchorRect.top - promptRect.height - 8;
+      top = aboveTop >= margin ? aboveTop : Math.max(margin, window.innerHeight - promptRect.height - margin);
+    }
+
+    prompt.style.left = `${left}px`;
+    prompt.style.top = `${top}px`;
   }
 
   _getWipePromptAnchorRect(sessionIndex, ipHash) {
