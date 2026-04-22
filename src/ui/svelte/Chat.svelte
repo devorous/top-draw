@@ -36,6 +36,7 @@
   const MAX_CHAT_UPLOAD_BYTES = Math.floor(4.5 * 1024 * 1024);
   const MAX_CHAT_UPLOAD_DIMENSION = 4096;
   const MAX_CHAT_UPLOAD_PIXELS = 8_388_608;
+  const GALLERY_LINK_HOSTS = new Set(['ddraw.ca', 'www.ddraw.ca']);
 
   let {
     onSend = null,
@@ -70,6 +71,8 @@
   let showEmojiPicker = $state(false);
   let composerImage = $state(null);
   let expandedImage = $state(null);
+  let galleryPreviewCache = $state(new Map());
+  let pendingGalleryPreviews = new Set();
   let chatPinnedToBottom = $state({
     all: true,
     staff: true,
@@ -409,6 +412,88 @@
       /(\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)/gu,
       '<span class="chat-inline-emoji">$1</span>'
     );
+  }
+
+  function extractGalleryLinks(text) {
+    if (!text) return [];
+    const seen = new Set();
+    const links = [];
+    const matches = String(text).match(/https?:\/\/[^\s<>"]+/g) || [];
+
+    for (const rawUrl of matches) {
+      try {
+        const url = new URL(rawUrl);
+        const id = url.pathname.match(/^\/gallery\/([a-f0-9]{24})\/?$/i)?.[1];
+        if (!id || !GALLERY_LINK_HOSTS.has(url.hostname.toLowerCase()) || seen.has(id)) continue;
+        seen.add(id);
+        links.push({ id, url: url.toString() });
+      } catch {
+        // Ignore malformed pasted URLs.
+      }
+    }
+
+    return links;
+  }
+
+  function getGalleryPreview(link) {
+    if (!link?.id) return null;
+    const cached = galleryPreviewCache.get(link.id);
+    if (cached || pendingGalleryPreviews.has(link.id)) return cached || null;
+
+    pendingGalleryPreviews.add(link.id);
+    fetch(`/api/gallery/${encodeURIComponent(link.id)}`)
+      .then((res) => {
+        if (res.ok) return res.json();
+        return fetch(`/api/gallery-item?id=${encodeURIComponent(link.id)}`)
+          .then((fallbackRes) => (fallbackRes.ok ? fallbackRes.json() : null));
+      })
+      .then((item) => {
+        if (!item?.id) {
+          galleryPreviewCache = new Map(galleryPreviewCache).set(link.id, { missing: true });
+          return;
+        }
+
+        galleryPreviewCache = new Map(galleryPreviewCache).set(link.id, {
+          id: item.id,
+          title: item.title || 'Gallery image',
+          author: item.author || 'DDraw artist',
+          thumbUrl: item.thumbUrl || item.url,
+          url: link.url,
+          nsfw: Array.isArray(item.tags) && item.tags.includes('nsfw')
+        });
+      })
+      .catch(() => {
+        galleryPreviewCache = new Map(galleryPreviewCache).set(link.id, { missing: true });
+      })
+      .finally(() => {
+        pendingGalleryPreviews.delete(link.id);
+      });
+
+    return null;
+  }
+
+  async function openChatUrl(href) {
+    if (!href) return;
+
+    if (isTauriDesktop()) {
+      try {
+        const { open } = await import('@tauri-apps/plugin-shell');
+        await open(href);
+        return;
+      } catch (error) {
+        console.error('[Chat] Failed to open link via Tauri shell:', error);
+      }
+    }
+
+    window.open(href, '_blank', 'noopener,noreferrer');
+  }
+
+  function handleChatLinkClick(event) {
+    const link = event.target?.closest?.('a.chat-link, a.gallery-preview-card');
+    if (!link?.href) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void openChatUrl(link.href);
   }
 
   function colorToCss(color, { opaque = false } = {}) {
@@ -1509,6 +1594,7 @@
   {#if message.type === 'system'}
     <p class="message-text">{message.text}</p>
   {:else}
+    {@const galleryLinks = extractGalleryLinks(message.text)}
     <div class="message-content-row">
       <div class="message-copy">
         {#if message.type === 'image'}
@@ -1519,6 +1605,22 @@
         {#if message.text}
           <p class="message-text">{@html linkify(message.text)}</p>
         {/if}
+        {#each galleryLinks as link (link.id)}
+          {@const preview = getGalleryPreview(link)}
+          {#if preview && !preview.missing}
+            <a class="gallery-preview-card" href={preview.url} target="_blank" rel="noopener noreferrer">
+              {#if preview.nsfw}
+                <span class="gallery-preview-fallback">NSFW</span>
+              {:else}
+                <img src={preview.thumbUrl} alt={preview.title} class="gallery-preview-image" loading="lazy" />
+              {/if}
+              <span class="gallery-preview-copy">
+                <strong>{preview.title}</strong>
+                <span>{preview.author}</span>
+              </span>
+            </a>
+          {/if}
+        {/each}
       </div>
     </div>
   {/if}
@@ -1532,6 +1634,25 @@
         <p class="message-line system"><span class="message-text-inline">{msg.text}</span></p>
       {:else}
         <p class="message-line">{#if !msg.groupedWithPrevious}<button class={`message-user ${getRoleClass(msg.userId)}`} oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button">{msg.username}</button>{' '}{/if}{#if msg.text}<span class="message-text-inline">{@html linkify(msg.text)}</span>{/if}</p>
+        {#if msg.text}
+          {@const galleryLinks = extractGalleryLinks(msg.text)}
+          {#each galleryLinks as link (link.id)}
+            {@const preview = getGalleryPreview(link)}
+            {#if preview && !preview.missing}
+              <a class="gallery-preview-card" href={preview.url} target="_blank" rel="noopener noreferrer">
+                {#if preview.nsfw}
+                  <span class="gallery-preview-fallback">NSFW</span>
+                {:else}
+                  <img src={preview.thumbUrl} alt={preview.title} class="gallery-preview-image" loading="lazy" />
+                {/if}
+                <span class="gallery-preview-copy">
+                  <strong>{preview.title}</strong>
+                  <span>{preview.author}</span>
+                </span>
+              </a>
+            {/if}
+          {/each}
+        {/if}
         {#if msg.type === 'image' && msg.imageData}
           <button class="chat-image-card" onclick={() => openImageViewer(msg.imageData)} type="button">
             <img src={msg.imageData} alt="Chat upload" class="chat-image" />
@@ -1565,7 +1686,7 @@
 {/if}
 
 {#if visible}
-  <section class="chat-shell" class:dragging={isDragging} class:resizing={isResizing} class:popout={isPopout} class:desktop-popout={isPopout && isDesktopClient} bind:this={chatEl}>
+  <section class="chat-shell" class:dragging={isDragging} class:resizing={isResizing} class:popout={isPopout} class:desktop-popout={isPopout && isDesktopClient} bind:this={chatEl} onclick={handleChatLinkClick}>
     <WindowTitleBar
       title="Chat"
       subtitle=""
@@ -2698,6 +2819,74 @@
     width: 100%;
     max-height: 260px;
     object-fit: cover;
+  }
+
+  .gallery-preview-card {
+    display: grid;
+    grid-template-columns: 82px minmax(0, 1fr);
+    align-items: center;
+    width: min(100%, 340px);
+    min-height: 68px;
+    margin: 0.4rem 0 0;
+    overflow: hidden;
+    color: var(--chat-text);
+    text-decoration: none;
+    border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg-elevated) 72%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, white 7%, transparent);
+  }
+
+  .gallery-preview-card:hover {
+    border-color: color-mix(in srgb, var(--accent-primary) 44%, var(--border-subtle));
+    background: color-mix(in srgb, var(--bg-elevated) 86%, transparent);
+  }
+
+  .gallery-preview-image,
+  .gallery-preview-fallback {
+    width: 82px;
+    height: 68px;
+  }
+
+  .gallery-preview-image {
+    display: block;
+    object-fit: cover;
+    background: color-mix(in srgb, var(--bg-secondary) 80%, black);
+  }
+
+  .gallery-preview-fallback {
+    display: grid;
+    place-items: center;
+    color: var(--chat-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    background: color-mix(in srgb, var(--bg-secondary) 78%, black);
+  }
+
+  .gallery-preview-copy {
+    display: grid;
+    gap: 0.18rem;
+    min-width: 0;
+    padding: 0.55rem 0.65rem;
+  }
+
+  .gallery-preview-copy strong,
+  .gallery-preview-copy span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .gallery-preview-copy strong {
+    color: var(--chat-text);
+    font-size: 0.84rem;
+    line-height: 1.2;
+  }
+
+  .gallery-preview-copy span {
+    color: var(--chat-muted);
+    font-size: 0.74rem;
   }
 
 
