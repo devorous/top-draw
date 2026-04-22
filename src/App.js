@@ -4935,6 +4935,11 @@ export class DrawingApp {
     // Update cursor immediately for visual responsiveness
     this.ui.updateSelfCursor(x, y, this.self.size);
     if (this.self.tool === 'text') this._updateTextPreview();
+    if (this.self.tool === 'inkdropper') {
+      const tool = this.toolManager.getCurrentTool();
+      tool?.onPointerMove?.(this.self, pos, this.inputBufferManager.inputBuffer.lastPosition || pos, e);
+      if (!this.self.mousedown) return;
+    }
 
     // Handle pressure for pen input — default to current pressure so non-pen
     // events (e.g. palm touch) mid-stroke don't slam pressure to 1
@@ -5542,6 +5547,9 @@ export class DrawingApp {
 
   handlePointerLeave(e) {
     this.syncBoardHoverState(false, { forceRefresh: true, event: e });
+    if (this.self.tool === 'inkdropper') {
+      this.board.clearTop();
+    }
   }
 
   // boardContainer pointer handlers: pan by dragging the background (Space held or middle-click)

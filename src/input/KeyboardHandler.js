@@ -42,6 +42,7 @@ export class KeyboardHandler {
     this.app = app;
     this._pendingInternalPaste = null;
     this._holdActionIntervals = new Map();
+    this._temporaryEyedropperActive = false;
   }
 
   /**
@@ -51,7 +52,10 @@ export class KeyboardHandler {
     document.addEventListener('keydown', (e) => this.handleKeyDown(e));
     document.addEventListener('keyup', (e) => this.handleKeyUp(e));
     document.addEventListener('paste', (e) => this.handlePaste(e));
-    window.addEventListener('blur', () => this.clearAllHoldActions());
+    window.addEventListener('blur', () => {
+      this.clearAllHoldActions();
+      this.restoreTemporaryEyedropper();
+    });
   }
 
   handlePaste(e) {
@@ -156,6 +160,22 @@ export class KeyboardHandler {
     this._holdActionIntervals.clear();
   }
 
+  restoreTemporaryEyedropper(e = null) {
+    const { app } = this;
+    if (!this._temporaryEyedropperActive) return false;
+
+    this._temporaryEyedropperActive = false;
+    if (app.self.tool === 'inkdropper' && app.previousTool) {
+      e?.preventDefault?.();
+      const previousTool = app.previousTool;
+      app.previousTool = null;
+      app.selectTool(previousTool);
+      return true;
+    }
+
+    return false;
+  }
+
   dispatchAction(actionId, e) {
     const { app } = this;
     const selectTool = app.toolManager.getTool('select');
@@ -206,6 +226,7 @@ export class KeyboardHandler {
       case 'tool.temporaryEyedropper':
         if (app.self.tool === 'text') return false;
         if (!e.repeat && app.self.tool !== 'inkdropper') {
+          this._temporaryEyedropperActive = true;
           app.selectTool('inkdropper');
         }
         return true;
@@ -381,11 +402,7 @@ export class KeyboardHandler {
     }
 
     if (binding && this.getBindingsForAction('tool.temporaryEyedropper').includes(binding)) {
-      if (app.self.tool === 'inkdropper' && app.previousTool) {
-        e.preventDefault?.();
-        app.selectTool(app.previousTool);
-        app.previousTool = null;
-      }
+      this.restoreTemporaryEyedropper(e);
       return true;
     }
 
