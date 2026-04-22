@@ -103,8 +103,10 @@ export class PatternTool extends Tool {
     this._drawPreview(user);
   }
 
-  onPointerUp(user) {
+  onPointerUp(user, pos) {
     if (user.panning || !user.mousedown) return;
+
+    this._stampFinalSegment(user, pos);
 
     const ctx = this.board.getActiveLayerContext();
     if (ctx) {
@@ -157,6 +159,37 @@ export class PatternTool extends Tool {
       this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, pos.x + radius);
       this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y + radius);
     }
+  }
+
+  _stampSegment(from, to, radius, stampFn) {
+    if (!from || !to || !stampFn) return;
+
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    if (distance <= 0.5) return;
+
+    const minSpacing = Math.max(1, radius * 0.1);
+    const steps = Math.max(1, Math.ceil(distance / minSpacing));
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      stampFn({
+        x: from.x + dx * t,
+        y: from.y + dy * t
+      });
+    }
+  }
+
+  _stampFinalSegment(user, pos) {
+    const lastStamp = this.lastStampPos.get(user.id);
+    if (!lastStamp || !pos) return;
+
+    const radius = user.size * (user.pressure || 1);
+    this._stampSegment(lastStamp, pos, radius, (stampPos) => {
+      this._stampMask(stampPos, radius);
+      this.strokePoints.push(stampPos);
+    });
+    this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
   }
 
   _buildPatternComposite(user, maskCanvas = null) {
