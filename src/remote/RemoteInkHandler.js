@@ -76,6 +76,7 @@ export class RemoteInkHandler {
     // would create a misshapen blob at the start of the stroke in tablet mode.
     user._inkPoints = pressure > 0 ? [[pos.x, pos.y, pressure]] : [];
     user._inkStrokeActive = true;
+    user._inkDirtyBounds = { minX: pos.x, minY: pos.y, maxX: pos.x, maxY: pos.y };
 
     this.renderInkStroke(user, false);
     this.updateInkPreview(user);
@@ -102,6 +103,7 @@ export class RemoteInkHandler {
       // artefacts (sharp blobs) when fed into the perfect-freehand pipeline.
       if (pressure === 0) continue;
       user._inkPoints.push([points[i], points[i + 1], pressure]);
+      this.expandInkDirtyBounds(user, points[i], points[i + 1]);
     }
 
     this.renderInkStroke(user, false);
@@ -181,6 +183,7 @@ export class RemoteInkHandler {
     user._inkStrokeActive = false;
     user._inkStrokeColor = null;
     user._inkAlpha = null;
+    user._inkDirtyBounds = null;
   }
 
   /**
@@ -192,7 +195,13 @@ export class RemoteInkHandler {
     if (!user._inkPoints || user._inkPoints.length < 1) return;
 
     const ctx = user._inkCtx;
-    ctx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
+    const previewRect = this.getPreviewDirtyRect(user);
+    const clearRect = previewRect ? this._clampRectToCanvas(previewRect, user._inkOffscreen) : null;
+    if (clearRect) {
+      ctx.clearRect(clearRect.x, clearRect.y, clearRect.width, clearRect.height);
+    } else {
+      ctx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
+    }
 
     const simulatePressure = user.simulatePressure !== undefined ? user.simulatePressure : true;
     const inkSize = user._inkSize || user.size;
@@ -263,11 +272,38 @@ export class RemoteInkHandler {
   updateInkPreview(user) {
     if (!user._inkOffscreen) return;
 
-    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    const previewRect = this.board.mirrorRegions?.length > 0 ? null : this.getPreviewDirtyRect(user);
+    const clearRect = previewRect ? this._clampRectToCanvas(previewRect, user.context.canvas) : null;
+    if (clearRect) {
+      user.context.clearRect(clearRect.x, clearRect.y, clearRect.width, clearRect.height);
+    } else {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
     user.context.globalAlpha = user._inkAlpha;
 
-    const hardnessCanvas = this.getHardnessCanvas(user._inkOffscreen, user._inkSize || user.size, user._inkHardness, user._inkStrokeColor);
-    user.context.drawImage(hardnessCanvas, 0, 0);
+    const hardnessCanvas = this.getHardnessCanvas(
+      user._inkOffscreen,
+      user._inkSize || user.size,
+      user._inkHardness,
+      user._inkStrokeColor,
+      previewRect
+    );
+    const sourceRect = previewRect ? this._clampRectToCanvas(previewRect, hardnessCanvas) : null;
+    if (sourceRect) {
+      user.context.drawImage(
+        hardnessCanvas,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height
+      );
+    } else {
+      user.context.drawImage(hardnessCanvas, 0, 0);
+    }
 
     this.board.forEachMirrorRegion({ points: user._inkPoints?.map(pt => ({ x: pt[0], y: pt[1] })) || [] }, (region) => {
       this.board.drawMirroredCanvas(user.context, hardnessCanvas, region, 0, 0);
@@ -286,8 +322,9 @@ export class RemoteInkHandler {
    * @param {number} x - Destination x-coordinate.
    * @param {number} y - Destination y-coordinate.
    */
-  compositeWithHardness(ctx, sourceCanvas, size, hardness, strokeColor, x, y) {
+  compositeWithHardness(ctx, sourceCanvas, size, hardness, strokeColor, x, y, rect = null) {
     const blurAmount = (1 - hardness) * (20 + size * 0.2);
+    const sourceRect = rect ? this._clampRectToCanvas(rect, sourceCanvas) : null;
 
     if (blurAmount > 0) {
       const offset = 100000;
@@ -296,14 +333,40 @@ export class RemoteInkHandler {
       ctx.shadowColor = strokeColor;
       ctx.shadowOffsetX = -offset;
       ctx.shadowOffsetY = 0;
-      ctx.drawImage(sourceCanvas, x + offset, y);
+      if (sourceRect) {
+        ctx.drawImage(
+          sourceCanvas,
+          sourceRect.x,
+          sourceRect.y,
+          sourceRect.width,
+          sourceRect.height,
+          x + sourceRect.x + offset,
+          y + sourceRect.y,
+          sourceRect.width,
+          sourceRect.height
+        );
+      } else {
+        ctx.drawImage(sourceCanvas, x + offset, y);
+      }
       ctx.restore();
+    } else if (sourceRect) {
+      ctx.drawImage(
+        sourceCanvas,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height,
+        x + sourceRect.x,
+        y + sourceRect.y,
+        sourceRect.width,
+        sourceRect.height
+      );
     } else {
       ctx.drawImage(sourceCanvas, x, y);
     }
   }
 
-  getHardnessCanvas(sourceCanvas, size, hardness, strokeColor) {
+  getHardnessCanvas(sourceCanvas, size, hardness, strokeColor, rect = null) {
     if (!this.hardnessCanvas ||
         this.hardnessCanvas.width !== sourceCanvas.width ||
         this.hardnessCanvas.height !== sourceCanvas.height) {
@@ -313,8 +376,49 @@ export class RemoteInkHandler {
       this.hardnessCtx = this.hardnessCanvas.getContext('2d');
     }
 
-    this.hardnessCtx.clearRect(0, 0, this.hardnessCanvas.width, this.hardnessCanvas.height);
-    this.compositeWithHardness(this.hardnessCtx, sourceCanvas, size, hardness, strokeColor, 0, 0);
+    const clearRect = rect ? this._clampRectToCanvas(rect, this.hardnessCanvas) : null;
+    if (clearRect) {
+      this.hardnessCtx.clearRect(clearRect.x, clearRect.y, clearRect.width, clearRect.height);
+    } else {
+      this.hardnessCtx.clearRect(0, 0, this.hardnessCanvas.width, this.hardnessCanvas.height);
+    }
+    this.compositeWithHardness(this.hardnessCtx, sourceCanvas, size, hardness, strokeColor, 0, 0, rect);
     return this.hardnessCanvas;
+  }
+
+  expandInkDirtyBounds(user, x, y) {
+    if (!user._inkDirtyBounds) {
+      user._inkDirtyBounds = { minX: x, minY: y, maxX: x, maxY: y };
+      return;
+    }
+    user._inkDirtyBounds.minX = Math.min(user._inkDirtyBounds.minX, x);
+    user._inkDirtyBounds.minY = Math.min(user._inkDirtyBounds.minY, y);
+    user._inkDirtyBounds.maxX = Math.max(user._inkDirtyBounds.maxX, x);
+    user._inkDirtyBounds.maxY = Math.max(user._inkDirtyBounds.maxY, y);
+  }
+
+  getPreviewDirtyRect(user) {
+    const bounds = user._inkDirtyBounds;
+    if (!bounds || bounds.maxX <= bounds.minX || bounds.maxY <= bounds.minY) return null;
+
+    const size = user._inkSize || user.size;
+    const hardness = user._inkHardness !== undefined ? user._inkHardness : 1.0;
+    const blurAmount = (1 - hardness) * (20 + size * 0.2);
+    const margin = size + (blurAmount * 2.5) + size * 0.5 + 15;
+    return {
+      x: Math.floor(bounds.minX - margin),
+      y: Math.floor(bounds.minY - margin),
+      width: Math.ceil(bounds.maxX - bounds.minX + margin * 2),
+      height: Math.ceil(bounds.maxY - bounds.minY + margin * 2)
+    };
+  }
+
+  _clampRectToCanvas(rect, canvas) {
+    const x = Math.max(0, Math.floor(rect.x));
+    const y = Math.max(0, Math.floor(rect.y));
+    const right = Math.min(canvas.width, Math.ceil(rect.x + rect.width));
+    const bottom = Math.min(canvas.height, Math.ceil(rect.y + rect.height));
+    if (right <= x || bottom <= y) return null;
+    return { x, y, width: right - x, height: bottom - y };
   }
 }
