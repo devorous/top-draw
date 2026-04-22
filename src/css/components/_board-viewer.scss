@@ -161,6 +161,17 @@
   display: none;
 }
 
+body.desktop-window-chrome {
+  .boardViewer {
+    top: calc(var(--desktop-titlebar-height) + 40px);
+    max-height: calc(100vh - var(--desktop-titlebar-height) - 32px);
+  }
+
+  .boardViewerLaunch {
+    top: calc(var(--desktop-titlebar-height) + 42px);
+  }
+}
+
 .boardViewerResize {
   position: absolute;
   right: 0;
@@ -192,5 +203,15 @@
   .boardViewerLaunch {
     top: 42px;
     left: 8px;
+  }
+
+  body.desktop-window-chrome {
+    .boardViewer {
+      top: calc(var(--desktop-titlebar-height) + 40px);
+    }
+
+    .boardViewerLaunch {
+      top: calc(var(--desktop-titlebar-height) + 42px);
+    }
   }
 }
