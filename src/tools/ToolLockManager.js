@@ -423,4 +423,61 @@ export class ToolLockManager {
     this.saveToolLocks();
     this.saveGlobalUnlockedValues();
   }
+
+  getCurrentPropertyValue(property) {
+    const { self, ui, pressureEnabled } = this.app;
+
+    if (property === 'pressure') {
+      return {
+        min: Number(ui.elements.pressureMinSlider.value),
+        max: Number(ui.elements.pressureMaxSlider.value),
+        enabled: pressureEnabled
+      };
+    }
+
+    if (property === 'opacity') {
+      return self.opacity;
+    }
+
+    return self[property];
+  }
+
+  saveUnlockedPropertyValue(property) {
+    this.globalUnlockedValues[property] = this.getCurrentPropertyValue(property);
+  }
+
+  toggleAllLocksForCurrentTool(anchorProperty) {
+    const { self, ui } = this.app;
+    const tool = self.tool;
+    const locks = this.toolLocks[tool];
+
+    if (!locks) {
+      console.warn(`No tool locks for tool: ${tool}`);
+      return;
+    }
+
+    if (!(anchorProperty in locks)) {
+      console.warn(`Property ${anchorProperty} is not lockable for tool ${tool}`);
+      return;
+    }
+
+    const shouldUnlock = !!locks[anchorProperty].locked;
+
+    for (const [property, lock] of Object.entries(locks)) {
+      if (shouldUnlock) {
+        if (lock.locked) {
+          this.saveUnlockedPropertyValue(property);
+        }
+        lock.locked = false;
+      } else {
+        lock.locked = true;
+        lock.lockedValue = this.getCurrentPropertyValue(property);
+      }
+
+      ui.updateLockButton(property, lock.locked, true);
+    }
+
+    this.saveToolLocks();
+    this.saveGlobalUnlockedValues();
+  }
 }

@@ -438,7 +438,7 @@ export class InputBufferManager {
     const usesStampBroadcast = this._isStampTool(app.self.tool) && app.self.mousedown && !app.self.panning;
     if (!usesStampBroadcast && networkPoints.length > 0) {
       this.pendingBroadcastPoints.push(...networkPoints);
-      if (localPoints === networkPoints && REDUCE_BEFORE_RENDER_TOOLS.has(app.self.tool)) {
+      if (localPoints === networkPoints && (REDUCE_BEFORE_RENDER_TOOLS.has(app.self.tool) || useBlur)) {
         this.pendingBroadcastPointsAreReduced = true;
       } else {
         this.pendingBroadcastPointsAreReduced = false;

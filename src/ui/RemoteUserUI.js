@@ -257,6 +257,7 @@ export class RemoteUserUI {
         text.style.display = 'block';
         break;
       case 'blur':
+      case 'glitchBlur':
       case 'imageBrush':
         square.style.display = 'block';
         break;

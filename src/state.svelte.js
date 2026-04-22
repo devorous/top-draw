@@ -3,6 +3,7 @@ class DrawingState {
   currentTool = $state('brush');
   currentColor = $state([0, 0, 0, 255]);
   currentSize = $state(10);
+  currentToolSettings = $state({});
   currentPressure = $state(1.0);
   pressureEnabled = $state(true);
   blendMode = $state('source-over');
@@ -38,6 +39,7 @@ class DrawingState {
   // Color Palette
   recentColors = $state([]);
   customColors = $state(loadCustomColors());
+  activeCustomPresetKey = $state(null);
 
   // UI
   boardMenuOpen = $state(null); // null | 'blend' | 'layers'
@@ -95,7 +97,7 @@ function colorsEqual(a, b) {
 
 function normalizeCustomPreset(item) {
   if (Array.isArray(item)) {
-    return { color: [...item], tool: null, size: null };
+    return { color: [...item], tool: null, size: null, settings: null };
   }
 
   if (!item || !Array.isArray(item.color)) {
@@ -105,7 +107,8 @@ function normalizeCustomPreset(item) {
   return {
     color: [...item.color],
     tool: item.tool || null,
-    size: item.size != null ? item.size : null
+    size: item.size != null ? item.size : null,
+    settings: item.settings && typeof item.settings === 'object' ? { ...item.settings } : null
   };
 }
 
@@ -115,6 +118,18 @@ function saveCustomColors() {
   } catch (e) {
     console.warn('Failed to save custom colors:', e);
   }
+}
+
+export function getCustomPresetKey(preset) {
+  const normalized = normalizeCustomPreset(preset);
+  if (!normalized) return null;
+
+  return JSON.stringify({
+    color: normalized.color,
+    tool: normalized.tool,
+    size: normalized.size,
+    settings: normalized.settings || null
+  });
 }
 
 function loadCustomColors() {
@@ -138,6 +153,7 @@ export function addRecentColor(color) {
 export function addCustomColor(color, settings = {}) {
   const tool = settings.tool || null;
   const size = settings.size != null ? settings.size : null;
+  const toolSettings = settings.settings && typeof settings.settings === 'object' ? { ...settings.settings } : null;
   const colorlessTools = ['erase', 'blur', 'circleBlur', 'glitchBlur', 'select', 'pan', 'zoom', 'rotate', 'inkdropper'];
   const normalizedColor = colorlessTools.includes(tool) ? [0, 0, 0, 0] : [...color];
 
@@ -146,11 +162,12 @@ export function addCustomColor(color, settings = {}) {
     return preset &&
       colorsEqual(preset.color, normalizedColor) &&
       preset.tool === tool &&
-      preset.size === size;
+      preset.size === size &&
+      JSON.stringify(preset.settings || null) === JSON.stringify(toolSettings || null);
   });
 
   if (exists || appState.customColors.length >= 12) return;
-  appState.customColors = [...appState.customColors, { color: normalizedColor, tool, size }];
+  appState.customColors = [...appState.customColors, { color: normalizedColor, tool, size, settings: toolSettings }];
   saveCustomColors();
 }
 
@@ -163,7 +180,8 @@ export function removeCustomColor(presetToRemove) {
     return !preset ||
       !colorsEqual(preset.color, target.color) ||
       preset.tool !== target.tool ||
-      preset.size !== target.size;
+      preset.size !== target.size ||
+      JSON.stringify(preset.settings || null) !== JSON.stringify(target.settings || null);
   });
   saveCustomColors();
 }

@@ -1,5 +1,5 @@
 <script>
-  import { appState, addCustomColor, removeCustomColor } from '../../state.svelte.js';
+  import { appState, addCustomColor, getCustomPresetKey, removeCustomColor } from '../../state.svelte.js';
 
   let { onColorSelect = null } = $props();
 
@@ -28,6 +28,7 @@
     zoom: '/images/magnifying-glass.svg',
     rotate: '/images/rotate-icon.svg'
   };
+  const COLORLESS_TOOLS = new Set(['erase', 'blur', 'circleBlur', 'glitchBlur', 'select', 'pan', 'zoom', 'rotate', 'inkdropper']);
 
   function colorToRgba(color) {
     return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3]})`;
@@ -44,8 +45,56 @@
     return TOOL_ICON_URLS[tool] || null;
   }
 
+  function colorsEqual(a, b) {
+    return Array.isArray(a) &&
+      Array.isArray(b) &&
+      a[0] === b[0] &&
+      a[1] === b[1] &&
+      a[2] === b[2] &&
+      a[3] === b[3];
+  }
+
+  function settingsEqual(a, b) {
+    const left = a || {};
+    const right = b || {};
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+
+    if (leftKeys.length !== rightKeys.length) {
+      return false;
+    }
+
+    return leftKeys.every((key) => left[key] === right[key]);
+  }
+
+  function isPresetSelected(preset) {
+    if (!preset?.color) {
+      return false;
+    }
+
+    if (!COLORLESS_TOOLS.has(preset.tool) && !colorsEqual(preset.color, appState.currentColor)) {
+      return false;
+    }
+
+    if (preset.tool && preset.tool !== appState.currentTool) {
+      return false;
+    }
+
+    if (preset.size != null && preset.size !== appState.currentSize) {
+      return false;
+    }
+
+    const selectedByClick = getCustomPresetKey(preset) === appState.activeCustomPresetKey;
+    if (!preset.settings) {
+      return selectedByClick;
+    }
+
+    return selectedByClick && settingsEqual(preset.settings, appState.currentToolSettings);
+  }
+
   function selectColor(color) {
     appState.currentColor = [...color];
+    appState.activeCustomPresetKey = null;
     if (onColorSelect) {
       onColorSelect(color);
     }
@@ -53,6 +102,7 @@
 
   function selectPreset(preset) {
     appState.currentColor = [...preset.color];
+    appState.activeCustomPresetKey = getCustomPresetKey(preset);
     if (onColorSelect) {
       onColorSelect(preset);
     }
@@ -113,6 +163,7 @@
         <div class="custom-swatch-wrap">
           <button
             class="swatch"
+            class:selected={isPresetSelected(preset)}
             style="background-color: {colorToRgba(preset.color)}"
             title="{colorToHex(preset.color)} (right-click to remove)"
             onclick={() => selectPreset(preset)}
@@ -190,6 +241,18 @@
     transform: scale(1.1);
     border-color: rgba(255, 255, 255, 0.3);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .swatch.selected {
+    border-color: var(--accent-primary);
+    box-shadow:
+      0 0 0 1px var(--bg-secondary),
+      0 0 0 3px color-mix(in srgb, var(--accent-primary) 75%, transparent),
+      0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+
+  .swatch.selected:hover {
+    border-color: var(--accent-primary);
   }
 
   .swatch:not(.empty):not(.add-swatch):active {

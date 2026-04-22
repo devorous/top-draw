@@ -1613,7 +1613,9 @@ menuBtn: document.getElementById('menuBtn'),
     }
 
     btn.classList.toggle('locked', locked);
-    btn.title = locked ? `Unlock ${property} for current tool` : `Lock ${property} for current tool`;
+    btn.title = locked
+      ? `Unlock ${property} for current tool. Shift-click to unlock all current tool settings`
+      : `Lock ${property} for current tool. Shift-click to lock all current tool settings`;
   }
 
   /**

@@ -303,7 +303,8 @@ export function initSvelteUI(app) {
           if (typeof colorOrCallbackOrPreset === 'function') {
             colorOrCallbackOrPreset(app.self?.color || [0, 0, 0, 255], {
               tool: app.self?.tool,
-              size: app.self?.size
+              size: app.self?.size,
+              settings: app.getCurrentToolPresetSettings?.() || {}
             });
           } else if (
             colorOrCallbackOrPreset !== null &&
@@ -453,6 +454,9 @@ export function syncStoresFromApp(app) {
 
   if (app.self) {
     appState.currentColor = app.self.color || [0, 0, 0, 255];
+    appState.currentTool = app.self.tool || appState.currentTool;
+    appState.currentSize = app.self.size ?? appState.currentSize;
+    appState.currentToolSettings = app.getCurrentToolPresetSettings?.() || {};
     appState.activeLayer = app.self.activeLayer ?? 2;
     appState.username = app.self.username || app.self.name || '';
   }

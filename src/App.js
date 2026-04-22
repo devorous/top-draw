@@ -48,7 +48,7 @@ import initWasm from './wasm/ddraw_wasm.js';
 
 // Svelte UI Components
 import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } from './ui/svelte/AppUI.svelte.js';
-import { appState, addRecentColor } from './state.svelte.js';
+import { appState, addRecentColor, getCustomPresetKey } from './state.svelte.js';
 import ColorWheel from 'reinvented-color-wheel';
 import 'reinvented-color-wheel/css/reinvented-color-wheel.css';
 
@@ -1497,6 +1497,8 @@ export class DrawingApp {
         Number(elements.pressureMinSlider.value),
         Number(elements.pressureMaxSlider.value)
       );
+      this.clearActiveCustomPreset();
+      this.updateCurrentToolPresetSettings();
     };
     elements.pressureMinSlider.addEventListener('input', clampPressureSliders);
     elements.pressureMaxSlider.addEventListener('input', clampPressureSliders);
@@ -1506,6 +1508,8 @@ export class DrawingApp {
       this.pressureEnabled = elements.pressureEnabled.checked;
       elements.pressureDualSlider.style.display = this.pressureEnabled ? '' : 'none';
       elements.pressureValue.style.display = this.pressureEnabled ? '' : 'none';
+      this.clearActiveCustomPreset();
+      this.updateCurrentToolPresetSettings();
     });
 
     // Thinning enable/disable checkbox
@@ -1945,14 +1949,21 @@ export class DrawingApp {
     }
 
     // Lock button event listeners
-    if (elements.sizeLock) elements.sizeLock.addEventListener('click', () => this.toolLockManager.toggleLock('size'));
-    if (elements.pressureLock) elements.pressureLock.addEventListener('click', () => this.toolLockManager.toggleLock('pressure'));
-    if (elements.smoothingLock) elements.smoothingLock.addEventListener('click', () => this.toolLockManager.toggleLock('smoothing'));
-    if (elements.spacingLock) elements.spacingLock.addEventListener('click', () => this.toolLockManager.toggleLock('spacing'));
-    if (elements.hardnessLock) elements.hardnessLock.addEventListener('click', () => this.toolLockManager.toggleLock('hardness'));
-    if (elements.opacityLock) elements.opacityLock.addEventListener('click', () => this.toolLockManager.toggleLock('opacity'));
-    if (elements.blurRadiusLock) elements.blurRadiusLock.addEventListener('click', () => this.toolLockManager.toggleLock('blurRadius'));
-    if (elements.thinningLock) elements.thinningLock.addEventListener('click', () => this.toolLockManager.toggleLock('thinning'));
+    const handleLockClick = (property, e) => {
+      if (e.shiftKey) {
+        this.toolLockManager.toggleAllLocksForCurrentTool(property);
+      } else {
+        this.toolLockManager.toggleLock(property);
+      }
+    };
+    if (elements.sizeLock) elements.sizeLock.addEventListener('click', (e) => handleLockClick('size', e));
+    if (elements.pressureLock) elements.pressureLock.addEventListener('click', (e) => handleLockClick('pressure', e));
+    if (elements.smoothingLock) elements.smoothingLock.addEventListener('click', (e) => handleLockClick('smoothing', e));
+    if (elements.spacingLock) elements.spacingLock.addEventListener('click', (e) => handleLockClick('spacing', e));
+    if (elements.hardnessLock) elements.hardnessLock.addEventListener('click', (e) => handleLockClick('hardness', e));
+    if (elements.opacityLock) elements.opacityLock.addEventListener('click', (e) => handleLockClick('opacity', e));
+    if (elements.blurRadiusLock) elements.blurRadiusLock.addEventListener('click', (e) => handleLockClick('blurRadius', e));
+    if (elements.thinningLock) elements.thinningLock.addEventListener('click', (e) => handleLockClick('thinning', e));
 
     elements.board.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
     window.addEventListener('pointermove', (e) => this.handlePointerMove(e));
@@ -3776,6 +3787,7 @@ export class DrawingApp {
    * @param {string} tool - The name of the tool to select.
    */
   selectTool(tool) {
+    this.clearActiveCustomPreset();
     if (this.self.tool === 'pan') {
       this.self.panning = false;
     }
@@ -3945,6 +3957,7 @@ export class DrawingApp {
     }
 
     this.toolLockManager.updateAllLockButtons(tool);
+    this.updateCurrentToolPresetSettings();
 
     // Auto-disable thinning when tablet user selects ink tool (only if using real pressure)
     // Only warn once and only when simulatePressure is false (tablet mode where thinning still applies)
@@ -4339,6 +4352,7 @@ export class DrawingApp {
   // Brush/tool settings
 
   handleSizeChange(e) {
+    this.clearActiveCustomPreset();
     const size = Number(e.target.value);
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(size));
     if (this.self.mousedown && this.self.tool === 'brush') {
@@ -4360,30 +4374,38 @@ export class DrawingApp {
     this.ui.updateSelfTextStyle(size, this.self.color, this.self.font);
     this.ui.updateSizeValue(size);
     this.board.mainCtx.lineWidth = size * 2;
+    this.updateCurrentToolPresetSettings();
   }
 
   handleSpacingChange(e) {
+    this.clearActiveCustomPreset();
     const spacing = Number(e.target.value);
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSpacingChange(spacing));
     this.self.setSpacing(spacing);
     this.ui.updateSpacingValue(spacing);
+    this.updateCurrentToolPresetSettings();
   }
 
   handleSmoothingChange(e) {
+    this.clearActiveCustomPreset();
     const smoothing = Number(e.target.value);
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSmoothingChange(smoothing));
     this.self.setSmoothing(smoothing);
     this.ui.updateSmoothingValue(smoothing);
+    this.updateCurrentToolPresetSettings();
   }
 
   handleHardnessChange(e) {
+    this.clearActiveCustomPreset();
     const hardness = Number(e.target.value);
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHardnessChange(hardness));
     this.self.setHardness(hardness);
     this.ui.updateHardnessValue(hardness);
+    this.updateCurrentToolPresetSettings();
   }
 
   handleopacityChange(e) {
+    this.clearActiveCustomPreset();
     const opacity = Number(e.target.value) / 100; // Convert to 0-1 range
     this.commitSelfEraserSegment(this.self.pressure, this.self.size, opacity);
 
@@ -4402,24 +4424,30 @@ export class DrawingApp {
     // Update color picker to match
     this.self.setColor(currentColor);
     this.colorPicker.setColor(`rgba(${currentColor.join(',')})`);
+    appState.currentColor = [...currentColor];
+    this.updateCurrentToolPresetSettings();
   }
 
   handleBlurRadiusChange(e) {
+    this.clearActiveCustomPreset();
     const radius = Number(e.target.value);
     if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBlurRadiusChange(radius));
     }
     this.self.setBlurRadius(radius);
     this.ui.updateBlurRadiusValue(radius);
+    this.updateCurrentToolPresetSettings();
   }
 
   handleThinningChange(e) {
+    this.clearActiveCustomPreset();
     const thinning = Number(e.target.value) / 100; // Convert to 0-1 range
     if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastThinningChange(thinning));
     }
     this.self.setThinning(thinning);
     this.ui.updateThinningValue(Math.round(thinning * 100));
+    this.updateCurrentToolPresetSettings();
   }
 
   handleSimulatePressureChange(e) {
@@ -4630,6 +4658,7 @@ export class DrawingApp {
     }
 
     // Otherwise, select the color and update picker
+    this.clearActiveCustomPreset();
     const color = colorOrCallback;
     this.self.setColor(color);
     this.self.setOpacity(color[3]);
@@ -4666,6 +4695,39 @@ export class DrawingApp {
     }
 
     addRecentColor(color);
+    this.updateCurrentToolPresetSettings();
+  }
+
+  getCurrentToolPresetSettings(toolName = this.self?.tool) {
+    const lockConfig = this.toolLockManager?.toolLocks?.[toolName];
+    if (!this.self || !lockConfig) return {};
+
+    const settings = {};
+    for (const property of Object.keys(lockConfig)) {
+      if (property === 'pressure') {
+        settings.pressureMin = Number(this.ui.elements.pressureMinSlider?.value ?? 0);
+        settings.pressureMax = Number(this.ui.elements.pressureMaxSlider?.value ?? 100);
+        settings.pressureEnabled = !!this.pressureEnabled;
+      } else if (property === 'opacity') {
+        settings.opacity = this.self.opacity;
+      } else {
+        settings[property] = this.self[property];
+      }
+    }
+
+    return settings;
+  }
+
+  updateCurrentToolPresetSettings() {
+    if (!this.self) return;
+    appState.currentTool = this.self.tool;
+    appState.currentSize = this.self.size;
+    appState.currentColor = [...this.self.color];
+    appState.currentToolSettings = this.getCurrentToolPresetSettings();
+  }
+
+  clearActiveCustomPreset() {
+    appState.activeCustomPresetKey = null;
   }
 
   applyCustomPreset(preset) {
@@ -4682,6 +4744,36 @@ export class DrawingApp {
 
     if (preset.size != null) {
       this.handleSizeChange({ target: { value: preset.size } });
+    }
+
+    if (preset.settings) {
+      this.applyCustomPresetSettings(preset.settings);
+    }
+
+    this.updateCurrentToolPresetSettings();
+    appState.activeCustomPresetKey = getCustomPresetKey(preset);
+  }
+
+  applyCustomPresetSettings(settings) {
+    for (const [property, value] of Object.entries(settings)) {
+      if (property === 'size') this.handleSizeChange({ target: { value } });
+      else if (property === 'spacing') this.handleSpacingChange({ target: { value } });
+      else if (property === 'smoothing') this.handleSmoothingChange({ target: { value } });
+      else if (property === 'hardness') this.handleHardnessChange({ target: { value } });
+      else if (property === 'opacity') this.handleopacityChange({ target: { value: value * 100 } });
+      else if (property === 'blurRadius') this.handleBlurRadiusChange({ target: { value } });
+      else if (property === 'thinning') this.handleThinningChange({ target: { value: value * 100 } });
+      else if (property === 'pressureMin' && this.ui.elements.pressureMinSlider) {
+        this.ui.elements.pressureMinSlider.value = value;
+        this.ui.updatePressureValue(value, Number(this.ui.elements.pressureMaxSlider?.value ?? 100));
+      } else if (property === 'pressureMax' && this.ui.elements.pressureMaxSlider) {
+        this.ui.elements.pressureMaxSlider.value = value;
+        this.ui.updatePressureValue(Number(this.ui.elements.pressureMinSlider?.value ?? 0), value);
+      } else if (property === 'pressureEnabled') {
+        this.pressureEnabled = !!value;
+        if (this.ui.elements.pressureEnabled) this.ui.elements.pressureEnabled.checked = !!value;
+        if (this.ui.elements.pressureDualSlider) this.ui.elements.pressureDualSlider.style.display = value ? '' : 'none';
+      }
     }
   }
 
@@ -4723,6 +4815,8 @@ export class DrawingApp {
 
     // Add to recent colors (Svelte store)
     addRecentColor(rgba);
+    appState.currentColor = [...rgba];
+    this.updateCurrentToolPresetSettings();
   }
 
   // Pointer event handlers

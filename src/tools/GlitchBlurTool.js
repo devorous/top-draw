@@ -69,6 +69,9 @@ export class GlitchBlurTool extends Tool {
     if (user === this.board.app?.self) {
       this.board.topCtx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
       this.drawPreview(user);
+    } else if (user.context) {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+      this.drawPreview(user, user.context);
     }
 
     this.board.requestUpdate();
@@ -89,10 +92,7 @@ export class GlitchBlurTool extends Tool {
       const minSpacing = Math.max(user.size * spacingPercent, 5);
 
       if (distance >= minSpacing) {
-        this.paintMask(pos.x, pos.y, user.size, user, maskCtx);
-        this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-        const points = this.strokePoints.get(user.id);
-        if (points) points.push({ x: pos.x, y: pos.y });
+        this._stampAlongPath(user, prevStamp, pos, minSpacing, maskCtx);
         this.board.requestUpdate();
       }
     } else {
@@ -173,6 +173,28 @@ export class GlitchBlurTool extends Tool {
     // Track stamps for preview
     if (!user.glitchStamps) user.glitchStamps = [];
     user.glitchStamps.push({ x, y, size: radius, pressure: user.pressure || 1.0 });
+  }
+
+  _stampAlongPath(user, from, to, spacing, maskCtx) {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    if (!Number.isFinite(distance) || distance <= 0) return;
+
+    const steps = Math.floor(distance / spacing);
+    const points = this.strokePoints.get(user.id);
+    let lastStamp = from;
+
+    for (let i = 1; i <= steps; i++) {
+      const t = (i * spacing) / distance;
+      const x = from.x + dx * t;
+      const y = from.y + dy * t;
+      this.paintMask(x, y, user.size, user, maskCtx);
+      points?.push({ x, y });
+      lastStamp = { x, y };
+    }
+
+    this.lastStampPos.set(user.id, lastStamp);
   }
 
   /**
