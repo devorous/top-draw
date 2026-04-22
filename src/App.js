@@ -57,6 +57,18 @@ const SHAPE_DRAW_MODE_STORAGE_KEY = 'topDrawShapeDrawMode';
 const NORMAL_TPS = 60;
 const LOW_POWER_TPS = 30;
 const LOW_POWER_FPS = 30;
+const COALESCED_INPUT_TOOLS = new Set([
+  'brush',
+  'flowPen',
+  'imageBrush',
+  'ink',
+  'erase',
+  'blur',
+  'circleBlur',
+  'glitchBlur',
+  'pixelBrush',
+  'pattern'
+]);
 
 function _hexToRgb(hex) {
   const c = hex.replace('#', '');
@@ -5019,7 +5031,10 @@ export class DrawingApp {
       };
     };
 
-    const shouldUseCoalescedSamples = this.self.mousedown && !this.self.panning;
+    const shouldUseCoalescedSamples =
+      this.self.mousedown &&
+      !this.self.panning &&
+      COALESCED_INPUT_TOOLS.has(this.self.tool);
     const coalescedSamples = shouldUseCoalescedSamples ? e.getCoalescedEvents?.() : null;
     const samples = shouldUseCoalescedSamples && coalescedSamples?.length ? coalescedSamples : [e];
 

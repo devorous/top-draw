@@ -25,6 +25,7 @@ const LOW_POWER_GPU_PATTERNS = [
 ];
 
 const REDUCE_BEFORE_RENDER_TOOLS = new Set(['brush', 'flowPen', 'ink']);
+const LATEST_POINT_ONLY_TOOLS = new Set(['select']);
 
 /**
  * Detects if the current device is low-power to adjust the tick rate.
@@ -368,6 +369,11 @@ export class InputBufferManager {
       smoothedPoints = points;
       localPoints = points;
       networkPoints = points;
+    }
+
+    if (LATEST_POINT_ONLY_TOOLS.has(app.self.tool) && localPoints.length > 3) {
+      localPoints = localPoints.slice(-3);
+      networkPoints = networkPoints.slice(-3);
     }
 
     const lastRawX = points[points.length - 3];
