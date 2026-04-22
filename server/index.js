@@ -7,7 +7,8 @@ import { ObjectId } from 'mongodb';
 import pathModule from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { connectDB, getDB, getMongoDatabase } from './db.js';
+import { connectDB, getDB, getMongoDatabase, updateUserMetrics, updateConsecutiveDays } from './db.js';
+import { metricsTracker } from './MetricsTracker.js';
 import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate } from './gallery.js';
 import { handleAuthLogin, handleAuthRegister, handleAuthMe } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
@@ -946,6 +947,9 @@ async function init() {
 
   startBatchTimer();
 
+  // Start metrics tracker
+  metricsTracker.start();
+
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`WebSocket server running on port ${PORT}`);
     if (DISABLE_RATE_LIMITS) console.warn('[SERVER] ⚠ Rate limits DISABLED (DISABLE_RATE_LIMITS=true)');
@@ -1115,6 +1119,11 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
         user.lasty = user.y;
         user.x = accX / 10;
         user.y = accY / 10;
+
+        // Track distance for metrics
+        if (ws.userId && user.mousedown) {
+          metricsTracker.onStrokeMove(ws.userId, user.x, user.y);
+        }
       }
       room.sessionManager.updateUserActivity(sessionIndex);
       break;
@@ -1122,6 +1131,13 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
     case T.MD:
       user.mousedown = true;
       room.sessionManager.updateUserActivity(sessionIndex);
+
+      // Track stroke start for metrics
+      if (ws.userId) {
+        const toolNames = ['brush', 'text', 'erase', 'imageBrush', 'select', 'flowPen', 'line', 'rectangle', 'circle', 'ink', 'inkdropper', 'blur', 'circleBlur', 'glitchBlur', 'pixel', 'fill', 'pattern'];
+        const toolName = toolNames[user.tool] || 'unknown';
+        metricsTracker.onStrokeStart(ws.userId, toolName);
+      }
       break;
 
     case T.MU:
@@ -1130,6 +1146,11 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
         user.text = '';
       }
       room.sessionManager.updateUserActivity(sessionIndex);
+
+      // Track stroke end for metrics
+      if (ws.userId) {
+        metricsTracker.onStrokeEnd(ws.userId);
+      }
       break;
 
     case T.TEXT_APPLY:
@@ -1300,6 +1321,11 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
 
     case T.MSG:
       room.sessionManager.updateUserActivity(sessionIndex);
+
+      // Track chat message for metrics
+      if (ws.userId) {
+        metricsTracker.onChatMessage(ws.userId);
+      }
       break;
 
     case T.GMP:
@@ -3119,7 +3145,17 @@ wss.on('connection', async (ws, req) => {
               ipHistory: [ws.clientIp],
               subnetHistory: ws.clientSubnet ? [ws.clientSubnet] : [],
               deviceIds: identity.deviceId ? [identity.deviceId] : [],
-              fingerprintIds: identity.fingerprintId ? [identity.fingerprintId] : []
+              fingerprintIds: identity.fingerprintId ? [identity.fingerprintId] : [],
+              // Metrics tracking (for achievements)
+              distanceDrawn: 0,
+              totalStrokes: 0,
+              timeSpentMs: 0,
+              chatMessagesSent: 0,
+              consecutiveDaysDrawn: 0,
+              uniqueToolsUsed: [],
+              dailyMetrics: [],
+              lastActiveDate: null,
+              firstActivityDate: null
             };
             if (regEmail) newUserDoc.email = regEmail;
             if (regSecretQuestion) {
@@ -3139,6 +3175,9 @@ wss.on('connection', async (ws, req) => {
             ws.fingerprintId = identity.fingerprintId || ws.fingerprintId;
             ws.identitySummary = identity.identitySummary || ws.identitySummary;
             await applyShadowBanStateToClient(ws, room, { userId: ws.userId, effectiveRole: ws.userRole });
+
+            // Initialize metrics tracking for new user
+            metricsTracker.initUser(ws.userId);
 
             const user = room.sessionManager.getUser(ws.sessionIndex);
             if (user) {
@@ -3331,6 +3370,9 @@ wss.on('connection', async (ws, req) => {
               userId: userDoc._id.toString(),
               effectiveRole
             });
+
+            // Initialize metrics tracking for logged-in user
+            metricsTracker.initUser(ws.userId);
             logVpnAutoMuteContext(ws, room, `Auth login for ${userDoc.username}`);
             const { shouldMute, muteReason } = await applyMuteStateToClient(ws, room, {
               userId: userDoc._id.toString(),
@@ -3495,6 +3537,13 @@ wss.on('connection', async (ws, req) => {
   ws.on('close', () => {
     clientOutbox.delete(ws);
     cancelProbesForSocket(ws);
+
+    // Flush metrics for disconnecting user
+    if (ws.userId) {
+      metricsTracker.onUserDisconnect(ws.userId).catch(err => {
+        console.error('[Metrics] Error on user disconnect:', err);
+      });
+    }
 
     if (ws.pingInterval) {
       clearInterval(ws.pingInterval);

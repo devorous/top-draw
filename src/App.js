@@ -2027,6 +2027,7 @@ export class DrawingApp {
     elements.boardContainer.addEventListener('drop', (e) => this.handleImageDrop(e));
 
     window.addEventListener('resize', () => this.handleResize());
+
     window.addEventListener('beforeunload', (e) => {
       if (!this._warnOnNextUnload) return;
 
@@ -2979,6 +2980,7 @@ export class DrawingApp {
    */
   handleWSDisconnect(code, reason) {
     this.connected = false;
+
     this.stopPreviewInterval();
     this.stopCheckpointInterval();
     TimeMachine.stop();

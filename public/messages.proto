@@ -120,6 +120,7 @@ message Msg {
     BW_PROBE_START = 130;          // Server→client: start a bandwidth probe (returns N chunks)
     BW_PROBE_CHUNK = 131;          // Client→server: one probe chunk (random bytes)
     BW_REPORT = 132;               // Client→server: report a previously measured uploadBps (e.g. from _discovery)
+    METRICS_UPDATE = 133;          // Client→server: batched metrics update (achievements)
   }
 
   // Tool enum
@@ -417,6 +418,13 @@ message Msg {
   uint32 probe_blob_size = 138; // BW_PROBE_START: expected chunk size in bytes
   bytes  probe_data    = 139;  // BW_PROBE_CHUNK: random payload bytes
   uint32 upload_bps    = 140;  // BW_REPORT: measured bytes-per-second (rounded)
+
+  // === Metrics Tracking Fields (141+) ===
+  uint64 metrics_distance = 141;    // METRICS_UPDATE: distance drawn in pixels
+  uint32 metrics_strokes = 142;     // METRICS_UPDATE: stroke count
+  uint64 metrics_time_ms = 143;     // METRICS_UPDATE: time spent in milliseconds
+  uint32 metrics_chat = 144;        // METRICS_UPDATE: chat messages sent
+  repeated string metrics_tools = 145; // METRICS_UPDATE: tools used during this batch
 }
 
 // New message for storing snapshot layers and thumbnail bundled in R2
