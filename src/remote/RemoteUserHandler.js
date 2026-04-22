@@ -1278,6 +1278,8 @@ export class RemoteUserHandler {
     user._penStrokeActive = false;
     user._penStrokeColor = null;
     user._penAlpha = null;
+    user._penDirtyBounds = null;
+    user._penPreviewDirtyBounds = null;
     if (user._penOffscreenCtx && user._penOffscreen) {
       user._penOffscreenCtx.clearRect(0, 0, user._penOffscreen.width, user._penOffscreen.height);
     }
@@ -1289,6 +1291,7 @@ export class RemoteUserHandler {
     user._inkStrokeActive = false;
     user._inkStrokeColor = null;
     user._inkAlpha = null;
+    user._inkDirtyBounds = null;
     if (user._inkCtx && user._inkOffscreen) {
       user._inkCtx.clearRect(0, 0, user._inkOffscreen.width, user._inkOffscreen.height);
     }

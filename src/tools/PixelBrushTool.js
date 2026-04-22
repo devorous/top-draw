@@ -157,8 +157,11 @@ export class PixelBrushTool {
         this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(points, region), size / 2);
       });
     }
-    this.board.clearTop();
-    this.drawPreview(user);
+    const rect = this.getPreviewDirtyRect(user);
+    if (rect !== false) {
+      this.board.clearTop(rect);
+      this.drawPreview(user, rect);
+    }
   }
 
   /**

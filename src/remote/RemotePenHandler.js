@@ -60,6 +60,8 @@ export class RemotePenHandler {
     user._penLastStampPos = { x: pos.x, y: pos.y, radius, pressure255: Math.round(pressure * 255) };
     user._penStrokeActive = true;
     user.penPoints = [{ x: pos.x, y: pos.y, radius }];
+    user._penDirtyBounds = { minX: pos.x - radius, minY: pos.y - radius, maxX: pos.x + radius, maxY: pos.y + radius };
+    user._penPreviewDirtyBounds = { ...user._penDirtyBounds };
 
     this.updatePenPreview(user);
   }
@@ -92,6 +94,7 @@ export class RemotePenHandler {
       if (user.penPoints) {
         user.penPoints.push({ x, y, radius: r });
       }
+      this.expandPenDirtyBounds(user, x, y, r);
     }
 
     const lastPtIdx = points.length - 2;
@@ -147,6 +150,7 @@ export class RemotePenHandler {
       if (user.penPoints) {
         user.penPoints.push({ x: pos.x, y: pos.y, radius });
       }
+      this.expandPenDirtyBounds(user, pos.x, pos.y, radius);
 
       this.updatePenPreview(user);
     }
@@ -183,6 +187,7 @@ export class RemotePenHandler {
         if (user.penPoints) {
           user.penPoints.push({ x, y, radius: r });
         }
+        this.expandPenDirtyBounds(user, x, y, r);
       }
 
       user._penLastStampPos = {
@@ -254,6 +259,8 @@ export class RemotePenHandler {
     user._penStrokeActive = false;
     user._penStrokeColor = null;
     user._penAlpha = null;
+    user._penDirtyBounds = null;
+    user._penPreviewDirtyBounds = null;
     user.penPoints = [];
   }
 
@@ -264,17 +271,39 @@ export class RemotePenHandler {
   updatePenPreview(user) {
     if (!user._penOffscreen) return;
 
-    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    const previewRect = this.board.mirrorRegions?.length > 0 ? null : this.getPreviewDirtyRect(user);
+    const clearRect = previewRect ? this._clampRectToCanvas(previewRect, user.context.canvas) : null;
+    if (clearRect) {
+      user.context.clearRect(clearRect.x, clearRect.y, clearRect.width, clearRect.height);
+    } else {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
     user.context.globalAlpha = user._penAlpha;
 
-    const hardnessCanvas = this.getHardnessCanvas(user._penOffscreen, user.size, user._penHardness, user._penStrokeColor);
-    user.context.drawImage(hardnessCanvas, 0, 0);
+    const hardnessCanvas = this.getHardnessCanvas(user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, previewRect);
+    const sourceRect = previewRect ? this._clampRectToCanvas(previewRect, hardnessCanvas) : null;
+    if (sourceRect) {
+      user.context.drawImage(
+        hardnessCanvas,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height
+      );
+    } else {
+      user.context.drawImage(hardnessCanvas, 0, 0);
+    }
 
     this.board.forEachMirrorRegion({ points: user.penPoints }, (region) => {
       this.board.drawMirroredCanvas(user.context, hardnessCanvas, region, 0, 0);
     });
 
     user.context.globalAlpha = 1.0;
+    user._penPreviewDirtyBounds = null;
   }
 
   /**
@@ -287,8 +316,9 @@ export class RemotePenHandler {
    * @param {number} x - Destination x-coordinate.
    * @param {number} y - Destination y-coordinate.
    */
-  compositeWithHardness(ctx, sourceCanvas, size, hardness, strokeColor, x, y) {
+  compositeWithHardness(ctx, sourceCanvas, size, hardness, strokeColor, x, y, rect = null) {
     const blurAmount = (1 - hardness) * (20 + size * 0.2);
+    const sourceRect = rect ? this._clampRectToCanvas(rect, sourceCanvas) : null;
 
     if (blurAmount > 0) {
       const offset = 100000;
@@ -297,14 +327,40 @@ export class RemotePenHandler {
       ctx.shadowColor = strokeColor;
       ctx.shadowOffsetX = -offset;
       ctx.shadowOffsetY = 0;
-      ctx.drawImage(sourceCanvas, x + offset, y);
+      if (sourceRect) {
+        ctx.drawImage(
+          sourceCanvas,
+          sourceRect.x,
+          sourceRect.y,
+          sourceRect.width,
+          sourceRect.height,
+          x + sourceRect.x + offset,
+          y + sourceRect.y,
+          sourceRect.width,
+          sourceRect.height
+        );
+      } else {
+        ctx.drawImage(sourceCanvas, x + offset, y);
+      }
       ctx.restore();
+    } else if (sourceRect) {
+      ctx.drawImage(
+        sourceCanvas,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height,
+        x + sourceRect.x,
+        y + sourceRect.y,
+        sourceRect.width,
+        sourceRect.height
+      );
     } else {
       ctx.drawImage(sourceCanvas, x, y);
     }
   }
 
-  getHardnessCanvas(sourceCanvas, size, hardness, strokeColor) {
+  getHardnessCanvas(sourceCanvas, size, hardness, strokeColor, rect = null) {
     if (!this.hardnessCanvas ||
         this.hardnessCanvas.width !== sourceCanvas.width ||
         this.hardnessCanvas.height !== sourceCanvas.height) {
@@ -314,8 +370,63 @@ export class RemotePenHandler {
       this.hardnessCtx = this.hardnessCanvas.getContext('2d');
     }
 
-    this.hardnessCtx.clearRect(0, 0, this.hardnessCanvas.width, this.hardnessCanvas.height);
-    this.compositeWithHardness(this.hardnessCtx, sourceCanvas, size, hardness, strokeColor, 0, 0);
+    const clearRect = rect ? this._clampRectToCanvas(rect, this.hardnessCanvas) : null;
+    if (clearRect) {
+      this.hardnessCtx.clearRect(clearRect.x, clearRect.y, clearRect.width, clearRect.height);
+    } else {
+      this.hardnessCtx.clearRect(0, 0, this.hardnessCanvas.width, this.hardnessCanvas.height);
+    }
+    this.compositeWithHardness(this.hardnessCtx, sourceCanvas, size, hardness, strokeColor, 0, 0, rect);
     return this.hardnessCanvas;
+  }
+
+  expandPenDirtyBounds(user, x, y, radius) {
+    const minX = x - radius;
+    const minY = y - radius;
+    const maxX = x + radius;
+    const maxY = y + radius;
+
+    if (!user._penDirtyBounds) {
+      user._penDirtyBounds = { minX, minY, maxX, maxY };
+    } else {
+      user._penDirtyBounds.minX = Math.min(user._penDirtyBounds.minX, minX);
+      user._penDirtyBounds.minY = Math.min(user._penDirtyBounds.minY, minY);
+      user._penDirtyBounds.maxX = Math.max(user._penDirtyBounds.maxX, maxX);
+      user._penDirtyBounds.maxY = Math.max(user._penDirtyBounds.maxY, maxY);
+    }
+
+    if (!user._penPreviewDirtyBounds) {
+      user._penPreviewDirtyBounds = { minX, minY, maxX, maxY };
+      return;
+    }
+    user._penPreviewDirtyBounds.minX = Math.min(user._penPreviewDirtyBounds.minX, minX);
+    user._penPreviewDirtyBounds.minY = Math.min(user._penPreviewDirtyBounds.minY, minY);
+    user._penPreviewDirtyBounds.maxX = Math.max(user._penPreviewDirtyBounds.maxX, maxX);
+    user._penPreviewDirtyBounds.maxY = Math.max(user._penPreviewDirtyBounds.maxY, maxY);
+  }
+
+  getPreviewDirtyRect(user) {
+    const bounds = user._penPreviewDirtyBounds;
+    if (!bounds || bounds.maxX <= bounds.minX || bounds.maxY <= bounds.minY) return null;
+
+    const size = user.size || 0;
+    const hardness = user._penHardness !== undefined ? user._penHardness : 1.0;
+    const blurAmount = (1 - hardness) * (20 + size * 0.2);
+    const margin = blurAmount + size * 0.25 + 2;
+    return {
+      x: Math.floor(bounds.minX - margin),
+      y: Math.floor(bounds.minY - margin),
+      width: Math.ceil(bounds.maxX - bounds.minX + margin * 2),
+      height: Math.ceil(bounds.maxY - bounds.minY + margin * 2)
+    };
+  }
+
+  _clampRectToCanvas(rect, canvas) {
+    const x = Math.max(0, Math.floor(rect.x));
+    const y = Math.max(0, Math.floor(rect.y));
+    const right = Math.min(canvas.width, Math.ceil(rect.x + rect.width));
+    const bottom = Math.min(canvas.height, Math.ceil(rect.y + rect.height));
+    if (right <= x || bottom <= y) return null;
+    return { x, y, width: right - x, height: bottom - y };
   }
 }
