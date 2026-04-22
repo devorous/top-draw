@@ -60,6 +60,7 @@
   let tagEditorOpen = $state(false);
   let lightboxImageWrap = $state(null);
   let lightboxStage = $state(null);
+  let shareCopiedId = $state(null);
 
   // Auth state
   let user = $state(null); // { username, role, userId }
@@ -696,6 +697,7 @@
 
   async function openLightbox(item) {
     await setActiveLightboxItem(item);
+    updateGalleryUrlForItem(item);
   }
 
   function closeLightbox() {
@@ -717,6 +719,27 @@
 
     if (!returnToProfile) {
       document.body.style.overflow = '';
+      restoreGalleryUrl();
+    }
+  }
+
+  function closeLightboxFromHistory() {
+    openedFromProfile = null;
+    lightboxInstant = false;
+    lightbox = null;
+    comments = [];
+    newComment = '';
+    cancelCommentEdit();
+    tagDraft = '';
+    document.body.style.overflow = '';
+  }
+
+  function handlePopState() {
+    const pathMatch = window.location.pathname.match(/^\/gallery\/([a-f0-9]{24})\/?$/);
+    if (pathMatch) {
+      openImageById(pathMatch[1]);
+    } else if (lightbox) {
+      closeLightboxFromHistory();
     }
   }
 
@@ -737,6 +760,47 @@
     return new Date(d).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
+  function getGalleryItemUrl(item) {
+    if (typeof window === 'undefined' || !item?.id) return '';
+    return new URL(`/gallery/${encodeURIComponent(item.id)}`, window.location.origin).toString();
+  }
+
+  function updateGalleryUrlForItem(item) {
+    if (typeof window === 'undefined' || !item?.id) return;
+    const nextPath = `/gallery/${encodeURIComponent(item.id)}`;
+    if (window.location.pathname === nextPath) return;
+    window.history.pushState({ galleryItemId: item.id }, '', nextPath);
+  }
+
+  function restoreGalleryUrl() {
+    if (typeof window === 'undefined') return;
+    window.history.replaceState({}, '', '/gallery');
+  }
+
+  async function copyGalleryLink(item) {
+    const url = getGalleryItemUrl(item);
+    if (!url) return;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const input = document.createElement('input');
+        input.value = url;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+      }
+      shareCopiedId = item.id;
+      setTimeout(() => {
+        if (shareCopiedId === item.id) shareCopiedId = null;
+      }, 1800);
+    } catch {
+      window.prompt('Copy gallery link', url);
+    }
+  }
+
   async function openImageById(itemId) {
     try {
       const existing = items.find((item) => item.id === itemId);
@@ -754,19 +818,17 @@
 
   async function checkUrlParams() {
     const params = new URLSearchParams(window.location.search);
+    const pathMatch = window.location.pathname.match(/^\/gallery\/([a-f0-9]{24})\/?$/);
+    if (pathMatch) {
+      await openImageById(pathMatch[1]);
+      return;
+    }
 
     // Handle ?id= to open specific image
     const itemId = params.get('id');
     if (itemId) {
-      try {
-        const res = await fetch(`${API_BASE}/api/gallery/${itemId}`);
-        if (res.ok) {
-          const item = await res.json();
-          openLightbox(item);
-        }
-      } catch {}
-      // Clear the param from URL without reload
-      window.history.replaceState({}, '', '/gallery');
+      await openImageById(itemId);
+      return;
     }
 
     // Handle ?author= to filter by author
@@ -789,7 +851,7 @@
   });
 </script>
 
-<svelte:window onkeydown={handleKeydown}/>
+<svelte:window onkeydown={handleKeydown} onpopstate={handlePopState}/>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
@@ -1038,6 +1100,9 @@
                 </svg>
               </button>
             {/if}
+            <button class="btn-ghost small" onclick={() => copyGalleryLink(lightbox)}>
+              {shareCopiedId === lightbox.id ? 'Copied' : 'Share'}
+            </button>
             <button class="btn-ghost small" onclick={() => downloadImage(lightbox.url, `${lightbox.title || lightbox.id}.png`)}>Download</button>
             {#if canDeleteImage(lightbox)}
               <button class="btn-danger small" onclick={() => deleteImage(lightbox)}>Delete</button>

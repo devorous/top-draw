@@ -12,6 +12,7 @@ import { metricsTracker } from './MetricsTracker.js';
 import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate } from './gallery.js';
 import { handleAuthLogin, handleAuthRegister, handleAuthMe } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
+import { getGalleryPreviewItem, renderGalleryPreviewHtml } from './galleryPreview.js';
 import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore, handleSnapshotJoinNotify } from './snapshots.js';
 import { handleCheckpointUpload, handleCheckpointList, handleCheckpointGet } from './checkpoints.js';
 import { getRecorder, removeRecorder, getReplayData } from './deltaRecorder.js';
@@ -385,6 +386,36 @@ const server = createServer(async (req, res) => {
   if (path === '/health' && req.method === 'GET') {
     res.writeHead(200);
     res.end('OK');
+    return;
+  }
+
+  const galleryPageMatch = path.match(/^\/gallery\/([a-f0-9]{24})$/);
+  if (galleryPageMatch && req.method === 'GET') {
+    const db = getDB();
+    if (!db) {
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Database not available');
+      return;
+    }
+
+    try {
+      const item = await getGalleryPreviewItem(db, galleryPageMatch[1]);
+      if (!item) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Gallery image not found');
+        return;
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=300'
+      });
+      res.end(renderGalleryPreviewHtml(item, req));
+    } catch (err) {
+      console.error('[GalleryPreview] Render error:', err);
+      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Failed to render gallery preview');
+    }
     return;
   }
 
