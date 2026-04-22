@@ -20,6 +20,7 @@ function probeOneClient(room, sendTo) {
   const eligible = [];
   for (const ws of room.clients) {
     if (ws.readyState !== 1) continue;        // OPEN
+    if (ws.skipUploadBps) continue;           // Localhost/dev connections can report unrealistic bps
     if (ws._bwProbeId) continue;              // Already probing
     if (ws.tabHidden) continue;               // Background tabs — skip
     if (ws.lowPowerMode) continue;

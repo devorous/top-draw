@@ -34,6 +34,52 @@ function isTrustedProxyAddress(ip) {
 }
 
 /**
+ * Returns true for loopback addresses only. Private LAN addresses are not treated
+ * as localhost because they can still represent real multi-device testing.
+ *
+ * @param {string} ip
+ * @returns {boolean}
+ */
+export function isLoopbackAddress(ip) {
+  if (!ip || typeof ip !== 'string') return false;
+
+  const normalized = ip.trim().toLowerCase();
+  if (
+    normalized === '::1' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::ffff:127.0.0.1'
+  ) {
+    return true;
+  }
+
+  const v4Match = normalized.match(/(?:::ffff:)?(\d+\.\d+\.\d+\.\d+)/);
+  if (!v4Match) return false;
+
+  const [a] = v4Match[1].split('.').map(Number);
+  return a === 127;
+}
+
+/**
+ * Detects WebSocket/HTTP requests made through localhost so local development
+ * does not persist unrealistic browser-to-same-machine bandwidth measurements.
+ *
+ * @param {import('http').IncomingMessage} req
+ * @param {string} [clientIp]
+ * @returns {boolean}
+ */
+export function isLocalhostRequest(req, clientIp = '') {
+  const rawHost = String(req?.headers?.host || '').trim().toLowerCase();
+  if (rawHost) {
+    const host = rawHost.startsWith('[')
+      ? rawHost.slice(0, rawHost.indexOf(']') + 1)
+      : rawHost.split(':')[0];
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+  }
+
+  return isLoopbackAddress(clientIp || req?.socket?.remoteAddress || '');
+}
+
+/**
  * Extracts the best available client IP address for logging, moderation, and rate limiting.
  * X-Forwarded-For is only trusted when the direct peer looks like a private/local proxy,
  * or when TRUST_PROXY=true is set.

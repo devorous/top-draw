@@ -33,6 +33,7 @@ function genProbeId() {
  */
 export function startProbe(ws, { sendTo, onPersist = null, username = null } = {}) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.resolve(null);
+  if (ws.skipUploadBps) return Promise.resolve(null);
   // Prevent overlapping probes on the same socket
   if (ws._bwProbeId && activeProbes.has(ws._bwProbeId)) {
     return Promise.resolve(null);

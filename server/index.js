@@ -29,7 +29,7 @@ import { RoomManager } from './RoomManager.js';
 import { sanitizeMessage } from './validation.js';
 import { authorize, Action } from './permissions.js';
 import { getRoomRole, setRoomRole, computeEffectiveRole, getRoomRoleRoster } from './roomRoles.js';
-import { getClientIp, httpRateLimiter, messengerRateLimiter, wsRateLimiter } from './security.js';
+import { getClientIp, httpRateLimiter, isLocalhostRequest, messengerRateLimiter, wsRateLimiter } from './security.js';
 import { getAsnCheckStatus, lookupAsnForIp, initAsnCheck, isVpnAsn } from './asnCheck.js';
 import { authLimiter, uploadLimiter, likeLimiter, wsMessageLimiter, wsConnectionLimiter, feedbackLimiter } from './rateLimit.js';
 import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
@@ -1645,6 +1645,7 @@ wss.on('connection', async (ws, req) => {
     console.log(`[WS] New connection attempt from ${req.socket.remoteAddress}`);
 
     ws.clientIp = connIp;
+    ws.skipUploadBps = isLocalhostRequest(req, connIp);
     if (!DISABLE_RATE_LIMITS) {
       const connectionLimit = wsRateLimiter.consume(rateLimitKey('ws:connect', ws.clientIp), WS_CONNECTION_LIMIT);
       if (!connectionLimit.allowed) {
@@ -1930,7 +1931,7 @@ wss.on('connection', async (ws, req) => {
           // measurement (from the DB or a BW_REPORT). This gives the _discovery
           // lobby a seed value the client can replay on room-switch, and gives
           // newly-joined real-room users a measurement before the 30s election tick.
-          if (!ws.uploadBps || !ws.lastProbeTs || (Date.now() - ws.lastProbeTs) > 60_000) {
+          if (!ws.skipUploadBps && (!ws.uploadBps || !ws.lastProbeTs || (Date.now() - ws.lastProbeTs) > 60_000)) {
             startBandwidthProbe(ws, {
               sendTo,
               username,
@@ -2795,6 +2796,7 @@ wss.on('connection', async (ws, req) => {
         case T.BW_REPORT: {
           // Client is reporting a previously measured bps (e.g. from _discovery probe).
           // Only accept if we don't already have a better/recent measurement.
+          if (ws.skipUploadBps) break;
           const reported = Number(data.uploadBps) || 0;
           if (reported > 0) {
             const existing = ws.uploadBps || 0;
@@ -3436,7 +3438,7 @@ wss.on('connection', async (ws, req) => {
               user.isShadowBanned = !!ws.isShadowBanned;
               user.isVPN = !!ws.isVPN;
               // Hydrate persisted bandwidth estimate so the first election has data
-              if (typeof userDoc.uploadBps === 'number' && userDoc.uploadBps > 0) {
+              if (!ws.skipUploadBps && typeof userDoc.uploadBps === 'number' && userDoc.uploadBps > 0) {
                 user.uploadBps = userDoc.uploadBps;
                 ws.uploadBps = userDoc.uploadBps;
               }
