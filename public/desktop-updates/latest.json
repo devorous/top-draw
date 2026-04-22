@@ -1,11 +1,11 @@
 {
-  "version": "1.3.4-beta",
+  "version": "1.4.0-beta",
   "notes": "Fixed issues with brush desync, selection lag and added new board viewer with popout window",
-  "pub_date": "2026-04-22T07:48:20.378Z",
+  "pub_date": "2026-04-22T18:46:44.492Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.3.4-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNemlXdWF0OHlwSW5vY05jbHQ5cDBpTlJZZCs4dEM4RmlPanE5MzJMVXJkUVRESEVrTHVsQ0xsT0JXSEhtZVhEWjBlTjJVZWo3ZTR4dXdoN2lKcjFaelFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2ODQ0MTc0CWZpbGU6RGRyYXdfMS4zLjQtYmV0YV94NjQtc2V0dXAuZXhlCmJRNEFHTXZmQzRMY1k5bUEzQ2ZxRlVkdncwc3FNb0NIdVdkMEVMbDNwKzFjTGxERlQ5UnkwOFZlQkRYRy81MzRlRUdLSnhad1Z0S0F2K0NRYXBSTUFRPT0K"
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.4.0-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenQ2c1VBcWllS2xXaURqM2JybWo0MVlmQzRxNkRLakgyOUxhOHhRQ3g0bXZkdFpQVzRqek1QdzVoeHRvRktBMURxMmhYQ2ZqRTlxK0h1SE1NSzV6T2dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2ODgzODA2CWZpbGU6RGRyYXdfMS40LjAtYmV0YV94NjQtc2V0dXAuZXhlCjEydjkra09VdHExVEd4ZW1FbGNSanozMHhnRHp4NURkWlQ3SjhENmZWUHl3Y05vMkVseDA2SHp1c2hDWWVSRVBkWlNnOWJyQ2t3NWIvdWhvUUdwWkJBPT0K"
     }
   }
 }
