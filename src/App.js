@@ -3593,7 +3593,7 @@ export class DrawingApp {
 
     // Show Room Settings button only if room is registered and user can edit
     if (settingsBtn) {
-      settingsBtn.style.display = (hasOwner && canEdit) ? 'inline-block' : 'none';
+      settingsBtn.style.display = (hasOwner && canEdit) ? 'inline-flex' : 'none';
     }
 
     this.scheduleTopbarCollapseUpdate();

@@ -45,7 +45,8 @@
 .btn.menuBtn {
   display: none; // Hidden by default on desktop
   font-size: 18px;
-  width: 34px; // Slightly wider for the hamburger
+  width: 28px;
+  min-width: 28px;
   padding-left: 0;
   padding-right: 0;
   z-index: 110;
@@ -83,6 +84,12 @@
 .zoomBtns {
   display: flex;
   gap: 4px;
+
+  .btn {
+    width: 28px;
+    min-width: 28px;
+    padding: 0;
+  }
 
   .btn img {
     width: 18px;
@@ -214,6 +221,12 @@
         filter: brightness(0) invert(0.7);
         transition: filter var(--transition-fast);
       }
+
+      svg {
+        display: block;
+        width: 18px;
+        height: 18px;
+      }
     }
 
     width: 28px;
@@ -229,10 +242,14 @@
 .boardBtns.force-right-icon-collapse {
   @include toolbar-icon-collapse('.saveUploadGroup .btn, #inboxBtn, #disconnectBtn, #roomSettingsBtn');
 
-  #chatBtn .btnIcon img,
-  #inboxBtn .btnIcon img {
+  #chatBtn .btnIcon img {
     width: 24px;
     height: 24px;
+  }
+
+  #inboxBtn .btnIcon img {
+    width: 18px;
+    height: 18px;
   }
 }
 
@@ -274,11 +291,22 @@
       padding: 8px;
     }
 
-    .btnText {
-      display: inline;
+    #mirrorBtn,
+    #appSettingsBtn {
+      width: 100%;
+      min-width: 0;
+      padding: 8px;
     }
 
-    .btnIcon {
+    .btnText,
+    #mirrorBtn .btnText,
+    #appSettingsBtn .btnText {
+      display: inline !important;
+    }
+
+    .btnIcon,
+    #mirrorBtn .btnIcon,
+    #appSettingsBtn .btnIcon {
       display: none !important;
       margin-right: 8px;
     }
@@ -324,7 +352,28 @@
     .btn {
       justify-content: flex-start;
       width: 100%;
+      min-width: 0;
       height: 36px; // Slightly taller buttons in the dropdown for touch
+    }
+
+    #mirrorBtn,
+    #appSettingsBtn {
+      width: 100%;
+      min-width: 0;
+      padding: 8px;
+    }
+
+    .btnText,
+    #mirrorBtn .btnText,
+    #appSettingsBtn .btnText {
+      display: inline !important;
+    }
+
+    .btnIcon,
+    #mirrorBtn .btnIcon,
+    #appSettingsBtn .btnIcon {
+      display: none !important;
+      margin-right: 8px;
     }
 
     .mirrorContainer, .devContainer {
@@ -342,9 +391,14 @@
 @include respond-below(lg) {
   @include toolbar-icon-collapse('.saveUploadGroup .btn, #inboxBtn, #disconnectBtn, #roomSettingsBtn');
 
-  #chatBtn .btnIcon img, #inboxBtn .btnIcon img {
+  #chatBtn .btnIcon img {
     width: 24px;
     height: 24px;
+  }
+
+  #inboxBtn .btnIcon img {
+    width: 18px;
+    height: 18px;
   }
 }
 
