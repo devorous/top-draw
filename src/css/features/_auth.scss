@@ -850,10 +850,12 @@ body.desktop-window-chrome #landingPage {
 
 .roomId {
   flex: 0 0 auto;
-  font-size: 15px;
-  font-weight: 600;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.2;
   color: var(--text-primary);
-  font-family: 'Courier New', monospace;
+  letter-spacing: 0;
 }
 
 .roomMeta {
@@ -906,14 +908,16 @@ body.desktop-window-chrome #landingPage {
   width: 100%;
   margin-bottom: 14px;
   padding: clamp(8px, 1.5vh, 12px) 20px;
-  font-size: 14px;
-  font-weight: 600;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.25;
   background: linear-gradient(135deg, var(--accent-primary), color-mix(in srgb, var(--accent-primary) 70%, #fff));
   color: #000;
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
-  letter-spacing: 0.3px;
+  letter-spacing: 0;
   transition: opacity var(--transition-fast), transform var(--transition-fast);
 
   &:hover {
