@@ -1685,12 +1685,15 @@ export class DrawingApp {
       min: 0.25, max: 100, step: 0.25, suffix: '',
       dragStep: (val) => val >= 5 ? 1 : 0.5,
       onCommit: (val) => {
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(val));
+        if (this.self.mousedown && this.self.tool === 'brush') {
+          this.commitSelfLine(this.self.pressure, val);
+        }
         this.self.setSize(val);
         elements.sizeSlider.value = val;
         this.ui.updateCursorSize(val);
         this.ui.updateSelfTextStyle(val, this.self.color, this.self.font);
         this.board.mainCtx.lineWidth = val * 2;
-        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(val));
       }
     });
 
@@ -4338,6 +4341,9 @@ export class DrawingApp {
   handleSizeChange(e) {
     const size = Number(e.target.value);
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(size));
+    if (this.self.mousedown && this.self.tool === 'brush') {
+      this.commitSelfLine(this.self.pressure, size);
+    }
     this.self.setSize(size);
     appState.currentSize = size;
     this.ui.updateCursorSize(size);
@@ -5699,11 +5705,10 @@ export class DrawingApp {
 
     size = Math.round(size * 100) / 100;
 
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(size));
     if (this.self.mousedown && this.self.tool === 'brush') {
       this.commitSelfLine(this.self.pressure, size);
     }
-
-    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(size));
     this.self.setSize(size);
     this.ui.elements.sizeSlider.value = size;
     this.ui.updateCursorSize(size);
