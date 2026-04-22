@@ -131,7 +131,7 @@ export class BoardViewer {
     this.canvas = this.el.querySelector('canvas');
     this.ctx = this.canvas.getContext('2d');
     this.zoomLabel = this.el.querySelector('[data-action="reset"]');
-    this.app.ui.elements.boardContainer.append(this.launchButton, this.el);
+    document.body.append(this.launchButton, this.el);
   }
 
   _bind() {
@@ -152,21 +152,19 @@ export class BoardViewer {
       event.preventDefault();
       resizeHandle.setPointerCapture(event.pointerId);
       const rect = this.el.getBoundingClientRect();
-      const containerRect = this.app.ui.elements.boardContainer.getBoundingClientRect();
       this._resizeState = {
         x: event.clientX,
         y: event.clientY,
         width: rect.width,
         height: rect.height,
-        left: rect.left - containerRect.left,
-        top: rect.top - containerRect.top
+        left: rect.left,
+        top: rect.top
       };
     });
     resizeHandle.addEventListener('pointermove', (event) => {
       if (!this._resizeState) return;
-      const containerRect = this.app.ui.elements.boardContainer.getBoundingClientRect();
-      const maxWidth = Math.max(240, containerRect.width - this._resizeState.left);
-      const maxHeight = Math.max(200, containerRect.height - this._resizeState.top);
+      const maxWidth = Math.max(240, window.innerWidth - this._resizeState.left);
+      const maxHeight = Math.max(200, window.innerHeight - this._resizeState.top);
       const width = Math.min(maxWidth, Math.max(240, this._resizeState.width + event.clientX - this._resizeState.x));
       const height = Math.min(maxHeight, Math.max(200, this._resizeState.height + event.clientY - this._resizeState.y));
       this.el.style.width = `${width}px`;
@@ -183,23 +181,21 @@ export class BoardViewer {
       event.preventDefault();
       header.setPointerCapture(event.pointerId);
       const panelRect = this.el.getBoundingClientRect();
-      const containerRect = this.app.ui.elements.boardContainer.getBoundingClientRect();
       this._moveState = {
         x: event.clientX,
         y: event.clientY,
-        left: panelRect.left - containerRect.left,
-        top: panelRect.top - containerRect.top
+        left: panelRect.left,
+        top: panelRect.top
       };
       this.el.classList.add('is-moving');
     });
     header.addEventListener('pointermove', (event) => {
       if (!this._moveState) return;
-      const containerRect = this.app.ui.elements.boardContainer.getBoundingClientRect();
       const panelRect = this.el.getBoundingClientRect();
       const nextLeft = this._moveState.left + event.clientX - this._moveState.x;
       const nextTop = this._moveState.top + event.clientY - this._moveState.y;
-      this.el.style.left = `${Math.min(Math.max(0, nextLeft), Math.max(0, containerRect.width - panelRect.width))}px`;
-      this.el.style.top = `${Math.min(Math.max(0, nextTop), Math.max(0, containerRect.height - panelRect.height))}px`;
+      this.el.style.left = `${Math.min(Math.max(0, nextLeft), Math.max(0, window.innerWidth - panelRect.width))}px`;
+      this.el.style.top = `${Math.min(Math.max(0, nextTop), Math.max(0, window.innerHeight - panelRect.height))}px`;
     });
     const endMove = () => {
       this._moveState = null;
@@ -299,7 +295,9 @@ export class BoardViewer {
     ctx.fillRect(0, 0, rect.width, rect.height);
     ctx.setTransform(dpr * this.viewZoom, 0, 0, dpr * this.viewZoom, dpr * this.panX, dpr * this.panY);
     ctx.drawImage(this.board.mainCanvas, 0, 0);
+    if (this.board.upperLayersCanvas) ctx.drawImage(this.board.upperLayersCanvas, 0, 0);
     for (const userBoard of document.querySelectorAll('.userBoard')) {
+      if (userBoard === this.board.topCanvas) continue;
       if (userBoard.style.display !== 'none') ctx.drawImage(userBoard, 0, 0);
     }
     ctx.drawImage(this.board.topCanvas, 0, 0);
@@ -416,7 +414,9 @@ export class BoardViewer {
     const ctx = this.tauriFrameCtx;
     ctx.clearRect(0, 0, width, height);
     ctx.drawImage(this.board.mainCanvas, 0, 0);
+    if (this.board.upperLayersCanvas) ctx.drawImage(this.board.upperLayersCanvas, 0, 0);
     for (const userBoard of document.querySelectorAll('.userBoard')) {
+      if (userBoard === this.board.topCanvas) continue;
       if (userBoard.style.display !== 'none') ctx.drawImage(userBoard, 0, 0);
     }
     ctx.drawImage(this.board.topCanvas, 0, 0);
@@ -439,14 +439,14 @@ export class BoardViewer {
     return `<!doctype html><html><head><title>Board View</title><style>
       html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#151922;color:#f4f7fb;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
       *{box-sizing:border-box}
-      .boardViewerPopout{display:grid;grid-template-rows:minmax(0,1fr) 42px;width:100vw;height:100vh}
+      .boardViewerPopout{position:relative;width:100vw;height:100vh}
       .boardViewerPopoutStage{width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;touch-action:none;cursor:grab;background:#1b1f27}
       .boardViewerPopoutStage:active{cursor:grabbing}
       canvas{width:100%;height:100%;display:block;cursor:grab}
-      .boardViewerPopoutControls{display:flex;gap:6px;align-items:center;height:42px;padding:6px 8px;background:#202631;border-top:1px solid rgba(255,255,255,.14)}
-      button{display:grid;place-items:center;width:34px;height:30px;padding:0;border:1px solid rgba(255,255,255,.14);border-radius:6px;background:transparent;color:inherit;font:600 13px system-ui;cursor:pointer}
+      .boardViewerPopoutControls{position:absolute;left:0;bottom:0;display:flex;gap:4px;align-items:center;padding:2px;background:rgba(32,38,49,.84);border:1px solid rgba(255,255,255,.14);border-left:0;border-bottom:0;border-radius:0 6px 0 0;box-shadow:0 8px 24px rgba(0,0,0,.32);backdrop-filter:blur(10px)}
+      button{display:grid;place-items:center;width:22px;height:22px;padding:0;border:1px solid rgba(255,255,255,.14);border-radius:4px;background:transparent;color:inherit;font:600 13px system-ui;cursor:pointer}
       button:hover{background:rgba(255,255,255,.08)}
-      [data-action="reset"]{width:58px;font-size:12px;font-variant-numeric:tabular-nums}
+      [data-action="reset"]{width:42px;font-size:11px;font-variant-numeric:tabular-nums}
     </style></head><body>
       <section class="boardViewerPopout">
         <div class="boardViewerPopoutStage"><canvas id="boardViewerPopoutCanvas"></canvas></div>

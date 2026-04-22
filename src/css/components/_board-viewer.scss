@@ -1,14 +1,14 @@
 @use '../abstracts' as *;
 
 .boardViewer {
-  position: absolute;
-  top: 42px;
+  position: fixed;
+  top: 40px;
   left: 16px;
-  z-index: 850;
+  z-index: 930;
   display: flex;
   flex-direction: column;
   width: 420px;
-  height: 320px;
+  height: 256px;
   min-width: 240px;
   min-height: 200px;
   max-width: calc(100vw - 32px);
@@ -30,7 +30,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 0px 4px 0px 10px;
+  min-height: 18px;
+  padding: 0 2px 0 8px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-tertiary);
   cursor: move;
@@ -44,7 +45,7 @@
 .boardViewerTitle {
   min-width: 0;
   overflow: hidden;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -60,17 +61,24 @@
 .boardViewer button {
   display: grid;
   place-items: center;
-  min-width: 28px;
+  min-width: 24px;
   width: auto;
-  height: 28px;
-  padding: 0 8px;
+  height: 24px;
+  padding: 0 7px;
   color: var(--text-primary);
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1;
   cursor: pointer;
+}
+
+.boardViewerHeader button {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 12px;
 }
 
 .boardViewer button:hover {
@@ -100,23 +108,38 @@
 }
 
 .boardViewerControls {
-  padding: 0px 6px;
-  border-top: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  z-index: 1;
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0 var(--radius-sm) 0 0;
+  background: color-mix(in srgb, var(--bg-secondary) 84%, transparent);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(10px);
+}
+
+.boardViewerControls button {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
 }
 
 .boardViewerControls [data-action='reset'] {
-  width: 52px;
-  min-width: 52px;
+  width: 42px;
+  min-width: 42px;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
 .boardViewerLaunch {
-  position: absolute;
+  position: fixed;
   top: 42px;
   left: 8px;
-  z-index: 840;
+  z-index: 920;
   height: 32px;
   padding: 0 12px;
   color: var(--text-primary);
@@ -160,10 +183,10 @@
 
 @media (max-width: 640px) {
   .boardViewer {
-    top: 42px;
+    top: 40px;
     left: 8px;
     width: calc(100vw - 16px);
-    height: 260px;
+    height: 208px;
   }
 
   .boardViewerLaunch {

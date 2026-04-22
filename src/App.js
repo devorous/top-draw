@@ -4159,7 +4159,7 @@ export class DrawingApp {
 
     const allowComplex = this.board.layerManager.getLayerAllowComplexBlendModes(layerIndex);
     const wasReset = this.ui.updateBlendModeForLayer(allowComplex);
-    if (wasReset) {
+    if (!allowComplex || wasReset) {
       this.self.setBlendMode('source-over');
       this.board.topCanvas.style.mixBlendMode = 'normal';
       this.ui.updateTextPreviewBlendMode('normal');
@@ -4169,7 +4169,8 @@ export class DrawingApp {
       this.ui.updateBlendModeDisplay(this.self.blendMode);
     }
 
-    const cssMode = this.blendModeManager.toCSSBlendMode(this.self.blendMode);
+    const effectiveBlendMode = allowComplex ? this.self.blendMode : 'source-over';
+    const cssMode = this.blendModeManager.toCSSBlendMode(effectiveBlendMode);
     this.board.topCanvas.style.mixBlendMode = cssMode;
     this.ui.updateTextPreviewBlendMode(cssMode);
 

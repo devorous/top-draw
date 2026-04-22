@@ -364,7 +364,10 @@ export class SelectTool extends Tool {
     this.board.topCtx.setLineDash([]);
     // Restore blend mode from user state
     if (this.board.app) {
-      const cssMode = this.board.app.blendModeManager.toCSSBlendMode(this.board.app.self.blendMode);
+      const activeLayer = this.board.app.self?.activeLayer ?? 0;
+      const allowComplex = this.board.layerManager?.getLayerAllowComplexBlendModes(activeLayer) ?? true;
+      const blendMode = allowComplex ? this.board.app.self.blendMode : 'source-over';
+      const cssMode = this.board.app.blendModeManager.toCSSBlendMode(blendMode);
       this.board.topCanvas.style.mixBlendMode = cssMode;
     }
     if (this.board.app?.ui) {

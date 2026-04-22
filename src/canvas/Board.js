@@ -1587,6 +1587,10 @@ export class Board {
    * @returns {string}
    */
   getActiveLayerBlendMode() {
+    const activeLayer = this.app?.self?.activeLayer ?? 0;
+    if (!this.layerManager?.getLayerAllowComplexBlendModes(activeLayer)) {
+      return 'source-over';
+    }
     return this.app?.self?.blendMode ?? 'source-over';
   }
 
