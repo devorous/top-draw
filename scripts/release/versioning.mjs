@@ -7,6 +7,10 @@ const repoRoot = path.resolve(scriptDir, '..', '..');
 const packageJsonPath = path.join(repoRoot, 'package.json');
 const cargoTomlPath = path.join(repoRoot, 'src-tauri', 'Cargo.toml');
 const versionJsonPath = path.join(repoRoot, 'public', 'version.json');
+const updaterManifestPaths = [
+  path.join(repoRoot, 'public', 'desktop-updates', 'latest.json'),
+  path.join(repoRoot, 'dist', 'desktop-updates', 'latest.json')
+];
 const DEFAULT_DOWNLOAD_URL = 'https://www.ddraw.ca/download';
 
 const VERSION_RE = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
@@ -115,12 +119,34 @@ function setVersionInVersionJson(nextVersion, { minRequired = nextVersion } = {}
   const versionJson = {
     latest: nextVersion,
     minRequired,
-    releaseDate: new Date().toISOString().split('T')[0],
+    releaseDate: new Date().toISOString(),
     notes: existing.notes || '',
     downloadUrl: existing.downloadUrl || DEFAULT_DOWNLOAD_URL
   };
 
   fs.writeFileSync(versionJsonPath, `${JSON.stringify(versionJson, null, 2)}\n`);
+  syncUpdaterManifestMetadata(versionJson);
+}
+
+function syncUpdaterManifestMetadata(versionJson) {
+  for (const manifestPath of updaterManifestPaths) {
+    if (!fs.existsSync(manifestPath)) {
+      continue;
+    }
+
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      if (manifest.version !== versionJson.latest) {
+        continue;
+      }
+
+      manifest.notes = versionJson.notes || '';
+      manifest.pub_date = versionJson.releaseDate;
+      fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    } catch (error) {
+      console.warn(`Could not sync updater manifest metadata at ${manifestPath}: ${error.message}`);
+    }
+  }
 }
 
 function getDefaultMinRequired(previousVersion, nextVersion, releaseKind) {

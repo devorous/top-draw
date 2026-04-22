@@ -128,6 +128,24 @@ function getReleaseMetadata() {
   }
 }
 
+function normalizeReleaseDate(rawDate) {
+  if (typeof rawDate !== 'string' || !rawDate.trim()) {
+    return new Date().toISOString();
+  }
+
+  const value = rawDate.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return `${value}T00:00:00Z`;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return new Date().toISOString();
+  }
+
+  return parsed.toISOString();
+}
+
 function selectNewestFile(paths) {
   if (paths.length === 0) return null;
   return [...paths].sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
@@ -191,9 +209,7 @@ function stageWindowsUpdaterArtifacts() {
   const releaseMetadata = getReleaseMetadata();
   const version = getPackageVersion();
   const notes = typeof releaseMetadata.notes === 'string' ? releaseMetadata.notes : '';
-  const releaseDate = typeof releaseMetadata.releaseDate === 'string'
-    ? `${releaseMetadata.releaseDate}T00:00:00Z`
-    : new Date().toISOString();
+  const releaseDate = normalizeReleaseDate(releaseMetadata.releaseDate);
   const updatePrefix = resolveUpdatePrefix();
   const baseUrl = resolveUpdateBaseUrl();
   const manifest = {
