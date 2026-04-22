@@ -1,7 +1,7 @@
 {
-  "latest": "1.3.2-beta",
-  "minRequired": "1.3.2-beta",
-  "releaseDate": "2026-04-22T03:05:05.943Z",
-  "notes": "Updated rendering loop and improved performance in tauri app in fullscreen mode",
+  "latest": "1.3.3-beta",
+  "minRequired": "1.3.3-beta",
+  "releaseDate": "2026-04-22T06:45:21.672Z",
+  "notes": "Fixed issues with brush desync, selection lag and added new board viewer with popout window",
   "downloadUrl": "https://www.ddraw.ca/download"
 }

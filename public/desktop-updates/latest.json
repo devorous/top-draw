@@ -1,11 +1,11 @@
 {
-  "version": "1.3.2-beta",
-  "notes": "Updated rendering loop and improved performance in tauri app in fullscreen mode",
-  "pub_date": "2026-04-22T03:05:05.943Z",
+  "version": "1.3.3-beta",
+  "notes": "Fixed issues with brush desync, selection lag and added new board viewer with popout window",
+  "pub_date": "2026-04-22T06:45:21.672Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.3.2-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenRZQVFiNmkxM1UxT29INlU1R2hqSjczWEprYWhia09ObXJJS0ovRGMxNWVsNUpTelNuY2lpcFV5S3dSYlRydmNLMHlyUWNIMlhycnQzdzB4QzZzVkFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2NzYxMzI0CWZpbGU6RGRyYXdfMS4zLjItYmV0YV94NjQtc2V0dXAuZXhlCmtETlB4RndyWEdvYU81bEN0RThlU1BoVm5IZ3dreHRPUXZJSXVZZWRWd1ZGSU0rdE9DV1RIV2hsN0lRdzQ1djdXMy85Y2FmYnV5bmd0T0l4N2l3d0NBPT0K"
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.3.3-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNempCVFVrbUxsK1Y3NWlVcnQydU54M081V0xMbk1pdEVCZGo0K1ZLVGJOZmw0Uk42ZWtpaWpjY2hXRWtRQi9FKytINUdyMlVXUC96Qkp1VU9PblhjUWdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2ODQwNDMwCWZpbGU6RGRyYXdfMS4zLjMtYmV0YV94NjQtc2V0dXAuZXhlCndyM0xNdFQ0cUpYQzhUenMwWWlXVlpFb05qMXlBWDg5MGF1b3lHOTB0b2k0TnI2anNmVnd1NXFmc0cvR3Q2SVM3WklEdFRDQVg5bUZTaXUvYW80dkNnPT0K"
     }
   }
 }
