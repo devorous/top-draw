@@ -567,7 +567,9 @@ export class RemoteUserHandler {
     const pos = { x: user.x, y: user.y };
     const strokeLayer = this.getStrokeLayer(user);
     user.remoteTarget = null;
-    this._invalidateFillPreview(user, !(user.tool === 'select' && user.floatingCanvas));
+    if (user.tool === 'fill') {
+      this._invalidateFillPreview(user);
+    }
 
     const activeStrokeCtx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id);
 
@@ -745,9 +747,20 @@ export class RemoteUserHandler {
     } else if (user.tool !== 'fill' && user.tool !== 'text') {
       // Fill tool commits its own stroke via the dedicated FILL message handler
       this.board.layerManager.commitUserStroke(strokeLayer, user.id);
+      if (this.board._compositeCommittedStrokeNow) {
+        this.board._compositeCommittedStrokeNow();
+      } else {
+        this.board.compositeAllLayers();
+      }
     }
 
-    this.board.compositeAllLayers();
+    if (user.tool === 'fill' || user.tool === 'text') {
+      this.board.compositeAllLayers();
+    }
+
+    if (!(user.tool === 'select' && user.floatingCanvas) && user.context) {
+      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
 
     // Check erased tiles and clear ownership for empty ones (don't broadcast - remote user handles that)
     if (erasedTiles && erasedTiles.size > 0) {

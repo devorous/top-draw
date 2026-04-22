@@ -66,7 +66,7 @@ const COALESCED_INPUT_TOOLS = new Set([
   'blur',
   'circleBlur',
   'glitchBlur',
-  'pixelBrush',
+  'pixel',
   'pattern'
 ]);
 
@@ -4812,6 +4812,33 @@ export class DrawingApp {
     return ['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur', 'imageBrush'].includes(toolName);
   }
 
+  _getPointerSamplePressure(e, fallbackPressure = this.self?.pressure ?? 1, fallbackPointerType = e.pointerType) {
+    if (!this._toolUsesPressure(this.self.tool) || !this.pressureEnabled) {
+      return 1;
+    }
+    const pointerType = e.pointerType || fallbackPointerType;
+    if (pointerType !== 'pen' || this.self.panning) {
+      return fallbackPressure;
+    }
+    if (e.pressure === 0) {
+      return this.self.mousedown ? fallbackPressure : 0;
+    }
+    const minP = Number(this.ui.elements.pressureMinSlider.value) / 100;
+    const maxP = Number(this.ui.elements.pressureMaxSlider.value) / 100;
+    const mappedPressure = minP + (maxP - minP) * e.pressure;
+    return Math.round(mappedPressure * 100) / 100;
+  }
+
+  _bufferPointerSample(e, fallbackPointerType = e.pointerType) {
+    const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
+    const constrainedPos = this.getConstrainedShapeDragPoint(pos.x, pos.y);
+    const pressure = this._getPointerSamplePressure(e, this.self?.pressure ?? 1, fallbackPointerType);
+    this.inputBufferManager.inputBuffer.points.push(constrainedPos.x, constrainedPos.y, pressure);
+    this.inputBufferManager.inputBuffer.pointerType = e.pointerType || fallbackPointerType;
+    this.inputBufferManager.inputBuffer.dirty = true;
+    return constrainedPos;
+  }
+
   _isPointerOnUiControl(eventTarget) {
     if (!(eventTarget instanceof Element)) return false;
     return !!eventTarget.closest(
@@ -5013,28 +5040,8 @@ export class DrawingApp {
       }
     }
 
-    const getPressureForBufferedSample = (sampleEvent) => {
-      const samplePointerType = sampleEvent.pointerType || e.pointerType;
-      if (!toolUsesPressure || !this.pressureEnabled) {
-        return 1;
-      }
-      if (samplePointerType !== 'pen' || this.self.panning) {
-        return pressure;
-      }
-      if (sampleEvent.pressure === 0) {
-        return this.self.mousedown ? this.self.pressure : 0;
-      }
-      const minP = Number(this.ui.elements.pressureMinSlider.value) / 100;
-      const maxP = Number(this.ui.elements.pressureMaxSlider.value) / 100;
-      const mappedPressure = minP + (maxP - minP) * sampleEvent.pressure;
-      return Math.round(mappedPressure * 100) / 100;
-    };
-
     const pushBufferedSample = (sampleEvent) => {
-      const samplePos = this.board.getBoardRelativePos(sampleEvent.clientX, sampleEvent.clientY);
-      const sampleConstrainedPos = this.getConstrainedShapeDragPoint(samplePos.x, samplePos.y);
-      const samplePressure = getPressureForBufferedSample(sampleEvent);
-      this.inputBufferManager.inputBuffer.points.push(sampleConstrainedPos.x, sampleConstrainedPos.y, samplePressure);
+      const sampleConstrainedPos = this._bufferPointerSample(sampleEvent, e.pointerType);
       return {
         x: sampleConstrainedPos.x,
         y: sampleConstrainedPos.y,
@@ -5055,7 +5062,6 @@ export class DrawingApp {
     }
 
     this.inputBufferManager.inputBuffer.pointerType = lastBufferedSample?.pointerType || e.pointerType;
-    this.inputBufferManager.inputBuffer.dirty = true;
     this.inputBufferManager.requestLocalFrame();
     // Handle panning instantaneously (bypasses input buffer for better responsiveness)
     if (this.self.panning && this.self.mousedown) {
@@ -5491,6 +5497,14 @@ export class DrawingApp {
           tool.onPointerDown(this.self, pending.pos, pending.event);
         }
       }
+    }
+
+    const shouldBufferPointerUp =
+      this.self.mousedown &&
+      !this.self.panning &&
+      COALESCED_INPUT_TOOLS.has(this.self.tool);
+    if (shouldBufferPointerUp) {
+      this._bufferPointerSample(e);
     }
 
     // Flush any locally-rendered-but-not-yet-sent points before ending the stroke.

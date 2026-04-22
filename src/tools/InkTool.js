@@ -220,14 +220,23 @@ export class InkTool extends Tool {
     if (user.panning || !this.offscreenCanvas || this.inputPoints.length === 0) return;
 
     const pressure = this.quantizePressure(user.pressure);
-    this.inputPoints.push([pos.x, pos.y, pressure]);
-    this.pointBuffer.push(pos.x, pos.y, Math.round(pressure * 255));
+    // Mirror the distSq < 1 guard from onPointerMoveNoRender so local inputPoints
+    // match what remote receives. Without this, a near-duplicate trailing point
+    // here reads as "zero velocity" in perfect-freehand's thinning calculation,
+    // making the local stroke's final taper slightly thicker than the remote's.
+    const lastPoint = this.inputPoints[this.inputPoints.length - 1];
+    const ddx = pos.x - lastPoint[0];
+    const ddy = pos.y - lastPoint[1];
+    if (ddx * ddx + ddy * ddy >= 1) {
+      this.inputPoints.push([pos.x, pos.y, pressure]);
+      this.pointBuffer.push(pos.x, pos.y, Math.round(pressure * 255));
 
-    if (this.dirtyBounds) {
-      this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, pos.x);
-      this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, pos.y);
-      this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, pos.x);
-      this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y);
+      if (this.dirtyBounds) {
+        this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, pos.x);
+        this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, pos.y);
+        this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, pos.x);
+        this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y);
+      }
     }
 
     this.renderStroke(true, user);
@@ -440,7 +449,9 @@ export class InkTool extends Tool {
   clearStroke() {
     if (this.offscreenCtx) this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
     this.inputPoints = [];
-    this.pointBuffer = [];
+    // pointBuffer is NOT wiped here: onPointerUp may push a final point into it,
+    // and App.js drains the buffer after onPointerUp returns so remote users
+    // receive the final point. Reset is handled in onPointerDown.
     this.board.clearTop();
   }
 

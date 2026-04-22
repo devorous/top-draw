@@ -249,8 +249,8 @@ export class PixelBrushTool {
     }
     this.strokePoints = [];
 
-    this.board.clearTop();
     this.board.endStroke(user);
+    this.board.clearTop();
     this.lastStampPos.delete(user.id);
   }
 

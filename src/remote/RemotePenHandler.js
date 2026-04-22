@@ -55,7 +55,7 @@ export class RemotePenHandler {
     ctx.arc(pos.x, pos.y, getRenderableStampRadius(radius), 0, Math.PI * 2);
     ctx.fill();
 
-    user._penLastStampPos = { x: pos.x, y: pos.y, radius };
+    user._penLastStampPos = { x: pos.x, y: pos.y, radius, pressure255: Math.round(pressure * 255) };
     user._penStrokeActive = true;
     user.penPoints = [{ x: pos.x, y: pos.y, radius }];
 
@@ -95,7 +95,12 @@ export class RemotePenHandler {
     const lastPtIdx = points.length - 2;
     const lastPressure = radii[radii.length - 1] / 255;
     const lastR = lastPressure * user.size;
-    user._penLastStampPos = { x: points[lastPtIdx], y: points[lastPtIdx + 1], radius: lastR };
+    user._penLastStampPos = {
+      x: points[lastPtIdx],
+      y: points[lastPtIdx + 1],
+      radius: lastR,
+      pressure255: radii[radii.length - 1]
+    };
     user.setPosition(points[lastPtIdx], points[lastPtIdx + 1]);
     this.updatePenPreview(user);
   }
@@ -131,7 +136,12 @@ export class RemotePenHandler {
         ctx.fill();
       }
 
-      user._penLastStampPos = { x: pos.x, y: pos.y, radius };
+      user._penLastStampPos = {
+        x: pos.x,
+        y: pos.y,
+        radius,
+        pressure255: Math.round(pressure * 255)
+      };
       if (user.penPoints) {
         user.penPoints.push({ x: pos.x, y: pos.y, radius });
       }
@@ -146,6 +156,40 @@ export class RemotePenHandler {
    */
   handlePenUp(user) {
     if (!user._penLastStampPos || !user._penOffscreen) return;
+
+    const pressure = Math.round((user.pressure ?? 1) * 255) / 255;
+    const radius = pressure * user.size;
+    const spacing = getStampSpacing(user._penLastStampPos.radius, radius);
+    const dx = user.x - user._penLastStampPos.x;
+    const dy = user.y - user._penLastStampPos.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance > 0.5) {
+      const ctx = user._penOffscreenCtx;
+      const pressure255End = Math.round(pressure * 255);
+      const steps = Math.max(1, Math.ceil(distance / spacing));
+
+      ctx.fillStyle = user._penStrokeColor;
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        const x = user._penLastStampPos.x + dx * t;
+        const y = user._penLastStampPos.y + dy * t;
+        const r = user._penLastStampPos.radius + (radius - user._penLastStampPos.radius) * t;
+        ctx.beginPath();
+        ctx.arc(x, y, getRenderableStampRadius(r), 0, Math.PI * 2);
+        ctx.fill();
+        if (user.penPoints) {
+          user.penPoints.push({ x, y, radius: r });
+        }
+      }
+
+      user._penLastStampPos = {
+        x: user.x,
+        y: user.y,
+        radius,
+        pressure255: pressure255End
+      };
+    }
 
     // Track dirty rect from pen stamp points to avoid expensive getImageData on commit
     if (user.penPoints && user.penPoints.length > 0) {

@@ -145,6 +145,7 @@ export class FlowPenTool extends Tool {
     if (this.userHardness > 1.0) this.userHardness = 1.0;
 
     this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    this.stampBuffer = [];
 
     const pressure255 = Math.round(pressure * 255);
     this.stampCircle(pos.x, pos.y, radius, pressure255);
@@ -376,7 +377,9 @@ export class FlowPenTool extends Tool {
       this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
     }
     this.lastStampPos = null;
-    this.stampBuffer = [];
+    // stampBuffer is NOT wiped here: onPointerUp generates final bridge stamps
+    // into it before calling clearStroke(), and App.js drains them afterward.
+    // Reset is handled in onPointerDown.
     this.dirtyBounds = null;
   }
 

@@ -277,7 +277,7 @@ export class InputBufferManager {
         const reduced = this._shouldPreserveStampPayload(app.self.tool)
           ? { ps: drain.ps, rs: Array.isArray(drain.rs) ? drain.rs : [] }
           : this._reduceStampPayload(drain.ps, drain.rs);
-        if ((app.self.tool === 'flowPen' || app.self.tool === 'ink') && this._hasUniformRadii(reduced.rs)) {
+        if (app.self.tool === 'ink' && this._hasUniformRadii(reduced.rs)) {
           this._recordOutgoingPoints(reduced.ps.length / 2);
           this.broadcastQueue.push(() => app.wsClient.broadcastMove(reduced.ps));
         } else {
