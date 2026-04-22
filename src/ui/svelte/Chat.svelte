@@ -271,6 +271,25 @@
     appState.chatVisible = false;
   }
 
+  async function closeChatWindow() {
+    if (expandedImage) {
+      closeImageViewer();
+      return;
+    }
+
+    if (!isPopout) {
+      hide();
+      return;
+    }
+
+    if (desktopWindowApi) {
+      await desktopWindowApi.close();
+      return;
+    }
+
+    window.close();
+  }
+
   function popoutChat() {
     onPopout?.();
   }
@@ -1459,11 +1478,19 @@
       endResize();
     };
 
+    const handleDocumentKeydown = (event) => {
+      if (event.key !== 'Escape' || (!visible && !isPopout)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void closeChatWindow();
+    };
+
     window.addEventListener('mousemove', onDrag);
     window.addEventListener('mouseup', endDrag);
     window.addEventListener('mousemove', onResize);
     window.addEventListener('mouseup', endResize);
     window.addEventListener('blur', handleBlurOrHide);
+    document.addEventListener('keydown', handleDocumentKeydown);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
@@ -1472,6 +1499,7 @@
       window.removeEventListener('mousemove', onResize);
       window.removeEventListener('mouseup', endResize);
       window.removeEventListener('blur', handleBlurOrHide);
+      document.removeEventListener('keydown', handleDocumentKeydown);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   });
