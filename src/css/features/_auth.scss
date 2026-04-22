@@ -734,9 +734,33 @@ body.desktop-window-chrome #landingPage {
   }
 
   &.selected {
+    height: 120px;
+    align-items: flex-start;
     border-color: var(--accent-primary);
     background: var(--bg-elevated);
     box-shadow: 0 0 0 2px var(--accent-glow);
+
+    .roomPreview {
+      height: 100%;
+    }
+
+    .roomInfo {
+      height: 100%;
+    }
+
+    .roomHeading {
+      flex: 1;
+      min-height: 0;
+      align-items: flex-start;
+      overflow: hidden;
+    }
+
+    .roomDescription {
+      height: 100%;
+      white-space: normal;
+      overflow-y: auto;
+      text-overflow: clip;
+    }
   }
 
   &:last-child {
@@ -801,16 +825,21 @@ body.desktop-window-chrome #landingPage {
   flex-direction: column;
   gap: 4px;
   flex: 1;
+  min-width: 0;
 }
 
-.roomId {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-  font-family: 'Courier New', monospace;
+.roomHeading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .roomDescription {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
   font-size: 12px;
   color: var(--text-secondary);
   font-style: italic;
@@ -819,12 +848,21 @@ body.desktop-window-chrome #landingPage {
   white-space: nowrap;
 }
 
+.roomId {
+  flex: 0 0 auto;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: 'Courier New', monospace;
+}
+
 .roomMeta {
   font-size: 12px;
   color: var(--text-muted);
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .roomUserCount {

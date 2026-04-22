@@ -342,8 +342,10 @@ export class LandingPage {
           <img src="${previewUrl}" alt="Room preview" loading="lazy" />
         </div>
         <div class="roomInfo">
-          <div class="roomId">${room.id}</div>
-          ${room.description ? `<div class="roomDescription">${this.escapeHtml(room.description)}</div>` : ''}
+          <div class="roomHeading">
+            <div class="roomId">${room.id}</div>
+            ${room.description ? `<div class="roomDescription">${this.escapeHtml(room.description)}</div>` : ''}
+          </div>
           <div class="roomMeta">
             <span class="roomUserCount">${room.userCount || 0} ${room.userCount === 1 ? 'user' : 'users'}</span>
             ${room.id === 'lobby' ? '<span class="roomBadge default">Default</span>' : ''}
