@@ -43,7 +43,7 @@ import {
   openImageViaNativeDialog,
   saveCanvasViaNativeDialog
 } from './platform/desktop.js';
-import { ensureClientCanConnect, formatOutdatedClientMessage } from './VersionChecker.js';
+import { ensureClientCanConnect, formatOutdatedClientMessage, getVersionStatus } from './VersionChecker.js';
 import { broadcastChatPopoutEvent, focusChatPopout } from './platform/chatPopoutBridge.js';
 import initWasm from './wasm/ddraw_wasm.js';
 
@@ -373,6 +373,9 @@ export class DrawingApp {
     this._checkpointIntervalMs = 60000;
     this._memoryCompactionTimer = null;
     this._memoryCompactionDelayMs = 2500;
+    this._versionPollTimer = null;
+    this._versionUpdateNoticed = false;
+    this._reloadRecommended = false;
 
     this.snapshotManager = new SnapshotManager(this);
   }
@@ -727,6 +730,7 @@ export class DrawingApp {
     }
 
     this.connectForRoomDiscovery();
+    this.startVersionPolling();
   }
 
   /**
@@ -2390,7 +2394,7 @@ export class DrawingApp {
     const versionStatus = await ensureClientCanConnect({ showWarning: true });
     if (!versionStatus.allowed) {
       this.syncClient.hideOverlay();
-      this.ui.showToast('Update required before connecting', 3500, 'error');
+      this.showUpdateRequiredNotice(versionStatus);
       if (this.landingPage) {
         this.landingPage.show();
         this.landingPage.showError(formatOutdatedClientMessage(versionStatus));
@@ -2592,6 +2596,7 @@ export class DrawingApp {
 
     const versionStatus = await ensureClientCanConnect({ showWarning: false });
     if (!versionStatus.allowed) {
+      this.showUpdateRequiredNotice(versionStatus);
       if (this.landingPage) {
         this.landingPage.updateConnectionStatus('disconnected');
         this.landingPage.showError(formatOutdatedClientMessage(versionStatus));
@@ -3013,11 +3018,69 @@ export class DrawingApp {
         this.auth.setRememberMe(false);
       }
       this.showModOverlay(label, reason || '');
+    } else if (code === 4000 || String(reason || '').includes('server-restarting')) {
+      this.handleServerUpdateNotice({
+        message: 'Ddraw is updating. Reload once the update finishes, or keep drawing offline.',
+        kind: 'restart',
+        issuer: 'Server',
+        persistent: true
+      });
     } else {
       // Show disconnection banner if we're in a room (not on landing page)
       console.log('[App] Showing disconnection banner');
       this.ui.showDisconnectionBanner();
     }
+  }
+
+  startVersionPolling() {
+    if (this._versionPollTimer || typeof window === 'undefined') return;
+    this._versionPollTimer = window.setInterval(() => {
+      if (this.isOfflineMode) return;
+      void this.checkForRuntimeUpdate();
+    }, 60000);
+  }
+
+  async checkForRuntimeUpdate({ force = true } = {}) {
+    if (this._versionUpdateNoticed) return;
+    const status = await getVersionStatus({ force });
+    const latest = status?.serverVersion?.latest || status?.latestVersion;
+    if (!latest || !status.clientVersion || latest === status.clientVersion) return;
+
+    this._versionUpdateNoticed = true;
+    this.showUpdateAvailableNotice(status);
+  }
+
+  showUpdateAvailableNotice(versionStatus = {}) {
+    this._reloadRecommended = true;
+    const latest = versionStatus.latestVersion || versionStatus.serverVersion?.latest || 'the latest version';
+    this.ui.showDisconnectionBanner({
+      message: `A new Ddraw version is available (${latest}). Reload to update, or continue offline.`,
+      icon: '!',
+      retryLabel: 'Reload App',
+      offlineLabel: 'Continue Offline'
+    });
+  }
+
+  showUpdateRequiredNotice(versionStatus = {}) {
+    this._reloadRecommended = true;
+    this.ui.showToast('Update required before connecting online', 3500, 'error');
+    this.ui.showDisconnectionBanner({
+      message: `${formatOutdatedClientMessage(versionStatus)} You can still draw offline.`,
+      icon: '!',
+      retryLabel: 'Reload App',
+      offlineLabel: 'Continue Offline'
+    });
+  }
+
+  handleServerUpdateNotice(data = {}) {
+    this._reloadRecommended = true;
+    this.ui.showToast(data.message || 'Ddraw is updating', 5000);
+    this.ui.showDisconnectionBanner({
+      message: data.message || 'Ddraw is updating. Reload in a moment, or continue offline.',
+      icon: '!',
+      retryLabel: 'Reload App',
+      offlineLabel: 'Continue Offline'
+    });
   }
 
   /**
@@ -3315,9 +3378,19 @@ export class DrawingApp {
    * Handles retry connection button click from disconnection banner.
    */
   async handleRetryConnection() {
+    if (this._reloadRecommended) {
+      window.location.reload();
+      return;
+    }
+
     this.ui.setRetryButtonState(true);
 
     try {
+      await this.checkForRuntimeUpdate({ force: true });
+      if (this._reloadRecommended) {
+        this.ui.setRetryButtonState(false);
+        return;
+      }
       await this.reconnect();
       // On success, banner will be hidden by handleJoinAfterConnect
     } catch (err) {

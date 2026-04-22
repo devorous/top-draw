@@ -162,6 +162,7 @@ function shouldAllowWsMessage(ws, data) {
     case T.ROOM_REGISTER:
     case T.ROOM_UNREGISTER:
     case T.GLOBAL_ROLE_SET:
+    case T.GLOBAL_MESSAGE:
     case T.BOARD_SNAPSHOT_DELETE:
     case T.CHECKPOINT_LIST:
     case T.CHECKPOINT_GET:
@@ -711,6 +712,7 @@ let Msg;
 let POOLED_MSG;
 let roomManager;
 let onlineUsersLogInterval;
+let isShuttingDown = false;
 
 // Messenger: username -> WebSocket
 const messengerClients = new Map();
@@ -989,6 +991,18 @@ function broadcastToAll(payload) {
     if (client.readyState === WebSocket.OPEN) {
       client.send(buffer);
     }
+  });
+}
+
+function broadcastGlobalMessage({ message, kind = 'notice', issuer = 'Server', persistent = false }) {
+  const text = String(message || '').trim().slice(0, 500);
+  if (!text) return;
+  broadcastToAll({
+    t: T.GLOBAL_MESSAGE,
+    g: text,
+    k: String(kind || 'notice').slice(0, 32),
+    n: String(issuer || 'Server').slice(0, 20),
+    a: !!persistent
   });
 }
 
@@ -1698,6 +1712,17 @@ wss.on('connection', async (ws, req) => {
   }
 
   ws.on('message', async (rawData) => {
+    if (isShuttingDown) {
+      sendTo(ws, {
+        t: T.GLOBAL_MESSAGE,
+        g: 'Ddraw is updating. Please reload in a moment or continue offline.',
+        k: 'restart',
+        n: 'Server',
+        a: true
+      });
+      return;
+    }
+
     // Per-connection message rate limiting
     if (!DISABLE_RATE_LIMITS) {
       // Use per-connection keying here so one noisy socket (or another local tab)
@@ -3092,6 +3117,23 @@ wss.on('connection', async (ws, req) => {
           break;
         }
 
+        case T.GLOBAL_MESSAGE: {
+          if ((ws.globalRole || 0) < Role.HOLY) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Only HOLY or DEITY can send global messages' });
+            break;
+          }
+
+          const issuer = ws.username || ws.authUsername || ws.userId || 'Staff';
+          broadcastGlobalMessage({
+            message: data.g,
+            kind: data.k || 'staff',
+            issuer,
+            persistent: !!data.a
+          });
+          sendTo(ws, { t: T.MOD_RESULT, a: true });
+          break;
+        }
+
         case T.AUTH_REGISTER: {
           const db = getDB();
           if (!db) {
@@ -3587,6 +3629,42 @@ wss.on('connection', async (ws, req) => {
     console.error('WebSocket error:', error);
   });
 });
+
+function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`[Server] ${signal} received, warning clients before shutdown`);
+
+  if (Msg) {
+    broadcastGlobalMessage({
+      message: 'Ddraw is updating. Your connection will drop briefly. Reload in a moment, or continue offline.',
+      kind: 'restart',
+      issuer: 'Server',
+      persistent: true
+    });
+  }
+
+  server.close(() => {
+    console.log('[Server] HTTP server closed');
+  });
+
+  setTimeout(() => {
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN || client.readyState === WebSocket.CONNECTING) {
+        client.close(4000, 'server-restarting');
+      }
+    });
+  }, 2500);
+
+  setTimeout(() => {
+    metricsTracker.stop?.();
+    clearInterval(onlineUsersLogInterval);
+    process.exit(0);
+  }, 8000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 init().catch(err => {
   console.error('Failed to initialize:', err);

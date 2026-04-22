@@ -45,6 +45,15 @@ export function setupWebSocketHandlers(app) {
   setupSyncHandlers(wsClient, app);
   setupSnapshotHandlers(wsClient, app);
 
+  wsClient.on('global_message', (data) => {
+    if (data.kind === 'restart' || data.kind === 'update') {
+      app.handleServerUpdateNotice?.(data);
+      return;
+    }
+    const prefix = data.issuer ? `${data.issuer}: ` : '';
+    app.ui?.showToast?.(`${prefix}${data.message}`, data.persistent ? 8000 : 4500);
+  });
+
   // Setup buffered handlers (all events that modify canvas state)
   setupDrawingHandlers(wrapHandler, app);
   setupSelectionHandlers(wrapHandler, app);

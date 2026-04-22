@@ -98,6 +98,7 @@ message Msg {
     GLOBAL_ROLE_SET = 89;          // Set a user's global role (DEITY only)
     TEXT_APPLY = 90;               // Apply text with explicit content and render state
     CSDM = 91;                     // Change shape draw mode
+    GLOBAL_MESSAGE = 92;           // Holy/Deity global toast or server update notice
     CF = 116;                      // Change font
     BOARD_SNAPSHOT_SAVE = 96;
     BOARD_SNAPSHOT_LIST_REQUEST = 97;

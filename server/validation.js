@@ -18,6 +18,7 @@ const MAX_FILL_BLUR_RADIUS = 25;
 const MAX_LAYER_INDEX = 4;
 const MAX_NAME_LENGTH = 20;
 const MAX_CHAT_LENGTH = 500;
+const MAX_GLOBAL_MESSAGE_LENGTH = 500;
 const MAX_CHAT_MESSAGE_ID_LENGTH = 64;
 const MAX_CHAT_REACTION_LENGTH = 16;
 const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -282,6 +283,13 @@ export async function sanitizeMessage(data) {
       sanitized.g = sanitizeString(data.g, MAX_CHAT_LENGTH, { trim: true });
       sanitized.chatMessageId = sanitizeString(data.chatMessageId ?? data.chat_message_id, MAX_CHAT_MESSAGE_ID_LENGTH);
       if (!sanitized.chatMessageId) return null;
+      return sanitized.g ? sanitized : null;
+
+    case T.GLOBAL_MESSAGE:
+      sanitized.g = sanitizeString(data.g, MAX_GLOBAL_MESSAGE_LENGTH, { trim: true });
+      sanitized.k = sanitizeString(data.k, 32, { trim: true });
+      sanitized.n = sanitizeString(data.n, MAX_NAME_LENGTH, { trim: true });
+      sanitized.a = sanitizeBoolean(data.a);
       return sanitized.g ? sanitized : null;
 
     case T.DM:

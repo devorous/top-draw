@@ -2017,7 +2017,7 @@ menuBtn: document.getElementById('menuBtn'),
   /**
    * Shows the disconnection warning banner.
    */
-  showDisconnectionBanner() {
+  showDisconnectionBanner(options = {}) {
     const { disconnectionBanner } = this.elements;
     console.log('[UI] showDisconnectionBanner called', { exists: !!disconnectionBanner });
     if (!disconnectionBanner) {
@@ -2025,9 +2025,38 @@ menuBtn: document.getElementById('menuBtn'),
       return;
     }
 
+    this.configureDisconnectionBanner(options);
     disconnectionBanner.classList.add('show');
-    this.setRetryButtonState(false); // Reset to normal state
+    this.setRetryButtonState(false);
     console.log('[UI] Banner should now be visible');
+  }
+
+  configureDisconnectionBanner(options = {}) {
+    const {
+      message = 'You have lost connection to the server',
+      icon = '',
+      retryLabel = 'Retry Connection',
+      retryVisible = true,
+      offlineLabel = 'Continue Offline',
+      offlineVisible = true
+    } = options;
+    const { disconnectionBanner, retryConnectionBtn } = this.elements;
+    if (!disconnectionBanner) return;
+
+    const textEl = disconnectionBanner.querySelector('.disconnectionText');
+    const iconEl = disconnectionBanner.querySelector('.disconnectionIcon');
+    const offlineBtn = document.getElementById('switchOfflineBtn');
+    if (textEl) textEl.textContent = message;
+    if (iconEl && icon) iconEl.textContent = icon;
+    if (retryConnectionBtn) {
+      retryConnectionBtn.dataset.defaultLabel = retryLabel;
+      retryConnectionBtn.textContent = retryLabel;
+      retryConnectionBtn.style.display = retryVisible ? '' : 'none';
+    }
+    if (offlineBtn) {
+      offlineBtn.textContent = offlineLabel;
+      offlineBtn.style.display = offlineVisible ? '' : 'none';
+    }
   }
 
   /**
@@ -2054,7 +2083,7 @@ menuBtn: document.getElementById('menuBtn'),
       retryConnectionBtn.disabled = true;
       retryConnectionBtn.classList.add('loading');
     } else {
-      retryConnectionBtn.textContent = 'Retry Connection';
+      retryConnectionBtn.textContent = retryConnectionBtn.dataset.defaultLabel || 'Retry Connection';
       retryConnectionBtn.disabled = false;
       retryConnectionBtn.classList.remove('loading');
     }

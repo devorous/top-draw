@@ -47,7 +47,8 @@
   font-size: 14px;
   font-weight: 500;
   flex: 1;
-  white-space: nowrap;
+  white-space: normal;
+  min-width: 0;
 }
 
 .disconnectionActions {

@@ -783,6 +783,15 @@ export class WebSocketClient {
         this.emit('staff_msg', { sessionIndex: data.u, message: data.g, messageId: data.chatMessageId });
         break;
 
+      case T.GLOBAL_MESSAGE:
+        this.emit('global_message', {
+          message: data.g || '',
+          kind: data.k || 'notice',
+          issuer: data.n || 'Server',
+          persistent: !!data.a
+        });
+        break;
+
       case T.DM:
         this.emit('dm', { sessionIndex: data.u, message: data.g, messageId: data.chatMessageId });
         break;
@@ -2133,6 +2142,15 @@ export class WebSocketClient {
       t: T.GLOBAL_ROLE_SET,
       targetUsername: targetUsername,
       newGlobalRole: newGlobalRole
+    });
+  }
+
+  sendGlobalMessage(message, { kind = 'staff', persistent = false } = {}) {
+    this.send({
+      t: T.GLOBAL_MESSAGE,
+      g: message,
+      k: kind,
+      a: !!persistent
     });
   }
 

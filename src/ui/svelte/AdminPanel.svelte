@@ -19,10 +19,11 @@
   let selfRole = $derived(appState.selfRole);
 
   const TAB_STATS = 'stats';
+  const TAB_MESSAGE = 'message';
   const TAB_LIVE = 'live';
   const TAB_DB = 'db';
 
-  let activeTab = $state(TAB_STATS);
+  let activeTab = $state(TAB_MESSAGE);
   let statsLoading = $state(false);
   let collectionLoading = $state(false);
   let liveLoading = $state(false);
@@ -32,6 +33,9 @@
   let liveData = $state(null);
   let selectedCollection = $state('users');
   let collectionData = $state({ documents: [], total: 0, collection: 'users' });
+  let globalMessage = $state('');
+  let globalPersistent = $state(false);
+  let globalMessageStatus = $state('');
 
   $effect(() => {
     if (visible && selfRole >= 9) {
@@ -119,6 +123,24 @@
     void loadCollection(name);
   }
 
+  function sendGlobalMessage() {
+    const message = globalMessage.trim();
+    if (!message) {
+      globalMessageStatus = 'Enter a message first.';
+      return;
+    }
+
+    window.app?.wsClient?.sendGlobalMessage?.(message, {
+      kind: 'staff',
+      persistent: globalPersistent
+    });
+    globalMessage = '';
+    globalMessageStatus = 'Global message sent.';
+    setTimeout(() => {
+      if (globalMessageStatus === 'Global message sent.') globalMessageStatus = '';
+    }, 2500);
+  }
+
   function formatValue(value) {
     if (value == null) return 'null';
     if (typeof value === 'object') return JSON.stringify(value, null, 2);
@@ -157,7 +179,7 @@
   });
 </script>
 
-{#if visible && selfRole >= 9}
+{#if visible && selfRole >= 8}
   <div
     class="admin-overlay"
     onclick={(e) => e.target === e.currentTarget && hide()}
@@ -169,7 +191,7 @@
       <div class="admin-header">
         <div>
           <h3>Admin Panel</h3>
-          <p>Deity-only server overview and database browser.</p>
+          <p>{selfRole >= 9 ? 'Server overview, database browser, and global messages.' : 'Holy global message controls.'}</p>
         </div>
         <button class="admin-close" onclick={hide} title="Close">&times;</button>
       </div>
@@ -179,12 +201,38 @@
       {/if}
 
       <div class="admin-tabs">
-        <button class:active={activeTab === TAB_STATS} onclick={() => activeTab = TAB_STATS} type="button">Stats</button>
-        <button class:active={activeTab === TAB_LIVE}  onclick={() => activeTab = TAB_LIVE}  type="button">Live</button>
-        <button class:active={activeTab === TAB_DB}    onclick={() => activeTab = TAB_DB}    type="button">Database</button>
+        <button class:active={activeTab === TAB_MESSAGE} onclick={() => activeTab = TAB_MESSAGE} type="button">Message</button>
+        {#if selfRole >= 9}
+          <button class:active={activeTab === TAB_STATS} onclick={() => activeTab = TAB_STATS} type="button">Stats</button>
+          <button class:active={activeTab === TAB_LIVE}  onclick={() => activeTab = TAB_LIVE}  type="button">Live</button>
+          <button class:active={activeTab === TAB_DB}    onclick={() => activeTab = TAB_DB}    type="button">Database</button>
+        {/if}
       </div>
 
       <div class="admin-body">
+        {#if activeTab === TAB_MESSAGE}
+        <section class="admin-section">
+          <div class="section-head">
+            <h4>Global Message</h4>
+            <button class="btn primary small" type="button" onclick={sendGlobalMessage}>Send</button>
+          </div>
+          <textarea
+            class="global-message-input"
+            bind:value={globalMessage}
+            maxlength="500"
+            placeholder="Message shown as a toast to everyone currently connected"
+          ></textarea>
+          <label class="global-message-option">
+            <input type="checkbox" bind:checked={globalPersistent}>
+            Longer display
+          </label>
+          <div class="collection-meta">
+            <span>{globalMessage.length} / 500</span>
+            <span>{globalMessageStatus}</span>
+          </div>
+        </section>
+        {/if}
+
         {#if activeTab === TAB_STATS}
         <section class="admin-section">
           <div class="section-head">
@@ -567,6 +615,31 @@
     border-radius: 8px;
     padding: 0.85rem;
     min-height: 0;
+  }
+
+  .global-message-input {
+    min-height: 120px;
+    resize: vertical;
+    background: #1b1f27;
+    color: #f0f2f5;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 7px;
+    padding: 0.75rem;
+    font: inherit;
+    line-height: 1.4;
+  }
+
+  .global-message-input:focus {
+    outline: none;
+    border-color: rgba(0, 212, 170, 0.45);
+  }
+
+  .global-message-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: #cfd6e3;
+    font-size: 0.84rem;
   }
 
   .admin-section.grow {
