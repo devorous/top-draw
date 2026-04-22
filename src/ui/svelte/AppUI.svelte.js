@@ -299,11 +299,20 @@ export function initSvelteUI(app) {
     components.colorPalette = mount(ColorPalette, {
       target: colorPaletteTarget,
       props: {
-        onColorSelect: (colorOrCallback) => {
-          if (typeof colorOrCallback === 'function') {
-            colorOrCallback(app.self?.color || [0, 0, 0, 255]);
+        onColorSelect: (colorOrCallbackOrPreset) => {
+          if (typeof colorOrCallbackOrPreset === 'function') {
+            colorOrCallbackOrPreset(app.self?.color || [0, 0, 0, 255], {
+              tool: app.self?.tool,
+              size: app.self?.size
+            });
+          } else if (
+            colorOrCallbackOrPreset !== null &&
+            typeof colorOrCallbackOrPreset === 'object' &&
+            'color' in colorOrCallbackOrPreset
+          ) {
+            app.applyCustomPreset(colorOrCallbackOrPreset);
           } else {
-            app.handlePaletteColorSelect(colorOrCallback);
+            app.handlePaletteColorSelect(colorOrCallbackOrPreset);
           }
         }
       }

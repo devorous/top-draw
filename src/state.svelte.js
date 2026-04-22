@@ -37,7 +37,7 @@ class DrawingState {
 
   // Color Palette
   recentColors = $state([]);
-  customColors = $state([]);
+  customColors = $state(loadCustomColors());
 
   // UI
   boardMenuOpen = $state(null); // null | 'blend' | 'layers'
@@ -93,6 +93,41 @@ function colorsEqual(a, b) {
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
 }
 
+function normalizeCustomPreset(item) {
+  if (Array.isArray(item)) {
+    return { color: [...item], tool: null, size: null };
+  }
+
+  if (!item || !Array.isArray(item.color)) {
+    return null;
+  }
+
+  return {
+    color: [...item.color],
+    tool: item.tool || null,
+    size: item.size != null ? item.size : null
+  };
+}
+
+function saveCustomColors() {
+  try {
+    localStorage.setItem('topdraw_customColors', JSON.stringify(appState.customColors));
+  } catch (e) {
+    console.warn('Failed to save custom colors:', e);
+  }
+}
+
+function loadCustomColors() {
+  try {
+    const saved = localStorage.getItem('topdraw_customColors');
+    if (!saved) return [];
+    return JSON.parse(saved).map(normalizeCustomPreset).filter(Boolean);
+  } catch (e) {
+    console.warn('Failed to load custom colors:', e);
+    return [];
+  }
+}
+
 export function addRecentColor(color) {
   appState.recentColors = [
     [...color],
@@ -100,14 +135,37 @@ export function addRecentColor(color) {
   ].slice(0, 6);
 }
 
-export function addCustomColor(color) {
-  const exists = appState.customColors.some(c => colorsEqual(c, color));
+export function addCustomColor(color, settings = {}) {
+  const tool = settings.tool || null;
+  const size = settings.size != null ? settings.size : null;
+  const colorlessTools = ['erase', 'blur', 'circleBlur', 'glitchBlur', 'select', 'pan', 'zoom', 'rotate', 'inkdropper'];
+  const normalizedColor = colorlessTools.includes(tool) ? [0, 0, 0, 0] : [...color];
+
+  const exists = appState.customColors.some(item => {
+    const preset = normalizeCustomPreset(item);
+    return preset &&
+      colorsEqual(preset.color, normalizedColor) &&
+      preset.tool === tool &&
+      preset.size === size;
+  });
+
   if (exists || appState.customColors.length >= 12) return;
-  appState.customColors = [...appState.customColors, [...color]];
+  appState.customColors = [...appState.customColors, { color: normalizedColor, tool, size }];
+  saveCustomColors();
 }
 
-export function removeCustomColor(color) {
-  appState.customColors = appState.customColors.filter(c => !colorsEqual(c, color));
+export function removeCustomColor(presetToRemove) {
+  const target = normalizeCustomPreset(presetToRemove);
+  if (!target) return;
+
+  appState.customColors = appState.customColors.filter(item => {
+    const preset = normalizeCustomPreset(item);
+    return !preset ||
+      !colorsEqual(preset.color, target.color) ||
+      preset.tool !== target.tool ||
+      preset.size !== target.size;
+  });
+  saveCustomColors();
 }
 
 export function toggleLayerVisibility(layerIndex) {

@@ -1,5 +1,6 @@
 export const KEYBIND_CATEGORY_ORDER = [
   'Tools',
+  'Colors',
   'Selection',
   'History',
   'Canvas Navigation',
@@ -127,6 +128,48 @@ export const KEYBIND_ACTIONS = [
     description: 'Swap the primary and secondary saved colors.',
     category: 'Tools',
     defaultBinding: 'X'
+  },
+  {
+    id: 'color.slot1',
+    label: 'Select custom color 1',
+    description: 'Select the first saved custom color preset.',
+    category: 'Colors',
+    defaultBinding: '1'
+  },
+  {
+    id: 'color.slot2',
+    label: 'Select custom color 2',
+    description: 'Select the second saved custom color preset.',
+    category: 'Colors',
+    defaultBinding: '2'
+  },
+  {
+    id: 'color.slot3',
+    label: 'Select custom color 3',
+    description: 'Select the third saved custom color preset.',
+    category: 'Colors',
+    defaultBinding: '3'
+  },
+  {
+    id: 'color.slot4',
+    label: 'Select custom color 4',
+    description: 'Select the fourth saved custom color preset.',
+    category: 'Colors',
+    defaultBinding: '4'
+  },
+  {
+    id: 'color.slot5',
+    label: 'Select custom color 5',
+    description: 'Select the fifth saved custom color preset.',
+    category: 'Colors',
+    defaultBinding: '5'
+  },
+  {
+    id: 'color.slot6',
+    label: 'Select custom color 6',
+    description: 'Select the sixth saved custom color preset.',
+    category: 'Colors',
+    defaultBinding: '6'
   },
   {
     id: 'selection.copy',

@@ -6,6 +6,29 @@
   const maxRecentColors = 6;
   const maxCustomColors = 12;
 
+  const TOOL_ICON_URLS = {
+    brush: '/images/brush-icon.svg',
+    flowPen: '/images/brush-icon.svg',
+    ink: '/images/brush-icon.svg',
+    pixel: '/images/brush-icon.svg',
+    line: '/images/line-icon.svg',
+    rectangle: '/images/rectangle-icon.svg',
+    circle: '/images/circle-icon.svg',
+    text: '/images/text-icon.svg',
+    erase: '/images/eraser-icon.svg',
+    blur: '/images/blend-icon.svg',
+    circleBlur: '/images/circle-blur-icon.svg',
+    glitchBlur: '/images/glitch-icon.svg',
+    fill: '/images/fillbucket-icon.svg',
+    select: '/images/select-icon.svg',
+    imageBrush: '/images/pepper.png',
+    pattern: '/images/pattern-icon.svg',
+    inkdropper: '/images/inkdropper-icon.svg',
+    pan: '/images/move-icon.svg',
+    zoom: '/images/magnifying-glass.svg',
+    rotate: '/images/rotate-icon.svg'
+  };
+
   function colorToRgba(color) {
     return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3]})`;
   }
@@ -17,6 +40,10 @@
     return `#${r}${g}${b}`;
   }
 
+  function getToolIconUrl(tool) {
+    return TOOL_ICON_URLS[tool] || null;
+  }
+
   function selectColor(color) {
     appState.currentColor = [...color];
     if (onColorSelect) {
@@ -24,21 +51,28 @@
     }
   }
 
+  function selectPreset(preset) {
+    appState.currentColor = [...preset.color];
+    if (onColorSelect) {
+      onColorSelect(preset);
+    }
+  }
+
   function handleAddCustom() {
     const current = appState.currentColor;
     if (onColorSelect) {
-      onColorSelect((currentColor) => {
-        addCustomColor(currentColor);
+      onColorSelect((currentColor, settings) => {
+        addCustomColor(currentColor, settings);
       });
     } else {
       addCustomColor(current);
     }
   }
 
-  function handleRemoveCustom(color, event) {
+  function handleRemoveCustom(preset, event) {
     event.preventDefault();
     event.stopPropagation();
-    removeCustomColor(color);
+    removeCustomColor(preset);
   }
 
   // Fill empty slots for recent colors
@@ -75,14 +109,20 @@
       Custom <span class="palette-hint">(click + to save)</span>
     </span>
     <div class="swatch-grid">
-      {#each appState.customColors as color}
-        <button
-          class="swatch"
-          style="background-color: {colorToRgba(color)}"
-          title="{colorToHex(color)} (right-click to remove)"
-          onclick={() => selectColor(color)}
-          oncontextmenu={(e) => handleRemoveCustom(color, e)}
-        ></button>
+      {#each appState.customColors as preset}
+        <div class="custom-swatch-wrap">
+          <button
+            class="swatch"
+            style="background-color: {colorToRgba(preset.color)}"
+            title="{colorToHex(preset.color)} (right-click to remove)"
+            onclick={() => selectPreset(preset)}
+            oncontextmenu={(e) => handleRemoveCustom(preset, e)}
+          >
+            {#if preset.tool && getToolIconUrl(preset.tool)}
+              <img src={getToolIconUrl(preset.tool)} alt={preset.tool} class="tool-icon-overlay" />
+            {/if}
+          </button>
+        </div>
       {/each}
       {#if appState.customColors.length < maxCustomColors}
         <button
@@ -140,6 +180,10 @@
     transition: all 0.15s ease;
     padding: 0;
     background: none;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .swatch:not(.empty):not(.add-swatch):hover {
@@ -173,5 +217,17 @@
     background: rgba(0, 212, 170, 0.2);
     border-color: rgba(0, 212, 170, 0.4);
     transform: scale(1.05);
+  }
+
+  .custom-swatch-wrap {
+    position: relative;
+  }
+
+  .tool-icon-overlay {
+    width: 10px;
+    height: 10px;
+    filter: brightness(0) invert(1);
+    opacity: 0.8;
+    pointer-events: none;
   }
 </style>

@@ -328,6 +328,20 @@ export class KeyboardHandler {
         app.selectTool('rotate');
         return true;
 
+      case 'color.slot1':
+      case 'color.slot2':
+      case 'color.slot3':
+      case 'color.slot4':
+      case 'color.slot5':
+      case 'color.slot6': {
+        const idx = parseInt(actionId.replace('color.slot', ''), 10) - 1;
+        const preset = appState.customColors[idx];
+        if (preset) {
+          app.applyCustomPreset(preset);
+        }
+        return !!preset;
+      }
+
       default:
         return false;
     }

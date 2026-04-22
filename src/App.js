@@ -3838,6 +3838,7 @@ export class DrawingApp {
 
     this.applyCursorStyleForTool(tool);
     this.self.setTool(tool);
+    appState.currentTool = tool;
 
     // Restore locked tool values before activation so any activate-time preview
     // uses the new tool's resolved settings instead of the previous tool's state.
@@ -4326,6 +4327,7 @@ export class DrawingApp {
     const size = Number(e.target.value);
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(size));
     this.self.setSize(size);
+    appState.currentSize = size;
     this.ui.updateCursorSize(size);
     this.ui.updateSquarePositions(size);
     const cursorStyle = this.ui.getCursorStyleForTool(this.self.tool, this.self);
@@ -4613,6 +4615,8 @@ export class DrawingApp {
     const color = colorOrCallback;
     this.self.setColor(color);
     this.self.setOpacity(color[3]);
+    appState.currentColor = [...color];
+    this._syncActiveColorSlot(color);
     this.ui.updateSelfColor(color);
     this.ui.updateSelfTextStyle(this.self.size, color, this.self.font);
     this.ui.updateopacityValue(color[3]);
@@ -4644,6 +4648,23 @@ export class DrawingApp {
     }
 
     addRecentColor(color);
+  }
+
+  applyCustomPreset(preset) {
+    if (!preset?.color) return;
+
+    if (preset.tool) {
+      this.selectTool(preset.tool);
+    }
+
+    const colorlessTools = ['erase', 'blur', 'circleBlur', 'glitchBlur', 'select', 'pan', 'zoom', 'rotate', 'inkdropper'];
+    if (!colorlessTools.includes(preset.tool)) {
+      this.handlePaletteColorSelect(preset.color);
+    }
+
+    if (preset.size != null) {
+      this.handleSizeChange({ target: { value: preset.size } });
+    }
   }
 
   handleColorInputChange(rgba) {
