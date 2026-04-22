@@ -12,6 +12,8 @@ export class RemotePenHandler {
    */
   constructor(board) {
     this.board = board;
+    this.hardnessCanvas = null;
+    this.hardnessCtx = null;
   }
 
   /**
@@ -234,12 +236,13 @@ export class RemotePenHandler {
       layerCtx.globalCompositeOperation = 'source-over';
       layerCtx.globalAlpha = user._penAlpha;
 
-      this.compositeWithHardness(layerCtx, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
+      const hardnessCanvas = this.getHardnessCanvas(user._penOffscreen, user.size, user._penHardness, user._penStrokeColor);
+      layerCtx.drawImage(hardnessCanvas, 0, 0);
 
       this.board.forEachMirrorRegion({ points: user.penPoints }, (region) => {
         layerCtx.save();
         layerCtx.globalCompositeOperation = 'source-over';
-        this.board.drawMirroredCanvas(layerCtx, user._penOffscreen, region, 0, 0);
+        this.board.drawMirroredCanvas(layerCtx, hardnessCanvas, region, 0, 0);
         layerCtx.restore();
       });
 
@@ -264,10 +267,11 @@ export class RemotePenHandler {
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     user.context.globalAlpha = user._penAlpha;
 
-    this.compositeWithHardness(user.context, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
+    const hardnessCanvas = this.getHardnessCanvas(user._penOffscreen, user.size, user._penHardness, user._penStrokeColor);
+    user.context.drawImage(hardnessCanvas, 0, 0);
 
     this.board.forEachMirrorRegion({ points: user.penPoints }, (region) => {
-      this.board.drawMirroredCanvas(user.context, user._penOffscreen, region, 0, 0);
+      this.board.drawMirroredCanvas(user.context, hardnessCanvas, region, 0, 0);
     });
 
     user.context.globalAlpha = 1.0;
@@ -298,5 +302,20 @@ export class RemotePenHandler {
     } else {
       ctx.drawImage(sourceCanvas, x, y);
     }
+  }
+
+  getHardnessCanvas(sourceCanvas, size, hardness, strokeColor) {
+    if (!this.hardnessCanvas ||
+        this.hardnessCanvas.width !== sourceCanvas.width ||
+        this.hardnessCanvas.height !== sourceCanvas.height) {
+      this.hardnessCanvas = document.createElement('canvas');
+      this.hardnessCanvas.width = sourceCanvas.width;
+      this.hardnessCanvas.height = sourceCanvas.height;
+      this.hardnessCtx = this.hardnessCanvas.getContext('2d');
+    }
+
+    this.hardnessCtx.clearRect(0, 0, this.hardnessCanvas.width, this.hardnessCanvas.height);
+    this.compositeWithHardness(this.hardnessCtx, sourceCanvas, size, hardness, strokeColor, 0, 0);
+    return this.hardnessCanvas;
   }
 }

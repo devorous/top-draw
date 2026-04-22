@@ -70,6 +70,8 @@ export class FlowPenTool extends Tool {
     this.strokeColor = null;
     this.stampBuffer = [];
     this.previewDirtyBounds = null;
+    this.hardnessCanvas = null;
+    this.hardnessCtx = null;
   }
 
   /**
@@ -238,7 +240,8 @@ export class FlowPenTool extends Tool {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = this.userAlpha;
 
-    this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
+    const hardnessCanvas = this.getHardnessCanvas(this.offscreenCanvas, user.size);
+    ctx.drawImage(hardnessCanvas, 0, 0);
 
     this.board.forEachMirrorRegion({ rect: this.dirtyBounds ? {
       x: this.dirtyBounds.minX,
@@ -248,7 +251,7 @@ export class FlowPenTool extends Tool {
     } : null }, (region) => {
       ctx.save();
       ctx.globalCompositeOperation = 'source-over';
-      this.board.drawMirroredCanvas(ctx, this.offscreenCanvas, region, 0, 0);
+      this.board.drawMirroredCanvas(ctx, hardnessCanvas, region, 0, 0);
       ctx.restore();
     });
 
@@ -331,7 +334,23 @@ export class FlowPenTool extends Tool {
     const ctx = this.board.topCtx;
     ctx.globalAlpha = this.userAlpha;
 
-    this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0, rect);
+    const hardnessCanvas = this.getHardnessCanvas(this.offscreenCanvas, user.size, rect);
+    const sourceRect = rect ? this._clampRectToCanvas(rect, hardnessCanvas) : null;
+    if (sourceRect) {
+      ctx.drawImage(
+        hardnessCanvas,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height
+      );
+    } else {
+      ctx.drawImage(hardnessCanvas, 0, 0);
+    }
 
     this.board.forEachMirrorRegion({ rect: this.dirtyBounds ? {
       x: this.dirtyBounds.minX,
@@ -339,7 +358,7 @@ export class FlowPenTool extends Tool {
       width: this.dirtyBounds.maxX - this.dirtyBounds.minX,
       height: this.dirtyBounds.maxY - this.dirtyBounds.minY
     } : null }, (region) => {
-      this.board.drawMirroredCanvas(ctx, this.offscreenCanvas, region, 0, 0);
+      this.board.drawMirroredCanvas(ctx, hardnessCanvas, region, 0, 0);
     });
 
     ctx.globalAlpha = 1.0;
@@ -396,6 +415,28 @@ export class FlowPenTool extends Tool {
     } else {
       ctx.drawImage(sourceCanvas, x, y);
     }
+  }
+
+  getHardnessCanvas(sourceCanvas, size, rect = null) {
+    if (!this.hardnessCanvas ||
+        this.hardnessCanvas.width !== sourceCanvas.width ||
+        this.hardnessCanvas.height !== sourceCanvas.height) {
+      this.hardnessCanvas = document.createElement('canvas');
+      this.hardnessCanvas.width = sourceCanvas.width;
+      this.hardnessCanvas.height = sourceCanvas.height;
+      this.hardnessCtx = this.hardnessCanvas.getContext('2d');
+    }
+
+    if (rect) {
+      const clearRect = this._clampRectToCanvas(rect, this.hardnessCanvas);
+      if (clearRect) {
+        this.hardnessCtx.clearRect(clearRect.x, clearRect.y, clearRect.width, clearRect.height);
+      }
+    } else {
+      this.hardnessCtx.clearRect(0, 0, this.hardnessCanvas.width, this.hardnessCanvas.height);
+    }
+    this.compositeWithHardness(this.hardnessCtx, sourceCanvas, size, 0, 0, rect);
+    return this.hardnessCanvas;
   }
 
   /**

@@ -92,6 +92,8 @@ export class InkTool extends Tool {
     this.strokeColor = null;
     this._strokeSize = 10;
     this.pointBuffer = [];
+    this.hardnessCanvas = null;
+    this.hardnessCtx = null;
   }
 
   /**
@@ -246,7 +248,8 @@ export class InkTool extends Tool {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = this.userAlpha;
 
-    this.compositeWithHardness(ctx, this.offscreenCanvas, this._strokeSize, 0, 0);
+    const hardnessCanvas = this.getHardnessCanvas(this.offscreenCanvas, this._strokeSize);
+    ctx.drawImage(hardnessCanvas, 0, 0);
 
     this.board.forEachMirrorRegion({ rect: this.dirtyBounds ? {
       x: this.dirtyBounds.minX,
@@ -256,7 +259,7 @@ export class InkTool extends Tool {
     } : null }, (region) => {
       ctx.save();
       ctx.globalCompositeOperation = 'source-over';
-      this.board.drawMirroredCanvas(ctx, this.offscreenCanvas, region, 0, 0);
+      this.board.drawMirroredCanvas(ctx, hardnessCanvas, region, 0, 0);
       ctx.restore();
     });
 
@@ -389,7 +392,8 @@ export class InkTool extends Tool {
     if (!this.offscreenCanvas) return;
     const ctx = this.board.topCtx;
     ctx.globalAlpha = this.userAlpha;
-    this.compositeWithHardness(ctx, this.offscreenCanvas, this._strokeSize, 0, 0);
+    const hardnessCanvas = this.getHardnessCanvas(this.offscreenCanvas, this._strokeSize);
+    ctx.drawImage(hardnessCanvas, 0, 0);
 
     this.board.forEachMirrorRegion({ rect: this.dirtyBounds ? {
       x: this.dirtyBounds.minX,
@@ -397,9 +401,24 @@ export class InkTool extends Tool {
       width: this.dirtyBounds.maxX - this.dirtyBounds.minX,
       height: this.dirtyBounds.maxY - this.dirtyBounds.minY
     } : null }, (region) => {
-      this.board.drawMirroredCanvas(ctx, this.offscreenCanvas, region, 0, 0);
+      this.board.drawMirroredCanvas(ctx, hardnessCanvas, region, 0, 0);
     });
     ctx.globalAlpha = 1.0;
+  }
+
+  getHardnessCanvas(sourceCanvas, size) {
+    if (!this.hardnessCanvas ||
+        this.hardnessCanvas.width !== sourceCanvas.width ||
+        this.hardnessCanvas.height !== sourceCanvas.height) {
+      this.hardnessCanvas = document.createElement('canvas');
+      this.hardnessCanvas.width = sourceCanvas.width;
+      this.hardnessCanvas.height = sourceCanvas.height;
+      this.hardnessCtx = this.hardnessCanvas.getContext('2d');
+    }
+
+    this.hardnessCtx.clearRect(0, 0, this.hardnessCanvas.width, this.hardnessCanvas.height);
+    this.compositeWithHardness(this.hardnessCtx, sourceCanvas, size, 0, 0);
+    return this.hardnessCanvas;
   }
 
   /**
