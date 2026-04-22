@@ -219,6 +219,7 @@ async function initEarlyDesktopChrome() {
     const button = event.target instanceof HTMLElement ? event.target.closest('[data-window-action]') : null;
     if (!button) return;
 
+    button.blur?.();
     const action = button.getAttribute('data-window-action');
     if (action === 'minimize') {
       void appWindow.minimize();
@@ -236,6 +237,17 @@ async function initEarlyDesktopChrome() {
       void appWindow.close();
     }
   });
+
+  mount.addEventListener('keydown', (event) => {
+    const button = event.target instanceof HTMLElement ? event.target.closest('[data-window-action]') : null;
+    if (!button) return;
+
+    if (event.key === 'Tab' || event.key === ' ' || event.key === 'Spacebar' || event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      button.blur?.();
+    }
+  }, true);
 
   mount.addEventListener('mousedown', (event) => {
     if (event.target instanceof HTMLElement && event.target.closest('[data-window-action]')) return;

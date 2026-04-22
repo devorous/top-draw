@@ -335,6 +335,9 @@ pub fn run() {
           if let Some(chat_window) = window.app_handle().get_webview_window("chat-popout") {
             let _ = chat_window.close();
           }
+          if let Some(board_viewer_window) = window.app_handle().get_webview_window("board-viewer-popout") {
+            let _ = board_viewer_window.close();
+          }
         }
       }
     })

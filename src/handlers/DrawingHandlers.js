@@ -322,6 +322,14 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('undo', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
+      const hasActiveStroke = user.mousedown || board.layerManager?.layerGroups?.some(
+        group => group?.activeStrokeByUser?.has(user.id)
+      );
+      if (hasActiveStroke) {
+        remoteUserHandler.handleCancel(user);
+        return;
+      }
+
       board.undo(user.activeLayer, user.id);
     }
   });

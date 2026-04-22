@@ -84,6 +84,7 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html'),
         go: resolve(__dirname, 'go/index.html'),
         chat: resolve(__dirname, 'chat/index.html'),
+        boardViewer: resolve(__dirname, 'board-viewer/index.html'),
         gallery: resolve(__dirname, 'gallery/index.html'),
       },
       output: {

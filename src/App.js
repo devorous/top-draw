@@ -32,6 +32,7 @@ import { highlight } from './ui/Highlight.js';
 import { SaveMode } from './ui/SaveMode.js';
 import { HistoryPanel } from './ui/HistoryPanel.js';
 import { MirrorRegionController } from './ui/MirrorRegionController.js';
+import { BoardViewer } from './ui/BoardViewer.js';
 import { SnapshotManager } from './remote/SnapshotManager.js';
 import { loadAppPreferences, saveAppPreferences } from './config/AppPreferences.js';
 import { getTextFontDefaults, loadTextFont, normalizeTextFont } from './config/textFonts.js';
@@ -572,6 +573,8 @@ export class DrawingApp {
     this.historyPanel = new HistoryPanel(this);
     this.mirrorRegionController = new MirrorRegionController(this);
     this.mirrorRegionController.init();
+    this.boardViewer = new BoardViewer(this);
+    this.boardViewer.init();
 
     this.debugOverlay = new DebugOverlay();
     const debugCanvas = document.getElementById('debugOverlay');
@@ -628,6 +631,9 @@ export class DrawingApp {
     this.moderation.onSync = (sessionIndex) => {
       this.syncClient.requestSync(sessionIndex);
       this.ui.showToast('Sync requested');
+    };
+    this.moderation.onSpectate = (sessionIndex) => {
+      this.boardViewer?.spectateUser(sessionIndex);
     };
     this.moderation.onPM = (sessionIndex, user) => {
       if (!this.svelteComponents?.chat) return;
@@ -1239,6 +1245,7 @@ export class DrawingApp {
    */
   setupEventListeners() {
     const { elements } = this.ui;
+    this._ensureUserContextMenu();
 
     document.addEventListener('keydown', this._boundSuppressButtonKeyboardActivation, true);
     document.addEventListener('keyup', this._boundSuppressButtonKeyboardActivation, true);
@@ -4230,6 +4237,36 @@ export class DrawingApp {
     this.board.resetView();
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
     this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
+    this.boardViewer?.setMainZoom(this.board.zoom);
+  }
+
+  _ensureUserContextMenu() {
+    if (this.ui.elements.userContextMenu) return;
+
+    const menu = document.createElement('div');
+    menu.id = 'userContextMenu';
+    menu.className = 'contextMenu';
+    menu.style.display = 'none';
+    menu.innerHTML = `
+      <button type="button" class="menuItem" data-action="profile">Profile</button>
+      <button type="button" class="menuItem" data-action="sync">Sync</button>
+      <button type="button" class="menuItem" data-action="spectate">Spectate</button>
+      <button type="button" class="menuItem" data-action="pm">Message</button>
+      <div class="menuDivider"></div>
+      <button type="button" class="menuItem" data-action="mute">Mute</button>
+      <button type="button" class="menuItem danger" data-action="kick">Kick</button>
+      <button type="button" class="menuItem danger" data-action="ban">Ban</button>
+      <button type="button" class="menuItem danger" data-action="wipe">Wipe Strokes</button>
+      <div class="menuDivider adminOnly"></div>
+      <button type="button" class="menuItem adminOnly" data-action="promote">Promote</button>
+      <button type="button" class="menuItem adminOnly" data-action="demote">Demote</button>
+      <button type="button" class="menuItem deityOnly" data-action="promoteNoble">Promote Noble</button>
+      <button type="button" class="menuItem deityOnly" data-action="promoteHoly">Promote Holy</button>
+      <button type="button" class="menuItem deityOnly" data-action="demoteGlobal">Demote Global</button>
+      <button type="button" class="menuItem deityOnly" data-action="shadowban">Shadowban</button>
+    `;
+    document.body.appendChild(menu);
+    this.ui.elements.userContextMenu = menu;
   }
 
   /**
@@ -4330,6 +4367,7 @@ export class DrawingApp {
     this.board.zoomIn(0.1, cursorPos);
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
     this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
+    this.boardViewer?.setMainZoom(this.board.zoom);
   }
 
   /**
@@ -4340,6 +4378,7 @@ export class DrawingApp {
     this.board.zoomOut(0.1, cursorPos);
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
     this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
+    this.boardViewer?.setMainZoom(this.board.zoom);
   }
 
   /**
@@ -5022,6 +5061,7 @@ export class DrawingApp {
         );
         this.ui.updateZoomDisplay(this.board.getZoomPercent());
         this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
+        this.boardViewer?.setMainZoom(this.board.zoom);
         return;
     }
 
@@ -5514,6 +5554,7 @@ export class DrawingApp {
       }
         this.ui.hidePanCursor(this.self.tool, this.self);
         this.ui.updateZoomDisplay(this.board.getZoomPercent());
+        this.boardViewer?.setMainZoom(this.board.zoom);
         this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
         return;
     }
@@ -5788,6 +5829,7 @@ export class DrawingApp {
       }
       this.ui.updateZoomDisplay(this.board.getZoomPercent());
       this.ui.updateCursorStrokeWidthsForZoom(this.board.zoom);
+      this.boardViewer?.setMainZoom(this.board.zoom);
     } else if (!(this.self.tool === 'ink' && this.self.mousedown)) {
       this.handleSizeScroll(e.deltaY);
     }
@@ -5890,6 +5932,8 @@ export class DrawingApp {
   }
 
   cancelCurrentStroke() {
+    this.inputBufferManager.discardPendingStrokeInput();
+
     // Clear brush stroke data
     this.self.clearLine();
 
@@ -5940,10 +5984,24 @@ export class DrawingApp {
     // Cancel debug overlay tracking
     this.debugOverlay.cancelDrawing(this.self.id);
 
-    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastCancel());
+    this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastCancel(), { snapshot: false });
+  }
+
+  hasCurrentStrokeInProgress() {
+    if (this.self?.mousedown) return true;
+
+    const userId = this.self?.id;
+    if (userId === undefined || !this.board?.layerManager?.layerGroups) return false;
+
+    return this.board.layerManager.layerGroups.some(group => group?.activeStrokeByUser?.has(userId));
   }
 
   handleUndo() {
+    if (this.hasCurrentStrokeInProgress()) {
+      this.cancelCurrentStroke();
+      return;
+    }
+
     this.board.undo(this.self.activeLayer, this.self.id);
     if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastUndo());

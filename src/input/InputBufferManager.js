@@ -310,10 +310,19 @@ export class InputBufferManager {
    * 
    * @param {Function} fn - The broadcast callback to enqueue.
    */
-  queueBroadcast(fn) {
+  queueBroadcast(fn, options = {}) {
     if (this.app.syncClient?.isSyncing()) return; // dropped during sync; sync replay handles ordering
-    this._snapshotStrokesToQueue();
+    if (options.snapshot !== false) {
+      this._snapshotStrokesToQueue();
+    }
     this.broadcastQueue.push(fn);
+  }
+
+  discardPendingStrokeInput() {
+    this.inputBuffer.points = [];
+    this.inputBuffer.dirty = false;
+    this.pendingBroadcastPoints = [];
+    this.pendingBroadcastPointsAreReduced = false;
   }
 
   /**

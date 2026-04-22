@@ -29,6 +29,7 @@ export class Moderation {
     // Callbacks wired by App.js
     this.onProfile = null;
     this.onSync = null;
+    this.onSpectate = null;
     this.onPM = null;
     this.onModAction = null;         // (actionType, sessionIndex, reason, duration)
     this.onModUpdateReason = null;   // (originalActionCode, sessionIndex, reason)
@@ -94,6 +95,7 @@ export class Moderation {
         return !isGroup && !!targetUser && this.canManageRoomRoles();
       case 'profile':
       case 'sync':
+      case 'spectate':
         return !isGroup;
       default:
         return true;
@@ -299,6 +301,7 @@ export class Moderation {
 
     const menu = document.getElementById('userContextMenu');
     if (!menu) return;
+    this._ensureSpectateMenuItem(menu);
 
     const isGroup = ipHash && !targetSessionIndex && targetSessionIndex !== 0;
     const isRegistered = targetUser && (targetUser.registeredName || targetUser.role >= 1);
@@ -340,6 +343,23 @@ export class Moderation {
     this.targetSessionIndex = null;
     this.targetUser = null;
     this.targetIpHash = null;
+  }
+
+  _ensureSpectateMenuItem(menu) {
+    if (menu.querySelector('[data-action="spectate"]')) return;
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'menuItem';
+    button.dataset.action = 'spectate';
+    button.textContent = 'Spectate';
+
+    const syncButton = menu.querySelector('[data-action="sync"]');
+    if (syncButton?.parentElement === menu) {
+      syncButton.insertAdjacentElement('afterend', button);
+    } else {
+      menu.appendChild(button);
+    }
   }
 
   /**
@@ -424,6 +444,9 @@ export class Moderation {
       }
       case 'sync':
         if (this.onSync) this.onSync(sessionIndex);
+        break;
+      case 'spectate':
+        if (this.onSpectate) this.onSpectate(sessionIndex);
         break;
       case 'pm':
         if (this.onPM) this.onPM(sessionIndex, user);

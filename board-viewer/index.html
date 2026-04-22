@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DDraw Viewer</title>
+    <link rel="icon" href="/images/pepper.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      (() => {
+        const isDesktop = typeof window !== 'undefined' && !!(window.__TAURI_INTERNALS__ || window.__TAURI_METADATA__);
+        if (isDesktop) document.documentElement.dataset.desktopApp = 'true';
+      })();
+    </script>
+    <style>
+      * { box-sizing: border-box; }
+      html, body, #app {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        overflow: hidden;
+        background: #151922;
+        color: #f4f7fb;
+        font-family: 'Inter', system-ui, -apple-system, Segoe UI, sans-serif;
+      }
+      html[data-desktop-app='true'] {
+        --desktop-titlebar-height: 26px;
+      }
+      html[data-desktop-app='true'] body {
+        padding-top: var(--desktop-titlebar-height);
+      }
+      #desktopTitlebarMount {
+        display: none;
+      }
+      html[data-desktop-app='true'] #desktopTitlebarMount {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1000000;
+        display: block;
+        height: var(--desktop-titlebar-height);
+      }
+      .desktop-titlebar-fallback {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        height: 100%;
+        padding-left: 0.3rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        background: linear-gradient(180deg, rgba(48, 54, 68, 0.98) 0%, rgba(40, 45, 57, 0.96) 100%);
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      .desktop-titlebar-fallback .brand {
+        margin: 0;
+        font-family: 'Fredoka', system-ui, sans-serif;
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: #00d4aa;
+        letter-spacing: 0.01em;
+        line-height: 0.92;
+        transform: translateY(2px) rotate(-2deg);
+        transform-origin: left center;
+      }
+      .desktop-titlebar-fallback .titlebar-actions {
+        display: flex;
+        height: 100%;
+      }
+      .desktop-titlebar-fallback .titlebar-btn {
+        display: grid;
+        place-items: center;
+        width: 28px;
+        min-width: 28px;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: #f0f2f5;
+        cursor: pointer;
+      }
+      .desktop-titlebar-fallback .titlebar-btn:hover {
+        background: color-mix(in srgb, #00d4aa 18%, rgba(48, 54, 68, 0.98));
+      }
+      .desktop-titlebar-fallback .titlebar-btn.close:hover {
+        background: color-mix(in srgb, #ff6b6b 24%, rgba(48, 54, 68, 0.98));
+      }
+      .window-icon {
+        position: relative;
+        display: block;
+        width: 14px;
+        height: 14px;
+        color: currentColor;
+      }
+      .window-icon::before,
+      .window-icon::after {
+        content: '';
+        position: absolute;
+        box-sizing: border-box;
+      }
+      .minimize-icon::before {
+        left: 1px;
+        right: 1px;
+        bottom: 4px;
+        border-top: 2px solid currentColor;
+      }
+      .maximize-icon::before {
+        inset: 2px 1px;
+        border: 1.8px solid currentColor;
+        border-top-width: 2.6px;
+        border-radius: 1px;
+      }
+      .fullscreen-icon::before {
+        top: 1px;
+        right: 1px;
+        width: 6px;
+        height: 6px;
+        border-top: 2px solid currentColor;
+        border-right: 2px solid currentColor;
+      }
+      .fullscreen-icon::after {
+        left: 1px;
+        bottom: 1px;
+        width: 6px;
+        height: 6px;
+        border-left: 2px solid currentColor;
+        border-bottom: 2px solid currentColor;
+      }
+      .close-glyph {
+        font-size: 1.45rem;
+        line-height: 1;
+      }
+      .boardViewerPopout {
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) 42px;
+        width: 100%;
+        height: 100%;
+      }
+      .boardViewerPopoutStage {
+        width: 100%;
+        height: 100%;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+        touch-action: none;
+        cursor: grab;
+        background: #1b1f27;
+      }
+      .boardViewerPopoutStage:active {
+        cursor: grabbing;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        cursor: grab;
+      }
+      .boardViewerPopoutControls {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 42px;
+        padding: 6px 8px;
+        background: #202631;
+        border-top: 1px solid rgba(255, 255, 255, 0.14);
+      }
+      .boardViewerPopoutControls button {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 30px;
+        padding: 0;
+        color: inherit;
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 6px;
+        font-family: 'Inter', system-ui, -apple-system, Segoe UI, sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .boardViewerPopoutControls button:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+      [data-action="reset"] {
+        width: 58px;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="desktopTitlebarMount">
+      <div class="desktop-titlebar-fallback">
+        <p class="brand">Viewer</p>
+        <div class="titlebar-actions">
+          <button class="titlebar-btn" data-window-action="minimize" title="Minimize window" type="button" aria-label="Minimize">
+            <span class="window-icon minimize-icon" aria-hidden="true"></span>
+          </button>
+          <button class="titlebar-btn" data-window-action="maximize" title="Maximize window" type="button" aria-label="Maximize window">
+            <span class="window-icon maximize-icon" aria-hidden="true"></span>
+          </button>
+          <button class="titlebar-btn" data-window-action="fullscreen" title="Enter fullscreen" type="button" aria-label="Enter fullscreen">
+            <span class="window-icon fullscreen-icon" aria-hidden="true"></span>
+          </button>
+          <button class="titlebar-btn close" data-window-action="close" title="Close window" type="button" aria-label="Close window">
+            <span class="close-glyph" aria-hidden="true">&times;</span>
+          </button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/platform/earlyDesktopChrome.js"></script>
+    <div id="app">
+      <section class="boardViewerPopout">
+        <div class="boardViewerPopoutStage">
+          <canvas id="boardViewerPopoutCanvas"></canvas>
+        </div>
+        <div class="boardViewerPopoutControls">
+          <button type="button" data-action="zoomOut" title="Zoom out">-</button>
+          <button type="button" data-action="reset" title="Fit board">100%</button>
+          <button type="button" data-action="zoomIn" title="Zoom in">+</button>
+        </div>
+      </section>
+    </div>
+    <script type="module" src="/src/board-viewer/main.js"></script>
+  </body>
+</html>
