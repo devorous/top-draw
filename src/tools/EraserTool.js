@@ -102,8 +102,11 @@ export class EraserTool extends Tool {
     this._beginStroke(user);
     this._resetStrokeState(user);
     this.appendBufferedPoint(user, pos);
-    this.board.clearTop();
-    this.drawPreview(user);
+    const rect = this.getPreviewDirtyRect(user);
+    if (rect !== false) {
+      this.board.clearTop(rect);
+      this.drawPreview(user, rect);
+    }
   }
 
   /**
@@ -116,8 +119,11 @@ export class EraserTool extends Tool {
     if (!user.mousedown || user.panning) return;
 
     this.appendBufferedPoint(user, pos);
-    this.board.clearTop();
-    this.drawPreview(user);
+    const rect = this.getPreviewDirtyRect(user);
+    if (rect !== false) {
+      this.board.clearTop(rect);
+      this.drawPreview(user, rect);
+    }
     this.lastPos = { x: pos.x, y: pos.y };
   }
 
@@ -164,16 +170,23 @@ export class EraserTool extends Tool {
     this._stampPoint(user, state, point);
   }
 
-  drawPreview(user, ctx = this.board.topCtx) {
+  drawPreview(user, rect = null, ctx = this.board.topCtx) {
+    if (rect?.drawImage) {
+      ctx = rect;
+      rect = null;
+    }
+
     if (!ctx || !user?.currentLine?.length) return;
     const state = this._getStrokeState(user);
     if (!state || !this._hasDirtyBounds(state)) return;
     const [r, g, b] = this.board.backgroundColor;
-    this._renderPreviewPath(ctx, user.currentLine, r, g, b, user);
+    this._renderPreviewPath(ctx, user.currentLine, r, g, b, user, rect);
 
     this.board.forEachMirrorRegion({ rect: this._boundsToRect(state.dirtyBounds) }, (region) => {
       this.board.drawMirroredCanvas(ctx, state.previewCanvas, region, 0, 0);
     });
+
+    state.previewDirtyBounds = null;
   }
 
   commitCurrentLine(user, newPressure = user.pressure, newSize = user.size, newOpacity = user.opacity, continueStroke = true) {
@@ -302,11 +315,26 @@ export class EraserTool extends Tool {
     };
   }
 
-  _renderPreviewPath(ctx, points, r, g, b, user) {
+  _renderPreviewPath(ctx, points, r, g, b, user, rect = null) {
     const state = this._getStrokeState(user);
     if (!state || !this._hasDirtyBounds(state)) return;
-    this._renderPreviewMask(state, `rgb(${r}, ${g}, ${b})`);
-    ctx.drawImage(state.previewCanvas, 0, 0);
+    this._renderPreviewMask(state, `rgb(${r}, ${g}, ${b})`, rect);
+    const sourceRect = rect ? this._clampRectToCanvas(rect, state.previewCanvas) : null;
+    if (sourceRect) {
+      ctx.drawImage(
+        state.previewCanvas,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height
+      );
+    } else {
+      ctx.drawImage(state.previewCanvas, 0, 0);
+    }
   }
 
   /**
@@ -366,6 +394,7 @@ export class EraserTool extends Tool {
       previewCtx: previewCanvas.getContext('2d'),
       lastStampPos: null,
       dirtyBounds: null,
+      previewDirtyBounds: null,
       maxRadius: 0,
       opacity: 1
     };
@@ -381,6 +410,7 @@ export class EraserTool extends Tool {
     state.previewCtx.clearRect(0, 0, state.previewCanvas.width, state.previewCanvas.height);
     state.lastStampPos = null;
     state.dirtyBounds = null;
+    state.previewDirtyBounds = null;
     state.maxRadius = 0;
     state.opacity = user?.opacity ?? 1;
   }
@@ -392,6 +422,7 @@ export class EraserTool extends Tool {
     state.previewCtx.clearRect(0, 0, state.previewCanvas.width, state.previewCanvas.height);
     state.lastStampPos = null;
     state.dirtyBounds = null;
+    state.previewDirtyBounds = null;
     state.maxRadius = 0;
   }
 
@@ -436,19 +467,43 @@ export class EraserTool extends Tool {
     this._expandBounds(state, x - radius, y - radius, x + radius, y + radius);
   }
 
-  _renderPreviewMask(state, fillStyle) {
+  _renderPreviewMask(state, fillStyle, rect = null) {
     const { previewCtx, previewCanvas, maskCanvas } = state;
-    previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-    previewCtx.drawImage(maskCanvas, 0, 0);
+    const sourceRect = rect ? this._clampRectToCanvas(rect, previewCanvas) : null;
+
+    if (sourceRect) {
+      previewCtx.clearRect(sourceRect.x, sourceRect.y, sourceRect.width, sourceRect.height);
+      previewCtx.drawImage(
+        maskCanvas,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height
+      );
+    } else {
+      previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+      previewCtx.drawImage(maskCanvas, 0, 0);
+    }
+
     previewCtx.save();
     previewCtx.globalCompositeOperation = 'source-in';
     previewCtx.globalAlpha = state.opacity ?? 1;
     previewCtx.fillStyle = fillStyle;
-    previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+    if (sourceRect) {
+      previewCtx.fillRect(sourceRect.x, sourceRect.y, sourceRect.width, sourceRect.height);
+    } else {
+      previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+    }
     previewCtx.restore();
   }
 
   _expandBounds(state, minX, minY, maxX, maxY) {
+    this._expandPreviewDirtyBounds(state, minX, minY, maxX, maxY);
+
     if (!state.dirtyBounds) {
       state.dirtyBounds = { minX, minY, maxX, maxY };
       return;
@@ -458,6 +513,26 @@ export class EraserTool extends Tool {
     state.dirtyBounds.minY = Math.min(state.dirtyBounds.minY, minY);
     state.dirtyBounds.maxX = Math.max(state.dirtyBounds.maxX, maxX);
     state.dirtyBounds.maxY = Math.max(state.dirtyBounds.maxY, maxY);
+  }
+
+  _expandPreviewDirtyBounds(state, minX, minY, maxX, maxY) {
+    if (!state) return;
+    if (!state.previewDirtyBounds) {
+      state.previewDirtyBounds = { minX, minY, maxX, maxY };
+      return;
+    }
+
+    state.previewDirtyBounds.minX = Math.min(state.previewDirtyBounds.minX, minX);
+    state.previewDirtyBounds.minY = Math.min(state.previewDirtyBounds.minY, minY);
+    state.previewDirtyBounds.maxX = Math.max(state.previewDirtyBounds.maxX, maxX);
+    state.previewDirtyBounds.maxY = Math.max(state.previewDirtyBounds.maxY, maxY);
+  }
+
+  getPreviewDirtyRect(user) {
+    const state = this._getStrokeState(user);
+    if (!state?.previewDirtyBounds) return false;
+    if (this.board.mirrorRegions?.length > 0) return null;
+    return this._expandBoundsForComposite(state.previewDirtyBounds) ?? false;
   }
 
   _markDirtyBounds(user, bounds) {
@@ -505,12 +580,22 @@ export class EraserTool extends Tool {
   }
 
   _expandBoundsForComposite(bounds) {
+    if (!bounds) return null;
     const margin = 2;
     const x = Math.floor(bounds.minX - margin);
     const y = Math.floor(bounds.minY - margin);
     const width = Math.ceil(bounds.maxX - bounds.minX + margin * 2);
     const height = Math.ceil(bounds.maxY - bounds.minY + margin * 2);
     return { x, y, width, height };
+  }
+
+  _clampRectToCanvas(rect, canvas) {
+    const x = Math.max(0, Math.floor(rect.x));
+    const y = Math.max(0, Math.floor(rect.y));
+    const right = Math.min(canvas.width, Math.ceil(rect.x + rect.width));
+    const bottom = Math.min(canvas.height, Math.ceil(rect.y + rect.height));
+    if (right <= x || bottom <= y) return null;
+    return { x, y, width: right - x, height: bottom - y };
   }
 
   _mirrorRect(rect, region) {

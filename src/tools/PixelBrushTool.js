@@ -16,6 +16,7 @@ export class PixelBrushTool {
     this.tempCanvases = new Map(); // userId -> temp canvas for opacity handling
     this.stampBuffer = []; // [x, y, x, y, ...] accumulated stamp positions for broadcast
     this.strokePoints = []; // Track points for tile ownership
+    this.previewDirtyBounds = null;
   }
 
   activate() {}
@@ -47,6 +48,7 @@ export class PixelBrushTool {
     this.tempCanvases.set(user.id, tempCanvas);
 
     this.strokePoints = [{ x: pos.x, y: pos.y }];
+    this.previewDirtyBounds = null;
     this.drawSquare(user, pos, true);
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
   }
@@ -114,8 +116,11 @@ export class PixelBrushTool {
     }
 
     if (shouldRender) {
-      this.board.clearTop();
-      this.drawPreview(user);
+      const rect = this.getPreviewDirtyRect(user);
+      if (rect !== false) {
+        this.board.clearTop(rect);
+        this.drawPreview(user, rect);
+      }
     }
   }
 
@@ -213,6 +218,7 @@ export class PixelBrushTool {
     }
     this.strokePoints = [];
     this.stampBuffer = [];
+    this.previewDirtyBounds = null;
     this.board.clearTop();
   }
 
@@ -258,6 +264,7 @@ export class PixelBrushTool {
       });
     }
     this.strokePoints = [];
+    this.previewDirtyBounds = null;
 
     this.board.endStroke(user);
     this.board.clearTop();
@@ -268,7 +275,7 @@ export class PixelBrushTool {
    * Draws preview of current stroke to top canvas
    * @param {Object} user - The user performing the action
    */
-  drawPreview(user) {
+  drawPreview(user, rect = null) {
     const tempCanvas = this.tempCanvases.get(user.id);
     if (!tempCanvas) return;
 
@@ -279,7 +286,24 @@ export class PixelBrushTool {
     if (!ctx) return;
 
     ctx.globalAlpha = finalAlpha;
-    ctx.drawImage(tempCanvas, 0, 0);
+    if (rect) {
+      const sourceRect = this._clampRectToCanvas(rect, tempCanvas);
+      if (sourceRect) {
+        ctx.drawImage(
+          tempCanvas,
+          sourceRect.x,
+          sourceRect.y,
+          sourceRect.width,
+          sourceRect.height,
+          sourceRect.x,
+          sourceRect.y,
+          sourceRect.width,
+          sourceRect.height
+        );
+      }
+    } else {
+      ctx.drawImage(tempCanvas, 0, 0);
+    }
     ctx.globalAlpha = 1.0;
 
     // Mirror mode
@@ -290,6 +314,8 @@ export class PixelBrushTool {
       ctx.globalAlpha = 1.0;
       ctx.restore();
     });
+
+    this.previewDirtyBounds = null;
   }
 
   /**
@@ -323,7 +349,48 @@ export class PixelBrushTool {
     ctx.fillStyle = `rgb(${color.join(',')})`;
     ctx.fillRect(x, y, size, size);
 
+    if (useTemp) {
+      this._expandPreviewDirtyBounds(x - 1, y - 1, x + size + 1, y + size + 1);
+    }
+
     // Expand dirty rect (don't expand for mirror - handled in preview/composite)
     this.board.expandDirtyRect(user, x - 1, y - 1, size + 2, size + 2);
+  }
+
+  getPreviewDirtyRect() {
+    if (!this.previewDirtyBounds) return false;
+    if (this.board.mirrorRegions?.length > 0) return null;
+    return this._boundsToRect(this.previewDirtyBounds) ?? false;
+  }
+
+  _expandPreviewDirtyBounds(minX, minY, maxX, maxY) {
+    if (!this.previewDirtyBounds) {
+      this.previewDirtyBounds = { minX, minY, maxX, maxY };
+      return;
+    }
+
+    this.previewDirtyBounds.minX = Math.min(this.previewDirtyBounds.minX, minX);
+    this.previewDirtyBounds.minY = Math.min(this.previewDirtyBounds.minY, minY);
+    this.previewDirtyBounds.maxX = Math.max(this.previewDirtyBounds.maxX, maxX);
+    this.previewDirtyBounds.maxY = Math.max(this.previewDirtyBounds.maxY, maxY);
+  }
+
+  _boundsToRect(bounds) {
+    if (!bounds || bounds.maxX <= bounds.minX || bounds.maxY <= bounds.minY) return null;
+    return {
+      x: Math.floor(bounds.minX),
+      y: Math.floor(bounds.minY),
+      width: Math.ceil(bounds.maxX - bounds.minX),
+      height: Math.ceil(bounds.maxY - bounds.minY)
+    };
+  }
+
+  _clampRectToCanvas(rect, canvas) {
+    const x = Math.max(0, Math.floor(rect.x));
+    const y = Math.max(0, Math.floor(rect.y));
+    const right = Math.min(canvas.width, Math.ceil(rect.x + rect.width));
+    const bottom = Math.min(canvas.height, Math.ceil(rect.y + rect.height));
+    if (right <= x || bottom <= y) return null;
+    return { x, y, width: right - x, height: bottom - y };
   }
 }

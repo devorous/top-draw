@@ -69,6 +69,7 @@ export class FlowPenTool extends Tool {
     this.userAlpha = 1.0;
     this.strokeColor = null;
     this.stampBuffer = [];
+    this.previewDirtyBounds = null;
   }
 
   /**
@@ -145,6 +146,7 @@ export class FlowPenTool extends Tool {
     if (this.userHardness > 1.0) this.userHardness = 1.0;
 
     this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    this.previewDirtyBounds = null;
     this.stampBuffer = [];
 
     const pressure255 = Math.round(pressure * 255);
@@ -162,6 +164,14 @@ export class FlowPenTool extends Tool {
    * @param {Event} e - The pointer event.
    */
   onPointerMove(user, pos, lastPos, e) {
+    this._moveStroke(user, pos, true);
+  }
+
+  onPointerMoveNoRender(user, pos, lastPos, e) {
+    this._moveStroke(user, pos, false);
+  }
+
+  _moveStroke(user, pos, shouldRender) {
     if (!user.mousedown || user.panning || !this.lastStampPos) return;
 
     const pressure = this.quantizePressure(user.pressure);
@@ -185,8 +195,13 @@ export class FlowPenTool extends Tool {
       user.penPoints.push({ x: pos.x, y: pos.y, radius });
     }
 
-    this.board.clearTop();
-    this.drawPreview(user);
+    if (shouldRender) {
+      const rect = this.getPreviewDirtyRect(user);
+      if (rect !== false) {
+        this.board.clearTop(rect);
+        this.drawPreview(user, rect);
+      }
+    }
   }
 
   /**
@@ -301,6 +316,8 @@ export class FlowPenTool extends Tool {
       this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, y + radius);
     }
 
+    this._expandPreviewDirtyBounds(x - radius, y - radius, x + radius, y + radius);
+
     this.stampBuffer.push(x, y, pressure255);
   }
 
@@ -308,13 +325,13 @@ export class FlowPenTool extends Tool {
    * Draws the current stroke preview on the top canvas.
    * @param {Object} user - The user performing the action.
    */
-  drawPreview(user) {
+  drawPreview(user, rect = null) {
     if (!this.offscreenCanvas) return;
 
     const ctx = this.board.topCtx;
     ctx.globalAlpha = this.userAlpha;
 
-    this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
+    this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0, rect);
 
     this.board.forEachMirrorRegion({ rect: this.dirtyBounds ? {
       x: this.dirtyBounds.minX,
@@ -326,6 +343,7 @@ export class FlowPenTool extends Tool {
     });
 
     ctx.globalAlpha = 1.0;
+    this.previewDirtyBounds = null;
   }
 
   /**
@@ -336,8 +354,9 @@ export class FlowPenTool extends Tool {
    * @param {number} x - The x-coordinate.
    * @param {number} y - The y-coordinate.
    */
-  compositeWithHardness(ctx, sourceCanvas, size, x, y) {
+  compositeWithHardness(ctx, sourceCanvas, size, x, y, rect = null) {
     const blurAmount = (1 - this.userHardness) * (20 + size * 0.2);
+    const sourceRect = rect ? this._clampRectToCanvas(rect, sourceCanvas) : null;
 
     if (blurAmount > 0) {
       const offset = 100000;
@@ -346,8 +365,34 @@ export class FlowPenTool extends Tool {
       ctx.shadowColor = this.strokeColor;
       ctx.shadowOffsetX = -offset;
       ctx.shadowOffsetY = 0;
-      ctx.drawImage(sourceCanvas, x + offset, y);
+      if (sourceRect) {
+        ctx.drawImage(
+          sourceCanvas,
+          sourceRect.x,
+          sourceRect.y,
+          sourceRect.width,
+          sourceRect.height,
+          x + sourceRect.x + offset,
+          y + sourceRect.y,
+          sourceRect.width,
+          sourceRect.height
+        );
+      } else {
+        ctx.drawImage(sourceCanvas, x + offset, y);
+      }
       ctx.restore();
+    } else if (sourceRect) {
+      ctx.drawImage(
+        sourceCanvas,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height,
+        x + sourceRect.x,
+        y + sourceRect.y,
+        sourceRect.width,
+        sourceRect.height
+      );
     } else {
       ctx.drawImage(sourceCanvas, x, y);
     }
@@ -381,6 +426,44 @@ export class FlowPenTool extends Tool {
     // into it before calling clearStroke(), and App.js drains them afterward.
     // Reset is handled in onPointerDown.
     this.dirtyBounds = null;
+    this.previewDirtyBounds = null;
+  }
+
+  getPreviewDirtyRect(user = this._activeUser) {
+    const bounds = this.previewDirtyBounds;
+    if (!bounds || bounds.maxX <= bounds.minX || bounds.maxY <= bounds.minY) return false;
+    if (this.board.mirrorRegions?.length > 0) return null;
+
+    const size = user?.size ?? 0;
+    const blurAmount = (1 - this.userHardness) * (20 + size * 0.2);
+    const margin = blurAmount + size * 0.25 + 2;
+    return {
+      x: Math.floor(bounds.minX - margin),
+      y: Math.floor(bounds.minY - margin),
+      width: Math.ceil(bounds.maxX - bounds.minX + margin * 2),
+      height: Math.ceil(bounds.maxY - bounds.minY + margin * 2)
+    };
+  }
+
+  _expandPreviewDirtyBounds(minX, minY, maxX, maxY) {
+    if (!this.previewDirtyBounds) {
+      this.previewDirtyBounds = { minX, minY, maxX, maxY };
+      return;
+    }
+
+    this.previewDirtyBounds.minX = Math.min(this.previewDirtyBounds.minX, minX);
+    this.previewDirtyBounds.minY = Math.min(this.previewDirtyBounds.minY, minY);
+    this.previewDirtyBounds.maxX = Math.max(this.previewDirtyBounds.maxX, maxX);
+    this.previewDirtyBounds.maxY = Math.max(this.previewDirtyBounds.maxY, maxY);
+  }
+
+  _clampRectToCanvas(rect, canvas) {
+    const x = Math.max(0, Math.floor(rect.x));
+    const y = Math.max(0, Math.floor(rect.y));
+    const right = Math.min(canvas.width, Math.ceil(rect.x + rect.width));
+    const bottom = Math.min(canvas.height, Math.ceil(rect.y + rect.height));
+    if (right <= x || bottom <= y) return null;
+    return { x, y, width: right - x, height: bottom - y };
   }
 
   /**

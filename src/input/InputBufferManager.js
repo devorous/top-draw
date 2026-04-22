@@ -36,6 +36,7 @@ const REDUCE_BEFORE_RENDER_TOOLS = new Set([
   'imageBrush'
 ]);
 const BATCH_RENDER_TOOLS = new Set([
+  'flowPen',
   'ink',
   'erase',
   'blur',
@@ -667,14 +668,17 @@ export class InputBufferManager {
       tool.renderStroke(false, user);
     }
 
-    const usesTopPreview = toolName === 'erase' || toolName === 'pixel' || toolName === 'glitchBlur' || toolName === 'ink';
+    const usesTopPreview = toolName === 'erase' || toolName === 'flowPen' || toolName === 'pixel' || toolName === 'glitchBlur' || toolName === 'ink';
 
-    if (app.board && usesTopPreview) {
-      app.board.clearTop();
+    const previewRect = tool.getPreviewDirtyRect?.(user) ?? null;
+    const hasNoPreviewWork = previewRect === false;
+
+    if (app.board && usesTopPreview && !hasNoPreviewWork) {
+      app.board.clearTop(previewRect);
     }
 
-    if (usesTopPreview && tool.drawPreview) {
-      tool.drawPreview(user);
+    if (usesTopPreview && !hasNoPreviewWork && tool.drawPreview) {
+      tool.drawPreview(user, previewRect);
     }
 
     app.board?.requestUpdate();

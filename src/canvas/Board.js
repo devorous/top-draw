@@ -2250,8 +2250,19 @@ export class Board {
   /**
    * Clear the preview (top) canvas and selection overlay
    */
-  clearTop() {
+  clearTop(rect = null) {
     const [height, width] = this.dimensions;
+    if (rect && Number.isFinite(rect.x) && Number.isFinite(rect.y) && rect.width > 0 && rect.height > 0) {
+      const x = Math.max(0, Math.floor(rect.x));
+      const y = Math.max(0, Math.floor(rect.y));
+      const right = Math.min(width, Math.ceil(rect.x + rect.width));
+      const bottom = Math.min(height, Math.ceil(rect.y + rect.height));
+      if (right > x && bottom > y) {
+        this.topCtx.clearRect(x, y, right - x, bottom - y);
+      }
+      return;
+    }
+
     this.topCtx.clearRect(0, 0, width, height);
     this.clearSelectionOverlay();
   }
