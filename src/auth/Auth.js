@@ -124,10 +124,17 @@ export class Auth {
     this.els.registerSubmitBtn?.addEventListener('click', () => this.handleRegister());
   }
 
+  isJoinActionEnabled() {
+    const activeJoinButton = this.isLoggedIn ? this.els.joinBtnLoggedIn : this.els.loginJoinBtn;
+    return !activeJoinButton || !activeJoinButton.disabled;
+  }
+
   /**
    * Manually trigger the join process via the form submit event
    */
   triggerJoin() {
+    if (!this.isJoinActionEnabled()) return;
+
     const form = document.getElementById('loginForm');
     if (form) {
       form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
@@ -138,6 +145,8 @@ export class Auth {
    * Trigger login when credentials are present, otherwise continue with join.
    */
   triggerPrimaryAction() {
+    if (!this.isJoinActionEnabled()) return;
+
     if (!this.isLoggedIn && this.els.loginPassword?.value) {
       this.handleLogin();
       return;

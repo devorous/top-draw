@@ -69,6 +69,8 @@ function revealLandingShell() {
   const overlay = document.getElementById('overlay');
   const landingPage = document.getElementById('landingPage');
   const refreshRoomsBtn = document.getElementById('refreshRoomsBtn');
+  const loginJoinBtn = document.getElementById('loginJoinBtn');
+  const joinBtnLoggedIn = document.getElementById('joinBtnLoggedIn');
   const roomIdInput = document.getElementById('roomIdInput');
   const roomMatch = window.location.pathname.match(/^\/go\/([a-zA-Z0-9_-]+)$/);
 
@@ -88,6 +90,11 @@ function revealLandingShell() {
     refreshRoomsBtn.disabled = true;
     refreshRoomsBtn.classList.add('disabled');
   }
+  [loginJoinBtn, joinBtnLoggedIn].forEach((btn) => {
+    if (!btn) return;
+    btn.disabled = true;
+    btn.classList.add('disabled');
+  });
 
   updateShellStatus('connecting', 'Loading app...');
 
@@ -171,7 +178,14 @@ function attachDeferredLandingHandlers() {
   const roomIdInput = document.getElementById('roomIdInput');
   const loginPassword = document.getElementById('loginPassword');
 
+  const canRunDeferredJoin = () => {
+    const activeJoinBtn = joinBtnLoggedIn?.offsetParent !== null ? joinBtnLoggedIn : loginJoinBtn;
+    return !activeJoinBtn?.disabled;
+  };
+
   const runDeferredPrimaryAuthAction = () => {
+    if (!canRunDeferredJoin()) return Promise.resolve();
+
     const passwordValue = loginPassword?.value;
     if (passwordValue) {
       return runDeferredAction((readyApp) => readyApp.handleLandingLogin());
@@ -183,6 +197,7 @@ function attachDeferredLandingHandlers() {
   loginForm?.addEventListener('submit', (event) => {
     if (app) return;
     event.preventDefault();
+    if (!canRunDeferredJoin()) return;
     void runDeferredAction((readyApp) => readyApp.handleJoin());
   });
 
@@ -195,6 +210,7 @@ function attachDeferredLandingHandlers() {
   joinBtnLoggedIn?.addEventListener('click', (event) => {
     if (app) return;
     event.preventDefault();
+    if (!canRunDeferredJoin()) return;
     void runDeferredAction((readyApp) => readyApp.handleJoin());
   });
 
@@ -219,6 +235,7 @@ function attachDeferredLandingHandlers() {
   roomIdInput?.addEventListener('keydown', (event) => {
     if (app || event.key !== 'Enter') return;
     event.preventDefault();
+    if (!canRunDeferredJoin()) return;
     void runDeferredAction((readyApp) => readyApp.handleJoin());
   });
 

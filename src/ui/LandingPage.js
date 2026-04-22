@@ -37,6 +37,8 @@ export class LandingPage {
       roomIdInput: document.getElementById('roomIdInput'),
       refreshRoomsBtn: document.getElementById('refreshRoomsBtn'),
       joinBtn: document.getElementById('joinBtn'),
+      loginJoinBtn: document.getElementById('loginJoinBtn'),
+      joinBtnLoggedIn: document.getElementById('joinBtnLoggedIn'),
       loginOfflineBtn: document.getElementById('loginOfflineBtn'),
       landingConnectionStatus: document.getElementById('landingConnectionStatus'),
       createRoomBtn: document.getElementById('createRoomBtn'),
@@ -586,6 +588,14 @@ export class LandingPage {
     if (this.els.joinBtn) {
       this.els.joinBtn.disabled = !enabled;
       this.els.joinBtn.classList.toggle('disabled', !enabled);
+    }
+    if (this.els.loginJoinBtn) {
+      this.els.loginJoinBtn.disabled = !enabled;
+      this.els.loginJoinBtn.classList.toggle('disabled', !enabled);
+    }
+    if (this.els.joinBtnLoggedIn) {
+      this.els.joinBtnLoggedIn.disabled = !enabled;
+      this.els.joinBtnLoggedIn.classList.toggle('disabled', !enabled);
     }
     if (this.els.createRoomBtn) {
       this.els.createRoomBtn.disabled = !enabled;
