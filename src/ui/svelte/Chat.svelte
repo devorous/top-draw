@@ -3,6 +3,7 @@
   import { appState } from '../../state.svelte.js';
   import { isTauriDesktop } from '../../platform/desktop.js';
   import { isChatPopoutOpen } from '../../platform/chatPopoutBridge.js';
+  import { playSfx } from '../../utils/sfx.js';
   import WindowTitleBar from './WindowTitleBar.svelte';
 
   const CHAT_MODE_STORAGE_KEY = 'topdraw-chat-mode';
@@ -747,6 +748,7 @@
       appState.chatUnreadCount++;
       const preview = message.type === 'image' ? `${message.text ? `${message.text} ` : ''}[image]` : message.text;
       showToast(message.username, preview || '[image]', message.color);
+      playSfx('chat');
     }
   }
 
@@ -758,6 +760,7 @@
       appState.chatUnreadCount++;
       const preview = message.type === 'image' ? `${message.text ? `${message.text} ` : ''}[image]` : message.text;
       showToast(message.username, `[Staff] ${preview || '[image]'}`, message.color);
+      playSfx('staff');
     }
   }
 
@@ -781,6 +784,7 @@
         user?.color || '#8ba3c7',
         { recipientId: userId }
       );
+      playSfx('staff');
     }
   }
 

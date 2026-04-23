@@ -1,5 +1,6 @@
 import { getRoomId, encryptMessage, decryptMessage, getMessageKey } from '../utils/crypto.js';
 import { appState } from '../state.svelte.js';
+import { playSfx } from '../utils/sfx.js';
 
 const TOKEN_KEY = 'topDrawAuthToken';
 const USERNAME_KEY = 'topDrawUsername';
@@ -127,6 +128,7 @@ class MessengerState {
         })));
         this.messages = decryptedHistory;
       } else if (type === 'new_message') {
+        const isIncoming = payload.sender_id !== this.currentUserId;
         // If it belongs to active chat, decrypt and add
         const roomId = getRoomId(this.currentUserId, this.activeChat?.id);
         if (payload.room_id === roomId) {
@@ -135,7 +137,7 @@ class MessengerState {
             content: await decryptMessage(payload.encrypted_content, payload.iv, this.key)
           };
           this.messages.push(decrypted);
-        } else if (payload.sender_id !== this.currentUserId) {
+        } else if (isIncoming) {
           // Incoming message from a different conversation — increment unread
           this.unreadCounts = {
             ...this.unreadCounts,
@@ -143,6 +145,7 @@ class MessengerState {
           };
           this.syncUnreadBadge();
         }
+        if (isIncoming) playSfx('inbox');
         // Refresh inbox in all cases to update last message
         this.fetchInbox();
       }
