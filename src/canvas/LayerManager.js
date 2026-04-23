@@ -637,14 +637,13 @@ export class LayerManager {
    */
   _bakeOverflowStrokes(group) {
     const MAX = LayerManager.MAX_STROKES_PER_USER;
-    const isBaseLayer = group.id === 0;
     const safeModes = ['source-over', 'destination-out', 'multiply', 'darken', 'lighten', 'screen'];
 
     let i = 0;
     while (i < group.strokeStack.length && this._anyUserOverMax(group, MAX)) {
       const stroke = group.strokeStack[i];
 
-      if (isBaseLayer || safeModes.includes(stroke.blendMode)) {
+      if (this._canBakeStroke(group, stroke, safeModes)) {
         this._bakeStrokeToBin(group, stroke);
         group.strokeStack.splice(i, 1);
 
@@ -716,12 +715,11 @@ export class LayerManager {
    * @private
    */
   _anyUserOverMax(group, max) {
-    const isBaseLayer = group.id === 0;
     const safeModes = ['source-over', 'destination-out', 'multiply', 'darken', 'lighten', 'screen'];
     const countsByUser = new Map();
 
     for (const stroke of group.strokeStack) {
-      if (isBaseLayer || safeModes.includes(stroke.blendMode)) {
+      if (this._canBakeStroke(group, stroke, safeModes)) {
         const count = countsByUser.get(stroke.userId) || 0;
         countsByUser.set(stroke.userId, count + 1);
       }
@@ -732,6 +730,24 @@ export class LayerManager {
     }
 
     return false;
+  }
+
+  /**
+   * Returns whether a stroke can be safely baked into a group's persistent base.
+   * Flat-canvas groups (layer 0) must stay transparent, so only simple modes may
+   * be baked there. Other blend modes need to remain dynamic and composite
+   * against the room background at draw time.
+   * @param {Object} group
+   * @param {Object} stroke
+   * @param {string[]} safeModes
+   * @returns {boolean}
+   * @private
+   */
+  _canBakeStroke(group, stroke, safeModes) {
+    if (!group?.flatCanvas) {
+      return safeModes.includes(stroke.blendMode);
+    }
+    return stroke.blendMode === 'source-over' || stroke.blendMode === 'destination-out';
   }
 
   /** @deprecated Use _bakeStrokeToBin */
@@ -2213,11 +2229,12 @@ export class LayerManager {
    */
   deepCleanupUserState(userId, options = {}) {
     const preserveVisuals = options.preserveVisuals !== false;
+    const safeModes = ['source-over', 'destination-out', 'multiply', 'darken', 'lighten', 'screen'];
 
     for (const group of this.layerGroups) {
       const active = group.activeStrokeByUser.get(userId);
       if (active) {
-        if (preserveVisuals) {
+        if (preserveVisuals && this._canBakeStroke(group, active, safeModes)) {
           this._bakeStrokeToBin(group, active);
         }
         group.activeStrokeByUser.delete(userId);
@@ -2227,8 +2244,11 @@ export class LayerManager {
       const retainedStrokes = [];
       for (const stroke of group.strokeStack) {
         if (stroke.userId === userId) {
-          if (preserveVisuals) {
+          if (preserveVisuals && this._canBakeStroke(group, stroke, safeModes)) {
             this._bakeStrokeToBin(group, stroke);
+          } else if (preserveVisuals) {
+            retainedStrokes.push(stroke);
+            continue;
           }
           this._disposeStrokeRecord(stroke);
           continue;

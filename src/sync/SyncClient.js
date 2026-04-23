@@ -534,7 +534,7 @@ export class SyncClient {
         const group = groups[gi];
 
         if (group.flatCanvas) {
-          const img = await this._captureCanvasElement(group.flatCanvas);
+          const img = await this._captureLayerCanvasForSync(group.flatCanvas, gi);
           this.wsClient.sendSyncLayerBase(img, gi, 'source-over', targetUser);
         }
 
@@ -1006,6 +1006,34 @@ export class SyncClient {
         'image/png'
       );
     });
+  }
+
+  /**
+   * Captures a layer canvas for sync. Layer 0's baked flat canvas can contain
+   * room background pixels after blend-mode baking, so strip border-connected
+   * background before sending it to preserve a transparent base layer.
+   *
+   * @private
+   * @param {HTMLCanvasElement} canvas
+   * @param {number} layerIdx
+   * @returns {Promise<Uint8Array>}
+   */
+  async _captureLayerCanvasForSync(canvas, layerIdx) {
+    if (!canvas || layerIdx !== 0 || !this.board?._stripSnapshotBackground) {
+      return this._captureCanvasElement(canvas);
+    }
+
+    const sanitizedCanvas = document.createElement('canvas');
+    sanitizedCanvas.width = canvas.width;
+    sanitizedCanvas.height = canvas.height;
+    const sanitizedCtx = sanitizedCanvas.getContext('2d', { willReadFrequently: true });
+    sanitizedCtx.drawImage(canvas, 0, 0);
+
+    const imageData = sanitizedCtx.getImageData(0, 0, sanitizedCanvas.width, sanitizedCanvas.height);
+    this.board._stripSnapshotBackground(imageData);
+    sanitizedCtx.putImageData(imageData, 0, 0);
+
+    return this._captureCanvasElement(sanitizedCanvas);
   }
 
   /**
