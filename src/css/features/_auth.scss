@@ -176,7 +176,8 @@ body.desktop-window-chrome #overlay {
 
 #authLoggedIn,
 #authNotLoggedIn,
-#authRegisterPanel {
+#authRegisterPanel,
+#authPasswordResetPanel {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -333,6 +334,77 @@ body.desktop-window-chrome #overlay {
   .authInput[readonly] {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+}
+
+#authPasswordResetPanel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+
+  .authInput {
+    margin-bottom: 8px;
+  }
+}
+
+.authLinkButton {
+  align-self: flex-end;
+  margin: -2px 0 6px;
+  padding: 4px 0;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: right;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color var(--transition-fast);
+
+  &:hover {
+    color: var(--accent-primary);
+  }
+}
+
+.authSecretPrompt {
+  width: 100%;
+}
+
+#passwordResetRequestFields,
+#passwordResetCompleteFields {
+  width: 100%;
+}
+
+.authSecretQuestion {
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-tertiary) 80%, black 20%);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.authResetMessage {
+  width: 100%;
+  min-height: 18px;
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  text-align: center;
+
+  &[data-kind="success"] {
+    color: var(--accent-primary);
+  }
+
+  &[data-kind="error"] {
+    color: #ef4444;
   }
 }
 

@@ -7,6 +7,7 @@ import { getClientIp, httpRateLimiter } from './security.js';
 import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
 import { Role } from './SessionManager.js';
 import { getIpSubnet, mergeHistory, normalizeIdentityPayload, recordConnectionEvent } from './identityTracking.js';
+import crypto from 'crypto';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -17,6 +18,10 @@ const CORS_HEADERS = {
 const AUTH_BODY_LIMIT = 16 * 1024;
 const LOGIN_RATE_LIMIT = { max: 10, windowMs: 5 * 60 * 1000, blockMs: 15 * 60 * 1000 };
 const REGISTER_RATE_LIMIT = { max: 5, windowMs: 15 * 60 * 1000, blockMs: 30 * 60 * 1000 };
+const RESET_REQUEST_RATE_LIMIT = { max: 5, windowMs: 15 * 60 * 1000, blockMs: 30 * 60 * 1000 };
+const RESET_COMPLETE_RATE_LIMIT = { max: 10, windowMs: 15 * 60 * 1000, blockMs: 30 * 60 * 1000 };
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
 function json(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json', ...CORS_HEADERS });
   res.end(JSON.stringify(body));
@@ -37,6 +42,79 @@ async function readBody(req, maxBytes = AUTH_BODY_LIMIT) {
     req.on('end', () => resolve(data));
     req.on('error', reject);
   });
+}
+
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function hashResetToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function getRequestOrigin(req) {
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const proto = req.headers['x-forwarded-proto'] || (host?.includes('localhost') ? 'http' : 'https');
+  return host ? `${proto}://${host}` : (process.env.PUBLIC_APP_URL || 'https://ddraw.ca');
+}
+
+function buildResetLink(req, token) {
+  const baseUrl = (process.env.PUBLIC_APP_URL || getRequestOrigin(req)).replace(/\/+$/, '');
+  return `${baseUrl}/go/?resetToken=${encodeURIComponent(token)}`;
+}
+
+async function createPasswordResetToken(db, user, req) {
+  const token = crypto.randomBytes(32).toString('base64url');
+  const tokenHash = hashResetToken(token);
+  const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+
+  await db.collection('password_reset_tokens').insertOne({
+    userId: user._id,
+    username: user.username,
+    tokenHash,
+    createdAt: new Date(),
+    expiresAt,
+    usedAt: null,
+    requestedIp: getClientIp(req),
+    userAgent: String(req.headers['user-agent'] || '').slice(0, 512),
+  });
+
+  return { token, expiresAt };
+}
+
+async function sendPasswordResetEmail({ to, username, resetLink }) {
+  const from = process.env.RESET_EMAIL_FROM || 'support@ddraw.ca';
+  const subject = 'Reset your DDraw password';
+  const text = [
+    `Hi ${username},`,
+    '',
+    'Use this link to reset your DDraw password:',
+    resetLink,
+    '',
+    'This link expires in 1 hour. If you did not request it, you can ignore this email.',
+    '',
+    'DDraw Support'
+  ].join('\n');
+
+  if (process.env.RESEND_API_KEY) {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ from, to, subject, text }),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(`Resend email failed: ${response.status} ${detail}`);
+    }
+    return true;
+  }
+
+  console.warn('[AuthRoutes] RESEND_API_KEY not set; password reset link:', resetLink);
+  return false;
 }
 
 /**
@@ -174,7 +252,7 @@ export async function handleAuthRegister(req, res) {
 
   const username = typeof body.username === 'string' ? normalizeUsername(body.username) : '';
   const password = typeof body.password === 'string' ? body.password : '';
-  const email = typeof body.email === 'string' ? body.email.trim() : '';
+  const email = typeof body.email === 'string' ? normalizeEmail(body.email) : '';
   const secretQuestion = typeof body.secretQuestion === 'string' ? body.secretQuestion.trim() : '';
   const secretAnswer = typeof body.secretAnswer === 'string' ? body.secretAnswer.trim() : '';
   const identity = normalizeIdentityPayload(body);
@@ -292,4 +370,184 @@ export async function handleAuthMe(req, res) {
     username: user.username,
     role: user.role ?? Role.USER,
   });
+}
+
+/**
+ * POST /api/auth/password-reset/request
+ * Body: { identifier, secretAnswer? }
+ * Creates a reset link by email, or by secret answer when the username path is used.
+ */
+export async function handlePasswordResetRequest(req, res) {
+  const db = getDB();
+  if (!db) return json(res, 503, { success: false, error: 'Database not available' });
+
+  const clientIp = getClientIp(req);
+  const limit = httpRateLimiter.consume(`auth:reset-request:${clientIp}`, RESET_REQUEST_RATE_LIMIT);
+  if (!limit.allowed) {
+    return json(res, 429, { success: false, error: 'Too many reset attempts. Please try again later.' });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (err) {
+    if (err?.message === 'Payload too large') {
+      return json(res, 413, { success: false, error: 'Request body too large' });
+    }
+    return json(res, 400, { success: false, error: 'Invalid request body' });
+  }
+
+  const identifier = typeof body.identifier === 'string' ? body.identifier.trim() : '';
+  const secretAnswer = typeof body.secretAnswer === 'string' ? body.secretAnswer.trim() : '';
+  if (!identifier) {
+    return json(res, 400, { success: false, error: 'Email or username required' });
+  }
+
+  try {
+    const isEmail = identifier.includes('@');
+    const query = isEmail
+      ? { email: normalizeEmail(identifier) }
+      : { username: normalizeUsername(identifier) };
+    const user = await db.collection('users').findOne(query, {
+      collation: { locale: 'en', strength: 2 },
+      projection: { username: 1, email: 1, secretQuestion: 1, secretAnswerHash: 1 }
+    });
+
+    const genericMessage = 'If that account can be reset, a reset link will be sent or shown after verification.';
+    if (!user) {
+      return json(res, 200, { success: true, message: genericMessage });
+    }
+
+    if (isEmail) {
+      const { token } = await createPasswordResetToken(db, user, req);
+      const resetLink = buildResetLink(req, token);
+      const emailSent = await sendPasswordResetEmail({
+        to: user.email,
+        username: user.username,
+        resetLink,
+      });
+
+      return json(res, 200, {
+        success: true,
+        message: emailSent
+          ? 'Password reset link sent. Check your email.'
+          : 'Email sending is not configured, so the reset link was written to the server log.',
+        emailSent,
+      });
+    }
+
+    if (!secretAnswer) {
+      if (user.secretQuestion && user.secretAnswerHash) {
+        return json(res, 200, {
+          success: true,
+          requiresSecretAnswer: true,
+          secretQuestion: user.secretQuestion,
+        });
+      }
+
+      if (user.email) {
+        const { token } = await createPasswordResetToken(db, user, req);
+        const resetLink = buildResetLink(req, token);
+        const emailSent = await sendPasswordResetEmail({
+          to: user.email,
+          username: user.username,
+          resetLink,
+        });
+
+        return json(res, 200, {
+          success: true,
+          message: emailSent
+            ? 'Password reset link sent. Check your email.'
+            : 'Email sending is not configured, so the reset link was written to the server log.',
+          emailSent,
+        });
+      }
+
+      return json(res, 200, { success: true, message: genericMessage });
+    }
+
+    if (!user.secretAnswerHash) {
+      return json(res, 400, { success: false, error: 'This account does not have a secret answer set.' });
+    }
+
+    const answerValid = await verifyPassword(secretAnswer.toLowerCase(), user.secretAnswerHash);
+    if (!answerValid) {
+      return json(res, 401, { success: false, error: 'Secret answer did not match' });
+    }
+
+    const { token } = await createPasswordResetToken(db, user, req);
+    const resetLink = buildResetLink(req, token);
+    json(res, 200, {
+      success: true,
+      resetLink,
+      message: 'Secret answer accepted. Use the reset link to choose a new password.',
+    });
+  } catch (err) {
+    console.error('[AuthRoutes] Password reset request error:', err);
+    json(res, 500, { success: false, error: 'Password reset request failed' });
+  }
+}
+
+/**
+ * POST /api/auth/password-reset/complete
+ * Body: { token, password }
+ */
+export async function handlePasswordResetComplete(req, res) {
+  const db = getDB();
+  if (!db) return json(res, 503, { success: false, error: 'Database not available' });
+
+  const clientIp = getClientIp(req);
+  const limit = httpRateLimiter.consume(`auth:reset-complete:${clientIp}`, RESET_COMPLETE_RATE_LIMIT);
+  if (!limit.allowed) {
+    return json(res, 429, { success: false, error: 'Too many reset attempts. Please try again later.' });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (err) {
+    if (err?.message === 'Payload too large') {
+      return json(res, 413, { success: false, error: 'Request body too large' });
+    }
+    return json(res, 400, { success: false, error: 'Invalid request body' });
+  }
+
+  const token = typeof body.token === 'string' ? body.token.trim() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+
+  if (!token || !password) {
+    return json(res, 400, { success: false, error: 'Reset token and new password required' });
+  }
+
+  if (password.length < 6) {
+    return json(res, 400, { success: false, error: 'Password must be at least 6 characters' });
+  }
+
+  try {
+    const tokenHash = hashResetToken(token);
+    const resetDoc = await db.collection('password_reset_tokens').findOne({
+      tokenHash,
+      usedAt: null,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!resetDoc) {
+      return json(res, 400, { success: false, error: 'Reset link is invalid or expired' });
+    }
+
+    const passwordHash = await hashPassword(password);
+    await db.collection('users').updateOne(
+      { _id: resetDoc.userId },
+      { $set: { passwordHash, passwordChangedAt: new Date() } }
+    );
+    await db.collection('password_reset_tokens').updateOne(
+      { _id: resetDoc._id },
+      { $set: { usedAt: new Date(), completedIp: clientIp } }
+    );
+
+    json(res, 200, { success: true, message: 'Password updated. You can log in with the new password.' });
+  } catch (err) {
+    console.error('[AuthRoutes] Password reset complete error:', err);
+    json(res, 500, { success: false, error: 'Password reset failed' });
+  }
 }

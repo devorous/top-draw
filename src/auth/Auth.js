@@ -4,6 +4,7 @@
 const TOKEN_KEY = 'topDrawAuthToken';
 const REMEMBER_ME_KEY = 'topDrawRememberMe';
 const USERNAME_KEY = 'topDrawUsername';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const TOKEN_INVALID_ERRORS = new Set([
   'Invalid or expired token',
   'Account not found',
@@ -36,7 +37,7 @@ export class Auth {
       wrapper.style.minHeight = '';
     }
 
-    [this.els.authNotLoggedIn, this.els.authLoggedIn, this.els.registerPanel]
+    [this.els.authNotLoggedIn, this.els.authLoggedIn, this.els.registerPanel, this.els.passwordResetPanel]
       .filter(Boolean)
       .forEach((el) => {
         el.style.minHeight = '';
@@ -67,6 +68,20 @@ export class Auth {
       registerSecretQuestion: document.getElementById('registerSecretQuestion'),
       registerSecretAnswer: document.getElementById('registerSecretAnswer'),
       registerSubmitBtn: document.getElementById('registerSubmitBtn'),
+      forgotPasswordBtn: document.getElementById('forgotPasswordBtn'),
+      passwordResetPanel: document.getElementById('authPasswordResetPanel'),
+      passwordResetTitle: document.getElementById('passwordResetTitle'),
+      passwordResetClose: document.getElementById('passwordResetClose'),
+      passwordResetIdentifier: document.getElementById('passwordResetIdentifier'),
+      passwordResetSecretWrap: document.getElementById('passwordResetSecretWrap'),
+      passwordResetSecretQuestion: document.getElementById('passwordResetSecretQuestion'),
+      passwordResetSecretAnswer: document.getElementById('passwordResetSecretAnswer'),
+      passwordResetRequestFields: document.getElementById('passwordResetRequestFields'),
+      passwordResetCompleteFields: document.getElementById('passwordResetCompleteFields'),
+      passwordResetNewPassword: document.getElementById('passwordResetNewPassword'),
+      passwordResetConfirmPassword: document.getElementById('passwordResetConfirmPassword'),
+      passwordResetMessage: document.getElementById('passwordResetMessage'),
+      passwordResetSubmitBtn: document.getElementById('passwordResetSubmitBtn'),
       roomIdInput: document.getElementById('roomIdInput'),
       authFormWrapper: document.getElementById('authFormWrapper')
     };
@@ -81,7 +96,9 @@ export class Auth {
     window.addEventListener('resize', () => this.syncAuthStateHeights());
 
     // Check if user has stored credentials for auto-login
-    this.checkStoredLogin();
+    if (!this.openPasswordResetFromUrl()) {
+      this.checkStoredLogin();
+    }
   }
 
   setupListeners() {
@@ -122,6 +139,23 @@ export class Auth {
     this.els.registerBtn?.addEventListener('click', () => this.showRegisterPanel());
     this.els.registerClose?.addEventListener('click', () => this.hideRegisterPanel());
     this.els.registerSubmitBtn?.addEventListener('click', () => this.handleRegister());
+
+    this.els.forgotPasswordBtn?.addEventListener('click', () => this.showPasswordResetRequestPanel());
+    this.els.passwordResetClose?.addEventListener('click', () => this.hidePasswordResetPanel());
+    this.els.passwordResetSubmitBtn?.addEventListener('click', () => this.handlePasswordResetSubmit());
+    [
+      this.els.passwordResetIdentifier,
+      this.els.passwordResetSecretAnswer,
+      this.els.passwordResetNewPassword,
+      this.els.passwordResetConfirmPassword
+    ].filter(Boolean).forEach((el) => {
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this.handlePasswordResetSubmit();
+        }
+      });
+    });
   }
 
   isJoinActionEnabled() {
@@ -313,7 +347,7 @@ export class Auth {
     this.syncAuthStateHeights();
 
     if (!wasLoggedIn) {
-      await this._transitionTo(this.els.authLoggedIn, [this.els.authNotLoggedIn, this.els.registerPanel]);
+      await this._transitionTo(this.els.authLoggedIn, [this.els.authNotLoggedIn, this.els.registerPanel, this.els.passwordResetPanel]);
     }
 
     if (this.onLoggedInStateChange) {
@@ -329,7 +363,7 @@ export class Auth {
     this.loggedInUsername = null;
     this.syncAuthStateHeights();
 
-    await this._transitionTo(this.els.authNotLoggedIn, [this.els.authLoggedIn, this.els.registerPanel]);
+    await this._transitionTo(this.els.authNotLoggedIn, [this.els.authLoggedIn, this.els.registerPanel, this.els.passwordResetPanel]);
 
     // Reset button text
     this.updateButtonText(this.els.loginPassword, this.els.loginJoinBtn);
@@ -409,7 +443,7 @@ export class Auth {
     if (divider) divider.style.display = 'none';
     if (offlineBtn) offlineBtn.style.display = 'none';
 
-    await this._transitionTo(this.els.registerPanel, [this.els.authNotLoggedIn, this.els.authLoggedIn]);
+    await this._transitionTo(this.els.registerPanel, [this.els.authNotLoggedIn, this.els.authLoggedIn, this.els.passwordResetPanel]);
   }
 
   /**
@@ -424,6 +458,184 @@ export class Auth {
     if (offlineBtn) offlineBtn.style.display = '';
 
     await this._transitionTo(this.els.authNotLoggedIn, [this.els.registerPanel]);
+  }
+
+  setPasswordResetMessage(message, kind = 'neutral') {
+    if (!this.els.passwordResetMessage) return;
+    this.els.passwordResetMessage.textContent = message || '';
+    this.els.passwordResetMessage.dataset.kind = kind;
+  }
+
+  setPasswordResetMode(mode) {
+    const completeMode = mode === 'complete';
+    this._passwordResetMode = mode;
+    if (this.els.passwordResetTitle) {
+      this.els.passwordResetTitle.textContent = completeMode ? 'Choose New Password' : 'Reset Password';
+    }
+    if (this.els.passwordResetRequestFields) {
+      this.els.passwordResetRequestFields.style.display = completeMode ? 'none' : '';
+    }
+    if (this.els.passwordResetCompleteFields) {
+      this.els.passwordResetCompleteFields.style.display = completeMode ? '' : 'none';
+    }
+    if (this.els.passwordResetSubmitBtn) {
+      const label = completeMode ? 'Change Password' : 'Send Link';
+      if (this._loading) this.els.passwordResetSubmitBtn._oldText = label;
+      else this.els.passwordResetSubmitBtn.textContent = label;
+    }
+  }
+
+  openPasswordResetFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('resetToken');
+    if (!token) return false;
+
+    this._passwordResetToken = token;
+    this.showPasswordResetCompletePanel();
+    params.delete('resetToken');
+    const nextSearch = params.toString();
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', nextUrl);
+    return true;
+  }
+
+  async showPasswordResetRequestPanel() {
+    const username = this.els.loginUsername?.value.trim() || '';
+    if (this.els.passwordResetIdentifier) this.els.passwordResetIdentifier.value = username;
+    if (this.els.passwordResetSecretAnswer) this.els.passwordResetSecretAnswer.value = '';
+    if (this.els.passwordResetSecretWrap) this.els.passwordResetSecretWrap.style.display = 'none';
+    this._passwordResetToken = null;
+    this.setPasswordResetMode('request');
+    this.setPasswordResetMessage('');
+
+    const divider = document.querySelector('.landingDivider');
+    const offlineBtn = document.getElementById('loginOfflineBtn');
+    if (this.els.roomIdInput) this.els.roomIdInput.style.display = 'none';
+    if (divider) divider.style.display = 'none';
+    if (offlineBtn) offlineBtn.style.display = 'none';
+
+    await this._transitionTo(this.els.passwordResetPanel, [this.els.authNotLoggedIn, this.els.authLoggedIn, this.els.registerPanel]);
+  }
+
+  async showPasswordResetCompletePanel() {
+    if (this.els.passwordResetNewPassword) this.els.passwordResetNewPassword.value = '';
+    if (this.els.passwordResetConfirmPassword) this.els.passwordResetConfirmPassword.value = '';
+    this.setPasswordResetMode('complete');
+    this.setPasswordResetMessage('Enter a new password for this reset link.');
+
+    const divider = document.querySelector('.landingDivider');
+    const offlineBtn = document.getElementById('loginOfflineBtn');
+    if (this.els.roomIdInput) this.els.roomIdInput.style.display = 'none';
+    if (divider) divider.style.display = 'none';
+    if (offlineBtn) offlineBtn.style.display = 'none';
+
+    await this._transitionTo(this.els.passwordResetPanel, [this.els.authNotLoggedIn, this.els.authLoggedIn, this.els.registerPanel]);
+  }
+
+  async hidePasswordResetPanel() {
+    const divider = document.querySelector('.landingDivider');
+    const offlineBtn = document.getElementById('loginOfflineBtn');
+    if (this.els.roomIdInput) this.els.roomIdInput.style.display = '';
+    if (divider) divider.style.display = '';
+    if (offlineBtn) offlineBtn.style.display = '';
+    this._passwordResetToken = null;
+    await this._transitionTo(this.els.authNotLoggedIn, [this.els.passwordResetPanel]);
+  }
+
+  async handlePasswordResetSubmit() {
+    if (this._loading) return;
+
+    if (this._passwordResetMode === 'complete') {
+      await this.completePasswordReset();
+    } else {
+      await this.requestPasswordReset();
+    }
+  }
+
+  async requestPasswordReset() {
+    const identifier = this.els.passwordResetIdentifier?.value.trim();
+    const secretAnswer = this.els.passwordResetSecretAnswer?.value.trim() || '';
+    if (!identifier) {
+      this.setPasswordResetMessage('Enter your email or username.', 'error');
+      return;
+    }
+
+    this.setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/password-reset/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier, secretAnswer }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Password reset failed');
+      }
+
+      if (data.requiresSecretAnswer) {
+        if (this.els.passwordResetSecretWrap) this.els.passwordResetSecretWrap.style.display = '';
+        if (this.els.passwordResetSecretQuestion) this.els.passwordResetSecretQuestion.textContent = data.secretQuestion || '';
+        if (this.els.passwordResetSubmitBtn) {
+          if (this._loading) this.els.passwordResetSubmitBtn._oldText = 'Verify Answer';
+          else this.els.passwordResetSubmitBtn.textContent = 'Verify Answer';
+        }
+        this.setPasswordResetMessage('Answer your secret question to create a reset link.');
+        return;
+      }
+
+      if (data.resetLink) {
+        const url = new URL(data.resetLink, window.location.origin);
+        this._passwordResetToken = url.searchParams.get('resetToken');
+        await this.showPasswordResetCompletePanel();
+        return;
+      }
+
+      this.setPasswordResetMessage(data.message || 'If that account can be reset, check your email.', 'success');
+    } catch (err) {
+      this.setPasswordResetMessage(err.message || 'Password reset failed', 'error');
+    } finally {
+      this.setLoading(false);
+    }
+  }
+
+  async completePasswordReset() {
+    const password = this.els.passwordResetNewPassword?.value || '';
+    const confirmPassword = this.els.passwordResetConfirmPassword?.value || '';
+    if (!this._passwordResetToken) {
+      this.setPasswordResetMessage('Reset link is missing. Request a new one.', 'error');
+      return;
+    }
+    if (password.length < 6) {
+      this.setPasswordResetMessage('Password must be at least 6 characters.', 'error');
+      return;
+    }
+    if (password !== confirmPassword) {
+      this.setPasswordResetMessage('Passwords do not match.', 'error');
+      return;
+    }
+
+    this.setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/password-reset/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: this._passwordResetToken, password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Password reset failed');
+      }
+
+      this.setPasswordResetMessage(data.message || 'Password updated. You can log in now.', 'success');
+      if (this.els.passwordResetNewPassword) this.els.passwordResetNewPassword.value = '';
+      if (this.els.passwordResetConfirmPassword) this.els.passwordResetConfirmPassword.value = '';
+      this._passwordResetToken = null;
+      setTimeout(() => this.hidePasswordResetPanel(), 1200);
+    } catch (err) {
+      this.setPasswordResetMessage(err.message || 'Password reset failed', 'error');
+    } finally {
+      this.setLoading(false);
+    }
   }
 
   async handleRegister() {
@@ -517,7 +729,7 @@ export class Auth {
 
   setLoading(loading) {
     this._loading = loading;
-    const btns = [this.els.loginJoinBtn, this.els.registerSubmitBtn];
+    const btns = [this.els.loginJoinBtn, this.els.registerSubmitBtn, this.els.passwordResetSubmitBtn];
 
     if (loading) {
       btns.forEach(btn => {
