@@ -52,10 +52,7 @@ export class RemotePenHandler {
     user._penAlpha = opacitySlider;
     user._penHardness = user.hardness !== undefined ? user.hardness / 100 : 1.0;
 
-    const ctx = user._penOffscreenCtx;
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, getRenderableStampRadius(radius), 0, Math.PI * 2);
-    ctx.fill();
+    this._drawPenStamp(user, pos.x, pos.y, radius);
 
     user._penLastStampPos = { x: pos.x, y: pos.y, radius, pressure255: Math.round(pressure * 255) };
     user._penStrokeActive = true;
@@ -80,31 +77,28 @@ export class RemotePenHandler {
       this.handlePenDown(user, { x: points[0], y: points[1] });
     }
 
-    const ctx = user._penOffscreenCtx;
-    ctx.fillStyle = user._penStrokeColor;
-
     for (let i = 0, ri = 0; i < points.length; i += 2, ri++) {
       const x = points[i];
       const y = points[i + 1];
-      const pressure = radii[ri] / 255;
-      const r = pressure * user.size;
-      ctx.beginPath();
-      ctx.arc(x, y, getRenderableStampRadius(r), 0, Math.PI * 2);
-      ctx.fill();
-      if (user.penPoints) {
-        user.penPoints.push({ x, y, radius: r });
-      }
-      this.expandPenDirtyBounds(user, x, y, r);
+      const pressure255 = Array.isArray(radii) && radii.length > 0
+        ? radii[Math.min(ri, radii.length - 1)]
+        : Math.round((user.pressure ?? 1) * 255);
+      const pressure = pressure255 / 255;
+      const radius = pressure * user.size;
+      this._stampPenSegment(user, x, y, radius, pressure255);
     }
 
     const lastPtIdx = points.length - 2;
-    const lastPressure = radii[radii.length - 1] / 255;
+    const lastPressure255 = Array.isArray(radii) && radii.length > 0
+      ? radii[radii.length - 1]
+      : Math.round((user.pressure ?? 1) * 255);
+    const lastPressure = lastPressure255 / 255;
     const lastR = lastPressure * user.size;
     user._penLastStampPos = {
       x: points[lastPtIdx],
       y: points[lastPtIdx + 1],
       radius: lastR,
-      pressure255: radii[radii.length - 1]
+      pressure255: lastPressure255
     };
     user.setPosition(points[lastPtIdx], points[lastPtIdx + 1]);
     this.updatePenPreview(user);
@@ -120,38 +114,10 @@ export class RemotePenHandler {
 
     const pressure = Math.round(user.pressure * 255) / 255;
     const radius = pressure * user.size;
-
-    const spacing = getStampSpacing(user._penLastStampPos.radius, radius);
-    const dx = pos.x - user._penLastStampPos.x;
-    const dy = pos.y - user._penLastStampPos.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-
-    if (distance >= spacing) {
-      const ctx = user._penOffscreenCtx;
-      ctx.fillStyle = user._penStrokeColor;
-
-      const steps = Math.ceil(distance / spacing);
-      for (let i = 1; i <= steps; i++) {
-        const t = i / steps;
-        const x = user._penLastStampPos.x + dx * t;
-        const y = user._penLastStampPos.y + dy * t;
-        const r = user._penLastStampPos.radius + (radius - user._penLastStampPos.radius) * t;
-        ctx.beginPath();
-        ctx.arc(x, y, getRenderableStampRadius(r), 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      user._penLastStampPos = {
-        x: pos.x,
-        y: pos.y,
-        radius,
-        pressure255: Math.round(pressure * 255)
-      };
-      if (user.penPoints) {
-        user.penPoints.push({ x: pos.x, y: pos.y, radius });
-      }
-      this.expandPenDirtyBounds(user, pos.x, pos.y, radius);
-
+    const didStamp = this._stampPenSegment(user, pos.x, pos.y, radius, Math.round(pressure * 255), {
+      interpolateOnlyWhenSpaced: true
+    });
+    if (didStamp) {
       this.updatePenPreview(user);
     }
   }
@@ -171,24 +137,11 @@ export class RemotePenHandler {
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     if (distance > 0.5) {
-      const ctx = user._penOffscreenCtx;
       const pressure255End = Math.round(pressure * 255);
       const steps = Math.max(1, Math.ceil(distance / spacing));
-
-      ctx.fillStyle = user._penStrokeColor;
-      for (let i = 1; i <= steps; i++) {
-        const t = i / steps;
-        const x = user._penLastStampPos.x + dx * t;
-        const y = user._penLastStampPos.y + dy * t;
-        const r = user._penLastStampPos.radius + (radius - user._penLastStampPos.radius) * t;
-        ctx.beginPath();
-        ctx.arc(x, y, getRenderableStampRadius(r), 0, Math.PI * 2);
-        ctx.fill();
-        if (user.penPoints) {
-          user.penPoints.push({ x, y, radius: r });
-        }
-        this.expandPenDirtyBounds(user, x, y, r);
-      }
+      this._stampPenSegment(user, user.x, user.y, radius, pressure255End, {
+        forcedSteps: steps
+      });
 
       user._penLastStampPos = {
         x: user.x,
@@ -304,6 +257,82 @@ export class RemotePenHandler {
 
     user.context.globalAlpha = 1.0;
     user._penPreviewDirtyBounds = null;
+  }
+
+  _drawPenStamp(user, x, y, radius) {
+    const ctx = user._penOffscreenCtx;
+    if (!ctx) return;
+    ctx.fillStyle = user._penStrokeColor;
+    ctx.beginPath();
+    ctx.arc(x, y, getRenderableStampRadius(radius), 0, Math.PI * 2);
+    ctx.fill();
+    this.expandPenDirtyBounds(user, x, y, radius);
+  }
+
+  _stampPenSegment(user, targetX, targetY, targetRadius, targetPressure255, options = {}) {
+    if (!user?._penOffscreenCtx) return false;
+
+    const last = user._penLastStampPos;
+    if (!last) {
+      this._drawPenStamp(user, targetX, targetY, targetRadius);
+      user._penLastStampPos = {
+        x: targetX,
+        y: targetY,
+        radius: targetRadius,
+        pressure255: targetPressure255
+      };
+      if (user.penPoints) {
+        user.penPoints.push({ x: targetX, y: targetY, radius: targetRadius });
+      }
+      return true;
+    }
+
+    const dx = targetX - last.x;
+    const dy = targetY - last.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const spacing = getStampSpacing(last.radius, targetRadius);
+    const samePoint = distance < 0.01 && Math.abs(targetRadius - last.radius) < 0.01;
+    if (samePoint) return false;
+
+    let didStamp = false;
+    if (options.forcedSteps) {
+      for (let i = 1; i <= options.forcedSteps; i++) {
+        const t = i / options.forcedSteps;
+        const x = last.x + dx * t;
+        const y = last.y + dy * t;
+        const radius = last.radius + (targetRadius - last.radius) * t;
+        this._drawPenStamp(user, x, y, radius);
+      }
+      didStamp = true;
+    } else if (distance >= spacing) {
+      // Remote flow-pen packets may be point-reduced, so rebuild the missing
+      // in-between stamps here to match the sender's local interpolation.
+      const steps = Math.ceil(distance / spacing);
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        const x = last.x + dx * t;
+        const y = last.y + dy * t;
+        const radius = last.radius + (targetRadius - last.radius) * t;
+        this._drawPenStamp(user, x, y, radius);
+      }
+      didStamp = true;
+    } else if (!options.interpolateOnlyWhenSpaced) {
+      this._drawPenStamp(user, targetX, targetY, targetRadius);
+      didStamp = true;
+    }
+
+    if (!didStamp) return false;
+
+    user._penLastStampPos = {
+      x: targetX,
+      y: targetY,
+      radius: targetRadius,
+      pressure255: targetPressure255
+    };
+    if (user.penPoints) {
+      user.penPoints.push({ x: targetX, y: targetY, radius: targetRadius });
+    }
+    return true;
   }
 
   /**
