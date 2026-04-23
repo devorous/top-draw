@@ -738,6 +738,7 @@ menuBtn: document.getElementById('menuBtn'),
    */
   updateCursorStrokeWidthsForZoom(zoom) {
     const strokeWidth = zoom >= 5 ? '0.25' : '1';
+    const labelScale = zoom > 1 ? 1 / zoom : 1;
     const {
       selfCircle,
       selfPressureCircle,
@@ -756,6 +757,10 @@ menuBtn: document.getElementById('menuBtn'),
     if (selfCrosshair) {
       const lines = selfCrosshair.querySelectorAll('line');
       lines.forEach((line) => line.setAttribute('stroke-width', strokeWidth));
+    }
+
+    if (this.elements.boardContainer) {
+      this.elements.boardContainer.style.setProperty('--cursor-label-scale', `${labelScale}`);
     }
   }
 

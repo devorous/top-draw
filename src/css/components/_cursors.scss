@@ -13,6 +13,7 @@
   inset: 0;
   pointer-events: none;
   z-index: z('cursors');
+  --cursor-label-scale: 1;
 }
 
 #cursorsSvg {
@@ -48,6 +49,9 @@
   top: 80px;
   left: 105px;
   white-space: nowrap;
+  transform-origin: left top;
+  transform: scale(var(--cursor-label-scale));
+  text-rendering: geometricPrecision;
 }
 
 .text {
@@ -57,6 +61,9 @@
   white-space: pre;
   display: inline-block;
   width: max-content;
+  transform-origin: left top;
+  transform: scale(var(--cursor-label-scale));
+  text-rendering: geometricPrecision;
 }
 
 .text.self {
