@@ -153,11 +153,16 @@ export class InkTool extends Tool {
     this._strokeSize = user.size;
 
     const pressure = this.quantizePressure(user.pressure);
+    const startX = Number.isFinite(user?.x) ? user.x : pos.x;
+    const startY = Number.isFinite(user?.y) ? user.y : pos.y;
 
-    this.inputPoints = [[pos.x, pos.y, pressure]];
-    this.pointBuffer = [pos.x, pos.y, Math.round(pressure * 255)];
+    // Local ink should start from the same already-smoothed mouse-down point
+    // that remote clients receive via MD, otherwise the first segment tapers
+    // differently and the whole local stroke can look inverted.
+    this.inputPoints = [[startX, startY, pressure]];
+    this.pointBuffer = [startX, startY, Math.round(pressure * 255)];
 
-    this.dirtyBounds = { minX: pos.x, minY: pos.y, maxX: pos.x, maxY: pos.y };
+    this.dirtyBounds = { minX: startX, minY: startY, maxX: startX, maxY: startY };
 
     // Don't render yet - wait for real pressure data from first move
   }
@@ -319,11 +324,8 @@ export class InkTool extends Tool {
                   Math.abs(this.inputPoints[0][0] - this.inputPoints[1][0]) < 0.1 &&
                   Math.abs(this.inputPoints[0][1] - this.inputPoints[1][1]) < 0.1);
 
-    const activeUser = user || this.self;
+    const activeUser = user || this._activeUser;
     const simulatePressure = activeUser.simulatePressure !== undefined ? activeUser.simulatePressure : true;
-
-    // Check if thinning is enabled via checkbox (only for local user)
-    const thinningEnabled = !user && this.ui.elements.thinningEnabled ? this.ui.elements.thinningEnabled.checked : true;
     const userThinning = activeUser.thinning !== undefined ? activeUser.thinning : 0.5;
 
     if (isDot) {
@@ -359,15 +361,16 @@ export class InkTool extends Tool {
         })
       : this.inputPoints;
 
-    const sizeScaledThinning = userThinning * Math.max(1, this._strokeSize / 10);
-    const effectiveThinning = (simulatePressure && thinningEnabled) ? Math.min(0.99, sizeScaledThinning) : 0.95;
+    const effectiveThinning = !simulatePressure
+      ? 0.95
+      : Math.min(0.99, userThinning * Math.max(1, this._strokeSize / 10));
 
     const userSmoothing = activeUser.smoothing !== undefined ? activeUser.smoothing / 50 : 0.5;
     // We use a baseline streamline even at 0 smoothing to stabilize velocity calculation in perfect-freehand
     const streamline = 0.3 + (userSmoothing * 0.7); // Scale 0.3 to 1.0
 
     const options = {
-      size: (this._strokeSize * 2) / (1 + userThinning),
+      size: Math.max(0.1, (this._strokeSize * 2) / (1 + userThinning)),
       thinning: effectiveThinning,
       smoothing: userSmoothing,
       streamline: streamline,
