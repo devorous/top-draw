@@ -1,7 +1,7 @@
 {
-  "latest": "1.4.2-beta",
-  "minRequired": "1.4.2-beta",
-  "releaseDate": "2026-04-23T07:28:27.324Z",
+  "latest": "1.4.3-beta",
+  "minRequired": "1.4.3-beta",
+  "releaseDate": "2026-04-23T18:45:24.173Z",
   "notes": "Fixed an issue with stroke rendering and added chat sound effects",
   "downloadUrl": "https://www.ddraw.ca/download"
 }
