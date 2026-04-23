@@ -5147,6 +5147,13 @@ export class DrawingApp {
     );
   }
 
+  _blurEmbeddedChatFocus() {
+    const activeElement = document.activeElement;
+    if (!(activeElement instanceof HTMLElement)) return;
+    if (!activeElement.closest('#chatMount')) return;
+    activeElement.blur();
+  }
+
   _isCanvasRegionLocked(pos, previousPos = null) {
     if (!this.board || !this._toolMutatesCanvas()) return false;
     if (!this.board.hasInteractionBlocks?.()) return false;
@@ -5414,6 +5421,8 @@ export class DrawingApp {
     if (this.keyboardHandler?.handlePointerDown(e)) {
       return;
     }
+
+    this._blurEmbeddedChatFocus();
 
     this.syncBoardHoverState(true, { forceRefresh: true, event: e });
 
@@ -5886,6 +5895,8 @@ export class DrawingApp {
     if (e.target !== this.ui.elements.boardContainer) return;
 
     if (this.keyboardHandler?.handlePointerDown(e)) return;
+
+    this._blurEmbeddedChatFocus();
 
     // Check if select tool is active and has a handle at this position
     if (e.button === 0 && this.self.tool === 'select' && !this.self.panning) {

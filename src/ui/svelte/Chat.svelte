@@ -112,6 +112,7 @@
     maximized: false,
     fullscreen: false
   });
+  let lastComposerFocusKey = '';
 
   $effect(() => {
     if (hideRoomNotifications && toasts.length > 0) {
@@ -424,6 +425,12 @@
       event.preventDefault();
       handleSend();
     }
+  }
+
+  async function focusComposer() {
+    if (!visible || activeView === 'directory') return;
+    await tick();
+    composerInputEl?.focus({ preventScroll: true });
   }
 
   function linkify(text) {
@@ -1346,7 +1353,7 @@
     if (!isPopout && chatEl) scheduleApplyStoredPosition(chatMode);
     if (nextRecipient.id !== undefined && nextRecipient.id !== null) markThreadRead(nextRecipient.id);
     if (chatPinnedToBottom.dm) scrollToBottom(dmMessagesEl);
-    composerInputEl?.focus();
+    void focusComposer();
 
     return true;
   }
@@ -1570,6 +1577,21 @@
 
   $effect(() => {
     if (visible) appState.chatUnreadCount = 0;
+  });
+
+  $effect(() => {
+    const focusKey = visible && activeView !== 'directory'
+      ? `${activeView}:${recipient?.id ?? ''}`
+      : '';
+
+    if (!focusKey) {
+      lastComposerFocusKey = '';
+      return;
+    }
+
+    if (focusKey === lastComposerFocusKey) return;
+    lastComposerFocusKey = focusKey;
+    void focusComposer();
   });
 
   $effect(() => {
