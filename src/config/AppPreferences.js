@@ -2,7 +2,7 @@ import { getDefaultKeybindings, KEYBIND_ACTIONS_BY_ID } from '../input/keybinds/
 import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
 
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
-const APP_PREFERENCES_VERSION = 7;
+const APP_PREFERENCES_VERSION = 8;
 const SIDEBAR_SIDES = new Set(['left', 'right']);
 // The 3 base colors from which all theme CSS variables are derived.
 // Empty string means "use the CSS default".
@@ -26,6 +26,7 @@ export function createDefaultAppPreferences() {
       sidebarWidth: 200,
       toolsWidth: 48,
       themeColors: {},
+      localBoardBackgroundColor: null,
       hideOwnLabelAbove150: false,
       showRawPixelsAtHighZoom: true,
       useDesynchronizedBoardContexts: false,
@@ -85,6 +86,13 @@ function sanitizeThemeColors(rawThemeColors) {
   }
 
   return sanitized;
+}
+
+function sanitizeOptionalHexColor(rawValue) {
+  if (typeof rawValue !== 'string') return null;
+  const value = rawValue.trim();
+  if (!/^#[0-9a-f]{6}$/i.test(value)) return null;
+  return value.toLowerCase();
 }
 
 function sanitizeSidebarSide(rawSidebarSide) {
@@ -175,6 +183,7 @@ function sanitizePreferences(rawPreferences) {
       sidebarWidth: sanitizeSidebarWidth(parsed.general?.sidebarWidth),
       toolsWidth: sanitizeToolsWidth(parsed.general?.toolsWidth),
       themeColors: sanitizeThemeColors(parsed.general?.themeColors),
+      localBoardBackgroundColor: sanitizeOptionalHexColor(parsed.general?.localBoardBackgroundColor),
       hideOwnLabelAbove150: !!parsed.general?.hideOwnLabelAbove150,
       showRawPixelsAtHighZoom: migratedShowRawPixelsAtHighZoom,
       useDesynchronizedBoardContexts: migratedUseDesynchronizedBoardContexts,

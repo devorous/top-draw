@@ -32,6 +32,7 @@ export class Board {
     this.mirror = false;
     this.mirrorRegions = [];
     this.backgroundColor = options.backgroundColor || [255, 255, 255, 1];
+    this.displayBackgroundColorOverride = null;
 
     this.container = null;
     this.boardsWrapper = null;
@@ -153,8 +154,38 @@ export class Board {
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
     this.backgroundColor = [r, g, b, 1];
+    this._syncBoardWrapperBackground();
     this.markCompositeFull();
     this.requestUpdate();
+  }
+
+  /**
+   * Set a local-only background color override used for board compositing.
+   * This does not change the room background color used by blur/export/network logic.
+   * @param {string|null} hex - Hex color string or null to clear override
+   */
+  setDisplayBackgroundColorOverride(hex) {
+    if (typeof hex !== 'string' || !/^#[0-9a-f]{6}$/i.test(hex)) {
+      this.displayBackgroundColorOverride = null;
+    } else {
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      this.displayBackgroundColorOverride = [r, g, b, 1];
+    }
+    this._syncBoardWrapperBackground();
+    this.markCompositeFull();
+    this.requestUpdate();
+  }
+
+  getCompositeBackgroundColor() {
+    return this.displayBackgroundColorOverride || this.backgroundColor;
+  }
+
+  _syncBoardWrapperBackground() {
+    if (!this.boardsWrapper) return;
+    const [r, g, b, a = 1] = this.getCompositeBackgroundColor();
+    this.boardsWrapper.style.backgroundColor = `rgba(${r}, ${g}, ${b}, ${a})`;
   }
 
   /**
@@ -168,6 +199,7 @@ export class Board {
     this.topCanvas = document.getElementById('topBoard');
     this.cursorsSvg = document.getElementById('cursorsSvg');
     this.mirrorLine = document.querySelector('.mirrorLine');
+    this._syncBoardWrapperBackground();
 
     this.mainCtx = this._createBoard2DContext(this.mainCanvas, 'main', { willReadFrequently: true });
     this.topCtx = this._createBoard2DContext(this.topCanvas, 'top');
@@ -2165,7 +2197,7 @@ export class Board {
       this._drawCompositeCanvas(this.mainCtx, this.topCanvas, dirtyRects);
 
       this.mainCtx.globalCompositeOperation = 'destination-over';
-      const [r, g, b, a] = this.backgroundColor;
+      const [r, g, b, a] = this.getCompositeBackgroundColor();
       this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
       this._fillCompositeContext(this.mainCtx, dirtyRects);
 
@@ -2177,7 +2209,7 @@ export class Board {
       }
     }
     else if ((isDrawing || hasActiveSelection) && splitLayer + 1 < totalLayers && !upperLayersHaveBlendModes) {
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.backgroundColor, dirtyRects);
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.getCompositeBackgroundColor(), dirtyRects);
 
       if (isDrawing) {
         if (isEraser) {
@@ -2186,7 +2218,7 @@ export class Board {
           this._drawCompositeCanvas(this.mainCtx, this.topCanvas, dirtyRects);
 
           this.mainCtx.globalCompositeOperation = 'destination-over';
-          const [r, g, b, a] = this.backgroundColor;
+          const [r, g, b, a] = this.getCompositeBackgroundColor();
           this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
           this._fillCompositeContext(this.mainCtx, dirtyRects);
         } else {
@@ -2204,7 +2236,7 @@ export class Board {
         this.layerManager.compositeLayerRange(this.upperLayersCtx, splitLayer + 1, totalLayers, null, dirtyRects);
       }
     } else {
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.backgroundColor, dirtyRects);
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.getCompositeBackgroundColor(), dirtyRects);
 
       if (isDrawing) {
         if (isEraser) {
@@ -2213,7 +2245,7 @@ export class Board {
           this._drawCompositeCanvas(this.mainCtx, this.topCanvas, dirtyRects);
 
           this.mainCtx.globalCompositeOperation = 'destination-over';
-          const [r, g, b, a] = this.backgroundColor;
+          const [r, g, b, a] = this.getCompositeBackgroundColor();
           this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
           this._fillCompositeContext(this.mainCtx, dirtyRects);
         } else {

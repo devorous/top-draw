@@ -36,7 +36,8 @@
   const THEME_COLOR_FIELDS = [
     { key: 'bg',     label: 'Background' },
     { key: 'accent', label: 'Accent' },
-    { key: 'text',   label: 'Text' }
+    { key: 'text',   label: 'Text' },
+    { key: 'boardBg', label: 'Board BG' }
   ];
 
   function isSidebarOnLeft() {
@@ -190,6 +191,22 @@
     updatePreferences(nextPreferences);
   }
 
+  function getLocalBoardBackgroundColor() {
+    return appPreferences?.general?.localBoardBackgroundColor ?? '';
+  }
+
+  function updateLocalBoardBackgroundColor(value) {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        localBoardBackgroundColor: value || null
+      }
+    };
+
+    updatePreferences(nextPreferences, value ? 'Local board background updated' : 'Room background restored');
+  }
+
   function updateSidebarSide(enabled) {
     const nextPreferences = {
       ...appPreferences,
@@ -286,7 +303,11 @@
   function restoreThemeDefaults() {
     const nextPreferences = {
       ...appPreferences,
-      general: { ...(appPreferences?.general ?? {}), themeColors: {} }
+      general: {
+        ...(appPreferences?.general ?? {}),
+        themeColors: {},
+        localBoardBackgroundColor: null
+      }
     };
 
     updatePreferences(nextPreferences, 'Default colours restored');
@@ -610,20 +631,31 @@
             </div>
 
             <h4>App Colours</h4>
-            <p>Pick three base colours — the rest of the palette is derived automatically.</p>
+            <p>Pick your app colours and local board background.</p>
             <div class="theme-grid-compact">
               {#each THEME_COLOR_FIELDS as field (field.key)}
                 <label class="theme-color-field-compact">
                   <span>{field.label}</span>
                   <div class="theme-color-input-wrap">
-                    <input
-                      type="color"
-                      class="theme-color-picker"
-                      value={themeColorDrafts[field.key] ?? THEME_BASE_COLORS[field.key]}
-                      oninput={(event) => updateThemeColor(field.key, event.currentTarget.value)}
-                      onchange={(event) => updateThemeColor(field.key, event.currentTarget.value)}
-                    />
-                    <code>{themeColorDrafts[field.key] ?? THEME_BASE_COLORS[field.key]}</code>
+                    {#if field.key === 'boardBg'}
+                      <input
+                        type="color"
+                        class="theme-color-picker"
+                        value={getLocalBoardBackgroundColor() || '#ffffff'}
+                        oninput={(event) => updateLocalBoardBackgroundColor(event.currentTarget.value)}
+                        onchange={(event) => updateLocalBoardBackgroundColor(event.currentTarget.value)}
+                      />
+                      <code>{getLocalBoardBackgroundColor() || '#ffffff'}</code>
+                    {:else}
+                      <input
+                        type="color"
+                        class="theme-color-picker"
+                        value={themeColorDrafts[field.key] ?? THEME_BASE_COLORS[field.key]}
+                        oninput={(event) => updateThemeColor(field.key, event.currentTarget.value)}
+                        onchange={(event) => updateThemeColor(field.key, event.currentTarget.value)}
+                      />
+                      <code>{themeColorDrafts[field.key] ?? THEME_BASE_COLORS[field.key]}</code>
+                    {/if}
                   </div>
                 </label>
               {/each}
