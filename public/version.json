@@ -2,6 +2,6 @@
   "latest": "1.4.2-beta",
   "minRequired": "1.4.2-beta",
   "releaseDate": "2026-04-23T07:28:27.324Z",
-  "notes": "Optimized rendering of strokes to reduce full-board refreshes",
+  "notes": "Fixed an issue with stroke rendering and added chat sound effects",
   "downloadUrl": "https://www.ddraw.ca/download"
 }

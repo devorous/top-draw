@@ -1,6 +1,10 @@
 <script>
   import { appState } from '../../state.svelte.js';
-  import { createDefaultAppPreferences, THEME_BASE_COLORS } from '../../config/AppPreferences.js';
+  import {
+    createDefaultAppPreferences,
+    DEFAULT_SFX_PREFERENCES,
+    THEME_BASE_COLORS
+  } from '../../config/AppPreferences.js';
   import {
     KEYBIND_ACTIONS,
     KEYBIND_ACTIONS_BY_ID,
@@ -111,6 +115,63 @@
   function getChatOpacity() {
     const value = Number(appPreferences?.general?.chatOpacity);
     return Number.isFinite(value) ? Math.min(1, Math.max(0.3, value)) : 1;
+  }
+
+  function getSfxSettings() {
+    return {
+      ...DEFAULT_SFX_PREFERENCES,
+      ...(appPreferences?.general?.sfx ?? {})
+    };
+  }
+
+  function getSfxVolume() {
+    const value = Number(getSfxSettings().volume);
+    return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : DEFAULT_SFX_PREFERENCES.volume;
+  }
+
+  function isSfxEnabled(name) {
+    return !!getSfxSettings()[name];
+  }
+
+  function updateSfxVolume(rawValue) {
+    const value = Number(rawValue);
+    if (!Number.isFinite(value)) return;
+    const clamped = Math.min(1, Math.max(0, value));
+
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        sfx: {
+          ...getSfxSettings(),
+          volume: clamped
+        }
+      }
+    };
+
+    updatePreferences(nextPreferences);
+  }
+
+  function updateSfxEnabled(name, enabled) {
+    if (!['chat', 'staff', 'inbox'].includes(name)) return;
+
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        sfx: {
+          ...getSfxSettings(),
+          [name]: enabled
+        }
+      }
+    };
+
+    const labels = {
+      chat: 'Chat',
+      staff: 'Staff / DM',
+      inbox: 'Inbox'
+    };
+    updatePreferences(nextPreferences, `${labels[name]} sound ${enabled ? 'enabled' : 'disabled'}`);
   }
 
   function updateChatOpacity(rawValue) {
@@ -482,20 +543,64 @@
               </label>
             </div>
 
-            <div class="chat-opacity-row">
-              <label class="chat-opacity-label">
-                <span class="chat-opacity-title">Chat Opacity</span>
-                <span class="chat-opacity-value">{Math.round(getChatOpacity() * 100)}%</span>
-              </label>
-              <input
-                type="range"
-                class="chat-opacity-slider"
-                min="0.3"
-                max="1"
-                step="0.05"
-                value={getChatOpacity()}
-                oninput={(event) => updateChatOpacity(event.currentTarget.value)}
-              />
+            <div class="settings-slider-stack">
+              <div class="settings-slider-card">
+                <label class="settings-slider-label">
+                  <span class="settings-slider-title">SFX Volume</span>
+                  <span class="settings-slider-value">{Math.round(getSfxVolume() * 100)}%</span>
+                </label>
+                <input
+                  type="range"
+                  class="settings-slider"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={getSfxVolume()}
+                  oninput={(event) => updateSfxVolume(event.currentTarget.value)}
+                />
+                <div class="settings-toggles-row settings-toggles-row-tight">
+                  <label class="settings-toggle-compact">
+                    <input
+                      type="checkbox"
+                      checked={isSfxEnabled('chat')}
+                      onchange={(event) => updateSfxEnabled('chat', event.currentTarget.checked)}
+                    />
+                    <span>Chat</span>
+                  </label>
+                  <label class="settings-toggle-compact">
+                    <input
+                      type="checkbox"
+                      checked={isSfxEnabled('staff')}
+                      onchange={(event) => updateSfxEnabled('staff', event.currentTarget.checked)}
+                    />
+                    <span>Staff / DM</span>
+                  </label>
+                  <label class="settings-toggle-compact">
+                    <input
+                      type="checkbox"
+                      checked={isSfxEnabled('inbox')}
+                      onchange={(event) => updateSfxEnabled('inbox', event.currentTarget.checked)}
+                    />
+                    <span>Inbox</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="settings-slider-card">
+                <label class="settings-slider-label">
+                  <span class="settings-slider-title">Chat Opacity</span>
+                  <span class="settings-slider-value">{Math.round(getChatOpacity() * 100)}%</span>
+                </label>
+                <input
+                  type="range"
+                  class="settings-slider"
+                  min="0.3"
+                  max="1"
+                  step="0.05"
+                  value={getChatOpacity()}
+                  oninput={(event) => updateChatOpacity(event.currentTarget.value)}
+                />
+              </div>
             </div>
 
             <h4>App Colours</h4>
@@ -814,19 +919,25 @@
     accent-color: var(--accent-primary);
   }
 
-  .chat-opacity-row {
+  .settings-slider-stack {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.85rem;
+    margin-bottom: 1rem;
+  }
+
+  .settings-slider-card {
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
     padding: 0.65rem 0.8rem;
-    margin-bottom: 1rem;
     width: min(320px, 100%);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-sm);
     background: var(--bg-primary);
   }
 
-  .chat-opacity-label {
+  .settings-slider-label {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
@@ -836,14 +947,14 @@
     font-weight: 600;
   }
 
-  .chat-opacity-value {
+  .settings-slider-value {
     font-variant-numeric: tabular-nums;
     color: var(--accent-primary);
     font-size: 0.78rem;
     font-weight: 700;
   }
 
-  .chat-opacity-slider {
+  .settings-slider {
     appearance: none;
     width: min(220px, 100%);
     height: 6px;
@@ -854,7 +965,7 @@
     accent-color: var(--accent-primary);
   }
 
-  .chat-opacity-slider::-webkit-slider-thumb {
+  .settings-slider::-webkit-slider-thumb {
     appearance: none;
     width: 16px;
     height: 16px;
@@ -865,7 +976,7 @@
     cursor: pointer;
   }
 
-  .chat-opacity-slider::-moz-range-thumb {
+  .settings-slider::-moz-range-thumb {
     width: 16px;
     height: 16px;
     border-radius: 50%;
@@ -873,6 +984,11 @@
     border: 2px solid var(--bg-primary);
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
     cursor: pointer;
+  }
+
+  .settings-toggles-row-tight {
+    margin-top: 0.35rem;
+    margin-bottom: 0;
   }
 
   .theme-grid-compact {

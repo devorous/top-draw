@@ -1,11 +1,11 @@
 {
-  "version": "1.4.1-beta",
-  "notes": "Optimized rendering of strokes to reduce full-board refreshes",
-  "pub_date": "2026-04-23T05:03:17.026Z",
+  "version": "1.4.2-beta",
+  "notes": "Fixed an issue with stroke rendering and added chat sound effects",
+  "pub_date": "2026-04-23T07:28:27.324Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.4.1-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenZra2llbmdwVk1ZQ0pqaVkxUy80VHZ0Z3FYM2IvZGRLQmxJTVBZdWU2MmtWLzFqWXhHU3hkWSthOHVxVEJlWDRURnIrcENVSVJNUlZwZUVFZHJGYndjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2OTIwNjU1CWZpbGU6RGRyYXdfMS40LjEtYmV0YV94NjQtc2V0dXAuZXhlCmxiejNpMFdocTVuR0dUTW4xYmtidW9kVG5VSVNxMkhyT1RXUkZNTFpjY3NlZ0czMXpUd1JJRnNuRnJXTjdPZnFGWVN4VTlDMmxXWE9nT3ArUzA0YURRPT0K"
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.4.2-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNemdPUk81eFh0d1dUeFpKTEdYb1V2dVZvbi9VRitOMjVPbmJuWU84U0RtQnZiNC8rNnh0b3hxZkgxZC91MDdJNlAwOCtwNzZZaWIyYnQrVnQ0S0xJaWc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2OTMzNzAxCWZpbGU6RGRyYXdfMS40LjItYmV0YV94NjQtc2V0dXAuZXhlCjM2bURFV3Q5Tk1UTFBTZERHdUxpQlYyS3EzOVZPdUdLTjdNNUxTTmxPbm91YzNiTjJESG1lbkFNVGxTL2lta2tiYTJZdXdRbThPV0FrNmJmOXFiN0JRPT0K"
     }
   }
 }
