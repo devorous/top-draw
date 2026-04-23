@@ -8,7 +8,8 @@
   let snapshotHasMore = $derived(appState.snapshotHasMore);
   let snapshotListVersion = $derived(appState.snapshotListVersion);
   let hasLoadedOlderSnapshots = $derived(snapshots.length > 20);
-  let canViewHistory = $derived(appState.selfRole >= 1);
+  let isSoloOccupant = $derived(appState.userCount <= 1);
+  let canViewHistory = $derived(appState.selfRole >= 1 || isSoloOccupant);
   let canRestoreHistory = $derived(appState.selfRole >= 2);
 
   let selectedId = $state(null);
@@ -540,7 +541,7 @@
           {#if canViewHistory}
             No snapshots available yet.
           {:else}
-            Only registered users can view board history.
+            Only registered users can view board history unless they are alone in the room.
           {/if}
         </span>
       {:else}

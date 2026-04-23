@@ -2424,6 +2424,9 @@ export class Board {
       ctx.clearRect(0,0,width,height);
       this.layerManager.compositeLayerRange(ctx, i, i + 1, null);
       const imageData = ctx.getImageData(0, 0, width, height);
+      if (i === 0) {
+        this._stripSnapshotBackground(imageData);
+      }
       layers.push(wasm.qoi_encode(new Uint8Array(imageData.data.buffer), width, height));
     }
 
@@ -2473,6 +2476,65 @@ export class Board {
     canvas.height = imageData.height;
     canvas.getContext('2d').putImageData(imageData, 0, 0);
     return canvas;
+  }
+
+  /**
+   * Removes border-connected background pixels from the exported base layer so
+   * snapshots keep a transparent backdrop even if the baked flat canvas has
+   * picked up the room background color.
+   * @param {ImageData} imageData
+   * @private
+   */
+  _stripSnapshotBackground(imageData) {
+    const { data, width, height } = imageData;
+    if (!data || width <= 0 || height <= 0) return;
+
+    const [bgR, bgG, bgB, bgA = 1] = this.backgroundColor || [255, 255, 255, 1];
+    const bgAlpha = Math.round(bgA * 255);
+    const tolerance = 3;
+    const totalPixels = width * height;
+    const visited = new Uint8Array(totalPixels);
+    const queue = new Uint32Array(totalPixels);
+    let head = 0;
+    let tail = 0;
+
+    const matchesBackground = (pixelIndex) => {
+      const offset = pixelIndex * 4;
+      return Math.abs(data[offset] - bgR) <= tolerance &&
+        Math.abs(data[offset + 1] - bgG) <= tolerance &&
+        Math.abs(data[offset + 2] - bgB) <= tolerance &&
+        Math.abs(data[offset + 3] - bgAlpha) <= tolerance;
+    };
+
+    const enqueue = (pixelIndex) => {
+      if (pixelIndex < 0 || pixelIndex >= totalPixels) return;
+      if (visited[pixelIndex] || !matchesBackground(pixelIndex)) return;
+      visited[pixelIndex] = 1;
+      queue[tail++] = pixelIndex;
+    };
+
+    for (let x = 0; x < width; x++) {
+      enqueue(x);
+      enqueue((height - 1) * width + x);
+    }
+    for (let y = 1; y < height - 1; y++) {
+      enqueue(y * width);
+      enqueue(y * width + (width - 1));
+    }
+
+    while (head < tail) {
+      const pixelIndex = queue[head++];
+      const offset = pixelIndex * 4;
+      data[offset + 3] = 0;
+
+      const x = pixelIndex % width;
+      const y = Math.floor(pixelIndex / width);
+
+      if (x > 0) enqueue(pixelIndex - 1);
+      if (x + 1 < width) enqueue(pixelIndex + 1);
+      if (y > 0) enqueue(pixelIndex - width);
+      if (y + 1 < height) enqueue(pixelIndex + width);
+    }
   }
 
   /**

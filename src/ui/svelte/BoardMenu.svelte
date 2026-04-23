@@ -10,7 +10,8 @@
   let hoveredLayerBtn = null;
 
   let blendModeAllowed = $derived(appState.activeLayer === 0);
-  let isRegistered = $derived(appState.selfRole >= 1);
+  let isSoloOccupant = $derived(appState.userCount <= 1);
+  let canOpenHistory = $derived(appState.selfRole >= 1 || isSoloOccupant);
 
   const blendModes = [
     { value: 'source-over', label: 'Normal' },
@@ -166,7 +167,7 @@
   {/if}
 
   <!-- Snapshot/History Button (Trusted+) -->
-  {#if isRegistered}
+  {#if canOpenHistory}
   <div class="history-wrap">
     <button
       class="history-btn"

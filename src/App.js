@@ -34,7 +34,7 @@ import { HistoryPanel } from './ui/HistoryPanel.js';
 import { MirrorRegionController } from './ui/MirrorRegionController.js';
 import { BoardViewer } from './ui/BoardViewer.js';
 import { SnapshotManager } from './remote/SnapshotManager.js';
-import { loadAppPreferences, saveAppPreferences } from './config/AppPreferences.js';
+import { loadAppPreferences, saveAppPreferences, THEME_BASE_COLORS } from './config/AppPreferences.js';
 import { getTextFontDefaults, loadTextFont, normalizeTextFont } from './config/textFonts.js';
 import {
   copyCanvasToSystemClipboard,
@@ -138,9 +138,16 @@ function applyThemeColors(themeColors = {}) {
   if (typeof document === 'undefined') return;
 
   const rootStyle = document.documentElement.style;
-  const { bg, accent, text } = themeColors ?? {};
+  const customThemeColors = themeColors && typeof themeColors === 'object' ? themeColors : {};
+  const hasCustomTheme = ['bg', 'accent', 'text'].some((key) => {
+    const value = customThemeColors[key];
+    return typeof value === 'string' && value.length > 0;
+  });
+  const bg = customThemeColors.bg || THEME_BASE_COLORS.bg;
+  const accent = customThemeColors.accent || THEME_BASE_COLORS.accent;
+  const text = customThemeColors.text || THEME_BASE_COLORS.text;
 
-  if (bg && accent && text) {
+  if (hasCustomTheme) {
     // Scale the layer step with the base lightness so darker backgrounds
     // stay dark — e.g. near-black bg uses ~2pt steps instead of 5pt.
     const [, , bgL] = _rgbToHsl(..._hexToRgb(bg));

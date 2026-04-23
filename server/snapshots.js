@@ -21,6 +21,10 @@ function canLoadSnapshot(ws, room) {
   return authorize(ws, Action.MOD_MUTE, null) || isSoloRoomOccupant(room);
 }
 
+function canManualSaveSnapshot(ws, room) {
+  return authorize(ws, Action.MOD_MUTE, null) || isSoloRoomOccupant(room);
+}
+
 function getSnapshotMaxPerRoom() {
   const parsed = Number.parseInt(process.env.SNAPSHOT_MAX_PER_ROOM || '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SNAPSHOT_MAX_PER_ROOM;
@@ -106,12 +110,12 @@ export async function handleSnapshotSave(ws, data, room) {
   const shouldPersist = isProd || allowDevSaves;
 
   // Server-initiated auto-snapshots: any user who was explicitly asked may respond.
-  // Manual saves require Trusted+ authorization.
+  // Manual saves require Trusted+ unless the user is alone in the room.
   const isServerRequested = room?._pendingSnapshotRequests?.has(ws.sessionIndex);
   if (isServerRequested) {
     room._pendingSnapshotRequests.delete(ws.sessionIndex);
-  } else if (!authorize(ws, Action.MOD_MUTE, null)) {
-    return; // Trusted+ required for manual saves
+  } else if (!canManualSaveSnapshot(ws, room)) {
+    return;
   }
   if (!room?.canPersistSnapshots?.()) {
     return;

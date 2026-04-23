@@ -264,13 +264,19 @@
 
   function updateThemeColor(key, value) {
     if (!['bg', 'accent', 'text'].includes(key)) return;
-    themeColorDrafts = { ...themeColorDrafts, [key]: value };
+    const nextThemeColors = {
+      bg: themeColorDrafts.bg ?? THEME_BASE_COLORS.bg,
+      accent: themeColorDrafts.accent ?? THEME_BASE_COLORS.accent,
+      text: themeColorDrafts.text ?? THEME_BASE_COLORS.text,
+      [key]: value
+    };
+    themeColorDrafts = nextThemeColors;
 
     const nextPreferences = {
       ...appPreferences,
       general: {
         ...(appPreferences?.general ?? {}),
-        themeColors: { ...(appPreferences?.general?.themeColors ?? {}), [key]: value }
+        themeColors: nextThemeColors
       }
     };
 
@@ -614,6 +620,7 @@
                       type="color"
                       class="theme-color-picker"
                       value={themeColorDrafts[field.key] ?? THEME_BASE_COLORS[field.key]}
+                      oninput={(event) => updateThemeColor(field.key, event.currentTarget.value)}
                       onchange={(event) => updateThemeColor(field.key, event.currentTarget.value)}
                     />
                     <code>{themeColorDrafts[field.key] ?? THEME_BASE_COLORS[field.key]}</code>
