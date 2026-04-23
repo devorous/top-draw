@@ -63,6 +63,15 @@ export function setupUserHandlers(wsClient, app) {
     announcedJoinSessionIds.delete(sessionIndex);
   };
 
+  const isSelfImmuneToInactiveResync = (role = app.self?.role ?? app.selfRole ?? 0) => {
+    const numericRole = Number(role) || 0;
+    return numericRole >= 5 || (!!app.currentRoomData?.modInactiveImmune && numericRole >= 4);
+  };
+
+  const applySelfInactiveState = (afk = app.self?.afk, role = app.self?.role ?? app.selfRole ?? 0) => {
+    app.syncClient?.setInactive(!!afk && !isSelfImmuneToInactiveResync(role));
+  };
+
   const announceJoinIfReady = (sessionIndex) => {
     if (announcedJoinSessionIds.has(sessionIndex)) return true;
 
@@ -133,7 +142,9 @@ export function setupUserHandlers(wsClient, app) {
 
       if (userData.sessionIndex === app.sessionIndex) {
         // Authoritative update for SELF (e.g. if name was forced unique)
-        app.syncClient?.setInactive(!!userData.afk);
+        const selfAfk = !!userData.afk;
+        app.self.setAfk?.(selfAfk);
+        app.ui.setSelfUserAfk?.(selfAfk);
         if (username && username !== app.self.username) {
           app.self.setUsername(username);
           app.ui.updateSelfName(username);
@@ -164,6 +175,7 @@ export function setupUserHandlers(wsClient, app) {
           app.self.setSimulatePressure(userData.simulatePressure);
           app.ui.updateSimulatePressure(userData.simulatePressure);
         }
+        applySelfInactiveState(selfAfk, userData.role ?? app.self.role ?? app.selfRole);
         return;
       }
 
@@ -394,6 +406,7 @@ export function setupUserHandlers(wsClient, app) {
     app.currentRoomData.mirror = data.mirror;
     app.currentRoomData.mirrorRegions = data.mirrorRegions || [];
     appState.currentRoomData = app.currentRoomData;
+    applySelfInactiveState();
   });
 
   wsClient.on('left', (data) => {
@@ -414,12 +427,26 @@ export function setupUserHandlers(wsClient, app) {
 
   wsClient.on('afk', (data) => {
     if (data.sessionIndex === app.sessionIndex) {
-      app.syncClient?.setInactive(data.afk);
+      app.self.setAfk?.(!!data.afk);
+      if (data.afk) {
+        app.self.mousedown = false;
+        app.self.clearLine?.();
+        app.board?.layerManager?.deepCleanupUserState?.(app.self.id, { preserveVisuals: true });
+        app.board?.clearTop?.();
+        app.board?.compositeAllLayers?.();
+        app.board?.requestUpdate?.();
+      }
+      app.ui.setSelfUserAfk?.(!!data.afk);
+      applySelfInactiveState(data.afk);
       return;
     }
     const user = users.get(data.sessionIndex);
     if (user) {
       user.setAfk(data.afk);
+      if (data.afk) {
+        user.mousedown = false;
+        app.remoteUserHandler?.cleanupUserState?.(user, { preserveVisuals: true });
+      }
       ui.setRemoteUserAfk(data.sessionIndex, data.afk);
       app.updateChatUserList();
     }

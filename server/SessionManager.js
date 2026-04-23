@@ -65,6 +65,18 @@ export class SessionManager {
   }
 
   /**
+   * Returns whether a user should keep receiving live room events while inactive.
+   * @param {number} sessionIndex - The user's session index.
+   * @param {Object} [user=null] - Optional already-resolved user object.
+   * @returns {boolean}
+   */
+  isUserImmuneToInactivity(sessionIndex, user = null) {
+    const resolvedUser = user || this.users.get(sessionIndex);
+    if (!resolvedUser) return false;
+    return !!this.isImmuneToInactivity(sessionIndex, resolvedUser);
+  }
+
+  /**
    * Returns a unique name by appending a suffix if the name is already taken.
    * @param {string} name - The desired name.
    * @param {number|null} [excludeSessionIndex=null] - The session index to exclude from the check.
@@ -228,22 +240,17 @@ export class SessionManager {
 
     this.users.forEach((user, sessionIndex) => {
       if (!user.name) return;
-      if (this.isImmuneToInactivity(sessionIndex, user)) {
-        if (user.afk) {
-          user.afk = false;
-          this.broadcastToAll({ t: T.AFK, u: sessionIndex, a: false });
-        }
-        return;
-      }
       if (!user.afk && user.lastActivity && (now - user.lastActivity > AFK_TIMEOUT)) {
         user.afk = true;
+        user.mousedown = false;
         this.broadcastToAll({ t: T.AFK, u: sessionIndex, a: true });
         console.log(`User ${sessionIndex} marked as AFK`);
       }
     });
 
     // Track when all joined users become AFK to trigger snapshot restore
-    if (joinedUsers.length > 0 && joinedUsers.every(u => u.afk)) {
+    const restorableUsers = joinedUsers.filter(u => !this.isUserImmuneToInactivity(u.sessionIndex, u));
+    if (restorableUsers.length > 0 && restorableUsers.every(u => u.afk)) {
       if (!this._allAfkSince) {
         this._allAfkSince = now;
         console.log(`[AFK] All users in room are AFK, will restore snapshot in ${ALL_AFK_RESTORE_DELAY / 1000}s`);

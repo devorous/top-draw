@@ -1403,7 +1403,8 @@ menuBtn: document.getElementById('menuBtn'),
     const { selfListTool } = this.elements;
     if (selfListTool) {
       selfListTool.innerHTML = '';
-      const iconData = this.icons[tool] || this.icons.brush; // Use iconData to avoid confusion with DOM element
+      const afk = !!window.app?.self?.afk;
+      const iconData = (afk && this.icons.afk) ? this.icons.afk : (this.icons[tool] || this.icons.brush);
 
       if (iconData.type === 'svg') {
         const svgWrapper = document.createElement('div');
@@ -1414,6 +1415,15 @@ menuBtn: document.getElementById('menuBtn'),
         selfListTool.appendChild(iconData.element.cloneNode(true)); // Clone the pre-created img element
       }
     }
+  }
+
+  setSelfUserAfk(afk) {
+    const entry = this.elements.selfUserEntry;
+    const userEl = this.elements.selfListUser;
+    const opacity = afk ? '0.5' : '1';
+    if (entry) entry.style.opacity = opacity;
+    if (userEl) userEl.style.opacity = opacity;
+    this.updateSelfToolIcon(window.app?.self?.tool || 'brush');
   }
 
   /**

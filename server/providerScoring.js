@@ -4,7 +4,8 @@ const ACTIVE_WINDOW_MS = 60_000;
 const HIDDEN_TAB_PENALTY = 300;
 const AFK_PENALTY = 90;
 const MISSING_PING_PENALTY = 20;
-const ACTIVELY_DRAWING_BONUS = 50; // Prefer users with active strokes
+const RECENT_ACTIVITY_BONUS = 160;
+const ACTIVELY_DRAWING_BONUS = 500; // Prefer users with active strokes
 const MISSING_UPLOAD_BPS_PENALTY = 60; // Haven't measured throughput yet — prefer anyone we have measured
 
 /**
@@ -30,12 +31,13 @@ export function scoreProvider(ws, user, options = {}) {
   const now = Date.now();
   const lastActivity = user?.lastActivity ?? 0;
 
-  if (lastActivity && now - lastActivity < ACTIVE_WINDOW_MS) {
-    score += 20;
+  const recentlyActive = lastActivity && now - lastActivity < ACTIVE_WINDOW_MS;
+  if (recentlyActive) {
+    score += RECENT_ACTIVITY_BONUS;
   }
 
   // Prefer users with active strokes—they have the most recent canvas state
-  if (user?.mousedown) {
+  if (user?.mousedown && recentlyActive && !user?.afk) {
     score += ACTIVELY_DRAWING_BONUS;
   }
 
@@ -74,5 +76,21 @@ export function scoreProvider(ws, user, options = {}) {
 export function isRecentlyActive(user) {
   const lastActivity = user?.lastActivity ?? 0;
   return !!lastActivity && (Date.now() - lastActivity) < ACTIVE_WINDOW_MS;
+}
+
+/**
+ * Activity tier for provider ranking.
+ * Higher is better. This is intentionally separate from raw score so sync
+ * provider selection can prefer the highest-scoring active user before trying
+ * inactive but high-bandwidth clients.
+ *
+ * @param {Object|null|undefined} user
+ * @returns {number}
+ */
+export function getProviderActivityTier(user) {
+  if (!user || user.afk) return 0;
+  const recentlyActive = isRecentlyActive(user);
+  if (user.mousedown && recentlyActive) return 2;
+  return recentlyActive ? 1 : 0;
 }
 

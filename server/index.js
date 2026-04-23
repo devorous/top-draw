@@ -1101,7 +1101,7 @@ const INACTIVE_FILTERED_TYPES = new Set([
 function shouldSkipInactiveRecipient(room, client, messageType) {
   if (!room || !INACTIVE_FILTERED_TYPES.has(messageType)) return false;
   const user = room.sessionManager.getUser(client.sessionIndex);
-  return !!user?.afk;
+  return !!user?.afk && !room.sessionManager.isUserImmuneToInactivity(client.sessionIndex, user);
 }
 
 const MUTED_BLOCKED = new Set([

@@ -2,7 +2,7 @@
 
 import { WebSocket } from 'ws';
 import { T } from '../shared/MessageTypes.js';
-import { isRecentlyActive, scoreProvider } from './providerScoring.js';
+import { getProviderActivityTier, isRecentlyActive, scoreProvider } from './providerScoring.js';
 
 const SYNC_PROVIDER_TIMEOUT_MS = 2000;
 const MAX_SYNC_CANDIDATES = 3;
@@ -218,7 +218,8 @@ export class SyncCoordinator {
       if (client && client !== requesterWs) {
         candidates.push({
           sessionIndex: idx,
-          score: scoreProvider(client, userData),
+          score: scoreProvider(client, userData, { allowAfk: includeAfk }),
+          activityTier: getProviderActivityTier(userData),
           active: isRecentlyActive(userData),
           hidden: !!client.tabHidden,
         });
@@ -226,6 +227,7 @@ export class SyncCoordinator {
     }
 
     candidates.sort((a, b) => {
+      if (b.activityTier !== a.activityTier) return b.activityTier - a.activityTier;
       if (b.score !== a.score) return b.score - a.score;
       if (a.hidden !== b.hidden) return Number(a.hidden) - Number(b.hidden);
       if (a.active !== b.active) return Number(b.active) - Number(a.active);
