@@ -290,7 +290,18 @@ export class Room {
     }
 
     try {
-      const doc = await db.collection('rooms').findOne({ _id: this.id });
+      const doc = await db.collection('rooms').findOne(
+        { _id: this.id },
+        {
+          projection: {
+            description: 1,
+            ownerId: 1,
+            ownerUsername: 1,
+            createdAt: 1,
+            settings: 1
+          }
+        }
+      );
 
       if (doc) {
         this.description = doc.description || '';
