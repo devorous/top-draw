@@ -530,10 +530,10 @@ export function drawLineArray(points, ctx, user, board = null, blendMode = 'sour
   const color = user?.color ?? [0, 0, 0, 1];
   const colorString = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
 
-  // Apply softness using shadow blur - matches circle blur's linear hardness mapping
+  // Match the softness curve used by fluid/ink so hardness feels consistent.
   if (hardness < 1.0) {
-    const radius = user.pressure * user.size;
-    const blurAmount = radius * (1 - hardness);
+    const size = user.size ?? 0;
+    const blurAmount = (1 - hardness) * (20 + size * 0.2);
     const offset = 100000;
 
     ctx.strokeStyle = colorString;

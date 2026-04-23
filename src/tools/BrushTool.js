@@ -117,11 +117,18 @@ export class BrushTool extends Tool {
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
+    const previousPoint = user.currentLine.length > 0
+      ? user.currentLine[user.currentLine.length - 1]
+      : null;
+
     // Snapshot the current point because local input reuses mutable scratch objects.
     user.addToLine({ x: pos.x, y: pos.y });
     this._expandPreviewBounds(user, pos.x, pos.y);
 
-    const rect = this.getPreviewDirtyRect(user);
+    const rect = previousPoint
+      ? this.getSegmentPreviewDirtyRect(user, previousPoint, pos)
+      : this.getPreviewDirtyRect(user);
+
     this.board.clearTop(rect === false ? null : rect);
     this.drawPreview(user, rect === false ? null : rect);
 
@@ -205,9 +212,9 @@ export class BrushTool extends Tool {
     const hardnessFloat = hardness / 100.0;
 
     const radius = user.pressure * user.size;
-    const blurAmount = hardness < 100 ? radius * (1 - hardnessFloat) : 0;
-    const safetyMargin = radius * 0.25;
-    const totalRadius = radius + blurAmount + safetyMargin + 2;
+    const blurAmount = hardness < 100 ? (1 - hardnessFloat) * (20 + user.size * 0.2) : 0;
+    const safetyMargin = radius * 0.5;
+    const totalRadius = radius + (blurAmount * 2.5) + safetyMargin + 15;
 
     // Use line-based tile marking for efficiency
     this.board.markDirtyPath(user, points, totalRadius);
@@ -278,16 +285,31 @@ export class BrushTool extends Tool {
     if (!bounds || bounds.maxX < bounds.minX || bounds.maxY < bounds.minY) return false;
     if (this.board.mirrorRegions?.length > 0) return null;
 
+    return this._boundsToPreviewRect(user, bounds.minX, bounds.minY, bounds.maxX, bounds.maxY);
+  }
+
+  getSegmentPreviewDirtyRect(user, from, to) {
+    if (!from || !to) return this.getPreviewDirtyRect(user);
+    if (this.board.mirrorRegions?.length > 0) return null;
+
+    const minX = Math.min(from.x, to.x);
+    const minY = Math.min(from.y, to.y);
+    const maxX = Math.max(from.x, to.x);
+    const maxY = Math.max(from.y, to.y);
+    return this._boundsToPreviewRect(user, minX, minY, maxX, maxY);
+  }
+
+  _boundsToPreviewRect(user, minX, minY, maxX, maxY) {
     const hardness = user.hardness !== undefined ? user.hardness : 100;
     const hardnessFloat = hardness / 100.0;
     const radius = (user.pressure ?? 1) * user.size;
-    const blurAmount = hardness < 100 ? radius * (1 - hardnessFloat) : 0;
-    const margin = radius + blurAmount + radius * 0.25 + 4;
+    const blurAmount = hardness < 100 ? (1 - hardnessFloat) * (20 + user.size * 0.2) : 0;
+    const margin = radius + (blurAmount * 2.5) + radius * 0.5 + 15;
     return {
-      x: Math.floor(bounds.minX - margin),
-      y: Math.floor(bounds.minY - margin),
-      width: Math.ceil(bounds.maxX - bounds.minX + margin * 2),
-      height: Math.ceil(bounds.maxY - bounds.minY + margin * 2)
+      x: Math.floor(minX - margin),
+      y: Math.floor(minY - margin),
+      width: Math.ceil(maxX - minX + margin * 2),
+      height: Math.ceil(maxY - minY + margin * 2)
     };
   }
 
