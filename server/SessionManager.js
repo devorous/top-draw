@@ -248,9 +248,13 @@ export class SessionManager {
       }
     });
 
-    // Track when all joined users become AFK to trigger snapshot restore
-    const restorableUsers = joinedUsers.filter(u => !this.isUserImmuneToInactivity(u.sessionIndex, u));
-    if (restorableUsers.length > 0 && restorableUsers.every(u => u.afk)) {
+    // Track when all joined users become AFK to trigger snapshot restore.
+    // A mod/admin presence (immune user) blocks restore entirely — they're
+    // the source of truth for canvas state, so wiping to a snapshot would
+    // clobber their view. Restore only fires when every joined user is AFK
+    // and none of them are immune (no mods to sync from).
+    const anyImmune = joinedUsers.some(u => this.isUserImmuneToInactivity(u.sessionIndex, u));
+    if (!anyImmune && joinedUsers.length > 0 && joinedUsers.every(u => u.afk)) {
       if (!this._allAfkSince) {
         this._allAfkSince = now;
         console.log(`[AFK] All users in room are AFK, will restore snapshot in ${ALL_AFK_RESTORE_DELAY / 1000}s`);
