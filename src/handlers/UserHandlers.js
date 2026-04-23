@@ -297,7 +297,9 @@ export function setupUserHandlers(wsClient, app) {
         }
       }
 
-      ui.setRemoteUserAfk(userData.sessionIndex, !!userData.afk);
+      const isAfk = !!userData.afk;
+      user.setAfk?.(isAfk);
+      ui.setRemoteUserAfk(userData.sessionIndex, isAfk);
       ui.setRemoteUserMuted?.(userData.sessionIndex, !!userData.isMuted);
       if (pendingJoinAnnouncements.has(userData.sessionIndex)) {
         announceJoinIfReady(userData.sessionIndex);
@@ -419,6 +421,7 @@ export function setupUserHandlers(wsClient, app) {
     if (user) {
       user.setAfk(data.afk);
       ui.setRemoteUserAfk(data.sessionIndex, data.afk);
+      app.updateChatUserList();
     }
   });
 

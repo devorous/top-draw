@@ -33,6 +33,29 @@
     'image/webp',
     'image/gif'
   ]);
+  const CHAT_TOOL_ICONS = {
+    brush: '/images/brush-icon.svg',
+    flowPen: '/images/brush-icon.svg',
+    ink: '/images/brush-icon.svg',
+    pixel: '/images/brush-icon.svg',
+    imageBrush: '/images/brush-icon.svg',
+    line: '/images/line-icon.svg',
+    rectangle: '/images/rectangle-icon.svg',
+    circle: '/images/circle-icon.svg',
+    text: '/images/text-icon.svg',
+    erase: '/images/eraser-icon.svg',
+    blur: '/images/blend-icon.svg',
+    circleBlur: '/images/circle-blur-icon.svg',
+    glitchBlur: '/images/glitch-icon.svg',
+    fill: '/images/fillbucket-icon.svg',
+    select: '/images/select-icon.svg',
+    pattern: '/images/pattern-icon.svg',
+    inkdropper: '/images/inkdropper-icon.svg',
+    pan: '/images/move-icon.svg',
+    zoom: '/images/magnifying-glass.svg',
+    rotate: '/images/rotate-icon.svg'
+  };
+  const INACTIVE_TOOL_ICON = '/images/zzz-icon.svg';
   const MAX_CHAT_UPLOAD_BYTES = Math.floor(4.5 * 1024 * 1024);
   const MAX_CHAT_UPLOAD_DIMENSION = 4096;
   const MAX_CHAT_UPLOAD_PIXELS = 8_388_608;
@@ -543,7 +566,9 @@
         id: userId,
         username: window.app.self.username || window.app.self.name || 'You',
         color: colorToCss(window.app.self.color, { opaque: true }),
-        role: window.app.self.role || appState.selfRole || 0
+        role: window.app.self.role || appState.selfRole || 0,
+        tool: window.app.self.tool || appState.currentTool || 'brush',
+        afk: !!window.app.self.afk
       };
     }
 
@@ -559,7 +584,9 @@
       username: user.username || user.name || `User ${user.id}`,
       color: colorToCss(user.color, { opaque: true }),
       role: user.role || 0,
-      visibleIp: user.visibleIp || ''
+      visibleIp: user.visibleIp || '',
+      tool: user.tool || 'brush',
+      afk: !!user.afk
     });
     dmMeta = new Map(dmMeta);
   }
@@ -778,6 +805,22 @@
     const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
     const roleName = roleNames[user.role || 0] || 'Guest';
     return user.visibleIp ? `${roleName} | ${user.visibleIp}` : roleName;
+  }
+
+  function directoryUserMeta(user) {
+    const meta = formatModeratorMeta(user);
+    if (user?.afk) return meta ? `${meta} | Inactive` : 'Inactive';
+    return meta || 'Tap to open thread';
+  }
+
+  function getChatToolIconUrl(user) {
+    if (user?.afk) return INACTIVE_TOOL_ICON;
+    return CHAT_TOOL_ICONS[user?.tool] || CHAT_TOOL_ICONS.brush;
+  }
+
+  function getChatToolIconAlt(user) {
+    if (user?.afk) return 'Inactive';
+    return `${user?.tool || 'brush'} tool`;
   }
 
   function getRoleClass(userId) {
@@ -1764,7 +1807,7 @@
 
         <div class="rail-thread-list">
           {#each activeThreads as thread (thread.id)}
-            <button class="rail-tab thread-tab" class:active={activeView === 'dm' && Number(recipient?.id) === Number(thread.id)} onclick={() => openThreadById(thread.id)} title={thread.user?.username || 'Direct message'} type="button">
+            <button class="rail-tab thread-tab" class:active={activeView === 'dm' && Number(recipient?.id) === Number(thread.id)} class:inactive={thread.user?.afk} onclick={() => openThreadById(thread.id)} title={thread.user?.username || 'Direct message'} type="button">
               <span class="rail-tab-name">{thread.user?.username || 'Unknown'}</span>
               {#if getUnreadCount(thread.id) > 0}
                 <span class="rail-badge">{getUnreadCount(thread.id)}</span>
@@ -1801,13 +1844,13 @@
                 <div class="directory-empty">Nobody else is online right now.</div>
               {:else}
                 {#each directoryUsers as user (user.id)}
-                  <button class="directory-user" onclick={() => selectDMRecipient(user)} oncontextmenu={(event) => openUserContextMenu(event, user.id)} title={formatModeratorMeta(user)} type="button">
+                  <button class="directory-user" class:inactive={user.afk} onclick={() => selectDMRecipient(user)} oncontextmenu={(event) => openUserContextMenu(event, user.id)} title={directoryUserMeta(user)} type="button">
                     <span class="directory-avatar" style="--avatar-color: {user.color}">
-                      {user.username.slice(0, 1).toUpperCase()}
+                      <img src={getChatToolIconUrl(user)} alt={getChatToolIconAlt(user)} class="directory-tool-icon" />
                     </span>
                     <span class="directory-copy">
                       <strong>{user.username}</strong>
-                      <small>{formatModeratorMeta(user) || 'Tap to open thread'}</small>
+                      <small>{directoryUserMeta(user)}</small>
                     </span>
                     {#if getUnreadCount(user.id) > 0}
                       <span class="directory-badge">{getUnreadCount(user.id)}</span>
@@ -2878,6 +2921,11 @@
     white-space: nowrap;
   }
 
+  .rail-tab.thread-tab.inactive {
+    color: color-mix(in srgb, var(--chat-muted) 82%, var(--chat-text) 18%);
+    opacity: 0.68;
+  }
+
   .gallery-preview-copy strong {
     color: var(--chat-text);
     font-size: 0.84rem;
@@ -3034,6 +3082,15 @@
     transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
   }
 
+  .directory-user.inactive {
+    background: color-mix(in srgb, var(--bg-elevated) 38%, transparent);
+    color: color-mix(in srgb, var(--chat-muted) 76%, var(--chat-text) 24%);
+  }
+
+  .directory-user.inactive .directory-avatar {
+    background: color-mix(in srgb, var(--chat-muted) 46%, var(--bg-secondary) 54%);
+  }
+
   .directory-avatar {
     display: grid;
     place-items: center;
@@ -3043,6 +3100,14 @@
     font-size: 1rem;
     font-weight: 800;
     flex-shrink: 0;
+  }
+
+  .directory-tool-icon {
+    width: 22px;
+    height: 22px;
+    object-fit: contain;
+    opacity: 0.95;
+    filter: brightness(0) invert(1);
   }
 
   .directory-copy {
@@ -3063,6 +3128,10 @@
     margin-top: 0.18rem;
     color: var(--chat-muted);
     font-size: 0.74rem;
+  }
+
+  .directory-user.inactive .directory-copy small {
+    color: color-mix(in srgb, var(--chat-muted) 86%, transparent);
   }
 
   .chat-composer {

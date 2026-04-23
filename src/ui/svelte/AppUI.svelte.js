@@ -486,6 +486,8 @@ export function syncStoresFromApp(app) {
         color: chatNameColor(user.color),
         registeredName: user.registeredName || '',
         role: user.role || 0,
+        tool: user.tool || 'brush',
+        afk: !!user.afk,
         isSelf: id === app.sessionIndex
       });
     });

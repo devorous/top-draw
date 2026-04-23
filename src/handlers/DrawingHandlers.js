@@ -94,6 +94,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
         user.eraseAllLayers = data.eraseAll || false;
       }
       ui.updateRemoteToolDisplay(data.sessionIndex, data.tool);
+      app.updateChatUserList?.();
     }
   });
 

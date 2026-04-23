@@ -4790,7 +4790,9 @@ export class DrawingApp {
       color: user.color,
       registeredName: user.registeredName || '',
       role: user.role || 0,
-      visibleIp: user.visibleIp || ''
+      visibleIp: user.visibleIp || '',
+      tool: user.tool || 'brush',
+      afk: !!user.afk
     };
   }
 
@@ -4806,6 +4808,8 @@ export class DrawingApp {
           registeredName: user.registeredName || '',
           role: user.role || 0,
           visibleIp: user.visibleIp || '',
+          tool: user.tool || 'brush',
+          afk: !!user.afk,
           isSelf: false
         });
       }
