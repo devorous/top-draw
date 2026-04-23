@@ -65,6 +65,17 @@ export class Board {
     this._needsComposite = false;
     this._compositeScheduled = false;
 
+    // Flush any pending composite when the tab returns to visible — rAF is
+    // paused while hidden, so a requestUpdate() scheduled in the background
+    // would otherwise sit stalled until the next user-initiated frame.
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && this._needsComposite) {
+          this._performScheduledComposite();
+        }
+      });
+    }
+
     /** @type {TileTracker|null} Tracks occupied tiles */
     this.tileTracker = null;
 

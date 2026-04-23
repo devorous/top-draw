@@ -136,7 +136,9 @@ export async function applyRegionRestore(board, layerDatas, isLasso, rect, lasso
   );
 
   try {
-    await new Promise(resolve => requestAnimationFrame(resolve));
+    // setTimeout instead of rAF — rAF is paused in hidden tabs, which would
+    // stall this whole restore until the tab regains focus.
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     for (let i = 0; i < layerDatas.length; i++) {
       const qoi = layerDatas[i];
