@@ -184,7 +184,7 @@ function applyChatOpacity(opacity) {
   if (typeof document === 'undefined') return;
 
   const value = Number(opacity);
-  const clamped = Number.isFinite(value) ? Math.min(1, Math.max(0.3, value)) : 0.7;
+  const clamped = Number.isFinite(value) ? Math.min(1, Math.max(0.3, value)) : 0.95;
   document.documentElement.style.setProperty('--chat-opacity', clamped);
 }
 

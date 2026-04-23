@@ -24,7 +24,7 @@ export function createDefaultAppPreferences() {
       showRawPixelsAtHighZoom: true,
       useDesynchronizedBoardContexts: false,
       lowPowerMode: false,
-      chatOpacity: 0.7
+      chatOpacity: 0.95
     },
     keybinds: getDefaultKeybindings()
   };
@@ -98,7 +98,7 @@ function sanitizeToolsWidth(rawWidth) {
 
 function sanitizeChatOpacity(rawOpacity) {
   const value = Number(rawOpacity);
-  if (!Number.isFinite(value)) return 0.7;
+  if (!Number.isFinite(value)) return 0.95;
   return Math.min(1, Math.max(0.3, value));
 }
 
