@@ -26,14 +26,9 @@ const LOW_POWER_GPU_PATTERNS = [
 
 const REDUCE_BEFORE_RENDER_TOOLS = new Set([
   'brush',
-  'flowPen',
-  'ink',
   'erase',
   'blur',
-  'circleBlur',
-  'glitchBlur',
-  'pixel',
-  'imageBrush'
+  'glitchBlur'
 ]);
 const BATCH_RENDER_TOOLS = new Set([
   'flowPen',
