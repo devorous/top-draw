@@ -2458,6 +2458,7 @@ export class SelectTool extends Tool {
         ? lm.allocateHistoryTimestamp()
         : Date.now();
 
+      let attachedSelectionRestoreData = false;
       for (const { canvas, groupIdx } of this.floatingLayers) {
         lm.beginUserStroke(groupIdx, userId, 'source-over');
         const active = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(userId);
@@ -2497,7 +2498,12 @@ export class SelectTool extends Tool {
           active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y));
         }
 
-        lm.commitUserStroke(groupIdx, userId, { timestamp: commitBatchTimestamp });
+        const commitExtraProps = { timestamp: commitBatchTimestamp };
+        if (!attachedSelectionRestoreData && this._restoreData) {
+          commitExtraProps.selectionRestoreData = this._restoreData;
+          attachedSelectionRestoreData = true;
+        }
+        lm.commitUserStroke(groupIdx, userId, commitExtraProps);
       }
 
       this.board.compositeTileGrid?.markRect(dirtyX, dirtyY, dirtyW, dirtyH);
@@ -2596,7 +2602,11 @@ export class SelectTool extends Tool {
     // Commit as an undoable placement stroke only. The lifted source-area erase
     // remains its own older history entry so undo peels back apply, then stamps,
     // and only later restores the original lifted pixels.
-    lm.commitUserStroke(activeLayer, userId, {});
+    const commitExtraProps = {};
+    if (this._restoreData) {
+      commitExtraProps.selectionRestoreData = this._restoreData;
+    }
+    lm.commitUserStroke(activeLayer, userId, commitExtraProps);
     this.board.compositeTileGrid?.markRect(dirtyX, dirtyY, dirtyWidth, dirtyHeight);
     this.board.compositeAllLayers();
 
@@ -3337,22 +3347,22 @@ export class SelectTool extends Tool {
 
     if (!this.floatingCanvas) return false;
 
-    // Create a temporary canvas for the flipped image
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = this.floatingCanvas.width;
-    tempCanvas.height = this.floatingCanvas.height;
-    const tempCtx = tempCanvas.getContext('2d');
+    this.floatingCanvas = this._createHorizontallyFlippedCanvas(this.floatingCanvas);
+    this.floatingCtx = this.floatingCanvas.getContext('2d');
 
-    // Flip horizontally by scaling -1 on x-axis
-    tempCtx.save();
-    tempCtx.translate(tempCanvas.width, 0);
-    tempCtx.scale(-1, 1);
-    tempCtx.drawImage(this.floatingCanvas, 0, 0);
-    tempCtx.restore();
+    if (this.floatingLayers && this.floatingLayers.length > 0) {
+      this.floatingLayers = this.floatingLayers.map(({ canvas, groupIdx }) => ({
+        canvas: this._createHorizontallyFlippedCanvas(canvas),
+        groupIdx
+      }));
+    }
 
-    // Replace the floating canvas with the flipped version
-    this.floatingCanvas = tempCanvas;
-    this.floatingCtx = tempCtx;
+    this.selectedImageData = this.floatingCtx.getImageData(
+      0,
+      0,
+      this.floatingCanvas.width,
+      this.floatingCanvas.height
+    );
 
     // If there are original corners (for transforms), flip them horizontally
     if (this.originalCorners) {
@@ -3386,6 +3396,21 @@ export class SelectTool extends Tool {
     this.showContextMenu(true);
 
     return true;
+  }
+
+  _createHorizontallyFlippedCanvas(sourceCanvas) {
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = sourceCanvas.width;
+    tempCanvas.height = sourceCanvas.height;
+    const tempCtx = tempCanvas.getContext('2d');
+
+    tempCtx.save();
+    tempCtx.translate(tempCanvas.width, 0);
+    tempCtx.scale(-1, 1);
+    tempCtx.drawImage(sourceCanvas, 0, 0);
+    tempCtx.restore();
+
+    return tempCanvas;
   }
 
   // Returns a canvas of the current selection content (transparent background).

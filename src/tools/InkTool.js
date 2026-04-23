@@ -501,7 +501,10 @@ export class InkTool extends Tool {
 
   getPreviewDirtyRect(user = this._activeUser) {
     const bounds = this.dirtyBounds;
-    if (!bounds || bounds.maxX <= bounds.minX || bounds.maxY <= bounds.minY) return false;
+    // Zero-width/height bounds are still valid for horizontal/vertical motion.
+    // Returning false here causes the batched ink preview path to skip redraws,
+    // which is most noticeable while smoothing catch-up is still converging.
+    if (!bounds || bounds.maxX < bounds.minX || bounds.maxY < bounds.minY) return false;
     if (this.board.mirrorRegions?.length > 0) return null;
 
     const size = user?.size ?? this._strokeSize;

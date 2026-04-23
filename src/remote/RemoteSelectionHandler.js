@@ -583,6 +583,9 @@ export class RemoteSelectionHandler {
     const layerIdx = layerIndex ?? user.activeLayer ?? 0;
     const s = user.selection;
     const c = user.selectionCorners;
+    const selectionRestoreData = user._selectionRestoreData
+      ? this._cloneSelectionRestoreData(user._selectionRestoreData)
+      : null;
 
     // Ensure integer coordinates for consistent baking
     const ix = Math.floor(s.x);
@@ -665,7 +668,11 @@ export class RemoteSelectionHandler {
 
     // Commit only the applied placement. The source-area erase from lift remains
     // as its own older undo step so remote history matches local undo ordering.
-    lm.commitUserStroke(layerIdx, user.id, {});
+    const commitExtraProps = {};
+    if (selectionRestoreData) {
+      commitExtraProps.selectionRestoreData = selectionRestoreData;
+    }
+    lm.commitUserStroke(layerIdx, user.id, commitExtraProps);
     this.board.activeSelectionLayer = -1;
     this.board.markCompositeFull();
     this.board.compositeAllLayers();
@@ -1368,7 +1375,9 @@ export class RemoteSelectionHandler {
     this.board.expandDirtyRect(user, ix, iy, iw, ih);
 
     // Commit the stroke. Use an explicit timestamp so it can be found during undo.
-    const eraseTimestamp = Date.now();
+    const eraseTimestamp = typeof lm?.allocateHistoryTimestamp === 'function'
+      ? lm.allocateHistoryTimestamp()
+      : Date.now();
     lm.commitUserStroke(layerIdx, userId, {
       isSelectionErase: true,
       timestamp: eraseTimestamp
