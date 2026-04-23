@@ -2,7 +2,7 @@ import { getDefaultKeybindings, KEYBIND_ACTIONS_BY_ID } from '../input/keybinds/
 import { normalizeBinding } from '../input/keybinds/KeybindMatcher.js';
 
 export const APP_PREFERENCES_STORAGE_KEY = 'topDrawAppPreferences';
-const APP_PREFERENCES_VERSION = 6;
+const APP_PREFERENCES_VERSION = 7;
 const SIDEBAR_SIDES = new Set(['left', 'right']);
 // The 3 base colors from which all theme CSS variables are derived.
 // Empty string means "use the CSS default".
@@ -11,6 +11,12 @@ export const THEME_BASE_COLORS = {
   accent: '#00d4aa',
   text: '#f0f2f5'
 };
+export const DEFAULT_SFX_PREFERENCES = Object.freeze({
+  volume: 1,
+  chat: true,
+  staff: true,
+  inbox: true
+});
 
 export function createDefaultAppPreferences() {
   return {
@@ -24,7 +30,8 @@ export function createDefaultAppPreferences() {
       showRawPixelsAtHighZoom: true,
       useDesynchronizedBoardContexts: false,
       lowPowerMode: false,
-      chatOpacity: 0.95
+      chatOpacity: 0.95,
+      sfx: { ...DEFAULT_SFX_PREFERENCES }
     },
     keybinds: getDefaultKeybindings()
   };
@@ -102,6 +109,22 @@ function sanitizeChatOpacity(rawOpacity) {
   return Math.min(1, Math.max(0.3, value));
 }
 
+function sanitizeSfxVolume(rawVolume) {
+  const value = Number(rawVolume);
+  if (!Number.isFinite(value)) return DEFAULT_SFX_PREFERENCES.volume;
+  return Math.min(1, Math.max(0, value));
+}
+
+function sanitizeSfx(rawSfx) {
+  const source = rawSfx && typeof rawSfx === 'object' ? rawSfx : {};
+  return {
+    volume: sanitizeSfxVolume(source.volume),
+    chat: source.chat !== undefined ? !!source.chat : DEFAULT_SFX_PREFERENCES.chat,
+    staff: source.staff !== undefined ? !!source.staff : DEFAULT_SFX_PREFERENCES.staff,
+    inbox: source.inbox !== undefined ? !!source.inbox : DEFAULT_SFX_PREFERENCES.inbox
+  };
+}
+
 function sanitizePreferences(rawPreferences) {
   const defaults = createDefaultAppPreferences();
   const parsed = rawPreferences && typeof rawPreferences === 'object' ? rawPreferences : {};
@@ -156,7 +179,8 @@ function sanitizePreferences(rawPreferences) {
       showRawPixelsAtHighZoom: migratedShowRawPixelsAtHighZoom,
       useDesynchronizedBoardContexts: migratedUseDesynchronizedBoardContexts,
       lowPowerMode: migratedLowPowerMode,
-      chatOpacity: sanitizeChatOpacity(parsed.general?.chatOpacity)
+      chatOpacity: sanitizeChatOpacity(parsed.general?.chatOpacity),
+      sfx: sanitizeSfx(parsed.general?.sfx)
     },
     keybinds: sanitizeKeybinds(migratedKeybinds)
   };
