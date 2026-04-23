@@ -1092,9 +1092,20 @@ export class RemoteSelectionHandler {
 
     // Load the image and draw once ready — by then SEL_MOVE may have already updated
     // selectionCorners, so drawFloatingSelection will render at the correct position.
+    // Track the decode via pendingImageLoad so queued SEL_MOVE/SEL_COMMIT/SEL_STAMP
+    // replays wait for the image instead of committing an empty floating canvas.
+    let resolveLoad;
+    user.pendingImageLoad = new Promise((r) => {
+      resolveLoad = r;
+    });
+
     const img = new Image();
     img.onload = () => {
-      if (!user.floatingCtx) return;
+      if (!user.floatingCtx) {
+        user.pendingImageLoad = null;
+        resolveLoad();
+        return;
+      }
       user.floatingCtx.drawImage(img, 0, 0);
       // A SEL_MOVE replay may have already run _regeneratePreviewCache on the empty
       // canvas, producing a stale (blank) cached preview. Invalidate and rebuild now
@@ -1106,6 +1117,13 @@ export class RemoteSelectionHandler {
       }
       this.drawFloatingSelection(user);
       this.startRemoteSelectionAnimation();
+
+      user.pendingImageLoad = null;
+      resolveLoad();
+    };
+    img.onerror = () => {
+      user.pendingImageLoad = null;
+      resolveLoad();
     };
     img.src = imageData;
   }
