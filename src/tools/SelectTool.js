@@ -2621,6 +2621,12 @@ export class SelectTool extends Tool {
   clearSelection() {
     // Deactivate split-composite mode — no floating selection in flight
     this.board.activeSelectionLayer = -1;
+    const hasFloating = !!(this.floatingCanvas || (this.floatingLayers && this.floatingLayers.length > 0));
+    const hasLasso = !!(this.lassoPath || (this.lassoPoints && this.lassoPoints.length > 0));
+    if (!this.selection && !hasFloating && !hasLasso && !this.corners) {
+      this.hideContextMenu();
+      return;
+    }
     if (this.selection) {
       this.board.compositeTileGrid?.markRect(this.selection.x, this.selection.y, this.selection.width, this.selection.height);
     } else {

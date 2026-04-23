@@ -25,7 +25,6 @@ const LOW_POWER_GPU_PATTERNS = [
 ];
 
 const REDUCE_BEFORE_RENDER_TOOLS = new Set([
-  'brush',
   'erase',
   'blur',
   'glitchBlur'
@@ -482,7 +481,7 @@ export class InputBufferManager {
   }
 
   _shouldPreserveStampPayload(toolName) {
-    return ['circleBlur', 'flowPen', 'imageBrush', 'ink', 'pixel'].includes(toolName);
+    return ['circleBlur', 'imageBrush', 'pixel'].includes(toolName);
   }
 
   _reduceStampPayload(ps, rs) {

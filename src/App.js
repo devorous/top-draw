@@ -5338,6 +5338,17 @@ export class DrawingApp {
       };
     };
 
+    // Handle panning instantaneously and skip input buffering — remote cursor is hidden
+    // during pan, so broadcasting pan-move samples is wasted bandwidth and pollutes telemetry.
+    if (this.self.panning && this.self.mousedown) {
+      const dx = e.clientX - this._lastPanPointerX;
+      const dy = e.clientY - this._lastPanPointerY;
+      this.board.pan(dx, dy);
+      this._lastPanPointerX = e.clientX;
+      this._lastPanPointerY = e.clientY;
+      return;
+    }
+
     const shouldUseCoalescedSamples =
       this.self.mousedown &&
       !this.self.panning &&
@@ -5352,14 +5363,6 @@ export class DrawingApp {
 
     this.inputBufferManager.inputBuffer.pointerType = lastBufferedSample?.pointerType || e.pointerType;
     this.inputBufferManager.requestLocalFrame();
-    // Handle panning instantaneously (bypasses input buffer for better responsiveness)
-    if (this.self.panning && this.self.mousedown) {
-      const dx = e.clientX - this._lastPanPointerX;
-      const dy = e.clientY - this._lastPanPointerY;
-      this.board.pan(dx, dy);
-      this._lastPanPointerX = e.clientX;
-      this._lastPanPointerY = e.clientY;
-    }
 
     // Track drawing for debug overlay (pass brush size and user info)
     if (this.self.mousedown && !this.self.panning) {
