@@ -329,13 +329,7 @@ export class SyncClient {
     this.currentSyncTargetId = normalizedTarget;
 
     // Look up the target username if syncing from a specific user
-    this.currentSyncTargetUsername = null;
-    if (normalizedTarget !== null && this.app?.users) {
-      const targetUser = this.app.users.get(normalizedTarget);
-      if (targetUser) {
-        this.currentSyncTargetUsername = targetUser.username;
-      }
-    }
+    this.currentSyncTargetUsername = this._getSyncTargetUsername(normalizedTarget);
 
     this._armSyncTimeout(this.SYNC_INITIAL_TIMEOUT_MS);
 
@@ -409,6 +403,39 @@ export class SyncClient {
   _noteSyncProgress() {
     if (!this.syncing) return;
     this._armSyncTimeout(this.SYNC_IDLE_TIMEOUT_MS);
+  }
+
+  /**
+   * Resolves a sync provider session index into the display name used in the overlay.
+   *
+   * @param {number|null} providerSessionIndex - Provider session index.
+   * @returns {string|null}
+   * @private
+   */
+  _getSyncTargetUsername(providerSessionIndex) {
+    if (providerSessionIndex === null || providerSessionIndex === undefined || !Number.isFinite(Number(providerSessionIndex))) {
+      return null;
+    }
+
+    const targetUser = this.app?.users?.get(Number(providerSessionIndex));
+    return targetUser?.username || targetUser?.name || `User ${providerSessionIndex}`;
+  }
+
+  /**
+   * Updates the overlay target once the server confirms which provider is sending data.
+   *
+   * @param {number|null} providerSessionIndex - Provider session index.
+   * @returns {void}
+   * @private
+   */
+  _setSyncTargetFromProvider(providerSessionIndex) {
+    if (providerSessionIndex === null || providerSessionIndex === undefined) return;
+
+    const normalizedProvider = Number(providerSessionIndex);
+    if (!Number.isFinite(normalizedProvider)) return;
+
+    this.currentSyncTargetId = normalizedProvider;
+    this.currentSyncTargetUsername = this._getSyncTargetUsername(normalizedProvider);
   }
 
   /**
@@ -592,6 +619,7 @@ export class SyncClient {
   handleSyncMetadata(data) {
     if (!this.syncing) return;
     this._noteSyncProgress();
+    this._setSyncTargetFromProvider(data.providerSessionIndex);
     this.expectedMessages = data.totalCount || 0;
     this.updateProgress();
   }
@@ -797,6 +825,7 @@ export class SyncClient {
       this.expectedMessages = 0;
       this.receivedMessages = 0;
       this.currentSyncTargetId = null;
+      this.currentSyncTargetUsername = null;
 
       if (this.onSyncComplete) {
         this.onSyncComplete();
@@ -919,7 +948,7 @@ export class SyncClient {
 
     // Build the sync text with target username if available
     const syncPrefix = this.currentSyncTargetUsername
-      ? `Syncing to ${this.currentSyncTargetUsername}`
+      ? `Syncing to.. ${this.currentSyncTargetUsername}`
       : 'Syncing...';
 
     if (this.expectedMessages > 0) {

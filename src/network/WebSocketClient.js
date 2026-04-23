@@ -995,6 +995,7 @@ export class WebSocketClient {
 
       case T.SYNC_METADATA:
         this.emit('sync_metadata', {
+          providerSessionIndex: hasOwnField(data, 'u') ? data.u : null,
           totalCount: data.syncTotal || data.sync_total || 0
         });
         break;

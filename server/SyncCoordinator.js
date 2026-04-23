@@ -269,6 +269,7 @@ export class SyncCoordinator {
     if (client) {
       this.sendTo(client, {
         t: T.SYNC_METADATA,
+        u: ws.sessionIndex,
         syncTotal
       });
     }

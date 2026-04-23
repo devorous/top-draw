@@ -5,6 +5,8 @@ import { appState } from '../state.svelte.js';
 
 const ROLE_NAMES = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
 const JOIN_ANNOUNCE_DELAY_MS = 700;
+const JOIN_ANNOUNCE_RETRY_MS = 500;
+const JOIN_ANNOUNCE_TIMEOUT_MS = 15000;
 
 function getRoleName(role) {
   return ROLE_NAMES[role] || 'Guest';
@@ -23,6 +25,10 @@ function formatRoomPresenceMessage(user, verb) {
   return `${getRoleName(user?.role ?? 0)} ${formatPresenceName(user)} ${verb}`;
 }
 
+function formatJoinPresenceMessage(user) {
+  return `User ${formatPresenceName(user)} has joined`;
+}
+
 function clearRemoteTextDraft(app, user) {
   if (!user) return;
   if (user.context) {
@@ -38,31 +44,58 @@ function clearRemoteTextDraft(app, user) {
  * @param {App} app - The main application instance.
  */
 export function setupUserHandlers(wsClient, app) {
-  const { users, ui, board, chat } = app;
+  const { users, ui, board } = app;
   let hasProcessedInitialUsers = false;
   let knownRemoteSessionIds = new Set();
   const pendingJoinAnnouncements = new Map();
+  const announcedJoinSessionIds = new Set();
 
   const cancelPendingJoinAnnouncement = (sessionIndex) => {
-    const timerId = pendingJoinAnnouncements.get(sessionIndex);
-    if (timerId) {
-      clearTimeout(timerId);
-      pendingJoinAnnouncements.delete(sessionIndex);
+    const pending = pendingJoinAnnouncements.get(sessionIndex);
+    if (pending?.timerId) {
+      clearTimeout(pending.timerId);
     }
+    pendingJoinAnnouncements.delete(sessionIndex);
   };
 
-  const scheduleJoinAnnouncement = (sessionIndex) => {
-    if (pendingJoinAnnouncements.has(sessionIndex)) return;
+  const clearJoinTracking = (sessionIndex) => {
+    cancelPendingJoinAnnouncement(sessionIndex);
+    announcedJoinSessionIds.delete(sessionIndex);
+  };
 
+  const announceJoinIfReady = (sessionIndex) => {
+    if (announcedJoinSessionIds.has(sessionIndex)) return true;
+
+    const user = users.get(sessionIndex);
+    if (!user?.username || !app.svelteComponents?.chat) return false;
+
+    cancelPendingJoinAnnouncement(sessionIndex);
+    announcedJoinSessionIds.add(sessionIndex);
+    app.svelteComponents.chat.addSystemMessage(formatJoinPresenceMessage(user));
+    return true;
+  };
+
+  const scheduleJoinAnnouncement = (sessionIndex, delayMs = JOIN_ANNOUNCE_DELAY_MS) => {
+    if (announcedJoinSessionIds.has(sessionIndex)) return;
+    if (announceJoinIfReady(sessionIndex)) return;
+
+    const existing = pendingJoinAnnouncements.get(sessionIndex);
+    if (existing?.timerId) return;
+
+    const queuedAt = existing?.queuedAt ?? Date.now();
     const timerId = setTimeout(() => {
-      pendingJoinAnnouncements.delete(sessionIndex);
-      const user = users.get(sessionIndex);
-      if (user?.username && app.svelteComponents?.chat) {
-        app.svelteComponents.chat.addSystemMessage(formatRoomPresenceMessage(user, 'has entered the room'));
-      }
-    }, JOIN_ANNOUNCE_DELAY_MS);
+      const pending = pendingJoinAnnouncements.get(sessionIndex);
+      if (pending) pending.timerId = null;
 
-    pendingJoinAnnouncements.set(sessionIndex, timerId);
+      if (announceJoinIfReady(sessionIndex)) return;
+
+      const shouldRetry = users.has(sessionIndex) && Date.now() - queuedAt < JOIN_ANNOUNCE_TIMEOUT_MS;
+      if (shouldRetry) {
+        scheduleJoinAnnouncement(sessionIndex, JOIN_ANNOUNCE_RETRY_MS);
+      }
+    }, delayMs);
+
+    pendingJoinAnnouncements.set(sessionIndex, { queuedAt, timerId });
   };
 
   const abortSyncIfRoomIsEmpty = () => {
@@ -88,7 +121,7 @@ export function setupUserHandlers(wsClient, app) {
     users.forEach((user, sessionIndex) => {
       if (sessionIndex !== app.sessionIndex && !remoteIndices.has(sessionIndex)) {
         console.log(`[USERS] Removing ghost user ${user.username}(${sessionIndex})`);
-        cancelPendingJoinAnnouncement(sessionIndex);
+        clearJoinTracking(sessionIndex);
         app.cleanupRemoteUserState(sessionIndex, { preserveVisuals: true });
       }
     });
@@ -266,6 +299,9 @@ export function setupUserHandlers(wsClient, app) {
 
       ui.setRemoteUserAfk(userData.sessionIndex, !!userData.afk);
       ui.setRemoteUserMuted?.(userData.sessionIndex, !!userData.isMuted);
+      if (pendingJoinAnnouncements.has(userData.sessionIndex)) {
+        announceJoinIfReady(userData.sessionIndex);
+      }
     });
 
     if (hasProcessedInitialUsers && joinedSessionIds.length > 0) {
@@ -361,7 +397,7 @@ export function setupUserHandlers(wsClient, app) {
   wsClient.on('left', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      cancelPendingJoinAnnouncement(data.sessionIndex);
+      clearJoinTracking(data.sessionIndex);
       if (app.svelteComponents?.chat) {
         app.svelteComponents.chat.addSystemMessage(formatRoomPresenceMessage(user, 'has left the room'));
       }
@@ -392,8 +428,9 @@ export function setupUserHandlers(wsClient, app) {
     }
 
     let user = users.get(data.sessionIndex);
-    const hadName = !!user?.username;
-    const action = !user ? 'joined (new)' : (!hadName ? 'joined (was nameless)' : 'changed name');
+    const wasKnown = !!user;
+    const hadNameBefore = !!user?.username;
+    const action = !user ? 'joined (new)' : (!hadNameBefore ? 'joined (was nameless)' : 'changed name');
     console.log(`[CN] User ${data.name}(${data.sessionIndex}) ${action}`);
     if (!user) {
       const userOptions = {
@@ -423,7 +460,6 @@ export function setupUserHandlers(wsClient, app) {
       user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(user.blendMode);
       ui.createRemoteUser(data.sessionIndex, user);
     } else {
-      const hadName = !!user.username;
       user.setUsername(data.name);
 
       if (data.size !== undefined) user.setSize(data.size);
@@ -449,7 +485,7 @@ export function setupUserHandlers(wsClient, app) {
       if (data.thinning !== undefined) user.setThinning(data.thinning);
       if (data.simulatePressure !== undefined) user.setSimulatePressure(data.simulatePressure);
 
-      if (!hadName) {
+      if (!hadNameBefore) {
         ui.createRemoteUser(data.sessionIndex, user);
       } else {
         ui.updateRemoteName(data.sessionIndex, data.name);
@@ -461,6 +497,12 @@ export function setupUserHandlers(wsClient, app) {
           ui.updateRemoteTextLayout(data.sessionIndex, user);
         }
       }
+    }
+    if (hasProcessedInitialUsers && (!wasKnown || !hadNameBefore)) {
+      scheduleJoinAnnouncement(data.sessionIndex);
+    }
+    if (pendingJoinAnnouncements.has(data.sessionIndex)) {
+      announceJoinIfReady(data.sessionIndex);
     }
     app.updateChatUserList();
 
