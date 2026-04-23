@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 import { connectDB, getDB, getMongoDatabase, updateUserMetrics, updateConsecutiveDays } from './db.js';
 import { metricsTracker } from './MetricsTracker.js';
 import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate } from './gallery.js';
-import { handleAuthLogin, handleAuthRegister, handleAuthMe } from './authRoutes.js';
+import { handleAuthLogin, handleAuthRegister, handleAuthMe, handlePasswordResetRequest, handlePasswordResetComplete } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
 import { getGalleryPreviewItem, renderGalleryPreviewHtml } from './galleryPreview.js';
 import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore, handleSnapshotJoinNotify } from './snapshots.js';
@@ -509,6 +509,18 @@ const server = createServer(async (req, res) => {
 
   if (path === '/api/auth/me' && req.method === 'GET') {
     await handleAuthMe(req, res);
+    return;
+  }
+
+  if (path === '/api/auth/password-reset/request' && req.method === 'POST') {
+    if (rateLimited(authLimiter)) return;
+    await handlePasswordResetRequest(req, res);
+    return;
+  }
+
+  if (path === '/api/auth/password-reset/complete' && req.method === 'POST') {
+    if (rateLimited(authLimiter)) return;
+    await handlePasswordResetComplete(req, res);
     return;
   }
 
@@ -3185,7 +3197,7 @@ wss.on('connection', async (ws, req) => {
 
           const regUsername = normalizeUsername(data.authUsername || '');
           const regPassword = data.authPassword || '';
-          const regEmail = (data.authEmail || '').trim();
+          const regEmail = (data.authEmail || '').trim().toLowerCase();
           const regSecretQuestion = (data.authSecretQuestion || '').trim();
           const regSecretAnswer = (data.authSecretAnswer || '').trim();
           const identity = normalizeIdentityPayload(data);

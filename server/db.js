@@ -47,6 +47,7 @@ export async function connectDB() {
     }
 
     await safeCreateIndex('users', { username: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
+    await safeCreateIndex('users', { email: 1 }, { sparse: true, collation: { locale: 'en', strength: 2 } });
     await safeCreateIndex('rooms', { lastActiveAt: 1 });
     await safeCreateIndex('moderation', { active: 1, type: 1, targetIp: 1 });
     await safeCreateIndex('moderation', { active: 1, type: 1, roomId: 1, targetUserId: 1 });
@@ -71,6 +72,9 @@ export async function connectDB() {
     await safeCreateIndex('connection_events', { deviceId: 1, createdAt: -1 });
     await safeCreateIndex('connection_events', { fingerprintId: 1, createdAt: -1 });
     await safeCreateIndex('connection_events', { userId: 1, createdAt: -1 });
+    await safeCreateIndex('password_reset_tokens', { tokenHash: 1 }, { unique: true });
+    await safeCreateIndex('password_reset_tokens', { userId: 1, createdAt: -1 });
+    await safeCreateIndex('password_reset_tokens', { expiresAt: 1 }, { expireAfterSeconds: 0 });
 
     console.log(`[DB] Connected to MongoDB: ${uri} (${DB_NAME})`);
     return db;
