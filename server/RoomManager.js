@@ -96,6 +96,15 @@ export class Room {
   }
 
   /**
+   * Returns whether this room should persist and serve board snapshots.
+   * The public lobby is intentionally snapshot-backed even though it has no owner.
+   * @returns {boolean}
+   */
+  canPersistSnapshots() {
+    return this.isRegistered() || this.id === 'lobby';
+  }
+
+  /**
    * Starts the periodic snapshot request timer.
    * Called when any user joins the room.
    */
@@ -119,7 +128,7 @@ export class Room {
    */
   updateSnapshotTimer() {
     const hasClients = this._getSnapshotCandidates().length > 0;
-    const shouldRun = this.isRegistered() && hasClients;
+    const shouldRun = this.canPersistSnapshots() && hasClients;
     if (shouldRun && !this._snapshotTimer) {
       this.startSnapshotTimer();
     } else if (!shouldRun && this._snapshotTimer) {
@@ -148,7 +157,7 @@ export class Room {
    * @private
    */
   _requestSnapshot() {
-    if (!this.isRegistered()) return;
+    if (!this.canPersistSnapshots()) return;
 
     const candidates = this._getSnapshotCandidates();
     if (candidates.length === 0) return;
@@ -255,7 +264,7 @@ export class Room {
    * @private
    */
   async _onAllUsersAfk() {
-    if (!this.isRegistered()) return;
+    if (!this.canPersistSnapshots()) return;
     console.log(`[Room] All users AFK in "${this.id}", restoring last snapshot`);
 
     const snapshot = await this.getLatestSnapshotData();

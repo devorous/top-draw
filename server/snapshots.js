@@ -113,7 +113,7 @@ export async function handleSnapshotSave(ws, data, room) {
   } else if (!authorize(ws, Action.MOD_MUTE, null)) {
     return; // Trusted+ required for manual saves
   }
-  if (!room?.isRegistered?.()) {
+  if (!room?.canPersistSnapshots?.()) {
     return;
   }
 
@@ -141,6 +141,10 @@ export async function handleSnapshotSave(ws, data, room) {
 
   if (db && shouldPersist) {
     try {
+      // Snapshot metadata now lives inside the room document. Ensure the room
+      // exists in Mongo before we push snapshot metadata, especially for lobby.
+      await room.saveToDB();
+
       // Handle initial checkpointing for auto snapshots
       if (isAuto) {
         await maybeCreateInitialCheckpoint(

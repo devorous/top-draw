@@ -132,7 +132,7 @@ export class SyncCoordinator {
     // they'll sync naturally as strokes come in.
     const anyoneDrawing = this._isAnyoneActivelyDrawing(requesterSessionIndex);
     
-    if (!anyoneDrawing && this.room?.isRegistered?.()) {
+    if (!anyoneDrawing && this.room?.canPersistSnapshots?.()) {
       const snapshot = await this.room.getLatestSnapshotData?.();
       if (snapshot) {
         if (ws.readyState !== WebSocket.OPEN) return;
