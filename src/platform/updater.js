@@ -2,6 +2,7 @@ import { isTauriDesktop } from './desktop.js';
 
 let startupCheckScheduled = false;
 const UPDATER_DISABLED = false;
+let updateCheckInFlight = null;
 let mismatchPromptInFlight = null;
 let mismatchPrompted = false;
 
@@ -236,6 +237,20 @@ export async function checkForDesktopUpdates({ silent = false } = {}) {
     return { status: 'disabled' };
   }
 
+  if (updateCheckInFlight) {
+    return updateCheckInFlight;
+  }
+
+  updateCheckInFlight = runDesktopUpdateCheck({ silent });
+
+  try {
+    return await updateCheckInFlight;
+  } finally {
+    updateCheckInFlight = null;
+  }
+}
+
+async function runDesktopUpdateCheck({ silent = false } = {}) {
   try {
     const [{ invoke }, { relaunch }] = await Promise.all([
       import('@tauri-apps/api/core'),

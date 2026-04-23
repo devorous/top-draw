@@ -43,6 +43,7 @@ import {
   openImageViaNativeDialog,
   saveCanvasViaNativeDialog
 } from './platform/desktop.js';
+import { checkForDesktopUpdates } from './platform/updater.js';
 import { ensureClientCanConnect, formatOutdatedClientMessage, getVersionStatus } from './VersionChecker.js';
 import { broadcastChatPopoutEvent, focusChatPopout } from './platform/chatPopoutBridge.js';
 import initWasm from './wasm/ddraw_wasm.js';
@@ -3053,15 +3054,19 @@ export class DrawingApp {
     this.showUpdateAvailableNotice(status);
   }
 
-  showUpdateAvailableNotice(versionStatus = {}) {
+  async showUpdateAvailableNotice(versionStatus = {}) {
     this._reloadRecommended = true;
     const latest = versionStatus.latestVersion || versionStatus.serverVersion?.latest || 'the latest version';
     this.ui.showDisconnectionBanner({
       message: `A new Ddraw version is available (${latest}). Reload to update, or continue offline.`,
       icon: '!',
-      retryLabel: 'Reload App',
+      retryLabel: isTauriDesktop() ? 'Update App' : 'Reload App',
       offlineLabel: 'Continue Offline'
     });
+
+    if (isTauriDesktop()) {
+      await this._promptDesktopUpdateFromRuntimeNotice();
+    }
   }
 
   showUpdateRequiredNotice(versionStatus = {}) {
@@ -3070,20 +3075,35 @@ export class DrawingApp {
     this.ui.showDisconnectionBanner({
       message: `${formatOutdatedClientMessage(versionStatus)} You can still draw offline.`,
       icon: '!',
-      retryLabel: 'Reload App',
+      retryLabel: isTauriDesktop() ? 'Update App' : 'Reload App',
       offlineLabel: 'Continue Offline'
     });
   }
 
-  handleServerUpdateNotice(data = {}) {
+  async handleServerUpdateNotice(data = {}) {
     this._reloadRecommended = true;
     this.ui.showToast(data.message || 'Ddraw is updating', 5000);
     this.ui.showDisconnectionBanner({
       message: data.message || 'Ddraw is updating. Reload in a moment, or continue offline.',
       icon: '!',
-      retryLabel: 'Reload App',
+      retryLabel: isTauriDesktop() ? 'Update App' : 'Reload App',
       offlineLabel: 'Continue Offline'
     });
+
+    if (isTauriDesktop()) {
+      await this._promptDesktopUpdateFromRuntimeNotice();
+    }
+  }
+
+  async _promptDesktopUpdateFromRuntimeNotice() {
+    this.ui.showToast('Checking for desktop update...', 2500);
+
+    const result = await checkForDesktopUpdates({ silent: false });
+    if (result.status === 'up-to-date') {
+      this.ui.showToast('Update is not ready yet. Try again in a moment.', 3500);
+    } else if (result.status === 'error') {
+      this.ui.showToast('Desktop update check failed. Restart the app to try again.', 4500, 'error');
+    }
   }
 
   /**
@@ -3382,6 +3402,11 @@ export class DrawingApp {
    */
   async handleRetryConnection() {
     if (this._reloadRecommended) {
+      if (isTauriDesktop()) {
+        await this._promptDesktopUpdateFromRuntimeNotice();
+        return;
+      }
+
       window.location.reload();
       return;
     }
