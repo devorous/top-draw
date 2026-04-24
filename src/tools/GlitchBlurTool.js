@@ -59,21 +59,19 @@ export class GlitchBlurTool extends Tool {
       maxX: -Infinity, maxY: -Infinity
     };
 
-    // Initialize stamps array for preview
-    user.glitchStamps = [];
+    // Get preview context and clear it once at the start
+    let previewCtx = null;
+    if (user === this.board.app?.self) {
+      previewCtx = this.board.topCtx;
+      previewCtx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    } else if (user.context) {
+      previewCtx = user.context;
+      previewCtx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
 
     this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
     this.strokePoints.set(user.id, [{ x: pos.x, y: pos.y }]);
-    this.paintMask(pos.x, pos.y, user.size, user, maskCtx);
-
-    // Draw initial preview
-    if (user === this.board.app?.self) {
-      this.board.topCtx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-      this.drawPreview(user);
-    } else if (user.context) {
-      user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-      this.drawPreview(user, user.context);
-    }
+    this.paintMask(pos.x, pos.y, user.size, user, maskCtx, previewCtx);
 
     this.board.requestUpdate();
   }
@@ -101,16 +99,13 @@ export class GlitchBlurTool extends Tool {
       const minSpacing = Math.max(user.size * spacingPercent, 5);
 
       if (distance >= minSpacing) {
-        this._stampAlongPath(user, prevStamp, pos, minSpacing, maskCtx);
+        // Get preview context once before stamping
+        const previewCtx = shouldRender ? (user === this.board.app?.self ? this.board.topCtx : user.context) : null;
+        this._stampAlongPath(user, prevStamp, pos, minSpacing, maskCtx, previewCtx);
         if (shouldRender) this.board.requestUpdate();
       }
     } else {
       this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-    }
-
-    // Draw preview for local user
-    if (shouldRender && user === this.board.app?.self) {
-      this.drawPreview(user);
     }
   }
 
@@ -144,7 +139,6 @@ export class GlitchBlurTool extends Tool {
 
     this.lastStampPos.delete(user.id);
     delete user.blurBounds;
-    delete user.glitchStamps;
 
     // Clear preview
     if (user === this.board.app?.self) {
@@ -154,7 +148,7 @@ export class GlitchBlurTool extends Tool {
     this.board.requestUpdate();
   }
 
-  paintMask(x, y, size, user, maskCtx) {
+  paintMask(x, y, size, user, maskCtx, previewCtx) {
     const radius = size;
     const blurRadius = user.blurRadius || 10;
 
@@ -179,12 +173,13 @@ export class GlitchBlurTool extends Tool {
       user.blurBounds.maxY = Math.max(user.blurBounds.maxY, top + height);
     }
 
-    // Track stamps for preview
-    if (!user.glitchStamps) user.glitchStamps = [];
-    user.glitchStamps.push({ x, y, size: radius, pressure: user.pressure || 1.0 });
+    // Draw preview stamp immediately (incremental rendering)
+    if (previewCtx) {
+      this._drawStampPreview(previewCtx, x, y, radius, user.pressure || 1.0);
+    }
   }
 
-  _stampAlongPath(user, from, to, spacing, maskCtx) {
+  _stampAlongPath(user, from, to, spacing, maskCtx, previewCtx) {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
@@ -198,7 +193,7 @@ export class GlitchBlurTool extends Tool {
       const t = (i * spacing) / distance;
       const x = from.x + dx * t;
       const y = from.y + dy * t;
-      this.paintMask(x, y, user.size, user, maskCtx);
+      this.paintMask(x, y, user.size, user, maskCtx, previewCtx);
       points?.push({ x, y });
       lastStamp = { x, y };
     }
@@ -207,39 +202,33 @@ export class GlitchBlurTool extends Tool {
   }
 
   /**
-   * Draws a preview of the glitch blur stamps on the given context
-   * @param {Object} user - The user object
-   * @param {CanvasRenderingContext2D} [ctx] - Context to draw on (defaults to topCtx for local user)
+   * Draws a single preview stamp with glitch-like directional smear effect
+   * @param {CanvasRenderingContext2D} ctx - Context to draw on
+   * @param {number} x - Center x-coordinate
+   * @param {number} y - Center y-coordinate
+   * @param {number} size - Radius/half-width of the stamp
+   * @param {number} pressure - Pressure value (0-1)
    */
-  drawPreview(user, ctx) {
-    if (!user.glitchStamps || user.glitchStamps.length === 0) return;
+  _drawStampPreview(ctx, x, y, size, pressure) {
+    const alpha = pressure * 0.3;
 
-    const previewCtx = ctx || this.board.topCtx;
-    const blurRadius = user.blurRadius || 10;
+    ctx.save();
 
-    previewCtx.save();
+    // Draw the stamp as a square with directional gradient to simulate glitch
+    const gradient = ctx.createLinearGradient(x - size, y, x + size, y);
+    gradient.addColorStop(0, `rgba(128, 128, 128, 0)`);
+    gradient.addColorStop(0.3, `rgba(128, 128, 128, ${alpha})`);
+    gradient.addColorStop(0.7, `rgba(128, 128, 128, ${alpha})`);
+    gradient.addColorStop(1, `rgba(128, 128, 128, 0)`);
 
-    // Draw each stamp with a glitch-like directional smear effect
-    for (const stamp of user.glitchStamps) {
-      const { x, y, size, pressure } = stamp;
-      const alpha = pressure * 0.3;
+    ctx.fillStyle = gradient;
+    ctx.fillRect(x - size, y - size, size * 2, size * 2);
 
-      // Draw the stamp as a square with directional gradient to simulate glitch
-      const gradient = previewCtx.createLinearGradient(x - size, y, x + size, y);
-      gradient.addColorStop(0, `rgba(128, 128, 128, 0)`);
-      gradient.addColorStop(0.3, `rgba(128, 128, 128, ${alpha})`);
-      gradient.addColorStop(0.7, `rgba(128, 128, 128, ${alpha})`);
-      gradient.addColorStop(1, `rgba(128, 128, 128, 0)`);
+    // Add a subtle outline to show the stamp boundary
+    ctx.strokeStyle = `rgba(100, 100, 100, ${alpha * 0.5})`;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - size, y - size, size * 2, size * 2);
 
-      previewCtx.fillStyle = gradient;
-      previewCtx.fillRect(x - size, y - size, size * 2, size * 2);
-
-      // Add a subtle outline to show the stamp boundary
-      previewCtx.strokeStyle = `rgba(100, 100, 100, ${alpha * 0.5})`;
-      previewCtx.lineWidth = 1;
-      previewCtx.strokeRect(x - size, y - size, size * 2, size * 2);
-    }
-
-    previewCtx.restore();
+    ctx.restore();
   }
 }
