@@ -395,7 +395,7 @@ message Msg {
   uint32 room_floating_gallery_seed = 147; // ROOM_UPDATE/SETTINGS: shared floating gallery layout seed
   repeated string room_floating_gallery_include_ids = 148; // ROOM_UPDATE/SETTINGS: explicitly included gallery ids
   repeated string room_floating_gallery_exclude_ids = 149; // ROOM_UPDATE/SETTINGS: explicitly excluded gallery ids
-  string room_board_size = 150; // ROOM_UPDATE/SETTINGS: board size preset (720p|1080p|1440p|4k)
+  string room_board_size = 150; // ROOM_UPDATE/SETTINGS: board size preset (720p|1080p|1440p|big)
   string room_floating_gallery_voronoi_json = 151; // SETTINGS: precomputed floating gallery Voronoi geometry
 
   message CheckpointMeta {

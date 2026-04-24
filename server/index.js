@@ -2704,7 +2704,7 @@ wss.on('connection', async (ws, req) => {
             }
             console.log('[ROOM_UPDATE DEBUG] data.roomBoardSize =', JSON.stringify(data.roomBoardSize), 'room.settings.boardSize before =', room.settings.boardSize);
             if (data.roomBoardSize !== undefined && data.roomBoardSize !== '') {
-              const validBoardSizes = new Set(['720p', '1080p', '1440p', '4k']);
+              const validBoardSizes = new Set(['720p', '1080p', '1440p', 'big']);
               if (validBoardSizes.has(data.roomBoardSize)) {
                 room.settings.boardSize = data.roomBoardSize;
                 console.log('[ROOM_UPDATE DEBUG] boardSize updated to', data.roomBoardSize);

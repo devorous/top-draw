@@ -21,7 +21,7 @@
     { value: '720p',  label: '720p  (1280 × 720)' },
     { value: '1080p', label: '1080p (1920 × 1080)' },
     { value: '1440p', label: '1440p (2560 × 1440)' },
-    { value: '4k',    label: '4K    (3840 × 2160)' }
+    { value: 'big',   label: 'Big   (3200 × 1800)' }
   ];
   const ROLE_LABELS = {
     0: 'None',

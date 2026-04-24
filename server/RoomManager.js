@@ -373,7 +373,7 @@ export class Room {
             { $set: { 'settings.floatingGalleryVoronoi': this.settings.floatingGalleryVoronoi } }
           );
         }
-        const validBoardSizes = new Set(['720p', '1080p', '1440p', '4k']);
+        const validBoardSizes = new Set(['720p', '1080p', '1440p', 'big']);
         this.settings.boardSize = validBoardSizes.has(doc.settings?.boardSize)
           ? doc.settings.boardSize
           : '1080p';
