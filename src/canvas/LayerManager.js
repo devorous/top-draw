@@ -326,15 +326,72 @@ export class LayerManager {
     }
 
     const { x, y, width, height } = bounds;
-    const croppedCanvas = document.createElement('canvas');
+    let croppedCanvas = document.createElement('canvas');
     croppedCanvas.width = width;
     croppedCanvas.height = height;
-    const croppedCtx = croppedCanvas.getContext('2d');
+    let croppedCtx = croppedCanvas.getContext('2d');
     croppedCtx.drawImage(active.canvas, x, y, width, height, 0, 0, width, height);
 
     this._releaseCanvas(active);
 
-    const record = { canvas: croppedCanvas, ctx: croppedCtx, x, y, width, height, blendMode: active.blendMode, userId, timestamp, affectedTiles, ...extraProps };
+    // Resolve non-trivial blend modes on the flat-canvas (layer 0) at commit time.
+    // Mask the blend result to existing layer content so it only appears over actual
+    // pixels (not empty bg). Bake as source-over for stable selection lift behavior.
+    let resolvedBlendMode = active.blendMode;
+    if (
+      group.flatCanvas &&
+      resolvedBlendMode !== 'source-over' &&
+      resolvedBlendMode !== 'destination-out'
+    ) {
+      // Build content-only mask (no bg) and full composite (with bg)
+      const contentCanvas = document.createElement('canvas');
+      contentCanvas.width = width;
+      contentCanvas.height = height;
+      const contentCtx = contentCanvas.getContext('2d');
+
+      const fullCanvas = document.createElement('canvas');
+      fullCanvas.width = width;
+      fullCanvas.height = height;
+      const fullCtx = fullCanvas.getContext('2d');
+
+      // Fill bg in fullCanvas only
+      const [r, g, b, a] = this.backgroundColor;
+      fullCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+      fullCtx.fillRect(0, 0, width, height);
+
+      // Draw flatCanvas region into both
+      contentCtx.drawImage(group.flatCanvas, x, y, width, height, 0, 0, width, height);
+      fullCtx.drawImage(group.flatCanvas, x, y, width, height, 0, 0, width, height);
+
+      // Draw existing strokeStack items into both
+      for (const s of group.strokeStack) {
+        const sx = (s.x || 0);
+        const sy = (s.y || 0);
+        const overlap = !(sx + s.width < x || sx > x + width || sy + s.height < y || sy > y + height);
+        if (overlap) {
+          const bm = s.blendMode || 'source-over';
+          contentCtx.globalCompositeOperation = bm;
+          contentCtx.drawImage(s.canvas, sx - x, sy - y);
+          fullCtx.globalCompositeOperation = bm;
+          fullCtx.drawImage(s.canvas, sx - x, sy - y);
+        }
+      }
+
+      // Apply blend mode stroke over full composite
+      fullCtx.globalCompositeOperation = resolvedBlendMode;
+      fullCtx.drawImage(croppedCanvas, 0, 0);
+
+      // Mask by content alpha: blend result only appears where content exists
+      fullCtx.globalCompositeOperation = 'destination-in';
+      fullCtx.drawImage(contentCanvas, 0, 0);
+      fullCtx.globalCompositeOperation = 'source-over';
+
+      croppedCanvas = fullCanvas;
+      croppedCtx = fullCtx;
+      resolvedBlendMode = 'source-over';
+    }
+
+    const record = { canvas: croppedCanvas, ctx: croppedCtx, x, y, width, height, blendMode: resolvedBlendMode, userId, timestamp, affectedTiles, ...extraProps };
     group.strokeStack.push(record);
 
     const prev = group.userStrokeCounts.get(userId) || 0;
@@ -1797,8 +1854,36 @@ export class LayerManager {
       }
     }
 
+    // Snapshot content-only state for masking active blend strokes
+    let contentSnapshot = null;
+    const hasActiveBlendStrokes = Array.from(group.activeStrokeByUser.values()).some(
+      s => s.blendMode !== 'source-over' && s.blendMode !== 'destination-out'
+    );
+    if (hasActiveBlendStrokes) {
+      contentSnapshot = document.createElement('canvas');
+      contentSnapshot.width = this.width;
+      contentSnapshot.height = this.height;
+      contentSnapshot.getContext('2d').drawImage(bufferCtx.canvas, 0, 0);
+    }
+
     for (const [, active] of group.activeStrokeByUser) {
-      this._compositeStroke(bufferCtx, active, true, dirtyRects);
+      // Non-trivial blend modes: mask by content so they only appear over existing pixels
+      if (active.blendMode !== 'source-over' && active.blendMode !== 'destination-out' && contentSnapshot) {
+        const temp = document.createElement('canvas');
+        temp.width = this.width;
+        temp.height = this.height;
+        const tCtx = temp.getContext('2d');
+        tCtx.drawImage(bufferCtx.canvas, 0, 0);
+        tCtx.globalCompositeOperation = active.blendMode;
+        tCtx.drawImage(active.canvas, 0, 0);
+        tCtx.globalCompositeOperation = 'destination-in';
+        tCtx.drawImage(contentSnapshot, 0, 0);
+        bufferCtx.globalCompositeOperation = 'source-over';
+        bufferCtx.drawImage(temp, 0, 0);
+      } else {
+        this._compositeStroke(bufferCtx, active, true, dirtyRects);
+      }
+
       if (active.blendMode === 'destination-out' && bgColor) {
         const [r, g, b, a] = bgColor;
         bufferCtx.globalCompositeOperation = 'destination-over';
