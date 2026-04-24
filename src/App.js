@@ -3120,14 +3120,32 @@ export class DrawingApp {
   }
 
   async _promptDesktopUpdateFromRuntimeNotice() {
-    this.ui.showToast('Checking for desktop update...', 2500);
+    if (this._desktopUpdatePollActive) return;
+    this._desktopUpdatePollActive = true;
 
-    const result = await checkForDesktopUpdates({ silent: false });
-    if (result.status === 'up-to-date') {
-      this.ui.showToast('Update is not ready yet. Try again in a moment.', 3500);
-    } else if (result.status === 'error') {
-      this.ui.showToast('Desktop update check failed. Restart the app to try again.', 4500, 'error');
+    const attempt = async () => {
+      const result = await checkForDesktopUpdates({ silent: true });
+      if (!result || result.status === 'up-to-date') {
+        return false;
+      }
+      if (result.status === 'error') {
+        this.ui.showToast('Desktop update check failed. Restart the app to try again.', 4500, 'error');
+      }
+      return true;
+    };
+
+    if (await attempt()) {
+      this._desktopUpdatePollActive = false;
+      return;
     }
+
+    this._desktopUpdatePollTimer = window.setInterval(async () => {
+      if (await attempt()) {
+        window.clearInterval(this._desktopUpdatePollTimer);
+        this._desktopUpdatePollTimer = null;
+        this._desktopUpdatePollActive = false;
+      }
+    }, 15000);
   }
 
   /**
