@@ -2,6 +2,8 @@
   import { appState } from '../../state.svelte.js';
   import { T } from '../../../shared/MessageTypes.js';
 
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
   const TAB_GENERAL = 'general';
   const TAB_MODERATION = 'moderation';
   const TAB_FLOATING_GALLERY = 'floating-gallery';
@@ -279,7 +281,7 @@
       for (const id of floatingGalleryExcludeIds) {
         if (id) params.append('excludeId', id);
       }
-      const res = await fetch(`/api/gallery/floating?${params}`);
+      const res = await fetch(`${API_BASE}/api/gallery/floating?${params}`);
       if (!res.ok) throw new Error('Failed to load');
       const data = await res.json();
       floatingGalleryVisibleItems = data.items || [];
@@ -299,7 +301,7 @@
 
     floatingGalleryBrowseLoading = true;
     try {
-      const res = await fetch(`/api/gallery?page=${floatingGalleryBrowsePage}&limit=24&sort=top`);
+      const res = await fetch(`${API_BASE}/api/gallery?page=${floatingGalleryBrowsePage}&limit=24&sort=top`);
       if (!res.ok) throw new Error('Failed to load gallery');
       const data = await res.json();
       floatingGalleryBrowseItems = Array.isArray(data.items) ? data.items : [];

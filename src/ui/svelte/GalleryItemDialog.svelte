@@ -19,7 +19,10 @@
     item = null;
 
     try {
-      const res = await fetch(`${apiBaseUrl}/api/gallery/${itemId}`);
+      let res = await fetch(`${apiBaseUrl}/api/gallery/${itemId}`);
+      if (!res.ok) {
+        res = await fetch(`${apiBaseUrl}/api/gallery-item?id=${encodeURIComponent(itemId)}`);
+      }
       if (!res.ok) throw new Error('Failed to load image');
 
       const data = await res.json();
