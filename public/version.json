@@ -1,7 +1,7 @@
 {
-  "latest": "1.4.3-beta",
-  "minRequired": "1.4.3-beta",
-  "releaseDate": "2026-04-23T18:45:24.173Z",
-  "notes": "Fixed an issue with afk status and added chat sound effect volume controls",
+  "latest": "1.5.0-beta",
+  "minRequired": "1.5.0-beta",
+  "releaseDate": "2026-04-24T19:21:28.551Z",
+  "notes": "Added user-set board bg colour, fixed custom UI colours and implemented new floating gallery",
   "downloadUrl": "https://www.ddraw.ca/download"
 }

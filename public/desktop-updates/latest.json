@@ -1,11 +1,11 @@
 {
-  "version": "1.4.3-beta",
-  "notes": "Fixed an issue with stroke rendering and added chat sound effects",
-  "pub_date": "2026-04-23T18:45:24.173Z",
+  "version": "1.5.0-beta",
+  "notes": "Added user-set board bg colour, fixed custom UI colours and implemented new floating gallery",
+  "pub_date": "2026-04-24T19:21:28.551Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.4.3-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNemw0Tk1ad3VVcCs3RXFVdERaZ3lwVnlMSXBqSmNpQzNTUm9tQXNoZ2FJU3Q0Sml1TFZsejdld2xWNVdvQW1jQnJmYkFCS0JVVzZkN2kvTG5lOURBQWdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc2OTY5OTg2CWZpbGU6RGRyYXdfMS40LjMtYmV0YV94NjQtc2V0dXAuZXhlCklua05HWU1tNHpaSFlJQU1VSUN6V2todkNpcDNZRzk5S1R6ZnpzMStlVTdRM1dIblNBTFNsSUgyWlNENnBBZ2NVTUlmWHdFaVlQbjN0VkZWaFFlekNRPT0K"
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.5.0-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenQrYmIxdFFSVzcrc09PU1Q5STY2NEVBdHgwckNwVllBUy9RK0xBYnNyb0VMNVA4VWpLSUlOWU9Db0dXd0JmUXBwMVhNWGlPaS9sYitFVVAyVjNWbFEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MDU4NjIxCWZpbGU6RGRyYXdfMS41LjAtYmV0YV94NjQtc2V0dXAuZXhlCnYyMGk3Y1hlYmY3U3F4RlpkSXMzTXZiSTlBczhtTHNLeURFMnpXM0NKZXBiQTkrT3pmWVFyVEtrTzFKSzBPRXBiUWRsWWx6K21pTVJicUVpQUFTa0NBPT0K"
     }
   }
 }
