@@ -1,68 +1,16 @@
 <script>
   import { appState } from '../../state.svelte.js';
 
-  /** @type {{ item: any, x: number, y: number, onLike?: (id: string) => void, onComment?: (id: string) => void }} */
-  let { item, x, y, onLike = null, onComment = null } = $props();
-
-  const LIKED_STORAGE_KEY = 'ddraw_liked';
-
-  function readLikedIds() {
-    try {
-      return new Set(JSON.parse(localStorage.getItem(LIKED_STORAGE_KEY) || '[]'));
-    } catch {
-      return new Set();
-    }
-  }
-
-  function writeLikedState(itemId, nextLiked) {
-    const nextLikedIds = readLikedIds();
-    if (nextLiked) nextLikedIds.add(itemId);
-    else nextLikedIds.delete(itemId);
-    localStorage.setItem(LIKED_STORAGE_KEY, JSON.stringify([...nextLikedIds]));
-  }
-
-  function getInitialLikedState(nextItem) {
-    if (!nextItem?.id) return false;
-    if (typeof nextItem.liked === 'boolean') return nextItem.liked;
-    if (typeof nextItem.likedByCurrentUser === 'boolean') return nextItem.likedByCurrentUser;
-    return readLikedIds().has(nextItem.id);
-  }
-
-  let liked = $state(false);
-  let likesCount = $state(0);
+  /** @type {{ item: any, x: number, y: number, liked?: boolean, likesCount?: number, onLike?: (item: any) => Promise<void>, onComment?: (id: string) => void }} */
+  let { item, x, y, liked = false, likesCount = 0, onLike = null, onComment = null } = $props();
   let liking = $state(false);
-
-  $effect(() => {
-    item.id;
-    liked = getInitialLikedState(item);
-    likesCount = item.likesCount || 0;
-  });
 
   async function handleLike() {
     if (!onLike || liking) return;
 
-    const previousLiked = liked;
-    const previousLikesCount = likesCount;
-    const nextLiked = !previousLiked;
-
     liking = true;
-    liked = nextLiked;
-    likesCount = Math.max(0, previousLikesCount + (nextLiked ? 1 : -1));
-    writeLikedState(item.id, nextLiked);
-
     try {
-      const result = await onLike(item);
-      if (typeof result?.liked === 'boolean') {
-        liked = result.liked;
-        writeLikedState(item.id, result.liked);
-      }
-      if (typeof result?.likesCount === 'number') {
-        likesCount = result.likesCount;
-      }
-    } catch (err) {
-      liked = previousLiked;
-      likesCount = previousLikesCount;
-      writeLikedState(item.id, previousLiked);
+      await onLike(item);
     } finally {
       liking = false;
     }

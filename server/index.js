@@ -982,6 +982,9 @@ async function init() {
   const root = await protobuf.load(protoPath);
   Msg = root.lookupType('Msg');
   POOLED_MSG = Msg.create();
+  console.log('[PROTO DEBUG] room_board_size field in server Msg?',
+    Object.keys(Msg.fields).filter(k => k.toLowerCase().includes('board')),
+    'total fields:', Object.keys(Msg.fields).length);
 
   try {
     await connectDB();
@@ -1180,7 +1183,8 @@ function buildSettingsPayload(room) {
     roomFloatingGallerySeed: room.settings.floatingGallerySeed,
     roomFloatingGalleryIncludeIds: room.settings.floatingGalleryIncludeIds || [],
     roomFloatingGalleryExcludeIds: room.settings.floatingGalleryExcludeIds || [],
-    electedUploader: room._electedUploader || ''
+    electedUploader: room._electedUploader || '',
+    roomBoardSize: room.settings.boardSize || '1080p'
   };
 }
 
@@ -2689,6 +2693,18 @@ wss.on('connection', async (ws, req) => {
                     .filter(id => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id))
                     .slice(0, 200)
                 : [];
+            }
+            console.log('[ROOM_UPDATE DEBUG] data.roomBoardSize =', JSON.stringify(data.roomBoardSize), 'room.settings.boardSize before =', room.settings.boardSize);
+            if (data.roomBoardSize !== undefined && data.roomBoardSize !== '') {
+              const validBoardSizes = new Set(['720p', '1080p', '1440p', '4k']);
+              if (validBoardSizes.has(data.roomBoardSize)) {
+                room.settings.boardSize = data.roomBoardSize;
+                console.log('[ROOM_UPDATE DEBUG] boardSize updated to', data.roomBoardSize);
+              } else {
+                console.log('[ROOM_UPDATE DEBUG] boardSize rejected (invalid):', data.roomBoardSize);
+              }
+            } else {
+              console.log('[ROOM_UPDATE DEBUG] roomBoardSize not present in message (proto field not loaded?)');
             }
             room.settings.floatingGalleryIncludeIds = [...new Set(room.settings.floatingGalleryIncludeIds)];
             room.settings.floatingGalleryExcludeIds = [...new Set(room.settings.floatingGalleryExcludeIds)];

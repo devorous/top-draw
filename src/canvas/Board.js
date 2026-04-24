@@ -312,6 +312,15 @@ export class Board {
     this.mainCanvas.width = width;
     this.topCanvas.height = height;
     this.topCanvas.width = width;
+    if (typeof document !== 'undefined') {
+      document.querySelectorAll('#userBoards .userBoard').forEach((canvas) => {
+        canvas.height = height;
+        canvas.width = width;
+        const context = canvas.getContext('2d');
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+      });
+    }
     if (this.upperLayersCanvas) {
       this.upperLayersCanvas.height = height;
       this.upperLayersCanvas.width = width;
@@ -1549,6 +1558,39 @@ export class Board {
       a.y <= b.y + b.height &&
       a.y + a.height >= b.y
     );
+  }
+
+  /**
+   * Resize the board to new dimensions, preserving existing layer content at top-left.
+   * @param {[number, number]} newDimensions - [height, width]
+   */
+  resizeBoard(newDimensions) {
+    // Capture each layer before dimensions change so we can restore at (0,0)
+    const snapshots = this.layerManager ? this.getSnapshot() : null;
+    const [oldH, oldW] = this.dimensions;
+
+    this.dimensions = newDimensions;
+    const [height, width] = this.dimensions;
+
+    this._createLayerManager();
+    this.compositeTileGrid = new CompositeTileGrid(width, height, 32);
+    this.tileTracker = new TileTracker(width, height);
+    this.setupCanvas();
+
+    if (snapshots?.length) {
+      for (let i = 0; i < snapshots.length && i < this.layerManager.layerGroups.length; i++) {
+        const qoi = snapshots[i];
+        if (!qoi || qoi.length === 0) continue;
+        const pixels = wasm.qoi_decode(qoi);
+        if (!pixels || pixels.length === 0) continue;
+        const imageData = new ImageData(new Uint8ClampedArray(pixels.buffer), oldW, oldH);
+        this.layerManager.addToBaseBin(i, this._createCanvasFromImageData(imageData), 0, 0);
+      }
+      this.markCompositeFull();
+      this.compositeAllLayers();
+    }
+
+    this.resetView();
   }
 
   /**

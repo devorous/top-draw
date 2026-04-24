@@ -459,6 +459,11 @@ export async function handleGalleryLike(req, res, id) {
     const userId = authUser?._id?.toString() || null;
     const username = authUser?.username || null;
     const objectId = new ObjectId(id);
+    const actorKey = userId
+      ? `user:${userId}`
+      : deviceId
+        ? `device:${deviceId}`
+        : `ip:${ipHash}`;
 
     // Check if item exists
     if (!await db.collection('gallery').findOne({ _id: objectId }, { projection: { _id: 1 } })) {
@@ -469,6 +474,7 @@ export async function handleGalleryLike(req, res, id) {
     const existingLike = await db.collection('gallery_likes').findOne({
       galleryId: id,
       $or: [
+        { actorKey },
         userId ? { userId } : null,
         deviceId ? { deviceId } : null,
         { ipHash }
@@ -498,6 +504,7 @@ export async function handleGalleryLike(req, res, id) {
       username: username,
       deviceId: deviceId || null,
       ipHash: ipHash,
+      actorKey,
       createdAt: new Date(),
     };
 
@@ -508,6 +515,7 @@ export async function handleGalleryLike(req, res, id) {
       username: username,
       deviceId: deviceId || null,
       ipHash: ipHash,
+      actorKey,
       createdAt: new Date(),
     });
 
@@ -1037,11 +1045,23 @@ export async function handleFloatingArtList(req, res) {
   const limit = Math.min(200, Math.max(1, parseInt(urlObj.searchParams.get('limit') || '20')));
   const includeIds = [...new Set(urlObj.searchParams.getAll('includeId').filter(id => /^[a-f0-9]{24}$/i.test(id)))];
   const excludeIds = [...new Set(urlObj.searchParams.getAll('excludeId').filter(id => /^[a-f0-9]{24}$/i.test(id)))];
+  const deviceId = String(urlObj.searchParams.get('deviceId') || '').trim();
 
   // Normalize room tag
   const roomTag = normalizeTags(room).at(0) || 'lobby';
 
   try {
+    const token = getBearerToken(req);
+    const authUser = token ? await getUserFromToken(token, { projection: { username: 1 } }) : null;
+    const clientIp = getClientIp(req);
+    const ipHash = crypto.createHash('sha256').update(clientIp || 'unknown').digest('hex');
+    const userId = authUser?._id?.toString() || null;
+    const actorKey = userId
+      ? `user:${userId}`
+      : deviceId
+        ? `device:${deviceId}`
+        : `ip:${ipHash}`;
+
     const baseQuery = {
       _id: excludeIds.length > 0
         ? { $nin: excludeIds.map(id => new ObjectId(id)) }
@@ -1084,8 +1104,36 @@ export async function handleFloatingArtList(req, res) {
       merged.push(item);
     }
 
+    const mergedIds = merged.map(item => item?._id?.toString?.()).filter(Boolean);
+    const likedSet = new Set();
+    if (mergedIds.length > 0) {
+      const likes = await db.collection('gallery_likes')
+        .find({
+          galleryId: { $in: mergedIds },
+          $or: [
+            { actorKey },
+            userId ? { userId } : null,
+            deviceId ? { deviceId } : null,
+            { ipHash }
+          ].filter(Boolean)
+        }, { projection: { galleryId: 1 } })
+        .toArray();
+
+      for (const like of likes) {
+        if (like.galleryId) likedSet.add(String(like.galleryId));
+      }
+    }
+
     json(res, 200, {
-      items: merged.slice(0, limit).map(toClientGalleryItem),
+      items: merged.slice(0, limit).map((item) => {
+        const clientItem = toClientGalleryItem(item);
+        const liked = likedSet.has(clientItem.id);
+        return {
+          ...clientItem,
+          liked,
+          likedByCurrentUser: liked
+        };
+      }),
       room: roomTag,
       minLikes,
       count: merged.length

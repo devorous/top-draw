@@ -17,6 +17,12 @@
     { value: 'registered', label: 'Registered Only' },
     { value: 'trusted', label: 'Trusted Only' }
   ];
+  const BOARD_SIZE_OPTIONS = [
+    { value: '720p',  label: '720p  (1280 × 720)' },
+    { value: '1080p', label: '1080p (1920 × 1080)' },
+    { value: '1440p', label: '1440p (2560 × 1440)' },
+    { value: '4k',    label: '4K    (3840 × 2160)' }
+  ];
   const ROLE_LABELS = {
     0: 'None',
     1: 'User',
@@ -46,6 +52,7 @@
   let hideChatNotifications = $state(false);
   let roomPrivate = $state(false);
   let dedicatedReplayUser = $state('');
+  let boardSize = $state('1080p');
   let floatingGallerySeed = $state(0);
   let floatingGalleryIncludeIds = $state([]);
   let floatingGalleryExcludeIds = $state([]);
@@ -138,6 +145,7 @@
     hideChatNotifications = !!data.hideChatNotifications;
     roomPrivate = !!data.private;
     dedicatedReplayUser = data.dedicatedReplayUser || '';
+    boardSize = data.boardSize || '1080p';
     floatingGallerySeed = data.floatingGallerySeed || 0;
     floatingGalleryIncludeIds = Array.isArray(data.floatingGalleryIncludeIds) ? [...data.floatingGalleryIncludeIds] : [];
     floatingGalleryExcludeIds = Array.isArray(data.floatingGalleryExcludeIds) ? [...data.floatingGalleryExcludeIds] : [];
@@ -219,6 +227,7 @@
           autoMuteVpnUsers,
           hideChatNotifications,
           private: roomPrivate,
+          boardSize,
           floatingGallerySeed,
           floatingGalleryIncludeIds: [...floatingGalleryIncludeIds],
           floatingGalleryExcludeIds: [...floatingGalleryExcludeIds],
@@ -235,6 +244,7 @@
       }
     };
 
+    console.log('[ROOM_SETTINGS DEBUG] sending ROOM_UPDATE with boardSize =', JSON.stringify(boardSize));
     wsClient.send({
       t: T.ROOM_UPDATE,
       roomDescription: trimmedDesc,
@@ -248,6 +258,7 @@
       roomHideChatNotifications: hideChatNotifications,
       roomPrivate: roomPrivate,
       roomDedicatedReplayUser: dedicatedReplayUser.trim() || null,
+      roomBoardSize: boardSize,
       roomFloatingGallerySeed: floatingGallerySeed,
       roomFloatingGalleryIncludeIds: [...floatingGalleryIncludeIds],
       roomFloatingGalleryExcludeIds: [...floatingGalleryExcludeIds]
@@ -582,6 +593,16 @@
                   <option value={option.value}>{option.label}</option>
                 {/each}
               </select>
+            </div>
+
+            <div class="form-group">
+              <label for="roomBoardSize">Board Size</label>
+              <select id="roomBoardSize" bind:value={boardSize} class="room-input">
+                {#each BOARD_SIZE_OPTIONS as option}
+                  <option value={option.value}>{option.label}</option>
+                {/each}
+              </select>
+              <span class="form-hint">Changing board size clears the canvas for all users.</span>
             </div>
           </div>
 

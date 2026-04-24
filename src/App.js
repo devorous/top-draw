@@ -2995,7 +2995,8 @@ export class DrawingApp {
         roomLocked: s.roomLocked,
         roomMaxUsers: s.roomMaxUsers,
         roomJoinPolicy: s.roomJoinPolicy,
-        roomPrivate: s.roomPrivate
+        roomPrivate: s.roomPrivate,
+        roomBoardSize: s.roomBoardSize || s.boardSize
       });
     }
 

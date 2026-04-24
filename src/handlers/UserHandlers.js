@@ -2,9 +2,11 @@
 
 import { User } from '../User.js';
 import { appState } from '../state.svelte.js';
+import { BOARD_SIZE_PRESETS, applyRoomBoardSize } from '../config/BoardSizes.js';
 
 const ROLE_NAMES = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
 const JOIN_ANNOUNCE_DELAY_MS = 700;
+
 const JOIN_ANNOUNCE_RETRY_MS = 500;
 const JOIN_ANNOUNCE_TIMEOUT_MS = 15000;
 
@@ -409,6 +411,10 @@ export function setupUserHandlers(wsClient, app) {
     if (data.floatingGalleryExcludeIds !== undefined) {
       app.currentRoomData.floatingGalleryExcludeIds = data.floatingGalleryExcludeIds || [];
     }
+    if (data.boardSize && BOARD_SIZE_PRESETS[data.boardSize]) {
+      applyRoomBoardSize(app, data.boardSize);
+    }
+
     // Re-evaluate on any settings change that could affect upload eligibility
     app._updatePreviewUploadEligibility();
     // Mirror is not persisted to DB, but update it locally

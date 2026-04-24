@@ -446,6 +446,22 @@ export async function sanitizeMessage(data) {
           ? sanitizeString(data.roomDedicatedReplayUser, MAX_NAME_LENGTH)
           : null;
       }
+      if (data.roomBoardSize !== undefined) {
+        sanitized.roomBoardSize = sanitizeString(data.roomBoardSize, 10);
+      }
+      if (data.roomFloatingGallerySeed !== undefined) {
+        sanitized.roomFloatingGallerySeed = Number(data.roomFloatingGallerySeed);
+      }
+      if (data.roomFloatingGalleryIncludeIds !== undefined) {
+        sanitized.roomFloatingGalleryIncludeIds = Array.isArray(data.roomFloatingGalleryIncludeIds)
+          ? data.roomFloatingGalleryIncludeIds.map(id => sanitizeString(id, 24)).filter(id => /^[a-f0-9]{24}$/i.test(id))
+          : [];
+      }
+      if (data.roomFloatingGalleryExcludeIds !== undefined) {
+        sanitized.roomFloatingGalleryExcludeIds = Array.isArray(data.roomFloatingGalleryExcludeIds)
+          ? data.roomFloatingGalleryExcludeIds.map(id => sanitizeString(id, 24)).filter(id => /^[a-f0-9]{24}$/i.test(id))
+          : [];
+      }
       return sanitized;
 
     case T.MIRROR_REGION:

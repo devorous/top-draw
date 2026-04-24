@@ -180,15 +180,19 @@ export class WebSocketClient {
 
     try {
       const protobuf = await import('protobufjs');
-      const protoUrl = '../messages.proto';
+      const protoUrl = `../messages.proto?v=${Date.now()}`;
       const response = await fetch(protoUrl, { cache: 'no-store' });
       if (!response.ok) {
         throw new Error(`Failed to fetch protobuf schema: ${response.status}`);
       }
       const protoSource = await response.text();
+      console.log('[PROTO DEBUG] fetched from', response.url, 'size:', protoSource.length, 'has room_board_size?', protoSource.includes('room_board_size'));
       const root = protobuf.default.parse(protoSource).root;
       this.Msg = root.lookupType('Msg');
       this.protoLoaded = true;
+      console.log('[PROTO DEBUG] room_board_size field in client Msg?',
+        Object.keys(this.Msg.fields).filter(k => k.toLowerCase().includes('board')),
+        'total fields:', Object.keys(this.Msg.fields).length);
     } catch (err) {
       console.error('Failed to load protobuf:', err);
       throw err;
@@ -633,8 +637,10 @@ export class WebSocketClient {
             : [],
           floatingGalleryExcludeIds: Array.isArray(data.roomFloatingGalleryExcludeIds)
             ? data.roomFloatingGalleryExcludeIds
-            : []
+            : [],
+          boardSize: data.roomBoardSize || '1080p'
         });
+        console.log('[SETTINGS DEBUG] received data.roomBoardSize =', JSON.stringify(data.roomBoardSize));
         break;
 
       case T.LEFT:
@@ -1280,6 +1286,11 @@ export class WebSocketClient {
         encData = { ...data, ps: encodePs(data.ps) };
       }
       const message = this.Msg.create(encData);
+      if (data.roomBoardSize !== undefined) {
+        console.log('[SEND DEBUG] data.roomBoardSize =', JSON.stringify(data.roomBoardSize),
+          ', message.roomBoardSize =', JSON.stringify(message.roomBoardSize),
+          ', field in schema:', !!this.Msg.fields.roomBoardSize);
+      }
       const buffer = this.Msg.encode(message).finish();
       this.socket.send(buffer);
 

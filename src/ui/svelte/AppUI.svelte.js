@@ -18,6 +18,7 @@ import SnapshotMenu from './SnapshotMenu.svelte';
 import FloatingArtManager from './FloatingArtManager.svelte';
 
 import { appState, showProfile as showProfileFromState, toggleMessenger } from '../../state.svelte.js';
+import { applyRoomBoardSize } from '../../config/BoardSizes.js';
 import { messenger } from '../../messenger/messenger.svelte.js';
 import { isTauriDesktop } from '../../platform/desktop.js';
 import {
@@ -268,6 +269,7 @@ export function initSvelteUI(app) {
         onUpdate: (roomData) => {
           app.currentRoomData = roomData;
           appState.currentRoomData = roomData;
+          applyRoomBoardSize(app, roomData?.boardSize, { showToast: false });
         },
         onUnregister: () => {
           if (app.currentRoomData) {
@@ -447,10 +449,14 @@ export function initSvelteUI(app) {
         const floatingGallerySeed = roomData?.floatingGallerySeed || 0;
         const floatingGalleryIncludeIds = roomData?.floatingGalleryIncludeIds || [];
         const floatingGalleryExcludeIds = roomData?.floatingGalleryExcludeIds || [];
+        const boardWidth = app.board?.getWidth?.() || app.board?.dimensions?.[1] || 2000;
+        const boardHeight = app.board?.getHeight?.() || app.board?.dimensions?.[0] || 2000;
         const floatingArtConfigKey = JSON.stringify({
           floatingGallerySeed,
           floatingGalleryIncludeIds,
-          floatingGalleryExcludeIds
+          floatingGalleryExcludeIds,
+          boardWidth,
+          boardHeight
         });
         const joinedRoom = connected && !!roomId && roomId !== '_discovery' && !app.isOfflineMode;
 
@@ -468,22 +474,16 @@ export function initSvelteUI(app) {
                 canvasBounds: {
                   x: 0,
                   y: 0,
-                  width: app.board?.getWidth?.() || app.board?.dimensions?.[1] || 2000,
-                  height: app.board?.getHeight?.() || app.board?.dimensions?.[0] || 2000
-                },
-                viewport: {
-                  x: app.board?.panX || 0,
-                  y: app.board?.panY || 0,
-                  width: window.innerWidth,
-                  height: window.innerHeight,
-                  scale: app.board?.scale || 1
+                  width: boardWidth,
+                  height: boardHeight
                 },
                 enabled: true,
                 floatingGallerySeed,
                 floatingGalleryIncludeIds,
                 floatingGalleryExcludeIds,
+                clientDeviceId: app.wsClient?.clientIdentity?.deviceId || '',
                 apiBaseUrl: import.meta.env.VITE_API_BASE_URL || '',
-                onLike: async (itemOrId) => {
+                onLike: async (itemOrId, clientDeviceId = '') => {
                   const id = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id;
                   if (!id) {
                     throw new Error('Missing gallery item id');
@@ -498,7 +498,7 @@ export function initSvelteUI(app) {
                       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
                     },
                     body: JSON.stringify({
-                      deviceId: app.deviceId || null
+                      deviceId: clientDeviceId || app.wsClient?.clientIdentity?.deviceId || localStorage.getItem('topDrawDeviceId') || null
                     })
                   });
 

@@ -42,7 +42,8 @@ export class Room {
       private: false,
       floatingGallerySeed: createFloatingGallerySeed(),
       floatingGalleryIncludeIds: [],
-      floatingGalleryExcludeIds: []
+      floatingGalleryExcludeIds: [],
+      boardSize: '1080p'
     };
 
     this.description = '';
@@ -344,6 +345,10 @@ export class Room {
         this.settings.floatingGalleryExcludeIds = Array.isArray(doc.settings?.floatingGalleryExcludeIds)
           ? doc.settings.floatingGalleryExcludeIds.filter(id => typeof id === 'string')
           : [];
+        const validBoardSizes = new Set(['720p', '1080p', '1440p', '4k']);
+        this.settings.boardSize = validBoardSizes.has(doc.settings?.boardSize)
+          ? doc.settings.boardSize
+          : '1080p';
         console.log(`[Room] Loaded "${this.id}" from DB`);
       }
 
@@ -386,7 +391,8 @@ export class Room {
               private: this.settings.private,
               floatingGallerySeed: this.settings.floatingGallerySeed,
               floatingGalleryIncludeIds: this.settings.floatingGalleryIncludeIds,
-              floatingGalleryExcludeIds: this.settings.floatingGalleryExcludeIds
+              floatingGalleryExcludeIds: this.settings.floatingGalleryExcludeIds,
+              boardSize: this.settings.boardSize
             }
           },
           $setOnInsert: {

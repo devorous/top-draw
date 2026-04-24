@@ -1,17 +1,18 @@
 <script>
   import { untrack } from 'svelte';
   import Delaunator from 'delaunator';
+  import { ClientIdentity } from '../../network/ClientIdentity.js';
   import FloatingArt from './FloatingArt.svelte';
 
   /**
    * @type {{
    *   roomId: string,
    *   canvasBounds: { x: number, y: number, width: number, height: number },
-   *   viewport: { x: number, y: number, width: number, height: number, scale: number },
    *   enabled: boolean,
    *   floatingGallerySeed?: number,
    *   floatingGalleryIncludeIds?: string[],
    *   floatingGalleryExcludeIds?: string[],
+   *   clientDeviceId?: string,
    *   apiBaseUrl?: string,
    *   onLike?: (id: string) => Promise<void>,
    *   onComment?: (id: string) => void
@@ -20,11 +21,11 @@
   let {
     roomId,
     canvasBounds,
-    viewport,
     enabled = true,
     floatingGallerySeed = 0,
     floatingGalleryIncludeIds = [],
     floatingGalleryExcludeIds = [],
+    clientDeviceId = '',
     apiBaseUrl = '',
     onLike = null,
     onComment = null
@@ -34,27 +35,134 @@
   let loading = $state(false);
   let lastFetchedRoom = $state(null);
   let lastFetchedConfigKey = $state('');
+  let likedIds = $state(readLikedIds());
   let requestedRoom = null;
   let requestedConfigKey = '';
+  const clientIdentity = new ClientIdentity();
 
   const FETCH_LIMIT = 200;
-  const NUM_SLOTS = 100;
+  const NUM_SLOTS = 75;
 
+  const BASE_BOARD_WIDTH = 1920;
+  const BASE_BOARD_HEIGHT = 1080;
   const CARD_WIDTH = 180;
   const CARD_HEIGHT = 200;
-  const CARD_GAP = 24;
-  const BOARD_GAP = 24;
-  const CULL_PADDING = 1400;
-  const RECT_MARGIN_LEFT = 100;
-  const RECT_MARGIN_RIGHT = 50;
-  const RECT_MARGIN_TOP = 125;
-  const RECT_MARGIN_BOTTOM = 100;
-  const VORONOI_POINT_SPACING = 165;
+  const CARD_GAP = 12;
+  const BOARD_GAP = 10;
+  const RECT_MARGIN_LEFT = 70;
+  const RECT_MARGIN_RIGHT = 36;
+  const RECT_MARGIN_TOP = 90;
+  const RECT_MARGIN_BOTTOM = 70;
+  const VORONOI_POINT_SPACING = 125;
   const VORONOI_FIELD_PADDING = 1400;
-  const MAX_VORONOI_SUPPORT_POINTS = 200;
-  const MAX_VORONOI_LINE_LENGTH = 500;
+  const MAX_VORONOI_SUPPORT_POINTS = 340;
+  const MAX_VORONOI_LINE_LENGTH = 420;
+  const OUTSIDE_OFFSET_SCALE = 0.85;
 
   let slotAssignments = $state(new Array(NUM_SLOTS).fill(null));
+  let likedIdLookup = $derived.by(() => {
+    const lookup = new Set(likedIds);
+
+    for (const item of items) {
+      if (item?.id && (item.liked === true || item.likedByCurrentUser === true)) {
+        lookup.add(item.id);
+      }
+    }
+
+    for (const item of slotAssignments) {
+      if (item?.id && (item.liked === true || item.likedByCurrentUser === true)) {
+        lookup.add(item.id);
+      }
+    }
+
+    return lookup;
+  });
+
+  function readLikedIds() {
+    try {
+      return new Set(JSON.parse(localStorage.getItem('ddraw_liked') || '[]'));
+    } catch {
+      return new Set();
+    }
+  }
+
+  function persistLikedIds(nextLikedIds) {
+    likedIds = nextLikedIds;
+    localStorage.setItem('ddraw_liked', JSON.stringify([...nextLikedIds]));
+  }
+
+  function itemIsLiked(item) {
+    return !!item?.id && likedIdLookup.has(item.id);
+  }
+
+  function getClientDeviceId() {
+    return clientDeviceId || clientIdentity.deviceId || '';
+  }
+
+  function syncFetchedLikedItems(fetchedItems) {
+    const nextLikedIds = new Set(likedIds);
+    let changed = false;
+
+    for (const item of fetchedItems || []) {
+      if (item?.id && (item.liked === true || item.likedByCurrentUser === true) && !nextLikedIds.has(item.id)) {
+        nextLikedIds.add(item.id);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      persistLikedIds(nextLikedIds);
+    }
+  }
+
+  function updateFloatingItem(itemId, patch) {
+    items = items.map((entry) => entry.id === itemId ? { ...entry, ...patch } : entry);
+    slotAssignments = slotAssignments.map((entry) => entry?.id === itemId ? { ...entry, ...patch } : entry);
+  }
+
+  async function likeFloatingItem(item) {
+    if (!item?.id || !onLike) return;
+
+    const wasLiked = itemIsLiked(item);
+    const previousLikesCount = item.likesCount || 0;
+    const nextLikedIds = new Set(likedIds);
+    if (wasLiked) nextLikedIds.delete(item.id);
+    else nextLikedIds.add(item.id);
+
+    persistLikedIds(nextLikedIds);
+    updateFloatingItem(item.id, {
+      liked: !wasLiked,
+      likedByCurrentUser: !wasLiked,
+      likesCount: Math.max(0, previousLikesCount + (wasLiked ? -1 : 1))
+    });
+
+    try {
+      const data = await onLike(item, getClientDeviceId());
+      const syncedLikedIds = new Set(likedIds);
+      if (data?.liked) syncedLikedIds.add(item.id);
+      else syncedLikedIds.delete(item.id);
+      persistLikedIds(syncedLikedIds);
+      updateFloatingItem(item.id, {
+        liked: !!data?.liked,
+        likedByCurrentUser: !!data?.liked,
+        ...(typeof data?.likesCount === 'number' ? { likesCount: data.likesCount } : {})
+      });
+    } catch (err) {
+      const revertedLikedIds = new Set(nextLikedIds);
+      if (wasLiked) revertedLikedIds.add(item.id);
+      else revertedLikedIds.delete(item.id);
+      persistLikedIds(revertedLikedIds);
+      updateFloatingItem(item.id, {
+        liked: wasLiked,
+        likedByCurrentUser: wasLiked,
+        likesCount: previousLikesCount
+      });
+    }
+  }
+
+  function refreshLikedIdsFromStorage() {
+    likedIds = readLikedIds();
+  }
 
   function buildFetchConfigKey() {
     return JSON.stringify({
@@ -86,12 +194,21 @@
       for (const id of floatingGalleryExcludeIds || []) {
         if (id) params.append('excludeId', id);
       }
+      const deviceId = getClientDeviceId();
+      if (deviceId) {
+        params.set('deviceId', deviceId);
+      }
       const url = `${apiBaseUrl}/api/gallery/floating?${params.toString()}`;
-      const response = await fetch(url);
+      const token = localStorage.getItem('topDrawAuthToken');
+      const response = await fetch(url, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
       if (!response.ok) throw new Error('Failed to fetch floating art');
 
       const data = await response.json();
-      items = data.items || [];
+      const fetchedItems = data.items || [];
+      syncFetchedLikedItems(fetchedItems);
+      items = fetchedItems;
       lastFetchedRoom = roomId;
       lastFetchedConfigKey = configKey;
     } catch (err) {
@@ -119,7 +236,7 @@
     };
   }
 
-function getBoardMetrics() {
+  function getBoardMetrics() {
     const width = Math.max(canvasBounds?.width || 0, 1);
     const height = Math.max(canvasBounds?.height || 0, 1);
 
@@ -130,6 +247,123 @@ function getBoardMetrics() {
       height,
       right: (canvasBounds?.x || 0) + width,
       bottom: (canvasBounds?.y || 0) + height
+    };
+  }
+
+  function getLayoutBoardMetrics() {
+    const board = getBoardMetrics();
+    return {
+      left: board.left,
+      top: board.top,
+      width: BASE_BOARD_WIDTH,
+      height: BASE_BOARD_HEIGHT,
+      right: board.left + BASE_BOARD_WIDTH,
+      bottom: board.top + BASE_BOARD_HEIGHT
+    };
+  }
+
+  function getBoardScale() {
+    const board = getBoardMetrics();
+    return {
+      originX: board.left,
+      originY: board.top,
+      scaleX: board.width / BASE_BOARD_WIDTH,
+      scaleY: board.height / BASE_BOARD_HEIGHT
+    };
+  }
+
+  function projectPoint(point) {
+    const { originX, originY, scaleX, scaleY } = getBoardScale();
+    const baseRight = originX + BASE_BOARD_WIDTH;
+    const baseBottom = originY + BASE_BOARD_HEIGHT;
+    const liveRight = originX + (BASE_BOARD_WIDTH * scaleX);
+    const liveBottom = originY + (BASE_BOARD_HEIGHT * scaleY);
+
+    const projectCoord = (value, baseMin, baseMax, liveMin, liveMax, scale) => {
+      if (value < baseMin) return liveMin + ((value - baseMin) * OUTSIDE_OFFSET_SCALE);
+      if (value > baseMax) return liveMax + ((value - baseMax) * OUTSIDE_OFFSET_SCALE);
+      return liveMin + ((value - baseMin) * scale);
+    };
+
+    return {
+      x: projectCoord(point.x, originX, baseRight, originX, liveRight, scaleX),
+      y: projectCoord(point.y, originY, baseBottom, originY, liveBottom, scaleY)
+    };
+  }
+
+  function projectCardPosition(slot) {
+    const { originX, originY, scaleX, scaleY } = getBoardScale();
+    const baseRight = originX + BASE_BOARD_WIDTH;
+    const baseBottom = originY + BASE_BOARD_HEIGHT;
+    const liveRight = originX + (BASE_BOARD_WIDTH * scaleX);
+    const liveBottom = originY + (BASE_BOARD_HEIGHT * scaleY);
+
+    const cardRight = slot.x + CARD_WIDTH;
+    const cardBottom = slot.y + CARD_HEIGHT;
+    let x;
+    let y;
+
+    if (cardRight <= originX) {
+      x = originX + ((cardRight - originX) * OUTSIDE_OFFSET_SCALE) - CARD_WIDTH;
+    } else if (slot.x >= baseRight) {
+      x = liveRight + ((slot.x - baseRight) * OUTSIDE_OFFSET_SCALE);
+    } else {
+      x = originX + ((slot.x - originX) * scaleX);
+    }
+
+    if (cardBottom <= originY) {
+      y = originY + ((cardBottom - originY) * OUTSIDE_OFFSET_SCALE) - CARD_HEIGHT;
+    } else if (slot.y >= baseBottom) {
+      y = liveBottom + ((slot.y - baseBottom) * OUTSIDE_OFFSET_SCALE);
+    } else {
+      y = originY + ((slot.y - originY) * scaleY);
+    }
+
+    return { x, y };
+  }
+
+  function projectSlot(slot) {
+    const center = projectPoint({ x: slot.centerX, y: slot.centerY });
+    const position = projectCardPosition(slot);
+    return {
+      ...slot,
+      x: position.x,
+      y: position.y,
+      centerX: center.x,
+      centerY: center.y
+    };
+  }
+
+  function createProjectedSlots(slots) {
+    const board = getBoardMetrics();
+    const placed = [];
+
+    for (const slot of slots) {
+      const projected = projectSlot(slot);
+      if (cardIntersectsBoard(projected, board)) continue;
+      if (placed.some(existing => cardsOverlap(projected, existing))) continue;
+      placed.push(projected);
+    }
+
+    return placed;
+  }
+
+  function projectGeometry(geometry) {
+    return {
+      lines: geometry.lines.map((line) => {
+        const start = projectPoint({ x: line.x1, y: line.y1 });
+        const end = projectPoint({ x: line.x2, y: line.y2 });
+        return {
+          x1: start.x,
+          y1: start.y,
+          x2: end.x,
+          y2: end.y
+        };
+      }),
+      siteMarkers: geometry.siteMarkers.map((site) => ({
+        ...site,
+        ...projectPoint(site)
+      }))
     };
   }
 
@@ -309,8 +543,7 @@ function getBoardMetrics() {
   }
 
   function createSlotSeed(roomSeed) {
-    const board = getBoardMetrics();
-    return (roomSeed || 1) ^ hashString(`${Math.round(board.width)}:${Math.round(board.height)}:${roomId || 'room'}`);
+    return (roomSeed || 1) ^ hashString(`${BASE_BOARD_WIDTH}:${BASE_BOARD_HEIGHT}:${roomId || 'room'}`);
   }
 
   function createVoronoiBaseSites(board, layoutSeed, { includeBoard = false } = {}) {
@@ -377,8 +610,7 @@ function getBoardMetrics() {
     return dedupeSites(vertices);
   }
 
-  function createSlotLayout(count, baseSites) {
-    const board = getBoardMetrics();
+  function createSlotLayout(count, baseSites, board = getBoardMetrics()) {
     const sitePool = createVoronoiVertices(baseSites, board)
       .sort((a, b) => {
         const distanceDelta = distanceToBoard(a, board) - distanceToBoard(b, board);
@@ -524,8 +756,7 @@ function getBoardMetrics() {
     });
   }
 
-  function buildVoronoiGeometry(artLayout, baseSites) {
-    const board = getBoardMetrics();
+  function buildVoronoiGeometry(artLayout, baseSites, board = getBoardMetrics()) {
     const field = getVoronoiFieldRect(board);
     const sites = dedupeSites(baseSites);
     const chosenVertices = artLayout.map(({ centerX, centerY }) => ({
@@ -611,16 +842,6 @@ function getBoardMetrics() {
     };
   }
 
-  function isVisible(x, y) {
-    const { x: vx, y: vy, width: vw, height: vh } = viewport;
-    return (
-      x + CARD_WIDTH >= vx - CULL_PADDING &&
-      x <= vx + vw + CULL_PADDING &&
-      y + CARD_HEIGHT >= vy - CULL_PADDING &&
-      y <= vy + vh + CULL_PADDING
-    );
-  }
-
   $effect(() => {
     const currentItems = items;
     const excludeIds = new Set((floatingGalleryExcludeIds || []).filter(Boolean));
@@ -654,24 +875,31 @@ function getBoardMetrics() {
   });
 
   let slotSeed = $derived.by(() => createSlotSeed(floatingGallerySeed));
-  let baseSites = $derived.by(() => createVoronoiBaseSites(getBoardMetrics(), slotSeed));
+  let layoutBoard = $derived.by(() => getLayoutBoardMetrics());
+  let baseSites = $derived.by(() => createVoronoiBaseSites(layoutBoard, slotSeed));
   let visualBaseSites = $derived.by(() => (
-    createVoronoiBaseSites(getBoardMetrics(), slotSeed ^ 0x6d2b79f5, { includeBoard: true })
+    createVoronoiBaseSites(layoutBoard, slotSeed ^ 0x6d2b79f5, { includeBoard: true })
   ));
 
   let precomputedSlots = $derived.by(() => {
     if (!enabled) return [];
-    return createSlotLayout(NUM_SLOTS, baseSites);
+    return createSlotLayout(NUM_SLOTS, baseSites, layoutBoard);
   });
 
-  let positionedItems = $derived.by(() => precomputedSlots.map((slot, i) => ({
+  let projectedSlots = $derived.by(() => createProjectedSlots(precomputedSlots));
+
+  let positionedItems = $derived.by(() => projectedSlots.map((slot, i) => ({
     ...slot,
     item: slotAssignments[i] ?? null,
   })));
 
-  let visibleItems = $derived.by(() => positionedItems.filter(({ x, y }) => isVisible(x, y)));
-
-  let voronoiGeometry = $derived.by(() => buildVoronoiGeometry(precomputedSlots.map(s => ({ centerX: s.centerX, centerY: s.centerY })), visualBaseSites));
+  let voronoiGeometry = $derived.by(() => projectGeometry(
+    buildVoronoiGeometry(
+      precomputedSlots.map(s => ({ centerX: s.centerX, centerY: s.centerY })),
+      visualBaseSites,
+      layoutBoard
+    )
+  ));
   let voronoiLines = $derived(voronoiGeometry.lines);
   let voronoiSiteMarkers = $derived(voronoiGeometry.siteMarkers);
 
@@ -698,6 +926,24 @@ function getBoardMetrics() {
     requestedRoom = roomId;
     requestedConfigKey = configKey;
     fetchFloatingArt();
+  });
+
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleStorage = (event) => {
+      if (!event || event.key === 'ddraw_liked') {
+        refreshLikedIdsFromStorage();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('focus', refreshLikedIdsFromStorage);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('focus', refreshLikedIdsFromStorage);
+    };
   });
 </script>
 
@@ -727,9 +973,17 @@ function getBoardMetrics() {
   </svg>
 
   <div class="floating-art-cards">
-    {#each visibleItems as { item, x, y }, i (i)}
+    {#each positionedItems as { item, x, y }, i (i)}
       {#if item}
-        <FloatingArt {item} {x} {y} {onLike} {onComment} />
+        <FloatingArt
+          {item}
+          {x}
+          {y}
+          liked={likedIdLookup.has(item.id)}
+          likesCount={item.likesCount || 0}
+          onLike={likeFloatingItem}
+          {onComment}
+        />
       {:else}
         <div class="blank-card" style="left: {x}px; top: {y}px;"></div>
       {/if}
