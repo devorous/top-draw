@@ -1788,13 +1788,7 @@ wss.on('connection', async (ws, req) => {
 
   ws.on('message', async (rawData) => {
     if (isShuttingDown) {
-      sendTo(ws, {
-        t: T.GLOBAL_MESSAGE,
-        g: 'Ddraw is updating. Please reload in a moment or continue offline.',
-        k: 'restart',
-        n: 'Server',
-        a: true
-      });
+      // Drop silently; client will see the connection close with code 4000.
       return;
     }
 
@@ -3747,15 +3741,10 @@ function gracefulShutdown(signal) {
   isShuttingDown = true;
   console.log(`[Server] ${signal} received, warning clients before shutdown`);
 
-  if (Msg) {
-    broadcastGlobalMessage({
-      message: 'Ddraw is updating. Your connection will drop briefly. Reload in a moment, or continue offline.',
-      kind: 'restart',
-      issuer: 'Server',
-      persistent: true
-    });
-  }
-
+  // Intentionally do NOT broadcast a "please reload" notice here: the new
+  // server version isn't live yet, so telling clients to refresh would race
+  // the restart. Clients see the close with code 4000 instead and wait for
+  // the version poller to detect the new version.
   server.close(() => {
     console.log('[Server] HTTP server closed');
   });

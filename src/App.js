@@ -3047,11 +3047,13 @@ export class DrawingApp {
       }
       this.showModOverlay(label, reason || '');
     } else if (code === 4000 || String(reason || '').includes('server-restarting')) {
-      this.handleServerUpdateNotice({
-        message: 'Ddraw is updating. Reload once the update finishes, or keep drawing offline.',
-        kind: 'restart',
-        issuer: 'Server',
-        persistent: true
+      // Server is shutting down for a restart. Don't offer a "Reload" yet —
+      // the new version isn't live. Show a plain reconnection banner; the
+      // version poller will surface the real update prompt once the new
+      // server is actually reachable.
+      this.ui.showDisconnectionBanner({
+        message: 'Server is restarting. Reconnecting in a moment, or continue offline.',
+        icon: '!'
       });
     } else {
       // Show disconnection banner if we're in a room (not on landing page)
