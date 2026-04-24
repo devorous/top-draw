@@ -422,6 +422,16 @@ export class Board {
     this.boardsWrapper.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom}) rotate(${this.rotation}deg)${flipTransform}`;
     this.boardsWrapper.style.left = '';
     this.boardsWrapper.style.top = '';
+
+    // Counter-flip #floatingArtMount so the floating art gallery stays upright
+    // while the board's drawing layers mirror horizontally.
+    const floatingArtMount = document.getElementById('floatingArtMount');
+    if (floatingArtMount) {
+      floatingArtMount.style.transformOrigin = '0 0';
+      floatingArtMount.style.transform = this.canvasFlipped
+        ? `translate(${this.getWidth()}px, 0) scaleX(-1)`
+        : '';
+    }
     this.renderPixelGrid();
     this.updateHighZoomRenderingMode();
   }

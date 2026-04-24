@@ -1,11 +1,11 @@
 {
-  "version": "1.5.0-beta",
+  "version": "1.5.1-beta",
   "notes": "Added user-set board bg colour, fixed custom UI colours and implemented new floating gallery",
-  "pub_date": "2026-04-24T19:21:28.551Z",
+  "pub_date": "2026-04-24T19:43:03.575Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.5.0-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenQrYmIxdFFSVzcrc09PU1Q5STY2NEVBdHgwckNwVllBUy9RK0xBYnNyb0VMNVA4VWpLSUlOWU9Db0dXd0JmUXBwMVhNWGlPaS9sYitFVVAyVjNWbFEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MDU4NjIxCWZpbGU6RGRyYXdfMS41LjAtYmV0YV94NjQtc2V0dXAuZXhlCnYyMGk3Y1hlYmY3U3F4RlpkSXMzTXZiSTlBczhtTHNLeURFMnpXM0NKZXBiQTkrT3pmWVFyVEtrTzFKSzBPRXBiUWRsWWx6K21pTVJicUVpQUFTa0NBPT0K"
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.5.1-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenJZWFVCQ3JGWnBIOFY0U1ludGdBRzB1VlZzM0gvSkZrWU05dUNOd1hoNFNNUm01TUloeUxQeWFqMmFUSW0raG8zMnZGY3d5dkJTTTdwc2hMUFZraGc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MDU5ODQ5CWZpbGU6RGRyYXdfMS41LjEtYmV0YV94NjQtc2V0dXAuZXhlCmxNdkpvR3B1MWJvVWVoWXkvSHZVQzNvMUo1eG1HaElxWlFNQXpvTm5mZHo4Z0owc1F2eWtmbGdqb29Jbk9nU1FsWjk3b2JpT3pyd1dNaG1Td2o1SkJBPT0K"
     }
   }
 }
