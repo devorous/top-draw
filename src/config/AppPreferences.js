@@ -31,6 +31,7 @@ export function createDefaultAppPreferences() {
       showRawPixelsAtHighZoom: true,
       useDesynchronizedBoardContexts: false,
       lowPowerMode: false,
+      showFloatingArt: true,
       chatOpacity: 0.95,
       sfx: { ...DEFAULT_SFX_PREFERENCES }
     },
@@ -175,6 +176,10 @@ function sanitizePreferences(rawPreferences) {
     ? false
     : !!parsed.general?.lowPowerMode;
 
+  const migratedShowFloatingArt = parsedVersion < 8
+    ? true
+    : parsed.general?.showFloatingArt !== undefined ? !!parsed.general.showFloatingArt : true;
+
   return {
     version: APP_PREFERENCES_VERSION,
     general: {
@@ -188,6 +193,7 @@ function sanitizePreferences(rawPreferences) {
       showRawPixelsAtHighZoom: migratedShowRawPixelsAtHighZoom,
       useDesynchronizedBoardContexts: migratedUseDesynchronizedBoardContexts,
       lowPowerMode: migratedLowPowerMode,
+      showFloatingArt: migratedShowFloatingArt,
       chatOpacity: sanitizeChatOpacity(parsed.general?.chatOpacity),
       sfx: sanitizeSfx(parsed.general?.sfx)
     },

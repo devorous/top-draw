@@ -8,6 +8,10 @@ import { getDB } from './db.js';
 import { scoreProvider } from './providerScoring.js';
 import { getSnapshotBundle } from './r2.js';
 
+function createFloatingGallerySeed() {
+  return Math.floor(Math.random() * 0x7fffffff);
+}
+
 /**
  * Represents a single drawing room.
  */
@@ -35,7 +39,10 @@ export class Room {
       autoMuteVpnUsers: false,
       hideChatNotifications: false,
       dedicatedReplayUser: null,
-      private: false
+      private: false,
+      floatingGallerySeed: createFloatingGallerySeed(),
+      floatingGalleryIncludeIds: [],
+      floatingGalleryExcludeIds: []
     };
 
     this.description = '';
@@ -328,6 +335,15 @@ export class Room {
         this.settings.mirrorRegions = Array.isArray(doc.settings?.mirrorRegions) ? doc.settings.mirrorRegions : [];
         this.settings.dedicatedReplayUser = doc.settings?.dedicatedReplayUser || null;
         this.settings.private = !!doc.settings?.private;
+        this.settings.floatingGallerySeed = Number.isFinite(doc.settings?.floatingGallerySeed)
+          ? doc.settings.floatingGallerySeed
+          : this.settings.floatingGallerySeed;
+        this.settings.floatingGalleryIncludeIds = Array.isArray(doc.settings?.floatingGalleryIncludeIds)
+          ? doc.settings.floatingGalleryIncludeIds.filter(id => typeof id === 'string')
+          : [];
+        this.settings.floatingGalleryExcludeIds = Array.isArray(doc.settings?.floatingGalleryExcludeIds)
+          ? doc.settings.floatingGalleryExcludeIds.filter(id => typeof id === 'string')
+          : [];
         console.log(`[Room] Loaded "${this.id}" from DB`);
       }
 
@@ -367,7 +383,10 @@ export class Room {
               hideChatNotifications: this.settings.hideChatNotifications,
               mirrorRegions: this.settings.mirrorRegions,
               dedicatedReplayUser: this.settings.dedicatedReplayUser,
-              private: this.settings.private
+              private: this.settings.private,
+              floatingGallerySeed: this.settings.floatingGallerySeed,
+              floatingGalleryIncludeIds: this.settings.floatingGalleryIncludeIds,
+              floatingGalleryExcludeIds: this.settings.floatingGalleryExcludeIds
             }
           },
           $setOnInsert: {

@@ -400,6 +400,15 @@ export function setupUserHandlers(wsClient, app) {
     if (data.private !== undefined) {
       app.currentRoomData.private = data.private;
     }
+    if (data.floatingGallerySeed !== undefined) {
+      app.currentRoomData.floatingGallerySeed = data.floatingGallerySeed;
+    }
+    if (data.floatingGalleryIncludeIds !== undefined) {
+      app.currentRoomData.floatingGalleryIncludeIds = data.floatingGalleryIncludeIds || [];
+    }
+    if (data.floatingGalleryExcludeIds !== undefined) {
+      app.currentRoomData.floatingGalleryExcludeIds = data.floatingGalleryExcludeIds || [];
+    }
     // Re-evaluate on any settings change that could affect upload eligibility
     app._updatePreviewUploadEligibility();
     // Mirror is not persisted to DB, but update it locally

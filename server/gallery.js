@@ -81,6 +81,17 @@ const RESERVED_TAGS = ['nsfw'];
 const MAX_TAGS = 12;
 const MAX_TAG_LENGTH = 24;
 
+// Callback for broadcasting floating art updates via WebSocket
+let broadcastFloatingArtUpdate = null;
+
+/**
+ * Set the callback for broadcasting floating art updates to WebSocket clients
+ * @param {Function} callback - Function to call with (roomTags, galleryItem)
+ */
+export function setFloatingArtBroadcaster(callback) {
+  broadcastFloatingArtUpdate = callback;
+}
+
 function json(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json', ...CORS_HEADERS });
   res.end(JSON.stringify(body));
@@ -507,10 +518,19 @@ export async function handleGalleryLike(req, res, id) {
         $push: { likes: voteRecord },
         $inc: { likesCount: 1 }
       },
-      { returnDocument: 'after', projection: { likesCount: 1 } }
+      { returnDocument: 'after', projection: { likesCount: 1, tags: 1, _id: 1, url: 1, thumbUrl: 1, author: 1, authorId: 1, title: 1, createdAt: 1, views: 1 } }
     );
 
-    json(res, 200, { liked: true, likesCount: updated?.likesCount || 1 });
+    const newLikesCount = updated?.likesCount || 1;
+
+    // Broadcast to rooms when image first becomes eligible (1 like + room tag)
+    if (newLikesCount === 1 && broadcastFloatingArtUpdate) {
+      const item = toClientGalleryItem(updated);
+      const tags = updated?.tags || [];
+      broadcastFloatingArtUpdate(tags, item);
+    }
+
+    json(res, 200, { liked: true, likesCount: newLikesCount });
   } catch (err) {
     console.error('[Gallery] Like error:', err);
     json(res, 500, { error: 'Failed to update likes' });
@@ -1000,5 +1020,78 @@ export async function handleGalleryDelete(req, res, id) {
   } catch (err) {
     console.error('[Gallery] Delete error:', err);
     json(res, 500, { error: 'Failed to delete item' });
+  }
+}
+
+/**
+ * GET /api/gallery/floating?room=<roomId>&minLikes=2&limit=20
+ * Fetch gallery images suitable for floating art display (images with minimum likes, tagged with room)
+ */
+export async function handleFloatingArtList(req, res) {
+  const db = getDB();
+  if (!db) return json(res, 503, { error: 'Database not available' });
+
+  const urlObj = new URL(req.url, 'http://localhost');
+  const room = urlObj.searchParams.get('room') || 'lobby';
+  const minLikes = Math.max(0, parseInt(urlObj.searchParams.get('minLikes') || '2'));
+  const limit = Math.min(200, Math.max(1, parseInt(urlObj.searchParams.get('limit') || '20')));
+  const includeIds = [...new Set(urlObj.searchParams.getAll('includeId').filter(id => /^[a-f0-9]{24}$/i.test(id)))];
+  const excludeIds = [...new Set(urlObj.searchParams.getAll('excludeId').filter(id => /^[a-f0-9]{24}$/i.test(id)))];
+
+  // Normalize room tag
+  const roomTag = normalizeTags(room).at(0) || 'lobby';
+
+  try {
+    const baseQuery = {
+      _id: excludeIds.length > 0
+        ? { $nin: excludeIds.map(id => new ObjectId(id)) }
+        : { $exists: true }
+    };
+
+    const [includedItems, taggedItems] = await Promise.all([
+      includeIds.length > 0
+        ? db.collection('gallery')
+            .find({
+              _id: { $in: includeIds.map(id => new ObjectId(id)) }
+            })
+            .toArray()
+        : Promise.resolve([]),
+      db.collection('gallery')
+        .find({
+          ...baseQuery,
+        tags: roomTag,
+        likesCount: { $gte: minLikes }
+      })
+      .sort({ likesCount: -1, createdAt: -1 })
+      .limit(limit)
+      .toArray()
+    ]);
+
+    const merged = [];
+    const seen = new Set();
+
+    for (const item of includedItems) {
+      const id = item?._id?.toString?.();
+      if (!id || seen.has(id) || excludeIds.includes(id)) continue;
+      seen.add(id);
+      merged.push(item);
+    }
+
+    for (const item of taggedItems) {
+      const id = item?._id?.toString?.();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      merged.push(item);
+    }
+
+    json(res, 200, {
+      items: merged.slice(0, limit).map(toClientGalleryItem),
+      room: roomTag,
+      minLikes,
+      count: merged.length
+    });
+  } catch (err) {
+    console.error('[Gallery] Floating art list error:', err);
+    json(res, 500, { error: 'Failed to fetch floating art' });
   }
 }

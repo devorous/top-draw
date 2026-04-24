@@ -2390,6 +2390,7 @@ export class DrawingApp {
 
     this.isOfflineMode = false;
     this.currentRoomId = roomId;
+    appState.currentRoomId = this.currentRoomId;
     this.currentRoomPassword = password;
     this._pendingRoomSettings = pendingSettings || null;
 
@@ -2401,6 +2402,7 @@ export class DrawingApp {
 
     this.users.clear();
     this.connected = false;
+    appState.connected = false;
     this.sessionIndex = null;
     if (this.self) this.self.id = null;
 
@@ -2560,7 +2562,9 @@ export class DrawingApp {
     this.resetRoomState({ preserveRemoteVisuals: false, clearBoard: true });
     this.isOfflineMode = true;
     this.connected = false;
+    appState.connected = false;
     this.currentRoomId = 'offline-' + Date.now();
+    appState.currentRoomId = this.currentRoomId;
 
     // Cancel any pending auth attempt so it doesn't interrupt offline drawing
     this.auth?.setLoading(false);
@@ -2603,6 +2607,9 @@ export class DrawingApp {
    */
   async connectForRoomDiscovery() {
     this.currentRoomId = null;
+    appState.currentRoomId = null;
+    this.connected = false;
+    appState.connected = false;
     TimeMachine.stop();
     this.updateRecordingButtonState();
 
@@ -2947,6 +2954,8 @@ export class DrawingApp {
    */
   handleJoinAfterConnect() {
     this.connected = true;
+    appState.connected = true;
+    appState.currentRoomId = this.currentRoomId || null;
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(this.self.username);
@@ -3001,6 +3010,7 @@ export class DrawingApp {
    */
   handleWSDisconnect(code, reason) {
     this.connected = false;
+    appState.connected = false;
 
     this.stopPreviewInterval();
     this.stopCheckpointInterval();
@@ -3819,13 +3829,25 @@ export class DrawingApp {
     try {
       const imageData = targetCanvas.toDataURL('image/png');
       const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+
+      // Auto-add room tag for floating art
+      const roomTag = this.wsClient?.roomId || 'lobby';
+      const tags = metadata.tags ? [...metadata.tags] : [];
+      if (!tags.includes(roomTag)) {
+        tags.push(roomTag);
+      }
+
       const res = await fetch(`${apiBase}/api/gallery/upload`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ imageData, title: metadata.title || '' }),
+        body: JSON.stringify({
+          imageData,
+          title: metadata.title || '',
+          tags: tags
+        }),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -3848,6 +3870,17 @@ export class DrawingApp {
     } finally {
       this.ui.hideSavingPopup();
       if (btn && originalText) btn.textContent = originalText;
+    }
+  }
+
+  /**
+   * Handles floating art updates from the server
+   * @param {Object} item - The gallery item to display as floating art
+   */
+  handleFloatingArtUpdate(item) {
+    // Forward to the FloatingArtManager component if it exists
+    if (this.components?.floatingArt?.addItem) {
+      this.components.floatingArt.addItem(item);
     }
   }
 

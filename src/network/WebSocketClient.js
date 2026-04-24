@@ -626,7 +626,14 @@ export class WebSocketClient {
           hideChatNotifications: !!data.roomHideChatNotifications,
           dedicatedReplayUser: data.roomDedicatedReplayUser || null,
           electedUploader: data.electedUploader || null,
-          private: !!data.roomPrivate
+          private: !!data.roomPrivate,
+          floatingGallerySeed: data.roomFloatingGallerySeed || 0,
+          floatingGalleryIncludeIds: Array.isArray(data.roomFloatingGalleryIncludeIds)
+            ? data.roomFloatingGalleryIncludeIds
+            : [],
+          floatingGalleryExcludeIds: Array.isArray(data.roomFloatingGalleryExcludeIds)
+            ? data.roomFloatingGalleryExcludeIds
+            : []
         });
         break;
 
@@ -830,6 +837,15 @@ export class WebSocketClient {
           remove: !!data.chatReactionRemove,
           recipientId: hasOwnField(data, 'r') ? data.r : null
         });
+        break;
+
+      case T.FLOATING_ART_UPDATE:
+        try {
+          const item = JSON.parse(data.fa);
+          this.emit('floating_art_update', { item });
+        } catch (err) {
+          console.error('[FloatingArt] Failed to parse item:', err);
+        }
         break;
 
       case T.GMP:

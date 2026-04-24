@@ -5,6 +5,7 @@
 import { mount, unmount } from 'svelte';
 import BoardMenu from './BoardMenu.svelte';
 import ProfileDialog from './ProfileDialog.svelte';
+import GalleryItemDialog from './GalleryItemDialog.svelte';
 import RoomSettings from './RoomSettings.svelte';
 import AppSettings from './AppSettings.svelte';
 import AdminPanel from './AdminPanel.svelte';
@@ -14,6 +15,7 @@ import Messenger from '../../messenger/Messenger.svelte';
 import Timebar from '../../timebar/Timebar.svelte';
 import FeedbackWidget from './FeedbackWidget.svelte';
 import SnapshotMenu from './SnapshotMenu.svelte';
+import FloatingArtManager from './FloatingArtManager.svelte';
 
 import { appState, showProfile as showProfileFromState, toggleMessenger } from '../../state.svelte.js';
 import { messenger } from '../../messenger/messenger.svelte.js';
@@ -243,6 +245,17 @@ export function initSvelteUI(app) {
     });
   }
 
+  // Mount GalleryItemDialog (modal)
+  const galleryItemDialogTarget = document.getElementById('galleryItemDialogMount');
+  if (galleryItemDialogTarget) {
+    components.galleryItemDialog = mount(GalleryItemDialog, {
+      target: galleryItemDialogTarget,
+      props: {
+        apiBaseUrl: ''
+      }
+    });
+  }
+
   // Mount RoomSettings (modal)
   const roomSettingsTarget = document.getElementById('roomSettingsMount');
   if (roomSettingsTarget) {
@@ -420,6 +433,103 @@ export function initSvelteUI(app) {
     props: { app }
   });
 
+  // Mount FloatingArtManager
+  const floatingArtTarget = document.getElementById('floatingArtMount');
+  if (floatingArtTarget) {
+    let mountedFloatingArtRoomId = null;
+    let mountedFloatingArtConfigKey = null;
+    const floatingArtEffect = $effect.root(() => {
+      $effect(() => {
+        const enabled = app.preferences?.general?.showFloatingArt !== false && !app.preferences?.general?.lowPowerMode;
+        const connected = !!appState.connected;
+        const roomId = appState.currentRoomId || null;
+        const roomData = appState.currentRoomData || null;
+        const floatingGallerySeed = roomData?.floatingGallerySeed || 0;
+        const floatingGalleryIncludeIds = roomData?.floatingGalleryIncludeIds || [];
+        const floatingGalleryExcludeIds = roomData?.floatingGalleryExcludeIds || [];
+        const floatingArtConfigKey = JSON.stringify({
+          floatingGallerySeed,
+          floatingGalleryIncludeIds,
+          floatingGalleryExcludeIds
+        });
+        const joinedRoom = connected && !!roomId && roomId !== '_discovery' && !app.isOfflineMode;
+
+        if (enabled && joinedRoom) {
+          if (!components.floatingArt || mountedFloatingArtRoomId !== roomId || mountedFloatingArtConfigKey !== floatingArtConfigKey) {
+            if (components.floatingArt) {
+              unmount(components.floatingArt);
+              components.floatingArt = null;
+            }
+
+            components.floatingArt = mount(FloatingArtManager, {
+              target: floatingArtTarget,
+              props: {
+                roomId,
+                canvasBounds: {
+                  x: 0,
+                  y: 0,
+                  width: app.board?.getWidth?.() || app.board?.dimensions?.[1] || 2000,
+                  height: app.board?.getHeight?.() || app.board?.dimensions?.[0] || 2000
+                },
+                viewport: {
+                  x: app.board?.panX || 0,
+                  y: app.board?.panY || 0,
+                  width: window.innerWidth,
+                  height: window.innerHeight,
+                  scale: app.board?.scale || 1
+                },
+                enabled: true,
+                floatingGallerySeed,
+                floatingGalleryIncludeIds,
+                floatingGalleryExcludeIds,
+                apiBaseUrl: import.meta.env.VITE_API_BASE_URL || '',
+                onLike: async (itemOrId) => {
+                  const id = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id;
+                  if (!id) {
+                    throw new Error('Missing gallery item id');
+                  }
+
+                  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+                  const token = localStorage.getItem('topDrawAuthToken');
+                  const res = await fetch(`${apiBase}/api/gallery/${id}/like`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                    },
+                    body: JSON.stringify({
+                      deviceId: app.deviceId || null
+                    })
+                  });
+
+                  if (!res.ok) {
+                    throw new Error('Failed to like image');
+                  }
+
+                  return res.json().catch(() => ({}));
+                },
+                onComment: (id) => {
+                  // Open gallery in new tab focused on this image
+                  window.open(`/gallery?id=${id}`, '_blank');
+                }
+              }
+            });
+            mountedFloatingArtRoomId = roomId;
+            mountedFloatingArtConfigKey = floatingArtConfigKey;
+          }
+        } else {
+          if (components.floatingArt) {
+            unmount(components.floatingArt);
+            components.floatingArt = null;
+          }
+          mountedFloatingArtRoomId = null;
+          mountedFloatingArtConfigKey = null;
+        }
+      });
+    });
+    cleanupFns.push(floatingArtEffect);
+  }
+
   components._cleanup = () => {
     cleanupFns.forEach((cleanup) => cleanup?.());
   };
@@ -468,6 +578,9 @@ export function syncStoresFromApp(app) {
   if (app.currentRoomData) {
     appState.currentRoomData = app.currentRoomData;
   }
+
+  appState.currentRoomId = app.currentRoomId || null;
+  appState.connected = !!app.connected;
 
   if (app.appPreferences) {
     appState.appPreferences = app.appPreferences;

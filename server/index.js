@@ -9,7 +9,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { connectDB, getDB, getMongoDatabase, updateUserMetrics, updateConsecutiveDays } from './db.js';
 import { metricsTracker } from './MetricsTracker.js';
-import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate } from './gallery.js';
+import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate, handleFloatingArtList, setFloatingArtBroadcaster } from './gallery.js';
 import { handleAuthLogin, handleAuthRegister, handleAuthMe, handlePasswordResetRequest, handlePasswordResetComplete } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
 import { getGalleryPreviewItem, renderGalleryPreviewHtml } from './galleryPreview.js';
@@ -421,6 +421,11 @@ const server = createServer(async (req, res) => {
 
   if (path === '/api/gallery/sidebar' && req.method === 'GET') {
     await handleGallerySidebar(req, res);
+    return;
+  }
+
+  if (path === '/api/gallery/floating' && req.method === 'GET') {
+    await handleFloatingArtList(req, res);
     return;
   }
 
@@ -990,6 +995,20 @@ async function init() {
   console.log('[Server] RoomManager initialized');
   initAsnCheck();
 
+  // Set up floating art broadcaster for gallery likes
+  setFloatingArtBroadcaster((tags, item) => {
+    // Broadcast to each room matching the image tags
+    tags.forEach(tag => {
+      const room = roomManager.rooms.get(tag);
+      if (room) {
+        broadcastToRoom(room, {
+          t: T.FLOATING_ART_UPDATE,
+          fa: JSON.stringify(item)
+        });
+      }
+    });
+  });
+
   startBatchTimer();
 
   // Start metrics tracker
@@ -1158,6 +1177,9 @@ function buildSettingsPayload(room) {
     roomHideChatNotifications: room.settings.hideChatNotifications,
     roomDedicatedReplayUser: room.settings.dedicatedReplayUser,
     roomPrivate: room.settings.private,
+    roomFloatingGallerySeed: room.settings.floatingGallerySeed,
+    roomFloatingGalleryIncludeIds: room.settings.floatingGalleryIncludeIds || [],
+    roomFloatingGalleryExcludeIds: room.settings.floatingGalleryExcludeIds || [],
     electedUploader: room._electedUploader || ''
   };
 }
@@ -2648,6 +2670,30 @@ wss.on('connection', async (ws, req) => {
             if (data.roomPrivate !== undefined) {
               room.settings.private = !!data.roomPrivate;
             }
+            if (data.roomFloatingGallerySeed !== undefined) {
+              const nextSeed = Number(data.roomFloatingGallerySeed);
+              room.settings.floatingGallerySeed = Number.isFinite(nextSeed) && nextSeed > 0
+                ? Math.floor(nextSeed)
+                : room.settings.floatingGallerySeed;
+            }
+            if (data.roomFloatingGalleryIncludeIds !== undefined) {
+              room.settings.floatingGalleryIncludeIds = Array.isArray(data.roomFloatingGalleryIncludeIds)
+                ? data.roomFloatingGalleryIncludeIds
+                    .filter(id => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id))
+                    .slice(0, 200)
+                : [];
+            }
+            if (data.roomFloatingGalleryExcludeIds !== undefined) {
+              room.settings.floatingGalleryExcludeIds = Array.isArray(data.roomFloatingGalleryExcludeIds)
+                ? data.roomFloatingGalleryExcludeIds
+                    .filter(id => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id))
+                    .slice(0, 200)
+                : [];
+            }
+            room.settings.floatingGalleryIncludeIds = [...new Set(room.settings.floatingGalleryIncludeIds)];
+            room.settings.floatingGalleryExcludeIds = [...new Set(room.settings.floatingGalleryExcludeIds)];
+            room.settings.floatingGalleryIncludeIds = room.settings.floatingGalleryIncludeIds
+              .filter(id => !room.settings.floatingGalleryExcludeIds.includes(id));
 
             await room.saveToDB();
 

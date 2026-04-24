@@ -118,6 +118,7 @@ message Msg {
     CHAT_REACTION = 117;           // Chat reaction toggle
     STAFF_MSG = 118;               // Staff-only chat message
     STAFF_CHAT_IMG = 119;          // Staff-only chat image
+    FLOATING_ART_UPDATE = 120;     // Floating art (gallery image with 2+ likes)
     BW_PROBE_START = 130;          // Server→client: start a bandwidth probe (returns N chunks)
     BW_PROBE_CHUNK = 131;          // Client→server: one probe chunk (random bytes)
     BW_REPORT = 132;               // Client→server: report a previously measured uploadBps (e.g. from _discovery)
@@ -390,6 +391,10 @@ message Msg {
   string chat_message_id = 124;      // Shared ID for chat text/image/reaction targets
   string chat_reaction = 125;        // Emoji reaction payload
   bool chat_reaction_remove = 126;   // Whether this reaction is being removed
+  string fa = 146;                   // Floating art (gallery item JSON) for FLOATING_ART_UPDATE
+  uint32 room_floating_gallery_seed = 147; // ROOM_UPDATE/SETTINGS: shared floating gallery layout seed
+  repeated string room_floating_gallery_include_ids = 148; // ROOM_UPDATE/SETTINGS: explicitly included gallery ids
+  repeated string room_floating_gallery_exclude_ids = 149; // ROOM_UPDATE/SETTINGS: explicitly excluded gallery ids
 
   message CheckpointMeta {
     string id = 1;

@@ -54,6 +54,10 @@ export function setupWebSocketHandlers(app) {
     app.ui?.showToast?.(`${prefix}${data.message}`, data.persistent ? 8000 : 4500);
   });
 
+  wsClient.on('floating_art_update', (data) => {
+    app.handleFloatingArtUpdate?.(data.item);
+  });
+
   // Setup buffered handlers (all events that modify canvas state)
   setupDrawingHandlers(wrapHandler, app);
   setupSelectionHandlers(wrapHandler, app);

@@ -4,6 +4,7 @@
 
   const TAB_GENERAL = 'general';
   const TAB_MODERATION = 'moderation';
+  const TAB_FLOATING_GALLERY = 'floating-gallery';
   const ROLE_OPTIONS = [
     { value: 0, label: 'None' },
     { value: 2, label: 'Trusted' },
@@ -45,6 +46,19 @@
   let hideChatNotifications = $state(false);
   let roomPrivate = $state(false);
   let dedicatedReplayUser = $state('');
+  let floatingGallerySeed = $state(0);
+  let floatingGalleryIncludeIds = $state([]);
+  let floatingGalleryExcludeIds = $state([]);
+  let floatingGalleryVisibleItems = $state([]);
+  let floatingGalleryVisibleLoading = $state(false);
+  let floatingGalleryBrowseItems = $state([]);
+  let floatingGalleryBrowseLoading = $state(false);
+  let floatingGalleryBrowsePage = $state(1);
+  let floatingGalleryBrowsePages = $state(1);
+  let floatingGalleryVisibleLoadedKey = $state('');
+  let floatingGalleryBrowseLoadedPage = $state(0);
+  let lastLoadedFloatingGalleryRoomId = $state('');
+  let hydratedRoomId = $state('');
   let message = $state('');
   let messageType = $state('success');
   let showMessage = $state(false);
@@ -71,8 +85,9 @@
   });
 
   $effect(() => {
-    if (visible && roomData) {
+    if (visible && roomData && hydratedRoomId !== (roomData.id || '')) {
       loadRoomData(roomData);
+      hydratedRoomId = roomData.id || '';
     }
     if (!visible) {
       activeTab = TAB_GENERAL;
@@ -83,6 +98,7 @@
       offlinePromotionRole = 4;
       showUnregisterConfirm = false;
       unregistering = false;
+      hydratedRoomId = '';
     }
   });
 
@@ -92,7 +108,24 @@
     }
   });
 
+  $effect(() => {
+    if (visible && activeTab === TAB_FLOATING_GALLERY) {
+      fetchFloatingGalleryVisibleItems();
+      fetchFloatingGalleryBrowsePage();
+    }
+  });
+
+  $effect(() => {
+    if (visible && activeTab === TAB_FLOATING_GALLERY && roomData) {
+      roomData.id;
+      roomData.floatingGalleryIncludeIds;
+      fetchFloatingGalleryVisibleItems(true);
+    }
+  });
+
   function loadRoomData(data) {
+    const roomChanged = lastLoadedFloatingGalleryRoomId !== (data.id || '');
+
     roomId = data.id || '';
     description = data.description || '';
     ownerUsername = data.ownerUsername || 'Unregistered';
@@ -105,6 +138,20 @@
     hideChatNotifications = !!data.hideChatNotifications;
     roomPrivate = !!data.private;
     dedicatedReplayUser = data.dedicatedReplayUser || '';
+    floatingGallerySeed = data.floatingGallerySeed || 0;
+    floatingGalleryIncludeIds = Array.isArray(data.floatingGalleryIncludeIds) ? [...data.floatingGalleryIncludeIds] : [];
+    floatingGalleryExcludeIds = Array.isArray(data.floatingGalleryExcludeIds) ? [...data.floatingGalleryExcludeIds] : [];
+    if (roomChanged) {
+      floatingGalleryVisibleItems = [];
+      floatingGalleryBrowseItems = [];
+      floatingGalleryBrowsePage = 1;
+      floatingGalleryBrowsePages = 1;
+      floatingGalleryVisibleLoadedKey = '';
+      floatingGalleryBrowseLoadedPage = 0;
+      lastLoadedFloatingGalleryRoomId = data.id || '';
+    } else {
+      floatingGalleryVisibleLoadedKey = '';
+    }
 
     if (board) {
       const [r, g, b] = board.backgroundColor;
@@ -160,23 +207,29 @@
     wsClient._roomSettingsResultHandler = (result) => {
       saving = false;
       if (result.success) {
+        const nextRoomData = {
+          ...roomData,
+          description: trimmedDesc,
+          backgroundColor,
+          locked,
+          maxUsers: clampedMaxUsers,
+          modInactiveImmune,
+          joinPolicy,
+          autoMuteGuests,
+          autoMuteVpnUsers,
+          hideChatNotifications,
+          private: roomPrivate,
+          floatingGallerySeed,
+          floatingGalleryIncludeIds: [...floatingGalleryIncludeIds],
+          floatingGalleryExcludeIds: [...floatingGalleryExcludeIds],
+        };
+        loadRoomData(nextRoomData);
         displayMessage('Settings saved!', 'success');
         ui?.showToast('Room settings saved', 2000);
         if (onUpdate) {
-          onUpdate({
-            ...roomData,
-            description: trimmedDesc,
-            backgroundColor,
-            locked,
-            maxUsers: clampedMaxUsers,
-            modInactiveImmune,
-            joinPolicy,
-            autoMuteGuests,
-            autoMuteVpnUsers,
-            hideChatNotifications,
-            private: roomPrivate,
-          });
+          onUpdate(nextRoomData);
         }
+        fetchFloatingGalleryVisibleItems(true);
       } else {
         displayMessage(result.error || 'Failed to save settings', 'error');
       }
@@ -194,8 +247,95 @@
       roomAutoMuteVpnUsers: autoMuteVpnUsers,
       roomHideChatNotifications: hideChatNotifications,
       roomPrivate: roomPrivate,
-      roomDedicatedReplayUser: dedicatedReplayUser.trim() || null
+      roomDedicatedReplayUser: dedicatedReplayUser.trim() || null,
+      roomFloatingGallerySeed: floatingGallerySeed,
+      roomFloatingGalleryIncludeIds: [...floatingGalleryIncludeIds],
+      roomFloatingGalleryExcludeIds: [...floatingGalleryExcludeIds]
     });
+  }
+
+  async function fetchFloatingGalleryVisibleItems(force = false) {
+    if (!visible || floatingGalleryVisibleLoading) return;
+
+    const loadedKey = `${roomId}:${floatingGalleryIncludeIds.join(',')}:${floatingGalleryExcludeIds.join(',')}`;
+    if (!force && loadedKey === floatingGalleryVisibleLoadedKey) return;
+
+    floatingGalleryVisibleLoading = true;
+    try {
+      const params = new URLSearchParams({ room: roomId, minLikes: '1', limit: '200' });
+      for (const id of floatingGalleryIncludeIds) {
+        if (id) params.append('includeId', id);
+      }
+      for (const id of floatingGalleryExcludeIds) {
+        if (id) params.append('excludeId', id);
+      }
+      const res = await fetch(`/api/gallery/floating?${params}`);
+      if (!res.ok) throw new Error('Failed to load');
+      const data = await res.json();
+      floatingGalleryVisibleItems = data.items || [];
+      floatingGalleryVisibleLoadedKey = loadedKey;
+    } catch (err) {
+      floatingGalleryVisibleItems = [];
+      floatingGalleryVisibleLoadedKey = '';
+      displayMessage('Could not load visible gallery images', 'error');
+    } finally {
+      floatingGalleryVisibleLoading = false;
+    }
+  }
+
+  async function fetchFloatingGalleryBrowsePage(force = false) {
+    if (!visible || floatingGalleryBrowseLoading) return;
+    if (!force && floatingGalleryBrowsePage === floatingGalleryBrowseLoadedPage) return;
+
+    floatingGalleryBrowseLoading = true;
+    try {
+      const res = await fetch(`/api/gallery?page=${floatingGalleryBrowsePage}&limit=24&sort=top`);
+      if (!res.ok) throw new Error('Failed to load gallery');
+      const data = await res.json();
+      floatingGalleryBrowseItems = Array.isArray(data.items) ? data.items : [];
+      floatingGalleryBrowsePages = Math.max(1, data.pages || 1);
+      floatingGalleryBrowseLoadedPage = floatingGalleryBrowsePage;
+    } catch (err) {
+      floatingGalleryBrowseItems = [];
+      floatingGalleryBrowsePages = 1;
+      floatingGalleryBrowseLoadedPage = 0;
+      displayMessage('Could not load gallery browser', 'error');
+    } finally {
+      floatingGalleryBrowseLoading = false;
+    }
+  }
+
+  function regenerateFloatingGallerySeed() {
+    floatingGallerySeed = Math.floor(Math.random() * 0x7fffffff) || 1;
+  }
+
+  function floatingGalleryMode(itemId) {
+    if (floatingGalleryExcludeIds.includes(itemId)) return 'exclude';
+    if (floatingGalleryIncludeIds.includes(itemId)) return 'include';
+    return 'default';
+  }
+
+  function setFloatingGalleryMode(itemId, mode) {
+    const includeSet = new Set(floatingGalleryIncludeIds);
+    const excludeSet = new Set(floatingGalleryExcludeIds);
+    includeSet.delete(itemId);
+    excludeSet.delete(itemId);
+
+    if (mode === 'include') includeSet.add(itemId);
+    if (mode === 'exclude') excludeSet.add(itemId);
+
+    floatingGalleryIncludeIds = [...includeSet];
+    floatingGalleryExcludeIds = [...excludeSet];
+    floatingGalleryVisibleLoadedKey = '';
+    fetchFloatingGalleryVisibleItems(true);
+  }
+
+  function goToFloatingGalleryPage(nextPage) {
+    const clamped = Math.max(1, Math.min(floatingGalleryBrowsePages, nextPage));
+    if (clamped === floatingGalleryBrowsePage) return;
+    floatingGalleryBrowsePage = clamped;
+    floatingGalleryBrowseItems = [];
+    fetchFloatingGalleryBrowsePage(true);
   }
 
   function openUnregisterConfirm() {
@@ -389,6 +529,7 @@
           <h3>Room Settings</h3>
           <div class="room-settings-tabs" role="tablist" aria-label="Room settings sections">
             <button class:active={activeTab === TAB_GENERAL} class="room-settings-tab" onclick={() => activeTab = TAB_GENERAL} type="button">General</button>
+            <button class:active={activeTab === TAB_FLOATING_GALLERY} class="room-settings-tab" onclick={() => activeTab = TAB_FLOATING_GALLERY} type="button">Floating Gallery</button>
             <button class:active={activeTab === TAB_MODERATION} class="room-settings-tab" onclick={() => activeTab = TAB_MODERATION} type="button">Moderation</button>
           </div>
         </div>
@@ -515,6 +656,136 @@
               </button>
             </section>
           {/if}
+        {:else if activeTab === TAB_FLOATING_GALLERY}
+          <section class="moderation-panel">
+            <div class="floating-gallery-toolbar">
+              <div>
+                <h4>Floating Gallery Layout</h4>
+                <p>The server seed below is shared by everyone in the room, so the Voronoi layout stays synchronized.</p>
+              </div>
+              <div class="floating-gallery-toolbar-actions">
+                <div class="floating-seed-chip">Seed: {floatingGallerySeed || 'not set'}</div>
+                <button class="btn secondary small" type="button" onclick={regenerateFloatingGallerySeed}>Regenerate Layout</button>
+              </div>
+            </div>
+
+            <div class="floating-gallery-summary">
+              <span>{floatingGalleryIncludeIds.length} visible</span>
+              <span>{floatingGalleryExcludeIds.length} excluded</span>
+              <span>{floatingGalleryBrowsePages} gallery pages</span>
+            </div>
+          </section>
+
+          <section class="moderation-panel">
+            <div class="floating-gallery-toolbar">
+              <div>
+                <h4>Visible</h4>
+                <p>Images currently shown in the floating gallery — either pinned explicitly or tagged with this room and liked at least once.</p>
+              </div>
+              <div class="moderation-toolbar-actions">
+                <button class="btn secondary small" type="button" onclick={() => fetchFloatingGalleryVisibleItems(true)}>
+                  {floatingGalleryVisibleLoading ? 'Refreshing...' : 'Refresh'}
+                </button>
+              </div>
+            </div>
+
+            {#if floatingGalleryVisibleItems.length > 0}
+              <div class="floating-gallery-grid">
+                {#each floatingGalleryVisibleItems as item (item.id)}
+                  <article class="floating-gallery-card">
+                    <img class="floating-gallery-thumb" src={item.thumbUrl || item.url} alt={item.title || 'Gallery image'} loading="lazy" />
+                    <div class="floating-gallery-card-body">
+                      <div class="floating-gallery-card-meta">
+                        <strong>{item.author}</strong>
+                        <span>{item.likesCount || 0} hearts</span>
+                      </div>
+                      <div class="floating-gallery-card-actions">
+                        {#if floatingGalleryIncludeIds.includes(item.id)}
+                          <button
+                            type="button"
+                            class="btn small danger"
+                            onclick={() => setFloatingGalleryMode(item.id, 'default')}
+                          >
+                            Unpin
+                          </button>
+                        {:else}
+                          <button
+                            type="button"
+                            class="btn small secondary"
+                            class:danger={true}
+                            onclick={() => setFloatingGalleryMode(item.id, 'exclude')}
+                          >
+                            Exclude
+                          </button>
+                        {/if}
+                      </div>
+                    </div>
+                  </article>
+                {/each}
+              </div>
+            {:else}
+              <div class="table-empty floating-gallery-empty">
+                {floatingGalleryVisibleLoading ? 'Loading visible gallery images...' : 'No images visible yet. Tag images with this room name and give them a like, or add them below.'}
+              </div>
+            {/if}
+          </section>
+
+          <section class="moderation-panel">
+            <div class="floating-gallery-toolbar">
+              <div>
+                <h4>All Gallery Images</h4>
+                <p>Browse the full gallery and add any image to the room include list. Excluded ids are also saved with the room settings.</p>
+              </div>
+              <div class="moderation-toolbar-actions">
+                <button class="btn secondary small" type="button" onclick={() => fetchFloatingGalleryBrowsePage(true)}>
+                  {floatingGalleryBrowseLoading ? 'Refreshing...' : 'Refresh'}
+                </button>
+              </div>
+            </div>
+
+            {#if floatingGalleryBrowseItems.length > 0}
+              <div class="floating-gallery-grid">
+                {#each floatingGalleryBrowseItems.filter(item => !floatingGalleryVisibleItems.some(v => v.id === item.id)) as item (item.id)}
+                  <article class="floating-gallery-card">
+                    <img class="floating-gallery-thumb" src={item.thumbUrl || item.url} alt={item.title || 'Gallery image'} loading="lazy" />
+                    <div class="floating-gallery-card-body">
+                      <div class="floating-gallery-card-meta">
+                        <strong>{item.author}</strong>
+                        <span>{item.likesCount || 0} hearts</span>
+                      </div>
+                      <div class="floating-gallery-card-actions">
+                        <button
+                          type="button"
+                          class="btn small primary"
+                          onclick={() => setFloatingGalleryMode(item.id, 'include')}
+                        >
+                          Add
+                        </button>
+                        <button
+                          type="button"
+                          class="btn small secondary"
+                          class:danger={floatingGalleryMode(item.id) === 'exclude'}
+                          onclick={() => setFloatingGalleryMode(item.id, floatingGalleryMode(item.id) === 'exclude' ? 'default' : 'exclude')}
+                        >
+                          {floatingGalleryMode(item.id) === 'exclude' ? 'Unexclude' : 'Exclude'}
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                {/each}
+              </div>
+
+              <div class="floating-gallery-pagination">
+                <button class="btn secondary small" type="button" onclick={() => goToFloatingGalleryPage(floatingGalleryBrowsePage - 1)} disabled={floatingGalleryBrowsePage <= 1}>Previous</button>
+                <span>Page {floatingGalleryBrowsePage} of {floatingGalleryBrowsePages}</span>
+                <button class="btn secondary small" type="button" onclick={() => goToFloatingGalleryPage(floatingGalleryBrowsePage + 1)} disabled={floatingGalleryBrowsePage >= floatingGalleryBrowsePages}>Next</button>
+              </div>
+            {:else}
+              <div class="table-empty floating-gallery-empty">
+                {floatingGalleryBrowseLoading ? 'Loading gallery page...' : 'No gallery images found.'}
+              </div>
+            {/if}
+          </section>
         {:else}
           <section class="moderation-panel">
             <div class="moderation-toolbar">
@@ -711,7 +982,7 @@
 
       <div class="room-settings-footer">
         <button class="btn secondary" onclick={hide}>Cancel</button>
-        {#if activeTab === TAB_GENERAL}
+        {#if activeTab === TAB_GENERAL || activeTab === TAB_FLOATING_GALLERY}
           <button class="btn primary" onclick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
         {/if}
       </div>
@@ -979,6 +1250,107 @@
     margin-bottom: 0.65rem;
   }
 
+  .floating-gallery-toolbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+  }
+
+  .floating-gallery-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .floating-seed-chip,
+  .floating-gallery-summary span {
+    background: color-mix(in srgb, var(--bg-primary) 84%, black);
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+
+  .floating-gallery-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+  }
+
+  .floating-gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 0.85rem;
+  }
+
+  .floating-gallery-card {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg-primary) 82%, black);
+    border: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent);
+  }
+
+  .floating-gallery-thumb {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    display: block;
+    background: color-mix(in srgb, var(--bg-tertiary) 85%, black);
+  }
+
+  .floating-gallery-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    padding: 0.7rem;
+  }
+
+  .floating-gallery-card-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+  }
+
+  .floating-gallery-card-meta strong,
+  .floating-gallery-card-meta span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .floating-gallery-card-meta span {
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+  }
+
+  .floating-gallery-card-actions {
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+
+  .floating-gallery-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.8rem;
+    margin-top: 0.95rem;
+    color: var(--text-secondary);
+    font-size: 0.84rem;
+  }
+
+  .floating-gallery-empty {
+    padding: 1rem 0.25rem 0.15rem;
+  }
+
   .moderation-toolbar-actions {
     display: flex;
     gap: 0.75rem;
@@ -1202,7 +1574,8 @@
   @media (max-width: 860px) {
     .moderation-split,
     .form-grid,
-    .moderation-toolbar {
+    .moderation-toolbar,
+    .floating-gallery-toolbar {
       grid-template-columns: 1fr;
       display: grid;
     }
@@ -1210,6 +1583,10 @@
     .moderation-toolbar-actions {
       flex-direction: column;
       align-items: stretch;
+    }
+
+    .floating-gallery-toolbar-actions {
+      justify-content: flex-start;
     }
 
     .moderation-search {

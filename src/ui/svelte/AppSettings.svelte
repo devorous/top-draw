@@ -113,6 +113,22 @@
     updatePreferences(nextPreferences, enabled ? 'Low-power mode enabled (30 TPS / 30 FPS)' : 'Low-power mode disabled');
   }
 
+  function isShowFloatingArt() {
+    return appPreferences?.general?.showFloatingArt !== false;
+  }
+
+  function updateShowFloatingArt(enabled) {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        showFloatingArt: enabled
+      }
+    };
+
+    updatePreferences(nextPreferences, enabled ? 'Floating art enabled' : 'Floating art disabled');
+  }
+
   function getChatOpacity() {
     const value = Number(appPreferences?.general?.chatOpacity);
     return Number.isFinite(value) ? Math.min(1, Math.max(0.3, value)) : 1;
@@ -567,6 +583,14 @@
                   onchange={(event) => updateLowPowerMode(event.currentTarget.checked)}
                 />
                 <span>Low-Power Mode (30 TPS / 30 FPS)</span>
+              </label>
+              <label class="settings-toggle-compact">
+                <input
+                  type="checkbox"
+                  checked={isShowFloatingArt()}
+                  onchange={(event) => updateShowFloatingArt(event.currentTarget.checked)}
+                />
+                <span>Show Floating Art</span>
               </label>
             </div>
 
