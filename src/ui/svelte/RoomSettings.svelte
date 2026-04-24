@@ -244,7 +244,6 @@
       }
     };
 
-    console.log('[ROOM_SETTINGS DEBUG] sending ROOM_UPDATE with boardSize =', JSON.stringify(boardSize));
     wsClient.send({
       t: T.ROOM_UPDATE,
       roomDescription: trimmedDesc,

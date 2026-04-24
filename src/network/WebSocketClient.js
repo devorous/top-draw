@@ -664,7 +664,6 @@ export class WebSocketClient {
           floatingGalleryVoronoi: this._parseFloatingGalleryVoronoi(data.roomFloatingGalleryVoronoiJson),
           boardSize: data.roomBoardSize || '1080p'
         });
-        console.log('[SETTINGS DEBUG] received data.roomBoardSize =', JSON.stringify(data.roomBoardSize));
         break;
 
       case T.LEFT:
@@ -1310,11 +1309,6 @@ export class WebSocketClient {
         encData = { ...data, ps: encodePs(data.ps) };
       }
       const message = this.Msg.create(encData);
-      if (data.roomBoardSize !== undefined) {
-        console.log('[SEND DEBUG] data.roomBoardSize =', JSON.stringify(data.roomBoardSize),
-          ', message.roomBoardSize =', JSON.stringify(message.roomBoardSize),
-          ', field in schema:', !!this.Msg.fields.roomBoardSize);
-      }
       const buffer = this.Msg.encode(message).finish();
       this.socket.send(buffer);
 

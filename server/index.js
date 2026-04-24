@@ -2702,17 +2702,11 @@ wss.on('connection', async (ws, req) => {
                     .slice(0, 200)
                 : [];
             }
-            console.log('[ROOM_UPDATE DEBUG] data.roomBoardSize =', JSON.stringify(data.roomBoardSize), 'room.settings.boardSize before =', room.settings.boardSize);
             if (data.roomBoardSize !== undefined && data.roomBoardSize !== '') {
               const validBoardSizes = new Set(['720p', '1080p', '1440p', 'big']);
               if (validBoardSizes.has(data.roomBoardSize)) {
                 room.settings.boardSize = data.roomBoardSize;
-                console.log('[ROOM_UPDATE DEBUG] boardSize updated to', data.roomBoardSize);
-              } else {
-                console.log('[ROOM_UPDATE DEBUG] boardSize rejected (invalid):', data.roomBoardSize);
               }
-            } else {
-              console.log('[ROOM_UPDATE DEBUG] roomBoardSize not present in message (proto field not loaded?)');
             }
             room.settings.floatingGalleryIncludeIds = [...new Set(room.settings.floatingGalleryIncludeIds)];
             room.settings.floatingGalleryExcludeIds = [...new Set(room.settings.floatingGalleryExcludeIds)];
