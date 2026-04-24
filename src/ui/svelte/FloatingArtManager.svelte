@@ -12,6 +12,7 @@
    *   floatingGallerySeed?: number,
    *   floatingGalleryIncludeIds?: string[],
    *   floatingGalleryExcludeIds?: string[],
+   *   floatingGalleryVoronoi?: { lines: Array, siteMarkers?: Array },
    *   clientDeviceId?: string,
    *   apiBaseUrl?: string,
    *   onLike?: (id: string) => Promise<void>,
@@ -25,6 +26,7 @@
     floatingGallerySeed = 0,
     floatingGalleryIncludeIds = [],
     floatingGalleryExcludeIds = [],
+    floatingGalleryVoronoi = null,
     clientDeviceId = '',
     apiBaseUrl = '',
     onLike = null,
@@ -40,7 +42,7 @@
   let requestedConfigKey = '';
   const clientIdentity = new ClientIdentity();
 
-  const FETCH_LIMIT = 200;
+  const FETCH_LIMIT = 75;
   const NUM_SLOTS = 75;
 
   const BASE_BOARD_WIDTH = 1920;
@@ -58,6 +60,7 @@
   const MAX_VORONOI_SUPPORT_POINTS = 340;
   const MAX_VORONOI_LINE_LENGTH = 420;
   const OUTSIDE_OFFSET_SCALE = 0.85;
+  const SHOW_VORONOI_WEB = false;
 
   let slotAssignments = $state(new Array(NUM_SLOTS).fill(null));
   let likedIdLookup = $derived.by(() => {
@@ -893,12 +896,18 @@
     item: slotAssignments[i] ?? null,
   })));
 
+  let visiblePositionedItems = $derived(positionedItems.filter(({ item }) => !!item));
+
   let voronoiGeometry = $derived.by(() => projectGeometry(
-    buildVoronoiGeometry(
-      precomputedSlots.map(s => ({ centerX: s.centerX, centerY: s.centerY })),
-      visualBaseSites,
-      layoutBoard
-    )
+    enabled && SHOW_VORONOI_WEB
+      ? (floatingGalleryVoronoi?.lines
+        ? floatingGalleryVoronoi
+        : buildVoronoiGeometry(
+          precomputedSlots.map(s => ({ centerX: s.centerX, centerY: s.centerY })),
+          visualBaseSites,
+          layoutBoard
+        ))
+      : { lines: [], siteMarkers: [] }
   ));
   let voronoiLines = $derived(voronoiGeometry.lines);
   let voronoiSiteMarkers = $derived(voronoiGeometry.siteMarkers);
@@ -947,34 +956,36 @@
   });
 </script>
 
-<div class="floating-art-container">
-  <svg class="voronoi-web">
-    {#each voronoiLines as line, index (`${index}:${line.x1}:${line.y1}:${line.x2}:${line.y2}`)}
-      <line
-        x1={line.x1}
-        y1={line.y1}
-        x2={line.x2}
-        y2={line.y2}
-        stroke="rgba(0, 212, 170, 0.42)"
-        stroke-width="1.35"
-      />
-    {/each}
+{#if enabled}
+  <div class="floating-art-container">
+    {#if SHOW_VORONOI_WEB}
+      <svg class="voronoi-web">
+        {#each voronoiLines as line, index (`${index}:${line.x1}:${line.y1}:${line.x2}:${line.y2}`)}
+          <line
+            x1={line.x1}
+            y1={line.y1}
+            x2={line.x2}
+            y2={line.y2}
+            stroke="rgba(0, 212, 170, 0.42)"
+            stroke-width="1.35"
+          />
+        {/each}
 
-    {#each voronoiSiteMarkers as site, index (`site:${index}:${site.x}:${site.y}:${site.kind}`)}
-      <circle
-        cx={site.x}
-        cy={site.y}
-        r={site.kind === 'chosen-vertex' ? 3.5 : 1.75}
-        fill={site.kind === 'chosen-vertex'
-          ? 'rgba(0, 212, 170, 0.98)'
-          : 'rgba(0, 212, 170, 0.55)'}
-      />
-    {/each}
-  </svg>
+        {#each voronoiSiteMarkers as site, index (`site:${index}:${site.x}:${site.y}:${site.kind}`)}
+          <circle
+            cx={site.x}
+            cy={site.y}
+            r={site.kind === 'chosen-vertex' ? 3.5 : 1.75}
+            fill={site.kind === 'chosen-vertex'
+              ? 'rgba(0, 212, 170, 0.98)'
+              : 'rgba(0, 212, 170, 0.55)'}
+          />
+        {/each}
+      </svg>
+    {/if}
 
-  <div class="floating-art-cards">
-    {#each positionedItems as { item, x, y }, i (i)}
-      {#if item}
+    <div class="floating-art-cards">
+      {#each visiblePositionedItems as { item, x, y } (item.id)}
         <FloatingArt
           {item}
           {x}
@@ -984,12 +995,10 @@
           onLike={likeFloatingItem}
           {onComment}
         />
-      {:else}
-        <div class="blank-card" style="left: {x}px; top: {y}px;"></div>
-      {/if}
-    {/each}
+      {/each}
+    </div>
   </div>
-</div>
+{/if}
 
 <style>
   .floating-art-container {
@@ -1000,6 +1009,7 @@
     height: 100%;
     pointer-events: none;
     overflow: visible;
+    contain: layout style;
   }
 
   .voronoi-web {
@@ -1020,15 +1030,5 @@
     height: 100%;
     z-index: 4;
     pointer-events: none;
-  }
-
-  .blank-card {
-    position: absolute;
-    width: 180px;
-    height: 200px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px dashed rgba(255, 255, 255, 0.15);
-    border-radius: 8px;
-    box-sizing: border-box;
   }
 </style>

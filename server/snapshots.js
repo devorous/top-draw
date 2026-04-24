@@ -5,6 +5,8 @@ import { T } from '../shared/MessageTypes.js';
 import { authorize, Action } from './permissions.js';
 import { getRecorder } from './deltaRecorder.js';
 import { uploadSnapshotBundle, getSnapshotBundle, deleteSnapshotBundle } from './r2.js';
+import { snapshotLayerDimensions } from '../shared/qoi.js';
+import { getBoardDimensionsForSize } from '../shared/boardSizes.js';
 
 const DEFAULT_SNAPSHOT_MAX_PER_ROOM = 100;
 const SNAPSHOT_LIST_PAGE_SIZE = 20;
@@ -23,6 +25,15 @@ function canLoadSnapshot(ws, room) {
 
 function canManualSaveSnapshot(ws, room) {
   return authorize(ws, Action.MOD_MUTE, null) || isSoloRoomOccupant(room);
+}
+
+function snapshotCoversRoomBoard(snapshotLayers, room) {
+  const snapshotDimensions = snapshotLayerDimensions(snapshotLayers);
+  const [boardHeight, boardWidth] = getBoardDimensionsForSize(room?.settings?.boardSize);
+
+  return !!snapshotDimensions &&
+    snapshotDimensions.width >= boardWidth &&
+    snapshotDimensions.height >= boardHeight;
 }
 
 function getSnapshotMaxPerRoom() {
@@ -328,7 +339,9 @@ export async function handleSnapshotRestore(ws, data, room) {
     snapshotIssuer: snapshotData.issuer
   });
 
-  room.clearAllTiles();
+  if (snapshotCoversRoomBoard(snapshotData.layers, room)) {
+    room.clearAllTiles();
+  }
 }
 
 /**

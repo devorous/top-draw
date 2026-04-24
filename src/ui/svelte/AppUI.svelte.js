@@ -442,19 +442,23 @@ export function initSvelteUI(app) {
     let mountedFloatingArtConfigKey = null;
     const floatingArtEffect = $effect.root(() => {
       $effect(() => {
-        const enabled = app.preferences?.general?.showFloatingArt !== false && !app.preferences?.general?.lowPowerMode;
+        const preferences = appState.appPreferences || app.appPreferences || {};
+        const enabled = preferences.general?.showFloatingArt !== false && !preferences.general?.lowPowerMode;
         const connected = !!appState.connected;
         const roomId = appState.currentRoomId || null;
         const roomData = appState.currentRoomData || null;
         const floatingGallerySeed = roomData?.floatingGallerySeed || 0;
         const floatingGalleryIncludeIds = roomData?.floatingGalleryIncludeIds || [];
         const floatingGalleryExcludeIds = roomData?.floatingGalleryExcludeIds || [];
+        const floatingGalleryVoronoi = roomData?.floatingGalleryVoronoi || null;
         const boardWidth = app.board?.getWidth?.() || app.board?.dimensions?.[1] || 2000;
         const boardHeight = app.board?.getHeight?.() || app.board?.dimensions?.[0] || 2000;
         const floatingArtConfigKey = JSON.stringify({
           floatingGallerySeed,
           floatingGalleryIncludeIds,
           floatingGalleryExcludeIds,
+          floatingGalleryVoronoiSeed: floatingGalleryVoronoi?.seed || 0,
+          floatingGalleryVoronoiVersion: floatingGalleryVoronoi?.version || 0,
           boardWidth,
           boardHeight
         });
@@ -481,6 +485,7 @@ export function initSvelteUI(app) {
                 floatingGallerySeed,
                 floatingGalleryIncludeIds,
                 floatingGalleryExcludeIds,
+                floatingGalleryVoronoi,
                 clientDeviceId: app.wsClient?.clientIdentity?.deviceId || '',
                 apiBaseUrl: import.meta.env.VITE_API_BASE_URL || '',
                 onLike: async (itemOrId, clientDeviceId = '') => {

@@ -2024,6 +2024,7 @@ export class DrawingApp {
     elements.boardContainer.addEventListener('pointermove', (e) => this.handleBoardContainerPointerMove(e));
     elements.boardContainer.addEventListener('pointerup', (e) => this.handleBoardContainerPointerUp(e));
     elements.boardContainer.addEventListener('pointercancel', () => { this._containerPanActive = false; });
+    elements.boardContainer.addEventListener('wheel', (e) => this.handleBoardContainerWheel(e));
 
     // Touch gestures are now handled by Hammer.js in TouchHandler.init()
 
@@ -5921,7 +5922,7 @@ export class DrawingApp {
     }
   }
 
-  // boardContainer pointer handlers: pan by dragging the background (Space held or middle-click)
+  // boardContainer pointer handlers: support the same viewport controls on the background.
 
   handleBoardContainerPointerDown(e) {
     if (this.syncClient?.isCanvasInputBlocked()) return;
@@ -5954,6 +5955,7 @@ export class DrawingApp {
     if (e.button === 1) {
       e.preventDefault();
       this.self.panning = true;
+      this.self.mousedown = true;
       this._lastPanPointerX = e.clientX;
       this._lastPanPointerY = e.clientY;
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPan(true));
@@ -5969,7 +5971,8 @@ export class DrawingApp {
       return;
     }
 
-    if (this.self.tool === 'zoom' && e.button === 0) {
+    if ((this.self.tool === 'zoom' && e.button === 0) || e.button === 2) {
+      e.preventDefault();
       const containerRect = this.ui.elements.boardContainer.getBoundingClientRect();
       const pos = this.board.getBoardRelativePos(e.clientX, e.clientY);
       this._rightDragZoomActive = true;
@@ -5980,6 +5983,21 @@ export class DrawingApp {
       this._rightDragZoomPivotY = e.clientY - containerRect.top;
       this.ui.updateSelfCursor(pos.x, pos.y, this.self.size);
       this.ui.showZoomCursor();
+      if (this.self.tool === 'zoom' && e.button === 0) {
+        this.self.mousedown = true;
+      }
+      e.currentTarget.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    if (this.self.tool === 'rotate' && e.button === 0) {
+      const containerRect = this.ui.elements.boardContainer.getBoundingClientRect();
+      this._rotatePivotX = e.clientX - containerRect.left;
+      this._rotatePivotY = e.clientY - containerRect.top;
+      this._rotatePivotClientX = e.clientX;
+      this._rotatePivotClientY = e.clientY;
+      this._rotatePrevAngle = null;
+      this._rotateToolActive = true;
       this.self.mousedown = true;
       e.currentTarget.setPointerCapture(e.pointerId);
       return;
@@ -5987,8 +6005,10 @@ export class DrawingApp {
 
     if (e.button !== 0) return;
 
-    // Left-click on background: pan if space is held
-    if (this.self.panning) {
+    // Left-click on background: pan with the pan tool or while a temporary pan is active.
+    if (this.self.tool === 'pan' || this.self.panning) {
+      this.self.panning = true;
+      this.self.mousedown = true;
       this._containerPanActive = true;
       this._lastPanPointerX = e.clientX;
       this._lastPanPointerY = e.clientY;
@@ -6028,6 +6048,17 @@ export class DrawingApp {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastShowCursor());
       this.ui.hidePanCursor(this.self.tool, this.self);
     }
+
+    if (this.self.tool === 'pan' && e.button === 0) {
+      this.self.panning = false;
+      this.self.mousedown = false;
+      this.ui.hidePanCursor(this.self.tool, this.self);
+    }
+  }
+
+  handleBoardContainerWheel(e) {
+    if (e.target !== this.ui.elements.boardContainer) return;
+    this.handleWheel(e);
   }
 
   // Wheel/zoom handlers
@@ -6037,7 +6068,7 @@ export class DrawingApp {
     e.preventDefault();
 
     if (this.self.panning || this.self.tool === 'pan' || this.self.tool === 'zoom' || this.self.tool === 'rotate') {
-      const cursorPos = { x: this.self.x, y: this.self.y };
+      const cursorPos = this.board.getBoardRelativePos(e.clientX, e.clientY);
       if (e.deltaY > 0) {
         this.board.zoomOut(0.1, cursorPos);
       } else {

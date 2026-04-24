@@ -4,6 +4,9 @@
   /** @type {{ item: any, x: number, y: number, liked?: boolean, likesCount?: number, onLike?: (item: any) => Promise<void>, onComment?: (id: string) => void }} */
   let { item, x, y, liked = false, likesCount = 0, onLike = null, onComment = null } = $props();
   let liking = $state(false);
+  let cardElement = $state(null);
+  let imageInView = $state(false);
+  let imageSrc = $derived(item.thumbUrl || item.url || '');
 
   async function handleLike() {
     if (!onLike || liking) return;
@@ -29,12 +32,31 @@
       itemId: item.id
     };
   }
+
+  $effect(() => {
+    if (typeof IntersectionObserver === 'undefined' || !cardElement) {
+      imageInView = true;
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        imageInView = !!entry?.isIntersecting;
+      },
+      { root: null, rootMargin: '320px' }
+    );
+
+    observer.observe(cardElement);
+    return () => observer.disconnect();
+  });
 </script>
 
-<div class="floating-art" style="left: {x}px; top: {y}px;">
+<div bind:this={cardElement} class="floating-art" style="left: {x}px; top: {y}px;">
   <div class="art-card">
     <button class="art-image" onclick={handleImageClick} title={item.title || 'Untitled'}>
-      <img src={item.thumbUrl || item.url} alt={item.title || 'Art'} loading="lazy" />
+      {#if imageInView && imageSrc}
+        <img src={imageSrc} alt={item.title || 'Art'} loading="lazy" decoding="async" draggable="false" />
+      {/if}
     </button>
 
     <div class="art-footer">
@@ -66,6 +88,9 @@
     pointer-events: auto;
     animation: fadeIn 0.3s ease-out;
     z-index: 4;
+    contain: layout paint style;
+    content-visibility: auto;
+    contain-intrinsic-size: 180px 200px;
   }
 
   @keyframes fadeIn {
@@ -86,6 +111,7 @@
     overflow: hidden;
     width: 180px;
     transition: transform 0.2s, box-shadow 0.2s;
+    transform: translateZ(0);
   }
 
   .art-card:hover {

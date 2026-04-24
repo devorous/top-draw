@@ -7,9 +7,21 @@ import { WebSocket } from 'ws';
 import { getDB } from './db.js';
 import { scoreProvider } from './providerScoring.js';
 import { getSnapshotBundle } from './r2.js';
+import { generateFloatingGalleryVoronoi } from './floatingVoronoi.js';
+import { snapshotLayerDimensions } from '../shared/qoi.js';
+import { getBoardDimensionsForSize } from '../shared/boardSizes.js';
 
 function createFloatingGallerySeed() {
   return Math.floor(Math.random() * 0x7fffffff);
+}
+
+function snapshotCoversRoomBoard(snapshotLayers, room) {
+  const snapshotDimensions = snapshotLayerDimensions(snapshotLayers);
+  const [boardHeight, boardWidth] = getBoardDimensionsForSize(room?.settings?.boardSize);
+
+  return !!snapshotDimensions &&
+    snapshotDimensions.width >= boardWidth &&
+    snapshotDimensions.height >= boardHeight;
 }
 
 /**
@@ -43,6 +55,7 @@ export class Room {
       floatingGallerySeed: createFloatingGallerySeed(),
       floatingGalleryIncludeIds: [],
       floatingGalleryExcludeIds: [],
+      floatingGalleryVoronoi: null,
       boardSize: '1080p'
     };
 
@@ -72,6 +85,7 @@ export class Room {
 
     /** @type {Set<number>} Set of occupied tile indices */
     this.tileDirtySet = new Set();
+    this.settings.floatingGalleryVoronoi = generateFloatingGalleryVoronoi(this.settings.floatingGallerySeed);
 
     /** @type {Array<Object>} Rolling buffer of board snapshots (max 24, every 10s for 4 min) */
     this.snapshots = [];
@@ -288,7 +302,9 @@ export class Room {
       snapshotTs: snapshot.ts,
       snapshotIssuer: 'server'
     });
-    this.clearAllTiles();
+    if (snapshotCoversRoomBoard(snapshot.layers, this)) {
+      this.clearAllTiles();
+    }
     console.log(`[Room] Restored snapshot ${snapshot.id} to all users in "${this.id}"`);
   }
 
@@ -345,6 +361,18 @@ export class Room {
         this.settings.floatingGalleryExcludeIds = Array.isArray(doc.settings?.floatingGalleryExcludeIds)
           ? doc.settings.floatingGalleryExcludeIds.filter(id => typeof id === 'string')
           : [];
+        const loadedFloatingGalleryVoronoi = doc.settings?.floatingGalleryVoronoi &&
+          doc.settings.floatingGalleryVoronoi.seed === this.settings.floatingGallerySeed
+          ? doc.settings.floatingGalleryVoronoi
+          : null;
+        this.settings.floatingGalleryVoronoi = loadedFloatingGalleryVoronoi ||
+          generateFloatingGalleryVoronoi(this.settings.floatingGallerySeed);
+        if (!loadedFloatingGalleryVoronoi) {
+          await db.collection('rooms').updateOne(
+            { _id: this.id },
+            { $set: { 'settings.floatingGalleryVoronoi': this.settings.floatingGalleryVoronoi } }
+          );
+        }
         const validBoardSizes = new Set(['720p', '1080p', '1440p', '4k']);
         this.settings.boardSize = validBoardSizes.has(doc.settings?.boardSize)
           ? doc.settings.boardSize
@@ -392,6 +420,7 @@ export class Room {
               floatingGallerySeed: this.settings.floatingGallerySeed,
               floatingGalleryIncludeIds: this.settings.floatingGalleryIncludeIds,
               floatingGalleryExcludeIds: this.settings.floatingGalleryExcludeIds,
+              floatingGalleryVoronoi: this.settings.floatingGalleryVoronoi || generateFloatingGalleryVoronoi(this.settings.floatingGallerySeed),
               boardSize: this.settings.boardSize
             }
           },

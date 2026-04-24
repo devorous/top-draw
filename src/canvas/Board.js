@@ -2,6 +2,7 @@ import { LayerManager } from './LayerManager.js';
 import { CompositeTileGrid } from './CompositeTileGrid.js';
 import { TileTracker } from './TileTracker.js';
 import * as wasm from '../wasm/ddraw_wasm.js';
+import { readQoiDimensions, snapshotLayerDimensions } from '../../shared/qoi.js';
 
 /**
  * @fileoverview Board class managing canvas elements and viewport
@@ -2525,8 +2526,19 @@ export class Board {
   restoreSnapshot(layerDatas) {
     if (!this.layerManager || !layerDatas || layerDatas.length === 0) return;
     const [height, width] = this.dimensions;
+    const snapshotDimensions = snapshotLayerDimensions(layerDatas) || { width, height };
+    const restoreWidth = Math.min(width, snapshotDimensions.width);
+    const restoreHeight = Math.min(height, snapshotDimensions.height);
+    const replacesFullBoard = snapshotDimensions.width >= width && snapshotDimensions.height >= height;
 
-    this.layerManager.clearAll();
+    if (replacesFullBoard) {
+      this.layerManager.clearAll();
+    } else if (restoreWidth > 0 && restoreHeight > 0) {
+      for (let i = 0; i < this.layerManager.layerGroups.length; i++) {
+        this._clearLayerRectForSnapshotRestore(i, 0, 0, restoreWidth, restoreHeight);
+      }
+      this.layerManager.redoStackByUser?.clear?.();
+    }
 
     for (let i = 0; i < layerDatas.length && i < this.layerManager.layerGroups.length; i++) {
       const qoi = layerDatas[i];
@@ -2535,18 +2547,51 @@ export class Board {
       const pixels = wasm.qoi_decode(qoi);
       if (!pixels || pixels.length === 0) continue;
 
-      const imageData = new ImageData(new Uint8ClampedArray(pixels.buffer), width, height);
+      const dimensions = readQoiDimensions(qoi) || snapshotDimensions;
+      if (!dimensions || pixels.length !== dimensions.width * dimensions.height * 4) continue;
+
+      const imageData = new ImageData(
+        new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.byteLength),
+        dimensions.width,
+        dimensions.height
+      );
       const group = this.layerManager.layerGroups[i];
+      const sourceCanvas = this._createCanvasFromImageData(imageData);
 
       if (group.flatCanvas) {
-        group.flatCtx.putImageData(imageData, 0, 0);
+        group.flatCtx.drawImage(sourceCanvas, 0, 0);
       } else {
-        this.layerManager.addToBaseBin(i, this._createCanvasFromImageData(imageData), 0, 0);
+        this.layerManager.addToBaseBin(i, sourceCanvas, 0, 0);
       }
     }
 
     this.markCompositeFull();
     this.compositeAllLayers();
+  }
+
+  _clearLayerRectForSnapshotRestore(groupIdx, x, y, width, height) {
+    const group = this.layerManager?.layerGroups?.[groupIdx];
+    if (!group) return;
+
+    for (const stroke of group.strokeStack) {
+      this.layerManager.addToBaseBin(groupIdx, stroke.canvas, stroke.x, stroke.y, stroke.blendMode);
+    }
+    group.strokeStack = [];
+    group.userStrokeCounts = new Map();
+    group.activeStrokeByUser.clear();
+
+    if (group.flatCanvas) {
+      group.flatCtx.clearRect(x, y, width, height);
+      return;
+    }
+
+    const eraseCanvas = document.createElement('canvas');
+    eraseCanvas.width = width;
+    eraseCanvas.height = height;
+    const eraseCtx = eraseCanvas.getContext('2d');
+    eraseCtx.fillStyle = '#000';
+    eraseCtx.fillRect(0, 0, width, height);
+    this.layerManager.addToBaseBin(groupIdx, eraseCanvas, x, y, 'destination-out');
   }
 
   /**

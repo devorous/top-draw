@@ -3,6 +3,7 @@
 import { T } from '../../shared/MessageTypes.js';
 import { appState } from '../state.svelte.js';
 import * as wasm from '../wasm/ddraw_wasm.js';
+import { readQoiDimensions } from '../../shared/qoi.js';
 
 function isSnapshotHistoryOpen(app) {
   return !!(appState.snapshotMenuVisible || app.historyPanel?.isOpen);
@@ -150,10 +151,17 @@ export async function applyRegionRestore(board, layerDatas, isLasso, rect, lasso
         if (!pixels || pixels.length === 0) continue;
       } catch (e) { continue; }
 
+      const dimensions = readQoiDimensions(qoi);
+      if (!dimensions || pixels.length !== dimensions.width * dimensions.height * 4) continue;
+
       const snapshotCanvas = document.createElement('canvas');
-      snapshotCanvas.width = width; snapshotCanvas.height = height;
+      snapshotCanvas.width = dimensions.width; snapshotCanvas.height = dimensions.height;
       snapshotCanvas.getContext('2d').putImageData(
-        new ImageData(new Uint8ClampedArray(pixels.buffer), width, height), 0, 0
+        new ImageData(
+          new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.byteLength),
+          dimensions.width,
+          dimensions.height
+        ), 0, 0
       );
 
       const group = lm?.layerGroups[i];
@@ -175,7 +183,7 @@ export async function applyRegionRestore(board, layerDatas, isLasso, rect, lasso
         if (!isLasso) {
           const { sx: x, sy: y, sw: w, sh: h } = rect;
           ctx.clearRect(x, y, w, h);
-          ctx.drawImage(snapshotCanvas, x, y, w, h, x, y, w, h);
+          _drawSnapshotRect(ctx, snapshotCanvas, x, y, w, h);
         } else {
           _buildLassoPath(ctx, lassoPoints);
           ctx.clip();
@@ -203,7 +211,7 @@ export async function applyRegionRestore(board, layerDatas, isLasso, rect, lasso
         fillCtx.save();
         if (!isLasso) {
           const { sx: x, sy: y, sw: w, sh: h } = rect;
-          fillCtx.drawImage(snapshotCanvas, x, y, w, h, x, y, w, h);
+          _drawSnapshotRect(fillCtx, snapshotCanvas, x, y, w, h);
         } else {
           _buildLassoPath(fillCtx, lassoPoints);
           fillCtx.clip();
@@ -224,6 +232,29 @@ export async function applyRegionRestore(board, layerDatas, isLasso, rect, lasso
       board.removeInteractionBlock(interactionBlockId);
     }
   }
+}
+
+function _drawSnapshotRect(ctx, snapshotCanvas, x, y, width, height) {
+  const sourceX = Math.max(0, x);
+  const sourceY = Math.max(0, y);
+  const sourceRight = Math.min(snapshotCanvas.width, x + width);
+  const sourceBottom = Math.min(snapshotCanvas.height, y + height);
+  const sourceWidth = sourceRight - sourceX;
+  const sourceHeight = sourceBottom - sourceY;
+
+  if (sourceWidth <= 0 || sourceHeight <= 0) return;
+
+  ctx.drawImage(
+    snapshotCanvas,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight
+  );
 }
 
 function _buildLassoPath(ctx, points) {

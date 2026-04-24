@@ -35,6 +35,7 @@ import { getAsnCheckStatus, lookupAsnForIp, initAsnCheck, isVpnAsn } from './asn
 import { authLimiter, uploadLimiter, likeLimiter, wsMessageLimiter, wsConnectionLimiter, feedbackLimiter } from './rateLimit.js';
 import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
 import { getIpSubnet, mergeHistory, normalizeIdentityPayload, recordConnectionEvent } from './identityTracking.js';
+import { generateFloatingGalleryVoronoi, getFloatingGalleryVoronoiJson } from './floatingVoronoi.js';
 
 function hasOwnField(message, key) {
   return !!message && Object.prototype.hasOwnProperty.call(message, key);
@@ -1183,6 +1184,9 @@ function buildSettingsPayload(room) {
     roomFloatingGallerySeed: room.settings.floatingGallerySeed,
     roomFloatingGalleryIncludeIds: room.settings.floatingGalleryIncludeIds || [],
     roomFloatingGalleryExcludeIds: room.settings.floatingGalleryExcludeIds || [],
+    roomFloatingGalleryVoronoiJson: getFloatingGalleryVoronoiJson(
+      room.settings.floatingGalleryVoronoi || generateFloatingGalleryVoronoi(room.settings.floatingGallerySeed)
+    ),
     electedUploader: room._electedUploader || '',
     roomBoardSize: room.settings.boardSize || '1080p'
   };
@@ -2676,9 +2680,13 @@ wss.on('connection', async (ws, req) => {
             }
             if (data.roomFloatingGallerySeed !== undefined) {
               const nextSeed = Number(data.roomFloatingGallerySeed);
+              const previousSeed = room.settings.floatingGallerySeed;
               room.settings.floatingGallerySeed = Number.isFinite(nextSeed) && nextSeed > 0
                 ? Math.floor(nextSeed)
                 : room.settings.floatingGallerySeed;
+              if (room.settings.floatingGallerySeed !== previousSeed) {
+                room.settings.floatingGalleryVoronoi = generateFloatingGalleryVoronoi(room.settings.floatingGallerySeed);
+              }
             }
             if (data.roomFloatingGalleryIncludeIds !== undefined) {
               room.settings.floatingGalleryIncludeIds = Array.isArray(data.roomFloatingGalleryIncludeIds)

@@ -432,6 +432,29 @@ export class WebSocketClient {
     this._processMessage(data);
   }
 
+  _parseFloatingGalleryVoronoi(rawJson) {
+    if (!rawJson) return null;
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (!parsed || !Array.isArray(parsed.lines)) return null;
+      return {
+        ...parsed,
+        lines: parsed.lines.filter(line => (
+          Number.isFinite(line?.x1) &&
+          Number.isFinite(line?.y1) &&
+          Number.isFinite(line?.x2) &&
+          Number.isFinite(line?.y2)
+        )),
+        siteMarkers: Array.isArray(parsed.siteMarkers)
+          ? parsed.siteMarkers.filter(site => Number.isFinite(site?.x) && Number.isFinite(site?.y))
+          : []
+      };
+    } catch (err) {
+      console.warn('[WebSocketClient] Failed to parse floating gallery Voronoi payload', err);
+      return null;
+    }
+  }
+
   /**
    * Schedules message queue processing on the next animation frame.
    * @private
@@ -638,6 +661,7 @@ export class WebSocketClient {
           floatingGalleryExcludeIds: Array.isArray(data.roomFloatingGalleryExcludeIds)
             ? data.roomFloatingGalleryExcludeIds
             : [],
+          floatingGalleryVoronoi: this._parseFloatingGalleryVoronoi(data.roomFloatingGalleryVoronoiJson),
           boardSize: data.roomBoardSize || '1080p'
         });
         console.log('[SETTINGS DEBUG] received data.roomBoardSize =', JSON.stringify(data.roomBoardSize));

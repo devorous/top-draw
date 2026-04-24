@@ -411,6 +411,9 @@ export function setupUserHandlers(wsClient, app) {
     if (data.floatingGalleryExcludeIds !== undefined) {
       app.currentRoomData.floatingGalleryExcludeIds = data.floatingGalleryExcludeIds || [];
     }
+    if (data.floatingGalleryVoronoi !== undefined) {
+      app.currentRoomData.floatingGalleryVoronoi = data.floatingGalleryVoronoi || null;
+    }
     if (data.boardSize && BOARD_SIZE_PRESETS[data.boardSize]) {
       applyRoomBoardSize(app, data.boardSize);
     }
