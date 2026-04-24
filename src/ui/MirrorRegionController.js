@@ -529,8 +529,17 @@ export class MirrorRegionController {
 
   _clearOverlay() {
     if (this.overlayCtx) {
+      this._ensureOverlaySize();
       this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
     }
+  }
+
+  _ensureOverlaySize() {
+    if (!this.overlayCanvas) return;
+    const w = this.board.getWidth();
+    const h = this.board.getHeight();
+    if (this.overlayCanvas.width !== w) this.overlayCanvas.width = w;
+    if (this.overlayCanvas.height !== h) this.overlayCanvas.height = h;
   }
 
   _startMarchingAnts() {
@@ -552,6 +561,7 @@ export class MirrorRegionController {
   _drawSelection() {
     if (!this.overlayCtx || !this.selection) return;
 
+    this._ensureOverlaySize();
     const ctx = this.overlayCtx;
     const s = this.selection;
     this._clearOverlay();
