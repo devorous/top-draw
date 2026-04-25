@@ -862,6 +862,9 @@
     <a href="/" class="wordmark">DDraw</a>
     <div class="nav-links">
       <span class="nav-active">gallery</span>
+      {#if user}
+        <a href="/messenger/" class="nav-link">messenger</a>
+      {/if}
       <a href="/go/" class="nav-cta" target="_blank">draw →</a>
       <span class="nav-divider">|</span>
       {#if user}
