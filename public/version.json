@@ -1,7 +1,7 @@
 {
-  "latest": "1.5.2-beta",
-  "minRequired": "1.5.2-beta",
-  "releaseDate": "2026-04-24T19:56:01.001Z",
-  "notes": "Added user-set board bg colour, fixed custom UI colours and implemented new floating gallery",
+  "latest": "1.5.3-beta",
+  "minRequired": "1.5.3-beta",
+  "releaseDate": "2026-04-25T07:05:30.466Z",
+  "notes": "Added user-set board bg colour, @user messages in chat, new ddraw.ca/messenger/ page, fixed custom UI colours and implemented new floating gallery",
   "downloadUrl": "https://www.ddraw.ca/download"
 }
