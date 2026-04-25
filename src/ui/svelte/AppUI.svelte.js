@@ -231,11 +231,12 @@ export function initSvelteUI(app) {
   if (profileDialogTarget) {
     // In Tauri, relative URLs resolve to tauri://localhost — use absolute URL instead
     const galleryBase = isTauriDesktop() ? 'https://ddraw.ca/gallery' : '/gallery';
+    const apiBase = import.meta.env.VITE_API_BASE_URL || '';
     components.profileDialog = mount(ProfileDialog, {
       target: profileDialogTarget,
       props: {
         galleryBaseUrl: galleryBase,
-        apiBaseUrl: '',
+        apiBaseUrl: apiBase,
         onViewGallery: (username) => {
           window.open(`${galleryBase}?author=${encodeURIComponent(username)}`, '_blank');
         },
@@ -249,10 +250,11 @@ export function initSvelteUI(app) {
   // Mount GalleryItemDialog (modal)
   const galleryItemDialogTarget = document.getElementById('galleryItemDialogMount');
   if (galleryItemDialogTarget) {
+    const apiBase = import.meta.env.VITE_API_BASE_URL || '';
     components.galleryItemDialog = mount(GalleryItemDialog, {
       target: galleryItemDialogTarget,
       props: {
-        apiBaseUrl: ''
+        apiBaseUrl: apiBase
       }
     });
   }
