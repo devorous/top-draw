@@ -1,11 +1,11 @@
 {
-  "version": "1.5.3-beta",
-  "notes": "Added user-set board bg colour, fixed custom UI colours and implemented new floating gallery",
-  "pub_date": "2026-04-25T07:05:30.466Z",
+  "version": "1.5.5-beta",
+  "notes": "Added user-set board bg colour, @user messages in chat, new ddraw.ca/messenger/ page, fixed custom UI colours and implemented new floating gallery",
+  "pub_date": "2026-04-25T09:03:54.871Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.5.3-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNemg0UTZvV2k2NE5jNFZObGs3NXlUczV0ckhLdU1VRkxsVFpGYmJDeUJicGpHYkwzTjFjVmEyU1VKZzhSUGlGbi9NYjdZSkZPZTlZSVY4eml1T2hVREE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MTAwNzkxCWZpbGU6RGRyYXdfMS41LjMtYmV0YV94NjQtc2V0dXAuZXhlClM1MHRlNWtyRThaTVZ0MERPRFJyTnhWQjl0ZCtzS0w3eWFlT0RpemJlclNrZ1hRQ2xWeTloUWxSYzR5RTRSeGVVdHlBeXBEdHVSaW5iZ0R5NDIxRkF3PT0K"
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.5.5-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNemhEWGhuRjZRSlI1SVZjR0pnVEVqM2pURFAyZW1YYzc5bWx5THc0RFhBTU9Lcm4vQ01pb0RkNGlHOVkzQS9sdFgzQU9MbnFGTWFMM0RnMG5neThpMkFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MTA3OTE5CWZpbGU6RGRyYXdfMS41LjUtYmV0YV94NjQtc2V0dXAuZXhlCkZHVTZySHFnQ0h4SWhvMjdMMDNjK3RGbzlVRlB4dkJtYVdJdUZsRW1jcUdxR3VVZ1Yya0pydFR6V05EZWJRTlpwc01lTTVidW9FUmpneHlLQ2pyQkJnPT0K"
     }
   }
 }
