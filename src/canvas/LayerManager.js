@@ -451,6 +451,22 @@ export class LayerManager {
   }
 
   /**
+   * Commits all active strokes for a user across all layer groups (for AFK users).
+   * Returns a generator function that yields one group at a time to allow
+   * delays between commits for avoiding lag.
+   * @param {number} userId - User ID
+   * @returns {Generator<number, void, void>} Generator that yields groupIdx when committing
+   */
+  *commitAllUserStrokesGenerator(userId) {
+    for (let gi = 0; gi < this.layerGroups.length; gi++) {
+      if (this.layerGroups[gi].activeStrokeByUser.has(userId)) {
+        this.commitUserStroke(gi, userId);
+        yield gi;
+      }
+    }
+  }
+
+  /**
    * Push a batch of strokes to the redo stack
    * @param {number} userId - User ID
    * @param {Array} batch - Array of stroke records

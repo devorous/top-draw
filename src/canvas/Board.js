@@ -1820,6 +1820,26 @@ export class Board {
   }
 
   /**
+   * Commits all active strokes for an AFK user with delays to avoid lag.
+   * Processes one layer at a time with 50ms delays between each.
+   * @param {number} userId - User ID to commit strokes for
+   * @returns {Promise<void>}
+   */
+  async commitAllUserStrokesForAFKUser(userId) {
+    if (!this.layerManager) return;
+
+    const gen = this.layerManager.commitAllUserStrokesGenerator(userId);
+    const DELAY_MS = 50;
+
+    for (const groupIdx of gen) {
+      // Composite after each layer commit
+      this.compositeAllLayers();
+      // Wait before processing next layer to avoid sudden lag
+      await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+    }
+  }
+
+  /**
    * Called when the local user's glitch blur WASM computation completes.
    * Converts the result to a data URL and broadcasts it to other clients.
    * @param {Object} result - { userId, x, y, width, height, canvas }
