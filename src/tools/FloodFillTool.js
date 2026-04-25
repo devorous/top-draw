@@ -169,9 +169,9 @@ export class FloodFillTool {
 
     const tctx = tileCanvas.getContext('2d');
 
-    // Disable image smoothing for SVGs to keep them crisp when scaled
+    // Enable image smoothing for SVGs to render them smoothly without pixelation
     if (brush.type === 'svg') {
-      tctx.imageSmoothingEnabled = false;
+      tctx.imageSmoothingEnabled = true;
     }
 
     const tempCanvas = document.createElement('canvas');
@@ -180,7 +180,7 @@ export class FloodFillTool {
     const tempCtx = tempCanvas.getContext('2d');
 
     if (brush.type === 'svg') {
-      tempCtx.imageSmoothingEnabled = false;
+      tempCtx.imageSmoothingEnabled = true;
     }
 
     tempCtx.drawImage(img, 0, 0, tileWidth, tileHeight);

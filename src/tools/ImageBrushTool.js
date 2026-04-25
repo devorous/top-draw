@@ -335,7 +335,7 @@ export class ImageBrushTool extends Tool {
     const drawStampImage = (targetCtx) => {
       const prevSmoothing = targetCtx.imageSmoothingEnabled;
       if (brush.type === 'svg') {
-        targetCtx.imageSmoothingEnabled = false;
+        targetCtx.imageSmoothingEnabled = true;
       }
       targetCtx.drawImage(image, stampX, stampY, stampW, stampH);
       targetCtx.imageSmoothingEnabled = prevSmoothing;
