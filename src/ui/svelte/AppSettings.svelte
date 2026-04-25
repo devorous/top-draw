@@ -129,6 +129,15 @@
     updatePreferences(nextPreferences, enabled ? 'Floating art enabled' : 'Floating art disabled');
   }
 
+  function isBoardViewEnabled() {
+    return localStorage.getItem('boardViewerEnabled') !== 'false';
+  }
+
+  function updateBoardViewEnabled(enabled) {
+    app?.boardViewer?.setEnabled?.(enabled);
+    updatePreferences(appPreferences, enabled ? 'Board view enabled' : 'Board view disabled');
+  }
+
   function getChatOpacity() {
     const value = Number(appPreferences?.general?.chatOpacity);
     return Number.isFinite(value) ? Math.min(1, Math.max(0.3, value)) : 1;
@@ -591,6 +600,14 @@
                   onchange={(event) => updateShowFloatingArt(event.currentTarget.checked)}
                 />
                 <span>Show Floating Art</span>
+              </label>
+              <label class="settings-toggle-compact">
+                <input
+                  type="checkbox"
+                  checked={isBoardViewEnabled()}
+                  onchange={(event) => updateBoardViewEnabled(event.currentTarget.checked)}
+                />
+                <span>Enable Board View</span>
               </label>
             </div>
 

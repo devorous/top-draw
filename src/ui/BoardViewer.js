@@ -12,6 +12,7 @@ export class BoardViewer {
     this.board = app.board;
     this.visible = false;
     this.manualVisible = false;
+    this.enabled = localStorage.getItem('boardViewerEnabled') !== 'false';
     this.viewZoom = 1;
     this.panX = 0;
     this.panY = 0;
@@ -46,7 +47,10 @@ export class BoardViewer {
     this.launchButton?.remove();
   }
 
+
   setMainZoom(zoom) {
+    if (!this.enabled) return;
+
     if (this.isPopoutOpen()) {
       this._setPanelVisible(false);
       return;
@@ -60,6 +64,7 @@ export class BoardViewer {
   }
 
   spectateUser(userId) {
+    if (!this.enabled) return;
     this.followUserId = Number(userId);
     this.manualVisible = true;
     this.show({ manual: true });
@@ -67,6 +72,7 @@ export class BoardViewer {
   }
 
   show({ manual = false } = {}) {
+    if (!this.enabled) return;
     if (manual) this.manualVisible = true;
     if (this.isPopoutOpen()) {
       this._setPanelVisible(false);
@@ -94,8 +100,19 @@ export class BoardViewer {
   }
 
   _updateLaunchButton() {
-    const shouldShow = !this.visible && !this.isPopoutOpen();
+    const shouldShow = this.enabled && !this.visible && !this.isPopoutOpen();
     this.launchButton.hidden = !shouldShow;
+  }
+
+  setEnabled(enabled) {
+    this.enabled = enabled;
+    localStorage.setItem('boardViewerEnabled', enabled ? 'true' : 'false');
+    if (!enabled) {
+      this.hide();
+      this.popout?.close?.();
+      this.tauriPopoutWindow?.close?.();
+    }
+    this._updateLaunchButton();
   }
 
   _build() {
@@ -112,6 +129,7 @@ export class BoardViewer {
       <div class="boardViewerHeader">
         <span class="boardViewerTitle">Board View</span>
         <div class="boardViewerActions">
+          <button type="button" data-action="disable" class="boardViewerDisableBtn" title="Disable board view">Disable</button>
           <button type="button" data-action="popout" title="Open in separate window">&nearr;</button>
           <button type="button" data-action="close" title="Close">&times;</button>
         </div>
@@ -141,6 +159,7 @@ export class BoardViewer {
       const action = event.target.closest('button')?.dataset.action;
       if (action === 'close') this.hide();
       if (action === 'popout') this.openPopout();
+      if (action === 'disable') this.setEnabled(false);
     });
 
     this._bindControls(this.el.querySelector('.boardViewerControls'));
@@ -306,6 +325,7 @@ export class BoardViewer {
   }
 
   openPopout() {
+    if (!this.enabled) return;
     if (isTauriDesktop()) {
       this._openTauriPopout();
       return;

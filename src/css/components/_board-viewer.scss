@@ -86,6 +86,12 @@
   border-color: var(--border-subtle);
 }
 
+.boardViewerDisableBtn:hover {
+  background: #c0392b !important;
+  border-color: #e74c3c !important;
+  color: #fff !important;
+}
+
 .boardViewerStage {
   position: relative;
   flex: 1;
@@ -160,6 +166,7 @@
 .boardViewerLaunch[hidden] {
   display: none;
 }
+
 
 body.desktop-window-chrome {
   .boardViewer {
