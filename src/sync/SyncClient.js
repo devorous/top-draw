@@ -532,26 +532,44 @@ export class SyncClient {
 
       for (let gi = 0; gi < groups.length; gi++) {
         const group = groups[gi];
+        const isMainLayer = gi < 3;
+        const layerTimeoutMs = isMainLayer ? null : 5000; // Only timeout for non-main layers
 
         if (group.flatCanvas) {
-          const img = await this._captureLayerCanvasForSync(group.flatCanvas, gi);
-          this.wsClient.sendSyncLayerBase(img, gi, 'source-over', targetUser);
+          const img = await this._captureLayerCanvasForSync(group.flatCanvas, gi, layerTimeoutMs);
+          if (img === null) {
+            console.warn(`[SyncClient] Skipping flatCanvas for layer ${gi} (timeout)`);
+          } else {
+            this.wsClient.sendSyncLayerBase(img, gi, 'source-over', targetUser);
+          }
         }
 
         for (const seq of group.bakedSequences) {
-          const img = await this._captureCanvasElement(seq.canvas);
-          this.wsClient.sendSyncLayerBase(img, gi, seq.blendMode, targetUser);
+          const img = await this._captureCanvasElement(seq.canvas, layerTimeoutMs);
+          if (img === null) {
+            console.warn(`[SyncClient] Skipping baked sequence for layer ${gi} (timeout)`);
+          } else {
+            this.wsClient.sendSyncLayerBase(img, gi, seq.blendMode, targetUser);
+          }
         }
       }
 
       for (let gi = 0; gi < groups.length; gi++) {
         if (groups[gi].strokeStack.length > 0) {
+          const isMainLayer = gi < 3;
+          const layerTimeoutMs = isMainLayer ? null : 5000;
           const strokeRecords = [];
+          let skippedCount = 0;
+
           for (const stroke of groups[gi].strokeStack) {
             // For blur/glitchBlur strokes, send the computed result instead of the mask
             const isFilter = stroke.filterType === 'blur' || stroke.filterType === 'glitchBlur';
             const sourceCanvas = (isFilter && stroke._cachedBlurResult) ? stroke._cachedBlurResult : stroke.canvas;
-            const img = await this._captureCanvasElement(sourceCanvas);
+            const img = await this._captureCanvasElement(sourceCanvas, layerTimeoutMs);
+            if (img === null) {
+              skippedCount++;
+              continue; // Skip this stroke on timeout
+            }
             strokeRecords.push({
               img,
               userId: stroke.userId,
@@ -568,17 +586,30 @@ export class SyncClient {
               affectedTiles: stroke.affectedTiles ? Array.from(stroke.affectedTiles) : []
             });
           }
-          this.wsClient.sendSyncStrokeBatch(strokeRecords, gi, targetUser);
+          if (skippedCount > 0) {
+            console.warn(`[SyncClient] Skipped ${skippedCount}/${groups[gi].strokeStack.length} strokes for layer ${gi} (timeouts)`);
+          }
+          if (strokeRecords.length > 0) {
+            this.wsClient.sendSyncStrokeBatch(strokeRecords, gi, targetUser);
+          }
         }
       }
 
       for (const [userId, batches] of lm.redoStackByUser) {
         for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
           const strokeRecords = [];
+          let skippedCount = 0;
+
           for (const { groupIdx, record } of batches[batchIdx]) {
+            const isMainLayer = groupIdx < 3;
+            const layerTimeoutMs = isMainLayer ? null : 5000;
             const isFilter = record.filterType === 'blur' || record.filterType === 'glitchBlur';
             const sourceCanvas = (isFilter && record._cachedBlurResult) ? record._cachedBlurResult : record.canvas;
-            const img = await this._captureCanvasElement(sourceCanvas);
+            const img = await this._captureCanvasElement(sourceCanvas, layerTimeoutMs);
+            if (img === null) {
+              skippedCount++;
+              continue; // Skip this stroke on timeout
+            }
             strokeRecords.push({
               img,
               userId: record.userId,
@@ -595,9 +626,14 @@ export class SyncClient {
               affectedTiles: record.affectedTiles ? Array.from(record.affectedTiles) : []
             });
           }
+          if (skippedCount > 0) {
+            console.warn(`[SyncClient] Skipped ${skippedCount}/${batches[batchIdx].length} redo strokes in batch ${batchIdx} (timeouts)`);
+          }
           // The first record's groupIdx can be used as a representative layerIdx for the batch
           const batchLayerIdx = batches[batchIdx][0]?.groupIdx ?? 0;
-          this.wsClient.sendSyncStrokeBatch(strokeRecords, batchLayerIdx, targetUser);
+          if (strokeRecords.length > 0) {
+            this.wsClient.sendSyncStrokeBatch(strokeRecords, batchLayerIdx, targetUser);
+          }
         }
       }
 
@@ -635,7 +671,7 @@ export class SyncClient {
     this._noteSyncProgress();
     const syncSessionId = this._syncSessionId;
     const p = this._importLayerBin(data, syncSessionId);
-    this._pendingImports.push(p);
+    this._pendingImports.push({ promise: p, layerIdx: data.layerIdx });
     this.receivedMessages++;
     this.updateProgress();
   }
@@ -675,7 +711,7 @@ export class SyncClient {
     this._noteSyncProgress();
     const syncSessionId = this._syncSessionId;
     const p = this._importStroke(data, syncSessionId);
-    this._pendingImports.push(p);
+    this._pendingImports.push({ promise: p, layerIdx: data.layerIdx });
     this.receivedMessages++;
     this.updateProgress();
   }
@@ -752,11 +788,12 @@ export class SyncClient {
     this._noteSyncProgress();
 
     const syncSessionId = this._syncSessionId;
+    const layerIdx = data.layerIdx;
 
     for (const s of data.strokes) {
       // Note: s is already mapped by WebSocketClient to have imageData, w, h, etc.
       const p = this._importStroke(s, syncSessionId);
-      this._pendingImports.push(p);
+      this._pendingImports.push({ promise: p, layerIdx });
     }
 
     this.receivedMessages++;
@@ -797,6 +834,7 @@ export class SyncClient {
 
   /**
    * Finalizes the synchronization process once all pending imports settle.
+   * Prioritizes main layers (0-2) to be fully loaded and composited before other layers.
    * Composites layers and replays buffered remote events.
    *
    * @returns {void}
@@ -834,10 +872,36 @@ export class SyncClient {
 
     if (pending.length > 0) {
       this.updateProgress('Processing images...');
-      Promise.all(pending).then(finalize).catch((err) => {
-        console.error('[SyncClient] Error during stroke import:', err);
-        finalize();
-      });
+
+      // Separate main layer imports (0-2) from others to prioritize loading
+      const mainLayerImports = [];
+      const otherLayerImports = [];
+
+      for (const item of pending) {
+        const layerIdx = item.layerIdx ?? 0;
+        if (layerIdx < 3) {
+          mainLayerImports.push(item.promise);
+        } else {
+          otherLayerImports.push(item.promise);
+        }
+      }
+
+      // Load main layers first, then composite before loading other layers
+      Promise.all(mainLayerImports)
+        .then(() => {
+          // Composite main layers immediately
+          if (this.board) {
+            this.board.compositeAllLayers();
+            console.log('[SyncClient] Main layers loaded and composited');
+          }
+          // Now load other layers
+          return Promise.all(otherLayerImports);
+        })
+        .then(finalize)
+        .catch((err) => {
+          console.error('[SyncClient] Error during stroke import:', err);
+          finalize();
+        });
     } else {
       finalize();
     }
@@ -986,25 +1050,60 @@ export class SyncClient {
   }
 
   /**
-   * Captures a canvas element's content as a PNG encoded Uint8Array.
+   * Captures a canvas element's content as a PNG encoded Uint8Array with timeout protection.
+   * Returns null if the capture times out after 5 seconds (for non-main layers).
    *
    * @private
    * @param {HTMLCanvasElement} canvas - The canvas to capture
-   * @returns {Promise<Uint8Array>}
+   * @param {number} [timeoutMs=5000] - Timeout in milliseconds (null for no timeout)
+   * @returns {Promise<Uint8Array|null>}
    */
-  _captureCanvasElement(canvas) {
+  _captureCanvasElement(canvas, timeoutMs = 5000) {
     return new Promise((resolve, reject) => {
-      canvas.toBlob(
-        async (blob) => {
-          if (!blob) {
-            reject(new Error('Failed to create blob from canvas'));
-            return;
+      let timeoutHandle = null;
+      let completed = false;
+
+      const cleanup = () => {
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+        completed = true;
+      };
+
+      const capturePromise = new Promise((captureResolve, captureReject) => {
+        canvas.toBlob(
+          async (blob) => {
+            if (!blob) {
+              captureReject(new Error('Failed to create blob from canvas'));
+              return;
+            }
+            const arrayBuffer = await blob.arrayBuffer();
+            captureResolve(new Uint8Array(arrayBuffer));
+          },
+          'image/png'
+        );
+      });
+
+      if (timeoutMs) {
+        timeoutHandle = setTimeout(() => {
+          if (!completed) {
+            completed = true;
+            resolve(null); // Return null on timeout for non-main layers
           }
-          const arrayBuffer = await blob.arrayBuffer();
-          resolve(new Uint8Array(arrayBuffer));
-        },
-        'image/png'
-      );
+        }, timeoutMs);
+      }
+
+      capturePromise
+        .then((result) => {
+          if (!completed) {
+            cleanup();
+            resolve(result);
+          }
+        })
+        .catch((error) => {
+          if (!completed) {
+            cleanup();
+            reject(error);
+          }
+        });
     });
   }
 
@@ -1016,11 +1115,12 @@ export class SyncClient {
    * @private
    * @param {HTMLCanvasElement} canvas
    * @param {number} layerIdx
-   * @returns {Promise<Uint8Array>}
+   * @param {number} [timeoutMs] - Optional timeout in milliseconds
+   * @returns {Promise<Uint8Array|null>}
    */
-  async _captureLayerCanvasForSync(canvas, layerIdx) {
+  async _captureLayerCanvasForSync(canvas, layerIdx, timeoutMs = null) {
     if (!canvas || layerIdx !== 0 || !this.board?._stripSnapshotBackground) {
-      return this._captureCanvasElement(canvas);
+      return this._captureCanvasElement(canvas, timeoutMs);
     }
 
     const sanitizedCanvas = document.createElement('canvas');
@@ -1033,7 +1133,7 @@ export class SyncClient {
     this.board._stripSnapshotBackground(imageData);
     sanitizedCtx.putImageData(imageData, 0, 0);
 
-    return this._captureCanvasElement(sanitizedCanvas);
+    return this._captureCanvasElement(sanitizedCanvas, timeoutMs);
   }
 
   /**
