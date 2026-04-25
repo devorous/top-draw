@@ -4775,7 +4775,8 @@ export class DrawingApp {
         message,
         this._chatNameColor(this.self.color),
         this.sessionIndex,
-        messageId
+        messageId,
+        this.self.role ?? this.selfRole ?? 0
       );
     }
     broadcastChatPopoutEvent('addChatMessage', [
@@ -4783,7 +4784,8 @@ export class DrawingApp {
       message,
       this._chatNameColor(this.self.color),
       this.sessionIndex,
-      messageId
+      messageId,
+      this.self.role ?? this.selfRole ?? 0
     ]);
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastChat(message, messageId));
   }
@@ -4796,7 +4798,8 @@ export class DrawingApp {
         message,
         this._chatNameColor(this.self.color),
         this.sessionIndex,
-        messageId
+        messageId,
+        this.self.role ?? this.selfRole ?? 0
       );
     }
     broadcastChatPopoutEvent('addStaffMessage', [
@@ -4804,7 +4807,8 @@ export class DrawingApp {
       message,
       this._chatNameColor(this.self.color),
       this.sessionIndex,
-      messageId
+      messageId,
+      this.self.role ?? this.selfRole ?? 0
     ]);
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastStaffChat(message, messageId));
   }
@@ -4828,8 +4832,8 @@ export class DrawingApp {
   handleDMSend(message, recipientId) {
     if (this.connected) {
       const messageId = this._createChatMessageId();
-      this.svelteComponents?.chat?.addChatDM(message, recipientId, true, messageId);
-      broadcastChatPopoutEvent('addChatDM', [message, recipientId, true, messageId]);
+      this.svelteComponents?.chat?.addChatDM(message, recipientId, true, messageId, this.self.role ?? this.selfRole ?? 0);
+      broadcastChatPopoutEvent('addChatDM', [message, recipientId, true, messageId, this.self.role ?? this.selfRole ?? 0]);
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastDM(message, recipientId, messageId));
     }
   }
@@ -4846,8 +4850,8 @@ export class DrawingApp {
       }
 
       if (recipientId !== null && recipientId !== undefined) {
-        this.svelteComponents?.chat?.addDMImage(imageData, recipientId, true, messageId);
-        broadcastChatPopoutEvent('addDMImage', [imageData, recipientId, true, messageId]);
+        this.svelteComponents?.chat?.addDMImage(imageData, recipientId, true, messageId, this.self.role ?? this.selfRole ?? 0);
+        broadcastChatPopoutEvent('addDMImage', [imageData, recipientId, true, messageId, this.self.role ?? this.selfRole ?? 0]);
       } else {
         this.svelteComponents?.chat?.addChatImage(imageData, this.self, messageId);
         broadcastChatPopoutEvent('addChatImage', [imageData, this._chatPopoutUser(this.self, this.sessionIndex), messageId]);
