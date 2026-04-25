@@ -215,11 +215,11 @@ export function showOutdatedClientWarning(versionInfo) {
       </p>
       ${versionInfo.releaseDate ? `<p style="margin: 8px 0 0; font-size: 12px; color: var(--text-muted, #888);">Released: ${versionInfo.releaseDate}</p>` : ''}
       ${versionInfo.notes ? `<p style="margin: 12px 0 0; padding: 8px; background: rgba(211, 47, 47, 0.1); border-radius: 4px; font-size: 13px;">${versionInfo.notes}</p>` : ''}
-      <p style="margin: 12px 0 0;">You can still draw offline, but you won't be able to connect to rooms.</p>
+      <p style="margin: 12px 0 0;">Refresh the page to load the latest version. You can still draw offline, but you won't be able to connect to rooms.</p>
     `;
 
-    const downloadBtn = document.createElement('button');
-    downloadBtn.style.cssText = `
+    const refreshBtn = document.createElement('button');
+    refreshBtn.style.cssText = `
       display: inline-block;
       padding: 10px 20px;
       font-size: 14px;
@@ -231,11 +231,9 @@ export function showOutdatedClientWarning(versionInfo) {
       cursor: pointer;
       margin-right: 8px;
     `;
-    downloadBtn.textContent = 'Download Latest';
-    downloadBtn.addEventListener('click', () => {
-      if (versionInfo.downloadUrl) {
-        window.open(versionInfo.downloadUrl, '_blank');
-      }
+    refreshBtn.textContent = 'Refresh';
+    refreshBtn.addEventListener('click', () => {
+      window.location.reload();
     });
 
     const continueBtn = document.createElement('button');
@@ -258,7 +256,7 @@ export function showOutdatedClientWarning(versionInfo) {
 
     dialog.appendChild(heading);
     dialog.appendChild(body);
-    dialog.appendChild(downloadBtn);
+    dialog.appendChild(refreshBtn);
     dialog.appendChild(continueBtn);
     backdrop.appendChild(dialog);
     document.body.appendChild(backdrop);

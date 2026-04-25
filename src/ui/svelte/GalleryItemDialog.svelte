@@ -18,14 +18,24 @@
     error = null;
     item = null;
 
-    try {
-      let res = await fetch(`${apiBaseUrl}/api/gallery/${itemId}`);
-      if (!res.ok) {
-        res = await fetch(`${apiBaseUrl}/api/gallery-item?id=${encodeURIComponent(itemId)}`);
+    async function tryFetchJson(url) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) return null;
+        return await res.json();
+      } catch {
+        return null;
       }
-      if (!res.ok) throw new Error('Failed to load image');
+    }
 
-      const data = await res.json();
+    try {
+      const data =
+        (await tryFetchJson(`${apiBaseUrl}/api/gallery/${itemId}`)) ||
+        (await tryFetchJson(`${apiBaseUrl}/api/gallery-item?id=${encodeURIComponent(itemId)}`));
+      if (!data) throw new Error('Failed to load image');
+
       item = data;
       likesCount = data.likesCount || 0;
       liked = false; // TODO: Check if user has liked this
