@@ -1,5 +1,6 @@
 # Stage 1: Build WASM
-FROM rust:1.80-slim as wasm-builder
+# wasm-bindgen-cli 0.2.114 requires Rust 1.82+.
+FROM rust:1.82-slim as wasm-builder
 
 # Install wasm-pack
 RUN apt-get update && apt-get install -y curl pkg-config libssl-dev && \
