@@ -34,6 +34,8 @@
     'image/webp',
     'image/gif'
   ]);
+  const MENTION_CANDIDATE_RE = /(^|\s)@([A-Za-z0-9_-]*)$/;
+  const MENTION_TOKEN_RE = /(^|\s)@([A-Za-z0-9_-]{1,32})\b/g;
   const CHAT_TOOL_ICONS = {
     brush: '/images/brush-icon.svg',
     flowPen: '/images/brush-icon.svg',
@@ -94,6 +96,7 @@
   let dropDepth = 0;
   let showEmojiPicker = $state(false);
   let composerImage = $state(null);
+  let mentionSuggestion = $state(null); // { username, start, end }
   let expandedImage = $state(null);
   let galleryPreviewCache = $state(new Map());
   let pendingGalleryPreviews = new Set();
@@ -423,9 +426,138 @@
   }
 
   function handleKeydown(event) {
+    if ((event.key === 'Tab' || event.key === 'Enter') && mentionSuggestion) {
+      event.preventDefault();
+      event.stopPropagation();
+      void completeMentionSuggestion();
+      return;
+    }
+
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       handleSend();
+    }
+  }
+
+  function getSelfMentionAliases() {
+    const aliases = new Set();
+    const pushAlias = (value) => {
+      const normalized = String(value || '').trim().toLowerCase();
+      if (normalized) aliases.add(normalized);
+    };
+
+    pushAlias(window.app?.self?.username);
+    pushAlias(appState.username);
+    pushAlias(appState.self?.username);
+    pushAlias(appState.self?.registeredName);
+
+    return aliases;
+  }
+
+  function messageMentionsSelf(text) {
+    if (!text) return false;
+
+    const aliases = getSelfMentionAliases();
+    if (aliases.size === 0) return false;
+
+    const content = String(text);
+    let match;
+    MENTION_TOKEN_RE.lastIndex = 0;
+    while ((match = MENTION_TOKEN_RE.exec(content)) !== null) {
+      const handle = String(match[2] || '').trim().toLowerCase();
+      if (aliases.has(handle)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function playMentionPing() {
+    playSfx('chat');
+    setTimeout(() => playSfx('chat'), 200);
+  }
+
+  function buildMentionCandidates() {
+    const candidates = new Map();
+    const addCandidate = (username) => {
+      const trimmed = String(username || '').trim();
+      if (!trimmed) return;
+      const key = trimmed.toLowerCase();
+      if (!candidates.has(key)) {
+        candidates.set(key, trimmed);
+      }
+    };
+
+    for (const user of appState.users.values()) {
+      addCandidate(user?.username);
+      addCandidate(user?.registeredName);
+      addCandidate(user?.name);
+    }
+    addCandidate(window.app?.self?.username);
+    addCandidate(appState.username);
+    addCandidate(appState.self?.username);
+    addCandidate(appState.self?.registeredName);
+
+    return [...candidates.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }
+
+  function syncMentionSuggestion() {
+    if (!composerInputEl || activeView === 'directory') {
+      mentionSuggestion = null;
+      return;
+    }
+
+    const selectionStart = composerInputEl.selectionStart ?? 0;
+    const selectionEnd = composerInputEl.selectionEnd ?? selectionStart;
+    if (selectionStart !== selectionEnd) {
+      mentionSuggestion = null;
+      return;
+    }
+
+    const beforeCaret = messageInput.slice(0, selectionStart);
+    const match = beforeCaret.match(MENTION_CANDIDATE_RE);
+    if (!match) {
+      mentionSuggestion = null;
+      return;
+    }
+
+    const query = String(match[2] || '');
+    if (!query) {
+      mentionSuggestion = null;
+      return;
+    }
+
+    const loweredQuery = query.toLowerCase();
+    const candidates = buildMentionCandidates();
+    const selected = candidates.find((name) => name.toLowerCase().startsWith(loweredQuery));
+    if (!selected) {
+      mentionSuggestion = null;
+      return;
+    }
+
+    mentionSuggestion = {
+      username: selected,
+      start: selectionStart - query.length - 1,
+      end: selectionStart
+    };
+  }
+
+  async function completeMentionSuggestion() {
+    if (!mentionSuggestion) return;
+
+    const selectionStart = composerInputEl?.selectionStart ?? mentionSuggestion.end;
+    const selectionEnd = composerInputEl?.selectionEnd ?? selectionStart;
+    const replacement = `@${mentionSuggestion.username} `;
+    const nextValue = `${messageInput.slice(0, mentionSuggestion.start)}${replacement}${messageInput.slice(selectionEnd)}`;
+    const nextCaret = mentionSuggestion.start + replacement.length;
+
+    messageInput = nextValue;
+    mentionSuggestion = null;
+
+    await tick();
+    if (composerInputEl) {
+      composerInputEl.focus({ preventScroll: true });
+      composerInputEl.setSelectionRange(nextCaret, nextCaret);
     }
   }
 
@@ -435,13 +567,59 @@
     composerInputEl?.focus({ preventScroll: true });
   }
 
+  function findUserByMentionHandle(handle) {
+    const target = String(handle || '').trim().toLowerCase();
+    if (!target) return null;
+
+    const selfUser = window.app?.self;
+    const selfNames = [
+      selfUser?.username,
+      appState.username,
+      appState.self?.username,
+      appState.self?.registeredName
+    ];
+    if (selfNames.some((name) => String(name || '').trim().toLowerCase() === target)) {
+      return {
+        id: appState.sessionIndex,
+        role: appState.selfRole || selfUser?.role || 0
+      };
+    }
+
+    for (const user of appState.users.values()) {
+      const aliases = [user?.username, user?.registeredName, user?.name];
+      if (aliases.some((name) => String(name || '').trim().toLowerCase() === target)) {
+        return {
+          id: user?.id ?? user?.sessionIndex ?? null,
+          role: user?.role || 0
+        };
+      }
+    }
+
+    return null;
+  }
+
+  function applyMentionStylingToHtml(html) {
+    const parts = String(html || '').split(/(<[^>]+>)/g);
+    return parts
+      .map((part) => {
+        if (part.startsWith('<')) return part;
+        return part.replace(/(^|\s)@([A-Za-z0-9_-]{1,32})\b/g, (_, prefix, handle) => {
+          const matchedUser = findUserByMentionHandle(handle);
+          const roleClass = getRoleClass(matchedUser?.id ?? null, matchedUser?.role ?? 0);
+          return `${prefix}<span class="message-mention ${roleClass}">@${handle}</span>`;
+        });
+      })
+      .join('');
+  }
+
   function linkify(text) {
     const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const withLinks = escaped.replace(
       /https?:\/\/[^\s<>"]+/g,
       (url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" class="chat-link">${url}</a>`
     );
-    return withLinks.replace(
+    const withMentions = applyMentionStylingToHtml(withLinks);
+    return withMentions.replace(
       /(\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*)/gu,
       '<span class="chat-inline-emoji">$1</span>'
     );
@@ -757,7 +935,12 @@
       appState.chatUnreadCount++;
       const preview = message.type === 'image' ? `${message.text ? `${message.text} ` : ''}[image]` : message.text;
       showToast(message.username, preview || '[image]', message.color);
-      playSfx('chat');
+      const isIncoming = Number(message.userId) !== Number(appState.sessionIndex);
+      if (isIncoming && messageMentionsSelf(message.text)) {
+        playMentionPing();
+      } else {
+        playSfx('chat');
+      }
     }
   }
 
@@ -769,7 +952,12 @@
       appState.chatUnreadCount++;
       const preview = message.type === 'image' ? `${message.text ? `${message.text} ` : ''}[image]` : message.text;
       showToast(message.username, `[Staff] ${preview || '[image]'}`, message.color);
-      playSfx('staff');
+      const isIncoming = Number(message.userId) !== Number(appState.sessionIndex);
+      if (isIncoming && messageMentionsSelf(message.text)) {
+        playMentionPing();
+      } else {
+        playSfx('staff');
+      }
     }
   }
 
@@ -1605,6 +1793,13 @@
   });
 
   $effect(() => {
+    messageInput;
+    activeView;
+    appState.users.size;
+    Promise.resolve().then(syncMentionSuggestion);
+  });
+
+  $effect(() => {
     visible;
     effectiveChatMode;
     chatEl;
@@ -1974,11 +2169,17 @@
         </button>
         <button class="composer-tool emoji-tool" onclick={openEmojiPicker} disabled={activeView === 'directory'} title="Add emoji" type="button">{COMPOSER_EMOJIS[0]}</button>
         <div class="chat-input-wrap">
-          <textarea class="chat-input" bind:this={composerInputEl} bind:value={messageInput} onkeydown={handleKeydown} placeholder={activeView === 'all' ? 'Message the room...' : activeView === 'staff' ? 'Message staff...' : activeView === 'dm' && recipient ? `Message ${recipient.username}...` : 'Select someone to start a DM...'} rows="1" disabled={activeView === 'directory'}></textarea>
+          <textarea class="chat-input" bind:this={composerInputEl} bind:value={messageInput} onkeydown={handleKeydown} onkeyup={syncMentionSuggestion} onclick={syncMentionSuggestion} oninput={syncMentionSuggestion} placeholder={activeView === 'all' ? 'Message the room...' : activeView === 'staff' ? 'Message staff...' : activeView === 'dm' && recipient ? `Message ${recipient.username}...` : 'Select someone to start a DM...'} rows="1" disabled={activeView === 'directory'}></textarea>
+          {#if mentionSuggestion}
+            <div class="mention-suggestion" aria-live="polite">
+              @{mentionSuggestion.username}
+            </div>
+          {/if}
         </div>
         <button class="chat-send" onclick={handleSend} disabled={activeView === 'directory'} type="button">Send</button>
       </div>
         </footer>
+    </div>
     </div>
     {#if !isPopout}
       <div class="chat-resize-handle edge-n" onmousedown={(event) => startResize(event, 'n')} role="presentation" aria-hidden="true"></div>
@@ -2849,6 +3050,50 @@
     text-shadow: 0 0 7px color-mix(in srgb, var(--role-deity), transparent 58%);
   }
 
+  :global(.message-mention) {
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+
+  :global(.message-mention.rank-guest) {
+    color: var(--role-guest);
+  }
+
+  :global(.message-mention.rank-user) {
+    color: var(--role-user);
+  }
+
+  :global(.message-mention.rank-trusted) {
+    color: var(--role-trusted);
+  }
+
+  :global(.message-mention.rank-helper) {
+    color: var(--role-helper);
+  }
+
+  :global(.message-mention.rank-mod) {
+    color: var(--role-mod);
+  }
+
+  :global(.message-mention.rank-admin) {
+    color: var(--role-admin);
+  }
+
+  :global(.message-mention.rank-noble) {
+    color: var(--role-noble);
+    text-shadow: 0 0 6px color-mix(in srgb, var(--role-noble), transparent 65%);
+  }
+
+  :global(.message-mention.rank-holy) {
+    color: var(--role-holy);
+    text-shadow: 0 0 7px color-mix(in srgb, var(--role-holy), transparent 62%);
+  }
+
+  :global(.message-mention.rank-deity) {
+    color: var(--role-deity);
+    text-shadow: 0 0 7px color-mix(in srgb, var(--role-deity), transparent 58%);
+  }
+
   .thread-tab {
     justify-content: center;
     text-align: center;
@@ -3391,6 +3636,22 @@
   .chat-input-wrap {
     position: relative;
     min-width: 0;
+  }
+
+  .mention-suggestion {
+    position: absolute;
+    right: 0.9rem;
+    bottom: 0.62rem;
+    max-width: calc(100% - 1.8rem);
+    overflow: hidden;
+    color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
+    font-size: 0.78rem;
+    font-style: italic;
+    letter-spacing: 0.01em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
   }
 
   .chat-input {
