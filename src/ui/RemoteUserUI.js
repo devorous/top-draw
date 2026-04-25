@@ -7,6 +7,7 @@ import { getPreviewTextLayout, getTextLineHeight } from '../utils/textLayout.js'
 
 const REMOTE_CURSOR_IDLE_MS = 5000;
 const GROUP_HEADER_REFRESH_MS = 5000;
+const NOTIFY_USER_ACTIVE_THROTTLE_MS = 500;
 
 function renderRemotePreviewContent(element, text = '') {
   if (!element) return;
@@ -54,6 +55,7 @@ export class RemoteUserUI {
     this._joinTimestamps = new Map();
     this._recentActivity = new Map();
     this._groupUserIndex = new Map();
+    this._lastNotifyActiveAt = new Map();
 
     this._initUserListSortControl();
   }
@@ -719,6 +721,15 @@ export class RemoteUserUI {
     const activityAt = Date.now();
     this._markUserRecentActivity(userId, activityAt);
 
+    // Throttle the DOM/sort work — this is called for every remote pointer
+    // sample and catchup tick (hundreds/sec per user). Sort precision of
+    // ~500ms is plenty for "recently active" ordering, and it avoids
+    // re-sorting the entire user list on every cursor movement.
+    const key = String(userId);
+    const lastAt = this._lastNotifyActiveAt.get(key) || 0;
+    if (activityAt - lastAt < NOTIFY_USER_ACTIVE_THROTTLE_MS) return;
+    this._lastNotifyActiveAt.set(key, activityAt);
+
     const entry = document.querySelector(`.userEntry.u${userId}`);
     if (entry) {
       this._setEntrySortMetadata(entry, {
@@ -1095,6 +1106,7 @@ export class RemoteUserUI {
     this.cursors.delete(userId);
     this._joinTimestamps.delete(String(userId));
     this._recentActivity.delete(String(userId));
+    this._lastNotifyActiveAt.delete(String(userId));
     this.removeRemoteUserFromGroup(userId);
     this._applyUserListSort();
   }

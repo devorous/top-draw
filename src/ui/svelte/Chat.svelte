@@ -2448,6 +2448,7 @@
   .rail-action,
   .topbar-btn,
   .directory-user,
+  .return-to-present,
   .chat-send,
   .chat-toast,
   .composer-tool,
@@ -2813,13 +2814,27 @@
     bottom: 16px;
     z-index: 8;
     min-height: 34px;
-    padding: 0 0.9rem;
+    padding: 0 0.85rem;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--accent-primary) 82%, black 18%);
-    color: #fff;
-    font-size: 0.78rem;
-    font-weight: 800;
-    box-shadow: 0 10px 24px color-mix(in srgb, var(--accent-primary) 28%, transparent);
+    background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+    color: var(--chat-text);
+    font-family: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    line-height: 1;
+    box-shadow: none;
+    transition: background 0.16s ease, color 0.16s ease, transform 0.16s ease;
+  }
+
+  .return-to-present:hover {
+    background: color-mix(in srgb, var(--accent-primary) 14%, var(--bg-elevated));
+    color: var(--chat-text);
+    transform: translateY(-1px);
+  }
+
+  .return-to-present:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent-primary) 52%, transparent);
+    outline-offset: 2px;
   }
 
   .conversation-view,

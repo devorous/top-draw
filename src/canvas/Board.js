@@ -96,6 +96,17 @@ export class Board {
     this._lastPixelGridVisible = null;
     this._lastPixelGridPanX = null;
     this._lastPixelGridPanY = null;
+
+    this._cachedContainerRect = null;
+    this._containerResizeObserver = null;
+    this._invalidateContainerRect = () => { this._cachedContainerRect = null; };
+  }
+
+  _getContainerRect() {
+    if (!this._cachedContainerRect) {
+      this._cachedContainerRect = this.container.getBoundingClientRect();
+    }
+    return this._cachedContainerRect;
   }
 
   /**
@@ -278,6 +289,15 @@ export class Board {
 
     this.calculateDefaultView();
     this.resetView();
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', this._invalidateContainerRect, { passive: true });
+      window.addEventListener('scroll', this._invalidateContainerRect, { passive: true, capture: true });
+    }
+    if (typeof ResizeObserver !== 'undefined' && this.container) {
+      this._containerResizeObserver = new ResizeObserver(this._invalidateContainerRect);
+      this._containerResizeObserver.observe(this.container);
+    }
   }
 
   _createLayerManager(previousLayerManager = null) {
@@ -444,20 +464,11 @@ export class Board {
    * @returns {{x: number, y: number}} - Board-relative coordinates
    */
   getBoardRelativePos(clientX, clientY) {
-    const rect = this.boardsWrapper.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-
-    // The rect from getBoundingClientRect accounts for the transform (scale/rotate).
-    // To get back to canonical board space, we need to undo rotation and scale.
-    // The pan (translate) is already handled by being relative to rect.left/top, 
-    // but the rect's top-left is the top-left of the BOUNDING BOX of the transformed element.
-
-    // A more robust way is to use the inverse matrix logic since we know the transform parameters.
-    // client -> boardContainer (pan is here) -> boardsWrapper (zoom and rotate are here)
-
-
-    const containerRect = this.container.getBoundingClientRect();
+    // Cached to avoid forced style recalc on every pointermove. The container
+    // element's screen rect is unaffected by zoom/pan/rotate (those transform
+    // boardsWrapper inside it), so it only needs invalidating on layout
+    // changes — wired up in init() via resize/scroll listeners + ResizeObserver.
+    const containerRect = this._getContainerRect();
     let bx = clientX - containerRect.left;
     let by = clientY - containerRect.top;
 
