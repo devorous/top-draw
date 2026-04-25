@@ -4507,6 +4507,10 @@ export class DrawingApp {
       return;
     }
 
+    if (editableTarget) {
+      return;
+    }
+
     const buttonTarget = target
       ? target.closest('button, [role="button"], input[type="button"], input[type="submit"], input[type="reset"]')
       : null;
