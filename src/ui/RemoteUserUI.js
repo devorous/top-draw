@@ -50,7 +50,8 @@ export class RemoteUserUI {
     this._replayModeActive = false;
     this._cursorIdleTimers = new Map();
     this._cursorIdleDeadlines = new Map();
-    this.userListSortMode = 'recent';
+    this.userListSortMode = 'joined';
+    this._joinTimestamps = new Map();
     this._recentActivity = new Map();
     this._groupUserIndex = new Map();
 
@@ -61,21 +62,41 @@ export class RemoteUserUI {
     const sortSelect = document.getElementById('userListSort');
     if (!sortSelect) return;
 
-    sortSelect.value = this.userListSortMode;
+    if ([...sortSelect.options].some((option) => option.value === this.userListSortMode)) {
+      sortSelect.value = this.userListSortMode;
+    }
     sortSelect.addEventListener('change', () => {
-      this.userListSortMode = sortSelect.value === 'alphabetical' ? 'alphabetical' : 'recent';
+      const nextMode = sortSelect.value;
+      if (nextMode === 'active' || nextMode === 'alphabetical') {
+        this.userListSortMode = nextMode;
+      } else {
+        this.userListSortMode = 'joined';
+      }
       this._applyUserListSort();
     });
+  }
+
+  _markUserJoined(userId, timestamp = Date.now()) {
+    const key = String(userId);
+    if (this._joinTimestamps.has(key)) return;
+    this._joinTimestamps.set(key, timestamp);
   }
 
   _markUserRecentActivity(userId, timestamp = Date.now()) {
     this._recentActivity.set(String(userId), timestamp);
   }
 
-  _setEntrySortMetadata(element, { name = '', recent = Date.now() } = {}) {
+  _setEntrySortMetadata(element, {
+    name = '',
+    joined = Date.now(),
+    active = joined,
+  } = {}) {
     if (!element) return;
     element.dataset.sortName = String(name || '').trim().toLocaleLowerCase();
-    element.dataset.recentActivity = String(Number.isFinite(recent) ? recent : Date.now());
+    const joinedAt = Number.isFinite(joined) ? joined : Date.now();
+    const activeAt = Number.isFinite(active) ? active : joinedAt;
+    element.dataset.joinedAt = String(joinedAt);
+    element.dataset.recentActivity = String(activeAt);
   }
 
   _getSortableUserListChildren() {
@@ -94,15 +115,25 @@ export class RemoteUserUI {
 
     const items = this._getSortableUserListChildren();
     items.sort((a, b) => {
-      if (this.userListSortMode === 'alphabetical') {
-        const nameCompare = (a.dataset.sortName || '').localeCompare(b.dataset.sortName || '');
-        if (nameCompare !== 0) return nameCompare;
-        return Number(b.dataset.recentActivity || 0) - Number(a.dataset.recentActivity || 0);
+      const joinedDiff = Number(b.dataset.joinedAt || 0) - Number(a.dataset.joinedAt || 0);
+      const activeDiff = Number(b.dataset.recentActivity || 0) - Number(a.dataset.recentActivity || 0);
+      const nameDiff = (a.dataset.sortName || '').localeCompare(b.dataset.sortName || '');
+
+      if (this.userListSortMode === 'active') {
+        if (activeDiff !== 0) return activeDiff;
+        if (joinedDiff !== 0) return joinedDiff;
+        return nameDiff;
       }
 
-      const recentCompare = Number(b.dataset.recentActivity || 0) - Number(a.dataset.recentActivity || 0);
-      if (recentCompare !== 0) return recentCompare;
-      return (a.dataset.sortName || '').localeCompare(b.dataset.sortName || '');
+      if (this.userListSortMode === 'alphabetical') {
+        if (nameDiff !== 0) return nameDiff;
+        if (joinedDiff !== 0) return joinedDiff;
+        return activeDiff;
+      }
+
+      if (joinedDiff !== 0) return joinedDiff;
+      if (activeDiff !== 0) return activeDiff;
+      return nameDiff;
     });
 
     for (const item of items) {
@@ -464,7 +495,9 @@ export class RemoteUserUI {
    * @param {Object} userData - User state data
    */
   createUserListEntry(userId, userData) {
-    this._markUserRecentActivity(userId);
+    const joinedAt = Date.now();
+    this._markUserJoined(userId, joinedAt);
+    this._markUserRecentActivity(userId, joinedAt);
     const ipHash = userData.ipHash || userData.iph;
 
     // If no IP hash, just add normally to the flat list
@@ -588,7 +621,8 @@ export class RemoteUserUI {
     this._groupUserIndex.set(String(displayUserId), ipHash);
     this._setEntrySortMetadata(groupEl, {
       name: displayUserData.name || displayUserData.username || displayUserId,
-      recent: this._recentActivity.get(String(displayUserId)) || Date.now()
+      joined: this._joinTimestamps.get(String(displayUserId)) || Date.now(),
+      active: this._recentActivity.get(String(displayUserId)) || Date.now()
     });
     return group;
   }
@@ -677,27 +711,39 @@ export class RemoteUserUI {
 
   /**
    * Notify that a user was active — rotates the group header to show their
-   * name, but does NOT update sort order. "Recent" sort means recently joined,
-   * not recently active: activity-driven sorting flickers on every cursor move
-   * and makes entries unclickable.
+   * name. If the user selected "Recently active" sorting, this also updates
+   * sort metadata and reorders rows.
    * @param {string} userId - User ID
    */
   notifyUserActive(userId) {
     const activityAt = Date.now();
     this._markUserRecentActivity(userId, activityAt);
 
-    const groupInfo = this._getGroupForUser(userId);
-    if (!groupInfo) return;
-
-    const { ipHash, group } = groupInfo;
-    const elapsedSinceRefresh = activityAt - (group.lastHeaderRefreshAt || 0);
-
-    if (!group.lastHeaderRefreshAt || elapsedSinceRefresh >= GROUP_HEADER_REFRESH_MS) {
-      this._refreshGroupDisplayUser(ipHash);
-      return;
+    const entry = document.querySelector(`.userEntry.u${userId}`);
+    if (entry) {
+      this._setEntrySortMetadata(entry, {
+        name: entry.dataset.sortName || entry.querySelector('.listUser')?.textContent || userId,
+        joined: this._joinTimestamps.get(String(userId)) || Number(entry.dataset.joinedAt || 0) || activityAt,
+        active: activityAt
+      });
     }
 
-    this._scheduleGroupDisplayRefresh(ipHash, GROUP_HEADER_REFRESH_MS - elapsedSinceRefresh);
+    const groupInfo = this._getGroupForUser(userId);
+    if (groupInfo) {
+      const { ipHash, group } = groupInfo;
+      this._syncGroupSortMetadata(ipHash);
+      const elapsedSinceRefresh = activityAt - (group.lastHeaderRefreshAt || 0);
+
+      if (!group.lastHeaderRefreshAt || elapsedSinceRefresh >= GROUP_HEADER_REFRESH_MS) {
+        this._refreshGroupDisplayUser(ipHash);
+      } else {
+        this._scheduleGroupDisplayRefresh(ipHash, GROUP_HEADER_REFRESH_MS - elapsedSinceRefresh);
+      }
+    }
+
+    if (this.userListSortMode === 'active') {
+      this._applyUserListSort();
+    }
   }
 
   /**
@@ -756,7 +802,8 @@ export class RemoteUserUI {
 
     this._setEntrySortMetadata(entry, {
       name: userData.name || userData.username || userId,
-      recent: this._recentActivity.get(String(userId)) || Date.now()
+      joined: this._joinTimestamps.get(String(userId)) || Date.now(),
+      active: this._recentActivity.get(String(userId)) || Date.now()
     });
     container.appendChild(entry);
   }
@@ -772,14 +819,17 @@ export class RemoteUserUI {
     const group = this.userGroups.get(ipHash);
     if (!group) return;
 
-    let mostRecent = 0;
+    let mostRecentActivity = 0;
+    let mostRecentJoin = 0;
     for (const userId of group.userIds) {
-      mostRecent = Math.max(mostRecent, this._recentActivity.get(String(userId)) || 0);
+      mostRecentActivity = Math.max(mostRecentActivity, this._recentActivity.get(String(userId)) || 0);
+      mostRecentJoin = Math.max(mostRecentJoin, this._joinTimestamps.get(String(userId)) || 0);
     }
 
     this._setEntrySortMetadata(group.element, {
       name: group.headerNameEl?.textContent || group.displayUserId,
-      recent: mostRecent || Date.now()
+      joined: mostRecentJoin || Date.now(),
+      active: mostRecentActivity || Date.now()
     });
   }
 
@@ -908,7 +958,8 @@ export class RemoteUserUI {
     if (entry) {
       this._setEntrySortMetadata(entry, {
         name,
-        recent: this._recentActivity.get(String(userId)) || Number(entry.dataset.recentActivity || 0) || Date.now()
+        joined: this._joinTimestamps.get(String(userId)) || Number(entry.dataset.joinedAt || 0) || Date.now(),
+        active: this._recentActivity.get(String(userId)) || Number(entry.dataset.recentActivity || 0) || Date.now()
       });
     }
 
@@ -1042,6 +1093,7 @@ export class RemoteUserUI {
     document.querySelector(`.userEntry.${id}`)?.remove();
     document.querySelector(`.userBoard.${id}`)?.remove();
     this.cursors.delete(userId);
+    this._joinTimestamps.delete(String(userId));
     this._recentActivity.delete(String(userId));
     this.removeRemoteUserFromGroup(userId);
     this._applyUserListSort();
