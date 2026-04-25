@@ -7,6 +7,7 @@ import { ObjectId } from 'mongodb';
 import pathModule from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 import { connectDB, getDB, getMongoDatabase, updateUserMetrics, updateConsecutiveDays } from './db.js';
 import { metricsTracker } from './MetricsTracker.js';
 import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate, handleFloatingArtList, setFloatingArtBroadcaster } from './gallery.js';
@@ -742,6 +743,61 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify({ error: 'Failed to read version' }));
     }
     return;
+  }
+
+  // Static file serving with SPA fallback
+  const distDir = pathModule.resolve(__dirname, '..', 'dist');
+  let filePath = pathModule.resolve(distDir, pathModule.join('.', path));
+
+  // Prevent path traversal
+  if (!filePath.startsWith(distDir)) {
+    res.writeHead(403);
+    res.end();
+    return;
+  }
+
+  // SPA fallback: if path is /go/* without a dot, serve /go/index.html
+  if (path.startsWith('/go/') && !path.includes('.')) {
+    filePath = pathModule.resolve(distDir, 'go', 'index.html');
+  }
+
+  if (fs.existsSync(filePath)) {
+    const stat = fs.statSync(filePath);
+    if (stat.isDirectory()) {
+      filePath = pathModule.join(filePath, 'index.html');
+    }
+
+    if (fs.existsSync(filePath)) {
+      try {
+        const content = fs.readFileSync(filePath);
+        const ext = pathModule.extname(filePath).toLowerCase();
+        const mimeTypes = {
+          '.html': 'text/html',
+          '.js': 'application/javascript',
+          '.css': 'text/css',
+          '.json': 'application/json',
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.gif': 'image/gif',
+          '.svg': 'image/svg+xml',
+          '.webp': 'image/webp',
+          '.wasm': 'application/wasm',
+          '.ttf': 'font/ttf',
+          '.woff': 'font/woff',
+          '.woff2': 'font/woff2',
+        };
+        const contentType = mimeTypes[ext] || 'application/octet-stream';
+        res.writeHead(200, { 'Content-Type': contentType });
+        res.end(content);
+        return;
+      } catch (err) {
+        console.error('[Static] Read error:', err);
+        res.writeHead(500);
+        res.end();
+        return;
+      }
+    }
   }
 
   res.writeHead(404);
