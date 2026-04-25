@@ -1,7 +1,9 @@
 <script>
   import { appState } from '../../state.svelte.js';
+  import { ClientIdentity } from '../../network/ClientIdentity.js';
 
   let { apiBaseUrl = '', onClose = null } = $props();
+  const clientIdentity = new ClientIdentity();
 
   let visible = $derived(appState.galleryItemDialog.visible);
   let itemId = $derived(appState.galleryItemDialog.itemId);
@@ -38,7 +40,8 @@
 
       item = data;
       likesCount = data.likesCount || 0;
-      liked = false; // TODO: Check if user has liked this
+      const storedLikedIds = new Set(JSON.parse(localStorage.getItem('ddraw_liked') || '[]'));
+      liked = storedLikedIds.has(data.id);
     } catch (err) {
       console.error('[GalleryItemDialog] Fetch error:', err);
       error = err.message;
@@ -50,12 +53,6 @@
   async function handleLike() {
     if (!item) return;
 
-    const token = localStorage.getItem('topDrawAuthToken');
-    if (!token) {
-      alert('Log in to like gallery images');
-      return;
-    }
-
     const prevLiked = liked;
     const prevCount = likesCount;
 
@@ -63,13 +60,16 @@
     likesCount += liked ? 1 : -1;
 
     try {
+      const token = localStorage.getItem('topDrawAuthToken');
       const res = await fetch(`${apiBaseUrl}/api/gallery/${item.id}/like`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({})
+        body: JSON.stringify({
+          deviceId: clientIdentity.deviceId || localStorage.getItem('topDrawDeviceId') || null
+        })
       });
 
       if (!res.ok) throw new Error('Failed to like image');
@@ -77,9 +77,13 @@
       const data = await res.json();
       liked = data.liked;
       likesCount = data.likesCount;
+
+      const storedLikedIds = new Set(JSON.parse(localStorage.getItem('ddraw_liked') || '[]'));
+      if (data.liked) storedLikedIds.add(item.id);
+      else storedLikedIds.delete(item.id);
+      localStorage.setItem('ddraw_liked', JSON.stringify([...storedLikedIds]));
     } catch (err) {
       console.error('[GalleryItemDialog] Like error:', err);
-      // Revert on error
       liked = prevLiked;
       likesCount = prevCount;
     }
