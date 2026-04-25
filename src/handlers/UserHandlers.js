@@ -438,6 +438,9 @@ export function setupUserHandlers(wsClient, app) {
       // Bake out all user strokes (preserves visuals, frees memory)
       app.cleanupRemoteUserState(data.sessionIndex, { preserveVisuals: true });
 
+      // Immediately composite to render baked strokes
+      app.board?.compositeAllLayers?.();
+
       app.updateChatUserList();
       abortSyncIfRoomIsEmpty();
     }

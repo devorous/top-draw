@@ -257,7 +257,8 @@
     userId = null,
     fromSelf = false,
     read = false,
-    threadUserId = null
+    threadUserId = null,
+    userRole = 0
   }) {
     return {
       id,
@@ -271,6 +272,7 @@
       fromSelf,
       read,
       threadUserId,
+      userRole,
       reactions: []
     };
   }
@@ -834,8 +836,8 @@
     return `${user?.tool || 'brush'} tool`;
   }
 
-  function getRoleClass(userId) {
-    const role = getChatUser(userId)?.role ?? 0;
+  function getRoleClass(userId, storedRole = null) {
+    const role = storedRole !== null ? storedRole : (getChatUser(userId)?.role ?? 0);
     if (role >= 9) return 'rank-deity';
     if (role === 8) return 'rank-holy';
     if (role === 7) return 'rank-noble';
@@ -1358,14 +1360,15 @@
     return true;
   }
 
-  export function addChatMessage(username, message, color, userId = null, messageId = createMessageId()) {
+  export function addChatMessage(username, message, color, userId = null, messageId = createMessageId(), userRole = 0) {
     addPublicMessage(createBaseMessage({
       id: messageId,
       type: 'message',
       text: message,
       username,
       color: colorToCss(color, { opaque: true }),
-      userId
+      userId,
+      userRole
     }));
   }
 
@@ -1373,6 +1376,7 @@
     const username = user?.username || user?.name || 'User';
     const color = colorToCss(user?.color, { opaque: true });
     const userId = user?.id ?? user?.sessionIndex ?? null;
+    const userRole = user?.role ?? 0;
 
     addPublicMessage(createBaseMessage({
       id: messageId,
@@ -1380,18 +1384,20 @@
       imageData,
       username,
       color,
-      userId
+      userId,
+      userRole
     }));
   }
 
-  export function addStaffMessage(username, message, color, userId = null, messageId = createMessageId()) {
+  export function addStaffMessage(username, message, color, userId = null, messageId = createMessageId(), userRole = 0) {
     addStaffChannelMessage(createBaseMessage({
       id: messageId,
       type: 'message',
       text: message,
       username,
       color,
-      userId
+      userId,
+      userRole
     }));
   }
 
@@ -1399,6 +1405,7 @@
     const username = user?.username || user?.name || 'User';
     const color = colorToCss(user?.color, { opaque: true });
     const userId = user?.id ?? user?.sessionIndex ?? null;
+    const userRole = user?.role ?? 0;
 
     addStaffChannelMessage(createBaseMessage({
       id: messageId,
@@ -1406,7 +1413,8 @@
       imageData,
       username,
       color,
-      userId
+      userId,
+      userRole
     }));
   }
 
@@ -1419,7 +1427,7 @@
     }));
   }
 
-  export function addChatDM(message, senderId, fromSelf, messageId = createMessageId()) {
+  export function addChatDM(message, senderId, fromSelf, messageId = createMessageId(), userRole = 0) {
     rememberDMUser(senderId);
     addDirectMessage(senderId, createBaseMessage({
       id: messageId,
@@ -1427,11 +1435,12 @@
       text: message,
       fromSelf,
       read: fromSelf || (visible && activeView === 'dm' && Number(recipient?.id) === Number(senderId)),
-      threadUserId: senderId
+      threadUserId: senderId,
+      userRole
     }));
   }
 
-  export function addDMImage(imageData, senderId, fromSelf, messageId = createMessageId()) {
+  export function addDMImage(imageData, senderId, fromSelf, messageId = createMessageId(), userRole = 0) {
     rememberDMUser(senderId);
     addDirectMessage(senderId, createBaseMessage({
       id: messageId,
@@ -1439,7 +1448,8 @@
       imageData,
       fromSelf,
       read: fromSelf || (visible && activeView === 'dm' && Number(recipient?.id) === Number(senderId)),
-      threadUserId: senderId
+      threadUserId: senderId,
+      userRole
     }));
   }
 
@@ -1702,7 +1712,7 @@
       {#if msg.type === 'system'}
         <p class="message-line system"><span class="message-text-inline">{msg.text}</span></p>
       {:else}
-        <p class="message-line">{#if !msg.groupedWithPrevious}<button class={`message-user ${getRoleClass(msg.userId)}`} oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button">{msg.username}</button>{' '}{/if}{#if msg.text}<span class="message-text-inline">{@html linkify(msg.text)}</span>{/if}</p>
+        <p class="message-line">{#if !msg.groupedWithPrevious}<button class={`message-user ${getRoleClass(msg.userId, msg.userRole)}`} oncontextmenu={(event) => openUserContextMenu(event, msg.userId)} title={msg.userId !== null ? formatModeratorMeta(getChatUser(msg.userId)) : ''} type="button">{msg.username}</button>{' '}{/if}{#if msg.text}<span class="message-text-inline">{@html linkify(msg.text)}</span>{/if}</p>
         {#if msg.text}
           {@const galleryLinks = extractGalleryLinks(msg.text)}
           {#each galleryLinks as link (link.id)}

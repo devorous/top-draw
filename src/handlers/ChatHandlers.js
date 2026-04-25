@@ -41,14 +41,16 @@ export function setupChatHandlers(wsClient, app) {
         data.message,
         chatNameColor(user.color),
         data.sessionIndex,
-        data.messageId
+        data.messageId,
+        user.role
       );
       broadcastChatPopoutEvent('addChatMessage', [
         user.username,
         data.message,
         chatNameColor(user.color),
         data.sessionIndex,
-        data.messageId
+        data.messageId,
+        user.role
       ]);
     }
   });
@@ -57,8 +59,8 @@ export function setupChatHandlers(wsClient, app) {
     if (data.sessionIndex === app.sessionIndex) return;
     const user = users.get(data.sessionIndex);
     if (user && app.svelteComponents?.chat) {
-      app.svelteComponents.chat.addChatDM(data.message, data.sessionIndex, false, data.messageId);
-      broadcastChatPopoutEvent('addChatDM', [data.message, data.sessionIndex, false, data.messageId]);
+      app.svelteComponents.chat.addChatDM(data.message, data.sessionIndex, false, data.messageId, user.role);
+      broadcastChatPopoutEvent('addChatDM', [data.message, data.sessionIndex, false, data.messageId, user.role]);
     }
   });
 
@@ -71,14 +73,16 @@ export function setupChatHandlers(wsClient, app) {
         data.message,
         chatNameColor(user.color),
         data.sessionIndex,
-        data.messageId
+        data.messageId,
+        user.role
       );
       broadcastChatPopoutEvent('addStaffMessage', [
         user.username,
         data.message,
         chatNameColor(user.color),
         data.sessionIndex,
-        data.messageId
+        data.messageId,
+        user.role
       ]);
     }
   });
@@ -99,8 +103,8 @@ export function setupChatHandlers(wsClient, app) {
     const user = users.get(data.sessionIndex);
     if (user) {
       if (data.recipientId !== undefined && data.recipientId !== null) {
-        app.svelteComponents.chat?.addDMImage(data.imageData, data.sessionIndex, false, data.messageId);
-        broadcastChatPopoutEvent('addDMImage', [data.imageData, data.sessionIndex, false, data.messageId]);
+        app.svelteComponents.chat?.addDMImage(data.imageData, data.sessionIndex, false, data.messageId, user.role);
+        broadcastChatPopoutEvent('addDMImage', [data.imageData, data.sessionIndex, false, data.messageId, user.role]);
       } else {
         app.svelteComponents.chat?.addChatImage(data.imageData, user, data.messageId);
         broadcastChatPopoutEvent('addChatImage', [data.imageData, chatPopoutUser(user, data.sessionIndex), data.messageId]);
