@@ -3,7 +3,29 @@
   import { ProfileDialog } from '../ui/ProfileDialog.js';
   import Messenger from './Messenger.svelte';
 
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+  function resolveMessengerApiBase() {
+    const configured = (
+      import.meta.env.VITE_MESSENGER_API_BASE_URL ||
+      import.meta.env.VITE_API_BASE_URL ||
+      ''
+    ).trim().replace(/\/$/, '');
+
+    const isLocalPage =
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.hostname === '0.0.0.0';
+
+    if (isLocalPage) {
+      const configuredIsLocal = /^(https?:\/\/)?(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?(\/|$)/i.test(configured);
+      if (!configured || configuredIsLocal) {
+        return 'https://top-draw.koyeb.app';
+      }
+    }
+
+    return configured;
+  }
+
+  const API_BASE = resolveMessengerApiBase();
   const TOKEN_KEY = 'topDrawAuthToken';
   const USERNAME_KEY = 'topDrawUsername';
 

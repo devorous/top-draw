@@ -5,6 +5,33 @@ import { playSfx } from '../utils/sfx.js';
 const TOKEN_KEY = 'topDrawAuthToken';
 const USERNAME_KEY = 'topDrawUsername';
 
+function resolveMessengerWsBase() {
+  const configured = (
+    import.meta.env.VITE_MESSENGER_WS_SERVER_URL ||
+    import.meta.env.VITE_WS_SERVER_URL ||
+    ''
+  ).trim();
+
+  const isLocalPage =
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1' ||
+    window.location.hostname === '0.0.0.0';
+
+  if (isLocalPage) {
+    const configuredIsLocal = /^(wss?:\/\/)?(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?(\/|$)/i.test(configured);
+    if (!configured || configuredIsLocal) {
+      return 'wss://top-draw.koyeb.app';
+    }
+  }
+
+  if (configured) {
+    return configured;
+  }
+
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${wsProtocol}//${window.location.host}`;
+}
+
 function getStoredMessengerIdentity(fallback = '') {
   const preferred = (fallback || '').trim();
   if (preferred) {
@@ -85,7 +112,7 @@ class MessengerState {
       this.ws = null;
     }
 
-    const wsBase = import.meta.env.VITE_WS_SERVER_URL || 'ws://localhost:8000';
+    const wsBase = resolveMessengerWsBase();
     const wsUrl = wsBase.replace(/\/$/, '');
     this.ws = new WebSocket(
       `${wsUrl}/messenger?userId=${encodeURIComponent(this.currentUserId)}&token=${encodeURIComponent(token)}`
