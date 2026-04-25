@@ -33,7 +33,7 @@ import { authorize, Action } from './permissions.js';
 import { getRoomRole, setRoomRole, computeEffectiveRole, getRoomRoleRoster } from './roomRoles.js';
 import { getClientIp, httpRateLimiter, isLocalhostRequest, messengerRateLimiter, wsRateLimiter } from './security.js';
 import { getAsnCheckStatus, lookupAsnForIp, initAsnCheck, isVpnAsn } from './asnCheck.js';
-import { authLimiter, uploadLimiter, likeLimiter, wsMessageLimiter, wsConnectionLimiter, feedbackLimiter } from './rateLimit.js';
+import { authLimiter, uploadLimiter, likeLimiter, wsMessageLimiter, wsSyncMessageLimiter, wsConnectionLimiter, feedbackLimiter } from './rateLimit.js';
 import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
 import { getIpSubnet, mergeHistory, normalizeIdentityPayload, recordConnectionEvent } from './identityTracking.js';
 import { generateFloatingGalleryVoronoi, getFloatingGalleryVoronoiJson } from './floatingVoronoi.js';
@@ -1848,16 +1848,6 @@ wss.on('connection', async (ws, req) => {
       return;
     }
 
-    // Per-connection message rate limiting
-    if (!DISABLE_RATE_LIMITS) {
-      // Use per-connection keying here so one noisy socket (or another local tab)
-      // does not starve peers behind the same IP/NAT.
-      const wsKey = ws.rateLimitId || ws.clientIp || 'unknown';
-      if (!wsMessageLimiter.check(wsKey)) {
-        return; // Silently drop excess messages
-      }
-    }
-
     const room = roomManager.getRoomByClient(ws);
     if (!room) {
       console.warn('[WS] Message from client not in any room');
@@ -1879,6 +1869,18 @@ wss.on('connection', async (ws, req) => {
       }
 
       const requestedType = Number(data?.t);
+
+      // Per-connection message rate limiting (use sync limiter for sync messages)
+      if (!DISABLE_RATE_LIMITS) {
+        const wsKey = ws.rateLimitId || ws.clientIp || 'unknown';
+        // Sync messages: 41-49, 62, 75 — use much higher rate limit to avoid disconnections during large syncs
+        const isSyncMessage = (requestedType >= 41 && requestedType <= 49) || requestedType === 62 || requestedType === 75;
+        const limiter = isSyncMessage ? wsSyncMessageLimiter : wsMessageLimiter;
+        if (!limiter.check(wsKey)) {
+          return; // Silently drop excess messages
+        }
+      }
+
       data = await sanitizeMessage(data);
       if (!data) {
         console.warn(`[WS] Rejected invalid message from session ${ws.sessionIndex ?? 'unassigned'}`);

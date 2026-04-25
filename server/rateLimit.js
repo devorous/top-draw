@@ -58,6 +58,9 @@ export const likeLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 30 });
 /** WebSocket messages: coarse burst guard, keyed per connection by caller */
 export const wsMessageLimiter = createRateLimiter({ windowMs: 1000, max: 1200 });
 
+/** WebSocket sync messages: high throughput during sync operations (much more generous) */
+export const wsSyncMessageLimiter = createRateLimiter({ windowMs: 1000, max: 10000 });
+
 /** WebSocket connections: 20 per minute per IP */
 export const wsConnectionLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 20 });
 
