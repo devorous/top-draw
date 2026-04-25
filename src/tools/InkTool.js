@@ -94,6 +94,7 @@ export class InkTool extends Tool {
     this.pointBuffer = [];
     this.hardnessCanvas = null;
     this.hardnessCtx = null;
+    this._lastDotEffectiveSize = null; // Track effective dot size for hardness calculation
   }
 
   /**
@@ -152,15 +153,14 @@ export class InkTool extends Tool {
 
     this._strokeSize = user.size;
 
-    const pressure = this.quantizePressure(user.pressure);
     const startX = Number.isFinite(user?.x) ? user.x : pos.x;
     const startY = Number.isFinite(user?.y) ? user.y : pos.y;
 
-    // Local ink should start from the same already-smoothed mouse-down point
-    // that remote clients receive via MD, otherwise the first segment tapers
-    // differently and the whole local stroke can look inverted.
-    this.inputPoints = [[startX, startY, pressure]];
-    this.pointBuffer = [startX, startY, Math.round(pressure * 255)];
+    // Don't add the pointerdown point — on tablet, the initial pressure may be unavailable
+    // or inaccurate. Wait for the first pointermove with real tablet data.
+    // This prevents single-tap dots from using an invalid pressure value.
+    this.inputPoints = [];
+    this.pointBuffer = [];
 
     this.dirtyBounds = { minX: startX, minY: startY, maxX: startX, maxY: startY };
 
@@ -194,21 +194,30 @@ export class InkTool extends Tool {
    * @param {Event} e - The pointer event.
    */
   onPointerMoveNoRender(user, pos, lastPos, e) {
-    if (!user.mousedown || user.panning || this.inputPoints.length === 0) return;
-
-    // Skip points too close to the last point to prevent velocity calculation noise
-    // in perfect-freehand when simulatePressure is enabled.
-    // We use a smaller threshold now that input is EMA-smoothed.
-    const lastPoint = this.inputPoints[this.inputPoints.length - 1];
-    const dx = pos.x - lastPoint[0];
-    const dy = pos.y - lastPoint[1];
-    const distSq = dx * dx + dy * dy;
-    if (distSq < 1) return; // Min 1px distance (was 2px)
+    if (!user.mousedown || user.panning) return;
 
     const pressure = this.quantizePressure(user.pressure);
+    // Skip pressure=0 points — they indicate a liftoff sample and produce
+    // artefacts (oversized blobs) when fed into the perfect-freehand pipeline.
+    if (pressure === 0) return;
 
-    this.inputPoints.push([pos.x, pos.y, pressure]);
-    this.pointBuffer.push(pos.x, pos.y, Math.round(pressure * 255));
+    // For the first move point, initialize inputPoints. Otherwise, skip points too close.
+    if (this.inputPoints.length === 0) {
+      this.inputPoints.push([pos.x, pos.y, pressure]);
+      this.pointBuffer.push(pos.x, pos.y, Math.round(pressure * 255));
+    } else {
+      // Skip points too close to the last point to prevent velocity calculation noise
+      // in perfect-freehand when simulatePressure is enabled.
+      // We use a smaller threshold now that input is EMA-smoothed.
+      const lastPoint = this.inputPoints[this.inputPoints.length - 1];
+      const dx = pos.x - lastPoint[0];
+      const dy = pos.y - lastPoint[1];
+      const distSq = dx * dx + dy * dy;
+      if (distSq < 1) return; // Min 1px distance (was 2px)
+
+      this.inputPoints.push([pos.x, pos.y, pressure]);
+      this.pointBuffer.push(pos.x, pos.y, Math.round(pressure * 255));
+    }
 
     if (this.dirtyBounds) {
       this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, pos.x);
@@ -225,7 +234,11 @@ export class InkTool extends Tool {
    * @param {Event} e - The pointer event.
    */
   onPointerUp(user, pos, e) {
-    if (user.panning || !this.offscreenCanvas || this.inputPoints.length === 0) return;
+    if (user.panning || !this.offscreenCanvas) return;
+
+    // If no points were recorded (instant tap with no movement), skip rendering.
+    // This ensures we only draw dots when we have real pressure data from at least one move.
+    if (this.inputPoints.length === 0) return;
 
     const pressure = this.quantizePressure(user.pressure);
     // Mirror the distSq < 1 guard from onPointerMoveNoRender so local inputPoints
@@ -235,7 +248,7 @@ export class InkTool extends Tool {
     const lastPoint = this.inputPoints[this.inputPoints.length - 1];
     const ddx = pos.x - lastPoint[0];
     const ddy = pos.y - lastPoint[1];
-    if (ddx * ddx + ddy * ddy >= 1) {
+    if (ddx * ddx + ddy * ddy >= 1 && pressure > 0) {
       this.inputPoints.push([pos.x, pos.y, pressure]);
       this.pointBuffer.push(pos.x, pos.y, Math.round(pressure * 255));
 
@@ -254,7 +267,9 @@ export class InkTool extends Tool {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = this.userAlpha;
 
-    const hardnessCanvas = this.getHardnessCanvas(this.offscreenCanvas, this._strokeSize);
+    // Use effective dot size if this was a dot, so blur amount is proportional to actual dot size
+    const sizeForHardness = this._lastDotEffectiveSize !== null ? this._lastDotEffectiveSize : this._strokeSize;
+    const hardnessCanvas = this.getHardnessCanvas(this.offscreenCanvas, sizeForHardness);
     ctx.drawImage(hardnessCanvas, 0, 0);
 
     this.board.forEachMirrorRegion({ rect: this.dirtyBounds ? {
@@ -318,48 +333,36 @@ export class InkTool extends Tool {
     const ctx = this.offscreenCtx;
     ctx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
 
-    // perfect-freehand's visual radius is ~75% of the 'size' parameter.
-    const isDot = this.inputPoints.length === 1 ||
-                 (this.inputPoints.length === 2 &&
-                  Math.abs(this.inputPoints[0][0] - this.inputPoints[1][0]) < 0.1 &&
-                  Math.abs(this.inputPoints[0][1] - this.inputPoints[1][1]) < 0.1);
-
     const activeUser = user || this._activeUser;
     const simulatePressure = activeUser.simulatePressure !== undefined ? activeUser.simulatePressure : true;
     const userThinning = activeUser.thinning !== undefined ? activeUser.thinning : 0.5;
 
-    if (isDot) {
-      // During mid-stroke preview, don't render the dot — it would flash for 1 frame
-      // before being replaced by the real stroke. Only render on final commit (tap/click).
-      if (!last) return;
+    // Single point: render as a dot
+    if (this.inputPoints.length === 1) {
+      if (!last) return; // Don't preview single dots
 
       const [x, y, pressure] = this.inputPoints[0];
-      let dotPressure = pressure !== undefined ? pressure : 1;
-      // Match the stroke's pressure transformation: square pressure in tablet mode
-      if (!simulatePressure) {
-        dotPressure = Math.pow(dotPressure, 2);
-      }
+      const dotPressure = pressure !== undefined ? pressure : 1;
+      const effectiveRadius = this._strokeSize * dotPressure;
       ctx.fillStyle = this.strokeColor;
       ctx.beginPath();
-      ctx.arc(x, y, this._strokeSize * dotPressure, 0, Math.PI * 2);
+      ctx.arc(x, y, effectiveRadius, 0, Math.PI * 2);
       ctx.fill();
+      this._lastDotEffectiveSize = effectiveRadius;
       return;
     }
+
+    // Skip 2-point strokes (perfect-freehand renders them as giant blobs)
+    if (this.inputPoints.length === 2) return;
+
+    // 3+ points: normal stroke rendering
+    this._lastDotEffectiveSize = null;
 
     // Require at least 3 points for a smooth preview stroke to avoid "dot" flashes at the start
     if (!last && this.inputPoints.length < 3) return;
 
-    // When simulatePressure is disabled (tablet mode), we want full pressure response
-    // Amplify pressure values aggressively to get very thin strokes at low pressure
-    const adjustedPoints = !simulatePressure
-      ? this.inputPoints.map(([x, y, p]) => {
-          const pressure = p !== undefined ? p : 1;
-          // Square the pressure to make low values MUCH lower
-          // 0.5^2 = 0.25, 0.3^2 = 0.09, 0.2^2 = 0.04
-          const amplified = Math.pow(pressure, 2);
-          return [x, y, amplified];
-        })
-      : this.inputPoints;
+    // When simulatePressure is disabled (tablet mode), use pressure directly
+    const adjustedPoints = this.inputPoints;
 
     const effectiveThinning = !simulatePressure
       ? 0.95

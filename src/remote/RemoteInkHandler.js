@@ -208,27 +208,21 @@ export class RemoteInkHandler {
     const rawThinning = user.thinning !== undefined ? user.thinning : 0.5;
     const thinning = !simulatePressure ? 0.95 : Math.min(0.99, rawThinning * Math.max(1, inkSize / 10));
 
-    const isDot = user._inkPoints.length === 1 ||
-                 (user._inkPoints.length === 2 &&
-                  Math.abs(user._inkPoints[0][0] - user._inkPoints[1][0]) < 0.1 &&
-                  Math.abs(user._inkPoints[0][1] - user._inkPoints[1][1]) < 0.1);
-
-    if (isDot) {
-      // Match local ink preview behavior: don't flash the initial dot during
-      // preview. Only render it when the stroke is actually finalized.
+    // Single point: render as a dot
+    if (user._inkPoints.length === 1) {
       if (!last) return;
 
       const [x, y, pressure] = user._inkPoints[0];
-      let dotPressure = pressure !== undefined ? pressure : 1;
-      if (!simulatePressure) {
-        dotPressure = Math.pow(dotPressure, 2);
-      }
+      const dotPressure = pressure !== undefined ? pressure : 1;
       ctx.fillStyle = user._inkStrokeColor;
       ctx.beginPath();
       ctx.arc(x, y, inkSize * dotPressure, 0, Math.PI * 2);
       ctx.fill();
       return;
     }
+
+    // Skip 2-point strokes (perfect-freehand renders them as giant blobs)
+    if (user._inkPoints.length === 2) return;
 
     // Match local ink preview behavior: wait for enough points to form a real
     // stroke shape before drawing the preview, avoiding oversized start blobs.
@@ -247,11 +241,8 @@ export class RemoteInkHandler {
       last
     };
 
-    // When simulatePressure is off (tablet mode), square the pressure values
-    // to amplify the effect — matches local InkTool.renderStroke behavior.
-    const strokePoints = !simulatePressure
-      ? user._inkPoints.map(([x, y, p]) => [x, y, Math.pow(p !== undefined ? p : 1, 2)])
-      : user._inkPoints;
+    // Use pressure values directly without squaring
+    const strokePoints = user._inkPoints;
 
     const outlinePoints = getStroke(strokePoints, options);
 
