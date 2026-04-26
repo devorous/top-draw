@@ -36,16 +36,16 @@ export class SyncCoordinator {
     const requesterSessionIndex = Number(ws.sessionIndex);
     console.log(`[Sync] User ${requesterSessionIndex} requested sync`);
 
-    // Honor an explicit provider request, but skip AFK users
+    // Honor an explicit provider request (even AFK users), only reject self or unknown
     let candidates = null;
     if (data.tu !== undefined && data.tu !== null) {
       const requestedProvider = Number(data.tu);
       const providerData = this.sessionManager.users.get(requestedProvider);
-      if (providerData && providerData.name && !providerData.afk && requestedProvider !== requesterSessionIndex) {
+      if (providerData && providerData.name && requestedProvider !== requesterSessionIndex) {
         candidates = [requestedProvider];
-        console.log(`[Sync] Using requested provider ${requestedProvider} (${providerData.name})`);
+        console.log(`[Sync] Using requested provider ${requestedProvider} (${providerData.name})${providerData.afk ? ' [AFK]' : ''}`);
       } else {
-        console.log(`[Sync] Requested provider ${requestedProvider} is AFK, invalid, or self — using auto-select`);
+        console.log(`[Sync] Requested provider ${requestedProvider} is invalid or self — using auto-select`);
       }
     }
 

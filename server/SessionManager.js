@@ -41,6 +41,7 @@ export const RoleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 
 const AFK_TIMEOUT = 5 * 60 * 1000;
 const AFK_CHECK_INTERVAL = 30 * 1000;
 const ALL_AFK_RESTORE_DELAY = 2 * 60 * 1000;
+const COMPRESS_STROKES_DELAY = 5 * 60 * 1000;
 
 /**
  * Manages user session indices, user data, and AFK tracking.
@@ -62,6 +63,8 @@ export class SessionManager {
     this._allAfkSince = null;
 
     this.afkCheckInterval = setInterval(() => this.checkAfkUsers(), AFK_CHECK_INTERVAL);
+    /** @type {Map<number, NodeJS.Timeout>} */
+    this._compressTimers = new Map();
   }
 
   /**
@@ -227,7 +230,39 @@ export class SessionManager {
     user.afk = false;
 
     if (wasAfk) {
+      this._cancelStrokeCompression(sessionIndex);
       this.broadcastToAll({ t: T.AFK, u: sessionIndex, a: false });
+    }
+  }
+
+  /**
+   * Schedules a server-side broadcast to compress a user's active strokes after inactivity.
+   * @param {number} sessionIndex
+   * @private
+   */
+  _scheduleStrokeCompression(sessionIndex) {
+    this._cancelStrokeCompression(sessionIndex);
+    const timer = setTimeout(() => {
+      this._compressTimers.delete(sessionIndex);
+      const user = this.users.get(sessionIndex);
+      if (user?.afk) {
+        console.log(`[AFK] Broadcasting COMPRESS_USER_STROKES for user ${sessionIndex} (${user.name})`);
+        this.broadcastToAll({ t: T.COMPRESS_USER_STROKES, u: sessionIndex });
+      }
+    }, COMPRESS_STROKES_DELAY);
+    this._compressTimers.set(sessionIndex, timer);
+  }
+
+  /**
+   * Cancels a pending stroke compression broadcast for a user.
+   * @param {number} sessionIndex
+   * @private
+   */
+  _cancelStrokeCompression(sessionIndex) {
+    const existing = this._compressTimers.get(sessionIndex);
+    if (existing) {
+      clearTimeout(existing);
+      this._compressTimers.delete(sessionIndex);
     }
   }
 
@@ -245,6 +280,7 @@ export class SessionManager {
         user.mousedown = false;
         this.broadcastToAll({ t: T.AFK, u: sessionIndex, a: true });
         console.log(`User ${sessionIndex} marked as AFK`);
+        this._scheduleStrokeCompression(sessionIndex);
       }
     });
 
@@ -274,5 +310,9 @@ export class SessionManager {
     if (this.afkCheckInterval) {
       clearInterval(this.afkCheckInterval);
     }
+    for (const timer of this._compressTimers.values()) {
+      clearTimeout(timer);
+    }
+    this._compressTimers.clear();
   }
 }

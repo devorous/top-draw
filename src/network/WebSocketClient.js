@@ -674,6 +674,10 @@ export class WebSocketClient {
         this.emit('afk', { sessionIndex: data.u, afk: data.a });
         break;
 
+      case T.COMPRESS_USER_STROKES:
+        this.emit('compress_user_strokes', { sessionIndex: data.u });
+        break;
+
       case T.MM:
         this.emit('mm', {
           sessionIndex: data.u,

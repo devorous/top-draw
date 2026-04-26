@@ -446,10 +446,6 @@ export function setupUserHandlers(wsClient, app) {
     }
   });
 
-  // Track AFK timers for auto-committing strokes after 5 minutes
-  const afkCommitTimers = new Map();
-  const AFK_COMMIT_DELAY_MS = 5 * 60 * 1000; // 5 minutes
-
   wsClient.on('afk', (data) => {
     if (data.sessionIndex === app.sessionIndex) {
       app.self.setAfk?.(!!data.afk);
@@ -471,26 +467,24 @@ export function setupUserHandlers(wsClient, app) {
       if (data.afk) {
         user.mousedown = false;
         app.remoteUserHandler?.cleanupUserState?.(user, { preserveVisuals: true });
-
-        // Schedule auto-commit of strokes after 5 minutes
-        if (afkCommitTimers.has(data.sessionIndex)) {
-          clearTimeout(afkCommitTimers.get(data.sessionIndex));
-        }
-        const timer = setTimeout(async () => {
-          console.log(`[AFK] Committing active strokes for ${user.username} (${data.sessionIndex})`);
-          afkCommitTimers.delete(data.sessionIndex);
-          await app.board?.commitAllUserStrokesForAFKUser?.(user.id);
-        }, AFK_COMMIT_DELAY_MS);
-        afkCommitTimers.set(data.sessionIndex, timer);
-      } else {
-        // User came back, cancel pending commit
-        if (afkCommitTimers.has(data.sessionIndex)) {
-          clearTimeout(afkCommitTimers.get(data.sessionIndex));
-          afkCommitTimers.delete(data.sessionIndex);
-        }
       }
       ui.setRemoteUserAfk(data.sessionIndex, data.afk);
       app.updateChatUserList();
+    }
+  });
+
+  wsClient.on('compress_user_strokes', async (data) => {
+    let userId;
+    if (data.sessionIndex === app.sessionIndex) {
+      userId = app.self?.id;
+    } else {
+      const user = users.get(data.sessionIndex);
+      if (!user) return;
+      userId = user.id;
+      console.log(`[AFK] Compressing strokes for ${user.username} (${data.sessionIndex})`);
+    }
+    if (userId !== undefined) {
+      await app.board?.commitAllUserStrokesForAFKUser?.(userId);
     }
   });
 
