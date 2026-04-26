@@ -47,6 +47,7 @@ export class User {
     this.patternOffsetY = options.patternOffsetY || 0;
     this.patternColorMode = options.patternColorMode || 'original';
     this.patternBrush = options.patternBrush || null;
+    this.imageBrushColorMode = options.imageBrushColorMode || 'original';
     this.patternMode = options.patternMode || false;
     this.spaceIndex = 0;
     this.color = options.color || [0, 0, 0, 1];

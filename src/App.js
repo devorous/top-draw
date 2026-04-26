@@ -1025,6 +1025,9 @@ export class DrawingApp {
             patternTool.updatePreview(this.self);
           }
 
+          const imageBrushTool = this.toolManager.getTool('imageBrush');
+          if (imageBrushTool) imageBrushTool._tintCache.clear();
+
           const fillTool = this.toolManager.getTool('fill');
           if (fillTool && fillTool._patternTileCache) {
             fillTool._patternTileCache.clear();
@@ -2114,6 +2117,12 @@ export class DrawingApp {
       });
     }
 
+    if (elements.imageBrushColorModeRadios) {
+      elements.imageBrushColorModeRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => this.handleImageBrushColorModeChange(e));
+      });
+    }
+
     // Fill pattern settings (reuse same handlers as pattern tool since they share user properties)
     if (elements.fillPatternScaleSlider) {
       elements.fillPatternScaleSlider.addEventListener('input', (e) => this.handlePatternScaleChange(e));
@@ -2356,6 +2365,42 @@ export class DrawingApp {
       offsetY: this.self.patternOffsetY ?? 0,
       colorMode: this.self.patternColorMode ?? 'original'
     };
+  }
+
+  handleImageBrushColorModeChange(e) {
+    const colorMode = e.target.value;
+    this.self.imageBrushColorMode = colorMode;
+
+    const imageBrushTool = this.toolManager.getTool('imageBrush');
+    if (imageBrushTool) imageBrushTool._tintCache.clear();
+
+    if (this.connected && this.self.imageBrush) {
+      this.inputBufferManager.queueBroadcast(() =>
+        this.wsClient.broadcastBrush(this._buildImageBrushPayload())
+      );
+    }
+  }
+
+  _buildImageBrushPayload() {
+    const brush = this.self.imageBrush;
+    if (!brush) return null;
+    const data = {
+      type: brush.type,
+      brushName: brush.brushName,
+      fileName: brush.fileName,
+      width: brush.width,
+      height: brush.height
+    };
+    if (brush.gimpUrl) data.gimpUrl = brush.gimpUrl;
+    if (brush.svgContent) data.svgContent = brush.svgContent;
+    if (brush.colorDepth !== undefined) data.colorDepth = brush.colorDepth;
+    if (brush.gBrushes) data.gBrushes = brush.gBrushes.map(b => ({ gimpUrl: b.gimpUrl, width: b.width, height: b.height }));
+    if (brush.dimensions) data.dimensions = brush.dimensions;
+    if (brush.ncells) data.ncells = brush.ncells;
+    if (brush.cellwidth) data.cellwidth = brush.cellwidth;
+    if (brush.cellheight) data.cellheight = brush.cellheight;
+    data.colorMode = this.self.imageBrushColorMode ?? 'original';
+    return data;
   }
 
   handlePatternBrushSelect(brush) {
@@ -2980,6 +3025,9 @@ export class DrawingApp {
     this.wsClient.broadcastSimulatePressureChange(this.self.simulatePressure);
     if (this.self.patternBrush) {
       this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
+    }
+    if (this.self.imageBrush) {
+      this.wsClient.broadcastBrush(this._buildImageBrushPayload());
     }
 
     this.moderation.setRole(this.selfRole);
@@ -4949,6 +4997,9 @@ export class DrawingApp {
       patternTool._tileCache.clear();
       patternTool.updatePreview(this.self);
     }
+
+    const imageBrushTool = this.toolManager.getTool('imageBrush');
+    if (imageBrushTool) imageBrushTool._tintCache.clear();
 
     const fillTool = this.toolManager.getTool('fill');
     if (fillTool && fillTool._patternTileCache) {

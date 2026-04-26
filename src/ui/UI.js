@@ -364,6 +364,8 @@ menuBtn: document.getElementById('menuBtn'),
       patternOffsetXSlider: document.querySelector('.slider.patternOffsetX'),
       patternOffsetYSlider: document.querySelector('.slider.patternOffsetY'),
       patternColorModeRadios: document.querySelectorAll('input[name="patternColorMode"]'),
+      imageBrushModeOptions: document.getElementById('imageBrushModeOptions'),
+      imageBrushColorModeRadios: document.querySelectorAll('input[name="imageBrushColorMode"]'),
 
       fillPatternScaleSlider: document.querySelector('.slider.fillPatternScale'),
       fillPatternRotationSlider: document.querySelector('.slider.fillPatternRotation'),
@@ -959,7 +961,7 @@ menuBtn: document.getElementById('menuBtn'),
       selfCircle, selfPressureCircle, selfDot, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfZoom, selfText, selfName,
       brushImage, brushFileInput, sizeContainer, pressureContainer, smoothingContainer,
       brushSpacing, brushHardness, opacityContainer, cursorStyleContainer, cursorStyleSelect, blurRadiusContainer,
-      selectionModeOptions, eraserModeOptions, inkdropperModeOptions, brushModeOptions, shapeModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions, fontContainer, textPositionMultiplierContainer, textPositionOffsetContainer
+      selectionModeOptions, eraserModeOptions, inkdropperModeOptions, brushModeOptions, shapeModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions, imageBrushModeOptions, fontContainer, textPositionMultiplierContainer, textPositionOffsetContainer
     } = this.elements;
 
     selfCircle.style.display = 'none';
@@ -992,6 +994,7 @@ menuBtn: document.getElementById('menuBtn'),
     if (circleBlurModeOptions) circleBlurModeOptions.style.display = 'none';
     if (this.elements.fillModeOptions) this.elements.fillModeOptions.style.display = 'none';
     if (patternModeOptions) patternModeOptions.style.display = 'none';
+    if (imageBrushModeOptions) imageBrushModeOptions.style.display = 'none';
     if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'none';
     appState.patternPreviewVisible = false;
     appState.patternPreviewMode = 'pattern';
@@ -1095,6 +1098,7 @@ menuBtn: document.getElementById('menuBtn'),
       case 'imageBrush':
         this.applyLocalCursorStyle(tool, user);
         brushSpacing.style.display = 'block';
+        if (imageBrushModeOptions) imageBrushModeOptions.style.display = 'block';
         appState.patternPreviewVisible = !!user?.imageBrush;
         appState.patternPreviewMode = 'imageBrush';
         break;

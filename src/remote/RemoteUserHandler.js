@@ -944,6 +944,7 @@ export class RemoteUserHandler {
     // Strokes that arrive while the image is still loading are buffered in
     // brushData._pendingStrokes and replayed once the image is ready.
     user.imageBrush = brushData;
+    user.imageBrushColorMode = brushData.colorMode ?? 'original';
     brushData._pendingStrokes = [];
 
     const replayPending = () => {

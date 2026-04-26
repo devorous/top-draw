@@ -65,6 +65,7 @@ export class ImageBrushTool extends Tool {
     this.lastStampPos = new Map(); // userId -> {x, y}
     this.stampBuffer = []; // [x, y, x, y, ...] for broadcast
     this.strokePoints = []; // Track points for tile ownership
+    this._tintCache = new Map();
   }
 
   /**
@@ -269,6 +270,27 @@ export class ImageBrushTool extends Tool {
     previewCtx.globalAlpha = 1.0;
   }
 
+  _getTintedImage(user, image, frameKey = '') {
+    const colorKey = user.color.slice(0, 3).join(',');
+    const brush = user.imageBrush;
+    const brushKey = brush?.brushName || brush?.fileName || 'brush';
+    const cacheKey = `${brushKey}_${frameKey}_${colorKey}`;
+    if (this._tintCache.has(cacheKey)) return this._tintCache.get(cacheKey);
+
+    const w = image.naturalWidth || image.width || 1;
+    const h = image.naturalHeight || image.height || 1;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(image, 0, 0);
+    ctx.globalCompositeOperation = 'source-in';
+    ctx.fillStyle = `rgb(${user.color[0]}, ${user.color[1]}, ${user.color[2]})`;
+    ctx.fillRect(0, 0, w, h);
+    this._tintCache.set(cacheKey, canvas);
+    return canvas;
+  }
+
   /**
    * Draws a single brush stamp at the given position.
    * @param {Object} user - The user performing the action.
@@ -311,6 +333,10 @@ export class ImageBrushTool extends Tool {
       height = brush.height;
       width = brush.width;
       image = brush.image;
+    }
+
+    if (brush.type !== 'gih' && (user.imageBrushColorMode || 'original') === 'tinted' && image) {
+      image = this._getTintedImage(user, image);
     }
 
     this.lastPos = { x: pos.x, y: pos.y };
