@@ -5,6 +5,10 @@ const MIN_VIEW_ZOOM = 0.05;
 const MAX_VIEW_ZOOM = 8;
 const TAURI_CHANNEL_NAME = 'ddraw-board-viewer-popout';
 const TAURI_FRAME_INTERVAL_MS = 1000 / 12;
+const FRAME_RATE_KEY = 'boardViewerFrameRate';
+const DEFAULT_FRAME_RATE = 30;
+const MIN_FRAME_RATE = 5;
+const MAX_FRAME_RATE = 144;
 
 export class BoardViewer {
   constructor(app) {
@@ -29,22 +33,65 @@ export class BoardViewer {
     this._moveState = null;
     this._resizeState = null;
     this._popoutDragState = null;
+    this.frameRate = this._loadFrameRate();
+    this._lastRenderAt = 0;
+  }
+
+  _loadFrameRate() {
+    const raw = Number(localStorage.getItem(FRAME_RATE_KEY));
+    if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_FRAME_RATE;
+    return Math.min(MAX_FRAME_RATE, Math.max(MIN_FRAME_RATE, raw));
+  }
+
+  setFrameRate(fps) {
+    const value = Number(fps);
+    const clamped = Number.isFinite(value)
+      ? Math.min(MAX_FRAME_RATE, Math.max(MIN_FRAME_RATE, value))
+      : DEFAULT_FRAME_RATE;
+    this.frameRate = clamped;
+    localStorage.setItem(FRAME_RATE_KEY, String(clamped));
+  }
+
+  getFrameRate() {
+    return this.frameRate;
   }
 
   init() {
     this._build();
     this._fitToPanel();
     this._bind();
-    this._tick();
+    this._updateLaunchButton();
   }
 
   destroy() {
-    if (this.rafId) cancelAnimationFrame(this.rafId);
+    this._stopTick();
     this.popout?.close?.();
     this.tauriChannel?.close?.();
     this.tauriPopoutWindow?.close?.();
+    this._releaseTauriFrameCanvas();
     this.el?.remove();
     this.launchButton?.remove();
+  }
+
+  _scheduleTick() {
+    if (this.rafId != null) return;
+    this.rafId = requestAnimationFrame((now) => this._tick(now));
+  }
+
+  _stopTick() {
+    if (this.rafId != null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+  }
+
+  _releaseTauriFrameCanvas() {
+    if (this.tauriFrameCanvas) {
+      this.tauriFrameCanvas.width = 0;
+      this.tauriFrameCanvas.height = 0;
+    }
+    this.tauriFrameCanvas = null;
+    this.tauriFrameCtx = null;
   }
 
 
@@ -97,6 +144,11 @@ export class BoardViewer {
     this.el.hidden = !this.visible;
     this.el.classList.toggle('is-visible', this.visible);
     this._updateLaunchButton();
+    if (this.visible) {
+      this._scheduleTick();
+    } else if (!this.isPopoutOpen() && !this.tauriPopoutWindow) {
+      this._stopTick();
+    }
   }
 
   _updateLaunchButton() {
@@ -111,6 +163,8 @@ export class BoardViewer {
       this.hide();
       this.popout?.close?.();
       this.tauriPopoutWindow?.close?.();
+      this._releaseTauriFrameCanvas();
+      this._stopTick();
     }
     this._updateLaunchButton();
   }
@@ -287,19 +341,38 @@ export class BoardViewer {
     this.panY = rect.height / 2 - user.y * this.viewZoom;
   }
 
-  _tick() {
-    this.rafId = requestAnimationFrame(() => this._tick());
-    const now = performance.now();
-    this._updateLaunchButton();
-    if (this.visible) this._renderTo(this.canvas, this.ctx, this.stage, this.zoomLabel);
-    if (this.isPopoutOpen()) this._renderPopout();
-    this._sendTauriFrame(now);
+  _tick(now = performance.now()) {
+    this.rafId = null;
+    const renderingPanel = this.visible;
+    const popoutOpen = this.isPopoutOpen();
+    const sendingTauri = !!this.tauriPopoutWindow;
+    const renderingPopout = popoutOpen && !sendingTauri && !!this.popoutCanvas;
+
+    if (!renderingPanel && !renderingPopout && !sendingTauri) return;
+
+    const minInterval = 1000 / this.frameRate;
+    if (now - this._lastRenderAt + 0.5 < minInterval) {
+      this._scheduleTick();
+      return;
+    }
+    this._lastRenderAt = now;
+
+    if (renderingPanel) this._renderTo(this.canvas, this.ctx, this.stage, this.zoomLabel);
+    if (renderingPopout) this._renderPopout();
+    if (sendingTauri) this._sendTauriFrame(now);
+
+    this._scheduleTick();
   }
 
   _renderTo(canvas, ctx, stage, zoomLabel = null) {
     if (!canvas || !ctx || !stage) return;
     const rect = stage.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    const baseDpr = window.devicePixelRatio || 1;
+    // When zoomed out, the source board is being downscaled anyway — drop DPR
+    // so we fill fewer destination pixels per frame. Caps at 1x at viewZoom <= 1/baseDpr.
+    const dpr = this.viewZoom >= 1
+      ? baseDpr
+      : Math.min(baseDpr, Math.max(1, baseDpr * this.viewZoom));
     const width = Math.max(1, Math.floor(rect.width * dpr));
     const height = Math.max(1, Math.floor(rect.height * dpr));
     if (canvas.width !== width || canvas.height !== height) {
@@ -353,8 +426,10 @@ export class BoardViewer {
       this.popoutCtx = null;
       this.popoutZoomLabel = null;
       this.setMainZoom(this.board.zoom);
+      if (!this.visible && !this.tauriPopoutWindow) this._stopTick();
     });
     this._setPanelVisible(false);
+    this._scheduleTick();
   }
 
   async _openTauriPopout() {
@@ -383,6 +458,7 @@ export class BoardViewer {
       boardWindow.once('tauri://created', () => {
         this.tauriPopoutWindow = boardWindow;
         this._setPanelVisible(false);
+        this._scheduleTick();
       });
 
       boardWindow.once('tauri://error', (error) => {
@@ -394,7 +470,9 @@ export class BoardViewer {
 
       boardWindow.once('tauri://destroyed', () => {
         this.tauriPopoutWindow = null;
+        this._releaseTauriFrameCanvas();
         this.setMainZoom(this.board.zoom);
+        if (!this.visible && !this.isPopoutOpen()) this._stopTick();
       });
     } catch (error) {
       console.error('[BoardViewer] Tauri popout unavailable:', error);
@@ -408,7 +486,9 @@ export class BoardViewer {
     this.tauriChannel.onmessage = (event) => {
       if (event.data?.type === 'board-viewer-closed') {
         this.tauriPopoutWindow = null;
+        this._releaseTauriFrameCanvas();
         this.setMainZoom(this.board.zoom);
+        if (!this.visible && !this.isPopoutOpen()) this._stopTick();
       }
     };
   }

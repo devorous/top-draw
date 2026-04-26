@@ -138,6 +138,19 @@
     updatePreferences(appPreferences, enabled ? 'Board view enabled' : 'Board view disabled');
   }
 
+  function getBoardViewFrameRate() {
+    const stored = Number(localStorage.getItem('boardViewerFrameRate'));
+    if (Number.isFinite(stored) && stored > 0) return Math.min(144, Math.max(5, stored));
+    return app?.boardViewer?.getFrameRate?.() ?? 30;
+  }
+
+  function updateBoardViewFrameRate(rawValue) {
+    const value = Number(rawValue);
+    if (!Number.isFinite(value)) return;
+    app?.boardViewer?.setFrameRate?.(value);
+    updatePreferences(appPreferences, `Board view limited to ${Math.round(value)} FPS`);
+  }
+
   function getChatOpacity() {
     const value = Number(appPreferences?.general?.chatOpacity);
     return Number.isFinite(value) ? Math.min(1, Math.max(0.3, value)) : 1;
@@ -609,6 +622,24 @@
                 />
                 <span>Enable Board View</span>
               </label>
+            </div>
+
+            <div class="settings-slider-stack">
+              <div class="settings-slider-card">
+                <label class="settings-slider-label">
+                  <span class="settings-slider-title">Board View FPS Cap</span>
+                  <span class="settings-slider-value">{Math.round(getBoardViewFrameRate())} fps</span>
+                </label>
+                <input
+                  type="range"
+                  class="settings-slider"
+                  min="5"
+                  max="120"
+                  step="1"
+                  value={getBoardViewFrameRate()}
+                  oninput={(event) => updateBoardViewFrameRate(event.currentTarget.value)}
+                />
+              </div>
             </div>
 
             <div class="settings-slider-stack">
