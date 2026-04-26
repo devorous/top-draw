@@ -53,7 +53,7 @@
 
 <div bind:this={cardElement} class="floating-art" style="left: {x}px; top: {y}px;">
   <div class="art-card">
-    <button class="art-image" onclick={handleImageClick} title={item.title || 'Untitled'}>
+    <button class="art-image" onclick={handleImageClick} onpointerup={(e) => e.pointerType !== 'mouse' && handleImageClick()} title={item.title || 'Untitled'}>
       {#if imageInView && imageSrc}
         <img src={imageSrc} alt={item.title || 'Art'} loading="lazy" decoding="async" draggable="false" />
       {/if}
@@ -65,6 +65,7 @@
         class:liked={liked}
         disabled={liking}
         onclick={handleLike}
+        onpointerup={(e) => e.pointerType !== 'mouse' && handleLike()}
         title="Like"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

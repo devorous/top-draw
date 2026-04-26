@@ -145,6 +145,7 @@
             style="background-color: {colorToRgba(color)}"
             title={colorToHex(color)}
             onclick={() => selectColor(color)}
+            onpointerup={(e) => e.pointerType !== 'mouse' && selectColor(color)}
           ></button>
         {:else}
           <div class="swatch empty"></div>
@@ -167,6 +168,7 @@
             style="background-color: {colorToRgba(preset.color)}"
             title="{colorToHex(preset.color)} (right-click to remove)"
             onclick={() => selectPreset(preset)}
+            onpointerup={(e) => e.pointerType !== 'mouse' && selectPreset(preset)}
             oncontextmenu={(e) => handleRemoveCustom(preset, e)}
           >
             {#if preset.tool && getToolIconUrl(preset.tool)}
@@ -180,6 +182,7 @@
           class="swatch add-swatch"
           title="Save current color"
           onclick={handleAddCustom}
+          onpointerup={(e) => e.pointerType !== 'mouse' && handleAddCustom()}
         >+</button>
       {/if}
     </div>

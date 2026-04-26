@@ -1872,7 +1872,7 @@
     <div class="message-content-row">
       <div class="message-copy">
         {#if message.type === 'image'}
-          <button class="chat-image-card" onclick={() => openImageViewer(message.imageData)} type="button">
+          <button class="chat-image-card" onclick={() => openImageViewer(message.imageData)} onpointerup={(e) => e.pointerType !== 'mouse' && openImageViewer(message.imageData)} type="button">
             <img src={message.imageData} alt="Chat upload" class="chat-image" />
           </button>
         {/if}
@@ -1940,7 +1940,7 @@
 {#if toasts.length > 0}
   <div class="chat-toasts">
     {#each toasts as toast (toast.id)}
-      <button class="chat-toast" onclick={() => openFromToast(toast.id)}>
+      <button class="chat-toast" onclick={() => openFromToast(toast.id)} onpointerup={(e) => e.pointerType !== 'mouse' && openFromToast(toast.id)}>
         <span class="chat-toast-swatch" style="background: {toast.color}"></span>
         <span class="chat-toast-copy">
           <span class="chat-toast-username">{toast.username}</span>
@@ -1952,7 +1952,7 @@
 {/if}
 
 {#if expandedImage}
-  <button class="chat-image-viewer" onclick={closeImageViewer} type="button" aria-label="Close image viewer">
+  <button class="chat-image-viewer" onclick={closeImageViewer} onpointerup={(e) => e.pointerType !== 'mouse' && closeImageViewer()} type="button" aria-label="Close image viewer">
     <div class="chat-image-viewer-frame">
       <img src={expandedImage} alt="Expanded chat upload" class="chat-image-viewer-image" />
     </div>
@@ -1998,36 +1998,36 @@
 
       <div class="chat-topbar-actions">
         {#if !isPopout && isDesktopClient}
-          <button class="topbar-btn" onclick={popoutChat} title="Open chat in a separate window" type="button">
+          <button class="topbar-btn" onclick={popoutChat} onpointerup={(e) => e.pointerType !== 'mouse' && popoutChat()} title="Open chat in a separate window" type="button">
             Pop Out
           </button>
         {/if}
         {#if isPopout && isDesktopClient}
-          <button class="topbar-btn chrome-btn" onclick={minimizeDesktopWindow} title="Minimize chat" type="button">_</button>
-          <button class="topbar-btn chrome-btn" onclick={toggleMaximizeDesktopWindow} title={desktopWindowState.maximized ? 'Restore window' : 'Maximize window'} type="button">
+          <button class="topbar-btn chrome-btn" onclick={minimizeDesktopWindow} onpointerup={(e) => e.pointerType !== 'mouse' && minimizeDesktopWindow()} title="Minimize chat" type="button">_</button>
+          <button class="topbar-btn chrome-btn" onclick={toggleMaximizeDesktopWindow} onpointerup={(e) => e.pointerType !== 'mouse' && toggleMaximizeDesktopWindow()} title={desktopWindowState.maximized ? 'Restore window' : 'Maximize window'} type="button">
             {desktopWindowState.maximized ? '❐' : '□'}
           </button>
-          <button class="topbar-btn chrome-btn" onclick={toggleFullscreenDesktopWindow} title={desktopWindowState.fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} type="button">
+          <button class="topbar-btn chrome-btn" onclick={toggleFullscreenDesktopWindow} onpointerup={(e) => e.pointerType !== 'mouse' && toggleFullscreenDesktopWindow()} title={desktopWindowState.fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} type="button">
             {desktopWindowState.fullscreen ? '🡼' : '⛶'}
           </button>
         {/if}
         {#if !isPopout}
-          <button class="topbar-btn" onclick={toggleMode} title={effectiveChatMode === 'full' ? 'Use compact mode' : 'Use full mode'} type="button">
+          <button class="topbar-btn" onclick={toggleMode} onpointerup={(e) => e.pointerType !== 'mouse' && toggleMode()} title={effectiveChatMode === 'full' ? 'Use compact mode' : 'Use full mode'} type="button">
             {effectiveChatMode === 'full' ? 'Small' : 'Full'}
           </button>
         {/if}
-        <button class="topbar-btn close" onclick={hide} title="Close chat" type="button">X</button>
+        <button class="topbar-btn close" onclick={hide} onpointerup={(e) => e.pointerType !== 'mouse' && hide()} title="Close chat" type="button">X</button>
       </div>
     </header>
 
     <div class="chat-content">
       <aside class="chat-rail">
-        <button class="rail-tab public-tab" class:active={activeView === 'all'} onclick={showPublic} title="Public" type="button">
+        <button class="rail-tab public-tab" class:active={activeView === 'all'} onclick={showPublic} onpointerup={(e) => e.pointerType !== 'mouse' && showPublic()} title="Public" type="button">
           <span class="rail-tab-name">Public</span>
         </button>
 
         {#if canAccessStaff}
-          <button class="rail-tab public-tab" class:active={activeView === 'staff'} onclick={showStaff} title="Staff" type="button">
+          <button class="rail-tab public-tab" class:active={activeView === 'staff'} onclick={showStaff} onpointerup={(e) => e.pointerType !== 'mouse' && showStaff()} title="Staff" type="button">
             <span class="rail-tab-name">Staff</span>
           </button>
         {/if}
@@ -2038,7 +2038,7 @@
 
         <div class="rail-thread-list">
           {#each activeThreads as thread (thread.id)}
-            <button class="rail-tab thread-tab" class:active={activeView === 'dm' && Number(recipient?.id) === Number(thread.id)} class:inactive={thread.user?.afk} onclick={() => openThreadById(thread.id)} title={thread.user?.username || 'Direct message'} type="button">
+            <button class="rail-tab thread-tab" class:active={activeView === 'dm' && Number(recipient?.id) === Number(thread.id)} class:inactive={thread.user?.afk} onclick={() => openThreadById(thread.id)} onpointerup={(e) => e.pointerType !== 'mouse' && openThreadById(thread.id)} title={thread.user?.username || 'Direct message'} type="button">
               <span class="rail-tab-name">{thread.user?.username || 'Unknown'}</span>
               {#if getUnreadCount(thread.id) > 0}
                 <span class="rail-badge">{getUnreadCount(thread.id)}</span>
@@ -2047,7 +2047,7 @@
           {/each}
         </div>
 
-        <button class="rail-action" class:active={activeView === 'directory'} onclick={showDirectory} title="Start direct message" type="button">
+        <button class="rail-action" class:active={activeView === 'directory'} onclick={showDirectory} onpointerup={(e) => e.pointerType !== 'mouse' && showDirectory()} title="Start direct message" type="button">
           <span>+</span>
           <span>New DM</span>
         </button>
@@ -2055,7 +2055,7 @@
       <div class="chat-main">
         <div class="chat-stage" class:drop-target={isDropTarget} ondragenter={handleDragEnter} ondragover={handleDragOver} ondragleave={handleDragLeave} ondrop={handleDrop} role="region" aria-label="Chat messages">
           {#if (activeView === 'all' && !chatPinnedToBottom.all) || (activeView === 'staff' && !chatPinnedToBottom.staff) || (activeView === 'dm' && !chatPinnedToBottom.dm)}
-            <button class="return-to-present" onclick={jumpToPresent} type="button">
+            <button class="return-to-present" onclick={jumpToPresent} onpointerup={(e) => e.pointerType !== 'mouse' && jumpToPresent()} type="button">
               Return to present
             </button>
           {/if}
@@ -2075,7 +2075,7 @@
                 <div class="directory-empty">Nobody else is online right now.</div>
               {:else}
                 {#each directoryUsers as user (user.id)}
-                  <button class="directory-user" class:inactive={user.afk} onclick={() => selectDMRecipient(user)} oncontextmenu={(event) => openUserContextMenu(event, user.id)} title={directoryUserMeta(user)} type="button">
+                  <button class="directory-user" class:inactive={user.afk} onclick={() => selectDMRecipient(user)} onpointerup={(e) => e.pointerType !== 'mouse' && selectDMRecipient(user)} oncontextmenu={(event) => openUserContextMenu(event, user.id)} title={directoryUserMeta(user)} type="button">
                     <span class="directory-avatar" style="--avatar-color: {user.color}">
                       <img src={getChatToolIconUrl(user)} alt={getChatToolIconAlt(user)} class="directory-tool-icon" />
                     </span>
@@ -2143,7 +2143,7 @@
             <strong>{composerImage.name}</strong>
             <span>Ready to send</span>
           </div>
-          <button class="composer-preview-remove" onclick={removeComposerImage} type="button">Remove</button>
+          <button class="composer-preview-remove" onclick={removeComposerImage} onpointerup={(e) => e.pointerType !== 'mouse' && removeComposerImage()} type="button">Remove</button>
         </div>
       {/if}
 
@@ -2153,7 +2153,7 @@
               <span class="reaction-picker-label">Emojis</span>
               <div class="reaction-picker-grid composer-emoji-grid">
                 {#each rankedComposerEmojis() as emoji (emoji)}
-                  <button class="emoji-btn" onclick={() => insertEmoji(emoji)} type="button">
+                  <button class="emoji-btn" onclick={() => insertEmoji(emoji)} onpointerup={(e) => e.pointerType !== 'mouse' && insertEmoji(emoji)} type="button">
                     {emoji}
                   </button>
                 {/each}
@@ -2164,10 +2164,10 @@
 
       <div class="composer-row">
         <input class="composer-file-input" bind:this={fileInputEl} onchange={handleFileInputChange} accept="image/*" type="file" />
-        <button class="composer-tool upload-tool" onclick={openFilePicker} disabled={activeView === 'directory'} title="Upload image" type="button">
+        <button class="composer-tool upload-tool" onclick={openFilePicker} onpointerup={(e) => e.pointerType !== 'mouse' && openFilePicker()} disabled={activeView === 'directory'} title="Upload image" type="button">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M1 1H15V15H1V1ZM6 9L8 11L13 6V13H3V12L6 9ZM6.5 7C7.32843 7 8 6.32843 8 5.5C8 4.67157 7.32843 4 6.5 4C5.67157 4 5 4.67157 5 5.5C5 6.32843 5.67157 7 6.5 7Z" fill="currentColor"/></svg>
         </button>
-        <button class="composer-tool emoji-tool" onclick={openEmojiPicker} disabled={activeView === 'directory'} title="Add emoji" type="button">{COMPOSER_EMOJIS[0]}</button>
+        <button class="composer-tool emoji-tool" onclick={openEmojiPicker} onpointerup={(e) => e.pointerType !== 'mouse' && openEmojiPicker()} disabled={activeView === 'directory'} title="Add emoji" type="button">{COMPOSER_EMOJIS[0]}</button>
         <div class="chat-input-wrap">
           <textarea class="chat-input" bind:this={composerInputEl} bind:value={messageInput} onkeydown={handleKeydown} onkeyup={syncMentionSuggestion} onclick={syncMentionSuggestion} oninput={syncMentionSuggestion} placeholder={activeView === 'all' ? 'Message the room...' : activeView === 'staff' ? 'Message staff...' : activeView === 'dm' && recipient ? `Message ${recipient.username}...` : 'Select someone to start a DM...'} rows="1" disabled={activeView === 'directory'}></textarea>
           {#if mentionSuggestion}
@@ -2176,7 +2176,7 @@
             </div>
           {/if}
         </div>
-        <button class="chat-send" onclick={handleSend} disabled={activeView === 'directory'} type="button">Send</button>
+        <button class="chat-send" onclick={handleSend} onpointerup={(e) => e.pointerType !== 'mouse' && handleSend()} disabled={activeView === 'directory'} type="button">Send</button>
       </div>
         </footer>
     </div>
