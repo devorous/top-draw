@@ -72,6 +72,10 @@ export class LayerManager {
     }
   }
 
+  _notifyHistoryPanel(immediate = false) {
+    this._notifyStrokeHistoryPanel(immediate);
+  }
+
   /**
    * Create a new full-size canvas and context
    * @returns {Object} {canvas, ctx}
