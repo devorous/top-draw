@@ -603,6 +603,7 @@ export class DrawingApp {
 
     this.strokeHistoryPanel.init();
     this._bindLayerManagerDependencies();
+    this.updateUndoRedoHud();
 
     this.performanceDebugPanel.init();
     // PerformanceSettings.init() called lazily by Moderation._showPerformanceSettings()

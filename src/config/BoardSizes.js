@@ -13,6 +13,7 @@ export function applyRoomBoardSize(app, boardSize, options = {}) {
 
   if (changed) {
     board.resizeBoard(newDimensions);
+    app._bindLayerManagerDependencies?.();
     if (options.showToast !== false) {
       app.ui?.showToast?.(`Board resized to ${String(boardSize).toUpperCase()} (${nextW}x${nextH})`, 3000);
     }
