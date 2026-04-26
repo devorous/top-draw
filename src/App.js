@@ -6423,7 +6423,19 @@ export class DrawingApp {
       return;
     }
 
+    // If the select tool has a floating lifted selection, the undo will pop the
+    // selection erase stroke and restore the original pixels. The floating canvas
+    // becomes orphaned, so discard it afterward to prevent accidental re-placement.
+    const selectTool = this.toolManager?.getTool('select');
+    const selectRealTool = selectTool?.realTool ?? selectTool;
+    const hadLiftedSelection = !!(selectRealTool?.floatingCanvas && selectRealTool?._restoreData);
+
     this.board.undo(this.self.activeLayer, this.self.id);
+
+    if (hadLiftedSelection) {
+      selectTool.clearSelection();
+    }
+
     if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastUndo());
     }
