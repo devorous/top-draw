@@ -46,31 +46,52 @@ async function deleteSnapshotRecord(db, room, doc) {
     await deleteSnapshotBundle(doc.r2Key);
   }
 
-  await db.collection('rooms').updateOne(
-    { _id: room.id },
-    { $pull: { snapshots: { snapshotId: doc.snapshotId } } }
-  );
+  await db.collection('room_snapshots').deleteOne({ snapshotId: doc.snapshotId });
   room.snapshots = room.snapshots.filter(s => s.id !== doc.snapshotId);
 }
 
 async function pruneSnapshotsForRoom(db, room) {
   const maxSnapshots = getSnapshotMaxPerRoom();
 
-  const roomDoc = await db.collection('rooms').findOne(
-    { _id: room.id },
-    { projection: { snapshots: 1 } }
-  );
-
-  if (!roomDoc?.snapshots?.length) return;
-
-  const sorted = [...roomDoc.snapshots].sort((a, b) => (b.timestamp - a.timestamp));
-  const overflow = sorted.slice(maxSnapshots);
+  const overflow = await db.collection('room_snapshots')
+    .find({ roomId: room.id })
+    .sort({ timestamp: -1 })
+    .skip(maxSnapshots)
+    .project({ snapshotId: 1, r2Key: 1 })
+    .toArray();
 
   for (const doc of overflow) {
     await deleteSnapshotRecord(db, room, doc);
   }
 }
 
+/**
+ * Removes the legacy embedded `snapshots` array from a room document.
+ * Called once per snapshot save so old bloated rooms get cleaned up during normal usage.
+ */
+async function unsetLegacyEmbeddedSnapshots(db, roomId) {
+  try {
+    await db.collection('rooms').updateOne(
+      { _id: roomId, snapshots: { $exists: true } },
+      { $unset: { snapshots: '' } }
+    );
+  } catch (err) {
+    console.warn(`[Snapshot] Failed to unset legacy embedded snapshots for room ${roomId}:`, err);
+  }
+}
+
+
+/**
+ * Looks up a snapshot metadata document by its snapshotId, scoped to the room.
+ * @param {string} roomId
+ * @param {string} snapshotId
+ * @returns {Promise<Object|null>}
+ */
+async function findSnapshotDoc(roomId, snapshotId) {
+  const db = getDB();
+  if (!db) return null;
+  return db.collection('room_snapshots').findOne({ roomId, snapshotId });
+}
 
 /**
  * Insert a blank "session start" checkpoint for a room if none exists yet.
@@ -83,30 +104,25 @@ async function maybeCreateInitialCheckpoint(roomId, bgColor, ts) {
   const db = getDB();
   if (!db) return;
 
-  const existing = await db.collection('rooms').findOne(
-    { _id: roomId, 'snapshots.auto': true },
+  const existing = await db.collection('room_snapshots').findOne(
+    { roomId, auto: true },
     { projection: { _id: 1 } }
   );
   if (existing) return;
 
   const id = `snap_initial_${roomId}`;
-  await db.collection('rooms').updateOne(
-    { _id: roomId },
-    {
-      $push: {
-        snapshots: {
-          snapshotId: id,
-          timestamp: ts,
-          issuer: 'server',
-          layers: [],
-          thumb: null,
-          auto: true,
-          initial: true,
-          bgColor
-        }
-      }
-    }
-  );
+  await db.collection('room_snapshots').insertOne({
+    snapshotId: id,
+    roomId,
+    timestamp: ts,
+    issuer: 'server',
+    auto: true,
+    initial: true,
+    bgColor,
+    thumbnail: null,
+    r2Key: null,
+    name: 'Initial checkpoint'
+  });
   getRecorder(roomId).onCheckpoint(id);
 }
 
@@ -197,10 +213,11 @@ export async function handleSnapshotSave(ws, data, room) {
         }
       }
 
-      await db.collection('rooms').updateOne(
-        { _id: room.id },
-        { $push: { snapshots: mongoDoc } }
-      );
+      await db.collection('room_snapshots').insertOne({
+        ...mongoDoc,
+        roomId: room.id
+      });
+      await unsetLegacyEmbeddedSnapshots(db, room.id);
       await pruneSnapshotsForRoom(db, room);
 
       if (isAuto) {
@@ -227,16 +244,14 @@ export async function handleSnapshotList(ws, data, room) {
 
   if (db) {
     try {
-      const roomDoc = await db.collection('rooms').findOne(
-        { _id: room.id },
-        { projection: { snapshots: 1 } }
-      );
+      const filter = { roomId: room.id };
+      if (beforeTs) filter.timestamp = { $lt: beforeTs };
 
-      const allSnapshots = (roomDoc?.snapshots || [])
-        .filter(s => !beforeTs || s.timestamp < beforeTs)
-        .sort((a, b) => b.timestamp - a.timestamp);
-
-      dbSnapshots = allSnapshots.slice(0, SNAPSHOT_LIST_PAGE_SIZE);
+      dbSnapshots = await db.collection('room_snapshots')
+        .find(filter)
+        .sort({ timestamp: -1 })
+        .limit(SNAPSHOT_LIST_PAGE_SIZE)
+        .toArray();
     } catch (err) {
       console.error('[Snapshot] DB list error:', err);
     }
@@ -284,45 +299,31 @@ export async function handleSnapshotRestore(ws, data, room) {
       layers: snapshotInMemory.layers
     };
   } else {
-    // 2. Fetch from the room's embedded snapshots array and then R2
-    const db = getDB();
-    if (db) {
-      try {
-        const roomDoc = await db.collection('rooms').findOne(
-          { _id: room.id, 'snapshots.snapshotId': snapshotId },
-          { projection: { 'snapshots.$': 1 } }
-        );
-        const doc = roomDoc?.snapshots?.[0];
+    // 2. Fetch from the room_snapshots collection and then R2
+    try {
+      const doc = await findSnapshotDoc(room.id, snapshotId);
 
-        if (!doc) {
-          console.warn(`[Snapshot] Restore failed: Snapshot ${snapshotId} not found in room "${room.id}".`);
-          return;
-        }
-
-        if (doc.r2Key) {
-          const bundle = await getSnapshotBundle(doc.r2Key);
-          if (!bundle) {
-            console.warn(`[Snapshot] Restore failed: Snapshot bundle not found in R2 for key ${doc.r2Key}.`);
-            return;
-          }
-          snapshotData = {
-            id: doc.snapshotId,
-            ts: doc.timestamp,
-            issuer: doc.issuer,
-            layers: bundle.layers
-          };
-        } else {
-          snapshotData = {
-            id: doc.snapshotId,
-            ts: doc.timestamp,
-            issuer: doc.issuer,
-            layers: (doc.layers || []).map(l => l.buffer || l)
-          };
-        }
-      } catch (err) {
-        console.error(`[Snapshot] DB/R2 fetch error during restore for ${snapshotId}:`, err);
+      if (!doc) {
+        console.warn(`[Snapshot] Restore failed: Snapshot ${snapshotId} not found in room "${room.id}".`);
         return;
       }
+
+      if (doc.r2Key) {
+        const bundle = await getSnapshotBundle(doc.r2Key);
+        if (!bundle) {
+          console.warn(`[Snapshot] Restore failed: Snapshot bundle not found in R2 for key ${doc.r2Key}.`);
+          return;
+        }
+        snapshotData = {
+          id: doc.snapshotId,
+          ts: doc.timestamp,
+          issuer: doc.issuer,
+          layers: bundle.layers
+        };
+      }
+    } catch (err) {
+      console.error(`[Snapshot] DB/R2 fetch error during restore for ${snapshotId}:`, err);
+      return;
     }
   }
 
@@ -369,47 +370,32 @@ export async function handleSnapshotGet(ws, data, room) {
       thumb: snapshotInMemory.thumb
     };
   } else {
-    // 2. Fetch from the room's embedded snapshots array and then R2
-    const db = getDB();
-    if (db) {
-      try {
-        const roomDoc = await db.collection('rooms').findOne(
-          { _id: room.id, 'snapshots.snapshotId': snapshotId },
-          { projection: { 'snapshots.$': 1 } }
-        );
-        const doc = roomDoc?.snapshots?.[0];
+    // 2. Fetch from the room_snapshots collection and then R2
+    try {
+      const doc = await findSnapshotDoc(room.id, snapshotId);
 
-        if (!doc) {
-          console.warn(`[Snapshot] Get failed: Snapshot ${snapshotId} not found in room "${room.id}".`);
-          return;
-        }
-
-        if (doc.r2Key) {
-          const bundle = await getSnapshotBundle(doc.r2Key);
-          if (!bundle) {
-            console.warn(`[Snapshot] Get failed: Snapshot bundle not found in R2 for key ${doc.r2Key}.`);
-            return;
-          }
-          snapshotData = {
-            id: doc.snapshotId,
-            ts: doc.timestamp,
-            issuer: doc.issuer,
-            layers: bundle.layers,
-            thumb: bundle.thumbnail
-          };
-        } else {
-          snapshotData = {
-            id: doc.snapshotId,
-            ts: doc.timestamp,
-            issuer: doc.issuer,
-            layers: (doc.layers || []).map(l => l.buffer || l),
-            thumb: doc.thumb
-          };
-        }
-      } catch (err) {
-        console.error(`[Snapshot] DB/R2 fetch error during get for ${snapshotId}:`, err);
+      if (!doc) {
+        console.warn(`[Snapshot] Get failed: Snapshot ${snapshotId} not found in room "${room.id}".`);
         return;
       }
+
+      if (doc.r2Key) {
+        const bundle = await getSnapshotBundle(doc.r2Key);
+        if (!bundle) {
+          console.warn(`[Snapshot] Get failed: Snapshot bundle not found in R2 for key ${doc.r2Key}.`);
+          return;
+        }
+        snapshotData = {
+          id: doc.snapshotId,
+          ts: doc.timestamp,
+          issuer: doc.issuer,
+          layers: bundle.layers,
+          thumb: bundle.thumbnail
+        };
+      }
+    } catch (err) {
+      console.error(`[Snapshot] DB/R2 fetch error during get for ${snapshotId}:`, err);
+      return;
     }
   }
 
@@ -449,41 +435,29 @@ export async function handleSnapshotRegionRestore(ws, data, room) {
       layers: snapshotInMemory.layers
     };
   } else {
-    // 2. Fetch from the room's embedded snapshots array and then R2
-    const db = getDB();
-    if (db) {
-      try {
-        const roomDoc = await db.collection('rooms').findOne(
-          { _id: room.id, 'snapshots.snapshotId': snapshotId },
-          { projection: { 'snapshots.$': 1 } }
-        );
-        const doc = roomDoc?.snapshots?.[0];
+    // 2. Fetch from the room_snapshots collection and then R2
+    try {
+      const doc = await findSnapshotDoc(room.id, snapshotId);
 
-        if (!doc) {
-          console.warn(`[Snapshot] Region restore failed: Snapshot ${snapshotId} not found in room "${room.id}".`);
-          return;
-        }
-
-        if (doc.r2Key) {
-          const bundle = await getSnapshotBundle(doc.r2Key);
-          if (!bundle) {
-            console.warn(`[Snapshot] Region restore failed: Snapshot bundle not found in R2 for key ${doc.r2Key}.`);
-            return;
-          }
-          snapshotData = {
-            id: doc.snapshotId,
-            layers: bundle.layers
-          };
-        } else {
-          snapshotData = {
-            id: doc.snapshotId,
-            layers: (doc.layers || []).map(l => l.buffer || l)
-          };
-        }
-      } catch (err) {
-        console.error(`[Snapshot] DB/R2 fetch error during region restore for ${snapshotId}:`, err);
+      if (!doc) {
+        console.warn(`[Snapshot] Region restore failed: Snapshot ${snapshotId} not found in room "${room.id}".`);
         return;
       }
+
+      if (doc.r2Key) {
+        const bundle = await getSnapshotBundle(doc.r2Key);
+        if (!bundle) {
+          console.warn(`[Snapshot] Region restore failed: Snapshot bundle not found in R2 for key ${doc.r2Key}.`);
+          return;
+        }
+        snapshotData = {
+          id: doc.snapshotId,
+          layers: bundle.layers
+        };
+      }
+    } catch (err) {
+      console.error(`[Snapshot] DB/R2 fetch error during region restore for ${snapshotId}:`, err);
+      return;
     }
   }
 
@@ -519,11 +493,7 @@ export async function handleSnapshotDelete(ws, data, room) {
   const db = getDB();
   if (db) {
     try {
-      const roomDoc = await db.collection('rooms').findOne(
-        { _id: room.id, 'snapshots.snapshotId': snapshotId },
-        { projection: { 'snapshots.$': 1 } }
-      );
-      const doc = roomDoc?.snapshots?.[0];
+      const doc = await findSnapshotDoc(room.id, snapshotId);
       if (doc) {
         await deleteSnapshotRecord(db, room, doc);
       }
@@ -574,14 +544,10 @@ export async function handleSnapshotJoinNotify(ws, room) {
   if (!db) return;
 
   try {
-    const roomDoc = await db.collection('rooms').findOne(
-      { _id: room.id },
-      { projection: { snapshots: 1 } }
+    const doc = await db.collection('room_snapshots').findOne(
+      { roomId: room.id, thumbnail: { $ne: null } },
+      { sort: { timestamp: -1 } }
     );
-
-    const doc = (roomDoc?.snapshots || [])
-      .filter(s => s.thumbnail)
-      .sort((a, b) => b.timestamp - a.timestamp)[0];
 
     if (!doc) return;
 

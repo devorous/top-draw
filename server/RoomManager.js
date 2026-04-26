@@ -92,7 +92,7 @@ export class Room {
 
     /** @type {NodeJS.Timeout|null} Server-driven snapshot request interval */
     this._snapshotTimer = null;
-    this._snapshotIntervalMs = 10000;
+    this._snapshotIntervalMs = 15000;
 
     /** @type {Set<number>} Session indices that were asked for a server-initiated snapshot */
     this._pendingSnapshotRequests = new Set();
@@ -254,26 +254,15 @@ export class Room {
     if (!db) return null;
 
     try {
-      const roomDoc = await db.collection('rooms').findOne(
-        { _id: this.id },
-        { projection: { snapshots: 1 } }
+      const doc = await db.collection('room_snapshots').findOne(
+        { roomId: this.id, r2Key: { $ne: null } },
+        { sort: { timestamp: -1 } }
       );
+      if (!doc || !doc.r2Key) return null;
 
-      const doc = (roomDoc?.snapshots || []).sort((a, b) => b.timestamp - a.timestamp)[0];
-      if (!doc) return null;
-
-      if (doc.r2Key) {
-        const bundle = await getSnapshotBundle(doc.r2Key);
-        if (!bundle) return null;
-        return { id: doc.snapshotId, ts: doc.timestamp, issuer: doc.issuer, layers: bundle.layers };
-      } else {
-        return {
-          id: doc.snapshotId,
-          ts: doc.timestamp,
-          issuer: doc.issuer,
-          layers: (doc.layers || []).map(l => l.buffer || l)
-        };
-      }
+      const bundle = await getSnapshotBundle(doc.r2Key);
+      if (!bundle) return null;
+      return { id: doc.snapshotId, ts: doc.timestamp, issuer: doc.issuer, layers: bundle.layers };
     } catch (err) {
       console.error(`[Room] Failed to fetch latest snapshot for "${this.id}":`, err);
       return null;
@@ -426,8 +415,7 @@ export class Room {
           },
           $setOnInsert: {
             createdAt: new Date(),
-            roles: [],
-            snapshots: []
+            roles: []
           }
         },
         { upsert: true }
