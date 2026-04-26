@@ -271,6 +271,10 @@ export class WebSocketClient {
       if (this._identityPayload?.clientIdentityJson) {
         url.searchParams.set('identity', this._identityPayload.clientIdentityJson);
       }
+      const appVersion = String(window.APP_VERSION || '').trim();
+      if (appVersion) {
+        url.searchParams.set('v', appVersion);
+      }
       this._url = url.toString();
     } catch (err) {
       this._url = baseUrl;
@@ -287,6 +291,10 @@ export class WebSocketClient {
       }
       if (this._identityPayload?.clientIdentityJson) {
         extraParams.push(`identity=${encodeURIComponent(this._identityPayload.clientIdentityJson)}`);
+      }
+      const appVersion = String(window.APP_VERSION || '').trim();
+      if (appVersion) {
+        extraParams.push(`v=${encodeURIComponent(appVersion)}`);
       }
       if (extraParams.length) {
         const separator = this._url.includes('?') ? '&' : '?';

@@ -390,6 +390,7 @@ export class DrawingApp {
     this._memoryCompactionDelayMs = 2500;
     this._versionPollTimer = null;
     this._versionUpdateNoticed = false;
+    this._awaitingServerRestart = false;
     this._reloadRecommended = false;
 
     this.snapshotManager = new SnapshotManager(this);
@@ -2935,6 +2936,11 @@ export class DrawingApp {
       this.landingPage.updateConnectionStatus('connected');
     }
 
+    if (this._awaitingServerRestart) {
+      this._awaitingServerRestart = false;
+      void this.checkForRuntimeUpdate({ force: true });
+    }
+
     this.updateRecordingButtonState();
 
     const isDiscoveryConnection = !this.currentRoomId || this.currentRoomId === '_discovery';
@@ -3096,6 +3102,8 @@ export class DrawingApp {
       }
       this.showModOverlay(label, reason || '');
     } else if (code === 4000 || String(reason || '').includes('server-restarting')) {
+      this._awaitingServerRestart = true;
+      this._versionUpdateNoticed = false;
       // Server is shutting down for a restart. Don't offer a "Reload" yet —
       // the new version isn't live. Show a plain reconnection banner; the
       // version poller will surface the real update prompt once the new
@@ -3120,8 +3128,15 @@ export class DrawingApp {
   }
 
   async checkForRuntimeUpdate({ force = true } = {}) {
+    if (!this._awaitingServerRestart) return;
+    if (!this.wsClient?.connected) return;
     if (this._versionUpdateNoticed) return;
     const status = await getVersionStatus({ force });
+    if (status?.allowed === false) {
+      this._versionUpdateNoticed = true;
+      this.showUpdateRequiredNotice(status);
+      return;
+    }
     const latest = status?.serverVersion?.latest || status?.latestVersion;
     if (!latest || !status.clientVersion || latest === status.clientVersion) return;
 
@@ -3130,6 +3145,7 @@ export class DrawingApp {
   }
 
   async showUpdateAvailableNotice(versionStatus = {}) {
+    this._versionUpdateNoticed = true;
     this._reloadRecommended = true;
     const latest = versionStatus.latestVersion || versionStatus.serverVersion?.latest || 'the latest version';
     this.ui.showDisconnectionBanner({
@@ -3145,6 +3161,7 @@ export class DrawingApp {
   }
 
   showUpdateRequiredNotice(versionStatus = {}) {
+    this._versionUpdateNoticed = true;
     this._reloadRecommended = true;
     this.ui.showToast('Update required before connecting online', 3500, 'error');
     this.ui.showDisconnectionBanner({
@@ -3156,6 +3173,7 @@ export class DrawingApp {
   }
 
   async handleServerUpdateNotice(data = {}) {
+    this._versionUpdateNoticed = true;
     this._reloadRecommended = true;
     this.ui.showToast(data.message || 'Ddraw is updating', 5000);
     this.ui.showDisconnectionBanner({

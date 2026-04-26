@@ -74,6 +74,72 @@ const ADMIN_COLLECTIONS = new Set([
   'comments',
   'messages'
 ]);
+const VERSION_JSON_PATH = pathModule.join(__dirname, '..', 'public', 'version.json');
+const VERSION_POLICY_CACHE_MS = 5000;
+
+let cachedVersionPolicy = null;
+let cachedVersionPolicyAt = 0;
+let versionPolicyPromise = null;
+
+function parseSemver(versionStr) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/.exec(String(versionStr || ''));
+  if (!match) return null;
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4] || null
+  };
+}
+
+function compareSemver(a, b) {
+  if (a.major !== b.major) return a.major < b.major ? -1 : 1;
+  if (a.minor !== b.minor) return a.minor < b.minor ? -1 : 1;
+  if (a.patch !== b.patch) return a.patch < b.patch ? -1 : 1;
+
+  const aStable = a.prerelease === null;
+  const bStable = b.prerelease === null;
+  if (aStable && !bStable) return 1;
+  if (!aStable && bStable) return -1;
+  if (a.prerelease === b.prerelease) return 0;
+  if (!a.prerelease) return 1;
+  if (!b.prerelease) return -1;
+  return a.prerelease < b.prerelease ? -1 : 1;
+}
+
+function isClientOutdated(clientVersion, minRequired) {
+  const clientParsed = parseSemver(clientVersion);
+  const minParsed = parseSemver(minRequired);
+  if (!clientParsed || !minParsed) return false;
+  return compareSemver(clientParsed, minParsed) < 0;
+}
+
+async function readVersionPolicy({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && cachedVersionPolicy && (now - cachedVersionPolicyAt) < VERSION_POLICY_CACHE_MS) {
+    return cachedVersionPolicy;
+  }
+  if (!force && versionPolicyPromise) {
+    return versionPolicyPromise;
+  }
+
+  versionPolicyPromise = (async () => {
+    try {
+      const fsp = await import('fs/promises');
+      const parsed = JSON.parse(await fsp.readFile(VERSION_JSON_PATH, 'utf8'));
+      cachedVersionPolicy = parsed;
+      cachedVersionPolicyAt = Date.now();
+      return parsed;
+    } catch (error) {
+      console.error('[Version] Failed to read policy:', error);
+      return cachedVersionPolicy;
+    } finally {
+      versionPolicyPromise = null;
+    }
+  })();
+
+  return versionPolicyPromise;
+}
 
 function getJoinPolicyMinRole(joinPolicy) {
   if (joinPolicy === 'trusted') return Role.TRUSTED;
@@ -1797,6 +1863,7 @@ wss.on('connection', async (ws, req) => {
     ws.clientSubnet = getIpSubnet(ws.clientIp);
     ws.deviceId = String(url.searchParams.get('deviceId') || '').trim();
     ws.fingerprintId = String(url.searchParams.get('fingerprintId') || '').trim();
+    ws.clientAppVersion = String(url.searchParams.get('v') || '').trim().slice(0, 64);
     ws.identitySummary = null;
     const identityFromQuery = String(url.searchParams.get('identity') || '').trim();
     if (identityFromQuery) {
@@ -2044,6 +2111,24 @@ wss.on('connection', async (ws, req) => {
           }
 
           sendTo(ws, buildSettingsPayload(room));
+
+          if (ws.clientAppVersion) {
+            readVersionPolicy().then((versionPolicy) => {
+              if (!versionPolicy?.minRequired) return;
+              if (!isClientOutdated(ws.clientAppVersion, versionPolicy.minRequired)) return;
+
+              const latest = versionPolicy.latest || versionPolicy.minRequired;
+              sendTo(ws, {
+                t: T.GLOBAL_MESSAGE,
+                g: `A new Ddraw server version is live (${latest}). Please refresh or update now to reconnect.`,
+                k: 'update',
+                n: 'Server',
+                a: false
+              });
+            }).catch((error) => {
+              console.error('[Version] Failed to evaluate client version on connect:', error);
+            });
+          }
 
           // Notify joining user of the most recent snapshot (if any)
           console.log(`[Room.CONNECT] Before handleSnapshotJoinNotify: room client count = ${room.getClientCount()}`);
