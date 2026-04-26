@@ -93,10 +93,25 @@ export class RemoteUserHandler {
       return;
     }
 
+    // Ink: always batch-route through inkHandler so local and remote follow the
+    // same perfect-freehand pipeline. When the sender sent uniform pressures it
+    // omits `rs` (broadcastMove path) — synthesize a uniform radii array from
+    // user.pressure as-is. Do NOT coerce a 0 to a positive value: a transient
+    // pressure=0 sample must keep being filtered by handleInkPoints' skip-guard,
+    // otherwise a liftoff sample renders as a full-size 100% dot.
+    if (!user.panning && user.mousedown && user.tool === 'ink') {
+      const inkRadii = (radii && radii.length > 0)
+        ? radii
+        : new Array(smoothedPoints.length / 2).fill(Math.round((user.pressure ?? 1) * 255));
+      this.inkHandler.handleInkPoints(user, smoothedPoints, inkRadii);
+      if (smoothedPoints.length >= 2) {
+        this.ui.updateRemoteCursor(user.id, smoothedPoints[smoothedPoints.length - 2], smoothedPoints[smoothedPoints.length - 1], user.size);
+      }
+      return;
+    }
+
     if (!user.panning && user.mousedown && radii && radii.length > 0) {
-      if (user.tool === 'ink') {
-        this.inkHandler.handleInkPoints(user, smoothedPoints, radii);
-      } else if (user.tool === 'pixel' || user.tool === 'imageBrush') {
+      if (user.tool === 'pixel' || user.tool === 'imageBrush') {
         if (user.tool === 'imageBrush' && user.imageBrush?._pendingStrokes) {
           user.imageBrush._pendingStrokes.push({ type: 'stamps', pts: [...smoothedPoints] });
         } else {
