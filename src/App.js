@@ -30,7 +30,6 @@ import { TimeMachine } from './timebar/TimeMachine.svelte.js';
 // PerformanceSettings is lazy-loaded by Moderation._showPerformanceSettings()
 import { highlight } from './ui/Highlight.js';
 import { SaveMode } from './ui/SaveMode.js';
-import { HistoryPanel } from './ui/HistoryPanel.js';
 import { MirrorRegionController } from './ui/MirrorRegionController.js';
 import { BoardViewer } from './ui/BoardViewer.js';
 import { SnapshotManager } from './remote/SnapshotManager.js';
@@ -376,16 +375,13 @@ export class DrawingApp {
     // Save mode (initialized in init() after board is ready)
     this.saveMode = null;
 
-    // History panel (initialized in init() after board is ready)
-    this.historyPanel = null;
-
     // Room preview interval (sends 1/4 scale preview to server every 30s)
     this._previewInterval = null;
     this._previewIntervalMs = 30000;
 
     // Checkpoint interval (dedicated user sends full board every 60s)
     this._checkpointInterval = null;
-    this._checkpointIntervalMs = 60000;
+    this._checkpointIntervalMs = 30000;
     this._memoryCompactionTimer = null;
     this._memoryCompactionDelayMs = 2500;
     this._versionPollTimer = null;
@@ -589,7 +585,6 @@ export class DrawingApp {
     this.touchHandler = new TouchHandler(this);
     this.touchHandler.init(this.ui.elements.boardContainer);
     this.saveMode = new SaveMode(this);
-    this.historyPanel = new HistoryPanel(this);
     this.mirrorRegionController = new MirrorRegionController(this);
     this.mirrorRegionController.init();
     this.boardViewer = new BoardViewer(this);
@@ -1407,7 +1402,6 @@ export class DrawingApp {
       }
       this.openSaveDialog();
     });
-    if (elements.historyBtn) elements.historyBtn.addEventListener('click', () => this.historyPanel?.open());
     if (elements.saveModeCloseBtn) elements.saveModeCloseBtn.addEventListener('click', () => this.closeSaveDialog());
     if (elements.saveModeCancelBtn) elements.saveModeCancelBtn.addEventListener('click', () => this.closeSaveDialog());
     if (elements.saveModeOverlay) elements.saveModeOverlay.addEventListener('click', (e) => {
@@ -6686,6 +6680,7 @@ export class DrawingApp {
     if (isHidden) {
       this.stopPreviewInterval();
       this.stopCheckpointInterval();
+      this.snapshotManager?.stopLocalCapture();
       return;
     }
 
@@ -6698,17 +6693,30 @@ export class DrawingApp {
         this.stopCheckpointInterval();
       }
     } else {
-      // No election result yet — fall back to legacy preview for everyone
       this.stopCheckpointInterval();
       if (!this._previewInterval) this.startPreviewInterval();
     }
+    
+    // Everyone runs local capture for recovery
+    this.snapshotManager?.startLocalCapture();
   }
 
   startCheckpointInterval() {
     this.stopCheckpointInterval();
-    setTimeout(() => this.captureAndSendCheckpoint(), 3000);
+    // Initial snapshot after a short delay
+    setTimeout(() => this.snapshotManager?.handleServerRequest(), 3000);
+    
+    let tickCount = 0;
     this._checkpointInterval = setInterval(() => {
-      this.captureAndSendCheckpoint();
+      // Save snapshot every 30s (every tick)
+      this.snapshotManager?.handleServerRequest();
+      
+      // Send replay checkpoint every 60s (every other tick)
+      tickCount++;
+      if (tickCount >= 2) {
+        this.captureAndSendCheckpoint();
+        tickCount = 0;
+      }
     }, this._checkpointIntervalMs);
   }
 

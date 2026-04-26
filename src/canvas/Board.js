@@ -2278,7 +2278,7 @@ export class Board {
         !isDrawing &&
         !hasActiveSelection) {
       this.layerManager.needsComposite = false;
-      this.layerManager._notifyHistoryPanel();
+      this.layerManager._notifyStrokeHistoryPanel();
       return;
     }
 
@@ -2360,7 +2360,7 @@ export class Board {
     }
 
     this.layerManager.needsComposite = false;
-    this.layerManager._notifyHistoryPanel();
+    this.layerManager._notifyStrokeHistoryPanel();
   }
 
   /**

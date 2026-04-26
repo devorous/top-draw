@@ -59,7 +59,7 @@ export class LayerManager {
    * @param {boolean} [immediate=false] - If true, update immediately
    * @private
    */
-  _notifyHistoryPanel(immediate = false) {
+  _notifyStrokeHistoryPanel(immediate = false) {
     if (this.strokeHistoryPanel) {
       if (immediate) {
         this.strokeHistoryPanel.update();
@@ -202,7 +202,7 @@ export class LayerManager {
       affectedTiles: new Set()
     });
     this.needsComposite = true;
-    this._notifyHistoryPanel();
+    this._notifyStrokeHistoryPanel();
   }
 
   /**
@@ -298,7 +298,7 @@ export class LayerManager {
       this._bakeOverflowStrokes(group);
       this._clearRedoStack(userId);
       this.needsComposite = true;
-      this._notifyHistoryPanel();
+      this._notifyStrokeHistoryPanel();
       return;
     }
 
@@ -400,7 +400,7 @@ export class LayerManager {
     this._bakeOverflowStrokes(group);
     this._clearRedoStack(userId);
     this.needsComposite = true;
-    this._notifyHistoryPanel();
+    this._notifyStrokeHistoryPanel();
   }
 
   /**
@@ -446,7 +446,7 @@ export class LayerManager {
       group.activeStrokeByUser.delete(userId);
       this._releaseCanvas(active);
       this.needsComposite = true;
-      this._notifyHistoryPanel();
+      this._notifyStrokeHistoryPanel();
     }
   }
 
@@ -2036,7 +2036,7 @@ export class LayerManager {
     this.compositeLayerRange(targetCtx, 0, this.layerGroups.length, backgroundColor || null);
 
     this.needsComposite = false;
-    this._notifyHistoryPanel();
+    this._notifyStrokeHistoryPanel();
   }
 
   /**
@@ -2115,7 +2115,7 @@ export class LayerManager {
         group.flatCtx.clearRect(0, 0, this.width, this.height);
       }
       this.needsComposite = true;
-      this._notifyHistoryPanel();
+      this._notifyStrokeHistoryPanel();
     }
   }
 
@@ -2153,7 +2153,7 @@ export class LayerManager {
     this._disposeCanvasObject(this._groupBuffer);
     this._groupBuffer = null;
 
-    this._notifyHistoryPanel();
+    this._notifyStrokeHistoryPanel();
   }
 
   compactTransientState(options = {}) {

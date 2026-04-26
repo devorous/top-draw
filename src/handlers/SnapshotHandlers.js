@@ -6,7 +6,7 @@ import * as wasm from '../wasm/ddraw_wasm.js';
 import { readQoiDimensions } from '../../shared/qoi.js';
 
 function isSnapshotHistoryOpen(app) {
-  return !!(appState.snapshotMenuVisible || app.historyPanel?.isOpen);
+  return !!appState.snapshotMenuVisible;
 }
 
 /**

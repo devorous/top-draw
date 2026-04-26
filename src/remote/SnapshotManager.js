@@ -1,6 +1,9 @@
 /** @fileoverview Manages board snapshots and server communication. */
 
 import { T } from '../../shared/MessageTypes.js';
+import { LocalSnapshotStore } from './LocalSnapshotStore.js';
+
+const LOCAL_CAPTURE_INTERVAL_MS = 30000;
 
 export class SnapshotManager {
   /**
@@ -13,13 +16,28 @@ export class SnapshotManager {
     this.snapshotPageSize = 20;
     this.lastListAppend = false;
     this.hasMoreSnapshots = true;
+
+    this._localStore = null;
+    this._localCaptureTimer = null;
+    this._lastLocalHash = null;
+  }
+
+  _getLocalStore() {
+    if (!this._localStore) {
+      try {
+        this._localStore = new LocalSnapshotStore();
+      } catch (err) {
+        console.warn('[SnapshotManager] IndexedDB unavailable:', err);
+      }
+    }
+    return this._localStore;
   }
 
   /**
    * Called when the server requests this client to capture a snapshot.
    * Captures board + generates lossy 1/3 scale JPEG thumbnail.
    */
-  handleServerRequest() {
+  async handleServerRequest() {
     if (!this.app.wsClient || !this.app.connected) return;
 
     const layers = this.app.board.getSnapshot();
@@ -30,7 +48,7 @@ export class SnapshotManager {
     if (hash === this.lastSnapshotHash) return;
     this.lastSnapshotHash = hash;
 
-    const thumbBytes = this._generateThumbnail();
+    const thumbBytes = await this._generateThumbnail();
 
     const msg = {
       t: T.BOARD_SNAPSHOT_SAVE,
@@ -46,11 +64,11 @@ export class SnapshotManager {
    * Manually save a snapshot with a name.
    * @param {string} name
    */
-  saveSnapshot(name) {
+  async saveSnapshot(name) {
     const layers = this.app.board.getSnapshot();
     if (!layers || layers.length === 0) return;
 
-    const thumbBytes = this._generateThumbnail();
+    const thumbBytes = await this._generateThumbnail();
 
     const msg = {
       t: T.BOARD_SNAPSHOT_SAVE,
@@ -106,11 +124,11 @@ export class SnapshotManager {
   }
 
   /**
-   * Generates a 1/3 scale JPEG thumbnail of the current board.
-   * @returns {Uint8Array|null}
+   * Generates a 1/3 scale JPEG thumbnail of the current board asynchronously.
+   * @returns {Promise<Uint8Array|null>}
    * @private
    */
-  _generateThumbnail() {
+  async _generateThumbnail() {
     if (!this.app.board?.layerManager) return null;
 
     const srcCanvas = this.app.board.layerManager.getCompositedCanvas();
@@ -125,23 +143,134 @@ export class SnapshotManager {
     // Fill with room background color so transparency doesn't become black in JPEG
     const bg = this.app.board.backgroundColor;
     if (bg) {
-      ctx.fillStyle = `rgb(${bg[0]},${bg[1]},${bg[2]})`;
+      if (typeof bg === 'string') {
+        ctx.fillStyle = bg;
+      } else {
+        ctx.fillStyle = `rgb(${bg[0]},${bg[1]},${bg[2]})`;
+      }
       ctx.fillRect(0, 0, w, h);
     }
 
     ctx.drawImage(srcCanvas, 0, 0, w, h);
 
-    // Convert to JPEG blob synchronously via toDataURL
-    const dataUrl = thumbCanvas.toDataURL('image/jpeg', 0.5);
-    const base64 = dataUrl.split(',')[1];
-    if (!base64) return null;
+    return new Promise((resolve) => {
+      thumbCanvas.toBlob(async (blob) => {
+        if (!blob) return resolve(null);
+        const buffer = await blob.arrayBuffer();
+        resolve(new Uint8Array(buffer));
+      }, 'image/jpeg', 0.5);
+    });
+  }
 
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
+  /**
+   * Begins capturing snapshots to the local IndexedDB store at a fixed cadence.
+   * Used by non-uploader clients as a black-box recovery buffer.
+   */
+  startLocalCapture(intervalMs = LOCAL_CAPTURE_INTERVAL_MS) {
+    this.stopLocalCapture();
+    this._localCaptureTimer = setInterval(() => this.captureLocalSnapshot(), intervalMs);
+    // Initial capture after a short delay
+    setTimeout(() => this.captureLocalSnapshot(), 3000);
+  }
+
+  stopLocalCapture() {
+    if (this._localCaptureTimer) {
+      clearInterval(this._localCaptureTimer);
+      this._localCaptureTimer = null;
     }
-    return bytes;
+  }
+
+  /**
+   * Captures the current board state and stores it in IndexedDB. No network traffic.
+   */
+  async captureLocalSnapshot() {
+    const store = this._getLocalStore();
+    if (!store || !this.app.board) return;
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+
+    const layers = this.app.board.getSnapshot();
+    if (!layers || layers.length === 0) return;
+
+    const hash = this._computeHashLayers(layers);
+    if (hash === this._lastLocalHash) return;
+    this._lastLocalHash = hash;
+
+    const roomId = this.app.currentRoomData?.id || this.app.currentRoomId || 'default';
+    const ts = Date.now();
+    const id = `local_${ts}_${Math.random().toString(36).slice(2, 7)}`;
+    const thumb = await this._generateThumbnail();
+
+    try {
+      await store.add({
+        id,
+        roomId,
+        ts,
+        issuer: this.app.self?.username || this.app.self?.registeredName || 'You',
+        layers,
+        thumb,
+        name: `Local ${new Date(ts).toLocaleTimeString()}`
+      });
+    } catch (err) {
+      console.warn('[SnapshotManager] Local capture failed:', err);
+    }
+  }
+
+  /**
+   * Returns metadata for all local snapshots in the current room (most recent first).
+   * Layer/thumbnail bytes are NOT included; call getLocal(id) to load them.
+   */
+  async listLocal() {
+    const store = this._getLocalStore();
+    if (!store) return [];
+    const roomId = this.app.currentRoomData?.id || this.app.currentRoomId || 'default';
+    try {
+      const records = await store.list(roomId);
+      // Map records to a format similar to remote snapshots for the UI
+      return records.map(r => ({
+        id: r.id,
+        ts: r.ts,
+        issuer: r.issuer,
+        name: r.name,
+        hasThumb: r.hasThumb,
+        auto: true // local captures are always auto
+      }));
+    } catch (err) {
+      console.warn('[SnapshotManager] Local list failed:', err);
+      return [];
+    }
+  }
+
+  async getLocal(id) {
+    const store = this._getLocalStore();
+    if (!store) return null;
+    try {
+      return await store.get(id);
+    } catch (err) {
+      console.warn('[SnapshotManager] Local get failed:', err);
+      return null;
+    }
+  }
+
+  async deleteLocal(id) {
+    const store = this._getLocalStore();
+    if (!store) return;
+    try {
+      await store.delete(id);
+    } catch (err) {
+      console.warn('[SnapshotManager] Local delete failed:', err);
+    }
+  }
+
+  /**
+   * Applies a local snapshot to the board for THIS client only (no broadcast).
+   * Useful for recovering after a disconnect or stale-state incident.
+   */
+  async applyLocal(id) {
+    const record = await this.getLocal(id);
+    if (!record?.layers) return false;
+    this.app.board.restoreSnapshot(record.layers);
+    this.app.board.requestUpdate();
+    return true;
   }
 
   /**

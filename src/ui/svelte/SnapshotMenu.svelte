@@ -1,16 +1,18 @@
 <script>
   import { onMount, onDestroy, tick } from 'svelte';
-  import { appState, clearSnapshotHistoryState, toggleSnapshotMenu } from '../../state.svelte.js';
+  import { appState, clearSnapshotHistoryState, toggleSnapshotMenu, setSnapshotSource } from '../../state.svelte.js';
   import { T } from '../../../shared/MessageTypes.js';
   import * as wasm from '../../wasm/ddraw_wasm.js';
 
   let snapshots = $derived(appState.snapshots || []);
   let snapshotHasMore = $derived(appState.snapshotHasMore);
   let snapshotListVersion = $derived(appState.snapshotListVersion);
+  let snapshotSource = $derived(appState.snapshotSource);
+  
   let hasLoadedOlderSnapshots = $derived(snapshots.length > 20);
   let isSoloOccupant = $derived(appState.userCount <= 1);
   let canViewHistory = $derived(appState.selfRole >= 1 || isSoloOccupant);
-  let canRestoreHistory = $derived(appState.selfRole >= 2);
+  let canRestoreHistory = $derived(appState.selfRole >= 2 || (snapshotSource === 'local' && appState.connected));
 
   let selectedId = $state(null);
   let selectedLayers = $state(null);
@@ -48,6 +50,18 @@
   let stripScrollLeft = 0;
   let stripMoved = $state(false);
 
+  // Canvas refs
+  let previewCanvas = $state(null);
+  let selectionCanvas = $state(null);
+  let previewWrap = $state(null);
+  let snapshotExportCanvas = null;
+
+  // Thumb URL cache
+  let thumbUrls = $state({});
+
+  let canvasTransform = $derived(`translate(${viewPanX}px, ${viewPanY}px) scale(${viewZoom})`);
+  let zoomLabel = $derived(`${Math.round(viewZoom * 100)}%`);
+
   function onStripPointerDown(e) {
     if (e.button !== 0) return;
     isDraggingStrip = true;
@@ -82,7 +96,7 @@
 
   function onStripScroll() {
     showBackToPresent = !!stripRef && hasLoadedOlderSnapshots && stripRef.scrollLeft > 40;
-    if (!stripRef || isLoadingSnapshots || isLoadingMore || !snapshotHasMore) return;
+    if (!stripRef || isLoadingSnapshots || isLoadingMore || !snapshotHasMore || snapshotSource === 'local') return;
     const threshold = 160;
     const remaining = stripRef.scrollWidth - (stripRef.scrollLeft + stripRef.clientWidth);
     if (remaining <= threshold) {
@@ -96,28 +110,38 @@
     showBackToPresent = false;
   }
 
-  // Canvas refs
-  let previewCanvas = $state(null);
-  let selectionCanvas = $state(null);
-  let previewWrap = $state(null);
-  let snapshotExportCanvas = null;
-
-  // Thumb URL cache
-  let thumbUrls = {};
-
-  let canvasTransform = $derived(`translate(${viewPanX}px, ${viewPanY}px) scale(${viewZoom})`);
-  let zoomLabel = $derived(`${Math.round(viewZoom * 100)}%`);
-
   function close() { toggleSnapshotMenu(); }
-  function refresh() {
+
+  async function refresh() {
     isLoadingSnapshots = true;
     isLoadingMore = false;
     showBackToPresent = false;
-    window.app?.snapshotManager?.requestList();
+    
+    if (snapshotSource === 'remote') {
+      window.app?.snapshotManager?.requestList();
+    } else {
+      try {
+        const localList = await window.app.snapshotManager.listLocal();
+        appState.snapshots = localList;
+        appState.snapshotHasMore = false;
+        appState.snapshotListVersion += 1;
+      } catch (err) {
+        console.warn('[SnapshotMenu] Local list failed:', err);
+      } finally {
+        isLoadingSnapshots = false;
+      }
+    }
   }
-  function formatDate(ts) { return new Date(Number(ts)).toLocaleTimeString(); }
+
+  function formatDate(ts) {
+    const d = new Date(Number(ts));
+    return d.toLocaleDateString() === new Date().toLocaleDateString()
+      ? d.toLocaleTimeString()
+      : d.toLocaleString();
+  }
 
   function loadMoreSnapshots() {
+    if (snapshotSource === 'local') return;
     if (isLoadingSnapshots || isLoadingMore || !snapshotHasMore || snapshots.length === 0) return;
     const oldest = snapshots[snapshots.length - 1];
     if (!oldest?.ts) return;
@@ -125,13 +149,33 @@
     window.app?.snapshotManager?.requestList({ beforeTs: Number(oldest.ts), append: true });
   }
 
-  function getThumbUrl(snap) {
+  async function getThumbUrl(snap) {
     if (thumbUrls[snap.id]) return thumbUrls[snap.id];
-    if (!snap.thumb || snap.thumb.length === 0) return null;
-    const blob = new Blob([snap.thumb], { type: 'image/jpeg' });
-    const url = URL.createObjectURL(blob);
-    thumbUrls[snap.id] = url;
-    return url;
+    
+    if (snapshotSource === 'remote') {
+      if (!snap.thumb || snap.thumb.length === 0) return null;
+      const blob = new Blob([snap.thumb], { type: 'image/jpeg' });
+      const url = URL.createObjectURL(blob);
+      thumbUrls[snap.id] = url;
+      thumbUrls = { ...thumbUrls };
+      return url;
+    } else {
+      // Local lazy-load from IndexedDB
+      if (!snap.hasThumb) return null;
+      try {
+        const record = await window.app.snapshotManager.getLocal(snap.id);
+        if (record?.thumb) {
+          const blob = new Blob([record.thumb], { type: 'image/jpeg' });
+          const url = URL.createObjectURL(blob);
+          thumbUrls[snap.id] = url;
+          thumbUrls = { ...thumbUrls };
+          return url;
+        }
+      } catch (e) {
+        console.warn('[SnapshotMenu] Local thumb load error', e);
+      }
+      return null;
+    }
   }
 
   function resetView() {
@@ -146,7 +190,7 @@
     viewPanY = (wh - bh * viewZoom) / 2;
   }
 
-  function selectSnapshot(id) {
+  async function selectSnapshot(id) {
     if (id === selectedId) return;
     window.app.snapshotPreviewCanvas = null;
     snapshotExportCanvas = null;
@@ -162,27 +206,46 @@
       previewRequestTimeout = null;
     }
 
-    window.app.wsClient.on('board_snapshot_get_response', async (data) => {
-      if (data.snapshotId !== selectedId) return;
-      window.app.wsClient.messageHandlers.delete('board_snapshot_get_response');
-      if (previewRequestTimeout) {
-        clearTimeout(previewRequestTimeout);
+    if (snapshotSource === 'remote') {
+      window.app.wsClient.on('board_snapshot_get_response', async (data) => {
+        if (data.snapshotId !== selectedId) return;
+        window.app.wsClient.messageHandlers.delete('board_snapshot_get_response');
+        if (previewRequestTimeout) {
+          clearTimeout(previewRequestTimeout);
+          previewRequestTimeout = null;
+        }
+        selectedLayers = data.snapshotLayers;
+        isLoadingPreview = false;
+        await tick();
+        renderPreview(data.snapshotLayers);
+        resetView();
+      });
+      window.app.wsClient.requestSnapshotGet(id);
+      previewRequestTimeout = window.setTimeout(() => {
         previewRequestTimeout = null;
+        if (selectedId !== id || !isLoadingPreview) return;
+        window.app?.wsClient?.messageHandlers?.delete('board_snapshot_get_response');
+        isLoadingPreview = false;
+        previewError = 'Preview could not load. Check snapshot storage settings on the server.';
+      }, 8000);
+    } else {
+      // Local
+      try {
+        const record = await window.app.snapshotManager.getLocal(id);
+        if (!record || !record.layers) {
+          throw new Error('Local record not found or incomplete');
+        }
+        selectedLayers = record.layers;
+        isLoadingPreview = false;
+        await tick();
+        renderPreview(record.layers);
+        resetView();
+      } catch (err) {
+        console.warn('[SnapshotMenu] Local preview error', err);
+        isLoadingPreview = false;
+        previewError = 'Failed to load local snapshot from browser storage.';
       }
-      selectedLayers = data.snapshotLayers;
-      isLoadingPreview = false;
-      await tick();
-      renderPreview(data.snapshotLayers);
-      resetView();
-    });
-    window.app.wsClient.requestSnapshotGet(id);
-    previewRequestTimeout = window.setTimeout(() => {
-      previewRequestTimeout = null;
-      if (selectedId !== id || !isLoadingPreview) return;
-      window.app?.wsClient?.messageHandlers?.delete('board_snapshot_get_response');
-      isLoadingPreview = false;
-      previewError = 'Preview could not load. Check snapshot storage settings on the server.';
-    }, 8000);
+    }
   }
 
   function renderPreview(layerDatas) {
@@ -241,10 +304,27 @@
     window.app?.openSaveDialogForCanvas?.(snapshotExportCanvas);
   }
 
-  function doRestore() {
+  async function doRestore() {
     if (!selectedId) return;
     const hasSel = hasSelection;
 
+    if (snapshotSource === 'local') {
+      if (hasSel) {
+        alert('Region restore is not supported for local snapshots. Apply the full board instead.');
+        return;
+      }
+      if (!confirm('Apply this local snapshot to your board? This will replace your current board state.')) return;
+      const ok = await window.app.snapshotManager.applyLocal(selectedId);
+      if (ok) {
+        window.app?.ui?.showToast?.('Local snapshot applied', 3000);
+        close();
+      } else {
+        alert('Failed to apply local snapshot.');
+      }
+      return;
+    }
+
+    // Remote restore
     if (!hasSel) {
       if (!confirm('Restore the full board to this snapshot?')) return;
       window.app.snapshotManager.restoreSnapshot(selectedId);
@@ -264,7 +344,6 @@
       a: isLasso
     };
     if (isLasso) {
-      // Flatten lasso points to [x0,y0,x1,y1,...]
       msg.cr = lassoPoints.flatMap(p => [p.x, p.y]);
     } else {
       msg.sx = Math.round(selection.x);
@@ -275,9 +354,36 @@
     window.app.wsClient.send(msg);
   }
 
+  async function doDelete() {
+    if (!selectedId) return;
+    if (!confirm('Are you sure you want to delete this snapshot?')) return;
+    
+    if (snapshotSource === 'remote') {
+      window.app.snapshotManager.deleteSnapshot(selectedId);
+      // Update local cache
+      appState.snapshots = snapshots.filter(s => s.id !== selectedId);
+      appState.snapshotListVersion += 1;
+    } else {
+      await window.app.snapshotManager.deleteLocal(selectedId);
+      if (thumbUrls[selectedId]) {
+        URL.revokeObjectURL(thumbUrls[selectedId]);
+        delete thumbUrls[selectedId];
+        thumbUrls = { ...thumbUrls };
+      }
+      appState.snapshots = snapshots.filter(s => s.id !== selectedId);
+      appState.snapshotListVersion += 1;
+    }
+    
+    selectedId = null;
+    selectedLayers = null;
+    if (window.app.snapshotPreviewCanvas === snapshotExportCanvas) {
+      window.app.snapshotPreviewCanvas = null;
+    }
+    snapshotExportCanvas = null;
+  }
+
   function clearSelection() { selection = null; lassoPoints = []; }
 
-  // Map screen coords → board-space canvas coords, accounting for pan/zoom
   function canvasPos(e) {
     const rect = selectionCanvas.getBoundingClientRect();
     return {
@@ -361,11 +467,8 @@
     const hasLasso = mode === 'lasso' && lassoPoints.length > 2;
 
     if (hasRect || hasLasso) {
-      // Dark overlay on unselected area
       ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
       ctx.fillRect(0, 0, w, h);
-
-      // Cut out the selected region so preview shows through normally
       ctx.save();
       ctx.globalCompositeOperation = 'destination-out';
       if (hasRect) {
@@ -379,7 +482,6 @@
       }
       ctx.restore();
 
-      // Marching ants on the selection border
       if (hasRect) {
         const { x, y, width, height } = selection;
         ctx.save();
@@ -414,7 +516,7 @@
   });
 
   onMount(() => {
-    if (!canViewHistory) {
+    if (!canViewHistory && snapshotSource === 'remote') {
       window.app.snapshotPreviewCanvas = null;
       previewError = 'Only registered users can view board history.';
       return;
@@ -422,12 +524,12 @@
 
     lastHandledSnapshotListVersion = snapshotListVersion;
     refresh();
-    const tick = () => {
+    const tickFrame = () => {
       marchingAntsOffset = (marchingAntsOffset + 0.4) % 13;
       drawSelection();
-      animId = requestAnimationFrame(tick);
+      animId = requestAnimationFrame(tickFrame);
     };
-    animId = requestAnimationFrame(tick);
+    animId = requestAnimationFrame(tickFrame);
   });
 
   onDestroy(() => {
@@ -447,6 +549,16 @@
     (mode === 'rectangle' && selection && selection.width > 4 && selection.height > 4) ||
     (mode === 'lasso' && lassoPoints.length > 3)
   );
+
+  function handleSourceChange(source) {
+    selectedId = null;
+    selectedLayers = null;
+    selection = null;
+    lassoPoints = [];
+    previewError = '';
+    setSnapshotSource(source);
+    refresh();
+  }
 </script>
 
 <div class="snapshot-overlay" role="presentation" onclick={(e) => e.target === e.currentTarget && close()} onpointerup={(e) => e.pointerType !== 'mouse' && e.target === e.currentTarget && close()}>
@@ -454,7 +566,25 @@
 
     <!-- Header -->
     <div class="snap-header">
-      <span class="snap-title">Board History</span>
+      <div class="snap-header-left">
+        <span class="snap-title">Board History</span>
+        <div class="snap-source-toggle">
+          <button 
+            class="snap-source-btn" 
+            class:active={snapshotSource === 'remote'} 
+            onclick={() => handleSourceChange('remote')}
+          >
+            Server
+          </button>
+          <button 
+            class="snap-source-btn" 
+            class:active={snapshotSource === 'local'} 
+            onclick={() => handleSourceChange('local')}
+          >
+            Local
+          </button>
+        </div>
+      </div>
       <div class="snap-header-right">
         <button class="snap-reload-btn" onclick={refresh} onpointerup={(e) => e.pointerType !== 'mouse' && refresh()} title="Refresh">&#8635;</button>
         <button class="snap-close-btn" onclick={close} onpointerup={(e) => e.pointerType !== 'mouse' && close()} title="Close">&times;</button>
@@ -541,33 +671,42 @@
     >
       {#if snapshots.length === 0}
         <span class="snap-strip-empty">
-          {#if canViewHistory}
-            No snapshots available yet.
+          {#if snapshotSource === 'remote'}
+            {#if canViewHistory}
+              No snapshots available yet.
+            {:else}
+              Only registered users can view board history unless they are alone in the room.
+            {/if}
           {:else}
-            Only registered users can view board history unless they are alone in the room.
+            No local snapshots yet. They are captured every 30s for recovery.
           {/if}
         </span>
       {:else}
-        {#each snapshots as snap}
-          {@const thumbUrl = getThumbUrl(snap)}
-          <div
-            class="snap-thumb-item"
-            class:selected={snap.id === selectedId}
-            onclick={() => { if (!stripMoved) selectSnapshot(snap.id); }}
-            onpointerup={(e) => e.pointerType !== 'mouse' && !stripMoved && selectSnapshot(snap.id)}
-            onkeydown={(event) => handleSnapshotKeydown(event, snap.id)}
-            role="button"
-            tabindex="0"
-            title={snap.name}
-          >
-            {#if thumbUrl}
-              <img src={thumbUrl} alt="snapshot" draggable="false" />
-            {:else}
-              <div class="snap-thumb-placeholder">{snap.auto ? 'Auto' : 'Manual'}</div>
-            {/if}
-            <span class="snap-thumb-time">{formatDate(snap.ts)}</span>
-            <spam class="snap-thumb-issuer">{snap.issuer}</spam>
-          </div>
+        {#each snapshots as snap (snap.id)}
+          {#await getThumbUrl(snap)}
+            <div class="snap-thumb-item loading" role="presentation">
+              <div class="snap-thumb-placeholder">…</div>
+            </div>
+          {:then thumbUrl}
+            <div
+              class="snap-thumb-item"
+              class:selected={snap.id === selectedId}
+              onclick={() => { if (!stripMoved) selectSnapshot(snap.id); }}
+              onpointerup={(e) => e.pointerType !== 'mouse' && !stripMoved && selectSnapshot(snap.id)}
+              onkeydown={(event) => handleSnapshotKeydown(event, snap.id)}
+              role="button"
+              tabindex="0"
+              title={snap.name}
+            >
+              {#if thumbUrl}
+                <img src={thumbUrl} alt="snapshot" draggable="false" />
+              {:else}
+                <div class="snap-thumb-placeholder">{snap.auto ? 'Auto' : 'Manual'}</div>
+              {/if}
+              <span class="snap-thumb-time">{formatDate(snap.ts)}</span>
+              <span class="snap-thumb-issuer">{snap.issuer}</span>
+            </div>
+          {/await}
         {/each}
         {#if isLoadingMore}
           <div class="snap-thumb-loading">Loading older snapshots...</div>
@@ -584,7 +723,9 @@
     <!-- Footer -->
     <div class="snap-footer">
       <span class="snap-hint">
-        {#if !canRestoreHistory}
+        {#if snapshotSource === 'local'}
+          Local history stored in this browser (IndexedDB). Applying does not broadcast to others.
+        {:else if !canRestoreHistory}
           View-only mode for registered users. Trusted users and above can restore snapshots.
         {:else if !selectedId}
           Select a snapshot below
@@ -595,14 +736,17 @@
         {/if}
       </span>
       <div class="snap-footer-btns">
-        {#if hasSelection}
+        {#if selectedId}
+          <button class="btn danger" onclick={doDelete} onpointerup={(e) => e.pointerType !== 'mouse' && doDelete()}>Delete</button>
+        {/if}
+        {#if hasSelection && snapshotSource === 'remote'}
           <button class="btn secondary" onclick={clearSelection} onpointerup={(e) => e.pointerType !== 'mouse' && clearSelection()}>Clear Selection</button>
         {/if}
         <button class="btn secondary" disabled={!selectedId} onclick={openSnapshotSaveDialog} onpointerup={(e) => e.pointerType !== 'mouse' && openSnapshotSaveDialog()}>
           Save Snapshot
         </button>
         <button class="btn primary" disabled={!selectedId || !canRestoreHistory} onclick={doRestore} onpointerup={(e) => e.pointerType !== 'mouse' && doRestore()}>
-          {hasSelection ? 'Restore Region' : 'Restore Board'}
+          {snapshotSource === 'local' ? 'Apply Local' : (hasSelection ? 'Restore Region' : 'Restore Board')}
         </button>
       </div>
     </div>
@@ -631,297 +775,117 @@
     max-width: 960px;
     height: 90vh;
     max-height: 720px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    display: flex; flex-direction: column; overflow: hidden;
   }
 
   .snap-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    background: var(--bg-tertiary, #111);
-    border-bottom: 1px solid var(--border-subtle, #333);
-    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; background: var(--bg-tertiary, #111);
+    border-bottom: 1px solid var(--border-subtle, #333); flex-shrink: 0;
   }
+  .snap-header-left { display: flex; align-items: center; gap: 20px; }
 
-  .snap-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary, #eee);
+  .snap-source-toggle {
+    display: flex; background: #000; padding: 2px; border-radius: 6px;
   }
+  .snap-source-btn {
+    padding: 3px 10px; border: none; background: transparent; color: #777;
+    font-size: 11px; font-weight: 600; cursor: pointer; border-radius: 4px;
+  }
+  .snap-source-btn.active { background: #222; color: var(--accent-primary); }
 
-  .snap-header-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
+  .snap-title { font-size: 14px; font-weight: 600; color: var(--text-primary, #eee); }
+  .snap-header-right { display: flex; align-items: center; gap: 8px; }
 
   .snap-reload-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--text-secondary, #aaa);
-    font-size: 18px;
-    width: 28px;
-    height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
+    background: none; border: none; cursor: pointer; color: var(--text-secondary, #aaa);
+    font-size: 18px; width: 28px; height: 28px; display: flex;
+    align-items: center; justify-content: center; border-radius: 4px;
   }
-  .snap-reload-btn:hover {
-    background: var(--bg-elevated, #2a2a2a);
-    color: var(--text-primary, #fff);
-  }
+  .snap-reload-btn:hover { background: var(--bg-elevated, #2a2a2a); color: var(--text-primary, #fff); }
 
   .snap-close-btn {
-    background: transparent;
-    border: none;
-    color: #f0f2f5;
-    font-size: 1.75rem;
-    line-height: 1;
-    cursor: pointer;
-    padding: 0;
+    background: transparent; border: none; color: #f0f2f5; font-size: 1.75rem;
+    line-height: 1; cursor: pointer; padding: 0;
   }
+  .snap-close-btn:hover { color: #fff; }
 
-  .snap-close-btn:hover {
-    color: #fff;
-  }
-
-  .snap-preview-wrap {
-    flex: 1;
-    position: relative;
-    background: #111;
-    overflow: hidden;
-    min-height: 0;
-  }
-
+  .snap-preview-wrap { flex: 1; position: relative; background: #111; overflow: hidden; min-height: 0; }
   .snap-preview-empty {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-muted, #555);
-    font-size: 13px;
-    pointer-events: none;
-    user-select: none;
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; color: var(--text-muted, #555); font-size: 13px;
+    pointer-events: none; user-select: none;
   }
 
   .snap-tool-controls {
-    position: absolute;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    background: var(--bg-secondary, #1a1a1a);
-    border: 1px solid var(--border-subtle, #333);
-    border-radius: 8px;
-    padding: 4px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
-    z-index: 10;
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 3px; background: var(--bg-secondary, #1a1a1a);
+    border: 1px solid var(--border-subtle, #333); border-radius: 8px; padding: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5); z-index: 10;
   }
 
   .snap-tool-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    background: transparent;
-    border: none;
-    border-radius: 5px;
-    color: var(--text-secondary, #aaa);
-    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; width: 30px; height: 30px;
+    background: transparent; border: none; border-radius: 5px;
+    color: var(--text-secondary, #aaa); cursor: pointer;
   }
   .snap-tool-btn:hover { background: var(--bg-elevated, #2a2a2a); color: #fff; }
   .snap-tool-btn.active { background: var(--accent-primary, #7c5cbf); color: #fff; }
-  .snap-tool-btn svg { pointer-events: none; }
-  .snap-zoom-reset {
-    width: auto;
-    min-width: 44px;
-    padding: 0 6px;
-    font-size: 11px;
-    font-weight: 600;
-  }
+  .snap-zoom-reset { width: auto; min-width: 44px; padding: 0 6px; font-size: 11px; font-weight: 600; }
 
-  .snap-preview-canvas {
-    position: absolute;
-    top: 0;
-    left: 0;
-    transform-origin: 0 0;
-    image-rendering: auto;
-  }
-
-  .snap-selection-canvas {
-    position: absolute;
-    top: 0;
-    left: 0;
-    transform-origin: 0 0;
-    pointer-events: auto;
-    touch-action: none;
-  }
+  .snap-preview-canvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+  .snap-selection-canvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; pointer-events: auto; touch-action: none; }
 
   .snap-strip-wrap {
-    height: 110px;
-    flex-shrink: 0;
-    background: var(--bg-tertiary, #111);
-    border-top: 1px solid var(--border-subtle, #333);
-    border-bottom: 1px solid var(--border-subtle, #333);
-    display: flex;
-    align-items: center;
-    padding: 0 12px;
-    gap: 8px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: thin;
-    scrollbar-color: #555 transparent;
+    height: 110px; flex-shrink: 0; background: var(--bg-tertiary, #111);
+    border-top: 1px solid var(--border-subtle, #333); border-bottom: 1px solid var(--border-subtle, #333);
+    display: flex; align-items: center; padding: 0 12px; gap: 8px;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: thin;
   }
   .snap-strip-wrap::-webkit-scrollbar { height: 4px; }
   .snap-strip-wrap::-webkit-scrollbar-thumb { background: #555; border-radius: 2px; }
-  .snap-strip-wrap::-webkit-scrollbar-thumb:hover { background: #666; }
 
-  .snap-strip-empty {
-    font-size: 12px;
-    color: var(--text-muted, #555);
-    white-space: nowrap;
-  }
+  .snap-strip-empty { font-size: 12px; color: var(--text-muted, #555); white-space: nowrap; }
 
   .snap-thumb-item {
-    flex-shrink: 0;
-    width: 90px;
-    height: 90px;
-    border: 2px solid #333;
-    border-radius: 5px;
-    overflow: hidden;
-    cursor: pointer;
-    position: relative;
-    background: #0a0a0a;
+    flex-shrink: 0; width: 90px; height: 90px; border: 2px solid #333;
+    border-radius: 5px; overflow: hidden; cursor: pointer; position: relative; background: #0a0a0a;
   }
-  
   .snap-thumb-item:hover { border-color: #555; }
   .snap-thumb-item.selected { border-color: var(--accent-primary, #7c5cbf); }
   .snap-thumb-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
-
-  .snap-thumb-placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    color: #555;
-  }
+  .snap-thumb-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #555; }
 
   .snap-thumb-time {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    font-size: 9px;
-    text-align: center;
-    background: rgba(0,0,0,0.65);
-    color: #ccc;
-    padding: 2px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    position: absolute; bottom: 0; left: 0; right: 0; font-size: 9px;
+    text-align: center; background: rgba(0,0,0,0.65); color: #ccc; padding: 2px;
   }
   .snap-thumb-issuer {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    font-size: 8px;
-    font-weight: 600;
-    text-align: center;
-    background: rgba(0, 0, 0, 0.5);
-    color: var(--accent-primary);
-    padding: 2px;
-    text-transform: uppercase;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.2s;
+    position: absolute; top: 0; left: 0; right: 0; font-size: 8px; font-weight: 600;
+    text-align: center; background: rgba(0, 0, 0, 0.5); color: var(--accent-primary);
+    padding: 2px; opacity: 0; transition: opacity 0.2s;
   }
-  
-  .snap-thumb-item:hover .snap-thumb-issuer,
-  .snap-thumb-item.selected .snap-thumb-issuer {
-    opacity: 1;
-  }
+  .snap-thumb-item:hover .snap-thumb-issuer, .snap-thumb-item.selected .snap-thumb-issuer { opacity: 1; }
+
   .snap-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 16px;
-    background: var(--bg-tertiary, #111);
-    flex-shrink: 0;
-    gap: 12px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; background: var(--bg-tertiary, #111); flex-shrink: 0; gap: 12px;
   }
+  .snap-hint { font-size: 12px; color: var(--text-muted, #666); flex: 1; }
+  .snap-footer-btns { display: flex; gap: 8px; align-items: center; }
 
-  .snap-hint {
-    font-size: 12px;
-    color: var(--text-muted, #666);
-    flex: 1;
-  }
-
-  .snap-footer-btns {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .snap-thumb-loading {
-    min-width: 140px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    color: var(--text-secondary, #aaa);
-    white-space: nowrap;
-  }
+  .btn { padding: 7px 14px; font-size: 13px; border-radius: 5px; cursor: pointer; border: none; }
+  .btn.secondary { background: transparent; border: 1px solid #444; color: #aaa; }
+  .btn.secondary:hover { background: #2a2a2a; color: #fff; }
+  .btn.primary { background: var(--accent-primary, #7c5cbf); color: #fff; }
+  .btn.primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn.danger { background: rgba(220, 53, 69, 0.2); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.4); }
+  .btn.danger:hover { background: rgba(220, 53, 69, 0.4); }
 
   .snap-back-to-present {
-    position: absolute;
-    right: 18px;
-    bottom: 128px;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 12px;
-    border: 1px solid var(--border-subtle, #333);
-    border-radius: 999px;
-    background: rgba(17, 17, 17, 0.92);
-    color: var(--text-primary, #eee);
-    font-size: 12px;
-    cursor: pointer;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
-    z-index: 5;
+    position: absolute; right: 18px; bottom: 128px; display: inline-flex;
+    align-items: center; gap: 6px; padding: 8px 12px; border: 1px solid #333;
+    border-radius: 999px; background: rgba(17, 17, 17, 0.92); color: #eee;
+    font-size: 12px; cursor: pointer;
   }
-  .snap-back-to-present:hover {
-    background: rgba(28, 28, 28, 0.96);
-  }
-
-  .btn {
-    padding: 7px 14px;
-    font-size: 13px;
-    border-radius: 5px;
-    cursor: pointer;
-    border: none;
-  }
-  .btn.secondary {
-    background: transparent;
-    border: 1px solid #444;
-    color: #aaa;
-  }
-  .btn.secondary:hover { background: #2a2a2a; color: #fff; }
-  .btn.primary {
-    background: var(--accent-primary, #7c5cbf);
-    color: #fff;
-  }
-  .btn.primary:hover { filter: brightness(1.1); }
-  .btn.primary:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
