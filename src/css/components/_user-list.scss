@@ -61,6 +61,12 @@
   touch-action: none;
 }
 
+.sliderContainer > .slider,
+.sliderContainer > #sizeSliderMount,
+.sliderContainer > #thinningSlider > .slider {
+  margin-top: 10px;
+}
+
 .slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;

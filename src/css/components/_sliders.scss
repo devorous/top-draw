@@ -38,6 +38,39 @@
   }
 }
 
+.sliderValueInput {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  display: inline-block;
+  min-width: 2ch;
+  max-width: 5ch;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: center;
+}
+
+.sliderValueInput::-webkit-outer-spin-button,
+.sliderValueInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.sliderValue:has(.sliderValueInput) {
+  cursor: text;
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 1px var(--accent-primary);
+}
+
+.sliderValue:has(.sliderValueInput)::after {
+  display: none;
+}
+
 /* ========================================
    Image Brush Options
    ======================================== */

@@ -46,12 +46,13 @@ export class EditableValueHandler {
       const currentVal = parseFloat(originalText.replace(suffix, '').trim());
 
       const input = document.createElement('input');
-      input.type = 'number';
+      input.type = 'text';
       input.className = 'sliderValueInput';
-      input.min = currentMin;
-      input.max = currentMax;
-      input.step = step;
+      input.inputMode = Number.isInteger(step) ? 'numeric' : 'decimal';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
       input.value = isNaN(currentVal) ? currentMin : currentVal;
+      input.style.width = `${Math.max(String(input.value).length, 2)}ch`;
 
       spanEl.textContent = '';
       spanEl.appendChild(input);

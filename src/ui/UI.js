@@ -1,11 +1,13 @@
 /**
  * @fileoverview Main UI Manager for handling DOM interactions, icons, and specialized sub-UI components.
  */
+import { mount, unmount } from 'svelte';
 import { EditableValueHandler } from './EditableValueHandler.js';
 import { RemoteUserUI } from './RemoteUserUI.js';
 import { LayerPreview } from './LayerPreview.js';
 import { ResizableSections } from './ResizableSections.js';
 import { appState } from '../state.svelte.js';
+import PointerSlider from './svelte/PointerSlider.svelte';
 import {
   DEFAULT_TEXT_FONT,
   ensureTextFontsLoaded,
@@ -60,17 +62,143 @@ export class UI {
    */
   async init() { // Made init async
     this.cacheElements();
+    this.initPointerSliders();
     await this._preloadSVGIcons(); // Await preloading of SVG icons
     this.remoteUserUI = new RemoteUserUI(this.elements, this.icons);
     this.layerPreview.init();
     this.setupScrollIndicator();
     this.initResizableSections();
     this.setupSidebarResizers();
-    
+
     // Initial application from preferences
     if (window.app?.appPreferences) {
       this.applySidebarWidths(window.app.appPreferences);
     }
+  }
+
+  /**
+   * Initializes native-range tool sliders with custom pointer sliders.
+   */
+  initPointerSliders() {
+    const createPointerSlider = (inputOrMount, options = {}) => {
+      if (!inputOrMount || inputOrMount._pointerSliderReady) return inputOrMount;
+
+      const source = inputOrMount;
+      const mountPoint = source.matches?.('input[type="range"]')
+        ? document.createElement('div')
+        : source;
+
+      const sliderClass = source.className || 'slider';
+      const ariaLabel = source.getAttribute?.('aria-label') || options.ariaLabel || 'Slider';
+      const state = {
+        value: Number(options.value ?? source.value ?? 0),
+        min: Number(options.min ?? source.min ?? 0),
+        max: Number(options.max ?? source.max ?? 100),
+        step: Number(options.step ?? source.step ?? 1),
+        component: null
+      };
+
+      if (mountPoint !== source) {
+        mountPoint.id = source.id;
+        mountPoint.className = sliderClass;
+        mountPoint.setAttribute('role', 'presentation');
+        source.replaceWith(mountPoint);
+      }
+
+      mountPoint._pointerSliderReady = true;
+
+      const render = () => {
+        if (state.component) {
+          unmount(state.component);
+        }
+        state.component = mount(PointerSlider, {
+          target: mountPoint,
+          props: {
+            value: state.value,
+            min: state.min,
+            max: state.max,
+            step: state.step,
+            ariaLabel,
+            onChange: (newValue) => {
+              state.value = newValue;
+              mountPoint.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          }
+        });
+      };
+
+      const syncVisualValue = () => {
+        const range = state.max - state.min;
+        const percent = range === 0 ? 0 : ((state.value - state.min) / range) * 100;
+        const clampedPercent = Math.max(0, Math.min(100, percent));
+        const slider = mountPoint.querySelector('[role="slider"]');
+        const fill = mountPoint.querySelector('.slider-fill');
+        const thumb = mountPoint.querySelector('.slider-thumb');
+
+        if (slider) slider.setAttribute('aria-valuenow', String(state.value));
+        if (fill) fill.style.width = `${clampedPercent}%`;
+        if (thumb) thumb.style.setProperty('--thumb-position', `${clampedPercent}%`);
+      };
+
+      for (const key of ['value', 'min', 'max', 'step']) {
+        Object.defineProperty(mountPoint, key, {
+          configurable: true,
+          get: () => state[key],
+          set: (val) => {
+            state[key] = Number(val);
+            if (key === 'value') {
+              syncVisualValue();
+            } else {
+              render();
+            }
+          }
+        });
+      }
+
+      render();
+      return mountPoint;
+    };
+
+    this.elements.sizeSlider = createPointerSlider(document.getElementById('sizeSliderMount'), {
+      value: 10,
+      min: 0.25,
+      max: 100,
+      step: 0.25,
+      ariaLabel: 'Size'
+    });
+
+    const sliderElements = [
+      ['spacingSlider', this.elements.spacingSlider],
+      ['smoothingSlider', this.elements.smoothingSlider],
+      ['hardnessSlider', this.elements.hardnessSlider],
+      ['opacitySlider', this.elements.opacitySlider],
+      ['blurRadiusSlider', this.elements.blurRadiusSlider],
+      ['thinningSlider', this.elements.thinningSlider],
+      ['patternScaleSlider', this.elements.patternScaleSlider],
+      ['patternRotationSlider', this.elements.patternRotationSlider],
+      ['patternSpacingSlider', this.elements.patternSpacingSlider],
+      ['patternOffsetXSlider', this.elements.patternOffsetXSlider],
+      ['patternOffsetYSlider', this.elements.patternOffsetYSlider],
+      ['fillPatternScaleSlider', this.elements.fillPatternScaleSlider],
+      ['fillPatternRotationSlider', this.elements.fillPatternRotationSlider],
+      ['fillPatternSpacingSlider', this.elements.fillPatternSpacingSlider],
+      ['fillPatternOffsetXSlider', this.elements.fillPatternOffsetXSlider],
+      ['fillPatternOffsetYSlider', this.elements.fillPatternOffsetYSlider],
+      ['selectionPatternScaleSlider', this.elements.selectionPatternScaleSlider],
+      ['selectionPatternRotationSlider', this.elements.selectionPatternRotationSlider],
+      ['selectionPatternSpacingSlider', this.elements.selectionPatternSpacingSlider],
+      ['selectionPatternOffsetXSlider', this.elements.selectionPatternOffsetXSlider],
+      ['selectionPatternOffsetYSlider', this.elements.selectionPatternOffsetYSlider],
+      ['textPositionMultiplierSlider', this.elements.textPositionMultiplierSlider],
+      ['textPositionOffsetSlider', this.elements.textPositionOffsetSlider]
+    ];
+
+    for (const [elementKey, slider] of sliderElements) {
+      this.elements[elementKey] = createPointerSlider(slider);
+    }
+
+    createPointerSlider(document.getElementById('fillExpansionSlider'));
+    createPointerSlider(document.getElementById('fillBlurSlider'));
   }
 
   /**
@@ -345,7 +473,7 @@ menuBtn: document.getElementById('menuBtn'),
       saveToGalleryBtn: document.getElementById('saveToGalleryBtn'),
       saveLocallyBtn: document.getElementById('saveLocallyBtn'),
 
-      sizeSlider: document.querySelector('.slider.size'),
+      sizeSlider: null, // Will be initialized with Svelte component
       spacingSlider: document.querySelector('.slider.spacing'),
       pressureMinSlider: document.getElementById('pressureMinSlider'),
       pressureMaxSlider: document.getElementById('pressureMaxSlider'),

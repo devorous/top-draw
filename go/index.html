@@ -971,7 +971,7 @@
                   </div>
                   <div class="sliderContainer" id="size-container">
                     <div class="sliderLabel">Size <span class="sliderValue" id="sizeValue">10</span><button class="lock-btn" id="sizeLock" title="Lock size for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
-                    <input autocomplete="off" type="range" min="0.25" max="100" value="10" step="0.25" class="slider size" aria-label="Brush size">
+                    <div id="sizeSliderMount"></div>
                   </div>
 
                 <div class="sliderContainer" id="ink-thinning" style="display: none;">
@@ -1133,17 +1133,17 @@
 
                   <div class="sliderContainer" id="selection-pattern-scale">
                     <div class="sliderLabel">Image Scale <span class="sliderValue" id="selectionPatternScaleValue">100%</span></div>
-                    <input autocomplete="off" type="range" min="5" max="500" value="100" class="slider selectionPatternScale">
+                    <input autocomplete="off" type="range" min="5" max="500" step="0.1" value="100" class="slider selectionPatternScale">
                   </div>
 
                   <div class="sliderContainer" id="selection-pattern-rotation">
                     <div class="sliderLabel">Grid Rotation <span class="sliderValue" id="selectionPatternRotationValue">0°</span></div>
-                    <input autocomplete="off" type="range" min="0" max="360" value="0" class="slider selectionPatternRotation">
+                    <input autocomplete="off" type="range" min="0" max="360" step="0.1" value="0" class="slider selectionPatternRotation">
                   </div>
 
                   <div class="sliderContainer" id="selection-pattern-spacing">
                     <div class="sliderLabel">Grid Spacing <span class="sliderValue" id="selectionPatternSpacingValue">0</span></div>
-                    <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider selectionPatternSpacing">
+                    <input autocomplete="off" type="range" min="0" max="100" step="0.1" value="0" class="slider selectionPatternSpacing">
                   </div>
 
                   <div class="sliderContainer dual-offset-container">
@@ -1151,12 +1151,12 @@
                     <div class="dual-offset-sliders">
                       <div class="offset-slider-group">
                         <label class="offset-label">X</label>
-                        <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider selectionPatternOffsetX">
+                        <input autocomplete="off" type="range" min="-100" max="100" step="0.1" value="0" class="slider selectionPatternOffsetX">
                         <span class="sliderValue offset-value" id="selectionPatternOffsetXValue">0</span>
                       </div>
                       <div class="offset-slider-group">
                         <label class="offset-label">Y</label>
-                        <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider selectionPatternOffsetY">
+                        <input autocomplete="off" type="range" min="-100" max="100" step="0.1" value="0" class="slider selectionPatternOffsetY">
                         <span class="sliderValue offset-value" id="selectionPatternOffsetYValue">0</span>
                       </div>
                     </div>
@@ -1290,17 +1290,17 @@
 
                   <div class="sliderContainer" id="fill-pattern-scale">
                     <div class="sliderLabel">Image Scale <span class="sliderValue" id="fillPatternScaleValue">100%</span></div>
-                    <input autocomplete="off" type="range" min="5" max="500" value="100" class="slider fillPatternScale">
+                    <input autocomplete="off" type="range" min="5" max="500" step="0.1" value="100" class="slider fillPatternScale">
                   </div>
 
                   <div class="sliderContainer" id="fill-pattern-rotation">
                     <div class="sliderLabel">Grid Rotation <span class="sliderValue" id="fillPatternRotationValue">0°</span></div>
-                    <input autocomplete="off" type="range" min="0" max="360" value="0" class="slider fillPatternRotation">
+                    <input autocomplete="off" type="range" min="0" max="360" step="0.1" value="0" class="slider fillPatternRotation">
                   </div>
 
                   <div class="sliderContainer" id="fill-pattern-spacing">
                     <div class="sliderLabel">Grid Spacing <span class="sliderValue" id="fillPatternSpacingValue">0</span></div>
-                    <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider fillPatternSpacing">
+                    <input autocomplete="off" type="range" min="0" max="100" step="0.1" value="0" class="slider fillPatternSpacing">
                   </div>
 
                   <div class="sliderContainer dual-offset-container">
@@ -1308,12 +1308,12 @@
                     <div class="dual-offset-sliders">
                       <div class="offset-slider-group">
                         <label class="offset-label">X</label>
-                        <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider fillPatternOffsetX">
+                        <input autocomplete="off" type="range" min="-100" max="100" step="0.1" value="0" class="slider fillPatternOffsetX">
                         <span class="sliderValue offset-value" id="fillPatternOffsetXValue">0</span>
                       </div>
                       <div class="offset-slider-group">
                         <label class="offset-label">Y</label>
-                        <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider fillPatternOffsetY">
+                        <input autocomplete="off" type="range" min="-100" max="100" step="0.1" value="0" class="slider fillPatternOffsetY">
                         <span class="sliderValue offset-value" id="fillPatternOffsetYValue">0</span>
                       </div>
                     </div>
@@ -1346,17 +1346,17 @@
 
                 <div class="sliderContainer" id="pattern-scale">
                   <div class="sliderLabel">Image Scale <span class="sliderValue" id="patternScaleValue">100%</span></div>
-                  <input autocomplete="off" type="range" min="5" max="500" value="100" class="slider patternScale">
+                  <input autocomplete="off" type="range" min="5" max="500" step="0.1" value="100" class="slider patternScale">
                 </div>
 
                 <div class="sliderContainer" id="pattern-rotation">
                   <div class="sliderLabel">Grid Rotation <span class="sliderValue" id="patternRotationValue">0°</span></div>
-                  <input autocomplete="off" type="range" min="0" max="360" value="0" class="slider patternRotation">
+                  <input autocomplete="off" type="range" min="0" max="360" step="0.1" value="0" class="slider patternRotation">
                 </div>
 
                 <div class="sliderContainer" id="pattern-spacing">
                   <div class="sliderLabel">Grid Spacing <span class="sliderValue" id="patternSpacingValue">0</span></div>
-                  <input autocomplete="off" type="range" min="0" max="100" value="0" class="slider patternSpacing">
+                  <input autocomplete="off" type="range" min="0" max="100" step="0.1" value="0" class="slider patternSpacing">
                 </div>
 
                 <div class="sliderContainer dual-offset-container">
@@ -1364,12 +1364,12 @@
                   <div class="dual-offset-sliders">
                     <div class="offset-slider-group">
                       <label class="offset-label">X</label>
-                      <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider patternOffsetX">
+                      <input autocomplete="off" type="range" min="-100" max="100" step="0.1" value="0" class="slider patternOffsetX">
                       <span class="sliderValue offset-value" id="patternOffsetXValue">0</span>
                     </div>
                     <div class="offset-slider-group">
                       <label class="offset-label">Y</label>
-                      <input autocomplete="off" type="range" min="-100" max="100" value="0" class="slider patternOffsetY">
+                      <input autocomplete="off" type="range" min="-100" max="100" step="0.1" value="0" class="slider patternOffsetY">
                       <span class="sliderValue offset-value" id="patternOffsetYValue">0</span>
                     </div>
                   </div>

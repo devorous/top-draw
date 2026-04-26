@@ -1817,6 +1817,66 @@ export class DrawingApp {
       });
     }
 
+    if (elements.thinningValue) {
+      this.ui.makeValueEditable(elements.thinningValue, {
+        min: 0, max: 100, step: 1, suffix: '',
+        onCommit: (val) => {
+          elements.thinningSlider.value = val;
+          this.handleThinningChange({ target: { value: val } });
+        }
+      });
+    }
+
+    const makePatternOptionEditable = (valueEls, sliderEls, opts, handler) => {
+      valueEls.filter(Boolean).forEach((valueEl) => {
+        this.ui.makeValueEditable(valueEl, {
+          ...opts,
+          onCommit: (val) => {
+            const rounded = this.roundPatternOptionValue(val);
+            sliderEls.filter(Boolean).forEach((slider) => {
+              slider.value = rounded;
+            });
+            handler.call(this, { target: { value: rounded } });
+          }
+        });
+      });
+    };
+
+    makePatternOptionEditable(
+      [elements.patternScaleValue, elements.fillPatternScaleValue, elements.selectionPatternScaleValue],
+      [elements.patternScaleSlider, elements.fillPatternScaleSlider, elements.selectionPatternScaleSlider],
+      { min: 5, max: 500, step: 0.1, suffix: '%' },
+      this.handlePatternScaleChange
+    );
+
+    makePatternOptionEditable(
+      [elements.patternRotationValue, elements.fillPatternRotationValue, elements.selectionPatternRotationValue],
+      [elements.patternRotationSlider, elements.fillPatternRotationSlider, elements.selectionPatternRotationSlider],
+      { min: 0, max: 360, step: 0.1, suffix: '°' },
+      this.handlePatternRotationChange
+    );
+
+    makePatternOptionEditable(
+      [elements.patternSpacingValue, elements.fillPatternSpacingValue, elements.selectionPatternSpacingValue],
+      [elements.patternSpacingSlider, elements.fillPatternSpacingSlider, elements.selectionPatternSpacingSlider],
+      { min: 0, max: 100, step: 0.1, suffix: '' },
+      this.handlePatternSpacingChange
+    );
+
+    makePatternOptionEditable(
+      [elements.patternOffsetXValue, elements.fillPatternOffsetXValue, elements.selectionPatternOffsetXValue],
+      [elements.patternOffsetXSlider, elements.fillPatternOffsetXSlider, elements.selectionPatternOffsetXSlider],
+      { min: -100, max: 100, step: 0.1, suffix: '' },
+      this.handlePatternOffsetXChange
+    );
+
+    makePatternOptionEditable(
+      [elements.patternOffsetYValue, elements.fillPatternOffsetYValue, elements.selectionPatternOffsetYValue],
+      [elements.patternOffsetYSlider, elements.fillPatternOffsetYSlider, elements.selectionPatternOffsetYSlider],
+      { min: -100, max: 100, step: 0.1, suffix: '' },
+      this.handlePatternOffsetYChange
+    );
+
     // Pressure range value: drag to adjust max pressure, click to edit both
     {
       const pressureSpan = elements.pressureValue;
@@ -1831,24 +1891,24 @@ export class DrawingApp {
         const originalText = pressureSpan.textContent;
 
         const minInput = document.createElement('input');
-        minInput.type = 'number';
+        minInput.type = 'text';
         minInput.className = 'sliderValueInput';
-        minInput.min = 0;
-        minInput.max = 100;
-        minInput.step = 1;
+        minInput.inputMode = 'numeric';
+        minInput.autocomplete = 'off';
+        minInput.spellcheck = false;
         minInput.value = minVal;
-        minInput.style.width = '36px';
+        minInput.style.width = '3ch';
 
         const sep = document.createTextNode('-');
 
         const maxInput = document.createElement('input');
-        maxInput.type = 'number';
+        maxInput.type = 'text';
         maxInput.className = 'sliderValueInput';
-        maxInput.min = 0;
-        maxInput.max = 100;
-        maxInput.step = 1;
+        maxInput.inputMode = 'numeric';
+        maxInput.autocomplete = 'off';
+        maxInput.spellcheck = false;
         maxInput.value = maxVal;
-        maxInput.style.width = '36px';
+        maxInput.style.width = '3ch';
 
         pressureSpan.textContent = '';
         pressureSpan.appendChild(minInput);
@@ -2170,17 +2230,29 @@ export class DrawingApp {
     }
   }
 
+  roundPatternOptionValue(value) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return 0;
+    return Math.round(numericValue * 10) / 10;
+  }
+
+  formatPatternOptionValue(value) {
+    const roundedValue = this.roundPatternOptionValue(value);
+    return Number.isInteger(roundedValue) ? String(roundedValue) : roundedValue.toFixed(1);
+  }
+
   handlePatternScaleChange(e) {
-    const scale = Number(e.target.value);
+    const scale = this.roundPatternOptionValue(e.target.value);
+    if (e.target) e.target.value = scale;
     this.self.patternScale = scale;
     if (this.ui.elements.patternScaleValue) {
-      this.ui.elements.patternScaleValue.textContent = `${scale}%`;
+      this.ui.elements.patternScaleValue.textContent = `${this.formatPatternOptionValue(scale)}%`;
     }
     if (this.ui.elements.fillPatternScaleValue) {
-      this.ui.elements.fillPatternScaleValue.textContent = `${scale}%`;
+      this.ui.elements.fillPatternScaleValue.textContent = `${this.formatPatternOptionValue(scale)}%`;
     }
     if (this.ui.elements.selectionPatternScaleValue) {
-      this.ui.elements.selectionPatternScaleValue.textContent = `${scale}%`;
+      this.ui.elements.selectionPatternScaleValue.textContent = `${this.formatPatternOptionValue(scale)}%`;
     }
 
     const patternTool = this.toolManager.getTool('pattern');
@@ -2237,16 +2309,17 @@ export class DrawingApp {
   }
 
   handlePatternRotationChange(e) {
-    const rotation = Number(e.target.value);
+    const rotation = this.roundPatternOptionValue(e.target.value);
+    if (e.target) e.target.value = rotation;
     this.self.patternRotation = rotation;
     if (this.ui.elements.patternRotationValue) {
-      this.ui.elements.patternRotationValue.textContent = `${rotation}°`;
+      this.ui.elements.patternRotationValue.textContent = `${this.formatPatternOptionValue(rotation)}°`;
     }
     if (this.ui.elements.fillPatternRotationValue) {
-      this.ui.elements.fillPatternRotationValue.textContent = `${rotation}°`;
+      this.ui.elements.fillPatternRotationValue.textContent = `${this.formatPatternOptionValue(rotation)}°`;
     }
     if (this.ui.elements.selectionPatternRotationValue) {
-      this.ui.elements.selectionPatternRotationValue.textContent = `${rotation}°`;
+      this.ui.elements.selectionPatternRotationValue.textContent = `${this.formatPatternOptionValue(rotation)}°`;
     }
 
     const patternTool = this.toolManager.getTool('pattern');
@@ -2260,16 +2333,17 @@ export class DrawingApp {
   }
 
   handlePatternSpacingChange(e) {
-    const spacing = Number(e.target.value);
+    const spacing = this.roundPatternOptionValue(e.target.value);
+    if (e.target) e.target.value = spacing;
     this.self.patternSpacing = spacing;
     if (this.ui.elements.patternSpacingValue) {
-      this.ui.elements.patternSpacingValue.textContent = spacing;
+      this.ui.elements.patternSpacingValue.textContent = this.formatPatternOptionValue(spacing);
     }
     if (this.ui.elements.fillPatternSpacingValue) {
-      this.ui.elements.fillPatternSpacingValue.textContent = spacing;
+      this.ui.elements.fillPatternSpacingValue.textContent = this.formatPatternOptionValue(spacing);
     }
     if (this.ui.elements.selectionPatternSpacingValue) {
-      this.ui.elements.selectionPatternSpacingValue.textContent = spacing;
+      this.ui.elements.selectionPatternSpacingValue.textContent = this.formatPatternOptionValue(spacing);
     }
 
     const patternTool = this.toolManager.getTool('pattern');
@@ -2283,16 +2357,17 @@ export class DrawingApp {
   }
 
   handlePatternOffsetXChange(e) {
-    const offsetX = Number(e.target.value);
+    const offsetX = this.roundPatternOptionValue(e.target.value);
+    if (e.target) e.target.value = offsetX;
     this.self.patternOffsetX = offsetX;
     if (this.ui.elements.patternOffsetXValue) {
-      this.ui.elements.patternOffsetXValue.textContent = offsetX;
+      this.ui.elements.patternOffsetXValue.textContent = this.formatPatternOptionValue(offsetX);
     }
     if (this.ui.elements.fillPatternOffsetXValue) {
-      this.ui.elements.fillPatternOffsetXValue.textContent = offsetX;
+      this.ui.elements.fillPatternOffsetXValue.textContent = this.formatPatternOptionValue(offsetX);
     }
     if (this.ui.elements.selectionPatternOffsetXValue) {
-      this.ui.elements.selectionPatternOffsetXValue.textContent = offsetX;
+      this.ui.elements.selectionPatternOffsetXValue.textContent = this.formatPatternOptionValue(offsetX);
     }
 
     const patternTool = this.toolManager.getTool('pattern');
@@ -2306,16 +2381,17 @@ export class DrawingApp {
   }
 
   handlePatternOffsetYChange(e) {
-    const offsetY = Number(e.target.value);
+    const offsetY = this.roundPatternOptionValue(e.target.value);
+    if (e.target) e.target.value = offsetY;
     this.self.patternOffsetY = offsetY;
     if (this.ui.elements.patternOffsetYValue) {
-      this.ui.elements.patternOffsetYValue.textContent = offsetY;
+      this.ui.elements.patternOffsetYValue.textContent = this.formatPatternOptionValue(offsetY);
     }
     if (this.ui.elements.fillPatternOffsetYValue) {
-      this.ui.elements.fillPatternOffsetYValue.textContent = offsetY;
+      this.ui.elements.fillPatternOffsetYValue.textContent = this.formatPatternOptionValue(offsetY);
     }
     if (this.ui.elements.selectionPatternOffsetYValue) {
-      this.ui.elements.selectionPatternOffsetYValue.textContent = offsetY;
+      this.ui.elements.selectionPatternOffsetYValue.textContent = this.formatPatternOptionValue(offsetY);
     }
 
     const patternTool = this.toolManager.getTool('pattern');
