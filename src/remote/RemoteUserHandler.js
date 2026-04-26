@@ -5,7 +5,7 @@
 
 import { drawLineArray, bridgeGap } from '../utils/drawing.js';
 import { SELECTION_MODES, getNextBrushIndex } from '../utils/parseGimp.js';
-import { resetSmoothingBuffer } from '../utils/smoothing.js';
+import { resetSmoothingBuffer, applySmoothingEMA } from '../utils/smoothing.js';
 import { getPreviewTextLayout, getUserTextLineHeight } from '../utils/textLayout.js';
 import { RemotePenHandler } from './RemotePenHandler.js';
 import { RemoteInkHandler } from './RemoteInkHandler.js';
@@ -190,6 +190,12 @@ export class RemoteUserHandler {
   tickCatchup() {
     let anyActive = false;
 
+    // Tools that use EMA smoothing locally — catchup must match
+    const smoothingTools = new Set(['brush', 'flowPen', 'imageBrush', 'ink', 'erase']);
+    // Stamp-based tools: catchup should only update cursor, not generate new stamps.
+    // Stamps come exclusively from sender's broadcast messages.
+    const stampTools = new Set(['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush']);
+
     for (const user of this.users.values()) {
       if (user.mousedown && !user.panning && user.remoteTarget) {
         const dx = user.remoteTarget.x - user.smoothBuffer.x;
@@ -200,15 +206,35 @@ export class RemoteUserHandler {
           anyActive = true;
           const lastPos = { x: user.x, y: user.y };
 
-          // Snap directly to the target — incoming points are already
-          // smoothed by the sender, so additional EMA here would double-smooth.
-          const pos = { x: user.remoteTarget.x, y: user.remoteTarget.y };
-          user.smoothBuffer.x = pos.x;
-          user.smoothBuffer.y = pos.y;
+          let pos;
+          const userSmoothing = user.smoothing !== undefined ? user.smoothing : 0;
+
+          // Apply EMA smoothing for tools that use it locally, matching InputBufferManager behavior
+          if (smoothingTools.has(user.tool) && userSmoothing > 0) {
+            const smoothed = applySmoothingEMA(
+              user.smoothBuffer,
+              user.remoteTarget.x,
+              user.remoteTarget.y,
+              user.pressure || 1,
+              userSmoothing,
+              0.12
+            );
+            pos = { x: smoothed.x, y: smoothed.y };
+          } else {
+            // No smoothing: snap directly to target
+            pos = { x: user.remoteTarget.x, y: user.remoteTarget.y };
+            user.smoothBuffer.x = pos.x;
+            user.smoothBuffer.y = pos.y;
+          }
 
           user.setPosition(pos.x, pos.y);
           this.ui.updateRemoteCursor(user.id, pos.x, pos.y, user.size);
-          this.renderRemoteMove(user, pos, lastPos);
+
+          // Skip renderRemoteMove for stamp tools - stamps come from sender's broadcasts only.
+          // Calling renderRemoteMove would generate extra stamps not present in sender's output.
+          if (!stampTools.has(user.tool)) {
+            this.renderRemoteMove(user, pos, lastPos);
+          }
         }
       }
     }

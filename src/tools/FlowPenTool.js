@@ -3,7 +3,7 @@
  * Uses an offscreen canvas to prevent opacity stacking when circles overlap.
  */
 
-import { getRenderableStampRadius, getStampSpacing } from '../utils/drawing.js';
+import { getRenderableStampRadius, getStampSpacing, douglasPeucker } from '../utils/drawing.js';
 
 /**
  * Base tool class.
@@ -69,9 +69,16 @@ export class FlowPenTool extends Tool {
     this.userAlpha = 1.0;
     this.strokeColor = null;
     this.stampBuffer = [];
+    // Control points buffer: input positions that define the stroke.
+    // This is drained by the network sync loop.
+    this.moveBuffer = [];
+    this._lastControlPoint = null;
+    this._moveBufferDirty = false;
+    this._lastRenderedIndex = 0;
     this.previewDirtyBounds = null;
     this.hardnessCanvas = null;
     this.hardnessCtx = null;
+    this._activeUser = null;
   }
 
   /**
@@ -108,18 +115,6 @@ export class FlowPenTool extends Tool {
   }
 
   /**
-   * Calculates the distance between two points.
-   * @param {Object} p1 - First point.
-   * @param {Object} p2 - Second point.
-   * @returns {number} - The distance between the points.
-   */
-  getDistance(p1, p2) {
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    return Math.sqrt(dx * dx + dy * dy);
-  }
-
-  /**
    * Handles pointer down event.
    * @param {Object} user - The user performing the action.
    * @param {Object} pos - The current pointer position.
@@ -150,20 +145,28 @@ export class FlowPenTool extends Tool {
     this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
     this.previewDirtyBounds = null;
     this.stampBuffer = [];
+    this.moveBuffer = [];
+    this._moveBufferDirty = true;
+    this._lastRenderedIndex = 0;
 
     const pressure255 = Math.round(pressure * 255);
-    this.stampCircle(pos.x, pos.y, radius, pressure255);
+    this._lastControlPoint = { x: pos.x, y: pos.y, radius, pressure255 };
     this.lastStampPos = { x: pos.x, y: pos.y, radius, pressure255 };
 
+    // Initial stamp
+    this.stampCircle(pos.x, pos.y, radius, pressure255);
+    
+    // Add to move buffer for network sync
+    this.moveBuffer.push(pos.x, pos.y, pressure255);
+    this._lastRenderedIndex = 3;
+
     user.penPoints = [{ x: pos.x, y: pos.y, radius }];
+
+    this.renderStroke(false, user);
   }
 
   /**
    * Handles pointer move event.
-   * @param {Object} user - The user performing the action.
-   * @param {Object} pos - The current pointer position.
-   * @param {Object} lastPos - The previous pointer position.
-   * @param {Event} e - The pointer event.
    */
   onPointerMove(user, pos, lastPos, e) {
     this._moveStroke(user, pos, true);
@@ -174,67 +177,93 @@ export class FlowPenTool extends Tool {
   }
 
   _moveStroke(user, pos, shouldRender) {
-    if (!user.mousedown || user.panning || !this.lastStampPos) return;
+    if (!user.mousedown || user.panning || !this._lastControlPoint) return;
 
     const pressure = this.quantizePressure(user.pressure);
     const radius = pressure * user.size;
+    const pressure255 = Math.round(pressure * 255);
 
-    const spacing = getStampSpacing(this.lastStampPos.radius, radius);
-    const distance = this.getDistance(this.lastStampPos, pos);
+    // Track every smoothed point for perfect parity between local and remote.
+    // stamps will be generated incrementally in renderStroke
+    this.moveBuffer.push(pos.x, pos.y, pressure255);
+    this._lastControlPoint = { x: pos.x, y: pos.y, radius, pressure255 };
+    user.penPoints.push({ x: pos.x, y: pos.y, radius });
+    this._moveBufferDirty = true;
+  }
 
-    if (distance >= spacing) {
-      const pressure255End = Math.round(pressure * 255);
-      const steps = Math.ceil(distance / spacing);
-      for (let i = 1; i <= steps; i++) {
-        const t = i / steps;
-        const x = this.lastStampPos.x + (pos.x - this.lastStampPos.x) * t;
-        const y = this.lastStampPos.y + (pos.y - this.lastStampPos.y) * t;
-        const r = this.lastStampPos.radius + (radius - this.lastStampPos.radius) * t;
-        const p255 = Math.round(this.lastStampPos.pressure255 + (pressure255End - this.lastStampPos.pressure255) * t);
-        this.stampCircle(x, y, r, p255);
+  /**
+   * Incremental rendering of stamps from new control points.
+   * Called by InputBufferManager._renderBatchTool.
+   */
+  renderStroke(last, user) {
+    if (!this._moveBufferDirty && !last) return;
+    if (!user || this._lastRenderedIndex >= this.moveBuffer.length) return;
+    this._moveBufferDirty = false;
+
+    this.ensureOffscreenCanvas();
+    if (!this.offscreenCtx) return;
+
+    // Process new points from moveBuffer incrementally since the last render call.
+    for (let i = this._lastRenderedIndex; i < this.moveBuffer.length; i += 3) {
+      const x = this.moveBuffer[i];
+      const y = this.moveBuffer[i + 1];
+      const p255 = this.moveBuffer[i + 2];
+      const pressure = p255 / 255;
+      const radius = pressure * user.size;
+
+      if (!this.lastStampPos) {
+        this.stampCircle(x, y, radius, p255);
+        this.lastStampPos = { x, y, radius, pressure255: p255 };
+        continue;
       }
-      this.lastStampPos = { x: pos.x, y: pos.y, radius, pressure255: pressure255End };
-      user.penPoints.push({ x: pos.x, y: pos.y, radius });
+
+      const dx = x - this.lastStampPos.x;
+      const dy = y - this.lastStampPos.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const spacing = getStampSpacing(this.lastStampPos.radius, radius);
+
+      if (distance >= spacing) {
+        const steps = Math.ceil(distance / spacing);
+        for (let s = 1; s <= steps; s++) {
+          const t = s / steps;
+          const sx = this.lastStampPos.x + dx * t;
+          const sy = this.lastStampPos.y + dy * t;
+          const sr = this.lastStampPos.radius + (radius - this.lastStampPos.radius) * t;
+          const sp = Math.round(this.lastStampPos.pressure255 + (p255 - this.lastStampPos.pressure255) * t);
+          this.stampCircle(sx, sy, sr, sp);
+        }
+        this.lastStampPos = { x, y, radius, pressure255: p255 };
+      }
     }
+    
+    this._lastRenderedIndex = this.moveBuffer.length;
 
-    if (shouldRender) {
-      const rect = this.getPreviewDirtyRect(user);
-      if (rect !== false) {
-        this.board.clearTop(rect);
-        this.drawPreview(user, rect);
-      }
+    // Draw preview of everything on offscreen canvas
+    const rect = this.getPreviewDirtyRect(user);
+    if (rect !== false) {
+      this.board.clearTop(rect);
+      this.drawPreview(user, rect);
     }
   }
 
   /**
    * Handles pointer up event.
-   * @param {Object} user - The user performing the action.
-   * @param {Object} pos - The current pointer position.
-   * @param {Event} e - The pointer event.
    */
   onPointerUp(user, pos, e) {
     if (user.panning || !this.offscreenCanvas) return;
 
-    if (this.lastStampPos) {
+    // Add final control point if needed
+    if (this._lastControlPoint && pos) {
       const pressure = this.quantizePressure(user.pressure);
       const radius = pressure * user.size;
+      const pressure255 = Math.round(pressure * 255);
 
-      const spacing = getStampSpacing(this.lastStampPos.radius, radius);
-      const distance = this.getDistance(this.lastStampPos, pos);
-
-      if (distance > 0.5) {
-        const pressure255End = Math.round(pressure * 255);
-        const steps = Math.max(1, Math.ceil(distance / spacing));
-        for (let i = 1; i <= steps; i++) {
-          const t = i / steps;
-          const x = this.lastStampPos.x + (pos.x - this.lastStampPos.x) * t;
-          const y = this.lastStampPos.y + (pos.y - this.lastStampPos.y) * t;
-          const r = this.lastStampPos.radius + (radius - this.lastStampPos.radius) * t;
-          const p255 = Math.round(this.lastStampPos.pressure255 + (pressure255End - this.lastStampPos.pressure255) * t);
-          this.stampCircle(x, y, r, p255);
-        }
-      }
+      this.moveBuffer.push(pos.x, pos.y, pressure255);
+      this._moveBufferDirty = true;
     }
+
+    // Final incremental render
+    this.renderStroke(true, user);
 
     const ctx = this.board.getActiveLayerContext();
     ctx.globalCompositeOperation = 'source-over';
@@ -284,9 +313,10 @@ export class FlowPenTool extends Tool {
     // Track tile ownership
     if (user.penPoints && user.penPoints.length > 0) {
       const maxRadius = Math.max(...user.penPoints.map(p => p.radius || user.size));
-      this.board.markDirtyPath(user, user.penPoints, maxRadius);
-      this.board.forEachMirrorRegion({ points: user.penPoints }, (region) => {
-        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(user.penPoints, region), maxRadius);
+      const points = user.penPoints.map(p => ({ x: p.x, y: p.y }));
+      this.board.markDirtyPath(user, points, maxRadius);
+      this.board.forEachMirrorRegion({ points }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(points, region), maxRadius);
       });
     }
 
@@ -299,13 +329,10 @@ export class FlowPenTool extends Tool {
 
   /**
    * Stamps a circle onto the offscreen canvas.
-   * @param {number} x - The x-coordinate.
-   * @param {number} y - The y-coordinate.
-   * @param {number} radius - The radius of the circle.
-   * @param {number} pressure255 - The pressure (0-255).
    */
   stampCircle(x, y, radius, pressure255) {
     const ctx = this.offscreenCtx;
+    if (!ctx) return;
 
     ctx.fillStyle = this.strokeColor;
     ctx.beginPath();
@@ -326,7 +353,6 @@ export class FlowPenTool extends Tool {
 
   /**
    * Draws the current stroke preview on the top canvas.
-   * @param {Object} user - The user performing the action.
    */
   drawPreview(user, rect = null) {
     if (!this.offscreenCanvas) return;
@@ -367,11 +393,6 @@ export class FlowPenTool extends Tool {
 
   /**
    * Composites the offscreen canvas with a hardness-based blur effect.
-   * @param {CanvasRenderingContext2D} ctx - The target canvas context.
-   * @param {HTMLCanvasElement} sourceCanvas - The source canvas to composite.
-   * @param {number} size - The stroke size.
-   * @param {number} x - The x-coordinate.
-   * @param {number} y - The y-coordinate.
    */
   compositeWithHardness(ctx, sourceCanvas, size, x, y, rect = null) {
     const blurAmount = (1 - this.userHardness) * (20 + size * 0.2);
@@ -440,12 +461,15 @@ export class FlowPenTool extends Tool {
   }
 
   /**
-   * Drains the stamp buffer for network synchronization.
+   * Drains the control point buffer for network synchronization.
+   * Sends all smoothed points to ensure perfect parity.
    * @returns {Object} - An object containing ps (positions) and rs (pressures).
    */
   drainStampBuffer() {
-    const buf = this.stampBuffer;
-    this.stampBuffer = [];
+    const buf = this.moveBuffer;
+    this.moveBuffer = [];
+    this._lastRenderedIndex = 0;
+
     const ps = [];
     const rs = [];
     for (let i = 0; i < buf.length; i += 3) {
@@ -463,9 +487,8 @@ export class FlowPenTool extends Tool {
       this.offscreenCtx.clearRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
     }
     this.lastStampPos = null;
-    // stampBuffer is NOT wiped here: onPointerUp generates final bridge stamps
-    // into it before calling clearStroke(), and App.js drains them afterward.
-    // Reset is handled in onPointerDown.
+    this._lastControlPoint = null;
+    this._moveBufferDirty = false;
     this.dirtyBounds = null;
     this.previewDirtyBounds = null;
   }
@@ -511,8 +534,8 @@ export class FlowPenTool extends Tool {
    * Deactivates the tool.
    */
   deactivate() {
-    if (this.lastStampPos && this._activeUser) {
-      this.onPointerUp(this._activeUser, this.lastStampPos);
+    if (this._lastControlPoint && this._activeUser) {
+      this.onPointerUp(this._activeUser, this._lastControlPoint);
     }
     this._activeUser = null;
   }

@@ -492,7 +492,7 @@ export function bridgeGap(ctx, from, to, fromRadius, toRadius, user, blendMode =
  */
 export function getStampSpacing(fromRadius, toRadius = fromRadius) {
   const avgRadius = Math.max(0, (fromRadius + toRadius) / 2);
-  return Math.max(0.05, avgRadius * 0.2);
+  return Math.max(0.05, avgRadius * 0.1);
 }
 
 /**

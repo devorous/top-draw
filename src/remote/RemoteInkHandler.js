@@ -71,10 +71,10 @@ export class RemoteInkHandler {
 
     user._inkSize = user.size;
 
-    const pressure = Math.round(user.pressure * 255) / 255;
-    // Skip the initial point if pressure is 0 — a stale or liftoff pressure value
-    // would create a misshapen blob at the start of the stroke in tablet mode.
-    user._inkPoints = pressure > 0 ? [[pos.x, pos.y, pressure]] : [];
+    // Don't add the initial point here — match local InkTool behavior where
+    // inputPoints starts empty and waits for first move with real pressure data.
+    // Points are added by handleInkPoints which processes all incoming points.
+    user._inkPoints = [];
     user._inkStrokeActive = true;
     user._inkDirtyBounds = { minX: pos.x, minY: pos.y, maxX: pos.x, maxY: pos.y };
 

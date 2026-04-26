@@ -41,6 +41,8 @@ const BATCH_RENDER_TOOLS = new Set([
   'imageBrush'
 ]);
 const LATEST_POINT_ONLY_TOOLS = new Set(['select']);
+// Tools that need all points for smooth remote rendering (no Douglas-Peucker reduction)
+const SKIP_NETWORK_REDUCTION_TOOLS = new Set(['brush']);
 
 /**
  * Detects if the current device is low-power to adjust the tick rate.
@@ -304,7 +306,9 @@ export class InputBufferManager {
 
     // Commit pending move points
     if (this.pendingBroadcastPoints.length > 0) {
-      const reducedPoints = this.pendingBroadcastPointsAreReduced
+      // Skip reduction for tools that need all points for smooth remote rendering
+      const skipReduction = SKIP_NETWORK_REDUCTION_TOOLS.has(app.self.tool);
+      const reducedPoints = (this.pendingBroadcastPointsAreReduced || skipReduction)
         ? this.pendingBroadcastPoints
         : this.applyPointReduction(this.pendingBroadcastPoints);
       this.pendingBroadcastPoints = [];
@@ -482,7 +486,8 @@ export class InputBufferManager {
   }
 
   _shouldPreserveStampPayload(toolName) {
-    return ['ink', 'circleBlur', 'imageBrush', 'pixel'].includes(toolName);
+    // flowPen handles its own reduction in drainStampBuffer - don't double-reduce
+    return ['ink', 'circleBlur', 'imageBrush', 'pixel', 'flowPen'].includes(toolName);
   }
 
   _reduceStampPayload(ps, rs) {
