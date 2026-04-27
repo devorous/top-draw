@@ -2401,6 +2401,57 @@ export class LayerManager {
     this.needsComposite = true;
   }
 
+  clearUserState(userId) {
+    for (const group of this.layerGroups) {
+      const active = group.activeStrokeByUser.get(userId);
+      if (active) {
+        group.activeStrokeByUser.delete(userId);
+        this._disposeCanvasObject(active);
+      }
+
+      const retainedStrokes = [];
+      for (const stroke of group.strokeStack) {
+        if (stroke.userId !== userId) {
+          retainedStrokes.push(stroke);
+        } else {
+          this._disposeStrokeRecord(stroke);
+        }
+      }
+      group.strokeStack = retainedStrokes;
+
+      const retainedSequences = [];
+      for (const seq of group.bakedSequences) {
+        if (seq?.type === 'group' && Array.isArray(seq.strokes) && seq.strokes.some((stroke) => stroke.userId === userId)) {
+          this._disposeSequence(seq);
+          continue;
+        }
+        retainedSequences.push(seq);
+      }
+      group.bakedSequences = retainedSequences;
+      group.userStrokeCounts.delete(userId);
+    }
+
+    const redoBatches = this.redoStackByUser.get(userId);
+    if (redoBatches) {
+      for (const batch of redoBatches) {
+        for (const { record } of batch) {
+          this._disposeStrokeRecord(record);
+        }
+      }
+      this.redoStackByUser.delete(userId);
+    }
+
+    if (this._pendingGlitchResults?.has(userId)) {
+      const pending = this._pendingGlitchResults.get(userId) || [];
+      for (const item of pending) {
+        this._disposeCanvasElement(item?.resultImage);
+      }
+      this._pendingGlitchResults.delete(userId);
+    }
+
+    this.needsComposite = true;
+  }
+
   /**
    * Return lightweight counters useful during memory investigations.
    * @returns {Object}

@@ -2851,6 +2851,18 @@ export class DrawingApp {
     this.updateCleanupDebugStats();
   }
 
+  forceCleanupResidualState(sessionIndex) {
+    const numericUserId = Number(sessionIndex);
+    if (!Number.isFinite(numericUserId)) return;
+
+    this.board.layerManager?.clearUserState?.(numericUserId);
+    for (const tool of Object.values(this.toolManager.tools)) {
+      if (typeof tool.clearUserState === 'function') {
+        tool.clearUserState(numericUserId);
+      }
+    }
+  }
+
   resetRoomState(options = {}) {
     const preserveRemoteVisuals = options.preserveRemoteVisuals === true;
     const clearBoard = options.clearBoard !== false;

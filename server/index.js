@@ -948,6 +948,7 @@ function mapUsersForBroadcast(users, viewer = null, room = null) {
     .filter(u => !isShadowHiddenFromViewer(u, viewer))
     .map(u => ({
     u: u.sessionIndex,
+    iid: u.instanceId,
     a: u.afk,
     x: u.x,
     y: u.y,
@@ -2093,7 +2094,7 @@ wss.on('connection', async (ws, req) => {
             isVpnNetwork: !!ws.isVpnNetwork
           });
 
-          sendTo(ws, { t: T.CONNECT, u: sessionIndex, authRole: ws.userRole, authUsername: username });
+          sendTo(ws, { t: T.CONNECT, u: sessionIndex, iid: createdUser.instanceId, authRole: ws.userRole, authUsername: username });
 
           const allUsers = room.sessionManager.getJoinedUsers();
           const roomBroadcaster = createRoomBroadcaster(room);

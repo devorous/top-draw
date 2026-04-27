@@ -396,4 +396,9 @@ export class PixelBrushTool {
     if (right <= x || bottom <= y) return null;
     return { x, y, width: right - x, height: bottom - y };
   }
+
+  clearUserState(userId) {
+    this.lastStampPos.delete(userId);
+    this.tempCanvases.delete(userId);
+  }
 }

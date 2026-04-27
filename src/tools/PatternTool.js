@@ -548,4 +548,9 @@ export class PatternTool extends Tool {
     }
     this.board.requestUpdate();
   }
+
+  clearUserState(userId) {
+    this.remoteOffscreens.delete(userId);
+    this.lastStampPos.delete(userId);
+  }
 }

@@ -51,6 +51,7 @@ export function setupUserHandlers(wsClient, app) {
   let knownRemoteSessionIds = new Set();
   const pendingJoinAnnouncements = new Map();
   const announcedJoinSessionIds = new Set();
+  const vacatedSlots = new Map();
 
   const cancelPendingJoinAnnouncement = (sessionIndex) => {
     const pending = pendingJoinAnnouncements.get(sessionIndex);
@@ -139,11 +140,12 @@ export function setupUserHandlers(wsClient, app) {
 
     // Authoritative Update/Create
     data.users.forEach(userData => {
-      
+
       const username = userData.name || userData.username || '';
 
       if (userData.sessionIndex === app.sessionIndex) {
         // Authoritative update for SELF (e.g. if name was forced unique)
+        app.self.instanceId = userData.iid || '';
         const selfAfk = !!userData.afk;
         app.self.setAfk?.(selfAfk);
         app.ui.setSelfUserAfk?.(selfAfk);
@@ -181,6 +183,14 @@ export function setupUserHandlers(wsClient, app) {
         return;
       }
 
+      // Detect session index reuse with different instanceId and trigger cleanup
+      const previousIid = vacatedSlots.get(userData.sessionIndex);
+      if (previousIid && previousIid !== userData.iid) {
+        console.log(`[Ghost User Prevention] Session ${userData.sessionIndex} reused: old iid=${previousIid} → new iid=${userData.iid}`);
+        app.forceCleanupResidualState?.(userData.sessionIndex);
+        vacatedSlots.delete(userData.sessionIndex);
+      }
+
       let user = users.get(userData.sessionIndex);
 
       if (!user) {
@@ -196,7 +206,8 @@ export function setupUserHandlers(wsClient, app) {
           visibleIp: userData.visibleIp || '',
           patternMode: userData.pm || userData.patternMode || false,
           textPositionMultiplier: userData.textPositionMultiplier,
-          textPositionOffset: userData.textPositionOffset
+          textPositionOffset: userData.textPositionOffset,
+          instanceId: userData.iid || ''
         };
 
       // Use persistent color based on fingerprintId if available
@@ -247,8 +258,9 @@ export function setupUserHandlers(wsClient, app) {
         }
       } else {
         // Existing user - Update properties if they changed
+        user.instanceId = userData.iid || '';
         const hadName = !!user.username;
-        
+
         if (username && username !== user.username) {
           user.setUsername(username);
           if (!hadName) {
@@ -433,6 +445,11 @@ export function setupUserHandlers(wsClient, app) {
       clearJoinTracking(data.sessionIndex);
       if (app.svelteComponents?.chat) {
         app.svelteComponents.chat.addSystemMessage(formatRoomPresenceMessage(user, 'has left the room'));
+      }
+
+      // Save vacated slot with instanceId to detect reuse
+      if (user.instanceId) {
+        vacatedSlots.set(data.sessionIndex, user.instanceId);
       }
 
       // Bake out all user strokes (preserves visuals, frees memory)

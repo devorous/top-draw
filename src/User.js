@@ -75,6 +75,7 @@ export class User {
     this.ipHash = options.ipHash || options.iph || '';
     this.visibleIp = options.visibleIp || '';
     this.fingerprintId = options.fingerprintId || options.fpId || ''; // Persistent device/browser fingerprint for user continuity
+    this.instanceId = options.instanceId || ''; // Per-connection instance ID to detect session index reuse
 
     // Tile ownership tracking for griefing detection
     /** @type {Set<number>} Set of tile indices this user owns */

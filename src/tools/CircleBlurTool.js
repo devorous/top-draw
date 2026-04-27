@@ -562,4 +562,9 @@ export class CircleBlurTool extends Tool {
 
     ctx.restore();
   }
+
+  clearUserState(userId) {
+    this.lastStampPos.delete(userId);
+    this._snapshotCanvases.delete(userId);
+  }
 }

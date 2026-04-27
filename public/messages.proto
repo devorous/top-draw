@@ -208,6 +208,7 @@ message Msg {
     float tm = 28;      // Text baseline multiplier
     float to = 29;      // Text baseline offset
     string vip = 30;    // Viewer-specific visible IP (role-gated by server)
+    string iid = 31;    // Instance ID: random per-connection token to detect index reuse
   }
   repeated U us = 17;   // Users array
 
@@ -434,6 +435,9 @@ message Msg {
   uint64 metrics_time_ms = 143;     // METRICS_UPDATE: time spent in milliseconds
   uint32 metrics_chat = 144;        // METRICS_UPDATE: chat messages sent
   repeated string metrics_tools = 145; // METRICS_UPDATE: tools used during this batch
+
+  // === Instance ID (per-connection unique identifier) ===
+  string iid = 153;                 // Instance ID: random per-connection token to detect index reuse
 }
 
 // New message for storing snapshot layers and thumbnail bundled in R2

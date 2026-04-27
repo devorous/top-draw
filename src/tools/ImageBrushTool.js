@@ -516,4 +516,8 @@ export class ImageBrushTool extends Tool {
       reader.readAsArrayBuffer(file);
     });
   }
+
+  clearUserState(userId) {
+    this.lastStampPos.delete(userId);
+  }
 }

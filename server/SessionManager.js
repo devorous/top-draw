@@ -1,6 +1,7 @@
 /** @fileoverview Manages user sessions, state tracking, and AFK detection. */
 
 import { T } from '../shared/MessageTypes.js';
+import crypto from 'crypto';
 
 /**
  * User role constants.
@@ -138,6 +139,7 @@ export class SessionManager {
   createUser(sessionIndex, name = '', tool, color, ipHash = '') {
     const newUser = {
       sessionIndex,
+      instanceId: crypto.randomBytes(4).toString('hex'),
       afk: false,
       cursorHidden: true,
       lastActivity: Date.now(),

@@ -81,6 +81,8 @@ export class WebSocketClient {
     this.socket = null;
     /** @type {number|null} */
     this.sessionIndex = null;
+    /** @type {string} */
+    this.instanceId = '';
     /** @type {boolean} */
     this.connected = false;
     /** @type {Map<string, Function>} */
@@ -571,6 +573,7 @@ export class WebSocketClient {
     switch (data.t) {
       case T.CONNECT:
         this.sessionIndex = data.u;
+        this.instanceId = data.iid || '';
         this.role = data.authRole !== undefined ? data.authRole : 0;
         if (this.onConnect) {
           this.onConnect(this.sessionIndex, this.role, data.authUsername, data.iph);
