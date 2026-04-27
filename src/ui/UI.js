@@ -107,7 +107,7 @@ export class UI {
 
       mountPoint._pointerSliderReady = true;
 
-      const render = () => {
+      const render = (extraProps = {}) => {
         if (state.component) {
           unmount(state.component);
         }
@@ -122,22 +122,10 @@ export class UI {
             onChange: (newValue) => {
               state.value = newValue;
               mountPoint.dispatchEvent(new Event('input', { bubbles: true }));
-            }
+            },
+            ...extraProps
           }
         });
-      };
-
-      const syncVisualValue = () => {
-        const range = state.max - state.min;
-        const percent = range === 0 ? 0 : ((state.value - state.min) / range) * 100;
-        const clampedPercent = Math.max(0, Math.min(100, percent));
-        const slider = mountPoint.querySelector('[role="slider"]');
-        const fill = mountPoint.querySelector('.slider-fill');
-        const thumb = mountPoint.querySelector('.slider-thumb');
-
-        if (slider) slider.setAttribute('aria-valuenow', String(state.value));
-        if (fill) fill.style.width = `${clampedPercent}%`;
-        if (thumb) thumb.style.setProperty('--thumb-position', `${clampedPercent}%`);
       };
 
       for (const key of ['value', 'min', 'max', 'step']) {
@@ -146,11 +134,7 @@ export class UI {
           get: () => state[key],
           set: (val) => {
             state[key] = Number(val);
-            if (key === 'value') {
-              syncVisualValue();
-            } else {
-              render();
-            }
+            render();
           }
         });
       }
@@ -196,6 +180,9 @@ export class UI {
     for (const [elementKey, slider] of sliderElements) {
       this.elements[elementKey] = createPointerSlider(slider);
     }
+
+    createPointerSlider(document.getElementById('fillExpansionSlider'));
+    createPointerSlider(document.getElementById('fillBlurSlider'));
 
     createPointerSlider(document.getElementById('fillExpansionSlider'));
     createPointerSlider(document.getElementById('fillBlurSlider'));
