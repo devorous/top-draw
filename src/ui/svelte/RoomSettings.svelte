@@ -1488,7 +1488,7 @@
   }
 
   .rank-select-shell.disabled {
-    opacity: 0.75;
+    opacity: 0.50;
     cursor: not-allowed;
   }
 
