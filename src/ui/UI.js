@@ -1666,7 +1666,7 @@ menuBtn: document.getElementById('menuBtn'),
    */
   updateSpacingValue(spacing) {
     if (this.elements.spacingValue) {
-      this.elements.spacingValue.textContent = spacing;
+      this.elements.spacingValue.textContent = Math.round(spacing);
     }
   }
 

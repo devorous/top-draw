@@ -1768,9 +1768,11 @@ export class DrawingApp {
     this.ui.makeValueEditable(elements.spacingValue, {
       min: 0, max: 50, step: 1, suffix: '',
       onCommit: (val) => {
-        this.self.setSpacing(val);
-        elements.spacingSlider.value = val;
-        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSpacingChange(val));
+        const spacing = Math.round(val);
+        this.self.setSpacing(spacing);
+        elements.spacingSlider.value = spacing;
+        this.ui.updateSpacingValue(spacing);
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSpacingChange(spacing));
       }
     });
 
@@ -4742,7 +4744,8 @@ export class DrawingApp {
 
   handleSpacingChange(e) {
     this.clearActiveCustomPreset();
-    const spacing = Number(e.target.value);
+    const spacing = Math.round(Number(e.target.value));
+    e.target.value = spacing;
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSpacingChange(spacing));
     this.self.setSpacing(spacing);
     this.ui.updateSpacingValue(spacing);
