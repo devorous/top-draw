@@ -136,6 +136,15 @@ export class InputBufferManager {
       dirty: false
     };
 
+    /** @type {{x:number,y:number,p:number}|null} */
+    this._lastBufferedSample = null;
+    /** @type {Object} */
+    this.subPixelCulling = {
+      enabled: true,
+      distSq: 1,           // skip if moved < 1 board-px (squared)
+      pressureDelta: 0.01  // unless pressure changed by >= this
+    };
+
     /** @type {Object} */
     this.pointReduction = {
       enabled: true,
@@ -342,6 +351,40 @@ export class InputBufferManager {
     this.inputBuffer.dirty = false;
     this.pendingBroadcastPoints = [];
     this.pendingBroadcastPointsAreReduced = false;
+    this._lastBufferedSample = null;
+  }
+
+  /**
+   * Decides whether an incoming pointer sample should be discarded as a
+   * sub-pixel/no-op move. Updates the last-buffered tracker when accepting.
+   *
+   * @param {number} x - Board-space x.
+   * @param {number} y - Board-space y.
+   * @param {number} p - Pressure (0..1).
+   * @returns {boolean} True if caller should skip pushing this sample.
+   */
+  shouldCullSample(x, y, p) {
+    // Count every raw sample arrival so the dev panel's in/out telemetry
+    // reflects sub-pixel culling (and downstream DP reduction).
+    this._recordBufferedPoints(1);
+
+    const cull = this.subPixelCulling;
+    if (!cull.enabled) {
+      this._lastBufferedSample = { x, y, p };
+      return false;
+    }
+    const last = this._lastBufferedSample;
+    if (last !== null) {
+      const dx = x - last.x;
+      const dy = y - last.y;
+      const dp = p - last.p;
+      const dpAbs = dp < 0 ? -dp : dp;
+      if (dx * dx + dy * dy < cull.distSq && dpAbs < cull.pressureDelta) {
+        return true;
+      }
+    }
+    this._lastBufferedSample = { x, y, p };
+    return false;
   }
 
   /**
@@ -363,7 +406,8 @@ export class InputBufferManager {
   _consumeBufferedPoints() {
     if (!this.inputBuffer.dirty || this.inputBuffer.points.length === 0) return [];
     const points = this.inputBuffer.points;
-    this._recordBufferedPoints(points.length / 3);
+    // Note: buffered-in count is recorded at the cull/intake stage
+    // (shouldCullSample) so culled samples are visible in dev telemetry.
     this.inputBuffer.points = [];
     this.inputBuffer.dirty = false;
     return points;
@@ -722,6 +766,7 @@ export class InputBufferManager {
     this.inputBuffer.dirty = false;
     this.pendingBroadcastPoints = [];
     this.pendingBroadcastPointsAreReduced = false;
+    this._lastBufferedSample = null;
   }
 
   /**

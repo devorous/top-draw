@@ -919,8 +919,6 @@ export class RemoteUserUI {
     }
     if (text) {
       text.style.fontSize = `${size + 5}px`;
-      const user = window.app?.users?.get(Number(userId));
-      if (user) this.updateRemoteTextLayout(userId, user);
     }
   }
 

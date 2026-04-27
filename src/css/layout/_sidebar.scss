@@ -59,6 +59,7 @@ html[data-sidebar-side='left'] #sideMenu {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  touch-action: pan-y;
 }
 
 #sidebarBottom {

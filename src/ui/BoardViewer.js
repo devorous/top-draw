@@ -1,4 +1,5 @@
 import { isTauriDesktop } from '../platform/desktop.js';
+import { bindPressAction } from '../utils/buttonBinding.js';
 
 const AUTO_SHOW_ZOOM = 1.5;
 const MIN_VIEW_ZOOM = 0.05;
@@ -207,14 +208,15 @@ export class BoardViewer {
   }
 
   _bind() {
-    this.launchButton.addEventListener('click', () => this.show({ manual: true }));
+    bindPressAction(this.launchButton, () => this.show({ manual: true }));
 
-    this.el.querySelector('.boardViewerActions').addEventListener('click', (event) => {
-      const action = event.target.closest('button')?.dataset.action;
-      if (action === 'close') this.hide();
-      if (action === 'popout') this.openPopout();
-      if (action === 'disable') this.setEnabled(false);
-    });
+    const closeBtn = this.el.querySelector('[data-action="close"]');
+    const popoutBtn = this.el.querySelector('[data-action="popout"]');
+    const disableBtn = this.el.querySelector('[data-action="disable"]');
+
+    bindPressAction(closeBtn, () => this.hide());
+    bindPressAction(popoutBtn, () => this.openPopout());
+    bindPressAction(disableBtn, () => this.setEnabled(false));
 
     this._bindControls(this.el.querySelector('.boardViewerControls'));
     this._bindPanZoomStage(this.stage, () => this.stage);
