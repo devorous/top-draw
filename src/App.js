@@ -3191,8 +3191,10 @@ export class DrawingApp {
       // version poller will surface the real update prompt once the new
       // server is actually reachable.
       this.ui.showDisconnectionBanner({
-        message: 'Server is restarting. Reconnecting in a moment, or continue offline.',
-        icon: '!'
+        message: 'Server is restarting. You can keep drawing offline while we reconnect.',
+        icon: '!',
+        retryVisible: false,
+        offlineLabel: 'Draw Offline'
       });
     } else {
       // Show disconnection banner if we're in a room (not on landing page)

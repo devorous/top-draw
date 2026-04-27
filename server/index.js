@@ -457,6 +457,22 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (path === '/api/version' && req.method === 'GET') {
+    try {
+      const versionPolicy = await readVersionPolicy();
+      if (!versionPolicy) {
+        json(res, 503, { error: 'Version policy unavailable' });
+        return;
+      }
+      json(res, 200, versionPolicy);
+      return;
+    } catch (error) {
+      console.error('[Version] Failed to read version policy:', error);
+      json(res, 500, { error: 'Failed to read version' });
+      return;
+    }
+  }
+
   const galleryPageMatch = path.match(/^\/gallery\/([a-f0-9]{24})$/);
   if (galleryPageMatch && req.method === 'GET') {
     const db = getDB();

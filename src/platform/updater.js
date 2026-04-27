@@ -5,12 +5,51 @@ const UPDATER_DISABLED = false;
 let updateCheckInFlight = null;
 let mismatchPromptInFlight = null;
 let mismatchPrompted = false;
+const AUTO_UPDATE_PREF_KEY = 'desktopAutoUpdates';
 
 function formatPublishedDate(rawDate) {
   if (!rawDate) return '';
   const parsed = new Date(rawDate);
   if (Number.isNaN(parsed.getTime())) return '';
   return parsed.toLocaleString();
+}
+
+function getAutoUpdatePreference() {
+  try {
+    return localStorage.getItem(AUTO_UPDATE_PREF_KEY) === '1';
+  } catch (error) {
+    console.warn('[Updater] Failed to read auto-update preference:', error);
+    return false;
+  }
+}
+
+function setAutoUpdatePreference(enabled) {
+  try {
+    localStorage.setItem(AUTO_UPDATE_PREF_KEY, enabled ? '1' : '0');
+  } catch (error) {
+    console.warn('[Updater] Failed to store auto-update preference:', error);
+  }
+}
+
+function setLandingJoinDisabled(disabled) {
+  const joinButtons = [
+    document.getElementById('loginJoinBtn'),
+    document.getElementById('joinBtnLoggedIn')
+  ];
+
+  joinButtons.forEach((btn) => {
+    if (!btn) return;
+    if (disabled) {
+      btn.dataset.prevDisabled = btn.disabled ? '1' : '0';
+      btn.disabled = true;
+      btn.classList.add('disabled');
+    } else {
+      const wasDisabled = btn.dataset.prevDisabled === '1';
+      btn.disabled = wasDisabled;
+      btn.classList.toggle('disabled', wasDisabled);
+      delete btn.dataset.prevDisabled;
+    }
+  });
 }
 
 function ensureUpdaterModalStyles() {
@@ -95,6 +134,43 @@ function ensureUpdaterModalStyles() {
       border-color: color-mix(in srgb, #ff6d6d 35%, transparent);
       border-top-color: #ff6d6d;
     }
+
+    .desktopUpdaterActions {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin-top: 16px;
+    }
+
+    .desktopUpdaterButton {
+      padding: 8px 14px;
+      border-radius: 10px;
+      border: 1px solid color-mix(in srgb, var(--accent-primary, #00d4aa) 40%, transparent);
+      background: color-mix(in srgb, var(--accent-primary, #00d4aa) 18%, transparent);
+      color: var(--text-primary, #f3f5f7);
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .desktopUpdaterButton.secondary {
+      border-color: color-mix(in srgb, var(--text-muted, #8b93a1) 40%, transparent);
+      background: transparent;
+      color: var(--text-secondary, #c1c6cd);
+    }
+
+    .desktopUpdaterToggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--text-muted, #8b93a1);
+    }
+
+    .desktopUpdaterToggle input {
+      accent-color: var(--accent-primary, #00d4aa);
+    }
   `;
 
   document.head.appendChild(style);
@@ -141,6 +217,61 @@ function showDesktopUpdaterProgress(update) {
   };
 }
 
+function showDesktopUpdatePrompt(update) {
+  ensureUpdaterModalStyles();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'desktopUpdaterBackdrop';
+
+  const dialog = document.createElement('div');
+  dialog.className = 'desktopUpdaterDialog';
+
+  const publishedDate = formatPublishedDate(update.date);
+  const autoUpdatesEnabled = getAutoUpdatePreference();
+  dialog.innerHTML = `
+    <div class="desktopUpdaterSpinnerWrap" aria-hidden="true">
+      <div class="desktopUpdaterSpinner"></div>
+    </div>
+    <h2 class="desktopUpdaterTitle">Update Ready</h2>
+    <p class="desktopUpdaterCopy">Install ${update.version} ${publishedDate ? `(${publishedDate})` : ''} now?</p>
+    <div class="desktopUpdaterStatus" aria-live="polite">The app will restart after updating.</div>
+    <div class="desktopUpdaterActions">
+      <button class="desktopUpdaterButton" data-action="install">Install Update</button>
+      <button class="desktopUpdaterButton secondary" data-action="offline">Draw Offline</button>
+    </div>
+    <label class="desktopUpdaterToggle">
+      <input type="checkbox" data-role="auto-updates" ${autoUpdatesEnabled ? 'checked' : ''}>
+      Automatically install updates
+    </label>
+  `;
+
+  backdrop.appendChild(dialog);
+  document.body.appendChild(backdrop);
+  setLandingJoinDisabled(true);
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      backdrop.remove();
+      setLandingJoinDisabled(false);
+    };
+
+    const handleClick = (event) => {
+      const action = event.target?.getAttribute('data-action');
+      if (!action) return;
+      cleanup();
+      resolve(action === 'install' ? 'install' : 'offline');
+    };
+
+    const toggle = dialog.querySelector('[data-role="auto-updates"]');
+    if (toggle) {
+      toggle.addEventListener('change', (event) => {
+        setAutoUpdatePreference(event.target?.checked === true);
+      });
+    }
+
+    dialog.addEventListener('click', handleClick);
+  });
+}
+
 export async function checkForDesktopUpdates({ silent = false } = {}) {
   if (!isTauriDesktop()) {
     return { status: 'not-desktop' };
@@ -177,6 +308,36 @@ async function runDesktopUpdateCheck({ silent = false } = {}) {
     const update = await invoke('fetch_update');
     if (!update) {
       return { status: 'up-to-date' };
+    }
+
+    if (getAutoUpdatePreference()) {
+      const updaterProgress = showDesktopUpdaterProgress(update);
+      updaterProgress.setStatus('Installing update... The app will restart when it finishes.');
+
+      try {
+        await invoke('install_update');
+        updaterProgress.setCopy(`Update ${update.version} installed.`);
+        updaterProgress.setStatus('Restarting app...');
+        window.setTimeout(() => updaterProgress.close(), 250);
+        await relaunch();
+        return { status: 'installed', version: update.version, auto: true };
+      } catch (installError) {
+        updaterProgress.setError('Update failed. Please try again in a moment.');
+        window.setTimeout(() => updaterProgress.close(), 2000);
+        return {
+          status: 'error',
+          error: installError instanceof Error ? installError.message : String(installError)
+        };
+      }
+    }
+
+    const choice = await showDesktopUpdatePrompt(update);
+    if (choice === 'offline') {
+      document.getElementById('loginOfflineBtn')?.click();
+      if (window.app?.handleOffline) {
+        void window.app.handleOffline();
+      }
+      return { status: 'offline', version: update.version };
     }
 
     const updaterProgress = showDesktopUpdaterProgress(update);

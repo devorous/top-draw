@@ -12,7 +12,30 @@ function getVersionEndpointUrl() {
   if (isTauriDesktop() && configuredApiBase) {
     return `${configuredApiBase}/api/version`;
   }
+  const wsServerUrl = String(import.meta.env.VITE_WS_SERVER_URL || '').trim();
+  if (wsServerUrl) {
+    try {
+      const parsed = new URL(wsServerUrl, window.location.href);
+      const protocol = parsed.protocol === 'wss:' ? 'https:' : 'http:';
+      return `${protocol}//${parsed.host}/api/version`;
+    } catch (error) {
+      console.warn('[VersionChecker] Failed to parse VITE_WS_SERVER_URL:', error);
+    }
+  }
   return '/api/version';
+}
+
+function formatReleaseDate(releaseDate) {
+  if (!releaseDate) return '';
+  const parsed = new Date(releaseDate);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(releaseDate);
+  }
+  return parsed.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit'
+  });
 }
 
 /**
@@ -213,7 +236,7 @@ export function showOutdatedClientWarning(versionInfo) {
         <strong>Latest version:</strong> ${versionInfo.latestVersion}<br>
         <strong>Minimum required:</strong> ${versionInfo.minRequired}
       </p>
-      ${versionInfo.releaseDate ? `<p style="margin: 8px 0 0; font-size: 12px; color: var(--text-muted, #888);">Released: ${versionInfo.releaseDate}</p>` : ''}
+      ${versionInfo.releaseDate ? `<p style="margin: 8px 0 0; font-size: 12px; color: var(--text-muted, #888);">Released: ${formatReleaseDate(versionInfo.releaseDate)}</p>` : ''}
       ${versionInfo.notes ? `<p style="margin: 12px 0 0; padding: 8px; background: rgba(211, 47, 47, 0.1); border-radius: 4px; font-size: 13px;">${versionInfo.notes}</p>` : ''}
       <p style="margin: 12px 0 0;">Refresh the page to load the latest version. You can still draw offline, but you won't be able to connect to rooms.</p>
     `;
