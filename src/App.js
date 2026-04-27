@@ -2241,7 +2241,6 @@ export class DrawingApp {
 
   handlePatternScaleChange(e) {
     const scale = this.roundPatternOptionValue(e.target.value);
-    if (e.target) e.target.value = scale;
     this.self.patternScale = scale;
     if (this.ui.elements.patternScaleValue) {
       this.ui.elements.patternScaleValue.textContent = `${this.formatPatternOptionValue(scale)}%`;
@@ -2308,7 +2307,6 @@ export class DrawingApp {
 
   handlePatternRotationChange(e) {
     const rotation = this.roundPatternOptionValue(e.target.value);
-    if (e.target) e.target.value = rotation;
     this.self.patternRotation = rotation;
     if (this.ui.elements.patternRotationValue) {
       this.ui.elements.patternRotationValue.textContent = `${this.formatPatternOptionValue(rotation)}°`;
@@ -2332,7 +2330,6 @@ export class DrawingApp {
 
   handlePatternSpacingChange(e) {
     const spacing = this.roundPatternOptionValue(e.target.value);
-    if (e.target) e.target.value = spacing;
     this.self.patternSpacing = spacing;
     if (this.ui.elements.patternSpacingValue) {
       this.ui.elements.patternSpacingValue.textContent = this.formatPatternOptionValue(spacing);
@@ -2356,7 +2353,6 @@ export class DrawingApp {
 
   handlePatternOffsetXChange(e) {
     const offsetX = this.roundPatternOptionValue(e.target.value);
-    if (e.target) e.target.value = offsetX;
     this.self.patternOffsetX = offsetX;
     if (this.ui.elements.patternOffsetXValue) {
       this.ui.elements.patternOffsetXValue.textContent = this.formatPatternOptionValue(offsetX);
@@ -2380,7 +2376,6 @@ export class DrawingApp {
 
   handlePatternOffsetYChange(e) {
     const offsetY = this.roundPatternOptionValue(e.target.value);
-    if (e.target) e.target.value = offsetY;
     this.self.patternOffsetY = offsetY;
     if (this.ui.elements.patternOffsetYValue) {
       this.ui.elements.patternOffsetYValue.textContent = this.formatPatternOptionValue(offsetY);
@@ -4745,7 +4740,6 @@ export class DrawingApp {
   handleSpacingChange(e) {
     this.clearActiveCustomPreset();
     const spacing = Math.round(Number(e.target.value));
-    e.target.value = spacing;
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSpacingChange(spacing));
     this.self.setSpacing(spacing);
     this.ui.updateSpacingValue(spacing);
@@ -4797,7 +4791,6 @@ export class DrawingApp {
   handleBlurRadiusChange(e) {
     this.clearActiveCustomPreset();
     const radius = this.setSelfBlurRadiusForCurrentTool(Number(e.target.value));
-    if (e.target) e.target.value = radius;
     if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBlurRadiusChange(radius));
     }
