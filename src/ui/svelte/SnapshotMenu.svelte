@@ -237,14 +237,25 @@
       // Local
       try {
         const record = await window.app.snapshotManager.getLocal(id);
-        if (!record || !record.layers) {
-          throw new Error('Local record not found or incomplete');
+        if (record?.layers && record.layers.length > 0) {
+          selectedLayers = record.layers;
+          isLoadingPreview = false;
+          await tick();
+          renderPreview(record.layers);
+          resetView();
+        } else {
+          const snapshotMeta = snapshots.find((snap) => snap.id === id);
+          const thumb = record?.thumb || snapshotMeta?.thumb || null;
+          if (!thumb || thumb.length === 0) {
+            throw new Error('Local record not found or incomplete');
+          }
+
+          selectedLayers = null;
+          isLoadingPreview = false;
+          await tick();
+          await renderThumbnailPreview(thumb);
+          resetView();
         }
-        selectedLayers = record.layers;
-        isLoadingPreview = false;
-        await tick();
-        renderPreview(record.layers);
-        resetView();
       } catch (err) {
         console.warn('[SnapshotMenu] Local preview error', err);
         isLoadingPreview = false;
@@ -299,6 +310,55 @@
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = typeof bg === 'string' ? bg : `rgb(${bg[0]},${bg[1]},${bg[2]})`;
     ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(exportCanvas, 0, 0);
+
+    window.app.snapshotPreviewCanvas = exportCanvas;
+  }
+
+  async function renderThumbnailPreview(thumbBytes) {
+    if (!previewCanvas) return;
+
+    const [h, w] = window.app.board.dimensions;
+    previewCanvas.width = w;
+    previewCanvas.height = h;
+    selectionCanvas.width = w;
+    selectionCanvas.height = h;
+
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = w;
+    exportCanvas.height = h;
+    const exportCtx = exportCanvas.getContext('2d');
+    exportCtx.clearRect(0, 0, w, h);
+
+    const bg = window.app.board.backgroundColor || '#ffffff';
+    exportCtx.fillStyle = typeof bg === 'string' ? bg : `rgb(${bg[0]},${bg[1]},${bg[2]})`;
+    exportCtx.fillRect(0, 0, w, h);
+
+    if (thumbBytes && thumbBytes.length > 0) {
+      const url = URL.createObjectURL(new Blob([thumbBytes], { type: 'image/jpeg' }));
+      try {
+        await new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+            const drawW = img.naturalWidth * scale;
+            const drawH = img.naturalHeight * scale;
+            const drawX = (w - drawW) / 2;
+            const drawY = (h - drawH) / 2;
+            exportCtx.drawImage(img, drawX, drawY, drawW, drawH);
+            resolve();
+          };
+          img.onerror = () => reject(new Error('Failed to decode thumbnail preview'));
+          img.src = url;
+        });
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    snapshotExportCanvas = exportCanvas;
+    const ctx = previewCanvas.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
     ctx.drawImage(exportCanvas, 0, 0);
 
     window.app.snapshotPreviewCanvas = exportCanvas;
