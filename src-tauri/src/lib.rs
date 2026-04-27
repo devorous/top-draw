@@ -30,6 +30,7 @@ const DISCORD_PRESENCE_OPTIONS: [&str; 4] = [
 struct PendingUpdate(Mutex<Option<Update>>);
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct NativeImageSelection {
   name: String,
   data_url: String,
