@@ -1142,6 +1142,7 @@ menuBtn: document.getElementById('menuBtn'),
 
       case 'brush':
       case 'flowPen':
+      case 'flowPenOld':
         this.applyLocalCursorStyle(tool, user);
         brushHardness.style.display = 'block';
         if (brushModeOptions) brushModeOptions.style.display = 'block';

@@ -50,16 +50,16 @@ class Tool {
 }
 
 /**
- * Flow Pen tool for pressure-sensitive strokes using circle stamping.
+ * Flow Pen tool for pressure-sensitive strokes using circle stamping (old version).
  * Note: Position smoothing is handled by InputBufferManager before points
  * reach this tool, ensuring parity between local preview and remote rendering.
  */
-export class FlowPenTool extends Tool {
+export class FlowPenOldTool extends Tool {
   /**
    * @param {Object} board - The drawing board instance.
    */
   constructor(board) {
-    super('flowPen', board);
+    super('flowPenOld', board);
     this.pressureSteps = 256;
     this.offscreenCanvas = null;
     this.offscreenCtx = null;
@@ -189,51 +189,6 @@ export class FlowPenTool extends Tool {
   }
 
   /**
-   * Handles pointer move without immediate rendering (for batch rendering).
-   * Interpolates circles locally for smooth preview, but only sends key points.
-   * @param {Object} user - The user performing the action.
-   * @param {Object} pos - The current pointer position.
-   * @param {Object} lastPos - The previous pointer position.
-   * @param {Event} e - The pointer event.
-   */
-  onPointerMoveNoRender(user, pos, lastPos, e) {
-    if (!user.mousedown || user.panning || !this.lastStampPos) return;
-
-    const pressure = this.quantizePressure(user.pressure);
-    const radius = pressure * user.size;
-    const pressure255End = Math.round(pressure * 255);
-
-    const distance = this.getDistance(this.lastStampPos, pos);
-    if (distance > 0.5) {
-      // Interpolate circles locally for smooth rendering
-      this.interpolateStroke(
-        this.offscreenCtx,
-        this.lastStampPos.x,
-        this.lastStampPos.y,
-        this.lastStampPos.radius,
-        pos.x,
-        pos.y,
-        radius
-      );
-
-      // Update dirty bounds
-      const minRadius = Math.min(this.lastStampPos.radius, radius);
-      const maxRadius = Math.max(this.lastStampPos.radius, radius);
-      if (this.dirtyBounds) {
-        this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, pos.x - maxRadius);
-        this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, pos.y - maxRadius);
-        this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, pos.x + maxRadius);
-        this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y + maxRadius);
-      }
-
-      // Only send key point to network (not interpolated points)
-      this.stampBuffer.push(pos.x, pos.y, pressure255End);
-      this.lastStampPos = { x: pos.x, y: pos.y, radius, pressure255: pressure255End };
-      user.penPoints.push({ x: pos.x, y: pos.y, radius });
-    }
-  }
-
-  /**
    * Handles pointer up event.
    * @param {Object} user - The user performing the action.
    * @param {Object} pos - The current pointer position.
@@ -350,70 +305,10 @@ export class FlowPenTool extends Tool {
   }
 
   /**
-   * Interpolates and stamps circles between two positions for smooth stroke coverage.
-   * @param {CanvasRenderingContext2D} ctx - Canvas context to draw on.
-   * @param {number} x1 - Start x.
-   * @param {number} y1 - Start y.
-   * @param {number} r1 - Start radius.
-   * @param {number} x2 - End x.
-   * @param {number} y2 - End y.
-   * @param {number} r2 - End radius.
-   */
-  interpolateStroke(ctx, x1, y1, r1, x2, y2, r2) {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-
-    const avgRadius = (r1 + r2) / 2;
-    const spacing = Math.max(1, avgRadius * 0.2);
-
-    if (distance < spacing) {
-      ctx.beginPath();
-      ctx.arc(x2, y2, Math.max(0.5, r2), 0, Math.PI * 2);
-      ctx.fill();
-      return;
-    }
-
-    const steps = Math.ceil(distance / spacing);
-    for (let i = 0; i <= steps; i++) {
-      const t = steps === 0 ? 0 : i / steps;
-      const x = x1 + dx * t;
-      const y = y1 + dy * t;
-      const r = r1 + (r2 - r1) * t;
-      ctx.beginPath();
-      ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  /**
-   * Renders the stroke (no-op for FlowPenTool, stamping happens in onPointerMove).
-   */
-  renderStroke(last, user) {
-    // No-op: stamping is handled incrementally in onPointerMove/onPointerMoveNoRender
-  }
-
-  /**
-   * Gets the preview dirty rectangle.
-   */
-  getPreviewDirtyRect(user) {
-    if (!this.dirtyBounds || (this.dirtyBounds.minX === Infinity)) {
-      return false;
-    }
-    const margin = 2;
-    return {
-      x: Math.max(0, Math.floor(this.dirtyBounds.minX) - margin),
-      y: Math.max(0, Math.floor(this.dirtyBounds.minY) - margin),
-      width: Math.ceil(this.dirtyBounds.maxX - this.dirtyBounds.minX) + margin * 2,
-      height: Math.ceil(this.dirtyBounds.maxY - this.dirtyBounds.minY) + margin * 2
-    };
-  }
-
-  /**
    * Draws the current stroke preview on the top canvas.
    * @param {Object} user - The user performing the action.
    */
-  drawPreview(user, rect = null) {
+  drawPreview(user) {
     if (!this.offscreenCanvas) return;
 
     const ctx = this.board.topCtx;

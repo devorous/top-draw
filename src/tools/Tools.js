@@ -1,6 +1,7 @@
 import { SelectToolLoader } from './SelectToolLoader.js';
 import { BrushTool } from './BrushTool.js';
 import { FlowPenTool } from './FlowPenTool.js';
+import { FlowPenOldTool } from './FlowPenOldTool.js';
 import { InkTool } from './InkTool.js';
 import { ImageBrushTool } from './ImageBrushTool.js';
 import { PatternTool } from './PatternTool.js';
@@ -54,6 +55,7 @@ export class ToolManager {
       select: new SelectToolLoader(board),
       brush: new BrushTool(board),
       flowPen: new FlowPenTool(board),
+      flowPenOld: new FlowPenOldTool(board),
       ink: new InkTool(board),
       pixel: new PixelBrushTool(board),
       line: new LineTool(board),
