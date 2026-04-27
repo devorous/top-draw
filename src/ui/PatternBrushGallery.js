@@ -21,8 +21,8 @@ export class PatternBrushGallery extends BrushGallery {
       return;
     }
 
-    this._initDefaultShapes();
     this.renderUploadTile();
+    this._initDefaultShapes();
     this.initHeaderActions();
     this.loadBrushes();
   }
@@ -66,7 +66,7 @@ export class PatternBrushGallery extends BrushGallery {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 40;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#ccc';
+    ctx.fillStyle = '#000';
     if (shape === 'circle') {
       ctx.beginPath();
       ctx.arc(20, 20, 18, 0, Math.PI * 2);
