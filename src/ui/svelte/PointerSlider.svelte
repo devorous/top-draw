@@ -149,7 +149,7 @@
   .slider-fill {
     position: absolute;
     height: 100%;
-    background: var(--accent-primary, #00d4aa);
+    background: var(--accent-secondary, var(--accent-primary, #00d4aa));
     border-radius: 3px;
     pointer-events: none;
     left: 0;
