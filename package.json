@@ -1,6 +1,6 @@
 {
   "name": "top-draw",
-  "version": "1.5.5-beta",
+  "version": "1.5.6-beta",
   "description": "A multiplayer drawing application with WebSocket support",
   "type": "module",
   "scripts": {
