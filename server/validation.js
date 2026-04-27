@@ -619,6 +619,11 @@ export async function sanitizeMessage(data) {
       }
       sanitized.a = sanitizeBoolean(data.a);
       sanitized.n = sanitizeString(data.n || '', MAX_NAME_LENGTH);
+      // Optional flag used by local snapshot uploads to trigger an immediate
+      // room-wide restore broadcast after persisting.
+      sanitized.snapshotRestoreAfterSave = sanitizeBoolean(
+        data.snapshotRestoreAfterSave ?? data.snapshot_restore_after_save
+      );
       return sanitized;
 
     case T.BOARD_SNAPSHOT_LIST_REQUEST:

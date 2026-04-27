@@ -27,6 +27,11 @@ function canManualSaveSnapshot(ws, room) {
   return authorize(ws, Action.MOD_MUTE, null) || isSoloRoomOccupant(room);
 }
 
+function canRestoreWholeBoard(ws) {
+  // Full-board restore is Trusted+ only (no solo-user bypass).
+  return authorize(ws, Action.MOD_MUTE, null);
+}
+
 function snapshotCoversRoomBoard(snapshotLayers, room) {
   const snapshotDimensions = snapshotLayerDimensions(snapshotLayers);
   const [boardHeight, boardWidth] = getBoardDimensionsForSize(room?.settings?.boardSize);
@@ -229,6 +234,23 @@ export async function handleSnapshotSave(ws, data, room) {
       throw err;
     }
   }
+
+  // If client requested an immediate restore broadcast (used when uploading a
+  // local snapshot to share with the room), broadcast the restore now using
+  // the layers we just received. This mirrors handleSnapshotRestore's broadcast.
+  if (data.snapshotRestoreAfterSave && layers && layers.length > 0 && canRestoreWholeBoard(ws)) {
+    room.broadcastToAll({
+      t: T.BOARD_SNAPSHOT_RESTORE,
+      snapshotLayers: layers,
+      snapshotId: snapshotId,
+      snapshotTs: snapshotTs,
+      snapshotIssuer: issuer
+    });
+
+    if (snapshotCoversRoomBoard(layers, room)) {
+      room.clearAllTiles();
+    }
+  }
 }
 
 /**
@@ -283,7 +305,7 @@ export async function handleSnapshotList(ws, data, room) {
  * @param {Room} room - The room instance.
  */
 export async function handleSnapshotRestore(ws, data, room) {
-  if (!canLoadSnapshot(ws, room)) return; // Trusted+ only unless user is alone in the room
+  if (!canRestoreWholeBoard(ws)) return; // Trusted+ only
 
   const snapshotId = data.snapshotId;
   let snapshotData = null;

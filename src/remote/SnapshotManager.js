@@ -216,21 +216,25 @@ export class SnapshotManager {
   }
 
   /**
-   * Returns metadata for all local snapshots in the current room (most recent first).
+   * Returns paginated metadata for local snapshots in the current room (most recent first).
    * Layer/thumbnail bytes are NOT included; call getLocal(id) to load them.
+   * @param {number} limit - Max number of snapshots to return (default 20)
+   * @param {number} beforeTs - Load snapshots before this timestamp (for pagination)
    */
-  async listLocal() {
+  async listLocal(limit = 20, beforeTs = 0) {
     const store = this._getLocalStore();
     if (!store) return [];
     const roomId = this.app.currentRoomData?.id || this.app.currentRoomId || 'default';
     try {
-      const records = await store.list(roomId);
+      const records = await store.list(roomId, limit, beforeTs);
       // Map records to a format similar to remote snapshots for the UI
+      // thumb bytes are included directly (now efficient because they live in a separate meta store)
       return records.map(r => ({
         id: r.id,
         ts: r.ts,
         issuer: r.issuer,
         name: r.name,
+        thumb: r.thumb,
         hasThumb: r.hasThumb,
         auto: true // local captures are always auto
       }));
@@ -247,6 +251,17 @@ export class SnapshotManager {
       return await store.get(id);
     } catch (err) {
       console.warn('[SnapshotManager] Local get failed:', err);
+      return null;
+    }
+  }
+
+  async getLocalThumb(id) {
+    const store = this._getLocalStore();
+    if (!store) return null;
+    try {
+      return await store.getThumb(id);
+    } catch (err) {
+      console.warn('[SnapshotManager] Local thumb fetch failed:', err);
       return null;
     }
   }
@@ -270,6 +285,63 @@ export class SnapshotManager {
     if (!record?.layers) return false;
     this.app.board.restoreSnapshot(record.layers);
     this.app.board.requestUpdate();
+    return true;
+  }
+
+  /**
+   * Uploads a local snapshot to the server and immediately broadcasts a restore
+   * so the snapshot is applied to all users in the room. Mirrors the existing
+   * server-snapshot restore flow.
+   *
+   * Falls back to a local-only apply if the client is disconnected.
+   * @param {string} id - Local snapshot ID
+   * @returns {Promise<boolean>} success
+   */
+  async uploadAndRestoreLocal(id) {
+    const record = await this.getLocal(id);
+    if (!record?.layers || record.layers.length === 0) return false;
+
+    // If not connected, just apply locally
+    if (!this.app.wsClient || !this.app.connected) {
+      this.app.board.restoreSnapshot(record.layers);
+      this.app.board.requestUpdate();
+      return true;
+    }
+
+    const msg = {
+      t: T.BOARD_SNAPSHOT_SAVE,
+      snapshotLayers: record.layers,
+      n: record.name || `Local ${new Date(record.ts || Date.now()).toLocaleTimeString()}`,
+      a: false,
+      snapshotRestoreAfterSave: true
+    };
+    if (record.thumb) msg.snapshotThumb = record.thumb;
+
+    this.app.wsClient.send(msg);
+    return true;
+  }
+
+  /**
+   * Uploads a local snapshot to the server as a regular snapshot (no broadcast
+   * restore). Used before a region "Upload" so the snapshot is available on the
+   * server for other users.
+   * @param {string} id - Local snapshot ID
+   * @returns {Promise<boolean>} success
+   */
+  async uploadLocalToServer(id) {
+    const record = await this.getLocal(id);
+    if (!record?.layers || record.layers.length === 0) return false;
+    if (!this.app.wsClient || !this.app.connected) return false;
+
+    const msg = {
+      t: T.BOARD_SNAPSHOT_SAVE,
+      snapshotLayers: record.layers,
+      n: record.name || `Local ${new Date(record.ts || Date.now()).toLocaleTimeString()}`,
+      a: false
+    };
+    if (record.thumb) msg.snapshotThumb = record.thumb;
+
+    this.app.wsClient.send(msg);
     return true;
   }
 

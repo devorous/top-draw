@@ -33,6 +33,7 @@ import { SaveMode } from './ui/SaveMode.js';
 import { MirrorRegionController } from './ui/MirrorRegionController.js';
 import { BoardViewer } from './ui/BoardViewer.js';
 import { SnapshotManager } from './remote/SnapshotManager.js';
+import { readQoiDimensions } from '../shared/qoi.js';
 import { loadAppPreferences, saveAppPreferences, THEME_BASE_COLORS } from './config/AppPreferences.js';
 import { getTextFontDefaults, loadTextFont, normalizeTextFont } from './config/textFonts.js';
 import {
@@ -46,6 +47,7 @@ import { checkForDesktopUpdates } from './platform/updater.js';
 import { ensureClientCanConnect, formatOutdatedClientMessage, getVersionStatus } from './VersionChecker.js';
 import { broadcastChatPopoutEvent, focusChatPopout } from './platform/chatPopoutBridge.js';
 import initWasm from './wasm/ddraw_wasm.js';
+import * as wasm from './wasm/ddraw_wasm.js';
 
 // Svelte UI Components
 import { initSvelteUI, syncStoresFromApp, showProfile as showProfileDialog } from './ui/svelte/AppUI.svelte.js';
@@ -6634,6 +6636,194 @@ export class DrawingApp {
   clearBoardImageDragState() {
     this._boardDragDepth = 0;
     this.ui.elements.boardContainer?.classList.remove('image-dragover');
+  }
+
+  /**
+   * Creates a multi-layer floating selection from snapshot layer data (QOI-encoded).
+   * Allows the user to move/scale the snapshot before committing to the board.
+   * @param {Uint8Array[]} layers - Array of QOI-encoded layer data
+   * @param {Object|null} cropRect - Optional crop region { x, y, width, height }
+   */
+  async uploadSnapshotLayersAsSelection(layers, cropRect = null) {
+    if (!Array.isArray(layers) || layers.length === 0) {
+      this.ui.showToast('No snapshot layers to upload', 3000, 'error');
+      return;
+    }
+
+    try {
+      // Get the SelectTool loader
+      const loader = this.toolManager.getTool('select');
+      if (!loader) {
+        this.ui.showToast('Select tool not available', 3000, 'error');
+        return;
+      }
+
+      // Ensure the real SelectTool is loaded (lazy-loaded chunk)
+      let realSelectTool = loader.realTool;
+      if (!realSelectTool && typeof loader.loadRealTool === 'function') {
+        realSelectTool = await loader.loadRealTool();
+      }
+      if (!realSelectTool || typeof realSelectTool.initializeCorners !== 'function') {
+        this.ui.showToast('Select tool failed to load', 3000, 'error');
+        return;
+      }
+
+      // Switch to select tool (activates it, sets up canvas blend modes, marching ants)
+      this.selectTool('select');
+
+      // Commit any existing floating selection
+      realSelectTool.commitSelection();
+      realSelectTool.clearSelection();
+
+      const [boardH, boardW] = this.board.dimensions;
+
+      // Decode layers and build per-layer canvases for compositing.
+      const floatingLayers = [];
+
+      for (let groupIdx = 0; groupIdx < layers.length; groupIdx++) {
+        const qoiData = layers[groupIdx];
+        if (!qoiData || qoiData.length === 0) continue;
+
+        try {
+          // Decode QOI
+          const pixels = wasm.qoi_decode(qoiData);
+          if (!pixels || pixels.length === 0) continue;
+
+          const dims = readQoiDimensions(qoiData);
+          if (!dims) continue;
+
+          const { width: qoiW, height: qoiH } = dims;
+
+          // Create canvas and draw layer
+          let canvas = document.createElement('canvas');
+          let ctx = canvas.getContext('2d');
+
+          if (cropRect) {
+            // Crop mode: extract just the selected region
+            const { x: sx, y: sy, width: sw, height: sh } = cropRect;
+            canvas.width = sw;
+            canvas.height = sh;
+
+            // Draw the cropped portion from the decoded layer
+            const imageData = new ImageData(new Uint8ClampedArray(pixels.buffer), qoiW, qoiH);
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = qoiW;
+            tempCanvas.height = qoiH;
+            tempCanvas.getContext('2d').putImageData(imageData, 0, 0);
+
+            // Clamp crop rect to layer bounds
+            const x = Math.max(0, Math.min(sx, qoiW));
+            const y = Math.max(0, Math.min(sy, qoiH));
+            const w = Math.min(sw, qoiW - x);
+            const h = Math.min(sh, qoiH - y);
+
+            if (w > 0 && h > 0) {
+              ctx.drawImage(tempCanvas, x, y, w, h, 0, 0, w, h);
+            }
+          } else {
+            // Full board mode: use entire layer
+            canvas.width = boardW;
+            canvas.height = boardH;
+            const imageData = new ImageData(new Uint8ClampedArray(pixels.buffer), qoiW, qoiH);
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = qoiW;
+            tempCanvas.height = qoiH;
+            tempCanvas.getContext('2d').putImageData(imageData, 0, 0);
+            ctx.drawImage(tempCanvas, 0, 0);
+          }
+
+          floatingLayers.push({ canvas, groupIdx });
+        } catch (e) {
+          console.warn(`[App] Failed to decode layer ${groupIdx}:`, e);
+        }
+      }
+
+      if (floatingLayers.length === 0) {
+        this.ui.showToast('No valid snapshot layers to upload', 3000, 'error');
+        return;
+      }
+
+      // Build composite floatingCanvas (for transform preview)
+      const compositeCanvas = document.createElement('canvas');
+      const isCropMode = !!cropRect;
+      if (isCropMode) {
+        compositeCanvas.width = cropRect.width;
+        compositeCanvas.height = cropRect.height;
+      } else {
+        compositeCanvas.width = boardW;
+        compositeCanvas.height = boardH;
+      }
+      const compositeCtx = compositeCanvas.getContext('2d');
+      for (const { canvas: layerCanvas } of floatingLayers) {
+        compositeCtx.drawImage(layerCanvas, 0, 0);
+      }
+
+      // Determine placement
+      let selection;
+      if (isCropMode) {
+        // Cropped: center in viewport
+        const container = this.board.container;
+        const containerWidth = container?.clientWidth || 800;
+        const containerHeight = container?.clientHeight || 600;
+        const zoom = this.board.zoom || 1;
+        const panX = this.board.panX || 0;
+        const panY = this.board.panY || 0;
+        const viewCenterX = (containerWidth / 2 - panX) / zoom;
+        const viewCenterY = (containerHeight / 2 - panY) / zoom;
+
+        selection = {
+          x: viewCenterX - cropRect.width / 2,
+          y: viewCenterY - cropRect.height / 2,
+          width: cropRect.width,
+          height: cropRect.height
+        };
+      } else {
+        // Full board: at origin
+        selection = {
+          x: 0,
+          y: 0,
+          width: boardW,
+          height: boardH
+        };
+      }
+
+      // Configure SelectTool for a standard floating paste selection.
+      // We intentionally flatten snapshot layers here so the behavior matches
+      // IMG_PASTE sync semantics used by remote clients.
+      realSelectTool.selection = selection;
+      realSelectTool.floatingCanvas = compositeCanvas;
+      realSelectTool.floatingCtx = compositeCanvas.getContext('2d');
+      realSelectTool.floatingLayers = null;
+      realSelectTool.copyAllLayers = false;
+      realSelectTool.originalSelectionPos = { x: -1, y: -1 };
+      realSelectTool._restoreData = null;
+
+      // Initialize transform handles
+      realSelectTool.initializeCorners();
+      realSelectTool.updateHandles();
+
+      // Render selection UI
+      this.board.clearTop();
+      realSelectTool.drawSelectionUI();
+
+      // Broadcast the pasted floating selection so remote users receive the
+      // same selection state and subsequent commit/cancel operations sync.
+      if (this.wsClient && this.connected) {
+        const dataUrl = compositeCanvas.toDataURL('image/png');
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastImagePaste(
+          selection.x,
+          selection.y,
+          selection.width,
+          selection.height,
+          dataUrl
+        ));
+      }
+
+      this.ui.showToast('Snapshot loaded as floating selection', 2000);
+    } catch (err) {
+      console.error('[App] uploadSnapshotLayersAsSelection failed:', err);
+      this.ui.showToast('Failed to upload snapshot layers', 3000, 'error');
+    }
   }
 
   // Tool Locks Management
