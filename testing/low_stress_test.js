@@ -3,6 +3,7 @@
 import ws from 'k6/ws';
 import { check, sleep } from 'k6';
 import { Trend } from 'k6/metrics';
+import { buildMsg } from './_k6_proto.js';
 
 const broadcastLatency = new Trend('broadcast_latency_low');
 
@@ -10,73 +11,6 @@ export const options = {
   vus: 8,
   duration: '1m',
 };
-
-/**
- * Encodes a numeric value as a Protobuf-style varint.
- * @param {number} value - The value to encode.
- * @returns {number[]} - The byte array representation of the varint.
- */
-function encodeVarint(value) {
-  let bytes = [];
-  while (value >= 0x80) {
-    bytes.push((value & 0x7F) | 0x80);
-    value = Math.floor(value / 128);
-  }
-  bytes.push(value);
-  return bytes;
-}
-
-/**
- * Builds a binary message based on the provided fields, following the application's Protobuf schema.
- * @param {Object} fields - The message fields to include.
- * @returns {ArrayBuffer} - The serialized binary message.
- */
-function buildMsg(fields) {
-  let parts = [];
-  if (fields.t !== undefined) parts.push(new Uint8Array([0x08, ...encodeVarint(fields.t)]));
-  if (fields.u !== undefined) parts.push(new Uint8Array([0x10, ...encodeVarint(fields.u)]));
-  if (fields.ps !== undefined) {
-    const floatSize = 4;
-    const psLength = fields.ps.length * floatSize;
-    parts.push(new Uint8Array([0x1A, ...encodeVarint(psLength)]));
-    const psData = new ArrayBuffer(psLength);
-    const view = new DataView(psData);
-    for (let i = 0; i < fields.ps.length; i++) {
-      view.setFloat32(i * floatSize, fields.ps[i], true);
-    }
-    parts.push(new Uint8Array(psData));
-  }
-  if (fields.s !== undefined) parts.push(new Uint8Array([0x28, ...encodeVarint(fields.s)]));
-  if (fields.l !== undefined) parts.push(new Uint8Array([0x30, ...encodeVarint(fields.l)]));
-  if (fields.c !== undefined) {
-    const b = new ArrayBuffer(4);
-    new DataView(b).setUint32(0, fields.c, true);
-    parts.push(new Uint8Array([0x3D, ...new Uint8Array(b)]));
-  }
-  if (fields.n !== undefined) {
-    const nameBytes = new Uint8Array(Array.from(fields.n).map(c => c.charCodeAt(0)));
-    parts.push(new Uint8Array([0x5A, ...encodeVarint(nameBytes.length)]));
-    parts.push(nameBytes);
-  }
-  if (fields.g !== undefined) {
-    const gBytes = new Uint8Array(Array.from(fields.g).map(c => c.charCodeAt(0)));
-    parts.push(new Uint8Array([0x62, ...encodeVarint(gBytes.length)]));
-    parts.push(gBytes);
-  }
-  if (fields.hd !== undefined) parts.push(new Uint8Array([0xE0, 0x01, ...encodeVarint(fields.hd)]));
-  if (fields.stroke_ts !== undefined) {
-    parts.push(new Uint8Array([0xF0, 0x02, ...encodeVarint(fields.stroke_ts)]));
-  }
-
-  let totalLength = parts.reduce((acc, p) => acc + p.length, 0);
-  let result = new Uint8Array(totalLength);
-  let offset = 0;
-  for (let p of parts) {
-    result.set(p, offset);
-    offset += p.length;
-  }
-  return result.buffer;
-}
 
 const T = {
   CONNECT: 0, MM: 10, MD: 11, MU: 12, CS: 14, CT: 15, CC: 16,
@@ -143,7 +77,7 @@ export default function () {
   sleep(Math.random() * 2);
 
   const room = __ENV.ROOM || 'test';
-  const baseUrl = __ENV.TARGET_URL || 'ws://127.0.0.1:8000';
+  const baseUrl = __ENV.TARGET_URL || 'ws://127.0.0.1:8030';
   const url = `${baseUrl}/?room=${room}`;
 
   let sessionIndex = -1;

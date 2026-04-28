@@ -3,6 +3,7 @@
 import ws from 'k6/ws';
 import { check, sleep } from 'k6';
 import { Trend } from 'k6/metrics';
+import { buildMsg } from './_k6_proto.js';
 
 const broadcastLatency = new Trend('broadcast_latency_medium_ordered');
 
@@ -13,91 +14,6 @@ export const options = {
 
 const TOOL_DURATION_MS = 5000; // 5 seconds per tool
 const TEST_START_TIME = Date.now(); // All VUs sync to this
-
-function encodeVarint(value) {
-  let bytes = [];
-  while (value >= 0x80) {
-    bytes.push((value & 0x7F) | 0x80);
-    value = Math.floor(value / 128);
-  }
-  bytes.push(value);
-  return bytes;
-}
-
-function buildMsg(fields) {
-  let parts = [];
-  if (fields.t !== undefined) parts.push(new Uint8Array([0x08, ...encodeVarint(fields.t)]));
-  if (fields.u !== undefined) parts.push(new Uint8Array([0x10, ...encodeVarint(fields.u)]));
-  if (fields.ps !== undefined) {
-    const floatSize = 4;
-    const psLength = fields.ps.length * floatSize;
-    parts.push(new Uint8Array([0x1A, ...encodeVarint(psLength)]));
-    const psData = new ArrayBuffer(psLength);
-    const view = new DataView(psData);
-    for (let i = 0; i < fields.ps.length; i++) {
-      view.setFloat32(i * floatSize, fields.ps[i], true);
-    }
-    parts.push(new Uint8Array(psData));
-  }
-  if (fields.s !== undefined) parts.push(new Uint8Array([0x28, ...encodeVarint(fields.s)]));
-  if (fields.l !== undefined) parts.push(new Uint8Array([0x30, ...encodeVarint(fields.l)]));
-  if (fields.c !== undefined) {
-    const b = new ArrayBuffer(4);
-    new DataView(b).setUint32(0, fields.c, true);
-    parts.push(new Uint8Array([0x3D, ...new Uint8Array(b)]));
-  }
-  if (fields.n !== undefined) {
-    const nameBytes = new Uint8Array(Array.from(fields.n).map(c => c.charCodeAt(0)));
-    parts.push(new Uint8Array([0x5A, ...encodeVarint(nameBytes.length)]));
-    parts.push(nameBytes);
-  }
-  // Spacing (field 16)
-  if (fields.sp !== undefined) {
-    parts.push(new Uint8Array([0x80, 0x01, ...encodeVarint(fields.sp)]));
-  }
-  // Smoothing (field 23)
-  if (fields.sm !== undefined) {
-    parts.push(new Uint8Array([0xB8, 0x01, ...encodeVarint(fields.sm)]));
-  }
-  // Hardness (field 28)
-  if (fields.hd !== undefined) {
-    parts.push(new Uint8Array([0xE0, 0x01, ...encodeVarint(fields.hd)]));
-  }
-  // Blur radius (field 43)
-  if (fields.br !== undefined) {
-    parts.push(new Uint8Array([0xD8, 0x02, ...encodeVarint(fields.br)]));
-  }
-  // Layer (field 44)
-  if (fields.ly !== undefined) {
-    parts.push(new Uint8Array([0xE0, 0x02, ...encodeVarint(fields.ly)]));
-  }
-  // Blend mode (field 45) - string
-  if (fields.bm !== undefined) {
-    const bmBytes = new Uint8Array(Array.from(fields.bm).map(c => c.charCodeAt(0)));
-    parts.push(new Uint8Array([0xEA, 0x02, ...encodeVarint(bmBytes.length)]));
-    parts.push(bmBytes);
-  }
-  // Thinning (field 59)
-  if (fields.th !== undefined) {
-    parts.push(new Uint8Array([0xD8, 0x03, ...encodeVarint(fields.th)]));
-  }
-  // Simulate pressure (field 60)
-  if (fields.sim !== undefined) {
-    parts.push(new Uint8Array([0xE0, 0x03, ...encodeVarint(fields.sim)]));
-  }
-  if (fields.stroke_ts !== undefined) {
-    parts.push(new Uint8Array([0xF0, 0x02, ...encodeVarint(fields.stroke_ts)]));
-  }
-
-  let totalLength = parts.reduce((acc, p) => acc + p.length, 0);
-  let result = new Uint8Array(totalLength);
-  let offset = 0;
-  for (let p of parts) {
-    result.set(p, offset);
-    offset += p.length;
-  }
-  return result.buffer;
-}
 
 const T = {
   CONNECT: 0, MM: 10, MD: 11, MU: 12, CS: 14, CT: 15, CC: 16,
@@ -125,7 +41,7 @@ export default function () {
   sleep(Math.random() * 0.5);
 
   const room = __ENV.ROOM || 'test';
-  const baseUrl = __ENV.TARGET_URL || 'ws://127.0.0.1:8000';
+  const baseUrl = __ENV.TARGET_URL || 'ws://127.0.0.1:8030';
   const url = `${baseUrl}/?room=${room}`;
 
   let sessionIndex = -1;
