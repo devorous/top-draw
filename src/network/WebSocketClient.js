@@ -541,7 +541,7 @@ export class WebSocketClient {
         } catch (err) {
           console.error('Failed to decode batched message:', err);
           processed++;
-          if (!forceDrain && processed % 10 === 0 && performance.now() - start > BUDGET_MS) break;
+          if (!forceDrain && performance.now() - start > BUDGET_MS) break;
           continue;
         }
       } else {
@@ -551,10 +551,12 @@ export class WebSocketClient {
       this._processMessage(data);
       processed++;
 
-      if (!forceDrain && processed % 10 === 0 && performance.now() - start > BUDGET_MS) {
+      if (!forceDrain && performance.now() - start > BUDGET_MS) {
         break;
       }
     }
+
+    this._lastProcessingFrameEnd = performance.now();
 
     if (this._messageQueue.length > 0) {
       this._scheduleProcessing();

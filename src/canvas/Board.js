@@ -2392,6 +2392,9 @@ export class Board {
       if (!this._needsComposite) return;
       const minInterval = 1000 / this.targetFPS;
       if (time - this._lastCompositeTime < minInterval) return;
+      // Skip this frame if message processing just ran — let it composite next tick.
+      const lastProcEnd = this.app?.wsClient?._lastProcessingFrameEnd;
+      if (lastProcEnd && performance.now() - lastProcEnd < 2) return;
       this._needsComposite = false;
       this._lastCompositeTime = time;
       this.compositeAllLayers();
@@ -2428,6 +2431,14 @@ export class Board {
    * @private
    */
   _performScheduledComposite() {
+    // If message processing ran in this same RAF batch, defer the composite
+    // to the next frame to avoid stacking 10–20ms of work into one frame.
+    const lastProcEnd = this.app?.wsClient?._lastProcessingFrameEnd;
+    if (lastProcEnd && performance.now() - lastProcEnd < 2) {
+      requestAnimationFrame(() => this._performScheduledComposite());
+      return;
+    }
+
     this._compositeScheduled = false;
     if (this._needsComposite) {
       this._needsComposite = false;

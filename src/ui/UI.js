@@ -55,6 +55,8 @@ export class UI {
     this.remoteUserUI = null;
     this.layerPreview = new LayerPreview();
     this.resizableSections = null;
+    this._pendingSelfCursor = null;
+    this._selfCursorFlushScheduled = false;
   }
 
   /**
@@ -730,6 +732,24 @@ menuBtn: document.getElementById('menuBtn'),
    * @param {number} size - Base tool size
    */
   updateSelfCursor(x, y, size) {
+    this._lastCursorX = x;
+    this._lastCursorY = y;
+
+    // Coalesce DOM writes to one per RAF — avoids ~50/sec SVG attribute thrash.
+    this._pendingSelfCursor = { x, y, size };
+    if (!this._selfCursorFlushScheduled) {
+      this._selfCursorFlushScheduled = true;
+      requestAnimationFrame(() => this._flushSelfCursor());
+    }
+  }
+
+  _flushSelfCursor() {
+    this._selfCursorFlushScheduled = false;
+    const pending = this._pendingSelfCursor;
+    if (!pending) return;
+    this._pendingSelfCursor = null;
+    const { x, y, size } = pending;
+
     const cursor = this.elements.selfCursor;
     const circle = this.elements.selfCircle;
     const pressureCircle = this.elements.selfPressureCircle;
@@ -740,9 +760,6 @@ menuBtn: document.getElementById('menuBtn'),
     const hand = this.elements.selfHand;
     const zoom = this.elements.selfZoom;
     const mutedIndicator = this.elements.selfMutedIndicator;
-
-    this._lastCursorX = x;
-    this._lastCursorY = y;
 
     cursor.style.transform = `translate(${x - 100}px, ${y - 100}px)`;
     circle.setAttribute('cx', x);

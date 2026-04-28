@@ -57,6 +57,9 @@ export class RemoteUserUI {
     this._groupUserIndex = new Map();
     this._lastNotifyActiveAt = new Map();
 
+    this._pendingCursorWrites = new Map(); // userId -> {x, y, size}
+    this._cursorFlushScheduled = false;
+
     this._initUserListSortControl();
   }
 
@@ -864,26 +867,42 @@ export class RemoteUserUI {
     }
     this.notifyUserActive(userId);
     this.markRemoteCursorActivity(userId);
-    const cursorElements = this.cursors.get(userId);
-    const cursor = cursorElements?.cursor;
-    const circle = cursorElements?.circle;
-    const square = cursorElements?.square;
-    const crosshair = cursorElements?.crosshair;
 
-    if (cursor) {
-      cursor.style.transform = `translate(${x - 100}px, ${y - 100}px)`;
+    // Coalesce DOM writes: only the latest position per user matters
+    // per frame. Writing every incoming MM message (~50/sec/user) was
+    // dominating the trace via SVG attribute thrash.
+    this._pendingCursorWrites.set(userId, { x, y, size });
+    if (!this._cursorFlushScheduled) {
+      this._cursorFlushScheduled = true;
+      requestAnimationFrame(() => this._flushCursorWrites());
     }
-    if (circle) {
-      circle.setAttribute('cx', x);
-      circle.setAttribute('cy', y);
+  }
+
+  _flushCursorWrites() {
+    this._cursorFlushScheduled = false;
+    const pending = this._pendingCursorWrites;
+    if (pending.size === 0) return;
+    for (const [userId, { x, y, size }] of pending) {
+      const cursorElements = this.cursors.get(userId);
+      if (!cursorElements) continue;
+      const { cursor, circle, square, crosshair } = cursorElements;
+
+      if (cursor) {
+        cursor.style.transform = `translate(${x - 100}px, ${y - 100}px)`;
+      }
+      if (circle) {
+        circle.setAttribute('cx', x);
+        circle.setAttribute('cy', y);
+      }
+      if (square) {
+        square.setAttribute('x', x - size);
+        square.setAttribute('y', y - size);
+      }
+      if (crosshair) {
+        crosshair.setAttribute('transform', `translate(${x}, ${y})`);
+      }
     }
-    if (square) {
-      square.setAttribute('x', x - size);
-      square.setAttribute('y', y - size);
-    }
-    if (crosshair) {
-      crosshair.setAttribute('transform', `translate(${x}, ${y})`);
-    }
+    pending.clear();
   }
 
   /**
