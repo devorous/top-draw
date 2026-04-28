@@ -1032,7 +1032,7 @@
   .room-settings-overlay {
     position: fixed;
     inset: 0;
-    background: color-mix(in srgb, var(--surface-overlay) 92%, black);
+    background: rgba(0, 0, 0, 0.5);
     z-index: 10000;
     display: flex;
     align-items: center;
