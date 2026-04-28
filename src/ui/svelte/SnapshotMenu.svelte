@@ -24,6 +24,8 @@
   let lastHandledSnapshotListVersion = $state(0);
   let showBackToPresent = $state(false);
   let previewRequestTimeout = null;
+  let listRequestTimeout = null;
+  let listError = $state('');
 
   // Selection tool
   let mode = $state('rectangle'); // 'rectangle' | 'lasso'
@@ -133,9 +135,22 @@
     isLoadingSnapshots = true;
     isLoadingMore = false;
     showBackToPresent = false;
+    listError = '';
+
+    if (listRequestTimeout) {
+      clearTimeout(listRequestTimeout);
+      listRequestTimeout = null;
+    }
 
     if (snapshotSource === 'remote') {
       window.app?.snapshotManager?.requestList();
+      listRequestTimeout = window.setTimeout(() => {
+        listRequestTimeout = null;
+        if (isLoadingSnapshots) {
+          isLoadingSnapshots = false;
+          listError = 'Failed to load snapshots. Check your connection and try again.';
+        }
+      }, 15000);
     } else {
       try {
         const pageSize = 20;
@@ -607,8 +622,13 @@
   $effect(() => {
     if (snapshotListVersion === lastHandledSnapshotListVersion) return;
     lastHandledSnapshotListVersion = snapshotListVersion;
+    if (listRequestTimeout) {
+      clearTimeout(listRequestTimeout);
+      listRequestTimeout = null;
+    }
     isLoadingSnapshots = false;
     isLoadingMore = false;
+    listError = '';
   });
 
   onMount(() => {
@@ -631,6 +651,7 @@
   onDestroy(() => {
     if (animId) cancelAnimationFrame(animId);
     if (previewRequestTimeout) clearTimeout(previewRequestTimeout);
+    if (listRequestTimeout) clearTimeout(listRequestTimeout);
     window.app?.wsClient?.messageHandlers?.delete('board_snapshot_get_response');
     window.app?.snapshotManager?.clearListCache?.();
     clearSnapshotHistoryState();
@@ -653,6 +674,7 @@
     selection = null;
     lassoPoints = [];
     previewError = '';
+    listError = '';
     setSnapshotSource(source);
     refresh();
   }
@@ -766,7 +788,11 @@
       onpointerleave={onStripPointerUp}
       style="cursor: {isDraggingStrip ? 'grabbing' : 'auto'}"
     >
-      {#if snapshots.length === 0}
+      {#if isLoadingSnapshots && snapshots.length === 0}
+        <span class="snap-strip-empty">Loading…</span>
+      {:else if listError}
+        <span class="snap-strip-empty snap-strip-error">{listError}</span>
+      {:else if snapshots.length === 0}
         <span class="snap-strip-empty">
           {#if snapshotSource === 'remote'}
             {#if canViewHistory}
@@ -945,6 +971,7 @@
   .snap-strip-wrap::-webkit-scrollbar-thumb { background: #555; border-radius: 2px; }
 
   .snap-strip-empty { font-size: 12px; color: var(--text-muted, #555); white-space: nowrap; }
+  .snap-strip-empty.snap-strip-error { color: #ff6b6b; font-weight: 500; }
 
   .snap-thumb-item {
     flex-shrink: 0; width: 90px; height: 90px; border: 2px solid #333;
