@@ -3,6 +3,9 @@
 import './css/main.scss';
 import { scheduleStartupUpdateCheck } from './platform/updater.js';
 import { initializeVersionCheck } from './VersionChecker.js';
+import { installAppConfirmGlobal } from './ui/ConfirmDialog.js';
+
+installAppConfirmGlobal();
 
 // Auto-reload once when a dynamically imported chunk fails to load (stale cache after deploy)
 window.addEventListener('unhandledrejection', (event) => {

@@ -394,7 +394,11 @@
         window.app?.ui?.showToast?.('Restore Board requires Trusted rank or higher', 3500, 'error');
         return;
       }
-      if (!confirm('Replace entire board?')) return;
+      if (!await window.showAppConfirm('Replace entire board?', {
+        title: 'Restore board?',
+        confirmLabel: 'Replace',
+        danger: true
+      })) return;
       if (snapshotSource === 'local') {
         // Upload to server then broadcast restore so all users sync
         const ok = await window.app.snapshotManager.uploadAndRestoreLocal(selectedId);
@@ -468,7 +472,11 @@
 
   async function doDelete() {
     if (!selectedId) return;
-    if (!confirm('Are you sure you want to delete this snapshot?')) return;
+    if (!await window.showAppConfirm('Are you sure you want to delete this snapshot?', {
+      title: 'Delete snapshot?',
+      confirmLabel: 'Delete',
+      danger: true
+    })) return;
     
     if (snapshotSource === 'remote') {
       window.app.snapshotManager.deleteSnapshot(selectedId);

@@ -21,8 +21,12 @@
     }
   }
 
-  function handleUndoToState() {
-    if (confirm('Are you sure you want to revert the board to this state for everyone?')) {
+  async function handleUndoToState() {
+    if (await window.showAppConfirm('Are you sure you want to revert the board to this state for everyone?', {
+      title: 'Revert board?',
+      confirmLabel: 'Revert',
+      danger: true
+    })) {
       TimeMachine.requestUndoTo(TimeMachine.currentTime);
     }
   }

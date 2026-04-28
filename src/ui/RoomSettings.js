@@ -225,13 +225,18 @@ export class RoomSettings {
   /**
    * Shows confirmation dialog before unregistering.
    */
-  confirmUnregister() {
+  async confirmUnregister() {
     if (!this.currentRoom) return;
 
     const roomName = this.currentRoom.id;
-    const confirmed = confirm(
+    const confirmed = await window.showAppConfirm(
       `Are you sure you want to unregister "${roomName}"?\n\n` +
-      `This will remove ownership and allow anyone to register the room.`
+      `This will remove ownership and allow anyone to register the room.`,
+      {
+        title: 'Unregister room?',
+        confirmLabel: 'Unregister',
+        danger: true
+      }
     );
 
     if (confirmed) {

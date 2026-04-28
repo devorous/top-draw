@@ -744,6 +744,9 @@ export class SelectTool extends Tool {
    */
   hasBeenMoved() {
     if (!this.originalSelectionPos || !this.selection) return false;
+    if (this.floatingCanvas && this.originalSelectionPos.x === -1 && this.originalSelectionPos.y === -1) {
+      return true;
+    }
     return (
       Math.abs(this.selection.x - this.originalSelectionPos.x) > 1 ||
       Math.abs(this.selection.y - this.originalSelectionPos.y) > 1 ||

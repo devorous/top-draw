@@ -2,6 +2,7 @@
  * @fileoverview Main UI Manager for handling DOM interactions, icons, and specialized sub-UI components.
  */
 import { mount, unmount } from 'svelte';
+import { showAppConfirm } from './ConfirmDialog.js';
 import { EditableValueHandler } from './EditableValueHandler.js';
 import { RemoteUserUI } from './RemoteUserUI.js';
 import { LayerPreview } from './LayerPreview.js';
@@ -2005,6 +2006,10 @@ menuBtn: document.getElementById('menuBtn'),
     this._toastTimeout = setTimeout(() => {
       toast.classList.remove('show', 'error');
     }, duration);
+  }
+
+  confirm(message, options = {}) {
+    return showAppConfirm(message, options);
   }
 
   /**

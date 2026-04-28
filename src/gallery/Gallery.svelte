@@ -506,7 +506,12 @@
       alert('You are not authorized to delete this image.');
       return;
     }
-    if (!confirm('Are you sure you want to delete this image? This cannot be undone.')) return;
+    const confirmed = await window.showAppConfirm('Are you sure you want to delete this image? This cannot be undone.', {
+      title: 'Delete image?',
+      confirmLabel: 'Delete',
+      danger: true
+    });
+    if (!confirmed) return;
 
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) return;

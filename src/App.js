@@ -2131,11 +2131,15 @@ export class DrawingApp {
     if (!window.history.state?._topDrawSentinel) {
       window.history.pushState({ _topDrawSentinel: true }, '');
     }
-    window.addEventListener('popstate', (e) => {
+    window.addEventListener('popstate', async (e) => {
       if (!e.state?._topDrawSentinel) {
         // Re-push sentinel so back button is re-armed
         window.history.pushState({ _topDrawSentinel: true }, '');
-        if (window.confirm('Are you sure you want to leave DDraw?')) {
+        const shouldLeave = await this.ui.confirm('Are you sure you want to leave DDraw?', {
+          title: 'Leave DDraw?',
+          confirmLabel: 'Leave'
+        });
+        if (shouldLeave) {
           window.history.go(-2);
         }
       }
@@ -6519,17 +6523,34 @@ export class DrawingApp {
     return false;
   }
 
-  handleImageDataUrl(dataUrl) {
+  async handleImageDataUrl(dataUrl) {
     if (!dataUrl || !this.canUseImageFeatures(true)) return;
 
     const img = new Image();
-    img.onload = () => {
-      const selectTool = this.toolManager.getTool('select');
-      if (selectTool) {
-        selectTool.pasteImage(img);
-      }
-    };
+    img.onload = () => this.pasteLoadedImage(img);
     img.src = dataUrl;
+  }
+
+  async pasteLoadedImage(img) {
+    const selectTool = this.toolManager.getTool('select');
+    if (!selectTool) return false;
+
+    const [boardH, boardW] = this.board?.dimensions || [];
+    const matchesBoard = img.width === boardW && img.height === boardH;
+    const shouldApplyFullBoard = matchesBoard && await this.ui.confirm('This image matches the board size. Upload it as a full-board image?', {
+      title: 'Full-board image',
+      confirmLabel: 'Upload',
+      cancelLabel: 'Place as selection'
+    });
+    const pasted = await selectTool.pasteImage(img);
+
+    if (pasted && shouldApplyFullBoard) {
+      const realSelectTool = selectTool.realTool || selectTool;
+      realSelectTool.deselect?.();
+      this.ui?.showToast?.('Full-board image uploaded', 2000);
+    }
+
+    return pasted;
   }
 
   isImageFilename(name = '') {
@@ -6584,10 +6605,7 @@ export class DrawingApp {
         const img = new Image();
         img.crossOrigin = 'Anonymous';
         img.onload = () => {
-          const selectTool = this.toolManager.getTool('select');
-          if (selectTool) {
-            selectTool.pasteImage(img);
-          }
+          this.pasteLoadedImage(img);
         };
         img.src = match[1];
       }

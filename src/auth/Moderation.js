@@ -373,7 +373,7 @@ export class Moderation {
   /**
    * Handle context menu button clicks
    */
-  handleMenuAction(action, dataset = {}) {
+  async handleMenuAction(action, dataset = {}) {
     const sessionIndex = this.targetSessionIndex;
     const user = this.targetUser;
     const ipHash = this.targetIpHash;
@@ -414,7 +414,10 @@ export class Moderation {
             alert('Could not determine username for this user');
             return;
           }
-          if (confirm(`Promote ${targetUsername} to Noble (global rank)?`)) {
+          if (await window.showAppConfirm(`Promote ${targetUsername} to Noble (global rank)?`, {
+            title: 'Promote global rank',
+            confirmLabel: 'Promote'
+          })) {
             this.onGlobalRoleSet(targetUsername, 7); // Noble = 7
           }
         }
@@ -427,7 +430,10 @@ export class Moderation {
             alert('Could not determine username for this user');
             return;
           }
-          if (confirm(`Promote ${targetUsername} to Holy (global rank)?`)) {
+          if (await window.showAppConfirm(`Promote ${targetUsername} to Holy (global rank)?`, {
+            title: 'Promote global rank',
+            confirmLabel: 'Promote'
+          })) {
             this.onGlobalRoleSet(targetUsername, 8); // Holy = 8
           }
         }
@@ -443,7 +449,11 @@ export class Moderation {
           const currentGlobalRole = user.globalRole || user.role || 0;
           if (currentGlobalRole >= 7) {
             // Demote from Noble/Holy to USER (1)
-            if (confirm(`Demote ${targetUsername} from global rank ${currentGlobalRole} to User?`)) {
+            if (await window.showAppConfirm(`Demote ${targetUsername} from global rank ${currentGlobalRole} to User?`, {
+              title: 'Demote global rank',
+              confirmLabel: 'Demote',
+              danger: true
+            })) {
               this.onGlobalRoleSet(targetUsername, 1); // USER = 1
             }
           }
@@ -461,7 +471,11 @@ export class Moderation {
         break;
       case 'wipe': {
         const targetLabel = isGroup ? `all users in IP group ${ipHash}` : targetName;
-        if (confirm(`Wipe all strokes from ${targetLabel}?`)) {
+        if (await window.showAppConfirm(`Wipe all strokes from ${targetLabel}?`, {
+          title: 'Wipe strokes?',
+          confirmLabel: 'Wipe',
+          danger: true
+        })) {
           if (isGroup) {
             if (this.onModGroupAction) this.onModGroupAction('wipe', ipHash);
           } else {
