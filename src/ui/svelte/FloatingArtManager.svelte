@@ -37,7 +37,7 @@
   let loading = $state(false);
   let lastFetchedRoom = $state(null);
   let lastFetchedConfigKey = $state('');
-  let likedIds = $state(readLikedIds());
+  let likedIds = $state(new Set());
   let requestedRoom = null;
   let requestedConfigKey = '';
   const clientIdentity = new ClientIdentity();
@@ -81,17 +81,8 @@
     return lookup;
   });
 
-  function readLikedIds() {
-    try {
-      return new Set(JSON.parse(localStorage.getItem('ddraw_liked') || '[]'));
-    } catch {
-      return new Set();
-    }
-  }
-
   function persistLikedIds(nextLikedIds) {
     likedIds = nextLikedIds;
-    localStorage.setItem('ddraw_liked', JSON.stringify([...nextLikedIds]));
   }
 
   function itemIsLiked(item) {
@@ -107,8 +98,13 @@
     let changed = false;
 
     for (const item of fetchedItems || []) {
-      if (item?.id && (item.liked === true || item.likedByCurrentUser === true) && !nextLikedIds.has(item.id)) {
+      if (!item?.id) continue;
+      const isLiked = item.liked === true || item.likedByCurrentUser === true;
+      if (isLiked && !nextLikedIds.has(item.id)) {
         nextLikedIds.add(item.id);
+        changed = true;
+      } else if (!isLiked && nextLikedIds.has(item.id)) {
+        nextLikedIds.delete(item.id);
         changed = true;
       }
     }
@@ -161,10 +157,6 @@
         likesCount: previousLikesCount
       });
     }
-  }
-
-  function refreshLikedIdsFromStorage() {
-    likedIds = readLikedIds();
   }
 
   function buildFetchConfigKey() {
@@ -937,23 +929,6 @@
     fetchFloatingArt();
   });
 
-  $effect(() => {
-    if (typeof window === 'undefined') return;
-
-    const handleStorage = (event) => {
-      if (!event || event.key === 'ddraw_liked') {
-        refreshLikedIdsFromStorage();
-      }
-    };
-
-    window.addEventListener('storage', handleStorage);
-    window.addEventListener('focus', refreshLikedIdsFromStorage);
-
-    return () => {
-      window.removeEventListener('storage', handleStorage);
-      window.removeEventListener('focus', refreshLikedIdsFromStorage);
-    };
-  });
 </script>
 
 {#if enabled}

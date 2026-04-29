@@ -215,8 +215,10 @@ export async function handleAuthLogin(req, res) {
     json(res, 200, {
       success: true,
       token,
+      userId: user._id.toString(),
       username: user.username,
       role: user.role || 1,
+      likedGalleryIds: Array.isArray(user.likedGalleryIds) ? user.likedGalleryIds : [],
     });
   } catch (err) {
     console.error('[AuthRoutes] Login error:', err);
@@ -304,7 +306,8 @@ export async function handleAuthRegister(req, res) {
       ipHistory: clientIp ? [clientIp] : [],
       subnetHistory: clientSubnet ? [clientSubnet] : [],
       deviceIds: identity.deviceId ? [identity.deviceId] : [],
-      fingerprintIds: identity.fingerprintId ? [identity.fingerprintId] : []
+      fingerprintIds: identity.fingerprintId ? [identity.fingerprintId] : [],
+      likedGalleryIds: []
     };
 
     const result = await db.collection('users').insertOne(doc);
@@ -331,8 +334,10 @@ export async function handleAuthRegister(req, res) {
     json(res, 201, {
       success: true,
       token,
+      userId: result.insertedId.toString(),
       username,
       role,
+      likedGalleryIds: [],
     });
   } catch (err) {
     console.error('[AuthRoutes] Register error:', err);
@@ -358,7 +363,7 @@ export async function handleAuthMe(req, res) {
   if (!db) return json(res, 503, { success: false, error: 'Database not available' });
 
   const user = await getUserFromToken(getBearerToken(req), {
-    projection: { username: 1, role: 1 }
+    projection: { username: 1, role: 1, likedGalleryIds: 1 }
   });
   if (!user) {
     return json(res, 401, { success: false, error: 'Invalid or expired token' });
@@ -369,6 +374,7 @@ export async function handleAuthMe(req, res) {
     userId: user._id.toString(),
     username: user.username,
     role: user.role ?? Role.USER,
+    likedGalleryIds: Array.isArray(user.likedGalleryIds) ? user.likedGalleryIds : [],
   });
 }
 

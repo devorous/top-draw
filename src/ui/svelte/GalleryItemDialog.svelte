@@ -1,9 +1,7 @@
 <script>
   import { appState } from '../../state.svelte.js';
-  import { ClientIdentity } from '../../network/ClientIdentity.js';
 
   let { apiBaseUrl = '', onClose = null } = $props();
-  const clientIdentity = new ClientIdentity();
 
   let visible = $derived(appState.galleryItemDialog.visible);
   let itemId = $derived(appState.galleryItemDialog.itemId);
@@ -22,7 +20,10 @@
 
     async function tryFetchJson(url) {
       try {
-        const res = await fetch(url);
+        const token = localStorage.getItem('topDrawAuthToken');
+        const res = await fetch(url, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
         if (!res.ok) return null;
         const contentType = res.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) return null;
@@ -40,8 +41,7 @@
 
       item = data;
       likesCount = data.likesCount || 0;
-      const storedLikedIds = new Set(JSON.parse(localStorage.getItem('ddraw_liked') || '[]'));
-      liked = storedLikedIds.has(data.id);
+      liked = !!(data.liked || data.likedByCurrentUser);
     } catch (err) {
       console.error('[GalleryItemDialog] Fetch error:', err);
       error = err.message;
@@ -52,6 +52,8 @@
 
   async function handleLike() {
     if (!item) return;
+    const token = localStorage.getItem('topDrawAuthToken');
+    if (!token) return;
 
     const prevLiked = liked;
     const prevCount = likesCount;
@@ -60,16 +62,9 @@
     likesCount += liked ? 1 : -1;
 
     try {
-      const token = localStorage.getItem('topDrawAuthToken');
       const res = await fetch(`${apiBaseUrl}/api/gallery/${item.id}/like`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          deviceId: clientIdentity.deviceId || localStorage.getItem('topDrawDeviceId') || null
-        })
+        headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (!res.ok) throw new Error('Failed to like image');
@@ -78,10 +73,6 @@
       liked = data.liked;
       likesCount = data.likesCount;
 
-      const storedLikedIds = new Set(JSON.parse(localStorage.getItem('ddraw_liked') || '[]'));
-      if (data.liked) storedLikedIds.add(item.id);
-      else storedLikedIds.delete(item.id);
-      localStorage.setItem('ddraw_liked', JSON.stringify([...storedLikedIds]));
     } catch (err) {
       console.error('[GalleryItemDialog] Like error:', err);
       liked = prevLiked;

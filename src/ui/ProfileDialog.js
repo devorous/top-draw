@@ -326,7 +326,7 @@ export class ProfileDialog {
       </div>
 
       <div class="profile-actions">
-        <a href="${this.galleryBaseUrl}?author=${encodeURIComponent(data.username)}" class="profile-btn profile-btn-primary" target="_blank">
+        <a href="${this.galleryBaseUrl}/${encodeURIComponent(data.username)}" class="profile-btn profile-btn-primary" target="_blank">
           View on Gallery
         </a>
       </div>

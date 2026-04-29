@@ -498,7 +498,7 @@ export function initSvelteUI(app) {
                 floatingGalleryVoronoi,
                 clientDeviceId: app.wsClient?.clientIdentity?.deviceId || '',
                 apiBaseUrl: import.meta.env.VITE_API_BASE_URL || '',
-                onLike: async (itemOrId, clientDeviceId = '') => {
+                onLike: async (itemOrId) => {
                   const id = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id;
                   if (!id) {
                     throw new Error('Missing gallery item id');
@@ -506,15 +506,12 @@ export function initSvelteUI(app) {
 
                   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
                   const token = localStorage.getItem('topDrawAuthToken');
+                  if (!token) {
+                    throw new Error('Login required to like images');
+                  }
                   const res = await fetch(`${apiBase}/api/gallery/${id}/like`, {
                     method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-                    },
-                    body: JSON.stringify({
-                      deviceId: clientDeviceId || app.wsClient?.clientIdentity?.deviceId || localStorage.getItem('topDrawDeviceId') || null
-                    })
+                    headers: { 'Authorization': `Bearer ${token}` }
                   });
 
                   if (!res.ok) {

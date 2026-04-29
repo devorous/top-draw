@@ -157,18 +157,32 @@ function normalizeTags(input) {
   return tags;
 }
 
-function toClientGalleryItem(item) {
+function toClientGalleryItem(item, likedGalleryIds = null) {
+  const id = item._id.toString();
   return {
-    id: item._id.toString(),
+    id,
     url: item.url,
     thumbUrl: item.thumbUrl || item.url,
     author: item.author,
     title: item.title || '',
     tags: Array.isArray(item.tags) ? item.tags : [],
     likesCount: item.likesCount || 0,
+    liked: likedGalleryIds ? likedGalleryIds.has(id) : false,
+    likedByCurrentUser: likedGalleryIds ? likedGalleryIds.has(id) : false,
     views: item.views || 0,
     createdAt: item.createdAt,
   };
+}
+
+async function getRequestLikedGalleryIds(req, galleryIds = []) {
+  const token = getBearerToken(req);
+  if (!token || galleryIds.length === 0) return new Set();
+
+  const user = await getUserFromToken(token, { projection: { likedGalleryIds: 1 } });
+  if (!user || !Array.isArray(user.likedGalleryIds)) return new Set();
+
+  const requested = new Set(galleryIds.map(String));
+  return new Set(user.likedGalleryIds.map(String).filter(id => requested.has(id)));
 }
 
 /**
@@ -211,8 +225,10 @@ export async function handleGalleryList(req, res) {
       db.collection('gallery').countDocuments(query),
     ]);
 
+    const likedGalleryIds = await getRequestLikedGalleryIds(req, items.map(item => item._id.toString()));
+
     json(res, 200, {
-      items: items.map(toClientGalleryItem),
+      items: items.map(item => toClientGalleryItem(item, likedGalleryIds)),
       total,
       page,
       pages: Math.ceil(total / limit),
@@ -417,9 +433,8 @@ export async function handleGalleryItem(req, res, id) {
 
     if (!item) return json(res, 404, { error: 'Item not found' });
 
-    json(res, 200, {
-      ...toClientGalleryItem(item),
-    });
+    const likedGalleryIds = await getRequestLikedGalleryIds(req, [id]);
+    json(res, 200, toClientGalleryItem(item, likedGalleryIds));
   } catch (err) {
     console.error('[Gallery] Item fetch error:', err);
     json(res, 500, { error: 'Failed to fetch item' });
@@ -442,90 +457,72 @@ export async function handleGalleryLike(req, res, id) {
 
   if (!/^[a-f0-9]{24}$/.test(id)) return json(res, 400, { error: 'Invalid id' });
 
-  let body = {};
-  try {
-    const bodyStr = await readBody(req, 1024);
-    if (bodyStr) body = JSON.parse(bodyStr);
-  } catch {
-    // Continue without body
-  }
-
-  const deviceId = typeof body.deviceId === 'string' ? body.deviceId.trim() : null;
+  const authUser = await requireAuthenticatedUser(req, res, {
+    projection: { username: 1, likedGalleryIds: 1 }
+  });
+  if (!authUser) return;
 
   try {
-    const token = getBearerToken(req);
-    const authUser = token ? await getUserFromToken(token, { projection: { username: 1 } }) : null;
-    const ipHash = crypto.createHash('sha256').update(clientIp || 'unknown').digest('hex');
-    const userId = authUser?._id?.toString() || null;
-    const username = authUser?.username || null;
     const objectId = new ObjectId(id);
-    const actorKey = userId
-      ? `user:${userId}`
-      : deviceId
-        ? `device:${deviceId}`
-        : `ip:${ipHash}`;
+    const userId = authUser._id.toString();
 
     // Check if item exists
     if (!await db.collection('gallery').findOne({ _id: objectId }, { projection: { _id: 1 } })) {
       return json(res, 404, { error: 'Item not found' });
     }
 
-    // Find any existing vote from this user/device/IP
-    const existingLike = await db.collection('gallery_likes').findOne({
-      galleryId: id,
-      $or: [
-        { actorKey },
-        userId ? { userId } : null,
-        deviceId ? { deviceId } : null,
-        { ipHash }
-      ].filter(Boolean)
-    });
+    const likedGalleryIds = Array.isArray(authUser.likedGalleryIds)
+      ? authUser.likedGalleryIds.map(String)
+      : [];
+    const alreadyLiked = likedGalleryIds.includes(id);
 
-    if (existingLike) {
-      // Remove the existing vote (toggle off)
-      await db.collection('gallery_likes').deleteOne({ _id: existingLike._id });
-      // Remove from likes array and decrement likesCount
-      await db.collection('gallery').updateOne(
-        { _id: objectId },
-        {
-          $pull: { likes: { _id: existingLike._id } },
-          $inc: { likesCount: -1 }
-        }
+    if (alreadyLiked) {
+      const userUnlikeUpdate = await db.collection('users').updateOne(
+        { _id: authUser._id },
+        { $pull: { likedGalleryIds: id } }
       );
-      const updated = await db.collection('gallery').findOne({ _id: objectId }, { projection: { likesCount: 1 } });
+      if (userUnlikeUpdate.modifiedCount === 0) {
+        const current = await db.collection('gallery').findOne(
+          { _id: objectId },
+          { projection: { likesCount: 1 } }
+        );
+        return json(res, 200, { liked: false, likesCount: current?.likesCount || 0 });
+      }
+      await db.collection('gallery_likes').deleteOne({ galleryId: id, userId });
+      const updated = await db.collection('gallery').findOneAndUpdate(
+        { _id: objectId, likesCount: { $gt: 0 } },
+        { $inc: { likesCount: -1 } },
+        { returnDocument: 'after', projection: { likesCount: 1 } }
+      );
       return json(res, 200, { liked: false, likesCount: updated?.likesCount || 0 });
     }
 
-    // Create new vote
-    const likeId = new ObjectId();
-    const voteRecord = {
-      _id: likeId,
-      userId: userId,
-      username: username,
-      deviceId: deviceId || null,
-      ipHash: ipHash,
-      actorKey,
-      createdAt: new Date(),
-    };
-
-    await db.collection('gallery_likes').insertOne({
-      _id: likeId,
+    const userLikeUpdate = await db.collection('users').updateOne(
+      { _id: authUser._id },
+      { $addToSet: { likedGalleryIds: id } }
+    );
+    if (userLikeUpdate.modifiedCount === 0) {
+      const current = await db.collection('gallery').findOne(
+        { _id: objectId },
+        { projection: { likesCount: 1 } }
+      );
+      return json(res, 200, { liked: true, likesCount: current?.likesCount || 0 });
+    }
+    await db.collection('gallery_likes').updateOne({
       galleryId: id,
-      userId: userId,
-      username: username,
-      deviceId: deviceId || null,
-      ipHash: ipHash,
-      actorKey,
-      createdAt: new Date(),
-    });
+      userId,
+    }, {
+      $setOnInsert: {
+        galleryId: id,
+        userId,
+        username: authUser.username,
+        createdAt: new Date(),
+      }
+    }, { upsert: true });
 
-    // Add to likes array and increment likesCount
     const updated = await db.collection('gallery').findOneAndUpdate(
       { _id: objectId },
-      {
-        $push: { likes: voteRecord },
-        $inc: { likesCount: 1 }
-      },
+      { $inc: { likesCount: 1 } },
       { returnDocument: 'after', projection: { likesCount: 1, tags: 1, _id: 1, url: 1, thumbUrl: 1, author: 1, authorId: 1, title: 1, createdAt: 1, views: 1 } }
     );
 
@@ -533,7 +530,7 @@ export async function handleGalleryLike(req, res, id) {
 
     // Broadcast to rooms when image first becomes eligible (1 like + room tag)
     if (newLikesCount === 1 && broadcastFloatingArtUpdate) {
-      const item = toClientGalleryItem(updated);
+      const item = toClientGalleryItem(updated, new Set([id]));
       const tags = updated?.tags || [];
       broadcastFloatingArtUpdate(tags, item);
     }
@@ -637,6 +634,48 @@ export async function handleGalleryFavorites(req, res) {
   } catch (err) {
     console.error('[Gallery] Favorites list error:', err);
     json(res, 500, { error: 'Failed to fetch favorites' });
+  }
+}
+
+/**
+ * GET /api/gallery/liked — list gallery items liked by the authenticated user.
+ * Requires Authorization: Bearer <token>
+ */
+export async function handleGalleryLiked(req, res) {
+  const db = getDB();
+  if (!db) return json(res, 503, { error: 'Database not available' });
+  const authUser = await requireAuthenticatedUser(req, res, {
+    projection: { username: 1, likedGalleryIds: 1 }
+  });
+  if (!authUser) return;
+
+  const urlObj = new URL(req.url, 'http://localhost');
+  const page = Math.max(1, parseInt(urlObj.searchParams.get('page') || '1'));
+  const limit = Math.min(50, Math.max(1, parseInt(urlObj.searchParams.get('limit') || '24')));
+  const skip = (page - 1) * limit;
+  const likedGalleryIds = Array.isArray(authUser.likedGalleryIds)
+    ? authUser.likedGalleryIds.map(String).filter(id => /^[a-f0-9]{24}$/i.test(id))
+    : [];
+
+  try {
+    const pageIds = likedGalleryIds.slice().reverse().slice(skip, skip + limit);
+    const objectIds = pageIds.map(id => new ObjectId(id));
+    const items = objectIds.length > 0
+      ? await db.collection('gallery').find({ _id: { $in: objectIds } }).toArray()
+      : [];
+    const itemMap = new Map(items.map(item => [item._id.toString(), item]));
+    const orderedItems = pageIds.map(id => itemMap.get(id)).filter(Boolean);
+    const likedSet = new Set(likedGalleryIds);
+
+    json(res, 200, {
+      items: orderedItems.map(item => toClientGalleryItem(item, likedSet)),
+      total: likedGalleryIds.length,
+      page,
+      pages: Math.ceil(likedGalleryIds.length / limit),
+    });
+  } catch (err) {
+    console.error('[Gallery] Liked list error:', err);
+    json(res, 500, { error: 'Failed to fetch liked images' });
   }
 }
 
@@ -1022,6 +1061,8 @@ export async function handleGalleryDelete(req, res, id) {
       db.collection('gallery').deleteOne({ _id: new ObjectId(id) }),
       db.collection('comments').deleteMany({ galleryId: id }),
       db.collection('favorites').deleteMany({ galleryId: id }),
+      db.collection('gallery_likes').deleteMany({ galleryId: id }),
+      db.collection('users').updateMany({}, { $pull: { likedGalleryIds: id } }),
     ]);
 
     json(res, 200, { deleted: true });
@@ -1045,22 +1086,13 @@ export async function handleFloatingArtList(req, res) {
   const limit = Math.min(200, Math.max(1, parseInt(urlObj.searchParams.get('limit') || '20')));
   const includeIds = [...new Set(urlObj.searchParams.getAll('includeId').filter(id => /^[a-f0-9]{24}$/i.test(id)))];
   const excludeIds = [...new Set(urlObj.searchParams.getAll('excludeId').filter(id => /^[a-f0-9]{24}$/i.test(id)))];
-  const deviceId = String(urlObj.searchParams.get('deviceId') || '').trim();
 
   // Normalize room tag
   const roomTag = normalizeTags(room).at(0) || 'lobby';
 
   try {
     const token = getBearerToken(req);
-    const authUser = token ? await getUserFromToken(token, { projection: { username: 1 } }) : null;
-    const clientIp = getClientIp(req);
-    const ipHash = crypto.createHash('sha256').update(clientIp || 'unknown').digest('hex');
-    const userId = authUser?._id?.toString() || null;
-    const actorKey = userId
-      ? `user:${userId}`
-      : deviceId
-        ? `device:${deviceId}`
-        : `ip:${ipHash}`;
+    const authUser = token ? await getUserFromToken(token, { projection: { likedGalleryIds: 1 } }) : null;
 
     const baseQuery = {
       _id: excludeIds.length > 0
@@ -1105,35 +1137,14 @@ export async function handleFloatingArtList(req, res) {
     }
 
     const mergedIds = merged.map(item => item?._id?.toString?.()).filter(Boolean);
-    const likedSet = new Set();
-    if (mergedIds.length > 0) {
-      const likes = await db.collection('gallery_likes')
-        .find({
-          galleryId: { $in: mergedIds },
-          $or: [
-            { actorKey },
-            userId ? { userId } : null,
-            deviceId ? { deviceId } : null,
-            { ipHash }
-          ].filter(Boolean)
-        }, { projection: { galleryId: 1 } })
-        .toArray();
-
-      for (const like of likes) {
-        if (like.galleryId) likedSet.add(String(like.galleryId));
-      }
-    }
+    const likedSet = new Set(
+      Array.isArray(authUser?.likedGalleryIds)
+        ? authUser.likedGalleryIds.map(String).filter(id => mergedIds.includes(id))
+        : []
+    );
 
     json(res, 200, {
-      items: merged.slice(0, limit).map((item) => {
-        const clientItem = toClientGalleryItem(item);
-        const liked = likedSet.has(clientItem.id);
-        return {
-          ...clientItem,
-          liked,
-          likedByCurrentUser: liked
-        };
-      }),
+      items: merged.slice(0, limit).map((item) => toClientGalleryItem(item, likedSet)),
       room: roomTag,
       minLikes,
       count: merged.length

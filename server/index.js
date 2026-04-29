@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { connectDB, getDB, getMongoDatabase, updateUserMetrics, updateConsecutiveDays } from './db.js';
 import { metricsTracker } from './MetricsTracker.js';
-import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate, handleFloatingArtList, setFloatingArtBroadcaster } from './gallery.js';
+import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryLiked, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate, handleFloatingArtList, setFloatingArtBroadcaster } from './gallery.js';
 import { handleAuthLogin, handleAuthRegister, handleAuthMe, handlePasswordResetRequest, handlePasswordResetComplete } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
 import { getGalleryPreviewItem, renderGalleryPreviewHtml } from './galleryPreview.js';
@@ -549,6 +549,11 @@ const server = createServer(async (req, res) => {
   // Favorites routes
   if (path === '/api/gallery/favorites' && req.method === 'GET') {
     await handleGalleryFavorites(req, res);
+    return;
+  }
+
+  if (path === '/api/gallery/liked' && req.method === 'GET') {
+    await handleGalleryLiked(req, res);
     return;
   }
 

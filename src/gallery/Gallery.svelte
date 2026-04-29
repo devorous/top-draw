@@ -1,7 +1,6 @@
 <script>
   import { onMount } from 'svelte';
   import { ProfileDialog } from '../ui/ProfileDialog.js';
-  import { ClientIdentity } from '../network/ClientIdentity.js';
 
   // API base URL - defaults to relative (dev proxy) or can be set via env var for production
   const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
@@ -34,11 +33,12 @@
   let page = $state(1);
   let totalPages = $state(1);
   let lightbox = $state(null);
-  let likedIds = $state(new Set(JSON.parse(localStorage.getItem('ddraw_liked') || '[]')));
+  let likedIds = $state(new Set());
   let sort = $state('newest'); // 'newest' | 'top' | 'views'
   let authorFilter = $state(null); // username string or null
   let tagFilter = $state(null); // tag string or null
   let showFavorites = $state(false); // viewing favorites mode
+  let showLiked = $state(false); // viewing liked images mode
   let favoritedIds = $state(new Set()); // ids user has favorited
   let revealedNsfwIds = $state(new Set());
 
@@ -70,8 +70,13 @@
   let authMode = $state('login'); // 'login' | 'register'
   let authForm = $state({ username: '', password: '', email: '' });
 
-  // Device identity
-  const clientIdentity = new ClientIdentity();
+  function authHeaders(extra = {}) {
+    const token = localStorage.getItem(TOKEN_KEY);
+    return {
+      ...extra,
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  }
 
   async function fetchGallery() {
     loading = true;
@@ -80,10 +85,11 @@
       let url = `${API_BASE}/api/gallery?page=${page}&limit=24&sort=${sort}`;
       if (authorFilter) url += `&author=${encodeURIComponent(authorFilter)}`;
       if (tagFilter) url += `&tag=${encodeURIComponent(tagFilter)}`;
-      const res = await fetch(url);
+      const res = await fetch(url, { headers: authHeaders() });
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
       items = data.items;
+      syncLikedFromItems(items);
       totalPages = data.pages;
     } catch (e) {
       error = 'Could not load gallery. Try again later.';
@@ -126,7 +132,12 @@
   function filterByAuthor(username) {
     authorFilter = username;
     tagFilter = null;
+    showLiked = false;
+    showFavorites = false;
     page = 1;
+    if (typeof window !== 'undefined') {
+      window.history.pushState({}, '', `/gallery/${encodeURIComponent(username)}`);
+    }
     fetchGallery();
     fetchSidebar();
   }
@@ -134,6 +145,9 @@
   function clearAuthorFilter() {
     authorFilter = null;
     page = 1;
+    if (typeof window !== 'undefined') {
+      window.history.pushState({}, '', '/gallery');
+    }
     fetchGallery();
     fetchSidebar();
   }
@@ -141,6 +155,7 @@
   function filterByTag(tag) {
     tagFilter = tag;
     showFavorites = false;
+    showLiked = false;
     page = 1;
     fetchGallery();
     fetchSidebar();
@@ -185,6 +200,7 @@
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
       items = data.items;
+      syncLikedFromItems(items);
       totalPages = data.pages;
       // All items in favorites view are favorited
       favoritedIds = new Set(items.map(i => i.id));
@@ -197,6 +213,7 @@
 
   function toggleFavoritesView() {
     showFavorites = !showFavorites;
+    showLiked = false;
     authorFilter = null;
     tagFilter = null;
     page = 1;
@@ -208,6 +225,51 @@
       fetchGallery();
       fetchSidebar();
     }
+  }
+
+  async function fetchLikedImages() {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) return;
+
+    loading = true;
+    error = null;
+    try {
+      const res = await fetch(`${API_BASE}/api/gallery/liked?page=${page}&limit=24`, {
+        headers: authHeaders()
+      });
+      if (!res.ok) throw new Error('Failed to fetch');
+      const data = await res.json();
+      items = data.items;
+      syncLikedFromItems(items);
+      totalPages = data.pages;
+    } catch {
+      error = 'Could not load liked images.';
+    } finally {
+      loading = false;
+    }
+  }
+
+  function toggleLikedView() {
+    showLiked = !showLiked;
+    showFavorites = false;
+    authorFilter = null;
+    tagFilter = null;
+    page = 1;
+    if (showLiked) {
+      fetchLikedImages();
+      recentCommentsFeed = [];
+      sidebarTags = [];
+    } else {
+      fetchGallery();
+      fetchSidebar();
+    }
+  }
+
+  function fetchCurrentPage() {
+    if (showLiked) return fetchLikedImages();
+    if (showFavorites) return fetchFavorites();
+    fetchGallery();
+    fetchSidebar();
   }
 
   async function toggleFavorite(item) {
@@ -550,6 +612,7 @@
         const data = await res.json();
         if (data.success) {
           user = { username: data.username, role: data.role, userId: data.userId };
+          likedIds = new Set(Array.isArray(data.likedGalleryIds) ? data.likedGalleryIds : []);
           return user;
         }
       } else {
@@ -585,6 +648,7 @@
         localStorage.setItem(TOKEN_KEY, data.token);
         localStorage.setItem(USERNAME_KEY, data.username);
         user = { username: data.username, role: data.role, userId: data.userId };
+        likedIds = new Set(Array.isArray(data.likedGalleryIds) ? data.likedGalleryIds : []);
         closeAuthModal();
       } else {
         authError = data.error || 'Login failed';
@@ -622,6 +686,7 @@
         localStorage.setItem(TOKEN_KEY, data.token);
         localStorage.setItem(USERNAME_KEY, data.username);
         user = { username: data.username, role: data.role, userId: data.userId };
+        likedIds = new Set(Array.isArray(data.likedGalleryIds) ? data.likedGalleryIds : []);
         closeAuthModal();
       } else {
         authError = data.error || 'Registration failed';
@@ -637,6 +702,8 @@
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USERNAME_KEY);
     user = null;
+    likedIds = new Set();
+    showLiked = false;
   }
 
   function openAuthModal(mode = 'login') {
@@ -654,7 +721,15 @@
 
   function persistLikedIds(nextLikedIds) {
     likedIds = nextLikedIds;
-    localStorage.setItem('ddraw_liked', JSON.stringify([...nextLikedIds]));
+  }
+
+  function syncLikedFromItems(nextItems) {
+    const nextLikedIds = new Set(likedIds);
+    for (const item of nextItems || []) {
+      if (item.liked || item.likedByCurrentUser) nextLikedIds.add(item.id);
+      else nextLikedIds.delete(item.id);
+    }
+    likedIds = nextLikedIds;
   }
 
   function updateLikeCount(itemId, likesCount) {
@@ -665,6 +740,12 @@
   }
 
   async function like(item) {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token || !user) {
+      openAuthModal('login');
+      return;
+    }
+
     const wasLiked = likedIds.has(item.id);
     const previousLikesCount = item.likesCount || 0;
     const nextLikedIds = new Set(likedIds);
@@ -675,11 +756,9 @@
     updateLikeCount(item.id, Math.max(0, previousLikesCount + (wasLiked ? -1 : 1)));
 
     try {
-      const body = JSON.stringify({ deviceId: clientIdentity.deviceId });
       const res = await fetch(`${API_BASE}/api/gallery/${item.id}/like`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body
+        headers: authHeaders()
       });
       if (!res.ok) throw new Error('Failed to update like');
 
@@ -745,6 +824,12 @@
       openImageById(pathMatch[1]);
     } else if (lightbox) {
       closeLightboxFromHistory();
+    } else {
+      const profilePathMatch = window.location.pathname.match(/^\/gallery\/([^/?#]+)\/?$/);
+      authorFilter = profilePathMatch ? decodeURIComponent(profilePathMatch[1]) : null;
+      page = 1;
+      fetchGallery();
+      fetchSidebar();
     }
   }
 
@@ -814,9 +899,10 @@
         return;
       }
 
-      const res = await fetch(`${API_BASE}/api/gallery/${itemId}`);
+      const res = await fetch(`${API_BASE}/api/gallery/${itemId}`, { headers: authHeaders() });
       if (!res.ok) return;
       const item = await res.json();
+      syncLikedFromItems([item]);
       openLightbox(item);
     } catch {}
   }
@@ -827,6 +913,11 @@
     if (pathMatch) {
       await openImageById(pathMatch[1]);
       return;
+    }
+
+    const profilePathMatch = window.location.pathname.match(/^\/gallery\/([^/?#]+)\/?$/);
+    if (profilePathMatch) {
+      authorFilter = decodeURIComponent(profilePathMatch[1]);
     }
 
     // Handle ?id= to open specific image
@@ -874,6 +965,7 @@
       <span class="nav-divider">|</span>
       {#if user}
         <button class="btn-text" class:active={showFavorites} onclick={toggleFavoritesView} onpointerup={(e) => e.pointerType !== 'mouse' && toggleFavoritesView()}>favorites</button>
+        <button class="btn-text" class:active={showLiked} onclick={toggleLikedView} onpointerup={(e) => e.pointerType !== 'mouse' && toggleLikedView()}>liked</button>
         <button class="nav-user" onclick={() => profileDialog.show(user.username)} onpointerup={(e) => e.pointerType !== 'mouse' && profileDialog.show(user.username)}>{user.username}</button>
         <button class="btn-text" onclick={logout} onpointerup={(e) => e.pointerType !== 'mouse' && logout()}>logout</button>
       {:else}
@@ -885,9 +977,11 @@
   <header>
     <div class="header-top">
       <div>
-        <h1>{showFavorites ? 'My Favorites' : (authorFilter ? `${authorFilter}'s Art` : (tagFilter ? `#${tagFilter}` : 'Gallery'))}</h1>
+        <h1>{showLiked ? 'My Likes' : (showFavorites ? 'My Favorites' : (authorFilter ? `${authorFilter}'s Art` : (tagFilter ? `#${tagFilter}` : 'Gallery')))}</h1>
         <p>
-          {#if showFavorites}
+          {#if showLiked}
+            <button class="btn-link" onclick={toggleLikedView} onpointerup={(e) => e.pointerType !== 'mouse' && toggleLikedView()}>back to all</button>
+          {:else if showFavorites}
             <button class="btn-link" onclick={toggleFavoritesView} onpointerup={(e) => e.pointerType !== 'mouse' && toggleFavoritesView()}>← back to all</button>
           {:else if tagFilter}
             <button class="btn-link" onclick={clearTagFilter} onpointerup={(e) => e.pointerType !== 'mouse' && clearTagFilter()}>Clear Tag</button>
@@ -898,7 +992,7 @@
           {/if}
         </p>
       </div>
-      {#if !showFavorites}
+      {#if !showFavorites && !showLiked}
         <div class="sort-controls">
           <button class="sort-btn" class:active={sort === 'newest'} onclick={() => setSort('newest')} onpointerup={(e) => e.pointerType !== 'mouse' && setSort('newest')}>Newest</button>
           <button class="sort-btn" class:active={sort === 'top'} onclick={() => setSort('top')} onpointerup={(e) => e.pointerType !== 'mouse' && setSort('top')}>Top</button>
@@ -916,7 +1010,7 @@
     {:else if error}
       <div class="state-center">
         <p class="error-msg">{error}</p>
-        <button class="btn-ghost" onclick={fetchGallery} onpointerup={(e) => e.pointerType !== 'mouse' && fetchGallery()}>Retry</button>
+        <button class="btn-ghost" onclick={fetchCurrentPage} onpointerup={(e) => e.pointerType !== 'mouse' && fetchCurrentPage()}>Retry</button>
       </div>
     {:else if items.length === 0}
       <div class="state-center empty">
@@ -976,9 +1070,9 @@
 
       {#if totalPages > 1}
         <div class="pagination">
-          <button class="btn-ghost small" disabled={page <= 1} onclick={() => { page--; fetchGallery(); }} onpointerup={(e) => e.pointerType !== 'mouse' && (page--, fetchGallery())}>← Prev</button>
+          <button class="btn-ghost small" disabled={page <= 1} onclick={() => { page--; fetchCurrentPage(); }} onpointerup={(e) => e.pointerType !== 'mouse' && (page--, fetchCurrentPage())}>← Prev</button>
           <span>{page} / {totalPages}</span>
-          <button class="btn-ghost small" disabled={page >= totalPages} onclick={() => { page++; fetchGallery(); }} onpointerup={(e) => e.pointerType !== 'mouse' && (page++, fetchGallery())}>Next →</button>
+          <button class="btn-ghost small" disabled={page >= totalPages} onclick={() => { page++; fetchCurrentPage(); }} onpointerup={(e) => e.pointerType !== 'mouse' && (page++, fetchCurrentPage())}>Next →</button>
         </div>
       {/if}
         </section>

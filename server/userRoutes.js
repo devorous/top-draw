@@ -51,7 +51,7 @@ export async function handleUserProfile(req, res, username) {
       db.collection('gallery').countDocuments({ author: user.username }),
       db.collection('gallery').aggregate([
         { $match: { author: user.username } },
-        { $group: { _id: null, total: { $sum: '$likes' } } }
+        { $group: { _id: null, total: { $sum: '$likesCount' } } }
       ]).toArray(),
     ]);
 
@@ -72,7 +72,7 @@ export async function handleUserProfile(req, res, username) {
         thumbUrl: item.thumbUrl || item.url,
         author: item.author,
         title: item.title || '',
-        likes: item.likes || 0,
+        likesCount: item.likesCount || 0,
         views: item.views || 0,
         createdAt: item.createdAt,
       })),

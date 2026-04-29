@@ -128,7 +128,7 @@
 
           <div class="profile-actions">
             <a
-              href="{galleryBaseUrl}?author={encodeURIComponent(data.username)}"
+              href="{galleryBaseUrl}/{encodeURIComponent(data.username)}"
               class="profile-btn profile-btn-primary"
               target="_blank"
               onclick={handleViewAll}
