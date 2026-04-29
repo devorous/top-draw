@@ -83,7 +83,9 @@ export class Auth {
       passwordResetMessage: document.getElementById('passwordResetMessage'),
       passwordResetSubmitBtn: document.getElementById('passwordResetSubmitBtn'),
       roomIdInput: document.getElementById('roomIdInput'),
-      authFormWrapper: document.getElementById('authFormWrapper')
+      authFormWrapper: document.getElementById('authFormWrapper'),
+      authLoadingState: document.getElementById('authLoadingState'),
+      landingAuthPanel: document.getElementById('landingAuthPanel')
     };
 
     // Load remember me preference
@@ -99,6 +101,7 @@ export class Auth {
     if (!this.openPasswordResetFromUrl()) {
       this.checkStoredLogin();
     }
+    this.setAuthPending(false);
   }
 
   setupListeners() {
@@ -278,59 +281,13 @@ export class Auth {
    * Keep login and logged-in panels at the same height to avoid UI popping.
    */
   syncAuthStateHeights() {
-    const states = [this.els.authNotLoggedIn, this.els.authLoggedIn].filter(Boolean);
     const loginForm = document.getElementById('loginForm');
     const wrapper = this.els.authFormWrapper;
-    if (!states.length || !loginForm || !wrapper) return;
+    if (!loginForm || !wrapper) return;
 
     if (this.isCompactHeightLayout()) {
       this.resetAuthLayoutSizing();
       return;
-    }
-
-    const originalStyles = states.map((el) => ({
-      el,
-      display: el.style.display,
-      position: el.style.position,
-      visibility: el.style.visibility,
-      pointerEvents: el.style.pointerEvents,
-      width: el.style.width
-    }));
-    const originalFormDisplay = loginForm.style.display;
-    const originalWrapperMinHeight = wrapper.style.minHeight;
-
-    let maxHeight = 0;
-    let maxFormHeight = 0;
-
-    states.forEach((el) => {
-      el.style.display = 'flex';
-      el.style.position = 'absolute';
-      el.style.visibility = 'hidden';
-      el.style.pointerEvents = 'none';
-      el.style.width = '100%';
-      maxHeight = Math.max(maxHeight, el.offsetHeight);
-      maxFormHeight = Math.max(maxFormHeight, loginForm.scrollHeight);
-    });
-
-    originalStyles.forEach(({ el, display, position, visibility, pointerEvents, width }) => {
-      el.style.display = display;
-      el.style.position = position;
-      el.style.visibility = visibility;
-      el.style.pointerEvents = pointerEvents;
-      el.style.width = width;
-    });
-    loginForm.style.display = originalFormDisplay;
-
-    if (maxHeight > 0) {
-      states.forEach((el) => {
-        el.style.minHeight = `${maxHeight}px`;
-      });
-    }
-
-    if (maxFormHeight > 0) {
-      wrapper.style.minHeight = `${maxFormHeight}px`;
-    } else {
-      wrapper.style.minHeight = originalWrapperMinHeight;
     }
   }
 
@@ -343,6 +300,7 @@ export class Auth {
     this.loggedInUsername = username;
 
     if (this.els.authUsernameDisplay) this.els.authUsernameDisplay.textContent = username;
+    this.els.landingAuthPanel?.classList.add('auth-is-logged-in');
     this.syncAuthStateHeights();
 
     if (!wasLoggedIn) {
@@ -352,6 +310,8 @@ export class Auth {
     if (this.onLoggedInStateChange) {
       this.onLoggedInStateChange(true, username);
     }
+
+    this.scrollRoomsIntoViewOnSmallScreens();
   }
 
   /**
@@ -360,6 +320,7 @@ export class Auth {
   async showNotLoggedInState() {
     this.isLoggedIn = false;
     this.loggedInUsername = null;
+    this.els.landingAuthPanel?.classList.remove('auth-is-logged-in');
     this.syncAuthStateHeights();
 
     await this._transitionTo(this.els.authNotLoggedIn, [this.els.authLoggedIn, this.els.registerPanel, this.els.passwordResetPanel]);
@@ -434,11 +395,10 @@ export class Auth {
     if (this.els.registerSecretQuestion) this.els.registerSecretQuestion.value = '';
     if (this.els.registerSecretAnswer) this.els.registerSecretAnswer.value = '';
 
-    // Hide room input, login form, divider, and offline button; show registration panel
+    // Hide landing-only actions while the account panel is open.
     const divider = document.querySelector('.landingDivider');
     const offlineBtn = document.getElementById('loginOfflineBtn');
     
-    if (this.els.roomIdInput) this.els.roomIdInput.style.display = 'none';
     if (divider) divider.style.display = 'none';
     if (offlineBtn) offlineBtn.style.display = 'none';
 
@@ -452,7 +412,6 @@ export class Auth {
     const divider = document.querySelector('.landingDivider');
     const offlineBtn = document.getElementById('loginOfflineBtn');
     
-    if (this.els.roomIdInput) this.els.roomIdInput.style.display = '';
     if (divider) divider.style.display = '';
     if (offlineBtn) offlineBtn.style.display = '';
 
@@ -509,7 +468,6 @@ export class Auth {
 
     const divider = document.querySelector('.landingDivider');
     const offlineBtn = document.getElementById('loginOfflineBtn');
-    if (this.els.roomIdInput) this.els.roomIdInput.style.display = 'none';
     if (divider) divider.style.display = 'none';
     if (offlineBtn) offlineBtn.style.display = 'none';
 
@@ -524,7 +482,6 @@ export class Auth {
 
     const divider = document.querySelector('.landingDivider');
     const offlineBtn = document.getElementById('loginOfflineBtn');
-    if (this.els.roomIdInput) this.els.roomIdInput.style.display = 'none';
     if (divider) divider.style.display = 'none';
     if (offlineBtn) offlineBtn.style.display = 'none';
 
@@ -534,7 +491,6 @@ export class Auth {
   async hidePasswordResetPanel() {
     const divider = document.querySelector('.landingDivider');
     const offlineBtn = document.getElementById('loginOfflineBtn');
-    if (this.els.roomIdInput) this.els.roomIdInput.style.display = '';
     if (divider) divider.style.display = '';
     if (offlineBtn) offlineBtn.style.display = '';
     this._passwordResetToken = null;
@@ -752,6 +708,31 @@ export class Auth {
         }
       });
     }
+  }
+
+  setAuthPending(pending) {
+    this.els.landingAuthPanel?.classList.toggle('auth-is-pending', pending);
+    if (this.els.authLoadingState) {
+      this.els.authLoadingState.style.display = pending ? 'flex' : 'none';
+    }
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+      loginForm.style.display = pending ? 'none' : '';
+    }
+  }
+
+  scrollRoomsIntoViewOnSmallScreens() {
+    if (!window.matchMedia('(max-width: 768px), (max-height: 720px)').matches) return;
+
+    const roomListSection = document.querySelector('.roomListSection');
+    if (!roomListSection) return;
+
+    window.setTimeout(() => {
+      roomListSection.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
+    }, 260);
   }
 
   // Token storage

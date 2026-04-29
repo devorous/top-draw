@@ -327,16 +327,18 @@
         <div id="landingPage" class="landingPage" style="display: none;">
           <div class="landingContainer">
             <!-- Left Panel -->
-            <div class="landingPanel landingAuth">
+            <div class="landingPanel landingAuth auth-is-pending" id="landingAuthPanel">
               <a href="https://ddraw.ca" target="_blank" rel="noopener noreferrer" class="wordmark" style="display: inline-block; text-decoration: none;">DDraw</a>
               <p class="landingSubtitle">Draw stuff + things</p>
               <p class="landingVersion" id="landingVersion">Version --</p>
 
               <div id="authFormWrapper" class="authFormWrapper">
+                <div id="authLoadingState" class="authLoadingState">
+                  <span class="authLoadingPulse"></span>
+                  <span>Loading account...</span>
+                </div>
                 <!-- Join / login form -->
                 <form id="loginForm" onsubmit="return false;">
-                  <input autocomplete="on" class="authInput" id="roomIdInput" name="room" placeholder="Room name (default: lobby)">
-
                   <!-- Not logged in state -->
                   <div id="authNotLoggedIn">
                     <input autocomplete="username" class="authInput" id="loginUsername" name="username" placeholder="Username">
@@ -354,14 +356,14 @@
 
                   <!-- Logged in state -->
                   <div id="authLoggedIn" style="display: none;">
-                    <div class="authLoggedInUser">
-                      <span class="authLoggedInLabel">Logged in as</span>
-                      <button type="button" class="authUsernameBtn" id="authUsernameBtn">
-                        <span id="authUsernameDisplay">Username</span>
-                        <span class="authEditIcon">&#9998;</span>
-                      </button>
-                    </div>
-                    <div class="authButtons">
+                    <div class="authLoggedInRow">
+                      <div class="authLoggedInUser">
+                        <span class="authLoggedInLabel">Logged in as</span>
+                        <button type="button" class="authUsernameBtn" id="authUsernameBtn">
+                          <span id="authUsernameDisplay">Username</span>
+                          <span class="authEditIcon">&#9998;</span>
+                        </button>
+                      </div>
                       <button type="button" class="btn primary large" id="joinBtnLoggedIn">Join</button>
                     </div>
                   </div>
@@ -430,7 +432,8 @@
 
               <!-- Active Rooms List -->
               <div class="roomListSection">
-                <div class="roomListHeader">
+                <div class="roomListHeader roomJoinHeader">
+                  <input autocomplete="on" class="authInput roomIdLandingInput" id="roomIdInput" name="room" placeholder="Room name (default: lobby)">
                   <button class="btn secondary small" id="refreshRoomsBtn">Refresh</button>
                 </div>
                 <div id="roomList" class="roomList">

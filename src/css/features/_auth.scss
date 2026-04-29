@@ -164,7 +164,7 @@ body.desktop-window-chrome #overlay {
   transition: height var(--transition-normal) ease;
   overflow: visible;
   position: relative;
-  min-height: 220px;
+  min-height: 0;
   flex: 0 0 auto;
 }
 
@@ -172,6 +172,58 @@ body.desktop-window-chrome #overlay {
   display: flex;
   flex-direction: column;
   width: 100%;
+}
+
+.authLoadingState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 238px;
+  width: 100%;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.authLoadingPulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 38%, transparent);
+  animation: authLoadingPulse 1.4s ease-out infinite;
+}
+
+.auth-is-pending {
+  #loginForm {
+    display: none;
+  }
+
+  .landingDivider,
+  #downloadBtn,
+  #loginOfflineBtn,
+  #feedbackWidgetMount {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+@keyframes authLoadingPulse {
+  0% {
+    transform: scale(0.86);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 38%, transparent);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 9px color-mix(in srgb, var(--accent-primary) 0%, transparent);
+  }
+  100% {
+    transform: scale(0.86);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 0%, transparent);
+  }
 }
 
 #authLoggedIn,
@@ -222,25 +274,39 @@ body.desktop-window-chrome #overlay {
 /* Logged in state */
 .authLoggedInUser {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.authLoggedInRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 12px 0;
   width: 100%;
+
+  #joinBtnLoggedIn {
+    flex: 0 0 116px;
+  }
 }
 
 .authLoggedInLabel {
   font-size: 12px;
   color: var(--text-muted);
-  text-align: center;
+  white-space: nowrap;
 }
 
 .authUsernameBtn {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
   padding: 10px 12px;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--text-primary);
   background: var(--bg-tertiary);
@@ -248,6 +314,11 @@ body.desktop-window-chrome #overlay {
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--transition-fast);
+
+  #authUsernameDisplay {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   &:hover {
     background: var(--bg-secondary);
@@ -482,9 +553,10 @@ body.desktop-window-chrome #landingPage {
   gap: 0;
   max-width: 1000px;
   width: 100%;
-  max-height: calc(100vh - 40px);
-  max-height: calc(100dvh - 40px);
-  height: auto;
+  height: calc(100vh - 112px);
+  height: calc(100dvh - 112px);
+  min-height: 560px;
+  max-height: 720px;
   margin-top: 3.5rem;
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
@@ -548,6 +620,89 @@ body.desktop-window-chrome #landingPage {
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
+
+  #downloadBtn,
+  #loginOfflineBtn,
+  #feedbackWidgetMount {
+    transition:
+      flex-grow var(--transition-normal) ease,
+      flex-basis var(--transition-normal) ease,
+      min-height var(--transition-normal) ease,
+      transform var(--transition-normal) ease,
+      opacity var(--transition-normal) ease,
+      margin var(--transition-normal) ease,
+      background var(--transition-fast),
+      border-color var(--transition-fast),
+      color var(--transition-fast);
+  }
+
+  #downloadBtn,
+  #loginOfflineBtn {
+    width: 100%;
+  }
+
+  #feedbackWidgetMount {
+    flex: 0 0 auto;
+    min-height: 0;
+  }
+
+  &.auth-is-logged-in {
+    .landingDivider {
+      margin: clamp(8px, 2vh, 16px) 0;
+    }
+
+    #downloadBtn,
+    #loginOfflineBtn,
+    #feedbackWidgetMount {
+      flex: 0 1 80px;
+      min-height: 24px;
+      max-height: 60px;
+      transform: translateY(0);
+    }
+
+    #downloadBtn,
+    #loginOfflineBtn {
+      padding-top: 14px;
+      padding-bottom: 14px;
+    }
+
+    #downloadBtn {
+      background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-tertiary));
+      border-color: color-mix(in srgb, var(--accent-primary) 28%, var(--border-subtle));
+    }
+
+    #loginOfflineBtn {
+      background: color-mix(in srgb, #c800c8 10%, var(--bg-tertiary));
+      border-color: color-mix(in srgb, #c800c8 24%, var(--border-subtle));
+    }
+
+    #feedbackWidgetMount {
+      margin-top: clamp(8px, 2vh, 18px);
+      transform: translateY(0);
+    }
+
+    #feedbackWidgetMount,
+    #feedbackWidgetMount .feedback-widget,
+    #feedbackWidgetMount .feedback-toggle,
+    #feedbackWidgetMount .feedback-success {
+      display: flex;
+      width: 100%;
+      min-height: 24px;
+      max-height: 60px;
+    }
+
+    #feedbackWidgetMount .feedback-widget,
+    #feedbackWidgetMount .feedback-toggle,
+    #feedbackWidgetMount .feedback-success {
+      height: 100%;
+    }
+
+    #feedbackWidgetMount .feedback-toggle,
+    #feedbackWidgetMount .feedback-success {
+      align-items: center;
+      justify-content: center;
+    }
+  }
 
   h2 {
     margin: 0 0 4px 0;
@@ -754,11 +909,28 @@ body.desktop-window-chrome #landingPage {
   min-height: 0;
 }
 
+.roomIdLandingInput {
+  width: 100%;
+  max-width: 300px;
+  margin-bottom: 0;
+  flex: 1 1 220px;
+}
+
 .roomListHeader {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   margin-bottom: 12px;
+}
+
+.roomJoinHeader {
+  justify-content: space-between;
+  gap: 10px;
+
+  #refreshRoomsBtn {
+    flex: 0 0 auto;
+    min-height: 40px;
+  }
 }
 
 .btn.small {
@@ -1251,6 +1423,7 @@ body.desktop-window-chrome #landingPage {
   .landingAuth {
     justify-content: flex-start;
     padding-bottom: 24px;
+    overflow-y: auto;
   }
 
   .authFormWrapper {
