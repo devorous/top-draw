@@ -2898,9 +2898,7 @@
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    padding: 0.1rem 0;
     border-bottom: 0;
-    align-items: baseline;
   }
 
   .message-row.system {
