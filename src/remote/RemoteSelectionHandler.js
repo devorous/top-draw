@@ -15,6 +15,8 @@ export class RemoteSelectionHandler {
 
     // Preview downscaling settings (same as the original remote path)
     this.previewMaxSize = 256; // Max dimension for preview warps
+    this.selectionMovePreviewRate = 30;
+    this.selectionMovePreviewInterval = 1000 / this.selectionMovePreviewRate;
 
     // Pattern tile cache for pattern fills
     this._patternTileCache = new Map();
@@ -267,7 +269,7 @@ export class RemoteSelectionHandler {
                 continue;
               }
               // Skip during active movement (like local SelectTool's !isDragging guard).
-              // handleSelectionMove already drew synchronously.
+              // Move previews are scheduled separately and coalesced to avoid observer lag.
               // When idle, redraw to animate marching ants.
               if (!user._selectionMoving) {
                 this._clearUserOverlay(user);
@@ -466,6 +468,46 @@ export class RemoteSelectionHandler {
     return false;
   }
 
+  _drawRemoteSelectionMovePreview(user) {
+    if (user) {
+      user._selectionMovePreviewTimer = null;
+    }
+    if (!user?.floatingCanvas || !user.selection || user.pendingImageLoad) return;
+
+    user._lastSelectionMovePreviewAt = performance.now();
+
+    this._regeneratePreviewCache(user);
+    this._clearUserOverlay(user);
+    this.drawFloatingSelection(user);
+    this.startRemoteSelectionAnimation();
+  }
+
+  _scheduleRemoteSelectionMovePreview(user, force = false) {
+    if (!user?.floatingCanvas || !user.selection) return;
+
+    if (force) {
+      this._cancelRemoteSelectionMovePreview(user);
+      this._drawRemoteSelectionMovePreview(user);
+      return;
+    }
+
+    if (user._selectionMovePreviewTimer) return;
+
+    const now = performance.now();
+    const lastDraw = user._lastSelectionMovePreviewAt || 0;
+    const delay = Math.max(0, this.selectionMovePreviewInterval - (now - lastDraw));
+    user._selectionMovePreviewTimer = setTimeout(() => {
+      requestAnimationFrame(() => this._drawRemoteSelectionMovePreview(user));
+    }, delay);
+  }
+
+  _cancelRemoteSelectionMovePreview(user) {
+    if (user?._selectionMovePreviewTimer) {
+      clearTimeout(user._selectionMovePreviewTimer);
+      user._selectionMovePreviewTimer = null;
+    }
+  }
+
   /**
    * Handle a remote user creating a selection marquee (not yet moved/lifted)
    * @param {Object} user - The remote user
@@ -523,6 +565,7 @@ export class RemoteSelectionHandler {
     user._selectionIdleTimer = setTimeout(() => {
       user._selectionMoving = false;
       user._selectionIdleTimer = null;
+      this._scheduleRemoteSelectionMovePreview(user, true);
     }, 100);
 
     // Calculate movement delta before updating selection
@@ -563,16 +606,7 @@ export class RemoteSelectionHandler {
       return;
     }
 
-    // Regenerate preview cache if corners are transformed
-    this._regeneratePreviewCache(user);
-
-    // SYNCHRONOUS clear + redraw (matches local SelectTool pattern:
-    // board.clearTop() then drawSelectionUI() in onPointerMove)
-    this._clearUserOverlay(user);
-    this.drawFloatingSelection(user);
-
-    // Keep animation loop alive (for marching ants when idle)
-    this.startRemoteSelectionAnimation();
+    this._scheduleRemoteSelectionMovePreview(user);
   }
 
   handleSelectionCommit(user, layerIndex) {
@@ -1134,6 +1168,8 @@ export class RemoteSelectionHandler {
   _cleanupUserSelection(user) {
     if (!user) return;
 
+    this._cancelRemoteSelectionMovePreview(user);
+
     // Cancel idle timer
     if (user._selectionIdleTimer) {
       clearTimeout(user._selectionIdleTimer);
@@ -1167,10 +1203,13 @@ export class RemoteSelectionHandler {
     user._cachedPreviewCanvas = null;
     user._cachedPreviewBounds = null;
     user.pendingImageLoad = null;
+    user._lastSelectionMovePreviewAt = 0;
   }
 
   hasTransformedCorners(user) {
     if (!user.selectionCorners || !user.selection) return false;
+
+    if (this._isAxisAlignedCornerRect(user.selectionCorners)) return false;
 
     const s = user.selection;
     const c = user.selectionCorners;
@@ -1185,6 +1224,18 @@ export class RemoteSelectionHandler {
       Math.abs(c.bl.y - (s.y + s.height)) > tolerance ||
       Math.abs(c.br.x - (s.x + s.width)) > tolerance ||
       Math.abs(c.br.y - (s.y + s.height)) > tolerance
+    );
+  }
+
+  _isAxisAlignedCornerRect(corners) {
+    if (!corners) return false;
+
+    const tolerance = 0.5;
+    return (
+      Math.abs(corners.tl.y - corners.tr.y) <= tolerance &&
+      Math.abs(corners.bl.y - corners.br.y) <= tolerance &&
+      Math.abs(corners.tl.x - corners.bl.x) <= tolerance &&
+      Math.abs(corners.tr.x - corners.br.x) <= tolerance
     );
   }
 

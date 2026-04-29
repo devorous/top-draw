@@ -424,7 +424,7 @@ export class SelectTool extends Tool {
     const elapsed = now - this.lastSelectionBroadcastTime;
 
     if (force || elapsed >= this.selectionMoveThrottleInterval) {
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(corners));
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(corners), { snapshot: false });
       this.lastSelectionBroadcastTime = now;
       this.pendingSelectionBroadcast = null;
     } else {
@@ -444,7 +444,7 @@ export class SelectTool extends Tool {
           typeof corners.tr.x === 'number' && typeof corners.tr.y === 'number' &&
           typeof corners.bl.x === 'number' && typeof corners.bl.y === 'number' &&
           typeof corners.br.x === 'number' && typeof corners.br.y === 'number') {
-        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(corners));
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(corners), { snapshot: false });
         this.pendingSelectionBroadcast = null;
         this.lastSelectionBroadcastTime = performance.now();
       } else {
@@ -461,7 +461,7 @@ export class SelectTool extends Tool {
 
     if (force || (now - this.lastSelectionPendingBroadcastTime >= this.selectionPendingThrottleInterval)) {
       this.lastSelectionPendingBroadcastTime = now;
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionPending(selection, lassoPath));
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionPending(selection, lassoPath), { snapshot: false });
       this.pendingSelectionPreviewBroadcast = null;
     } else {
       this.pendingSelectionPreviewBroadcast = {
@@ -476,7 +476,7 @@ export class SelectTool extends Tool {
       const { selection, lassoPath } = this.pendingSelectionPreviewBroadcast;
       if (selection) {
         this.lastSelectionPendingBroadcastTime = performance.now();
-        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionPending(selection, lassoPath));
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionPending(selection, lassoPath), { snapshot: false });
       }
       this.pendingSelectionPreviewBroadcast = null;
     }
@@ -763,6 +763,7 @@ export class SelectTool extends Tool {
     return (
       Math.abs(this.selection.x - this.originalSelectionPos.x) > 1 ||
       Math.abs(this.selection.y - this.originalSelectionPos.y) > 1 ||
+      this.hasScaledSelection() ||
       this.hasTransformedCorners() ||
       Math.abs(this.rotation) > 0.01
     );
@@ -1352,7 +1353,7 @@ export class SelectTool extends Tool {
 
       // Broadcast the selection marquee (not yet lifted)
       if (this.board.app?.wsClient) {
-        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionPending(this.selection, this.lassoPath));
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionPending(this.selection, this.lassoPath), { snapshot: false });
       }
     } else {
       // Rectangle mode (existing code)
@@ -1390,7 +1391,7 @@ export class SelectTool extends Tool {
 
       // Broadcast the selection marquee (not yet lifted)
       if (this.board.app?.wsClient) {
-        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionPending(this.selection));
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionPending(this.selection), { snapshot: false });
       }
     }
   }
@@ -1563,6 +1564,39 @@ export class SelectTool extends Tool {
     this.selection.height = Math.ceil(maxY) - y;
   }
 
+  isAxisAlignedCornerRect(corners = this.corners) {
+    if (!corners) return false;
+
+    const tolerance = 0.5;
+    return (
+      Math.abs(corners.tl.y - corners.tr.y) <= tolerance &&
+      Math.abs(corners.bl.y - corners.br.y) <= tolerance &&
+      Math.abs(corners.tl.x - corners.bl.x) <= tolerance &&
+      Math.abs(corners.tr.x - corners.br.x) <= tolerance
+    );
+  }
+
+  needsHomographyTransform() {
+    return !!(this.corners && this.originalCorners && (this.rotation !== 0 || !this.isAxisAlignedCornerRect()));
+  }
+
+  getRectScaledCanvas(sourceCanvas = this.floatingCanvas) {
+    if (!sourceCanvas || !this.selection) return sourceCanvas;
+
+    const width = Math.max(1, Math.round(this.selection.width));
+    const height = Math.max(1, Math.round(this.selection.height));
+    if (sourceCanvas.width === width && sourceCanvas.height === height) {
+      return sourceCanvas;
+    }
+
+    const scaledCanvas = document.createElement('canvas');
+    scaledCanvas.width = width;
+    scaledCanvas.height = height;
+    const scaledCtx = scaledCanvas.getContext('2d');
+    scaledCtx.drawImage(sourceCanvas, 0, 0, width, height);
+    return scaledCanvas;
+  }
+
 
   drawTransformPreview() {
     if (!this.floatingCanvas || !this.corners || !this.originalCorners) return;
@@ -1571,6 +1605,23 @@ export class SelectTool extends Tool {
 
     // Calculate full output bounds
     const bounds = calculateCornerBounds(this.corners);
+
+    if (!this.needsHomographyTransform()) {
+      this._cachedTransform = null;
+      ctx.drawImage(
+        this.floatingCanvas,
+        this.selection.x,
+        this.selection.y,
+        this.selection.width,
+        this.selection.height
+      );
+
+      const handleCtx = this.board.getSelectionCtx() || ctx;
+      this.drawTransformOutline(handleCtx);
+      this.drawTransformHandles(handleCtx);
+      this.board.restoreSelectionCtx();
+      return;
+    }
 
     // Create a key from corner positions to detect when transformation changes
     const cornersKey = `${(this.corners.tl.x - bounds.minX).toFixed(2)},${(this.corners.tl.y - bounds.minY).toFixed(2)},` +
@@ -2288,8 +2339,8 @@ export class SelectTool extends Tool {
     this._updateFloatingSelectionBlendPreview();
     const ctx = this.board.topCtx;
 
-    // Check if corners have been transformed (including rotation) - if so, use homography
-    if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
+    // Check if corners need perspective/rotation handling - if so, use homography
+    if (this.needsHomographyTransform()) {
       // Calculate full output bounds
       const bounds = calculateCornerBounds(this.corners);
 
@@ -2458,7 +2509,7 @@ export class SelectTool extends Tool {
       let dirtyW = this.selection.width;
       let dirtyH = this.selection.height;
 
-      if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners) {
+      if (this.needsHomographyTransform()) {
         const bounds = calculateCornerBounds(this.corners);
         dirtyX = Math.round(bounds.minX);
         dirtyY = Math.round(bounds.minY);
@@ -2503,7 +2554,7 @@ export class SelectTool extends Tool {
           }
         }
 
-        if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
+        if (this.needsHomographyTransform()) {
           if (!this.homography) this.homography = new Homography('projective');
           const result = performHomographyTransform({
             sourceCanvas: canvas,
@@ -2516,10 +2567,10 @@ export class SelectTool extends Tool {
             const tempCanvas = imageDataToCanvas(result.imageData);
             active.ctx.drawImage(tempCanvas, Math.round(result.bounds.minX), Math.round(result.bounds.minY));
           } else {
-            active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y));
+            active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y), this.selection.width, this.selection.height);
           }
         } else {
-          active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y));
+          active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y), this.selection.width, this.selection.height);
         }
 
         const commitExtraProps = { timestamp: commitBatchTimestamp };
@@ -2577,7 +2628,7 @@ export class SelectTool extends Tool {
     let dirtyX, dirtyY, dirtyWidth, dirtyHeight;
 
     // Draw the floating selection (with optional transform) into the stroke canvas
-    if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
+    if (this.needsHomographyTransform()) {
       if (!this.homography) this.homography = new Homography('projective');
 
       const result = performHomographyTransform({
@@ -3358,7 +3409,7 @@ export class SelectTool extends Tool {
 
     const lm = this.board.layerManager;
     const userId = app.self?.id ?? 0;
-    const hasTransform = (this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners;
+    const hasTransform = this.needsHomographyTransform();
     const stampBatchTimestamp = typeof lm?.allocateHistoryTimestamp === 'function'
       ? lm.allocateHistoryTimestamp()
       : Date.now();
@@ -3424,10 +3475,10 @@ export class SelectTool extends Tool {
           const tempCanvas = imageDataToCanvas(result.imageData);
           active.ctx.drawImage(tempCanvas, Math.round(result.bounds.minX), Math.round(result.bounds.minY));
         } else {
-          active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y));
+          active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y), this.selection.width, this.selection.height);
         }
       } else {
-        active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y));
+        active.ctx.drawImage(canvas, Math.round(this.selection.x), Math.round(this.selection.y), this.selection.width, this.selection.height);
       }
 
       lm.commitUserStroke(groupIdx, userId, { timestamp: stampBatchTimestamp });
@@ -3539,7 +3590,7 @@ export class SelectTool extends Tool {
     if (!this.selection) return null;
 
     if (this.floatingCanvas) {
-      if ((this.hasTransformedCorners() || this.rotation !== 0) && this.corners && this.originalCorners) {
+      if (this.needsHomographyTransform()) {
         return this.getTransformedCanvas();
       }
       return this.floatingCanvas;
@@ -3675,9 +3726,9 @@ export class SelectTool extends Tool {
   getTransformedCanvas() {
     if (!this.floatingCanvas) return null;
 
-    // If no transform, return original
-    if (!this.hasTransformedCorners()) {
-      return this.floatingCanvas;
+    // If no perspective/rotation transform is needed, use a plain scaled canvas.
+    if (!this.needsHomographyTransform()) {
+      return this.getRectScaledCanvas();
     }
 
     // Perform the transform using shared utility
