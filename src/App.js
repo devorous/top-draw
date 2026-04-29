@@ -5539,7 +5539,7 @@ export class DrawingApp {
           tool.onPointerDown(this.self, pending.pos, pending.event);
 
           // Discard initial stamp from buffer — remote already stamps via handlePenDown (MD)
-          if (this.self.tool === 'flowPen' && tool.drainStampBuffer) {
+          if ((this.self.tool === 'flowPen' || this.self.tool === 'circleBlur') && tool.drainStampBuffer) {
             tool.drainStampBuffer();
           }
           if (this.self.tool === 'ink' && tool.drainPointBuffer) {
@@ -5877,7 +5877,7 @@ export class DrawingApp {
           tool.onPointerDown(this.self, pos, e);
 
           // Discard initial stamp from buffer — remote already stamps via handlePenDown (MD)
-          if (this.self.tool === 'flowPen' && tool.drainStampBuffer) {
+          if ((this.self.tool === 'flowPen' || this.self.tool === 'circleBlur') && tool.drainStampBuffer) {
             tool.drainStampBuffer();
           }
           if (this.self.tool === 'ink' && tool.drainPointBuffer) {
@@ -6032,6 +6032,9 @@ export class DrawingApp {
           }
           this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y], null, this._getStrokeStartNetworkMetadata()));
           tool.onPointerDown(this.self, pending.pos, pending.event);
+          if (this.self.tool === 'circleBlur' && tool.drainStampBuffer) {
+            tool.drainStampBuffer();
+          }
         }
       }
     }
