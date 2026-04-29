@@ -1,11 +1,11 @@
 {
-  "version": "1.5.6-beta",
-  "notes": "Added user-set board bg colour, @user messages in chat, new ddraw.ca/messenger/ page, fixed custom UI colours and implemented new floating gallery",
-  "pub_date": "2026-04-27T05:43:47.241Z",
+  "version": "1.6.0-beta",
+  "notes": "Added local snapshot history that can be undone from, Fixed some issues with blend mode rendering on Layer 1 & added a blend mode lock, Added new ddraw.ca/messenger/ page, fixed up some UI",
+  "pub_date": "2026-04-29T07:11:12.744Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.5.6-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem13YnZacU9mcjUxbXhSR1VNc3czejZoUjJpeFBGa1pNckF3SFJwNUlSZDZmdzZReUtwVUllUm1SemE4ZlhIT05Nb2JWaGQwYTdCT3NiTEpMM2pZYmdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3MjcyNDkzCWZpbGU6RGRyYXdfMS41LjYtYmV0YV94NjQtc2V0dXAuZXhlCk9EbU8zblZiVzJUSGFuc2dKbFNveVNwSUxHYVpicmI2YnZBTFh4emhIYWRQT05WekZ1Snp4Z0hLSVNab1RjRXpNNUZtZ1IrdTU3c0ZpUmFXcHN3NEJ3PT0K"
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.6.0-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNenZiS01UanNpRlB3clRDQUNpRFVSd09CVXVSYXFIcndJMzhZYVNKaWY5SmQ3L0lEZ3U0M29kbjd6c2E0ZkxIN05xTndicnAxczZvekhjUnlJVGhUVmdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3NDQ3MjI2CWZpbGU6RGRyYXdfMS42LjAtYmV0YV94NjQtc2V0dXAuZXhlCi9sSS91MEpRMHZkdGdkTXByd3drb3NSbE12U1ovNUJEb2hRUC9VcS9QYmR6T2N6eExpOEpIdUNRbXJNTENESm4zTTNwV293ZDJtSTBLY2E5Mk91bkNRPT0K"
     }
   }
 }
