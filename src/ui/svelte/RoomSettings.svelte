@@ -1,6 +1,7 @@
 <script>
   import { appState } from '../../state.svelte.js';
   import { T } from '../../../shared/MessageTypes.js';
+  import { showAppConfirm } from '../ConfirmDialog.js';
 
   const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -64,8 +65,10 @@
   let floatingGalleryBrowseLoading = $state(false);
   let floatingGalleryBrowsePage = $state(1);
   let floatingGalleryBrowsePages = $state(1);
+  let floatingGalleryBrowseSort = $state('newest');
   let floatingGalleryVisibleLoadedKey = $state('');
-  let floatingGalleryBrowseLoadedPage = $state(0);
+  let floatingGalleryBrowseLoadedKey = $state('');
+  let floatingGalleryBrowseRefreshQueued = $state(false);
   let lastLoadedFloatingGalleryRoomId = $state('');
   let hydratedRoomId = $state('');
   let message = $state('');
@@ -73,6 +76,7 @@
   let showMessage = $state(false);
   let saving = $state(false);
   let unregistering = $state(false);
+  let floatingGalleryLeaveConfirmOpen = $state(false);
   let rosterLoading = $state(false);
   let roleSavingTarget = $state('');
   let rosterFilter = $state('');
@@ -157,7 +161,8 @@
       floatingGalleryBrowsePage = 1;
       floatingGalleryBrowsePages = 1;
       floatingGalleryVisibleLoadedKey = '';
-      floatingGalleryBrowseLoadedPage = 0;
+      floatingGalleryBrowseLoadedKey = '';
+      floatingGalleryBrowseRefreshQueued = false;
       lastLoadedFloatingGalleryRoomId = data.id || '';
     } else {
       floatingGalleryVisibleLoadedKey = '';
@@ -191,8 +196,70 @@
     }, 600);
   }
 
-  function hide() {
+  function sortedIds(ids) {
+    return Array.isArray(ids) ? [...ids].filter(Boolean).sort() : [];
+  }
+
+  function sameIds(left, right) {
+    const a = sortedIds(left);
+    const b = sortedIds(right);
+    return a.length === b.length && a.every((id, index) => id === b[index]);
+  }
+
+  function hasUnsavedFloatingGalleryChanges() {
+    if (!roomData) return false;
+    const savedSeed = roomData.floatingGallerySeed || 0;
+    const savedIncludeIds = Array.isArray(roomData.floatingGalleryIncludeIds) ? roomData.floatingGalleryIncludeIds : [];
+    const savedExcludeIds = Array.isArray(roomData.floatingGalleryExcludeIds) ? roomData.floatingGalleryExcludeIds : [];
+
+    return (
+      floatingGallerySeed !== savedSeed ||
+      !sameIds(floatingGalleryIncludeIds, savedIncludeIds) ||
+      !sameIds(floatingGalleryExcludeIds, savedExcludeIds)
+    );
+  }
+
+  function restoreFloatingGalleryDraft() {
+    if (!roomData) return;
+    floatingGallerySeed = roomData.floatingGallerySeed || 0;
+    floatingGalleryIncludeIds = Array.isArray(roomData.floatingGalleryIncludeIds) ? [...roomData.floatingGalleryIncludeIds] : [];
+    floatingGalleryExcludeIds = Array.isArray(roomData.floatingGalleryExcludeIds) ? [...roomData.floatingGalleryExcludeIds] : [];
+    floatingGalleryVisibleLoadedKey = '';
+  }
+
+  async function confirmLeaveFloatingGallery() {
+    if (activeTab !== TAB_FLOATING_GALLERY || !hasUnsavedFloatingGalleryChanges()) return true;
+    if (floatingGalleryLeaveConfirmOpen) return false;
+
+    floatingGalleryLeaveConfirmOpen = true;
+    try {
+      const confirm = ui?.confirm || showAppConfirm;
+      return await confirm('You have unsaved floating gallery changes. Closing or leaving this tab will discard them.', {
+        title: 'Discard Floating Gallery Changes?',
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep Editing',
+        danger: true
+      });
+    } finally {
+      floatingGalleryLeaveConfirmOpen = false;
+    }
+  }
+
+  async function hide(options = {}) {
+    if (!options.discardFloatingGalleryChanges && !(await confirmLeaveFloatingGallery())) return;
+    if (options.discardFloatingGalleryChanges) {
+      restoreFloatingGalleryDraft();
+    }
     appState.roomSettingsVisible = false;
+  }
+
+  async function switchTab(nextTab) {
+    if (nextTab === activeTab) return;
+    if (!(await confirmLeaveFloatingGallery())) return;
+    if (activeTab === TAB_FLOATING_GALLERY) {
+      restoreFloatingGalleryDraft();
+    }
+    activeTab = nextTab;
   }
 
   function displayMessage(text, type = 'success') {
@@ -296,24 +363,38 @@
   }
 
   async function fetchFloatingGalleryBrowsePage(force = false) {
-    if (!visible || floatingGalleryBrowseLoading) return;
-    if (!force && floatingGalleryBrowsePage === floatingGalleryBrowseLoadedPage) return;
+    if (!visible) return;
+    if (floatingGalleryBrowseLoading) {
+      if (force) floatingGalleryBrowseRefreshQueued = true;
+      return;
+    }
+    const loadedKey = `${floatingGalleryBrowsePage}:${floatingGalleryBrowseSort}`;
+    if (!force && loadedKey === floatingGalleryBrowseLoadedKey) return;
 
     floatingGalleryBrowseLoading = true;
     try {
-      const res = await fetch(`${API_BASE}/api/gallery?page=${floatingGalleryBrowsePage}&limit=24&sort=top`);
+      const params = new URLSearchParams({
+        page: String(floatingGalleryBrowsePage),
+        limit: '24',
+        sort: floatingGalleryBrowseSort
+      });
+      const res = await fetch(`${API_BASE}/api/gallery?${params}`);
       if (!res.ok) throw new Error('Failed to load gallery');
       const data = await res.json();
       floatingGalleryBrowseItems = Array.isArray(data.items) ? data.items : [];
       floatingGalleryBrowsePages = Math.max(1, data.pages || 1);
-      floatingGalleryBrowseLoadedPage = floatingGalleryBrowsePage;
+      floatingGalleryBrowseLoadedKey = loadedKey;
     } catch (err) {
       floatingGalleryBrowseItems = [];
       floatingGalleryBrowsePages = 1;
-      floatingGalleryBrowseLoadedPage = 0;
+      floatingGalleryBrowseLoadedKey = '';
       displayMessage('Could not load gallery browser', 'error');
     } finally {
       floatingGalleryBrowseLoading = false;
+      if (floatingGalleryBrowseRefreshQueued) {
+        floatingGalleryBrowseRefreshQueued = false;
+        fetchFloatingGalleryBrowsePage(true);
+      }
     }
   }
 
@@ -350,6 +431,15 @@
     fetchFloatingGalleryBrowsePage(true);
   }
 
+  function setFloatingGalleryBrowseSort(sort) {
+    if (sort === floatingGalleryBrowseSort) return;
+    floatingGalleryBrowseSort = sort;
+    floatingGalleryBrowsePage = 1;
+    floatingGalleryBrowseItems = [];
+    floatingGalleryBrowseLoadedKey = '';
+    fetchFloatingGalleryBrowsePage(true);
+  }
+
   function openUnregisterConfirm() {
     if (!roomData || unregistering) return;
     showUnregisterConfirm = true;
@@ -370,7 +460,7 @@
   }
 
   function handleBackdropClick(e) {
-    if (e.target === e.currentTarget) hide();
+    if (e.target === e.currentTarget) void hide();
   }
 
   function canShowUnregister() {
@@ -518,7 +608,7 @@
   $effect(() => {
     function handleKeydown(e) {
       if (e.key === 'Escape' && appState.roomSettingsVisible) {
-        hide();
+        void hide();
       } else if (e.key === 'Enter' && e.ctrlKey && appState.roomSettingsVisible && activeTab === TAB_GENERAL) {
         save();
       }
@@ -540,12 +630,12 @@
         <div class="room-settings-header-main">
           <h3>Room Settings</h3>
           <div class="room-settings-tabs" role="tablist" aria-label="Room settings sections">
-            <button class:active={activeTab === TAB_GENERAL} class="room-settings-tab" onclick={() => activeTab = TAB_GENERAL} type="button">General</button>
-            <button class:active={activeTab === TAB_FLOATING_GALLERY} class="room-settings-tab" onclick={() => activeTab = TAB_FLOATING_GALLERY} type="button">Floating Gallery</button>
-            <button class:active={activeTab === TAB_MODERATION} class="room-settings-tab" onclick={() => activeTab = TAB_MODERATION} type="button">Moderation</button>
+            <button class:active={activeTab === TAB_GENERAL} class="room-settings-tab" onclick={() => switchTab(TAB_GENERAL)} type="button">General</button>
+            <button class:active={activeTab === TAB_FLOATING_GALLERY} class="room-settings-tab" onclick={() => switchTab(TAB_FLOATING_GALLERY)} type="button">Floating Gallery</button>
+            <button class:active={activeTab === TAB_MODERATION} class="room-settings-tab" onclick={() => switchTab(TAB_MODERATION)} type="button">Moderation</button>
           </div>
         </div>
-        <button class="room-settings-close" onclick={hide} title="Close">&times;</button>
+        <button class="room-settings-close" onclick={() => hide()} title="Close">&times;</button>
       </div>
 
       <div class="room-settings-body">
@@ -759,6 +849,22 @@
                 <p>Browse the full gallery and add any image to the room include list. Excluded ids are also saved with the room settings.</p>
               </div>
               <div class="moderation-toolbar-actions">
+                <div class="floating-gallery-sort-toggle" role="group" aria-label="Gallery sort">
+                  <button
+                    class:active={floatingGalleryBrowseSort === 'newest'}
+                    type="button"
+                    onclick={() => setFloatingGalleryBrowseSort('newest')}
+                  >
+                    Newest
+                  </button>
+                  <button
+                    class:active={floatingGalleryBrowseSort === 'top'}
+                    type="button"
+                    onclick={() => setFloatingGalleryBrowseSort('top')}
+                  >
+                    Likes
+                  </button>
+                </div>
                 <button class="btn secondary small" type="button" onclick={() => fetchFloatingGalleryBrowsePage(true)}>
                   {floatingGalleryBrowseLoading ? 'Refreshing...' : 'Refresh'}
                 </button>
@@ -1003,7 +1109,7 @@
       </div>
 
       <div class="room-settings-footer">
-        <button class="btn secondary" onclick={hide}>Cancel</button>
+        <button class="btn secondary" onclick={() => hide({ discardFloatingGalleryChanges: true })}>Cancel</button>
         {#if activeTab === TAB_GENERAL || activeTab === TAB_FLOATING_GALLERY}
           <button class="btn primary" onclick={save} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
         {/if}
@@ -1302,6 +1408,30 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.55rem;
+  }
+
+  .floating-gallery-sort-toggle {
+    display: inline-flex;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--bg-primary) 84%, black);
+  }
+
+  .floating-gallery-sort-toggle button {
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 0.42rem 0.7rem;
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+
+  .floating-gallery-sort-toggle button:hover,
+  .floating-gallery-sort-toggle button.active {
+    background: color-mix(in srgb, var(--accent-color) 24%, transparent);
+    color: var(--text-primary);
   }
 
   .floating-gallery-grid {
