@@ -500,6 +500,8 @@ export class InputBufferManager {
         if (isBatchRenderable) {
           this._renderBatchTool(tool, app.self, app.self.tool);
         }
+
+        app.boardViewer?.requestLiveRender?.();
       }
     }
 
@@ -669,6 +671,7 @@ export class InputBufferManager {
     } else {
       tool.onPointerMove(app.self, smoothedPos, prevPos);
     }
+    app.boardViewer?.requestLiveRender?.();
     app.self._mainCtxDrawCount++;
     if (!this._isStampTool(app.self.tool)) {
       this.pendingBroadcastPoints.push(...smoothedPoints);

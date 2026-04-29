@@ -7,9 +7,10 @@ const MAX_VIEW_ZOOM = 8;
 const TAURI_CHANNEL_NAME = 'ddraw-board-viewer-popout';
 const TAURI_FRAME_INTERVAL_MS = 1000 / 12;
 const FRAME_RATE_KEY = 'boardViewerFrameRate';
-const DEFAULT_FRAME_RATE = 30;
+const DEFAULT_FRAME_RATE = 60;
 const MIN_FRAME_RATE = 5;
 const MAX_FRAME_RATE = 144;
+const INTERACTION_RENDER_GRACE_MS = 120;
 
 export class BoardViewer {
   constructor(app) {
@@ -36,11 +37,14 @@ export class BoardViewer {
     this._popoutDragState = null;
     this.frameRate = this._loadFrameRate();
     this._lastRenderAt = 0;
+    this._lastMainZoomAutoVisible = false;
+    this._interactiveRenderUntil = 0;
   }
 
   _loadFrameRate() {
     const raw = Number(localStorage.getItem(FRAME_RATE_KEY));
     if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_FRAME_RATE;
+    if (raw === 30) return DEFAULT_FRAME_RATE;
     return Math.min(MAX_FRAME_RATE, Math.max(MIN_FRAME_RATE, raw));
   }
 
@@ -79,6 +83,18 @@ export class BoardViewer {
     this.rafId = requestAnimationFrame((now) => this._tick(now));
   }
 
+  _markInteractiveRender(now = performance.now()) {
+    this._interactiveRenderUntil = Math.max(
+      this._interactiveRenderUntil,
+      now + INTERACTION_RENDER_GRACE_MS
+    );
+    this._scheduleTick();
+  }
+
+  requestLiveRender(now = performance.now()) {
+    this._markInteractiveRender(now);
+  }
+
   _stopTick() {
     if (this.rafId != null) {
       cancelAnimationFrame(this.rafId);
@@ -104,8 +120,18 @@ export class BoardViewer {
       return;
     }
 
-    if (zoom > AUTO_SHOW_ZOOM || this.manualVisible || this.followUserId) {
-      this.show({ manual: this.manualVisible });
+    const autoVisible = zoom > AUTO_SHOW_ZOOM;
+    const shouldShow = autoVisible || this.manualVisible || this.followUserId;
+    const visibilityChanged = shouldShow !== this.visible;
+    const crossedAutoThreshold = autoVisible !== this._lastMainZoomAutoVisible;
+    this._lastMainZoomAutoVisible = autoVisible;
+
+    if (shouldShow) {
+      if (visibilityChanged || crossedAutoThreshold) {
+        this.show({ manual: this.manualVisible });
+      } else {
+        this._scheduleTick();
+      }
     } else {
       this.hide({ clearManual: false });
     }
@@ -126,8 +152,10 @@ export class BoardViewer {
       this._setPanelVisible(false);
       return;
     }
-    this._setPanelVisible(true);
-    this._fitToPanel(false, this.stage);
+    const becameVisible = this._setPanelVisible(true);
+    if (becameVisible) {
+      this._fitToPanel(false, this.stage);
+    }
   }
 
   hide({ clearManual = true } = {}) {
@@ -141,7 +169,12 @@ export class BoardViewer {
   }
 
   _setPanelVisible(visible) {
-    this.visible = !!visible;
+    visible = !!visible;
+    if (this.visible === visible) {
+      if (visible) this._scheduleTick();
+      return false;
+    }
+    this.visible = visible;
     this.el.hidden = !this.visible;
     this.el.classList.toggle('is-visible', this.visible);
     this._updateLaunchButton();
@@ -150,6 +183,7 @@ export class BoardViewer {
     } else if (!this.isPopoutOpen() && !this.tauriPopoutWindow) {
       this._stopTick();
     }
+    return true;
   }
 
   _updateLaunchButton() {
@@ -284,6 +318,7 @@ export class BoardViewer {
     controlsEl?.addEventListener('click', (event) => {
       const action = event.target.closest('button')?.dataset.action;
       if (!action) return;
+      this._markInteractiveRender();
       if (action === 'zoomIn') this._zoomAt(this.viewZoom * 1.2, null, null, getStage());
       if (action === 'zoomOut') this._zoomAt(this.viewZoom / 1.2, null, null, getStage());
       if (action === 'reset') this._fitToPanel(true, getStage());
@@ -302,6 +337,7 @@ export class BoardViewer {
       this.panX = dragState.panX + event.clientX - dragState.x;
       this.panY = dragState.panY + event.clientY - dragState.y;
       this.followUserId = null;
+      this._markInteractiveRender(event.timeStamp || performance.now());
     });
     stageEl.addEventListener('pointerup', () => { this[dragKey] = null; });
     stageEl.addEventListener('pointercancel', () => { this[dragKey] = null; });
@@ -309,6 +345,7 @@ export class BoardViewer {
       event.preventDefault();
       this._zoomAt(this.viewZoom * Math.pow(2, -event.deltaY / 360), event.offsetX, event.offsetY, getStage());
       this.followUserId = null;
+      this._markInteractiveRender(event.timeStamp || performance.now());
     }, { passive: false });
   }
 
@@ -352,8 +389,9 @@ export class BoardViewer {
 
     if (!renderingPanel && !renderingPopout && !sendingTauri) return;
 
-    const minInterval = 1000 / this.frameRate;
-    if (now - this._lastRenderAt + 0.5 < minInterval) {
+    const interactiveRender = now < this._interactiveRenderUntil;
+    const minInterval = interactiveRender ? 0 : 1000 / this.frameRate;
+    if (minInterval > 0 && now - this._lastRenderAt + 0.5 < minInterval) {
       this._scheduleTick();
       return;
     }

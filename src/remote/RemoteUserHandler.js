@@ -90,6 +90,7 @@ export class RemoteUserHandler {
       if (smoothedPoints.length >= 2) {
         this.ui.updateRemoteCursor(user.id, smoothedPoints[smoothedPoints.length - 2], smoothedPoints[smoothedPoints.length - 1], user.size);
       }
+      this.app.boardViewer?.requestLiveRender?.();
       return;
     }
 
@@ -107,6 +108,7 @@ export class RemoteUserHandler {
       if (smoothedPoints.length >= 2) {
         this.ui.updateRemoteCursor(user.id, smoothedPoints[smoothedPoints.length - 2], smoothedPoints[smoothedPoints.length - 1], user.size);
       }
+      this.app.boardViewer?.requestLiveRender?.();
       return;
     }
 
@@ -127,6 +129,7 @@ export class RemoteUserHandler {
       if (smoothedPoints.length >= 2) {
         this.ui.updateRemoteCursor(user.id, smoothedPoints[smoothedPoints.length - 2], smoothedPoints[smoothedPoints.length - 1], user.size);
       }
+      this.app.boardViewer?.requestLiveRender?.();
       return;
     }
 
@@ -162,6 +165,7 @@ export class RemoteUserHandler {
 
     if (!user.panning && user.mousedown) {
       this.renderRemotePreview(user, { x: finalX, y: finalY });
+      this.app.boardViewer?.requestLiveRender?.();
       if (user.tool === 'brush') {
         this.board.requestUpdate();
       }
@@ -235,6 +239,7 @@ export class RemoteUserHandler {
           if (!stampTools.has(user.tool)) {
             this.renderRemoteMove(user, pos, lastPos);
           }
+          this.app.boardViewer?.requestLiveRender?.();
         }
       }
     }

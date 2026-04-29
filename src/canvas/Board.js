@@ -96,6 +96,7 @@ export class Board {
     this._lastPixelGridVisible = null;
     this._lastPixelGridPanX = null;
     this._lastPixelGridPanY = null;
+    this._lastHighZoomCrisp = null;
 
     this._cachedContainerRect = null;
     this._containerResizeObserver = null;
@@ -684,6 +685,9 @@ export class Board {
 
   updateHighZoomRenderingMode() {
     const crisp = this.showRawPixelsAtHighZoom && this.zoom >= Board.HIGH_ZOOM_THRESHOLD;
+    if (this._lastHighZoomCrisp === crisp) return;
+    this._lastHighZoomCrisp = crisp;
+
     const imageRendering = crisp ? 'pixelated' : 'auto';
     const smoothingEnabled = !crisp;
     const smoothingQuality = crisp ? 'low' : 'high';
