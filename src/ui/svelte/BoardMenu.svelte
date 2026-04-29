@@ -3,7 +3,7 @@
   import { LayerPreview } from '../LayerPreview.js';
   import PatternPreview from './PatternPreview.svelte';
 
-  let { onBlendModeChange = null, onBlendBakeModeChange = null, onLayerSelect = null, onLayerVisibilityToggle = null } = $props();
+  let { onBlendModeChange = null, onBlendBakeModeChange = null, onBlendModeLockToggle = null, onLayerSelect = null, onLayerVisibilityToggle = null } = $props();
 
   let layerPreviewInstance = null;
   let hoveredLayer = null;
@@ -63,6 +63,11 @@
   function selectBlendBakeMode(mode) {
     appState.blendBakeMode = mode === 'background' ? 'background' : 'existing';
     if (onBlendBakeModeChange) onBlendBakeModeChange(appState.blendBakeMode);
+  }
+
+  function toggleBlendModeLock(event) {
+    event.stopPropagation();
+    if (onBlendModeLockToggle) onBlendModeLockToggle(event);
   }
 
   function selectLayer(layerIdx) {
@@ -160,6 +165,24 @@
 
     {#if appState.boardMenuOpen === 'blend'}
       <div class="blend-dropdown">
+        <div class="blend-dropdown-header">
+          <span>{blendModes.find(m => m.value === appState.blendMode)?.label ?? 'Normal'}</span>
+          <button
+            class="blend-lock-btn"
+            class:locked={appState.blendModeLocked}
+            onclick={toggleBlendModeLock}
+            onpointerup={(e) => {
+              if (e.pointerType !== 'mouse') {
+                e.preventDefault();
+                toggleBlendModeLock(e);
+              }
+            }}
+            title={appState.blendModeLocked ? 'Unlock blend mode for current tool. Shift-click to unlock all current tool settings' : 'Lock blend mode for current tool. Shift-click to lock all current tool settings'}
+            aria-label={appState.blendModeLocked ? 'Unlock blend mode for current tool' : 'Lock blend mode for current tool'}
+          >
+            <img src={appState.blendModeLocked ? '/images/lock-closed.svg' : '/images/lock-open.svg'} alt="" />
+          </button>
+        </div>
         <div class="blend-bake-toggle" role="group" aria-label="Blend bake mode">
           <button
             class:active={appState.blendBakeMode === 'background'}
@@ -258,6 +281,50 @@
   .blend-btn.open {
     background: color-mix(in srgb, var(--accent-primary) 15%, var(--bg-secondary));
     color: var(--accent-primary);
+  }
+
+  .blend-dropdown-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 3px 3px 5px 8px;
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+
+  .blend-lock-btn {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+    border: none;
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.58;
+    transition: opacity 0.12s ease, background 0.12s ease, transform 0.12s ease;
+  }
+
+  .blend-lock-btn img {
+    width: 12px;
+    height: 12px;
+    filter: invert(1);
+    display: block;
+  }
+
+  .blend-lock-btn:hover,
+  .blend-lock-btn.locked {
+    background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+    opacity: 1;
+  }
+
+  .blend-lock-btn:active {
+    transform: scale(0.96);
   }
 
   .blend-dropdown {

@@ -4536,6 +4536,15 @@ export class DrawingApp {
     }
 
     this.self.setBlendMode(blendMode);
+    appState.blendMode = blendMode;
+    const blendLock = this.toolLockManager?.toolLocks?.[this.self.tool]?.blendMode;
+    if (blendLock?.locked) {
+      blendLock.lockedValue = blendMode;
+      this.toolLockManager.saveToolLocks();
+    } else if (this.toolLockManager?.globalUnlockedValues) {
+      this.toolLockManager.globalUnlockedValues.blendMode = blendMode;
+      this.toolLockManager.saveGlobalUnlockedValues();
+    }
     this.board.createActiveLayerBlendSubLayer(blendMode);
     const cssMode = this.blendModeManager.toCSSBlendMode(blendMode);
     this.board.topCanvas.style.mixBlendMode = cssMode;

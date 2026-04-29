@@ -221,6 +221,13 @@ export function initSvelteUI(app) {
       props: {
         onBlendModeChange: (mode) => app.handleBlendModeChange(mode),
         onBlendBakeModeChange: (mode) => app.handleBlendBakeModeChange(mode),
+        onBlendModeLockToggle: (event) => {
+          if (event?.shiftKey) {
+            app.toolLockManager?.toggleAllLocksForCurrentTool('blendMode');
+          } else {
+            app.toolLockManager?.toggleLock('blendMode');
+          }
+        },
         onLayerSelect: (layerIdx) => app.handleLayerSelect(layerIdx),
         onLayerVisibilityToggle: (layerIdx) => app.handleLayerVisibilityToggle(layerIdx),
       }

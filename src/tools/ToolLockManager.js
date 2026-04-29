@@ -2,6 +2,8 @@
  * @fileoverview ToolLockManager - Manages per-tool locked property values
  */
 
+import { appState } from '../state.svelte.js';
+
 /**
  * Manages tool properties (size, smoothing, opacity, etc.) and allows locking
  * values for specific tools or sharing unlocked values globally.
@@ -29,6 +31,7 @@ export class ToolLockManager {
       spacing: 0,
       blurRadius: 5,
       thinning: 0.5,
+      blendMode: 'source-over',
       pressure: { min: 0, max: 100, enabled: true }
     };
 
@@ -144,22 +147,22 @@ export class ToolLockManager {
    */
   getDefaultToolLocks() {
     const tools = {
-      brush: ['size', 'pressure', 'smoothing', 'hardness', 'opacity'],
-      flowPen: ['size', 'pressure', 'smoothing', 'hardness', 'opacity'],
-      ink: ['size', 'pressure', 'smoothing', 'hardness', 'opacity', 'thinning'],
-      pixel: ['size', 'pressure', 'smoothing', 'spacing', 'opacity'],
-      line: ['size', 'hardness', 'opacity'],
-      rectangle: ['size', 'hardness', 'opacity'],
-      circle: ['size', 'hardness', 'opacity'],
+      brush: ['size', 'pressure', 'smoothing', 'hardness', 'opacity', 'blendMode'],
+      flowPen: ['size', 'pressure', 'smoothing', 'hardness', 'opacity', 'blendMode'],
+      ink: ['size', 'pressure', 'smoothing', 'hardness', 'opacity', 'thinning', 'blendMode'],
+      pixel: ['size', 'pressure', 'smoothing', 'spacing', 'opacity', 'blendMode'],
+      line: ['size', 'hardness', 'opacity', 'blendMode'],
+      rectangle: ['size', 'hardness', 'opacity', 'blendMode'],
+      circle: ['size', 'hardness', 'opacity', 'blendMode'],
       erase: ['size', 'pressure', 'smoothing', 'hardness', 'opacity'],
-      blur: ['size', 'pressure', 'spacing', 'blurRadius', 'opacity'],
-      circleBlur: ['size', 'pressure', 'smoothing', 'hardness', 'spacing', 'opacity'],
-      glitchBlur: ['size', 'pressure', 'spacing', 'blurRadius', 'opacity'],
-      imageBrush: ['size', 'pressure', 'spacing', 'opacity'],
-      pattern: ['size', 'pressure', 'opacity'],
-      fill: ['opacity'],
-      text: ['size', 'opacity'],
-      select: ['opacity'],
+      blur: ['size', 'pressure', 'spacing', 'blurRadius', 'opacity', 'blendMode'],
+      circleBlur: ['size', 'pressure', 'smoothing', 'hardness', 'spacing', 'opacity', 'blendMode'],
+      glitchBlur: ['size', 'pressure', 'spacing', 'blurRadius', 'opacity', 'blendMode'],
+      imageBrush: ['size', 'pressure', 'spacing', 'opacity', 'blendMode'],
+      pattern: ['size', 'pressure', 'opacity', 'blendMode'],
+      fill: ['opacity', 'blendMode'],
+      text: ['size', 'opacity', 'blendMode'],
+      select: ['opacity', 'blendMode'],
       inkdropper: [],
       pan: [],
       rotate: []
@@ -184,9 +187,10 @@ export class ToolLockManager {
           if (prop === 'blurRadius') defaultValue = 5;
           if (prop === 'spacing') defaultValue = 0;
           if (prop === 'thinning') defaultValue = 0.5;
+          if (prop === 'blendMode') defaultValue = 'source-over';
 
           locks[tool][prop] = {
-            locked: false,
+            locked: prop === 'blendMode' && ['select', 'blur', 'circleBlur', 'glitchBlur', 'text'].includes(tool),
             lockedValue: defaultValue
           };
         }
@@ -235,6 +239,7 @@ export class ToolLockManager {
         else if (prop === 'opacity') state.lockedValue = self.opacity;
         else if (prop === 'blurRadius') state.lockedValue = self.blurRadius;
         else if (prop === 'thinning') state.lockedValue = self.thinning;
+        else if (prop === 'blendMode') state.lockedValue = self.blendMode || 'source-over';
       } else {
         if (prop === 'size') {
           this.globalUnlockedValues.size = self.size;
@@ -252,6 +257,7 @@ export class ToolLockManager {
         else if (prop === 'opacity') this.globalUnlockedValues.opacity = self.opacity;
         else if (prop === 'blurRadius') this.globalUnlockedValues.blurRadius = self.blurRadius;
         else if (prop === 'thinning') this.globalUnlockedValues.thinning = self.thinning;
+        else if (prop === 'blendMode') this.globalUnlockedValues.blendMode = self.blendMode || 'source-over';
       }
     }
 
@@ -350,6 +356,9 @@ export class ToolLockManager {
         // Thinning is not yet broadcasted in UserHandlers/DrawingHandlers for some tools? 
         // But we update self.
       }
+      else if (prop === 'blendMode') {
+        this.app.handleBlendModeChange(value || 'source-over');
+      }
     }
   }
 
@@ -362,14 +371,16 @@ export class ToolLockManager {
     if (!locks) return;
 
     const { ui } = this.app;
-    const allProps = ['size', 'pressure', 'smoothing', 'spacing', 'hardness', 'opacity', 'blurRadius', 'thinning'];
+    const allProps = ['size', 'pressure', 'smoothing', 'spacing', 'hardness', 'opacity', 'blurRadius', 'thinning', 'blendMode'];
     
     allProps.forEach(prop => {
       const lock = locks[prop];
       if (lock) {
         ui.updateLockButton(prop, lock.locked, true);
+        if (prop === 'blendMode') appState.blendModeLocked = !!lock.locked;
       } else {
         ui.updateLockButton(prop, false, false);
+        if (prop === 'blendMode') appState.blendModeLocked = false;
       }
     });
   }
@@ -405,6 +416,8 @@ export class ToolLockManager {
         };
       } else if (property === 'opacity') {
         lock.lockedValue = self.opacity;
+      } else if (property === 'blendMode') {
+        lock.lockedValue = self.blendMode || 'source-over';
       } else {
         lock.lockedValue = self[property];
       }
@@ -417,12 +430,15 @@ export class ToolLockManager {
         };
       } else if (property === 'opacity') {
         this.globalUnlockedValues.opacity = self.opacity;
+      } else if (property === 'blendMode') {
+        this.globalUnlockedValues.blendMode = self.blendMode || 'source-over';
       } else {
         this.globalUnlockedValues[property] = self[property];
       }
     }
 
     ui.updateLockButton(property, lock.locked, true);
+    if (property === 'blendMode') appState.blendModeLocked = !!lock.locked;
     this.saveToolLocks();
     this.saveGlobalUnlockedValues();
   }
@@ -440,6 +456,10 @@ export class ToolLockManager {
 
     if (property === 'opacity') {
       return self.opacity;
+    }
+
+    if (property === 'blendMode') {
+      return self.blendMode || 'source-over';
     }
 
     return self[property];
@@ -478,6 +498,7 @@ export class ToolLockManager {
       }
 
       ui.updateLockButton(property, lock.locked, true);
+      if (property === 'blendMode') appState.blendModeLocked = !!lock.locked;
     }
 
     this.saveToolLocks();
