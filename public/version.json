@@ -1,7 +1,7 @@
 {
-  "latest": "1.6.0-beta",
-  "minRequired": "1.6.0-beta",
-  "releaseDate": "2026-04-29T07:11:12.744Z",
+  "latest": "1.6.1-beta",
+  "minRequired": "1.6.1-beta",
+  "releaseDate": "2026-04-29T08:58:15.571Z",
   "notes": "Added local snapshot history that can be undone from, Fixed some issues with blend mode rendering on Layer 1 & added a blend mode lock, Added new ddraw.ca/messenger/ page, fixed up some UI",
   "downloadUrl": "https://www.ddraw.ca/download"
 }
