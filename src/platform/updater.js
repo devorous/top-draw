@@ -6,6 +6,7 @@ let updateCheckInFlight = null;
 let mismatchPromptInFlight = null;
 let mismatchPrompted = false;
 const AUTO_UPDATE_PREF_KEY = 'desktopAutoUpdates';
+const OFFLINE_UPDATE_DISMISSAL_KEY = 'desktopUpdateOfflineDismissedVersion';
 
 function formatPublishedDate(rawDate) {
   if (!rawDate) return '';
@@ -28,6 +29,28 @@ function setAutoUpdatePreference(enabled) {
     localStorage.setItem(AUTO_UPDATE_PREF_KEY, enabled ? '1' : '0');
   } catch (error) {
     console.warn('[Updater] Failed to store auto-update preference:', error);
+  }
+}
+
+function getOfflineUpdateDismissal() {
+  try {
+    return localStorage.getItem(OFFLINE_UPDATE_DISMISSAL_KEY) || '';
+  } catch (error) {
+    console.warn('[Updater] Failed to read offline update dismissal:', error);
+    return '';
+  }
+}
+
+export function isDesktopUpdateDismissedForOffline(version = '') {
+  return !!version && getOfflineUpdateDismissal() === version;
+}
+
+export function dismissDesktopUpdateForOffline(version = '') {
+  if (!version) return;
+  try {
+    localStorage.setItem(OFFLINE_UPDATE_DISMISSAL_KEY, version);
+  } catch (error) {
+    console.warn('[Updater] Failed to store offline update dismissal:', error);
   }
 }
 
@@ -310,6 +333,10 @@ async function runDesktopUpdateCheck({ silent = false } = {}) {
       return { status: 'up-to-date' };
     }
 
+    if (update.version && getOfflineUpdateDismissal() === update.version) {
+      return { status: 'offline-dismissed', version: update.version };
+    }
+
     if (getAutoUpdatePreference()) {
       const updaterProgress = showDesktopUpdaterProgress(update);
       updaterProgress.setStatus('Installing update... The app will restart when it finishes.');
@@ -333,6 +360,7 @@ async function runDesktopUpdateCheck({ silent = false } = {}) {
 
     const choice = await showDesktopUpdatePrompt(update);
     if (choice === 'offline') {
+      dismissDesktopUpdateForOffline(update.version);
       document.getElementById('loginOfflineBtn')?.click();
       if (window.app?.handleOffline) {
         void window.app.handleOffline();

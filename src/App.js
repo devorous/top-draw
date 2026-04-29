@@ -44,7 +44,11 @@ import {
   openImageViaNativeDialog,
   saveCanvasViaNativeDialog
 } from './platform/desktop.js';
-import { checkForDesktopUpdates } from './platform/updater.js';
+import {
+  checkForDesktopUpdates,
+  dismissDesktopUpdateForOffline,
+  isDesktopUpdateDismissedForOffline
+} from './platform/updater.js';
 import { ensureClientCanConnect, formatOutdatedClientMessage, getVersionStatus } from './VersionChecker.js';
 import { broadcastChatPopoutEvent, focusChatPopout } from './platform/chatPopoutBridge.js';
 import initWasm from './wasm/ddraw_wasm.js';
@@ -391,6 +395,8 @@ export class DrawingApp {
     this._versionUpdateNoticed = false;
     this._awaitingServerRestart = false;
     this._reloadRecommended = false;
+    this._offlineDismissedUpdateVersion = null;
+    this._lastUpdateNoticeVersion = null;
 
     this.snapshotManager = new SnapshotManager(this);
   }
@@ -2637,6 +2643,9 @@ export class DrawingApp {
    * If the user has entered credentials, attempts to authenticate first.
    */
   async handleOffline() {
+    if (this._reloadRecommended) {
+      this._dismissCurrentUpdateForOffline();
+    }
     const hasPassword = !this.auth?.isLoggedIn && this.ui.elements.loginPassword?.value;
     const hasToken = this.auth?.getStoredToken();
 
@@ -3216,7 +3225,7 @@ export class DrawingApp {
   }
 
   async checkForRuntimeUpdate({ force = true } = {}) {
-    if (!this._awaitingServerRestart) return;
+    if (!this._awaitingServerRestart && !isTauriDesktop()) return;
     if (!this.wsClient?.connected) return;
     if (this._versionUpdateNoticed) return;
     const status = await getVersionStatus({ force });
@@ -3227,15 +3236,18 @@ export class DrawingApp {
     }
     const latest = status?.serverVersion?.latest || status?.latestVersion;
     if (!latest || !status.clientVersion || latest === status.clientVersion) return;
+    if (this._isUpdateDismissedForOffline(latest)) return;
 
     this._versionUpdateNoticed = true;
     this.showUpdateAvailableNotice(status);
   }
 
   async showUpdateAvailableNotice(versionStatus = {}) {
+    const latest = versionStatus.latestVersion || versionStatus.serverVersion?.latest || 'the latest version';
+    if (this._isUpdateDismissedForOffline(latest)) return;
     this._versionUpdateNoticed = true;
     this._reloadRecommended = true;
-    const latest = versionStatus.latestVersion || versionStatus.serverVersion?.latest || 'the latest version';
+    this._lastUpdateNoticeVersion = latest;
     this.ui.showDisconnectionBanner({
       message: `A new Ddraw version is available (${latest}). Reload to update, or continue offline.`,
       icon: '!',
@@ -3249,8 +3261,11 @@ export class DrawingApp {
   }
 
   showUpdateRequiredNotice(versionStatus = {}) {
+    const latest = versionStatus.latestVersion || versionStatus.serverVersion?.latest || versionStatus.minRequired || '';
+    if (this._isUpdateDismissedForOffline(latest)) return;
     this._versionUpdateNoticed = true;
     this._reloadRecommended = true;
+    this._lastUpdateNoticeVersion = latest || null;
     this.ui.showToast('Update required before connecting online', 3500, 'error');
     this.ui.showDisconnectionBanner({
       message: `${formatOutdatedClientMessage(versionStatus)} You can still draw offline.`,
@@ -3261,8 +3276,11 @@ export class DrawingApp {
   }
 
   async handleServerUpdateNotice(data = {}) {
+    const latest = data.latestVersion || data.version || data.serverVersion?.latest || '';
+    if (this._isUpdateDismissedForOffline(latest)) return;
     this._versionUpdateNoticed = true;
     this._reloadRecommended = true;
+    this._lastUpdateNoticeVersion = latest || null;
     this.ui.showToast(data.message || 'Ddraw is updating', 5000);
     this.ui.showDisconnectionBanner({
       message: data.message || 'Ddraw is updating. Reload in a moment, or continue offline.',
@@ -3284,6 +3302,9 @@ export class DrawingApp {
       const result = await checkForDesktopUpdates({ silent: true });
       if (!result || result.status === 'up-to-date') {
         return false;
+      }
+      if (result.status === 'offline-dismissed') {
+        return true;
       }
       if (result.status === 'error') {
         this.ui.showToast('Desktop update check failed. Restart the app to try again.', 4500, 'error');
@@ -3630,8 +3651,36 @@ export class DrawingApp {
    * Handles switch to offline mode button click from disconnection banner.
    */
   handleSwitchToOffline() {
+    if (this._reloadRecommended) {
+      this._dismissCurrentUpdateForOffline();
+    }
     this.ui.hideDisconnectionBanner();
     this.handleOffline();
+  }
+
+  _dismissCurrentUpdateForOffline() {
+    const latest = this._lastUpdateNoticeVersion || null;
+    if (latest) {
+      this._offlineDismissedUpdateVersion = latest;
+      if (isTauriDesktop()) {
+        dismissDesktopUpdateForOffline(latest);
+      }
+    }
+    this._versionUpdateNoticed = true;
+    this._reloadRecommended = false;
+    this._awaitingServerRestart = false;
+    if (this._desktopUpdatePollTimer) {
+      window.clearInterval(this._desktopUpdatePollTimer);
+      this._desktopUpdatePollTimer = null;
+    }
+    this._desktopUpdatePollActive = false;
+  }
+
+  _isUpdateDismissedForOffline(version = '') {
+    return !!version && (
+      this._offlineDismissedUpdateVersion === version ||
+      (isTauriDesktop() && isDesktopUpdateDismissedForOffline(version))
+    );
   }
 
   ensureAppSettingsButton() {
