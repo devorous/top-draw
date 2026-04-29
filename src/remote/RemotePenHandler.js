@@ -69,31 +69,51 @@ export class RemotePenHandler {
   handlePenStamps(user, points, radii) {
     if (points.length < 2) return;
 
+    let startIndex = 0;
+    let startRi = 0;
+
     if (!user._penStrokeActive) {
       user.clearLine();
       this.handlePenDown(user, { x: points[0], y: points[1] });
+      // handlePenDown drew the first point and set user._penLastStampPos
+      startIndex = 2;
+      startRi = 1;
     }
 
     const ctx = user._penOffscreenCtx;
     ctx.fillStyle = user._penStrokeColor;
 
-    for (let i = 0, ri = 0; i < points.length; i += 2, ri++) {
+    for (let i = startIndex, ri = startRi; i < points.length; i += 2, ri++) {
       const x = points[i];
       const y = points[i + 1];
       const pressure = radii[ri] / 255;
       const r = pressure * user.size;
-      ctx.beginPath();
-      ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
-      ctx.fill();
+
+      if (user._penLastStampPos) {
+        // Interpolate circles for smooth coverage from the last point
+        this._interpolateStrokeRemote(
+          ctx,
+          user._penLastStampPos.x,
+          user._penLastStampPos.y,
+          user._penLastStampPos.radius,
+          x,
+          y,
+          r
+        );
+      } else {
+        // Fallback for first point if handlePenDown wasn't called (shouldn't happen)
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(0.5, r), 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      user._penLastStampPos = { x, y, radius: r };
       if (user.penPoints) {
         user.penPoints.push({ x, y, radius: r });
       }
     }
 
     const lastPtIdx = points.length - 2;
-    const lastPressure = radii[radii.length - 1] / 255;
-    const lastR = lastPressure * user.size;
-    user._penLastStampPos = { x: points[lastPtIdx], y: points[lastPtIdx + 1], radius: lastR };
     user.setPosition(points[lastPtIdx], points[lastPtIdx + 1]);
     this.updatePenPreview(user);
   }
