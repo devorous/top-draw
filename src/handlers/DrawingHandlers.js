@@ -307,6 +307,10 @@ export function setupDrawingHandlers(wrapHandler, app) {
     const user = users.get(data.sessionIndex);
     if (!user || !data.imageData) return;
 
+    const bounds = { x: data.x, y: data.y, width: data.width, height: data.height };
+    const pendingGlitch = remoteUserHandler.queueRemoteGlitchImage(user, bounds);
+    if (!pendingGlitch) return;
+
     const img = new Image();
     img.onload = () => {
       // Convert to canvas for use as _cachedBlurResult
@@ -315,8 +319,11 @@ export function setupDrawingHandlers(wrapHandler, app) {
       canvas.height = data.height;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, data.width, data.height);
-      const bounds = { x: data.x, y: data.y, width: data.width, height: data.height };
-      board.layerManager?.applyRemoteGlitchResult(user.id, canvas, bounds);
+      remoteUserHandler.resolveRemoteGlitchImage(pendingGlitch, canvas);
+    };
+    img.onerror = () => {
+      pendingGlitch.canceled = true;
+      remoteUserHandler.resolveRemoteGlitchImage(pendingGlitch, null);
     };
     img.src = data.imageData;
   });
@@ -324,6 +331,16 @@ export function setupDrawingHandlers(wrapHandler, app) {
   wrapHandler('undo', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
+      if (user.tool === 'glitchBlur') {
+        if (user.mousedown || board.layerManager?.layerGroups?.some(group => group?.activeStrokeByUser?.has(user.id))) {
+          remoteUserHandler.handleCancel(user);
+        }
+        remoteUserHandler.cancelLatestPendingGlitchImage(user.id);
+        if (remoteUserHandler.undoLatestRemoteGlitchImage(user.id)) {
+          return;
+        }
+      }
+
       const hasActiveStroke = user.mousedown || board.layerManager?.layerGroups?.some(
         group => group?.activeStrokeByUser?.has(user.id)
       );
@@ -332,7 +349,10 @@ export function setupDrawingHandlers(wrapHandler, app) {
         return;
       }
 
-      board.undo(user.activeLayer, user.id);
+      const undone = board.undo(user.activeLayer, user.id);
+      if (!undone && user.tool === 'glitchBlur') {
+        remoteUserHandler.markPendingGlitchUndo(user.id);
+      }
     }
   });
 

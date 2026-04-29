@@ -37,6 +37,8 @@ export class RemoteUserHandler {
     this.catchupInterval = 33; // 30 FPS (was 16ms / 62.5 FPS)
     /** @type {number|null} */
     this.catchupTimer = null;
+    this.pendingGlitchUndoByUser = new Map();
+    this.pendingGlitchImagesByUser = new Map();
   }
 
   get board() { return this.app.board; }
@@ -287,10 +289,8 @@ export class RemoteUserHandler {
         break;
 
       case 'glitchBlur':
-        const glitchBlurToolMove = this.toolManager.getTool('glitchBlur');
-        if (glitchBlurToolMove) {
-          glitchBlurToolMove.onPointerMove(user, pos, lastPos);
-        }
+        // Glitch blur is non-deterministic, so remote clients wait for the
+        // sender's rendered stamp image instead of recomputing the stroke.
         break;
 
       case 'pixel': {
@@ -338,7 +338,7 @@ export class RemoteUserHandler {
    * @returns {void}
    */
   renderRemotePreview(user, pos) {
-    const needsClear = ['brush', 'line', 'rectangle', 'circle', 'erase', 'text', 'glitchBlur'].includes(user.tool);
+    const needsClear = ['brush', 'line', 'rectangle', 'circle', 'erase', 'text'].includes(user.tool);
     if (needsClear && !(user.tool === 'select' && user.floatingCanvas)) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
@@ -412,12 +412,6 @@ export class RemoteUserHandler {
         this.toolManager.getTool('erase')?.drawPreview(user, user.context);
         break;
 
-      case 'glitchBlur':
-        const glitchBlurTool = this.toolManager.getTool('glitchBlur');
-        if (glitchBlurTool) {
-          glitchBlurTool.drawPreview(user, user.context);
-        }
-        break;
     }
   }
 
@@ -516,12 +510,7 @@ export class RemoteUserHandler {
         break;
 
       case 'glitchBlur':
-        if (!user.panning) {
-          const glitchBlurTool = this.toolManager.getTool('glitchBlur');
-          if (glitchBlurTool) {
-            glitchBlurTool.onPointerDown(user, pos);
-          }
-        }
+        // The drawing client sends the rendered glitch stamps via GLITCH_RESULT.
         break;
 
       case 'pixel':
@@ -728,12 +717,7 @@ export class RemoteUserHandler {
         break;
 
       case 'glitchBlur':
-        if (!user.panning) {
-          const glitchBlurToolUp = this.toolManager.getTool('glitchBlur');
-          if (glitchBlurToolUp) {
-            glitchBlurToolUp.onPointerUp(user, pos);
-          }
-        }
+        // Committed when GLITCH_RESULT arrives.
         break;
 
       case 'pixel':
@@ -793,7 +777,7 @@ export class RemoteUserHandler {
 
     if (user.tool === 'erase' && user.eraseAllLayers) {
       this.board.endStrokeAllLayers(user);
-    } else if (user.tool !== 'fill' && user.tool !== 'text') {
+    } else if (user.tool !== 'fill' && user.tool !== 'text' && user.tool !== 'glitchBlur') {
       // Fill tool commits its own stroke via the dedicated FILL message handler
       this.board.layerManager.commitUserStroke(strokeLayer, user.id);
       if (this.board._compositeCommittedStrokeNow) {
@@ -845,6 +829,128 @@ export class RemoteUserHandler {
       this.selectionHandler.drawPendingSelection(user);
       this.selectionHandler.startRemoteSelectionAnimation();
     }
+  }
+
+  queueRemoteGlitchImage(user, bounds) {
+    if (!user || !bounds || bounds.width <= 0 || bounds.height <= 0) return null;
+    const token = { user, bounds, resultCanvas: null, canceled: false };
+    const queue = this.pendingGlitchImagesByUser.get(user.id) || [];
+    queue.push(token);
+    this.pendingGlitchImagesByUser.set(user.id, queue);
+    return token;
+  }
+
+  resolveRemoteGlitchImage(token, resultCanvas) {
+    if (!token || token.canceled) {
+      this._processPendingGlitchImages(token?.user?.id);
+      return;
+    }
+    token.resultCanvas = resultCanvas;
+    this._processPendingGlitchImages(token.user.id);
+  }
+
+  cancelLatestPendingGlitchImage(userId) {
+    const queue = this.pendingGlitchImagesByUser.get(userId);
+    if (!queue?.length) return false;
+
+    for (let i = queue.length - 1; i >= 0; i--) {
+      const token = queue[i];
+      if (!token.canceled) {
+        token.canceled = true;
+        this._processPendingGlitchImages(userId);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  _processPendingGlitchImages(userId) {
+    if (userId == null) return;
+    const queue = this.pendingGlitchImagesByUser.get(userId);
+    if (!queue?.length) return;
+
+    while (queue.length > 0) {
+      const token = queue[0];
+      if (token.canceled) {
+        queue.shift();
+        continue;
+      }
+      if (!token.resultCanvas) break;
+      queue.shift();
+      this.commitRemoteGlitchImage(token.user, token.resultCanvas, token.bounds);
+    }
+
+    if (queue.length === 0) {
+      this.pendingGlitchImagesByUser.delete(userId);
+    }
+  }
+
+  commitRemoteGlitchImage(user, resultCanvas, bounds) {
+    if (!user || !resultCanvas || !bounds || bounds.width <= 0 || bounds.height <= 0) return;
+    const pendingUndoCount = this.pendingGlitchUndoByUser.get(user.id) || 0;
+    if (pendingUndoCount > 0) {
+      if (pendingUndoCount === 1) {
+        this.pendingGlitchUndoByUser.delete(user.id);
+      } else {
+        this.pendingGlitchUndoByUser.set(user.id, pendingUndoCount - 1);
+      }
+      return;
+    }
+
+    const layerIndex = 0;
+    const group = this.board.layerManager?.getLayerGroup(layerIndex);
+    let active = group?.activeStrokeByUser?.get(user.id);
+    if (!active) {
+      const blendMode = user.blendMode || 'source-over';
+      this.board.layerManager.beginUserStroke(layerIndex, user.id, blendMode, user.blendBakeMode);
+      active = group?.activeStrokeByUser?.get(user.id);
+    }
+    if (!active?.ctx) return;
+
+    active.ctx.save();
+    active.ctx.globalCompositeOperation = 'source-over';
+    active.ctx.globalAlpha = 1;
+    active.ctx.drawImage(resultCanvas, bounds.x, bounds.y, bounds.width, bounds.height);
+    active.ctx.restore();
+
+    this.board.layerManager._expandDirtyRect(active.dirtyRect, bounds.x, bounds.y, bounds.width, bounds.height);
+    this.board.compositeTileGrid?.markRect(bounds.x, bounds.y, bounds.width, bounds.height);
+
+    this.board.layerManager.commitUserStroke(layerIndex, user.id, {
+      isRemoteGlitchImage: true
+    });
+    if (this.board._compositeCommittedStrokeNow) {
+      this.board._compositeCommittedStrokeNow();
+    } else {
+      this.board.compositeAllLayers();
+    }
+  }
+
+  markPendingGlitchUndo(userId) {
+    if (userId == null) return;
+    const count = this.pendingGlitchUndoByUser.get(userId) || 0;
+    this.pendingGlitchUndoByUser.set(userId, count + 1);
+  }
+
+  undoLatestRemoteGlitchImage(userId) {
+    const group = this.board.layerManager?.getLayerGroup(0);
+    if (!group?.strokeStack) return false;
+
+    for (let i = group.strokeStack.length - 1; i >= 0; i--) {
+      const record = group.strokeStack[i];
+      if (record.userId === userId && record.isRemoteGlitchImage) {
+        const removed = group.strokeStack.splice(i, 1)[0];
+        const count = group.userStrokeCounts.get(userId) || 0;
+        if (count > 0) group.userStrokeCounts.set(userId, count - 1);
+        this.board.layerManager._pushToRedoStack(userId, [{ groupIdx: 0, record: removed }]);
+        this.board._markBatchDirtyRects?.([{ groupIdx: 0, record: removed }]);
+        this.board.compositeAllLayers();
+        this.board.layerManager._notifyHistoryPanel?.(true);
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**

@@ -2056,7 +2056,7 @@ export class Board {
    * @param {number} userId - User ID
    */
   undo(_layerIndex, userId) {
-    if (!this.layerManager) return;
+    if (!this.layerManager) return null;
     const batch = this.layerManager.undoLastStrokeGlobal(userId);
     let tilesToRecheck = null;
     let needsFullRedraw = false;
@@ -2088,7 +2088,7 @@ export class Board {
     }
 
     if (!batch) {
-      return;
+      return null;
     }
     this._markBatchDirtyRects(batch);
     this.compositeAllLayers();
@@ -2096,6 +2096,8 @@ export class Board {
     if (tilesToRecheck && this.tileTracker) {
       this.checkErasedTilesByIndices(tilesToRecheck, userId === this.app?.self?.id);
     }
+
+    return batch;
   }
 
   /** No-op: occupancy tracking has been disabled. */

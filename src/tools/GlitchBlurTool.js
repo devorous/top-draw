@@ -150,7 +150,9 @@ export class GlitchBlurTool extends Tool {
     }
     this.strokePoints.delete(userId);
 
+    const strokeImage = this._captureLocalStrokeImage(user, userId);
     this.board.endStroke(user);
+    this._broadcastLocalStrokeImage(strokeImage);
 
     this.lastStampPos.delete(userId);
     this.clearSnapshot(userId);
@@ -162,6 +164,62 @@ export class GlitchBlurTool extends Tool {
     }
 
     this.board.requestUpdate();
+  }
+
+  _captureLocalStrokeImage(user, userId) {
+    if (user !== this.board.app?.self) return null;
+
+    const active = this.board.layerManager?.getActiveStroke(0, userId);
+    const sourceCanvas = active?.canvas;
+    if (!sourceCanvas) return null;
+
+    let bounds = null;
+    if (active.dirtyRect && active.dirtyRect.maxX !== -1) {
+      const x = Math.floor(Math.max(0, active.dirtyRect.minX));
+      const y = Math.floor(Math.max(0, active.dirtyRect.minY));
+      const width = Math.ceil(Math.min(sourceCanvas.width, active.dirtyRect.maxX + 1)) - x;
+      const height = Math.ceil(Math.min(sourceCanvas.height, active.dirtyRect.maxY + 1)) - y;
+      if (width > 0 && height > 0) bounds = { x, y, width, height };
+    }
+    if (!bounds && user.blurBounds) {
+      const x = Math.floor(Math.max(0, user.blurBounds.minX));
+      const y = Math.floor(Math.max(0, user.blurBounds.minY));
+      const width = Math.ceil(Math.min(sourceCanvas.width, user.blurBounds.maxX)) - x;
+      const height = Math.ceil(Math.min(sourceCanvas.height, user.blurBounds.maxY)) - y;
+      if (width > 0 && height > 0) bounds = { x, y, width, height };
+    }
+    if (!bounds) return null;
+
+    const cropCanvas = document.createElement('canvas');
+    cropCanvas.width = bounds.width;
+    cropCanvas.height = bounds.height;
+    cropCanvas
+      .getContext('2d')
+      .drawImage(sourceCanvas, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, bounds.width, bounds.height);
+
+    return { bounds, cropCanvas };
+  }
+
+  _broadcastLocalStrokeImage(strokeImage) {
+    if (!strokeImage || !this.board.app?.wsClient || !this.board.app?.connected) return;
+    const { bounds, cropCanvas } = strokeImage;
+
+    const sendGlitchResult = () => {
+      this.board.app.wsClient.broadcastGlitchResult(
+        bounds.x,
+        bounds.y,
+        bounds.width,
+        bounds.height,
+        cropCanvas.toDataURL('image/png')
+      );
+    };
+
+    const inputBufferManager = this.board.app.inputBufferManager;
+    if (inputBufferManager?.queueBroadcast) {
+      inputBufferManager.queueBroadcast(sendGlitchResult, { snapshot: false });
+    } else {
+      sendGlitchResult();
+    }
   }
 
   paintMask(x, y, size, user, maskCtx, previewCtx) {
