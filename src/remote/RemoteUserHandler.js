@@ -457,7 +457,7 @@ export class RemoteUserHandler {
         // Blur tool handles its own stroke creation in onPointerDown with filter metadata
         // Fill tool manages its own stroke lifecycle via the dedicated FILL message handler
         const blendMode = user.tool === 'erase' ? 'destination-out' : (user.blendMode || 'source-over');
-        this.board.layerManager.beginUserStroke(this.getStrokeLayer(user), user.id, blendMode);
+        this.board.layerManager.beginUserStroke(this.getStrokeLayer(user), user.id, blendMode, user.blendBakeMode);
       }
     }
 
@@ -911,6 +911,7 @@ export class RemoteUserHandler {
 
     const layerIndex = data.layerIndex ?? user.activeLayer ?? 0;
     const blendMode = data.blendMode || user.blendMode || 'source-over';
+    const blendBakeMode = data.blendBakeMode || user.blendBakeMode || 'existing';
     const textUser = {
       ...user,
       text: data.text,
@@ -921,6 +922,7 @@ export class RemoteUserHandler {
       opacity: data.opacity ?? user.opacity,
       activeLayer: layerIndex,
       blendMode,
+      blendBakeMode,
       font: data.font ?? user.font,
       textPositionMultiplier: data.textPositionMultiplier ?? user.textPositionMultiplier,
       textPositionOffset: data.textPositionOffset ?? user.textPositionOffset,
@@ -929,7 +931,7 @@ export class RemoteUserHandler {
       }
     };
 
-    this.board.layerManager.beginUserStroke(layerIndex, user.id, blendMode);
+    this.board.layerManager.beginUserStroke(layerIndex, user.id, blendMode, blendBakeMode);
     this.toolManager.getTool('text').drawText(textUser);
     this.board.layerManager.commitUserStroke(layerIndex, user.id);
 

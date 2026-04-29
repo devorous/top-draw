@@ -7,6 +7,7 @@ class DrawingState {
   currentPressure = $state(1.0);
   pressureEnabled = $state(true);
   blendMode = $state('source-over');
+  blendBakeMode = $state('existing');
 
   // Layer
   activeLayer = $state(2);

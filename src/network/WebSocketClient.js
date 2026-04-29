@@ -626,6 +626,7 @@ export class WebSocketClient {
           blurRadius: (u.br ?? 500),
           activeLayer: u.ly ?? 0,
           blendMode: u.bm || 'source-over',
+          blendBakeMode: u.bbm === 'background' ? 'background' : 'existing',
           imageBrush: u.ib,
           ipHash: u.iph,
           thinning: u.th ? (u.th - 1) / 100 : undefined,
@@ -771,7 +772,8 @@ export class WebSocketClient {
         this.emit('cbm', {
           sessionIndex: data.u,
           layerIndex: data.ly ?? null,
-          blendMode: data.bm || 'source-over'
+          blendMode: data.bm || 'source-over',
+          blendBakeMode: data.bbm === 'background' ? 'background' : 'existing'
         });
         break;
 
@@ -789,6 +791,7 @@ export class WebSocketClient {
           blurRadius: data.br !== undefined ? data.br : undefined,
           activeLayer: data.ly !== undefined ? data.ly : undefined,
           blendMode: data.bm || undefined,
+          blendBakeMode: data.bbm,
           thinning: data.th ? (data.th - 1) / 100 : undefined,
           simulatePressure: data.sim !== undefined ? data.sim === 2 : undefined,
           patternScale: data.patternScale,
@@ -814,6 +817,7 @@ export class WebSocketClient {
           opacity: (data.p ?? 100) / 100,
           layerIndex: data.ly ?? 0,
           blendMode: data.bm || 'source-over',
+          blendBakeMode: data.bbm === 'background' ? 'background' : 'existing',
           font: normalizeTextFont(data.fo),
           textPositionMultiplier: data.tm,
           textPositionOffset: data.to
@@ -1541,8 +1545,8 @@ export class WebSocketClient {
    * @param {string} blendMode - Canvas composite operation name.
    * @returns {void}
    */
-  broadcastLayerBlendModeChange(layerIndex, blendMode) {
-    this.send({ t: T.CBM, ly: layerIndex, bm: blendMode });
+  broadcastLayerBlendModeChange(layerIndex, blendMode, blendBakeMode = 'existing') {
+    this.send({ t: T.CBM, ly: layerIndex, bm: blendMode, bbm: blendBakeMode === 'background' ? 'background' : 'existing' });
   }
 
   /**
@@ -1589,6 +1593,7 @@ export class WebSocketClient {
       p: Math.round((payload.opacity ?? 1) * 100),
       ly: payload.layerIndex ?? 0,
       bm: payload.blendMode || 'source-over',
+      bbm: payload.blendBakeMode === 'background' ? 'background' : 'existing',
       fo: payload.font,
       tm: payload.textPositionMultiplier ?? 0,
       to: payload.textPositionOffset ?? 0

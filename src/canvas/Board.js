@@ -1709,7 +1709,7 @@ export class Board {
     const activeLayer = this.app?.self?.activeLayer ?? 0;
     const userId = this.app?.self?.id ?? 0;
     if (this.layerManager) {
-      this.layerManager.beginUserStroke(activeLayer, userId, blendMode);
+      this.layerManager.beginUserStroke(activeLayer, userId, blendMode, this.app?.self?.blendBakeMode);
     }
   }
 
@@ -1724,7 +1724,7 @@ export class Board {
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     const blendMode = blendModeOverride ?? user?.blendMode ?? 'source-over';
     if (this.layerManager) {
-      this.layerManager.beginUserStroke(activeLayer, userId, blendMode);
+      this.layerManager.beginUserStroke(activeLayer, userId, blendMode, user?.blendBakeMode);
     }
     this.requestUpdate();
   }

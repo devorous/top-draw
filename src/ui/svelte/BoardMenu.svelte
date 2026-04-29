@@ -3,7 +3,7 @@
   import { LayerPreview } from '../LayerPreview.js';
   import PatternPreview from './PatternPreview.svelte';
 
-  let { onBlendModeChange = null, onLayerSelect = null, onLayerVisibilityToggle = null } = $props();
+  let { onBlendModeChange = null, onBlendBakeModeChange = null, onLayerSelect = null, onLayerVisibilityToggle = null } = $props();
 
   let layerPreviewInstance = null;
   let hoveredLayer = null;
@@ -58,6 +58,11 @@
     appState.blendMode = mode;
     appState.boardMenuOpen = null;
     if (onBlendModeChange) onBlendModeChange(mode);
+  }
+
+  function selectBlendBakeMode(mode) {
+    appState.blendBakeMode = mode === 'background' ? 'background' : 'existing';
+    if (onBlendBakeModeChange) onBlendBakeModeChange(appState.blendBakeMode);
   }
 
   function selectLayer(layerIdx) {
@@ -165,6 +170,24 @@
             {mode.label}
           </button>
         {/each}
+        <div class="blend-bake-toggle" role="group" aria-label="Blend bake mode">
+          <button
+            class:active={appState.blendBakeMode === 'existing'}
+            onclick={() => selectBlendBakeMode('existing')}
+            onpointerup={(e) => e.pointerType !== 'mouse' && selectBlendBakeMode('existing')}
+            title="Blend strokes only affect existing pixels"
+          >
+            Existing
+          </button>
+          <button
+            class:active={appState.blendBakeMode === 'background'}
+            onclick={() => selectBlendBakeMode('background')}
+            onpointerup={(e) => e.pointerType !== 'mouse' && selectBlendBakeMode('background')}
+            title="Blend strokes bake against the room background"
+          >
+            BG
+          </button>
+        </div>
       </div>
     {/if}
   </div>
@@ -283,6 +306,37 @@
   }
 
   .blend-option.active {
+    color: var(--accent-primary);
+    background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  }
+
+  .blend-bake-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .blend-bake-toggle button {
+    height: 24px;
+    padding: 0 6px;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 0.72rem;
+    cursor: pointer;
+  }
+
+  .blend-bake-toggle button:hover {
+    background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+    color: var(--text-primary);
+  }
+
+  .blend-bake-toggle button.active {
     color: var(--accent-primary);
     background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
   }

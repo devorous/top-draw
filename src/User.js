@@ -62,6 +62,7 @@ export class User {
     this.imageBrush = null;
     this.cursorStyle = options.cursorStyle || 'circle';
     this.blendMode = options.blendMode || 'source-over';
+    this.blendBakeMode = options.blendBakeMode === 'background' ? 'background' : 'existing';
     this.activeLayer = options.activeLayer || 0;
     this.font = normalizeTextFont(options.font);
     this.textPositionMultiplier = options.textPositionMultiplier ?? DEFAULT_APPLIED_TEXT_SIZE_MULTIPLIER;
@@ -285,6 +286,10 @@ export class User {
     this.blendMode = blendMode || 'source-over';
   }
 
+  setBlendBakeMode(mode) {
+    this.blendBakeMode = mode === 'background' ? 'background' : 'existing';
+  }
+
   /**
    * Sets the active drawing layer index.
    *
@@ -367,6 +372,7 @@ export class User {
       cursorStyle: this.cursorStyle,
       username: this.username,
       blendMode: this.blendMode,
+      blendBakeMode: this.blendBakeMode,
       activeLayer: this.activeLayer,
       patternScale: this.patternScale,
       patternShape: this.patternShape,
@@ -389,7 +395,7 @@ export class User {
    * @returns {void}
    */
   updateFrom(data) {
-    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'cursorStyle', 'username', 'blendMode', 'activeLayer', 'patternScale', 'patternShape', 'patternName', 'patternRotation', 'patternSpacing', 'font', 'textPositionMultiplier', 'textPositionOffset'];
+    const fields = ['x', 'y', 'size', 'pressure', 'spacing', 'smoothing', 'opacity', 'hardness', 'blurRadius', 'color', 'tool', 'text', 'cursorStyle', 'username', 'blendMode', 'blendBakeMode', 'activeLayer', 'patternScale', 'patternShape', 'patternName', 'patternRotation', 'patternSpacing', 'font', 'textPositionMultiplier', 'textPositionOffset'];
       fields.forEach(field => {
         if (data[field] !== undefined) {
           if (field === 'font') {
@@ -398,6 +404,8 @@ export class User {
             this.setTextPositionMultiplier(data[field]);
           } else if (field === 'textPositionOffset') {
             this.setTextPositionOffset(data[field]);
+          } else if (field === 'blendBakeMode') {
+            this.setBlendBakeMode(data[field]);
           } else {
             this[field] = data[field];
           }

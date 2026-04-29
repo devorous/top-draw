@@ -220,6 +220,7 @@ export function initSvelteUI(app) {
       target: boardMenuTarget,
       props: {
         onBlendModeChange: (mode) => app.handleBlendModeChange(mode),
+        onBlendBakeModeChange: (mode) => app.handleBlendBakeModeChange(mode),
         onLayerSelect: (layerIdx) => app.handleLayerSelect(layerIdx),
         onLayerVisibilityToggle: (layerIdx) => app.handleLayerVisibilityToggle(layerIdx),
       }

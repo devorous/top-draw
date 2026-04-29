@@ -1,6 +1,5 @@
 /**
- * @fileoverview Blur tool - applies a filter-based blur to the area under the circular cursor.
- * Creates a mask during the stroke and applies blur as a filter at composite time.
+ * @fileoverview Blur tool - stamps blurred pixels sampled from the composited canvas.
  */
 
 /**
@@ -50,9 +49,9 @@ class Tool {
 }
 
 /**
- * Blur tool that creates filter layers instead of painting pixels.
- * Builds up an intensity mask during the stroke which is used to blend
- * between original and blurred content at composite time.
+ * Blur tool that behaves like an image brush: each stamp samples from a
+ * stroke-start snapshot, blurs that sample, and paints the resulting pixels
+ * into the active stroke canvas.
  */
 export class BlurTool extends Tool {
   /**
@@ -62,6 +61,7 @@ export class BlurTool extends Tool {
     super('blur', board);
     this.lastStampPos = new Map(); // userId -> {x, y}
     this.strokePoints = new Map(); // userId -> [{x, y}, ...]
+    this.snapshotCanvases = new Map(); // userId -> canvas
   }
 
   /**
@@ -80,12 +80,30 @@ export class BlurTool extends Tool {
       }
     }
     this.lastStampPos.clear();
+    this.snapshotCanvases.clear();
     this._activeUser = null;
+  }
+
+  captureSnapshot(userId) {
+    const sourceCanvas = this.board.mainCanvas || this.board.mainCtx?.canvas;
+    if (!sourceCanvas) return;
+    let canvas = this.snapshotCanvases.get(userId);
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      this.snapshotCanvases.set(userId, canvas);
+    }
+    canvas.width = sourceCanvas.width;
+    canvas.height = sourceCanvas.height;
+    canvas.getContext('2d').drawImage(sourceCanvas, 0, 0);
+  }
+
+  clearSnapshot(userId) {
+    this.snapshotCanvases.delete(userId);
   }
 
   /**
    * Handles pointer down event.
-   * Begins a filter stroke and starts building the mask.
+   * Begins a regular stroke and starts stamping blurred pixels.
    * @param {Object} user - The user performing the action.
    * @param {Object} pos - The current pointer position.
    */
@@ -94,18 +112,15 @@ export class BlurTool extends Tool {
     // Blur always targets layer 0 - it reads from the fully composited image
     // which includes the white background, so it can't work on transparent layers
     const activeLayerIdx = 0;
+    const userId = user.id ?? this.board.app?.self?.id ?? 0;
 
     const rawBlurRadius = Number(user.blurRadius);
     user.blurRadius = Math.max(1, Math.min(10, Number.isFinite(rawBlurRadius) ? rawBlurRadius : 10));
 
-    // Get the stroke context - this will be our mask canvas
-    // Pass metadata so the active stroke is marked as a blur filter from the start
-    const maskCtx = this.board.layerManager?.getUserStrokeContext(
-      activeLayerIdx,
-      user.id,
-      'source-over',
-      { filterType: 'blur', blurRadius: user.blurRadius }
-    );
+    this.captureSnapshot(userId);
+    this.board.beginStroke(user);
+
+    const maskCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, userId);
     if (!maskCtx) {
       console.warn('BlurTool: No stroke context available');
       return;
@@ -119,8 +134,8 @@ export class BlurTool extends Tool {
       maxY: -Infinity
     };
 
-    this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
-    this.strokePoints.set(user.id, [{ x: pos.x, y: pos.y }]);
+    this.lastStampPos.set(userId, { x: pos.x, y: pos.y });
+    this.strokePoints.set(userId, [{ x: pos.x, y: pos.y }]);
 
     // Paint the first mask stamp
     this.paintMask(pos.x, pos.y, user.size, user, maskCtx);
@@ -154,10 +169,11 @@ export class BlurTool extends Tool {
     if (!user.mousedown || user.panning) return;
 
     const activeLayerIdx = 0;
-    const maskCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, user.id);
+    const userId = user.id ?? this.board.app?.self?.id ?? 0;
+    const maskCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, userId);
     if (!maskCtx) return;
 
-    const prevStamp = this.lastStampPos.get(user.id);
+    const prevStamp = this.lastStampPos.get(userId);
     if (prevStamp) {
       const dx = pos.x - prevStamp.x;
       const dy = pos.y - prevStamp.y;
@@ -167,7 +183,7 @@ export class BlurTool extends Tool {
       const minSpacing = Math.max(user.size * spacingPercent, 5); // Min 5px spacing
 
       if (distance >= minSpacing) {
-        const points = this.strokePoints.get(user.id);
+        const points = this.strokePoints.get(userId);
         const steps = Math.max(1, Math.ceil(distance / minSpacing));
 
         for (let i = 1; i <= steps; i++) {
@@ -186,60 +202,36 @@ export class BlurTool extends Tool {
           if (points) points.push({ x: stampX, y: stampY });
         }
 
-        this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+        this.lastStampPos.set(userId, { x: pos.x, y: pos.y });
         if (shouldRequestUpdate) this.board.requestUpdate();
       }
     } else {
-      this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+      this.lastStampPos.set(userId, { x: pos.x, y: pos.y });
     }
   }
 
   /**
    * Handles pointer up event.
-   * Commits the filter stroke with metadata and accurate bounds.
+   * Commits the regular stroke containing the stamped blur pixels.
    * @param {Object} user - The user performing the action.
    * @param {Object} pos - The current pointer position.
    */
   onPointerUp(user, pos) {
-    const activeLayerIdx = 0;
-    const blurRadius = user.blurRadius || 10;
-
-    // Get the bounds we tracked during painting
-    const bounds = user.blurBounds || {
-      minX: 0,
-      minY: 0,
-      maxX: this.board.getWidth(),
-      maxY: this.board.getHeight()
-    };
-
-    // Clamp to canvas bounds
-    const x = Math.max(0, Math.floor(bounds.minX));
-    const y = Math.max(0, Math.floor(bounds.minY));
-    const maxX = Math.min(this.board.getWidth(), Math.ceil(bounds.maxX));
-    const maxY = Math.min(this.board.getHeight(), Math.ceil(bounds.maxY));
-    const width = maxX - x;
-    const height = maxY - y;
-
-    // Store blur metadata and bounds on the stroke
-    const extraProps = {
-      filterType: 'blur',
-      blurRadius: blurRadius,
-      // Pass crop bounds for optimized filter application
-      cropBounds: { x, y, width, height }
-    };
+    const userId = user.id ?? this.board.app?.self?.id ?? 0;
 
     // Track tile ownership
-    const points = this.strokePoints.get(user.id);
+    const points = this.strokePoints.get(userId);
     if (points && points.length > 0) {
       this.board.markDirtyPath(user, points, user.size);
       this.board.forEachMirrorRegion({ points }, (region) => {
         this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(points, region), user.size);
       });
     }
-    this.strokePoints.delete(user.id);
+    this.strokePoints.delete(userId);
 
-    this.board.endStroke(user, extraProps);
-    this.lastStampPos.delete(user.id);
+    this.board.endStroke(user);
+    this.lastStampPos.delete(userId);
+    this.clearSnapshot(userId);
     delete user.blurBounds;
     this.board.requestUpdate();
   }
@@ -258,15 +250,33 @@ export class BlurTool extends Tool {
     const blurRadius = user.blurRadius || 10;
     const intensity = user.pressure || 1.0;
 
-    maskCtx.save();
-    maskCtx.globalCompositeOperation = 'source-over';
-    maskCtx.globalAlpha = intensity;
-    maskCtx.fillStyle = '#ffffff';
+    const userId = user.id ?? this.board.app?.self?.id ?? 0;
+    const sourceCanvas = this.snapshotCanvases.get(userId) || this.board.mainCanvas || this.board.mainCtx?.canvas;
+    if (sourceCanvas) {
+      const margin = Math.ceil(blurRadius * 2);
+      const cropX = Math.max(0, Math.floor(x - radius - margin));
+      const cropY = Math.max(0, Math.floor(y - radius - margin));
+      const cropW = Math.min(sourceCanvas.width - cropX, Math.ceil((radius + margin) * 2));
+      const cropH = Math.min(sourceCanvas.height - cropY, Math.ceil((radius + margin) * 2));
 
-    // Draw a square instead of circle for better feathering
-    maskCtx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+      if (cropW > 0 && cropH > 0) {
+        maskCtx.save();
+        maskCtx.globalCompositeOperation = 'source-over';
+        maskCtx.globalAlpha = intensity;
 
-    maskCtx.restore();
+        // Clip to the stamp's square region so blur bleeds don't overwrite
+        // pixels outside the stamp footprint.
+        maskCtx.beginPath();
+        maskCtx.rect(x - radius, y - radius, radius * 2, radius * 2);
+        maskCtx.clip();
+
+        maskCtx.filter = `blur(${blurRadius * 0.5}px)`;
+        maskCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, cropX, cropY, cropW, cropH);
+        maskCtx.filter = 'none';
+
+        maskCtx.restore();
+      }
+    }
 
     // Expand dirty rect (include blur radius margin)
     const margin = Math.ceil(blurRadius * 2);

@@ -197,6 +197,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
         blendMode = 'source-over';
       }
       user.setBlendMode(blendMode);
+      user.setBlendBakeMode(data.blendBakeMode);
       // Always update CSS blend mode on the remote user's preview canvas
       if (user.board) {
         user.board.style.mixBlendMode = app.blendModeManager.toCSSBlendMode(blendMode);
@@ -388,7 +389,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     if (!result) return;
 
     const blendMode = user.blendMode || 'source-over';
-    board.layerManager.beginUserStroke(layerIndex, userId, blendMode);
+    board.layerManager.beginUserStroke(layerIndex, userId, blendMode, user.blendBakeMode);
     const strokeCtx = board.layerManager.getUserStrokeContext(layerIndex, userId);
     if (!strokeCtx) return;
 

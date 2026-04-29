@@ -528,6 +528,7 @@ export function setupUserHandlers(wsClient, app) {
         blurRadius: data.blurRadius,
         activeLayer: data.activeLayer,
         blendMode: data.blendMode,
+        blendBakeMode: data.blendBakeMode,
         font: data.font,
         textPositionMultiplier: data.textPositionMultiplier,
         textPositionOffset: data.textPositionOffset,
@@ -562,6 +563,7 @@ export function setupUserHandlers(wsClient, app) {
       if (data.blurRadius !== undefined) user.setBlurRadius(data.blurRadius);
       if (data.activeLayer !== undefined) user.setActiveLayer(data.activeLayer);
       if (data.blendMode !== undefined) user.setBlendMode(data.blendMode);
+      if (data.blendBakeMode !== undefined) user.setBlendBakeMode(data.blendBakeMode);
       if (data.font !== undefined) user.setFont(data.font);
       if (data.textPositionMultiplier !== undefined) user.setTextPositionMultiplier(data.textPositionMultiplier);
       if (data.textPositionOffset !== undefined) user.setTextPositionOffset(data.textPositionOffset);

@@ -3112,7 +3112,7 @@ export class DrawingApp {
     this.wsClient.broadcastToolChange(this.self.tool);
     this.wsClient.broadcastSpacingChange(this.self.spacing);
     this.wsClient.broadcastHardnessChange(this.self.hardness);
-    this.wsClient.broadcastLayerBlendModeChange(this.self.activeLayer, this.self.blendMode);
+    this.wsClient.broadcastLayerBlendModeChange(this.self.activeLayer, this.self.blendMode, this.self.blendBakeMode);
     this.wsClient.broadcastLayerChange(this.self.activeLayer);
     this.wsClient.broadcastThinningChange(this.self.thinning);
     this.wsClient.broadcastSimulatePressureChange(this.self.simulatePressure);
@@ -3396,7 +3396,7 @@ export class DrawingApp {
     );
     this.wsClient.broadcastToolChange(this.self.tool);
     const activeLayer = this.self.activeLayer;
-    this.wsClient.broadcastLayerBlendModeChange(activeLayer, this.self.blendMode);
+    this.wsClient.broadcastLayerBlendModeChange(activeLayer, this.self.blendMode, this.self.blendBakeMode);
     this.wsClient.broadcastLayerChange(activeLayer);
     this.wsClient.broadcastThinningChange(this.self.thinning);
     this.wsClient.broadcastSimulatePressureChange(this.self.simulatePressure);
@@ -3515,7 +3515,7 @@ export class DrawingApp {
     );
     this.wsClient.broadcastToolChange(this.self.tool);
     const activeLayer = this.self.activeLayer;
-    this.wsClient.broadcastLayerBlendModeChange(activeLayer, this.self.blendMode);
+    this.wsClient.broadcastLayerBlendModeChange(activeLayer, this.self.blendMode, this.self.blendBakeMode);
     this.wsClient.broadcastLayerChange(activeLayer);
     this.wsClient.broadcastThinningChange(this.self.thinning);
     this.wsClient.broadcastSimulatePressureChange(this.self.simulatePressure);
@@ -4145,6 +4145,11 @@ export class DrawingApp {
         if (inkTool && inkTool.inputPoints && inkTool.inputPoints.length > 0) {
           inkTool.onPointerUp(this.self, { x: this.self.x, y: this.self.y });
         }
+      } else if (this.self.tool === 'blur' || this.self.tool === 'circleBlur' || this.self.tool === 'glitchBlur') {
+        const blurTool = this.toolManager.getTool(this.self.tool);
+        if (blurTool) {
+          blurTool.onPointerUp(this.self, { x: this.self.x, y: this.self.y });
+        }
       }
       this.self.mousedown = false;
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseUp());
@@ -4538,7 +4543,20 @@ export class DrawingApp {
     this._updateTextPreview();
 
     if (this.connected) {
-      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastLayerBlendModeChange(activeLayer, blendMode));
+      this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastLayerBlendModeChange(activeLayer, blendMode, this.self.blendBakeMode));
+    }
+  }
+
+  handleBlendBakeModeChange(mode) {
+    const blendBakeMode = mode === 'background' ? 'background' : 'existing';
+    this.self?.setBlendBakeMode?.(blendBakeMode);
+
+    if (this.connected && this.self) {
+      const activeLayer = this.self.activeLayer;
+      const blendMode = this.self.blendMode || 'source-over';
+      this.inputBufferManager.queueBroadcast(() =>
+        this.wsClient.broadcastLayerBlendModeChange(activeLayer, blendMode, blendBakeMode)
+      );
     }
   }
 
@@ -5899,6 +5917,7 @@ export class DrawingApp {
       opacity: this.self.opacity,
       layerIndex: this.self.activeLayer ?? 0,
       blendMode: this.self.blendMode || 'source-over',
+      blendBakeMode: this.self.blendBakeMode || 'existing',
       font: this.self.font,
       textPositionMultiplier: this.self.textPositionMultiplier,
       textPositionOffset: this.self.textPositionOffset
