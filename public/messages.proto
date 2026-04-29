@@ -175,6 +175,7 @@ message Msg {
   uint32 br = 43;       // Blur radius * 100
   uint32 ly = 44;       // Active layer index
   string bm = 45;       // Blend mode (e.g., 'source-over', 'multiply')
+  string bbm = 74;      // Blend bake mode: 'existing' or 'background'
 
   // User list for USERS message
   message U {
@@ -209,6 +210,7 @@ message Msg {
     float to = 29;      // Text baseline offset
     string vip = 30;    // Viewer-specific visible IP (role-gated by server)
     string iid = 31;    // Instance ID: random per-connection token to detect index reuse
+    string bbm = 32;    // Blend bake mode: 'existing' or 'background'
   }
   repeated U us = 17;   // Users array
 
@@ -286,6 +288,7 @@ message Msg {
     uint32 layerIdx  = 11;  // Layer group index (needed for redo batches with mixed layers)
     repeated uint32 affectedTiles = 12;  // Tile indices affected by this stroke (for undo/redo tile tracking)
     bool eraseAll    = 13;  // true = erase-all-layers stroke
+    string blendBakeMode = 14; // 'existing' or 'background'
   }
 
   // === Batched Sync Fields ===

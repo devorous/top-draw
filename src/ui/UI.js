@@ -1315,7 +1315,7 @@ menuBtn: document.getElementById('menuBtn'),
    * @returns {boolean}
    */
   toolSupportsBlendMode(tool) {
-    const noBlendTools = ['erase', 'select', 'pan', 'zoom', 'rotate', 'inkdropper'];
+    const noBlendTools = ['erase', 'pan', 'zoom', 'rotate', 'inkdropper'];
     return !noBlendTools.includes(tool);
   }
 

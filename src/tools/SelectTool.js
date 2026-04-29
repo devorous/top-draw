@@ -351,6 +351,19 @@ export class SelectTool extends Tool {
     this.setupMenuListeners();
   }
 
+  _updateFloatingSelectionBlendPreview() {
+    if (!this.board?.topCanvas) return;
+    if (!this.floatingCanvas || !this.board.app) {
+      this.board.topCanvas.style.mixBlendMode = 'normal';
+      return;
+    }
+
+    const activeLayer = this.board.app.self?.activeLayer ?? 0;
+    const allowComplex = this.board.layerManager?.getLayerAllowComplexBlendModes(activeLayer) ?? true;
+    const blendMode = allowComplex ? (this.board.app.self?.blendMode || 'source-over') : 'source-over';
+    this.board.topCanvas.style.mixBlendMode = this.board.app.blendModeManager?.toCSSBlendMode(blendMode) || 'normal';
+  }
+
   /**
    * Deactivates the tool, committing any active selection.
    */
@@ -2272,6 +2285,7 @@ export class SelectTool extends Tool {
   drawFloatingSelection() {
     if (!this.floatingCanvas || !this.selection) return;
 
+    this._updateFloatingSelectionBlendPreview();
     const ctx = this.board.topCtx;
 
     // Check if corners have been transformed (including rotation) - if so, use homography
@@ -2361,15 +2375,8 @@ export class SelectTool extends Tool {
       for (let i = 0; i < lm.layerGroups.length; i++) {
         const group = lm.layerGroups[i];
         if (!group || !group.visible) continue;
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = lm.width;
-        tempCanvas.height = lm.height;
-        lm.compositeLayerRange(tempCanvas.getContext('2d'), i, i + 1, null);
-        const layerCanvas = document.createElement('canvas');
-        layerCanvas.width = s.width;
-        layerCanvas.height = s.height;
+        const layerCanvas = this._flattenLayerRangeToSelectionCanvas(i, i + 1, s);
         const layerCtx = layerCanvas.getContext('2d');
-        layerCtx.drawImage(tempCanvas, -s.x, -s.y);
         if (lassoPath) {
           this.applyLassoMask(layerCtx, s.x, s.y, lassoPath);
         }
@@ -2428,6 +2435,15 @@ export class SelectTool extends Tool {
     }
   }
 
+  _getSelectionCommitBlendMode(groupIdx) {
+    const allowComplex = this.board.layerManager?.getLayerAllowComplexBlendModes(groupIdx) ?? true;
+    return allowComplex ? (this.board.app?.self?.blendMode || 'source-over') : 'source-over';
+  }
+
+  _getSelectionCommitBlendBakeMode() {
+    return this.board.app?.self?.blendBakeMode || 'background';
+  }
+
   commitSelection() {
     if (!this.floatingCanvas || !this.selection) return;
 
@@ -2463,7 +2479,12 @@ export class SelectTool extends Tool {
 
       let attachedSelectionRestoreData = false;
       for (const { canvas, groupIdx } of this.floatingLayers) {
-        lm.beginUserStroke(groupIdx, userId, 'source-over');
+        lm.beginUserStroke(
+          groupIdx,
+          userId,
+          this._getSelectionCommitBlendMode(groupIdx),
+          this._getSelectionCommitBlendBakeMode()
+        );
         const active = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(userId);
         if (!active) continue;
 
@@ -2528,6 +2549,7 @@ export class SelectTool extends Tool {
       this.floatingLayers = null;
       this.selectedImageData = null;
       this._restoreData = null;
+      this._updateFloatingSelectionBlendPreview();
       this.board.clearTop();
       return;
     }
@@ -2535,12 +2557,18 @@ export class SelectTool extends Tool {
     const activeLayer = this.board.app?.self?.activeLayer ?? 0;
 
     // Begin a new stroke on the active layer so this paste is undoable
-    lm.beginUserStroke(activeLayer, userId, 'source-over');
+    lm.beginUserStroke(
+      activeLayer,
+      userId,
+      this._getSelectionCommitBlendMode(activeLayer),
+      this._getSelectionCommitBlendBakeMode()
+    );
     const active = lm.layerGroups[activeLayer]?.activeStrokeByUser.get(userId);
     if (!active) {
       this.floatingCanvas = null;
       this.floatingCtx = null;
       this.selectedImageData = null;
+      this._updateFloatingSelectionBlendPreview();
       this.board.clearTop();
       return;
     }
@@ -2628,6 +2656,7 @@ export class SelectTool extends Tool {
     this.floatingCtx = null;
     this.selectedImageData = null;
     this._restoreData = null;
+    this._updateFloatingSelectionBlendPreview();
     this.board.clearTop();
   }
 
@@ -2656,6 +2685,7 @@ export class SelectTool extends Tool {
     this.floatingCtx = null;
     this.floatingLayers = null;
     this.selectedImageData = null;
+    this._updateFloatingSelectionBlendPreview();
     this.isTransforming = false;
     this.rotation = 0;
     this.isRotating = false;
@@ -2686,9 +2716,110 @@ export class SelectTool extends Tool {
     this.copyAllLayers = value !== undefined ? value : !this.copyAllLayers;
   }
 
+  _isComplexBlendMode(blendMode) {
+    return blendMode && blendMode !== 'source-over' && blendMode !== 'destination-out';
+  }
+
+  _rectsOverlap(a, b) {
+    return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  }
+
+  _groupHasComplexBlendInSelection(group, s) {
+    if (!group?.flatCanvas) return false;
+
+    const hasSelectedBlend = (stroke) => {
+      if (!this._isComplexBlendMode(stroke?.blendMode)) return false;
+      const strokeRect = {
+        x: stroke.x ?? 0,
+        y: stroke.y ?? 0,
+        width: stroke.width ?? stroke.canvas?.width ?? 0,
+        height: stroke.height ?? stroke.canvas?.height ?? 0
+      };
+      return this._rectsOverlap(s, strokeRect);
+    };
+
+    if (group.strokeStack?.some(hasSelectedBlend)) return true;
+    for (const active of group.activeStrokeByUser?.values?.() || []) {
+      if (hasSelectedBlend(active)) return true;
+    }
+    return false;
+  }
+
+  _rangeNeedsBackgroundBlendBake(startIdx, endIdx, s) {
+    const lm = this.board.layerManager;
+    const count = Math.min(endIdx, lm.layerGroups.length);
+    for (let i = startIdx; i < count; i++) {
+      if (this._groupHasComplexBlendInSelection(lm.layerGroups[i], s)) return true;
+    }
+    return false;
+  }
+
+  _flattenLayerRangeToSelectionCanvas(startIdx, endIdx, s) {
+    const lm = this.board.layerManager;
+    const selCanvas = document.createElement('canvas');
+    selCanvas.width = s.width;
+    selCanvas.height = s.height;
+    const selCtx = selCanvas.getContext('2d');
+
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = lm.width;
+    tempCanvas.height = lm.height;
+    const tempCtx = tempCanvas.getContext('2d');
+
+    const needsBakeBg = this._rangeNeedsBackgroundBlendBake(startIdx, endIdx, s);
+    const bgColor = needsBakeBg
+      ? (this.board.getCompositeBackgroundColor?.() || this.board.backgroundColor || [255, 255, 255, 1])
+      : null;
+    lm.compositeLayerRange(tempCtx, startIdx, endIdx, bgColor);
+
+    if (needsBakeBg) {
+      const maskCanvas = document.createElement('canvas');
+      maskCanvas.width = lm.width;
+      maskCanvas.height = lm.height;
+      const maskCtx = maskCanvas.getContext('2d');
+      lm.compositeLayerRange(maskCtx, startIdx, endIdx, null);
+
+      this._convertBakedBackgroundToMaskedSource(tempCtx, maskCtx, bgColor, s);
+    }
+
+    selCtx.drawImage(tempCanvas, -s.x, -s.y);
+    return selCanvas;
+  }
+
+  _convertBakedBackgroundToMaskedSource(tempCtx, maskCtx, bgColor, rect) {
+    const x = Math.max(0, Math.floor(rect.x));
+    const y = Math.max(0, Math.floor(rect.y));
+    const width = Math.max(0, Math.min(tempCtx.canvas.width - x, Math.ceil(rect.width)));
+    const height = Math.max(0, Math.min(tempCtx.canvas.height - y, Math.ceil(rect.height)));
+    if (width <= 0 || height <= 0) return;
+
+    const baked = tempCtx.getImageData(x, y, width, height);
+    const mask = maskCtx.getImageData(x, y, width, height);
+    const [bgR, bgG, bgB] = bgColor || [255, 255, 255, 1];
+
+    for (let i = 0; i < baked.data.length; i += 4) {
+      const alpha = mask.data[i + 3] / 255;
+      if (alpha <= 0) {
+        baked.data[i] = 0;
+        baked.data[i + 1] = 0;
+        baked.data[i + 2] = 0;
+        baked.data[i + 3] = 0;
+        continue;
+      }
+
+      baked.data[i] = Math.max(0, Math.min(255, Math.round((baked.data[i] - bgR * (1 - alpha)) / alpha)));
+      baked.data[i + 1] = Math.max(0, Math.min(255, Math.round((baked.data[i + 1] - bgG * (1 - alpha)) / alpha)));
+      baked.data[i + 2] = Math.max(0, Math.min(255, Math.round((baked.data[i + 2] - bgB * (1 - alpha)) / alpha)));
+      baked.data[i + 3] = Math.round(alpha * 255);
+    }
+
+    tempCtx.clearRect(x, y, width, height);
+    tempCtx.putImageData(baked, x, y);
+  }
+
   // Flatten visible layers (all or active only) into a selection-sized canvas.
-  // When copying all layers, reads from mainCtx (includes background).
-  // When copying single layer, composites just that layer with transparent background.
+  // Complex flat-layer blend strokes are baked against the board background for
+  // color math, then masked back to layer content so blank bg is not lifted.
   _flattenSelectionToCanvas(s) {
     const lm = this.board.layerManager;
     const selCanvas = document.createElement('canvas');
@@ -2697,22 +2828,10 @@ export class SelectTool extends Tool {
     const selCtx = selCanvas.getContext('2d');
 
     if (this.copyAllLayers) {
-      // Composite all layers to a full-size temp canvas, then crop to the selection area
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = lm.width;
-      tempCanvas.height = lm.height;
-      const tempCtx = tempCanvas.getContext('2d');
-      lm.compositeLayerRange(tempCtx, 0, lm.layerGroups.length, null);
-      selCtx.drawImage(tempCanvas, -s.x, -s.y);
+      selCtx.drawImage(this._flattenLayerRangeToSelectionCanvas(0, lm.layerGroups.length, s), 0, 0);
     } else {
-      // Composite just the active layer with transparent background
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = lm.width;
-      tempCanvas.height = lm.height;
-      const tempCtx = tempCanvas.getContext('2d');
       const activeLayer = this.board.app?.self?.activeLayer ?? 0;
-      lm.compositeLayerRange(tempCtx, activeLayer, activeLayer + 1, null);
-      selCtx.drawImage(tempCanvas, -s.x, -s.y);
+      selCtx.drawImage(this._flattenLayerRangeToSelectionCanvas(activeLayer, activeLayer + 1, s), 0, 0);
     }
 
     return selCanvas;
@@ -2733,18 +2852,11 @@ export class SelectTool extends Tool {
       const group = lm.layerGroups[groupIdx];
       if (!group || !group.visible) return;
 
-      // Composite the group via the full compositeLayerRange path (handles isolated/flatCanvas groups)
-      const layerCanvas = document.createElement('canvas');
-      layerCanvas.width = lm.width;
-      layerCanvas.height = lm.height;
-      const layerCtx = layerCanvas.getContext('2d');
-      lm.compositeLayerRange(layerCtx, groupIdx, groupIdx + 1, null);
-
       const snap = document.createElement('canvas');
       snap.width = s.width;
       snap.height = s.height;
       const snapCtx = snap.getContext('2d');
-      snapCtx.drawImage(layerCanvas, s.x, s.y, s.width, s.height, 0, 0, s.width, s.height);
+      snapCtx.drawImage(this._flattenLayerRangeToSelectionCanvas(groupIdx, groupIdx + 1, s), 0, 0);
 
       // Mask the snapshot with the lasso path if in lasso mode so restoration respects the shape
       if (lassoPath && lassoPath.length >= 3) {
@@ -3276,7 +3388,12 @@ export class SelectTool extends Tool {
       : [];
 
     for (const { canvas, groupIdx } of layers) {
-      lm.beginUserStroke(groupIdx, userId, 'source-over');
+      lm.beginUserStroke(
+        groupIdx,
+        userId,
+        this._getSelectionCommitBlendMode(groupIdx),
+        this._getSelectionCommitBlendBakeMode()
+      );
       const active = lm.layerGroups[groupIdx]?.activeStrokeByUser.get(userId);
       if (!active) continue;
 

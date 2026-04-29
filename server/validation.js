@@ -133,6 +133,10 @@ const sanitizeBlendMode = (value) => {
   return VALID_BLEND_MODES.has(blendMode) ? blendMode : 'source-over';
 };
 
+const sanitizeBlendBakeMode = (value) => (
+  sanitizeString(value, 32) === 'background' ? 'background' : 'existing'
+);
+
 const sanitizeImageRect = (data) => ({
   sx: clampInt(data.sx, MIN_COORD, MAX_COORD, 0),
   sy: clampInt(data.sy, MIN_COORD, MAX_COORD, 0),
@@ -159,6 +163,7 @@ function sanitizeStrokeRecord(record) {
     width: clampInt(record.width, 0, MAX_DIMENSION, 0),
     height: clampInt(record.height, 0, MAX_DIMENSION, 0),
     blendMode: sanitizeBlendMode(record.blendMode),
+    blendBakeMode: sanitizeBlendBakeMode(record.blendBakeMode),
     timestamp: Number.isFinite(Number(record.timestamp)) ? Number(record.timestamp) : 0,
     isRedo: sanitizeBoolean(record.isRedo),
     redoBatch: clampInt(record.redoBatch, 0, 10000, 0),
@@ -202,6 +207,11 @@ export async function sanitizeMessage(data) {
           max: MAX_BRUSH_SIZE,
           maxLength: Math.min(512, sanitized.ps.length / 2)
         });
+      }
+      if (type === T.MD) {
+        if (data.ly !== undefined) sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
+        if (data.bm !== undefined) sanitized.bm = sanitizeBlendMode(data.bm);
+        if (data.bbm !== undefined) sanitized.bbm = sanitizeBlendBakeMode(data.bbm);
       }
       return sanitized;
     }
@@ -262,6 +272,8 @@ export async function sanitizeMessage(data) {
 
     case T.CBM:
       sanitized.bm = sanitizeBlendMode(data.bm);
+      if (data.ly !== undefined) sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
+      if (data.bbm !== undefined) sanitized.bbm = sanitizeBlendBakeMode(data.bbm);
       return sanitized;
 
     case T.CN:
@@ -544,6 +556,7 @@ export async function sanitizeMessage(data) {
       if (type === T.SYNC_LAYER_BASE || type === T.SYNC_STROKE) {
         sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);
         sanitized.bm = sanitizeBlendMode(data.bm);
+        if (data.bbm !== undefined) sanitized.bbm = sanitizeBlendBakeMode(data.bbm);
       }
       if (type === T.SYNC_STROKE) {
         sanitized.u = clampInt(data.u, 0, 65535, 0);

@@ -982,6 +982,7 @@ function mapUsersForBroadcast(users, viewer = null, room = null) {
     br: u.blurRadius || 500,
     ly: u.activeLayer || 0,
     bm: u.blendMode || 'source-over',
+    bbm: u.blendBakeMode === 'background' ? 'background' : 'existing',
     ib: u.imageBrush,
     pb: u.patternBrush,
     pm: u.patternMode || false,
@@ -1368,6 +1369,9 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       break;
 
     case T.MD:
+      if (data.ly !== undefined) user.activeLayer = data.ly;
+      if (data.bm !== undefined) user.blendMode = data.bm;
+      if (data.bbm !== undefined) user.blendBakeMode = data.bbm;
       user.mousedown = true;
       room.sessionManager.updateUserActivity(sessionIndex);
 
@@ -1423,6 +1427,8 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
 
     case T.CBM:
       user.blendMode = data.bm;
+      if (data.ly !== undefined) user.activeLayer = data.ly;
+      if (data.bbm !== undefined) user.blendBakeMode = data.bbm;
       break;
 
     case T.CP:

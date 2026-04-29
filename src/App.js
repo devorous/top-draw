@@ -5532,7 +5532,7 @@ export class DrawingApp {
         this.self.setPressure(pressure);
         this.inputBufferManager.inputBuffer.pressure = pressure;
         this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(pressure));
-        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y]));
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y], null, this._getStrokeStartNetworkMetadata()));
 
         const tool = this.toolManager.getCurrentTool();
         if (tool) {
@@ -5872,7 +5872,7 @@ export class DrawingApp {
           if (this.self.tool === 'text' && this.self.text) {
             this._broadcastExplicitTextApply({ x: this.self.x, y: this.self.y });
           }
-          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown(broadcastPos));
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown(broadcastPos, null, this._getStrokeStartNetworkMetadata()));
 
           tool.onPointerDown(this.self, pos, e);
 
@@ -5917,7 +5917,7 @@ export class DrawingApp {
       opacity: this.self.opacity,
       layerIndex: this.self.activeLayer ?? 0,
       blendMode: this.self.blendMode || 'source-over',
-      blendBakeMode: this.self.blendBakeMode || 'existing',
+      blendBakeMode: this.self.blendBakeMode || 'background',
       font: this.self.font,
       textPositionMultiplier: this.self.textPositionMultiplier,
       textPositionOffset: this.self.textPositionOffset
@@ -5926,6 +5926,14 @@ export class DrawingApp {
     this.inputBufferManager.queueBroadcast(() => {
       this.wsClient.broadcastTextApply(snapshot);
     });
+  }
+
+  _getStrokeStartNetworkMetadata() {
+    return {
+      layerIndex: this.self?.activeLayer ?? 0,
+      blendMode: this.self?.blendMode || 'source-over',
+      blendBakeMode: this.self?.blendBakeMode || 'background'
+    };
   }
 
   handlePointerUp(e) {
@@ -6022,7 +6030,7 @@ export class DrawingApp {
           if (this._toolUsesPressure(this.self.tool)) {
             this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(this.self.pressure));
           }
-          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y]));
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y], null, this._getStrokeStartNetworkMetadata()));
           tool.onPointerDown(this.self, pending.pos, pending.event);
         }
       }
@@ -6052,7 +6060,7 @@ export class DrawingApp {
             if (this.self.text) {
               this._broadcastExplicitTextApply(this.self._pendingTextPos);
             }
-            this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([this.self._pendingTextPos.x, this.self._pendingTextPos.y]));
+            this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([this.self._pendingTextPos.x, this.self._pendingTextPos.y], null, this._getStrokeStartNetworkMetadata()));
           }
           textTool.onPointerDown(this.self, this.self._pendingTextPos, e);
           this.ui.updateSelfTextInput(this.self.text);

@@ -427,6 +427,9 @@ export class RemoteUserHandler {
     this.ui.markRemoteCursorActivity(user.id);
     user.mousedown = true;
     user._mainCtxDrawCount = 0;
+    if (data.layerIndex !== undefined) user.setActiveLayer(data.layerIndex);
+    if (data.blendMode !== undefined) user.setBlendMode(data.blendMode);
+    if (data.blendBakeMode !== undefined) user.setBlendBakeMode(data.blendBakeMode);
     user.clearLine();
 
     resetSmoothingBuffer(user.smoothBuffer);
@@ -911,7 +914,7 @@ export class RemoteUserHandler {
 
     const layerIndex = data.layerIndex ?? user.activeLayer ?? 0;
     const blendMode = data.blendMode || user.blendMode || 'source-over';
-    const blendBakeMode = data.blendBakeMode || user.blendBakeMode || 'existing';
+    const blendBakeMode = data.blendBakeMode || user.blendBakeMode || 'background';
     const textUser = {
       ...user,
       text: data.text,

@@ -316,6 +316,7 @@ export class SyncCoordinator {
         sw: data.sw,
         sh: data.sh,
         bm: data.bm,
+        bbm: data.bbm,
         strokeTs: data.strokeTs ?? data.stroke_ts ?? 0,
         a: data.a,
         strokeRedo: data.strokeRedo ?? data.stroke_redo ?? false,

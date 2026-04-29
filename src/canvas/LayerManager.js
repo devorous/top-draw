@@ -795,9 +795,8 @@ export class LayerManager {
 
   /**
    * Returns whether a stroke can be safely baked into a group's persistent base.
-   * Flat-canvas groups (layer 0) must stay transparent, so only simple modes may
-   * be baked there. Other blend modes need to remain dynamic and composite
-   * against the room background at draw time.
+   * Flat-canvas groups can bake complex blends by resolving them into pixels;
+   * other layers keep the conservative safe-mode list.
    * @param {Object} group
    * @param {Object} stroke
    * @param {string[]} safeModes
@@ -808,7 +807,7 @@ export class LayerManager {
     if (!group?.flatCanvas) {
       return safeModes.includes(stroke.blendMode);
     }
-    return stroke.blendMode === 'source-over' || stroke.blendMode === 'destination-out';
+    return true;
   }
 
   /** @deprecated Use _bakeStrokeToBin */
@@ -831,10 +830,8 @@ export class LayerManager {
 
     if (group.flatCanvas) {
       if (stroke.blendMode !== 'source-over' && stroke.blendMode !== 'destination-out') {
-        const [r, g, b, a] = this.backgroundColor;
-        group.flatCtx.globalCompositeOperation = 'destination-over';
-        group.flatCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-        group.flatCtx.fillRect(0, 0, this.width, this.height);
+        this._bakeFlatComplexBlendStroke(group, stroke);
+        return;
       }
       group.flatCtx.globalCompositeOperation = stroke.blendMode;
       group.flatCtx.drawImage(stroke.canvas, stroke.x, stroke.y);
@@ -858,6 +855,114 @@ export class LayerManager {
       : stroke.blendMode;
 
     targetBin.ctx.drawImage(stroke.canvas, stroke.x, stroke.y);
+  }
+
+  _bakeFlatComplexBlendStroke(group, stroke) {
+    const x = Math.max(0, Math.floor(stroke.x ?? 0));
+    const y = Math.max(0, Math.floor(stroke.y ?? 0));
+    const width = Math.max(0, Math.min(this.width - x, Math.ceil(stroke.width ?? stroke.canvas?.width ?? 0)));
+    const height = Math.max(0, Math.min(this.height - y, Math.ceil(stroke.height ?? stroke.canvas?.height ?? 0)));
+    if (width <= 0 || height <= 0) return;
+    const strokeIsFullCanvas = stroke.canvas?.width === this.width && stroke.canvas?.height === this.height;
+    const sourceX = strokeIsFullCanvas ? x : 0;
+    const sourceY = strokeIsFullCanvas ? y : 0;
+
+    const beforeCanvas = document.createElement('canvas');
+    beforeCanvas.width = width;
+    beforeCanvas.height = height;
+    const beforeCtx = beforeCanvas.getContext('2d');
+
+    const blendedCanvas = document.createElement('canvas');
+    blendedCanvas.width = width;
+    blendedCanvas.height = height;
+    const blendedCtx = blendedCanvas.getContext('2d');
+
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = width;
+    maskCanvas.height = height;
+    const maskCtx = maskCanvas.getContext('2d');
+
+    const useBackground = stroke.blendBakeMode === 'background';
+    if (useBackground) {
+      const [r, g, b, a] = this.backgroundColor;
+      beforeCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+      beforeCtx.fillRect(0, 0, width, height);
+    }
+    beforeCtx.drawImage(group.flatCanvas, x, y, width, height, 0, 0, width, height);
+
+    blendedCtx.drawImage(beforeCanvas, 0, 0);
+    blendedCtx.globalCompositeOperation = stroke.blendMode;
+    blendedCtx.drawImage(stroke.canvas, sourceX, sourceY, width, height, 0, 0, width, height);
+    blendedCtx.globalCompositeOperation = 'source-over';
+
+    if (useBackground) {
+      maskCtx.drawImage(stroke.canvas, sourceX, sourceY, width, height, 0, 0, width, height);
+      const outCanvas = this._extractOpaqueStrokeFootprintFromComposite(blendedCanvas, maskCanvas);
+      group.flatCtx.globalCompositeOperation = 'source-over';
+      group.flatCtx.drawImage(outCanvas, x, y);
+      return;
+    } else {
+      maskCtx.drawImage(group.flatCanvas, x, y, width, height, 0, 0, width, height);
+      maskCtx.globalCompositeOperation = 'destination-in';
+      maskCtx.drawImage(stroke.canvas, sourceX, sourceY, width, height, 0, 0, width, height);
+      maskCtx.globalCompositeOperation = 'source-over';
+    }
+
+    const outCanvas = this._extractSourceOverPatchFromComposite(blendedCanvas, beforeCanvas, maskCanvas);
+    group.flatCtx.globalCompositeOperation = 'source-over';
+    group.flatCtx.drawImage(outCanvas, x, y);
+  }
+
+  _extractOpaqueStrokeFootprintFromComposite(blendedCanvas, maskCanvas) {
+    const width = blendedCanvas.width;
+    const height = blendedCanvas.height;
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = width;
+    outCanvas.height = height;
+    const outCtx = outCanvas.getContext('2d');
+
+    const blended = blendedCanvas.getContext('2d').getImageData(0, 0, width, height);
+    const mask = maskCanvas.getContext('2d').getImageData(0, 0, width, height);
+    const out = outCtx.createImageData(width, height);
+
+    for (let i = 0; i < out.data.length; i += 4) {
+      if (mask.data[i + 3] <= 0) continue;
+
+      out.data[i] = blended.data[i];
+      out.data[i + 1] = blended.data[i + 1];
+      out.data[i + 2] = blended.data[i + 2];
+      out.data[i + 3] = 255;
+    }
+
+    outCtx.putImageData(out, 0, 0);
+    return outCanvas;
+  }
+
+  _extractSourceOverPatchFromComposite(blendedCanvas, beforeCanvas, maskCanvas) {
+    const width = blendedCanvas.width;
+    const height = blendedCanvas.height;
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = width;
+    outCanvas.height = height;
+    const outCtx = outCanvas.getContext('2d');
+
+    const blended = blendedCanvas.getContext('2d').getImageData(0, 0, width, height);
+    const before = beforeCanvas.getContext('2d').getImageData(0, 0, width, height);
+    const mask = maskCanvas.getContext('2d').getImageData(0, 0, width, height);
+    const out = outCtx.createImageData(width, height);
+
+    for (let i = 0; i < out.data.length; i += 4) {
+      const alpha = mask.data[i + 3] / 255;
+      if (alpha <= 0) continue;
+
+      out.data[i] = Math.max(0, Math.min(255, Math.round((blended.data[i] - before.data[i] * (1 - alpha)) / alpha)));
+      out.data[i + 1] = Math.max(0, Math.min(255, Math.round((blended.data[i + 1] - before.data[i + 1] * (1 - alpha)) / alpha)));
+      out.data[i + 2] = Math.max(0, Math.min(255, Math.round((blended.data[i + 2] - before.data[i + 2] * (1 - alpha)) / alpha)));
+      out.data[i + 3] = Math.round(alpha * 255);
+    }
+
+    outCtx.putImageData(out, 0, 0);
+    return outCanvas;
   }
 
   /**

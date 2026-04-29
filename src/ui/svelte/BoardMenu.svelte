@@ -160,6 +160,24 @@
 
     {#if appState.boardMenuOpen === 'blend'}
       <div class="blend-dropdown">
+        <div class="blend-bake-toggle" role="group" aria-label="Blend bake mode">
+          <button
+            class:active={appState.blendBakeMode === 'background'}
+            onclick={() => selectBlendBakeMode('background')}
+            onpointerup={(e) => e.pointerType !== 'mouse' && selectBlendBakeMode('background')}
+            title="Blend strokes bake against the room background"
+          >
+            BG
+          </button>
+          <button
+            class:active={appState.blendBakeMode === 'existing'}
+            onclick={() => selectBlendBakeMode('existing')}
+            onpointerup={(e) => e.pointerType !== 'mouse' && selectBlendBakeMode('existing')}
+            title="Blend strokes only affect existing pixels"
+          >
+            Existing
+          </button>
+        </div>
         {#each blendModes as mode}
           <button
             class="blend-option"
@@ -170,24 +188,6 @@
             {mode.label}
           </button>
         {/each}
-        <div class="blend-bake-toggle" role="group" aria-label="Blend bake mode">
-          <button
-            class:active={appState.blendBakeMode === 'existing'}
-            onclick={() => selectBlendBakeMode('existing')}
-            onpointerup={(e) => e.pointerType !== 'mouse' && selectBlendBakeMode('existing')}
-            title="Blend strokes only affect existing pixels"
-          >
-            Existing
-          </button>
-          <button
-            class:active={appState.blendBakeMode === 'background'}
-            onclick={() => selectBlendBakeMode('background')}
-            onpointerup={(e) => e.pointerType !== 'mouse' && selectBlendBakeMode('background')}
-            title="Blend strokes bake against the room background"
-          >
-            BG
-          </button>
-        </div>
       </div>
     {/if}
   </div>
@@ -314,9 +314,9 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 2px;
-    margin-top: 4px;
-    padding-top: 4px;
-    border-top: 1px solid var(--border-subtle);
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-subtle);
   }
 
   .blend-bake-toggle button {

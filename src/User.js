@@ -62,7 +62,7 @@ export class User {
     this.imageBrush = null;
     this.cursorStyle = options.cursorStyle || 'circle';
     this.blendMode = options.blendMode || 'source-over';
-    this.blendBakeMode = options.blendBakeMode === 'background' ? 'background' : 'existing';
+    this.blendBakeMode = options.blendBakeMode === 'existing' ? 'existing' : 'background';
     this.activeLayer = options.activeLayer || 0;
     this.font = normalizeTextFont(options.font);
     this.textPositionMultiplier = options.textPositionMultiplier ?? DEFAULT_APPLIED_TEXT_SIZE_MULTIPLIER;

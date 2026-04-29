@@ -704,7 +704,10 @@ export class WebSocketClient {
         this.emit('md', {
           sessionIndex: data.u,
           ps: data.ps || null,
-          rs: data.rs || null
+          rs: data.rs || null,
+          layerIndex: data.ly,
+          blendMode: data.bm,
+          blendBakeMode: data.bbm === 'background' ? 'background' : (data.bbm === 'existing' ? 'existing' : undefined)
         });
         break;
 
@@ -1080,6 +1083,7 @@ export class WebSocketClient {
           userId: data.u,
           x: data.sx, y: data.sy, w: data.sw, h: data.sh,
           blendMode: data.bm,
+          blendBakeMode: data.bbm === 'background' ? 'background' : 'existing',
           timestamp: data.stroke_ts ? Number(data.stroke_ts) : 0,
           eraseAll: data.a || false,
           isRedo: data.stroke_redo || false,
@@ -1099,6 +1103,7 @@ export class WebSocketClient {
               w: stroke.width,
               h: stroke.height,
               blendMode: stroke.blendMode || 'source-over',
+              blendBakeMode: stroke.blendBakeMode === 'background' ? 'background' : 'existing',
               timestamp: stroke.timestamp ? Number(stroke.timestamp) : 0,
               eraseAll: stroke.eraseAll || false,
               isRedo: stroke.isRedo || false,
@@ -1425,8 +1430,12 @@ export class WebSocketClient {
    * @param {Array<number>|null} radii - Initial radii.
    * @returns {void}
    */
-  broadcastMouseDown(points, radii) {
-    this.send({ t: T.MD, ps: points, rs: radii });
+  broadcastMouseDown(points, radii, metadata = {}) {
+    const msg = { t: T.MD, ps: points, rs: radii };
+    if (metadata.layerIndex !== undefined) msg.ly = metadata.layerIndex;
+    if (metadata.blendMode) msg.bm = metadata.blendMode;
+    if (metadata.blendBakeMode) msg.bbm = metadata.blendBakeMode === 'background' ? 'background' : 'existing';
+    this.send(msg);
   }
 
   /**
@@ -1545,7 +1554,7 @@ export class WebSocketClient {
    * @param {string} blendMode - Canvas composite operation name.
    * @returns {void}
    */
-  broadcastLayerBlendModeChange(layerIndex, blendMode, blendBakeMode = 'existing') {
+  broadcastLayerBlendModeChange(layerIndex, blendMode, blendBakeMode = 'background') {
     this.send({ t: T.CBM, ly: layerIndex, bm: blendMode, bbm: blendBakeMode === 'background' ? 'background' : 'existing' });
   }
 
@@ -2025,6 +2034,7 @@ export class WebSocketClient {
       width: s.width,
       height: s.height,
       blendMode: s.blendMode,
+      blendBakeMode: s.blendBakeMode || 'existing',
       timestamp: s.timestamp,
       isRedo: s.isRedo || false,
       redoBatch: s.redoBatch || 0,
