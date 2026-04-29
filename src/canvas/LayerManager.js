@@ -358,6 +358,11 @@ export class LayerManager {
       fullCanvas.height = height;
       const fullCtx = fullCanvas.getContext('2d');
 
+      const beforeCanvas = document.createElement('canvas');
+      beforeCanvas.width = width;
+      beforeCanvas.height = height;
+      const beforeCtx = beforeCanvas.getContext('2d');
+
       // Fill bg in fullCanvas only
       const [r, g, b, a] = this.backgroundColor;
       fullCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
@@ -381,6 +386,8 @@ export class LayerManager {
         }
       }
 
+      beforeCtx.drawImage(fullCanvas, 0, 0);
+
       // Apply blend mode stroke over full composite
       fullCtx.globalCompositeOperation = resolvedBlendMode;
       fullCtx.drawImage(croppedCanvas, 0, 0);
@@ -390,8 +397,8 @@ export class LayerManager {
       fullCtx.drawImage(contentCanvas, 0, 0);
       fullCtx.globalCompositeOperation = 'source-over';
 
-      croppedCanvas = fullCanvas;
-      croppedCtx = fullCtx;
+      croppedCanvas = this._extractExistingBlendPatch(fullCanvas, beforeCanvas, croppedCanvas, contentCanvas);
+      croppedCtx = croppedCanvas.getContext('2d');
       resolvedBlendMode = 'source-over';
     }
 
@@ -405,6 +412,38 @@ export class LayerManager {
     this._clearRedoStack(userId);
     this.needsComposite = true;
     this._notifyStrokeHistoryPanel();
+  }
+
+  _extractExistingBlendPatch(blendedCanvas, beforeCanvas, strokeCanvas, contentCanvas) {
+    const width = blendedCanvas.width;
+    const height = blendedCanvas.height;
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = width;
+    outCanvas.height = height;
+
+    const blendedCtx = blendedCanvas.getContext('2d');
+    const beforeCtx = beforeCanvas.getContext('2d');
+    const strokeCtx = strokeCanvas.getContext('2d');
+    const contentCtx = contentCanvas.getContext('2d');
+    const outCtx = outCanvas.getContext('2d');
+    const blended = blendedCtx.getImageData(0, 0, width, height);
+    const before = beforeCtx.getImageData(0, 0, width, height);
+    const stroke = strokeCtx.getImageData(0, 0, width, height);
+    const content = contentCtx.getImageData(0, 0, width, height);
+    const out = outCtx.createImageData(width, height);
+
+    for (let i = 0; i < out.data.length; i += 4) {
+      const alpha = (stroke.data[i + 3] / 255) * (content.data[i + 3] / 255);
+      if (alpha <= 0) continue;
+
+      out.data[i] = Math.max(0, Math.min(255, Math.round((blended.data[i] - before.data[i] * (1 - alpha)) / alpha)));
+      out.data[i + 1] = Math.max(0, Math.min(255, Math.round((blended.data[i + 1] - before.data[i + 1] * (1 - alpha)) / alpha)));
+      out.data[i + 2] = Math.max(0, Math.min(255, Math.round((blended.data[i + 2] - before.data[i + 2] * (1 - alpha)) / alpha)));
+      out.data[i + 3] = Math.round(alpha * 255);
+    }
+
+    outCtx.putImageData(out, 0, 0);
+    return outCanvas;
   }
 
   /**
