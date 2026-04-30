@@ -953,8 +953,7 @@ function getVisibleIpForViewer(viewer, targetUser, room) {
   const targetIp = targetClient?.clientIp || '';
   if (!targetIp) return '';
 
-  // Always obfuscate IPs server-side - no raw IPs sent to clients
-  return obfuscateIp(targetIp);
+  return obfuscateIp(targetIp, viewerRole);
 }
 
 function isShadowHiddenFromViewer(subjectUser, viewer) {
@@ -3048,7 +3047,8 @@ wss.on('connection', async (ws, req) => {
             const entries = await getModEntries({
               showHistory: !!data.modShowHistory,
               search: data.modSearch || '',
-              roomId: room.id
+              roomId: room.id,
+              viewerRole: ws.userRole || Role.GUEST
             });
             sendTo(ws, {
               t: T.MOD_LIST,

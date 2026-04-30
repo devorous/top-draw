@@ -1,6 +1,7 @@
 /** @fileoverview IP identity and normalization for moderation enforcement and display. */
 
 import { isIPv4, isIPv6 } from 'net';
+import { Role } from './SessionManager.js';
 
 /**
  * Parses and normalizes an IP address string into a canonical form.
@@ -169,6 +170,51 @@ function getIpv6Network48(ip) {
   return normalizeIpv6(network.join(':'));
 }
 
+function expandIpv6Groups(ip) {
+  const parts = ip.split('::');
+  let groups;
+
+  if (parts.length === 2) {
+    const left = parts[0] ? parts[0].split(':') : [];
+    const right = parts[1] ? parts[1].split(':') : [];
+    const missing = 8 - left.length - right.length;
+    groups = [...left, ...Array(missing).fill('0'), ...right];
+  } else {
+    groups = ip.split(':');
+  }
+
+  while (groups.length < 8) groups.push('0');
+  return groups.slice(0, 8).map(g => (g.replace(/^0+/, '') || '0').toLowerCase());
+}
+
+function maskIpv4(ip, visibleOctets) {
+  const parts = ip.split('.');
+  return parts.map((part, index) => index < visibleOctets ? part : 'x').join('.');
+}
+
+function maskIpv6(ip, visibleGroups) {
+  return expandIpv6Groups(ip)
+    .map((group, index) => index < visibleGroups ? group : 'x')
+    .join(':');
+}
+
+function getIpMaskTier(role = Role.GUEST) {
+  if (role >= Role.DEITY) return 'full';
+  if (role >= Role.NOBLE) return 'fine';
+  return 'coarse';
+}
+
+function getDisplayIpForTier(identity, tier) {
+  if (!identity) return 'unknown';
+  if (tier === 'full') return identity.canonicalIp;
+
+  if (identity.family === 'ipv4') {
+    return maskIpv4(identity.canonicalIp, tier === 'fine' ? 3 : 2);
+  }
+
+  return maskIpv6(identity.canonicalIp, tier === 'fine' ? 7 : 4);
+}
+
 /**
  * Builds a complete IP identity object for enforcement and display.
  * @param {string} ip - Raw IP address from connection
@@ -181,7 +227,7 @@ function getIpv6Network48(ip) {
  *   exactKey: "ip4:203.0.113.42/32",
  *   rangeKeys: ["ip4:203.0.113.42/32", "ip4:203.0.113.0/24"],
  *   defaultRangeKey: "ip4:203.0.113.0/24",
- *   displayExact: "203.0.113.x",
+ *   displayExact: "203.0.x.x",
  *   displayRange: "203.0.113.0/24"
  * }
  *
@@ -196,7 +242,7 @@ function getIpv6Network48(ip) {
  *     "ip6:2001:db8:abcd::/48"
  *   ],
  *   defaultRangeKey: "ip6:2001:db8:abcd:1200::/64",
- *   displayExact: "2001:db8:abcd:1200::/64",
+ *   displayExact: "2001:db8:abcd:1200:x:x:x:x",
  *   displayRange: "2001:db8:abcd:1200::/64"
  * }
  */
@@ -219,7 +265,7 @@ export function buildIpIdentity(ip) {
         `ip4:${network24}/24`
       ],
       defaultRangeKey: `ip4:${network24}/24`,
-      displayExact: `${parts[0]}.${parts[1]}.${parts[2]}.x`,
+      displayExact: `${parts[0]}.${parts[1]}.x.x`,
       displayRange: `${network24}/24`
     };
   }
@@ -238,7 +284,7 @@ export function buildIpIdentity(ip) {
       `ip6:${network48}/48`
     ],
     defaultRangeKey: `ip6:${network64}/64`,
-    displayExact: `${network64}/64`,
+    displayExact: maskIpv6(canonical, 4),
     displayRange: `${network64}/64`
   };
 }
@@ -247,17 +293,23 @@ export function buildIpIdentity(ip) {
  * Obfuscates an IP address for display to moderators.
  * Uses the IP identity system to ensure consistent obfuscation.
  *
- * For IPv4: shows first 3 octets, masks last (e.g., "203.0.113.x")
- * For IPv6: shows the /64 network (e.g., "2001:db8:abcd:1200::/64")
+ * MOD through OWNER: mask coarse host/location detail.
+ *   IPv4: "203.0.x.x"
+ *   IPv6: "2001:db8:abcd:1200:x:x:x:x"
+ * NOBLE/HOLY: mask one final address part.
+ *   IPv4: "203.0.113.x"
+ *   IPv6: "2001:db8:abcd:1200:0:0:0:x"
+ * DEITY: full canonical IP.
  *
  * @param {string} ip - The IP address to obfuscate
+ * @param {number} [viewerRole=Role.GUEST] - Role of the viewer requesting display
  * @returns {string} - The obfuscated IP address
  */
-export function obfuscateIp(ip) {
+export function obfuscateIp(ip, viewerRole = Role.GUEST) {
   if (!ip) return 'unknown';
 
   const identity = buildIpIdentity(ip);
   if (!identity) return 'unknown';
 
-  return identity.displayExact;
+  return getDisplayIpForTier(identity, getIpMaskTier(viewerRole));
 }

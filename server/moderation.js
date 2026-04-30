@@ -29,14 +29,15 @@ function buildRoomCondition(roomId = null) {
  * Obfuscates an IP address for display to moderators.
  * Uses the IP identity system to ensure consistent obfuscation.
  *
- * For IPv4: shows first 3 octets, masks last (e.g., "203.0.113.x")
- * For IPv6: shows the /64 network (e.g., "2001:db8:abcd:1200::/64")
+ * MOD through OWNER get coarse masking, NOBLE/HOLY get one masked part,
+ * and DEITY gets the canonical full IP.
  *
  * @param {string} ip - The IP address to obfuscate.
+ * @param {number} [viewerRole] - Role of the viewer requesting display.
  * @returns {string} - The obfuscated IP address.
  */
-export function obfuscateIp(ip) {
-  return obfuscateIpFromIdentity(ip);
+export function obfuscateIp(ip, viewerRole) {
+  return obfuscateIpFromIdentity(ip, viewerRole);
 }
 
 /**
@@ -294,7 +295,7 @@ export async function revokeMatchingModActions({
  * @param {string}  [opts.search='']
  * @param {string|null} [opts.roomId=null] - Filter to this room + global entries.
  */
-export async function getModEntries({ showHistory = false, search = '', roomId = null } = {}) {
+export async function getModEntries({ showHistory = false, search = '', roomId = null, viewerRole = 0 } = {}) {
   const db = getDB();
   if (!db) return [];
 
@@ -320,7 +321,7 @@ export async function getModEntries({ showHistory = false, search = '', roomId =
     type: e.type === 'ban' ? 0 : e.type === 'mute' ? 1 : 2,
     username: e.targetUsername || '',
     reason: e.reason || '',
-    ip: obfuscateIp(e.targetIp),
+    ip: obfuscateIp(e.targetIp, viewerRole),
     issuedBy: e.issuedByUsername || '',
     createdAt: e.createdAt ? e.createdAt.getTime() : 0,
     expiresAt: e.expiresAt ? e.expiresAt.getTime() : 0,
