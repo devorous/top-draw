@@ -13,6 +13,7 @@
   cursor: default;
   user-select: none;
   overflow: hidden;
+  touch-action: none;
 }
 
 #boardContainer.image-dragover::after {
@@ -58,12 +59,5 @@
 
 canvas {
   cursor: none;
-}
-
-// Disable touch-action only on devices with precise pointers
-@include hover-device {
-  canvas,
-  #boardContainer {
-    touch-action: none;
-  }
+  touch-action: none;
 }

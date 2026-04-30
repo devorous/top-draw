@@ -994,8 +994,45 @@
                     <span class="sliderValue" id="thinningValue">50</span><button class="lock-btn" id="thinningLock" title="Lock thinning for current tool"><img src="/images/lock-open.svg" alt="unlock"></button>
                   </div>
                   <div id="thinningSlider">
-                    <input autocomplete="off" type="range" min="0" max="100" value="50" class="slider thinning" aria-label="Thinning">
+                    <input autocomplete="off" type="range" min="0" max="100" value="50" class="slider thinning" aria-label="Thinning" style="--value: 50; --min: 0; --max: 100;">
                   </div>
+                  <style>
+                    .slider.thinning {
+                      width: 100%;
+                      height: 6px;
+                      -webkit-appearance: none;
+                      appearance: none;
+                      background: linear-gradient(to right, var(--accent-secondary, var(--accent-primary, #00d4aa)) 0%, var(--accent-secondary, var(--accent-primary, #00d4aa)) calc((var(--value) - var(--min)) / (var(--max) - var(--min)) * 100%), rgba(255, 255, 255, 0.1) calc((var(--value) - var(--min)) / (var(--max) - var(--min)) * 100%), rgba(255, 255, 255, 0.1) 100%);
+                      border-radius: 3px;
+                      outline: none;
+                      cursor: pointer;
+                      border: none;
+                      padding: 0;
+                      margin: 0;
+                    }
+                    .slider.thinning::-webkit-slider-thumb {
+                      -webkit-appearance: none;
+                      appearance: none;
+                      width: 16px;
+                      height: 16px;
+                      background: var(--accent-primary, #00d4aa);
+                      border-radius: 4px;
+                      cursor: pointer;
+                      border: none;
+                    }
+                    .slider.thinning::-moz-range-thumb {
+                      width: 16px;
+                      height: 16px;
+                      background: var(--accent-primary, #00d4aa);
+                      border-radius: 4px;
+                      cursor: pointer;
+                      border: none;
+                    }
+                    .slider.thinning::-moz-range-track {
+                      background: none;
+                      border: none;
+                    }
+                  </style>
                 </div>
 
                 <div class="sliderContainer" id="pressure-container">

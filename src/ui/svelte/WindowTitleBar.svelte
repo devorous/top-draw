@@ -87,11 +87,13 @@
       if (!active) return;
       active = false;
       window.removeEventListener('mouseup', cleanup);
+      window.removeEventListener('touchend', cleanup);
       window.removeEventListener('blur', cleanup);
       hideLocalDragOverlay(overlay);
     };
 
     window.addEventListener('mouseup', cleanup, { once: true });
+    window.addEventListener('touchend', cleanup, { once: true });
     window.addEventListener('blur', cleanup, { once: true });
     return cleanup;
   }
@@ -99,8 +101,22 @@
   function cancelPendingBarDrag() {
     if (!pendingBarDrag) return;
     window.removeEventListener('mousemove', pendingBarDrag.onMove);
+    window.removeEventListener('touchmove', pendingBarDrag.onMove);
     window.removeEventListener('mouseup', pendingBarDrag.onUp);
+    window.removeEventListener('touchend', pendingBarDrag.onUp);
     pendingBarDrag = null;
+  }
+
+  function getPointerCoords(event) {
+    if (event.touches?.[0]) {
+      return { x: event.touches[0].clientX, y: event.touches[0].clientY };
+    }
+    return { x: event.clientX, y: event.clientY };
+  }
+
+  function isPointerActive(event) {
+    if (event.touches) return event.touches.length > 0;
+    return (event.buttons & 1) === 1;
   }
 
   function armWindowDrag(event) {
@@ -108,26 +124,26 @@
 
     cancelPendingBarDrag();
 
-    const startClientX = event.clientX;
-    const startClientY = event.clientY;
+    const { x: startClientX, y: startClientY } = getPointerCoords(event);
     const dragTarget = event.currentTarget;
 
     const onMove = (moveEvent) => {
-      if ((moveEvent.buttons & 1) === 0) {
+      if (!isPointerActive(moveEvent)) {
         cancelPendingBarDrag();
         return;
       }
 
-      const deltaX = moveEvent.clientX - startClientX;
-      const deltaY = moveEvent.clientY - startClientY;
+      const { x, y } = getPointerCoords(moveEvent);
+      const deltaX = x - startClientX;
+      const deltaY = y - startClientY;
       if ((deltaX * deltaX) + (deltaY * deltaY) < (DRAG_START_THRESHOLD_PX * DRAG_START_THRESHOLD_PX)) {
         return;
       }
 
       cancelPendingBarDrag();
       void beginWindowDrag({
-        clientX: moveEvent.clientX,
-        clientY: moveEvent.clientY,
+        clientX: x,
+        clientY: y,
         currentTarget: dragTarget
       });
     };
@@ -138,7 +154,9 @@
 
     pendingBarDrag = { onMove, onUp };
     window.addEventListener('mousemove', onMove);
+    window.addEventListener('touchmove', onMove, { passive: false });
     window.addEventListener('mouseup', onUp, { once: true });
+    window.addEventListener('touchend', onUp, { once: true });
   }
 
   async function beginWindowDrag(event) {
@@ -213,6 +231,12 @@
     if (draggable) onDragStart?.(event);
   }
 
+  function handleBarTouchStart(event) {
+    if (event.target instanceof HTMLElement && event.target.closest('button')) return;
+    event.preventDefault();
+    if (draggable) onDragStart?.(event);
+  }
+
   function handleBarDoubleClick(event) {
     if (event.target instanceof HTMLElement && event.target.closest('button')) return;
     if (showWindowControls) {
@@ -256,6 +280,7 @@
 <header
   class={`window-titlebar ${branded ? 'branded' : 'plain'} ${className}`.trim()}
   onmousedown={handleBarMouseDown}
+  ontouchstart={handleBarTouchStart}
   ondblclick={handleBarDoubleClick}
   role="presentation"
   aria-label="Window header"

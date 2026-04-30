@@ -106,8 +106,11 @@
     dm: true
   });
 
+  let windowWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1024);
+
   let visible = $derived(isPopout || appState.chatVisible);
-  let effectiveChatMode = $derived(isPopout ? 'full' : chatMode);
+  let isSmallScreen = $derived(windowWidth < 768);
+  let effectiveChatMode = $derived(isPopout ? 'full' : isSmallScreen ? 'mini' : chatMode);
   let hideRoomNotifications = $derived(!!appState.currentRoomData?.hideChatNotifications);
   let isDesktopClient = $state(false);
   let desktopWindowApi = null;
@@ -1145,6 +1148,18 @@
     persistChatPositions(positions);
   }
 
+  function getPointerCoords(event) {
+    if (event.touches?.[0]) {
+      return { x: event.touches[0].clientX, y: event.touches[0].clientY };
+    }
+    return { x: event.clientX, y: event.clientY };
+  }
+
+  function isPointerActive(event) {
+    if (event.touches) return event.touches.length > 0;
+    return (event.buttons & 1) === 1;
+  }
+
   function startDrag(event) {
     if (isPopout) return;
     if (event.target.closest('button, textarea, input, a, label')) return;
@@ -1153,21 +1168,23 @@
     const rect = chatEl.getBoundingClientRect();
     setChatPosition(rect.left, rect.top);
 
-    dragOffsetX = event.clientX - rect.left;
-    dragOffsetY = event.clientY - rect.top;
+    const { x, y } = getPointerCoords(event);
+    dragOffsetX = x - rect.left;
+    dragOffsetY = y - rect.top;
     isDragging = true;
     event.preventDefault();
   }
 
   function onDrag(event) {
     if (!isDragging || !chatEl) return;
-    if ((event.buttons & 1) === 0) {
+    if (!isPointerActive(event)) {
       endDrag();
       return;
     }
 
-    const nextLeft = Math.max(8, Math.min(window.innerWidth - chatEl.offsetWidth - 8, event.clientX - dragOffsetX));
-    const nextTop = Math.max(8, Math.min(window.innerHeight - chatEl.offsetHeight - 8, event.clientY - dragOffsetY));
+    const { x, y } = getPointerCoords(event);
+    const nextLeft = Math.max(8, Math.min(window.innerWidth - chatEl.offsetWidth - 8, x - dragOffsetX));
+    const nextTop = Math.max(8, Math.min(window.innerHeight - chatEl.offsetHeight - 8, y - dragOffsetY));
 
     setChatPosition(nextLeft, nextTop);
   }
@@ -1206,9 +1223,10 @@
     chatEl.style.width = `${rect.width}px`;
     chatEl.style.height = `${rect.height}px`;
 
+    const { x, y } = getPointerCoords(event);
     resizeStart = {
-      x: event.clientX,
-      y: event.clientY,
+      x,
+      y,
       left: rect.left,
       top: rect.top,
       width: rect.width,
@@ -1220,13 +1238,14 @@
 
   function onResize(event) {
     if (!isResizing || !chatEl || !resizeStart) return;
-    if ((event.buttons & 1) === 0) {
+    if (!isPointerActive(event)) {
       endResize();
       return;
     }
 
-    const deltaX = event.clientX - resizeStart.x;
-    const deltaY = event.clientY - resizeStart.y;
+    const { x, y } = getPointerCoords(event);
+    const deltaX = x - resizeStart.x;
+    const deltaY = y - resizeStart.y;
     let nextLeft = resizeStart.left;
     let nextTop = resizeStart.top;
     let nextWidth = resizeStart.width;
@@ -1809,6 +1828,15 @@
   });
 
   $effect(() => {
+    const handleWindowResize = () => {
+      windowWidth = window.innerWidth;
+    };
+
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  });
+
+  $effect(() => {
     if (isPopout || !visible || !chatEl) return;
 
     const handleResize = () => {
@@ -1846,8 +1874,12 @@
 
     window.addEventListener('mousemove', onDrag);
     window.addEventListener('mouseup', endDrag);
+    window.addEventListener('touchmove', onDrag, { passive: false });
+    window.addEventListener('touchend', endDrag);
     window.addEventListener('mousemove', onResize);
     window.addEventListener('mouseup', endResize);
+    window.addEventListener('touchmove', onResize, { passive: false });
+    window.addEventListener('touchend', endResize);
     window.addEventListener('blur', handleBlurOrHide);
     document.addEventListener('keydown', handleDocumentKeydown);
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -1855,8 +1887,12 @@
     return () => {
       window.removeEventListener('mousemove', onDrag);
       window.removeEventListener('mouseup', endDrag);
+      window.removeEventListener('touchmove', onDrag);
+      window.removeEventListener('touchend', endDrag);
       window.removeEventListener('mousemove', onResize);
       window.removeEventListener('mouseup', endResize);
+      window.removeEventListener('touchmove', onResize);
+      window.removeEventListener('touchend', endResize);
       window.removeEventListener('blur', handleBlurOrHide);
       document.removeEventListener('keydown', handleDocumentKeydown);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -1960,7 +1996,7 @@
 {/if}
 
 {#if visible}
-  <section class="chat-shell" class:dragging={isDragging} class:resizing={isResizing} class:popout={isPopout} class:desktop-popout={isPopout && isDesktopClient} bind:this={chatEl} onclick={handleChatLinkClick}>
+  <section class="chat-shell" class:dragging={isDragging} class:resizing={isResizing} class:popout={isPopout} class:desktop-popout={isPopout && isDesktopClient} class:mini={effectiveChatMode === 'mini'} class:compact={effectiveChatMode === 'compact'} class:full={effectiveChatMode === 'full'} bind:this={chatEl} onclick={handleChatLinkClick}>
     <WindowTitleBar
       title="Chat"
       subtitle=""
@@ -1979,7 +2015,7 @@
       className="chat-titlebar"
     />
 
-    <header class="chat-topbar" data-refactor-placeholder="true" style="display: none;" onmousedown={startDrag} role="presentation" aria-label="Chat window header" data-tauri-drag-region={isPopout && isDesktopClient ? 'true' : undefined}>
+    <header class="chat-topbar" data-refactor-placeholder="true" style="display: none;" onmousedown={startDrag} ontouchstart={startDrag} role="presentation" aria-label="Chat window header" data-tauri-drag-region={isPopout && isDesktopClient ? 'true' : undefined}>
       <div class="chat-topbar-copy">
         {#if isPopout && isDesktopClient}
           <div class="chat-wordmark-wrap" data-tauri-drag-region="true">
@@ -2011,7 +2047,7 @@
             {desktopWindowState.fullscreen ? '🡼' : '⛶'}
           </button>
         {/if}
-        {#if !isPopout}
+        {#if !isPopout && !isSmallScreen}
           <button class="topbar-btn" onclick={toggleMode} onpointerup={(e) => e.pointerType !== 'mouse' && toggleMode()} title={effectiveChatMode === 'full' ? 'Use compact mode' : 'Use full mode'} type="button">
             {effectiveChatMode === 'full' ? 'Small' : 'Full'}
           </button>
@@ -2182,15 +2218,15 @@
     </div>
     </div>
     {#if !isPopout}
-      <div class="chat-resize-handle edge-n" onmousedown={(event) => startResize(event, 'n')} role="presentation" aria-hidden="true"></div>
-      <div class="chat-resize-handle edge-e" onmousedown={(event) => startResize(event, 'e')} role="presentation" aria-hidden="true"></div>
-      <div class="chat-resize-handle edge-s" onmousedown={(event) => startResize(event, 's')} role="presentation" aria-hidden="true"></div>
-      <div class="chat-resize-handle edge-w" onmousedown={(event) => startResize(event, 'w')} role="presentation" aria-hidden="true"></div>
-      <div class="chat-resize-handle corner-ne" onmousedown={(event) => startResize(event, 'ne')} role="presentation" aria-hidden="true"></div>
-      <div class="chat-resize-handle corner-nw" onmousedown={(event) => startResize(event, 'nw')} role="presentation" aria-hidden="true"></div>
-      <div class="chat-resize-handle corner-se" onmousedown={(event) => startResize(event, 'se')} role="presentation" aria-hidden="true"></div>
-      <div class="chat-resize-handle corner-sw" onmousedown={(event) => startResize(event, 'sw')} role="presentation" aria-hidden="true"></div>
-      <div class="chat-resize-grip" class:active={isResizing} onmousedown={(event) => startResize(event, 'se')} role="presentation" aria-hidden="true" title="Drag to resize">
+      <div class="chat-resize-handle edge-n" onmousedown={(event) => startResize(event, 'n')} ontouchstart={(event) => startResize(event, 'n')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-handle edge-e" onmousedown={(event) => startResize(event, 'e')} ontouchstart={(event) => startResize(event, 'e')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-handle edge-s" onmousedown={(event) => startResize(event, 's')} ontouchstart={(event) => startResize(event, 's')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-handle edge-w" onmousedown={(event) => startResize(event, 'w')} ontouchstart={(event) => startResize(event, 'w')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-handle corner-ne" onmousedown={(event) => startResize(event, 'ne')} ontouchstart={(event) => startResize(event, 'ne')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-handle corner-nw" onmousedown={(event) => startResize(event, 'nw')} ontouchstart={(event) => startResize(event, 'nw')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-handle corner-se" onmousedown={(event) => startResize(event, 'se')} ontouchstart={(event) => startResize(event, 'se')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-handle corner-sw" onmousedown={(event) => startResize(event, 'sw')} ontouchstart={(event) => startResize(event, 'sw')} role="presentation" aria-hidden="true"></div>
+      <div class="chat-resize-grip" class:active={isResizing} onmousedown={(event) => startResize(event, 'se')} ontouchstart={(event) => startResize(event, 'se')} role="presentation" aria-hidden="true" title="Drag to resize">
         <svg viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
           <path d="M13 3L3 13 M13 7L7 13 M13 11L11 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
         </svg>
@@ -2264,6 +2300,53 @@
 
   .chat-shell.popout :global(.chat-titlebar) {
     background: color-mix(in srgb, var(--bg-elevated) 56%, #1a1f29);
+  }
+
+  .chat-shell.mini :global(.chat-titlebar) {
+    min-height: 24px;
+  }
+
+  .chat-shell.mini :global(.window-titlebar) {
+    padding: 0 0.25rem 0 0.6rem;
+    min-height: 24px;
+    gap: 0.2rem;
+  }
+
+  .chat-shell.mini :global(.titlebar-title),
+  .chat-shell.mini :global(.titlebar-brand) {
+    font-size: 0.96rem;
+    font-weight: 700;
+    transform: none;
+    line-height: 1;
+  }
+
+  .chat-shell.mini :global(.titlebar-subtitle) {
+    display: none;
+  }
+
+  .chat-shell.mini :global(.titlebar-btn) {
+    min-width: 24px;
+    padding: 0 0.4rem;
+    font-size: 0.56rem;
+    min-height: 24px;
+  }
+
+  .chat-shell.mini .chat-resize-handle {
+    display: none;
+  }
+
+  .chat-shell.mini .chat-resize-handle.corner-sw {
+    display: block;
+    width: 12px;
+    height: 12px;
+    bottom: 0;
+    left: 0;
+    cursor: nwse-resize;
+    z-index: 20;
+  }
+
+  .chat-shell.mini .chat-resize-grip {
+    display: none;
   }
 
   .chat-resize-handle {
@@ -2403,6 +2486,345 @@
 
   .chat-shell.compact {
     width: min(420px, calc(100vw - 24px));
+  }
+
+  .chat-shell.mini {
+    width: min(300px, calc(100vw - 48px));
+    height: min(360px, calc(100vh - 80px));
+    right: 24px;
+    bottom: 24px;
+    max-width: 300px;
+    max-height: 360px;
+  }
+
+  .chat-shell.mini .chat-rail {
+    width: 54px !important;
+    padding: 4px 0 !important;
+    gap: 2px !important;
+  }
+
+  .chat-shell.mini .rail-tab,
+  .chat-shell.mini .rail-action {
+    width: 100% !important;
+    min-height: 23px !important;
+    margin: 0 !important;
+    padding: 0.2rem !important;
+    gap: 2px !important;
+    min-width: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .chat-shell.mini .rail-action span:first-child {
+    font-size: 0.75rem !important;
+    line-height: 1 !important;
+  }
+
+  .chat-shell.mini .rail-action span:last-child {
+    font-size: 0.6rem !important;
+    line-height: 1 !important;
+  }
+
+  .chat-shell.mini .rail-tab-name {
+    font-size: 0.6rem !important;
+    line-height: 1 !important;
+  }
+
+  .chat-shell.mini .rail-tab-name {
+    font-size: 0.55rem;
+    font-weight: 600;
+  }
+
+  .chat-shell.mini .public-tab .rail-tab-name {
+    font-size: 0.55rem;
+  }
+
+  .chat-shell.mini .rail-section-label {
+    font-size: 0.5rem;
+    padding: 0 0.2rem;
+  }
+
+  .chat-shell.mini .rail-badge {
+    width: 14px;
+    height: 14px;
+    font-size: 0.55rem;
+    top: 4px;
+    right: 3px;
+  }
+
+  .chat-shell.mini .chat-content {
+    grid-template-columns: 54px minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .chat-shell.mini .conversation-view,
+  .chat-shell.mini .chat-stage {
+    display: grid;
+    grid-template-rows: 1fr;
+    min-height: 0;
+  }
+
+  .chat-shell.mini .message-stream {
+    padding: 0.3rem 0.35rem;
+    gap: 0.15rem;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .chat-shell.mini .message-row {
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 0.3rem;
+    padding: 0;
+    width: 100%;
+    align-items: baseline;
+  }
+
+  .chat-shell.mini .message-time {
+    display: block;
+    font-size: 0.55rem;
+    text-align: right;
+    padding-right: 0.2rem;
+  }
+
+  .chat-shell.mini .message-body {
+    min-width: 0;
+  }
+
+  .chat-shell.mini .message-line {
+    margin: 0;
+    padding: 0;
+    line-height: 1.2;
+  }
+
+  .chat-shell.mini .message-user {
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 0;
+    min-height: auto;
+    display: inline;
+  }
+
+  .chat-shell.mini .message-text-inline {
+    font-size: 0.72rem;
+    line-height: 1.2;
+  }
+
+  .chat-shell.mini .directory-header {
+    padding: 0.4rem 0.5rem !important;
+    gap: 0.4rem;
+  }
+
+  .chat-shell.mini .directory-header h3 {
+    font-size: 0.72rem !important;
+  }
+
+  .chat-shell.mini .directory-header p {
+    font-size: 0.58rem !important;
+    margin-top: 0.1rem;
+  }
+
+  .chat-shell.mini .directory-list {
+    padding: 0.35rem 0.5rem !important;
+    gap: 0.3rem !important;
+  }
+
+  .chat-shell.mini .directory-user {
+    padding: 0.4rem 0.5rem !important;
+    gap: 0.45rem !important;
+    border-radius: 10px !important;
+  }
+
+  .chat-shell.mini .directory-avatar {
+    width: 26px !important;
+    height: 26px !important;
+    border-radius: 8px !important;
+  }
+
+  .chat-shell.mini .directory-tool-icon {
+    width: 14px !important;
+    height: 14px !important;
+  }
+
+  .chat-shell.mini .directory-copy strong {
+    font-size: 0.72rem !important;
+  }
+
+  .chat-shell.mini .directory-copy small {
+    font-size: 0.58rem !important;
+    margin-top: 0.05rem !important;
+  }
+
+  .chat-shell.mini .directory-empty {
+    font-size: 0.65rem !important;
+  }
+
+  .chat-shell.mini .message-avatar {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    min-height: 18px;
+  }
+
+  .chat-shell.mini .dm-bubble {
+    padding: 0.4rem 0.6rem !important;
+    border-radius: 12px !important;
+  }
+
+  .chat-shell.mini .dm-bubble .message-text {
+    font-size: 0.72rem !important;
+    line-height: 1.2 !important;
+  }
+
+  .chat-shell.mini .dm-bubble span {
+    font-size: 0.55rem !important;
+    margin-top: 0.15rem !important;
+  }
+
+  .chat-shell.mini .composer-preview {
+    display: none;
+  }
+
+  .chat-shell.mini .chat-composer {
+    display: grid;
+    grid-template-rows: auto;
+    padding: 0.3rem;
+    gap: 0.25rem;
+    min-height: 0;
+  }
+
+  .chat-shell.mini .composer-row {
+    display: flex !important;
+    gap: 0.25rem;
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+
+  .chat-shell.mini .chat-resize-handle.corner-se {
+    display: block;
+    width: 14px;
+    height: 14px;
+    bottom: 0;
+    right: 0;
+    cursor: nwse-resize;
+    z-index: 20;
+  }
+
+  .chat-shell.mini .composer-row > * {
+    flex-shrink: 0;
+  }
+
+  .chat-shell.mini .chat-input-wrap {
+    flex: 1 !important;
+    min-width: 0 !important;
+    flex-shrink: 1 !important;
+  }
+
+  .chat-shell.mini .chat-input {
+    min-height: 26px;
+    max-height: 50px;
+    padding: 0.3rem 0.4rem;
+    font-size: 0.7rem;
+    line-height: 1.15;
+    border-radius: 8px;
+  }
+
+  .chat-shell.mini .composer-tool {
+    min-width: 24px;
+    width: 24px;
+    min-height: 26px;
+    height: 26px;
+    padding: 0.2rem;
+    font-size: 0.6rem;
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+
+  .chat-shell.mini .composer-tool svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  .chat-shell.mini .chat-send {
+    min-width: 24px;
+    width: 24px;
+    min-height: 26px;
+    height: 26px;
+    padding: 0;
+    font-size: 0.55rem;
+    font-weight: 700;
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+
+  .chat-shell.mini .chat-main {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .chat-shell.mini .chat-stage {
+    display: grid;
+    grid-template-rows: 1fr;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .chat-shell.mini .chat-topbar {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.4rem;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .chat-shell.mini .chat-topbar-copy {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .chat-shell.mini .chat-topbar-copy p {
+    margin: 0;
+    font-size: 0.64rem;
+  }
+
+  .chat-shell.mini .chat-topbar-actions {
+    display: flex;
+    gap: 0.2rem;
+  }
+
+  .chat-shell.mini .topbar-btn {
+    min-width: 22px;
+    width: 22px;
+    padding: 0.2rem;
+    font-size: 0.55rem;
+    min-height: 22px;
+    height: 22px;
+  }
+
+  .chat-shell.mini .emoji-picker {
+    display: none !important;
+  }
+
+  .chat-shell.mini .composer-emoji-grid {
+    display: none !important;
+  }
+
+  .chat-shell.mini .reaction-pills {
+    gap: 0.2rem;
+    font-size: 0.64rem;
+  }
+
+  .chat-shell.mini .reaction-pill {
+    min-height: 18px;
+    padding: 0 0.25rem;
+    font-size: 0.6rem;
+  }
+
+  .chat-shell.mini .composer-tool {
+    min-width: 24px;
+    min-height: 24px;
+    padding: 0.2rem;
+    font-size: 0.64rem;
   }
 
   .chat-content {
@@ -3872,9 +4294,20 @@
       border-radius: 18px;
     }
 
+    .chat-shell.mini {
+      width: min(300px, calc(100vw - 48px)) !important;
+      height: min(360px, calc(100vh - 80px)) !important;
+      right: 24px !important;
+      bottom: 24px !important;
+    }
+
     .chat-content,
     .chat-shell.compact .chat-content {
       grid-template-columns: 84px minmax(0, 1fr);
+    }
+
+    .chat-shell.mini .chat-content {
+      grid-template-columns: 54px minmax(0, 1fr) !important;
     }
 
     .chat-topbar,
@@ -3886,17 +4319,83 @@
       padding-right: 0.9rem;
     }
 
+    .chat-shell.mini .chat-topbar,
+    .chat-shell.mini .directory-header,
+    .chat-shell.mini .directory-list,
+    .chat-shell.mini .chat-composer {
+      padding-left: 0.4rem !important;
+      padding-right: 0.4rem !important;
+    }
+
     .composer-row {
       grid-template-columns: auto auto minmax(0, 1fr);
+    }
+
+    .chat-shell.mini .composer-row {
+      display: flex !important;
+      gap: 0.25rem !important;
+      grid-template-columns: unset !important;
+      align-items: center !important;
     }
 
     .chat-send {
       grid-column: 1 / -1;
     }
 
+    .chat-shell.mini .chat-send {
+      grid-column: auto !important;
+      min-width: 24px !important;
+      width: 24px !important;
+      min-height: 26px !important;
+      height: 26px !important;
+      padding: 0 !important;
+      font-size: 0.55rem !important;
+      flex-shrink: 0;
+    }
+
+    .chat-shell.mini .chat-input-wrap {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .chat-shell.mini .composer-tool {
+      min-width: 24px !important;
+      width: 24px !important;
+      min-height: 26px !important;
+      height: 26px !important;
+      padding: 0.2rem !important;
+      flex-shrink: 0;
+    }
+
     .message-row {
       grid-template-columns: 50px minmax(0, 1fr);
       gap: 0.7rem;
+    }
+
+    .chat-shell.mini .message-row {
+      grid-template-columns: 32px minmax(0, 1fr) !important;
+      gap: 0.35rem !important;
+      padding: 0 !important;
+      width: 100% !important;
+      align-items: baseline !important;
+    }
+
+    .chat-shell.mini .message-time {
+      display: block !important;
+      font-size: 0.55rem !important;
+    }
+
+    .chat-shell.mini .message-stream {
+      padding: 0.4rem 0.5rem !important;
+      gap: 0.3rem !important;
+      overflow-y: auto !important;
+    }
+
+    .chat-shell.mini .chat-input {
+      min-height: 28px !important;
+      max-height: 60px !important;
+      padding: 0.35rem 0.5rem !important;
+      font-size: 0.72rem !important;
     }
 
     .message-content-row {

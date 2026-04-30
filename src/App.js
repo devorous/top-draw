@@ -1718,6 +1718,7 @@ export class DrawingApp {
 
     if (elements.thinningSlider) {
       elements.thinningSlider.addEventListener('input', (e) => this.handleThinningChange(e));
+      elements.thinningSlider.style.setProperty('--value', elements.thinningSlider.value);
     }
     if (elements.simulatePressureCheckbox) {
       elements.simulatePressureCheckbox.addEventListener('change', (e) => this.handleSimulatePressureChange(e));
@@ -5115,6 +5116,10 @@ export class DrawingApp {
     this.self.setThinning(thinning);
     this.ui.updateThinningValue(Math.round(thinning * 100));
     this.updateCurrentToolPresetSettings();
+    // Update CSS variable for fill rendering
+    if (this.ui.elements.thinningSlider) {
+      this.ui.elements.thinningSlider.style.setProperty('--value', e.target.value);
+    }
   }
 
   handleSimulatePressureChange(e) {
