@@ -5,7 +5,10 @@
     max = 100,
     step = 1,
     ariaLabel = 'Slider',
-    onChange = null
+    onChange = null,
+    scaling = 'linear',
+    weightedStopValue = 10,
+    weightedStopPercent = 1 / 3
   } = $props();
 
   let isDragging = $state(false);
@@ -20,6 +23,40 @@
     }
   }
 
+  function toValue(percent) {
+    if (scaling !== 'weighted') {
+      return min + percent * (max - min);
+    }
+
+    const threshold = Math.max(0.01, Math.min(0.99, weightedStopPercent));
+    const stopValue = Math.max(min, Math.min(max, weightedStopValue));
+
+    if (percent <= threshold) {
+      const p = percent / threshold;
+      return min + p * (stopValue - min);
+    }
+
+    const p = (percent - threshold) / (1 - threshold);
+    return stopValue + p * (max - stopValue);
+  }
+
+  function toPercent(val) {
+    if (scaling !== 'weighted') {
+      return ((val - min) / (max - min)) * 100;
+    }
+
+    const threshold = Math.max(0.01, Math.min(0.99, weightedStopPercent));
+    const stopValue = Math.max(min, Math.min(max, weightedStopValue));
+
+    if (val <= stopValue) {
+      const p = (val - min) / (stopValue - min);
+      return p * threshold * 100;
+    }
+
+    const p = (val - stopValue) / (max - stopValue);
+    return (threshold + p * (1 - threshold)) * 100;
+  }
+
   function updateValueFromPointer(event) {
     if (!containerElement) return;
 
@@ -27,7 +64,7 @@
     const x = event.clientX - rect.left;
     const percent = Math.max(0, Math.min(1, x / rect.width));
 
-    let newValue = min + percent * (max - min);
+    let newValue = toValue(percent);
 
     // Apply step rounding
     if (step) {
@@ -120,7 +157,7 @@
     displayValue = value;
   });
 
-  const percent = $derived(((displayValue - min) / (max - min)) * 100);
+  const percent = $derived(toPercent(displayValue));
 </script>
 
 <div class="slider" bind:this={containerElement} role="slider" aria-label={ariaLabel} aria-valuemin={min} aria-valuemax={max} aria-valuenow={displayValue} tabindex="0" onpointerdown={handlePointerDown} onpointermove={handlePointerMove} onpointerup={handlePointerUp} onpointercancel={handlePointerCancel} onclick={handleClick} onkeydown={handleKeyDown}>

@@ -19,6 +19,49 @@
   display: inline-block;
 }
 
+.valueAdjuster {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  padding: 1px;
+  margin: 0 4px;
+  border: 1px solid var(--border-subtle);
+}
+
+.adjustBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  border-radius: 3px;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast);
+  user-select: none;
+}
+
+.adjustBtn:hover {
+  background: var(--bg-elevated);
+  color: var(--accent-primary);
+}
+
+.adjustBtn:active {
+  background: var(--accent-primary);
+  color: white;
+  transform: scale(0.9);
+}
+
 .sliderValue:hover {
   font-size: calc(1em + 2px);
   background: var(--bg-elevated);

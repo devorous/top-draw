@@ -977,10 +977,16 @@
                     <input autocomplete="off" type="range" min="-20" max="20" value="0" step="0.25" class="slider textPositionOffset" aria-label="Applied text position offset">
                   </div>
                   <div class="sliderContainer" id="size-container">
-                    <div class="sliderLabel">Size <span class="sliderValue" id="sizeValue">10</span><button class="lock-btn" id="sizeLock" title="Lock size for current tool"><img src="/images/lock-open.svg" alt="unlock"></button></div>
+                    <div class="sliderLabel">Size
+                      <div class="valueAdjuster">
+                        <button type="button" class="adjustBtn minus" id="sizeMinus" title="Decrease size (Shift for larger step, Ctrl for smaller step)" aria-label="Decrease size">-</button>
+                        <span class="sliderValue" id="sizeValue">10</span>
+                        <button type="button" class="adjustBtn plus" id="sizePlus" title="Increase size (Shift for larger step, Ctrl for smaller step)" aria-label="Increase size">+</button>
+                      </div>
+                      <button class="lock-btn" id="sizeLock" title="Lock size for current tool"><img src="/images/lock-open.svg" alt="unlock"></button>
+                    </div>
                     <div id="sizeSliderMount"></div>
                   </div>
-
                 <div class="sliderContainer" id="ink-thinning" style="display: none;">
                   <div class="sliderLabel">
                     <label class="pressureToggle">

@@ -98,6 +98,9 @@ export class UI {
         min: Number(options.min ?? source.min ?? 0),
         max: Number(options.max ?? source.max ?? 100),
         step: Number(options.step ?? source.step ?? 1),
+        scaling: options.scaling || 'linear',
+        weightedStopValue: Number(options.weightedStopValue ?? 10),
+        weightedStopPercent: Number(options.weightedStopPercent ?? (1 / 3)),
         component: null
       };
 
@@ -121,6 +124,9 @@ export class UI {
             min: state.min,
             max: state.max,
             step: state.step,
+            scaling: state.scaling,
+            weightedStopValue: state.weightedStopValue,
+            weightedStopPercent: state.weightedStopPercent,
             ariaLabel,
             onChange: (newValue) => {
               state.value = newValue;
@@ -131,12 +137,16 @@ export class UI {
         });
       };
 
-      for (const key of ['value', 'min', 'max', 'step']) {
+      for (const key of ['value', 'min', 'max', 'step', 'scaling', 'weightedStopValue', 'weightedStopPercent']) {
         Object.defineProperty(mountPoint, key, {
           configurable: true,
           get: () => state[key],
           set: (val) => {
-            state[key] = Number(val);
+            if (key === 'scaling') {
+              state[key] = val;
+            } else {
+              state[key] = Number(val);
+            }
             render();
           }
         });
@@ -151,6 +161,9 @@ export class UI {
       min: 0.25,
       max: 100,
       step: 0.25,
+      scaling: 'weighted',
+      weightedStopValue: 10,
+      weightedStopPercent: 1 / 3,
       ariaLabel: 'Size'
     });
 
@@ -511,6 +524,8 @@ menuBtn: document.getElementById('menuBtn'),
       selectionPatternBrushList: document.getElementById('selectionPatternBrushList'),
 
       sizeValue: document.getElementById('sizeValue'),
+      sizeMinus: document.getElementById('sizeMinus'),
+      sizePlus: document.getElementById('sizePlus'),
       pressureValue: document.getElementById('pressureValue'),
       smoothingValue: document.getElementById('smoothingValue'),
       spacingValue: document.getElementById('spacingValue'),
@@ -1699,9 +1714,7 @@ menuBtn: document.getElementById('menuBtn'),
    */
   updateSizeValue(size) {
     if (this.elements.sizeValue) {
-      // Display whole numbers for sizes >= 4, keep decimals below 4
-      const displaySize = size >= 4 ? Math.round(size) : size;
-      this.elements.sizeValue.textContent = displaySize;
+      this.elements.sizeValue.textContent = String(Number(size.toFixed(2)));
     }
   }
 
