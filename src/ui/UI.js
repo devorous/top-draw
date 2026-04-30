@@ -425,11 +425,11 @@ export class UI {
 
       clearBtn: null, // injected dynamically by Moderation._injectModUI()
       resetBtn: document.getElementById('resetBtn'),
+      zoomResetBtn: document.getElementById('zoomResetBtn'),
       flipCanvasBtn: document.getElementById('flipCanvasBtn'),
       mirrorBtn: document.getElementById('mirrorBtn'),
       plusBtn: document.getElementById('plusBtn'),
       minusBtn: document.getElementById('minusBtn'),
-      rotationResetBtn: document.getElementById('rotationResetBtn'),
       zoomPercent: document.querySelector('.zoomPercent'),
       hudUndoBtn: document.getElementById('hudUndoBtn'),
       hudRedoBtn: document.getElementById('hudRedoBtn'),
@@ -1351,6 +1351,7 @@ menuBtn: document.getElementById('menuBtn'),
     if (buttons[buttonTool]) {
       buttons[buttonTool].classList.add('selected');
     }
+    this.updateToolGroupButtons(buttonTool, buttons);
 
     const toolIconData = this.icons[tool]; // Renamed to avoid confusion with the DOM element
 
@@ -1367,6 +1368,58 @@ menuBtn: document.getElementById('menuBtn'),
         toolEntry.appendChild(svgWrapper);
       } else if (toolIconData.type === 'img') {
         toolEntry.appendChild(toolIconData.element.cloneNode(true)); // Clone the pre-created img element
+      }
+    }
+  }
+
+  updateToolGroupButtons(tool, buttons) {
+    const groups = [
+      { id: 'moveGroup', primary: 'pan', slots: ['pan', 'zoom', 'rotate'] },
+      { id: 'shapesGroup', primary: 'line', slots: ['line', 'rectangle', 'circle'] },
+      { id: 'blurGroup', primary: 'blur', slots: ['blur', 'circleBlur', 'glitchBlur'] }
+    ];
+
+    const storeDefault = (button, toolName) => {
+      if (!button || button.dataset.defaultHtml) return;
+      button.dataset.defaultTool = toolName;
+      button.dataset.defaultHtml = button.innerHTML;
+      button.dataset.defaultTitle = button.title || '';
+    };
+
+    const renderButton = (button, toolName) => {
+      const sourceButton = buttons[toolName];
+      if (!button || !sourceButton) return;
+      storeDefault(sourceButton, toolName);
+      button.dataset.tool = toolName;
+      button.innerHTML = sourceButton.dataset.defaultHtml || sourceButton.innerHTML;
+      button.title = sourceButton.dataset.defaultTitle || sourceButton.title || '';
+    };
+
+    for (const groupConfig of groups) {
+      const group = document.getElementById(groupConfig.id);
+      const primaryButton = buttons[groupConfig.primary];
+      if (!group || !primaryButton) continue;
+
+      for (const toolName of groupConfig.slots) {
+        storeDefault(buttons[toolName], toolName);
+      }
+
+      const activeTool = groupConfig.slots.includes(tool)
+        ? tool
+        : (group.dataset.activeTool || groupConfig.primary);
+      const inactiveTools = groupConfig.slots.filter(toolName => toolName !== activeTool);
+      const subgroupButtons = groupConfig.slots
+        .filter(toolName => toolName !== groupConfig.primary)
+        .map(toolName => buttons[toolName])
+        .filter(Boolean);
+
+      group.dataset.activeTool = activeTool;
+      renderButton(primaryButton, activeTool);
+      primaryButton.classList.toggle('selected', groupConfig.slots.includes(tool));
+
+      for (let i = 0; i < subgroupButtons.length; i++) {
+        renderButton(subgroupButtons[i], inactiveTools[i]);
+        subgroupButtons[i].classList.remove('selected');
       }
     }
   }

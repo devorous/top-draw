@@ -294,12 +294,13 @@ export class DrawingApp {
     });
 
     this.colorPicker = null;
-    this.colorPickerResizeObserver = null;
+    this.colorPickers = [];
+    this.colorPickerResizeObservers = [];
     this.primaryColor = [0, 0, 0, 1];
     this.secondaryColor = [255, 255, 255, 1];
     this.activeColorSlot = 'primary';
-    this.colorSlotElements = null;
-    this.colorPickerHexInput = null;
+    this.colorSlotElements = [];
+    this.colorPickerHexInputs = [];
 
     this.wsClient = new WebSocketClient({
       serverUrl: options.serverUrl,
@@ -308,7 +309,6 @@ export class DrawingApp {
     });
 
     this.self = null;
-    this.colorPicker = null;
     this.isOnBoard = false;
 
     this.remoteUserHandler = null;
@@ -602,9 +602,7 @@ export class DrawingApp {
     // Wire color input menu changes to sync with color wheel
     this.colorInputMenu.onColorChange = (rgba) => {
       const hsv = this.rgbToHsv(rgba[0], rgba[1], rgba[2]);
-      if (this.colorPicker) {
-        this.colorPicker.setColor(hsv);
-      }
+      this._setColorPickersColor(hsv);
     };
 
     this.initSelfFromUI();
@@ -939,8 +937,11 @@ export class DrawingApp {
    */
   setupColorPicker() {
     try {
-      const container = document.getElementById('colorPicker');
-      if (!container) {
+      const containers = [
+        document.getElementById('colorPicker'),
+        document.getElementById('boardColorPicker')
+      ].filter(Boolean);
+      if (!containers.length) {
         console.warn('[App] Color picker container #colorPicker not found');
         return;
       }
@@ -948,6 +949,10 @@ export class DrawingApp {
       let suppressChange = false;
       const parseColorValue = (value) => {
         if (Array.isArray(value)) {
+          if (value.length === 3) {
+            const rgb = this.hsvToRgb(value[0], value[1], value[2]);
+            return [rgb.r, rgb.g, rgb.b, this.self?.opacity ?? 1];
+          }
           return value;
         }
 
@@ -981,23 +986,23 @@ export class DrawingApp {
       };
 
       const syncHexInput = (rgba) => {
-        if (this.colorPickerHexInput) {
-          this.colorPickerHexInput.value = _rgbToHex(rgba[0], rgba[1], rgba[2]).toUpperCase();
-        }
+        this.colorPickerHexInputs?.forEach(input => {
+          input.value = _rgbToHex(rgba[0], rgba[1], rgba[2]).toUpperCase();
+        });
       };
 
-      const getWheelDiameter = () => {
+      const getWheelDiameter = (container) => {
         const bounds = container.getBoundingClientRect();
         const styles = getComputedStyle(container);
         const horizontalPadding = parseFloat(styles.paddingLeft || '0') + parseFloat(styles.paddingRight || '0');
         const availableWidth = Math.floor((bounds.width || container.clientWidth || 0) - horizontalPadding);
-        const maxDiameter = 200;
-        const minDiameter = 120;
+        const maxDiameter = container.classList.contains('boardColorPicker') ? 160 : 200;
+        const minDiameter = container.classList.contains('boardColorPicker') ? 44 : 120;
         return Math.max(minDiameter, Math.min(maxDiameter, availableWidth));
       };
 
-      const getWheelMetrics = () => {
-        const diameter = getWheelDiameter();
+      const getWheelMetrics = (container) => {
+        const diameter = getWheelDiameter(container);
         const scale = diameter / 200;
         return {
           diameter,
@@ -1006,111 +1011,137 @@ export class DrawingApp {
         };
       };
 
-      container.innerHTML = '';
-      this._setupColorSlotControls(container);
-      this._setupColorPickerHexInput(container);
+      this.colorPickerResizeObservers?.forEach(observer => observer?.disconnect());
+      this.colorPickerResizeObservers = [];
+      this.colorPickers = [];
+      this.colorSlotElements = [];
+      this.colorPickerHexInputs = [];
+
       this.primaryColor = this.self?.color ? [...this.self.color] : [0, 0, 0, 1];
       this.activeColorSlot = 'primary';
+      containers.forEach(container => {
+        container.innerHTML = '';
+        if (!container.classList.contains('boardColorPicker')) {
+          this._setupColorSlotControls(container);
+          this._setupColorPickerHexInput(container);
+        }
+
+        const initialMetrics = getWheelMetrics(container);
+        const wheel = new ColorWheel({
+          appendTo: container,
+          rgb: this.self?.color ? this.self.color.slice(0, 3) : [0, 0, 0],
+          wheelDiameter: initialMetrics.diameter,
+          wheelThickness: initialMetrics.thickness,
+          handleDiameter: initialMetrics.handleDiameter,
+          wheelReflectsSaturation: false,
+          onChange: (color) => {
+            if (suppressChange) return;
+
+            const rgb = this.hsvToRgb(color.hsv[0], color.hsv[1], color.hsv[2]);
+            const opacity = this.ui.elements.opacitySlider?.value ? parseInt(this.ui.elements.opacitySlider.value) / 100 : 1;
+            const rgba = [rgb.r, rgb.g, rgb.b, opacity];
+
+            this.commitSelfEraserSegment(this.self.pressure, this.self.size, opacity);
+            this.self.setColor(rgba);
+            this.self.setOpacity(opacity);
+            this._syncActiveColorSlot(rgba);
+            syncHexInput(rgba);
+            this.ui.updateSelfColor(rgba);
+            this.ui.updateSelfTextStyle(this.self.size, rgba, this.self.font);
+            this.ui.updateopacityValue(opacity);
+
+            const { elements } = this.ui;
+            if (elements.opacitySlider) {
+              elements.opacitySlider.value = opacity * 100;
+            }
+
+            if (this.colorInputMenu) {
+              this.colorInputMenu.updateColor(rgba);
+            }
+
+            const patternTool = this.toolManager.getTool('pattern');
+            if (patternTool) {
+              patternTool._tileCache.clear();
+              patternTool.updatePreview(this.self);
+            }
+
+            const imageBrushTool = this.toolManager.getTool('imageBrush');
+            if (imageBrushTool) imageBrushTool._tintCache.clear();
+
+            const fillTool = this.toolManager.getTool('fill');
+            if (fillTool && fillTool._patternTileCache) {
+              fillTool._patternTileCache.clear();
+            }
+
+            const selectTool = this.toolManager.getTool('select');
+            if (selectTool && selectTool._patternTileCache) {
+              selectTool._patternTileCache.clear();
+            }
+
+            this._setColorPickersColor(rgba, { source: wheel, silent: true });
+
+            if (this.connected) {
+              this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(rgba));
+            }
+          }
+        });
+
+        wheel.element = wheel.rootElement;
+        wheel.setColor = (value, silent = false) => {
+          const rgba = parseColorValue(value);
+          if (!rgba) {
+            console.warn('[App] Unsupported color picker value:', value);
+            return;
+          }
+
+          suppressChange = silent;
+          if (Array.isArray(value) && value.length === 3) {
+            wheel.hsv = value;
+          } else {
+            wheel.rgb = rgba.slice(0, 3);
+          }
+          suppressChange = false;
+          this._syncActiveColorSlot(rgba);
+          syncHexInput(rgba);
+        };
+
+        const resizeWheel = () => {
+          const nextMetrics = getWheelMetrics(container);
+          if (
+            nextMetrics.diameter === wheel.wheelDiameter &&
+            nextMetrics.thickness === wheel.wheelThickness &&
+            nextMetrics.handleDiameter === wheel.handleDiameter
+          ) return;
+
+          wheel.wheelDiameter = nextMetrics.diameter;
+          wheel.wheelThickness = nextMetrics.thickness;
+          wheel.handleDiameter = nextMetrics.handleDiameter;
+          wheel.redraw();
+        };
+
+        if (typeof ResizeObserver !== 'undefined') {
+          const observer = new ResizeObserver(() => resizeWheel());
+          observer.observe(container);
+          this.colorPickerResizeObservers.push(observer);
+        }
+
+        this.colorPickers.push(wheel);
+      });
+
+      this.colorPicker = this.colorPickers[0] ?? null;
       this._syncActiveColorSlot(this.primaryColor);
       this._updateColorSlotUI();
       syncHexInput(this.primaryColor);
-      const initialMetrics = getWheelMetrics();
-      const wheel = new ColorWheel({
-        appendTo: container,
-        rgb: this.self?.color ? this.self.color.slice(0, 3) : [0, 0, 0],
-        wheelDiameter: initialMetrics.diameter,
-        wheelThickness: initialMetrics.thickness,
-        handleDiameter: initialMetrics.handleDiameter,
-        wheelReflectsSaturation: false,
-        onChange: (color) => {
-          if (suppressChange) return;
-
-          const rgb = this.hsvToRgb(color.hsv[0], color.hsv[1], color.hsv[2]);
-          const opacity = this.ui.elements.opacitySlider?.value ? parseInt(this.ui.elements.opacitySlider.value) / 100 : 1;
-          const rgba = [rgb.r, rgb.g, rgb.b, opacity];
-
-          this.commitSelfEraserSegment(this.self.pressure, this.self.size, opacity);
-          this.self.setColor(rgba);
-          this.self.setOpacity(opacity);
-          this._syncActiveColorSlot(rgba);
-          syncHexInput(rgba);
-          this.ui.updateSelfColor(rgba);
-          this.ui.updateSelfTextStyle(this.self.size, rgba, this.self.font);
-          this.ui.updateopacityValue(opacity);
-
-          const { elements } = this.ui;
-          if (elements.opacitySlider) {
-            elements.opacitySlider.value = opacity * 100;
-          }
-
-          if (this.colorInputMenu) {
-            this.colorInputMenu.updateColor(rgba);
-          }
-
-          const patternTool = this.toolManager.getTool('pattern');
-          if (patternTool) {
-            patternTool._tileCache.clear();
-            patternTool.updatePreview(this.self);
-          }
-
-          const imageBrushTool = this.toolManager.getTool('imageBrush');
-          if (imageBrushTool) imageBrushTool._tintCache.clear();
-
-          const fillTool = this.toolManager.getTool('fill');
-          if (fillTool && fillTool._patternTileCache) {
-            fillTool._patternTileCache.clear();
-          }
-
-          const selectTool = this.toolManager.getTool('select');
-          if (selectTool && selectTool._patternTileCache) {
-            selectTool._patternTileCache.clear();
-          }
-
-          if (this.connected) {
-            this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(rgba));
-          }
-        }
-      });
-
-      wheel.element = wheel.rootElement;
-      wheel.setColor = (value, silent = false) => {
-        const rgba = parseColorValue(value);
-        if (!rgba) {
-          console.warn('[App] Unsupported color picker value:', value);
-          return;
-        }
-
-        suppressChange = silent;
-        wheel.rgb = rgba.slice(0, 3);
-        suppressChange = false;
-        this._syncActiveColorSlot(rgba);
-        syncHexInput(rgba);
-      };
-
-      const resizeWheel = () => {
-        const nextMetrics = getWheelMetrics();
-        if (
-          nextMetrics.diameter === wheel.wheelDiameter &&
-          nextMetrics.thickness === wheel.wheelThickness &&
-          nextMetrics.handleDiameter === wheel.handleDiameter
-        ) return;
-
-        wheel.wheelDiameter = nextMetrics.diameter;
-        wheel.wheelThickness = nextMetrics.thickness;
-        wheel.handleDiameter = nextMetrics.handleDiameter;
-        wheel.redraw();
-      };
-
-      this.colorPickerResizeObserver?.disconnect();
-      if (typeof ResizeObserver !== 'undefined') {
-        this.colorPickerResizeObserver = new ResizeObserver(() => resizeWheel());
-        this.colorPickerResizeObserver.observe(container);
-      }
-
-      this.colorPicker = wheel;
+      this._setupBoardColorPickerPanel();
     } catch (err) {
       console.error('[App] Failed to setup color picker:', err);
     }
+  }
+
+  _setColorPickersColor(value, { source = null, silent = true } = {}) {
+    this.colorPickers?.forEach(picker => {
+      if (picker && picker !== source) picker.setColor(value, silent);
+    });
   }
 
   _setupColorSlotControls(container) {
@@ -1130,12 +1161,12 @@ export class DrawingApp {
     swapButton.addEventListener('click', () => this.swapColorSlots());
 
     container.prepend(controls);
-    this.colorSlotElements = {
+    this.colorSlotElements.push({
       controls,
       primaryButton,
       secondaryButton,
       swapButton
-    };
+    });
   }
 
   _setupColorPickerHexInput(container) {
@@ -1144,7 +1175,7 @@ export class DrawingApp {
     const field = document.createElement('div');
     field.className = 'colorPickerHexField';
     field.innerHTML = `
-      <input id="colorPickerHexInput" type="text" inputmode="text" maxlength="6" spellcheck="false" autocomplete="off">
+      <input class="colorPickerHexInput" type="text" inputmode="text" maxlength="6" spellcheck="false" autocomplete="off">
     `;
 
     const input = field.querySelector('input');
@@ -1184,7 +1215,7 @@ export class DrawingApp {
     });
 
     container.prepend(field);
-    this.colorPickerHexInput = input;
+    this.colorPickerHexInputs.push(input);
   }
 
   _syncActiveColorSlot(rgba) {
@@ -1198,12 +1229,14 @@ export class DrawingApp {
   }
 
   _updateColorSlotUI() {
-    if (!this.colorSlotElements) return;
+    if (!this.colorSlotElements?.length) return;
 
-    this.colorSlotElements.primaryButton.style.backgroundColor = `rgba(${this.primaryColor.join(',')})`;
-    this.colorSlotElements.secondaryButton.style.backgroundColor = `rgba(${this.secondaryColor.join(',')})`;
-    this.colorSlotElements.primaryButton.classList.toggle('active', this.activeColorSlot === 'primary');
-    this.colorSlotElements.secondaryButton.classList.toggle('active', this.activeColorSlot === 'secondary');
+    this.colorSlotElements.forEach(elements => {
+      elements.primaryButton.style.backgroundColor = `rgba(${this.primaryColor.join(',')})`;
+      elements.secondaryButton.style.backgroundColor = `rgba(${this.secondaryColor.join(',')})`;
+      elements.primaryButton.classList.toggle('active', this.activeColorSlot === 'primary');
+      elements.secondaryButton.classList.toggle('active', this.activeColorSlot === 'secondary');
+    });
   }
 
   selectColorSlot(slot) {
@@ -1220,6 +1253,90 @@ export class DrawingApp {
     const currentSlot = this.activeColorSlot;
     this._updateColorSlotUI();
     this.selectColorSlot(currentSlot);
+  }
+
+  _setupBoardColorPickerPanel() {
+    const panel = document.getElementById('boardColorPickerPanel');
+    const dragHandle = panel?.querySelector('.boardColorPickerDragHandle');
+    const scaleHandle = panel?.querySelector('.boardColorPickerScaleHandle');
+    if (!panel || !dragHandle || !scaleHandle || panel.dataset.bound === 'true') return;
+
+    panel.dataset.bound = 'true';
+    const clampPanel = (left, top, width = panel.offsetWidth) => {
+      const host = this.ui?.elements?.boardContainer || panel.parentElement;
+      const rect = host.getBoundingClientRect();
+      const height = panel.offsetHeight || 220;
+      const margin = 1;
+      return {
+        left: Math.max(margin, Math.min(left, rect.width - width - margin)),
+        top: Math.max(margin, Math.min(top, rect.height - height - margin))
+      };
+    };
+
+    dragHandle.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      dragHandle.setPointerCapture?.(event.pointerId);
+
+      const startLeft = panel.offsetLeft;
+      const startTop = panel.offsetTop;
+      const startX = event.clientX;
+      const startY = event.clientY;
+
+      const move = (moveEvent) => {
+        const next = clampPanel(startLeft + moveEvent.clientX - startX, startTop + moveEvent.clientY - startY);
+        panel.style.left = `${next.left}px`;
+        panel.style.top = `${next.top}px`;
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+      };
+      const up = () => {
+        dragHandle.removeEventListener('pointermove', move);
+        dragHandle.removeEventListener('pointerup', up);
+        dragHandle.removeEventListener('pointercancel', up);
+      };
+
+      dragHandle.addEventListener('pointermove', move);
+      dragHandle.addEventListener('pointerup', up);
+      dragHandle.addEventListener('pointercancel', up);
+    });
+
+    scaleHandle.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      scaleHandle.setPointerCapture?.(event.pointerId);
+
+      const host = this.ui?.elements?.boardContainer || panel.parentElement;
+      const hostRect = host.getBoundingClientRect();
+      const panelRect = panel.getBoundingClientRect();
+      const startWidth = panel.offsetWidth;
+      const startRight = Math.max(1, hostRect.right - panelRect.right);
+      const startBottom = Math.max(1, hostRect.bottom - panelRect.bottom);
+      const startX = event.clientX;
+      const startY = event.clientY;
+
+      const move = (moveEvent) => {
+        const deltaX = moveEvent.clientX - startX;
+        const deltaY = moveEvent.clientY - startY;
+        const delta = (deltaX + deltaY) / 2;
+        const maxWidth = Math.max(96, Math.min(236, hostRect.width - startRight - 1));
+        const nextWidth = Math.max(96, Math.min(maxWidth, startWidth - delta));
+        panel.style.width = `${nextWidth}px`;
+        panel.style.left = 'auto';
+        panel.style.top = 'auto';
+        panel.style.right = `${startRight}px`;
+        panel.style.bottom = `${startBottom}px`;
+      };
+      const up = () => {
+        scaleHandle.removeEventListener('pointermove', move);
+        scaleHandle.removeEventListener('pointerup', up);
+        scaleHandle.removeEventListener('pointercancel', up);
+      };
+
+      scaleHandle.addEventListener('pointermove', move);
+      scaleHandle.addEventListener('pointerup', up);
+      scaleHandle.addEventListener('pointercancel', up);
+    });
   }
 
   /**
@@ -1288,6 +1405,67 @@ export class DrawingApp {
     }
 
     return [h * 360, s * 100, v * 100];
+  }
+
+  setupToolGroupMenus() {
+    const groups = Array.from(document.querySelectorAll('.toolGroup'));
+    if (groups.length === 0) return;
+
+    const closeGroups = (except = null) => {
+      for (const group of groups) {
+        if (group === except) continue;
+        group.classList.remove('is-open');
+        group.classList.remove('is-suppressed');
+      }
+    };
+
+    for (const group of groups) {
+      const subgroup = group.querySelector('.toolSubgroup');
+      if (!subgroup) continue;
+
+      group.addEventListener('pointerdown', (event) => {
+        group.dataset.wasOpenOnPress = group.classList.contains('is-open') ? 'true' : 'false';
+        group.classList.remove('is-suppressed');
+        closeGroups(group);
+        if (event.pointerType !== 'mouse') {
+          group.classList.add('is-open');
+        }
+      });
+
+      group.addEventListener('click', (event) => {
+        const clickedSubgroupTool = event.target.closest('.toolSubgroup .tool.btn');
+        const clickedPrimaryTool = event.target.closest('.toolGroup > .tool.btn');
+        if (clickedSubgroupTool || (clickedPrimaryTool && group.dataset.wasOpenOnPress === 'true')) {
+          closeGroups();
+          group.classList.add('is-suppressed');
+        }
+      });
+
+      group.addEventListener('pointerleave', () => {
+        group.classList.remove('is-suppressed');
+      });
+    }
+
+    document.addEventListener('pointerdown', (event) => {
+      const path = event.composedPath?.() ?? [];
+      const insideToolGroup = path.some((node) => node instanceof Element && node.classList?.contains('toolGroup'));
+      if (!insideToolGroup) {
+        closeGroups();
+      }
+    }, true);
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeGroups();
+    });
+  }
+
+  getToolGroupActiveTool(groupId, fallbackTool) {
+    const group = document.getElementById(groupId);
+    return group?.dataset.activeTool || fallbackTool;
+  }
+
+  getRenderedTool(button, fallbackTool) {
+    return button?.dataset.tool || fallbackTool;
   }
 
   /**
@@ -1370,22 +1548,24 @@ export class DrawingApp {
       }
     }
 
-    elements.panBtn.addEventListener('click', () => this.selectTool('pan'));
-    elements.zoomBtn.addEventListener('click', () => this.selectTool('zoom'));
-    elements.rotateBtn.addEventListener('click', () => this.selectTool('rotate'));
+    this.setupToolGroupMenus();
+
+    elements.panBtn.addEventListener('click', () => this.selectTool(this.getToolGroupActiveTool('moveGroup', 'pan')));
+    elements.zoomBtn.addEventListener('click', () => this.selectTool(this.getRenderedTool(elements.zoomBtn, 'zoom')));
+    elements.rotateBtn.addEventListener('click', () => this.selectTool(this.getRenderedTool(elements.rotateBtn, 'rotate')));
     elements.selectBtn.addEventListener('click', () => this.selectTool('select'));
     elements.brushBtn.addEventListener('click', () => {
       this.selectTool(this.brushModeManager.getCurrentToolName());
     });
-    elements.lineBtn.addEventListener('click', () => this.selectTool('line'));
-    elements.rectangleBtn.addEventListener('click', () => this.selectTool('rectangle'));
-    elements.circleBtn.addEventListener('click', () => this.selectTool('circle'));
+    elements.lineBtn.addEventListener('click', () => this.selectTool(this.getToolGroupActiveTool('shapesGroup', 'line')));
+    elements.rectangleBtn.addEventListener('click', () => this.selectTool(this.getRenderedTool(elements.rectangleBtn, 'rectangle')));
+    elements.circleBtn.addEventListener('click', () => this.selectTool(this.getRenderedTool(elements.circleBtn, 'circle')));
     elements.textBtn.addEventListener('click', () => this.selectTool('text'));
     elements.fillBtn.addEventListener('click', () => this.selectTool('fill'));
     elements.eraseBtn.addEventListener('click', () => this.selectTool('erase'));
-    elements.blurBtn.addEventListener('click', () => this.selectTool('blur'));
-    elements.circleBlurBtn.addEventListener('click', () => this.selectTool('circleBlur'));
-    elements.glitchBlurBtn.addEventListener('click', () => this.selectTool('glitchBlur'));
+    elements.blurBtn.addEventListener('click', () => this.selectTool(this.getToolGroupActiveTool('blurGroup', 'blur')));
+    elements.circleBlurBtn.addEventListener('click', () => this.selectTool(this.getRenderedTool(elements.circleBlurBtn, 'circleBlur')));
+    elements.glitchBlurBtn.addEventListener('click', () => this.selectTool(this.getRenderedTool(elements.glitchBlurBtn, 'glitchBlur')));
     elements.imageBrushBtn.addEventListener('click', () => this.selectTool('imageBrush'));
     if (elements.patternBtn) {
       elements.patternBtn.addEventListener('click', () => this.selectTool('pattern'));
@@ -1419,13 +1599,13 @@ export class DrawingApp {
     // Moderation._injectModUI() when the user's role is confirmed as mod+.
     // Their event listeners are wired there, not here.
 
-    bindPressAction(elements.resetBtn, () => this.handleResetBoard());
+    if (elements.resetBtn) bindPressAction(elements.resetBtn, () => this.handleResetBoard());
+    bindPressAction(elements.zoomResetBtn || elements.zoomPercent, () => this.handleResetBoard());
     bindPressAction(elements.flipCanvasBtn, () => this.handleToggleCanvasFlip());
     bindPressAction(elements.mirrorBtn, () => this.handleToggleMirror());
     if (elements.undoBtn) elements.undoBtn.addEventListener('click', () => this.handleUndo());
     elements.plusBtn.addEventListener('click', () => this.handleZoomIn());
     elements.minusBtn.addEventListener('click', () => this.handleZoomOut());
-    elements.rotationResetBtn.addEventListener('click', () => this.handleResetBoard());
     elements.saveBtn.addEventListener('click', () => {
       if (appState.snapshotMenuVisible && this.snapshotPreviewCanvas) {
         this.openSaveDialogForCanvas(this.snapshotPreviewCanvas);
@@ -1824,7 +2004,7 @@ export class DrawingApp {
         const currentColor = [...this.self.color];
         currentColor[3] = opacity;
         this.self.setColor(currentColor);
-        this.colorPicker.setColor(`rgba(${currentColor.join(',')})`);
+        this._setColorPickersColor(`rgba(${currentColor.join(',')})`);
         if (this.connected) {
           this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(currentColor));
         }
@@ -4873,7 +5053,7 @@ export class DrawingApp {
 
     // Update color picker to match
     this.self.setColor(currentColor);
-    this.colorPicker.setColor(`rgba(${currentColor.join(',')})`);
+    this._setColorPickersColor(`rgba(${currentColor.join(',')})`);
     appState.currentColor = [...currentColor];
     this.updateCurrentToolPresetSettings();
   }
@@ -5164,9 +5344,7 @@ export class DrawingApp {
     this.ui.updateopacityValue(color[3]);
 
     // Update the color picker to match
-    if (this.colorPicker) {
-      this.colorPicker.setColor(`rgba(${color.join(',')})`);
-    }
+    this._setColorPickersColor(`rgba(${color.join(',')})`);
 
     // Update pattern tools when color changes (for tinted color modes)
     const patternTool = this.toolManager.getTool('pattern');
@@ -5285,9 +5463,7 @@ export class DrawingApp {
     this.ui.updateopacityValue(rgba[3]);
 
     // Update the color picker to match
-    if (this.colorPicker) {
-      this.colorPicker.setColor(rgba);
-    }
+    this._setColorPickersColor(rgba);
 
     // Update pattern tools when color changes (for tinted color modes)
     const patternTool = this.toolManager.getTool('pattern');

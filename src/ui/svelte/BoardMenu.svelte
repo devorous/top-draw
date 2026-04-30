@@ -62,9 +62,19 @@
     if (onBlendModeChange) onBlendModeChange(mode);
   }
 
+  function handleBlendModeClick(event, mode) {
+    event.stopPropagation();
+    selectBlendMode(mode);
+  }
+
   function selectBlendBakeMode(mode) {
     appState.blendBakeMode = mode === 'background' ? 'background' : 'existing';
     if (onBlendBakeModeChange) onBlendBakeModeChange(appState.blendBakeMode);
+  }
+
+  function handleBlendBakeModeClick(event, mode) {
+    event.stopPropagation();
+    selectBlendBakeMode(mode);
   }
 
   function toggleBlendModeLock(event) {
@@ -136,7 +146,12 @@
     </button>
 
     {#if appState.boardMenuOpen === 'layers'}
-      <div class="layer-dropdown">
+      <div
+        class="layer-dropdown"
+        onclick={(e) => e.stopPropagation()}
+        onpointerdown={(e) => e.stopPropagation()}
+        onpointerup={(e) => e.stopPropagation()}
+      >
         {#each layers as layer}
           <div class="layer-row">
             <button
@@ -201,7 +216,6 @@
       class="blend-btn"
       class:open={appState.boardMenuOpen === 'blend'}
       onclick={() => toggleMenu('blend')}
-      onpointerup={(e) => e.pointerType !== 'mouse' && toggleMenu('blend')}
       title="Blend Mode"
     >
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -212,7 +226,12 @@
     </button>
 
     {#if appState.boardMenuOpen === 'blend'}
-      <div class="blend-dropdown">
+      <div
+        class="blend-dropdown"
+        onclick={(e) => e.stopPropagation()}
+        onpointerdown={(e) => e.stopPropagation()}
+        onpointerup={(e) => e.stopPropagation()}
+      >
         <div class="blend-dropdown-header">
           <span>{blendModes.find(m => m.value === appState.blendMode)?.label ?? 'Normal'}</span>
           <button
@@ -234,16 +253,14 @@
         <div class="blend-bake-toggle" role="group" aria-label="Blend bake mode">
           <button
             class:active={appState.blendBakeMode === 'background'}
-            onclick={() => selectBlendBakeMode('background')}
-            onpointerup={(e) => e.pointerType !== 'mouse' && selectBlendBakeMode('background')}
+            onclick={(e) => handleBlendBakeModeClick(e, 'background')}
             title="Blend strokes bake against the room background"
           >
             BG
           </button>
           <button
             class:active={appState.blendBakeMode === 'existing'}
-            onclick={() => selectBlendBakeMode('existing')}
-            onpointerup={(e) => e.pointerType !== 'mouse' && selectBlendBakeMode('existing')}
+            onclick={(e) => handleBlendBakeModeClick(e, 'existing')}
             title="Blend strokes only affect existing pixels"
           >
             Existing
@@ -253,8 +270,7 @@
           <button
             class="blend-option"
             class:active={appState.blendMode === mode.value}
-            onclick={() => selectBlendMode(mode.value)}
-            onpointerup={(e) => e.pointerType !== 'mouse' && selectBlendMode(mode.value)}
+            onclick={(e) => handleBlendModeClick(e, mode.value)}
           >
             {mode.label}
           </button>
@@ -281,6 +297,13 @@
 </div>
 
 <style>
+  :global(#boardMenu) {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    pointer-events: none;
+  }
+
   .board-menu {
     position: absolute;
     top: 60px;
@@ -289,7 +312,7 @@
     flex-direction: column;
     align-items: flex-end;
     gap: 1px;
-    z-index: 50;
+    z-index: 1;
     pointer-events: all;
   }
 
@@ -379,7 +402,9 @@
     position: absolute;
     top: calc(100% + 4px);
     right: 0;
+    z-index: 1;
     min-width: 130px;
+    max-width: calc(100vw - 24px);
     background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
     border: 1px solid var(--border-subtle);
     border-radius: 7px;
@@ -465,9 +490,8 @@
   .layer-dropdown-btn {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 8px;
-    width: 100%;
     height: 28px;
     padding: 0 8px;
     background: color-mix(in srgb, var(--surface-glass) 78%, transparent);
@@ -496,7 +520,9 @@
     position: absolute;
     top: calc(100% + 4px);
     right: 0;
+    z-index: 2;
     min-width: 112px;
+    max-width: calc(100vw - 24px);
     background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
     border: 1px solid var(--border-subtle);
     border-radius: 7px;
@@ -577,7 +603,6 @@
   @media (max-width: 700px), (hover: none) and (pointer: coarse) {
     .layer-dropdown-wrap {
       display: block;
-      width: 112px;
     }
 
     .layer-list {
@@ -597,7 +622,6 @@
   /* ── History ── */
   .history-wrap {
     margin-top: 4px;
-    width: 100%;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -617,7 +641,6 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    width: 100%;
   }
 
   .history-btn {
@@ -627,7 +650,6 @@
     gap: 8px;
     height: 24px;
     padding: 0 8px;
-    width: 100%;
     background: color-mix(in srgb, var(--surface-glass) 78%, transparent);
     border: none;
     border-radius: 5px;

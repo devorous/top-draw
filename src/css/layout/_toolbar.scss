@@ -12,7 +12,7 @@
   background: var(--surface-glass);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-subtle);
-  z-index: 900;
+  z-index: 940;
   position: relative;
   flex-wrap: nowrap;
   
@@ -179,10 +179,6 @@
   flex-shrink: 0;
 }
 
-#rotationResetBtn {
-  font-size: 14px;
-}
-
 .mirrorOption,
 .devOption,
 .zoomPercent {
@@ -191,6 +187,11 @@
   font-weight: 500;
   color: var(--text-secondary);
   white-space: nowrap;
+}
+
+.zoomPercent {
+  min-width: 42px;
+  font-variant-numeric: tabular-nums;
 }
 
 .devOption {
@@ -206,8 +207,41 @@
   display: flex;
   gap: var(--space-2);
   align-items: center;
-  flex-shrink: 0;
+  flex: 1 1 auto;
   min-width: 0;
+  justify-content: flex-end;
+}
+
+.topbarScrollableActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent-primary) 58%, transparent) transparent;
+}
+
+.topbarScrollableActions::-webkit-scrollbar {
+  height: 6px;
+}
+
+.topbarScrollableActions::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.topbarScrollableActions::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--accent-primary) 58%, transparent);
+  border-radius: 999px;
+}
+
+.topbarScrollableActions > * {
+  flex-shrink: 0;
+}
+
+#disconnectBtn {
+  flex-shrink: 0;
 }
 
 #chatBtn,
@@ -276,7 +310,7 @@
 }
 
 .boardBtns.force-right-icon-collapse {
-  @include toolbar-icon-collapse('.saveUploadGroup .btn, #inboxBtn, #disconnectBtn, #roomSettingsBtn');
+  @include toolbar-icon-collapse('.saveUploadGroup .btn, #inboxBtn, #roomSettingsBtn, #disconnectBtn');
 
   #chatBtn .btnIcon img {
     width: 24px;
@@ -286,6 +320,11 @@
   #inboxBtn .btnIcon img {
     width: 18px;
     height: 18px;
+  }
+
+  #roomSettingsBtn .btnIcon svg,
+  #roomSettingsBtn .btnIcon path {
+    fill: var(--accent-primary);
   }
 }
 
@@ -309,7 +348,7 @@
     border-radius: var(--radius-md);
     padding: var(--space-3);
     box-shadow: var(--shadow-lg);
-    z-index: 910;
+    z-index: 1200;
     align-items: stretch;
     min-width: 180px;
     gap: var(--space-3);
@@ -378,7 +417,7 @@
     border-radius: var(--radius-md);
     padding: var(--space-3);
     box-shadow: var(--shadow-lg);
-    z-index: 910;
+    z-index: 1200;
     align-items: stretch;
     min-width: 180px;
     gap: var(--space-3);
@@ -431,7 +470,7 @@
 
 // Breakpoint for condensing text to icons (e.g., Save/Upload/Chat/Exit)
 @include respond-below(lg) {
-  @include toolbar-icon-collapse('.saveUploadGroup .btn, #inboxBtn, #disconnectBtn, #roomSettingsBtn');
+  @include toolbar-icon-collapse('.saveUploadGroup .btn, #inboxBtn, #roomSettingsBtn, #disconnectBtn');
 
   #chatBtn .btnIcon img {
     width: 24px;
@@ -441,6 +480,11 @@
   #inboxBtn .btnIcon img {
     width: 18px;
     height: 18px;
+  }
+
+  #roomSettingsBtn .btnIcon svg,
+  #roomSettingsBtn .btnIcon path {
+    fill: var(--accent-primary);
   }
 }
 
@@ -458,10 +502,28 @@
   }
   
   .zoomGroup {
+    position: fixed;
+    top: 42px;
+    left: 92px;
+    z-index: 920;
     gap: var(--space-1);
+    padding: 2px;
+    background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(10px);
+  }
+
+  body.desktop-window-chrome .zoomGroup {
+    top: calc(var(--desktop-titlebar-height) + 42px);
   }
   
   .right {
+    gap: var(--space-1);
+  }
+
+  .topbarScrollableActions {
     gap: var(--space-1);
   }
   
