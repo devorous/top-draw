@@ -4851,7 +4851,7 @@ export class DrawingApp {
       <button type="button" class="menuItem deityOnly" data-action="promoteNoble">Promote Noble</button>
       <button type="button" class="menuItem deityOnly" data-action="promoteHoly">Promote Holy</button>
       <button type="button" class="menuItem deityOnly" data-action="demoteGlobal">Demote Global</button>
-      <button type="button" class="menuItem deityOnly" data-action="shadowban">Shadowban</button>
+      <button type="button" class="menuItem holyOrDeityOnly" data-action="shadowban">Shadowban</button>
     `;
     document.body.appendChild(menu);
     this.ui.elements.userContextMenu = menu;

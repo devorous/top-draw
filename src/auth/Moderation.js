@@ -66,6 +66,10 @@ export class Moderation {
     return this.localRole >= 9;  // DEITY(9) only
   }
 
+  isHolyOrDeity() {
+    return this.localRole >= 8;  // HOLY(8)+
+  }
+
   canManageRoomRoles() {
     return this.localRole >= 5;  // ADMIN(5)+
   }
@@ -87,6 +91,7 @@ export class Moderation {
       case 'wipe':
         return this.canKickBanOrWipe();
       case 'shadowban':
+        return !isGroup && this.isHolyOrDeity();
       case 'promoteNoble':
       case 'promoteHoly':
       case 'demoteGlobal':
@@ -108,6 +113,18 @@ export class Moderation {
     return names[role] || 'Guest';
   }
 
+  static roleClass(role) {
+    if (role >= 9) return 'rank-deity';
+    if (role >= 8) return 'rank-holy';
+    if (role >= 7) return 'rank-noble';
+    if (role >= 5) return 'rank-admin';
+    if (role >= 4) return 'rank-mod';
+    if (role >= 3) return 'rank-helper';
+    if (role >= 2) return 'rank-trusted';
+    if (role >= 1) return 'rank-user';
+    return 'rank-guest';
+  }
+
   _ensureContextMenuInfo(menu) {
     let info = menu.querySelector('.menuInfo');
     if (info) return info;
@@ -123,7 +140,10 @@ export class Moderation {
     const rows = [];
 
     if (targetUser) {
-      rows.push({ label: 'Role', value: Moderation.roleName(targetUser.role || 0) });
+      const role = targetUser.role || 0;
+      const roleName = Moderation.roleName(role);
+      const targetName = targetUser.username || targetUser.name || targetUser.registeredName || 'Unknown';
+      rows.push({ value: `${roleName} ${targetName}`, className: `menuInfoName ${Moderation.roleClass(role)}` });
       if (targetUser.visibleIp) {
         rows.push({ label: 'IP', value: targetUser.visibleIp });
       }
@@ -131,8 +151,8 @@ export class Moderation {
       rows.push({ label: 'Group', value: ipHash });
     }
 
-    info.innerHTML = rows.map(({ label, value }) => (
-      `<div class="menuInfoRow"><span class="menuInfoLabel">${label}</span><span class="menuInfoValue">${this.escapeHtml(String(value || ''))}</span></div>`
+    info.innerHTML = rows.map(({ label, value, className = '' }) => (
+      `<div class="menuInfoRow">${label ? `<span class="menuInfoLabel">${this.escapeHtml(label)}</span>` : ''}<span class="menuInfoValue ${this.escapeHtml(className)}">${this.escapeHtml(String(value || ''))}</span></div>`
     )).join('');
     info.style.display = rows.length > 0 ? 'flex' : 'none';
   }
@@ -314,6 +334,7 @@ export class Moderation {
     const isGroup = ipHash && !targetSessionIndex && targetSessionIndex !== 0;
     const isRegistered = targetUser && (targetUser.registeredName || targetUser.role >= 1);
     const isDeity = this.localRole >= 9;
+    const isHolyOrDeity = this.localRole >= 8;
 
     this._renderContextMenuInfo(menu, targetUser, ipHash);
 
@@ -329,6 +350,7 @@ export class Moderation {
         (!item.classList.contains('group-only') || isGroup) &&
         (!item.classList.contains('registered-only') || isRegistered) &&
         (!item.classList.contains('deityOnly') || isDeity) &&
+        (!item.classList.contains('holyOrDeityOnly') || isHolyOrDeity) &&
         (!action || this.canUseMenuAction(action, targetUser, isGroup));
 
       item.style.display = visible ? '' : 'none';

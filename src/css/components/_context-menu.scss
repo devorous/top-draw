@@ -82,6 +82,33 @@
     color: var(--text-primary);
     word-break: break-word;
   }
+
+  .menuInfoName {
+    font-size: 14px;
+    font-weight: 700;
+
+    &.rank-guest { color: var(--role-guest); }
+    &.rank-user { color: var(--role-user); }
+    &.rank-trusted { color: var(--role-trusted); }
+    &.rank-helper { color: var(--role-helper); }
+    &.rank-mod { color: var(--role-mod); }
+    &.rank-admin { color: var(--role-admin); }
+
+    &.rank-noble {
+      color: var(--role-noble);
+      text-shadow: 0 0 6px color-mix(in srgb, var(--role-noble), transparent 65%);
+    }
+
+    &.rank-holy {
+      color: var(--role-holy);
+      text-shadow: 0 0 6px color-mix(in srgb, var(--role-holy), transparent 60%);
+    }
+
+    &.rank-deity {
+      color: var(--role-deity);
+      text-shadow: 0 0 8px color-mix(in srgb, var(--role-deity), transparent 40%);
+    }
+  }
 }
 
 /* ========================================
