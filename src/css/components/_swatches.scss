@@ -130,6 +130,39 @@
   z-index: 2;
 }
 
+.colorPickerPopoutButton {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-secondary) 94%, black);
+  color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
+  cursor: pointer;
+  box-shadow: 0 1px 4px color-mix(in srgb, black 28%, transparent);
+  display: grid;
+  place-items: center;
+  transition: transform var(--transition-fast), color var(--transition-fast), background var(--transition-fast), opacity var(--transition-fast);
+  z-index: 3;
+}
+
+.colorPickerPopoutButton:hover {
+  transform: translateY(-1px);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, black);
+}
+
+.colorPickerPopoutButton:active {
+  transform: translateY(0);
+}
+
+.colorPickerPopoutButton svg {
+  display: block;
+}
+
 .colorPickerHexField input {
   width: 76px;
   padding: 4px 6px;

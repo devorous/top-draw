@@ -1024,6 +1024,7 @@ export class DrawingApp {
         if (!container.classList.contains('boardColorPicker')) {
           this._setupColorSlotControls(container);
           this._setupColorPickerHexInput(container);
+          this._setupColorPickerPopoutButton(container);
         }
 
         const initialMetrics = getWheelMetrics(container);
@@ -1132,7 +1133,6 @@ export class DrawingApp {
       this._syncActiveColorSlot(this.primaryColor);
       this._updateColorSlotUI();
       syncHexInput(this.primaryColor);
-      this._setupBoardColorPickerPanel();
     } catch (err) {
       console.error('[App] Failed to setup color picker:', err);
     }
@@ -1218,6 +1218,29 @@ export class DrawingApp {
     this.colorPickerHexInputs.push(input);
   }
 
+  _setupColorPickerPopoutButton(container) {
+    container.querySelector('.colorPickerPopoutButton')?.remove();
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'colorPickerPopoutButton';
+    button.title = 'Open mini color picker';
+    button.setAttribute('aria-label', 'Open mini color picker');
+    button.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="5" y="6" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.8"></rect>
+        <rect x="9" y="3" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.8"></rect>
+      </svg>
+    `;
+
+    button.addEventListener('click', () => {
+      appState.boardColorPickerVisible = true;
+      appState.boardColorPickerForceVisible = true;
+    });
+
+    container.appendChild(button);
+  }
+
   _syncActiveColorSlot(rgba) {
     const normalized = [...rgba];
     if (this.activeColorSlot === 'secondary') {
@@ -1253,90 +1276,6 @@ export class DrawingApp {
     const currentSlot = this.activeColorSlot;
     this._updateColorSlotUI();
     this.selectColorSlot(currentSlot);
-  }
-
-  _setupBoardColorPickerPanel() {
-    const panel = document.getElementById('boardColorPickerPanel');
-    const dragHandle = panel?.querySelector('.boardColorPickerDragHandle');
-    const scaleHandle = panel?.querySelector('.boardColorPickerScaleHandle');
-    if (!panel || !dragHandle || !scaleHandle || panel.dataset.bound === 'true') return;
-
-    panel.dataset.bound = 'true';
-    const clampPanel = (left, top, width = panel.offsetWidth) => {
-      const host = this.ui?.elements?.boardContainer || panel.parentElement;
-      const rect = host.getBoundingClientRect();
-      const height = panel.offsetHeight || 220;
-      const margin = 1;
-      return {
-        left: Math.max(margin, Math.min(left, rect.width - width - margin)),
-        top: Math.max(margin, Math.min(top, rect.height - height - margin))
-      };
-    };
-
-    dragHandle.addEventListener('pointerdown', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      dragHandle.setPointerCapture?.(event.pointerId);
-
-      const startLeft = panel.offsetLeft;
-      const startTop = panel.offsetTop;
-      const startX = event.clientX;
-      const startY = event.clientY;
-
-      const move = (moveEvent) => {
-        const next = clampPanel(startLeft + moveEvent.clientX - startX, startTop + moveEvent.clientY - startY);
-        panel.style.left = `${next.left}px`;
-        panel.style.top = `${next.top}px`;
-        panel.style.right = 'auto';
-        panel.style.bottom = 'auto';
-      };
-      const up = () => {
-        dragHandle.removeEventListener('pointermove', move);
-        dragHandle.removeEventListener('pointerup', up);
-        dragHandle.removeEventListener('pointercancel', up);
-      };
-
-      dragHandle.addEventListener('pointermove', move);
-      dragHandle.addEventListener('pointerup', up);
-      dragHandle.addEventListener('pointercancel', up);
-    });
-
-    scaleHandle.addEventListener('pointerdown', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      scaleHandle.setPointerCapture?.(event.pointerId);
-
-      const host = this.ui?.elements?.boardContainer || panel.parentElement;
-      const hostRect = host.getBoundingClientRect();
-      const panelRect = panel.getBoundingClientRect();
-      const startWidth = panel.offsetWidth;
-      const startRight = Math.max(1, hostRect.right - panelRect.right);
-      const startBottom = Math.max(1, hostRect.bottom - panelRect.bottom);
-      const startX = event.clientX;
-      const startY = event.clientY;
-
-      const move = (moveEvent) => {
-        const deltaX = moveEvent.clientX - startX;
-        const deltaY = moveEvent.clientY - startY;
-        const delta = (deltaX + deltaY) / 2;
-        const maxWidth = Math.max(96, Math.min(236, hostRect.width - startRight - 1));
-        const nextWidth = Math.max(96, Math.min(maxWidth, startWidth - delta));
-        panel.style.width = `${nextWidth}px`;
-        panel.style.left = 'auto';
-        panel.style.top = 'auto';
-        panel.style.right = `${startRight}px`;
-        panel.style.bottom = `${startBottom}px`;
-      };
-      const up = () => {
-        scaleHandle.removeEventListener('pointermove', move);
-        scaleHandle.removeEventListener('pointerup', up);
-        scaleHandle.removeEventListener('pointercancel', up);
-      };
-
-      scaleHandle.addEventListener('pointermove', move);
-      scaleHandle.addEventListener('pointerup', up);
-      scaleHandle.addEventListener('pointercancel', up);
-    });
   }
 
   /**

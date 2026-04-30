@@ -10,6 +10,7 @@ import RoomSettings from './RoomSettings.svelte';
 import AppSettings from './AppSettings.svelte';
 import AdminPanel from './AdminPanel.svelte';
 import ColorPalette from './ColorPalette.svelte';
+import BoardColorPickerPanel from './BoardColorPickerPanel.svelte';
 import Chat from './Chat.svelte';
 import Messenger from '../../messenger/Messenger.svelte';
 import Timebar from '../../timebar/Timebar.svelte';
@@ -341,6 +342,19 @@ export function initSvelteUI(app) {
             app.handlePaletteColorSelect(colorOrCallbackOrPreset);
           }
         }
+      }
+    });
+  }
+
+  // Mount BoardColorPickerPanel
+  const boardColorPickerTarget = document.getElementById('boardColorPickerPanelMount');
+  if (boardColorPickerTarget) {
+    components.boardColorPickerPanel = mount(BoardColorPickerPanel, {
+      target: boardColorPickerTarget,
+      props: {
+        panelId: 'boardColorPickerPanel',
+        pickerId: 'boardColorPicker',
+        ariaLabel: 'Board color picker'
       }
     });
   }

@@ -53,6 +53,8 @@ class DrawingState {
   appPreferences = $state(null);
   adminPanelVisible = $state(false);
   colorPaletteVisible = $state(true);
+  boardColorPickerVisible = $state(true);
+  boardColorPickerForceVisible = $state(false);
   patternPreviewVisible = $state(false);
   patternPreviewCollapsed = $state(false);
   patternPreviewMode = $state('pattern');
