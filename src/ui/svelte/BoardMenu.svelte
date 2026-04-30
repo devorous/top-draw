@@ -32,6 +32,8 @@
     { index: 0, label: 'Layer 1' }
   ];
 
+  let activeLayerLabel = $derived(layers.find(layer => layer.index === appState.activeLayer)?.label ?? 'Layer');
+
   $effect(() => {
     const preview = new LayerPreview();
     preview.init();
@@ -73,6 +75,8 @@
   function selectLayer(layerIdx) {
     appState.activeLayer = layerIdx;
     if (layerIdx !== 0 && appState.boardMenuOpen === 'blend') {
+      appState.boardMenuOpen = null;
+    } else if (appState.boardMenuOpen === 'layers') {
       appState.boardMenuOpen = null;
     }
     if (onLayerSelect) onLayerSelect(layerIdx);
@@ -116,6 +120,50 @@
   <PatternPreview />
 
   <!-- Layers (always visible, no frame) -->
+  <div class="layer-dropdown-wrap">
+    <button
+      class="layer-dropdown-btn"
+      class:open={appState.boardMenuOpen === 'layers'}
+      onclick={() => toggleMenu('layers')}
+      title="Select layer"
+      aria-label="Select layer"
+      aria-expanded={appState.boardMenuOpen === 'layers'}
+    >
+      <span>{activeLayerLabel}</span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+        <path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+
+    {#if appState.boardMenuOpen === 'layers'}
+      <div class="layer-dropdown">
+        {#each layers as layer}
+          <div class="layer-row">
+            <button
+              class="eye-btn"
+              class:faded={!appState.layerVisibility[layer.index]}
+              onclick={(e) => toggleLayerVis(layer.index, e)}
+              title="Toggle visibility"
+            >
+              {#if appState.layerVisibility[layer.index]}
+                <img src="../images/eye-open.svg" alt="Visible" width="14" height="14" style="filter: invert(1) brightness(1.5);" />
+              {:else}
+                <img src="/images/eye-closed.svg" alt="Hidden" width="14" height="14" />
+              {/if}
+            </button>
+            <button
+              class="layer-btn"
+              class:active={appState.activeLayer === layer.index}
+              onclick={() => selectLayer(layer.index)}
+            >
+              {layer.label}
+            </button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+
   <div class="layer-list">
     {#each layers as layer}
       <div class="layer-row">
@@ -409,6 +457,63 @@
   }
 
   /* ── Layers ── */
+  .layer-dropdown-wrap {
+    display: none;
+    position: relative;
+  }
+
+  .layer-dropdown-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    height: 28px;
+    padding: 0 8px;
+    background: color-mix(in srgb, var(--surface-glass) 78%, transparent);
+    border: none;
+    border-radius: 5px;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: color 0.12s ease, background 0.12s ease;
+    white-space: nowrap;
+    box-sizing: border-box;
+  }
+
+  .layer-dropdown-btn:hover {
+    background: color-mix(in srgb, var(--bg-elevated) 86%, transparent);
+    color: var(--text-primary);
+  }
+
+  .layer-dropdown-btn.open {
+    background: color-mix(in srgb, var(--accent-primary) 15%, var(--bg-secondary));
+    color: var(--accent-primary);
+  }
+
+  .layer-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    min-width: 112px;
+    background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+    border: 1px solid var(--border-subtle);
+    border-radius: 7px;
+    backdrop-filter: blur(12px);
+    box-shadow: var(--shadow-lg);
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    animation: fadeDown 0.12s ease;
+  }
+
+  :global(html[data-sidebar-side='left']) .layer-dropdown {
+    left: 0;
+    right: auto;
+  }
+
   .layer-list {
     display: flex;
     flex-direction: column;
@@ -467,6 +572,26 @@
 
   .layer-btn.active {
     color: var(--accent-primary);
+  }
+
+  @media (max-width: 700px), (hover: none) and (pointer: coarse) {
+    .layer-dropdown-wrap {
+      display: block;
+      width: 112px;
+    }
+
+    .layer-list {
+      display: none;
+    }
+
+    .layer-dropdown .layer-row {
+      background: transparent;
+    }
+
+    .layer-dropdown .layer-btn {
+      flex: 1;
+      padding-right: 8px;
+    }
   }
 
   /* ── History ── */

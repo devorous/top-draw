@@ -276,14 +276,16 @@ body.desktop-window-chrome #overlay {
   display: flex;
   flex-direction: row;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
 }
 
 .authLoggedInRow {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   padding: 12px 0;
   width: 100%;
@@ -502,7 +504,7 @@ body.desktop-window-chrome #overlay {
 
 #offlineBtn,
 #loginOfflineBtn {
-  margin-top: clamp(0px, 2vh, 20px);
+  margin-top: clamp(12px, 2vh, 20px);
   padding: clamp(0px, 1.5vh, 12px) 24px;
   font-size: 13px;
   font-weight: 500;
@@ -550,6 +552,7 @@ body.desktop-window-chrome #landingPage {
 
 .landingContainer {
   display: flex;
+  position: relative;
   gap: 0;
   max-width: 1000px;
   width: 100%;
@@ -644,6 +647,19 @@ body.desktop-window-chrome #landingPage {
   #feedbackWidgetMount {
     flex: 0 0 auto;
     min-height: 0;
+    margin-bottom: 1rem;
+  }
+
+  #feedbackWidgetMount .feedback-toggle,
+  #feedbackWidgetMount .feedback-success {
+    background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-tertiary));
+    border-color: color-mix(in srgb, var(--accent-primary) 28%, var(--border-subtle));
+    color: var(--accent-primary);
+  }
+
+  #feedbackWidgetMount .feedback-toggle:hover {
+    background: color-mix(in srgb, var(--accent-primary) 16%, var(--bg-tertiary));
+    border-color: var(--accent-primary);
   }
 
   &.auth-is-logged-in {
@@ -669,11 +685,6 @@ body.desktop-window-chrome #landingPage {
     #downloadBtn {
       background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-tertiary));
       border-color: color-mix(in srgb, var(--accent-primary) 28%, var(--border-subtle));
-    }
-
-    #loginOfflineBtn {
-      background: color-mix(in srgb, #c800c8 10%, var(--bg-tertiary));
-      border-color: color-mix(in srgb, #c800c8 24%, var(--border-subtle));
     }
 
     #feedbackWidgetMount {
@@ -738,7 +749,7 @@ body.desktop-window-chrome #landingPage {
 }
 
 .landingVersion {
-  margin: -18px 0 clamp(0px, 2.2vh, 20px);
+  margin: 0 0 clamp(0px, 2.2vh, 20px);
   font-size: 12px;
   color: var(--text-muted);
   text-align: center;
@@ -847,6 +858,10 @@ body.desktop-window-chrome #landingPage {
   }
 }
 
+.landingConnectionStatusMobile {
+  display: none;
+}
+
 @keyframes pulse {
   0%, 100% {
     opacity: 1;
@@ -910,9 +925,9 @@ body.desktop-window-chrome #landingPage {
 
 .roomIdLandingInput {
   width: 100%;
-  max-width: 300px;
+  max-width: 180px;
   margin-bottom: 0;
-  flex: 1 1 220px;
+  flex: 0 1 180px;
 }
 
 .roomListHeader {
@@ -923,12 +938,37 @@ body.desktop-window-chrome #landingPage {
 }
 
 .roomJoinHeader {
-  justify-content: space-between;
-  gap: 10px;
+  justify-content: center;
+  gap: 8px;
 
+  .landingJoinForGuest,
+  .landingJoinForUser,
   #refreshRoomsBtn {
     flex: 0 0 auto;
     min-height: 40px;
+  }
+
+  .landingJoinForUser {
+    display: none;
+  }
+
+  .landingJoinForGuest,
+  .landingJoinForUser {
+    min-width: 72px;
+  }
+
+  #refreshRoomsBtn {
+    margin-left: 8px;
+  }
+}
+
+.landingContainer:has(.landingAuth.auth-is-logged-in) {
+  .landingJoinForGuest {
+    display: none;
+  }
+
+  .landingJoinForUser {
+    display: inline-flex;
   }
 }
 
@@ -1138,6 +1178,51 @@ body.desktop-window-chrome #landingPage {
   &.locked {
     background: rgba(239, 68, 68, 0.1);
     color: #ef4444;
+  }
+}
+
+@media (max-width: 520px) {
+  .roomJoinHeader {
+    flex-wrap: wrap;
+  }
+
+  .roomListItem,
+  .roomListItem.selected {
+    flex-direction: column;
+    align-items: stretch;
+    height: auto;
+    min-height: 0;
+    padding: 12px;
+
+    .roomPreview {
+      width: 100%;
+      height: auto;
+      aspect-ratio: 16 / 9;
+    }
+
+    .roomInfo {
+      width: 100%;
+      height: auto;
+    }
+
+    .roomHeading {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+      overflow: visible;
+    }
+
+    .roomDescription {
+      width: 100%;
+      height: auto;
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+    }
+
+    .roomMeta {
+      flex-wrap: wrap;
+    }
   }
 }
 
@@ -1398,6 +1483,19 @@ body.desktop-window-chrome #landingPage {
     flex: 0 0 auto;
     width: 100%;
     overflow: visible;
+  }
+
+  .landingHeader .landingConnectionStatus {
+    display: none;
+  }
+
+  .landingConnectionStatusMobile {
+    display: flex;
+    align-self: center;
+    width: 100%;
+    max-width: 260px;
+    justify-content: center;
+    margin: 0 0 8px;
   }
 
   .roomListSection {

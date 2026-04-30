@@ -25,6 +25,37 @@ const isFirefox = /Firefox\//i.test(navigator.userAgent) && !/Seamonkey\//i.test
 let app = null;
 let appBootPromise = null;
 let deferredActionPromise = null;
+const APP_BOOT_TIMEOUT_MS = 75000;
+const APP_IMPORT_TIMEOUT_MS = 30000;
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+}
+
+async function importDrawingApp() {
+  try {
+    return await withTimeout(
+      import('./App.js'),
+      APP_IMPORT_TIMEOUT_MS,
+      `DrawingApp module import exceeded ${APP_IMPORT_TIMEOUT_MS}ms`
+    );
+  } catch (err) {
+    updateShellStatus('connecting', 'Retrying app load...');
+    return withTimeout(
+      import(/* @vite-ignore */ `./App.js?startupRetry=${Date.now()}`),
+      APP_IMPORT_TIMEOUT_MS,
+      `DrawingApp module retry exceeded ${APP_IMPORT_TIMEOUT_MS}ms`
+    );
+  }
+}
+
 function showFirefoxWarning() {
   return new Promise((resolve) => {
     const backdrop = document.createElement('div');
@@ -56,14 +87,22 @@ function showFirefoxWarning() {
 }
 
 function updateShellStatus(status, text) {
-  const statusEl = document.getElementById('landingConnectionStatus');
-  const textEl = statusEl?.querySelector('.connectionText');
-  if (!statusEl || !textEl) return;
+  const statusEls = [
+    document.getElementById('landingConnectionStatus'),
+    document.getElementById('landingConnectionStatusMobile')
+  ].filter(Boolean);
 
-  statusEl.classList.remove('connected', 'disconnected', 'connecting');
-  statusEl.classList.add(status);
-  textEl.textContent = text;
+  statusEls.forEach((statusEl) => {
+    const textEl = statusEl.querySelector('.connectionText');
+    if (!textEl) return;
+
+    statusEl.classList.remove('connected', 'disconnected', 'connecting');
+    statusEl.classList.add(status);
+    textEl.textContent = text;
+  });
 }
+
+window.updateLandingShellStatus = updateShellStatus;
 
 function revealLandingShell() {
   const mainContent = document.getElementById('main');
@@ -123,19 +162,27 @@ async function bootApp() {
   const wsServerUrl = import.meta.env.VITE_WS_SERVER_URL || null;
 
   appBootPromise = (async () => {
-    const [{ DrawingApp }] = await Promise.all([
-      import('./App.js'),
-    ]);
+    const timeoutId = setTimeout(() => {
+      updateShellStatus('disconnected', 'App load is taking too long');
+    }, APP_BOOT_TIMEOUT_MS);
 
-    const instance = new DrawingApp({
-      dimensions: [1080, 1920],
-      serverUrl: wsServerUrl
-    });
+    try {
+      updateShellStatus('connecting', 'Loading app code...');
+      const { DrawingApp } = await importDrawingApp();
 
-    await instance.init();
-    app = instance;
-    window.app = app;
-    return app;
+      updateShellStatus('connecting', 'Starting app...');
+      const instance = new DrawingApp({
+        dimensions: [1080, 1920],
+        serverUrl: wsServerUrl
+      });
+
+      await instance.init();
+      app = instance;
+      window.app = app;
+      return app;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   })().catch((err) => {
     appBootPromise = null;
     throw err;
@@ -147,7 +194,10 @@ async function bootApp() {
 function startBackgroundBoot() {
   void bootApp().catch((err) => {
     console.error('Failed to initialize app:', err);
-    updateShellStatus('disconnected', 'Failed to load');
+    const message = err?.message?.includes('DrawingApp module')
+      ? 'App code failed to load'
+      : 'Failed to load';
+    updateShellStatus('disconnected', message);
   });
 }
 
@@ -279,9 +329,6 @@ async function init() {
     }, true); // Use capture phase to intercept before other handlers
   }
 
-  // Check for outdated client version
-  await initializeVersionCheck();
-
   if (isFirefox) {
     showFirefoxWarning().then(() => {
       requestAnimationFrame(() => setTimeout(startBackgroundBoot, 0));
@@ -291,6 +338,11 @@ async function init() {
       setTimeout(startBackgroundBoot, 0);
     });
   }
+
+  // Check for outdated client version without blocking the app/auth boot path.
+  void initializeVersionCheck().catch((err) => {
+    console.warn('[VersionChecker] Startup check failed:', err);
+  });
 
   scheduleStartupUpdateCheck();
 }

@@ -327,9 +327,12 @@
         <div id="landingPage" class="landingPage" style="display: none;">
           <div class="landingContainer">
             <!-- Left Panel -->
-            <div class="landingPanel landingAuth auth-is-pending" id="landingAuthPanel">
+            <div class="landingPanel landingAuth" id="landingAuthPanel">
               <a href="https://ddraw.ca" target="_blank" rel="noopener noreferrer" class="wordmark" style="display: inline-block; text-decoration: none;">DDraw</a>
-              <p class="landingSubtitle">Draw stuff + things</p>
+              <div class="landingConnectionStatus landingConnectionStatusMobile" id="landingConnectionStatusMobile" aria-hidden="true">
+                <span class="connectionDot"></span>
+                <span class="connectionText">Connecting...</span>
+              </div>
               <p class="landingVersion" id="landingVersion">Version --</p>
 
               <div id="authFormWrapper" class="authFormWrapper">
@@ -350,7 +353,6 @@
                     <button type="button" class="authLinkButton" id="forgotPasswordBtn">Forgot password?</button>
                     <div class="authButtons">
                       <button type="button" class="btn secondary large" id="registerBtn">Register</button>
-                      <button type="button" class="btn primary large" id="loginJoinBtn">Join</button>
                     </div>
                   </div>
 
@@ -364,7 +366,6 @@
                           <span class="authEditIcon">&#9998;</span>
                         </button>
                       </div>
-                      <button type="button" class="btn primary large" id="joinBtnLoggedIn">Join</button>
                     </div>
                   </div>
                 </form>
@@ -412,9 +413,8 @@
 
               <div class="landingDivider">or</div>
               <button class="btn offline" id="downloadBtn" onclick="window.open('https://www.ddraw.ca/download')">Download Windows App</button>
-              <button class="btn offline" id="loginOfflineBtn">Draw Alone</button>
-
               <div id="feedbackWidgetMount"></div>
+              <button class="btn offline" id="loginOfflineBtn">Draw Alone</button>
             </div>
 
             <!-- Right Panel: Room Selection -->
@@ -434,6 +434,8 @@
               <div class="roomListSection">
                 <div class="roomListHeader roomJoinHeader">
                   <input autocomplete="on" class="authInput roomIdLandingInput" id="roomIdInput" name="room" placeholder="Room name (default: lobby)">
+                  <button type="button" class="btn primary small landingJoinForGuest" id="loginJoinBtn">Join</button>
+                  <button type="button" class="btn primary small landingJoinForUser" id="joinBtnLoggedIn">Join</button>
                   <button class="btn secondary small" id="refreshRoomsBtn">Refresh</button>
                 </div>
                 <div id="roomList" class="roomList">

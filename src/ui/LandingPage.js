@@ -40,7 +40,10 @@ export class LandingPage {
       loginJoinBtn: document.getElementById('loginJoinBtn'),
       joinBtnLoggedIn: document.getElementById('joinBtnLoggedIn'),
       loginOfflineBtn: document.getElementById('loginOfflineBtn'),
-      landingConnectionStatus: document.getElementById('landingConnectionStatus'),
+      landingConnectionStatuses: [
+        document.getElementById('landingConnectionStatus'),
+        document.getElementById('landingConnectionStatusMobile')
+      ].filter(Boolean),
       createRoomBtn: document.getElementById('createRoomBtn'),
       createRoomDialog: document.getElementById('createRoomDialog'),
       createRoomIdInput: document.getElementById('createRoomId'),
@@ -544,17 +547,11 @@ export class LandingPage {
    * @param {string} status - Connection status string
    */
   updateConnectionStatus(status) {
-    if (!this.els.landingConnectionStatus) return;
-
-    const statusEl = this.els.landingConnectionStatus;
-    const textEl = statusEl.querySelector('.connectionText');
-
-    statusEl.classList.remove('connected', 'disconnected', 'connecting');
+    if (!this.els.landingConnectionStatuses?.length) return;
 
     switch (status) {
       case 'connected':
-        statusEl.classList.add('connected');
-        textEl.textContent = 'Connected';
+        this.setConnectionStatusUI('connected', 'Connected');
         this.setRoomFeaturesEnabled(true);
         if (this.wsClient && this.wsClient.connected) {
           this.wsClient.requestRoomList();
@@ -562,18 +559,25 @@ export class LandingPage {
         break;
 
       case 'disconnected':
-        statusEl.classList.add('disconnected');
-        textEl.textContent = 'Not Connected';
+        this.setConnectionStatusUI('disconnected', 'Not Connected');
         this.setRoomFeaturesEnabled(false);
         break;
 
       case 'connecting':
       default:
-        statusEl.classList.add('connecting');
-        textEl.textContent = 'Connecting...';
+        this.setConnectionStatusUI('connecting', 'Connecting...');
         this.setRoomFeaturesEnabled(false);
         break;
     }
+  }
+
+  setConnectionStatusUI(status, text) {
+    this.els.landingConnectionStatuses.forEach((statusEl) => {
+      const textEl = statusEl.querySelector('.connectionText');
+      statusEl.classList.remove('connected', 'disconnected', 'connecting');
+      statusEl.classList.add(status);
+      if (textEl) textEl.textContent = text;
+    });
   }
 
   /**

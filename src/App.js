@@ -67,6 +67,7 @@ const LOW_POWER_TPS = 30;
 const LOW_POWER_FPS = 30;
 const BLUR_RADIUS_MAX = 10;
 const GLITCH_BLUR_RADIUS_MAX = 25;
+const WASM_INIT_TIMEOUT_MS = 15000;
 const COALESCED_INPUT_TOOLS = new Set([
   'brush',
   'flowPen',
@@ -79,6 +80,21 @@ const COALESCED_INPUT_TOOLS = new Set([
   'pixel',
   'pattern'
 ]);
+
+function updateStartupStatus(text, status = 'connecting') {
+  window.updateLandingShellStatus?.(status, text);
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+}
 
 function _hexToRgb(hex) {
   const c = hex.replace('#', '');
@@ -552,10 +568,13 @@ export class DrawingApp {
    */
   async init() {
     window.app = this; // Set global reference early
-    await initWasm();
+    updateStartupStatus('Loading WASM...');
+    await withTimeout(initWasm(), WASM_INIT_TIMEOUT_MS, 'WASM failed to load in time');
+    updateStartupStatus('Preparing UI...');
     this.ui.init();
     this.ui.applySidebarWidths(this.appPreferences);
     this.createSelf();
+    updateStartupStatus('Preparing board...');
     this.board.setUseDesynchronizedBoardContexts(this.appPreferences?.general?.useDesynchronizedBoardContexts);
     this.board.init('#boardContainer');
     this.board.setApp(this);
@@ -569,6 +588,7 @@ export class DrawingApp {
     TimeMachine.init(this.board, this.wsClient);
     this.TimeMachine = TimeMachine; // Expose for WebSocketClient recording
 
+    updateStartupStatus('Preparing controls...');
     // Initialize Svelte UI components
     this.svelteComponents = initSvelteUI(this);
 
@@ -630,6 +650,7 @@ export class DrawingApp {
       this.updateRecordingButtonState();
     };
 
+    updateStartupStatus('Loading account...');
     this.auth = new Auth({
       wsClient: this.wsClient,
       onSuccess: (token, role, username) => this.handleAuthSuccess(token, role, username),
@@ -637,6 +658,7 @@ export class DrawingApp {
     });
     this.auth.init();
 
+    updateStartupStatus('Loading rooms...');
     this.landingPage = new LandingPage({
       wsClient: this.wsClient,
       auth: this.auth,

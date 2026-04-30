@@ -6,6 +6,7 @@ import { promptUpdateForVersionMismatch } from './platform/updater.js';
 let cachedVersionStatus = null;
 let versionStatusPromise = null;
 let shownWarningKey = null;
+const VERSION_CHECK_TIMEOUT_MS = 5000;
 
 function getVersionEndpointUrl() {
   const configuredApiBase = String(import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
@@ -23,6 +24,15 @@ function getVersionEndpointUrl() {
     }
   }
   return '/api/version';
+}
+
+function isLocalDevWithoutVersionEndpoint() {
+  const host = window.location.hostname;
+  const isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  if (!isLocalHost) return false;
+
+  return !String(import.meta.env.VITE_API_BASE_URL || '').trim() &&
+    !String(import.meta.env.VITE_WS_SERVER_URL || '').trim();
 }
 
 function formatReleaseDate(releaseDate) {
@@ -140,9 +150,23 @@ export async function getVersionStatus({ force = false } = {}) {
       };
     }
 
+    if (isLocalDevWithoutVersionEndpoint()) {
+      return {
+        allowed: true,
+        reason: 'local-dev',
+        clientVersion
+      };
+    }
+
     let status;
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), VERSION_CHECK_TIMEOUT_MS);
+    const endpointUrl = getVersionEndpointUrl();
     try {
-      const response = await fetch(getVersionEndpointUrl(), { cache: 'no-store' });
+      const response = await fetch(endpointUrl, {
+        cache: 'no-store',
+        signal: abortController.signal
+      });
       if (!response.ok) {
         console.warn('[VersionChecker] Server version check failed:', response.status);
         status = {
@@ -163,6 +187,8 @@ export async function getVersionStatus({ force = false } = {}) {
         clientVersion,
         error: err
       };
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     cachedVersionStatus = status;
