@@ -10,7 +10,7 @@ import RoomSettings from './RoomSettings.svelte';
 import AppSettings from './AppSettings.svelte';
 import AdminPanel from './AdminPanel.svelte';
 import ColorPalette from './ColorPalette.svelte';
-import BoardColorPickerPanel from './BoardColorPickerPanel.svelte';
+import DockablePanel from './DockablePanel.svelte';
 import Chat from './Chat.svelte';
 import Messenger from '../../messenger/Messenger.svelte';
 import Timebar from '../../timebar/Timebar.svelte';
@@ -346,15 +346,28 @@ export function initSvelteUI(app) {
     });
   }
 
-  // Mount BoardColorPickerPanel
-  const boardColorPickerTarget = document.getElementById('boardColorPickerPanelMount');
-  if (boardColorPickerTarget) {
-    components.boardColorPickerPanel = mount(BoardColorPickerPanel, {
-      target: boardColorPickerTarget,
+  // Mount dockable panel shell for the board color picker
+  let dockablePanelTarget = document.getElementById('dockablePanelOverlayMount');
+  if (!dockablePanelTarget) {
+    dockablePanelTarget = document.createElement('div');
+    dockablePanelTarget.id = 'dockablePanelOverlayMount';
+    dockablePanelTarget.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:1490;overflow:visible;';
+    document.body.appendChild(dockablePanelTarget);
+  }
+  if (dockablePanelTarget) {
+    components.dockablePanel = mount(DockablePanel, {
+      target: dockablePanelTarget,
       props: {
         panelId: 'boardColorPickerPanel',
-        pickerId: 'boardColorPicker',
-        ariaLabel: 'Board color picker'
+        panelClass: 'boardColorPickerPanel',
+        contentId: 'boardColorPicker',
+        contentClass: 'boardColorPicker',
+        visibilitySource: appState,
+        visibleKey: 'boardColorPickerVisible',
+        forceVisibleKey: 'boardColorPickerForceVisible',
+        hideLabel: 'Hide color picker',
+        moveLabel: 'Move color picker',
+        resizeLabel: 'Resize color picker'
       }
     });
   }
