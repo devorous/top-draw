@@ -7,6 +7,9 @@
   let cardElement = $state(null);
   let imageInView = $state(false);
   let imageSrc = $derived(item.thumbUrl || item.url || '');
+  let lastLikePointerActivationAt = 0;
+  let lastImagePointerActivationAt = 0;
+  const POINTER_CLICK_SUPPRESS_MS = 400;
 
   async function handleLike() {
     if (!onLike || liking) return;
@@ -33,6 +36,36 @@
     };
   }
 
+  function handleLikePointerUp(e) {
+    if (e.pointerType === 'mouse') return;
+    lastLikePointerActivationAt = performance.now();
+    e.preventDefault();
+    handleLike();
+  }
+
+  function handleLikeClick(e) {
+    if (performance.now() - lastLikePointerActivationAt < POINTER_CLICK_SUPPRESS_MS) {
+      e.preventDefault();
+      return;
+    }
+    handleLike();
+  }
+
+  function handleImagePointerUp(e) {
+    if (e.pointerType === 'mouse') return;
+    lastImagePointerActivationAt = performance.now();
+    e.preventDefault();
+    handleImageClick();
+  }
+
+  function handleImageClickEvent(e) {
+    if (performance.now() - lastImagePointerActivationAt < POINTER_CLICK_SUPPRESS_MS) {
+      e.preventDefault();
+      return;
+    }
+    handleImageClick();
+  }
+
   $effect(() => {
     if (typeof IntersectionObserver === 'undefined' || !cardElement) {
       imageInView = true;
@@ -53,7 +86,7 @@
 
 <div bind:this={cardElement} class="floating-art" style="left: {x}px; top: {y}px;">
   <div class="art-card">
-    <button class="art-image" onclick={handleImageClick} onpointerup={(e) => e.pointerType !== 'mouse' && handleImageClick()} title={item.title || 'Untitled'}>
+    <button class="art-image" onclick={handleImageClickEvent} onpointerup={handleImagePointerUp} title={item.title || 'Untitled'}>
       {#if imageInView && imageSrc}
         <img src={imageSrc} alt={item.title || 'Art'} loading="lazy" decoding="async" draggable="false" />
       {/if}
@@ -64,8 +97,8 @@
         class="art-action-btn like-btn"
         class:liked={liked}
         disabled={liking}
-        onclick={handleLike}
-        onpointerup={(e) => e.pointerType !== 'mouse' && handleLike()}
+        onclick={handleLikeClick}
+        onpointerup={handleLikePointerUp}
         title="Like"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

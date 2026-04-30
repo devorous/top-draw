@@ -28,7 +28,7 @@ const MAX_GALLERY_IMAGE_PIXELS = 33_554_432;
 const JSON_BODY_LIMIT = MAX_IMAGE_BYTES + 65536;
 const GALLERY_UPLOAD_LIMIT = { max: 12, windowMs: 60 * 60 * 1000, blockMs: 15 * 60 * 1000 };
 const GALLERY_COMMENT_LIMIT = { max: 20, windowMs: 5 * 60 * 1000, blockMs: 10 * 60 * 1000 };
-const GALLERY_LIKE_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
+const GALLERY_LIKE_LIMIT = { max: 240, windowMs: 60 * 1000, blockMs: 60 * 1000 };
 const GALLERY_FAVORITE_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
 
 /** Verify that the buffer's magic bytes match the declared MIME type. */
@@ -183,6 +183,28 @@ async function getRequestLikedGalleryIds(req, galleryIds = []) {
 
   const requested = new Set(galleryIds.map(String));
   return new Set(user.likedGalleryIds.map(String).filter(id => requested.has(id)));
+}
+
+async function recordGalleryLike(db, { galleryId, userId, username }) {
+  try {
+    await db.collection('gallery_likes').updateOne({
+      galleryId,
+      userId,
+    }, {
+      $setOnInsert: {
+        galleryId,
+        userId,
+        username,
+        createdAt: new Date(),
+      }
+    }, { upsert: true });
+  } catch (err) {
+    if (err?.code === 11000) {
+      console.warn('[Gallery] gallery_likes duplicate during like record; continuing with user like state:', err.keyValue || err.message);
+      return;
+    }
+    throw err;
+  }
 }
 
 /**
@@ -449,11 +471,6 @@ export async function handleGalleryItem(req, res, id) {
 export async function handleGalleryLike(req, res, id) {
   const db = getDB();
   if (!db) return json(res, 503, { error: 'Database not available' });
-  const clientIp = getClientIp(req);
-  const likeLimit = httpRateLimiter.consume(`gallery:like:${clientIp}`, GALLERY_LIKE_LIMIT);
-  if (!likeLimit.allowed) {
-    return json(res, 429, { error: 'Too many like requests. Please try again later.' });
-  }
 
   if (!/^[a-f0-9]{24}$/.test(id)) return json(res, 400, { error: 'Invalid id' });
 
@@ -462,9 +479,14 @@ export async function handleGalleryLike(req, res, id) {
   });
   if (!authUser) return;
 
+  const userId = authUser._id.toString();
+  const likeLimit = httpRateLimiter.consume(`gallery:like:user:${userId}`, GALLERY_LIKE_LIMIT);
+  if (!likeLimit.allowed) {
+    return json(res, 429, { error: 'Too many like requests. Please try again later.' });
+  }
+
   try {
     const objectId = new ObjectId(id);
-    const userId = authUser._id.toString();
 
     // Check if item exists
     if (!await db.collection('gallery').findOne({ _id: objectId }, { projection: { _id: 1 } })) {
@@ -508,17 +530,7 @@ export async function handleGalleryLike(req, res, id) {
       );
       return json(res, 200, { liked: true, likesCount: current?.likesCount || 0 });
     }
-    await db.collection('gallery_likes').updateOne({
-      galleryId: id,
-      userId,
-    }, {
-      $setOnInsert: {
-        galleryId: id,
-        userId,
-        username: authUser.username,
-        createdAt: new Date(),
-      }
-    }, { upsert: true });
+    await recordGalleryLike(db, { galleryId: id, userId, username: authUser.username });
 
     const updated = await db.collection('gallery').findOneAndUpdate(
       { _id: objectId },

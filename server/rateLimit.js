@@ -52,9 +52,6 @@ export const authLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 10
 /** Gallery uploads: 10 per hour */
 export const uploadLimiter = createRateLimiter({ windowMs: 60 * 60 * 1000, max: 10 });
 
-/** Gallery likes: 30 per minute (prevent spam-clicking) */
-export const likeLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 30 });
-
 /** WebSocket messages: coarse burst guard, keyed per connection by caller */
 export const wsMessageLimiter = createRateLimiter({ windowMs: 1000, max: 1200 });
 

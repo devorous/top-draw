@@ -33,7 +33,7 @@ import { authorize, Action } from './permissions.js';
 import { getRoomRole, setRoomRole, computeEffectiveRole, getRoomRoleRoster } from './roomRoles.js';
 import { getClientIp, httpRateLimiter, isLocalhostRequest, messengerRateLimiter, wsRateLimiter } from './security.js';
 import { getAsnCheckStatus, lookupAsnForIp, initAsnCheck, isVpnAsn } from './asnCheck.js';
-import { authLimiter, uploadLimiter, likeLimiter, wsMessageLimiter, wsSyncMessageLimiter, wsConnectionLimiter, feedbackLimiter } from './rateLimit.js';
+import { authLimiter, uploadLimiter, wsMessageLimiter, wsSyncMessageLimiter, wsConnectionLimiter, feedbackLimiter } from './rateLimit.js';
 import { getUsernameValidationMessage, isValidUsername, normalizeUsername } from '../shared/identity.js';
 import { getIpSubnet, mergeHistory, normalizeIdentityPayload, recordConnectionEvent } from './identityTracking.js';
 import { generateFloatingGalleryVoronoi, getFloatingGalleryVoronoiJson } from './floatingVoronoi.js';
@@ -526,7 +526,6 @@ const server = createServer(async (req, res) => {
 
   const likeMatch = path.match(/^\/api\/gallery\/([a-f0-9]{24})\/like$/);
   if (likeMatch && req.method === 'POST') {
-    if (rateLimited(likeLimiter)) return;
     await handleGalleryLike(req, res, likeMatch[1]);
     return;
   }

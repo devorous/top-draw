@@ -46,6 +46,27 @@ export async function connectDB() {
       }
     }
 
+    async function ensureGalleryLikesPartialIndex(key, fieldName) {
+      const collection = db.collection('gallery_likes');
+      const indexName = `galleryId_1_${fieldName}_1`;
+      const partialFilterExpression = { [fieldName]: { $exists: true, $type: 'string' } };
+
+      const indexes = await collection.listIndexes().toArray();
+      const existing = indexes.find(index => index.name === indexName);
+      const existingPartial = JSON.stringify(existing?.partialFilterExpression || {});
+      const expectedPartial = JSON.stringify(partialFilterExpression);
+
+      if (existing && existingPartial !== expectedPartial) {
+        await collection.dropIndex(indexName);
+      }
+
+      await safeCreateIndex('gallery_likes', key, {
+        unique: true,
+        name: indexName,
+        partialFilterExpression
+      });
+    }
+
     await safeCreateIndex('users', { username: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
     await safeCreateIndex('users', { email: 1 }, { sparse: true, collation: { locale: 'en', strength: 2 } });
     await safeCreateIndex('rooms', { lastActiveAt: 1 });
@@ -58,9 +79,9 @@ export async function connectDB() {
     await safeCreateIndex('gallery', { likesCount: -1 });
     await safeCreateIndex('gallery', { tags: 1, createdAt: -1 });
     await safeCreateIndex('gallery', { imageHash: 1 }, { unique: true, sparse: true });
-    await safeCreateIndex('gallery_likes', { galleryId: 1, userId: 1 }, { unique: true, sparse: true });
-    await safeCreateIndex('gallery_likes', { galleryId: 1, deviceId: 1 }, { unique: true, sparse: true });
-    await safeCreateIndex('gallery_likes', { galleryId: 1, ipHash: 1 }, { unique: true, sparse: true });
+    await ensureGalleryLikesPartialIndex({ galleryId: 1, userId: 1 }, 'userId');
+    await ensureGalleryLikesPartialIndex({ galleryId: 1, deviceId: 1 }, 'deviceId');
+    await ensureGalleryLikesPartialIndex({ galleryId: 1, ipHash: 1 }, 'ipHash');
     await safeCreateIndex('gallery_likes', { galleryId: 1, createdAt: -1 });
     await safeCreateIndex('favorites', { userId: 1, galleryId: 1 }, { unique: true });
     await safeCreateIndex('favorites', { userId: 1, createdAt: -1 });
