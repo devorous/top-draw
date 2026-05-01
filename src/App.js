@@ -5479,19 +5479,33 @@ export class DrawingApp {
   // Pointer event handlers
 
   isPointerOverBoard(clientX, clientY) {
-    const boardSurfaceEl = this.ui?.elements?.boards || this.ui?.elements?.board;
-    if (!boardSurfaceEl || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
+    const elements = this.ui?.elements;
+    const boardBoundsEl = elements?.boards || elements?.board;
+    if (!boardBoundsEl || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return false;
 
     // The drawable surface is continuously transformed by pan/zoom/rotate, so a
     // cached bounding rect quickly becomes stale and causes false "off board"
     // results in parts of the visible canvas.
-    const rect = boardSurfaceEl.getBoundingClientRect();
+    const rect = boardBoundsEl.getBoundingClientRect();
     if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return false;
 
     // Treat all board-owned layers as valid hover targets while still rejecting
     // unrelated UI that overlaps the board area.
     const topEl = document.elementFromPoint(clientX, clientY);
-    return topEl !== null && boardSurfaceEl.contains(topEl);
+    if (!topEl) return false;
+
+    const boardLayerEls = [
+      elements.boards,
+      elements.board,
+      elements.topBoard,
+      elements.userBoards
+    ].filter(Boolean);
+
+    if (boardLayerEls.some(el => el === topEl || el.contains(topEl))) {
+      return true;
+    }
+
+    return topEl.closest?.('#boards, #board, #topBoard, #userBoards, .userBoard') !== null;
   }
 
   syncBoardHoverState(isOnBoard, { forceRefresh = false, event = null } = {}) {

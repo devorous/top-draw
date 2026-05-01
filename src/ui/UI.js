@@ -1409,6 +1409,12 @@ menuBtn: document.getElementById('menuBtn'),
       const sourceButton = buttons[toolName];
       if (!button || !sourceButton) return;
       storeDefault(sourceButton, toolName);
+
+      if (button.dataset.tool === toolName) {
+        button.title = sourceButton.dataset.defaultTitle || sourceButton.title || '';
+        return;
+      }
+
       button.dataset.tool = toolName;
       button.innerHTML = sourceButton.dataset.defaultHtml || sourceButton.innerHTML;
       button.title = sourceButton.dataset.defaultTitle || sourceButton.title || '';
