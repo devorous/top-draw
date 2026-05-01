@@ -526,7 +526,7 @@ export class SyncClient {
       }
 
       console.log(`[SyncClient] Sending sync metadata: ${totalCount} total messages (batched)`);
-      this.wsClient.sendSyncMetadata(totalCount, targetUser);
+      this.wsClient.sendSyncMetadata(totalCount, targetUser, this.board.dimensions);
 
       await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -658,8 +658,21 @@ export class SyncClient {
     if (!this.syncing) return;
     this._noteSyncProgress();
     this._setSyncTargetFromProvider(data.providerSessionIndex);
+    this._resizeBoardForIncomingDimensions(data.boardWidth, data.boardHeight);
     this.expectedMessages = data.totalCount || 0;
     this.updateProgress();
+  }
+
+  _resizeBoardForIncomingDimensions(width, height) {
+    const nextW = Number(width);
+    const nextH = Number(height);
+    if (!this.board || !Number.isFinite(nextW) || !Number.isFinite(nextH) || nextW <= 0 || nextH <= 0) return;
+
+    const [curH, curW] = this.board.dimensions || [];
+    if (curW === nextW && curH === nextH) return;
+
+    this.board.resizeBoard([nextH, nextW]);
+    this.app?._bindLayerManagerDependencies?.();
   }
 
   /**

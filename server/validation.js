@@ -383,6 +383,28 @@ export async function sanitizeMessage(data) {
         requireEvenLength: true,
         maxLength: 8
       });
+      if (Array.isArray(data.cb)) {
+        const cb = sanitizeFloatArray(data.cb, {
+          requireEvenLength: true,
+          maxLength: 4,
+          min: 0,
+          max: MAX_COORD
+        });
+        if (cb.length === 4 && cb[2] > 0 && cb[3] > 0) {
+          sanitized.cb = cb;
+        }
+      }
+      if (Array.isArray(data.cbt)) {
+        const cbt = sanitizeFloatArray(data.cbt, {
+          requireEvenLength: true,
+          maxLength: 4,
+          min: 0,
+          max: MAX_COORD
+        });
+        if (cbt.length === 4 && cbt[2] > 0 && cbt[3] > 0) {
+          sanitized.cbt = cbt;
+        }
+      }
       return sanitized.cr.length === 8 ? sanitized : null;
 
     case T.SEL_COMMIT:
@@ -583,6 +605,8 @@ export async function sanitizeMessage(data) {
     case T.SYNC_METADATA:
       sanitized.tu = clampInt(data.tu, 0, 65535, 0);
       sanitized.syncTotal = clampInt(data.syncTotal ?? data.sync_total, 0, 50000, 0);
+      sanitized.boardWidth = clampInt(data.boardWidth ?? data.board_width, 0, MAX_COORD, 0);
+      sanitized.boardHeight = clampInt(data.boardHeight ?? data.board_height, 0, MAX_COORD, 0);
       return sanitized;
 
     case T.SYNC_STROKE_BATCH:

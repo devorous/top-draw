@@ -98,6 +98,7 @@ export function setupSnapshotHandlers(wsClient, app) {
 
     // Apply the per-layer snapshot to the board
     app.board.restoreSnapshot(data.snapshotLayers);
+    app._bindLayerManagerDependencies?.();
 
     // Clear undo/redo stroke stacks since the board has been replaced
     for (const group of app.board.layerManager.layerGroups) {

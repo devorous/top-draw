@@ -272,7 +272,9 @@ export class SyncCoordinator {
       this.sendTo(client, {
         t: T.SYNC_METADATA,
         u: ws.sessionIndex,
-        syncTotal
+        syncTotal,
+        boardWidth: data.boardWidth ?? data.board_width ?? 0,
+        boardHeight: data.boardHeight ?? data.board_height ?? 0
       });
     }
   }
@@ -401,7 +403,11 @@ export class SyncCoordinator {
       this.sendTo(joinerWs, { t: T.IMG_PASTE, u: sessionIndex, sx, sy, sw, sh, g });
       // If the selection has been moved from its initial position, send current corners
       if (userData.activeSelectionCorners) {
-        this.sendTo(joinerWs, { t: T.SEL_MOVE, u: sessionIndex, cr: userData.activeSelectionCorners });
+        const moveMsg = { t: T.SEL_MOVE, u: sessionIndex, cr: userData.activeSelectionCorners };
+        if (userData.activeSelectionSourceCrop) {
+          moveMsg.cb = userData.activeSelectionSourceCrop;
+        }
+        this.sendTo(joinerWs, moveMsg);
       }
     }
   }

@@ -2583,8 +2583,17 @@ export class Board {
    */
   restoreSnapshot(layerDatas) {
     if (!this.layerManager || !layerDatas || layerDatas.length === 0) return;
+    const [currentHeight, currentWidth] = this.dimensions;
+    const snapshotDimensions = snapshotLayerDimensions(layerDatas) || { width: currentWidth, height: currentHeight };
+    if (
+      snapshotDimensions?.width > 0 &&
+      snapshotDimensions?.height > 0 &&
+      (this.dimensions[1] !== snapshotDimensions.width || this.dimensions[0] !== snapshotDimensions.height)
+    ) {
+      this.resizeBoard([snapshotDimensions.height, snapshotDimensions.width]);
+    }
+
     const [height, width] = this.dimensions;
-    const snapshotDimensions = snapshotLayerDimensions(layerDatas) || { width, height };
     const restoreWidth = Math.min(width, snapshotDimensions.width);
     const restoreHeight = Math.min(height, snapshotDimensions.height);
     const replacesFullBoard = snapshotDimensions.width >= width && snapshotDimensions.height >= height;

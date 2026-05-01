@@ -953,6 +953,7 @@ function getVisibleIpForViewer(viewer, targetUser, room) {
   const targetIp = targetClient?.clientIp || '';
   if (!targetIp) return '';
 
+  const viewerRole = viewer.userRole || Role.GUEST;
   return obfuscateIp(targetIp, viewerRole);
 }
 
@@ -1586,12 +1587,14 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
     case T.IMG_PASTE:
       user.activeImage = { sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, g: data.g };
       user.activeSelectionCorners = null;
+      user.activeSelectionSourceCrop = null;
       break;
 
     case T.SEL_LIFT:
       if (data.g) {
         user.activeImage = { sx: data.sx, sy: data.sy, sw: data.sw, sh: data.sh, g: data.g };
         user.activeSelectionCorners = null;
+        user.activeSelectionSourceCrop = null;
         // Forward the lifted snapshot so remote clients reuse the sender's exact pixels
         // instead of attempting to recapture from their own canvases.
         if (!ws?.isShadowBanned) {
@@ -1604,6 +1607,11 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
     case T.SEL_MOVE:
       if (data.cr) {
         user.activeSelectionCorners = Array.from(data.cr);
+        if (data.cbt) {
+          user.activeSelectionSourceCrop = Array.from(data.cbt);
+        } else if (data.cb && !user.activeSelectionSourceCrop) {
+          user.activeSelectionSourceCrop = Array.from(data.cb);
+        }
       }
       break;
 
@@ -1615,6 +1623,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
     case T.SEL_TO_BRUSH:
       user.activeImage = null;
       user.activeSelectionCorners = null;
+      user.activeSelectionSourceCrop = null;
       break;
 
     case T.CTHN:

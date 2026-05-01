@@ -220,6 +220,10 @@ message Msg {
   int32 sw = 20;        // Selection Width
   int32 sh = 21;        // Selection Height
   repeated float cr = 22; // Selection control region/points
+  repeated float cb = 154; // Selection source crop [x, y, width, height] for current source
+  repeated float cbt = 155; // Cumulative selection source crop for sync replay
+  uint32 board_width = 156; // Board width in pixels for sync/snapshot sizing
+  uint32 board_height = 157; // Board height in pixels for sync/snapshot sizing
 
   // === Sync Fields ===
   bytes img = 24;            // PNG image data (full canvas or stroke/base canvas)

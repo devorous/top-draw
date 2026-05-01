@@ -18,7 +18,7 @@ export function setupSelectionHandlers(wrapHandler, app) {
   wrapHandler('sel_move', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {
-      remoteUserHandler.selectionHandler.handleSelectionMove(user, data.corners);
+      remoteUserHandler.selectionHandler.handleSelectionMove(user, data.corners, data.sourceCrop);
     }
   });
 

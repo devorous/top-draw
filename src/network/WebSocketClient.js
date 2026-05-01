@@ -970,7 +970,10 @@ export class WebSocketClient {
             tr: { x: cr[2], y: cr[3] },
             br: { x: cr[4], y: cr[5] },
             bl: { x: cr[6], y: cr[7] }
-          }
+          },
+          sourceCrop: data.cb && data.cb.length === 4
+            ? { x: data.cb[0], y: data.cb[1], width: data.cb[2], height: data.cb[3] }
+            : null
         });
         break;
 
@@ -1065,7 +1068,9 @@ export class WebSocketClient {
       case T.SYNC_METADATA:
         this.emit('sync_metadata', {
           providerSessionIndex: hasOwnField(data, 'u') ? data.u : null,
-          totalCount: data.syncTotal || data.sync_total || 0
+          totalCount: data.syncTotal || data.sync_total || 0,
+          boardWidth: data.boardWidth || data.board_width || 0,
+          boardHeight: data.boardHeight || data.board_height || 0
         });
         break;
 
@@ -1878,8 +1883,8 @@ export class WebSocketClient {
    * @param {Object} corners - {tl, tr, br, bl} corner coordinates.
    * @returns {void}
    */
-  broadcastSelectionMove(corners) {
-    this.send({
+  broadcastSelectionMove(corners, sourceCrop = null) {
+    const msg = {
       t: T.SEL_MOVE,
       cr: [
         corners.tl.x, corners.tl.y,
@@ -1887,7 +1892,27 @@ export class WebSocketClient {
         corners.br.x, corners.br.y, 
         corners.bl.x, corners.bl.y
       ]
-    });
+    };
+
+    if (sourceCrop) {
+      msg.cb = [
+        sourceCrop.x,
+        sourceCrop.y,
+        sourceCrop.width,
+        sourceCrop.height
+      ];
+      const total = sourceCrop.total;
+      if (total) {
+        msg.cbt = [
+          total.x,
+          total.y,
+          total.width,
+          total.height
+        ];
+      }
+    }
+
+    this.send(msg);
   }
 
   /**
@@ -2057,8 +2082,14 @@ export class WebSocketClient {
    * @param {number} targetUser - Recipient session index.
    * @returns {void}
    */
-  sendSyncMetadata(totalCount, targetUser) {
-    this.send({ t: T.SYNC_METADATA, syncTotal: totalCount, tu: targetUser });
+  sendSyncMetadata(totalCount, targetUser, dimensions = null) {
+    const msg = { t: T.SYNC_METADATA, syncTotal: totalCount, tu: targetUser };
+    if (dimensions) {
+      const [height, width] = dimensions;
+      msg.boardWidth = width;
+      msg.boardHeight = height;
+    }
+    this.send(msg);
   }
 
   /**

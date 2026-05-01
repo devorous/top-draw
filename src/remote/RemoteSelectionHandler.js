@@ -155,6 +155,35 @@ export class RemoteSelectionHandler {
     };
   }
 
+  _cropFloatingCanvasToSourceBounds(user, sourceCrop) {
+    if (!user?.floatingCanvas || !sourceCrop) return false;
+
+    const sx = Math.max(0, Math.floor(sourceCrop.x));
+    const sy = Math.max(0, Math.floor(sourceCrop.y));
+    const sw = Math.min(user.floatingCanvas.width - sx, Math.ceil(sourceCrop.width));
+    const sh = Math.min(user.floatingCanvas.height - sy, Math.ceil(sourceCrop.height));
+    if (sw <= 0 || sh <= 0) return false;
+    if (sx === 0 && sy === 0 && sw === user.floatingCanvas.width && sh === user.floatingCanvas.height) return false;
+
+    const cropped = document.createElement('canvas');
+    cropped.width = sw;
+    cropped.height = sh;
+    cropped.getContext('2d').drawImage(user.floatingCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+
+    this._disposeCanvas(user.floatingCanvas);
+    user.floatingCanvas = cropped;
+    user.floatingCtx = cropped.getContext('2d');
+    user.originalCorners = {
+      tl: { x: 0, y: 0 },
+      tr: { x: sw, y: 0 },
+      bl: { x: 0, y: sh },
+      br: { x: sw, y: sh }
+    };
+    user._cachedPreviewCanvas = null;
+    user._cachedPreviewBounds = null;
+    return true;
+  }
+
   /**
    * Generate a pattern tile from a user's pattern brush settings.
    * @private
@@ -408,6 +437,10 @@ export class RemoteSelectionHandler {
         }
         user.floatingCtx.clearRect(0, 0, s.width, s.height);
         user.floatingCtx.drawImage(img, 0, 0, s.width, s.height);
+        if (user._pendingSourceCrop) {
+          this._cropFloatingCanvasToSourceBounds(user, user._pendingSourceCrop);
+          user._pendingSourceCrop = null;
+        }
 
         user._cachedPreviewCanvas = null;
         user._cachedPreviewBounds = null;
@@ -551,7 +584,7 @@ export class RemoteSelectionHandler {
     ctx.restore();
   }
 
-  handleSelectionMove(user, corners) {
+  handleSelectionMove(user, corners, sourceCrop = null) {
     if (!user.floatingCanvas || !user.selection) return;
 
     // Signal animation loop: skip drawing while moves are arriving
@@ -571,6 +604,14 @@ export class RemoteSelectionHandler {
     // Calculate movement delta before updating selection
     const oldX = user.selection.x;
     const oldY = user.selection.y;
+
+    if (sourceCrop) {
+      if (user.pendingImageLoad) {
+        user._pendingSourceCrop = sourceCrop;
+      } else {
+        this._cropFloatingCanvasToSourceBounds(user, sourceCrop);
+      }
+    }
 
     // Update corners
     user.selectionCorners = corners;
@@ -1141,6 +1182,10 @@ export class RemoteSelectionHandler {
         return;
       }
       user.floatingCtx.drawImage(img, 0, 0);
+      if (user._pendingSourceCrop) {
+        this._cropFloatingCanvasToSourceBounds(user, user._pendingSourceCrop);
+        user._pendingSourceCrop = null;
+      }
       // A SEL_MOVE replay may have already run _regeneratePreviewCache on the empty
       // canvas, producing a stale (blank) cached preview. Invalidate and rebuild now
       // that the actual image data is available.
@@ -1195,6 +1240,7 @@ export class RemoteSelectionHandler {
     user._pendingSelectionUpdatedAt = null;
     user.selectionCorners = null;
     user.originalCorners = null;
+    user._pendingSourceCrop = null;
     user.originalSelectionPos = null;
     user.lassoPath = null;
     user.homography = null;

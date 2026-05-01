@@ -51,6 +51,7 @@ export class SelectTool extends Tool {
     this.copyAllLayers = false; // Toggle: copy/cut all visible layers vs active layer only
     this._restoreData = null; // Snapshot of erased area
     this.floatingLayers = null; // Per-layer canvases when copyAllLayers is active
+    this._sourceCropForRemote = null;
     this.isSelecting = false;
     this.isDragging = false;
     this.startPos = null;
@@ -1285,10 +1286,17 @@ export class SelectTool extends Tool {
     }
 
     if (this.activeHandle) {
+      const releasedHandleId = this.activeHandle.id;
       // Don't apply transform yet - keep handles in place for layered transforms
       // Transform will be applied when committing the selection
       this.activeHandle = null;
       this.isTransforming = false;
+      const sourceCrop = this.cropScaledSelectionToContent(releasedHandleId);
+      if (sourceCrop) {
+        this.pendingSelectionBroadcast = null;
+        this.board.app?.inputBufferManager?.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionMove(this.corners, sourceCrop), { snapshot: false });
+        this.lastSelectionBroadcastTime = performance.now();
+      }
       // Flush any pending broadcast to ensure final transform state is sent
       this.flushPendingSelectionBroadcast();
       this.showContextMenu();
@@ -1339,7 +1347,8 @@ export class SelectTool extends Tool {
       }
 
       this.selection = bounds;
-      this.originalSelectionPos = { x: bounds.x, y: bounds.y };
+      this.cropNewSelectionToContent();
+      this.originalSelectionPos = { x: this.selection.x, y: this.selection.y };
       this.startPos = null;
 
       // Initialize corners for transform
@@ -1375,10 +1384,11 @@ export class SelectTool extends Tool {
       }
 
       this.selection = { x, y, width, height };
+      this.cropNewSelectionToContent();
       this.startPos = null;
 
       // Store original position to detect moves
-      this.originalSelectionPos = { x, y };
+      this.originalSelectionPos = { x: this.selection.x, y: this.selection.y };
 
       // Initialize corners for transform
       this.initializeCorners();
@@ -1595,6 +1605,149 @@ export class SelectTool extends Tool {
     const scaledCtx = scaledCanvas.getContext('2d');
     scaledCtx.drawImage(sourceCanvas, 0, 0, width, height);
     return scaledCanvas;
+  }
+
+  _findCanvasContentBounds(canvas) {
+    if (!canvas || canvas.width <= 0 || canvas.height <= 0) return null;
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    let minX = canvas.width;
+    let minY = canvas.height;
+    let maxX = -1;
+    let maxY = -1;
+
+    for (let y = 0; y < canvas.height; y++) {
+      const row = y * canvas.width * 4;
+      for (let x = 0; x < canvas.width; x++) {
+        if (data[row + x * 4 + 3] === 0) continue;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+
+    if (maxX < minX || maxY < minY) return null;
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX + 1,
+      height: maxY - minY + 1
+    };
+  }
+
+  _cropCanvasToBounds(canvas, bounds) {
+    if (!canvas || !bounds) return canvas;
+    const cropped = document.createElement('canvas');
+    cropped.width = Math.max(1, bounds.width);
+    cropped.height = Math.max(1, bounds.height);
+    const ctx = cropped.getContext('2d');
+    ctx.drawImage(
+      canvas,
+      bounds.x,
+      bounds.y,
+      bounds.width,
+      bounds.height,
+      0,
+      0,
+      bounds.width,
+      bounds.height
+    );
+    return cropped;
+  }
+
+  cropNewSelectionToContent() {
+    if (!this.selection || this.floatingCanvas) return false;
+
+    const s = this.selection;
+    if (s.width <= 0 || s.height <= 0) return false;
+
+    const contentCanvas = this._flattenSelectionToCanvas(s);
+    if (this.mode === 'lasso' && this.lassoPath) {
+      this.applyLassoMask(contentCanvas.getContext('2d'), s.x, s.y, this.lassoPath);
+    }
+
+    const contentBounds = this._findCanvasContentBounds(contentCanvas);
+    if (!contentBounds) return false;
+    if (
+      contentBounds.x === 0 &&
+      contentBounds.y === 0 &&
+      contentBounds.width === s.width &&
+      contentBounds.height === s.height
+    ) {
+      return false;
+    }
+
+    this.selection = {
+      x: s.x + contentBounds.x,
+      y: s.y + contentBounds.y,
+      width: contentBounds.width,
+      height: contentBounds.height
+    };
+    return true;
+  }
+
+  cropScaledSelectionToContent(handleId = null) {
+    if (!this.floatingCanvas || !this.selection) return false;
+    if (handleId && !['tl', 'tr', 'bl', 'br', 'tm', 'bm', 'ml', 'mr'].includes(handleId)) return false;
+    if (this.needsHomographyTransform()) return false;
+    if (!this.hasScaledSelection()) return false;
+
+    const sourceWidth = this.floatingCanvas.width;
+    const sourceHeight = this.floatingCanvas.height;
+    if (sourceWidth <= 0 || sourceHeight <= 0) return false;
+
+    const contentBounds = this._findCanvasContentBounds(this.floatingCanvas);
+    if (!contentBounds) return false;
+    if (
+      contentBounds.x === 0 &&
+      contentBounds.y === 0 &&
+      contentBounds.width === sourceWidth &&
+      contentBounds.height === sourceHeight
+    ) {
+      return false;
+    }
+
+    const currentSelection = { ...this.selection };
+    const previousTotalCrop = this._sourceCropForRemote;
+    const totalCrop = previousTotalCrop
+      ? {
+          x: previousTotalCrop.x + contentBounds.x,
+          y: previousTotalCrop.y + contentBounds.y,
+          width: contentBounds.width,
+          height: contentBounds.height
+        }
+      : { ...contentBounds };
+    const nextSelection = {
+      x: currentSelection.x + (contentBounds.x / sourceWidth) * currentSelection.width,
+      y: currentSelection.y + (contentBounds.y / sourceHeight) * currentSelection.height,
+      width: (contentBounds.width / sourceWidth) * currentSelection.width,
+      height: (contentBounds.height / sourceHeight) * currentSelection.height
+    };
+
+    this.floatingCanvas = this._cropCanvasToBounds(this.floatingCanvas, contentBounds);
+    this.floatingCtx = this.floatingCanvas.getContext('2d');
+    if (this.floatingLayers) {
+      this.floatingLayers = this.floatingLayers.map(({ canvas, groupIdx }) => ({
+        canvas: this._cropCanvasToBounds(canvas, contentBounds),
+        groupIdx
+      }));
+    }
+    this.selectedImageData = this.floatingCtx.getImageData(0, 0, this.floatingCanvas.width, this.floatingCanvas.height);
+    this.selection = nextSelection;
+    this._sourceCropForRemote = totalCrop;
+    this._cachedTransform = null;
+    this.initializeCorners();
+    this.updateHandles();
+    return {
+      x: contentBounds.x,
+      y: contentBounds.y,
+      width: contentBounds.width,
+      height: contentBounds.height,
+      total: totalCrop
+    };
   }
 
 
@@ -2408,6 +2561,7 @@ export class SelectTool extends Tool {
     if (!this.selection) return;
 
     const s = this.selection;
+    this._sourceCropForRemote = null;
 
     // Reset preview toast flag when starting a new transform session
     this.hasShownPreviewToast = false;
@@ -2598,6 +2752,7 @@ export class SelectTool extends Tool {
       this.floatingCanvas = null;
       this.floatingCtx = null;
       this.floatingLayers = null;
+      this._sourceCropForRemote = null;
       this.selectedImageData = null;
       this._restoreData = null;
       this._updateFloatingSelectionBlendPreview();
@@ -2619,6 +2774,7 @@ export class SelectTool extends Tool {
       this.floatingCanvas = null;
       this.floatingCtx = null;
       this.selectedImageData = null;
+      this._sourceCropForRemote = null;
       this._updateFloatingSelectionBlendPreview();
       this.board.clearTop();
       return;
@@ -2706,6 +2862,7 @@ export class SelectTool extends Tool {
     this.floatingCanvas = null;
     this.floatingCtx = null;
     this.selectedImageData = null;
+    this._sourceCropForRemote = null;
     this._restoreData = null;
     this._updateFloatingSelectionBlendPreview();
     this.board.clearTop();
@@ -2736,6 +2893,7 @@ export class SelectTool extends Tool {
     this.floatingCtx = null;
     this.floatingLayers = null;
     this.selectedImageData = null;
+    this._sourceCropForRemote = null;
     this._updateFloatingSelectionBlendPreview();
     this.isTransforming = false;
     this.rotation = 0;
@@ -3063,6 +3221,7 @@ export class SelectTool extends Tool {
     this.floatingCanvas.height = this.clipboard.height;
     this.floatingCtx = this.floatingCanvas.getContext('2d');
     this.floatingCtx.putImageData(this.clipboard.imageData, 0, 0);
+    this._sourceCropForRemote = null;
 
     // Store original position - pasted content is considered "moved"
     this.originalSelectionPos = { x: -1, y: -1 };
@@ -3101,6 +3260,7 @@ export class SelectTool extends Tool {
     this.floatingCanvas.height = this.clipboard.height;
     this.floatingCtx = this.floatingCanvas.getContext('2d');
     this.floatingCtx.putImageData(this.clipboard.imageData, 0, 0);
+    this._sourceCropForRemote = null;
 
     // Mark as "moved" so committing drops the clone without erasing the source.
     this.originalSelectionPos = { x: -1, y: -1 };
@@ -3189,6 +3349,7 @@ export class SelectTool extends Tool {
     this.floatingCanvas.width = width;
     this.floatingCanvas.height = height;
     this.floatingCtx = this.floatingCanvas.getContext('2d');
+    this._sourceCropForRemote = null;
 
     if (imageSource instanceof ImageData) {
       // ImageData can't be scaled directly - draw to temp canvas first
@@ -3237,6 +3398,7 @@ export class SelectTool extends Tool {
     if (this.floatingCanvas) {
       this.floatingCanvas = null;
       this.floatingCtx = null;
+      this._sourceCropForRemote = null;
       this._restoreData = null;
     } else {
       // Not yet lifted — erase now directly
