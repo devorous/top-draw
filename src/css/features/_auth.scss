@@ -284,14 +284,32 @@ body.desktop-window-chrome #overlay {
 
 .authLoggedInRow {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 12px;
   padding: 12px 0;
   width: 100%;
 
-  #joinBtnLoggedIn {
-    flex: 0 0 116px;
+  .authLoggedInJoinBtn {
+    width: 100%;
+    max-width: 220px;
+    min-height: 44px;
+    background: color-mix(in srgb, var(--accent-primary) 86%, var(--bg-tertiary));
+    border-color: var(--accent-primary);
+    color: var(--bg-primary);
+    font-weight: 700;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 35%, transparent),
+      0 10px 24px color-mix(in srgb, var(--accent-primary) 20%, transparent);
+
+    &:hover {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+      color: var(--bg-primary);
+      transform: translateY(-1px);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-hover) 42%, transparent),
+        0 12px 28px color-mix(in srgb, var(--accent-primary) 26%, transparent);
+    }
   }
 }
 

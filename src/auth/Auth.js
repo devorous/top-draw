@@ -58,6 +58,7 @@ export class Auth {
       // Logged in state
       authUsernameBtn: document.getElementById('authUsernameBtn'),
       authUsernameDisplay: document.getElementById('authUsernameDisplay'),
+      authLoggedInJoinBtn: document.getElementById('authLoggedInJoinBtn'),
       joinBtnLoggedIn: document.getElementById('joinBtnLoggedIn'),
       // Registration
       registerBtn: document.getElementById('registerBtn'),
@@ -121,6 +122,11 @@ export class Auth {
       this.triggerJoin();
     });
 
+    this.els.authLoggedInJoinBtn?.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.triggerJoin();
+    });
+
     // Enter key on password fields
     this.els.loginPassword?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -161,8 +167,10 @@ export class Auth {
   }
 
   isJoinActionEnabled() {
-    const activeJoinButton = this.isLoggedIn ? this.els.joinBtnLoggedIn : this.els.loginJoinBtn;
-    return !activeJoinButton || !activeJoinButton.disabled;
+    const activeJoinButtons = this.isLoggedIn
+      ? [this.els.authLoggedInJoinBtn, this.els.joinBtnLoggedIn]
+      : [this.els.loginJoinBtn];
+    return activeJoinButtons.some((button) => button && !button.disabled);
   }
 
   /**

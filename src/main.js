@@ -27,6 +27,7 @@ let appBootPromise = null;
 let deferredActionPromise = null;
 const APP_BOOT_TIMEOUT_MS = 75000;
 const APP_IMPORT_TIMEOUT_MS = 30000;
+const FIREFOX_WARNING_DISMISSED_KEY = 'topDrawFirefoxWarningDismissed';
 
 function withTimeout(promise, timeoutMs, message) {
   let timeoutId;
@@ -71,6 +72,10 @@ function showFirefoxWarning() {
         Try using a Chromium-based browser for the best experience:<br>
         <strong style="color:var(--text-primary, #e0e0e0);">Chrome, Edge, Brave, Opera</strong>
       </p>
+      <label style="display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 20px;font-size:13px;color:var(--text-secondary, #aaa);cursor:pointer;">
+        <input id="firefoxDismissWarningCheckbox" type="checkbox" style="width:16px;height:16px;accent-color:var(--accent-color, #00d4aa);cursor:pointer;">
+        <span>Don't warn me again</span>
+      </label>
       <button id="firefoxContinueBtn" style="padding:10px 24px;font-size:14px;font-weight:500;background:var(--bg-tertiary, #2a2a3e);color:var(--text-secondary, #aaa);border:1px solid var(--border-subtle, #333);border-radius:8px;cursor:pointer;">
         Continue anyway
       </button>
@@ -80,10 +85,25 @@ function showFirefoxWarning() {
     document.body.appendChild(backdrop);
 
     document.getElementById('firefoxContinueBtn').addEventListener('click', () => {
+      if (document.getElementById('firefoxDismissWarningCheckbox')?.checked) {
+        try {
+          localStorage.setItem(FIREFOX_WARNING_DISMISSED_KEY, 'true');
+        } catch {
+          // Ignore storage failures so the user can continue into the app.
+        }
+      }
       backdrop.remove();
       resolve();
     });
   });
+}
+
+function shouldShowFirefoxWarning() {
+  try {
+    return localStorage.getItem(FIREFOX_WARNING_DISMISSED_KEY) !== 'true';
+  } catch {
+    return true;
+  }
 }
 
 function updateShellStatus(status, text) {
@@ -113,6 +133,7 @@ function revealLandingShell() {
   const refreshRoomsBtn = document.getElementById('refreshRoomsBtn');
   const loginJoinBtn = document.getElementById('loginJoinBtn');
   const joinBtnLoggedIn = document.getElementById('joinBtnLoggedIn');
+  const authLoggedInJoinBtn = document.getElementById('authLoggedInJoinBtn');
   const roomIdInput = document.getElementById('roomIdInput');
   const roomMatch = window.location.pathname.match(/^\/go\/([a-zA-Z0-9_-]+)$/);
 
@@ -132,7 +153,7 @@ function revealLandingShell() {
     refreshRoomsBtn.disabled = true;
     refreshRoomsBtn.classList.add('disabled');
   }
-  [loginJoinBtn, joinBtnLoggedIn].forEach((btn) => {
+  [loginJoinBtn, joinBtnLoggedIn, authLoggedInJoinBtn].forEach((btn) => {
     if (!btn) return;
     btn.disabled = true;
     btn.classList.add('disabled');
@@ -225,6 +246,7 @@ function attachDeferredLandingHandlers() {
   const loginForm = document.getElementById('loginForm');
   const loginJoinBtn = document.getElementById('loginJoinBtn');
   const joinBtnLoggedIn = document.getElementById('joinBtnLoggedIn');
+  const authLoggedInJoinBtn = document.getElementById('authLoggedInJoinBtn');
   const loginBtn = document.getElementById('loginBtn');
   const loginOfflineBtn = document.getElementById('loginOfflineBtn');
   const refreshRoomsBtn = document.getElementById('refreshRoomsBtn');
@@ -232,8 +254,9 @@ function attachDeferredLandingHandlers() {
   const roomIdInput = document.getElementById('roomIdInput');
 
   const canRunDeferredJoin = () => {
-    const activeJoinBtn = joinBtnLoggedIn?.offsetParent !== null ? joinBtnLoggedIn : loginJoinBtn;
-    return !activeJoinBtn?.disabled;
+    const joinButtons = [authLoggedInJoinBtn, joinBtnLoggedIn, loginJoinBtn]
+      .filter((btn) => btn?.offsetParent !== null);
+    return joinButtons.some((btn) => !btn.disabled);
   };
 
   loginForm?.addEventListener('submit', (event) => {
@@ -257,6 +280,13 @@ function attachDeferredLandingHandlers() {
   });
 
   joinBtnLoggedIn?.addEventListener('click', (event) => {
+    if (app) return;
+    event.preventDefault();
+    if (!canRunDeferredJoin()) return;
+    void runDeferredAction((readyApp) => readyApp.handleJoin());
+  });
+
+  authLoggedInJoinBtn?.addEventListener('click', (event) => {
     if (app) return;
     event.preventDefault();
     if (!canRunDeferredJoin()) return;
@@ -325,7 +355,7 @@ async function init() {
     }, true); // Use capture phase to intercept before other handlers
   }
 
-  if (isFirefox) {
+  if (isFirefox && shouldShowFirefoxWarning()) {
     showFirefoxWarning().then(() => {
       requestAnimationFrame(() => setTimeout(startBackgroundBoot, 0));
     });

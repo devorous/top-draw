@@ -57,7 +57,8 @@ export function dismissDesktopUpdateForOffline(version = '') {
 function setLandingJoinDisabled(disabled) {
   const joinButtons = [
     document.getElementById('loginJoinBtn'),
-    document.getElementById('joinBtnLoggedIn')
+    document.getElementById('joinBtnLoggedIn'),
+    document.getElementById('authLoggedInJoinBtn')
   ];
 
   joinButtons.forEach((btn) => {

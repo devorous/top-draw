@@ -131,6 +131,7 @@ export class EditableValueHandler {
       val = Math.max(resolveBound(min), Math.min(resolveBound(max), val));
       const snapStep = dragStep ? dragStep(val) : step;
       val = Math.round(val / snapStep) * snapStep;
+      val = Math.max(resolveBound(min), Math.min(resolveBound(max), val));
       val = parseFloat(val.toFixed(10));
       dragState.lastVal = val;
 

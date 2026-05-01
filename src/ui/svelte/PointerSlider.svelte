@@ -8,7 +8,8 @@
     onChange = null,
     scaling = 'linear',
     weightedStopValue = 10,
-    weightedStopPercent = 1 / 3
+    weightedStopPercent = 1 / 3,
+    snapStep = null
   } = $props();
 
   let isDragging = $state(false);
@@ -66,9 +67,11 @@
 
     let newValue = toValue(percent);
 
+    const activeStep = typeof snapStep === 'function' ? snapStep(newValue) : step;
+
     // Apply step rounding
-    if (step) {
-      newValue = Math.round(newValue / step) * step;
+    if (activeStep) {
+      newValue = Math.round(newValue / activeStep) * activeStep;
     }
 
     commitValue(newValue);
@@ -100,7 +103,7 @@
   }
 
   function handleKeyDown(event) {
-    const stepSize = step || 1;
+    const stepSize = (typeof snapStep === 'function' ? snapStep(displayValue) : step) || 1;
     const keyDeltas = {
       ArrowLeft: -stepSize,
       ArrowDown: -stepSize,

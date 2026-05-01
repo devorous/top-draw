@@ -101,6 +101,7 @@ export class UI {
         scaling: options.scaling || 'linear',
         weightedStopValue: Number(options.weightedStopValue ?? 10),
         weightedStopPercent: Number(options.weightedStopPercent ?? (1 / 3)),
+        snapStep: options.snapStep || null,
         component: null
       };
 
@@ -127,6 +128,7 @@ export class UI {
             scaling: state.scaling,
             weightedStopValue: state.weightedStopValue,
             weightedStopPercent: state.weightedStopPercent,
+            snapStep: state.snapStep,
             ariaLabel,
             onChange: (newValue) => {
               state.value = newValue;
@@ -137,12 +139,14 @@ export class UI {
         });
       };
 
-      for (const key of ['value', 'min', 'max', 'step', 'scaling', 'weightedStopValue', 'weightedStopPercent']) {
+      for (const key of ['value', 'min', 'max', 'step', 'scaling', 'weightedStopValue', 'weightedStopPercent', 'snapStep']) {
         Object.defineProperty(mountPoint, key, {
           configurable: true,
           get: () => state[key],
           set: (val) => {
             if (key === 'scaling') {
+              state[key] = val;
+            } else if (key === 'snapStep') {
               state[key] = val;
             } else {
               state[key] = Number(val);
@@ -164,6 +168,7 @@ export class UI {
       scaling: 'weighted',
       weightedStopValue: 10,
       weightedStopPercent: 1 / 3,
+      snapStep: (val) => val > 10 ? 1 : 0.25,
       ariaLabel: 'Size'
     });
 
@@ -385,6 +390,7 @@ export class UI {
       connecting: document.getElementById('connecting'),
       joinBtn: document.getElementById('joinBtn'),
       joinBtnLoggedIn: document.getElementById('joinBtnLoggedIn'),
+      authLoggedInJoinBtn: document.getElementById('authLoggedInJoinBtn'),
       offlineBtn: document.getElementById('offlineBtn'),
       loginOfflineBtn: document.getElementById('loginOfflineBtn'),
       loginUsername: document.getElementById('loginUsername'),

@@ -39,6 +39,7 @@ export class LandingPage {
       joinBtn: document.getElementById('joinBtn'),
       loginJoinBtn: document.getElementById('loginJoinBtn'),
       joinBtnLoggedIn: document.getElementById('joinBtnLoggedIn'),
+      authLoggedInJoinBtn: document.getElementById('authLoggedInJoinBtn'),
       loginOfflineBtn: document.getElementById('loginOfflineBtn'),
       landingConnectionStatuses: [
         document.getElementById('landingConnectionStatus'),
@@ -600,6 +601,10 @@ export class LandingPage {
     if (this.els.joinBtnLoggedIn) {
       this.els.joinBtnLoggedIn.disabled = !enabled;
       this.els.joinBtnLoggedIn.classList.toggle('disabled', !enabled);
+    }
+    if (this.els.authLoggedInJoinBtn) {
+      this.els.authLoggedInJoinBtn.disabled = !enabled;
+      this.els.authLoggedInJoinBtn.classList.toggle('disabled', !enabled);
     }
     if (this.els.createRoomBtn) {
       this.els.createRoomBtn.disabled = !enabled;

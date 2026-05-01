@@ -1898,7 +1898,7 @@ export class DrawingApp {
     // Editable slider values
     this.ui.makeValueEditable(elements.sizeValue, {
       min: 0.25, max: 100, step: 0.25, suffix: '',
-      dragStep: (val) => val >= 5 ? 1 : 0.5,
+      dragStep: (val) => val > 10 ? 1 : 0.25,
       onCommit: (val) => {
         this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(val));
         if (this.self.mousedown && this.self.tool === 'brush') {
@@ -4957,7 +4957,12 @@ export class DrawingApp {
 
   handleSizeChange(e) {
     this.clearActiveCustomPreset();
-    const size = Number(e.target.value);
+    let size = Number(e.target.value);
+    size = size > 10 ? Math.round(size) : Math.round(size / 0.25) * 0.25;
+    size = Math.max(0.25, Math.min(100, size));
+    if (e.target && Number(e.target.value) !== size) {
+      e.target.value = size;
+    }
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSizeChange(size));
     if (this.self.mousedown && this.self.tool === 'brush') {
       this.commitSelfLine(this.self.pressure, size);
