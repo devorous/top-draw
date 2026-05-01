@@ -52,6 +52,7 @@ export class Auth {
       // Not logged in form
       loginUsername: document.getElementById('loginUsername'),
       loginPassword: document.getElementById('loginPassword'),
+      loginBtn: document.getElementById('loginBtn'),
       loginJoinBtn: document.getElementById('loginJoinBtn'),
       rememberMe: document.getElementById('rememberMe'),
       // Logged in state
@@ -105,15 +106,14 @@ export class Auth {
   }
 
   setupListeners() {
-    // Dynamic button text
-    this.els.loginPassword?.addEventListener('input', () => {
-      this.updateButtonText(this.els.loginPassword, this.els.loginJoinBtn);
+    this.els.loginBtn?.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.handleLogin();
     });
 
-    // Consolidated buttons
     this.els.loginJoinBtn?.addEventListener('click', (e) => {
       e.preventDefault();
-      this.triggerPrimaryAction();
+      this.triggerJoin();
     });
 
     this.els.joinBtnLoggedIn?.addEventListener('click', (e) => {
@@ -125,7 +125,7 @@ export class Auth {
     this.els.loginPassword?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        this.triggerPrimaryAction();
+        this.handleLogin();
       }
     });
 
@@ -175,28 +175,6 @@ export class Auth {
     if (form) {
       form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
     }
-  }
-
-  /**
-   * Trigger login when credentials are present, otherwise continue with join.
-   */
-  triggerPrimaryAction() {
-    if (!this.isJoinActionEnabled()) return;
-
-    if (!this.isLoggedIn && this.els.loginPassword?.value) {
-      this.handleLogin();
-      return;
-    }
-
-    this.triggerJoin();
-  }
-
-  /**
-   * Update button text based on whether password is provided
-   */
-  updateButtonText(passwordInput, buttonEl) {
-    if (!buttonEl) return;
-    buttonEl.textContent = passwordInput?.value ? 'Login' : 'Join';
   }
 
   /**
@@ -324,9 +302,6 @@ export class Auth {
     this.syncAuthStateHeights();
 
     await this._transitionTo(this.els.authNotLoggedIn, [this.els.authLoggedIn, this.els.registerPanel, this.els.passwordResetPanel]);
-
-    // Reset button text
-    this.updateButtonText(this.els.loginPassword, this.els.loginJoinBtn);
 
     if (this.onLoggedInStateChange) {
       this.onLoggedInStateChange(false, null);
@@ -684,7 +659,7 @@ export class Auth {
 
   setLoading(loading) {
     this._loading = loading;
-    const btns = [this.els.loginJoinBtn, this.els.registerSubmitBtn, this.els.passwordResetSubmitBtn];
+    const btns = [this.els.loginBtn, this.els.registerSubmitBtn, this.els.passwordResetSubmitBtn];
 
     if (loading) {
       btns.forEach(btn => {

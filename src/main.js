@@ -225,26 +225,15 @@ function attachDeferredLandingHandlers() {
   const loginForm = document.getElementById('loginForm');
   const loginJoinBtn = document.getElementById('loginJoinBtn');
   const joinBtnLoggedIn = document.getElementById('joinBtnLoggedIn');
+  const loginBtn = document.getElementById('loginBtn');
   const loginOfflineBtn = document.getElementById('loginOfflineBtn');
   const refreshRoomsBtn = document.getElementById('refreshRoomsBtn');
   const registerBtn = document.getElementById('registerBtn');
   const roomIdInput = document.getElementById('roomIdInput');
-  const loginPassword = document.getElementById('loginPassword');
 
   const canRunDeferredJoin = () => {
     const activeJoinBtn = joinBtnLoggedIn?.offsetParent !== null ? joinBtnLoggedIn : loginJoinBtn;
     return !activeJoinBtn?.disabled;
-  };
-
-  const runDeferredPrimaryAuthAction = () => {
-    if (!canRunDeferredJoin()) return Promise.resolve();
-
-    const passwordValue = loginPassword?.value;
-    if (passwordValue) {
-      return runDeferredAction((readyApp) => readyApp.handleLandingLogin());
-    }
-
-    return runDeferredAction((readyApp) => readyApp.handleJoin());
   };
 
   loginForm?.addEventListener('submit', (event) => {
@@ -257,7 +246,14 @@ function attachDeferredLandingHandlers() {
   loginJoinBtn?.addEventListener('click', (event) => {
     if (app) return;
     event.preventDefault();
-    void runDeferredPrimaryAuthAction();
+    if (!canRunDeferredJoin()) return;
+    void runDeferredAction((readyApp) => readyApp.handleJoin());
+  });
+
+  loginBtn?.addEventListener('click', (event) => {
+    if (app) return;
+    event.preventDefault();
+    void runDeferredAction((readyApp) => readyApp.handleLandingLogin());
   });
 
   joinBtnLoggedIn?.addEventListener('click', (event) => {
@@ -292,10 +288,10 @@ function attachDeferredLandingHandlers() {
     void runDeferredAction((readyApp) => readyApp.handleJoin());
   });
 
-  loginPassword?.addEventListener('keydown', (event) => {
+  document.getElementById('loginPassword')?.addEventListener('keydown', (event) => {
     if (app || event.key !== 'Enter') return;
     event.preventDefault();
-    void runDeferredPrimaryAuthAction();
+    void runDeferredAction((readyApp) => readyApp.handleLandingLogin());
   });
 }
 
