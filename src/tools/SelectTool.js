@@ -2778,6 +2778,10 @@ export class SelectTool extends Tool {
       this._sourceCropForRemote = null;
       this._updateFloatingSelectionBlendPreview();
       this.board.clearTop();
+      // Still broadcast commit to sync with other users even if stroke creation failed
+      if (this.board.app?.wsClient) {
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionCommit());
+      }
       return;
     }
 
