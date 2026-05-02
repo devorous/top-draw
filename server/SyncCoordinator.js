@@ -115,6 +115,15 @@ export class SyncCoordinator {
     }, SYNC_PROVIDER_TIMEOUT_MS);
 
     const providerData = this.sessionManager.users.get(providerIdx);
+
+    // Re-validate that the provider is still a suitable candidate
+    // (they may have gone AFK since initial ranking)
+    if (!providerData || !providerData.name || providerData.afk || providerClient.lowPowerMode) {
+      console.log(`[Sync] Provider ${providerIdx} no longer suitable (AFK: ${providerData?.afk}, lowPower: ${providerClient.lowPowerMode}), trying next candidate`);
+      this._tryNextCandidate(ws, requesterSessionIndex, candidates, idx + 1);
+      return;
+    }
+
     console.log(`[Sync] Asking user ${providerIdx} (${providerData?.name}, candidate ${idx + 1}/${candidates.length}) to provide for ${requesterSessionIndex}`);
     this.sendTo(providerClient, { t: T.SYNC_PROVIDE, tu: requesterSessionIndex });
   }
