@@ -2462,6 +2462,14 @@ export class DrawingApp {
       return;
     }
 
+    const MAX_PATTERN_SIZE_BYTES = 10 * 1024 * 1024;
+    if (file.size > MAX_PATTERN_SIZE_BYTES) {
+      const sizeMB = (MAX_PATTERN_SIZE_BYTES / 1024 / 1024).toFixed(0);
+      this.ui.alert(`Pattern image must be smaller than ${sizeMB} MB`);
+      e.target.value = '';
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
