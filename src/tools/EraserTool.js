@@ -599,13 +599,32 @@ export class EraserTool extends Tool {
   }
 
   _mirrorRect(rect, region) {
-    const p1 = this.board.mirrorPointToRegion({ x: rect.x, y: rect.y }, region);
-    const p2 = this.board.mirrorPointToRegion({ x: rect.x + rect.width, y: rect.y + rect.height }, region);
+    const corners = [
+      { x: rect.x, y: rect.y },
+      { x: rect.x + rect.width, y: rect.y },
+      { x: rect.x, y: rect.y + rect.height },
+      { x: rect.x + rect.width, y: rect.y + rect.height }
+    ];
+
+    const mirrored = corners.map(p => this.board.mirrorPointToRegion(p, region));
+
+    let minX = mirrored[0].x;
+    let minY = mirrored[0].y;
+    let maxX = mirrored[0].x;
+    let maxY = mirrored[0].y;
+
+    for (const p of mirrored) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+
     return {
-      x: Math.floor(Math.min(p1.x, p2.x)),
-      y: Math.floor(Math.min(p1.y, p2.y)),
-      width: Math.ceil(Math.abs(p2.x - p1.x)),
-      height: Math.ceil(Math.abs(p2.y - p1.y))
+      x: Math.floor(minX),
+      y: Math.floor(minY),
+      width: Math.ceil(maxX - minX),
+      height: Math.ceil(maxY - minY)
     };
   }
 
