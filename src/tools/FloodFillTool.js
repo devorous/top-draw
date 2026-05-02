@@ -148,7 +148,8 @@ export class FloodFillTool {
     if (this._patternTileCache.has(key)) return this._patternTileCache.get(key);
 
     // Render SVGs at higher resolution (200px) to avoid pixelation when scaled
-    const maxDim = (brush.type === 'svg') ? 200 : 40;
+    // Regular images use 1024px max to preserve detail from high-res textures
+    const maxDim = (brush.type === 'svg') ? 200 : 1024;
     const imgWidth = img.width || img.naturalWidth;
     const imgHeight = img.height || img.naturalHeight;
     const aspectRatio = imgWidth / imgHeight;

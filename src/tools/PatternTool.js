@@ -279,8 +279,9 @@ export class PatternTool extends Tool {
     }
 
     // Preserve aspect ratio
-    // Render SVGs at higher resolution (200px) to avoid pixelation when scaled
-    const maxDim = (brush.type === 'svg') ? 200 : 40;
+    // SVGs render at higher resolution (200px) to avoid pixelation when scaled
+    // Regular images use 1024px max to preserve detail from high-res textures
+    const maxDim = (brush.type === 'svg') ? 200 : 1024;
     const imgWidth = img.width || img.naturalWidth;
     const imgHeight = img.height || img.naturalHeight;
 

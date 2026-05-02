@@ -2454,49 +2454,74 @@ export class DrawingApp {
     this.ui.elements.patternImageUploadInput?.click();
   }
 
-  handlePatternImageUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
+  async handlePatternImageUpload(e) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
     if (!this.canUseImageFeatures(true)) {
       e.target.value = '';
       return;
     }
 
     const MAX_PATTERN_SIZE_BYTES = 10 * 1024 * 1024;
-    if (file.size > MAX_PATTERN_SIZE_BYTES) {
-      const sizeMB = (MAX_PATTERN_SIZE_BYTES / 1024 / 1024).toFixed(0);
-      this.ui.alert(`Pattern image must be smaller than ${sizeMB} MB`);
-      e.target.value = '';
-      return;
-    }
+    let firstBrush = null;
+    const failedFiles = [];
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
+    for (const file of files) {
+      if (file.size > MAX_PATTERN_SIZE_BYTES) {
+        const sizeMB = (MAX_PATTERN_SIZE_BYTES / 1024 / 1024).toFixed(0);
+        failedFiles.push(`${file.name} (exceeds ${sizeMB} MB limit)`);
+        continue;
+      }
+
+      try {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        const img = await new Promise((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(image);
+          image.onerror = reject;
+          image.src = dataUrl;
+        });
+
         const customBrush = assetLibrary.addCustomAsset({
           kind: 'pattern',
           type: 'image',
           fileName: file.name,
           fileType: file.name.split('.').pop().toLowerCase(),
-          dataUrl: event.target.result,
-          gimpUrl: event.target.result,
+          dataUrl,
+          gimpUrl: dataUrl,
           brushName: file.name.replace(/\.[^/.]+$/, '') || 'Uploaded Image'
         });
+
         const runtimeBrush = {
           ...customBrush,
           type: 'image',
           image: img,
-          gimpUrl: event.target.result,
+          gimpUrl: dataUrl,
           width: img.width,
           height: img.height
         };
+
         this.patternGallery.registerBrush(runtimeBrush);
-        this.handlePatternBrushSelect(runtimeBrush);
-      };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(file);
+        if (!firstBrush) {
+          firstBrush = runtimeBrush;
+          this.handlePatternBrushSelect(runtimeBrush);
+        }
+      } catch (err) {
+        console.error(`Failed to load pattern ${file.name}:`, err);
+        failedFiles.push(file.name);
+      }
+    }
+
+    if (failedFiles.length > 0) {
+      this.ui.alert(`Failed to load: ${failedFiles.join(', ')}`);
+    }
+
     e.target.value = '';
   }
 
@@ -5117,47 +5142,52 @@ export class DrawingApp {
   }
 
   async handleBrushFileLoad(e) {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
 
     const brushTool = this.toolManager.getTool('imageBrush');
-    const brushData = await brushTool.loadBrush(file, this.self);
+    let lastBrushData = null;
 
-    if (brushData) {
-      const lowerType = file.name.split('.').pop().toLowerCase();
-      if (['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(lowerType)) {
-        const customAsset = assetLibrary.addCustomAsset({
-          kind: 'imageBrush',
-          type: brushData.type,
-          fileName: file.name,
-          fileType: lowerType,
-          dataUrl: brushData.previewUrl || brushData.gimpUrl,
-          gimpUrl: brushData.previewUrl || brushData.gimpUrl,
-          svgContent: brushData.svgContent || null,
-          brushName: brushData.brushName || file.name.replace(/\.[^/.]+$/, '')
-        });
-        if (this.brushGallery.realGallery) {
-          this.brushGallery.realGallery.registerBrush({
-            ...brushData,
-            ...customAsset,
-            image: brushData.image,
-            images: brushData.images
+    for (const file of files) {
+      const brushData = await brushTool.loadBrush(file, this.self);
+
+      if (brushData) {
+        const lowerType = file.name.split('.').pop().toLowerCase();
+        if (['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(lowerType)) {
+          const customAsset = assetLibrary.addCustomAsset({
+            kind: 'imageBrush',
+            type: brushData.type,
+            fileName: file.name,
+            fileType: lowerType,
+            dataUrl: brushData.previewUrl || brushData.gimpUrl,
+            gimpUrl: brushData.previewUrl || brushData.gimpUrl,
+            svgContent: brushData.svgContent || null,
+            brushName: brushData.brushName || file.name.replace(/\.[^/.]+$/, '')
           });
+          if (this.brushGallery.realGallery) {
+            this.brushGallery.realGallery.registerBrush({
+              ...brushData,
+              ...customAsset,
+              image: brushData.image,
+              images: brushData.images
+            });
+          }
         }
-      }
 
-      // Clone brushData without image/images properties for transmission
-      const broadcastData = { ...brushData };
+        lastBrushData = brushData;
+      }
+    }
+
+    // Only broadcast and select the last loaded brush
+    if (lastBrushData) {
+      const broadcastData = { ...lastBrushData };
       delete broadcastData.image;
       delete broadcastData.images;
 
-      // Queue the brush change (snapshots pending strokes with old brush FIRST)
-      // BEFORE updating this.self.imageBrush
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBrush(broadcastData));
 
-      // NOW update to the new brush for future strokes
-      this.self.imageBrush = brushData;
-      this.ui.setBrushPreview(brushData.previewUrl || brushData.gimpUrl || brushData.gBrushes[0].gimpUrl);
+      this.self.imageBrush = lastBrushData;
+      this.ui.setBrushPreview(lastBrushData.previewUrl || lastBrushData.gimpUrl || lastBrushData.gBrushes[0].gimpUrl);
     }
     e.target.value = '';
   }
