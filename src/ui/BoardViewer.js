@@ -423,7 +423,8 @@ export class BoardViewer {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, rect.width, rect.height);
     ctx.imageSmoothingEnabled = this.viewZoom < 4;
-    ctx.fillStyle = '#1b1f27';
+    const [r, g, b, a = 1] = this.board.getCompositeBackgroundColor();
+    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
     ctx.fillRect(0, 0, rect.width, rect.height);
     ctx.setTransform(dpr * this.viewZoom, 0, 0, dpr * this.viewZoom, dpr * this.panX, dpr * this.panY);
     ctx.drawImage(this.board.mainCanvas, 0, 0);
