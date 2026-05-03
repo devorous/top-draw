@@ -151,6 +151,9 @@
         onclick={(e) => e.stopPropagation()}
         onpointerdown={(e) => e.stopPropagation()}
         onpointerup={(e) => e.stopPropagation()}
+        role="menu"
+        tabindex="0"
+        onkeydown={(e) => e.key === 'Escape' && (appState.boardMenuOpen = null)}
       >
         {#each layers as layer}
           <div class="layer-row">
@@ -231,6 +234,9 @@
         onclick={(e) => e.stopPropagation()}
         onpointerdown={(e) => e.stopPropagation()}
         onpointerup={(e) => e.stopPropagation()}
+        role="menu"
+        tabindex="0"
+        onkeydown={(e) => e.key === 'Escape' && (appState.boardMenuOpen = null)}
       >
         <div class="blend-dropdown-header">
           <span>{blendModes.find(m => m.value === appState.blendMode)?.label ?? 'Normal'}</span>
@@ -625,24 +631,8 @@
     margin-top: 4px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    pointer-events: auto;
-  }
-
-  .history-wrap .local-btn {
-    max-height: 0;
-    opacity: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    overflow: hidden;
-    pointer-events: none;
-    transition: max-height 0.18s ease, opacity 0.18s ease, padding 0.18s ease;
-  }
-
-  .history-wrap {
-    display: flex;
-    flex-direction: column;
     gap: 4px;
+    pointer-events: auto;
   }
 
   .history-btn {
@@ -670,22 +660,4 @@
     color: var(--text-primary);
   }
 
-  .local-btn {
-    max-height: 0;
-    opacity: 0;
-    pointer-events: none;
-    overflow: hidden;
-    transition: all 0.2s ease;
-    padding-left: 24px; /* offset icon */
-    color: var(--text-muted);
-    font-size: 0.7rem;
-    justify-content: flex-start;
-  }
-
-  .history-wrap:hover .local-btn,
-  .history-wrap:focus-within .local-btn {
-    max-height: 24px;
-    opacity: 1;
-    pointer-events: all;
-  }
 </style>

@@ -613,11 +613,12 @@ function getChatOpacity() {
 
 <div class="settings-slider-stack">
               <div class="settings-slider-card">
-                <label class="settings-slider-label">
+                <label class="settings-slider-label" for="sfx-volume">
                   <span class="settings-slider-title">SFX Volume</span>
                   <span class="settings-slider-value">{Math.round(getSfxVolume() * 100)}%</span>
                 </label>
                 <input
+                  id="sfx-volume"
                   type="range"
                   class="settings-slider"
                   min="0"
@@ -655,11 +656,12 @@ function getChatOpacity() {
               </div>
 
               <div class="settings-slider-card">
-                <label class="settings-slider-label">
+                <label class="settings-slider-label" for="chat-opacity">
                   <span class="settings-slider-title">Chat Opacity</span>
                   <span class="settings-slider-value">{Math.round(getChatOpacity() * 100)}%</span>
                 </label>
                 <input
+                  id="chat-opacity"
                   type="range"
                   class="settings-slider"
                   min="0.3"

@@ -1,8 +1,9 @@
-/** @fileoverview Lazy-loads BrushGallery and parseGimp.js only when first shown. */
+/** @fileoverview Lazy-loads BrushGallery on first use. */
+import { BrushGallery } from './BrushGallery.js';
 
 /**
  * BrushGalleryLoader class
- * This keeps ~40 KB of brush parsing code out of initial bundle.
+ * Initializes BrushGallery on first access.
  */
 export class BrushGalleryLoader {
   /**
@@ -11,7 +12,6 @@ export class BrushGalleryLoader {
   constructor(options = {}) {
     this.options = options;
     this.realGallery = null;
-    this.loadingPromise = null;
     this.galleryEl = null;
   }
 
@@ -23,43 +23,22 @@ export class BrushGalleryLoader {
   }
 
   /**
-   * Loads the real BrushGallery module and initializes it.
-   * @returns {Promise<BrushGallery>} - Resolves with the BrushGallery instance
+   * Initializes the real BrushGallery.
+   * @returns {BrushGallery} - The BrushGallery instance
    */
-  async loadRealGallery() {
-    if (this.realGallery) {
-      return this.realGallery;
+  loadRealGallery() {
+    if (!this.realGallery) {
+      this.realGallery = new BrushGallery(this.options);
+      this.realGallery.init();
     }
-
-    if (this.loadingPromise) {
-      return this.loadingPromise;
-    }
-
-    this.loadingPromise = import('./BrushGallery.js')
-      .then(module => {
-        this.realGallery = new module.BrushGallery(this.options);
-        this.realGallery.init();
-        this.loadingPromise = null;
-        return this.realGallery;
-      })
-      .catch(error => {
-        this.loadingPromise = null;
-        console.error('Failed to load BrushGallery:', error);
-        throw error;
-      });
-
-    return this.loadingPromise;
+    return this.realGallery;
   }
 
   /**
-   * Shows the BrushGallery, loading it first if necessary.
-   * @returns {Promise<void>}
+   * Shows the BrushGallery.
    */
-  async show() {
-    if (!this.realGallery) {
-      await this.loadRealGallery();
-    }
-
+  show() {
+    this.loadRealGallery();
     if (this.realGallery) {
       this.realGallery.show();
     } else if (this.galleryEl) {

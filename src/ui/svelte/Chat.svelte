@@ -1996,7 +1996,7 @@
 {/if}
 
 {#if visible}
-  <section class="chat-shell" class:dragging={isDragging} class:resizing={isResizing} class:popout={isPopout} class:desktop-popout={isPopout && isDesktopClient} class:mini={effectiveChatMode === 'mini'} class:compact={effectiveChatMode === 'compact'} class:full={effectiveChatMode === 'full'} bind:this={chatEl} onclick={handleChatLinkClick}>
+  <div class="chat-shell" class:dragging={isDragging} class:resizing={isResizing} class:popout={isPopout} class:desktop-popout={isPopout && isDesktopClient} class:mini={effectiveChatMode === 'mini'} class:compact={effectiveChatMode === 'compact'} class:full={effectiveChatMode === 'full'} bind:this={chatEl} onclick={handleChatLinkClick} role="presentation">
     <WindowTitleBar
       title="Chat"
       subtitle=""
@@ -2232,7 +2232,7 @@
         </svg>
       </div>
     {/if}
-  </section>
+  </div>
 {/if}
 
 <style>
@@ -2286,15 +2286,7 @@
     background: color-mix(in srgb, black 15%, transparent);
   }
 
-  .chat-shell :global(.chat-titlebar *),
-  .rail-tab *,
-  .rail-action *,
-  .topbar-btn *,
-  .directory-user *,
-  .composer-tool *,
-  .composer-preview-remove *,
-  .emoji-picker .emoji-btn *,
-  .chat-send * {
+  .chat-shell :global(.chat-titlebar *) {
     opacity: 1;
   }
 

@@ -124,6 +124,7 @@
     onkeydown={handleKeyDown}
     role="dialog"
     aria-modal="true"
+    tabindex="-1"
   >
     <div class="gallery-item-dialog">
       <button class="close-btn" onclick={close} aria-label="Close">×</button>
