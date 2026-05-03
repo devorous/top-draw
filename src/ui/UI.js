@@ -789,8 +789,7 @@ menuBtn: document.getElementById('menuBtn'),
       pressureCircle.setAttribute('cy', y);
     }
     if (dot) {
-      dot.setAttribute('cx', x);
-      dot.setAttribute('cy', y);
+      dot.setAttribute('transform', `translate(${x}, ${y})`);
     }
     square.setAttribute('x', x - size);
     square.setAttribute('y', y - size);
@@ -820,6 +819,17 @@ menuBtn: document.getElementById('menuBtn'),
     this.elements.selfCircle.setAttribute('r', size);
     this.elements.selfSquare.setAttribute('width', size * 2);
     this.elements.selfSquare.setAttribute('height', size * 2);
+    const crosshairLines = this.elements.selfCrosshair.querySelectorAll('line');
+    crosshairLines.forEach((line) => {
+      const x1 = parseFloat(line.getAttribute('x1'));
+      if (!isNaN(x1) && x1 !== 0) {
+        line.setAttribute('x1', -size);
+        line.setAttribute('x2', size);
+      } else {
+        line.setAttribute('y1', -size);
+        line.setAttribute('y2', size);
+      }
+    });
   }
 
   getSupportedCursorStyleTools() {
@@ -891,7 +901,7 @@ menuBtn: document.getElementById('menuBtn'),
    * @param {number} zoom
    */
   updateCursorStrokeWidthsForZoom(zoom) {
-    const strokeWidth = zoom >= 5 ? '0.25' : '1';
+    const strokeWidth = zoom >= 5 ? '0.25' : zoom >= 1.5 ? '0.5' : '1';
     const labelScale = zoom > 1 ? 1 / zoom : 1;
     const {
       selfCircle,
@@ -904,7 +914,12 @@ menuBtn: document.getElementById('menuBtn'),
 
     if (selfCircle) selfCircle.setAttribute('stroke-width', strokeWidth);
     if (selfPressureCircle) selfPressureCircle.setAttribute('stroke-width', strokeWidth);
-    if (selfDot) selfDot.setAttribute('stroke-width', strokeWidth);
+    if (selfDot) {
+      const dotCircle = selfDot.querySelector('circle');
+      const dotLines = selfDot.querySelectorAll('line');
+      if (dotCircle) dotCircle.setAttribute('stroke-width', strokeWidth);
+      dotLines.forEach((line) => line.setAttribute('stroke-width', strokeWidth));
+    }
     if (selfSquare) selfSquare.setAttribute('stroke-width', strokeWidth);
     if (selfPressureSquare) selfPressureSquare.setAttribute('stroke-width', strokeWidth);
 

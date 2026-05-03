@@ -764,15 +764,11 @@
                   r="1"
                   style="display:none">
               </circle>
-              <circle class="dot self"
-                  stroke="grey"
-                  stroke-width="1"
-                  fill="grey"
-                  cx="0"
-                  cy="0"
-                  r="2"
-                  style="display:none">
-              </circle>
+              <g class="dot self" style="display:none">
+                <circle cx="0" cy="0" r="0.5" stroke="grey" stroke-width="1" fill="grey"/>
+                <line x1="0" y1="-2" x2="0" y2="2" stroke="grey" stroke-width="1"/>
+                <line x1="-2" y1="0" x2="2" y2="0" stroke="grey" stroke-width="1"/>
+              </g>
               <rect class="square self"
                     stroke="grey"
                     stroke-width="1"
