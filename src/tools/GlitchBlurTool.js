@@ -91,14 +91,26 @@ export class GlitchBlurTool extends Tool {
 
     this.lastStampPos.set(userId, { x: pos.x, y: pos.y });
     this.strokePoints.set(userId, [{ x: pos.x, y: pos.y }]);
-    this.paintMask(pos.x, pos.y, user.size, user, maskCtx, previewCtx);
 
-    this.board.forEachMirrorRegion({ point: pos }, (region) => {
-      const mirrored = this.board.mirrorPointToRegion(pos, region);
-      this.board.withMirrorRegionClip(maskCtx, region, () => {
-        this.paintMask(mirrored.x, mirrored.y, user.size, user, maskCtx, previewCtx);
+    const stamp = this._computeGlitchStamp(pos.x, pos.y, user.size, user);
+    if (stamp) {
+      this._applyStampToCtx(maskCtx, stamp, pos.x, pos.y, user.size, user.pressure || 1.0);
+      this._expandBounds(user, pos.x, pos.y, user.size, user.blurRadius);
+
+      // Apply to mirror regions using transforms (compute once, mirror the result)
+      this.board.forEachMirrorRegion({ point: pos }, (region) => {
+        const mirrored = this.board.mirrorPointToRegion(pos, region);
+        this._expandBounds(user, mirrored.x, mirrored.y, user.size, user.blurRadius);
+        this.board.withMirroredRegionTransform(maskCtx, region, () => {
+          this._applyStampToCtx(maskCtx, stamp, pos.x, pos.y, user.size, user.pressure || 1.0);
+        });
       });
-    });
+
+      // Draw preview
+      if (previewCtx) {
+        this._drawStampPreview(previewCtx, pos.x, pos.y, user.size, user.pressure || 1.0);
+      }
+    }
 
     this.board.requestUpdate();
   }
@@ -127,7 +139,6 @@ export class GlitchBlurTool extends Tool {
       const minSpacing = Math.max(user.size * spacingPercent, 5);
 
       if (distance >= minSpacing) {
-        // Get preview context once before stamping
         const previewCtx = shouldRender ? (user === this.board.app?.self ? this.board.topCtx : user.context) : null;
         this._stampAlongPath(user, prevStamp, pos, minSpacing, maskCtx, previewCtx);
         if (shouldRender) this.board.requestUpdate();
@@ -204,6 +215,13 @@ export class GlitchBlurTool extends Tool {
     if (!strokeImage || !this.board.app?.wsClient || !this.board.app?.connected) return;
     const { bounds, cropCanvas } = strokeImage;
 
+    // Validate bounds before broadcasting
+    if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) ||
+        !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height) ||
+        bounds.width <= 0 || bounds.height <= 0) {
+      return;
+    }
+
     const sendGlitchResult = () => {
       this.board.app.wsClient.broadcastGlitchResult(
         bounds.x,
@@ -222,62 +240,67 @@ export class GlitchBlurTool extends Tool {
     }
   }
 
-  paintMask(x, y, size, user, maskCtx, previewCtx) {
+  _computeGlitchStamp(x, y, size, user) {
     const radius = size;
     const blurRadius = user.blurRadius || 10;
-    const intensity = user.pressure || 1.0;
-
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
     const sourceCanvas = this.snapshotCanvases.get(userId) || this.board.mainCanvas || this.board.mainCtx?.canvas;
-    if (sourceCanvas) {
-      const margin = Math.ceil(blurRadius * 2);
-      const cropX = Math.max(0, Math.floor(x - radius - margin));
-      const cropY = Math.max(0, Math.floor(y - radius - margin));
-      const cropW = Math.min(sourceCanvas.width - cropX, Math.ceil((radius + margin) * 2));
-      const cropH = Math.min(sourceCanvas.height - cropY, Math.ceil((radius + margin) * 2));
 
-      if (cropW > 0 && cropH > 0) {
-        const stampCanvas = document.createElement('canvas');
-        stampCanvas.width = cropW;
-        stampCanvas.height = cropH;
-        const stampCtx = stampCanvas.getContext('2d');
-        stampCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+    if (!sourceCanvas) return null;
 
-        try {
-          const imageData = stampCtx.getImageData(0, 0, cropW, cropH);
-          const blurred = wasm.stackblur_rgba_glitch(
-            new Uint8Array(imageData.data.buffer.slice(0)),
-            cropW,
-            cropH,
-            Math.max(1, Math.round(blurRadius))
-          );
-          stampCtx.putImageData(new ImageData(new Uint8ClampedArray(blurred), cropW, cropH), 0, 0);
-        } catch (err) {
-          stampCtx.clearRect(0, 0, cropW, cropH);
-          stampCtx.filter = `blur(${blurRadius * 0.5}px)`;
-          stampCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-          stampCtx.filter = 'none';
-        }
+    const margin = Math.ceil(blurRadius * 2);
+    const cropX = Math.max(0, Math.floor(x - radius - margin));
+    const cropY = Math.max(0, Math.floor(y - radius - margin));
+    const cropW = Math.min(sourceCanvas.width - cropX, Math.ceil((radius + margin) * 2));
+    const cropH = Math.min(sourceCanvas.height - cropY, Math.ceil((radius + margin) * 2));
 
-        maskCtx.save();
-        maskCtx.globalCompositeOperation = 'source-over';
-        maskCtx.globalAlpha = intensity;
+    if (cropW <= 0 || cropH <= 0) return null;
 
-        maskCtx.beginPath();
-        maskCtx.rect(x - radius, y - radius, radius * 2, radius * 2);
-        maskCtx.clip();
+    const stampCanvas = document.createElement('canvas');
+    stampCanvas.width = cropW;
+    stampCanvas.height = cropH;
+    const stampCtx = stampCanvas.getContext('2d');
+    stampCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
-        maskCtx.drawImage(stampCanvas, cropX, cropY);
-
-        maskCtx.restore();
-      }
+    try {
+      const imageData = stampCtx.getImageData(0, 0, cropW, cropH);
+      const blurred = wasm.stackblur_rgba_glitch(
+        new Uint8Array(imageData.data.buffer.slice(0)),
+        cropW,
+        cropH,
+        Math.max(1, Math.round(blurRadius))
+      );
+      stampCtx.putImageData(new ImageData(new Uint8ClampedArray(blurred), cropW, cropH), 0, 0);
+    } catch (err) {
+      stampCtx.clearRect(0, 0, cropW, cropH);
+      stampCtx.filter = `blur(${blurRadius * 0.5}px)`;
+      stampCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+      stampCtx.filter = 'none';
     }
 
+    return { stampCanvas, cropX, cropY };
+  }
+
+  _applyStampToCtx(ctx, stamp, x, y, radius, intensity) {
+    if (!stamp) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = intensity;
+    ctx.beginPath();
+    ctx.rect(x - radius, y - radius, radius * 2, radius * 2);
+    ctx.clip();
+    ctx.drawImage(stamp.stampCanvas, stamp.cropX, stamp.cropY);
+    ctx.restore();
+  }
+
+  _expandBounds(user, x, y, radius, blurRadius) {
     const margin = Math.ceil(blurRadius * 2);
     const left = Math.floor(x - radius - margin);
     const top = Math.floor(y - radius - margin);
     const width = Math.ceil((radius + margin) * 2);
     const height = Math.ceil((radius + margin) * 2);
+
     this.board.expandDirtyRect(user, left, top, width, height);
 
     if (user.blurBounds) {
@@ -285,11 +308,6 @@ export class GlitchBlurTool extends Tool {
       user.blurBounds.minY = Math.min(user.blurBounds.minY, top);
       user.blurBounds.maxX = Math.max(user.blurBounds.maxX, left + width);
       user.blurBounds.maxY = Math.max(user.blurBounds.maxY, top + height);
-    }
-
-    // Draw preview stamp immediately (incremental rendering)
-    if (previewCtx) {
-      this._drawStampPreview(previewCtx, x, y, radius, user.pressure || 1.0);
     }
   }
 
@@ -308,13 +326,27 @@ export class GlitchBlurTool extends Tool {
       const t = (i * spacing) / distance;
       const x = from.x + dx * t;
       const y = from.y + dy * t;
-      this.paintMask(x, y, user.size, user, maskCtx, previewCtx);
-      this.board.forEachMirrorRegion({ point: { x, y } }, (region) => {
-        const mirrored = this.board.mirrorPointToRegion({ x, y }, region);
-        this.board.withMirrorRegionClip(maskCtx, region, () => {
-          this.paintMask(mirrored.x, mirrored.y, user.size, user, maskCtx, previewCtx);
+
+      const stamp = this._computeGlitchStamp(x, y, user.size, user);
+      if (stamp) {
+        this._applyStampToCtx(maskCtx, stamp, x, y, user.size, user.pressure || 1.0);
+        this._expandBounds(user, x, y, user.size, user.blurRadius);
+
+        // Apply to mirror regions using transforms
+        this.board.forEachMirrorRegion({ point: { x, y } }, (region) => {
+          const mirrored = this.board.mirrorPointToRegion({ x, y }, region);
+          this._expandBounds(user, mirrored.x, mirrored.y, user.size, user.blurRadius);
+          this.board.withMirroredRegionTransform(maskCtx, region, () => {
+            this._applyStampToCtx(maskCtx, stamp, x, y, user.size, user.pressure || 1.0);
+          });
         });
-      });
+
+        // Draw preview
+        if (previewCtx) {
+          this._drawStampPreview(previewCtx, x, y, user.size, user.pressure || 1.0);
+        }
+      }
+
       points?.push({ x, y });
       lastStamp = { x, y };
     }
@@ -322,20 +354,11 @@ export class GlitchBlurTool extends Tool {
     this.lastStampPos.set(userId, lastStamp);
   }
 
-  /**
-   * Draws a single preview stamp with glitch-like directional smear effect
-   * @param {CanvasRenderingContext2D} ctx - Context to draw on
-   * @param {number} x - Center x-coordinate
-   * @param {number} y - Center y-coordinate
-   * @param {number} size - Radius/half-width of the stamp
-   * @param {number} pressure - Pressure value (0-1)
-   */
   _drawStampPreview(ctx, x, y, size, pressure) {
     const alpha = pressure * 0.3;
 
     ctx.save();
 
-    // Draw the stamp as a square with directional gradient to simulate glitch
     const gradient = ctx.createLinearGradient(x - size, y, x + size, y);
     gradient.addColorStop(0, `rgba(128, 128, 128, 0)`);
     gradient.addColorStop(0.3, `rgba(128, 128, 128, ${alpha})`);
@@ -345,7 +368,6 @@ export class GlitchBlurTool extends Tool {
     ctx.fillStyle = gradient;
     ctx.fillRect(x - size, y - size, size * 2, size * 2);
 
-    // Add a subtle outline to show the stamp boundary
     ctx.strokeStyle = `rgba(100, 100, 100, ${alpha * 0.5})`;
     ctx.lineWidth = 1;
     ctx.strokeRect(x - size, y - size, size * 2, size * 2);
