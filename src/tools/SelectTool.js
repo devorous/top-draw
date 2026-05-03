@@ -2083,8 +2083,8 @@ export class SelectTool extends Tool {
     const effectiveScreenHit = Math.min(this.handleHitArea, hitCapFromSelection);
 
     return {
-      drawSize: effectiveScreenSize / zoom,
-      hitArea: effectiveScreenHit / zoom
+      drawSize: effectiveScreenSize * zoom,
+      hitArea: effectiveScreenHit * zoom
     };
   }
 

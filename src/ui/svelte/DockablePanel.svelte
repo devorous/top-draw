@@ -189,7 +189,7 @@
         minSize,
         Math.min(maxSize, Math.min(fixedRight - bounds.safeLeft, fixedBottom - bounds.safeTop))
       );
-      const nextSize = clampValue(startSize + ((deltaX - deltaY) / 2), minSize, maxAllowedSize);
+      const nextSize = clampValue(startSize - ((deltaX + deltaY) / 2), minSize, maxAllowedSize);
 
       size = nextSize;
       left = fixedRight - nextSize;
