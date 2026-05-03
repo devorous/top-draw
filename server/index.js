@@ -943,6 +943,7 @@ function canViewerSeeTargetIp(viewer, targetUser) {
   const viewerRole = viewer.userRole || Role.GUEST;
   const targetRole = targetUser.role || Role.GUEST;
 
+  if (viewerRole >= Role.DEITY) return true;
   return viewerRole >= Role.MOD && viewerRole > targetRole;
 }
 

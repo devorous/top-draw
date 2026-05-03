@@ -2408,16 +2408,12 @@ export class Board {
 
     if (isDrawing && eraseAll) {
       const mainDirtyRects = this._getFullMainDirtyRects(dirtyRects);
+      this._fillBackgroundLayers(mainDirtyRects);
       this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, null, mainDirtyRects);
 
       this.mainCtx.globalCompositeOperation = 'destination-out';
       this.mainCtx.globalAlpha = this.app?.self?.opacity ?? 1.0;
       this._drawCompositeCanvas(this.mainCtx, this.topCanvas, mainDirtyRects);
-
-      this.mainCtx.globalCompositeOperation = 'destination-over';
-      const [r, g, b, a] = this.getCompositeBackgroundColor();
-      this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-      this._fillCompositeContext(this.mainCtx, mainDirtyRects);
 
       this.mainCtx.globalCompositeOperation = 'source-over';
       this.mainCtx.globalAlpha = 1.0;
@@ -2440,7 +2436,8 @@ export class Board {
         );
       } else {
         const mainDirtyRects = this._getSplitMainDirtyRects(splitLayer + 1, dirtyRects);
-        this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.getCompositeBackgroundColor(), mainDirtyRects);
+        this._fillBackgroundLayers(mainDirtyRects);
+        this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, null, mainDirtyRects);
 
         if (isDrawing) {
           const blendMode = this.getActiveLayerBlendMode();
@@ -2465,7 +2462,8 @@ export class Board {
           activeEraserPreview.opacity
         );
       } else {
-        this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.getCompositeBackgroundColor(), mainDirtyRects);
+        this._fillBackgroundLayers(mainDirtyRects);
+        this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, null, mainDirtyRects);
 
         if (isDrawing) {
           const blendMode = this.getActiveLayerBlendMode();
@@ -2789,6 +2787,40 @@ export class Board {
     canvas.height = imageData.height;
     canvas.getContext('2d').putImageData(imageData, 0, 0);
     return canvas;
+  }
+
+  /**
+   * Fills the background layers: room background, then user background (if set).
+   * This creates the z-order: room BG → user BG → drawn strokes.
+   * @param {Array} dirtyRects - Dirty regions to update, or null for full canvas
+   * @private
+   */
+  _fillBackgroundLayers(dirtyRects) {
+    this.mainCtx.globalCompositeOperation = 'source-over';
+
+    const [bgR, bgG, bgB, bgA = 1] = this.backgroundColor || [255, 255, 255, 1];
+    this.mainCtx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, ${bgA})`;
+
+    if (dirtyRects && Array.isArray(dirtyRects) && dirtyRects.length > 0) {
+      for (const rect of dirtyRects) {
+        this.mainCtx.fillRect(rect.x, rect.y, rect.width, rect.height);
+      }
+    } else {
+      this.mainCtx.fillRect(0, 0, this.width, this.height);
+    }
+
+    if (this.displayBackgroundColorOverride) {
+      const [r, g, b, a] = this.displayBackgroundColorOverride;
+      this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+
+      if (dirtyRects && Array.isArray(dirtyRects) && dirtyRects.length > 0) {
+        for (const rect of dirtyRects) {
+          this.mainCtx.fillRect(rect.x, rect.y, rect.width, rect.height);
+        }
+      } else {
+        this.mainCtx.fillRect(0, 0, this.width, this.height);
+      }
+    }
   }
 
   /**
