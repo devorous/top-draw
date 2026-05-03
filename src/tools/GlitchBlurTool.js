@@ -272,10 +272,7 @@ export class GlitchBlurTool extends Tool {
       );
       stampCtx.putImageData(new ImageData(new Uint8ClampedArray(blurred), cropW, cropH), 0, 0);
     } catch (err) {
-      stampCtx.clearRect(0, 0, cropW, cropH);
-      stampCtx.filter = `blur(${blurRadius * 0.5}px)`;
-      stampCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-      stampCtx.filter = 'none';
+      console.warn('Glitch blur WASM failed:', err);
     }
 
     return { stampCanvas, cropX, cropY };
