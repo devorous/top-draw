@@ -1981,47 +1981,11 @@ export class LayerManager {
       }
     }
 
-    let activeContentCanvas = null;
-    if (activeStrokes.some(isBlendStroke)) {
-      activeContentCanvas = document.createElement('canvas');
-      activeContentCanvas.width = this.width;
-      activeContentCanvas.height = this.height;
-      const activeContentCtx = activeContentCanvas.getContext('2d');
-
-      activeContentCtx.globalCompositeOperation = 'source-over';
-      this._drawCanvasRegion(activeContentCtx, group.flatCanvas, dirtyRects);
-      for (const stroke of group.strokeStack) {
-        activeContentCtx.globalCompositeOperation = stroke.blendMode === 'destination-out' ? 'destination-out' : 'source-over';
-        this._drawCanvasRegion(activeContentCtx, stroke.canvas, dirtyRects, stroke.x ?? 0, stroke.y ?? 0);
-      }
-      for (const active of activeStrokes) {
-        if (!isBlendStroke(active)) {
-          activeContentCtx.globalCompositeOperation = active.blendMode || 'source-over';
-          this._drawCanvasRegion(activeContentCtx, active.canvas, dirtyRects);
-        }
-      }
-      activeContentCtx.globalCompositeOperation = 'source-over';
-    }
-
     for (const active of activeStrokes) {
       if (!isBlendStroke(active)) continue;
-
-      if (active.blendBakeMode === 'background') {
-        bufferCtx.globalCompositeOperation = active.blendMode;
-        this._drawCanvasRegion(bufferCtx, active.canvas, dirtyRects);
-      } else if (activeContentCanvas) {
-        const maskedCanvas = document.createElement('canvas');
-        maskedCanvas.width = this.width;
-        maskedCanvas.height = this.height;
-        const maskedCtx = maskedCanvas.getContext('2d');
-
-        this._drawCanvasRegion(maskedCtx, active.canvas, dirtyRects);
-        maskedCtx.globalCompositeOperation = 'destination-in';
-        this._drawCanvasRegion(maskedCtx, activeContentCanvas, dirtyRects);
-
-        bufferCtx.globalCompositeOperation = active.blendMode;
-        this._drawCanvasRegion(bufferCtx, maskedCanvas, dirtyRects);
-      }
+      bufferCtx.globalCompositeOperation = active.blendMode;
+      this._drawCanvasRegion(bufferCtx, active.canvas, dirtyRects);
+      bufferCtx.globalCompositeOperation = 'source-over';
     }
 
     if (bgColor) {

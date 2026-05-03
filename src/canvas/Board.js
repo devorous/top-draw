@@ -2409,7 +2409,7 @@ export class Board {
     if (isDrawing && eraseAll) {
       const mainDirtyRects = this._getFullMainDirtyRects(dirtyRects);
       this._fillBackgroundLayers(mainDirtyRects);
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, null, mainDirtyRects);
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.getCompositeBackgroundColor(), mainDirtyRects);
 
       this.mainCtx.globalCompositeOperation = 'destination-out';
       this.mainCtx.globalAlpha = this.app?.self?.opacity ?? 1.0;
@@ -2437,7 +2437,7 @@ export class Board {
       } else {
         const mainDirtyRects = this._getSplitMainDirtyRects(splitLayer + 1, dirtyRects);
         this._fillBackgroundLayers(mainDirtyRects);
-        this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, null, mainDirtyRects);
+        this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.getCompositeBackgroundColor(), mainDirtyRects);
 
         if (isDrawing) {
           const blendMode = this.getActiveLayerBlendMode();
@@ -2463,7 +2463,7 @@ export class Board {
         );
       } else {
         this._fillBackgroundLayers(mainDirtyRects);
-        this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, null, mainDirtyRects);
+        this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.getCompositeBackgroundColor(), mainDirtyRects);
 
         if (isDrawing) {
           const blendMode = this.getActiveLayerBlendMode();
