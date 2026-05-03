@@ -342,6 +342,12 @@ export class SelectToolLoader extends Tool {
     }
   }
 
+  toggleFitToContent(value) {
+    if (this.realTool) {
+      this.realTool.toggleFitToContent(value);
+    }
+  }
+
   /**
    * Gets the current selection mode.
    * @returns {string}

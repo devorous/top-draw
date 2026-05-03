@@ -126,6 +126,8 @@ export class SelectTool extends Tool {
     this.lassoPoints = [];
     this.lassoSimplified = null;
     this.lassoPath = null;
+    this.originalSelection = null; // Stores uncropped selection bounds before auto-fit
+    this.fitToContent = true; // Toggle: auto-crop selection to content bounds
   }
 
   /**
@@ -1661,6 +1663,7 @@ export class SelectTool extends Tool {
 
   cropNewSelectionToContent() {
     if (!this.selection || this.floatingCanvas) return false;
+    if (!this.fitToContent) return false;
 
     const s = this.selection;
     if (s.width <= 0 || s.height <= 0) return false;
@@ -1679,6 +1682,11 @@ export class SelectTool extends Tool {
       contentBounds.height === s.height
     ) {
       return false;
+    }
+
+    // Store the original uncropped selection for use in fills
+    if (!this.originalSelection) {
+      this.originalSelection = { ...s };
     }
 
     this.selection = {
@@ -2916,6 +2924,7 @@ export class SelectTool extends Tool {
     this.lassoPoints = [];
     this.lassoPath = null;
     this.lassoSimplified = null;
+    this.originalSelection = null;
     this.pendingSelectionPreviewBroadcast = null;
 
     // Reset active handle to prevent glitches when switching tools mid-drag
@@ -2928,6 +2937,11 @@ export class SelectTool extends Tool {
   // Toggle all-layers copy/cut mode
   toggleCopyAllLayers(value) {
     this.copyAllLayers = value !== undefined ? value : !this.copyAllLayers;
+  }
+
+  // Toggle fit-to-content mode
+  toggleFitToContent(value) {
+    this.fitToContent = value !== undefined ? value : !this.fitToContent;
   }
 
   _isComplexBlendMode(blendMode) {
@@ -3482,7 +3496,8 @@ export class SelectTool extends Tool {
   fillSelection() {
     if (!this.selection) return false;
 
-    const s = this.selection;
+    // Use original selection for fills if it was cropped to content
+    const s = this.originalSelection || this.selection;
     const app = this.board.app;
     if (!app) return false;
 
@@ -3560,6 +3575,46 @@ export class SelectTool extends Tool {
 
     if (this.board.app?.wsClient) {
       this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionFill(app.self.color, app.self.activeLayer));
+    }
+
+    // After filling, expand selection to encompass the entire filled lasso region
+    if (this.mode === 'lasso' && this.lassoPath) {
+      const lassoBounds = this.getBoundsFromPoints(this.lassoPath);
+
+      // If we had a floating selection, we need to re-lift it with the new expanded bounds
+      if (this.floatingCanvas) {
+        // Save the current floating data
+        const oldFloatingCanvas = this.floatingCanvas;
+        const oldSelection = this.selection;
+
+        // Expand selection to lasso bounds
+        this.selection = { ...lassoBounds };
+
+        // Create new floating canvas with expanded dimensions
+        const newFloatingCanvas = document.createElement('canvas');
+        newFloatingCanvas.width = this.selection.width;
+        newFloatingCanvas.height = this.selection.height;
+        const newCtx = newFloatingCanvas.getContext('2d');
+
+        // Draw the old floating canvas at its correct offset within the new canvas
+        const offsetX = oldSelection.x - this.selection.x;
+        const offsetY = oldSelection.y - this.selection.y;
+        newCtx.drawImage(oldFloatingCanvas, offsetX, offsetY);
+
+        // Replace the floating canvas
+        this.floatingCanvas = newFloatingCanvas;
+        this.floatingCtx = newCtx;
+      } else {
+        this.selection = { ...lassoBounds };
+      }
+
+      this.originalSelection = null;
+
+      // Redraw the selection UI to show the expanded bounds
+      this.initializeCorners();
+      this.updateHandles();
+      this.board.clearTop();
+      this.drawSelectionUI();
     }
 
     // Keep selection active, update menu buttons only (don't reposition)

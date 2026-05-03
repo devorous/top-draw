@@ -2215,6 +2215,17 @@ export class DrawingApp {
       });
     });
 
+    // Fit to content checkbox for select tool
+    const fitToContentCheckbox = document.getElementById('selectionFitToContent');
+    if (fitToContentCheckbox) {
+      fitToContentCheckbox.addEventListener('change', (e) => {
+        const selectTool = this.toolManager.getTool('select');
+        if (selectTool) {
+          selectTool.toggleFitToContent(e.target.checked);
+        }
+      });
+    }
+
     if (elements.cursorStyleSelect) {
       elements.cursorStyleSelect.addEventListener('change', (e) => {
         this.handleCursorStyleChange(e.target.value);

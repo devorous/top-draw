@@ -214,8 +214,8 @@ export class UI {
   initResizableSections() {
     this.resizableSections = new ResizableSections('sidebarTop', [
       { id: 'userList', minHeight: 40, defaultHeight: 150, hasPersistentContent: true },
-      { id: 'toolSliders', minHeight: 100, defaultHeight: 250, contentSelector: '.sliders' },
-      { id: 'toolExtras', minHeight: 100, defaultHeight: 300 }
+      { id: 'toolSliders', minHeight: 50, defaultHeight: 120, contentSelector: '.sliders' },
+      { id: 'toolExtras', minHeight: 50, defaultHeight: 150 }
     ], {
       getContextKey: () => window.app?.self?.tool || 'default',
       sharedSectionIds: ['userList']
