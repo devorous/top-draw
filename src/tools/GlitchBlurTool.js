@@ -45,16 +45,17 @@ export class GlitchBlurTool extends Tool {
   }
 
   captureSnapshot(userId) {
-    const sourceCanvas = this.board.mainCanvas || this.board.mainCtx?.canvas;
-    if (!sourceCanvas) return;
     let canvas = this.snapshotCanvases.get(userId);
     if (!canvas) {
       canvas = document.createElement('canvas');
       this.snapshotCanvases.set(userId, canvas);
     }
-    canvas.width = sourceCanvas.width;
-    canvas.height = sourceCanvas.height;
-    canvas.getContext('2d').drawImage(sourceCanvas, 0, 0);
+    canvas.width = this.board.getWidth();
+    canvas.height = this.board.getHeight();
+    const ctx = canvas.getContext('2d');
+
+    // Composite layers with room background color (ignore display override)
+    this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.layerGroups.length, this.board.roomBackgroundColor);
   }
 
   clearSnapshot(userId) {
@@ -260,6 +261,13 @@ export class GlitchBlurTool extends Tool {
     stampCanvas.width = cropW;
     stampCanvas.height = cropH;
     const stampCtx = stampCanvas.getContext('2d');
+
+    // Fill with actual room background color (never overridden)
+    const [bgR, bgG, bgB, bgA] = this.board.roomBackgroundColor;
+    stampCtx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, ${bgA})`;
+    stampCtx.fillRect(0, 0, cropW, cropH);
+
+    // Draw cropped region on top
     stampCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
     try {

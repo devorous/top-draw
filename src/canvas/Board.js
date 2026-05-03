@@ -33,6 +33,7 @@ export class Board {
     this.mirror = false;
     this.mirrorRegions = [];
     this.backgroundColor = options.backgroundColor || [255, 255, 255, 1];
+    this.roomBackgroundColor = options.backgroundColor || [255, 255, 255, 1];
     this.displayBackgroundColorOverride = null;
 
     this.container = null;
@@ -180,6 +181,7 @@ export class Board {
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
     this.backgroundColor = [r, g, b, 1];
+    this.roomBackgroundColor = [r, g, b, 1];
     this._syncBoardWrapperBackground();
     this.markCompositeFull();
     this.requestUpdate();

@@ -85,16 +85,17 @@ export class BlurTool extends Tool {
   }
 
   captureSnapshot(userId) {
-    const sourceCanvas = this.board.mainCanvas || this.board.mainCtx?.canvas;
-    if (!sourceCanvas) return;
     let canvas = this.snapshotCanvases.get(userId);
     if (!canvas) {
       canvas = document.createElement('canvas');
       this.snapshotCanvases.set(userId, canvas);
     }
-    canvas.width = sourceCanvas.width;
-    canvas.height = sourceCanvas.height;
-    canvas.getContext('2d').drawImage(sourceCanvas, 0, 0);
+    canvas.width = this.board.getWidth();
+    canvas.height = this.board.getHeight();
+    const ctx = canvas.getContext('2d');
+
+    // Composite layers with room background color (ignore display override)
+    this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.layerGroups.length, this.board.roomBackgroundColor);
   }
 
   clearSnapshot(userId) {
@@ -260,6 +261,25 @@ export class BlurTool extends Tool {
       const cropH = Math.min(sourceCanvas.height - cropY, Math.ceil((radius + margin) * 2));
 
       if (cropW > 0 && cropH > 0) {
+        // Create intermediate canvas with room bg color so blur bleeds into correct background
+        const blurCanvas = document.createElement('canvas');
+        blurCanvas.width = cropW;
+        blurCanvas.height = cropH;
+        const blurCtx = blurCanvas.getContext('2d');
+
+        // Fill with actual room background color (never overridden)
+        const [bgR, bgG, bgB, bgA] = this.board.roomBackgroundColor;
+        blurCtx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, ${bgA})`;
+        blurCtx.fillRect(0, 0, cropW, cropH);
+
+        // Draw cropped region on top
+        blurCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+        // Apply blur to the intermediate canvas
+        blurCtx.filter = `blur(${blurRadius * 0.5}px)`;
+        blurCtx.drawImage(blurCanvas, 0, 0);
+        blurCtx.filter = 'none';
+
         maskCtx.save();
         maskCtx.globalCompositeOperation = 'source-over';
         maskCtx.globalAlpha = intensity;
@@ -270,9 +290,7 @@ export class BlurTool extends Tool {
         maskCtx.rect(x - radius, y - radius, radius * 2, radius * 2);
         maskCtx.clip();
 
-        maskCtx.filter = `blur(${blurRadius * 0.5}px)`;
-        maskCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, cropX, cropY, cropW, cropH);
-        maskCtx.filter = 'none';
+        maskCtx.drawImage(blurCanvas, 0, 0, cropW, cropH, cropX, cropY, cropW, cropH);
 
         maskCtx.restore();
       }
