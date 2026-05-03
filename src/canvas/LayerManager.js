@@ -2038,6 +2038,24 @@ export class LayerManager {
     this._drawCanvasRegion(targetCtx, buffer, dirtyRects);
   }
 
+  compositeLayerWithoutActiveStroke(targetCtx, groupIdx, excludedUserId, bgColor = null, dirtyRects = null) {
+    const group = this.layerGroups[groupIdx];
+    if (!group?.visible) return;
+
+    const excludedActive = group.activeStrokeByUser.get(excludedUserId);
+    if (!excludedActive) {
+      this.compositeLayerRange(targetCtx, groupIdx, groupIdx + 1, bgColor, dirtyRects);
+      return;
+    }
+
+    group.activeStrokeByUser.delete(excludedUserId);
+    try {
+      this.compositeLayerRange(targetCtx, groupIdx, groupIdx + 1, bgColor, dirtyRects);
+    } finally {
+      group.activeStrokeByUser.set(excludedUserId, excludedActive);
+    }
+  }
+
   /**
    * Composite a layer group with erasers using sequential approach
    * @param {CanvasRenderingContext2D} targetCtx - Target context

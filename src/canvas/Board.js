@@ -48,6 +48,8 @@ export class Board {
     this.mainCtx = null;
     this.topCtx = null;
     this.upperLayersCtx = null;
+    this._upperLayersCompositeStart = null;
+    this._mainCompositeEnd = null;
     this.selectionCtx = null;
     this.cursorsSvg = null;
     this.mirrorLine = null;
@@ -1660,6 +1662,8 @@ export class Board {
     if (this.upperLayersCtx) {
       this.upperLayersCtx.clearRect(0, 0, this.getWidth(), this.getHeight());
     }
+    this._upperLayersCompositeStart = null;
+    this._mainCompositeEnd = null;
     this.markCompositeFull();
     this.tileTracker?.clear?.();
 
@@ -1935,6 +1939,46 @@ export class Board {
     ctx.fillRect(0, 0, this.getWidth(), this.getHeight());
   }
 
+  _getEraserPreviewBuffer() {
+    const w = this.getWidth();
+    const h = this.getHeight();
+    if (!this._eraserPreviewCanvas || this._eraserPreviewCanvas.width !== w || this._eraserPreviewCanvas.height !== h) {
+      this._eraserPreviewCanvas = document.createElement('canvas');
+      this._eraserPreviewCanvas.width = w;
+      this._eraserPreviewCanvas.height = h;
+      this._eraserPreviewCtx = this._eraserPreviewCanvas.getContext('2d');
+    }
+    return { canvas: this._eraserPreviewCanvas, ctx: this._eraserPreviewCtx };
+  }
+
+  _applyEraserPreviewToMain(splitLayer, dirtyRects, userId = this.app?.self?.id ?? 0, maskCanvas = this.topCanvas, opacity = 1.0) {
+    const { canvas: tempCanvas, ctx: tempCtx } = this._getEraserPreviewBuffer();
+
+    this._clearCompositeContext(tempCtx, dirtyRects);
+    this.layerManager.compositeLayerWithoutActiveStroke(tempCtx, splitLayer, userId, null, dirtyRects);
+
+    if (splitLayer === 0) {
+      this._clearCompositeContext(this.mainCtx, dirtyRects);
+      const [r, g, b, a] = this.getCompositeBackgroundColor();
+      this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+      this._fillCompositeContext(this.mainCtx, dirtyRects);
+    } else {
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer, this.getCompositeBackgroundColor(), dirtyRects);
+    }
+
+    if (maskCanvas) {
+      tempCtx.save();
+      tempCtx.globalCompositeOperation = 'destination-out';
+      tempCtx.globalAlpha = opacity;
+      this._drawCompositeCanvas(tempCtx, maskCanvas, dirtyRects);
+      tempCtx.restore();
+    }
+
+    this.mainCtx.globalCompositeOperation = 'source-over';
+    this.mainCtx.globalAlpha = 1.0;
+    this._drawCompositeCanvas(this.mainCtx, tempCanvas, dirtyRects);
+  }
+
   _drawCompositeCanvas(ctx, canvas, dirtyRects) {
     if (!ctx || !canvas) return;
     if (dirtyRects && dirtyRects.length > 0) {
@@ -1961,6 +2005,75 @@ export class Board {
     if (clipped) {
       ctx.restore();
     }
+  }
+
+  _compositeUpperLayers(startIdx, endIdx, dirtyRects) {
+    if (!this.upperLayersCtx) return;
+    this.layerManager.compositeLayerRange(
+      this.upperLayersCtx,
+      startIdx,
+      endIdx,
+      null,
+      null
+    );
+    this._upperLayersCompositeStart = startIdx;
+  }
+
+  _clearUpperLayers(dirtyRects) {
+    if (!this.upperLayersCtx) return;
+    if (this._upperLayersCompositeStart !== null) {
+      this._clearCompositeContext(this.upperLayersCtx, null);
+    } else {
+      this._clearCompositeContext(this.upperLayersCtx, dirtyRects);
+    }
+    this._upperLayersCompositeStart = null;
+  }
+
+  _getSplitMainDirtyRects(endIdx, dirtyRects) {
+    if (this._mainCompositeEnd !== endIdx) {
+      this._mainCompositeEnd = endIdx;
+      return null;
+    }
+    return dirtyRects;
+  }
+
+  _getFullMainDirtyRects(dirtyRects) {
+    const needsFullRedraw = this._mainCompositeEnd !== null;
+    this._mainCompositeEnd = null;
+    return needsFullRedraw ? null : dirtyRects;
+  }
+
+  _findActiveEraserPreview() {
+    const layerCount = this.layerManager?.getLayerCount?.() ?? 0;
+    const localUserId = this.app?.self?.id;
+
+    for (let layerIndex = 0; layerIndex < layerCount; layerIndex++) {
+      const group = this.layerManager.getLayerGroup(layerIndex);
+      if (!group?.activeStrokeByUser) continue;
+
+      for (const [userId, active] of group.activeStrokeByUser.entries()) {
+        if (active?.blendMode !== 'destination-out') continue;
+
+        const user = this.app?.users?.get?.(userId);
+        if (user?.tool && user.tool !== 'erase') continue;
+        if (user?.eraseAllLayers) continue;
+
+        const maskCanvas = userId === localUserId
+          ? this.topCanvas
+          : user?.context?.canvas;
+
+        if (!maskCanvas) continue;
+
+        return {
+          layerIndex,
+          userId,
+          maskCanvas,
+          opacity: user?.opacity ?? active.opacity ?? 1.0
+        };
+      }
+    }
+
+    return null;
   }
 
   _clampRectToCanvas(rect, canvas) {
@@ -2263,12 +2376,14 @@ export class Board {
     const totalLayers = this.layerManager.getLayerCount();
     const activeGroup = this.layerManager.getLayerGroup(activeLayerIdx);
     const isDrawing = activeGroup?.activeStrokeByUser?.has(userId) ?? false;
-    const isEraser = this.app?.activeTool === 'erase';
+    const activeTool = this.app?.activeTool ?? this.app?.self?.tool;
+    const isEraser = activeTool === 'erase';
     const eraseAll = isEraser && (this.app?.eraseAllLayers ?? false);
     const pendingDirtyRects = this.compositeTileGrid?.consumeDirtyRects?.() ?? null;
+    const activeEraserPreview = this._findActiveEraserPreview();
 
     const hasActiveSelection = this.activeSelectionLayer >= 0;
-    const splitLayer = hasActiveSelection ? this.activeSelectionLayer : activeLayerIdx;
+    const splitLayer = hasActiveSelection ? this.activeSelectionLayer : (activeEraserPreview?.layerIndex ?? activeLayerIdx);
     const dirtyRects = Array.isArray(pendingDirtyRects) && pendingDirtyRects.length > 0
       ? pendingDirtyRects
       : null;
@@ -2282,6 +2397,7 @@ export class Board {
         pendingDirtyRects.length === 0 &&
         !this.layerManager.needsComposite &&
         !isDrawing &&
+        !activeEraserPreview &&
         !hasActiveSelection) {
       this.layerManager.needsComposite = false;
       this.layerManager._notifyStrokeHistoryPanel();
@@ -2291,78 +2407,78 @@ export class Board {
     const upperLayersHaveBlendModes = this.layerManager.rangeHasBlendModeStrokes(splitLayer + 1, totalLayers);
 
     if (isDrawing && eraseAll) {
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, null, dirtyRects);
+      const mainDirtyRects = this._getFullMainDirtyRects(dirtyRects);
+      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, null, mainDirtyRects);
 
       this.mainCtx.globalCompositeOperation = 'destination-out';
       this.mainCtx.globalAlpha = this.app?.self?.opacity ?? 1.0;
-      this._drawCompositeCanvas(this.mainCtx, this.topCanvas, dirtyRects);
+      this._drawCompositeCanvas(this.mainCtx, this.topCanvas, mainDirtyRects);
 
       this.mainCtx.globalCompositeOperation = 'destination-over';
       const [r, g, b, a] = this.getCompositeBackgroundColor();
       this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-      this._fillCompositeContext(this.mainCtx, dirtyRects);
+      this._fillCompositeContext(this.mainCtx, mainDirtyRects);
 
       this.mainCtx.globalCompositeOperation = 'source-over';
       this.mainCtx.globalAlpha = 1.0;
 
-      if (this.upperLayersCtx) {
-        this._clearCompositeContext(this.upperLayersCtx, dirtyRects);
-      }
+      this._clearUpperLayers(mainDirtyRects);
     }
-    else if ((isDrawing || hasActiveSelection) && splitLayer + 1 < totalLayers && !upperLayersHaveBlendModes) {
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.getCompositeBackgroundColor(), dirtyRects);
+    else if (
+      (isDrawing || activeEraserPreview || hasActiveSelection) &&
+      splitLayer + 1 < totalLayers &&
+      (activeEraserPreview || !upperLayersHaveBlendModes)
+    ) {
+      if (activeEraserPreview) {
+        const mainDirtyRects = this._getSplitMainDirtyRects(splitLayer + 1, dirtyRects);
+        this._applyEraserPreviewToMain(
+          splitLayer,
+          mainDirtyRects,
+          activeEraserPreview.userId,
+          activeEraserPreview.maskCanvas,
+          activeEraserPreview.opacity
+        );
+      } else {
+        const mainDirtyRects = this._getSplitMainDirtyRects(splitLayer + 1, dirtyRects);
+        this.layerManager.compositeLayerRange(this.mainCtx, 0, splitLayer + 1, this.getCompositeBackgroundColor(), mainDirtyRects);
 
-      if (isDrawing) {
-        if (isEraser) {
-          this.mainCtx.globalCompositeOperation = 'destination-out';
-          this.mainCtx.globalAlpha = this.app?.self?.opacity ?? 1.0;
-          this._drawCompositeCanvas(this.mainCtx, this.topCanvas, dirtyRects);
-
-          this.mainCtx.globalCompositeOperation = 'destination-over';
-          const [r, g, b, a] = this.getCompositeBackgroundColor();
-          this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-          this._fillCompositeContext(this.mainCtx, dirtyRects);
-        } else {
+        if (isDrawing) {
           const blendMode = this.getActiveLayerBlendMode();
           if (blendMode !== 'source-over') {
             this.mainCtx.globalCompositeOperation = blendMode;
-            this._drawCompositeCanvas(this.mainCtx, this.topCanvas, dirtyRects);
+            this._drawCompositeCanvas(this.mainCtx, this.topCanvas, mainDirtyRects);
           }
+          this.mainCtx.globalCompositeOperation = 'source-over';
+          this.mainCtx.globalAlpha = 1.0;
         }
-        this.mainCtx.globalCompositeOperation = 'source-over';
-        this.mainCtx.globalAlpha = 1.0;
       }
 
-      if (this.upperLayersCtx) {
-        this.layerManager.compositeLayerRange(this.upperLayersCtx, splitLayer + 1, totalLayers, null, dirtyRects);
-      }
+      this._compositeUpperLayers(splitLayer + 1, totalLayers, dirtyRects);
     } else {
-      this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.getCompositeBackgroundColor(), dirtyRects);
+      const mainDirtyRects = this._getFullMainDirtyRects(dirtyRects);
+      if (activeEraserPreview) {
+        this._applyEraserPreviewToMain(
+          splitLayer,
+          mainDirtyRects,
+          activeEraserPreview.userId,
+          activeEraserPreview.maskCanvas,
+          activeEraserPreview.opacity
+        );
+      } else {
+        this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.getCompositeBackgroundColor(), mainDirtyRects);
 
-      if (isDrawing) {
-        if (isEraser) {
-          this.mainCtx.globalCompositeOperation = 'destination-out';
-          this.mainCtx.globalAlpha = this.app?.self?.opacity ?? 1.0;
-          this._drawCompositeCanvas(this.mainCtx, this.topCanvas, dirtyRects);
-
-          this.mainCtx.globalCompositeOperation = 'destination-over';
-          const [r, g, b, a] = this.getCompositeBackgroundColor();
-          this.mainCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-          this._fillCompositeContext(this.mainCtx, dirtyRects);
-        } else {
+        if (isDrawing) {
           const blendMode = this.getActiveLayerBlendMode();
           if (blendMode !== 'source-over') {
             this.mainCtx.globalCompositeOperation = blendMode;
-            this._drawCompositeCanvas(this.mainCtx, this.topCanvas, dirtyRects);
+            this._drawCompositeCanvas(this.mainCtx, this.topCanvas, mainDirtyRects);
           }
+          this.mainCtx.globalCompositeOperation = 'source-over';
+          this.mainCtx.globalAlpha = 1.0;
         }
-        this.mainCtx.globalCompositeOperation = 'source-over';
-        this.mainCtx.globalAlpha = 1.0;
       }
 
-      if (this.upperLayersCtx) {
-        this._clearCompositeContext(this.upperLayersCtx, dirtyRects);
-      }
+      this._clearUpperLayers(mainDirtyRects);
     }
 
     this.layerManager.needsComposite = false;

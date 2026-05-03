@@ -74,6 +74,7 @@ export class EraserTool extends Tool {
     if (this._activeUser?.currentLine?.length > 0) {
       this.onPointerUp(this._activeUser);
     }
+    this._setPreviewMaskVisible(true);
     this._activeUser = null;
   }
 
@@ -97,8 +98,10 @@ export class EraserTool extends Tool {
    */
   onPointerDown(user, pos) {
     this._activeUser = user;
+    this._setPreviewMaskVisible(false);
     this.lastPos = { x: pos.x, y: pos.y };
     user.clearLine();
+    user._strokeLayer = user.activeLayer ?? 0;
     this._beginStroke(user);
     this._resetStrokeState(user);
     this.appendBufferedPoint(user, pos);
@@ -140,6 +143,7 @@ export class EraserTool extends Tool {
    */
   onPointerUp(user) {
     this.board.clearTop();
+    this._setPreviewMaskVisible(true);
     this.commitCurrentLine(user, user.pressure, user.size, user.opacity, false);
 
     const erasedTiles = this.collectErasedTiles(user);
@@ -187,6 +191,7 @@ export class EraserTool extends Tool {
     });
 
     state.previewDirtyBounds = null;
+    this.board.requestUpdate();
   }
 
   commitCurrentLine(user, newPressure = user.pressure, newSize = user.size, newOpacity = user.opacity, continueStroke = true) {
@@ -335,6 +340,11 @@ export class EraserTool extends Tool {
     } else {
       ctx.drawImage(state.previewCanvas, 0, 0);
     }
+  }
+
+  _setPreviewMaskVisible(visible) {
+    if (!this.board?.topCanvas) return;
+    this.board.topCanvas.style.opacity = visible ? '' : '0';
   }
 
   /**

@@ -490,6 +490,9 @@ export class RemoteUserHandler {
           break;
         }
         {
+          if (user.context?.canvas) {
+            user.context.canvas.style.opacity = '0';
+          }
           const eraserTool = this.toolManager.getTool('erase');
           if (eraserTool) {
             eraserTool._resetStrokeState?.(user);
@@ -793,6 +796,9 @@ export class RemoteUserHandler {
 
     if (!(user.tool === 'select' && user.floatingCanvas) && user.context) {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+      if (user.context.canvas) {
+        user.context.canvas.style.opacity = '';
+      }
     }
 
     // Check erased tiles and clear ownership for empty ones (don't broadcast - remote user handles that)
