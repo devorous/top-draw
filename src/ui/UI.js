@@ -1444,6 +1444,17 @@ menuBtn: document.getElementById('menuBtn'),
         storeDefault(buttons[toolName], toolName);
       }
 
+      // Check if subgroup is visible (either via is-open class or CSS hover)
+      const subgroup = group.querySelector('.toolSubgroup');
+      const isGroupVisible = group.classList.contains('is-open') ||
+                            (subgroup && window.getComputedStyle(subgroup).display !== 'none');
+
+      // Only update the group if it's currently visible
+      if (!isGroupVisible) {
+        primaryButton.classList.remove('selected');
+        continue;
+      }
+
       const activeTool = groupConfig.slots.includes(tool)
         ? tool
         : (group.dataset.activeTool || groupConfig.primary);
