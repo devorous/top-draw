@@ -2170,8 +2170,10 @@
           </section>
         {/if}
         </div>
+      </div>
+    </div>
 
-        <footer class="chat-composer">
+    <footer class="chat-composer">
       {#if composerImage}
         <div class="composer-preview">
           <img src={composerImage.dataUrl} alt="Upload preview" />
@@ -2214,9 +2216,7 @@
         </div>
         <button class="chat-send" onclick={handleSend} onpointerup={(e) => e.pointerType !== 'mouse' && handleSend()} disabled={activeView === 'directory'} type="button">Send</button>
       </div>
-        </footer>
-    </div>
-    </div>
+    </footer>
     {#if !isPopout}
       <div class="chat-resize-handle edge-n" onmousedown={(event) => startResize(event, 'n')} ontouchstart={(event) => startResize(event, 'n')} role="presentation" aria-hidden="true"></div>
       <div class="chat-resize-handle edge-e" onmousedown={(event) => startResize(event, 'e')} ontouchstart={(event) => startResize(event, 'e')} role="presentation" aria-hidden="true"></div>
@@ -2252,8 +2252,8 @@
     right: 18px;
     bottom: 22px;
     z-index: 1200;
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
     width: min(420px, calc(100vw - 24px));
     height: min(560px, calc(100vh - 110px));
     min-width: 280px;
@@ -2820,8 +2820,9 @@
   }
 
   .chat-content {
-    display: grid;
-    grid-template-columns: 90px minmax(0, 1fr);
+    display: flex;
+    flex-direction: row;
+    flex: 1;
     min-height: 0;
     overflow: hidden;
   }
@@ -2846,12 +2847,14 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    flex: 0 0 70px;
     min-height: 0;
-    padding: 14px 12px;
+    padding: 14px 2px;
     background: color-mix(in srgb, black 12%, transparent);
     border-right: 1px solid var(--border-subtle);
     position: relative;
     z-index: 1;
+    overflow: hidden;
   }
 
   .chat-shell.compact .chat-rail {
@@ -2886,11 +2889,12 @@
 
   .rail-thread-list {
     display: flex;
-    flex: 1;
+    flex: 0 1 auto;
     flex-direction: column;
     gap: 8px;
     min-height: 0;
     overflow-y: auto;
+    max-height: 150px;
   }
 
   .rail-tab,
@@ -2901,7 +2905,7 @@
     align-items: center;
     gap: 6px;
     width: 100%;
-    padding: 0.7rem 0.5rem;
+    padding: 2px;
     background: color-mix(in srgb, var(--bg-elevated) 42%, transparent);
     color: var(--chat-muted);
     border-radius: 16px;
@@ -3850,18 +3854,17 @@
     padding: 1rem 1.15rem 1.1rem;
     border-top: 1px solid var(--border-subtle);
     background: color-mix(in srgb, black 10%, transparent);
-    flex-shrink: 0;
+    flex: 0 0 auto;
+  }
+
+  .chat-shell.full .chat-composer {
+    padding: 0.8rem 0.85rem 0.9rem;
+    background: color-mix(in srgb, var(--bg-secondary) 88%, black 6%);
   }
 
   .chat-shell.compact .chat-composer {
-    width: calc(100% + 92px);
-    margin-left: -92px;
     padding: 0.8rem 0.85rem 0.9rem;
     background: color-mix(in srgb, var(--bg-secondary) 88%, black 6%);
-    box-sizing: border-box;
-    min-width: 0;
-    max-width: none;
-    overflow: hidden;
   }
 
   .composer-row {
