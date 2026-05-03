@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>404 — Page Not Found | DDraw</title>
+    <meta name="description" content="Oops! This page doesn't exist. But DDraw's collaborative canvas does — and it's waiting for you!">
+    <link rel="icon" href="/images/pepper.ico">
+    <link rel="canonical" href="https://ddraw.ca">
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body {
+            background: #0f0f13;
+            color: #fff;
+            font-family: 'Inter', sans-serif;
+            font-size: 15px;
+            overflow-x: hidden;
+            line-height: 1.5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                radial-gradient(circle, rgba(255,0,255,0.05) 1px, transparent 1px),
+                radial-gradient(circle, rgba(0,212,170,0.05) 1px, transparent 1px);
+            background-size: 40px 40px;
+            background-position: 0 0, 20px 20px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Navigation */
+        nav {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 2rem;
+            border-bottom: 2px solid #00d4aa;
+            background: rgba(15,15,19,0.8);
+            backdrop-filter: blur(12px);
+        }
+
+        .wordmark {
+            font-family: 'Fredoka', sans-serif;
+            font-size: 22px;
+            font-weight: 700;
+            color: #00d4aa;
+            transform: rotate(-2deg);
+        }
+
+        nav a {
+            color: #00d4aa;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        nav a:hover {
+            color: #c800c8;
+            transform: scale(1.1) rotate(2deg);
+        }
+
+        /* Main Content */
+        main {
+            position: relative;
+            z-index: 1;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .error-container {
+            text-align: center;
+            max-width: 600px;
+        }
+
+        .error-code {
+            font-family: 'Fredoka', sans-serif;
+            font-size: clamp(4rem, 15vw, 8rem);
+            font-weight: 700;
+            background: linear-gradient(135deg, #00d4aa 0%, #c800c8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 1rem;
+            animation: boing 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        @keyframes boing {
+            0% { transform: scale(0.3) rotate(-15deg); opacity: 0; }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+
+        h1 {
+            font-family: 'Fredoka', sans-serif;
+            font-size: clamp(1.5rem, 5vw, 2.5rem);
+            margin-bottom: 1rem;
+            line-height: 1.2;
+        }
+
+        .subtitle {
+            font-size: 18px;
+            color: rgba(255,255,255,0.6);
+            margin-bottom: 2rem;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 1rem 2rem;
+            border-radius: 50px;
+            font-family: 'Fredoka', sans-serif;
+            font-weight: 700;
+            text-decoration: none;
+            text-transform: uppercase;
+            font-size: 16px;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-primary {
+            background: #00d4aa;
+            color: #000;
+            box-shadow: 6px 6px 0px #c800c8;
+        }
+
+        .btn-primary:hover {
+            transform: translate(-2px, -2px);
+            box-shadow: 8px 8px 0px #c800c8;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: #00d4aa;
+            border: 2px solid #00d4aa;
+        }
+
+        .btn-secondary:hover {
+            background: #00d4aa;
+            color: #000;
+            transform: scale(1.05);
+        }
+
+        /* Decorative elements */
+        .stars {
+            position: fixed;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .star {
+            position: absolute;
+            font-size: 2rem;
+            opacity: 0.6;
+            animation: twinkle 3s infinite;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.8; }
+        }
+
+        .star-1 { top: 10%; left: 10%; animation-delay: 0s; }
+        .star-2 { top: 20%; right: 15%; animation-delay: 0.5s; }
+        .star-3 { bottom: 20%; left: 12%; animation-delay: 1s; }
+        .star-4 { bottom: 15%; right: 10%; animation-delay: 1.5s; }
+
+        /* Footer */
+        footer {
+            position: relative;
+            z-index: 10;
+            padding: 2rem;
+            border-top: 2px solid #333;
+            text-align: center;
+            color: #555;
+            font-size: 14px;
+        }
+
+        @media (max-width: 640px) {
+            nav {
+                padding: 1rem;
+            }
+
+            .error-container {
+                padding: 2rem 1rem;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+                max-width: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/" class="wordmark">DDraw!</a>
+        <a href="/">← Back Home</a>
+    </nav>
+
+    <main>
+        <div class="error-container">
+            <div class="error-code">404</div>
+            <h1>Page went poof! </h1>
+            <p class="subtitle">Looks like you've wandered into the void. This page doesn't exist, but don't worry — the canvas is still waiting for you!</p>
+
+
+            <div class="action-buttons">
+                <a href="/" class="btn btn-primary">Start Scribbling!</a>
+                <a href="/gallery/" class="btn btn-secondary">Check the Gallery</a>
+            </div>
+        </div>
+    </main>
+
+    <div class="stars">
+        <div class="star star-1">★</div>
+        <div class="star star-2">★</div>
+        <div class="star star-3">★</div>
+        <div class="star star-4">★</div>
+    </div>
+
+    <footer>
+        <p>Made for the fun of it. © DDraw</p>
+    </footer>
+</body>
+</html>

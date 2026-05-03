@@ -202,13 +202,13 @@
             </div>
             <div class="canvas-wrap">
                {#if !canvasReady}
-                <img 
-                  src="/images/preview-fallback.png" 
-                  alt="" 
+                <img
+                  src="/images/preview-fallback.png"
+                  alt="DDraw collaborative drawing app preview - real-time canvas with smooth drawing tools"
                   fetchpriority="high"
-                  width="480" 
+                  width="480"
                   height="300"
-                  style="position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1;" 
+                  style="position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1;"
                 />
               {/if}
               <canvas bind:this={canvasEl} style="position: relative; z-index: 2;"></canvas>
