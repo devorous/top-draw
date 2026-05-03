@@ -5567,6 +5567,15 @@ export class DrawingApp {
     this.isOnBoard = isOnBoard;
 
     if (isOnBoard) {
+      // Don't show cursor if pointer is on a UI control (slider, input, button, etc.)
+      if (event && this._isPointerOnUiControl(event.target)) {
+        this.ui.hideCursor();
+        if (this.connected) {
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
+        }
+        return;
+      }
+
       const inTouchGesture =
         this.touchHandler.state.isPinching ||
         this.touchHandler.state.gestureStartedWithTwoFingers;
@@ -5599,6 +5608,14 @@ export class DrawingApp {
     // Some stylus drivers emit leave during hover/contact transitions. If the
     // pointer is still physically over the board, keep the cursor visible.
     if (event && this.isPointerOverBoard(event.clientX, event.clientY)) {
+      // But not if pointer is on a UI control
+      if (this._isPointerOnUiControl(event.target)) {
+        this.ui.hideCursor();
+        if (this.connected) {
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
+        }
+        return;
+      }
       this.isOnBoard = true;
       if (shouldRefresh) {
         this.ui.showCursor();
