@@ -49,7 +49,7 @@ import {
   dismissDesktopUpdateForOffline,
   isDesktopUpdateDismissedForOffline
 } from './platform/updater.js';
-import { ensureClientCanConnect, formatOutdatedClientMessage, getVersionStatus } from './VersionChecker.js';
+import { compareVersionStrings, ensureClientCanConnect, formatOutdatedClientMessage, getVersionStatus } from './VersionChecker.js';
 import { broadcastChatPopoutEvent, focusChatPopout } from './platform/chatPopoutBridge.js';
 import initWasm from './wasm/ddraw_wasm.js';
 import * as wasm from './wasm/ddraw_wasm.js';
@@ -3254,7 +3254,16 @@ export class DrawingApp {
     if (this._awaitingServerRestart) {
       this.checkForRuntimeUpdate({ force: true }).finally(() => {
         this._awaitingServerRestart = false;
+        // If no update was surfaced, the banner is now stale — hide it.
+        if (!this._reloadRecommended) {
+          this.ui.hideDisconnectionBanner();
+        }
       });
+    } else if (this.landingPage && this.landingPage.isVisible) {
+      // Generic landing-page reconnect: clear the disconnect banner if it's up.
+      if (!this._reloadRecommended) {
+        this.ui.hideDisconnectionBanner();
+      }
     }
 
     this.updateRecordingButtonState();
@@ -3402,13 +3411,15 @@ export class DrawingApp {
       return;
     }
 
-    if (this.landingPage && this.landingPage.els.landingPage.style.display !== 'none') {
-      this.landingPage.updateConnectionStatus('disconnected');
-      // Don't show banner on landing page
-      return;
-    }
+    const onLandingPage = this.landingPage
+      && this.landingPage.els.landingPage
+      && this.landingPage.els.landingPage.style.display !== 'none';
 
-    this.ui.showConnectionStatus('disconnected');
+    if (onLandingPage) {
+      this.landingPage.updateConnectionStatus('disconnected');
+    } else {
+      this.ui.showConnectionStatus('disconnected');
+    }
 
     if (code === 4001 || code === 4002) {
       const label = code === 4001 ? 'Banned' : 'Kicked';
@@ -3424,11 +3435,24 @@ export class DrawingApp {
       // the new version isn't live. Show a plain reconnection banner; the
       // version poller will surface the real update prompt once the new
       // server is actually reachable.
+      const offlineVisible = !onLandingPage;
       this.ui.showDisconnectionBanner({
-        message: 'Server is restarting. You can keep drawing offline while we reconnect.',
+        message: onLandingPage
+          ? 'Server is restarting. Reconnecting automatically — please wait...'
+          : 'Server is restarting. You can keep drawing offline while we reconnect.',
         icon: '!',
         retryVisible: false,
-        offlineLabel: 'Draw Offline'
+        offlineLabel: 'Draw Offline',
+        offlineVisible
+      });
+    } else if (onLandingPage) {
+      // Generic disconnect on landing page — show banner with retry
+      this.ui.showDisconnectionBanner({
+        message: 'Lost connection to the server. Reconnecting...',
+        icon: '!',
+        retryLabel: 'Retry Connection',
+        retryVisible: true,
+        offlineVisible: false
       });
     } else {
       // Show disconnection banner if we're in a room (not on landing page)
@@ -3461,7 +3485,12 @@ export class DrawingApp {
       return;
     }
     const latest = status?.serverVersion?.latest || status?.latestVersion;
-    if (!latest || !status.clientVersion || latest === status.clientVersion) return;
+    if (!latest || !status.clientVersion) return;
+    // Only prompt when the client is strictly older than the advertised latest.
+    // String inequality alone produces false positives (e.g. client 1.6.3-beta
+    // vs. server-advertised latest 1.6.2-beta — the client is newer, no update needed).
+    const cmp = compareVersionStrings(status.clientVersion, latest);
+    if (cmp === null || cmp >= 0) return;
     if (this._isUpdateDismissedForOffline(latest)) return;
 
     this._versionUpdateNoticed = true;

@@ -67,6 +67,17 @@ function parseVersion(versionStr) {
 }
 
 /**
+ * Compare two version strings.
+ * Returns: -1 if a < b, 0 if a == b, 1 if a > b, or null if either is unparseable.
+ */
+export function compareVersionStrings(a, b) {
+  const pa = parseVersion(a);
+  const pb = parseVersion(b);
+  if (!pa || !pb) return null;
+  return compareVersions(pa, pb);
+}
+
+/**
  * Compare two parsed versions.
  * Returns: -1 if a < b, 0 if a == b, 1 if a > b
  */

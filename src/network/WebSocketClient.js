@@ -231,6 +231,7 @@ export class WebSocketClient {
     this._identityPayload = await this.clientIdentity.getPayload({ waitForFingerprintMs: 1200 });
     this._connectAttempts = 0;
     this._cancelled = false;
+    this._disconnectNotified = false;
 
     this._buildUrl();
     this._tryConnect();
@@ -328,6 +329,7 @@ export class WebSocketClient {
       this._clearReconnectTimer();
       this.connected = true;
       this._connectAttempts = 0;
+      this._disconnectNotified = false;
       const username = this._userData.username || this._userData.name || '';
       const identityPayload = await this.clientIdentity.getPayload({ waitForFingerprintMs: 1200 });
       if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
@@ -373,18 +375,35 @@ export class WebSocketClient {
 
     this.socket.onclose = (event) => {
       this.connected = false;
-      if (this._shouldRetryConnect(event) && this.sessionIndex === null && this._connectAttempts < 10) {
-        const delay = Math.min(1000 * this._connectAttempts, 5000);
+
+      // Notify the app once per disconnect cycle so it can surface UI.
+      // Subsequent failed retries don't re-fire to avoid banner thrash.
+      if (!this._disconnectNotified && this.onDisconnect) {
+        this._disconnectNotified = true;
+        this.onDisconnect(event.code, event.reason);
+      }
+
+      // Auto-retry while we've never connected (sessionIndex still null) OR
+      // when the server explicitly told us it's restarting (code 4000). The
+      // latter ensures in-room users automatically rejoin once the new server
+      // is up, so the version-update prompt can surface without manual retry.
+      const isRestart = event.code === 4000 || String(event.reason || '').includes('server-restarting');
+      const shouldAutoRetry = this._shouldRetryConnect(event)
+        && (this.sessionIndex === null || isRestart);
+
+      if (shouldAutoRetry) {
+        if (isRestart) {
+          // Treat as a fresh connection cycle so onopen → CONNECT runs again.
+          this.sessionIndex = null;
+        }
+        // Cap delay at 5s; retry indefinitely so prolonged server restarts
+        // (e.g. slow deploys) eventually reconnect on their own.
+        const delay = Math.min(1000 * Math.max(this._connectAttempts, 1), 5000);
         this._clearReconnectTimer();
         this._reconnectTimer = window.setTimeout(() => {
           this._reconnectTimer = null;
           this._tryConnect();
         }, delay);
-        return;
-      }
-
-      if (this.onDisconnect) {
-        this.onDisconnect(event.code, event.reason);
       }
     };
 
