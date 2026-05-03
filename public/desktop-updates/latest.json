@@ -1,11 +1,11 @@
 {
-  "version": "1.6.2-beta",
-  "notes": "Added local snapshot history that can be undone from, Fixed some issues with blend mode rendering on Layer 1 & added a blend mode lock, Added new ddraw.ca/messenger/ page, fixed up some UI",
+  "version": "1.6.3-beta",
+  "notes": "Improved main page SEO, Improved sliders and tablet functionality, fixed like system issues, improved blend modes and eraser rendering",
   "pub_date": "2026-05-03T08:06:38.588Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.6.2-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem5yMTBUSWFsSFZUcHhjTEdqOVFDZnZBaC9hZjg3cVhaeU1rSzhpVEF6RnFUTjQ4Q05sNm1qZlBDV3MwcWxFY3ZKVUx6bjFqNlhpQXhYSTdhK2w2NGd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3Nzk1NzQ0CWZpbGU6RGRyYXdfMS42LjItYmV0YV94NjQtc2V0dXAuZXhlClgvblFpcGh2cGtwVXJ2OUJLMkdkRGFISWR2czlZVHpsK0dhMGQ5TWhCT1dVd1hqOVI1N3FyUHJVTTZra3JCZ1dBbmZVcEdxalJXQS9sVkdFSXFodkRRPT0K"
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.6.3-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNemg2QUdKd0dnUlBGbTNsVFV1Um5uOWZlMEFZbHIzdUh0bkNoOUpTczJ6cVZpVzh1cTRHeEhpTE9Kc1ExeG1hTjJ2K0N5SWJDRVVzL081RnZCR2dwY2c4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3ODM2ODgzCWZpbGU6RGRyYXdfMS42LjMtYmV0YV94NjQtc2V0dXAuZXhlCmxVU2cvYXFnZXh2NkE2RnhQNmhFRDY0eWtMRkFOeGtEcVNQaTZETk5ZUmJGdUtTOC90QWw1OW55RkgvcW4wNlBqZGdUNEY5SXpYUUppNnduV1V2TkJ3PT0K"
     }
   }
 }
