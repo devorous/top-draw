@@ -59,7 +59,7 @@ html[data-sidebar-side='left'] #sideMenu {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  touch-action: pan-y;
+  touch-action: auto;
 }
 
 #sidebarBottom {
@@ -506,6 +506,7 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
   outline: none;
   transition: all 0.15s;
   user-select: none;
+  touch-action: manipulation;
 }
 
 .blendModeSelect:hover {
@@ -637,6 +638,7 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
   align-items: center;
   justify-content: center;
   transition: all 0.15s;
+  touch-action: manipulation;
 }
 
 .layerVisibility:hover {
@@ -659,6 +661,7 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
   cursor: pointer;
   transition: all 0.15s;
   user-select: none;
+  touch-action: manipulation;
 }
 
 .layerButton:hover {
