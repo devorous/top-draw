@@ -250,7 +250,10 @@ export function initSvelteUI(app) {
           window.open(`${galleryBase}?author=${encodeURIComponent(username)}`, '_blank');
         },
         onImageClick: (item) => {
-          window.open(`${galleryBase}?id=${item.id}`, '_blank');
+          appState.galleryItemDialog = {
+            visible: true,
+            itemId: item.id
+          };
         }
       }
     });

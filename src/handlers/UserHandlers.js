@@ -28,7 +28,7 @@ function formatRoomPresenceMessage(user, verb) {
 }
 
 function formatJoinPresenceMessage(user) {
-  return `User ${formatPresenceName(user)} has joined`;
+  return formatRoomPresenceMessage(user, 'has joined');
 }
 
 function clearRemoteTextDraft(app, user) {
