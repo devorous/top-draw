@@ -27,7 +27,6 @@ class DrawingState {
   currentRoomData = $state(null);
   connected = $state(false);
   board = $state(null);
-  zoom = $state(1.0);
 
   // Chat
   chatUnreadCount = $state(0);
@@ -43,14 +42,6 @@ class DrawingState {
   recentColors = $state([]);
   customColors = $state(loadCustomColors());
   activeCustomPresetKey = $state(null);
-
-  // Synchronization
-  syncing = $state(false);
-  syncProgress = $state(0);
-  syncTotal = $state(0);
-  syncTargetUsername = $state(null);
-  syncInactive = $state(false);
-  syncMessage = $state('Syncing...');
 
   // UI
   boardMenuOpen = $state(null); // null | 'blend' | 'layers'

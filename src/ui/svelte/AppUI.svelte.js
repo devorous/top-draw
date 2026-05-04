@@ -395,13 +395,6 @@ export function initSvelteUI(app) {
     });
   }
 
-  // Mount SyncOverlay
-  if (app.elements.boardContainer) {
-    components.syncOverlay = mount(SyncOverlay, {
-      target: app.elements.boardContainer
-    });
-  }
-
   initMainChatPopoutBridge({
     getSnapshot: () => ({
       chat: components.chat?.getSnapshot?.() ?? null,
@@ -428,7 +421,7 @@ export function initSvelteUI(app) {
           break;
         case 'react':
           components.chat?.applyReaction?.(action.payload);
-          if (appState.connected && action.payload?.messageId && action.payload?.emoji) {
+          if (app.connected && action.payload?.messageId && action.payload?.emoji) {
             app.wsClient.broadcastChatReaction(action.payload);
           }
           break;
@@ -579,18 +572,6 @@ export function initSvelteUI(app) {
     cleanupFns.push(floatingArtEffect);
   }
 
-  // Effect to sync zoom to legacy UI
-  const zoomEffect = $effect.root(() => {
-    $effect(() => {
-      const zoom = appState.zoom;
-      const el = document.querySelector('.zoomPercent');
-      if (el) {
-        el.textContent = `${Math.round(zoom * 100)}%`;
-      }
-    });
-  });
-  cleanupFns.push(zoomEffect);
-
   components._cleanup = () => {
     cleanupFns.forEach((cleanup) => cleanup?.());
   };
@@ -632,13 +613,39 @@ export function syncStoresFromApp(app) {
     appState.username = app.self.username || app.self.name || '';
   }
 
+  if (app.sessionIndex !== undefined) {
+    appState.sessionIndex = app.sessionIndex;
+  }
+
   if (app.currentRoomData) {
     appState.currentRoomData = app.currentRoomData;
   }
 
   appState.currentRoomId = app.currentRoomId || null;
+  appState.connected = !!app.connected;
 
   if (app.appPreferences) {
     appState.appPreferences = app.appPreferences;
+  }
+
+  if (app.selfRole !== undefined) {
+    appState.selfRole = app.selfRole;
+  }
+
+  if (app.users) {
+    const userMap = new Map();
+    app.users.forEach((user, id) => {
+      userMap.set(id, {
+        id,
+        username: user.username || user.name || '',
+        color: chatNameColor(user.color),
+        registeredName: user.registeredName || '',
+        role: user.role || 0,
+        tool: user.tool || 'brush',
+        afk: !!user.afk,
+        isSelf: id === app.sessionIndex
+      });
+    });
+    appState.users = userMap;
   }
 }

@@ -1294,7 +1294,7 @@ const MUTED_BLOCKED = new Set([
 const NON_USER_ACTIVITY_TYPES = new Set([
   T.CONNECT, T.USERS, T.SETTINGS, T.LEFT, T.AFK,
   T.PING, T.PONG,
-  T.SYNC_REQUEST, T.SYNC_PROVIDE, T.SYNC_COMPLETE,
+  T.SYNC_REQUEST, T.SYNC_PROVIDE, T.SYNC_CANVAS, T.SYNC_COMPLETE,
   T.SYNC_LAYER_BASE, T.SYNC_STROKE, T.SYNC_STROKES_DONE, T.SYNC_METADATA,
   T.SYNC_STROKE_BATCH, T.SYNC_TILE_OWNERSHIP, T.TILE_UPDATE, T.TILE_CLEAR,
   T.AUTH_RESULT, T.MOD_RESULT, T.MOD_NOTIFY,
@@ -2393,9 +2393,11 @@ wss.on('connection', async (ws, req) => {
 
             if (hasOwnField(data, 'r')) {
               reactionPayload.r = data.r;
-              const client = room.sessionManager.getClient(data.r);
-              if (client && client.readyState === WebSocket.OPEN) {
-                sendTo(client, reactionPayload);
+              for (const client of wss.clients) {
+                if (client.sessionIndex === data.r && client.readyState === WebSocket.OPEN) {
+                  sendTo(client, reactionPayload);
+                  break;
+                }
               }
             } else {
               broadcastToRoom(room, reactionPayload, ws.sessionIndex);
@@ -2426,10 +2428,15 @@ wss.on('connection', async (ws, req) => {
           const modReason = data.modReason || '';
           const modDuration = data.modDuration || 0;
 
-          const targetWs = room.sessionManager.getClient(modTargetIndex);
+          let targetWs = null;
+          for (const client of wss.clients) {
+            if (client.sessionIndex === modTargetIndex && client.readyState === WebSocket.OPEN) {
+              targetWs = client;
+              break;
+            }
+          }
 
           const targetUser = room.sessionManager.getUser(modTargetIndex);
-
           const targetName = data.modTargetName || targetWs?.username || targetUser?.name || `User ${modTargetIndex}`;
           const targetRole = Math.max(targetWs?.userRole || 0, targetUser?.role || 0);
           const targetUserId = targetWs?.userId || null;
@@ -3950,16 +3957,4 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 init().catch(err => {
   console.error('Failed to initialize:', err);
   process.exit(1);
-});
- process.exit(0);
-  }, 8000);
-}
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-
-init().catch(err => {
-  console.error('Failed to initialize:', err);
-  process.exit(1);
-});
 });

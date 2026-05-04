@@ -1073,10 +1073,16 @@ export class WebSocketClient {
         });
         break;
 
-      case T.SYNC_COMPLETE:
-        this.emit('sync_complete');
+      case T.SYNC_CANVAS:
+        this.emit('sync_canvas', {
+          sessionIndex: data.u,
+          imageData: data.img
+        });
         break;
 
+      case T.SYNC_COMPLETE:
+        this.emit('sync_complete', {});
+        break;
 
       case T.SYNC_METADATA:
         this.emit('sync_metadata', {

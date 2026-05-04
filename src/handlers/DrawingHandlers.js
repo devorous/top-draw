@@ -1,7 +1,6 @@
 /** @fileoverview Handles drawing-related events including tool changes, mouse interactions, and canvas operations. */
 
 import { blurImageData } from '../utils/blurUtils.js';
-import { appState } from '../state.svelte.js';
 
 /**
  * Sets up WebSocket event handlers for drawing and canvas operations.
@@ -164,7 +163,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     const user = users.get(data.sessionIndex);
     if (user) {
       user.setThinning(data.thinning);
-      if (data.sessionIndex === appState.sessionIndex) {
+      if (data.sessionIndex === app.sessionIndex) {
         ui.updateThinningValue(Math.round(data.thinning * 100));
       }
     }
@@ -174,7 +173,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
     const user = users.get(data.sessionIndex);
     if (user) {
       user.setSimulatePressure(data.simulatePressure);
-      if (data.sessionIndex === appState.sessionIndex) {
+      if (data.sessionIndex === app.sessionIndex) {
         ui.updateSimulatePressure(data.simulatePressure);
       }
     }

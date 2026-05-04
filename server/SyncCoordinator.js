@@ -247,6 +247,26 @@ export class SyncCoordinator {
   }
 
   /**
+   * Handles legacy full-canvas synchronization messages.
+   * @param {WebSocket} ws - The WebSocket of the provider.
+   * @param {Object} data - The sync canvas message data.
+   */
+  handleSyncCanvas(ws, data) {
+    const targetUser = this._getActiveSyncTarget(ws, data);
+    if (targetUser === null) return;
+    console.log(`[Sync] User ${ws.sessionIndex} providing legacy canvas for user ${targetUser}`);
+    for (const client of this.wss.clients) {
+      if (client.sessionIndex === targetUser && client.readyState === WebSocket.OPEN) {
+        this.sendTo(client, { t: T.SYNC_CANVAS, u: ws.sessionIndex, img: data.img });
+        this._sendActiveImagesToJoiner(client);
+        this.sendTo(client, { t: T.SYNC_COMPLETE });
+        this.pendingSyncRequests.delete(targetUser);
+        break;
+      }
+    }
+  }
+
+  /**
    * Relays sync metadata (e.g., total stroke count) to the requesting joiner.
    * @param {WebSocket} ws - The WebSocket of the provider.
    * @param {Object} data - The sync metadata message data.
@@ -408,9 +428,11 @@ export class SyncCoordinator {
    * @private
    */
   _findClient(sessionIndex) {
-    const client = this.sessionManager.getClient(sessionIndex);
-    if (client && client.readyState === WebSocket.OPEN) {
-      return client;
+    const idx = Number(sessionIndex);
+    for (const client of this.wss.clients) {
+      if (Number(client.sessionIndex) === idx && client.readyState === WebSocket.OPEN) {
+        return client;
+      }
     }
     return null;
   }

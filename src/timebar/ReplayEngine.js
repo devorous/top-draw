@@ -6,7 +6,6 @@
 
 import { User } from '../User.js';
 import { T, ToolNames } from '../../shared/MessageTypes.js';
-import { appState } from '../state.svelte.js';
 import { unpackColor } from '../../shared/ColorUtils.js';
 import { RemoteUserHandler } from '../remote/RemoteUserHandler.js';
 import { LayerManager } from '../canvas/LayerManager.js';

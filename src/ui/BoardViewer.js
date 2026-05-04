@@ -1,5 +1,4 @@
 import { isTauriDesktop } from '../platform/desktop.js';
-import { appState } from '../state.svelte.js';
 import { bindPressAction } from '../utils/buttonBinding.js';
 
 const AUTO_SHOW_ZOOM = 1.5;
@@ -374,7 +373,7 @@ export class BoardViewer {
   }
 
   _centerOnUser(userId, stage = this.stage) {
-    const user = this.appState.users.get(Number(userId));
+    const user = this.app.users.get(Number(userId));
     if (!user || !stage) return;
     const rect = stage.getBoundingClientRect();
     this.panX = rect.width / 2 - user.x * this.viewZoom;

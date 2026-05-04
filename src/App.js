@@ -1,7 +1,7 @@
 /** @fileoverview Main entry point for the drawing application, coordinating board, tools, UI, and networking. */
 
 import { T, ToolToEnum } from '../shared/MessageTypes.js';
-import { packColor, unpackColor, hexToRgb, rgbToHex, shiftL, blend } from '../shared/ColorUtils.js';
+import { packColor } from '../shared/ColorUtils.js';
 import { User } from './User.js';
 import { Board } from './canvas/Board.js';
 import { ToolManager, BrushTool } from './tools/Tools.js';
@@ -96,6 +96,57 @@ function withTimeout(promise, timeoutMs, message) {
   });
 }
 
+function _hexToRgb(hex) {
+  const c = hex.replace('#', '');
+  return [parseInt(c.slice(0, 2), 16), parseInt(c.slice(2, 4), 16), parseInt(c.slice(4, 6), 16)];
+}
+
+function _rgbToHex(r, g, b) {
+  return '#' + [r, g, b].map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+}
+
+function _rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l * 100];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return [h / 6 * 360, s * 100, l * 100];
+}
+
+function _hslToRgb(h, s, l) {
+  h /= 360; s /= 100; l /= 100;
+  if (s === 0) { const v = l * 255; return [v, v, v]; }
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hue2 = (t) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
+  };
+  return [hue2(h + 1/3) * 255, hue2(h) * 255, hue2(h - 1/3) * 255];
+}
+
+function _shiftL(hex, delta) {
+  const [r, g, b] = _hexToRgb(hex);
+  const [h, s, l] = _rgbToHsl(r, g, b);
+  return _rgbToHex(..._hslToRgb(h, s, Math.max(0, Math.min(100, l + delta))));
+}
+
+function _blend(hex1, hex2, t) {
+  const [r1, g1, b1] = _hexToRgb(hex1);
+  const [r2, g2, b2] = _hexToRgb(hex2);
+  return _rgbToHex(r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t);
+}
+
 const DERIVED_THEME_CSS_KEYS = [
   'bg-primary', 'bg-secondary', 'bg-tertiary', 'bg-elevated',
   'surface-glass', 'surface-overlay',
@@ -121,25 +172,25 @@ function applyThemeColors(themeColors = {}) {
   if (hasCustomTheme) {
     // Scale the layer step with the base lightness so darker backgrounds
     // stay dark — e.g. near-black bg uses ~2pt steps instead of 5pt.
-    const [, , bgL] = rgbToHsl(...hexToRgb(bg));
+    const [, , bgL] = _rgbToHsl(..._hexToRgb(bg));
     const step = Math.min(5, Math.max(1.5, bgL * 0.44));
 
     const vars = {
       'bg-primary':       bg,
-      'bg-secondary':     shiftL(bg, step),
-      'bg-tertiary':      shiftL(bg, step * 2),
-      'bg-elevated':      shiftL(bg, step * 3),
-      'surface-glass':    blend(shiftL(bg, step * 1.35), '#000000', 0.08),
-      'surface-overlay':  blend(bg, '#000000', 0.5),
+      'bg-secondary':     _shiftL(bg, step),
+      'bg-tertiary':      _shiftL(bg, step * 2),
+      'bg-elevated':      _shiftL(bg, step * 3),
+      'surface-glass':    _blend(_shiftL(bg, step * 1.35), '#000000', 0.08),
+      'surface-overlay':  _blend(bg, '#000000', 0.5),
       'accent-primary':   accent,
-      'accent-secondary': shiftL(accent, -6),
-      'accent-hover':     shiftL(accent, 4),
-      'accent-glow':      blend(accent, bg, 0.7),
+      'accent-secondary': _shiftL(accent, -6),
+      'accent-hover':     _shiftL(accent, 4),
+      'accent-glow':      _blend(accent, bg, 0.7),
       'text-primary':     text,
-      'text-secondary':   blend(text, bg, 0.38),
-      'text-muted':       blend(text, bg, 0.62),
-      'border-subtle':    blend(text, bg, 0.9),
-      'border-active':    blend(accent, bg, 0.5),
+      'text-secondary':   _blend(text, bg, 0.38),
+      'text-muted':       _blend(text, bg, 0.62),
+      'border-subtle':    _blend(text, bg, 0.9),
+      'border-active':    _blend(accent, bg, 0.5),
     };
     for (const [key, val] of Object.entries(vars)) {
       rootStyle.setProperty(`--${key}`, val);
@@ -181,10 +232,10 @@ export class DrawingApp {
    * @param {string} [options.serverUrl] - WebSocket server URL.
    */
   constructor(options = {}) {
-    appState.sessionIndex = null;
-    appState.users = new Map();
+    this.sessionIndex = null;
+    this.users = new Map();
     this.fingerprintIdUserColorCache = new Map(); // Map fingerprint ID -> color for persistent user identification
-    appState.connected = false;
+    this.connected = false;
     this.previousTool = null;
     this.intentionalDisconnect = false;
     this.appPreferences = loadAppPreferences();
@@ -273,6 +324,7 @@ export class DrawingApp {
     this.currentRoomId = null;
     this.currentRoomData = null;
     this._pendingLandingLogin = false;
+    this.selfRole = 0;
     this.moderation = new Moderation();
     // this.profileDialog = new ProfileDialog(); // Now Svelte component
 
@@ -464,7 +516,7 @@ export class DrawingApp {
       localStorage.setItem(SHAPE_DRAW_MODE_STORAGE_KEY, normalizedMode);
     }
 
-    if (broadcast && appState.connected && this.wsClient) {
+    if (broadcast && this.connected && this.wsClient) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastShapeDrawModeChange(normalizedMode));
     }
   }
@@ -630,7 +682,7 @@ export class DrawingApp {
     this.moderation.onPM = (sessionIndex, user) => {
       if (!this.svelteComponents?.chat) return;
 
-      const targetUser = user || appState.users.get(sessionIndex);
+      const targetUser = user || this.users.get(sessionIndex);
       if (!targetUser || (targetUser.id === undefined && sessionIndex === undefined)) {
         appState.chatVisible = true;
         return;
@@ -675,7 +727,7 @@ export class DrawingApp {
       
       group.userIds.forEach(userId => {
         if (action === 'wipe') {
-          const user = appState.users.get(userId);
+          const user = this.users.get(userId);
           this.wsClient.sendModWipe(userId, user?.name || '');
         } else {
           this.wsClient.sendModAction(actionCode, userId, reason, duration);
@@ -924,7 +976,7 @@ export class DrawingApp {
             const s = Number(parts[1].replace('%', ''));
             const l = Number(parts[2].replace('%', ''));
             if (Number.isFinite(h) && Number.isFinite(s) && Number.isFinite(l)) {
-              const [r, g, b] = hslToRgb(h, s, l);
+              const [r, g, b] = _hslToRgb(h, s, l);
               return [Math.round(r), Math.round(g), Math.round(b), this.self?.opacity ?? 1];
             }
           }
@@ -935,7 +987,7 @@ export class DrawingApp {
 
       const syncHexInput = (rgba) => {
         this.colorPickerHexInputs?.forEach(input => {
-          input.value = rgbToHex(rgba[0], rgba[1], rgba[2]).toUpperCase();
+          input.value = _rgbToHex(rgba[0], rgba[1], rgba[2]).toUpperCase();
         });
       };
 
@@ -1029,7 +1081,7 @@ export class DrawingApp {
 
             this._setColorPickersColor(rgba, { source: wheel, silent: true });
 
-            if (appState.connected) {
+            if (this.connected) {
               this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(rgba));
             }
           }
@@ -1133,7 +1185,7 @@ export class DrawingApp {
         hex = hex.split('').map(c => c + c).join('');
       }
       if (hex.length === 0) {
-        hex = rgbToHex(this.self.color[0], this.self.color[1], this.self.color[2]);
+        hex = _rgbToHex(this.self.color[0], this.self.color[1], this.self.color[2]);
       }
       while (hex.length < 6) {
         hex = `0${hex}`;
@@ -1519,12 +1571,12 @@ export class DrawingApp {
     });
     if (elements.adminTopBtn) {
       elements.adminTopBtn.addEventListener('click', () => {
-        if (appState.selfRole < 9) return;
+        if (this.selfRole < 9) return;
         appState.adminPanelVisible = true;
       });
     }
     elements.inboxBtn.addEventListener('click', () => {
-      if (appState.selfRole < 1) return;
+      if (this.selfRole < 1) return;
       appState.messengerVisible = !appState.messengerVisible;
     });
     elements.selfListUser.addEventListener('click', () => this.handleRenameself());
@@ -1573,7 +1625,7 @@ export class DrawingApp {
 
       if (entry.dataset.sessionIndex) {
         const sessionIndex = Number(entry.dataset.sessionIndex);
-        const user = appState.users.get(sessionIndex);
+        const user = this.users.get(sessionIndex);
         this.moderation.showContextMenu(e, sessionIndex, user);
       }
     });
@@ -1685,7 +1737,7 @@ export class DrawingApp {
         const simulate = e.target.checked;
         this.self.setSimulatePressure(simulate);
         localStorage.setItem('topDrawSimulatePressure', simulate);
-        if (appState.connected) {
+        if (this.connected) {
           this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSimulatePressureChange(simulate));
         }
       });
@@ -1771,7 +1823,7 @@ export class DrawingApp {
         if (fillPatternSettings) fillPatternSettings.style.display = e.target.checked ? 'block' : 'none';
 
         this.self.patternMode = e.target.checked;
-        if (appState.connected && this.wsClient) {
+        if (this.connected && this.wsClient) {
           this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternMode(e.target.checked));
         }
 
@@ -1799,7 +1851,7 @@ export class DrawingApp {
 
         // Sync pattern mode to user object and broadcast
         this.self.patternMode = e.target.checked;
-        if (appState.connected && this.wsClient) {
+        if (this.connected && this.wsClient) {
           this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternMode(e.target.checked));
         }
 
@@ -1927,7 +1979,7 @@ export class DrawingApp {
         currentColor[3] = opacity;
         this.self.setColor(currentColor);
         this._setColorPickersColor(`rgba(${currentColor.join(',')})`);
-        if (appState.connected) {
+        if (this.connected) {
           this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(currentColor));
         }
       }
@@ -1939,7 +1991,7 @@ export class DrawingApp {
         onCommit: (val) => {
           const radius = this.setSelfBlurRadiusForCurrentTool(val);
           elements.blurRadiusSlider.value = radius;
-          if (appState.connected) {
+          if (this.connected) {
             this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBlurRadiusChange(radius));
           }
         }
@@ -2403,7 +2455,7 @@ export class DrawingApp {
       patternTool.updatePreview(this.self);
     }
 
-    if (appState.connected && this.self.patternBrush) {
+    if (this.connected && this.self.patternBrush) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
     }
   }
@@ -2502,7 +2554,7 @@ export class DrawingApp {
       patternTool.updatePreview(this.self);
     }
 
-    if (appState.connected && this.self.patternBrush) {
+    if (this.connected && this.self.patternBrush) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
     }
   }
@@ -2525,7 +2577,7 @@ export class DrawingApp {
       patternTool.updatePreview(this.self);
     }
 
-    if (appState.connected && this.self.patternBrush) {
+    if (this.connected && this.self.patternBrush) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
     }
   }
@@ -2548,7 +2600,7 @@ export class DrawingApp {
       patternTool.updatePreview(this.self);
     }
 
-    if (appState.connected && this.self.patternBrush) {
+    if (this.connected && this.self.patternBrush) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
     }
   }
@@ -2571,7 +2623,7 @@ export class DrawingApp {
       patternTool.updatePreview(this.self);
     }
 
-    if (appState.connected && this.self.patternBrush) {
+    if (this.connected && this.self.patternBrush) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
     }
   }
@@ -2592,7 +2644,7 @@ export class DrawingApp {
     // Sync all radio groups (pattern, fill pattern, and selection pattern)
     document.querySelectorAll('input[name="patternColorMode"], input[name="fillPatternColorMode"], input[name="selectionPatternColorMode"]').forEach(r => r.checked = r.value === colorMode);
 
-    if (appState.connected && this.self.patternBrush) {
+    if (this.connected && this.self.patternBrush) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
     }
   }
@@ -2624,7 +2676,7 @@ export class DrawingApp {
     const imageBrushTool = this.toolManager.getTool('imageBrush');
     if (imageBrushTool) imageBrushTool._tintCache.clear();
 
-    if (appState.connected && this.self.imageBrush) {
+    if (this.connected && this.self.imageBrush) {
       this.inputBufferManager.queueBroadcast(() =>
         this.wsClient.broadcastBrush(this._buildImageBrushPayload())
       );
@@ -2661,7 +2713,7 @@ export class DrawingApp {
       patternTool.updatePreview(this.self);
     }
 
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
     }
   }
@@ -2696,10 +2748,10 @@ export class DrawingApp {
       this.self.setUsername(username);
     }
 
-    appState.users.clear();
+    this.users.clear();
+    this.connected = false;
     appState.connected = false;
-    appState.connected = false;
-    appState.sessionIndex = null;
+    this.sessionIndex = null;
     if (this.self) this.self.id = null;
 
     this.syncClient.showOverlay();
@@ -2860,7 +2912,7 @@ export class DrawingApp {
     console.log('[App] Draw Alone mode - creating local room');
     this.resetRoomState({ preserveRemoteVisuals: false, clearBoard: true });
     this.isOfflineMode = true;
-    appState.connected = false;
+    this.connected = false;
     appState.connected = false;
     this.currentRoomId = 'offline-' + Date.now();
     appState.currentRoomId = this.currentRoomId;
@@ -2872,11 +2924,11 @@ export class DrawingApp {
       this.wsClient.disconnect();
     }
 
-    appState.sessionIndex = 0;
+    this.sessionIndex = 0;
     this.self.id = 0;
     const offlineUsername = this.auth?.getJoinUsername() || this.ui.elements.loginUsername?.value.trim() || '';
     this.self.setUsername(offlineUsername);
-    appState.users.set(0, this.self);
+    this.users.set(0, this.self);
 
     if (this.landingPage) {
       this.landingPage.hide();
@@ -2907,7 +2959,7 @@ export class DrawingApp {
   async connectForRoomDiscovery() {
     this.currentRoomId = null;
     appState.currentRoomId = null;
-    appState.connected = false;
+    this.connected = false;
     appState.connected = false;
     TimeMachine.stop();
     this.updateRecordingButtonState();
@@ -2947,8 +2999,8 @@ export class DrawingApp {
   }
 
   hasRemoteUsers() {
-    for (const id of appState.users.keys()) {
-      if (Number(id) !== Number(appState.sessionIndex)) {
+    for (const id of this.users.keys()) {
+      if (Number(id) !== Number(this.sessionIndex)) {
         return true;
       }
     }
@@ -3011,12 +3063,12 @@ export class DrawingApp {
     const requestUpdate = options.requestUpdate !== false;
     const numericUserId = Number(userId);
     if (!Number.isFinite(numericUserId)) return;
-    if (appState.sessionIndex !== null && numericUserId === Number(appState.sessionIndex)) return;
+    if (this.sessionIndex !== null && numericUserId === Number(this.sessionIndex)) return;
 
-    const user = appState.users.get(numericUserId);
+    const user = this.users.get(numericUserId);
     if (user) {
       this.remoteUserHandler?.cleanupUserState?.(user, { preserveVisuals });
-      appState.users.delete(numericUserId);
+      this.users.delete(numericUserId);
     } else {
       this.board.layerManager?.deepCleanupUserState?.(numericUserId, { preserveVisuals });
     }
@@ -3057,13 +3109,13 @@ export class DrawingApp {
     this._resetLocalTransientState();
 
     const remoteIds = new Set();
-    appState.users.forEach((_, sessionIndex) => {
-      if (sessionIndex !== appState.sessionIndex) {
+    this.users.forEach((_, sessionIndex) => {
+      if (sessionIndex !== this.sessionIndex) {
         remoteIds.add(Number(sessionIndex));
       }
     });
     this.ui.remoteUserUI?.cursors?.forEach?.((_, userId) => {
-      if (Number(userId) !== Number(appState.sessionIndex)) {
+      if (Number(userId) !== Number(this.sessionIndex)) {
         remoteIds.add(Number(userId));
       }
     });
@@ -3142,7 +3194,7 @@ export class DrawingApp {
     const remoteBoards = typeof document !== 'undefined' ? document.querySelectorAll('.userBoard').length : 0;
     const remoteCursors = typeof document !== 'undefined' ? document.querySelectorAll('.cursor').length : 0;
     return {
-      remoteUsers: [...appState.users.keys()].filter((id) => id !== appState.sessionIndex).length,
+      remoteUsers: [...this.users.keys()].filter((id) => id !== this.sessionIndex).length,
       remoteBoards,
       remoteCursors,
       ...(this.board.layerManager?.getDebugStats?.() || {}),
@@ -3169,10 +3221,10 @@ export class DrawingApp {
     if (this.isOfflineMode) return;
     this.cancelMemoryCompaction();
 
-    appState.sessionIndex = sessionIndex;
+    this.sessionIndex = sessionIndex;
     appState.sessionIndex = sessionIndex;
     this.self.id = sessionIndex;
-    appState.users.set(sessionIndex, this.self);
+    this.users.set(sessionIndex, this.self);
     this.board.layerManager.localUserId = sessionIndex;
 
     if (assignedUsername) {
@@ -3185,7 +3237,7 @@ export class DrawingApp {
     }
 
     if (role !== undefined) {
-      appState.selfRole = role;
+      this.selfRole = role;
       this.self.role = role;
       appState.selfRole = role;
       if (this.moderation) {
@@ -3238,7 +3290,7 @@ export class DrawingApp {
     }
 
     this.wsClient.broadcastToolChange(this.self.tool);
-    appState.users.set(sessionIndex, this.self);
+    this.users.set(sessionIndex, this.self);
     this.wsClient.requestRoomList();
 
     this.syncClient.hasCompletedSync = false;
@@ -3279,7 +3331,7 @@ export class DrawingApp {
    * Completes the join process after successful connection and authentication.
    */
   handleJoinAfterConnect() {
-    appState.connected = true;
+    this.connected = true;
     appState.connected = true;
     appState.currentRoomId = this.currentRoomId || null;
     this.ui.hideOverlay();
@@ -3310,7 +3362,7 @@ export class DrawingApp {
       this.wsClient.broadcastBrush(this._buildImageBrushPayload());
     }
 
-    this.moderation.setRole(appState.selfRole);
+    this.moderation.setRole(this.selfRole);
     this.inputBufferManager.startTickLoop();
 
     // Apply pending room settings from "Create Room" dialog
@@ -3339,7 +3391,7 @@ export class DrawingApp {
    * @param {string} reason - Disconnection reason.
    */
   handleWSDisconnect(code, reason) {
-    appState.connected = false;
+    this.connected = false;
     appState.connected = false;
 
     this.stopPreviewInterval();
@@ -3563,7 +3615,7 @@ export class DrawingApp {
    * @param {string} username - The user's verified username.
    */
   handleAuthSuccess(token, role, username) {
-    appState.selfRole = role;
+    this.selfRole = role;
     this.self.role = role;
     appState.selfRole = role;
     this.self.setUsername(username);
@@ -3598,12 +3650,12 @@ export class DrawingApp {
     }
 
     if (this.currentRoomId && this.wsClient.connected) {
-      if (appState.connected) return;
+      if (this.connected) return;
       this.handleJoinAfterConnect();
       return;
     }
 
-    appState.connected = true;
+    this.connected = true;
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(username);
@@ -3641,7 +3693,7 @@ export class DrawingApp {
     if (!menu) return;
 
     const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
-    const role = appState.selfRole || 0;
+    const role = this.selfRole || 0;
     const nameEl = document.getElementById('selfRoleName');
     if (nameEl) {
       nameEl.textContent = roleNames[role] || 'Guest';
@@ -3655,7 +3707,7 @@ export class DrawingApp {
 
     const profileBtn = document.getElementById('selfProfileBtn');
     if (profileBtn) {
-      const canShowProfile = appState.selfRole >= 1 && (this.self.registeredName || this.self.username);
+      const canShowProfile = this.selfRole >= 1 && (this.self.registeredName || this.self.username);
       profileBtn.style.display = canShowProfile ? '' : 'none';
       profileBtn.onclick = () => {
         menu.style.display = 'none';
@@ -3722,7 +3774,7 @@ export class DrawingApp {
     const password = (!this.auth?.isLoggedIn && this.ui.elements.loginPassword?.value) || '';
     this._pendingPassword = password || null;
 
-    appState.connected = true;
+    this.connected = true;
     this.ui.hideOverlay();
     this.ui.showCursor();
     this.ui.updateSelfName(name);
@@ -3748,10 +3800,10 @@ export class DrawingApp {
     }
 
     if (this.ui.elements.selfUserEntry) {
-      this.ui.elements.selfUserEntry.dataset.sessionIndex = appState.sessionIndex;
+      this.ui.elements.selfUserEntry.dataset.sessionIndex = this.sessionIndex;
     }
 
-    this.moderation.setRole(appState.selfRole);
+    this.moderation.setRole(this.selfRole);
     this.inputBufferManager.startTickLoop();
     this.syncClient.requestSync();
   }
@@ -3773,8 +3825,8 @@ export class DrawingApp {
    * Starts local drawing mode without a server connection.
    */
   startOfflineMode() {
-    appState.connected = true;
-    appState.sessionIndex = 1;
+    this.connected = true;
+    this.sessionIndex = 1;
     this.self.id = 1;
     const username = this.auth?.getJoinUsername() || this.ui.elements.loginUsername?.value || '';
     this.self.setUsername(username);
@@ -3989,7 +4041,7 @@ export class DrawingApp {
 
     // Check permissions before opening settings
     const hasOwner = !!this.currentRoomData?.ownerId;
-    const canEdit = hasOwner && (appState.selfRole >= 5); // ADMIN+ or higher
+    const canEdit = hasOwner && (this.selfRole >= 5); // ADMIN+ or higher
 
     if (!canEdit) {
       this.ui.showToast('Only room owner or moderators can edit settings', 3000);
@@ -3998,7 +4050,7 @@ export class DrawingApp {
 
     // Update stores and show dialog
     appState.currentRoomData = this.currentRoomData;
-    appState.selfRole = appState.selfRole;
+    appState.selfRole = this.selfRole;
     appState.username = this.self?.username || '';
     appState.roomSettingsVisible = true;
   }
@@ -4007,7 +4059,7 @@ export class DrawingApp {
    * Registers the current user as room owner.
    */
   handleRegisterRoom() {
-    if (appState.selfRole < 1) {
+    if (this.selfRole < 1) {
       this.ui.showToast('You must be logged in to register a room', 3000);
       return;
     }
@@ -4039,7 +4091,7 @@ export class DrawingApp {
     const settingsBtn = document.getElementById('roomSettingsBtn');
     const registerBtn = document.getElementById('registerRoomBtn');
 
-    // Use wsClient.connected instead of appState.connected since appState.connected
+    // Use wsClient.connected instead of this.connected since this.connected
     // may not be set yet when auth completes
     const isConnected = this.wsClient?.connected && this.currentRoomId;
 
@@ -4050,7 +4102,7 @@ export class DrawingApp {
       return;
     }
 
-    const isLoggedIn = appState.selfRole >= 1;
+    const isLoggedIn = this.selfRole >= 1;
 
     // If we don't have room data yet, show register button for logged-in users
     // (assumes room is likely unregistered if data hasn't loaded)
@@ -4062,7 +4114,7 @@ export class DrawingApp {
     }
 
     const hasOwner = !!this.currentRoomData.ownerId;
-    const canEdit = hasOwner && appState.selfRole >= 5;
+    const canEdit = hasOwner && this.selfRole >= 5;
 
     // Show Register Room button if room is unregistered and user is logged in
     if (registerBtn) {
@@ -4087,7 +4139,7 @@ export class DrawingApp {
     el.style.display = role >= 1 ? '' : 'none';
   }
 
-  updateAuthenticatedActionVisibility(role = appState.selfRole) {
+  updateAuthenticatedActionVisibility(role = this.selfRole) {
     const isAuthenticated = role >= 1;
     const { adminTopBtn, inboxBtn, uploadBtn } = this.ui.elements;
 
@@ -4154,7 +4206,7 @@ export class DrawingApp {
   }
 
   canUseImageFeatures(showToast = false) {
-    const allowed = appState.selfRole >= 1;
+    const allowed = this.selfRole >= 1;
     if (!allowed && showToast) {
       this.ui?.showToast('Only registered users can upload, copy, or paste images', 3000);
     }
@@ -4334,14 +4386,14 @@ export class DrawingApp {
     }
 
     this.resetRoomState({ preserveRemoteVisuals: false, clearBoard: true });
-    appState.users.clear();
+    this.users.clear();
     if (this.self) {
-      appState.users.set(appState.sessionIndex, this.self);
+      this.users.set(this.sessionIndex, this.self);
     }
 
-    appState.connected = false;
+    this.connected = false;
     this.isOfflineMode = false;
-    appState.sessionIndex = null;
+    this.sessionIndex = null;
     appState.sessionIndex = null;
     if (this.self) this.self.id = null;
     this.currentRoomData = null;
@@ -4449,7 +4501,7 @@ export class DrawingApp {
       this.board.clearTop();
     }
 
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastToolChange(tool, tool === 'erase' ? this.eraseAllLayers : false));
     }
 
@@ -4465,13 +4517,13 @@ export class DrawingApp {
 
     this.toolManager.setTool(tool);
     this.ui.updateToolDisplay(tool, this.self);
-    this.applyBlurRadiusLimitForTool(tool, { broadcast: appState.connected });
+    this.applyBlurRadiusLimitForTool(tool, { broadcast: this.connected });
     this._updateBlurCannotDraw();
 
     if (tool === 'pan') {
-      if (appState.connected) this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
+      if (this.connected) this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
     } else if (previousTool === 'pan') {
-      if (appState.connected) this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastShowCursor());
+      if (this.connected) this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastShowCursor());
     }
 
     if (tool === 'text') {
@@ -4513,7 +4565,7 @@ export class DrawingApp {
         }
       }
       // Broadcast pattern state when switching to pattern tool
-      if (this.self.patternBrush && appState.connected) {
+      if (this.self.patternBrush && this.connected) {
         this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternBrush(this._buildPatternPayload()));
       }
     }
@@ -4601,7 +4653,7 @@ export class DrawingApp {
     const nextFont = normalizeTextFont(font);
 
     // Queue broadcast using current values
-    if (appState.connected) {
+    if (this.connected) {
       const snapshot = {
         font: nextFont,
         mult: this.self.textPositionMultiplier,
@@ -4628,7 +4680,7 @@ export class DrawingApp {
     this.ui.updateTextPositionMultiplierValue(this.self.textPositionMultiplier);
     this.ui.updateSelfTextStyle(this.self.size, this.self.color, this.self.font);
     this._updateTextPreview();
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastFontChange(
         this.self.font,
         this.self.textPositionMultiplier,
@@ -4643,7 +4695,7 @@ export class DrawingApp {
     this.ui.updateTextPositionOffsetValue(this.self.textPositionOffset);
     this.ui.updateSelfTextStyle(this.self.size, this.self.color, this.self.font);
     this._updateTextPreview();
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastFontChange(
         this.self.font,
         this.self.textPositionMultiplier,
@@ -4683,7 +4735,7 @@ export class DrawingApp {
 
     this.strokeHistoryPanel.setActiveLayer(layerIndex);
 
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastLayerChange(layerIndex));
     }
   }
@@ -4719,11 +4771,11 @@ export class DrawingApp {
     };
 
     if (userId !== null && userId !== undefined) {
-      refreshUser(appState.users.get(userId));
+      refreshUser(this.users.get(userId));
       return;
     }
 
-    appState.users.forEach((user) => refreshUser(user));
+    this.users.forEach((user) => refreshUser(user));
   }
 
   /**
@@ -4803,7 +4855,7 @@ export class DrawingApp {
     this.ui.updateTextPreviewBlendMode(cssMode);
     this._updateTextPreview();
 
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastLayerBlendModeChange(activeLayer, blendMode, this.self.blendBakeMode));
     }
   }
@@ -4812,7 +4864,7 @@ export class DrawingApp {
     const blendBakeMode = mode === 'background' ? 'background' : 'existing';
     this.self?.setBlendBakeMode?.(blendBakeMode);
 
-    if (appState.connected && this.self) {
+    if (this.connected && this.self) {
       const activeLayer = this.self.activeLayer;
       const blendMode = this.self.blendMode || 'source-over';
       this.inputBufferManager.queueBroadcast(() =>
@@ -5050,7 +5102,7 @@ export class DrawingApp {
     currentColor[3] = opacity;
     
     // Broadcast to other users
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(currentColor));
     }
 
@@ -5067,7 +5119,7 @@ export class DrawingApp {
   handleBlurRadiusChange(e) {
     this.clearActiveCustomPreset();
     const radius = this.setSelfBlurRadiusForCurrentTool(Number(e.target.value));
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBlurRadiusChange(radius));
     }
     this.ui.updateBlurRadiusValue(radius);
@@ -5107,7 +5159,7 @@ export class DrawingApp {
     }
     this.ui.updateBlurRadiusValue(clamped);
 
-    if (changed && options.broadcast && appState.connected) {
+    if (changed && options.broadcast && this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBlurRadiusChange(clamped));
     }
   }
@@ -5115,7 +5167,7 @@ export class DrawingApp {
   handleThinningChange(e) {
     this.clearActiveCustomPreset();
     const thinning = Number(e.target.value) / 100; // Convert to 0-1 range
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastThinningChange(thinning));
     }
     this.self.setThinning(thinning);
@@ -5129,7 +5181,7 @@ export class DrawingApp {
 
   handleSimulatePressureChange(e) {
     const simulate = e.target.checked;
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSimulatePressureChange(simulate));
     }
     this.self.setSimulatePressure(simulate);
@@ -5194,18 +5246,18 @@ export class DrawingApp {
         this.self.username,
         message,
         this._chatNameColor(this.self.color),
-        appState.sessionIndex,
+        this.sessionIndex,
         messageId,
-        this.self.role ?? appState.selfRole ?? 0
+        this.self.role ?? this.selfRole ?? 0
       );
     }
     broadcastChatPopoutEvent('addChatMessage', [
       this.self.username,
       message,
       this._chatNameColor(this.self.color),
-      appState.sessionIndex,
+      this.sessionIndex,
       messageId,
-      this.self.role ?? appState.selfRole ?? 0
+      this.self.role ?? this.selfRole ?? 0
     ]);
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastChat(message, messageId));
   }
@@ -5217,24 +5269,24 @@ export class DrawingApp {
         this.self.username,
         message,
         this._chatNameColor(this.self.color),
-        appState.sessionIndex,
+        this.sessionIndex,
         messageId,
-        this.self.role ?? appState.selfRole ?? 0
+        this.self.role ?? this.selfRole ?? 0
       );
     }
     broadcastChatPopoutEvent('addStaffMessage', [
       this.self.username,
       message,
       this._chatNameColor(this.self.color),
-      appState.sessionIndex,
+      this.sessionIndex,
       messageId,
-      this.self.role ?? appState.selfRole ?? 0
+      this.self.role ?? this.selfRole ?? 0
     ]);
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastStaffChat(message, messageId));
   }
 
   handleStaffChatImageSend(imageData) {
-    if (!appState.connected) return;
+    if (!this.connected) return;
 
     const messageId = this._createChatMessageId();
     this.inputBufferManager.queueBroadcast(() => {
@@ -5245,21 +5297,21 @@ export class DrawingApp {
       }
 
       this.svelteComponents?.chat?.addStaffImage(imageData, this.self, messageId);
-      broadcastChatPopoutEvent('addStaffImage', [imageData, this._chatPopoutUser(this.self, appState.sessionIndex), messageId]);
+      broadcastChatPopoutEvent('addStaffImage', [imageData, this._chatPopoutUser(this.self, this.sessionIndex), messageId]);
     });
   }
 
   handleDMSend(message, recipientId) {
-    if (appState.connected) {
+    if (this.connected) {
       const messageId = this._createChatMessageId();
-      this.svelteComponents?.chat?.addChatDM(message, recipientId, true, messageId, this.self.role ?? appState.selfRole ?? 0);
-      broadcastChatPopoutEvent('addChatDM', [message, recipientId, true, messageId, this.self.role ?? appState.selfRole ?? 0]);
+      this.svelteComponents?.chat?.addChatDM(message, recipientId, true, messageId, this.self.role ?? this.selfRole ?? 0);
+      broadcastChatPopoutEvent('addChatDM', [message, recipientId, true, messageId, this.self.role ?? this.selfRole ?? 0]);
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastDM(message, recipientId, messageId));
     }
   }
 
   handleChatImageSend(imageData, recipientId = null) {
-    if (!appState.connected) return;
+    if (!this.connected) return;
 
     const messageId = this._createChatMessageId();
     this.inputBufferManager.queueBroadcast(() => {
@@ -5270,17 +5322,17 @@ export class DrawingApp {
       }
 
       if (recipientId !== null && recipientId !== undefined) {
-        this.svelteComponents?.chat?.addDMImage(imageData, recipientId, true, messageId, this.self.role ?? appState.selfRole ?? 0);
-        broadcastChatPopoutEvent('addDMImage', [imageData, recipientId, true, messageId, this.self.role ?? appState.selfRole ?? 0]);
+        this.svelteComponents?.chat?.addDMImage(imageData, recipientId, true, messageId, this.self.role ?? this.selfRole ?? 0);
+        broadcastChatPopoutEvent('addDMImage', [imageData, recipientId, true, messageId, this.self.role ?? this.selfRole ?? 0]);
       } else {
         this.svelteComponents?.chat?.addChatImage(imageData, this.self, messageId);
-        broadcastChatPopoutEvent('addChatImage', [imageData, this._chatPopoutUser(this.self, appState.sessionIndex), messageId]);
+        broadcastChatPopoutEvent('addChatImage', [imageData, this._chatPopoutUser(this.self, this.sessionIndex), messageId]);
       }
     });
   }
 
   handleChatReaction(payload) {
-    if (appState.connected && payload?.messageId && payload?.emoji) {
+    if (this.connected && payload?.messageId && payload?.emoji) {
       broadcastChatPopoutEvent('applyReaction', [payload]);
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastChatReaction(payload));
     }
@@ -5320,8 +5372,8 @@ export class DrawingApp {
   updateChatUserList() {
     // Update the users store for Svelte Chat component
     const userMap = new Map();
-    appState.users.forEach((user, id) => {
-      if (id !== appState.sessionIndex) { // Exclude self
+    this.users.forEach((user, id) => {
+      if (id !== this.sessionIndex) { // Exclude self
         userMap.set(id, {
           id,
           username: user.username || user.name || '',
@@ -5381,7 +5433,7 @@ export class DrawingApp {
       selectTool._patternTileCache.clear();
     }
 
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(color));
     }
 
@@ -5498,7 +5550,7 @@ export class DrawingApp {
     }
 
     // Broadcast to other users if connected
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(rgba));
     }
 
@@ -5553,7 +5605,7 @@ export class DrawingApp {
       // Don't show cursor if pointer is on a UI control (slider, input, button, etc.)
       if (event && this._isPointerOnUiControl(event.target)) {
         this.ui.hideCursor();
-        if (appState.connected) {
+        if (this.connected) {
           this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
         }
         return;
@@ -5574,7 +5626,7 @@ export class DrawingApp {
         this.ui.updateToolDisplay(this.self.tool, this.self);
         this._updateBlurCannotDraw();
       }
-      if (appState.connected) {
+      if (this.connected) {
         if ((this.self.panning || this.self.tool === 'pan') && !isTextWithContent) {
           this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
         } else {
@@ -5594,7 +5646,7 @@ export class DrawingApp {
       // But not if pointer is on a UI control
       if (this._isPointerOnUiControl(event.target)) {
         this.ui.hideCursor();
-        if (appState.connected) {
+        if (this.connected) {
           this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
         }
         return;
@@ -5613,7 +5665,7 @@ export class DrawingApp {
     }
 
     this.ui.hideCursor();
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastHideCursor());
     }
   }
@@ -5783,7 +5835,7 @@ export class DrawingApp {
       this.ui.updateSelfCursor(x, y, this.self.size);
       
       // Broadcast movement so remote users see the text cursor updating
-      if (appState.connected) {
+      if (this.connected) {
         this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseMove(x, y));
       }
       return;
@@ -5920,7 +5972,7 @@ export class DrawingApp {
     this.self.mousedown = false;
 
     // Block local input while not yet connected (connecting overlay is showing)
-    if (!appState.connected && !this.isOfflineMode) return;
+    if (!this.connected && !this.isOfflineMode) return;
 
     // Block local input while syncing
     if (this.syncClient?.isSyncing() || this.syncClient?.isCanvasInputBlocked()) return;
@@ -6060,7 +6112,7 @@ export class DrawingApp {
       if (this.ui.elements.thinningEnabled) {
         this.ui.elements.thinningEnabled.checked = false;
       }
-      if (appState.connected) {
+      if (this.connected) {
         this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSimulatePressureChange(false));
       }
 
@@ -6209,7 +6261,7 @@ export class DrawingApp {
   }
 
   _broadcastExplicitTextApply(position = null) {
-    if (!appState.connected || !this.wsClient || !this.self?.text) return;
+    if (!this.connected || !this.wsClient || !this.self?.text) return;
     const snapshot = {
       text: this.self.text,
       x: position?.x ?? this.self.x,
@@ -6361,7 +6413,7 @@ export class DrawingApp {
         const textTool = this.toolManager.getTool('text');
         if (textTool) {
           // Broadcast final position before MU so remote users draw it in the right place
-          if (appState.connected) {
+          if (this.connected) {
             if (this.self.text) {
               this._broadcastExplicitTextApply(this.self._pendingTextPos);
             }
@@ -6640,8 +6692,8 @@ export class DrawingApp {
         this._updateTextPreview();
       }
 
-      for (const [userId, user] of appState.users.entries()) {
-        if (!user || userId === appState.sessionIndex || user.font !== targetFont) continue;
+      for (const [userId, user] of this.users.entries()) {
+        if (!user || userId === this.sessionIndex || user.font !== targetFont) continue;
 
         this.ui.updateRemoteFont(userId, user.font);
         this.ui.updateRemoteTextLayout(userId, user);
@@ -6754,14 +6806,14 @@ export class DrawingApp {
       selectTool.clearSelection();
     }
 
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastUndo());
     }
   }
 
   handleRedo() {
     this.board.redo(this.self.id);
-    if (appState.connected) {
+    if (this.connected) {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastRedo());
     }
   }
@@ -7144,7 +7196,7 @@ export class DrawingApp {
 
       // Broadcast the pasted floating selection so remote users receive the
       // same selection state and subsequent commit/cancel operations sync.
-      if (this.wsClient && appState.connected) {
+      if (this.wsClient && this.connected) {
         const dataUrl = compositeCanvas.toDataURL('image/png');
         this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastImagePaste(
           selection.x,
@@ -7258,7 +7310,7 @@ export class DrawingApp {
    * The server also uses this as the room preview.
    */
   captureAndSendCheckpoint() {
-    if (!appState.connected || !this.wsClient || this.isOfflineMode) return;
+    if (!this.connected || !this.wsClient || this.isOfflineMode) return;
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
 
     try {
@@ -7298,7 +7350,7 @@ export class DrawingApp {
    * Captures the current board at 1/4 scale and sends it to the server.
    */
   captureAndSendPreview() {
-    if (!appState.connected || !this.wsClient || this.isOfflineMode) return;
+    if (!this.connected || !this.wsClient || this.isOfflineMode) return;
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
 
     try {
@@ -7336,13 +7388,9 @@ export class DrawingApp {
 
   get usersByName() {
     const m = new Map();
-    appState.users.forEach((user, id) => {
+    this.users.forEach((user, id) => {
       m.set(user.username || `#${id}`, user);
     });
-    return m;
-  }
-}
-   });
     return m;
   }
 }
