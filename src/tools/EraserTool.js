@@ -104,7 +104,6 @@ export class EraserTool extends Tool {
     user._strokeLayer = user.activeLayer ?? 0;
     this._beginStroke(user);
     this._resetStrokeState(user);
-    this.appendBufferedPoint(user, pos);
     const rect = this.getPreviewDirtyRect(user);
     if (rect !== false) {
       this.board.clearTop(rect);
@@ -142,6 +141,9 @@ export class EraserTool extends Tool {
    * @param {Object} user - The user performing the action.
    */
   onPointerUp(user) {
+    if (user?.currentLine?.length === 0 && this.lastPos) {
+      this.appendBufferedPoint(user, this.lastPos, user.pressure, user.size, user.opacity);
+    }
     this.board.clearTop();
     this._setPreviewMaskVisible(true);
     this.commitCurrentLine(user, user.pressure, user.size, user.opacity, false);
@@ -441,7 +443,6 @@ export class EraserTool extends Tool {
     state.opacity = point.opacity;
 
     if (!state.lastStampPos) {
-      this._stampCircle(state, point.x, point.y, radius);
       state.lastStampPos = { x: point.x, y: point.y, radius };
       state.maxRadius = Math.max(state.maxRadius, radius);
       return;

@@ -205,6 +205,7 @@ export function setupUserHandlers(wsClient, app) {
           ipHash: userData.iph || userData.ipHash || '',
           visibleIp: userData.visibleIp || '',
           patternMode: userData.pm || userData.patternMode || false,
+          eraseAllLayers: userData.ea || userData.eraseAllLayers || false,
           textPositionMultiplier: userData.textPositionMultiplier,
           textPositionOffset: userData.textPositionOffset,
           instanceId: userData.iid || ''
@@ -277,6 +278,10 @@ export function setupUserHandlers(wsClient, app) {
           }
           user.setTool(userData.tool);
           ui.updateRemoteToolDisplay(userData.sessionIndex, userData.tool);
+        }
+
+        if (userData.ea !== undefined || userData.eraseAllLayers !== undefined) {
+          user.eraseAllLayers = userData.ea || userData.eraseAllLayers || false;
         }
 
         if (userData.color && (userData.color[0] !== user.color[0] || userData.color[1] !== user.color[1] || userData.color[2] !== user.color[2])) {

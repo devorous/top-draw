@@ -1971,7 +1971,7 @@ export class Board {
     if (maskCanvas) {
       tempCtx.save();
       tempCtx.globalCompositeOperation = 'destination-out';
-      tempCtx.globalAlpha = opacity;
+      tempCtx.globalAlpha = 1.0;
       this._drawCompositeCanvas(tempCtx, maskCanvas, dirtyRects);
       tempCtx.restore();
     }
@@ -2048,6 +2048,7 @@ export class Board {
   _findActiveEraserPreview() {
     const layerCount = this.layerManager?.getLayerCount?.() ?? 0;
     const localUserId = this.app?.self?.id;
+    const eraserTool = this.app?.toolManager?.getTool?.('erase');
 
     for (let layerIndex = 0; layerIndex < layerCount; layerIndex++) {
       const group = this.layerManager.getLayerGroup(layerIndex);
@@ -2058,11 +2059,11 @@ export class Board {
 
         const user = this.app?.users?.get?.(userId);
         if (user?.tool && user.tool !== 'erase') continue;
-        if (user?.eraseAllLayers) continue;
 
+        const strokeState = eraserTool?._getStrokeState?.(user) ?? user?._eraserStrokeState ?? null;
         const maskCanvas = userId === localUserId
           ? this.topCanvas
-          : user?.context?.canvas;
+          : strokeState?.previewCanvas ?? strokeState?.maskCanvas ?? user?.context?.canvas;
 
         if (!maskCanvas) continue;
 
@@ -2070,7 +2071,9 @@ export class Board {
           layerIndex,
           userId,
           maskCanvas,
-          opacity: user?.opacity ?? active.opacity ?? 1.0
+          strokeState,
+          opacity: user?.opacity ?? active.opacity ?? 1.0,
+          eraseAllLayers: user?.eraseAllLayers ?? false
         };
       }
     }
@@ -2383,9 +2386,11 @@ export class Board {
     const eraseAll = isEraser && (this.app?.eraseAllLayers ?? false);
     const pendingDirtyRects = this.compositeTileGrid?.consumeDirtyRects?.() ?? null;
     const activeEraserPreview = this._findActiveEraserPreview();
+    const activeEraserPreviewIsAllLayers = activeEraserPreview?.eraseAllLayers ?? false;
+    const previewUsesFlattenedOverlay = !!activeEraserPreview && !activeEraserPreviewIsAllLayers;
 
     const hasActiveSelection = this.activeSelectionLayer >= 0;
-    const splitLayer = hasActiveSelection ? this.activeSelectionLayer : (activeEraserPreview?.layerIndex ?? activeLayerIdx);
+    const splitLayer = hasActiveSelection ? this.activeSelectionLayer : ((previewUsesFlattenedOverlay ? activeEraserPreview?.layerIndex : null) ?? activeLayerIdx);
     const dirtyRects = Array.isArray(pendingDirtyRects) && pendingDirtyRects.length > 0
       ? pendingDirtyRects
       : null;
@@ -2408,14 +2413,14 @@ export class Board {
 
     const upperLayersHaveBlendModes = this.layerManager.rangeHasBlendModeStrokes(splitLayer + 1, totalLayers);
 
-    if (isDrawing && eraseAll) {
+    if ((isDrawing && eraseAll) || activeEraserPreviewIsAllLayers) {
       const mainDirtyRects = this._getFullMainDirtyRects(dirtyRects);
       this._fillBackgroundLayers(mainDirtyRects);
       this.layerManager.compositeLayerRange(this.mainCtx, 0, totalLayers, this.getCompositeBackgroundColor(), mainDirtyRects);
 
       this.mainCtx.globalCompositeOperation = 'destination-out';
-      this.mainCtx.globalAlpha = this.app?.self?.opacity ?? 1.0;
-      this._drawCompositeCanvas(this.mainCtx, this.topCanvas, mainDirtyRects);
+      this.mainCtx.globalAlpha = 1.0;
+      this._drawCompositeCanvas(this.mainCtx, activeEraserPreview?.maskCanvas ?? this.topCanvas, mainDirtyRects);
 
       this.mainCtx.globalCompositeOperation = 'source-over';
       this.mainCtx.globalAlpha = 1.0;
@@ -2423,11 +2428,11 @@ export class Board {
       this._clearUpperLayers(mainDirtyRects);
     }
     else if (
-      (isDrawing || activeEraserPreview || hasActiveSelection) &&
+      (isDrawing || previewUsesFlattenedOverlay || hasActiveSelection) &&
       splitLayer + 1 < totalLayers &&
-      (activeEraserPreview || !upperLayersHaveBlendModes)
+      (previewUsesFlattenedOverlay || !upperLayersHaveBlendModes)
     ) {
-      if (activeEraserPreview) {
+      if (previewUsesFlattenedOverlay) {
         const mainDirtyRects = this._getSplitMainDirtyRects(splitLayer + 1, dirtyRects);
         this._applyEraserPreviewToMain(
           splitLayer,
@@ -2455,7 +2460,7 @@ export class Board {
       this._compositeUpperLayers(splitLayer + 1, totalLayers, dirtyRects);
     } else {
       const mainDirtyRects = this._getFullMainDirtyRects(dirtyRects);
-      if (activeEraserPreview) {
+      if (previewUsesFlattenedOverlay) {
         this._applyEraserPreviewToMain(
           splitLayer,
           mainDirtyRects,

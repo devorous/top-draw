@@ -264,6 +264,7 @@ export async function sanitizeMessage(data) {
 
     case T.CT:
       sanitized.l = clampInt(data.l, 0, Object.keys(Tool).length - 1, Tool.BRUSH);
+      if (data.a !== undefined) sanitized.a = sanitizeBoolean(data.a);
       return sanitized;
 
     case T.CL:

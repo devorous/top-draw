@@ -991,6 +991,7 @@ function mapUsersForBroadcast(users, viewer = null, room = null) {
     ib: u.imageBrush,
     pb: u.patternBrush,
     pm: u.patternMode || false,
+    ea: u.eraseAllLayers || false,
     fo: u.font || '',
     tm: u.textPositionMultiplier ?? 0,
     to: u.textPositionOffset ?? 0,
@@ -1449,6 +1450,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
 
     case T.CT:
       user.tool = data.l;
+      if (data.a !== undefined) user.eraseAllLayers = !!data.a;
       user.text = '';
       break;
 

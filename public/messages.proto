@@ -211,6 +211,7 @@ message Msg {
     string vip = 30;    // Viewer-specific visible IP (role-gated by server)
     string iid = 31;    // Instance ID: random per-connection token to detect index reuse
     string bbm = 32;    // Blend bake mode: 'existing' or 'background'
+    bool ea = 33;       // Eraser applies to all layers
   }
   repeated U us = 17;   // Users array
 

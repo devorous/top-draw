@@ -654,6 +654,7 @@ export class WebSocketClient {
           patternScale: u.patternScale,
           patternShape: u.patternShape,
           patternName: u.patternName,
+          eraseAll: u.ea || false,
           font: normalizeTextFont(u.fo),
           textPositionMultiplier: u.tm,
           textPositionOffset: u.to,
