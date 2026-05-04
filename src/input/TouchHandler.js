@@ -3,6 +3,8 @@
  * Manages pinch-to-zoom, rotation, and panning using multi-touch detection.
  */
 
+import { isTauriDesktop } from '../platform/desktop.js';
+
 /**
  * TouchHandler detects and processes complex touch gestures like pinch-to-zoom,
  * two-finger rotation, and panning. It uses a mode-locking mechanism to ensure
@@ -62,6 +64,17 @@ export class TouchHandler {
     window.addEventListener('touchmove', this.handleTouchMove, { passive: false });
     window.addEventListener('touchend', this.handleTouchEnd, { passive: false });
     window.addEventListener('touchcancel', this.handleTouchEnd, { passive: false });
+  }
+
+  async _focusAppWindow() {
+    if (!isTauriDesktop()) return;
+
+    try {
+      const { getCurrentWebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+      await getCurrentWebviewWindow().setFocus();
+    } catch {
+      // Best-effort only; touch interaction should still work even if focus fails.
+    }
   }
 
   /**
@@ -142,6 +155,7 @@ export class TouchHandler {
     if (!this.shouldHandleTouchEvent(e)) return;
 
     this.touchStartedOnBoard = true;
+    void this._focusAppWindow();
     e.preventDefault();
 
     if (e.touches.length === 2) {
