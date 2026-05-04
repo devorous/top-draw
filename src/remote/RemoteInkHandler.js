@@ -221,8 +221,25 @@ export class RemoteInkHandler {
       return;
     }
 
-    // Skip 2-point strokes (perfect-freehand renders them as giant blobs)
-    if (user._inkPoints.length === 2) return;
+    // Very short strokes can arrive in tiny remote batches. Perfect-freehand
+    // can collapse these into an unstable preview, so draw a simple segment
+    // instead of clearing to blank between network updates.
+    if (user._inkPoints.length === 2) {
+      const [x0, y0, pressure0] = user._inkPoints[0];
+      const [x1, y1, pressure1] = user._inkPoints[1];
+      const averagePressure = ((pressure0 ?? 1) + (pressure1 ?? 1)) / 2;
+      const width = Math.max(0.5, inkSize * averagePressure);
+      ctx.fillStyle = user._inkStrokeColor;
+      ctx.strokeStyle = user._inkStrokeColor;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+      return;
+    }
 
     // Match local ink preview behavior: wait for enough points to form a real
     // stroke shape before drawing the preview, avoiding oversized start blobs.

@@ -6404,6 +6404,7 @@ export class DrawingApp {
     // Flush any locally-rendered-but-not-yet-sent points before ending the stroke.
     this.inputBufferManager.processLocalFrame();
     this.inputBufferManager.flushPendingNetwork();
+    this.inputBufferManager.cancelLocalFrame();
 
     if (!this.self.panning) {
       const tool = this.toolManager.getCurrentTool();

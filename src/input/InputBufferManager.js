@@ -238,6 +238,12 @@ export class InputBufferManager {
     });
   }
 
+  cancelLocalFrame() {
+    if (this.localFrameId === null) return;
+    cancelAnimationFrame(this.localFrameId);
+    this.localFrameId = null;
+  }
+
   /**
    * Performs a single tick of input processing.
    * Prioritizes any pending local frame work, then flushes network state to peers.

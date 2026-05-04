@@ -352,8 +352,25 @@ export class InkTool extends Tool {
       return;
     }
 
-    // Skip 2-point strokes (perfect-freehand renders them as giant blobs)
-    if (this.inputPoints.length === 2) return;
+    // Very short strokes are common when fast input is batched into a single frame.
+    // Perfect-freehand can collapse these into an unstable preview, so draw a simple
+    // round-capped segment instead of leaving the stroke blank between frames.
+    if (this.inputPoints.length === 2) {
+      const [x0, y0, pressure0] = this.inputPoints[0];
+      const [x1, y1, pressure1] = this.inputPoints[1];
+      const averagePressure = ((pressure0 ?? 1) + (pressure1 ?? 1)) / 2;
+      const width = Math.max(0.5, this._strokeSize * averagePressure);
+      ctx.fillStyle = this.strokeColor;
+      ctx.strokeStyle = this.strokeColor;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+      return;
+    }
 
     // 3+ points: normal stroke rendering
     this._lastDotEffectiveSize = null;
