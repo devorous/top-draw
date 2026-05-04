@@ -62,14 +62,15 @@
   border: none;
   cursor: pointer;
   font-size: 14px;
-  padding: 0 4px;
-  margin-left: 4px;
+  padding: 0 2px;
+  margin-left: auto;
   opacity: 0.5;
   transition: opacity var(--transition-fast), transform var(--transition-fast);
   user-select: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   color: inherit;
 
   img, svg {

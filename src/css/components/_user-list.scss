@@ -24,9 +24,10 @@
 .sliderContainer label,
 .sliderContainer .sliderLabel {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
-  font-size: 11px;
+  gap: 4px;
+  font-size: 10px;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -34,6 +35,22 @@
 }
 .sliderLabel{
     margin-bottom:-3px;
+}
+
+.sliderContainer .sliderLabel > .pressureToggle {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.sliderContainer .sliderLabel > .sliderValue,
+.sliderContainer .sliderLabel > .valueAdjuster {
+  flex: 0 0 auto;
+}
+
+.sliderContainer .sliderLabel > .sliderValue {
+  padding: 2px 4px;
+  min-width: 32px;
 }
 
 .sliderValue {

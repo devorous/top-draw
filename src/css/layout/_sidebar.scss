@@ -36,6 +36,7 @@ html[data-sidebar-side='left'] #sideMenu {
   display: flex;
   flex-direction: column;
   width: var(--sidebar-width);
+  min-width: 0;
   background: var(--bg-tertiary);
   border-left: 1px solid var(--border-subtle);
   transition: width var(--transition-normal), opacity var(--transition-normal), transform var(--transition-normal);
@@ -57,6 +58,7 @@ html[data-sidebar-side='left'] #sideMenu {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   touch-action: auto;
@@ -539,6 +541,16 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
     }
   }
 
+  #cursor-style-container .fontSelectWrap::after {
+    right: 11px;
+    width: 4px;
+    height: 4px;
+    padding-top: 0;
+    border-right-width: 1px;
+    border-bottom-width: 1px;
+    transform: translateY(-50%) rotate(45deg);
+  }
+
   #font-select,
   #cursorStyleSelect {
     width: 100%;
@@ -568,6 +580,23 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
       background var(--transition-fast);
   }
 
+  #cursorStyleSelect {
+    width: auto;
+    min-width: 132px;
+    max-width: 170px;
+    padding: 7px 22px 7px 10px;
+    margin-top: 7px;
+    background: var(--bg-secondary);
+    box-shadow: none;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+  }
+
+  #cursorStyleSelect:hover {
+    box-shadow: none;
+    background: var(--bg-secondary);
+  }
+
   #font-select:hover,
   #cursorStyleSelect:hover {
     border-color: color-mix(in srgb, var(--accent-primary), transparent 38%);
@@ -587,6 +616,33 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
     box-shadow:
       0 0 0 2px color-mix(in srgb, var(--accent-primary), transparent 72%),
       0 12px 24px color-mix(in srgb, var(--accent-primary), transparent 80%);
+  }
+
+  #cursorStyleSelect:focus {
+    background: var(--bg-secondary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary), transparent 72%);
+  }
+
+  #cursor-style-container #cursorStyleSelect {
+    width: auto;
+    min-width: 132px;
+    max-width: 170px;
+    padding: 7px 22px 7px 10px;
+    margin-top: 7px;
+    background: var(--bg-secondary);
+    box-shadow: none;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+  }
+
+  #cursor-style-container #cursorStyleSelect:hover {
+    background: var(--bg-secondary);
+    box-shadow: none;
+  }
+
+  #cursor-style-container #cursorStyleSelect:focus {
+    background: var(--bg-secondary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary), transparent 72%);
   }
 
   #font-select option,
@@ -680,6 +736,7 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
   padding: 10px;
   padding-top: 5px;
   overflow-y: auto;
+  overflow-x: hidden;
   position: relative;
   /* Heights are dynamically managed by ResizableSections */
 }
