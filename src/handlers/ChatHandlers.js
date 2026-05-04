@@ -1,6 +1,7 @@
 /** @fileoverview Handles chat-related WebSocket events including public messages, DMs, and images. */
 
 import { broadcastChatPopoutEvent } from '../platform/chatPopoutBridge.js';
+import { appState } from '../state.svelte.js';
 
 function chatNameColor(color) {
   if (!Array.isArray(color)) return color || '#8ba3c7';
@@ -33,7 +34,7 @@ export function setupChatHandlers(wsClient, app) {
   const { users } = app;
 
   wsClient.on('msg', (data) => {
-    if (data.sessionIndex === app.sessionIndex) return;
+    if (data.sessionIndex === appState.sessionIndex) return;
     const user = users.get(data.sessionIndex);
     if (user && app.svelteComponents?.chat) {
       app.svelteComponents.chat.addChatMessage(
@@ -56,7 +57,7 @@ export function setupChatHandlers(wsClient, app) {
   });
 
   wsClient.on('dm', (data) => {
-    if (data.sessionIndex === app.sessionIndex) return;
+    if (data.sessionIndex === appState.sessionIndex) return;
     const user = users.get(data.sessionIndex);
     if (user && app.svelteComponents?.chat) {
       app.svelteComponents.chat.addChatDM(data.message, data.sessionIndex, false, data.messageId, user.role);
@@ -65,7 +66,7 @@ export function setupChatHandlers(wsClient, app) {
   });
 
   wsClient.on('staff_msg', (data) => {
-    if (data.sessionIndex === app.sessionIndex) return;
+    if (data.sessionIndex === appState.sessionIndex) return;
     const user = users.get(data.sessionIndex);
     if (user && app.svelteComponents?.chat) {
       app.svelteComponents.chat.addStaffMessage(
@@ -88,7 +89,7 @@ export function setupChatHandlers(wsClient, app) {
   });
 
   wsClient.on('staff_chat_img', (data) => {
-    if (data.sessionIndex === app.sessionIndex) return;
+    if (data.sessionIndex === appState.sessionIndex) return;
     const user = users.get(data.sessionIndex);
     if (user) {
       app.svelteComponents?.chat?.addStaffImage(data.imageData, user, data.messageId);
@@ -97,7 +98,7 @@ export function setupChatHandlers(wsClient, app) {
   });
 
   wsClient.on('chat_img', (data) => {
-    if (data.sessionIndex === app.sessionIndex) return;
+    if (data.sessionIndex === appState.sessionIndex) return;
     console.log('[CHAT_IMG] Received image from user', data.sessionIndex);
 
     const user = users.get(data.sessionIndex);
@@ -115,7 +116,7 @@ export function setupChatHandlers(wsClient, app) {
   });
 
   wsClient.on('chat_reaction', (data) => {
-    if (data.sessionIndex === app.sessionIndex) return;
+    if (data.sessionIndex === appState.sessionIndex) return;
     app.svelteComponents?.chat?.applyReaction(data);
     broadcastChatPopoutEvent('applyReaction', [data]);
   });

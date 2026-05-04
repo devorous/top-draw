@@ -448,7 +448,6 @@ export class UI {
       mirrorBtn: document.getElementById('mirrorBtn'),
       plusBtn: document.getElementById('plusBtn'),
       minusBtn: document.getElementById('minusBtn'),
-      zoomPercent: document.querySelector('.zoomPercent'),
       hudUndoBtn: document.getElementById('hudUndoBtn'),
       hudRedoBtn: document.getElementById('hudRedoBtn'),
 menuBtn: document.getElementById('menuBtn'),
@@ -463,10 +462,8 @@ menuBtn: document.getElementById('menuBtn'),
       debugOverlay: document.getElementById('debugOverlay'),
       perfSettingsBtn: null, // injected dynamically by Moderation._injectModUI(),
 
-      chatBtn: document.getElementById('chatBtn'),
       recordBtn: document.getElementById('recordBtn'),
       adminTopBtn: document.getElementById('adminTopBtn'),
-      inboxBtn: document.getElementById('inboxBtn'),
       saveBtn: document.getElementById('saveBtn'),
       historyBtn: document.getElementById('historyBtn'),
 
@@ -2428,6 +2425,13 @@ menuBtn: document.getElementById('menuBtn'),
     if (entry) {
       entry.classList.remove(...rankClasses);
       // Only apply row glow for Noble+
+      if (role >= 7 && roleClass) {
+        entry.classList.add(roleClass);
+      }
+    }
+  }
+}
+ Noble+
       if (role >= 7 && roleClass) {
         entry.classList.add(roleClass);
       }

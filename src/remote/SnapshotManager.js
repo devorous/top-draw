@@ -1,6 +1,7 @@
 /** @fileoverview Manages board snapshots and server communication. */
 
 import { T } from '../../shared/MessageTypes.js';
+import { appState } from '../state.svelte.js';
 import { LocalSnapshotStore } from './LocalSnapshotStore.js';
 
 const LOCAL_CAPTURE_INTERVAL_MS = 30000;
@@ -38,7 +39,7 @@ export class SnapshotManager {
    * Captures board + generates lossy 1/3 scale JPEG thumbnail.
    */
   async handleServerRequest() {
-    if (!this.app.wsClient || !this.app.connected) return;
+    if (!this.app.wsClient || !this.appState.connected) return;
 
     const layers = this.app.board.getSnapshot();
     if (!layers || layers.length === 0) return;
@@ -302,7 +303,7 @@ export class SnapshotManager {
     if (!record?.layers || record.layers.length === 0) return false;
 
     // If not connected, just apply locally
-    if (!this.app.wsClient || !this.app.connected) {
+    if (!this.app.wsClient || !this.appState.connected) {
       this.app.board.restoreSnapshot(record.layers);
       this.app.board.requestUpdate();
       return true;
@@ -331,7 +332,7 @@ export class SnapshotManager {
   async uploadLocalToServer(id) {
     const record = await this.getLocal(id);
     if (!record?.layers || record.layers.length === 0) return false;
-    if (!this.app.wsClient || !this.app.connected) return false;
+    if (!this.app.wsClient || !this.appState.connected) return false;
 
     const msg = {
       t: T.BOARD_SNAPSHOT_SAVE,

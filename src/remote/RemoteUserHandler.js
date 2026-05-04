@@ -10,6 +10,7 @@ import { getPreviewTextLayout, getUserTextLineHeight } from '../utils/textLayout
 import { RemotePenHandler } from './RemotePenHandler.js';
 import { RemoteInkHandler } from './RemoteInkHandler.js';
 import { RemoteSelectionHandler } from './RemoteSelectionHandler.js';
+import { appState } from '../state.svelte.js';
 
 /**
  * RemoteUserHandler coordinates the rendering of remote users' drawing events.
@@ -44,8 +45,8 @@ export class RemoteUserHandler {
   get board() { return this.app.board; }
   get toolManager() { return this.app.toolManager; }
   get ui() { return this.app.ui; }
-  get users() { return this.app.users; }
-  get sessionIndex() { return this.app.sessionIndex; }
+  get users() { return this.appState.users; }
+  get sessionIndex() { return this.appState.sessionIndex; }
   get debugOverlay() { return this.app.debugOverlay; }
 
   getStrokeLayer(user) {

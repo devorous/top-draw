@@ -304,8 +304,8 @@ export class SyncClient {
     this._resetSyncAttempt();
 
     if (this.app?.users && this.app?.remoteUserHandler) {
-      for (const [userId, user] of this.app.users.entries()) {
-        if (userId === this.app.sessionIndex) continue;
+      for (const [userId, user] of this.appState.users.entries()) {
+        if (userId === this.appState.sessionIndex) continue;
         this.app.remoteUserHandler._cleanupTransientUserState?.(user);
       }
       this.app.remoteUserHandler.resetTransientState?.();
@@ -1166,11 +1166,8 @@ export class SyncClient {
    * @returns {void}
    */
   destroy() {
-    this.inactiveControlsEl?.remove();
-    if (this.overlayEl) {
-      this.overlayEl.classList.remove('active');
-      this.overlayEl.style.pointerEvents = '';
-    }
+    appState.syncing = false;
+    appState.syncInactive = false;
     this.wsClient = null;
     this.board = null;
     this.initialized = false;
@@ -1197,6 +1194,17 @@ export class SyncClient {
     this.receivedMessages = 0;
     this.currentSyncTargetId = null;
     this.currentSyncTargetUsername = null;
+    this.eventBuffer = [];
+    this._pendingImports = [];
+    
+    appState.syncing = false;
+    appState.syncInactive = false;
+    appState.syncProgress = 0;
+    appState.syncTotal = 0;
+    appState.syncTargetUsername = null;
+  }
+}
+tUsername = null;
     this.eventBuffer = [];
     this._pendingImports = [];
     this.hideInactiveUi();

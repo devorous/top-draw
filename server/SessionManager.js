@@ -55,6 +55,7 @@ export class SessionManager {
   constructor(broadcastCallback, isDiscovery = false, options = {}) {
     this.sessions = new Map();
     this.users = new Map();
+    this.sessionToWs = new Map(); // sessionIndex -> WebSocket
     this.nextSessionIndex = 0;
     this.freedIndices = [];
     this.broadcastToAll = broadcastCallback;
@@ -66,6 +67,32 @@ export class SessionManager {
     this.afkCheckInterval = setInterval(() => this.checkAfkUsers(), AFK_CHECK_INTERVAL);
     /** @type {Map<number, NodeJS.Timeout>} */
     this._compressTimers = new Map();
+  }
+
+  /**
+   * Registers a WebSocket client for an active session.
+   * @param {number} sessionIndex
+   * @param {WebSocket} ws
+   */
+  registerClient(sessionIndex, ws) {
+    this.sessionToWs.set(sessionIndex, ws);
+  }
+
+  /**
+   * Unregisters a WebSocket client.
+   * @param {number} sessionIndex
+   */
+  unregisterClient(sessionIndex) {
+    this.sessionToWs.delete(sessionIndex);
+  }
+
+  /**
+   * Finds an active WebSocket client by session index.
+   * @param {number} sessionIndex
+   * @returns {WebSocket|null}
+   */
+  getClient(sessionIndex) {
+    return this.sessionToWs.get(sessionIndex) || null;
   }
 
   /**

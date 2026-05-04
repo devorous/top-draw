@@ -73,9 +73,9 @@ export function setupAuthModHandlers(wsClient, app) {
 
     // Detect a live role update (promotion/demotion) while already in a room.
     // These arrive with success=true but no username and no token, distinct from a real login.
-    if (data.success && !data.username && !data.token && app.connected) {
+    if (data.success && !data.username && !data.token && appState.connected) {
       const role = data.role;
-      app.selfRole = role;
+      appState.selfRole = role;
       app.self.role = role;
       appState.selfRole = role;
       if (app.moderation) app.moderation.setRole(role);
@@ -117,7 +117,7 @@ export function setupAuthModHandlers(wsClient, app) {
       }
 
       // If we are the target, update self muted state
-      if (data.targetSessionIndex === app.sessionIndex) {
+      if (data.targetSessionIndex === appState.sessionIndex) {
         app.self.isMuted = true;
         ui.setMutedState(true);
         ui.setSelfUserMuted?.(true);
@@ -134,7 +134,7 @@ export function setupAuthModHandlers(wsClient, app) {
       }
 
       // If we are the target, update self muted state
-      if (data.targetSessionIndex === app.sessionIndex || data.targetName === app.self.username) {
+      if (data.targetSessionIndex === appState.sessionIndex || data.targetName === app.self.username) {
         app.self.isMuted = false;
         ui.setMutedState(false);
         ui.setSelfUserMuted?.(false);
@@ -143,7 +143,7 @@ export function setupAuthModHandlers(wsClient, app) {
       }
     }
 
-    if (data.targetSessionIndex === app.sessionIndex && (data.actionType === 0 || data.actionType === 2)) {
+    if (data.targetSessionIndex === appState.sessionIndex && (data.actionType === 0 || data.actionType === 2)) {
       ui.showToast(`You have been ${actionName}${data.reason ? ': ' + data.reason : ''}`, 5000);
     }
 
@@ -243,7 +243,7 @@ export function setupAuthModHandlers(wsClient, app) {
     const targetName = data.targetName || `User ${targetIndex}`;
     const issuerName = data.issuerName || 'Moderator';
 
-    if (targetIndex === app.sessionIndex && typeof app.cancelCurrentStroke === 'function') {
+    if (targetIndex === appState.sessionIndex && typeof app.cancelCurrentStroke === 'function') {
       app.cancelCurrentStroke();
     }
 

@@ -71,7 +71,7 @@ export function setupSnapshotHandlers(wsClient, app) {
 
     // Double-check that we're alone in the room (server should already enforce this)
     // Count users excluding self
-    const otherUserCount = app.users ? Array.from(app.users.values()).filter(u => u.id !== app.sessionIndex).length : 0;
+    const otherUserCount = appState.users ? Array.from(appState.users.values()).filter(u => u.id !== appState.sessionIndex).length : 0;
     if (otherUserCount > 0) {
       console.log('[Snapshot] Ignoring join notify - other users present in room');
       return;

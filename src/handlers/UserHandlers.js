@@ -66,12 +66,12 @@ export function setupUserHandlers(wsClient, app) {
     announcedJoinSessionIds.delete(sessionIndex);
   };
 
-  const isSelfImmuneToInactiveResync = (role = app.self?.role ?? app.selfRole ?? 0) => {
+  const isSelfImmuneToInactiveResync = (role = app.self?.role ?? appState.selfRole ?? 0) => {
     const numericRole = Number(role) || 0;
     return numericRole >= 5 || (!!app.currentRoomData?.modInactiveImmune && numericRole >= 4);
   };
 
-  const applySelfInactiveState = (afk = app.self?.afk, role = app.self?.role ?? app.selfRole ?? 0) => {
+  const applySelfInactiveState = (afk = app.self?.afk, role = app.self?.role ?? appState.selfRole ?? 0) => {
     app.syncClient?.setInactive(!!afk && !isSelfImmuneToInactiveResync(role));
   };
 
@@ -113,7 +113,7 @@ export function setupUserHandlers(wsClient, app) {
   const abortSyncIfRoomIsEmpty = () => {
     if (!app.syncClient?.isSyncing()) return;
 
-    const hasOtherUsers = [...users.keys()].some((sessionIndex) => sessionIndex !== app.sessionIndex);
+    const hasOtherUsers = [...users.keys()].some((sessionIndex) => sessionIndex !== appState.sessionIndex);
     if (!hasOtherUsers) {
       app.syncClient.abortSync('Sync stopped - no other users remain in the room');
       app.updateRecordingButtonState?.();
@@ -124,14 +124,14 @@ export function setupUserHandlers(wsClient, app) {
     const incomingRemoteSessionIds = new Set(
       data.users
         .map((u) => Number(u.sessionIndex))
-        .filter((sessionIndex) => Number.isFinite(sessionIndex) && sessionIndex !== Number(app.sessionIndex))
+        .filter((sessionIndex) => Number.isFinite(sessionIndex) && sessionIndex !== Number(appState.sessionIndex))
     );
     const joinedSessionIds = [...incomingRemoteSessionIds].filter((sessionIndex) => !knownRemoteSessionIds.has(sessionIndex));
 
     // Authoritative Removal: Find users we have locally who are NOT in the new list
     const remoteIndices = new Set(data.users.map(u => u.sessionIndex));
     users.forEach((user, sessionIndex) => {
-      if (sessionIndex !== app.sessionIndex && !remoteIndices.has(sessionIndex)) {
+      if (sessionIndex !== appState.sessionIndex && !remoteIndices.has(sessionIndex)) {
         console.log(`[USERS] Removing ghost user ${user.username}(${sessionIndex})`);
         clearJoinTracking(sessionIndex);
         app.cleanupRemoteUserState(sessionIndex, { preserveVisuals: true });
@@ -143,7 +143,7 @@ export function setupUserHandlers(wsClient, app) {
 
       const username = userData.name || userData.username || '';
 
-      if (userData.sessionIndex === app.sessionIndex) {
+      if (userData.sessionIndex === appState.sessionIndex) {
         // Authoritative update for SELF (e.g. if name was forced unique)
         app.self.instanceId = userData.iid || '';
         const selfAfk = !!userData.afk;
@@ -163,7 +163,7 @@ export function setupUserHandlers(wsClient, app) {
           ui.setSelfUserMuted?.(app.self.isMuted);
         }
         if (userData.role !== undefined && userData.role !== app.self.role) {
-          app.selfRole = userData.role;
+          appState.selfRole = userData.role;
           app.self.role = userData.role;
           appState.selfRole = userData.role;
           ui.updateSelfRole(userData.role);
@@ -179,7 +179,7 @@ export function setupUserHandlers(wsClient, app) {
           app.self.setSimulatePressure(userData.simulatePressure);
           app.ui.updateSimulatePressure(userData.simulatePressure);
         }
-        applySelfInactiveState(selfAfk, userData.role ?? app.self.role ?? app.selfRole);
+        applySelfInactiveState(selfAfk, userData.role ?? app.self.role ?? appState.selfRole);
         return;
       }
 
@@ -347,7 +347,7 @@ export function setupUserHandlers(wsClient, app) {
     // Trigger sync on first USERS message after connecting
     if (app._needsSync) {
       app._needsSync = false;
-      const selfIdx = Number(app.sessionIndex);
+      const selfIdx = Number(appState.sessionIndex);
       const otherUsers = data.users.filter(u => Number(u.sessionIndex) !== selfIdx);
       
       if (otherUsers.length > 0) {
@@ -464,7 +464,7 @@ export function setupUserHandlers(wsClient, app) {
   });
 
   wsClient.on('afk', (data) => {
-    if (data.sessionIndex === app.sessionIndex) {
+    if (data.sessionIndex === appState.sessionIndex) {
       app.self.setAfk?.(!!data.afk);
       if (data.afk) {
         app.self.mousedown = false;
@@ -492,7 +492,7 @@ export function setupUserHandlers(wsClient, app) {
 
   wsClient.on('compress_user_strokes', async (data) => {
     let userId;
-    if (data.sessionIndex === app.sessionIndex) {
+    if (data.sessionIndex === appState.sessionIndex) {
       userId = app.self?.id;
     } else {
       const user = users.get(data.sessionIndex);
@@ -506,7 +506,7 @@ export function setupUserHandlers(wsClient, app) {
   });
 
   wsClient.on('cn', (data) => {
-    if (data.sessionIndex === app.sessionIndex) {
+    if (data.sessionIndex === appState.sessionIndex) {
       return;
     }
 

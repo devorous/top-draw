@@ -16,6 +16,63 @@ import { truncateUsername } from '../shared/identity.js';
  * actions on the shared canvas.
  */
 export class User {
+  id;
+  x = $state(0);
+  y = $state(0);
+  targetX = $state(0);
+  targetY = $state(0);
+  lastx = null;
+  lasty = null;
+  size = $state(10);
+  pressure = $state(1);
+  prevpressure = 1;
+  spacing = $state(0);
+  smoothing = $state(15);
+  opacity = $state(1);
+  hardness = $state(100);
+  blurRadius = $state(5);
+  thinning = $state(0.5);
+  simulatePressure = $state(true);
+  patternScale = $state(100);
+  patternShape = $state('circle');
+  patternName = $state('dots');
+  patternRotation = $state(0);
+  patternSpacing = $state(0);
+  patternOffsetX = $state(0);
+  patternOffsetY = $state(0);
+  patternColorMode = $state('original');
+  patternBrush = $state(null);
+  imageBrushColorMode = $state('original');
+  patternMode = $state(false);
+  spaceIndex = 0;
+  color = $state([0, 0, 0, 1]);
+  tool = $state('ink');
+  text = $state('');
+  mousedown = $state(false);
+  panning = $state(false);
+  username = $state('');
+  registeredName = $state('');
+  context = null;
+  board = null;
+  imageBrush = $state(null);
+  cursorStyle = $state('circle');
+  blendMode = $state('source-over');
+  blendBakeMode = $state('background');
+  activeLayer = $state(0);
+  font = $state('sans-serif');
+  textPositionMultiplier = $state(0);
+  textPositionOffset = $state(0);
+  currentLine = [];
+  lineLength = 0;
+  smoothBuffer = { x: 0, y: 0, isFirst: true };
+  afk = $state(false);
+  role = $state(0);
+  isMuted = $state(false);
+  ipHash = '';
+  visibleIp = '';
+  fingerprintId = '';
+  instanceId = '';
+
   /**
    * @param {number|string} id - Unique session index or ID.
    * @param {Object} [options={}] - Initial user settings.
@@ -26,11 +83,8 @@ export class User {
     this.y = options.y || 0;
     this.targetX = options.x || 0;
     this.targetY = options.y || 0;
-    this.lastx = null;
-    this.lasty = null;
     this.size = options.size || 10;
     this.pressure = options.pressure || 1;
-    this.prevpressure = 1;
     this.spacing = options.spacing || 0;
     this.smoothing = options.smoothing !== undefined ? options.smoothing : 15;
     this.opacity = options.opacity || 1;
@@ -49,17 +103,15 @@ export class User {
     this.patternBrush = options.patternBrush || null;
     this.imageBrushColorMode = options.imageBrushColorMode || 'original';
     this.patternMode = options.patternMode || false;
-    this.spaceIndex = 0;
     this.color = options.color || [0, 0, 0, 1];
     this.tool = options.tool || 'ink';
     this.text = options.text || '';
-    this.mousedown = false;
-    this.panning = false;
+    this.mousedown = !!options.mousedown;
+    this.panning = !!options.panning;
     this.username = options.username || '';
     this.registeredName = options.registeredName || '';
     this.context = options.context || null;
     this.board = options.board || null;
-    this.imageBrush = null;
     this.cursorStyle = options.cursorStyle || 'circle';
     this.blendMode = options.blendMode || 'source-over';
     this.blendBakeMode = options.blendBakeMode === 'existing' ? 'existing' : 'background';
@@ -67,16 +119,13 @@ export class User {
     this.font = normalizeTextFont(options.font);
     this.textPositionMultiplier = options.textPositionMultiplier ?? DEFAULT_APPLIED_TEXT_SIZE_MULTIPLIER;
     this.textPositionOffset = options.textPositionOffset ?? DEFAULT_APPLIED_TEXT_OFFSET;
-    this.currentLine = [];
-    this.lineLength = 0;
-    this.smoothBuffer = { x: 0, y: 0, isFirst: true };
-    this.afk = options.afk || false;
+    this.afk = !!options.afk;
     this.role = options.role || 0;
-    this.isMuted = options.isMuted || false;
+    this.isMuted = !!options.isMuted;
     this.ipHash = options.ipHash || options.iph || '';
     this.visibleIp = options.visibleIp || '';
-    this.fingerprintId = options.fingerprintId || options.fpId || ''; // Persistent device/browser fingerprint for user continuity
-    this.instanceId = options.instanceId || ''; // Per-connection instance ID to detect session index reuse
+    this.fingerprintId = options.fingerprintId || options.fpId || '';
+    this.instanceId = options.instanceId || '';
 
     // Tile ownership tracking for griefing detection
     /** @type {Set<number>} Set of tile indices this user owns */

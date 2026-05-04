@@ -1,6 +1,7 @@
 /** @fileoverview Orchestrates the setup of all WebSocket message handlers for the application. */
 
 import { setupUserHandlers } from '../handlers/UserHandlers.js';
+import { appState } from '../state.svelte.js';
 import { setupChatHandlers } from '../handlers/ChatHandlers.js';
 import { setupAuthModHandlers } from '../handlers/AuthModHandlers.js';
 import { setupSyncHandlers } from '../handlers/SyncHandlers.js';
@@ -27,7 +28,7 @@ export function setupWebSocketHandlers(app) {
     handlerMap.set(eventName, handler);
     wsClient.on(eventName, (data) => {
       // Ignore messages from self to prevent double-processing/echo issues
-      if (data && data.sessionIndex === app.sessionIndex) {
+      if (data && data.sessionIndex === appState.sessionIndex) {
         return;
       }
 

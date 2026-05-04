@@ -1,6 +1,7 @@
 /**
  * @fileoverview Inkdropper (Eyedropper) tool for sampling colors from the canvas.
  */
+import { appState } from '../state.svelte.js';
 
 /**
  * InkdropperTool handles color sampling and UI updates.
@@ -193,7 +194,7 @@ export class InkdropperTool {
       app.colorInputMenu.updateColor(rgba);
     }
 
-    if (app.connected) {
+    if (appState.connected) {
       app.inputBufferManager.queueBroadcast(() => app.wsClient.broadcastColorChange(rgba));
     }
 

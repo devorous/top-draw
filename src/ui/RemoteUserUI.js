@@ -3,6 +3,7 @@
  */
 
 import { normalizeTextFont } from '../config/textFonts.js';
+import { appState } from '../state.svelte.js';
 import { getPreviewTextLayout, getTextLineHeight } from '../utils/textLayout.js';
 
 const REMOTE_CURSOR_IDLE_MS = 5000;
@@ -514,8 +515,8 @@ export class RemoteUserUI {
 
     // Check if there's ALREADY another user with this IP hash
     let existingUsersWithSameIp = [];
-    if (window.app && window.app.users) {
-      window.app.users.forEach((u, id) => {
+    if (window.app && window.appState.users) {
+      window.appState.users.forEach((u, id) => {
         if (id !== userId && u.ipHash === ipHash && u.username) {
           existingUsersWithSameIp.push(id);
         }
