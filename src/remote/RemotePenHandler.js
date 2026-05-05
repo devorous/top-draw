@@ -83,6 +83,8 @@ export class RemotePenHandler {
     const ctx = user._penOffscreenCtx;
     ctx.fillStyle = user._penStrokeColor;
 
+    let bMinX = Infinity, bMinY = Infinity, bMaxX = -Infinity, bMaxY = -Infinity;
+
     for (let i = startIndex, ri = startRi; i < points.length; i += 2, ri++) {
       const x = points[i];
       const y = points[i + 1];
@@ -107,6 +109,12 @@ export class RemotePenHandler {
         ctx.fill();
       }
 
+      const maxR = Math.max(user._penLastStampPos?.radius ?? r, r);
+      bMinX = Math.min(bMinX, x - maxR);
+      bMinY = Math.min(bMinY, y - maxR);
+      bMaxX = Math.max(bMaxX, x + maxR);
+      bMaxY = Math.max(bMaxY, y + maxR);
+
       user._penLastStampPos = { x, y, radius: r };
       if (user.penPoints) {
         user.penPoints.push({ x, y, radius: r });
@@ -115,7 +123,9 @@ export class RemotePenHandler {
 
     const lastPtIdx = points.length - 2;
     user.setPosition(points[lastPtIdx], points[lastPtIdx + 1]);
-    this.updatePenPreview(user);
+
+    const batchRect = bMinX < bMaxX ? { minX: bMinX, minY: bMinY, maxX: bMaxX, maxY: bMaxY } : null;
+    this.updatePenPreview(user, batchRect);
   }
 
   /**
@@ -147,12 +157,20 @@ export class RemotePenHandler {
         radius
       );
 
+      const maxR = Math.max(user._penLastStampPos.radius, radius);
+      const moveRect = {
+        minX: Math.min(user._penLastStampPos.x, pos.x) - maxR,
+        minY: Math.min(user._penLastStampPos.y, pos.y) - maxR,
+        maxX: Math.max(user._penLastStampPos.x, pos.x) + maxR,
+        maxY: Math.max(user._penLastStampPos.y, pos.y) + maxR
+      };
+
       user._penLastStampPos = { x: pos.x, y: pos.y, radius };
       if (user.penPoints) {
         user.penPoints.push({ x: pos.x, y: pos.y, radius });
       }
 
-      this.updatePenPreview(user);
+      this.updatePenPreview(user, moveRect);
     }
   }
 
@@ -260,19 +278,45 @@ export class RemotePenHandler {
    * Updates the user's preview canvas with the current pen stroke state.
    * @param {User} user - The remote user object.
    */
-  updatePenPreview(user) {
+  updatePenPreview(user, dirtyBounds = null) {
     if (!user._penOffscreen) return;
 
-    user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
-    user.context.globalAlpha = user._penAlpha;
+    const ctx = user.context;
+    const hardness = user._penHardness ?? 1;
+    const size = user.size ?? 0;
+    const blurAmount = (1 - hardness) * (20 + size * 0.2);
+    const margin = Math.ceil(Math.max(size, 1) + blurAmount * 2.5 + size * 0.5 + 10);
 
-    this.compositeWithHardness(user.context, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
+    let clipRect = null;
+    if (dirtyBounds) {
+      clipRect = {
+        x: Math.max(0, Math.floor(dirtyBounds.minX) - margin),
+        y: Math.max(0, Math.floor(dirtyBounds.minY) - margin),
+        width: Math.ceil(dirtyBounds.maxX - dirtyBounds.minX) + margin * 2,
+        height: Math.ceil(dirtyBounds.maxY - dirtyBounds.minY) + margin * 2
+      };
+      ctx.clearRect(clipRect.x, clipRect.y, clipRect.width, clipRect.height);
+    } else {
+      ctx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
+
+    ctx.globalAlpha = user._penAlpha;
+
+    if (clipRect) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(clipRect.x, clipRect.y, clipRect.width, clipRect.height);
+      ctx.clip();
+    }
+
+    this.compositeWithHardness(ctx, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
 
     this.board.forEachMirrorRegion({ points: user.penPoints }, (region) => {
-      this.board.drawMirroredCanvas(user.context, user._penOffscreen, region, 0, 0);
+      this.board.drawMirroredCanvas(ctx, user._penOffscreen, region, 0, 0);
     });
 
-    user.context.globalAlpha = 1.0;
+    if (clipRect) ctx.restore();
+    ctx.globalAlpha = 1.0;
   }
 
   /**
