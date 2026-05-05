@@ -1,7 +1,7 @@
 {
-  "latest": "1.6.3-beta",
-  "minRequired": "1.6.3-beta",
-  "releaseDate": "2026-05-03T19:57:38.897Z",
-  "notes": "Improved main page SEO, Improved sliders and tablet functionality, fixed like system issues, improved blend modes and eraser rendering",
+  "latest": "1.6.4-beta",
+  "minRequired": "1.6.4-beta",
+  "releaseDate": "2026-05-05T08:29:35.337Z",
+  "notes": "Implemented selection mask for precise work, fixed some issues with mobile and touch inputs",
   "downloadUrl": "https://www.ddraw.ca/download"
 }
