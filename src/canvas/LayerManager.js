@@ -1537,15 +1537,6 @@ export class LayerManager {
     }
   }
 
-  /**
-   * Apply a blur filter stroke to the context
-   * For active strokes, use a cheap CSS filter preview.
-   * For committed strokes, use the high-quality cached result.
-   * @param {CanvasRenderingContext2D} ctx - Target context
-   * @param {Object} filterStroke - Filter stroke with mask and blur radius
-   * @param {boolean} isActive - Whether the stroke is in progress
-   * @private
-   */
   _applyBlurFilter(ctx, filterStroke, isActive) {
     const { maskCanvas, blurRadius, x, y, width, height } = filterStroke;
     if (!maskCanvas || !blurRadius) return;

@@ -519,44 +519,112 @@ export function drawLineArray(points, ctx, user, board = null, blendMode = 'sour
 
   const opacity = user.opacity !== undefined ? user.opacity : 1;
   const hardness = user.hardness !== undefined ? user.hardness / 100.0 : 1.0;
+  const shouldPreviewExistingBlend = !!board
+    && (ctx === board.topCtx || ctx === user?.context)
+    && user?.blendBakeMode === 'existing'
+    && user?.blendMode
+    && user.blendMode !== 'source-over'
+    && user.blendMode !== 'destination-out';
 
-  ctx.save();
-  ctx.globalAlpha = opacity;
-  ctx.globalCompositeOperation = blendMode;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = user.pressure * user.size * 2;
+  const extractSourceOverPatchFromComposite = (blendedCanvas, beforeCanvas, maskCanvas) => {
+    const width = blendedCanvas.width;
+    const height = blendedCanvas.height;
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = width;
+    outCanvas.height = height;
+    const outCtx = outCanvas.getContext('2d');
 
-  const color = user?.color ?? [0, 0, 0, 1];
-  const colorString = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+    const blended = blendedCanvas.getContext('2d').getImageData(0, 0, width, height);
+    const before = beforeCanvas.getContext('2d').getImageData(0, 0, width, height);
+    const mask = maskCanvas.getContext('2d').getImageData(0, 0, width, height);
+    const out = outCtx.createImageData(width, height);
 
-  // Match the softness curve used by fluid/ink so hardness feels consistent.
-  if (hardness < 1.0) {
-    const size = user.size ?? 0;
-    const blurAmount = (1 - hardness) * (20 + size * 0.2);
-    const offset = 100000;
+    for (let i = 0; i < out.data.length; i += 4) {
+      const alpha = mask.data[i + 3] / 255;
+      if (alpha <= 0) continue;
 
-    ctx.strokeStyle = colorString;
-    ctx.shadowBlur = blurAmount;
-    ctx.shadowColor = colorString;
-    ctx.shadowOffsetX = -offset;
-    ctx.shadowOffsetY = 0;
+      out.data[i] = Math.max(0, Math.min(255, Math.round((blended.data[i] - before.data[i] * (1 - alpha)) / alpha)));
+      out.data[i + 1] = Math.max(0, Math.min(255, Math.round((blended.data[i + 1] - before.data[i + 1] * (1 - alpha)) / alpha)));
+      out.data[i + 2] = Math.max(0, Math.min(255, Math.round((blended.data[i + 2] - before.data[i + 2] * (1 - alpha)) / alpha)));
+      out.data[i + 3] = Math.round(alpha * 255);
+    }
 
-    ctx.translate(offset, 0);
-  } else {
-    ctx.strokeStyle = colorString;
-    ctx.shadowBlur = 0;
+    outCtx.putImageData(out, 0, 0);
+    return outCanvas;
+  };
+
+  const renderStroke = (targetCtx) => {
+    targetCtx.save();
+    targetCtx.globalAlpha = opacity;
+    targetCtx.globalCompositeOperation = blendMode;
+    targetCtx.lineCap = 'round';
+    targetCtx.lineJoin = 'round';
+    targetCtx.lineWidth = user.pressure * user.size * 2;
+
+    const color = user?.color ?? [0, 0, 0, 1];
+    const colorString = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+
+    if (hardness < 1.0) {
+      const size = user.size ?? 0;
+      const blurAmount = (1 - hardness) * (20 + size * 0.2);
+      const offset = 100000;
+
+      targetCtx.strokeStyle = colorString;
+      targetCtx.shadowBlur = blurAmount;
+      targetCtx.shadowColor = colorString;
+      targetCtx.shadowOffsetX = -offset;
+      targetCtx.shadowOffsetY = 0;
+
+      targetCtx.translate(offset, 0);
+    } else {
+      targetCtx.strokeStyle = colorString;
+      targetCtx.shadowBlur = 0;
+    }
+
+    targetCtx.beginPath();
+    targetCtx.moveTo(points[0].x, points[0].y);
+
+    for (let i = 1; i < points.length; i++) {
+      targetCtx.lineTo(points[i].x, points[i].y);
+    }
+    targetCtx.stroke();
+    targetCtx.restore();
+  };
+
+  if (shouldPreviewExistingBlend) {
+    const width = board.getWidth();
+    const height = board.getHeight();
+
+    const strokeCanvas = document.createElement('canvas');
+    strokeCanvas.width = width;
+    strokeCanvas.height = height;
+    const strokeCtx = strokeCanvas.getContext('2d');
+    renderStroke(strokeCtx);
+
+    const beforeCanvas = document.createElement('canvas');
+    beforeCanvas.width = width;
+    beforeCanvas.height = height;
+    const beforeCtx = beforeCanvas.getContext('2d');
+    beforeCtx.drawImage(board.mainCtx.canvas, 0, 0);
+
+    const blendedCanvas = document.createElement('canvas');
+    blendedCanvas.width = width;
+    blendedCanvas.height = height;
+    const blendedCtx = blendedCanvas.getContext('2d');
+    blendedCtx.drawImage(beforeCanvas, 0, 0);
+    blendedCtx.globalCompositeOperation = user.blendMode;
+    blendedCtx.drawImage(strokeCanvas, 0, 0);
+    blendedCtx.globalCompositeOperation = 'source-over';
+
+    const previewCanvas = extractSourceOverPatchFromComposite(blendedCanvas, beforeCanvas, strokeCanvas);
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(previewCanvas, 0, 0);
+    ctx.restore();
+    return;
   }
 
-  ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y);
-
-  for (let i = 1; i < points.length; i++) {
-    ctx.lineTo(points[i].x, points[i].y);
-  }
-  ctx.stroke();
-
-  ctx.restore();
+  renderStroke(ctx);
 }
 
 // Blur functions moved to blurUtils.js for lazy loading

@@ -350,11 +350,11 @@ export class RemoteUserHandler {
 
       case 'brush':
         if (user.currentLine.length >= 2) {
-          drawLineArray(user.currentLine, user.context, user);
+          drawLineArray(user.currentLine, user.context, user, this.board);
           this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
             const mirroredLine = this.board.mirrorPointsToRegion(user.currentLine, region);
             this.board.withMirrorRegionClip(user.context, region, () => {
-              drawLineArray(mirroredLine, user.context, user);
+              drawLineArray(mirroredLine, user.context, user, this.board);
             });
           });
         }

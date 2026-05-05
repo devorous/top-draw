@@ -175,12 +175,12 @@ export class BrushTool extends Tool {
   drawPreview(user, rect = null) {
     const ctx = this.board.topCtx;
     const draw = () => {
-      drawLineArray(user.currentLine, ctx, user);
+      drawLineArray(user.currentLine, ctx, user, this.board);
 
       this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
         const mirrored = this.board.mirrorPointsToRegion(user.currentLine, region);
         this.board.withMirrorRegionClip(ctx, region, () => {
-          drawLineArray(mirrored, ctx, user);
+          drawLineArray(mirrored, ctx, user, this.board);
         });
       });
     };
