@@ -6612,7 +6612,10 @@ export class DrawingApp {
     if (this.syncClient?.isCanvasInputBlocked()) return;
     e.preventDefault();
 
-    if (this.self.panning || this.self.tool === 'pan' || this.self.tool === 'zoom' || this.self.tool === 'rotate') {
+    const scrollToZoom = !!this.appPreferences?.general?.scrollToZoom;
+    const inPanMode = this.self.panning || this.self.tool === 'pan' || this.self.tool === 'zoom' || this.self.tool === 'rotate';
+
+    if (inPanMode || scrollToZoom) {
       const cursorPos = this.board.getBoardRelativePos(e.clientX, e.clientY);
       if (e.deltaY > 0) {
         this.board.zoomOut(0.1, cursorPos);

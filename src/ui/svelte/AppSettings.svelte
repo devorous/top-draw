@@ -84,6 +84,22 @@
     return !!appPreferences?.general?.lowPowerMode;
   }
 
+  function isScrollToZoom() {
+    return !!appPreferences?.general?.scrollToZoom;
+  }
+
+  function updateScrollToZoom(enabled) {
+    const nextPreferences = {
+      ...appPreferences,
+      general: {
+        ...(appPreferences?.general ?? {}),
+        scrollToZoom: enabled
+      }
+    };
+
+    updatePreferences(nextPreferences, enabled ? 'Scroll to zoom enabled' : 'Scroll to resize brush enabled');
+  }
+
   function updateUseDesynchronizedBoardContexts(enabled) {
     const nextPreferences = {
       ...appPreferences,
@@ -592,6 +608,14 @@ function getChatOpacity() {
                   onchange={(event) => updateLowPowerMode(event.currentTarget.checked)}
                 />
                 <span>Low-Power Mode (30 TPS / 30 FPS)</span>
+              </label>
+              <label class="settings-toggle-compact">
+                <input
+                  type="checkbox"
+                  checked={isScrollToZoom()}
+                  onchange={(event) => updateScrollToZoom(event.currentTarget.checked)}
+                />
+                <span>Scroll to Zoom</span>
               </label>
               <label class="settings-toggle-compact">
                 <input
