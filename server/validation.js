@@ -379,6 +379,20 @@ export async function sanitizeMessage(data) {
       }
       return sanitized;
 
+    case T.SEL_MASK:
+      sanitized.mk = sanitizeBoolean(data.mk);
+      if (!sanitized.mk) return sanitized;
+      Object.assign(sanitized, sanitizeImageRect(data));
+      if (Array.isArray(data.ps)) {
+        sanitized.ps = sanitizeFloatArray(data.ps, {
+          requireEvenLength: true,
+          maxLength: MAX_SELECTION_POINTS,
+          min: MIN_PS_VALUE,
+          max: MAX_PS_VALUE
+        });
+      }
+      return sanitized.sw > 0 && sanitized.sh > 0 ? sanitized : null;
+
     case T.SEL_MOVE:
       sanitized.cr = sanitizeFloatArray(data.cr, {
         requireEvenLength: true,

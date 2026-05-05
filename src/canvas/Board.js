@@ -62,6 +62,11 @@ export class Board {
 
     this.activeSelectionLayer = -1;
     this.interactionBlocks = [];
+
+    this.selectionMask = null;
+    this.selectionMasksByUser = new Map();
+    this._maskClippedStrokes = new Set();
+    this._maskManagedBySelectTool = false;
     this.interactionBlockOverlayPadding = 500;
     this.interactionBlockDashOffset = 0;
     this.interactionBlockAnimationId = null;
@@ -951,6 +956,156 @@ export class Board {
    * @param {Object} region
    * @param {Function} drawFn
    */
+  // ── Selection mask ──────────────────────────────────────────────────────────
+
+  setSelectionMask(mask, userId = this.app?.self?.id ?? 0, showLocalOverlay = true) {
+    const normalized = mask ? {
+      x: mask.x, y: mask.y, width: mask.width, height: mask.height,
+      lassoPath: mask.lassoPath ? [...mask.lassoPath] : null
+    } : null;
+    if (showLocalOverlay) {
+      this.selectionMask = normalized;
+    }
+    if (normalized) {
+      this.selectionMasksByUser.set(userId, normalized);
+    } else {
+      this.selectionMasksByUser.delete(userId);
+    }
+  }
+
+  clearSelectionMask(userId = this.app?.self?.id ?? 0, clearLocalOverlay = true) {
+    if (clearLocalOverlay) {
+      this.selectionMask = null;
+    }
+    this.selectionMasksByUser.delete(userId);
+    if (clearLocalOverlay) {
+      this._maskManagedBySelectTool = false;
+    }
+    for (const key of [...this._maskClippedStrokes]) {
+      if (key.endsWith(`_${userId}`)) {
+        this._maskClippedStrokes.delete(key);
+      }
+    }
+    if (clearLocalOverlay) {
+      this.clearTop();
+    }
+  }
+
+  _getSelectionMaskForUser(userId) {
+    return this.selectionMasksByUser.get(userId) || null;
+  }
+
+  _applyMaskClipToCtx(ctx, userId = this.app?.self?.id ?? 0) {
+    const mask = this._getSelectionMaskForUser(userId);
+    if (!mask || !ctx) return;
+    ctx.beginPath();
+    if (mask.lassoPath?.length > 0) {
+      ctx.moveTo(mask.lassoPath[0].x, mask.lassoPath[0].y);
+      for (let i = 1; i < mask.lassoPath.length; i++) {
+        ctx.lineTo(mask.lassoPath[i].x, mask.lassoPath[i].y);
+      }
+      ctx.closePath();
+    } else {
+      ctx.rect(mask.x, mask.y, mask.width, mask.height);
+    }
+    ctx.clip();
+  }
+
+  applySelectionMaskClipForStroke(layerIndex, userId) {
+    if (!this._getSelectionMaskForUser(userId) || !this.layerManager) return false;
+    const key = `${layerIndex}_${userId}`;
+    if (this._maskClippedStrokes.has(key)) return true;
+    const ctx = this.layerManager.getUserStrokeContext(layerIndex, userId);
+    if (!ctx) return false;
+    ctx.save();
+    this._applyMaskClipToCtx(ctx, userId);
+    this._maskClippedStrokes.add(key);
+    return true;
+  }
+
+  withSelectionMaskClip(ctx, userId, drawFn) {
+    if (!ctx || typeof drawFn !== 'function') return;
+    if (!this._getSelectionMaskForUser(userId)) {
+      drawFn();
+      return;
+    }
+    ctx.save();
+    this._applyMaskClipToCtx(ctx, userId);
+    drawFn();
+    ctx.restore();
+  }
+
+  releaseSelectionMaskClipForStroke(layerIndex, userId) {
+    const key = `${layerIndex}_${userId}`;
+    if (!this._maskClippedStrokes.has(key) || !this.layerManager) return false;
+    const ctx = this.layerManager.getActiveStroke(layerIndex, userId)?.ctx;
+    if (ctx) ctx.restore();
+    this._maskClippedStrokes.delete(key);
+    return true;
+  }
+
+  drawMaskDarkenOverlay(marchingOffset = 0) {
+    const mask = this.selectionMask;
+    if (!mask) return;
+    const ctx = this.getSelectionCtx();
+    if (!ctx) return;
+
+    const w = this.getWidth();
+    const h = this.getHeight();
+
+    // Darken area outside the mask
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    if (mask.lassoPath?.length > 0) {
+      ctx.fillRect(0, 0, w, h);
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.moveTo(mask.lassoPath[0].x, mask.lassoPath[0].y);
+      for (let i = 1; i < mask.lassoPath.length; i++) {
+        ctx.lineTo(mask.lassoPath[i].x, mask.lassoPath[i].y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+    } else {
+      const { x, y, width, height } = mask;
+      if (y > 0) ctx.fillRect(0, 0, w, y);
+      if (y + height < h) ctx.fillRect(0, y + height, w, h - y - height);
+      if (x > 0) ctx.fillRect(0, y, x, height);
+      if (x + width < w) ctx.fillRect(x + width, y, w - x - width, height);
+    }
+
+    // Marching ants on the boundary
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    if (mask.lassoPath?.length > 0) {
+      const buildPath = () => {
+        ctx.beginPath();
+        ctx.moveTo(mask.lassoPath[0].x, mask.lassoPath[0].y);
+        for (let i = 1; i < mask.lassoPath.length; i++) {
+          ctx.lineTo(mask.lassoPath[i].x, mask.lassoPath[i].y);
+        }
+        ctx.closePath();
+      };
+      ctx.strokeStyle = '#000';
+      ctx.lineDashOffset = -marchingOffset;
+      buildPath(); ctx.stroke();
+      ctx.strokeStyle = '#fff';
+      ctx.lineDashOffset = -marchingOffset + 4;
+      buildPath(); ctx.stroke();
+    } else {
+      const { x, y, width, height } = mask;
+      ctx.strokeStyle = '#000';
+      ctx.lineDashOffset = -marchingOffset;
+      ctx.strokeRect(x, y, width, height);
+      ctx.strokeStyle = '#fff';
+      ctx.lineDashOffset = -marchingOffset + 4;
+      ctx.strokeRect(x, y, width, height);
+    }
+    ctx.setLineDash([]);
+
+    this.restoreSelectionCtx();
+  }
+
   withMirrorRegionClip(ctx, region, drawFn) {
     if (!ctx || !region || typeof drawFn !== 'function') return;
     ctx.save();
@@ -1736,6 +1891,7 @@ export class Board {
     if (this.layerManager) {
       this.layerManager.beginUserStroke(activeLayer, userId, blendMode, user?.blendBakeMode);
     }
+    this.applySelectionMaskClipForStroke(activeLayer, userId);
     this.requestUpdate();
   }
 
@@ -1752,6 +1908,9 @@ export class Board {
       for (let i = 0; i < count; i++) {
         this.layerManager.beginUserStroke(i, userId, blendMode);
       }
+      if (this._getSelectionMaskForUser(userId)) {
+        for (let i = 0; i < count; i++) this.applySelectionMaskClipForStroke(i, userId);
+      }
     }
     this.requestUpdate();
   }
@@ -1763,6 +1922,12 @@ export class Board {
   endStrokeAllLayers(user) {
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     if (!this.layerManager) return;
+    if (this._getSelectionMaskForUser(userId)) {
+      const count = this.layerManager.getLayerCount();
+      for (let i = 0; i < count; i++) {
+        this.releaseSelectionMaskClipForStroke(i, userId);
+      }
+    }
     const batchTimestamp = Date.now();
     const count = this.layerManager.getLayerCount();
     for (let i = 0; i < count; i++) {
@@ -1798,6 +1963,8 @@ export class Board {
     const activeLayer = isBlurFilter ? 0 : (user?.activeLayer ?? this.app?.self?.activeLayer ?? 0);
     const userId = user?.id ?? this.app?.self?.id ?? 0;
     if (!this.layerManager) return;
+
+    this.releaseSelectionMaskClipForStroke(activeLayer, userId);
 
     // Keep localUserId current so LayerManager can distinguish local vs remote strokes
     this.layerManager.localUserId = this.app?.self?.id ?? null;
@@ -2592,6 +2759,9 @@ export class Board {
 
     this.topCtx.clearRect(0, 0, width, height);
     this.clearSelectionOverlay();
+    if (this.selectionMask && !this._maskManagedBySelectTool) {
+      this.drawMaskDarkenOverlay(0);
+    }
   }
 
   /**

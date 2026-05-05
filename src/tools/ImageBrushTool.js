@@ -264,8 +264,10 @@ export class ImageBrushTool extends Tool {
     if (!strokeCtx || !previewCtx || !strokeCtx.canvas) return;
 
     previewCtx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
-    this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
-      this.board.drawMirroredCanvas(previewCtx, strokeCtx.canvas, region, 0, 0);
+    this.board.withSelectionMaskClip(previewCtx, user.id, () => {
+      this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
+        this.board.drawMirroredCanvas(previewCtx, strokeCtx.canvas, region, 0, 0);
+      });
     });
     previewCtx.globalAlpha = 1.0;
   }

@@ -171,16 +171,18 @@ export class LineTool extends Tool {
    * @param {Object} end - End point.
    */
   drawPreview(ctx, user, start, end) {
-    this.drawLine(ctx, user, start, end);
+    this.board.withSelectionMaskClip(ctx, user.id, () => {
+      this.drawLine(ctx, user, start, end);
 
-    this.board.forEachMirrorRegion({ points: [start, end] }, (region) => {
-      this.board.withMirrorRegionClip(ctx, region, () => {
-        this.drawLine(
-          ctx,
-          user,
-          this.board.mirrorPointToRegion(start, region),
-          this.board.mirrorPointToRegion(end, region)
-        );
+      this.board.forEachMirrorRegion({ points: [start, end] }, (region) => {
+        this.board.withMirrorRegionClip(ctx, region, () => {
+          this.drawLine(
+            ctx,
+            user,
+            this.board.mirrorPointToRegion(start, region),
+            this.board.mirrorPointToRegion(end, region)
+          );
+        });
       });
     });
   }
@@ -419,16 +421,19 @@ export class RectangleTool extends Tool {
    * @param {Object} pos - The current pointer position.
    */
   drawPreview(user, pos) {
-    this.drawRect(this.board.topCtx, user, this.startPos, pos);
+    const ctx = this.board.topCtx;
+    this.board.withSelectionMaskClip(ctx, user.id, () => {
+      this.drawRect(ctx, user, this.startPos, pos);
 
-    this.board.forEachMirrorRegion({ points: [this.startPos, pos] }, (region) => {
-      this.board.withMirrorRegionClip(this.board.topCtx, region, () => {
-        this.drawRect(
-          this.board.topCtx,
-          user,
-          this.board.mirrorPointToRegion(this.startPos, region),
-          this.board.mirrorPointToRegion(pos, region)
-        );
+      this.board.forEachMirrorRegion({ points: [this.startPos, pos] }, (region) => {
+        this.board.withMirrorRegionClip(ctx, region, () => {
+          this.drawRect(
+            ctx,
+            user,
+            this.board.mirrorPointToRegion(this.startPos, region),
+            this.board.mirrorPointToRegion(pos, region)
+          );
+        });
       });
     });
   }
@@ -665,16 +670,19 @@ export class CircleTool extends Tool {
    * @param {Object} pos - The current pointer position.
    */
   drawPreview(user, pos) {
-    this.drawEllipse(this.board.topCtx, user, this.startPos, pos);
+    const ctx = this.board.topCtx;
+    this.board.withSelectionMaskClip(ctx, user.id, () => {
+      this.drawEllipse(ctx, user, this.startPos, pos);
 
-    this.board.forEachMirrorRegion({ points: [this.startPos, pos] }, (region) => {
-      this.board.withMirrorRegionClip(this.board.topCtx, region, () => {
-        this.drawEllipse(
-          this.board.topCtx,
-          user,
-          this.board.mirrorPointToRegion(this.startPos, region),
-          this.board.mirrorPointToRegion(pos, region)
-        );
+      this.board.forEachMirrorRegion({ points: [this.startPos, pos] }, (region) => {
+        this.board.withMirrorRegionClip(ctx, region, () => {
+          this.drawEllipse(
+            ctx,
+            user,
+            this.board.mirrorPointToRegion(this.startPos, region),
+            this.board.mirrorPointToRegion(pos, region)
+          );
+        });
       });
     });
   }

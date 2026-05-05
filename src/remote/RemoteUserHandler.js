@@ -350,11 +350,13 @@ export class RemoteUserHandler {
 
       case 'brush':
         if (user.currentLine.length >= 2) {
-          drawLineArray(user.currentLine, user.context, user, this.board);
-          this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
-            const mirroredLine = this.board.mirrorPointsToRegion(user.currentLine, region);
-            this.board.withMirrorRegionClip(user.context, region, () => {
-              drawLineArray(mirroredLine, user.context, user, this.board);
+          this.board.withSelectionMaskClip(user.context, user.id, () => {
+            drawLineArray(user.currentLine, user.context, user, this.board);
+            this.board.forEachMirrorRegion({ points: user.currentLine }, (region) => {
+              const mirroredLine = this.board.mirrorPointsToRegion(user.currentLine, region);
+              this.board.withMirrorRegionClip(user.context, region, () => {
+                drawLineArray(mirroredLine, user.context, user, this.board);
+              });
             });
           });
         }
@@ -362,42 +364,36 @@ export class RemoteUserHandler {
 
       case 'line':
         this.toolManager.getTool('line').drawPreview(user.context, user, user.startPos, pos);
-        this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
-          this.board.withMirrorRegionClip(user.context, region, () => {
-            this.toolManager.getTool('line').drawPreview(
-              user.context,
-              user,
-              this.board.mirrorPointToRegion(user.startPos, region),
-              this.board.mirrorPointToRegion(pos, region)
-            );
-          });
-        });
         break;
 
       case 'rectangle':
-        this.toolManager.getTool('rectangle').drawRect(user.context, user, user.startPos, pos);
-        this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
-          this.board.withMirrorRegionClip(user.context, region, () => {
-            this.toolManager.getTool('rectangle').drawRect(
-              user.context,
-              user,
-              this.board.mirrorPointToRegion(user.startPos, region),
-              this.board.mirrorPointToRegion(pos, region)
-            );
+        this.board.withSelectionMaskClip(user.context, user.id, () => {
+          this.toolManager.getTool('rectangle').drawRect(user.context, user, user.startPos, pos);
+          this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
+            this.board.withMirrorRegionClip(user.context, region, () => {
+              this.toolManager.getTool('rectangle').drawRect(
+                user.context,
+                user,
+                this.board.mirrorPointToRegion(user.startPos, region),
+                this.board.mirrorPointToRegion(pos, region)
+              );
+            });
           });
         });
         break;
 
       case 'circle':
-        this.toolManager.getTool('circle').drawEllipse(user.context, user, user.startPos, pos);
-        this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
-          this.board.withMirrorRegionClip(user.context, region, () => {
-            this.toolManager.getTool('circle').drawEllipse(
-              user.context,
-              user,
-              this.board.mirrorPointToRegion(user.startPos, region),
-              this.board.mirrorPointToRegion(pos, region)
-            );
+        this.board.withSelectionMaskClip(user.context, user.id, () => {
+          this.toolManager.getTool('circle').drawEllipse(user.context, user, user.startPos, pos);
+          this.board.forEachMirrorRegion({ points: [user.startPos, pos] }, (region) => {
+            this.board.withMirrorRegionClip(user.context, region, () => {
+              this.toolManager.getTool('circle').drawEllipse(
+                user.context,
+                user,
+                this.board.mirrorPointToRegion(user.startPos, region),
+                this.board.mirrorPointToRegion(pos, region)
+              );
+            });
           });
         });
         break;
@@ -412,6 +408,10 @@ export class RemoteUserHandler {
         this.toolManager.getTool('erase')?.drawPreview(user, user.context);
         break;
 
+    }
+
+    if (user.isMaskMode && user.maskSelection) {
+      this.selectionHandler?.drawStaticMaskOutline(user, user.maskSelection, false);
     }
   }
 
@@ -459,7 +459,9 @@ export class RemoteUserHandler {
         // Blur tool handles its own stroke creation in onPointerDown with filter metadata
         // Fill tool manages its own stroke lifecycle via the dedicated FILL message handler
         const blendMode = user.tool === 'erase' ? 'destination-out' : (user.blendMode || 'source-over');
-        this.board.layerManager.beginUserStroke(this.getStrokeLayer(user), user.id, blendMode, user.blendBakeMode);
+        const strokeLayer = this.getStrokeLayer(user);
+        this.board.layerManager.beginUserStroke(strokeLayer, user.id, blendMode, user.blendBakeMode);
+        this.board.applySelectionMaskClipForStroke(strokeLayer, user.id);
       }
     }
 
@@ -782,6 +784,7 @@ export class RemoteUserHandler {
       this.board.endStrokeAllLayers(user);
     } else if (user.tool !== 'fill' && user.tool !== 'text' && user.tool !== 'glitchBlur') {
       // Fill tool commits its own stroke via the dedicated FILL message handler
+      this.board.releaseSelectionMaskClipForStroke(strokeLayer, user.id);
       this.board.layerManager.commitUserStroke(strokeLayer, user.id);
       if (this.board._compositeCommittedStrokeNow) {
         this.board._compositeCommittedStrokeNow();
@@ -798,6 +801,9 @@ export class RemoteUserHandler {
       user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
       if (user.context.canvas) {
         user.context.canvas.style.opacity = '';
+      }
+      if (user.isMaskMode && user.maskSelection) {
+        this.selectionHandler?.drawStaticMaskOutline(user, user.maskSelection, false);
       }
     }
 
@@ -909,6 +915,7 @@ export class RemoteUserHandler {
     if (!active) {
       const blendMode = user.blendMode || 'source-over';
       this.board.layerManager.beginUserStroke(layerIndex, user.id, blendMode, user.blendBakeMode);
+      this.board.applySelectionMaskClipForStroke(layerIndex, user.id);
       active = group?.activeStrokeByUser?.get(user.id);
     }
     if (!active?.ctx) return;
@@ -922,6 +929,7 @@ export class RemoteUserHandler {
     this.board.layerManager._expandDirtyRect(active.dirtyRect, bounds.x, bounds.y, bounds.width, bounds.height);
     this.board.compositeTileGrid?.markRect(bounds.x, bounds.y, bounds.width, bounds.height);
 
+    this.board.releaseSelectionMaskClipForStroke(layerIndex, user.id);
     this.board.layerManager.commitUserStroke(layerIndex, user.id, {
       isRemoteGlitchImage: true
     });
@@ -1052,7 +1060,9 @@ export class RemoteUserHandler {
     };
 
     this.board.layerManager.beginUserStroke(layerIndex, user.id, blendMode, blendBakeMode);
+    this.board.applySelectionMaskClipForStroke(layerIndex, user.id);
     this.toolManager.getTool('text').drawText(textUser);
+    this.board.releaseSelectionMaskClipForStroke(layerIndex, user.id);
     this.board.layerManager.commitUserStroke(layerIndex, user.id);
 
     user.text = '';
@@ -1598,7 +1608,19 @@ export class RemoteUserHandler {
     }
 
     user.context.clearRect(0, 0, width, height);
-    user.context.putImageData(imgData, minX, minY);
+    this.board.withSelectionMaskClip(user.context, user.id, () => {
+      if (!this._fillPreviewCanvas ||
+          this._fillPreviewCanvas.width !== regionW ||
+          this._fillPreviewCanvas.height !== regionH) {
+        this._fillPreviewCanvas = document.createElement('canvas');
+        this._fillPreviewCanvas.width = regionW;
+        this._fillPreviewCanvas.height = regionH;
+        this._fillPreviewCtx = this._fillPreviewCanvas.getContext('2d');
+      }
+      this._fillPreviewCtx.clearRect(0, 0, regionW, regionH);
+      this._fillPreviewCtx.putImageData(imgData, 0, 0);
+      user.context.drawImage(this._fillPreviewCanvas, minX, minY);
+    });
   }
 
   _expandDirtyRectFromPoints(user, points, margin) {

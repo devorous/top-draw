@@ -249,9 +249,11 @@ export class PatternTool extends Tool {
   _drawPatternCompositeToContext(ctx, composite, user, strokePoints = this.strokePoints) {
     if (!ctx || !composite) return;
     ctx.globalAlpha = user.opacity !== undefined ? user.opacity : 1;
-    ctx.drawImage(composite, 0, 0);
-    this.board.forEachMirrorRegion({ points: strokePoints }, (region) => {
-      this.board.drawMirroredCanvas(ctx, composite, region, 0, 0);
+    this.board.withSelectionMaskClip(ctx, user.id, () => {
+      ctx.drawImage(composite, 0, 0);
+      this.board.forEachMirrorRegion({ points: strokePoints }, (region) => {
+        this.board.drawMirroredCanvas(ctx, composite, region, 0, 0);
+      });
     });
     ctx.globalAlpha = 1.0;
   }

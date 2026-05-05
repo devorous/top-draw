@@ -186,10 +186,12 @@ export class EraserTool extends Tool {
     const state = this._getStrokeState(user);
     if (!state || !this._hasDirtyBounds(state)) return;
     const [r, g, b] = this.board.backgroundColor;
-    this._renderPreviewPath(ctx, user.currentLine, r, g, b, user, rect);
+    this.board.withSelectionMaskClip(ctx, user.id, () => {
+      this._renderPreviewPath(ctx, user.currentLine, r, g, b, user, rect);
 
-    this.board.forEachMirrorRegion({ rect: this._boundsToRect(state.dirtyBounds) }, (region) => {
-      this.board.drawMirroredCanvas(ctx, state.previewCanvas, region, 0, 0);
+      this.board.forEachMirrorRegion({ rect: this._boundsToRect(state.dirtyBounds) }, (region) => {
+        this.board.drawMirroredCanvas(ctx, state.previewCanvas, region, 0, 0);
+      });
     });
 
     state.previewDirtyBounds = null;
@@ -253,11 +255,14 @@ export class EraserTool extends Tool {
       const count = this.board.layerManager.getLayerCount();
       for (let i = 0; i < count; i++) {
         this.board.layerManager.beginUserStroke(i, user.id, 'destination-out');
+        this.board.applySelectionMaskClipForStroke(i, user.id);
       }
       return;
     }
 
-    this.board.layerManager.beginUserStroke(this._getStrokeLayer(user), user.id, 'destination-out');
+    const strokeLayer = this._getStrokeLayer(user);
+    this.board.layerManager.beginUserStroke(strokeLayer, user.id, 'destination-out');
+    this.board.applySelectionMaskClipForStroke(strokeLayer, user.id);
   }
 
   _commitBufferedPath(user, points, state) {
@@ -458,16 +463,19 @@ export class EraserTool extends Tool {
       const x = state.lastStampPos.x + (point.x - state.lastStampPos.x) * t;
       const y = state.lastStampPos.y + (point.y - state.lastStampPos.y) * t;
       const r = state.lastStampPos.radius + (radius - state.lastStampPos.radius) * t;
-      this._stampCircle(state, x, y, r);
+      this._stampCircle(state, x, y, r, user?.id);
       state.maxRadius = Math.max(state.maxRadius, r);
     }
 
     state.lastStampPos = { x: point.x, y: point.y, radius };
   }
 
-  _stampCircle(state, x, y, radius) {
+  _stampCircle(state, x, y, radius, userId = null) {
     const ctx = state.maskCtx;
     ctx.save();
+    if (userId != null) {
+      this.board._applyMaskClipToCtx?.(ctx, userId);
+    }
     ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = 'rgba(255,255,255,1)';
     ctx.beginPath();

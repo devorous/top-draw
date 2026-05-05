@@ -309,14 +309,17 @@ export class RemotePenHandler {
       ctx.clip();
     }
 
-    this.compositeWithHardness(ctx, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
+    this.board.withSelectionMaskClip(ctx, user.id, () => {
+      this.compositeWithHardness(ctx, user._penOffscreen, user.size, user._penHardness, user._penStrokeColor, 0, 0);
 
-    this.board.forEachMirrorRegion({ points: user.penPoints }, (region) => {
-      this.board.drawMirroredCanvas(ctx, user._penOffscreen, region, 0, 0);
+      this.board.forEachMirrorRegion({ points: user.penPoints }, (region) => {
+        this.board.drawMirroredCanvas(ctx, user._penOffscreen, region, 0, 0);
+      });
     });
 
     if (clipRect) ctx.restore();
     ctx.globalAlpha = 1.0;
+    this.board.app?.remoteUserHandler?.selectionHandler?.drawStaticMaskOutline?.(user, user.maskSelection, false);
   }
 
   /**

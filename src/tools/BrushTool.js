@@ -185,17 +185,19 @@ export class BrushTool extends Tool {
       });
     };
 
+    const drawClippedToMask = () => this.board.withSelectionMaskClip(ctx, user.id, draw);
+
     if (rect) {
       ctx.save();
       ctx.beginPath();
       ctx.rect(rect.x, rect.y, rect.width, rect.height);
       ctx.clip();
-      draw();
+      drawClippedToMask();
       ctx.restore();
       return;
     }
 
-    draw();
+    drawClippedToMask();
   }
 
   /**

@@ -133,7 +133,7 @@ export class WebSocketClient {
       // Selection operations — all mutate canvas state in ways that must stay
       // ordered with the surrounding drawing events.
       T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL,
-      T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_FLIP, T.SEL_PENDING,
+      T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_FLIP, T.SEL_PENDING, T.SEL_MASK,
       // Image paste and async computation results must also respect draw order.
       T.IMG_PASTE, T.GLITCH_RESULT,
     ]);
@@ -1042,6 +1042,28 @@ export class WebSocketClient {
         this.emit('sel_cancel', { sessionIndex: data.u });
         break;
 
+      case T.SEL_MASK: {
+        let maskLassoPath = null;
+        if (data.ps && data.ps.length >= 6) {
+          maskLassoPath = [];
+          for (let i = 0; i < data.ps.length; i += 2) {
+            maskLassoPath.push({ x: data.ps[i], y: data.ps[i + 1] });
+          }
+        }
+        this.emit('sel_mask', {
+          sessionIndex: data.u,
+          active: !!data.mk,
+          selection: data.mk ? {
+            x: Math.floor(data.sx),
+            y: Math.floor(data.sy),
+            width: Math.ceil(data.sw),
+            height: Math.ceil(data.sh)
+          } : null,
+          lassoPath: maskLassoPath
+        });
+        break;
+      }
+
       case T.SEL_TO_BRUSH:
         this.emit('sel_to_brush', { sessionIndex: data.u, brushData: data.g });
         break;
@@ -1894,6 +1916,27 @@ export class WebSocketClient {
 
     if (lassoPath && lassoPath.length > 0) {
       msg.ps = lassoPath.flatMap(p => [p.x, p.y]);
+    }
+    this.send(msg);
+  }
+
+  /**
+   * Broadcasts mask mode activation/deactivation.
+   * @param {boolean} active - Whether mask is being activated.
+   * @param {Object|null} [rect=null] - Bounding box (required when active=true).
+   * @param {Array<Object>|null} [lassoPath=null] - Optional lasso path.
+   * @returns {void}
+   */
+  broadcastSelectionMask(active, rect = null, lassoPath = null) {
+    const msg = { t: T.SEL_MASK, mk: active ? 1 : 0 };
+    if (active && rect) {
+      msg.sx = Math.round(rect.x);
+      msg.sy = Math.round(rect.y);
+      msg.sw = Math.round(rect.width);
+      msg.sh = Math.round(rect.height);
+      if (lassoPath && lassoPath.length > 0) {
+        msg.ps = lassoPath.flatMap(p => [p.x, p.y]);
+      }
     }
     this.send(msg);
   }

@@ -437,25 +437,29 @@ export class FlowPenTool extends Tool {
     const ctx = this.board.topCtx;
     ctx.globalAlpha = this.userAlpha;
 
+    const draw = () => this.board.withSelectionMaskClip(ctx, user.id, () => {
+      this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
+
+      this.board.forEachMirrorRegion({ rect: this.dirtyBounds ? {
+        x: this.dirtyBounds.minX,
+        y: this.dirtyBounds.minY,
+        width: this.dirtyBounds.maxX - this.dirtyBounds.minX,
+        height: this.dirtyBounds.maxY - this.dirtyBounds.minY
+      } : null }, (region) => {
+        this.board.drawMirroredCanvas(ctx, this.offscreenCanvas, region, 0, 0);
+      });
+    });
+
     if (rect) {
       ctx.save();
       ctx.beginPath();
       ctx.rect(rect.x, rect.y, rect.width, rect.height);
       ctx.clip();
+      draw();
+      ctx.restore();
+    } else {
+      draw();
     }
-
-    this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
-
-    this.board.forEachMirrorRegion({ rect: this.dirtyBounds ? {
-      x: this.dirtyBounds.minX,
-      y: this.dirtyBounds.minY,
-      width: this.dirtyBounds.maxX - this.dirtyBounds.minX,
-      height: this.dirtyBounds.maxY - this.dirtyBounds.minY
-    } : null }, (region) => {
-      this.board.drawMirroredCanvas(ctx, this.offscreenCanvas, region, 0, 0);
-    });
-
-    if (rect) ctx.restore();
     ctx.globalAlpha = 1.0;
   }
 

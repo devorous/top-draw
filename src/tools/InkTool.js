@@ -418,29 +418,31 @@ export class InkTool extends Tool {
     ctx.globalAlpha = this.userAlpha;
     const hardnessCanvas = this.getHardnessCanvas(this.offscreenCanvas, this._strokeSize, rect);
     const sourceRect = rect ? this._clampRectToCanvas(rect, hardnessCanvas) : null;
-    if (sourceRect) {
-      ctx.drawImage(
-        hardnessCanvas,
-        sourceRect.x,
-        sourceRect.y,
-        sourceRect.width,
-        sourceRect.height,
-        sourceRect.x,
-        sourceRect.y,
-        sourceRect.width,
-        sourceRect.height
-      );
-    } else {
-      ctx.drawImage(hardnessCanvas, 0, 0);
-    }
+    this.board.withSelectionMaskClip(ctx, user.id, () => {
+      if (sourceRect) {
+        ctx.drawImage(
+          hardnessCanvas,
+          sourceRect.x,
+          sourceRect.y,
+          sourceRect.width,
+          sourceRect.height,
+          sourceRect.x,
+          sourceRect.y,
+          sourceRect.width,
+          sourceRect.height
+        );
+      } else {
+        ctx.drawImage(hardnessCanvas, 0, 0);
+      }
 
-    this.board.forEachMirrorRegion({ rect: this.dirtyBounds ? {
-      x: this.dirtyBounds.minX,
-      y: this.dirtyBounds.minY,
-      width: this.dirtyBounds.maxX - this.dirtyBounds.minX,
-      height: this.dirtyBounds.maxY - this.dirtyBounds.minY
-    } : null }, (region) => {
-      this.board.drawMirroredCanvas(ctx, hardnessCanvas, region, 0, 0);
+      this.board.forEachMirrorRegion({ rect: this.dirtyBounds ? {
+        x: this.dirtyBounds.minX,
+        y: this.dirtyBounds.minY,
+        width: this.dirtyBounds.maxX - this.dirtyBounds.minX,
+        height: this.dirtyBounds.maxY - this.dirtyBounds.minY
+      } : null }, (region) => {
+        this.board.drawMirroredCanvas(ctx, hardnessCanvas, region, 0, 0);
+      });
     });
     ctx.globalAlpha = 1.0;
   }

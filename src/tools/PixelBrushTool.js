@@ -289,34 +289,36 @@ export class PixelBrushTool {
     if (!ctx) return;
 
     ctx.globalAlpha = finalAlpha;
-    if (rect) {
-      const sourceRect = this._clampRectToCanvas(rect, tempCanvas);
-      if (sourceRect) {
-        ctx.drawImage(
-          tempCanvas,
-          sourceRect.x,
-          sourceRect.y,
-          sourceRect.width,
-          sourceRect.height,
-          sourceRect.x,
-          sourceRect.y,
-          sourceRect.width,
-          sourceRect.height
-        );
+    this.board.withSelectionMaskClip(ctx, user.id, () => {
+      if (rect) {
+        const sourceRect = this._clampRectToCanvas(rect, tempCanvas);
+        if (sourceRect) {
+          ctx.drawImage(
+            tempCanvas,
+            sourceRect.x,
+            sourceRect.y,
+            sourceRect.width,
+            sourceRect.height,
+            sourceRect.x,
+            sourceRect.y,
+            sourceRect.width,
+            sourceRect.height
+          );
+        }
+      } else {
+        ctx.drawImage(tempCanvas, 0, 0);
       }
-    } else {
-      ctx.drawImage(tempCanvas, 0, 0);
-    }
-    ctx.globalAlpha = 1.0;
 
-    // Mirror mode
-    this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
-      ctx.save();
-      ctx.globalAlpha = finalAlpha;
-      this.board.drawMirroredCanvas(ctx, tempCanvas, region, 0, 0);
-      ctx.globalAlpha = 1.0;
-      ctx.restore();
+      // Mirror mode
+      this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
+        ctx.save();
+        ctx.globalAlpha = finalAlpha;
+        this.board.drawMirroredCanvas(ctx, tempCanvas, region, 0, 0);
+        ctx.globalAlpha = 1.0;
+        ctx.restore();
+      });
     });
+    ctx.globalAlpha = 1.0;
 
     this.previewDirtyBounds = null;
   }

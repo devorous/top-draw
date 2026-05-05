@@ -99,6 +99,7 @@ message Msg {
     TEXT_APPLY = 90;               // Apply text with explicit content and render state
     CSDM = 91;                     // Change shape draw mode
     GLOBAL_MESSAGE = 92;           // Holy/Deity global toast or server update notice
+    SEL_MASK = 93;                 // Toggle selection mask mode
     CF = 116;                      // Change font
     BOARD_SNAPSHOT_SAVE = 96;
     BOARD_SNAPSHOT_LIST_REQUEST = 97;
@@ -371,6 +372,7 @@ message Msg {
   float  tm            = 86;  // Text baseline multiplier
   float  to            = 87;  // Text baseline offset
   string sdm           = 88;  // Shape draw mode ('corner-to-corner' | 'center-scaling')
+  bool   mk            = 89;  // Selection mask active flag
 
   // === Board Snapshot Fields (100+) ===
   bytes snapshot_data  = 100; // QOI encoded board state (legacy single-layer)

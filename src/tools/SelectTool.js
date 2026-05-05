@@ -128,6 +128,7 @@ export class SelectTool extends Tool {
     this.lassoPath = null;
     this.originalSelection = null; // Stores uncropped selection bounds before auto-fit
     this.fitToContent = true; // Toggle: auto-crop selection to content bounds
+    this.isMaskMode = false; // Mask mode: selection acts as drawing constraint, not pixel move
   }
 
   /**
@@ -351,6 +352,8 @@ export class SelectTool extends Tool {
   activate() {
     this.board.mainCtx.globalCompositeOperation = 'source-over';
     this.board.topCanvas.style.mixBlendMode = 'normal';
+    // SelectTool will manage the mask overlay animation from now on
+    this.board._maskManagedBySelectTool = this.isMaskMode;
     this.startMarchingAnts();
     this.setupMenuListeners();
   }
@@ -373,8 +376,14 @@ export class SelectTool extends Tool {
    */
   deactivate() {
     this.stopMarchingAnts();
-    this.commitSelection();
-    this.clearSelection();
+    if (this.isMaskMode && this.selection && !this.floatingCanvas) {
+      // Hand off mask overlay to Board (static, redrawn on clearTop)
+      this.board._maskManagedBySelectTool = false;
+      this.board.clearTop(); // triggers static overlay redraw via clearTop hook
+    } else {
+      this.commitSelection();
+      this.clearSelection();
+    }
     this.hideContextMenu();
     this.board.container.style.cursor = '';
     // Reset topCtx line dash to prevent dotted lines bleeding into other tools
@@ -615,24 +624,24 @@ export class SelectTool extends Tool {
 
     this.menuElements = {
       menu: document.getElementById('selectionMenu'),
+      mask: document.getElementById('selMenuMask'),
       clear: document.getElementById('selMenuClear'),
       clone: document.getElementById('selMenuClone'),
       fill: document.getElementById('selMenuFill'),
-      copy: document.getElementById('selMenuCopy'),
       brush: document.getElementById('selMenuBrush'),
       flip: document.getElementById('selMenuFlip'),
       stamp: document.getElementById('selMenuStamp'),
       apply: document.getElementById('selMenuApply'),
       save: document.getElementById('selMenuSave'),
-      cancel: document.getElementById('selMenuCancel')
+      cancel: document.getElementById('selMenuCancel'),
     };
 
     if (!this.menuElements.menu) return;
 
+    this.menuElements.mask?.addEventListener('click', () => this.toggleMaskMode());
     this.menuElements.clear.addEventListener('click', () => this.deleteSelection());
     this.menuElements.clone?.addEventListener('click', () => this.clone());
     this.menuElements.fill.addEventListener('click', () => this.fillSelection());
-    this.menuElements.copy.addEventListener('click', () => this.copy());
     this.menuElements.brush.addEventListener('click', () => this.toImageBrush());
     this.menuElements.flip.addEventListener('click', () => this.flipHorizontal());
     this.menuElements.stamp.addEventListener('click', () => this.stamp());
@@ -656,6 +665,8 @@ export class SelectTool extends Tool {
     // there is nothing to put back, so the Cancel button is removed entirely.
     const isEphemeralFloat = hasMoved && !this._restoreData;
 
+    this.menuElements.mask?.classList.toggle('hidden', hasMoved);
+    this.menuElements.mask?.classList.toggle('active', this.isMaskMode);
     this.menuElements.clear.classList.toggle('hidden', false);
     this.menuElements.clone?.classList.toggle('hidden', hasMoved);
     this.menuElements.fill.classList.toggle('hidden', hasMoved);
@@ -669,6 +680,10 @@ export class SelectTool extends Tool {
     this.menuElements.clear.title = hasMoved ? 'Delete selection contents' : 'Clear selection contents';
     this.menuElements.cancel.textContent = hasMoved ? 'Put back' : 'Cancel';
     this.menuElements.cancel.title = hasMoved ? 'Restore the lifted selection' : 'Cancel selection';
+    if (this.menuElements.mask) {
+      this.menuElements.mask.textContent = this.isMaskMode ? 'Unmask' : 'Mask';
+      this.menuElements.mask.title = this.isMaskMode ? 'Remove drawing mask' : 'Use selection as drawing mask';
+    }
 
     const menuOrder = hasMoved
       ? {
@@ -676,7 +691,7 @@ export class SelectTool extends Tool {
           cancel: 1,
           clear: 2,
           stamp: 3,
-          copy: 4,
+          mask: 4,
           brush: 5,
           flip: 6,
           save: 7,
@@ -688,7 +703,7 @@ export class SelectTool extends Tool {
           clone: 1,
           fill: 2,
           cancel: 3,
-          copy: 4,
+          mask: 4,
           brush: 5,
           flip: 6,
           stamp: 7,
@@ -822,7 +837,12 @@ export class SelectTool extends Tool {
       this.marchingAntsOffset = (this.marchingAntsOffset + 1) % 16;
       if (this.selection && !this.isDragging && !this.isTransforming && !this.activeHandle && !this.isSelecting && !this.isRotating) {
         this.board.clearTop();
-        if (this.floatingCanvas) {
+        if (this.isMaskMode) {
+          this.board.drawMaskDarkenOverlay(this.marchingAntsOffset);
+          if (this.floatingCanvas) {
+            this.drawFloatingSelection();
+          }
+        } else if (this.floatingCanvas) {
           this.drawFloatingSelection();
           this.drawMarchingAntsOnly();
         } else {
@@ -1066,8 +1086,8 @@ export class SelectTool extends Tool {
         const center = this.getSelectionCenter();
         this.rotationStartAngle = Math.atan2(pos.y - center.y, pos.x - center.x);
 
-        // Lift selection if not already lifted
-        if (!this.floatingCanvas) {
+        // Lift selection if not already lifted (skipped in mask mode)
+        if (!this.floatingCanvas && !this.isMaskMode) {
           this.liftSelection();
         }
 
@@ -1095,8 +1115,8 @@ export class SelectTool extends Tool {
         y: pos.y - this.selection.y
       };
 
-      // If we haven't lifted the selection yet, do it now
-      if (!this.floatingCanvas) {
+      // If we haven't lifted the selection yet, do it now (skipped in mask mode)
+      if (!this.floatingCanvas && !this.isMaskMode) {
         this.liftSelection();
       }
       return;
@@ -1104,6 +1124,11 @@ export class SelectTool extends Tool {
 
     // Commit any existing selection before starting a new one
     if (this.selection) {
+      if (this.isMaskMode) {
+        this.board.clearSelectionMask();
+        this.board.app?.wsClient?.broadcastSelectionMask(false);
+        this.isMaskMode = false;
+      }
       this.commitSelection();
       this.clearSelection();
     }
@@ -1185,14 +1210,15 @@ export class SelectTool extends Tool {
         }));
       }
 
+      if (this.isMaskMode) this._applyCurrentMaskToBoard();
       this.board.clearTop();
       this.drawSelectionUI();
       return;
     }
 
     if (this.activeHandle && this.selection) {
-      // Lift selection if not already lifted
-      if (!this.floatingCanvas) {
+      // Lift selection if not already lifted (skipped in mask mode)
+      if (!this.floatingCanvas && !this.isMaskMode) {
         this.liftSelection();
       }
 
@@ -1280,6 +1306,7 @@ export class SelectTool extends Tool {
 
     if (this.isDragging) {
       this.isDragging = false;
+      if (this.isMaskMode) this._applyCurrentMaskToBoard(true);
       // Flush any pending broadcast to ensure final drag position is sent
       this.flushPendingSelectionBroadcast();
       this.drawSelectionUI();
@@ -1294,6 +1321,7 @@ export class SelectTool extends Tool {
       // Transform will be applied when committing the selection
       this.activeHandle = null;
       this.isTransforming = false;
+      if (this.isMaskMode) this._applyCurrentMaskToBoard(true);
       const sourceCrop = this.cropScaledSelectionToContent(releasedHandleId);
       if (sourceCrop) {
         this.pendingSelectionBroadcast = null;
@@ -1358,6 +1386,7 @@ export class SelectTool extends Tool {
       this.initializeCorners();
       this.updateHandles();
 
+      if (this.isMaskMode) this._applyCurrentMaskToBoard(true);
       this.board.clearTop();
       this.drawSelectionUI();
       this.updateCursor(pos);
@@ -1397,6 +1426,7 @@ export class SelectTool extends Tool {
       this.initializeCorners();
       this.updateHandles();
 
+      if (this.isMaskMode) this._applyCurrentMaskToBoard(true);
       this.board.clearTop();
       this.drawSelectionUI();
       this.updateCursor(pos);
@@ -1663,7 +1693,7 @@ export class SelectTool extends Tool {
 
   cropNewSelectionToContent() {
     if (!this.selection || this.floatingCanvas) return false;
-    if (!this.fitToContent) return false;
+    if (!this.fitToContent || this.isMaskMode) return false;
 
     const s = this.selection;
     if (s.width <= 0 || s.height <= 0) return false;
@@ -2930,6 +2960,13 @@ export class SelectTool extends Tool {
     // Reset active handle to prevent glitches when switching tools mid-drag
     this.activeHandle = null;
 
+    if (this.isMaskMode) {
+      this.isMaskMode = false;
+      this.board._maskManagedBySelectTool = false;
+      this.board.clearSelectionMask();
+      this.board.app?.wsClient?.broadcastSelectionMask(false);
+    }
+
     this.hideContextMenu();
     this.board.clearTop();
   }
@@ -2942,6 +2979,44 @@ export class SelectTool extends Tool {
   // Toggle fit-to-content mode
   toggleFitToContent(value) {
     this.fitToContent = value !== undefined ? value : !this.fitToContent;
+  }
+
+  toggleMaskMode(value) {
+    const next = value !== undefined ? !!value : !this.isMaskMode;
+    if (next === this.isMaskMode) return;
+    this.isMaskMode = next;
+
+    if (this.isMaskMode) {
+      this.fitToContent = false;
+      this._applyCurrentMaskToBoard();
+      this.board._maskManagedBySelectTool = true;
+      this.board.app?.ui?.showToast?.('Mask active — drawing restricted to selection');
+      const sel = this.selection;
+      const lasso = this.lassoPath;
+      this.board.app?.wsClient?.broadcastSelectionMask(true, sel, lasso);
+    } else {
+      this.board.clearSelectionMask();
+      this.board._maskManagedBySelectTool = false;
+      this.board.app?.ui?.showToast?.('Mask cleared');
+      this.board.app?.wsClient?.broadcastSelectionMask(false);
+    }
+
+    // Update button label/state
+    this.showContextMenu(true);
+  }
+
+  _applyCurrentMaskToBoard(broadcast = false) {
+    if (!this.selection) return;
+    this.board.setSelectionMask({
+      x: this.selection.x,
+      y: this.selection.y,
+      width: this.selection.width,
+      height: this.selection.height,
+      lassoPath: this.lassoPath ? [...this.lassoPath] : null
+    });
+    if (broadcast) {
+      this.board.app?.wsClient?.broadcastSelectionMask(true, this.selection, this.lassoPath);
+    }
   }
 
   _isComplexBlendMode(blendMode) {

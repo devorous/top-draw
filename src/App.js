@@ -2226,6 +2226,7 @@ export class DrawingApp {
       });
     }
 
+
     if (elements.cursorStyleSelect) {
       elements.cursorStyleSelect.addEventListener('change', (e) => {
         this.handleCursorStyleChange(e.target.value);

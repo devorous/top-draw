@@ -73,6 +73,19 @@ export class RemoteSelectionHandler {
     ctx.lineDashOffset = 0;
   }
 
+  drawStaticMaskOutline(user, mask, clear = true) {
+    if (!user?.context || !mask) return;
+    const ctx = user.context;
+    if (clear) {
+      ctx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    }
+    if (mask.lassoPath && mask.lassoPath.length >= 2) {
+      this._drawDashedPath(ctx, mask.lassoPath, 0, true);
+    } else {
+      this._drawDashedRect(ctx, mask, 0);
+    }
+  }
+
   _drawPendingSelectionLikeLocal(user) {
     if (!user?.pendingSelection) return;
 

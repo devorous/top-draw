@@ -297,27 +297,30 @@ export class RemoteInkHandler {
       previewRect
     );
     const sourceRect = previewRect ? this._clampRectToCanvas(previewRect, hardnessCanvas) : null;
-    if (sourceRect) {
-      user.context.drawImage(
-        hardnessCanvas,
-        sourceRect.x,
-        sourceRect.y,
-        sourceRect.width,
-        sourceRect.height,
-        sourceRect.x,
-        sourceRect.y,
-        sourceRect.width,
-        sourceRect.height
-      );
-    } else {
-      user.context.drawImage(hardnessCanvas, 0, 0);
-    }
+    this.board.withSelectionMaskClip(user.context, user.id, () => {
+      if (sourceRect) {
+        user.context.drawImage(
+          hardnessCanvas,
+          sourceRect.x,
+          sourceRect.y,
+          sourceRect.width,
+          sourceRect.height,
+          sourceRect.x,
+          sourceRect.y,
+          sourceRect.width,
+          sourceRect.height
+        );
+      } else {
+        user.context.drawImage(hardnessCanvas, 0, 0);
+      }
 
-    this.board.forEachMirrorRegion({ points: user._inkPoints?.map(pt => ({ x: pt[0], y: pt[1] })) || [] }, (region) => {
-      this.board.drawMirroredCanvas(user.context, hardnessCanvas, region, 0, 0);
+      this.board.forEachMirrorRegion({ points: user._inkPoints?.map(pt => ({ x: pt[0], y: pt[1] })) || [] }, (region) => {
+        this.board.drawMirroredCanvas(user.context, hardnessCanvas, region, 0, 0);
+      });
     });
 
     user.context.globalAlpha = 1.0;
+    this.board.app?.remoteUserHandler?.selectionHandler?.drawStaticMaskOutline?.(user, user.maskSelection, false);
   }
 
   /**

@@ -78,6 +78,33 @@ export function setupSelectionHandlers(wrapHandler, app) {
     }
   });
 
+  wrapHandler('sel_mask', (data) => {
+    const { board } = app;
+    const user = users.get(data.sessionIndex);
+    const userId = user?.id ?? data.sessionIndex;
+    if (user) user.isMaskMode = !!data.active;
+    if (data.active) {
+      const mask = { x: data.selection.x, y: data.selection.y, width: data.selection.width, height: data.selection.height, lassoPath: data.lassoPath };
+      board.setSelectionMask(mask, userId, false);
+      if (user) {
+        user.pendingSelection = null;
+        user.pendingLassoPath = null;
+        user._pendingSelectionUpdatedAt = null;
+        user.maskSelection = mask;
+        user.maskLassoPath = mask.lassoPath;
+        remoteUserHandler.selectionHandler.drawStaticMaskOutline(user, mask);
+      }
+    } else {
+      board.clearSelectionMask(userId, false);
+      if (user) {
+        user.maskSelection = null;
+        user.maskLassoPath = null;
+        user._pendingSelectionUpdatedAt = null;
+        user.context?.clearRect(0, 0, board.getWidth(), board.getHeight());
+      }
+    }
+  });
+
   wrapHandler('img_paste', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {

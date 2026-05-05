@@ -69,7 +69,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
       const previousTool = user.tool;
 
       // Defensively clean up any dangling selection state when switching away from select
-      if (data.tool !== 'select' && (user.floatingCanvas || user.pendingSelection)) {
+      if (data.tool !== 'select' && !user.isMaskMode && (user.floatingCanvas || user.pendingSelection)) {
         if (user.floatingCanvas) {
           // Floating canvas present but no commit/cancel was received — cancel it to restore
           // the erased content and clear the overlay, preventing a permanently stuck selection.
@@ -410,6 +410,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
 
     const blendMode = user.blendMode || 'source-over';
     board.layerManager.beginUserStroke(layerIndex, userId, blendMode, user.blendBakeMode);
+    board.applySelectionMaskClipForStroke(layerIndex, userId);
     const strokeCtx = board.layerManager.getUserStrokeContext(layerIndex, userId);
     if (!strokeCtx) return;
 
@@ -444,6 +445,7 @@ export function setupDrawingHandlers(wrapHandler, app) {
       }
     }
 
+    board.releaseSelectionMaskClipForStroke(layerIndex, userId);
     board.layerManager.commitUserStroke(layerIndex, userId);
     board.compositeAllLayers();
   });
