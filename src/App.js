@@ -3339,7 +3339,9 @@ export class DrawingApp {
     this.ui.showCursor();
     this.ui.updateSelfName(this.self.username);
     this.ui.showConnectionStatus('connected', this.currentRoomId);
-    this.ui.hideDisconnectionBanner();
+    if (!this._reloadRecommended) {
+      this.ui.hideDisconnectionBanner();
+    }
 
     this.wsClient.broadcastSmoothingChange(this.self.smoothing);
     this.wsClient.broadcastSizeChange(this.self.size);

@@ -1053,19 +1053,26 @@ export class Board {
     const w = this.getWidth();
     const h = this.getHeight();
 
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
+
     // Darken area outside the mask
     ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
     if (mask.lassoPath?.length > 0) {
-      ctx.fillRect(0, 0, w, h);
-      ctx.globalCompositeOperation = 'destination-out';
       ctx.beginPath();
+      ctx.rect(0, 0, w, h);
       ctx.moveTo(mask.lassoPath[0].x, mask.lassoPath[0].y);
       for (let i = 1; i < mask.lassoPath.length; i++) {
         ctx.lineTo(mask.lassoPath[i].x, mask.lassoPath[i].y);
       }
       ctx.closePath();
-      ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
+      ctx.fill('evenodd');
     } else {
       const { x, y, width, height } = mask;
       if (y > 0) ctx.fillRect(0, 0, w, y);
@@ -1103,6 +1110,7 @@ export class Board {
     }
     ctx.setLineDash([]);
 
+    ctx.restore();
     this.restoreSelectionCtx();
   }
 

@@ -1015,6 +1015,19 @@ function sendUsersToClient(ws, room, users = null) {
   });
 }
 
+function sendActiveMasksToClient(ws, room) {
+  if (!ws || !room) return;
+  for (const [sessionIndex, userData] of room.sessionManager.users) {
+    if (!userData.activeMask) continue;
+    const { sx, sy, sw, sh, ps } = userData.activeMask;
+    const msg = { t: T.SEL_MASK, u: sessionIndex, mk: true, sx, sy, sw, sh };
+    if (Array.isArray(ps) && ps.length >= 6) {
+      msg.ps = ps;
+    }
+    sendTo(ws, msg);
+  }
+}
+
 function isVpnAutoMuteExempt(role) {
   return (role || 0) >= Role.MOD;
 }
@@ -1618,6 +1631,20 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       }
       break;
 
+    case T.SEL_MASK:
+      if (data.mk) {
+        user.activeMask = {
+          sx: data.sx,
+          sy: data.sy,
+          sw: data.sw,
+          sh: data.sh,
+          ps: Array.isArray(data.ps) ? Array.from(data.ps) : null
+        };
+      } else {
+        user.activeMask = null;
+      }
+      break;
+
     case T.SEL_COMMIT:
     case T.SEL_CANCEL:
     case T.SEL_STAMP:
@@ -2156,6 +2183,7 @@ wss.on('connection', async (ws, req) => {
           }
 
           sendTo(ws, buildSettingsPayload(room));
+          sendActiveMasksToClient(ws, room);
 
           if (ws.clientAppVersion) {
             readVersionPolicy().then((versionPolicy) => {

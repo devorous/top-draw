@@ -2309,7 +2309,7 @@ menuBtn: document.getElementById('menuBtn'),
 
     const textEl = disconnectionBanner.querySelector('.disconnectionText');
     const iconEl = disconnectionBanner.querySelector('.disconnectionIcon');
-    const offlineBtn = document.getElementById('switchOfflineBtn');
+    const offlineBtn = this.elements.switchToOfflineBtn || document.getElementById('switchToOfflineBtn');
     if (textEl) textEl.textContent = message;
     if (iconEl && icon) iconEl.textContent = icon;
     if (retryConnectionBtn) {

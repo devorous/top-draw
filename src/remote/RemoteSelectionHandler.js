@@ -79,11 +79,18 @@ export class RemoteSelectionHandler {
     if (clear) {
       ctx.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
     }
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
     if (mask.lassoPath && mask.lassoPath.length >= 2) {
       this._drawDashedPath(ctx, mask.lassoPath, 0, true);
     } else {
       this._drawDashedRect(ctx, mask, 0);
     }
+    ctx.restore();
   }
 
   _drawPendingSelectionLikeLocal(user) {

@@ -153,12 +153,14 @@ export class SyncCoordinator {
           snapshotTs: snapshot.ts,
           snapshotIssuer: snapshot.issuer
         });
+        this._sendActiveImagesToJoiner(ws);
         this.sendTo(ws, { t: T.SYNC_COMPLETE });
         return;
       }
     }
 
     console.log(`[Sync] No snapshot fallback${anyoneDrawing ? ' (someone is drawing)' : ''}, sending empty sync complete to user ${requesterSessionIndex}`);
+    this._sendActiveImagesToJoiner(ws);
     this.sendTo(ws, { t: T.SYNC_COMPLETE });
   }
 
@@ -263,6 +265,16 @@ export class SyncCoordinator {
         this.pendingSyncRequests.delete(targetUser);
         break;
       }
+    }
+
+    for (const [sessionIndex, userData] of this.sessionManager.users) {
+      if (!userData.activeMask) continue;
+      const { sx, sy, sw, sh, ps } = userData.activeMask;
+      const msg = { t: T.SEL_MASK, u: sessionIndex, mk: true, sx, sy, sw, sh };
+      if (Array.isArray(ps) && ps.length >= 6) {
+        msg.ps = ps;
+      }
+      this.sendTo(joinerWs, msg);
     }
   }
 
