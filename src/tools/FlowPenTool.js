@@ -65,8 +65,10 @@ export class FlowPenTool extends Tool {
     this.offscreenCtx = null;
     this.lastStampPos = null;
     this.userAlpha = 1.0;
+    this.userHardness = 1.0;
     this.strokeColor = null;
     this.stampBuffer = [];
+    this._tickDirtyBounds = null;
   }
 
   /**
@@ -143,6 +145,7 @@ export class FlowPenTool extends Tool {
     if (this.userHardness > 1.0) this.userHardness = 1.0;
 
     this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    this._tickDirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
 
     const pressure255 = Math.round(pressure * 255);
     this.stampCircle(pos.x, pos.y, radius, pressure255);
@@ -223,6 +226,12 @@ export class FlowPenTool extends Tool {
         this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, pos.y - maxRadius);
         this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, pos.x + maxRadius);
         this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, pos.y + maxRadius);
+      }
+      if (this._tickDirtyBounds) {
+        this._tickDirtyBounds.minX = Math.min(this._tickDirtyBounds.minX, pos.x - maxRadius);
+        this._tickDirtyBounds.minY = Math.min(this._tickDirtyBounds.minY, pos.y - maxRadius);
+        this._tickDirtyBounds.maxX = Math.max(this._tickDirtyBounds.maxX, pos.x + maxRadius);
+        this._tickDirtyBounds.maxY = Math.max(this._tickDirtyBounds.maxY, pos.y + maxRadius);
       }
 
       // Only send key point to network (not interpolated points)
@@ -344,6 +353,12 @@ export class FlowPenTool extends Tool {
       this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, x + radius);
       this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, y + radius);
     }
+    if (this._tickDirtyBounds) {
+      this._tickDirtyBounds.minX = Math.min(this._tickDirtyBounds.minX, x - radius);
+      this._tickDirtyBounds.minY = Math.min(this._tickDirtyBounds.minY, y - radius);
+      this._tickDirtyBounds.maxX = Math.max(this._tickDirtyBounds.maxX, x + radius);
+      this._tickDirtyBounds.maxY = Math.max(this._tickDirtyBounds.maxY, y + radius);
+    }
 
     this.stampBuffer.push(x, y, pressure255);
   }
@@ -396,15 +411,19 @@ export class FlowPenTool extends Tool {
    * Gets the preview dirty rectangle.
    */
   getPreviewDirtyRect(user) {
-    if (!this.dirtyBounds || (this.dirtyBounds.minX === Infinity)) {
-      return false;
-    }
-    const margin = 2;
+    const b = this._tickDirtyBounds;
+    if (!b || b.minX === Infinity) return false;
+
+    this._tickDirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+
+    const size = user?.size ?? 0;
+    const blurAmount = (1 - this.userHardness) * (20 + size * 0.2);
+    const margin = Math.ceil(Math.max(size, 1) + blurAmount * 2.5 + size * 0.5 + 10);
     return {
-      x: Math.max(0, Math.floor(this.dirtyBounds.minX) - margin),
-      y: Math.max(0, Math.floor(this.dirtyBounds.minY) - margin),
-      width: Math.ceil(this.dirtyBounds.maxX - this.dirtyBounds.minX) + margin * 2,
-      height: Math.ceil(this.dirtyBounds.maxY - this.dirtyBounds.minY) + margin * 2
+      x: Math.max(0, Math.floor(b.minX) - margin),
+      y: Math.max(0, Math.floor(b.minY) - margin),
+      width: Math.ceil(b.maxX - b.minX) + margin * 2,
+      height: Math.ceil(b.maxY - b.minY) + margin * 2
     };
   }
 
@@ -418,6 +437,13 @@ export class FlowPenTool extends Tool {
     const ctx = this.board.topCtx;
     ctx.globalAlpha = this.userAlpha;
 
+    if (rect) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(rect.x, rect.y, rect.width, rect.height);
+      ctx.clip();
+    }
+
     this.compositeWithHardness(ctx, this.offscreenCanvas, user.size, 0, 0);
 
     this.board.forEachMirrorRegion({ rect: this.dirtyBounds ? {
@@ -429,6 +455,7 @@ export class FlowPenTool extends Tool {
       this.board.drawMirroredCanvas(ctx, this.offscreenCanvas, region, 0, 0);
     });
 
+    if (rect) ctx.restore();
     ctx.globalAlpha = 1.0;
   }
 
@@ -483,6 +510,7 @@ export class FlowPenTool extends Tool {
     this.lastStampPos = null;
     this.stampBuffer = [];
     this.dirtyBounds = null;
+    this._tickDirtyBounds = null;
   }
 
   /**
