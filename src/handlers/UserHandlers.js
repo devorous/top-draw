@@ -191,6 +191,7 @@ export function setupUserHandlers(wsClient, app) {
           ui.updateSelfRole(userData.role);
         }
         if (app.moderation) app.moderation.setRole(app.self.role, app.self.globalRole, app.self.roomRole);
+        board.refreshObscureRegionAccess?.();
         if (userData.thinning !== undefined) {
           app.self.setThinning(userData.thinning);
           app.ui.updateThinningValue(Math.round(userData.thinning * 100));
@@ -431,6 +432,10 @@ export function setupUserHandlers(wsClient, app) {
     if (data.joinPolicy !== undefined) {
       app.currentRoomData.joinPolicy = data.joinPolicy;
     }
+    if (data.obscureRequiresRegistered !== undefined) {
+      app.currentRoomData.obscureRequiresRegistered = data.obscureRequiresRegistered;
+      board.refreshObscureRegionAccess?.();
+    }
     if (data.autoMuteGuests !== undefined) {
       app.currentRoomData.autoMuteGuests = data.autoMuteGuests;
     }
@@ -471,6 +476,7 @@ export function setupUserHandlers(wsClient, app) {
     app.currentRoomData.mirror = data.mirror;
     app.currentRoomData.mirrorRegions = data.mirrorRegions || [];
     appState.currentRoomData = app.currentRoomData;
+    board.refreshObscureRegionAccess?.();
     applySelfInactiveState();
   });
 

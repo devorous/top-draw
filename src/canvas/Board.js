@@ -67,6 +67,8 @@ export class Board {
     this.selectionMasksByUser = new Map();
     this._maskClippedStrokes = new Set();
     this._maskManagedBySelectTool = false;
+    this.obscureRegions = new Map();
+    this.obscureLayer = null;
     this.interactionBlockOverlayPadding = 500;
     this.interactionBlockDashOffset = 0;
     this.interactionBlockAnimationId = null;
@@ -276,6 +278,17 @@ export class Board {
     this.pixelGridOverlay.style.backgroundRepeat = 'repeat';
     this.container.appendChild(this.pixelGridOverlay);
 
+    this.obscureLayer = document.createElement('div');
+    this.obscureLayer.id = 'obscureLayer';
+    this.obscureLayer.style.position = 'absolute';
+    this.obscureLayer.style.top = '0';
+    this.obscureLayer.style.left = '0';
+    this.obscureLayer.style.width = `${this.getWidth()}px`;
+    this.obscureLayer.style.height = `${this.getHeight()}px`;
+    this.obscureLayer.style.pointerEvents = 'none';
+    this.obscureLayer.style.zIndex = '5';
+    this.boardsWrapper.appendChild(this.obscureLayer);
+
     this.mirrorRegionsLayer = document.createElement('canvas');
     this.mirrorRegionsLayer.id = 'mirrorRegionsLayer';
     this.mirrorRegionsLayer.style.position = 'absolute';
@@ -371,6 +384,10 @@ export class Board {
       this.interactionBlockOverlay.style.left = `${-pad}px`;
       this.interactionBlockOverlay.style.top = `${-pad}px`;
     }
+    if (this.obscureLayer) {
+      this.obscureLayer.style.width = `${width}px`;
+      this.obscureLayer.style.height = `${height}px`;
+    }
 
     this.mainCtx.globalCompositeOperation = 'source-over';
     this.mainCtx.imageSmoothingQuality = 'high';
@@ -464,6 +481,128 @@ export class Board {
     }
     this.renderPixelGrid();
     this.updateHighZoomRenderingMode();
+  }
+
+  canRevealObscureRegions() {
+    return !this.app?.currentRoomData?.obscureRequiresRegistered || (this.app?.selfRole ?? 0) >= 1;
+  }
+
+  canManageObscureRegions() {
+    const roomRole = this.app?.selfRoomRole ?? 0;
+    const globalRole = this.app?.selfGlobalRole ?? 0;
+    const role = Math.max(this.app?.selfRole ?? 0, roomRole, globalRole);
+    return role >= 2;
+  }
+
+  addObscureRegion(region) {
+    if (region?.remove && region.id) {
+      this.removeObscureRegion(region.id);
+      return;
+    }
+    if (!this.obscureLayer || !region?.id) return;
+    const x = Number(region.x);
+    const y = Number(region.y);
+    const width = Number(region.width);
+    const height = Number(region.height);
+    if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return;
+
+    const existing = this.obscureRegions.get(region.id);
+    if (existing?.element) existing.element.remove();
+
+    const el = document.createElement('div');
+    el.className = 'obscureRegion';
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.width = `${width}px`;
+    el.style.height = `${height}px`;
+    el.style.pointerEvents = 'auto';
+    const surface = document.createElement('div');
+    surface.className = 'obscureRegionSurface';
+    el.appendChild(surface);
+
+    if (Array.isArray(region.lassoPath) && region.lassoPath.length >= 3) {
+      const points = region.lassoPath
+        .map((point) => {
+          const px = ((Number(point.x) - x) / width) * 100;
+          const py = ((Number(point.y) - y) / height) * 100;
+          return `${Math.max(0, Math.min(100, px))}% ${Math.max(0, Math.min(100, py))}%`;
+        })
+        .join(', ');
+      surface.style.clipPath = `polygon(${points})`;
+    }
+
+    const veil = document.createElement('div');
+    veil.className = 'obscureRegionVeil';
+    surface.appendChild(veil);
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'obscureRegionButton';
+    const updateButton = () => {
+      const canReveal = this.canRevealObscureRegions();
+      button.textContent = canReveal ? 'Show' : 'Registered only';
+      button.disabled = !canReveal;
+      button.title = canReveal ? 'Reveal this obscured region' : 'Only registered users can reveal obscured regions in this room';
+    };
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (!this.canRevealObscureRegions()) {
+        this.app?.ui?.showToast?.('Only registered users can reveal obscured regions in this room', 3000);
+        updateButton();
+        return;
+      }
+      this.revealObscureRegion(region.id);
+    });
+    el.appendChild(button);
+
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'obscureRegionClose';
+    closeButton.textContent = 'X';
+    closeButton.title = 'Remove obscured region';
+    closeButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (!this.canManageObscureRegions()) return;
+      this.removeObscureRegion(region.id);
+      this.app?.inputBufferManager?.queueBroadcast(
+        () => this.app?.wsClient?.broadcastObscureRegion({ id: region.id, remove: true }),
+        { snapshot: false }
+      );
+    });
+    el.appendChild(closeButton);
+
+    this.obscureLayer.appendChild(el);
+    this.obscureRegions.set(region.id, { ...region, x, y, width, height, element: el, button, closeButton });
+    updateButton();
+    this.refreshObscureRegionAccess();
+  }
+
+  revealObscureRegion(id) {
+    const entry = this.obscureRegions.get(id);
+    if (!entry) return;
+    entry.element?.remove();
+    this.obscureRegions.delete(id);
+  }
+
+  removeObscureRegion(id) {
+    const entry = this.obscureRegions.get(id);
+    if (entry?.element) entry.element.remove();
+    this.obscureRegions.delete(id);
+  }
+
+  refreshObscureRegionAccess() {
+    for (const entry of this.obscureRegions.values()) {
+      const button = entry.button;
+      const el = entry.element;
+      if (!button || !el) continue;
+      if (entry.closeButton) {
+        entry.closeButton.style.display = this.canManageObscureRegions() ? '' : 'none';
+      }
+      const canReveal = this.canRevealObscureRegions();
+      button.textContent = canReveal ? 'Show' : 'Registered only';
+      button.disabled = !canReveal;
+      button.title = canReveal ? 'Reveal this obscured region' : 'Only registered users can reveal obscured regions in this room';
+    }
   }
 
   /**

@@ -64,6 +64,7 @@ const WS_ADMIN_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
 const VALID_ROOM_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 const DEFAULT_ROOM_ID = 'lobby';
 const ROOM_JOIN_POLICIES = new Set(['open', 'registered', 'trusted']);
+const ROOM_OVERLAY_SESSION_INDEX = 0xffffffff;
 const ADMIN_COLLECTIONS = new Set([
   'users',
   'rooms',
@@ -1037,6 +1038,14 @@ function getModerationAuthority(ws) {
   return Math.max(Number(ws?.roomRole || Role.GUEST), globalAuthority);
 }
 
+function getTrustedFeatureAuthority(ws) {
+  return Math.max(
+    Number(ws?.userRole || Role.GUEST),
+    Number(ws?.roomRole || Role.GUEST),
+    Number(ws?.globalRole || Role.GUEST)
+  );
+}
+
 function getTargetProtectionRole(targetWs, targetUser) {
   return Math.max(
     Number(targetWs?.roomRole ?? targetWs?.userRole ?? Role.GUEST),
@@ -1044,7 +1053,7 @@ function getTargetProtectionRole(targetWs, targetUser) {
   );
 }
 
-function sendActiveMasksToClient(ws, room) {
+function sendActiveOverlaysToClient(ws, room) {
   if (!ws || !room) return;
   for (const [sessionIndex, userData] of room.sessionManager.users) {
     if (!userData.activeMask) continue;
@@ -1054,6 +1063,9 @@ function sendActiveMasksToClient(ws, room) {
       msg.ps = ps;
     }
     sendTo(ws, msg);
+  }
+  for (const region of room.obscureRegions?.values?.() || []) {
+    sendTo(ws, { t: T.OBSCURE_REGION, u: ROOM_OVERLAY_SESSION_INDEX, g: JSON.stringify(region) });
   }
 }
 
@@ -1317,7 +1329,7 @@ const INACTIVE_FILTERED_TYPES = new Set([
   T.CL, T.CBM, T.PAN, T.CANCEL, T.KP, T.TEXT_APPLY, T.CSDM, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP,
   T.GPT, T.CPM, T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE,
   T.SEL_FILL, T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_FLIP,
-  T.SEL_PENDING, T.SEL_MASK, T.IMG_PASTE, T.CLR, T.UNDO, T.REDO, T.FILL, T.CTHN,
+  T.SEL_PENDING, T.SEL_MASK, T.OBSCURE_REGION, T.IMG_PASTE, T.CLR, T.UNDO, T.REDO, T.FILL, T.CTHN,
   T.CSIM, T.GLITCH_RESULT, T.TILE_UPDATE, T.TILE_CLEAR
 ]);
 
@@ -1329,7 +1341,7 @@ function shouldSkipInactiveRecipient(room, client, messageType) {
 
 const MUTED_BLOCKED = new Set([
   T.MM, T.MD, T.MU, T.KP, T.TEXT_APPLY, T.CLR,
-  T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL, T.SEL_STAMP, T.SEL_FLIP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_MASK,
+  T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL, T.SEL_STAMP, T.SEL_FLIP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_MASK, T.OBSCURE_REGION,
   T.IMG_PASTE, T.MSG, T.DM, T.CHAT_IMG, T.GLITCH_RESULT,
   T.MIR, T.MIRROR_REGION
 ]);
@@ -1371,6 +1383,7 @@ function buildSettingsPayload(room) {
     roomMaxUsers: room.settings.maxUsers,
     roomModInactiveImmune: room.settings.modInactiveImmune,
     roomJoinPolicy: room.settings.joinPolicy,
+    roomObscureRequiresRegistered: !!room.settings.obscureRequiresRegistered,
     roomAutoMuteGuests: room.settings.autoMuteGuests,
     roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers,
     roomHideChatNotifications: room.settings.hideChatNotifications,
@@ -1673,6 +1686,50 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
         user.activeMask = null;
       }
       break;
+
+    case T.OBSCURE_REGION: {
+      if (ws?.isShadowBanned) return;
+      if (getTrustedFeatureAuthority(ws) < Role.TRUSTED) {
+        sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Only trusted users can create or remove obscured regions' });
+        return;
+      }
+      let payload = null;
+      try {
+        payload = JSON.parse(data.g || '{}');
+      } catch (err) {
+        console.warn('[ObscureRegion] Invalid payload', err);
+        return;
+      }
+      const id = typeof payload.id === 'string' ? payload.id.slice(0, 80) : '';
+      if (!id) return;
+      if (payload.remove) {
+        room.obscureRegions?.delete(id);
+        data.g = JSON.stringify({ id, remove: true });
+      } else {
+        const x = Number(payload.x);
+        const y = Number(payload.y);
+        const width = Number(payload.width);
+        const height = Number(payload.height);
+        if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return;
+        const lassoPath = Array.isArray(payload.lassoPath)
+          ? payload.lassoPath
+              .slice(0, 2048)
+              .map(point => ({ x: Number(point?.x), y: Number(point?.y) }))
+              .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y))
+          : null;
+        const normalizedRegion = {
+          id,
+          x: Math.round(x),
+          y: Math.round(y),
+          width: Math.round(width),
+          height: Math.round(height),
+          ...(lassoPath && lassoPath.length >= 3 ? { lassoPath } : {})
+        };
+        room.obscureRegions?.set(id, normalizedRegion);
+        data.g = JSON.stringify(normalizedRegion);
+      }
+      break;
+    }
 
     case T.SEL_COMMIT:
     case T.SEL_CANCEL:
@@ -2212,7 +2269,7 @@ wss.on('connection', async (ws, req) => {
           }
 
           sendTo(ws, buildSettingsPayload(room));
-          sendActiveMasksToClient(ws, room);
+          sendActiveOverlaysToClient(ws, room);
 
           if (ws.clientAppVersion) {
             readVersionPolicy().then((versionPolicy) => {
@@ -2917,6 +2974,9 @@ wss.on('connection', async (ws, req) => {
             if (data.roomJoinPolicy !== undefined) {
               const joinPolicy = String(data.roomJoinPolicy || 'open');
               room.settings.joinPolicy = ROOM_JOIN_POLICIES.has(joinPolicy) ? joinPolicy : 'open';
+            }
+            if (data.roomObscureRequiresRegistered !== undefined) {
+              room.settings.obscureRequiresRegistered = !!data.roomObscureRequiresRegistered;
             }
             if (data.roomAutoMuteGuests !== undefined) {
               room.settings.autoMuteGuests = !!data.roomAutoMuteGuests;

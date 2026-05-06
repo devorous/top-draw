@@ -349,6 +349,44 @@ export async function sanitizeMessage(data) {
       sanitized.g = sanitizeString(data.g, MAX_BRUSH_DATA_LENGTH, { trim: false });
       return sanitized.g ? sanitized : null;
 
+    case T.OBSCURE_REGION: {
+      const raw = sanitizeString(data.g, MAX_BRUSH_DATA_LENGTH, { trim: false });
+      if (!raw) return null;
+      try {
+        const payload = JSON.parse(raw);
+        if (!payload || typeof payload !== 'object') return null;
+        if (typeof payload.id !== 'string' || !payload.id) return null;
+        if (payload.remove) {
+          sanitized.g = JSON.stringify({ id: payload.id.slice(0, 80), remove: true });
+          return sanitized;
+        }
+        const x = clampInt(payload.x, MIN_COORD, MAX_COORD, 0);
+        const y = clampInt(payload.y, MIN_COORD, MAX_COORD, 0);
+        const width = clampInt(payload.width, 1, MAX_DIMENSION, 0);
+        const height = clampInt(payload.height, 1, MAX_DIMENSION, 0);
+        if (width <= 0 || height <= 0) return null;
+        const out = { id: payload.id.slice(0, 80), x, y, width, height };
+        if (Array.isArray(payload.lassoPath)) {
+          const points = [];
+          for (const point of payload.lassoPath.slice(0, MAX_SELECTION_POINTS)) {
+            const px = Number(point?.x);
+            const py = Number(point?.y);
+            if (Number.isFinite(px) && Number.isFinite(py)) {
+              points.push({
+                x: Math.min(Math.max(px, MIN_COORD), MAX_COORD),
+                y: Math.min(Math.max(py, MIN_COORD), MAX_COORD)
+              });
+            }
+          }
+          if (points.length >= 3) out.lassoPath = points;
+        }
+        sanitized.g = JSON.stringify(out);
+        return sanitized;
+      } catch {
+        return null;
+      }
+    }
+
     case T.CPM:
       sanitized.pm = sanitizeBoolean(data.pm);
       return sanitized;
@@ -488,6 +526,7 @@ export async function sanitizeMessage(data) {
         const joinPolicy = sanitizeString(data.roomJoinPolicy, 16);
         sanitized.roomJoinPolicy = VALID_JOIN_POLICIES.has(joinPolicy) ? joinPolicy : 'open';
       }
+      if (data.roomObscureRequiresRegistered !== undefined) sanitized.roomObscureRequiresRegistered = sanitizeBoolean(data.roomObscureRequiresRegistered);
       if (data.roomPrivate !== undefined) sanitized.roomPrivate = sanitizeBoolean(data.roomPrivate);
       if (data.roomDedicatedReplayUser !== undefined) {
         // null or empty string clears, otherwise sanitize as username

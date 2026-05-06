@@ -8,6 +8,13 @@
 export function setupSelectionHandlers(wrapHandler, app) {
   const { users, remoteUserHandler } = app;
 
+  app.wsClient?.on('obscure_region', (data) => {
+    if (data && data.sessionIndex === app.sessionIndex) return;
+    if (data.payload) {
+      app.board?.addObscureRegion?.(data.payload);
+    }
+  });
+
   wrapHandler('sel_lift', (data) => {
     const user = users.get(data.sessionIndex);
     if (user) {

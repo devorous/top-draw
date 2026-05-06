@@ -47,6 +47,7 @@ export class Room {
       backgroundColor: '#ffffff',
       modInactiveImmune: false,
       joinPolicy: 'open',
+      obscureRequiresRegistered: false,
       autoMuteGuests: false,
       autoMuteVpnUsers: false,
       hideChatNotifications: false,
@@ -65,6 +66,7 @@ export class Room {
     this.createdAt = Date.now();
     this.lastActivity = Date.now();
     this.dbLoaded = false;
+    this.obscureRegions = new Map();
 
     /** @type {Buffer|null} PNG preview image at 1/4 scale */
     this.preview = null;
@@ -335,6 +337,7 @@ export class Room {
         this.settings.backgroundColor = doc.settings?.backgroundColor || '#ffffff';
         this.settings.modInactiveImmune = !!doc.settings?.modInactiveImmune;
         this.settings.joinPolicy = doc.settings?.joinPolicy || 'open';
+        this.settings.obscureRequiresRegistered = !!doc.settings?.obscureRequiresRegistered;
         this.settings.autoMuteGuests = !!doc.settings?.autoMuteGuests;
         this.settings.autoMuteVpnUsers = !!doc.settings?.autoMuteVpnUsers;
         this.settings.hideChatNotifications = !!doc.settings?.hideChatNotifications;
@@ -400,6 +403,7 @@ export class Room {
               backgroundColor: this.settings.backgroundColor,
               modInactiveImmune: this.settings.modInactiveImmune,
               joinPolicy: this.settings.joinPolicy,
+              obscureRequiresRegistered: this.settings.obscureRequiresRegistered,
               autoMuteGuests: this.settings.autoMuteGuests,
               autoMuteVpnUsers: this.settings.autoMuteVpnUsers,
               hideChatNotifications: this.settings.hideChatNotifications,

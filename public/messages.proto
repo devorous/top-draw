@@ -100,6 +100,7 @@ message Msg {
     CSDM = 91;                     // Change shape draw mode
     GLOBAL_MESSAGE = 92;           // Holy/Deity global toast or server update notice
     SEL_MASK = 93;                 // Toggle selection mask mode
+    OBSCURE_REGION = 94;           // Add a revealable blurred region overlay
     CF = 116;                      // Change font
     BOARD_SNAPSHOT_SAVE = 96;
     BOARD_SNAPSHOT_LIST_REQUEST = 97;
@@ -226,6 +227,7 @@ message Msg {
   repeated float cbt = 155; // Cumulative selection source crop for sync replay
   uint32 board_width = 156; // Board width in pixels for sync/snapshot sizing
   uint32 board_height = 157; // Board height in pixels for sync/snapshot sizing
+  bool room_obscure_requires_registered = 158; // ROOM_UPDATE/SETTINGS: only registered users can reveal obscure regions
 
   // === Sync Fields ===
   bytes img = 24;            // PNG image data (full canvas or stroke/base canvas)

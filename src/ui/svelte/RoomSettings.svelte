@@ -50,6 +50,7 @@
   let maxUsers = $state(40);
   let modInactiveImmune = $state(false);
   let joinPolicy = $state('open');
+  let obscureRequiresRegistered = $state(false);
   let autoMuteGuests = $state(false);
   let autoMuteVpnUsers = $state(false);
   let hideChatNotifications = $state(false);
@@ -147,6 +148,7 @@
     maxUsers = data.maxUsers !== undefined ? data.maxUsers : 40;
     modInactiveImmune = !!data.modInactiveImmune;
     joinPolicy = data.joinPolicy || 'open';
+    obscureRequiresRegistered = !!data.obscureRequiresRegistered;
     autoMuteGuests = !!data.autoMuteGuests;
     autoMuteVpnUsers = !!data.autoMuteVpnUsers;
     hideChatNotifications = !!data.hideChatNotifications;
@@ -293,6 +295,7 @@
           maxUsers: clampedMaxUsers,
           modInactiveImmune,
           joinPolicy,
+          obscureRequiresRegistered,
           autoMuteGuests,
           autoMuteVpnUsers,
           hideChatNotifications,
@@ -323,6 +326,7 @@
       roomMaxUsers: clampedMaxUsers,
       roomModInactiveImmune: modInactiveImmune,
       roomJoinPolicy: joinPolicy,
+      roomObscureRequiresRegistered: obscureRequiresRegistered,
       roomAutoMuteGuests: autoMuteGuests,
       roomAutoMuteVpnUsers: autoMuteVpnUsers,
       roomHideChatNotifications: hideChatNotifications,
@@ -732,6 +736,13 @@
             <label>
               <input type="checkbox" bind:checked={hideChatNotifications} />
               <span>Hide chat pop-up notifications in this room</span>
+            </label>
+          </div>
+
+          <div class="form-group checkbox-group">
+            <label>
+              <input type="checkbox" bind:checked={obscureRequiresRegistered} />
+              <span>Only registered users can reveal obscured regions</span>
             </label>
           </div>
 

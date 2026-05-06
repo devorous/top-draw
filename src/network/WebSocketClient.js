@@ -133,7 +133,7 @@ export class WebSocketClient {
       // Selection operations — all mutate canvas state in ways that must stay
       // ordered with the surrounding drawing events.
       T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE, T.SEL_FILL,
-      T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_FLIP, T.SEL_PENDING, T.SEL_MASK,
+      T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_FLIP, T.SEL_PENDING, T.SEL_MASK, T.OBSCURE_REGION,
       // Image paste and async computation results must also respect draw order.
       T.IMG_PASTE, T.GLITCH_RESULT,
     ]);
@@ -686,6 +686,7 @@ export class WebSocketClient {
           maxUsers: data.roomMaxUsers,
           modInactiveImmune: data.roomModInactiveImmune,
           joinPolicy: data.roomJoinPolicy || 'open',
+          obscureRequiresRegistered: !!data.roomObscureRequiresRegistered,
           autoMuteGuests: !!data.roomAutoMuteGuests,
           autoMuteVpnUsers: !!data.roomAutoMuteVpnUsers,
           hideChatNotifications: !!data.roomHideChatNotifications,
@@ -1070,6 +1071,19 @@ export class WebSocketClient {
 
       case T.SEL_TO_BRUSH:
         this.emit('sel_to_brush', { sessionIndex: data.u, brushData: data.g });
+        break;
+
+      case T.OBSCURE_REGION:
+        let obscurePayload = null;
+        try {
+          obscurePayload = data.g ? JSON.parse(data.g) : null;
+        } catch (err) {
+          console.warn('[WebSocketClient] Failed to parse obscure region payload', err);
+        }
+        this.emit('obscure_region', {
+          sessionIndex: data.u,
+          payload: obscurePayload
+        });
         break;
 
       case T.IMG_PASTE:
@@ -2048,6 +2062,10 @@ export class WebSocketClient {
    */
   broadcastSelectionToBrush(brushData) {
     this.send({ t: T.SEL_TO_BRUSH, g: JSON.stringify(brushData) });
+  }
+
+  broadcastObscureRegion(payload) {
+    this.send({ t: T.OBSCURE_REGION, g: JSON.stringify(payload) });
   }
 
   /**

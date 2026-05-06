@@ -6,6 +6,7 @@ import { getProviderActivityTier, isRecentlyActive, scoreProvider } from './prov
 
 const SYNC_PROVIDER_TIMEOUT_MS = 2000;
 const MAX_SYNC_CANDIDATES = 3;
+const ROOM_OVERLAY_SESSION_INDEX = 0xffffffff;
 
 /**
  * Handles the multi-step canvas synchronization flow for new users.
@@ -154,6 +155,8 @@ export class SyncCoordinator {
           snapshotIssuer: snapshot.issuer
         });
         this._sendActiveImagesToJoiner(ws);
+        this._sendActiveMasksToJoiner(ws);
+        this._sendActiveObscureRegionsToJoiner(ws);
         this.sendTo(ws, { t: T.SYNC_COMPLETE });
         return;
       }
@@ -161,6 +164,8 @@ export class SyncCoordinator {
 
     console.log(`[Sync] No snapshot fallback${anyoneDrawing ? ' (someone is drawing)' : ''}, sending empty sync complete to user ${requesterSessionIndex}`);
     this._sendActiveImagesToJoiner(ws);
+    this._sendActiveMasksToJoiner(ws);
+    this._sendActiveObscureRegionsToJoiner(ws);
     this.sendTo(ws, { t: T.SYNC_COMPLETE });
   }
 
@@ -261,20 +266,12 @@ export class SyncCoordinator {
       if (client.sessionIndex === targetUser && client.readyState === WebSocket.OPEN) {
         this.sendTo(client, { t: T.SYNC_CANVAS, u: ws.sessionIndex, img: data.img });
         this._sendActiveImagesToJoiner(client);
+        this._sendActiveMasksToJoiner(client);
+        this._sendActiveObscureRegionsToJoiner(client);
         this.sendTo(client, { t: T.SYNC_COMPLETE });
         this.pendingSyncRequests.delete(targetUser);
         break;
       }
-    }
-
-    for (const [sessionIndex, userData] of this.sessionManager.users) {
-      if (!userData.activeMask) continue;
-      const { sx, sy, sw, sh, ps } = userData.activeMask;
-      const msg = { t: T.SEL_MASK, u: sessionIndex, mk: true, sx, sy, sw, sh };
-      if (Array.isArray(ps) && ps.length >= 6) {
-        msg.ps = ps;
-      }
-      this.sendTo(joinerWs, msg);
     }
   }
 
@@ -388,6 +385,8 @@ export class SyncCoordinator {
       }
 
       this._sendActiveImagesToJoiner(client);
+      this._sendActiveMasksToJoiner(client);
+      this._sendActiveObscureRegionsToJoiner(client);
       this.sendTo(client, { t: T.SYNC_COMPLETE });
       this.pendingSyncRequests.delete(targetUser);
       console.log(`[Sync] Stroke sync complete for user ${targetUser}`);
@@ -430,6 +429,24 @@ export class SyncCoordinator {
         }
         this.sendTo(joinerWs, moveMsg);
       }
+    }
+  }
+
+  _sendActiveMasksToJoiner(joinerWs) {
+    for (const [sessionIndex, userData] of this.sessionManager.users) {
+      if (!userData.activeMask) continue;
+      const { sx, sy, sw, sh, ps } = userData.activeMask;
+      const msg = { t: T.SEL_MASK, u: sessionIndex, mk: true, sx, sy, sw, sh };
+      if (Array.isArray(ps) && ps.length >= 6) {
+        msg.ps = ps;
+      }
+      this.sendTo(joinerWs, msg);
+    }
+  }
+
+  _sendActiveObscureRegionsToJoiner(joinerWs) {
+    for (const region of this.room?.obscureRegions?.values?.() || []) {
+      this.sendTo(joinerWs, { t: T.OBSCURE_REGION, u: ROOM_OVERLAY_SESSION_INDEX, g: JSON.stringify(region) });
     }
   }
 

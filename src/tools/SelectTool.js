@@ -625,6 +625,7 @@ export class SelectTool extends Tool {
     this.menuElements = {
       menu: document.getElementById('selectionMenu'),
       mask: document.getElementById('selMenuMask'),
+      obscure: document.getElementById('selMenuObscure'),
       clear: document.getElementById('selMenuClear'),
       clone: document.getElementById('selMenuClone'),
       fill: document.getElementById('selMenuFill'),
@@ -639,6 +640,7 @@ export class SelectTool extends Tool {
     if (!this.menuElements.menu) return;
 
     this.menuElements.mask?.addEventListener('click', () => this.toggleMaskMode());
+    this.menuElements.obscure?.addEventListener('click', () => this.obscureSelection());
     this.menuElements.clear.addEventListener('click', () => this.deleteSelection());
     this.menuElements.clone?.addEventListener('click', () => this.clone());
     this.menuElements.fill.addEventListener('click', () => this.fillSelection());
@@ -666,6 +668,7 @@ export class SelectTool extends Tool {
     const isEphemeralFloat = hasMoved && !this._restoreData;
 
     this.menuElements.mask?.classList.toggle('hidden', hasMoved);
+    this.menuElements.obscure?.classList.toggle('hidden', hasMoved || !this.canCreateObscureRegions());
     this.menuElements.mask?.classList.toggle('active', this.isMaskMode);
     this.menuElements.clear.classList.toggle('hidden', false);
     this.menuElements.clone?.classList.toggle('hidden', hasMoved);
@@ -696,7 +699,8 @@ export class SelectTool extends Tool {
           flip: 6,
           save: 7,
           clone: 8,
-          fill: 9
+          fill: 9,
+          obscure: 10
         }
       : {
           clear: 0,
@@ -708,7 +712,8 @@ export class SelectTool extends Tool {
           flip: 6,
           stamp: 7,
           apply: 8,
-          save: 9
+          save: 9,
+          obscure: 10
         };
 
     Object.entries(menuOrder).forEach(([key, order]) => {
@@ -3478,6 +3483,54 @@ export class SelectTool extends Tool {
     }
 
     return true;
+  }
+
+  obscureSelection() {
+    if (!this.selection || this.floatingCanvas) return false;
+    if (!this.canCreateObscureRegions()) {
+      this.board.app?.ui?.showToast?.('Only trusted users can create obscured regions', 3000);
+      return false;
+    }
+
+    const app = this.board.app;
+    if (!app) return false;
+
+    const s = (this.mode === 'lasso' && this.originalSelection) ? this.originalSelection : this.selection;
+    const payload = {
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      x: Math.round(s.x),
+      y: Math.round(s.y),
+      width: Math.max(1, Math.round(s.width)),
+      height: Math.max(1, Math.round(s.height))
+    };
+    if (this.mode === 'lasso' && this.lassoPath?.length >= 3) {
+      payload.lassoPath = this.lassoPath.map((point) => ({
+        x: Math.round(point.x),
+        y: Math.round(point.y)
+      }));
+    }
+
+    this.board.addObscureRegion(payload);
+    app.inputBufferManager?.queueBroadcast(
+      () => app.wsClient?.broadcastObscureRegion(payload),
+      { snapshot: false }
+    );
+    this.hideContextMenu();
+    this.clearSelection();
+    return true;
+  }
+
+  canCreateObscureRegions() {
+    const app = this.board.app;
+    const role = Math.max(
+      app?.selfRole ?? 0,
+      app?.selfRoomRole ?? 0,
+      app?.selfGlobalRole ?? 0,
+      app?.self?.role ?? 0,
+      app?.self?.roomRole ?? 0,
+      app?.self?.globalRole ?? 0
+    );
+    return role >= 2;
   }
 
   // Delete/clear selection content
