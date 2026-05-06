@@ -21,3 +21,5 @@ testing/legacy
 
 #WASM output
 wasm_src/target/
+testing/outputs/
+testing/diffs/

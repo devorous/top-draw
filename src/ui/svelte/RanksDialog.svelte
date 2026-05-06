@@ -61,12 +61,12 @@
     {
       name: 'Noble',
       color: 'var(--role-noble)',
-      abilities: ['Mute, kick, and wipe user strokes in all rooms', 'Can also receive room ranks', 'Displays with room rank on join'],
+      abilities: ['Mute, kick, and wipe user strokes in all rooms', 'Can also receive room ranks', 'Join messages include their room rank'],
     },
     {
       name: 'Holy',
       color: 'var(--role-holy)',
-      abilities: ['Owner-level room powers in all rooms', 'Ban and shadowban in all rooms'],
+      abilities: ['Owner-level room powers in all rooms', 'Ban users in all rooms'],
     },
     {
       name: 'Deity',
@@ -86,11 +86,6 @@
       </div>
 
       <div class="ranks-body">
-        <section class="rank-note">
-          <h3 class="section-label">Display</h3>
-          <p>Global ranks stack with room ranks in join messages, such as Noble Moderator or Holy Admin.</p>
-        </section>
-
         <section>
           <h3 class="section-label">Room Ranks</h3>
           <ul class="ranks-grid">

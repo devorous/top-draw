@@ -4,6 +4,16 @@
 
   const FINISHED_KEY = 'tutorial_v1_finished';
   const STOPPED_KEY = 'tutorial_v1_stopped';
+  const VISIT_MARKER_KEY = 'tutorial_v1_visit_marker';
+
+  const RETURNING_USER_STORAGE_KEYS = [
+    'topDrawAppPreferences',
+    'topDrawAuthToken',
+    'topdraw_customColors',
+    'topDrawCreatedRooms',
+    'topDrawFingerprintId',
+    'topDrawIdentitySummary'
+  ];
 
   const steps = [
     {
@@ -162,6 +172,7 @@
   ];
 
   let active = $state(false);
+  let promptVisible = $state(false);
   let index = $state(0);
   let rect = $state(null);
   let targetMissing = $state(false);
@@ -196,6 +207,48 @@
     } catch {
       // Storage can fail in private browsing; the tutorial should still run.
     }
+  }
+
+  function storageRemove(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Ignore storage failures.
+    }
+  }
+
+  function hasStorageKey(key) {
+    return storageGet(key) !== null;
+  }
+
+  function hasPriorSiteData() {
+    if (RETURNING_USER_STORAGE_KEYS.some(hasStorageKey)) return true;
+
+    try {
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        if (key === FINISHED_KEY || key === STOPPED_KEY || key === VISIT_MARKER_KEY || key === 'topDrawDeviceId') continue;
+        if (/^(topDraw|topdraw_|boardViewer)/.test(key)) return true;
+      }
+    } catch {
+      // If storage cannot be inspected, fall back to registered/login state.
+    }
+
+    return false;
+  }
+
+  function isRegisteredCurrentUser() {
+    return !!(
+      storageGet('topDrawAuthToken') ||
+      (appState.selfRole || 0) >= 1 ||
+      (appState.selfGlobalRole || 0) >= 1 ||
+      appState.self?.registeredName
+    );
+  }
+
+  function isReturningUser() {
+    return isRegisteredCurrentUser() || hasPriorSiteData() || storageGet(VISIT_MARKER_KEY) === 'true';
   }
 
   function isVisible(el) {
@@ -337,25 +390,36 @@
 
   function stop() {
     storageSet(STOPPED_KEY, 'true');
+    promptVisible = false;
     active = false;
   }
 
   function finish() {
     storageSet(FINISHED_KEY, 'true');
+    promptVisible = false;
     active = false;
   }
 
   function resetTutorial() {
-    try {
-      localStorage.removeItem(FINISHED_KEY);
-      localStorage.removeItem(STOPPED_KEY);
-    } catch {
-      // Ignore storage failures.
-    }
+    storageRemove(FINISHED_KEY);
+    storageRemove(STOPPED_KEY);
     index = 0;
     preparedStep = null;
+    promptVisible = false;
     active = true;
     scheduleSpotlight();
+  }
+
+  function startFromPrompt() {
+    index = 0;
+    preparedStep = null;
+    promptVisible = false;
+    active = true;
+    scheduleSpotlight();
+  }
+
+  function skipFromPrompt() {
+    stop();
   }
 
   function goToSection(section) {
@@ -366,10 +430,16 @@
   }
 
   function maybeStart() {
-    if (active || storageGet(FINISHED_KEY) || storageGet(STOPPED_KEY)) return;
+    if (active || promptVisible || storageGet(FINISHED_KEY) || storageGet(STOPPED_KEY)) return;
     const landing = document.getElementById('landingPage');
     const board = document.getElementById('boardContainer');
     if (isVisible(board) && !isVisible(landing)) {
+      const returning = isReturningUser();
+      storageSet(VISIT_MARKER_KEY, 'true');
+      if (returning) {
+        promptVisible = true;
+        return;
+      }
       active = true;
       scheduleSpotlight();
     }
@@ -489,6 +559,19 @@
   });
 </script>
 
+{#if promptVisible}
+  <div class="tutorialPromptLayer" role="presentation">
+    <div class="tutorialPrompt" role="dialog" aria-modal="true" aria-labelledby="tutorialPromptTitle">
+      <h2 id="tutorialPromptTitle">New short tutorial</h2>
+      <p>Want a quick tour of the new drawing tools and settings?</p>
+      <div class="tutorialPromptActions">
+        <button type="button" class="primary" onclick={startFromPrompt}>Start Tutorial</button>
+        <button type="button" onclick={skipFromPrompt}>Skip</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 {#if active}
   <div class="tutorialLayer" aria-live="polite">
     {#if rect}
@@ -542,7 +625,7 @@
       <div class="tutorialActions">
         <button type="button" onclick={back} disabled={index === 0}>Back</button>
         <button type="button" class="primary" onclick={next}>{index === total - 1 ? 'Finish' : 'Next'}</button>
-        <button type="button" onclick={stop}>Skip Tutorial</button>
+        <button type="button" onclick={stop}>Exit Tutorial</button>
       </div>
     </div>
   </div>
@@ -555,6 +638,47 @@
     z-index: 100000;
     pointer-events: none;
     font-family: inherit;
+  }
+
+  .tutorialPromptLayer {
+    position: fixed;
+    inset: 0;
+    z-index: 100001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.58);
+  }
+
+  .tutorialPrompt {
+    width: min(380px, 100%);
+    padding: 16px;
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.16));
+    border-radius: 8px;
+    background: var(--bg-secondary, #1f2530);
+    color: var(--text-primary, #f5f7fb);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.36);
+  }
+
+  .tutorialPrompt h2 {
+    margin: 0 0 8px;
+    font-size: 1rem;
+    line-height: 1.2;
+  }
+
+  .tutorialPrompt p {
+    margin: 0;
+    color: var(--text-secondary, #b7c0ce);
+    font-size: 0.86rem;
+    line-height: 1.35;
+  }
+
+  .tutorialPromptActions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
   }
 
   .tutorialScrim {
