@@ -104,6 +104,7 @@ export function setupSnapshotHandlers(wsClient, app) {
     for (const group of app.board.layerManager.layerGroups) {
       group.strokeStack = [];
       group.activeStrokeByUser.clear();
+      group.activePreviewByUser?.clear();
     }
     app.updateUndoRedoHud();
 

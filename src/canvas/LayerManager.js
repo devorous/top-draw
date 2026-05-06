@@ -153,6 +153,7 @@ export class LayerManager {
         strokeStack: [],
         userStrokeCounts: new Map(),
         activeStrokeByUser: new Map(),
+        activePreviewByUser: new Map(),
         flatCanvas: null,
         flatCtx: null
       };
@@ -436,6 +437,54 @@ export class LayerManager {
       this.needsComposite = true;
       this._notifyStrokeHistoryPanel();
     }
+    if (group.activePreviewByUser?.delete(userId)) {
+      this.needsComposite = true;
+    }
+  }
+
+  /**
+   * Track a transient, non-committed preview canvas for a user on a layer.
+   * The canvas is owned by the caller (usually a remote user's DOM preview
+   * canvas), so cleanup only removes the reference.
+   * @param {number} groupIdx - Layer index
+   * @param {number} userId - User ID
+   * @param {HTMLCanvasElement} canvas - Full-size preview canvas
+   * @param {string} [blendMode='source-over'] - Blend mode for compositing
+   */
+  setUserPreviewStroke(groupIdx, userId, canvas, blendMode = 'source-over') {
+    const group = this.layerGroups[groupIdx];
+    if (!group || !canvas) return;
+
+    for (const otherGroup of this.layerGroups) {
+      if (otherGroup !== group) {
+        otherGroup.activePreviewByUser?.delete(userId);
+      }
+    }
+
+    group.activePreviewByUser.set(userId, {
+      canvas,
+      blendMode: blendMode || 'source-over',
+      userId,
+      isPreview: true
+    });
+    this.needsComposite = true;
+  }
+
+  /**
+   * Clear a transient preview for a user.
+   * @param {number} userId - User ID
+   * @param {number|null} [groupIdx=null] - Optional layer index
+   */
+  clearUserPreviewStroke(userId, groupIdx = null) {
+    let removed = false;
+    if (Number.isFinite(groupIdx)) {
+      removed = this.layerGroups[groupIdx]?.activePreviewByUser?.delete(userId) || false;
+    } else {
+      for (const group of this.layerGroups) {
+        removed = group.activePreviewByUser?.delete(userId) || removed;
+      }
+    }
+    if (removed) this.needsComposite = true;
   }
 
   /**
@@ -664,6 +713,10 @@ export class LayerManager {
         const active = group.activeStrokeByUser.get(targetUserId);
         this._releaseCanvas(active);
         group.activeStrokeByUser.delete(targetUserId);
+        removed = true;
+      }
+
+      if (group.activePreviewByUser?.delete(targetUserId)) {
         removed = true;
       }
 
@@ -1433,6 +1486,9 @@ export class LayerManager {
     for (const [, active] of group.activeStrokeByUser) {
       if (active.blendMode === 'destination-out') return true;
     }
+    for (const [, preview] of group.activePreviewByUser || []) {
+      if (preview.blendMode === 'destination-out') return true;
+    }
     return false;
   }
 
@@ -1463,6 +1519,10 @@ export class LayerManager {
       if (!simpleBlendModes.includes(active.blendMode)) return true;
     }
 
+    for (const [, preview] of group.activePreviewByUser || []) {
+      if (!simpleBlendModes.includes(preview.blendMode)) return true;
+    }
+
     return false;
   }
 
@@ -1488,6 +1548,10 @@ export class LayerManager {
 
       for (const [, active] of group.activeStrokeByUser) {
         if (active.blendMode !== 'source-over') return true;
+      }
+
+      for (const [, preview] of group.activePreviewByUser || []) {
+        if (preview.blendMode !== 'source-over') return true;
       }
     }
     return false;
@@ -1516,6 +1580,10 @@ export class LayerManager {
 
     for (const [, active] of group.activeStrokeByUser) {
       this._compositeStroke(ctx, active, true, dirtyRects);
+    }
+
+    for (const [, preview] of group.activePreviewByUser || []) {
+      this._compositeStroke(ctx, preview, true, dirtyRects);
     }
 
     ctx.globalCompositeOperation = 'source-over';
@@ -1921,7 +1989,9 @@ export class LayerManager {
    * @private
    */
   _compositeGroupWithFlatCanvas(targetCtx, group, bgColor = null, dirtyRects = null) {
-    const hasUnbaked = group.strokeStack.length > 0 || group.activeStrokeByUser.size > 0;
+    const hasUnbaked = group.strokeStack.length > 0 ||
+      group.activeStrokeByUser.size > 0 ||
+      (group.activePreviewByUser?.size ?? 0) > 0;
 
     if (!hasUnbaked) {
       targetCtx.globalCompositeOperation = 'source-over';
@@ -1955,7 +2025,10 @@ export class LayerManager {
       }
     }
 
-    const activeStrokes = Array.from(group.activeStrokeByUser.values());
+    const activeStrokes = [
+      ...Array.from(group.activeStrokeByUser.values()),
+      ...Array.from(group.activePreviewByUser?.values?.() || [])
+    ];
     const isBlendStroke = (active) =>
       active.blendMode !== 'source-over' && active.blendMode !== 'destination-out';
 
@@ -2046,6 +2119,10 @@ export class LayerManager {
       this._compositeStrokeSequential(targetCtx, active, lowerSnap, true, dirtyRects);
     }
 
+    for (const [, preview] of group.activePreviewByUser || []) {
+      this._compositeStrokeSequential(targetCtx, preview, lowerSnap, true, dirtyRects);
+    }
+
     targetCtx.globalCompositeOperation = 'source-over';
   }
 
@@ -2105,6 +2182,10 @@ export class LayerManager {
 
     for (const [, active] of group.activeStrokeByUser) {
       this._compositeStroke(bufferCtx, active, true, dirtyRects);
+    }
+
+    for (const [, preview] of group.activePreviewByUser || []) {
+      this._compositeStroke(bufferCtx, preview, true, dirtyRects);
     }
 
     bufferCtx.globalCompositeOperation = 'source-over';
@@ -2200,6 +2281,7 @@ export class LayerManager {
       group.strokeStack = [];
       group.userStrokeCounts.clear();
       group.activeStrokeByUser.clear();
+      group.activePreviewByUser?.clear();
       if (group.flatCanvas) {
         group.flatCtx.clearRect(0, 0, this.width, this.height);
       }
@@ -2397,6 +2479,7 @@ export class LayerManager {
         group.activeStrokeByUser.delete(userId);
         this._releaseCanvas(active);
       }
+      group.activePreviewByUser?.delete(userId);
     }
     this.needsComposite = true;
   }
@@ -2430,6 +2513,7 @@ export class LayerManager {
         group.activeStrokeByUser.delete(userId);
         this._disposeCanvasObject(active);
       }
+      group.activePreviewByUser?.delete(userId);
 
       const retainedStrokes = [];
       for (const stroke of group.strokeStack) {
@@ -2493,6 +2577,7 @@ export class LayerManager {
         group.activeStrokeByUser.delete(userId);
         this._disposeCanvasObject(active);
       }
+      group.activePreviewByUser?.delete(userId);
 
       const retainedStrokes = [];
       for (const stroke of group.strokeStack) {
@@ -2555,6 +2640,7 @@ export class LayerManager {
 
     for (const group of this.layerGroups) {
       stats.activeStrokes += group.activeStrokeByUser.size;
+      stats.activeStrokes += group.activePreviewByUser?.size ?? 0;
       stats.strokeStack += group.strokeStack.length;
       stats.bakedSequences += group.bakedSequences.length;
       for (const seq of group.bakedSequences) {

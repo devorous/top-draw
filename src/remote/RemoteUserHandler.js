@@ -52,6 +52,56 @@ export class RemoteUserHandler {
     return user?._strokeLayer ?? user?.activeLayer ?? 0;
   }
 
+  _usesLayeredRemotePreview(user) {
+    return !!user && [
+      'brush',
+      'line',
+      'rectangle',
+      'circle',
+      'flowPen',
+      'ink',
+      'pattern'
+    ].includes(user.tool);
+  }
+
+  _syncLayeredRemotePreview(user, dirtyRect = null) {
+    if (!this._usesLayeredRemotePreview(user) || !user?.context?.canvas) return;
+
+    if (!user.mousedown || user.panning) {
+      this._clearLayeredRemotePreview(user);
+      return;
+    }
+
+    const layerIndex = this.getStrokeLayer(user);
+    if (!this.board.layerManager?.isLayerVisible?.(layerIndex)) {
+      this._clearLayeredRemotePreview(user);
+      return;
+    }
+
+    const blendMode = this.board.layerManager.getLayerAllowComplexBlendModes(layerIndex)
+      ? (user.blendMode || 'source-over')
+      : 'source-over';
+    this.board.layerManager.setUserPreviewStroke(layerIndex, user.id, user.context.canvas, blendMode);
+    user._layeredPreviewActive = true;
+    if (user.board) user.board.style.opacity = '0';
+
+    if (dirtyRect && Number.isFinite(dirtyRect.x) && Number.isFinite(dirtyRect.y) && dirtyRect.width > 0 && dirtyRect.height > 0) {
+      this.board.compositeTileGrid?.markRect(dirtyRect.x, dirtyRect.y, dirtyRect.width, dirtyRect.height);
+    } else {
+      this.board.markCompositeFull?.();
+    }
+    this.board.requestUpdate?.();
+  }
+
+  _clearLayeredRemotePreview(user) {
+    if (!user) return;
+    this.board.layerManager?.clearUserPreviewStroke?.(user.id);
+    if (user._layeredPreviewActive && user.board) {
+      user.board.style.opacity = '';
+    }
+    user._layeredPreviewActive = false;
+  }
+
   /**
    * Processes remote mouse movement and updates drawing state.
    *
@@ -89,6 +139,7 @@ export class RemoteUserHandler {
     if (!user.panning && user.mousedown && user.tool === 'pattern') {
       const tool = this.toolManager.getTool('pattern');
       if (tool) tool.remoteStampMask(user, smoothedPoints);
+      this._syncLayeredRemotePreview(user);
       if (smoothedPoints.length >= 2) {
         this.ui.updateRemoteCursor(user.id, smoothedPoints[smoothedPoints.length - 2], smoothedPoints[smoothedPoints.length - 1], user.size);
       }
@@ -107,6 +158,7 @@ export class RemoteUserHandler {
         ? radii
         : new Array(smoothedPoints.length / 2).fill(Math.round((user.pressure ?? 1) * 255));
       this.inkHandler.handleInkPoints(user, smoothedPoints, inkRadii);
+      this._syncLayeredRemotePreview(user);
       if (smoothedPoints.length >= 2) {
         this.ui.updateRemoteCursor(user.id, smoothedPoints[smoothedPoints.length - 2], smoothedPoints[smoothedPoints.length - 1], user.size);
       }
@@ -127,6 +179,7 @@ export class RemoteUserHandler {
         if (tool) tool.applyStamps(user, smoothedPoints, radii);
       } else {
         this.penHandler.handlePenStamps(user, smoothedPoints, radii);
+        this._syncLayeredRemotePreview(user);
       }
       if (smoothedPoints.length >= 2) {
         this.ui.updateRemoteCursor(user.id, smoothedPoints[smoothedPoints.length - 2], smoothedPoints[smoothedPoints.length - 1], user.size);
@@ -303,11 +356,13 @@ export class RemoteUserHandler {
 
       case 'flowPen':
         this.penHandler.handlePenMove(user, pos);
+        this._syncLayeredRemotePreview(user);
         break;
 
       case 'ink': {
         const pressure255 = Math.round((user.pressure ?? 1) * 255);
         this.inkHandler.handleInkPoints(user, [pos.x, pos.y], [pressure255]);
+        this._syncLayeredRemotePreview(user);
         break;
       }
 
@@ -413,6 +468,8 @@ export class RemoteUserHandler {
     if (user.isMaskMode && user.maskSelection) {
       this.selectionHandler?.drawStaticMaskOutline(user, user.maskSelection, false);
     }
+
+    this._syncLayeredRemotePreview(user);
   }
 
   /**
@@ -481,10 +538,12 @@ export class RemoteUserHandler {
 
       case 'flowPen':
         this.penHandler.handlePenDown(user, pos);
+        this._syncLayeredRemotePreview(user);
         break;
 
       case 'ink':
         this.inkHandler.handleInkDown(user, pos);
+        this._syncLayeredRemotePreview(user);
         break;
 
       case 'erase':
@@ -806,6 +865,7 @@ export class RemoteUserHandler {
         this.selectionHandler?.drawStaticMaskOutline(user, user.maskSelection, false);
       }
     }
+    this._clearLayeredRemotePreview(user);
 
     // Check erased tiles and clear ownership for empty ones (don't broadcast - remote user handles that)
     if (erasedTiles && erasedTiles.size > 0) {
@@ -1424,6 +1484,7 @@ export class RemoteUserHandler {
       this.debugOverlay.endStrokeTracking?.(user.id);
     }
 
+    this._clearLayeredRemotePreview(user);
     this._invalidateFillPreview(user);
     this.selectionHandler?._cleanupUserSelection?.(user);
 
@@ -1703,6 +1764,7 @@ export class RemoteUserHandler {
    */
   commitLine(user, newPressure, newSize) {
     user.context.clearRect(0, 0, this.board.getWidth(), this.board.getHeight());
+    this._clearLayeredRemotePreview(user);
 
     const lastDrawnPos = user.currentLine.length > 0
       ? user.currentLine[user.currentLine.length - 1]
