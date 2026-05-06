@@ -11,6 +11,7 @@ const DEFAULT_FRAME_RATE = 60;
 const MIN_FRAME_RATE = 5;
 const MAX_FRAME_RATE = 144;
 const INTERACTION_RENDER_GRACE_MS = 120;
+const VIEWPORT_BACKGROUND = '#121212';
 
 export class BoardViewer {
   constructor(app) {
@@ -385,11 +386,9 @@ export class BoardViewer {
   _tick(now = performance.now()) {
     this.rafId = null;
     const renderingPanel = this.visible;
-    const popoutOpen = this.isPopoutOpen();
     const sendingTauri = !!this.tauriPopoutWindow;
-    const renderingPopout = popoutOpen && !sendingTauri && !!this.popoutCanvas;
 
-    if (!renderingPanel && !renderingPopout && !sendingTauri) return;
+    if (!renderingPanel && !sendingTauri) return;
 
     const interactiveRender = now < this._interactiveRenderUntil;
     const minInterval = interactiveRender ? 0 : 1000 / this.frameRate;
@@ -400,7 +399,6 @@ export class BoardViewer {
     this._lastRenderAt = now;
 
     if (renderingPanel) this._renderTo(this.canvas, this.ctx, this.stage, this.zoomLabel);
-    if (renderingPopout) this._renderPopout();
     if (sendingTauri) this._sendTauriFrame(now);
 
     this._scheduleTick();
@@ -425,8 +423,7 @@ export class BoardViewer {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, rect.width, rect.height);
     ctx.imageSmoothingEnabled = this.viewZoom < 4;
-    const [r, g, b, a = 1] = this.board.getCompositeBackgroundColor();
-    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+    ctx.fillStyle = VIEWPORT_BACKGROUND;
     ctx.fillRect(0, 0, rect.width, rect.height);
     ctx.setTransform(dpr * this.viewZoom, 0, 0, dpr * this.viewZoom, dpr * this.panX, dpr * this.panY);
     ctx.drawImage(this.board.mainCanvas, 0, 0);
@@ -460,9 +457,9 @@ export class BoardViewer {
     this.popoutCanvas = popout.document.getElementById('boardViewerPopoutCanvas');
     this.popoutCtx = this.popoutCanvas.getContext('2d');
     this.popoutZoomLabel = popout.document.querySelector('[data-action="reset"]');
-    this._bindControls(popout.document.querySelector('.boardViewerPopoutControls'), () => this.popoutStage);
-    this._bindPanZoomStage(this.popoutStage, () => this.popoutStage, '_popoutDragState');
+    popout.__topDrawBoardViewer = this._createPopoutRuntime(popout);
     popout.addEventListener('beforeunload', () => {
+      popout.__topDrawBoardViewer?.destroy?.();
       this.popout = null;
       this.popoutStage = null;
       this.popoutCanvas = null;
@@ -569,6 +566,7 @@ export class BoardViewer {
         type: 'board-viewer-frame',
         width,
         height,
+        viewportBackground: VIEWPORT_BACKGROUND,
         imageData: ctx.getImageData(0, 0, width, height)
       });
     } catch (error) {
@@ -580,10 +578,10 @@ export class BoardViewer {
 
   _getPopoutHtml() {
     return `<!doctype html><html><head><title>Board View</title><style>
-      html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#151922;color:#f4f7fb;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+      html,body{margin:0;width:100%;height:100%;overflow:hidden;background:${VIEWPORT_BACKGROUND};color:#f4f7fb;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
       *{box-sizing:border-box}
       .boardViewerPopout{position:relative;width:100vw;height:100vh}
-      .boardViewerPopoutStage{width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;touch-action:none;cursor:grab;background:#1b1f27}
+      .boardViewerPopoutStage{width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;touch-action:none;cursor:grab;background:${VIEWPORT_BACKGROUND}}
       .boardViewerPopoutStage:active{cursor:grabbing}
       canvas{width:100%;height:100%;display:block;cursor:grab}
       .boardViewerPopoutControls{position:absolute;left:0;bottom:0;display:flex;gap:4px;align-items:center;padding:2px;background:rgba(32,38,49,.84);border:1px solid rgba(255,255,255,.14);border-left:0;border-bottom:0;border-radius:0 6px 0 0;box-shadow:0 8px 24px rgba(0,0,0,.32);backdrop-filter:blur(10px)}
@@ -599,10 +597,139 @@ export class BoardViewer {
           <button type="button" data-action="zoomIn" title="Zoom in">+</button>
         </div>
       </section>
+      <script>
+        window.__TOP_DRAW_POPOUT_CONFIG__ = {
+          minViewZoom: ${MIN_VIEW_ZOOM},
+          maxViewZoom: ${MAX_VIEW_ZOOM},
+          viewportBackground: '${VIEWPORT_BACKGROUND}'
+        };
+      </script>
     </body></html>`;
   }
 
   _renderPopout() {
     this._renderTo(this.popoutCanvas, this.popoutCtx, this.popoutStage, this.popoutZoomLabel);
+  }
+
+  _createPopoutRuntime(popout) {
+    const config = popout.__TOP_DRAW_POPOUT_CONFIG__ || {};
+    const stage = popout.document.querySelector('.boardViewerPopoutStage');
+    const canvas = popout.document.getElementById('boardViewerPopoutCanvas');
+    const ctx = canvas.getContext('2d');
+    const zoomLabel = popout.document.querySelector('[data-action="reset"]');
+    const controls = popout.document.querySelector('.boardViewerPopoutControls');
+    const minZoom = config.minViewZoom ?? MIN_VIEW_ZOOM;
+    const maxZoom = config.maxViewZoom ?? MAX_VIEW_ZOOM;
+    const viewportBackground = config.viewportBackground || VIEWPORT_BACKGROUND;
+
+    let viewZoom = this.viewZoom;
+    let panX = this.panX;
+    let panY = this.panY;
+    let dragState = null;
+    let rafId = null;
+
+    const draw = () => {
+      const rect = stage.getBoundingClientRect();
+      const dpr = 1;
+      const width = Math.max(1, Math.floor(rect.width * dpr));
+      const height = Math.max(1, Math.floor(rect.height * dpr));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      ctx.imageSmoothingEnabled = viewZoom < 4;
+      ctx.fillStyle = viewportBackground;
+      ctx.fillRect(0, 0, rect.width, rect.height);
+      ctx.setTransform(dpr * viewZoom, 0, 0, dpr * viewZoom, dpr * panX, dpr * panY);
+      ctx.drawImage(this.board.mainCanvas, 0, 0);
+      if (this.board.upperLayersCanvas) ctx.drawImage(this.board.upperLayersCanvas, 0, 0);
+      for (const userBoard of document.querySelectorAll('.userBoard')) {
+        if (userBoard === this.board.topCanvas) continue;
+        if (userBoard.style.display !== 'none') ctx.drawImage(userBoard, 0, 0);
+      }
+      ctx.drawImage(this.board.topCanvas, 0, 0);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (zoomLabel) zoomLabel.textContent = `${Math.round(viewZoom * 100)}%`;
+    };
+
+    const tick = () => {
+      rafId = popout.requestAnimationFrame(tick);
+      draw();
+    };
+
+    const fit = () => {
+      const rect = stage.getBoundingClientRect();
+      const width = this.board.getWidth();
+      const height = this.board.getHeight();
+      viewZoom = Math.min(rect.width / width, rect.height / height);
+      panX = (rect.width - width * viewZoom) / 2;
+      panY = (rect.height - height * viewZoom) / 2;
+      draw();
+    };
+
+    const zoomAt = (nextZoom, pivotX = null, pivotY = null) => {
+      const rect = stage.getBoundingClientRect();
+      const px = pivotX ?? rect.width / 2;
+      const py = pivotY ?? rect.height / 2;
+      const oldZoom = viewZoom;
+      const clamped = Math.max(minZoom, Math.min(maxZoom, nextZoom));
+      const boardX = (px - panX) / oldZoom;
+      const boardY = (py - panY) / oldZoom;
+      viewZoom = clamped;
+      panX = px - boardX * clamped;
+      panY = py - boardY * clamped;
+      draw();
+    };
+
+    const onControlClick = (event) => {
+      const action = event.target.closest('button')?.dataset.action;
+      if (action === 'zoomIn') zoomAt(viewZoom * 1.2);
+      if (action === 'zoomOut') zoomAt(viewZoom / 1.2);
+      if (action === 'reset') fit();
+    };
+    const onPointerDown = (event) => {
+      event.preventDefault();
+      stage.setPointerCapture(event.pointerId);
+      dragState = { x: event.clientX, y: event.clientY, panX, panY };
+    };
+    const onPointerMove = (event) => {
+      if (!dragState) return;
+      panX = dragState.panX + event.clientX - dragState.x;
+      panY = dragState.panY + event.clientY - dragState.y;
+      this.followUserId = null;
+    };
+    const endPointer = () => { dragState = null; };
+    const onWheel = (event) => {
+      event.preventDefault();
+      zoomAt(viewZoom * Math.pow(2, -event.deltaY / 360), event.offsetX, event.offsetY);
+      this.followUserId = null;
+    };
+
+    controls.addEventListener('click', onControlClick);
+    stage.addEventListener('pointerdown', onPointerDown);
+    stage.addEventListener('pointermove', onPointerMove);
+    stage.addEventListener('pointerup', endPointer);
+    stage.addEventListener('pointercancel', endPointer);
+    stage.addEventListener('wheel', onWheel, { passive: false });
+    popout.addEventListener('resize', fit);
+
+    fit();
+    rafId = popout.requestAnimationFrame(tick);
+
+    return {
+      destroy: () => {
+        if (rafId != null) popout.cancelAnimationFrame(rafId);
+        controls.removeEventListener('click', onControlClick);
+        stage.removeEventListener('pointerdown', onPointerDown);
+        stage.removeEventListener('pointermove', onPointerMove);
+        stage.removeEventListener('pointerup', endPointer);
+        stage.removeEventListener('pointercancel', endPointer);
+        stage.removeEventListener('wheel', onWheel);
+        popout.removeEventListener('resize', fit);
+      }
+    };
   }
 }

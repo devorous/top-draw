@@ -26,6 +26,7 @@ let panX = 0;
 let panY = 0;
 let dragState = null;
 let fitted = false;
+let viewportBackground = '#121212';
 
 function fitToStage() {
   if (!latestFrame) return;
@@ -62,7 +63,7 @@ function render() {
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, rect.width, rect.height);
-  ctx.fillStyle = '#1b1f27';
+  ctx.fillStyle = viewportBackground;
   ctx.fillRect(0, 0, rect.width, rect.height);
 
   if (latestFrame) {
@@ -83,6 +84,11 @@ channel.onmessage = (event) => {
     width: message.width,
     height: message.height
   };
+  if (typeof message.viewportBackground === 'string') {
+    viewportBackground = message.viewportBackground;
+    stage.style.backgroundColor = viewportBackground;
+    document.body.style.backgroundColor = viewportBackground;
+  }
   if (frameCanvas.width !== message.width || frameCanvas.height !== message.height) {
     frameCanvas.width = message.width;
     frameCanvas.height = message.height;
