@@ -3468,9 +3468,9 @@ export class DrawingApp {
   }
 
   async checkForRuntimeUpdate({ force = true } = {}) {
-    // Only run if we're awaiting a server restart (detected disconnect with code 4000)
-    // or if this is the Tauri desktop app
-    if (!this._awaitingServerRestart && !isTauriDesktop()) return;
+    // Keep both desktop and browser clients honest after deploys. Desktop can
+    // hand off to the native updater; browser clients need the durable reload
+    // banner even when they stayed connected through an update notice.
     // Only run if WebSocket is connected (new server is reachable)
     if (!this.wsClient?.connected) return;
     // Only show the prompt once per restart cycle
