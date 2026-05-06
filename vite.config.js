@@ -90,10 +90,24 @@ export default defineConfig({
       },
       output: {
         manualChunks(id) {
+          // Vendor chunks
           if (id.includes('protobufjs')) return 'vendor-proto';
           if (id.includes('perfect-freehand')) return 'vendor-freehand';
           if (id.includes('stackblur')) return 'vendor-blur';
           if (id.includes('node_modules/svelte')) return 'vendor-svelte';
+
+          // App code chunks (via dynamic imports in main.js)
+          // auth-landing.js and its dependencies (Auth, LandingPage, WebSocketClient, etc.)
+          // are dynamically imported and will form their own chunk
+          if (id.includes('/auth/Auth.js') ||
+              id.includes('/ui/LandingPage.js') ||
+              (id.includes('/network/WebSocketClient.js') && !id.includes('App.js'))) {
+            return 'auth-landing';
+          }
+
+          // Large Svelte components that are part of the drawing app
+          // These stay with App.js for now since they're loaded with the app
+          // Individual lazy-loading can be added later if needed
         },
         chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',

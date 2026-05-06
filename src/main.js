@@ -191,13 +191,34 @@ async function bootApp() {
     }, APP_BOOT_TIMEOUT_MS);
 
     try {
+      updateShellStatus('connecting', 'Loading auth system...');
+      const { initLandingPhase } = await import('./auth-landing.js');
+
+      // Start landing phase (auth + room discovery)
+      const landingPhaseResult = await initLandingPhase({
+        serverUrl: wsServerUrl,
+        onRoomSelected: async (roomId) => {
+          // When user selects a room, ensure DrawingApp is loaded
+          await appBootPromise;
+        },
+        onOffline: async () => {
+          // When user enters offline mode, ensure DrawingApp is loaded
+          await appBootPromise;
+        }
+      });
+
+      const { wsClient, auth, landingPage, appPreferences } = landingPhaseResult;
+
+      // Start loading DrawingApp in parallel
       updateShellStatus('connecting', 'Loading app code...');
       const { DrawingApp } = await importDrawingApp();
 
       updateShellStatus('connecting', 'Starting app...');
-      const instance = new DrawingApp({
+      const instance = new DrawingApp(wsClient, {
         dimensions: [1080, 1920],
-        serverUrl: wsServerUrl
+        auth,
+        landingPage,
+        appPreferences
       });
 
       await instance.init();

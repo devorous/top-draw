@@ -5,7 +5,6 @@ import { packColor } from '../shared/ColorUtils.js';
 import { User } from './User.js';
 import { Board } from './canvas/Board.js';
 import { ToolManager, BrushTool } from './tools/Tools.js';
-import { WebSocketClient } from './network/WebSocketClient.js';
 import { UI } from './ui/index.js';
 import { BrushGalleryLoader } from './ui/BrushGalleryLoader.js';
 import { PatternBrushGallery } from './ui/PatternBrushGallery.js';
@@ -16,10 +15,8 @@ import { setupWebSocketHandlers } from './network/WebSocketHandlers.js';
 import { DebugOverlay, SyncClient } from './sync/index.js';
 import { douglasPeucker, distanceBasedCulling } from './utils/drawing.js';
 import { bindPressAction } from './utils/buttonBinding.js';
-import { Auth } from './auth/Auth.js';
 import { Moderation } from './auth/Moderation.js';
 import { ColorInputMenu } from './ui/ColorInputMenu.js';
-import { LandingPage } from './ui/LandingPage.js';
 import { ToolLockManager } from './tools/ToolLockManager.js';
 import { InputBufferManager } from './input/InputBufferManager.js';
 import { KeyboardHandler } from './input/KeyboardHandler.js';
@@ -227,18 +224,25 @@ function applyLocalBoardBackgroundOverride(board, hexColor = null) {
  */
 export class DrawingApp {
   /**
+   * @param {WebSocketClient} wsClient - Pre-configured WebSocket client from auth-landing phase.
    * @param {Object} options - Application configuration options.
    * @param {Array<number>} [options.dimensions=[1080, 1920]] - Board dimensions.
-   * @param {string} [options.serverUrl] - WebSocket server URL.
+   * @param {Object} [options.auth] - Auth instance from auth-landing phase.
+   * @param {Object} [options.appPreferences] - App preferences from auth-landing phase.
    */
-  constructor(options = {}) {
+  constructor(wsClient, options = {}) {
+    this.wsClient = wsClient; // Use WebSocketClient from auth-landing phase
+    // onConnect/onDisconnect callbacks are set up in init() after this.self is created
+
     this.sessionIndex = null;
     this.users = new Map();
     this.fingerprintIdUserColorCache = new Map(); // Map fingerprint ID -> color for persistent user identification
     this.connected = false;
     this.previousTool = null;
     this.intentionalDisconnect = false;
-    this.appPreferences = loadAppPreferences();
+
+    // Use provided appPreferences or load fresh
+    this.appPreferences = options.appPreferences || loadAppPreferences();
     applyThemeColors(this.appPreferences?.general?.themeColors);
     applySidebarSide(this.appPreferences?.general?.sidebarSide);
     applyChatOpacity(this.appPreferences?.general?.chatOpacity);
@@ -254,45 +258,15 @@ export class DrawingApp {
     this._pendingSelMoveData = null; // Stores { corners, x, y }
     this._isSelLiftDataLoading = false;
 
-    // Selection state for asynchronous imageData loading
-    this._pendingSelLiftImageDataUrl = null;
-    this._pendingSelLiftRect = null;
-    this._pendingSelLiftLassoPath = null;
-    this._pendingSelMoveData = null; // Stores { corners, x, y }
-    this._isSelLiftDataLoading = false;
+    // Deferred initialization (moved from constructor to init())
+    this.board = null;
+    this.toolManager = null;
+    this.ui = null;
+    this.brushGallery = null;
+    this.patternGallery = null;
+    this.colorInputMenu = null;
 
-    this.board = new Board({
-      dimensions: options.dimensions || [1080, 1920]
-    });
-    applyLocalBoardBackgroundOverride(this.board, this.appPreferences?.general?.localBoardBackgroundColor);
-
-    this.toolManager = new ToolManager(this.board);
-    this.ui = new UI();
-
-
-    // Vanilla JS components (to be replaced by Svelte)
-    // this.chat = new Chat({...});
-    // this.colorPalette = new ColorPalette({...});
-    // NOTE: Chat and ColorPalette now managed by Svelte components
-
-    this.brushGallery = new BrushGalleryLoader({
-      onSelect: (brush) => this.handleBrushSelect(brush),
-      onUpload: () => this.ui.elements.brushFileInput?.click(),
-      assetLibrary
-    });
-    this.patternGallery = new PatternBrushGallery({
-      onSelect: (brush) => this.handlePatternBrushSelect(brush),
-      onUpload: () => this.handlePatternImageBtnClick(),
-      assetLibrary
-    });
-
-    // Svelte components will be initialized in init()
-    this.svelteComponents = null;
-
-    this.colorInputMenu = new ColorInputMenu({
-      onColorChange: (rgba) => this.handleColorInputChange(rgba)
-    });
-
+    // Color picker state (initialized but used in init())
     this.colorPicker = null;
     this.colorPickers = [];
     this.colorPickerResizeObservers = [];
@@ -301,12 +275,6 @@ export class DrawingApp {
     this.activeColorSlot = 'primary';
     this.colorSlotElements = [];
     this.colorPickerHexInputs = [];
-
-    this.wsClient = new WebSocketClient({
-      serverUrl: options.serverUrl,
-      onConnect: (sessionIndex) => this.handleWSConnect(sessionIndex),
-      onDisconnect: (code, reason) => this.handleWSDisconnect(code, reason)
-    });
 
     this.self = null;
     this.isOnBoard = false;
@@ -317,20 +285,18 @@ export class DrawingApp {
     this.regionTracker = null;
     this.syncClient = null;
     this.mirrorRegionController = null;
-    this.auth = null;
-    this.moderation = null;
-    this.landingPage = null;
-    this.roomSettings = null;
+    this.moderation = new Moderation();
+    this.auth = options.auth || null; // From auth-landing phase
+    this.landingPage = options.landingPage || null; // From auth-landing phase
     this.currentRoomId = null;
     this.currentRoomData = null;
     this._pendingLandingLogin = false;
     this.selfRole = 0;
-    this.moderation = new Moderation();
     // this.profileDialog = new ProfileDialog(); // Now Svelte component
 
     this.inputBufferManager = new InputBufferManager(this);
     this.wsClient.getLowPowerMode = () => this.inputBufferManager.lowPowerMode;
-    this._applyLowPowerPreference();
+    // _applyLowPowerPreference() is called in init() after board is created
 
     this.shapeDrawMode = 'corner-to-corner';
     this.modifierKeys = {
@@ -568,12 +534,42 @@ export class DrawingApp {
    */
   async init() {
     window.app = this; // Set global reference early
+
+    // Initialize heavy subsystems (deferred from constructor)
+    updateStartupStatus('Preparing drawing engine...');
+    this.board = new Board({
+      dimensions: [1080, 1920]
+    });
+    applyLocalBoardBackgroundOverride(this.board, this.appPreferences?.general?.localBoardBackgroundColor);
+
+    this.toolManager = new ToolManager(this.board);
+    this.ui = new UI();
+
+    this.brushGallery = new BrushGalleryLoader({
+      onSelect: (brush) => this.handleBrushSelect(brush),
+      onUpload: () => this.ui.elements.brushFileInput?.click(),
+      assetLibrary
+    });
+    this.patternGallery = new PatternBrushGallery({
+      onSelect: (brush) => this.handlePatternBrushSelect(brush),
+      onUpload: () => this.handlePatternImageBtnClick(),
+      assetLibrary
+    });
+
+    this.colorInputMenu = new ColorInputMenu({
+      onColorChange: (rgba) => this.handleColorInputChange(rgba)
+    });
+
     updateStartupStatus('Loading WASM...');
     await withTimeout(initWasm(), WASM_INIT_TIMEOUT_MS, 'WASM failed to load in time');
     updateStartupStatus('Preparing UI...');
     this.ui.init();
     this.ui.applySidebarWidths(this.appPreferences);
     this.createSelf();
+
+    // Wire up WebSocket callbacks now that this.self exists
+    this.wsClient.onConnect = (sessionIndex) => this.handleWSConnect(sessionIndex);
+    this.wsClient.onDisconnect = (code, reason) => this.handleWSDisconnect(code, reason);
     updateStartupStatus('Preparing board...');
     this.board.setUseDesynchronizedBoardContexts(this.appPreferences?.general?.useDesynchronizedBoardContexts);
     this.board.init('#boardContainer');
@@ -649,21 +645,17 @@ export class DrawingApp {
     };
 
     updateStartupStatus('Loading account...');
-    this.auth = new Auth({
-      wsClient: this.wsClient,
-      onSuccess: (token, role, username, globalRole, roomRole) => this.handleAuthSuccess(token, role, username, globalRole, roomRole),
-      onError: (error) => this.handleAuthError(error)
-    });
-    this.auth.init();
+    // Auth and LandingPage were created in auth-landing phase, wire up app callbacks
+    if (this.auth) {
+      this.auth.onSuccess = (token, role, username, globalRole, roomRole) => this.handleAuthSuccess(token, role, username, globalRole, roomRole);
+      this.auth.onError = (error) => this.handleAuthError(error);
+    }
 
     updateStartupStatus('Loading rooms...');
-    this.landingPage = new LandingPage({
-      wsClient: this.wsClient,
-      auth: this.auth,
-      onRoomSelected: (roomId, password, settings) => this.handleRoomSelected(roomId, password, settings),
-      onOffline: () => this.handleOffline()
-    });
-    this.landingPage.init();
+    if (this.landingPage) {
+      this.landingPage.onRoomSelected = (roomId, password, settings) => this.handleRoomSelected(roomId, password, settings);
+      this.landingPage.onOffline = () => this.handleOffline();
+    }
 
     // RoomSettings now Svelte component (initialized in initSvelteUI)
     // this.roomSettings = new RoomSettings({...});
