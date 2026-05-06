@@ -1,9 +1,12 @@
 /** @fileoverview Lightweight landing bootstrap that background-loads the drawing app. */
 
+import { inject } from '@vercel/analytics';
 import './css/main.scss';
 import { scheduleStartupUpdateCheck } from './platform/updater.js';
 import { initializeVersionCheck } from './VersionChecker.js';
 import { installAppConfirmGlobal } from './ui/ConfirmDialog.js';
+
+inject();
 
 installAppConfirmGlobal();
 

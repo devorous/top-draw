@@ -1,6 +1,9 @@
 import { mount } from 'svelte';
+import { inject } from '@vercel/analytics';
 import Gallery from './Gallery.svelte';
 import { installAppConfirmGlobal } from '../ui/ConfirmDialog.js';
+
+inject();
 
 installAppConfirmGlobal();
 

@@ -1,3 +1,4 @@
+import { inject } from '@vercel/analytics';
 import '../css/main.scss';
 
 import { mount } from 'svelte';
@@ -5,6 +6,8 @@ import { mount } from 'svelte';
 import Chat from '../ui/svelte/Chat.svelte';
 import { isTauriDesktop } from '../platform/desktop.js';
 import { initChatPopoutClient, sendChatPopoutAction } from '../platform/chatPopoutBridge.js';
+
+inject();
 
 if (!isTauriDesktop()) {
   window.location.replace('/go/');

@@ -1,4 +1,7 @@
+import { inject } from '@vercel/analytics';
 import { isTauriDesktop } from '../platform/desktop.js';
+
+inject();
 
 if (!isTauriDesktop()) {
   window.location.replace('/go/');
