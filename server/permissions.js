@@ -40,8 +40,7 @@ export const Action = Object.freeze({
 });
 
 // ── Permission map ───────────────────────────────────────────────────
-// Every action maps to the minimum Role value required.
-// Global ranks (NOBLE+) inherit everything below them automatically.
+// Every action maps to the minimum room role required.
 const ACTION_MIN_ROLE = Object.freeze({
   [Action.CLEAR_CANVAS]:   Role.MOD,     // 4
 
@@ -63,6 +62,26 @@ const ACTION_MIN_ROLE = Object.freeze({
   [Action.PROMOTE_USER]:   Role.DEITY,   // 8
 });
 
+const GLOBAL_ACTION_MIN_ROLE = Object.freeze({
+  [Action.MOD_MUTE]:        Role.NOBLE,
+  [Action.MOD_UNMUTE]:      Role.NOBLE,
+  [Action.MOD_UPDATE]:      Role.NOBLE,
+  [Action.MOD_KICK]:        Role.NOBLE,
+  [Action.MOD_WIPE]:        Role.NOBLE,
+
+  [Action.CLEAR_CANVAS]:    Role.HOLY,
+  [Action.MOD_BAN]:         Role.HOLY,
+  [Action.MOD_UNBAN]:       Role.HOLY,
+  [Action.MOD_SHADOWBAN]:   Role.HOLY,
+  [Action.MOD_UNSHADOWBAN]: Role.HOLY,
+  [Action.MOD_LIST]:        Role.HOLY,
+  [Action.ROOM_UPDATE]:     Role.HOLY,
+  [Action.ROOM_ROLE_SET]:   Role.HOLY,
+
+  [Action.VIEW_REAL_IPS]:   Role.DEITY,
+  [Action.PROMOTE_USER]:    Role.DEITY,
+});
+
 // ── Public API ──────────────────────────────────────────────────────
 
 /**
@@ -78,6 +97,23 @@ export function canPerform(role, action) {
 }
 
 /**
+ * Check an action against separate room and global ranks.
+ * @param {Object} client - WebSocket-like object with .roomRole/.globalRole/.userRole.
+ * @param {string} action - An Action constant.
+ * @returns {boolean}
+ */
+export function canPerformForClient(client, action) {
+  if (!client) return false;
+
+  const roomRole = Number(client.roomRole ?? client.userRole ?? Role.GUEST);
+  if (canPerform(roomRole, action)) return true;
+
+  const globalMinRole = GLOBAL_ACTION_MIN_ROLE[action];
+  if (globalMinRole === undefined) return false;
+  return Number(client.globalRole || Role.GUEST) >= globalMinRole;
+}
+
+/**
  * Convenience: check permission and, if denied, send a MOD_RESULT
  * error back to the client. Returns true if authorized.
  * @param {Object} ws - The WebSocket connection (must have .userRole).
@@ -87,7 +123,7 @@ export function canPerform(role, action) {
  * @returns {boolean} true if the caller may proceed.
  */
 export function authorize(ws, action, sendTo, T_MOD_RESULT) {
-  if (canPerform(ws.userRole, action)) return true;
+  if (canPerformForClient(ws, action)) return true;
   if (typeof sendTo === 'function') {
     sendTo(ws, { t: T_MOD_RESULT, a: false, authError: 'Insufficient permissions' });
   }

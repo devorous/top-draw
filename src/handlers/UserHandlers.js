@@ -5,6 +5,7 @@ import { appState } from '../state.svelte.js';
 import { BOARD_SIZE_PRESETS, applyRoomBoardSize } from '../config/BoardSizes.js';
 
 const ROLE_NAMES = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
+const ROOM_ROLE_NAMES = ['Guest', 'User', 'Trusted', 'Helper', 'Moderator', 'Admin', 'Owner'];
 const JOIN_ANNOUNCE_DELAY_MS = 700;
 
 const JOIN_ANNOUNCE_RETRY_MS = 500;
@@ -12,6 +13,19 @@ const JOIN_ANNOUNCE_TIMEOUT_MS = 15000;
 
 function getRoleName(role) {
   return ROLE_NAMES[role] || 'Guest';
+}
+
+function getRoomRoleName(role) {
+  return ROOM_ROLE_NAMES[role] || 'Guest';
+}
+
+function formatPresenceRank(user) {
+  const globalRole = Number(user?.globalRole || 0);
+  const roomRole = Number(user?.roomRole || 0);
+  if (globalRole >= 7) {
+    return `${getRoleName(globalRole)} ${getRoomRoleName(roomRole || 1)}`;
+  }
+  return getRoleName(user?.role ?? 0);
 }
 
 function formatPresenceName(user) {
@@ -24,7 +38,7 @@ function formatPresenceName(user) {
 }
 
 function formatRoomPresenceMessage(user, verb) {
-  return `${getRoleName(user?.role ?? 0)} ${formatPresenceName(user)} ${verb}`;
+  return `${formatPresenceRank(user)} ${formatPresenceName(user)} ${verb}`;
 }
 
 function formatJoinPresenceMessage(user) {
@@ -156,6 +170,14 @@ export function setupUserHandlers(wsClient, app) {
         if (userData.registeredName) {
           app.self.registeredName = userData.registeredName;
         }
+        if (userData.globalRole !== undefined) {
+          app.self.globalRole = userData.globalRole || 0;
+          appState.selfGlobalRole = app.self.globalRole;
+        }
+        if (userData.roomRole !== undefined) {
+          app.self.roomRole = userData.roomRole || 0;
+          appState.selfRoomRole = app.self.roomRole;
+        }
         if (userData.isMuted !== undefined && userData.isMuted !== app.self.isMuted) {
           app.self.isMuted = !!userData.isMuted;
           ui.setMutedState(app.self.isMuted);
@@ -167,8 +189,8 @@ export function setupUserHandlers(wsClient, app) {
           app.self.role = userData.role;
           appState.selfRole = userData.role;
           ui.updateSelfRole(userData.role);
-          if (app.moderation) app.moderation.setRole(userData.role);
         }
+        if (app.moderation) app.moderation.setRole(app.self.role, app.self.globalRole, app.self.roomRole);
         if (userData.thinning !== undefined) {
           app.self.setThinning(userData.thinning);
           app.ui.updateThinningValue(Math.round(userData.thinning * 100));
@@ -201,6 +223,8 @@ export function setupUserHandlers(wsClient, app) {
           afk: userData.afk || false,
           opacity: userData.color ? userData.color[3] : 1,
           role: userData.role || 0,
+          globalRole: userData.globalRole || 0,
+          roomRole: userData.roomRole || 0,
           isMuted: !!userData.isMuted,
           ipHash: userData.iph || userData.ipHash || '',
           visibleIp: userData.visibleIp || '',
@@ -314,6 +338,12 @@ export function setupUserHandlers(wsClient, app) {
         if (userData.role !== undefined && userData.role !== user.role) {
           user.role = userData.role;
           ui.updateRemoteUserRank(userData.sessionIndex, userData.role);
+        }
+        if (userData.globalRole !== undefined) {
+          user.globalRole = userData.globalRole || 0;
+        }
+        if (userData.roomRole !== undefined) {
+          user.roomRole = userData.roomRole || 0;
         }
 
         if (userData.registeredName) {

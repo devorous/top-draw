@@ -967,42 +967,47 @@ function isShadowHiddenFromViewer(subjectUser, viewer) {
 function mapUsersForBroadcast(users, viewer = null, room = null) {
   return users
     .filter(u => !isShadowHiddenFromViewer(u, viewer))
-    .map(u => ({
-    u: u.sessionIndex,
-    iid: u.instanceId,
-    a: u.afk,
-    x: u.x,
-    y: u.y,
-    l: u.tool,
-    c: u.color,
-    s: u.size,
-    sp: u.spacing,
-    sm: u.smoothing,
-    hd: u.hardness,
-    p: u.pressure,
-    n: u.name,
-    tx: u.text,
-    role: u.role || Role.GUEST,
-    ch: u.cursorHidden || false,
-    br: u.blurRadius || 500,
-    ly: u.activeLayer || 0,
-    bm: u.blendMode || 'source-over',
-    bbm: u.blendBakeMode === 'background' ? 'background' : 'existing',
-    ib: u.imageBrush,
-    pb: u.patternBrush,
-    pm: u.patternMode || false,
-    ea: u.eraseAllLayers || false,
-    fo: u.font || '',
-    tm: u.textPositionMultiplier ?? 0,
-    to: u.textPositionOffset ?? 0,
-    iph: u.ipHash,
-    th: u.thinning,
-    sim: u.simulatePressure,
-    rn: u.registeredName || '',
-    mt: !!u.isMuted,
-    vip: room ? getVisibleIpForViewer(viewer, u, room) : '',
-    fpId: u.fingerprintId || '' // Include fingerprintId for persistent user tracking
-  }));
+    .map(u => {
+      const client = getRoomClientBySessionIndex(room, u.sessionIndex);
+      return {
+        u: u.sessionIndex,
+        iid: u.instanceId,
+        a: u.afk,
+        x: u.x,
+        y: u.y,
+        l: u.tool,
+        c: u.color,
+        s: u.size,
+        sp: u.spacing,
+        sm: u.smoothing,
+        hd: u.hardness,
+        p: u.pressure,
+        n: u.name,
+        tx: u.text,
+        role: u.role || Role.GUEST,
+        globalRole: client?.globalRole || Role.GUEST,
+        roomRole: client?.roomRole || Role.GUEST,
+        ch: u.cursorHidden || false,
+        br: u.blurRadius || 500,
+        ly: u.activeLayer || 0,
+        bm: u.blendMode || 'source-over',
+        bbm: u.blendBakeMode === 'background' ? 'background' : 'existing',
+        ib: u.imageBrush,
+        pb: u.patternBrush,
+        pm: u.patternMode || false,
+        ea: u.eraseAllLayers || false,
+        fo: u.font || '',
+        tm: u.textPositionMultiplier ?? 0,
+        to: u.textPositionOffset ?? 0,
+        iph: u.ipHash,
+        th: u.thinning,
+        sim: u.simulatePressure,
+        rn: u.registeredName || '',
+        mt: !!u.isMuted,
+        vip: room ? getVisibleIpForViewer(viewer, u, room) : '',
+        fpId: u.fingerprintId || '' // Include fingerprintId for persistent user tracking
+      };
+    });
 }
 
 function sendUsersToClient(ws, room, users = null) {
@@ -1013,6 +1018,30 @@ function sendUsersToClient(ws, room, users = null) {
     t: T.USERS,
     us: mapUsersForBroadcast(joinedUsers, ws, room)
   });
+}
+
+function getRoomAdminAuthority(ws) {
+  return Math.max(
+    Number(ws?.roomRole || Role.GUEST),
+    Number(ws?.globalRole || Role.GUEST) >= Role.HOLY ? Role.OWNER : Role.GUEST
+  );
+}
+
+function getModerationAuthority(ws) {
+  const globalRole = Number(ws?.globalRole || Role.GUEST);
+  const globalAuthority = globalRole >= Role.HOLY
+    ? Role.OWNER
+    : globalRole >= Role.NOBLE
+      ? Role.MOD
+      : Role.GUEST;
+  return Math.max(Number(ws?.roomRole || Role.GUEST), globalAuthority);
+}
+
+function getTargetProtectionRole(targetWs, targetUser) {
+  return Math.max(
+    Number(targetWs?.roomRole ?? targetWs?.userRole ?? Role.GUEST),
+    Number(targetUser?.role || Role.GUEST)
+  );
 }
 
 function sendActiveMasksToClient(ws, room) {
@@ -2165,7 +2194,7 @@ wss.on('connection', async (ws, req) => {
             isVpnNetwork: !!ws.isVpnNetwork
           });
 
-          sendTo(ws, { t: T.CONNECT, u: sessionIndex, iid: createdUser.instanceId, authRole: ws.userRole, authUsername: username });
+          sendTo(ws, { t: T.CONNECT, u: sessionIndex, iid: createdUser.instanceId, authRole: ws.userRole, authGlobalRole: ws.globalRole || 0, authRoomRole: ws.roomRole || 0, authUsername: username });
 
           const allUsers = room.sessionManager.getJoinedUsers();
           const roomBroadcaster = createRoomBroadcaster(room);
@@ -2468,7 +2497,8 @@ wss.on('connection', async (ws, req) => {
 
           const targetUser = room.sessionManager.getUser(modTargetIndex);
           const targetName = data.modTargetName || targetWs?.username || targetUser?.name || `User ${modTargetIndex}`;
-          const targetRole = Math.max(targetWs?.userRole || 0, targetUser?.role || 0);
+          const targetRole = getTargetProtectionRole(targetWs, targetUser);
+          const issuerAuthority = getModerationAuthority(ws);
           const targetUserId = targetWs?.userId || null;
           const targetIp = targetWs?.clientIp || null;
           const targetDeviceId = targetWs?.deviceId || null;
@@ -2484,7 +2514,7 @@ wss.on('connection', async (ws, req) => {
             console.log(`[Mod] MOD_ACTION received: type=${modActionType}, target=${modTargetIndex}, targetWs=${!!targetWs}`);
             switch (modActionType) {
               case 0: // Kick
-                if (targetRole > (ws.userRole || 0)) {
+                if (targetRole > issuerAuthority) {
                   rejectProtectedTarget('Cannot kick a user with a higher role than your own');
                   break;
                 }
@@ -2511,7 +2541,7 @@ wss.on('connection', async (ws, req) => {
                   rejectProtectedTarget('Users with MOD rank or higher cannot be muted');
                   break;
                 }
-                if (targetRole > (ws.userRole || 0)) {
+                if (targetRole > issuerAuthority) {
                   rejectProtectedTarget('Cannot mute a user with a higher role than your own');
                   break;
                 }
@@ -2551,7 +2581,7 @@ wss.on('connection', async (ws, req) => {
               }
 
               case 2: { // Ban
-                if (targetRole > (ws.userRole || 0)) {
+                if (targetRole > issuerAuthority) {
                   rejectProtectedTarget('Cannot ban a user with a higher role than your own');
                   break;
                 }
@@ -2694,7 +2724,7 @@ wss.on('connection', async (ws, req) => {
                   rejectProtectedTarget('Users with MOD rank or higher cannot be shadow banned');
                   break;
                 }
-                if (targetRole > (ws.userRole || 0)) {
+                if (targetRole > issuerAuthority) {
                   rejectProtectedTarget('Cannot shadow ban a user with a higher role than your own');
                   break;
                 }
@@ -2780,6 +2810,13 @@ wss.on('connection', async (ws, req) => {
 
           const targetIndex = data.modTarget;
           const targetName = data.modTargetName || `User ${targetIndex}`;
+          const targetWs = getRoomClientBySessionIndex(room, targetIndex);
+          const targetUser = room.sessionManager.getUser(targetIndex);
+          const targetRole = getTargetProtectionRole(targetWs, targetUser);
+          if (targetRole > getModerationAuthority(ws)) {
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Cannot wipe strokes from a user with a higher role than your own' });
+            break;
+          }
 
           createRoomBroadcaster(room)({
             t: T.MOD_WIPE,
@@ -2828,15 +2865,21 @@ wss.on('connection', async (ws, req) => {
         }
 
         case T.ROOM_UPDATE: {
-          if (!ws.userId) {
+          const creatorDeviceId = String(data.roomCreatorDeviceId || '').trim();
+          const isUnownedCreatorDevice = !room.ownerId
+            && creatorDeviceId
+            && ws.deviceId
+            && creatorDeviceId === ws.deviceId
+            && (!room.creatorDeviceId || room.creatorDeviceId === ws.deviceId);
+          if (!ws.userId && !isUnownedCreatorDevice) {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Must be logged in' });
             break;
           }
 
           const isOwner = room.ownerId === ws.userId;
-          const isMod = ws.userRole >= Role.ADMIN;  // ADMIN(5)+ can update any room
+          const isMod = getRoomAdminAuthority(ws) >= Role.ADMIN;  // room ADMIN+ or global HOLY+
 
-          if (!isOwner && !isMod) {
+          if (!isOwner && !isMod && !isUnownedCreatorDevice) {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Only room owner or moderators can change settings' });
             break;
           }
@@ -2844,6 +2887,9 @@ wss.on('connection', async (ws, req) => {
           try {
             const autoMuteGuestsChanged = data.roomAutoMuteGuests !== undefined;
             const autoMuteVpnUsersChanged = data.roomAutoMuteVpnUsers !== undefined;
+            if (isUnownedCreatorDevice && !room.creatorDeviceId) {
+              room.creatorDeviceId = ws.deviceId;
+            }
             if (!room.ownerId && data.roomOwnerId === ws.userId) {
               room.ownerId = ws.userId;
               room.ownerUsername = ws.username;
@@ -2994,7 +3040,7 @@ wss.on('connection', async (ws, req) => {
             if (user) user.role = ws.userRole;
 
             // Notify the user of their new role
-            sendTo(ws, { t: T.AUTH_RESULT, a: true, authRole: ws.userRole });
+            sendTo(ws, { t: T.AUTH_RESULT, a: true, authRole: ws.userRole, authGlobalRole: ws.globalRole || 0, authRoomRole: ws.roomRole || 0 });
             room.updateSnapshotTimer();
 
             // Broadcast updated user list so everyone sees the new role
@@ -3054,7 +3100,7 @@ wss.on('connection', async (ws, req) => {
               if (user) user.role = ws.userRole;
 
               // Notify the user of their new role
-              sendTo(ws, { t: T.AUTH_RESULT, a: true, authRole: ws.userRole });
+              sendTo(ws, { t: T.AUTH_RESULT, a: true, authRole: ws.userRole, authGlobalRole: ws.globalRole || 0, authRoomRole: ws.roomRole || 0 });
             }
 
             // Broadcast updated user list
@@ -3211,9 +3257,10 @@ wss.on('connection', async (ws, req) => {
             targetUsername = targetUserDoc.username || '';
           }
 
-          // Permission: room owner, effective ADMIN(5)+ in room, or global DEITY(9)
+          // Permission: room owner, room ADMIN(5)+, or global HOLY(8)+
           const isOwner = room.ownerId === ws.userId;
-          const isRoomAdmin = ws.userRole >= Role.ADMIN;
+          const roomAdminAuthority = getRoomAdminAuthority(ws);
+          const isRoomAdmin = roomAdminAuthority >= Role.ADMIN;
           const isDeity = (ws.globalRole || 0) >= Role.DEITY;
 
           if (!isOwner && !isRoomAdmin && !isDeity) {
@@ -3227,7 +3274,7 @@ wss.on('connection', async (ws, req) => {
           }
 
           // Can't assign role >= your own effective role (unless DEITY)
-          if (!isDeity && newRole >= ws.userRole) {
+          if (!isDeity && newRole >= roomAdminAuthority) {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Cannot assign role equal to or higher than your own' });
             break;
           }
@@ -3264,7 +3311,7 @@ wss.on('connection', async (ws, req) => {
               });
 
               // Notify the target user of their new role
-              sendTo(targetClient, { t: T.AUTH_RESULT, a: true, authRole: effective });
+              sendTo(targetClient, { t: T.AUTH_RESULT, a: true, authRole: effective, authGlobalRole: targetClient.globalRole || 0, authRoomRole: targetClient.roomRole || 0 });
 
               createRoomBroadcaster(room)({
                 t: shouldMute ? T.HIDE_CURSOR : T.SHOW_CURSOR,
@@ -3292,7 +3339,7 @@ wss.on('connection', async (ws, req) => {
           }
 
           const isOwner = room.ownerId === ws.userId;
-          const isRoomAdmin = ws.userRole >= Role.ADMIN;
+          const isRoomAdmin = getRoomAdminAuthority(ws) >= Role.ADMIN;
           const isDeity = (ws.globalRole || 0) >= Role.DEITY;
           if (!isOwner && !isRoomAdmin && !isDeity) {
             sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Insufficient permissions' });
@@ -3412,7 +3459,7 @@ wss.on('connection', async (ws, req) => {
                     effectiveRole
                   });
 
-                  sendTo(client, { t: T.AUTH_RESULT, a: true, authRole: effectiveRole });
+                  sendTo(client, { t: T.AUTH_RESULT, a: true, authRole: effectiveRole, authGlobalRole: client.globalRole || 0, authRoomRole: client.roomRole || 0 });
                   createRoomBroadcaster(clientRoom)({
                     t: shouldMute ? T.HIDE_CURSOR : T.SHOW_CURSOR,
                     u: client.sessionIndex
@@ -3559,6 +3606,8 @@ wss.on('connection', async (ws, req) => {
               a: true,
               authToken: token,
               authRole: role,
+              authGlobalRole: role,
+              authRoomRole: 0,
               authUsername: regUsername
             });
 
@@ -3769,6 +3818,8 @@ wss.on('connection', async (ws, req) => {
               a: true,
               authToken: token,
               authRole: effectiveRole,
+              authGlobalRole: userDoc.role,
+              authRoomRole: roomRoleVal,
               authUsername: userDoc.username
             });
 

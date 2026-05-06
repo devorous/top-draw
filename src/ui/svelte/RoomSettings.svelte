@@ -88,6 +88,7 @@
   let visible = $derived(appState.roomSettingsVisible);
   let roomData = $derived(appState.currentRoomData);
   let userRole = $derived(appState.selfRole);
+  let globalRole = $derived(appState.selfGlobalRole);
   let currentUsername = $derived(appState.username);
   let users = $derived(appState.users);
   let roomRoster = $derived(roomData?.moderationRoster || []);
@@ -315,6 +316,7 @@
 
     wsClient.send({
       t: T.ROOM_UPDATE,
+      roomCreatorDeviceId: wsClient?.clientIdentity?.deviceId || '',
       roomDescription: trimmedDesc,
       roomBackgroundColor: backgroundColor,
       roomLocked: locked,
@@ -466,7 +468,7 @@
   function canShowUnregister() {
     if (!roomData || !roomData.ownerId) return false;
     const isOwner = roomData.ownerUsername && currentUsername && roomData.ownerUsername === currentUsername;
-    const isDeity = userRole >= 9;
+    const isDeity = globalRole >= 9;
     return isOwner || isDeity;
   }
 
@@ -622,6 +624,7 @@
   <div class="room-settings-overlay" onclick={handleBackdropClick} role="presentation">
     <div
       class="room-settings-dialog"
+      data-tut="room-settings-dialog"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => e.stopPropagation()}
       role="presentation"

@@ -62,6 +62,7 @@ export class MirrorRegionController {
 
     this.controlsLayer = document.createElement('div');
     this.controlsLayer.id = 'mirrorRegionControls';
+    this.controlsLayer.dataset.tut = 'mirror-region-controls-layer';
     this.controlsLayer.style.position = 'absolute';
     this.controlsLayer.style.top = '0';
     this.controlsLayer.style.left = '0';
@@ -369,6 +370,7 @@ export class MirrorRegionController {
     }
 
     this.cancel();
+    window.dispatchEvent(new CustomEvent('topdraw:mirror-region-applied'));
   }
 
   startEditingRegion(regionId) {
@@ -410,13 +412,21 @@ export class MirrorRegionController {
       this.wsClient.broadcastMirrorRegion({ action: 'remove', id: regionId });
     }
     if (this.editingRegionId === regionId) {
+      this.originalEditingRegion = null;
       this._resetSelectionState();
       this._hidePanel();
       this._clearOverlay();
       this.stage = 'selecting';
     }
-    this._syncMirrorDisplay();
+    if (this.active) {
+      this.cancel();
+    } else {
+      this._syncMirrorDisplay();
+    }
     this.ui.showToast('Mirror region removed', 1800);
+    window.dispatchEvent(new CustomEvent('topdraw:mirror-region-removed', {
+      detail: { id: regionId, remainingCount: nextRegions.length }
+    }));
   }
 
   _handlePanelCancel() {
@@ -449,6 +459,7 @@ export class MirrorRegionController {
 
   _showPanel() {
     this.panel.style.display = 'block';
+    this.panel.dataset.tut = 'mirror-region-panel';
     const axisInput = this.panel.querySelector(`input[name="mirrorRegionAxis"][value="${this.options.axis}"]`);
     if (axisInput) axisInput.checked = true;
     const slicesInput = this.panel.querySelector('input[name="mirrorRegionSlices"]');
@@ -768,6 +779,7 @@ export class MirrorRegionController {
 
   _createRegionControl(region) {
     const wrapper = document.createElement('div');
+    wrapper.dataset.tut = 'mirror-region-controls';
     wrapper.style.position = 'absolute';
     wrapper.style.left = `${region.x + region.width - 58}px`;
     wrapper.style.top = `${Math.max(0, region.y - 28)}px`;

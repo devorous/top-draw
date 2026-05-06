@@ -78,7 +78,9 @@ export function setupAuthModHandlers(wsClient, app) {
       app.selfRole = role;
       app.self.role = role;
       appState.selfRole = role;
-      if (app.moderation) app.moderation.setRole(role);
+      appState.selfGlobalRole = data.globalRole ?? appState.selfGlobalRole ?? 0;
+      appState.selfRoomRole = data.roomRole ?? appState.selfRoomRole ?? 0;
+      if (app.moderation) app.moderation.setRole(role, appState.selfGlobalRole, appState.selfRoomRole);
       app.ui.updateSelfRole(role);
       app.updateRoomSettingsButtonVisibility?.();
       app.updateGalleryButtonVisibility?.(role);

@@ -72,6 +72,8 @@ export class User {
     this.smoothBuffer = { x: 0, y: 0, isFirst: true };
     this.afk = options.afk || false;
     this.role = options.role || 0;
+    this.globalRole = options.globalRole || 0;
+    this.roomRole = options.roomRole || 0;
     this.isMuted = options.isMuted || false;
     this.ipHash = options.ipHash || options.iph || '';
     this.visibleIp = options.visibleIp || '';

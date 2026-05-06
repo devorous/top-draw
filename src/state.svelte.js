@@ -20,11 +20,14 @@ class DrawingState {
   self = $state(null);
   sessionIndex = $state(null);
   selfRole = $state(0);
+  selfGlobalRole = $state(0);
+  selfRoomRole = $state(0);
   username = $state('');
 
   // Room
   currentRoomId = $state(null);
   currentRoomData = $state(null);
+  roomCreatedByThisBrowser = $state(false);
   connected = $state(false);
   board = $state(null);
 
@@ -52,6 +55,7 @@ class DrawingState {
   appSettingsTab = $state('general');
   appPreferences = $state(null);
   adminPanelVisible = $state(false);
+  ranksDialogVisible = $state(false);
   colorPaletteVisible = $state(true);
   boardColorPickerVisible = $state(true);
   boardColorPickerForceVisible = $state(false);

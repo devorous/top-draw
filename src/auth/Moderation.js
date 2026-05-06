@@ -6,6 +6,8 @@ export class Moderation {
   constructor() {
     // Numeric role: 0=guest, 1=user, 2=mod, 3=admin
     this.localRole = 0;
+    this.globalRole = 0;
+    this.roomRole = 0;
 
     // Mod panel state
     this.modEntries = [];
@@ -45,8 +47,10 @@ export class Moderation {
     this._clearPromptDismiss = null;
   }
 
-  setRole(role) {
+  setRole(role, globalRole = role, roomRole = 0) {
     this.localRole = role;
+    this.globalRole = globalRole;
+    this.roomRole = roomRole;
     this.updateModVisibility();
   }
 
@@ -55,7 +59,7 @@ export class Moderation {
   }
 
   isAdmin() {
-    return this.localRole >= 5;  // ADMIN(5)+
+    return this.roomRole >= 5 || this.globalRole >= 8;  // room ADMIN(5)+ or global HOLY(8)+
   }
 
   isOwner() {
@@ -71,7 +75,7 @@ export class Moderation {
   }
 
   canManageRoomRoles() {
-    return this.localRole >= 5;  // ADMIN(5)+
+    return this.roomRole >= 5 || this.globalRole >= 8;  // room ADMIN(5)+ or global HOLY(8)+
   }
 
   canMute() {

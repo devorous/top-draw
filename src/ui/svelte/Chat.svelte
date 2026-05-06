@@ -2013,7 +2013,11 @@
       showCloseButton={!isPopout}
       onClose={!isPopout ? hide : null}
       className="chat-titlebar"
-    />
+    >
+      {#snippet children()}
+        <button class="titlebar-btn ranks-btn" onclick={() => appState.ranksDialogVisible = true} title="View ranks and their abilities" type="button">Ranks</button>
+      {/snippet}
+    </WindowTitleBar>
 
     <header class="chat-topbar" data-refactor-placeholder="true" style="display: none;" onmousedown={startDrag} ontouchstart={startDrag} role="presentation" aria-label="Chat window header" data-tauri-drag-region={isPopout && isDesktopClient ? 'true' : undefined}>
       <div class="chat-topbar-copy">
@@ -2052,6 +2056,7 @@
             {effectiveChatMode === 'full' ? 'Small' : 'Full'}
           </button>
         {/if}
+        <button class="topbar-btn" onclick={() => appState.ranksDialogVisible = true} title="View ranks and their abilities" type="button">Ranks</button>
         <button class="topbar-btn close" onclick={hide} onpointerup={(e) => e.pointerType !== 'mouse' && hide()} title="Close chat" type="button">X</button>
       </div>
     </header>
@@ -2236,6 +2241,22 @@
 {/if}
 
 <style>
+  .ranks-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    opacity: 0.7;
+    cursor: pointer;
+    transition: opacity 0.15s, background 0.15s;
+  }
+
+  .ranks-btn:hover {
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+    color: var(--text-primary);
+    transform: none;
+    opacity: 1;
+  }
+
   .chat-shell {
     --chat-bg: color-mix(in srgb, var(--bg-secondary) 94%, black);
     --chat-border: var(--border-subtle);

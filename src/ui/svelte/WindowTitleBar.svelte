@@ -18,7 +18,8 @@
     showCloseButton = true,
     onClose = null,
     onDragStart = null,
-    className = ''
+    className = '',
+    children = null
   } = $props();
 
   let desktopWindowApi = null;
@@ -300,6 +301,8 @@
   </div>
 
   <div class="titlebar-actions">
+    {@render children?.()}
+
     {#if showPopoutButton}
       <button class="titlebar-btn" onclick={onPopout} title="Open chat in a separate window" type="button">Pop Out</button>
     {/if}

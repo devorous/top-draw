@@ -133,6 +133,7 @@
   <div class="layer-dropdown-wrap">
     <button
       class="layer-dropdown-btn"
+      data-tut="layers"
       class:open={appState.boardMenuOpen === 'layers'}
       onclick={() => toggleMenu('layers')}
       title="Select layer"
@@ -182,7 +183,7 @@
     {/if}
   </div>
 
-  <div class="layer-list">
+  <div class="layer-list" data-tut="layers">
     {#each layers as layer}
       <div class="layer-row">
         <button
@@ -200,6 +201,7 @@
         </button>
         <button
           class="layer-btn"
+          data-tut={layer.index === 0 ? 'layer-1' : 'layers'}
           class:active={appState.activeLayer === layer.index}
           onclick={() => selectLayer(layer.index)}
           onpointerup={(e) => e.pointerType !== 'mouse' && selectLayer(layer.index)}
@@ -214,9 +216,10 @@
 
   <!-- Blend Mode Button + Dropdown (only on Layer 1) -->
   {#if blendModeAllowed}
-  <div class="blend-wrap">
+  <div class="blend-wrap" data-tut="layers">
     <button
       class="blend-btn"
+      data-tut="blend-mode"
       class:open={appState.boardMenuOpen === 'blend'}
       onclick={() => toggleMenu('blend')}
       title="Blend Mode"
@@ -256,7 +259,7 @@
             <img src={appState.blendModeLocked ? '/images/lock-closed.svg' : '/images/lock-open.svg'} alt="" />
           </button>
         </div>
-        <div class="blend-bake-toggle" role="group" aria-label="Blend bake mode">
+        <div class="blend-bake-toggle" data-tut="blend-bake-toggle" role="group" aria-label="Blend bake mode">
           <button
             class:active={appState.blendBakeMode === 'background'}
             onclick={(e) => handleBlendBakeModeClick(e, 'background')}
@@ -291,6 +294,7 @@
   <div class="history-wrap">
     <button
       class="history-btn"
+      data-tut="history"
       onpointerup={toggleSnapshotMenu}
       title="Board History / Snapshots"
     >

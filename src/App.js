@@ -651,7 +651,7 @@ export class DrawingApp {
     updateStartupStatus('Loading account...');
     this.auth = new Auth({
       wsClient: this.wsClient,
-      onSuccess: (token, role, username) => this.handleAuthSuccess(token, role, username),
+      onSuccess: (token, role, username, globalRole, roomRole) => this.handleAuthSuccess(token, role, username, globalRole, roomRole),
       onError: (error) => this.handleAuthError(error)
     });
     this.auth.init();
@@ -3241,8 +3241,10 @@ export class DrawingApp {
       this.selfRole = role;
       this.self.role = role;
       appState.selfRole = role;
+      appState.selfGlobalRole = this.wsClient?.globalRole ?? appState.selfGlobalRole ?? role;
+      appState.selfRoomRole = this.wsClient?.roomRole ?? appState.selfRoomRole ?? 0;
       if (this.moderation) {
-        this.moderation.setRole(role);
+        this.moderation.setRole(role, appState.selfGlobalRole, appState.selfRoomRole);
       }
       this.ui.updateSelfRole(role);
       this.updateAuthenticatedActionVisibility(role);
@@ -3365,7 +3367,7 @@ export class DrawingApp {
       this.wsClient.broadcastBrush(this._buildImageBrushPayload());
     }
 
-    this.moderation.setRole(this.selfRole);
+    this.moderation.setRole(this.selfRole, appState.selfGlobalRole, appState.selfRoomRole);
     this.inputBufferManager.startTickLoop();
 
     // Apply pending room settings from "Create Room" dialog
@@ -3374,6 +3376,7 @@ export class DrawingApp {
       this._pendingRoomSettings = null;
       this.wsClient.send({
         t: T.ROOM_UPDATE,
+        roomCreatorDeviceId: this.wsClient?.clientIdentity?.deviceId || '',
         roomDescription: s.roomDescription,
         roomBackgroundColor: s.roomBackgroundColor,
         roomLocked: s.roomLocked,
@@ -3617,17 +3620,19 @@ export class DrawingApp {
    * @param {number} role - The user's role level.
    * @param {string} username - The user's verified username.
    */
-  handleAuthSuccess(token, role, username) {
+  handleAuthSuccess(token, role, username, globalRole = role, roomRole = 0) {
     this.selfRole = role;
     this.self.role = role;
     appState.selfRole = role;
+    appState.selfGlobalRole = globalRole;
+    appState.selfRoomRole = roomRole;
     this.self.setUsername(username);
     appState.username = username;
 
     if (this.ui.elements.loginPassword) this.ui.elements.loginPassword.value = '';
 
     if (this.moderation) {
-      this.moderation.setRole(role);
+      this.moderation.setRole(role, appState.selfGlobalRole, appState.selfRoomRole);
     }
 
     this.ui.updateSelfRole(role);
@@ -3683,7 +3688,7 @@ export class DrawingApp {
       this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
     }
 
-    this.moderation.setRole(role);
+    this.moderation.setRole(role, appState.selfGlobalRole, appState.selfRoomRole);
     this.inputBufferManager.startTickLoop();
     this.syncClient.requestSync();
 
@@ -3694,6 +3699,7 @@ export class DrawingApp {
   _showSelfContextMenu(e) {
     const menu = document.getElementById('selfContextMenu');
     if (!menu) return;
+    menu.dataset.tut = 'context-menu';
 
     const roleNames = ['Guest', 'User', 'Trusted', 'Helper', 'Mod', 'Admin', 'Owner', 'Noble', 'Holy', 'Deity'];
     const role = this.selfRole || 0;
@@ -3806,7 +3812,7 @@ export class DrawingApp {
       this.ui.elements.selfUserEntry.dataset.sessionIndex = this.sessionIndex;
     }
 
-    this.moderation.setRole(this.selfRole);
+    this.moderation.setRole(this.selfRole, appState.selfGlobalRole, appState.selfRoomRole);
     this.inputBufferManager.startTickLoop();
     this.syncClient.requestSync();
   }
@@ -3948,6 +3954,7 @@ export class DrawingApp {
     const appSettingsBtn = document.createElement('a');
     appSettingsBtn.className = 'btn';
     appSettingsBtn.id = 'appSettingsBtn';
+    appSettingsBtn.dataset.tut = 'perf-settings';
     appSettingsBtn.innerHTML = `
       <span class="btnText">Settings</span>
       <span class="btnIcon" style="display: none;"><img src="../images/settings-icon.svg" alt="Settings"></span>
@@ -4042,9 +4049,8 @@ export class DrawingApp {
       return;
     }
 
-    // Check permissions before opening settings
     const hasOwner = !!this.currentRoomData?.ownerId;
-    const canEdit = hasOwner && (this.selfRole >= 5); // ADMIN+ or higher
+    const canEdit = this.canEditCurrentRoomSettings();
 
     if (!canEdit) {
       this.ui.showToast('Only room owner or moderators can edit settings', 3000);
@@ -4056,6 +4062,28 @@ export class DrawingApp {
     appState.selfRole = this.selfRole;
     appState.username = this.self?.username || '';
     appState.roomSettingsVisible = true;
+  }
+
+  canEditCurrentRoomSettings() {
+    if (!this.currentRoomData || !this.wsClient?.connected || !this.currentRoomId) return false;
+    const hasOwner = !!this.currentRoomData.ownerId;
+    if (hasOwner) {
+      return this.currentRoomData.ownerUsername === this.self?.username
+        || (appState.selfRoomRole || 0) >= 5
+        || (appState.selfGlobalRole || 0) >= 8;
+    }
+    return this.wasCurrentRoomCreatedByThisBrowser();
+  }
+
+  wasCurrentRoomCreatedByThisBrowser() {
+    const roomId = this.currentRoomId || this.currentRoomData?.id;
+    if (!roomId) return false;
+    try {
+      const createdRooms = JSON.parse(localStorage.getItem('topDrawCreatedRooms') || '{}');
+      return !!createdRooms[roomId];
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -4101,6 +4129,7 @@ export class DrawingApp {
     if (!isConnected) {
       if (settingsBtn) settingsBtn.style.display = 'none';
       if (registerBtn) registerBtn.style.display = 'none';
+      appState.roomCreatedByThisBrowser = false;
       this.scheduleTopbarCollapseUpdate();
       return;
     }
@@ -4112,21 +4141,24 @@ export class DrawingApp {
     if (!this.currentRoomData) {
       if (settingsBtn) settingsBtn.style.display = 'none';
       if (registerBtn) registerBtn.style.display = isLoggedIn ? 'inline-block' : 'none';
+      appState.roomCreatedByThisBrowser = this.wasCurrentRoomCreatedByThisBrowser();
       this.scheduleTopbarCollapseUpdate();
       return;
     }
 
     const hasOwner = !!this.currentRoomData.ownerId;
-    const canEdit = hasOwner && this.selfRole >= 5;
+    const createdByThisBrowser = this.wasCurrentRoomCreatedByThisBrowser();
+    const canEdit = this.canEditCurrentRoomSettings();
+    appState.roomCreatedByThisBrowser = createdByThisBrowser;
 
     // Show Register Room button if room is unregistered and user is logged in
     if (registerBtn) {
       registerBtn.style.display = (!hasOwner && isLoggedIn) ? 'inline-block' : 'none';
     }
 
-    // Show Room Settings button only if room is registered and user can edit
+    // Show Room Settings button for registered room editors or this browser's unowned created rooms.
     if (settingsBtn) {
-      settingsBtn.style.display = (hasOwner && canEdit) ? 'inline-flex' : 'none';
+      settingsBtn.style.display = canEdit ? 'inline-flex' : 'none';
     }
 
     this.scheduleTopbarCollapseUpdate();
@@ -4916,6 +4948,7 @@ export class DrawingApp {
     const menu = document.createElement('div');
     menu.id = 'userContextMenu';
     menu.className = 'contextMenu';
+    menu.dataset.tut = 'context-menu';
     menu.style.display = 'none';
     menu.innerHTML = `
       <button type="button" class="menuItem" data-action="profile">Profile</button>

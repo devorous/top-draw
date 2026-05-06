@@ -689,7 +689,7 @@
 </script>
 
 <div class="snapshot-overlay" role="presentation" onclick={(e) => e.target === e.currentTarget && close()} onpointerup={(e) => e.pointerType !== 'mouse' && e.target === e.currentTarget && close()}>
-  <div class="snapshot-panel">
+  <div class="snapshot-panel" data-tut="history-dialog">
 
     <!-- Header -->
     <div class="snap-header">

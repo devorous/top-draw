@@ -596,6 +596,8 @@ export class WebSocketClient {
         this.sessionIndex = data.u;
         this.instanceId = data.iid || '';
         this.role = data.authRole !== undefined ? data.authRole : 0;
+        this.globalRole = data.authGlobalRole || 0;
+        this.roomRole = data.authRoomRole || 0;
         if (this.onConnect) {
           this.onConnect(this.sessionIndex, this.role, data.authUsername, data.iph);
         }
@@ -641,6 +643,8 @@ export class WebSocketClient {
           name: u.n || '',
           text: u.tx || '',
           role: u.role || 0,
+          globalRole: u.globalRole || 0,
+          roomRole: u.roomRole || 0,
           cursorHidden: u.ch || false,
           blurRadius: (u.br ?? 500),
           activeLayer: u.ly ?? 0,
@@ -1179,10 +1183,14 @@ export class WebSocketClient {
         break;
 
       case T.AUTH_RESULT:
+        this.globalRole = data.authGlobalRole || 0;
+        this.roomRole = data.authRoomRole || 0;
         this.emit('auth_result', {
           success: data.a,
           token: data.authToken || '',
           role: data.authRole || 0,
+          globalRole: data.authGlobalRole || 0,
+          roomRole: data.authRoomRole || 0,
           username: data.authUsername || '',
           error: data.authError || ''
         });

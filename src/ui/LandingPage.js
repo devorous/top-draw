@@ -166,6 +166,14 @@ export class LandingPage {
       roomPrivate: this.els.createRoomPrivateInput?.checked || false
     };
 
+    try {
+      const createdRooms = JSON.parse(localStorage.getItem('topDrawCreatedRooms') || '{}');
+      createdRooms[roomId] = Date.now();
+      localStorage.setItem('topDrawCreatedRooms', JSON.stringify(createdRooms));
+    } catch {
+      // Local room creator hints are best-effort.
+    }
+
     this.closeCreateRoomDialog();
     this.proceedToRoom(roomId, null);
   }

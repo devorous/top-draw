@@ -311,6 +311,11 @@ function getChatOpacity() {
     updatePreferences(defaults, 'Default app settings restored');
   }
 
+  function restartTutorial() {
+    hide();
+    window.startTopDrawTutorial?.();
+  }
+
   function syncThemeColorDrafts() {
     const saved = appPreferences?.general?.themeColors ?? {};
     themeColorDrafts = {
@@ -539,7 +544,7 @@ function getChatOpacity() {
 
 {#if visible}
   <div class="app-settings-overlay" onclick={(e) => e.target === e.currentTarget && hide()} role="presentation">
-    <div class="app-settings-dialog" onclick={(e) => e.stopPropagation()} role="presentation">
+    <div class="app-settings-dialog" data-tut="app-settings-dialog" onclick={(e) => e.stopPropagation()} role="presentation">
       <div class="app-settings-header">
         <div class="app-settings-header-main">
           <h3>App Settings</h3>
@@ -728,7 +733,9 @@ function getChatOpacity() {
               {/each}
             </div>
             <div class="settings-actions">
+              <button class="btn primary" type="button" onclick={restartTutorial}>Restart Tutorial</button>
               <button class="btn secondary" type="button" onclick={() => setTab(TAB_KEYBINDS)}>Open Keybinds</button>
+              <button class="btn secondary" type="button" onclick={() => appState.ranksDialogVisible = true}>Ranks</button>
               <button class="btn danger" type="button" onclick={restoreThemeDefaults}>Restore Default Colours</button>
             </div>
           </section>

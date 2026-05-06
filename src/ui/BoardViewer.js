@@ -208,11 +208,13 @@ export class BoardViewer {
     this.launchButton = document.createElement('button');
     this.launchButton.type = 'button';
     this.launchButton.className = 'boardViewerLaunch';
+    this.launchButton.dataset.tut = 'add-view';
     this.launchButton.textContent = 'Add view';
     this.launchButton.title = 'Show board view';
 
     this.el = document.createElement('section');
     this.el.className = 'boardViewer';
+    this.el.dataset.tut = 'board-view-controls';
     this.el.hidden = true;
     this.el.innerHTML = `
       <div class="boardViewerHeader">
@@ -223,10 +225,10 @@ export class BoardViewer {
           <button type="button" data-action="close" title="Close">&times;</button>
         </div>
       </div>
-      <div class="boardViewerStage">
+      <div class="boardViewerStage" data-tut="board-view-controls">
         <canvas class="boardViewerCanvas"></canvas>
       </div>
-      <div class="boardViewerControls">
+      <div class="boardViewerControls" data-tut="board-view-controls">
         <button type="button" data-action="zoomOut" title="Zoom out">-</button>
         <button type="button" data-action="reset" title="Fit board">100%</button>
         <button type="button" data-action="zoomIn" title="Zoom in">+</button>

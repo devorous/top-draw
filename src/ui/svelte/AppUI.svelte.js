@@ -17,6 +17,8 @@ import Timebar from '../../timebar/Timebar.svelte';
 import FeedbackWidget from './FeedbackWidget.svelte';
 import SnapshotMenu from './SnapshotMenu.svelte';
 import FloatingArtManager from './FloatingArtManager.svelte';
+import TutorialOverlay from './TutorialOverlay.svelte';
+import RanksDialog from './RanksDialog.svelte';
 
 import { appState, showProfile as showProfileFromState, toggleMessenger } from '../../state.svelte.js';
 import { applyRoomBoardSize } from '../../config/BoardSizes.js';
@@ -311,6 +313,14 @@ export function initSvelteUI(app) {
     }
   });
 
+  let ranksDialogTarget = document.getElementById('ranksDialogMount');
+  if (!ranksDialogTarget) {
+    ranksDialogTarget = document.createElement('div');
+    ranksDialogTarget.id = 'ranksDialogMount';
+    document.body.appendChild(ranksDialogTarget);
+  }
+  components.ranksDialog = mount(RanksDialog, { target: ranksDialogTarget });
+
   let adminPanelTarget = document.getElementById('adminPanelMount');
   if (!adminPanelTarget) {
     adminPanelTarget = document.createElement('div');
@@ -319,6 +329,17 @@ export function initSvelteUI(app) {
   }
   components.adminPanel = mount(AdminPanel, {
     target: adminPanelTarget,
+    props: {}
+  });
+
+  let tutorialTarget = document.getElementById('tutorialOverlayMount');
+  if (!tutorialTarget) {
+    tutorialTarget = document.createElement('div');
+    tutorialTarget.id = 'tutorialOverlayMount';
+    document.body.appendChild(tutorialTarget);
+  }
+  components.tutorialOverlay = mount(TutorialOverlay, {
+    target: tutorialTarget,
     props: {}
   });
 
@@ -623,6 +644,7 @@ export function syncStoresFromApp(app) {
 
   appState.currentRoomId = app.currentRoomId || null;
   appState.connected = !!app.connected;
+  appState.roomCreatedByThisBrowser = !!app.wasCurrentRoomCreatedByThisBrowser?.();
 
   if (app.appPreferences) {
     appState.appPreferences = app.appPreferences;

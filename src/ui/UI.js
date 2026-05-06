@@ -628,6 +628,28 @@ menuBtn: document.getElementById('menuBtn'),
       modBtn: null // injected dynamically by Moderation._injectModUI()
     };
 
+    const tutorialTargets = [
+      ['perfSettingsBtn', 'perf-settings'],
+      ['roomSettingsBtn', 'room-settings'],
+      ['mirrorBtn', 'mirror'],
+      ['userList', 'user-list'],
+      ['historyBtn', 'history'],
+      ['sizeLock', 'locks'],
+      ['pressureLock', 'locks'],
+      ['smoothingLock', 'locks'],
+      ['spacingLock', 'locks'],
+      ['hardnessLock', 'locks'],
+      ['opacityLock', 'locks'],
+      ['blurRadiusLock', 'locks'],
+      ['thinningLock', 'locks']
+    ];
+
+    for (const [key, value] of tutorialTargets) {
+      if (this.elements[key]) {
+        this.elements[key].dataset.tut = value;
+      }
+    }
+
     this._initializeFontSelect();
   }
 

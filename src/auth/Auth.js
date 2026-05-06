@@ -642,7 +642,7 @@ export class Auth {
       }
 
       if (this.onSuccess) {
-        this.onSuccess(data.token, data.role, username);
+        this.onSuccess(data.token, data.role, username, data.globalRole, data.roomRole);
       }
     } else {
       this._pendingUsername = null;
