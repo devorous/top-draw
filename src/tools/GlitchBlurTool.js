@@ -95,7 +95,7 @@ export class GlitchBlurTool extends Tool {
 
     const stamp = this._computeGlitchStamp(pos.x, pos.y, user.size, user);
     if (stamp) {
-      this._applyStampToCtx(maskCtx, stamp, pos.x, pos.y, user.size, user.pressure || 1.0);
+      this._applyStampToCtx(maskCtx, stamp, pos.x, pos.y, user.size, this._getStampAlpha(user));
       this._expandBounds(user, pos.x, pos.y, user.size, user.blurRadius);
 
       // Apply to mirror regions using transforms (compute once, mirror the result)
@@ -103,13 +103,13 @@ export class GlitchBlurTool extends Tool {
         const mirrored = this.board.mirrorPointToRegion(pos, region);
         this._expandBounds(user, mirrored.x, mirrored.y, user.size, user.blurRadius);
         this.board.withMirroredRegionTransform(maskCtx, region, () => {
-          this._applyStampToCtx(maskCtx, stamp, pos.x, pos.y, user.size, user.pressure || 1.0);
+          this._applyStampToCtx(maskCtx, stamp, pos.x, pos.y, user.size, this._getStampAlpha(user));
         });
       });
 
       // Draw preview
       if (previewCtx) {
-        this._drawStampPreview(previewCtx, pos.x, pos.y, user.size, user.pressure || 1.0);
+        this._drawStampPreview(previewCtx, pos.x, pos.y, user.size, this._getStampAlpha(user));
       }
     }
 
@@ -334,7 +334,7 @@ export class GlitchBlurTool extends Tool {
 
       const stamp = this._computeGlitchStamp(x, y, user.size, user);
       if (stamp) {
-        this._applyStampToCtx(maskCtx, stamp, x, y, user.size, user.pressure || 1.0);
+        this._applyStampToCtx(maskCtx, stamp, x, y, user.size, this._getStampAlpha(user));
         this._expandBounds(user, x, y, user.size, user.blurRadius);
 
         // Apply to mirror regions using transforms
@@ -342,13 +342,13 @@ export class GlitchBlurTool extends Tool {
           const mirrored = this.board.mirrorPointToRegion({ x, y }, region);
           this._expandBounds(user, mirrored.x, mirrored.y, user.size, user.blurRadius);
           this.board.withMirroredRegionTransform(maskCtx, region, () => {
-            this._applyStampToCtx(maskCtx, stamp, x, y, user.size, user.pressure || 1.0);
+            this._applyStampToCtx(maskCtx, stamp, x, y, user.size, this._getStampAlpha(user));
           });
         });
 
         // Draw preview
         if (previewCtx) {
-          this._drawStampPreview(previewCtx, x, y, user.size, user.pressure || 1.0);
+          this._drawStampPreview(previewCtx, x, y, user.size, this._getStampAlpha(user));
         }
       }
 
@@ -378,5 +378,10 @@ export class GlitchBlurTool extends Tool {
     ctx.strokeRect(x - size, y - size, size * 2, size * 2);
 
     ctx.restore();
+  }
+
+  _getStampAlpha(user) {
+    const opacity = Number.isFinite(Number(user?.opacity)) ? Number(user.opacity) : 1.0;
+    return Math.max(0, Math.min(1, opacity));
   }
 }
