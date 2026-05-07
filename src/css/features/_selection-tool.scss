@@ -83,10 +83,33 @@
   pointer-events: none;
 }
 
+.obscureRegion-revealed .obscureRegionSurface {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.obscureRegion-revealed {
+  pointer-events: none !important;
+}
+
 .obscureRegionVeil {
   position: absolute;
   inset: 0;
   background: rgba(128, 128, 128, 0.2);
+  pointer-events: none;
+}
+
+.obscureRegion-revealed .obscureRegionVeil {
+  display: none;
+}
+
+.obscureRegionOutline {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
   pointer-events: none;
 }
 
@@ -113,8 +136,8 @@
 
 .obscureRegionClose {
   position: absolute;
-  right: -10px;
-  top: -10px;
+  right: 2px;
+  top: 2px;
   width: 20px;
   height: 20px;
   padding: 0;
@@ -128,6 +151,34 @@
   cursor: pointer;
 }
 
+.obscureRegionHide {
+  position: absolute;
+  right: 26px;
+  top: 2px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  background: rgba(18, 18, 18, 0.8);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.obscureRegion-revealed .obscureRegionClose {
+  pointer-events: auto !important;
+}
+
+.obscureRegion-revealed .obscureRegionHide {
+  pointer-events: auto !important;
+}
+
 .obscureRegionClose:hover {
   background: rgba(80, 20, 20, 0.9);
+}
+
+.obscureRegionHide:hover {
+  background: rgba(34, 34, 34, 0.92);
 }

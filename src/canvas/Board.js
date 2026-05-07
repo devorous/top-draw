@@ -500,11 +500,21 @@ export class Board {
       return;
     }
     if (!this.obscureLayer || !region?.id) return;
-    const x = Number(region.x);
-    const y = Number(region.y);
-    const width = Number(region.width);
-    const height = Number(region.height);
-    if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return;
+    const rawX = Number(region.x);
+    const rawY = Number(region.y);
+    const rawWidth = Number(region.width);
+    const rawHeight = Number(region.height);
+    if (![rawX, rawY, rawWidth, rawHeight].every(Number.isFinite) || rawWidth <= 0 || rawHeight <= 0) return;
+
+    const boardWidth = this.getWidth();
+    const boardHeight = this.getHeight();
+    const x = Math.max(0, Math.min(boardWidth, rawX));
+    const y = Math.max(0, Math.min(boardHeight, rawY));
+    const right = Math.max(0, Math.min(boardWidth, rawX + rawWidth));
+    const bottom = Math.max(0, Math.min(boardHeight, rawY + rawHeight));
+    const width = right - x;
+    const height = bottom - y;
+    if (width <= 0 || height <= 0) return;
 
     const existing = this.obscureRegions.get(region.id);
     if (existing?.element) existing.element.remove();
@@ -520,20 +530,39 @@ export class Board {
     surface.className = 'obscureRegionSurface';
     el.appendChild(surface);
 
-    if (Array.isArray(region.lassoPath) && region.lassoPath.length >= 3) {
-      const points = region.lassoPath
+    let lassoClipPoints = null;
+    const lassoPath = Array.isArray(region.lassoPath) && region.lassoPath.length >= 3
+      ? region.lassoPath
+        .map((point) => ({ x: Number(point.x), y: Number(point.y) }))
+        .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+      : null;
+    if (lassoPath?.length >= 3) {
+      lassoClipPoints = lassoPath
         .map((point) => {
           const px = ((Number(point.x) - x) / width) * 100;
           const py = ((Number(point.y) - y) / height) * 100;
-          return `${Math.max(0, Math.min(100, px))}% ${Math.max(0, Math.min(100, py))}%`;
-        })
-        .join(', ');
-      surface.style.clipPath = `polygon(${points})`;
+          return {
+            x: Math.max(0, Math.min(100, px)),
+            y: Math.max(0, Math.min(100, py))
+          };
+        });
+      surface.style.clipPath = `polygon(${lassoClipPoints.map((point) => `${point.x}% ${point.y}%`).join(', ')})`;
     }
 
     const veil = document.createElement('div');
     veil.className = 'obscureRegionVeil';
     surface.appendChild(veil);
+
+    const outline = document.createElement('canvas');
+    outline.className = 'obscureRegionOutline';
+    const outlinePad = 2;
+    outline.width = Math.max(1, Math.ceil(width + outlinePad * 2));
+    outline.height = Math.max(1, Math.ceil(height + outlinePad * 2));
+    outline.style.left = `${-outlinePad}px`;
+    outline.style.top = `${-outlinePad}px`;
+    outline.style.width = `${width + outlinePad * 2}px`;
+    outline.style.height = `${height + outlinePad * 2}px`;
+    el.appendChild(outline);
 
     const button = document.createElement('button');
     button.type = 'button';
@@ -560,6 +589,7 @@ export class Board {
     closeButton.className = 'obscureRegionClose';
     closeButton.textContent = 'X';
     closeButton.title = 'Remove obscured region';
+    closeButton.style.pointerEvents = 'auto';
     closeButton.addEventListener('click', (event) => {
       event.stopPropagation();
       if (!this.canManageObscureRegions()) return;
@@ -571,8 +601,22 @@ export class Board {
     });
     el.appendChild(closeButton);
 
+    const hideButton = document.createElement('button');
+    hideButton.type = 'button';
+    hideButton.className = 'obscureRegionHide';
+    hideButton.textContent = 'Hide';
+    hideButton.title = 'Hide this region again';
+    hideButton.style.display = 'none';
+    hideButton.style.pointerEvents = 'auto';
+    hideButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.hideObscureRegion(region.id);
+    });
+    el.appendChild(hideButton);
+
     this.obscureLayer.appendChild(el);
-    this.obscureRegions.set(region.id, { ...region, x, y, width, height, element: el, button, closeButton });
+    this.obscureRegions.set(region.id, { ...region, x, y, width, height, lassoPath, outlinePad, element: el, outline, button, closeButton, hideButton });
+    this.drawObscureRegionOutline(region.id);
     updateButton();
     this.refreshObscureRegionAccess();
   }
@@ -580,14 +624,70 @@ export class Board {
   revealObscureRegion(id) {
     const entry = this.obscureRegions.get(id);
     if (!entry) return;
-    entry.element?.remove();
-    this.obscureRegions.delete(id);
+    entry.revealed = true;
+    entry.element?.classList.add('obscureRegion-revealed');
+    if (entry.element) entry.element.style.pointerEvents = 'none';
+    if (entry.button) entry.button.style.display = 'none';
+    if (entry.closeButton) entry.closeButton.style.pointerEvents = 'auto';
+    if (entry.hideButton) entry.hideButton.style.display = '';
+    if (entry.hideButton) entry.hideButton.style.pointerEvents = 'auto';
+  }
+
+  hideObscureRegion(id) {
+    const entry = this.obscureRegions.get(id);
+    if (!entry) return;
+    entry.revealed = false;
+    entry.element?.classList.remove('obscureRegion-revealed');
+    if (entry.element) entry.element.style.pointerEvents = 'auto';
+    if (entry.button) entry.button.style.display = '';
+    if (entry.hideButton) entry.hideButton.style.display = 'none';
+    this.refreshObscureRegionAccess();
   }
 
   removeObscureRegion(id) {
     const entry = this.obscureRegions.get(id);
     if (entry?.element) entry.element.remove();
     this.obscureRegions.delete(id);
+  }
+
+  drawObscureRegionOutline(id) {
+    const entry = this.obscureRegions.get(id);
+    const canvas = entry?.outline;
+    const ctx = canvas?.getContext?.('2d');
+    if (!entry || !canvas || !ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+
+    const drawPath = () => {
+      ctx.beginPath();
+      if (entry.lassoPath?.length >= 3) {
+        ctx.moveTo(entry.lassoPath[0].x - entry.x + entry.outlinePad, entry.lassoPath[0].y - entry.y + entry.outlinePad);
+        for (let i = 1; i < entry.lassoPath.length; i++) {
+          ctx.lineTo(entry.lassoPath[i].x - entry.x + entry.outlinePad, entry.lassoPath[i].y - entry.y + entry.outlinePad);
+        }
+        ctx.closePath();
+      } else {
+        ctx.rect(
+          entry.outlinePad + 0.5,
+          entry.outlinePad + 0.5,
+          Math.max(0, entry.width - 1),
+          Math.max(0, entry.height - 1)
+        );
+      }
+    };
+
+    ctx.strokeStyle = '#000';
+    ctx.lineDashOffset = 0;
+    drawPath();
+    ctx.stroke();
+
+    ctx.strokeStyle = '#fff';
+    ctx.lineDashOffset = 4;
+    drawPath();
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   refreshObscureRegionAccess() {
