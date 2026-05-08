@@ -431,6 +431,42 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
   flex-wrap: wrap;
 }
 
+.pattern-control-row {
+  display: grid;
+  grid-template-columns: minmax(0, 68px) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.pattern-control-row label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.pattern-control-row select {
+  width: 100%;
+  min-width: 0;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 5px 7px;
+  font: inherit;
+}
+
+.pattern-control-row .sliderValue {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Brush Mode 2x2 Grid */
 .brush-mode-grid {
   display: grid;

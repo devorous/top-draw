@@ -4,6 +4,7 @@ import { FlowPenTool } from './FlowPenTool.js';
 import { FlowPenOldTool } from './FlowPenOldTool.js';
 import { InkTool } from './InkTool.js';
 import { ImageBrushTool } from './ImageBrushTool.js';
+import { ConfettiTool } from './ConfettiTool.js';
 import { PatternTool } from './PatternTool.js';
 import { PixelBrushTool } from './PixelBrushTool.js';
 import { LineTool, RectangleTool, CircleTool } from './ShapeTools.js';
@@ -64,6 +65,7 @@ export class ToolManager {
       erase: new EraserTool(board),
       text: new TextTool(board),
       imageBrush: new ImageBrushTool(board),
+      confetti: new ConfettiTool(board),
       pattern: new PatternTool(board),
       inkdropper: new InkdropperTool(board),
       blur: new BlurTool(board),
@@ -111,4 +113,4 @@ export class ToolManager {
   }
 }
 
-export { BrushTool, FlowPenTool, InkTool, ImageBrushTool, LineTool, RectangleTool, CircleTool, EraserTool, TextTool, SelectToolLoader, InkdropperTool, BlurTool };
+export { BrushTool, FlowPenTool, InkTool, ImageBrushTool, ConfettiTool, LineTool, RectangleTool, CircleTool, EraserTool, TextTool, SelectToolLoader, InkdropperTool, BlurTool };

@@ -4,6 +4,12 @@
  */
 
 import { parseGbr, parseGih } from '../utils/parseGimp.js';
+import {
+  buildPreviewStrokePoints,
+  drawPreviewStrokeGuide,
+  getPreviewPointAngle,
+  prepareStrokePreviewCanvas
+} from '../ui/StrokePreviewRenderer.js';
 
 /**
  * Base tool class.
@@ -270,6 +276,74 @@ export class ImageBrushTool extends Tool {
       });
     });
     previewCtx.globalAlpha = 1.0;
+  }
+
+  updatePreview(user) {
+    const canvas = document.getElementById('toolPreviewCanvas');
+    if (!canvas) return;
+    if (!user) user = this.board.self || this.board.app?.self;
+    if (!user?.imageBrush) return;
+
+    const ctx = prepareStrokePreviewCanvas(canvas, this.board);
+    if (!ctx) return;
+
+    const points = buildPreviewStrokePoints(canvas, 50);
+    drawPreviewStrokeGuide(ctx, points, user.color || [0, 0, 0]);
+
+    const brush = user.imageBrush;
+    const originalIndex = brush.index;
+
+    points.forEach((point, index) => {
+      const imageData = this._getPreviewImage(brush, index);
+      if (!imageData?.image) return;
+      this._drawPreviewStamp(ctx, user, brush, imageData, point, getPreviewPointAngle(points, index));
+    });
+
+    if (originalIndex !== undefined) brush.index = originalIndex;
+    ctx.globalAlpha = 1;
+  }
+
+  _getPreviewImage(brush, index) {
+    if (!brush) return null;
+    if (brush.type === 'gbr') return { image: brush.image, width: brush.width, height: brush.height };
+    if (brush.type === 'gih') {
+      const images = brush.images || [];
+      const image = images.length ? images[index % images.length] : null;
+      return { image, width: brush.cellwidth, height: brush.cellheight };
+    }
+    if (brush.type === 'image' || brush.type === 'svg') {
+      return { image: brush.image, width: brush.width, height: brush.height };
+    }
+    return null;
+  }
+
+  _drawPreviewStamp(ctx, user, brush, imageData, point, angle) {
+    let { image, width, height } = imageData;
+    if (!image || !width || !height) return;
+
+    if (brush.type !== 'gih' && (user.imageBrushColorMode || 'original') === 'tinted') {
+      image = this._getTintedImage(user, image);
+    }
+
+    let ratioX = width / height;
+    let ratioY = height / width;
+    if (width > height) ratioX = 1;
+    if (height > width) ratioY = 1;
+
+    const baseSize = 8;
+    const scaledSize = baseSize * point.pressure;
+    const stampW = scaledSize * 2 * ratioX;
+    const stampH = scaledSize * 2 * ratioY;
+
+    ctx.save();
+    ctx.globalAlpha = (user.opacity ?? 1) * Math.min(1, 0.35 + point.pressure * 0.65);
+    ctx.translate(point.x, point.y);
+    if (brush.type === 'gih') ctx.rotate(angle);
+    const prevSmoothing = ctx.imageSmoothingEnabled;
+    if (brush.type === 'svg') ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(image, -stampW / 2, -stampH / 2, stampW, stampH);
+    ctx.imageSmoothingEnabled = prevSmoothing;
+    ctx.restore();
   }
 
   _getTintedImage(user, image, frameKey = '') {

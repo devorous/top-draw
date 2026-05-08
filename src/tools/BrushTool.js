@@ -4,6 +4,12 @@
  */
 
 import { manhattanDistance, drawLineArray, bridgeGap } from '../utils/drawing.js';
+import {
+  buildPreviewStrokePoints,
+  drawPreviewStrokeGuide,
+  drawTaperedStroke,
+  prepareStrokePreviewCanvas
+} from '../ui/StrokePreviewRenderer.js';
 
 /**
  * Base class for all interactive tools.
@@ -198,6 +204,20 @@ export class BrushTool extends Tool {
     }
 
     drawClippedToMask();
+  }
+
+  updatePreview(user) {
+    const canvas = document.getElementById('toolPreviewCanvas');
+    if (!canvas) return;
+    if (!user) user = this.board.self || this.board.app?.self;
+    if (!user) return;
+
+    const ctx = prepareStrokePreviewCanvas(canvas, this.board);
+    if (!ctx) return;
+
+    const points = buildPreviewStrokePoints(canvas, 50);
+    drawPreviewStrokeGuide(ctx, points, user.color || [0, 0, 0]);
+    drawTaperedStroke(ctx, points, user);
   }
 
   /**

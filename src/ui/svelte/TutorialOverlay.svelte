@@ -6,15 +6,6 @@
   const STOPPED_KEY = 'tutorial_v1_stopped';
   const VISIT_MARKER_KEY = 'tutorial_v1_visit_marker';
 
-  const RETURNING_USER_STORAGE_KEYS = [
-    'topDrawAppPreferences',
-    'topDrawAuthToken',
-    'topdraw_customColors',
-    'topDrawCreatedRooms',
-    'topDrawFingerprintId',
-    'topDrawIdentitySummary'
-  ];
-
   const steps = [
     {
       section: 'Setup',
@@ -221,36 +212,6 @@
     return storageGet(key) !== null;
   }
 
-  function hasPriorSiteData() {
-    if (RETURNING_USER_STORAGE_KEYS.some(hasStorageKey)) return true;
-
-    try {
-      for (let i = 0; i < localStorage.length; i += 1) {
-        const key = localStorage.key(i);
-        if (!key) continue;
-        if (key === FINISHED_KEY || key === STOPPED_KEY || key === VISIT_MARKER_KEY || key === 'topDrawDeviceId') continue;
-        if (/^(topDraw|topdraw_|boardViewer)/.test(key)) return true;
-      }
-    } catch {
-      // If storage cannot be inspected, fall back to registered/login state.
-    }
-
-    return false;
-  }
-
-  function isRegisteredCurrentUser() {
-    return !!(
-      storageGet('topDrawAuthToken') ||
-      (appState.selfRole || 0) >= 1 ||
-      (appState.selfGlobalRole || 0) >= 1 ||
-      appState.self?.registeredName
-    );
-  }
-
-  function isReturningUser() {
-    return isRegisteredCurrentUser() || hasPriorSiteData() || storageGet(VISIT_MARKER_KEY) === 'true';
-  }
-
   function isVisible(el) {
     if (!el) return false;
     const style = getComputedStyle(el);
@@ -434,14 +395,8 @@
     const landing = document.getElementById('landingPage');
     const board = document.getElementById('boardContainer');
     if (isVisible(board) && !isVisible(landing)) {
-      const returning = isReturningUser();
       storageSet(VISIT_MARKER_KEY, 'true');
-      if (returning) {
-        promptVisible = true;
-        return;
-      }
-      active = true;
-      scheduleSpotlight();
+      promptVisible = true;
     }
   }
 
@@ -560,13 +515,15 @@
 </script>
 
 {#if promptVisible}
-  <div class="tutorialPromptLayer" role="presentation">
-    <div class="tutorialPrompt" role="dialog" aria-modal="true" aria-labelledby="tutorialPromptTitle">
-      <h2 id="tutorialPromptTitle">New short tutorial</h2>
-      <p>Want a quick tour of the new drawing tools and settings?</p>
-      <div class="tutorialPromptActions">
+  <div class="tutorialLayer" role="presentation">
+    <div class="tutorialToast tutorialPromptToast" role="dialog" aria-modal="true" aria-labelledby="tutorialPromptTitle">
+      <div class="tutorialBody">
+        <h2 id="tutorialPromptTitle">New short tutorial</h2>
+        <p>Want a quick tour of the new drawing tools and settings?</p>
+      </div>
+      <div class="tutorialActions">
         <button type="button" class="primary" onclick={startFromPrompt}>Start Tutorial</button>
-        <button type="button" onclick={skipFromPrompt}>Skip</button>
+        <button type="button" onclick={skipFromPrompt}>No thanks</button>
       </div>
     </div>
   </div>
@@ -640,45 +597,10 @@
     font-family: inherit;
   }
 
-  .tutorialPromptLayer {
-    position: fixed;
-    inset: 0;
+  .tutorialPromptToast {
+    height: auto;
+    cursor: default;
     z-index: 100001;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 16px;
-    background: rgba(0, 0, 0, 0.58);
-  }
-
-  .tutorialPrompt {
-    width: min(380px, 100%);
-    padding: 16px;
-    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.16));
-    border-radius: 8px;
-    background: var(--bg-secondary, #1f2530);
-    color: var(--text-primary, #f5f7fb);
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.36);
-  }
-
-  .tutorialPrompt h2 {
-    margin: 0 0 8px;
-    font-size: 1rem;
-    line-height: 1.2;
-  }
-
-  .tutorialPrompt p {
-    margin: 0;
-    color: var(--text-secondary, #b7c0ce);
-    font-size: 0.86rem;
-    line-height: 1.35;
-  }
-
-  .tutorialPromptActions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    margin-top: 16px;
   }
 
   .tutorialScrim {

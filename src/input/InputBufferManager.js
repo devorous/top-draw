@@ -38,7 +38,8 @@ const BATCH_RENDER_TOOLS = new Set([
   'circleBlur',
   'glitchBlur',
   'pixel',
-  'imageBrush'
+  'imageBrush',
+  'confetti'
 ]);
 const LATEST_POINT_ONLY_TOOLS = new Set(['select']);
 // Tools that need all points for smooth remote rendering (no Douglas-Peucker reduction)
@@ -314,7 +315,12 @@ export class InputBufferManager {
           this.broadcastQueue.push(() => app.wsClient.broadcastMove(reduced.ps));
         } else {
           this._recordOutgoingPoints(reduced.ps.length / 2);
-          this.broadcastQueue.push(() => app.wsClient.broadcastStampMove(reduced.ps, reduced.rs));
+          const metadata = {};
+          if (app.self.tool === 'confetti') {
+            const settings = tool.getNetworkSettings?.(app.self, { includeBrush: false });
+            if (settings) metadata.confettiData = JSON.stringify(settings);
+          }
+          this.broadcastQueue.push(() => app.wsClient.broadcastStampMove(reduced.ps, reduced.rs, metadata));
         }
       }
     }
@@ -534,12 +540,12 @@ export class InputBufferManager {
   }
 
   _isStampTool(toolName) {
-    return ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush'].includes(toolName);
+    return ['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush', 'confetti'].includes(toolName);
   }
 
   _shouldPreserveStampPayload(toolName) {
     // flowPen handles its own reduction in drainStampBuffer - don't double-reduce
-    return ['ink', 'circleBlur', 'imageBrush', 'pixel', 'flowPen'].includes(toolName);
+    return ['ink', 'circleBlur', 'imageBrush', 'pixel', 'flowPen', 'confetti'].includes(toolName);
   }
 
   _reduceStampPayload(ps, rs) {
@@ -734,7 +740,7 @@ export class InputBufferManager {
       tool.drawPreview(user, previewRect);
     }
 
-    if (toolName === 'blur' || toolName === 'circleBlur' || toolName === 'glitchBlur' || toolName === 'imageBrush') {
+    if (toolName === 'blur' || toolName === 'circleBlur' || toolName === 'glitchBlur' || toolName === 'imageBrush' || toolName === 'confetti') {
       app.board?.requestUpdate();
     }
   }

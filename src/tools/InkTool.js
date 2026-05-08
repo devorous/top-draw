@@ -4,6 +4,11 @@
  */
 
 import { getStroke } from 'perfect-freehand';
+import {
+  buildPreviewStrokePoints,
+  drawPreviewStrokeGuide,
+  prepareStrokePreviewCanvas
+} from '../ui/StrokePreviewRenderer.js';
 
 /**
  * Base tool class.
@@ -445,6 +450,51 @@ export class InkTool extends Tool {
       });
     });
     ctx.globalAlpha = 1.0;
+  }
+
+  updatePreview(user) {
+    const canvas = document.getElementById('toolPreviewCanvas');
+    if (!canvas) return;
+    if (!user) user = this.board.self || this.board.app?.self;
+    if (!user) return;
+
+    const ctx = prepareStrokePreviewCanvas(canvas, this.board);
+    if (!ctx) return;
+
+    const points = buildPreviewStrokePoints(canvas, 50);
+    drawPreviewStrokeGuide(ctx, points, user.color || [0, 0, 0]);
+
+    const thinning = Math.max(0, Math.min(1, Number(user.thinning ?? 0.5)));
+    const smoothing = Math.max(0, Math.min(50, Number(user.smoothing ?? 15))) / 50;
+    const strokePoints = points.map(point => [point.x, point.y, point.pressure]);
+    const outlinePoints = getStroke(strokePoints, {
+      size: 17.5,
+      thinning: Math.min(0.99, thinning),
+      smoothing,
+      streamline: 0.3 + smoothing * 0.7,
+      simulatePressure: false,
+      last: true
+    });
+
+    if (outlinePoints.length < 3) return;
+    const pathData = getSvgPathFromStroke(outlinePoints);
+    if (!pathData) return;
+
+    ctx.save();
+    ctx.globalAlpha = user.opacity ?? 1;
+    ctx.fillStyle = `rgb(${user.color?.[0] ?? 0}, ${user.color?.[1] ?? 0}, ${user.color?.[2] ?? 0})`;
+    const hardness = Math.max(0, Math.min(100, Number(user.hardness ?? 100))) / 100;
+    if (hardness < 1) {
+      const blurAmount = (1 - hardness) * (8 + 25 * 0.25);
+      const offset = 10000;
+      ctx.shadowBlur = blurAmount;
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowOffsetX = offset;
+      ctx.shadowOffsetY = 0;
+      ctx.translate(-offset, 0);
+    }
+    ctx.fill(new Path2D(pathData));
+    ctx.restore();
   }
 
   getHardnessCanvas(sourceCanvas, size, rect = null) {

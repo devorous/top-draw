@@ -1,0 +1,469 @@
+import {
+  buildPreviewStrokePoints,
+  drawPreviewStrokeGuide,
+  getPreviewPointAngle,
+  prepareStrokePreviewCanvas
+} from '../ui/StrokePreviewRenderer.js';
+
+/**
+ * @fileoverview Confetti brush - stamps randomized particles along a drawing path.
+ */
+
+class Tool {
+  constructor(name, board) {
+    this.name = name;
+    this.board = board;
+  }
+
+  activate() {}
+  deactivate() {}
+  onPointerDown(user, pos, e) {}
+  onPointerMove(user, pos, lastPos, e) {}
+  onPointerUp(user, pos, e) {}
+}
+
+function mulberry32(seed) {
+  return function nextRandom() {
+    let t = seed += 0x6D2B79F5;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function colorToString(color, alpha = 1) {
+  const r = Math.round(color[0] ?? 0);
+  const g = Math.round(color[1] ?? 0);
+  const b = Math.round(color[2] ?? 0);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+const CONFETTI_SEED_MAX = 0xFFFFFF;
+
+export class ConfettiTool extends Tool {
+  constructor(board) {
+    super('confetti', board);
+    this.lastStampPos = new Map();
+    this.stampBuffer = [];
+    this.seedBuffer = [];
+    this.strokePoints = [];
+    this.dirtyBounds = null;
+    this._activeUser = null;
+    this._strokeSeed = 0;
+    this._emissionIndex = 0;
+    this._imageCache = new Map();
+  }
+
+  deactivate() {
+    if (this._activeUser && this.lastStampPos.has(this._activeUser.id)) {
+      this.onPointerUp(this._activeUser, this.lastStampPos.get(this._activeUser.id));
+    }
+    this.lastStampPos.clear();
+    this._activeUser = null;
+  }
+
+  onPointerDown(user, pos) {
+    this._activeUser = user;
+    this._strokeSeed = Number(user._confettiStrokeSeed ?? this.createSeed()) & CONFETTI_SEED_MAX;
+    this._emissionIndex = 0;
+    this.board.beginStroke(user);
+    this.dirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    this.strokePoints = [{ x: pos.x, y: pos.y }];
+    this.emit(user, pos, 0, this._strokeSeed);
+    this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+    delete user._confettiStrokeSeed;
+  }
+
+  onPointerMove(user, pos) {
+    if (!user.mousedown || user.panning) return;
+
+    const lastStamp = this.lastStampPos.get(user.id);
+    if (!lastStamp) {
+      this.emit(user, pos, 0);
+      this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+      this.board.requestUpdate();
+      return;
+    }
+
+    const dx = pos.x - lastStamp.x;
+    const dy = pos.y - lastStamp.y;
+    const distance = Math.hypot(dx, dy);
+    const spacing = this.getSpacing(user);
+
+    if (distance < spacing) return;
+
+    const steps = Math.max(1, Math.floor(distance / spacing));
+    const angle = Math.atan2(dy, dx);
+
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const interp = {
+        x: lastStamp.x + dx * t,
+        y: lastStamp.y + dy * t
+      };
+      const seed = this.createSeed();
+      this.emit(user, interp, angle, seed);
+      this.stampBuffer.push(interp.x, interp.y);
+      this.seedBuffer.push(seed);
+      this.strokePoints.push(interp);
+    }
+
+    this.lastStampPos.set(user.id, { x: pos.x, y: pos.y });
+    this.board.requestUpdate();
+  }
+
+  onPointerUp(user) {
+    if (user.panning) return;
+
+    if (this.dirtyBounds && this.dirtyBounds.maxX !== -Infinity) {
+      const margin = 4;
+      const x = Math.floor(this.dirtyBounds.minX - margin);
+      const y = Math.floor(this.dirtyBounds.minY - margin);
+      const width = Math.ceil(this.dirtyBounds.maxX - this.dirtyBounds.minX + margin * 2);
+      const height = Math.ceil(this.dirtyBounds.maxY - this.dirtyBounds.minY + margin * 2);
+      this.board.expandDirtyRect(user, x, y, width, height);
+
+      this.board.forEachMirrorRegion({ rect: { x, y, width, height } }, (region) => {
+        const p1 = this.board.mirrorPointToRegion({ x: this.dirtyBounds.minX, y: this.dirtyBounds.minY }, region);
+        const p2 = this.board.mirrorPointToRegion({ x: this.dirtyBounds.maxX, y: this.dirtyBounds.maxY }, region);
+        const mx = Math.floor(Math.min(p1.x, p2.x) - margin);
+        const my = Math.floor(Math.min(p1.y, p2.y) - margin);
+        const mw = Math.ceil(Math.max(p1.x, p2.x) - Math.min(p1.x, p2.x) + margin * 2);
+        const mh = Math.ceil(Math.max(p1.y, p2.y) - Math.min(p1.y, p2.y) + margin * 2);
+        this.board.expandDirtyRect(user, mx, my, mw, mh);
+      });
+    }
+
+    if (this.strokePoints.length > 0) {
+      const radius = user.size + this.getMaxParticleRadius(user);
+      this.board.markDirtyPath(user, this.strokePoints, radius);
+      this.board.forEachMirrorRegion({ points: this.strokePoints }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(this.strokePoints, region), radius);
+      });
+    }
+
+    this.strokePoints = [];
+    this.board.endStroke(user);
+    this.board.clearTop();
+    this.lastStampPos.delete(user.id);
+    this.dirtyBounds = null;
+  }
+
+  drainStampBuffer() {
+    const ps = this.stampBuffer;
+    const rs = this.seedBuffer;
+    this.stampBuffer = [];
+    this.seedBuffer = [];
+    return { ps, rs };
+  }
+
+  applyStamps(user, ps, seeds = []) {
+    if (!user || user.id == null) return;
+    const strokeLayer = user._strokeLayer ?? user.activeLayer ?? 0;
+    const hasActiveStroke = this.board.layerManager?.getActiveStroke(strokeLayer, user.id);
+    if (!hasActiveStroke) this.board.beginStroke(user);
+
+    const points = [];
+    for (let i = 0; i < ps.length; i += 2) {
+      const pos = { x: ps[i], y: ps[i + 1] };
+      const seed = Number(seeds[i / 2] ?? this.createSeed()) & CONFETTI_SEED_MAX;
+      this.emit(user, pos, 0, seed);
+      points.push(pos);
+    }
+
+    if (points.length > 0) {
+      const radius = user.size + this.getMaxParticleRadius(user);
+      this.board.markDirtyPath(user, points, radius);
+      this.board.forEachMirrorRegion({ points }, (region) => {
+        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(points, region), radius);
+      });
+    }
+    this.board.requestUpdate();
+  }
+
+  emit(user, pos, pathAngle = 0, seed = this.createSeed()) {
+    const count = this.getParticlesPerStep(user);
+    const seedBase = Number(seed) & CONFETTI_SEED_MAX;
+    this._emissionIndex++;
+
+    for (let i = 0; i < count; i++) {
+      const random = mulberry32((seedBase + i * 374761393) >>> 0);
+      const particle = this.createParticle(user, pos, pathAngle, random);
+      this.drawParticle(user, particle);
+    }
+  }
+
+  createParticle(user, pos, pathAngle, random) {
+    const scatter = this.getScatter(user);
+    const radius = Math.sqrt(random()) * scatter;
+    const theta = random() * Math.PI * 2;
+    const variation = Math.max(0, Math.min(1, Number(user.confettiSizeVariation ?? 40) / 100));
+    const scaleMin = Math.max(0.1, 1 - variation);
+    const scaleMax = Math.max(scaleMin, 1 + variation);
+    const baseSize = Math.max(1, Number(user.confettiParticleSize ?? user.size ?? 10));
+    const size = Math.max(1, baseSize * (scaleMin + random() * (scaleMax - scaleMin)));
+    const rotationJitter = ((Number(user.confettiRotationJitter ?? 180)) * Math.PI) / 180;
+    const rotationMode = user.confettiRotationMode || 'random';
+    let rotation = random() * Math.PI * 2;
+    if (rotationMode === 'follow') rotation = pathAngle + (random() * 2 - 1) * rotationJitter;
+    if (rotationMode === 'fixed') rotation = (random() * 2 - 1) * rotationJitter;
+
+    return {
+      x: pos.x + Math.cos(theta) * radius,
+      y: pos.y + Math.sin(theta) * radius,
+      size,
+      rotation,
+      brush: user.confettiBrush || null,
+      color: this.getParticleColor(user, random),
+      opacity: (user.opacity ?? 1) * (0.65 + random() * 0.35)
+    };
+  }
+
+  drawParticle(user, particle) {
+    const strokeLayer = user._strokeLayer ?? user.activeLayer ?? 0;
+    const ctx = this.board.layerManager.getUserStrokeContext(strokeLayer, user.id);
+    if (!ctx) return;
+
+    const draw = (targetCtx, item) => this.drawParticleToContext(targetCtx, item);
+
+    draw(ctx, particle);
+
+    const rect = {
+      x: particle.x - particle.size,
+      y: particle.y - particle.size,
+      width: particle.size * 2,
+      height: particle.size * 2
+    };
+
+    this.board.forEachMirrorRegion({ rect }, (region) => {
+      this.board.withMirroredRegionTransform(ctx, region, () => draw(ctx, particle));
+    });
+
+    this.expandDirtyBounds(rect);
+    this.board.expandDirtyRect(user, Math.floor(rect.x), Math.floor(rect.y), Math.ceil(rect.width), Math.ceil(rect.height));
+  }
+
+  buildStarPath(ctx, outer, inner) {
+    for (let i = 0; i < 10; i++) {
+      const radius = i % 2 === 0 ? outer : inner;
+      const angle = -Math.PI / 2 + (i * Math.PI) / 5;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+  }
+
+  drawParticleToContext(ctx, particle) {
+    ctx.save();
+    ctx.translate(particle.x, particle.y);
+    ctx.rotate(particle.rotation);
+    ctx.globalAlpha = particle.opacity;
+    const image = this.getParticleImage(particle.brush);
+    if (image?.complete && image.naturalWidth > 0) {
+      const half = particle.size / 2;
+      ctx.drawImage(image, -half, -half, particle.size, particle.size);
+      ctx.globalCompositeOperation = 'source-in';
+      ctx.fillStyle = colorToString(particle.color);
+      ctx.fillRect(-half, -half, particle.size, particle.size);
+    } else {
+      ctx.fillStyle = colorToString(particle.color);
+      ctx.beginPath();
+      ctx.arc(0, 0, particle.size / 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  updatePreview(user) {
+    const canvas = document.getElementById('toolPreviewCanvas');
+    if (!canvas) return;
+    if (!user) user = this.board.self || this.board.app?.self;
+    if (!user) return;
+
+    const ctx = prepareStrokePreviewCanvas(canvas, this.board);
+    if (!ctx) return;
+
+    const previewUser = {
+      ...user,
+      confettiParticleSize: Math.max(2, Math.min(14, Number(user.confettiParticleSize ?? 10) * 0.65)),
+      opacity: user.opacity ?? 1,
+      size: 25
+    };
+    const oldSeed = this._strokeSeed;
+    const oldIndex = this._emissionIndex;
+    this._strokeSeed = 0xC0FFEE;
+    this._emissionIndex = 0;
+
+    const points = buildPreviewStrokePoints(canvas, 50);
+    drawPreviewStrokeGuide(ctx, points, user.color || [0, 0, 0]);
+
+    const spacing = this.getSpacing(previewUser);
+    let lastPoint = points[0];
+
+    // Emit for the first point
+    this._emitForPreview(ctx, previewUser, lastPoint, getPreviewPointAngle(points, 0), 0);
+
+    let distanceTraveled = 0;
+    for (let i = 1; i < points.length; i++) {
+      const pos = points[i];
+      const dx = pos.x - lastPoint.x;
+      const dy = pos.y - lastPoint.y;
+      const dist = Math.hypot(dx, dy);
+      distanceTraveled += dist;
+
+      if (distanceTraveled >= spacing) {
+        const pathAngle = getPreviewPointAngle(points, i);
+        this._emitForPreview(ctx, previewUser, pos, pathAngle, i);
+        lastPoint = pos;
+        distanceTraveled = 0;
+      }
+    }
+
+    this._strokeSeed = oldSeed;
+    this._emissionIndex = oldIndex;
+    ctx.globalAlpha = 1;
+  }
+
+  _emitForPreview(ctx, user, pos, pathAngle, index) {
+    const seed = (0xC0FFEE + index * 2654435761) >>> 0;
+    const count = this.getParticlesPerStep(user);
+    for (let particleIndex = 0; particleIndex < count; particleIndex++) {
+      const random = mulberry32((seed + particleIndex * 374761393) >>> 0);
+      const pressureUser = {
+        ...user,
+        size: user.size * pos.pressure,
+        confettiParticleSize: user.confettiParticleSize * pos.pressure
+      };
+      const particle = this.createParticle(pressureUser, pos, pathAngle, random);
+      this.drawParticleToContext(ctx, particle);
+    }
+  }
+
+  getParticleColor(user, random) {
+    const mode = user.confettiColorMode || 'active';
+    if (mode === 'random') {
+      return [
+        Math.floor(random() * 256),
+        Math.floor(random() * 256),
+        Math.floor(random() * 256)
+      ];
+    }
+    return user.color || [0, 0, 0];
+  }
+
+  getSpacing(user) {
+    const spacing = Math.max(0, Math.min(50, Number(user.confettiSpacing ?? user.spacing ?? 30)));
+    return Math.max(1, user.size * Math.max(0.05, spacing * 0.05));
+  }
+
+  getParticlesPerStep(user) {
+    return Math.max(1, Math.min(12, Math.round(Number(user.confettiParticles ?? 4))));
+  }
+
+  getScatter(user) {
+    return Math.max(0, Number(user.size ?? 10) - this.getMaxParticleRadius(user));
+  }
+
+  getMaxParticleRadius(user) {
+    const baseSize = Math.max(1, Number(user.confettiParticleSize ?? user.size ?? 10));
+    const variation = Math.max(0, Math.min(1, Number(user.confettiSizeVariation ?? 40) / 100));
+    return (baseSize * (1 + variation)) / 2;
+  }
+
+  getParticleImage(brush) {
+    const url = brush?.gBrushes?.[0]?.gimpUrl || brush?.previewUrl || brush?.gimpUrl || brush?.url || this.svgContentToDataUrl(brush?.svgContent);
+    if (!url) return null;
+    if (this._imageCache.has(url)) return this._imageCache.get(url);
+    const image = new Image();
+    image.onload = () => this.board?.requestUpdate?.();
+    image.src = url;
+    this._imageCache.set(url, image);
+    return image;
+  }
+
+  svgContentToDataUrl(svgContent) {
+    if (!svgContent) return null;
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgContent)}`;
+  }
+
+  createSeed() {
+    return Math.floor(Math.random() * (CONFETTI_SEED_MAX + 1));
+  }
+
+  getNetworkSettings(user, extra = {}) {
+    const { includeBrush = true, ...payloadExtra } = extra;
+    const settings = {
+      kind: 'confetti',
+      confettiParticles: this.getParticlesPerStep(user),
+      confettiParticleSize: Math.max(1, Number(user.confettiParticleSize ?? user.size ?? 10)),
+      confettiSizeVariation: Math.max(0, Math.min(100, Number(user.confettiSizeVariation ?? 40))),
+      confettiSpacing: Math.max(0, Math.min(50, Number(user.confettiSpacing ?? user.spacing ?? 30))),
+      confettiColorMode: user.confettiColorMode || 'active',
+      ...payloadExtra
+    };
+    if (includeBrush) settings.confettiBrush = this.getNetworkBrush(user.confettiBrush);
+    return settings;
+  }
+
+  getNetworkBrush(brush) {
+    if (!brush) return null;
+    const data = {
+      type: brush.type || 'image',
+      fileName: brush.fileName || null,
+      brushName: brush.brushName || null,
+      gimpUrl: brush.gimpUrl || null,
+      previewUrl: brush.previewUrl?.startsWith?.('data:') ? brush.previewUrl : null,
+      svgContent: brush.svgContent || null
+    };
+    if (Array.isArray(brush.gBrushes)) {
+      data.gBrushes = brush.gBrushes.map((entry) => ({
+        gimpUrl: entry.gimpUrl,
+        width: entry.width,
+        height: entry.height
+      }));
+    }
+    return data;
+  }
+
+  applyNetworkSettings(user, raw) {
+    if (!raw) return null;
+    let data = raw;
+    if (typeof raw === 'string') {
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    }
+    if (!data || data.kind !== 'confetti') return null;
+
+    for (const key of [
+      'confettiParticles',
+      'confettiParticleSize',
+      'confettiSizeVariation',
+      'confettiSpacing',
+      'confettiColorMode',
+      'confettiBrush'
+    ]) {
+      if (data[key] !== undefined) user[key] = data[key];
+    }
+    if (data.initialSeed !== undefined) {
+      user._confettiStrokeSeed = Number(data.initialSeed) & CONFETTI_SEED_MAX;
+    }
+    return data;
+  }
+
+  expandDirtyBounds(rect) {
+    if (!this.dirtyBounds) return;
+    this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, rect.x);
+    this.dirtyBounds.minY = Math.min(this.dirtyBounds.minY, rect.y);
+    this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, rect.x + rect.width);
+    this.dirtyBounds.maxY = Math.max(this.dirtyBounds.maxY, rect.y + rect.height);
+  }
+
+  clearUserState(userId) {
+    this.lastStampPos.delete(userId);
+  }
+}

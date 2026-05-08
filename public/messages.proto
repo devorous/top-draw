@@ -146,6 +146,7 @@ message Msg {
     PIXEL = 14;
     FLOODFILL = 15;
     PATTERN = 16;
+    CONFETTI = 17;
   }
 
   // === High-frequency fields (1-15 = 1-byte tags) ===
@@ -167,8 +168,8 @@ message Msg {
   bool m = 9;           // Mirror status
   string k = 10;        // Key pressed
   string n = 11;        // Name
-  string g = 12;        // Chat message or image brush data (JSON)
-  repeated float rs = 13; // Stamp radii for flow pen [r1, r2, ...] — one per point pair in ps
+  string g = 12;        // Chat message or tool payload data (JSON)
+  repeated float rs = 13; // Stamp metadata per point pair in ps: radii for pen/blur, deterministic seeds for confetti
 
   // === Lower-frequency fields (16+ = 2-byte tags) ===
   uint32 sp = 16;       // Spacing * 100

@@ -1,7 +1,7 @@
 <script>
   import { appState, toggleSnapshotMenu, openLocalSnapshotMenu } from '../../state.svelte.js';
   import { LayerPreview } from '../LayerPreview.js';
-  import PatternPreview from './PatternPreview.svelte';
+  import ToolPreview from './ToolPreview.svelte';
 
   let { onBlendModeChange = null, onBlendBakeModeChange = null, onBlendModeLockToggle = null, onLayerSelect = null, onLayerVisibilityToggle = null } = $props();
 
@@ -126,8 +126,8 @@
 </script>
 
 <div class="board-menu">
-  <!-- Pattern Preview (collapsible, above layers) -->
-  <PatternPreview />
+  <!-- Tool preview (collapsible, above layers) -->
+  <ToolPreview />
 
   <!-- Layers (always visible, no frame) -->
   <div class="layer-dropdown-wrap">
@@ -315,7 +315,7 @@
 
   .board-menu {
     position: absolute;
-    top: 60px;
+    top: 46px;
     right: 12px;
     display: flex;
     flex-direction: column;

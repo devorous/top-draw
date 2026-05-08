@@ -1,3 +1,9 @@
+import {
+  buildPreviewStrokePoints,
+  drawPreviewStrokeGuide,
+  prepareStrokePreviewCanvas
+} from '../ui/StrokePreviewRenderer.js';
+
 /**
  * @fileoverview Pixel brush tool - draws filled square stamps
  */
@@ -321,6 +327,36 @@ export class PixelBrushTool {
     ctx.globalAlpha = 1.0;
 
     this.previewDirtyBounds = null;
+  }
+
+  updatePreview(user) {
+    const canvas = document.getElementById('toolPreviewCanvas');
+    if (!canvas) return;
+    if (!user) user = this.board.self || this.board.app?.self;
+    if (!user) return;
+
+    const ctx = prepareStrokePreviewCanvas(canvas, this.board);
+    if (!ctx) return;
+
+    const points = buildPreviewStrokePoints(canvas, 50);
+    drawPreviewStrokeGuide(ctx, points, user.color || [0, 0, 0]);
+
+    const color = user.color || [0, 0, 0];
+    const size = 12;
+    const spacing = Math.max(0, Math.min(50, Number(user.spacing ?? 0)));
+    const step = Math.max(1, Math.round(1 + spacing / 10));
+
+    ctx.save();
+    ctx.globalAlpha = user.opacity ?? color[3] ?? 1;
+    ctx.fillStyle = `rgb(${color[0] ?? 0}, ${color[1] ?? 0}, ${color[2] ?? 0})`;
+    for (let i = 0; i < points.length; i += step) {
+      const point = points[i];
+      const stampSize = Math.max(1, Math.round(size * Math.max(0.35, point.pressure)));
+      const x = Math.round(point.x - stampSize / 2);
+      const y = Math.round(point.y - stampSize / 2);
+      ctx.fillRect(x, y, stampSize, stampSize);
+    }
+    ctx.restore();
   }
 
   /**

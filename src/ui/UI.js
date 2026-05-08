@@ -37,6 +37,7 @@ import moveIconUrl from '../assets/icons/move-icon.svg';
 import rotateIconUrl from '../assets/icons/rotate-icon.svg';
 import pepperIconUrl from '../assets/icons/pepper.png';
 import patternIconUrl from '../assets/icons/pattern-icon.svg';
+import confettiIconUrl from '../assets/icons/confetti-icon.svg';
 
 const fillBucketIconUrl = '../images/fillbucket-icon.svg';
 const blendIconUrl = '../images/blend-icon.svg';
@@ -193,6 +194,10 @@ export class UI {
       ['selectionPatternSpacingSlider', this.elements.selectionPatternSpacingSlider],
       ['selectionPatternOffsetXSlider', this.elements.selectionPatternOffsetXSlider],
       ['selectionPatternOffsetYSlider', this.elements.selectionPatternOffsetYSlider],
+      ['confettiParticlesSlider', this.elements.confettiParticlesSlider],
+      ['confettiParticleSizeSlider', this.elements.confettiParticleSizeSlider],
+      ['confettiSizeVariationSlider', this.elements.confettiSizeVariationSlider],
+      ['confettiSpacingSlider', this.elements.confettiSpacingSlider],
       ['textPositionMultiplierSlider', this.elements.textPositionMultiplierSlider],
       ['textPositionOffsetSlider', this.elements.textPositionOffsetSlider]
     ];
@@ -436,6 +441,7 @@ export class UI {
       circleBlurBtn: document.getElementById('circleBlurBtn'),
       glitchBlurBtn: document.getElementById('glitchBlurBtn'),
       imageBrushBtn: document.getElementById('imageBrushBtn'),
+      confettiBtn: document.getElementById('confettiBtn'),
       patternBtn: document.getElementById('patternBtn'),
       uploadBtn: document.getElementById('uploadBtn'),
       imageUploadInput: document.getElementById('imageUploadInput'),
@@ -502,6 +508,16 @@ menuBtn: document.getElementById('menuBtn'),
       patternColorModeRadios: document.querySelectorAll('input[name="patternColorMode"]'),
       imageBrushModeOptions: document.getElementById('imageBrushModeOptions'),
       imageBrushColorModeRadios: document.querySelectorAll('input[name="imageBrushColorMode"]'),
+      confettiModeOptions: document.getElementById('confettiModeOptions'),
+      confettiColorModeRadios: document.querySelectorAll('input[name="confettiColorMode"]'),
+      confettiParticlesSlider: document.getElementById('confettiParticlesInput'),
+      confettiParticleSizeSlider: document.getElementById('confettiParticleSizeInput'),
+      confettiSizeVariationSlider: document.getElementById('confettiSizeVariationInput'),
+      confettiSpacingSlider: document.getElementById('confettiSpacingInput'),
+      confettiParticlesValue: document.getElementById('confettiParticlesValue'),
+      confettiParticleSizeValue: document.getElementById('confettiParticleSizeValue'),
+      confettiSizeVariationValue: document.getElementById('confettiSizeVariationValue'),
+      confettiSpacingValue: document.getElementById('confettiSpacingValue'),
 
       fillPatternScaleSlider: document.querySelector('.slider.fillPatternScale'),
       fillPatternRotationSlider: document.querySelector('.slider.fillPatternRotation'),
@@ -556,6 +572,10 @@ menuBtn: document.getElementById('menuBtn'),
       cursorStyleContainer: document.getElementById('cursor-style-container'),
       cursorStyleSelect: document.getElementById('cursorStyleSelect'),
       blurRadiusContainer: document.getElementById('blur-radius'),
+      confettiParticlesContainer: document.getElementById('confetti-particles'),
+      confettiParticleSizeContainer: document.getElementById('confetti-particle-size'),
+      confettiSizeVariationContainer: document.getElementById('confetti-size-variation'),
+      confettiSpacingContainer: document.getElementById('confetti-spacing'),
       inkThinningContainer: document.getElementById('ink-thinning'),
       fontContainer: document.getElementById('font-container'),
       textPositionMultiplierContainer: document.getElementById('text-position-multiplier-container'),
@@ -677,6 +697,7 @@ menuBtn: document.getElementById('menuBtn'),
       zoom: zoomIconUrl,
       rotate: rotateIconUrl,
       pattern: patternIconUrl,
+      confetti: confettiIconUrl,
       afk: '../images/zzz-icon.svg',
       lockClosed: '../images/lock-closed.svg', // Preload from static assets
       lockOpen: '../images/lock-open.svg'
@@ -865,6 +886,7 @@ menuBtn: document.getElementById('menuBtn'),
   getCursorStyleForTool(tool, user = null) {
     if (!this.toolSupportsCursorStyle(tool)) {
       if (tool === 'imageBrush' || tool === 'blur' || tool === 'glitchBlur' || tool === 'pixel') return 'square';
+      if (tool === 'confetti') return 'circle';
       if (tool === 'select' || tool === 'fill' || tool === 'inkdropper' || tool === 'rotate') return 'crosshair';
       if (tool === 'pan') return 'hand';
       if (tool === 'zoom') return 'zoom';
@@ -1150,7 +1172,7 @@ menuBtn: document.getElementById('menuBtn'),
       selfCircle, selfPressureCircle, selfDot, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfZoom, selfText, selfName,
       brushImage, brushFileInput, sizeContainer, pressureContainer, smoothingContainer,
       brushSpacing, brushHardness, opacityContainer, cursorStyleContainer, cursorStyleSelect, blurRadiusContainer,
-      selectionModeOptions, eraserModeOptions, inkdropperModeOptions, brushModeOptions, shapeModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions, imageBrushModeOptions, fontContainer, textPositionMultiplierContainer, textPositionOffsetContainer
+      selectionModeOptions, eraserModeOptions, inkdropperModeOptions, brushModeOptions, shapeModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions, imageBrushModeOptions, confettiModeOptions, fontContainer, textPositionMultiplierContainer, textPositionOffsetContainer
     } = this.elements;
 
     selfCircle.style.display = 'none';
@@ -1168,6 +1190,10 @@ menuBtn: document.getElementById('menuBtn'),
     if (fontContainer) fontContainer.style.display = 'none'; // Hide by default
     if (textPositionMultiplierContainer) textPositionMultiplierContainer.style.display = 'none';
     if (textPositionOffsetContainer) textPositionOffsetContainer.style.display = 'none';
+    if (this.elements.confettiParticlesContainer) this.elements.confettiParticlesContainer.style.display = 'none';
+    if (this.elements.confettiParticleSizeContainer) this.elements.confettiParticleSizeContainer.style.display = 'none';
+    if (this.elements.confettiSizeVariationContainer) this.elements.confettiSizeVariationContainer.style.display = 'none';
+    if (this.elements.confettiSpacingContainer) this.elements.confettiSpacingContainer.style.display = 'none';
 
     sizeContainer.style.display = 'block';
     pressureContainer.style.display = 'block';
@@ -1184,9 +1210,10 @@ menuBtn: document.getElementById('menuBtn'),
     if (this.elements.fillModeOptions) this.elements.fillModeOptions.style.display = 'none';
     if (patternModeOptions) patternModeOptions.style.display = 'none';
     if (imageBrushModeOptions) imageBrushModeOptions.style.display = 'none';
+    if (confettiModeOptions) confettiModeOptions.style.display = 'none';
     if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'none';
-    appState.patternPreviewVisible = false;
-    appState.patternPreviewMode = 'pattern';
+    appState.toolPreviewVisible = false;
+    appState.toolPreviewMode = 'pattern';
     
     const { blendModeOptions } = this.elements;
     if (blendModeOptions) {
@@ -1210,7 +1237,7 @@ menuBtn: document.getElementById('menuBtn'),
         if (selectionModeOptions) selectionModeOptions.style.display = 'block';
         {
           const selectTool = window.app?.toolManager?.getTool('select');
-          if (selectTool?.patternMode) appState.patternPreviewVisible = true;
+          if (selectTool?.patternMode) appState.toolPreviewVisible = true;
         }
         break;
 
@@ -1221,6 +1248,9 @@ menuBtn: document.getElementById('menuBtn'),
         brushHardness.style.display = 'block';
         if (brushModeOptions) brushModeOptions.style.display = 'block';
         if (cursorStyleContainer) cursorStyleContainer.style.display = 'block';
+        appState.toolPreviewVisible = true;
+        appState.toolPreviewMode = tool === 'flowPenOld' ? 'flowPen' : tool;
+        window.app?.toolManager?.getTool(appState.toolPreviewMode)?.updatePreview?.(user);
         break;
 
       case 'ink':
@@ -1229,6 +1259,9 @@ menuBtn: document.getElementById('menuBtn'),
         if (brushModeOptions) brushModeOptions.style.display = 'block';
         if (cursorStyleContainer) cursorStyleContainer.style.display = 'block';
         if (this.elements.inkThinningContainer) this.elements.inkThinningContainer.style.display = 'block';
+        appState.toolPreviewVisible = true;
+        appState.toolPreviewMode = 'ink';
+        window.app?.toolManager?.getTool('ink')?.updatePreview?.(user);
         break;
 
       case 'line':
@@ -1289,8 +1322,25 @@ menuBtn: document.getElementById('menuBtn'),
         this.applyLocalCursorStyle(tool, user);
         brushSpacing.style.display = 'block';
         if (imageBrushModeOptions) imageBrushModeOptions.style.display = 'block';
-        appState.patternPreviewVisible = !!user?.imageBrush;
-        appState.patternPreviewMode = 'imageBrush';
+        appState.toolPreviewVisible = !!user?.imageBrush;
+        appState.toolPreviewMode = 'imageBrush';
+        window.app?.toolManager?.getTool('imageBrush')?.updatePreview?.(user);
+        break;
+
+      case 'confetti':
+        this.applyLocalCursorStyle(tool, user);
+        brushSpacing.style.display = 'none';
+        brushHardness.style.display = 'none';
+        smoothingContainer.style.display = 'none';
+        pressureContainer.style.display = 'none';
+        if (confettiModeOptions) confettiModeOptions.style.display = 'block';
+        if (this.elements.confettiParticlesContainer) this.elements.confettiParticlesContainer.style.display = 'block';
+        if (this.elements.confettiParticleSizeContainer) this.elements.confettiParticleSizeContainer.style.display = 'block';
+        if (this.elements.confettiSizeVariationContainer) this.elements.confettiSizeVariationContainer.style.display = 'block';
+        if (this.elements.confettiSpacingContainer) this.elements.confettiSpacingContainer.style.display = 'block';
+        appState.toolPreviewVisible = true;
+        appState.toolPreviewMode = 'confetti';
+        window.app?.toolManager?.getTool('confetti')?.updatePreview?.(user);
         break;
 
       case 'pattern':
@@ -1302,13 +1352,16 @@ menuBtn: document.getElementById('menuBtn'),
         brushSpacing.style.display = 'none';
         smoothingContainer.style.display = 'none';
         if (patternModeOptions) patternModeOptions.style.display = 'block';
-        appState.patternPreviewVisible = true;
+        appState.toolPreviewVisible = true;
         break;
 
       case 'pixel':
         this.applyLocalCursorStyle(tool, user);
         brushSpacing.style.display = 'block';
         if (brushModeOptions) brushModeOptions.style.display = 'block';
+        appState.toolPreviewVisible = true;
+        appState.toolPreviewMode = 'pixel';
+        window.app?.toolManager?.getTool('pixel')?.updatePreview?.(user);
         break;
 
       case 'fill':
@@ -1319,7 +1372,7 @@ menuBtn: document.getElementById('menuBtn'),
         if (fillModeOptions) fillModeOptions.style.display = 'block';
         {
           const fillTool = window.app?.toolManager?.getTool('fill');
-          if (fillTool?.patternMode) appState.patternPreviewVisible = true;
+          if (fillTool?.patternMode) appState.toolPreviewVisible = true;
         }
         break;
 
@@ -1397,6 +1450,7 @@ menuBtn: document.getElementById('menuBtn'),
       circleBlur: this.elements.circleBlurBtn,
       glitchBlur: this.elements.glitchBlurBtn,
       imageBrush: this.elements.imageBrushBtn,
+      confetti: this.elements.confettiBtn,
       pattern: this.elements.patternBtn,
       inkdropper: this.elements.inkdropperBtn
     };
@@ -1763,9 +1817,9 @@ menuBtn: document.getElementById('menuBtn'),
       this.elements.brushImage.src = url;
       this.elements.brushImage.style.display = 'block';
     }
-    appState.imageBrushPreviewUrl = url || '';
-    appState.patternPreviewMode = 'imageBrush';
-    appState.patternPreviewVisible = !!url;
+    appState.toolPreviewMode = 'imageBrush';
+    appState.toolPreviewVisible = !!url;
+    window.app?.toolManager?.getTool('imageBrush')?.updatePreview?.(window.app?.self);
   }
 
   /**

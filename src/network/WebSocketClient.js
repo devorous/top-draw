@@ -721,7 +721,8 @@ export class WebSocketClient {
         this.emit('mm', {
           sessionIndex: data.u,
           ps: data.ps || [],
-          rs: data.rs || null
+          rs: data.rs || null,
+          confettiData: data.g || null
         });
         break;
 
@@ -730,6 +731,7 @@ export class WebSocketClient {
           sessionIndex: data.u,
           ps: data.ps || null,
           rs: data.rs || null,
+          confettiData: data.g || null,
           layerIndex: data.ly,
           blendMode: data.bm,
           blendBakeMode: data.bbm === 'background' ? 'background' : (data.bbm === 'existing' ? 'existing' : undefined)
@@ -1474,13 +1476,15 @@ export class WebSocketClient {
   }
 
   /**
-   * Broadcasts stamped movement (pen/ink) with radii.
+   * Broadcasts stamped movement with per-stamp metadata.
    * @param {Array<number>} points - Flattened coordinates.
-   * @param {Array<number>} radii - Flattened radii.
+   * @param {Array<number>} radii - Per-stamp radii or deterministic seeds.
    * @returns {void}
    */
-  broadcastStampMove(points, radii) {
-    this.send({ t: T.MM, ps: points, rs: radii });
+  broadcastStampMove(points, radii, metadata = {}) {
+    const msg = { t: T.MM, ps: points, rs: radii };
+    if (metadata.confettiData) msg.g = metadata.confettiData;
+    this.send(msg);
   }
 
   /**
@@ -1504,6 +1508,7 @@ export class WebSocketClient {
     if (metadata.layerIndex !== undefined) msg.ly = metadata.layerIndex;
     if (metadata.blendMode) msg.bm = metadata.blendMode;
     if (metadata.blendBakeMode) msg.bbm = metadata.blendBakeMode === 'background' ? 'background' : 'existing';
+    if (metadata.confettiData) msg.g = metadata.confettiData;
     this.send(msg);
   }
 

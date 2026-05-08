@@ -48,6 +48,7 @@ const MIN_COORD = -50000;
 // keep comfortable headroom without letting pathological values through.
 const MAX_PS_VALUE = 600000;
 const MIN_PS_VALUE = -600000;
+const MAX_STAMP_METADATA_VALUE = 0xFFFFFF;
 const MAX_DIMENSION = 10000;
 const MAX_DURATION_MINUTES = 60 * 24 * 365;
 const MAX_ROOM_USERS = 60;
@@ -204,9 +205,12 @@ export async function sanitizeMessage(data) {
       if (Array.isArray(data.rs)) {
         sanitized.rs = sanitizeFloatArray(data.rs, {
           min: 0,
-          max: MAX_BRUSH_SIZE,
+          max: MAX_STAMP_METADATA_VALUE,
           maxLength: Math.min(512, sanitized.ps.length / 2)
         });
+      }
+      if (data.g !== undefined) {
+        sanitized.g = sanitizeString(data.g, MAX_BRUSH_DATA_LENGTH, { trim: false });
       }
       if (type === T.MD) {
         if (data.ly !== undefined) sanitized.ly = clampInt(data.ly, 0, MAX_LAYER_INDEX, 0);

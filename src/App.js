@@ -75,7 +75,8 @@ const COALESCED_INPUT_TOOLS = new Set([
   'circleBlur',
   'glitchBlur',
   'pixel',
-  'pattern'
+  'pattern',
+  'confetti'
 ]);
 
 function updateStartupStatus(text, status = 'connecting') {
@@ -425,6 +426,12 @@ export class DrawingApp {
     this.self.setCursorStyle(this.getCursorStyleForTool(tool));
   }
 
+  updateActiveToolPreview() {
+    const toolName = this.self?.tool === 'flowPenOld' ? 'flowPen' : this.self?.tool;
+    if (!['brush', 'flowPen', 'ink', 'pixel', 'imageBrush', 'confetti'].includes(toolName)) return;
+    this.toolManager.getTool(toolName)?.updatePreview?.(this.self);
+  }
+
   handleCursorStyleChange(style) {
     const tool = this.self.tool;
     if (!this.supportedCursorStyleTools.includes(tool)) return;
@@ -440,6 +447,7 @@ export class DrawingApp {
     } else if (nextStyle === 'square') {
       this.ui.updatePressureSquareSize(this.self.pressure * this.self.size, this.self.size, this.tabletDetected);
     }
+    this.updateActiveToolPreview();
   }
 
   normalizeShapeDrawMode(mode) {
@@ -1498,6 +1506,9 @@ export class DrawingApp {
     elements.circleBlurBtn.addEventListener('click', () => this.selectTool(this.getRenderedTool(elements.circleBlurBtn, 'circleBlur')));
     elements.glitchBlurBtn.addEventListener('click', () => this.selectTool(this.getRenderedTool(elements.glitchBlurBtn, 'glitchBlur')));
     elements.imageBrushBtn.addEventListener('click', () => this.selectTool('imageBrush'));
+    if (elements.confettiBtn) {
+      elements.confettiBtn.addEventListener('click', () => this.selectTool('confetti'));
+    }
     if (elements.patternBtn) {
       elements.patternBtn.addEventListener('click', () => this.selectTool('pattern'));
     }
@@ -1819,7 +1830,7 @@ export class DrawingApp {
           this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPatternMode(e.target.checked));
         }
 
-        appState.patternPreviewVisible = e.target.checked;
+        appState.toolPreviewVisible = e.target.checked;
         const patternTool = this.toolManager.getTool('pattern');
         if (patternTool && e.target.checked) {
           patternTool.updatePreview(this.self);
@@ -1848,7 +1859,7 @@ export class DrawingApp {
         }
 
         // Show/hide pattern preview window
-        appState.patternPreviewVisible = e.target.checked;
+        appState.toolPreviewVisible = e.target.checked;
 
         // Update preview if pattern tool exists
         const patternTool = this.toolManager.getTool('pattern');
@@ -2374,6 +2385,48 @@ export class DrawingApp {
       });
     }
 
+    const updateConfettiPreview = () => {
+      if (this.self.tool === 'confetti') {
+        this.toolManager.getTool('confetti')?.updatePreview?.(this.self);
+      }
+    };
+    const bindConfettiOption = (element, property, parser = (value) => value, display = null) => {
+      if (!element) return;
+      const update = (e) => {
+        const value = parser(e.target.value);
+        this.self[property] = value;
+        if (display) display(value);
+        updateConfettiPreview();
+      };
+      element.addEventListener('input', update);
+      element.addEventListener('change', update);
+      const initialValue = parser(element.value);
+      this.self[property] = initialValue;
+      if (display) display(initialValue);
+    };
+    if (elements.confettiColorModeRadios) {
+      elements.confettiColorModeRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+          if (!e.target.checked) return;
+          this.self.confettiColorMode = e.target.value;
+          updateConfettiPreview();
+        });
+        if (radio.checked) this.self.confettiColorMode = radio.value;
+      });
+    }
+    bindConfettiOption(elements.confettiParticlesSlider, 'confettiParticles', (value) => Number(value), (value) => {
+      if (elements.confettiParticlesValue) elements.confettiParticlesValue.textContent = String(value);
+    });
+    bindConfettiOption(elements.confettiParticleSizeSlider, 'confettiParticleSize', (value) => Number(value), (value) => {
+      if (elements.confettiParticleSizeValue) elements.confettiParticleSizeValue.textContent = String(value);
+    });
+    bindConfettiOption(elements.confettiSizeVariationSlider, 'confettiSizeVariation', (value) => Number(value), (value) => {
+      if (elements.confettiSizeVariationValue) elements.confettiSizeVariationValue.textContent = `${value}%`;
+    });
+    bindConfettiOption(elements.confettiSpacingSlider, 'confettiSpacing', (value) => Number(value), (value) => {
+      if (elements.confettiSpacingValue) elements.confettiSpacingValue.textContent = String(value);
+    });
+
     // Fill pattern settings (reuse same handlers as pattern tool since they share user properties)
     if (elements.fillPatternScaleSlider) {
       elements.fillPatternScaleSlider.addEventListener('input', (e) => this.handlePatternScaleChange(e));
@@ -2667,7 +2720,10 @@ export class DrawingApp {
     this.self.imageBrushColorMode = colorMode;
 
     const imageBrushTool = this.toolManager.getTool('imageBrush');
-    if (imageBrushTool) imageBrushTool._tintCache.clear();
+    if (imageBrushTool) {
+      imageBrushTool._tintCache.clear();
+      imageBrushTool.updatePreview?.(this.self);
+    }
 
     if (this.connected && this.self.imageBrush) {
       this.inputBufferManager.queueBroadcast(() =>
@@ -4646,7 +4702,7 @@ export class DrawingApp {
       }
     }
 
-    if (tool === 'imageBrush') {
+    if (tool === 'imageBrush' || tool === 'confetti') {
       this.brushGallery.show();
     } else {
       this.brushGallery.hide();
@@ -4658,6 +4714,12 @@ export class DrawingApp {
    * @param {Object} brush - Selected brush configuration.
    */
   handleBrushSelect(brush) {
+    if (this.self.tool === 'confetti') {
+      this.self.confettiBrush = brush;
+      this.toolManager.getTool('confetti')?.updatePreview?.(this.self);
+      return;
+    }
+
     // Queue the brush change FIRST (snapshots pending strokes with old brush)
     // BEFORE setting the new brush locally
     this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastBrush(brush));
@@ -5091,6 +5153,7 @@ export class DrawingApp {
     this.ui.updateSizeValue(size);
     this.board.mainCtx.lineWidth = size * 2;
     this.updateCurrentToolPresetSettings();
+    this.updateActiveToolPreview();
   }
 
   handleSpacingChange(e) {
@@ -5100,6 +5163,7 @@ export class DrawingApp {
     this.self.setSpacing(spacing);
     this.ui.updateSpacingValue(spacing);
     this.updateCurrentToolPresetSettings();
+    this.updateActiveToolPreview();
   }
 
   handleSmoothingChange(e) {
@@ -5109,6 +5173,7 @@ export class DrawingApp {
     this.self.setSmoothing(smoothing);
     this.ui.updateSmoothingValue(smoothing);
     this.updateCurrentToolPresetSettings();
+    this.updateActiveToolPreview();
   }
 
   handleHardnessChange(e) {
@@ -5118,6 +5183,7 @@ export class DrawingApp {
     this.self.setHardness(hardness);
     this.ui.updateHardnessValue(hardness);
     this.updateCurrentToolPresetSettings();
+    this.updateActiveToolPreview();
   }
 
   handleopacityChange(e) {
@@ -5142,6 +5208,7 @@ export class DrawingApp {
     this._setColorPickersColor(`rgba(${currentColor.join(',')})`);
     appState.currentColor = [...currentColor];
     this.updateCurrentToolPresetSettings();
+    this.updateActiveToolPreview();
   }
 
   handleBlurRadiusChange(e) {
@@ -5201,6 +5268,7 @@ export class DrawingApp {
     this.self.setThinning(thinning);
     this.ui.updateThinningValue(Math.round(thinning * 100));
     this.updateCurrentToolPresetSettings();
+    this.updateActiveToolPreview();
     // Update CSS variable for fill rendering
     if (this.ui.elements.thinningSlider) {
       this.ui.elements.thinningSlider.style.setProperty('--value', e.target.value);
@@ -5213,6 +5281,7 @@ export class DrawingApp {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastSimulatePressureChange(simulate));
     }
     this.self.setSimulatePressure(simulate);
+    this.updateActiveToolPreview();
   }
 
   async handleBrushFileLoad(e) {
@@ -5586,6 +5655,7 @@ export class DrawingApp {
     addRecentColor(rgba);
     appState.currentColor = [...rgba];
     this.updateCurrentToolPresetSettings();
+    this.updateActiveToolPreview();
   }
 
   // Pointer event handlers
@@ -5913,8 +5983,9 @@ export class DrawingApp {
         this._pendingPenDown = null;
         this.self.setPressure(pressure);
         this.inputBufferManager.inputBuffer.pressure = pressure;
+        const strokeMetadata = this._getStrokeStartNetworkMetadata();
         this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(pressure));
-        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y], null, this._getStrokeStartNetworkMetadata()));
+        this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y], null, strokeMetadata));
 
         const tool = this.toolManager.getCurrentTool();
         if (tool) {
@@ -6254,7 +6325,8 @@ export class DrawingApp {
           if (this.self.tool === 'text' && this.self.text) {
             this._broadcastExplicitTextApply({ x: this.self.x, y: this.self.y });
           }
-          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown(broadcastPos, null, this._getStrokeStartNetworkMetadata()));
+          const strokeMetadata = this._getStrokeStartNetworkMetadata();
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown(broadcastPos, null, strokeMetadata));
 
           tool.onPointerDown(this.self, pos, e);
 
@@ -6311,11 +6383,20 @@ export class DrawingApp {
   }
 
   _getStrokeStartNetworkMetadata() {
-    return {
+    const metadata = {
       layerIndex: this.self?.activeLayer ?? 0,
       blendMode: this.self?.blendMode || 'source-over',
       blendBakeMode: this.self?.blendBakeMode || 'background'
     };
+    if (this.self?.tool === 'confetti') {
+      const confettiTool = this.toolManager?.getTool('confetti');
+      const initialSeed = confettiTool?.createSeed?.();
+      if (initialSeed !== undefined) {
+        this.self._confettiStrokeSeed = initialSeed;
+        metadata.confettiData = JSON.stringify(confettiTool.getNetworkSettings(this.self, { initialSeed }));
+      }
+    }
+    return metadata;
   }
 
   handlePointerUp(e) {
@@ -6412,7 +6493,8 @@ export class DrawingApp {
           if (this._toolUsesPressure(this.self.tool)) {
             this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastPressureChange(this.self.pressure));
           }
-          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y], null, this._getStrokeStartNetworkMetadata()));
+          const strokeMetadata = this._getStrokeStartNetworkMetadata();
+          this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([pending.pos.x, pending.pos.y], null, strokeMetadata));
           tool.onPointerDown(this.self, pending.pos, pending.event);
           if (this.self.tool === 'circleBlur' && tool.drainStampBuffer) {
             tool.drainStampBuffer();
@@ -6446,7 +6528,8 @@ export class DrawingApp {
             if (this.self.text) {
               this._broadcastExplicitTextApply(this.self._pendingTextPos);
             }
-            this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([this.self._pendingTextPos.x, this.self._pendingTextPos.y], null, this._getStrokeStartNetworkMetadata()));
+            const strokeMetadata = this._getStrokeStartNetworkMetadata();
+            this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastMouseDown([this.self._pendingTextPos.x, this.self._pendingTextPos.y], null, strokeMetadata));
           }
           textTool.onPointerDown(this.self, this.self._pendingTextPos, e);
           this.ui.updateSelfTextInput(this.self.text);

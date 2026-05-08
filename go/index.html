@@ -931,6 +931,9 @@
           <a class="tool btn" id="imageBrushBtn" title="Image Brush (G)">
             <img src="/images/pepper.png" alt="Image Brush">
           </a>
+          <a class="tool btn" id="confettiBtn" title="Confetti Brush">
+            <img src="/images/confetti-icon.svg" alt="Confetti Brush">
+          </a>
           <a class="tool btn" id="patternBtn" title="Pattern Tool (O)">
             <img src="/images/pattern-icon.svg" alt="Pattern">
           </a>
@@ -1076,6 +1079,26 @@
                   <input autocomplete="off" type="range" min="0" max="100" value="100" class="slider opacity" aria-label="Opacity">
                 </div>
 
+                <div class="sliderContainer" id="confetti-particles" style="display: none;">
+                  <div class="sliderLabel">Particles <span class="sliderValue" id="confettiParticlesValue">4</span></div>
+                  <input autocomplete="off" id="confettiParticlesInput" class="slider confettiParticles" type="range" min="1" max="12" step="1" value="4" aria-label="Particles per step">
+                </div>
+
+                <div class="sliderContainer" id="confetti-particle-size" style="display: none;">
+                  <div class="sliderLabel">Particle Size <span class="sliderValue" id="confettiParticleSizeValue">10</span></div>
+                  <input autocomplete="off" id="confettiParticleSizeInput" class="slider confettiParticleSize" type="range" min="1" max="25" step="1" value="10" aria-label="Confetti particle size">
+                </div>
+
+                <div class="sliderContainer" id="confetti-size-variation" style="display: none;">
+                  <div class="sliderLabel">Size Variation <span class="sliderValue" id="confettiSizeVariationValue">40%</span></div>
+                  <input autocomplete="off" id="confettiSizeVariationInput" class="slider confettiSizeVariation" type="range" min="0" max="100" step="1" value="40" aria-label="Confetti size variation">
+                </div>
+
+                <div class="sliderContainer" id="confetti-spacing" style="display: none;">
+                  <div class="sliderLabel">Spacing <span class="sliderValue" id="confettiSpacingValue">30</span></div>
+                  <input autocomplete="off" id="confettiSpacingInput" class="slider confettiSpacing" type="range" min="0" max="50" step="1" value="30" aria-label="Confetti spacing">
+                </div>
+
                 <div class="sliderContainer" id="cursor-style-container" style="display: none;">
                   <div class="sliderLabel">Cursor</div>
                   <div class="fontSelectWrap">
@@ -1108,6 +1131,22 @@
                     <label class="radio-option">
                       <input type="radio" name="imageBrushColorMode" value="tinted">
                       <span>Colour</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div id="confettiModeOptions" style="display: none;">
+                <div class="selection-mode-container pattern-colour-mode">
+                  <label class="modeLabel">Colour Mode</label>
+                  <div class="radio-group pattern-colour-mode-group">
+                    <label class="radio-option">
+                      <input type="radio" name="confettiColorMode" value="active" checked>
+                      <span>User Colour</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" name="confettiColorMode" value="random">
+                      <span>Random</span>
                     </label>
                   </div>
                 </div>

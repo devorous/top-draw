@@ -1,3 +1,10 @@
+import {
+  buildPreviewStrokePoints,
+  drawPreviewStrokeGuide,
+  drawTaperedStroke,
+  prepareStrokePreviewCanvas
+} from '../ui/StrokePreviewRenderer.js';
+
 /**
  * @fileoverview Flow Pen tool for pressure-sensitive strokes using circle stamping.
  * Uses an offscreen canvas to prevent opacity stacking when circles overlap.
@@ -461,6 +468,20 @@ export class FlowPenTool extends Tool {
       draw();
     }
     ctx.globalAlpha = 1.0;
+  }
+
+  updatePreview(user) {
+    const canvas = document.getElementById('toolPreviewCanvas');
+    if (!canvas) return;
+    if (!user) user = this.board.self || this.board.app?.self;
+    if (!user) return;
+
+    const ctx = prepareStrokePreviewCanvas(canvas, this.board);
+    if (!ctx) return;
+
+    const points = buildPreviewStrokePoints(canvas, 50);
+    drawPreviewStrokeGuide(ctx, points, user.color || [0, 0, 0]);
+    drawTaperedStroke(ctx, points, user);
   }
 
   /**

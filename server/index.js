@@ -1445,7 +1445,7 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
 
       // Track stroke start for metrics
       if (ws.userId) {
-        const toolNames = ['brush', 'text', 'erase', 'imageBrush', 'select', 'flowPen', 'line', 'rectangle', 'circle', 'ink', 'inkdropper', 'blur', 'circleBlur', 'glitchBlur', 'pixel', 'fill', 'pattern'];
+        const toolNames = ['brush', 'text', 'erase', 'imageBrush', 'select', 'flowPen', 'line', 'rectangle', 'circle', 'ink', 'inkdropper', 'blur', 'circleBlur', 'glitchBlur', 'pixel', 'fill', 'pattern', 'confetti'];
         const toolName = toolNames[user.tool] || 'unknown';
         metricsTracker.onStrokeStart(ws.userId, toolName);
       }

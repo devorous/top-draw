@@ -134,6 +134,9 @@ export class RemoteUserHandler {
     }
 
     const radii = data.rs;
+    if (user.tool === 'confetti' && data.confettiData) {
+      this.toolManager.getTool('confetti')?.applyNetworkSettings?.(user, data.confettiData);
+    }
 
     // Pattern tool doesn't depend on radii - handle separately
     if (!user.panning && user.mousedown && user.tool === 'pattern') {
@@ -167,12 +170,12 @@ export class RemoteUserHandler {
     }
 
     if (!user.panning && user.mousedown && radii && radii.length > 0) {
-      if (user.tool === 'pixel' || user.tool === 'imageBrush') {
+      if (user.tool === 'pixel' || user.tool === 'imageBrush' || user.tool === 'confetti') {
         if (user.tool === 'imageBrush' && user.imageBrush?._pendingStrokes) {
           user.imageBrush._pendingStrokes.push({ type: 'stamps', pts: [...smoothedPoints] });
         } else {
           const tool = this.toolManager.getTool(user.tool);
-          if (tool) tool.applyStamps(user, smoothedPoints);
+          if (tool) tool.applyStamps(user, smoothedPoints, radii);
         }
       } else if (user.tool === 'circleBlur') {
         const tool = this.toolManager.getTool(user.tool);
@@ -253,7 +256,7 @@ export class RemoteUserHandler {
     const smoothingTools = new Set(['brush', 'flowPen', 'imageBrush', 'ink', 'erase']);
     // Stamp-based tools: catchup should only update cursor, not generate new stamps.
     // Stamps come exclusively from sender's broadcast messages.
-    const stampTools = new Set(['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush']);
+    const stampTools = new Set(['flowPen', 'ink', 'pixel', 'circleBlur', 'imageBrush', 'confetti']);
 
     for (const user of this.users.values()) {
       if (user.mousedown && !user.panning && user.remoteTarget) {
@@ -382,6 +385,12 @@ export class RemoteUserHandler {
           }
         }
         break;
+
+      case 'confetti': {
+        const confettiTool = this.toolManager.getTool('confetti');
+        if (confettiTool) confettiTool.onPointerMove(user, pos);
+        break;
+      }
     }
   }
 
@@ -486,6 +495,9 @@ export class RemoteUserHandler {
     if (data.layerIndex !== undefined) user.setActiveLayer(data.layerIndex);
     if (data.blendMode !== undefined) user.setBlendMode(data.blendMode);
     if (data.blendBakeMode !== undefined) user.setBlendBakeMode(data.blendBakeMode);
+    if (user.tool === 'confetti' && data.confettiData) {
+      this.toolManager.getTool('confetti')?.applyNetworkSettings?.(user, data.confettiData);
+    }
     user.clearLine();
 
     resetSmoothingBuffer(user.smoothBuffer);
@@ -618,6 +630,14 @@ export class RemoteUserHandler {
           }
         }
         break;
+
+      case 'confetti': {
+        if (!user.panning) {
+          const confettiTool = this.toolManager.getTool('confetti');
+          if (confettiTool) confettiTool.onPointerDown(user, pos);
+        }
+        break;
+      }
 
       case 'pattern':
         if (!user.panning) {
@@ -890,6 +910,9 @@ export class RemoteUserHandler {
 
     const imageBrushTool = this.toolManager.getTool('imageBrush');
     if (imageBrushTool) imageBrushTool.lastStampPos.delete(user.id);
+
+    const confettiTool = this.toolManager.getTool('confetti');
+    if (confettiTool) confettiTool.lastStampPos.delete(user.id);
 
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool) patternTool.lastStampPos.delete(user.id);
@@ -1418,6 +1441,14 @@ export class RemoteUserHandler {
       imageBrushTool._activeUser = null;
       imageBrushTool.strokePoints = [];
       imageBrushTool.stampBuffer = [];
+    }
+
+    const confettiTool = this.toolManager.getTool('confetti');
+    if (confettiTool) {
+      confettiTool.lastStampPos?.clear?.();
+      confettiTool._activeUser = null;
+      confettiTool.strokePoints = [];
+      confettiTool.stampBuffer = [];
     }
 
     const patternTool = this.toolManager.getTool('pattern');

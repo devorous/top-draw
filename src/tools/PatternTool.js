@@ -403,7 +403,7 @@ export class PatternTool extends Tool {
   }
 
   updatePreview(user) {
-    this.previewCanvas = document.getElementById('patternPreviewCanvas');
+    this.previewCanvas = document.getElementById('toolPreviewCanvas');
     if (!this.previewCanvas) {
       return;
     }

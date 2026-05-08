@@ -59,10 +59,9 @@ class DrawingState {
   colorPaletteVisible = $state(true);
   boardColorPickerVisible = $state(true);
   boardColorPickerForceVisible = $state(false);
-  patternPreviewVisible = $state(false);
-  patternPreviewCollapsed = $state(false);
-  patternPreviewMode = $state('pattern');
-  imageBrushPreviewUrl = $state('');
+  toolPreviewVisible = $state(false);
+  toolPreviewCollapsed = $state(false);
+  toolPreviewMode = $state('pattern');
   toastState = $state({ text: '', visible: false });
   connectionState = $state({ connected: false, roomId: null, text: '' });
 
