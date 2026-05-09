@@ -126,17 +126,11 @@ export class BrushTool extends Tool {
   onPointerMove(user, pos, lastPos) {
     if (!user.mousedown || user.panning) return;
 
-    const previousPoint = user.currentLine.length > 0
-      ? user.currentLine[user.currentLine.length - 1]
-      : null;
-
     // Snapshot the current point because local input reuses mutable scratch objects.
     user.addToLine({ x: pos.x, y: pos.y });
     this._expandPreviewBounds(user, pos.x, pos.y);
 
-    const rect = previousPoint
-      ? this.getSegmentPreviewDirtyRect(user, previousPoint, pos)
-      : this.getPreviewDirtyRect(user);
+    const rect = this.getPreviewDirtyRect(user);
 
     if (window.STROKE_DEBUG) {
       console.log(`[STROKE_DEBUG] BrushTool.onPointerMove user=${user?.id} pos=${JSON.stringify(pos)} rect=${rect ? JSON.stringify(rect) : 'null'}`);
@@ -163,7 +157,8 @@ export class BrushTool extends Tool {
    * @param {Object} lastPos - Last position {x, y}
    */
   onPointerMoveNoRender(user, pos, lastPos) {
-    user.addToLine(pos);
+    user.addToLine({ x: pos.x, y: pos.y });
+    this._expandPreviewBounds(user, pos.x, pos.y);
   }
 
   /**

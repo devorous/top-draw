@@ -728,7 +728,7 @@ export class InputBufferManager {
       tool.renderStroke(false, user);
     }
 
-    const usesTopPreview = toolName === 'erase' || toolName === 'flowPen' || toolName === 'pixel' || toolName === 'glitchBlur' || toolName === 'ink';
+    const usesTopPreview = toolName === 'brush' || toolName === 'erase' || toolName === 'flowPen' || toolName === 'pixel' || toolName === 'glitchBlur' || toolName === 'ink';
 
     const previewRect = tool.getPreviewDirtyRect?.(user) ?? null;
     const hasNoPreviewWork = previewRect === false;
