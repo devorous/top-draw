@@ -1,7 +1,7 @@
 {
-  "latest": "1.6.4-beta",
-  "minRequired": "1.6.4-beta",
-  "releaseDate": "2026-05-05T08:29:35.337Z",
-  "notes": "Implemented selection mask for precise work, fixed some issues with mobile and touch inputs",
+  "latest": "1.7.0-beta",
+  "minRequired": "1.7.0-beta",
+  "releaseDate": "2026-05-09T07:54:52.913Z",
+  "notes": "Fixed major brush flickering, added new basic tutorial, added new confetti brush and improved blend mode rendering",
   "downloadUrl": "https://www.ddraw.ca/download"
 }

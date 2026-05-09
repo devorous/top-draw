@@ -1,11 +1,11 @@
 {
-  "version": "1.6.4-beta",
-  "notes": "Improved main page SEO, Improved sliders and tablet functionality, fixed like system issues, improved blend modes and eraser rendering",
-  "pub_date": "2026-05-05T08:29:35.337Z",
+  "version": "1.7.0-beta",
+  "notes": "Implemented selection mask for precise work, fixed some issues with mobile and touch inputs",
+  "pub_date": "2026-05-09T07:54:52.913Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.6.4-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNemtXQlk5M1pqY0JWV0pwY3RLeU1ZQ3o4VlEyY1NHNkxvS213RkJlTUJuNWRKZ3B1WU1XbVhnTHhQMlVKcVRwbXBvUTg3dVA0NVZoY2daQTRzalZXcWdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc3OTY5OTM2CWZpbGU6RGRyYXdfMS42LjQtYmV0YV94NjQtc2V0dXAuZXhlCncra3ZGZEY1anVTeVRJZ3ExVzFtOThuRzN2VVpEZTl1cCs3VzQvMjYwd3lqbFM3ZkNHRUtHNEVlMkRBWFUxZkNLZEF5dnc4Q2RHeWxCV3FuSWxlckNRPT0K"
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.7.0-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNemo1Rm1lY1BQMU9nbkJEUU15Kzk5WnNDaWhhNUxIUmtDbnhmdm9oRFRINUN5YTRDekl5SEE0NEMwYzFXTmIrdEJwNEFYYmtSOGdmazVGYW5Va0NoS3dNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc4MzEzMzY0CWZpbGU6RGRyYXdfMS43LjAtYmV0YV94NjQtc2V0dXAuZXhlClIzOEhhT2JIYVd3dEVud2pINzEwWTJ6MG9sODNwYmo0aXZGSm0zc3VpR2YwVWd2UTU4N1JVSFgxMzVRdTFuWjJpU3IwQU9hbGs4N2U1bytTaW1TcUJRPT0K"
     }
   }
 }
