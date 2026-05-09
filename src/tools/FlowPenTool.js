@@ -418,6 +418,7 @@ export class FlowPenTool extends Tool {
   getPreviewDirtyRect(user) {
     const b = this._tickDirtyBounds;
     if (!b || b.minX === Infinity) return false;
+    if (this.board.mirrorRegions?.length > 0) return null;
 
     this._tickDirtyBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
 
@@ -480,6 +481,13 @@ export class FlowPenTool extends Tool {
     const points = buildPreviewStrokePoints(canvas, 50);
     drawPreviewStrokeGuide(ctx, points, user.color || [0, 0, 0]);
     drawTaperedStroke(ctx, points, user);
+
+    this.board.forEachMirrorRegion({ points }, (region) => {
+      const mirroredPoints = this.board.mirrorPointsToRegion(points, region);
+      this.board.withMirrorRegionClip(ctx, region, () => {
+        drawTaperedStroke(ctx, mirroredPoints, user);
+      });
+    });
   }
 
   /**
