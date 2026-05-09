@@ -5,8 +5,10 @@ const UPDATER_DISABLED = false;
 let updateCheckInFlight = null;
 let mismatchPromptInFlight = null;
 let mismatchPrompted = false;
+let serverUpdatingSoonPrompted = false;
 const AUTO_UPDATE_PREF_KEY = 'desktopAutoUpdates';
 const OFFLINE_UPDATE_DISMISSAL_KEY = 'desktopUpdateOfflineDismissedVersion';
+const SERVER_VERSION_CHECK_TIMEOUT_MS = 5000;
 
 function formatPublishedDate(rawDate) {
   if (!rawDate) return '';
@@ -30,6 +32,77 @@ function setAutoUpdatePreference(enabled) {
   } catch (error) {
     console.warn('[Updater] Failed to store auto-update preference:', error);
   }
+}
+
+function getServerVersionEndpointUrl() {
+  const configuredApiBase = String(import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (configuredApiBase) {
+    return `${configuredApiBase}/api/version`;
+  }
+
+  const wsServerUrl = String(import.meta.env.VITE_WS_SERVER_URL || '').trim();
+  if (wsServerUrl) {
+    try {
+      const parsed = new URL(wsServerUrl, window.location.href);
+      const protocol = parsed.protocol === 'wss:' ? 'https:' : 'http:';
+      return `${protocol}//${parsed.host}/api/version`;
+    } catch (error) {
+      console.warn('[Updater] Failed to parse VITE_WS_SERVER_URL:', error);
+    }
+  }
+
+  return '/api/version';
+}
+
+async function fetchServerVersionPolicy() {
+  const abortController = new AbortController();
+  const timeoutId = window.setTimeout(() => abortController.abort(), SERVER_VERSION_CHECK_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(getServerVersionEndpointUrl(), {
+      cache: 'no-store',
+      signal: abortController.signal
+    });
+    if (!response.ok) {
+      return { ok: false, status: response.status };
+    }
+    return { ok: true, policy: await response.json() };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function confirmServerVersionReady(update) {
+  const updateVersion = String(update?.version || '').trim();
+  if (!updateVersion) {
+    return { ready: false, reason: 'missing-update-version' };
+  }
+
+  const server = await fetchServerVersionPolicy();
+  if (!server.ok) {
+    return { ready: false, reason: 'server-version-unavailable', server };
+  }
+
+  const serverLatest = String(server.policy?.latest || '').trim();
+  const serverMinRequired = String(server.policy?.minRequired || '').trim();
+  const serverVersion = serverLatest || serverMinRequired;
+
+  if (serverVersion !== updateVersion) {
+    return {
+      ready: false,
+      reason: 'server-version-not-ready',
+      updateVersion,
+      serverVersion,
+      serverPolicy: server.policy
+    };
+  }
+
+  return { ready: true, updateVersion, serverPolicy: server.policy };
 }
 
 function getOfflineUpdateDismissal() {
@@ -296,6 +369,40 @@ function showDesktopUpdatePrompt(update) {
   });
 }
 
+function showDesktopServerUpdatingSoon(update, serverStatus = {}) {
+  ensureUpdaterModalStyles();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'desktopUpdaterBackdrop';
+
+  const dialog = document.createElement('div');
+  dialog.className = 'desktopUpdaterDialog';
+
+  const updateVersion = String(update?.version || '').trim() || 'the next version';
+  const serverVersion = String(serverStatus.serverVersion || '').trim();
+  dialog.innerHTML = `
+    <div class="desktopUpdaterSpinnerWrap" aria-hidden="true">
+      <div class="desktopUpdaterSpinner"></div>
+    </div>
+    <h2 class="desktopUpdaterTitle">Server Updating Soon</h2>
+    <p class="desktopUpdaterCopy">App update ${updateVersion} is ready, but the server ${serverVersion ? `is still on ${serverVersion}` : 'is not ready yet'}.</p>
+    <div class="desktopUpdaterStatus" aria-live="polite">Keep drawing for now. We will offer the update once the new server is live.</div>
+    <div class="desktopUpdaterActions">
+      <button class="desktopUpdaterButton" data-action="ok">OK</button>
+    </div>
+  `;
+
+  backdrop.appendChild(dialog);
+  document.body.appendChild(backdrop);
+
+  return new Promise((resolve) => {
+    dialog.addEventListener('click', (event) => {
+      if (event.target?.getAttribute('data-action') !== 'ok') return;
+      backdrop.remove();
+      resolve();
+    });
+  });
+}
+
 export async function checkForDesktopUpdates({ silent = false } = {}) {
   if (!isTauriDesktop()) {
     return { status: 'not-desktop' };
@@ -336,6 +443,20 @@ async function runDesktopUpdateCheck({ silent = false } = {}) {
 
     if (update.version && getOfflineUpdateDismissal() === update.version) {
       return { status: 'offline-dismissed', version: update.version };
+    }
+
+    const serverReady = await confirmServerVersionReady(update);
+    if (!serverReady.ready) {
+      if (!serverUpdatingSoonPrompted) {
+        serverUpdatingSoonPrompted = true;
+        await showDesktopServerUpdatingSoon(update, serverReady);
+      }
+      return {
+        status: 'server-not-ready',
+        version: update.version,
+        reason: serverReady.reason,
+        serverVersion: serverReady.serverVersion || ''
+      };
     }
 
     if (getAutoUpdatePreference()) {

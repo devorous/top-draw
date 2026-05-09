@@ -439,6 +439,7 @@ export class WebSocketClient {
       4001, // Banned
       4002, // Kicked
       4003, // Room full
+      4009, // Version mismatch
       4401, // Unauthorized
       4408  // Rate limit exceeded
     ]);

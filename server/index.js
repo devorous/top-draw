@@ -129,6 +129,14 @@ function isClientOutdated(clientVersion, minRequired) {
   return compareSemver(clientParsed, minParsed) < 0;
 }
 
+function isClientVersionMismatch(clientVersion, versionPolicy) {
+  const latest = String(versionPolicy?.latest || '').trim();
+  if (!latest) return false;
+  const client = String(clientVersion || '').trim();
+  if (!client) return true;
+  return client !== latest;
+}
+
 async function readVersionPolicy({ force = false } = {}) {
   const now = Date.now();
   if (!force && cachedVersionPolicy && (now - cachedVersionPolicyAt) < VERSION_POLICY_CACHE_MS) {
@@ -2255,6 +2263,16 @@ wss.on('connection', async (ws, req) => {
     const roomId = sanitizeRoomId(url.searchParams.get('room'));
     logAsnHandshakeContext(ws, roomId);
     console.log(`[Room] Parsed room ID: ${roomId}`);
+
+    if (!isLocalhostRequest(req, connIp)) {
+      const versionPolicy = await readVersionPolicy();
+      if (isClientVersionMismatch(ws.clientAppVersion, versionPolicy)) {
+        const latest = versionPolicy?.latest || versionPolicy?.minRequired || 'current server version';
+        console.warn(`[Version] Rejecting client version "${ws.clientAppVersion || 'missing'}"; server requires "${latest}"`);
+        ws.close(4009, `version-mismatch:${latest}`);
+        return;
+      }
+    }
 
     const room = roomManager.getOrCreateRoom(roomId);
     console.log(`[Room.Connection] About to add client to room: ${roomId}, current client count: ${room.getClientCount()}`);

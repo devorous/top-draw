@@ -3490,6 +3490,23 @@ export class DrawingApp {
         this.auth.setRememberMe(false);
       }
       this.showModOverlay(label, reason || '');
+    } else if (code === 4009 || String(reason || '').includes('version-mismatch')) {
+      void getVersionStatus({ force: true }).then((status) => {
+        this.showUpdateRequiredNotice(status?.allowed === false ? status : {
+          allowed: false,
+          reason: 'version-mismatch',
+          clientVersion: window.APP_VERSION,
+          latestVersion: String(reason || '').replace(/^version-mismatch:/, '') || 'the latest version',
+          minRequired: String(reason || '').replace(/^version-mismatch:/, '') || 'the latest version'
+        });
+      }).catch(() => {
+        this.ui.showDisconnectionBanner({
+          message: 'Your app version does not match the server. Refresh before connecting online.',
+          icon: '!',
+          retryLabel: isTauriDesktop() ? 'Update App' : 'Refresh',
+          offlineLabel: 'Continue Offline'
+        });
+      });
     } else if (code === 4000 || String(reason || '').includes('server-restarting')) {
       this._awaitingServerRestart = true;
       this._versionUpdateNoticed = false;
@@ -3568,7 +3585,7 @@ export class DrawingApp {
     this.ui.showDisconnectionBanner({
       message: `A new Ddraw version is available (${latest}). Reload to update, or continue offline.`,
       icon: '!',
-      retryLabel: isTauriDesktop() ? 'Update App' : 'Reload App',
+      retryLabel: isTauriDesktop() ? 'Update App' : 'Refresh',
       offlineLabel: 'Continue Offline'
     });
 
@@ -3587,13 +3604,26 @@ export class DrawingApp {
     this.ui.showDisconnectionBanner({
       message: `${formatOutdatedClientMessage(versionStatus)} You can still draw offline.`,
       icon: '!',
-      retryLabel: isTauriDesktop() ? 'Update App' : 'Reload App',
+      retryLabel: isTauriDesktop() ? 'Update App' : 'Refresh',
       offlineLabel: 'Continue Offline'
     });
   }
 
   async handleServerUpdateNotice(data = {}) {
     const latest = data.latestVersion || data.version || data.serverVersion?.latest || '';
+    if (data.kind === 'restart') {
+      this._awaitingServerRestart = true;
+      this._versionUpdateNoticed = false;
+      this.ui.showToast(data.message || 'Ddraw server is updating soon', 5000);
+      this.ui.showDisconnectionBanner({
+        message: data.message || 'Server is updating soon. Keep drawing for now; we will refresh/update once the new server is live.',
+        icon: '!',
+        retryVisible: false,
+        offlineLabel: 'Continue Offline'
+      });
+      return;
+    }
+
     if (this._isUpdateDismissedForOffline(latest)) return;
     this._versionUpdateNoticed = true;
     this._reloadRecommended = true;
@@ -3602,7 +3632,7 @@ export class DrawingApp {
     this.ui.showDisconnectionBanner({
       message: data.message || 'Ddraw is updating. Reload in a moment, or continue offline.',
       icon: '!',
-      retryLabel: isTauriDesktop() ? 'Update App' : 'Reload App',
+      retryLabel: isTauriDesktop() ? 'Update App' : 'Refresh',
       offlineLabel: 'Continue Offline'
     });
 
@@ -3618,6 +3648,15 @@ export class DrawingApp {
     const attempt = async () => {
       const result = await checkForDesktopUpdates({ silent: true });
       if (!result || result.status === 'up-to-date') {
+        return false;
+      }
+      if (result.status === 'server-not-ready') {
+        this.ui.showDisconnectionBanner({
+          message: 'Server is updating soon. Keep drawing for now; we will offer the app update once the new server is live.',
+          icon: '!',
+          retryVisible: false,
+          offlineLabel: 'Continue Offline'
+        });
         return false;
       }
       if (result.status === 'offline-dismissed') {

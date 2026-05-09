@@ -117,10 +117,26 @@ function buildVersionStatus(serverVersion, clientVersion) {
   }
 
   const isCompatible = compareVersions(clientParsed, minParsed) >= 0;
+  const latestVersion = String(serverVersion.latest || '').trim();
+  if (isCompatible && latestVersion && clientVersion !== latestVersion) {
+    return {
+      allowed: false,
+      reason: 'version-mismatch',
+      clientVersion,
+      latestVersion,
+      minRequired: serverVersion.minRequired,
+      releaseDate: serverVersion.releaseDate,
+      notes: serverVersion.notes,
+      downloadUrl: serverVersion.downloadUrl,
+      serverVersion
+    };
+  }
+
   if (isCompatible) {
     console.info('[VersionChecker] Client version is compatible', {
       client: clientVersion,
-      minRequired: serverVersion.minRequired
+      minRequired: serverVersion.minRequired,
+      latest: serverVersion.latest
     });
     return { allowed: true, reason: 'compatible', clientVersion, serverVersion };
   }
@@ -330,6 +346,9 @@ export function formatOutdatedClientMessage(versionInfo) {
 
   const latest = versionInfo.latestVersion || 'the latest release';
   const minimum = versionInfo.minRequired || latest;
+  if (versionInfo.reason === 'version-mismatch') {
+    return `This client version (${versionInfo.clientVersion || 'unknown'}) does not match the server. Refresh or update to ${latest} to connect.`;
+  }
   return `This client is out of date (${versionInfo.clientVersion || 'unknown'}). Update to ${latest} to connect. Minimum supported version is ${minimum}.`;
 }
 
