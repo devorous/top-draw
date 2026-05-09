@@ -614,6 +614,11 @@ export class RemoteUserHandler {
         }
         break;
 
+
+    if (!user.panning && ['brush', 'line', 'rectangle', 'circle', 'erase'].includes(user.tool)) {
+      this.renderRemotePreview(user, pos);
+      this.app.boardViewer?.requestLiveRender?.();
+    }
       case 'imageBrush':
         if (user.imageBrush && !user.panning) {
           if (user.imageBrush._pendingStrokes) {
