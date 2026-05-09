@@ -1,11 +1,11 @@
 {
-  "version": "1.7.0-beta",
-  "notes": "Implemented selection mask for precise work, fixed some issues with mobile and touch inputs",
-  "pub_date": "2026-05-09T07:54:52.913Z",
+  "version": "1.7.1-beta",
+  "notes": "Fixed major brush flickering, added new basic tutorial, added new confetti brush and improved blend mode rendering",
+  "pub_date": "2026-05-09T10:25:26.332Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.7.0-beta_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNemo1Rm1lY1BQMU9nbkJEUU15Kzk5WnNDaWhhNUxIUmtDbnhmdm9oRFRINUN5YTRDekl5SEE0NEMwYzFXTmIrdEJwNEFYYmtSOGdmazVGYW5Va0NoS3dNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc4MzEzMzY0CWZpbGU6RGRyYXdfMS43LjAtYmV0YV94NjQtc2V0dXAuZXhlClIzOEhhT2JIYVd3dEVud2pINzEwWTJ6MG9sODNwYmo0aXZGSm0zc3VpR2YwVWd2UTU4N1JVSFgxMzVRdTFuWjJpU3IwQU9hbGs4N2U1bytTaW1TcUJRPT0K"
+      "url": "https://www.ddraw.ca/desktop-updates/windows-x86_64/Ddraw_1.7.1-beta_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSQ01XR1piUDlNem40R05iQWVScG5FbXpKclRZQjIrZWs5RkpCQTFtL29rNm5qalhld3d6ckJPaXB3VnRKUkEvWm1UaEVPZXJ3OXBzMTh1bEJjNVp6Mk1nZE5IN0JkSmdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc4MzIyNDA0CWZpbGU6RGRyYXdfMS43LjEtYmV0YV94NjQtc2V0dXAuZXhlCnduNUVHYkZtbGZrN1JPdUVhR2wxY01TM0F2aXIyZVVHQktlaHhwNFo3ZGpsS2REY095VUkyOEdtNTJzdnpCTGF4aG95NW1ndDA4dWt4ZUR0b3lkaERBPT0K"
     }
   }
 }

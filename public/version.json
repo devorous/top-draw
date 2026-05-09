@@ -1,7 +1,7 @@
 {
-  "latest": "1.7.0-beta",
-  "minRequired": "1.7.0-beta",
-  "releaseDate": "2026-05-09T07:54:52.913Z",
+  "latest": "1.7.1-beta",
+  "minRequired": "1.7.1-beta",
+  "releaseDate": "2026-05-09T10:25:26.332Z",
   "notes": "Fixed major brush flickering, added new basic tutorial, added new confetti brush and improved blend mode rendering",
   "downloadUrl": "https://www.ddraw.ca/download"
 }
