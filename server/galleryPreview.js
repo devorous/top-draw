@@ -75,10 +75,10 @@ export function renderGalleryPreviewHtml(item, req) {
     <meta name="twitter:description" content="${escapedDescription}">
     <meta name="twitter:image" content="${escapedImage}">
     <link rel="canonical" href="${escapedShareUrl}">
-    <script>window.location.replace('/gallery/?id=${encodeURIComponent(id)}');</script>
+    <script>window.location.replace('/gallery/${encodeURIComponent(id)}');</script>
   </head>
   <body>
-    <p><a href="/gallery/?id=${encodeURIComponent(id)}">Open this image in the DDraw gallery</a></p>
+    <p><a href="/gallery/${encodeURIComponent(id)}">Open this image in the DDraw gallery</a></p>
   </body>
 </html>`;
 }

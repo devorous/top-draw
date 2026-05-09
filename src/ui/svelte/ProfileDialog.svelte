@@ -31,8 +31,14 @@
       close();
       onImageClick(item);
     } else {
-      window.location.href = `${galleryBaseUrl}?id=${item.id}`;
+      const base = String(galleryBaseUrl || '/gallery').replace(/\/$/, '');
+      window.location.href = `${base}/${encodeURIComponent(item.id)}`;
     }
+  }
+
+  function getGalleryUrl(pathSegment) {
+    const base = String(galleryBaseUrl || '/gallery').replace(/\/$/, '');
+    return `${base}/${encodeURIComponent(pathSegment)}`;
   }
 
   function handleViewAll(e) {
@@ -128,7 +134,7 @@
 
           <div class="profile-actions">
             <a
-              href="{galleryBaseUrl}/{encodeURIComponent(data.username)}"
+              href={getGalleryUrl(data.username)}
               class="profile-btn profile-btn-primary"
               target="_blank"
               onclick={handleViewAll}

@@ -218,6 +218,11 @@ export class ProfileDialog {
     this._boundKeydown = this._handleKeydown.bind(this);
   }
 
+  _buildGalleryUrl(pathSegment) {
+    const base = String(this.galleryBaseUrl || '/gallery').replace(/\/$/, '');
+    return `${base}/${encodeURIComponent(pathSegment)}`;
+  }
+
   _injectStyles() {
     if (this._stylesInjected) return;
     const style = document.createElement('style');
@@ -326,7 +331,7 @@ export class ProfileDialog {
       </div>
 
       <div class="profile-actions">
-        <a href="${this.galleryBaseUrl}/${encodeURIComponent(data.username)}" class="profile-btn profile-btn-primary" target="_blank">
+        <a href="${this._buildGalleryUrl(data.username)}" class="profile-btn profile-btn-primary" target="_blank">
           View on Gallery
         </a>
       </div>
@@ -342,7 +347,7 @@ export class ProfileDialog {
           this.onImageClick(item);
         } else if (item) {
           // Fallback: navigate
-          window.open(`${this.galleryBaseUrl}?id=${item.id}`, '_blank');
+          window.open(this._buildGalleryUrl(item.id), '_blank');
         }
       });
     });

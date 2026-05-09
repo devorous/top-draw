@@ -185,7 +185,7 @@
             </div>
 
             <div class="footer">
-              <a href="/gallery?id={item.id}" target="_blank" class="view-full-btn">
+              <a href="/gallery/{encodeURIComponent(item.id)}" target="_blank" class="view-full-btn">
                 View in Gallery →
               </a>
             </div>

@@ -249,7 +249,7 @@ export function initSvelteUI(app) {
         galleryBaseUrl: galleryBase,
         apiBaseUrl: apiBase,
         onViewGallery: (username) => {
-          window.open(`${galleryBase}?author=${encodeURIComponent(username)}`, '_blank');
+          window.open(`${galleryBase}/${encodeURIComponent(username)}`, '_blank');
         },
         onImageClick: (item) => {
           appState.galleryItemDialog = {
@@ -573,7 +573,7 @@ export function initSvelteUI(app) {
                 },
                 onComment: (id) => {
                   // Open gallery in new tab focused on this image
-                  window.open(`/gallery?id=${id}`, '_blank');
+                  window.open(`/gallery/${encodeURIComponent(id)}`, '_blank');
                 }
               }
             });

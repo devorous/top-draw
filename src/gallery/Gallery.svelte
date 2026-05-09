@@ -791,6 +791,7 @@
 
     // Open profile FIRST (instant, no fade) so backdrop stays visible
     if (returnToProfile) {
+      window.history.replaceState({}, '', `/gallery/${encodeURIComponent(returnToProfile)}`);
       profileDialog.show(returnToProfile, { instant: true });
     }
 
@@ -803,7 +804,7 @@
 
     if (!returnToProfile) {
       document.body.style.overflow = '';
-      restoreGalleryUrl();
+      restoreGalleryUrl(authorFilter ? `/gallery/${encodeURIComponent(authorFilter)}` : '/gallery');
     }
   }
 
@@ -862,9 +863,9 @@
     window.history.pushState({ galleryItemId: item.id }, '', nextPath);
   }
 
-  function restoreGalleryUrl() {
+  function restoreGalleryUrl(path = '/gallery') {
     if (typeof window === 'undefined') return;
-    window.history.replaceState({}, '', '/gallery');
+    window.history.replaceState({}, '', path);
   }
 
   async function copyGalleryLink(item) {
