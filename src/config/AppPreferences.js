@@ -170,9 +170,7 @@ function sanitizePreferences(rawPreferences) {
   const migratedShowRawPixelsAtHighZoom = parsedVersion < 4
     ? true
     : !!parsed.general?.showRawPixelsAtHighZoom;
-  const migratedUseDesynchronizedBoardContexts = parsedVersion < 5
-    ? false
-    : !!parsed.general?.useDesynchronizedBoardContexts;
+  const migratedUseDesynchronizedBoardContexts = false;
   const migratedLowPowerMode = parsedVersion < 6
     ? false
     : !!parsed.general?.lowPowerMode;

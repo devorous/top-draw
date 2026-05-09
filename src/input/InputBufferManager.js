@@ -31,6 +31,7 @@ const REDUCE_BEFORE_RENDER_TOOLS = new Set([
   'glitchBlur'
 ]);
 const BATCH_RENDER_TOOLS = new Set([
+  'brush',
   'flowPen',
   'ink',
   'erase',

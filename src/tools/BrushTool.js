@@ -156,13 +156,26 @@ export class BrushTool extends Tool {
    * @param {User} user - The user finishing the stroke.
    * @override
    */
+  /**
+   * Continue drawing (no-op for batching, redraw happens in InputBufferManager tick)
+   * @param {Object} user - User object
+   * @param {Object} pos - Position {x, y}
+   * @param {Object} lastPos - Last position {x, y}
+   */
+  onPointerMoveNoRender(user, pos, lastPos) {
+    user.addToLine(pos);
+  }
+
+  /**
+   * End drawing
+   * @param {Object} user - User object
+   */
   onPointerUp(user) {
     if (user.panning) return;
 
     if (window.STROKE_DEBUG) {
       console.log(`[STROKE_DEBUG] BrushTool.onPointerUp user=${user?.id}`);
     }
-    this.board.clearTop();
 
     const layerCtx = this.board.getActiveLayerContext();
     drawLineArray(user.currentLine, layerCtx, user);
@@ -179,6 +192,7 @@ export class BrushTool extends Tool {
     user._brushPreviewBounds = null;
 
     this.board.endStroke(user);
+    this.board.clearTop();
   }
 
   /**

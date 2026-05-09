@@ -328,8 +328,8 @@ export class InkTool extends Tool {
       });
     }
 
-    this.clearStroke();
     this.board.endStroke(user);
+    this.clearStroke();
   }
 
   /**

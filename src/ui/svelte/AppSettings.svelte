@@ -601,14 +601,6 @@ function getChatOpacity() {
               <label class="settings-toggle-compact">
                 <input
                   type="checkbox"
-                  checked={isUseDesynchronizedBoardContexts()}
-                  onchange={(event) => updateUseDesynchronizedBoardContexts(event.currentTarget.checked)}
-                />
-                <span>Low-Latency Canvas (Refresh)</span>
-              </label>
-              <label class="settings-toggle-compact">
-                <input
-                  type="checkbox"
                   checked={isLowPowerMode()}
                   onchange={(event) => updateLowPowerMode(event.currentTarget.checked)}
                 />

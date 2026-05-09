@@ -332,10 +332,8 @@ export class FlowPenTool extends Tool {
       });
     }
 
-    this.clearStroke();
-    user.penPoints = [];
-
     this.board.endStroke(user);
+    this.clearStroke();
     this.board.clearTop();
   }
 

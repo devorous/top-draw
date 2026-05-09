@@ -157,10 +157,10 @@ export class LineTool extends Tool {
       this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(linePoints, region), margin);
     });
 
-    this.board.clearTop();
     this.startPos = null;
 
     this.board.endStroke(user);
+    this.board.clearTop();
   }
 
   /**

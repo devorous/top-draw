@@ -156,8 +156,6 @@ export class EraserTool extends Tool {
     if (user?.currentLine?.length === 0 && this.lastPos) {
       this.appendBufferedPoint(user, this.lastPos, user.pressure, user.size, user.opacity);
     }
-    this.board.clearTop();
-    this._setPreviewMaskVisible(true);
     this.commitCurrentLine(user, user.pressure, user.size, user.opacity, false);
 
     const erasedTiles = this.collectErasedTiles(user);
@@ -176,6 +174,9 @@ export class EraserTool extends Tool {
     this.lastPos = null;
     user.clearLine();
     this._clearStrokeState(user);
+
+    this.board.clearTop();
+    this._setPreviewMaskVisible(true);
   }
 
   appendBufferedPoint(user, pos, pressure = user.pressure, size = user.size, opacity = user.opacity) {
