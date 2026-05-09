@@ -2205,6 +2205,7 @@ export class Board {
    * @param {Object} [extraProps={}] - Extra properties for the stroke record (e.g., filter metadata)
    */
   endStroke(user, extraProps = {}) {
+    if (window.STROKE_DEBUG) console.log('[STROKE_DEBUG] Board.endStroke', user?.id, extraProps);
     // Blur/glitch blur tools always create their stroke on layer 0
     const isBlurFilter = extraProps.filterType === 'blur' || extraProps.filterType === 'glitchBlur';
     const activeLayer = isBlurFilter ? 0 : (user?.activeLayer ?? this.app?.self?.activeLayer ?? 0);
@@ -2992,6 +2993,9 @@ export class Board {
    * Clear the preview (top) canvas and selection overlay
    */
   clearTop(rect = null) {
+    if (window.STROKE_DEBUG) {
+      console.log(`[STROKE_DEBUG] Board.clearTop rect=${rect ? JSON.stringify(rect) : 'null'}`);
+    }
     const [height, width] = this.dimensions;
     if (rect && Number.isFinite(rect.x) && Number.isFinite(rect.y) && rect.width > 0 && rect.height > 0) {
       const x = Math.max(0, Math.floor(rect.x));

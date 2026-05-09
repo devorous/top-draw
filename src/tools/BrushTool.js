@@ -101,6 +101,9 @@ export class BrushTool extends Tool {
    * @override
    */
   onPointerDown(user, pos) {
+    if (window.STROKE_DEBUG) {
+      console.log(`[STROKE_DEBUG] BrushTool.onPointerDown user=${user?.id} pos=${JSON.stringify(pos)}`);
+    }
     this._activeUser = user;
     this.board.beginStroke(user);
     user.clearLine();
@@ -135,6 +138,9 @@ export class BrushTool extends Tool {
       ? this.getSegmentPreviewDirtyRect(user, previousPoint, pos)
       : this.getPreviewDirtyRect(user);
 
+    if (window.STROKE_DEBUG) {
+      console.log(`[STROKE_DEBUG] BrushTool.onPointerMove user=${user?.id} pos=${JSON.stringify(pos)} rect=${rect ? JSON.stringify(rect) : 'null'}`);
+    }
     this.board.clearTop(rect === false ? null : rect);
     this.drawPreview(user, rect === false ? null : rect);
 
@@ -153,6 +159,9 @@ export class BrushTool extends Tool {
   onPointerUp(user) {
     if (user.panning) return;
 
+    if (window.STROKE_DEBUG) {
+      console.log(`[STROKE_DEBUG] BrushTool.onPointerUp user=${user?.id}`);
+    }
     this.board.clearTop();
 
     const layerCtx = this.board.getActiveLayerContext();
@@ -179,6 +188,9 @@ export class BrushTool extends Tool {
    * @returns {void}
    */
   drawPreview(user, rect = null) {
+    if (window.STROKE_DEBUG) {
+      console.log(`[STROKE_DEBUG] BrushTool.drawPreview user=${user?.id} rect=${rect ? JSON.stringify(rect) : 'null'}`);
+    }
     const ctx = this.board.topCtx;
     const draw = () => {
       drawLineArray(user.currentLine, ctx, user, this.board);

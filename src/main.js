@@ -8,6 +8,8 @@ import { installAppConfirmGlobal } from './ui/ConfirmDialog.js';
 
 inject();
 
+window.STROKE_DEBUG = true;
+
 installAppConfirmGlobal();
 
 // Auto-reload once when a dynamically imported chunk fails to load (stale cache after deploy)

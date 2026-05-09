@@ -837,6 +837,11 @@ export class RemoteUserHandler {
       this.debugOverlay.endStrokeTracking(user.id);
     }
 
+    // Remove the transient layered preview before committing/compositing the
+    // finished stroke, otherwise the final composite can keep drawing the
+    // preview canvas until the next remote stroke invalidates it.
+    this._clearLayeredRemotePreview(user);
+
     // Collect erased tiles before committing (for tile ownership check)
     let erasedTiles = null;
     if (user.tool === 'erase') {

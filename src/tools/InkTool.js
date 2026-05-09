@@ -142,6 +142,9 @@ export class InkTool extends Tool {
    * @param {Event} e - The pointer event.
    */
   onPointerDown(user, pos, e) {
+    if (window.STROKE_DEBUG) {
+      console.log(`[STROKE_DEBUG] InkTool.onPointerDown user=${user?.id} pos=${JSON.stringify(pos)}`);
+    }
     this._activeUser = user;
     this.board.beginStroke(user);
     this.ensureOffscreenCanvas();
@@ -185,6 +188,7 @@ export class InkTool extends Tool {
     this.onPointerMoveNoRender(user, pos, lastPos, e);
     this.renderStroke(false, user);
     const rect = this.getPreviewDirtyRect(user);
+    if (window.STROKE_DEBUG) console.log('[STROKE_DEBUG] InkTool.onPointerMove', user?.id, { pos, rect });
     this.board.clearTop(rect === false ? null : rect);
     this.drawPreview(user, rect === false ? null : rect);
   }
@@ -418,6 +422,7 @@ export class InkTool extends Tool {
    * Draws the current stroke preview on the top canvas.
    */
   drawPreview(user = this._activeUser, rect = null) {
+    if (window.STROKE_DEBUG) console.log('[STROKE_DEBUG] InkTool.drawPreview', user?.id, rect);
     if (!this.offscreenCanvas) return;
     const ctx = this.board.topCtx;
     ctx.globalAlpha = this.userAlpha;
