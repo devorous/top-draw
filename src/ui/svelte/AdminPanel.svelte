@@ -8,11 +8,24 @@
     'rooms',
     'moderation',
     'connection_events',
-    'room_roles',
     'gallery',
     'favorites',
     'comments',
     'messages'
+  ];
+  const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+  const SORT_OPTIONS = [
+    { value: '_id', label: 'Inserted' },
+    { value: 'createdAt', label: 'Created' },
+    { value: 'updatedAt', label: 'Updated' },
+    { value: 'lastActiveAt', label: 'Last active' },
+    { value: 'lastLoginAt', label: 'Last login' },
+    { value: 'timestamp', label: 'Timestamp' },
+    { value: 'submittedAt', label: 'Submitted' },
+    { value: 'username', label: 'Username' },
+    { value: 'role', label: 'Role' },
+    { value: 'likesCount', label: 'Likes' },
+    { value: 'views', label: 'Views' }
   ];
 
   let visible = $derived(appState.adminPanelVisible);
@@ -32,10 +45,24 @@
   let stats = $state(null);
   let liveData = $state(null);
   let selectedCollection = $state('users');
-  let collectionData = $state({ documents: [], total: 0, collection: 'users' });
+  let collectionPage = $state(0);
+  let collectionLimit = $state(25);
+  let collectionSortBy = $state('_id');
+  let collectionSortDir = $state('desc');
+  let collectionData = $state({ documents: [], total: 0, collection: 'users', limit: 25, skip: 0 });
+  let expandedDocId = $state('');
   let globalMessage = $state('');
   let globalPersistent = $state(false);
   let globalMessageStatus = $state('');
+  let collectionPageCount = $derived(Math.max(1, Math.ceil((collectionData.total || 0) / collectionLimit)));
+  let collectionStart = $derived((collectionData.total || 0) === 0 ? 0 : (collectionPage * collectionLimit) + 1);
+  let collectionEnd = $derived(Math.min(collectionData.total || 0, (collectionPage + 1) * collectionLimit));
+  let achievementMetrics = $derived([
+    { key: 'distanceDrawn', label: 'Distance', format: formatDistance },
+    { key: 'timeSpentMs', label: 'Time', format: formatDuration },
+    { key: 'totalStrokes', label: 'Strokes', format: formatNumber },
+    { key: 'chatMessagesSent', label: 'Messages', format: formatNumber }
+  ]);
 
   $effect(() => {
     if (visible && selfRole >= 9) {
@@ -110,7 +137,13 @@
     collectionLoading = true;
     error = '';
     try {
-      collectionData = await fetchAdmin(`/api/admin/collections/${encodeURIComponent(collectionName)}?limit=25`);
+      const params = new URLSearchParams({
+        limit: String(collectionLimit),
+        skip: String(collectionPage * collectionLimit),
+        sortBy: collectionSortBy,
+        sortDir: collectionSortDir
+      });
+      collectionData = await fetchAdmin(`/api/admin/collections/${encodeURIComponent(collectionName)}?${params}`);
     } catch (err) {
       error = err?.message || 'Failed to load collection';
     } finally {
@@ -120,7 +153,34 @@
 
   function chooseCollection(name) {
     selectedCollection = name;
+    collectionPage = 0;
+    expandedDocId = '';
     void loadCollection(name);
+  }
+
+  function setCollectionPage(page) {
+    collectionPage = Math.max(0, Math.min(page, collectionPageCount - 1));
+    expandedDocId = '';
+    void loadCollection(selectedCollection);
+  }
+
+  function setCollectionLimit(value) {
+    collectionLimit = Number(value) || 25;
+    collectionPage = 0;
+    expandedDocId = '';
+    void loadCollection(selectedCollection);
+  }
+
+  function setCollectionSort(field) {
+    if (collectionSortBy === field) {
+      collectionSortDir = collectionSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      collectionSortBy = field;
+      collectionSortDir = field === 'username' ? 'asc' : 'desc';
+    }
+    collectionPage = 0;
+    expandedDocId = '';
+    void loadCollection(selectedCollection);
   }
 
   function sendGlobalMessage() {
@@ -147,6 +207,34 @@
     return String(value);
   }
 
+  function formatDate(value) {
+    if (!value) return '-';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+  }
+
+  function formatNumber(value) {
+    return Math.round(Number(value) || 0).toLocaleString();
+  }
+
+  function formatDistance(value) {
+    const px = Number(value) || 0;
+    if (px >= 1_000_000) return `${(px / 1_000_000).toFixed(2)}M px`;
+    if (px >= 1_000) return `${(px / 1_000).toFixed(1)}K px`;
+    return `${Math.round(px).toLocaleString()} px`;
+  }
+
+  function formatDuration(value) {
+    const minutes = Math.round((Number(value) || 0) / 60000);
+    if (minutes >= 60) return `${(minutes / 60).toFixed(1)}h`;
+    return `${minutes.toLocaleString()}m`;
+  }
+
+  function getBarWidth(value, rows) {
+    const max = Math.max(1, ...(rows || []).map((row) => Number(row.value) || 0));
+    return `${Math.max(3, Math.round(((Number(value) || 0) / max) * 100))}%`;
+  }
+
   function formatBps(bps) {
     if (bps == null) return '—';
     if (bps >= 1_000_000) return `${(bps / 1_048_576).toFixed(2)} MB/s`;
@@ -166,6 +254,24 @@
       doc._id ||
       'Document'
     );
+  }
+
+  function getDocId(doc) {
+    return String(doc?._id || getDocLabel(doc));
+  }
+
+  function getDocTimestamp(doc) {
+    return doc?.createdAt || doc?.updatedAt || doc?.lastActiveAt || doc?.lastLoginAt || doc?.submittedAt || doc?.timestamp || null;
+  }
+
+  function getDocSummary(doc) {
+    if (!doc || typeof doc !== 'object') return '';
+    const fields = ['type', 'roomId', 'room_id', 'ownerUsername', 'author', 'targetName', 'issuerName', 'email', 'role', 'likesCount', 'views'];
+    return fields
+      .filter((field) => doc[field] != null && doc[field] !== '')
+      .slice(0, 4)
+      .map((field) => `${field}: ${formatValue(doc[field]).replace(/\s+/g, ' ').slice(0, 80)}`)
+      .join(' - ');
   }
 
   $effect(() => {
@@ -234,7 +340,7 @@
         {/if}
 
         {#if activeTab === TAB_STATS}
-        <section class="admin-section">
+        <section class="admin-section stats-section">
           <div class="section-head">
             <h4>Server Stats</h4>
             <button class="btn secondary small" type="button" onclick={() => void loadStats()}>
@@ -260,6 +366,64 @@
               <strong>{stats?.dbAvailable ? 'Connected' : 'Unavailable'}</strong>
             </div>
           </div>
+
+          {#if stats?.achievements}
+            <div class="achievement-grid">
+              {#each achievementMetrics as metric}
+                <div class="achievement-card">
+                  <div class="achievement-head">
+                    <span>{metric.label}</span>
+                    <strong>{metric.format(stats.achievements.totals?.[metric.key])}</strong>
+                  </div>
+                  <div class="achievement-sub">Last 7 days: {metric.format(stats.achievements.weekTotals?.[metric.key])}</div>
+                  <div class="mini-bars" aria-label={`${metric.label} last 7 days`}>
+                    {#each stats.achievements.daily || [] as day}
+                      <span
+                        title={`${day.date}: ${metric.format(day[metric.key])}`}
+                        style={`height:${getBarWidth(day[metric.key], (stats.achievements.daily || []).map((row) => ({ value: row[metric.key] })))};`}
+                      ></span>
+                    {/each}
+                  </div>
+                </div>
+              {/each}
+            </div>
+
+            <div class="achievement-leaders">
+              {#each achievementMetrics as metric}
+                <div class="leader-card">
+                  <div class="leader-title">{metric.label} Leaders</div>
+                  <div class="leader-columns">
+                    <div>
+                      <span class="leader-period">Lifetime</span>
+                      {#each stats.achievements.top?.lifetime?.[metric.key] || [] as row}
+                        <div class="leader-row">
+                          <span>{row.username}</span>
+                          <strong>{metric.format(row.value)}</strong>
+                          <i style={`width:${getBarWidth(row.value, stats.achievements.top?.lifetime?.[metric.key])}`}></i>
+                        </div>
+                      {:else}
+                        <div class="leader-empty">No data</div>
+                      {/each}
+                    </div>
+                    <div>
+                      <span class="leader-period">Last 7 Days</span>
+                      {#each stats.achievements.top?.week?.[metric.key] || [] as row}
+                        <div class="leader-row">
+                          <span>{row.username}</span>
+                          <strong>{metric.format(row.value)}</strong>
+                          <i style={`width:${getBarWidth(row.value, stats.achievements.top?.week?.[metric.key])}`}></i>
+                        </div>
+                      {:else}
+                        <div class="leader-empty">No data</div>
+                      {/each}
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {:else if !statsLoading}
+            <div class="empty-state">Achievement metrics are not available from this server response yet.</div>
+          {/if}
 
           {#if stats?.rooms?.length}
             <div class="table-wrap compact">
@@ -397,22 +561,88 @@
             </div>
           </div>
 
-          <div class="collection-meta">
-            <span>{collectionLoading ? 'Loading…' : `${collectionData.total ?? 0} entries`}</span>
-            <span>Showing latest 25</span>
+          <div class="db-toolbar">
+            <div class="db-controls">
+              <label>
+                <span>Rows</span>
+                <select bind:value={collectionLimit} onchange={(e) => setCollectionLimit(e.currentTarget.value)}>
+                  {#each PAGE_SIZE_OPTIONS as option}
+                    <option value={option}>{option}</option>
+                  {/each}
+                </select>
+              </label>
+              <label>
+                <span>Sort</span>
+                <select value={collectionSortBy} onchange={(e) => setCollectionSort(e.currentTarget.value)}>
+                  {#each SORT_OPTIONS as option}
+                    <option value={option.value}>{option.label}</option>
+                  {/each}
+                </select>
+              </label>
+              <button class="btn secondary small" type="button" onclick={() => setCollectionSort(collectionSortBy)}>
+                {collectionSortDir === 'asc' ? 'Oldest first' : 'Newest first'}
+              </button>
+            </div>
+            <button class="btn secondary small" type="button" onclick={() => void loadCollection(selectedCollection)}>
+              {collectionLoading ? 'Refreshing...' : 'Refresh'}
+            </button>
           </div>
 
-          <div class="doc-list">
+          <div class="collection-meta">
+            <span>{collectionLoading ? 'Loading...' : `${collectionStart}-${collectionEnd} of ${collectionData.total ?? 0}`}</span>
+            <span>Page {collectionPage + 1} / {collectionPageCount}</span>
+          </div>
+
+          <div class="table-wrap db-table-wrap">
             {#if collectionData.documents?.length}
-              {#each collectionData.documents as doc}
-                <details class="doc-card">
-                  <summary>{getDocLabel(doc)}</summary>
-                  <pre>{formatValue(doc)}</pre>
-                </details>
-              {/each}
+              <table class="admin-table db-table" class:users-table={selectedCollection === 'users'}>
+                <thead>
+                  <tr>
+                    <th>
+                      <button type="button" onclick={() => setCollectionSort('_id')}>
+                        Document {collectionSortBy === '_id' ? (collectionSortDir === 'asc' ? 'asc' : 'desc') : ''}
+                      </button>
+                    </th>
+                    <th>
+                      <button type="button" onclick={() => setCollectionSort('createdAt')}>
+                        Date {collectionSortBy === 'createdAt' ? (collectionSortDir === 'asc' ? 'asc' : 'desc') : ''}
+                      </button>
+                    </th>
+                    <th>Summary</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each collectionData.documents as doc (getDocId(doc))}
+                    <tr class:expanded={expandedDocId === getDocId(doc)}>
+                      <td>
+                        <button class="doc-row-button" type="button" onclick={() => expandedDocId = expandedDocId === getDocId(doc) ? '' : getDocId(doc)}>
+                          <strong>{getDocLabel(doc)}</strong>
+                          {#if selectedCollection !== 'users'}
+                            <span>{doc?._id || ''}</span>
+                          {/if}
+                        </button>
+                      </td>
+                      <td>{formatDate(getDocTimestamp(doc))}</td>
+                      <td>{getDocSummary(doc) || '-'}</td>
+                    </tr>
+                    {#if expandedDocId === getDocId(doc)}
+                      <tr class="doc-json-row">
+                        <td colspan="3"><pre>{formatValue(doc)}</pre></td>
+                      </tr>
+                    {/if}
+                  {/each}
+                </tbody>
+              </table>
             {:else}
               <div class="empty-state">{collectionLoading ? 'Loading collection...' : 'No documents found.'}</div>
             {/if}
+          </div>
+
+          <div class="db-pager">
+            <button class="btn secondary small" type="button" disabled={collectionPage === 0 || collectionLoading} onclick={() => setCollectionPage(0)}>First</button>
+            <button class="btn secondary small" type="button" disabled={collectionPage === 0 || collectionLoading} onclick={() => setCollectionPage(collectionPage - 1)}>Previous</button>
+            <button class="btn secondary small" type="button" disabled={collectionPage >= collectionPageCount - 1 || collectionLoading} onclick={() => setCollectionPage(collectionPage + 1)}>Next</button>
+            <button class="btn secondary small" type="button" disabled={collectionPage >= collectionPageCount - 1 || collectionLoading} onclick={() => setCollectionPage(collectionPageCount - 1)}>Last</button>
           </div>
         </section>
         {/if}
@@ -648,6 +878,13 @@
     overflow: hidden;
   }
 
+  .stats-section {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
   .section-head {
     display: flex;
     justify-content: space-between;
@@ -660,6 +897,122 @@
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.6rem;
+  }
+
+  .achievement-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.6rem;
+  }
+
+  .achievement-card,
+  .leader-card {
+    background: #1b1f27;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 7px;
+    padding: 0.65rem 0.75rem;
+  }
+
+  .achievement-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.65rem;
+  }
+
+  .achievement-head span,
+  .leader-period {
+    color: #95a1b4;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .achievement-head strong {
+    font-size: 1rem;
+    font-weight: 650;
+    color: #f0f2f5;
+  }
+
+  .achievement-sub {
+    margin-top: 0.18rem;
+    color: #7a8494;
+    font-size: 0.78rem;
+  }
+
+  .mini-bars {
+    height: 44px;
+    display: flex;
+    align-items: flex-end;
+    gap: 0.22rem;
+    margin-top: 0.55rem;
+  }
+
+  .mini-bars span {
+    flex: 1;
+    min-height: 3px;
+    border-radius: 3px 3px 0 0;
+    background: linear-gradient(180deg, #90f0da, #00a889);
+  }
+
+  .achievement-leaders {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+  }
+
+  .leader-title {
+    margin-bottom: 0.55rem;
+    font-size: 0.86rem;
+    font-weight: 650;
+    color: #f0f2f5;
+  }
+
+  .leader-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.7rem;
+  }
+
+  .leader-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.45rem;
+    align-items: center;
+    min-height: 24px;
+    margin-top: 0.25rem;
+    padding: 0.2rem 0.25rem;
+    overflow: hidden;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.03);
+    font-size: 0.76rem;
+  }
+
+  .leader-row span,
+  .leader-row strong {
+    position: relative;
+    z-index: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .leader-row strong {
+    color: #cfd6e3;
+    font-weight: 600;
+  }
+
+  .leader-row i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: rgba(0, 212, 170, 0.14);
+  }
+
+  .leader-empty {
+    margin-top: 0.35rem;
+    color: #687286;
+    font-size: 0.76rem;
   }
 
   .stat-card {
@@ -737,6 +1090,123 @@
     flex-shrink: 0;
   }
 
+  .db-toolbar,
+  .db-controls,
+  .db-pager {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+  }
+
+  .db-toolbar {
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  .db-controls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: #95a1b4;
+    font-size: 0.78rem;
+  }
+
+  .db-controls select {
+    background: #1b1f27;
+    color: #f0f2f5;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 0.36rem 0.5rem;
+    font: inherit;
+  }
+
+  .db-table-wrap {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .db-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #1b1f27;
+  }
+
+  .db-table th button {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    padding: 0;
+    font: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
+    cursor: pointer;
+  }
+
+  .db-table td {
+    vertical-align: top;
+  }
+
+  .db-table.users-table th,
+  .db-table.users-table td {
+    padding: 0.42rem 0.6rem;
+  }
+
+  .db-table tr.expanded td {
+    background: rgba(0, 212, 170, 0.06);
+  }
+
+  .doc-row-button {
+    display: block;
+    width: 100%;
+    max-width: 280px;
+    padding: 0;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    color: #f0f2f5;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .doc-row-button strong,
+  .doc-row-button span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .doc-row-button span {
+    color: #7a8494;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.72rem;
+  }
+
+  .doc-json-row pre {
+    margin: 0;
+    max-height: 360px;
+    overflow: auto;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: #cfd6e3;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .db-pager {
+    justify-content: flex-end;
+    flex-shrink: 0;
+  }
+
+  .db-pager button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
   .doc-list {
     flex: 1;
     min-height: 0;
@@ -784,8 +1254,20 @@
   }
 
   @media (max-width: 820px) {
-    .stats-grid {
+    .stats-grid,
+    .achievement-grid,
+    .achievement-leaders,
+    .leader-columns {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 560px) {
+    .stats-grid,
+    .achievement-grid,
+    .achievement-leaders,
+    .leader-columns {
+      grid-template-columns: 1fr;
     }
   }
 </style>

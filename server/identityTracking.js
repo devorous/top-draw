@@ -8,6 +8,17 @@ function trimString(value, maxLength = 256) {
   return value.trim().slice(0, maxLength);
 }
 
+function isLocalConnectionIp(ip) {
+  const value = trimString(ip, 128).toLowerCase();
+  if (!value) return false;
+
+  const normalized = value
+    .replace(/^::ffff:/, '')
+    .replace(/^::1$/, '127.0.0.1');
+
+  return normalized === '127.0.0.1' || normalized === 'localhost' || normalized === '::1';
+}
+
 export function mergeHistory(existingValues = [], nextValue, limit = HISTORY_LIMIT) {
   const values = Array.isArray(existingValues) ? existingValues.filter(Boolean) : [];
   const normalizedNext = typeof nextValue === 'string' ? nextValue.trim() : '';
@@ -89,6 +100,7 @@ export function normalizeIdentityPayload(raw = {}) {
 
 export async function recordConnectionEvent(db, event) {
   if (!db || !event) return;
+  if (isLocalConnectionIp(event.ip)) return;
 
   try {
     await db.collection('connection_events').insertOne({

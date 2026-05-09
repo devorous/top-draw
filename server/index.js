@@ -75,6 +75,20 @@ const ADMIN_COLLECTIONS = new Set([
   'comments',
   'messages'
 ]);
+
+const ADMIN_SORT_FIELDS = new Set([
+  '_id',
+  'username',
+  'createdAt',
+  'updatedAt',
+  'lastActiveAt',
+  'lastLoginAt',
+  'timestamp',
+  'submittedAt',
+  'likesCount',
+  'views',
+  'role'
+]);
 const VERSION_JSON_PATH = pathModule.join(__dirname, '..', 'public', 'version.json');
 const VERSION_POLICY_CACHE_MS = 5000;
 
@@ -423,6 +437,122 @@ function sanitizeAdminDoc(doc) {
   return walk(doc);
 }
 
+function getLastWeekAchievementStats(users) {
+  const now = new Date();
+  const start = new Date(now);
+  start.setUTCHours(0, 0, 0, 0);
+  start.setUTCDate(start.getUTCDate() - 6);
+  const startKey = start.toISOString().slice(0, 10);
+
+  const totals = {
+    distanceDrawn: 0,
+    totalStrokes: 0,
+    timeSpentMs: 0,
+    chatMessagesSent: 0
+  };
+  const weekTotals = {
+    distanceDrawn: 0,
+    totalStrokes: 0,
+    timeSpentMs: 0,
+    chatMessagesSent: 0
+  };
+  const usersWithMetrics = [];
+  const daily = new Map();
+
+  for (let i = 0; i < 7; i += 1) {
+    const day = new Date(start);
+    day.setUTCDate(start.getUTCDate() + i);
+    daily.set(day.toISOString().slice(0, 10), {
+      date: day.toISOString().slice(0, 10),
+      distanceDrawn: 0,
+      totalStrokes: 0,
+      timeSpentMs: 0,
+      chatMessagesSent: 0
+    });
+  }
+
+  for (const user of users) {
+    const lifetime = {
+      distanceDrawn: Math.max(0, Number(user.distanceDrawn) || 0),
+      totalStrokes: Math.max(0, Number(user.totalStrokes) || 0),
+      timeSpentMs: Math.max(0, Number(user.timeSpentMs) || 0),
+      chatMessagesSent: Math.max(0, Number(user.chatMessagesSent) || 0)
+    };
+    const week = {
+      distanceDrawn: 0,
+      totalStrokes: 0,
+      timeSpentMs: 0,
+      chatMessagesSent: 0
+    };
+
+    totals.distanceDrawn += lifetime.distanceDrawn;
+    totals.totalStrokes += lifetime.totalStrokes;
+    totals.timeSpentMs += lifetime.timeSpentMs;
+    totals.chatMessagesSent += lifetime.chatMessagesSent;
+
+    for (const entry of Array.isArray(user.dailyMetrics) ? user.dailyMetrics : []) {
+      const date = String(entry.date || '').slice(0, 10);
+      if (date < startKey || !daily.has(date)) continue;
+
+      const distanceDrawn = Math.max(0, Number(entry.distanceDrawn) || 0);
+      const totalStrokes = Math.max(0, Number(entry.strokes) || 0);
+      const timeSpentMs = Math.max(0, Number(entry.timeSpentMs) || 0);
+      const chatMessagesSent = Math.max(0, Number(entry.chatMessages) || 0);
+      const day = daily.get(date);
+
+      day.distanceDrawn += distanceDrawn;
+      day.totalStrokes += totalStrokes;
+      day.timeSpentMs += timeSpentMs;
+      day.chatMessagesSent += chatMessagesSent;
+      week.distanceDrawn += distanceDrawn;
+      week.totalStrokes += totalStrokes;
+      week.timeSpentMs += timeSpentMs;
+      week.chatMessagesSent += chatMessagesSent;
+    }
+
+    weekTotals.distanceDrawn += week.distanceDrawn;
+    weekTotals.totalStrokes += week.totalStrokes;
+    weekTotals.timeSpentMs += week.timeSpentMs;
+    weekTotals.chatMessagesSent += week.chatMessagesSent;
+
+    if (Object.values(lifetime).some(value => value > 0) || Object.values(week).some(value => value > 0)) {
+      usersWithMetrics.push({
+        username: user.username || 'Unknown',
+        lifetime,
+        week
+      });
+    }
+  }
+
+  function top(metric, period) {
+    return usersWithMetrics
+      .map(user => ({ username: user.username, value: user[period][metric] || 0 }))
+      .filter(row => row.value > 0)
+      .sort((a, b) => b.value - a.value || a.username.localeCompare(b.username))
+      .slice(0, 8);
+  }
+
+  return {
+    totals,
+    weekTotals,
+    daily: [...daily.values()],
+    top: {
+      lifetime: {
+        distanceDrawn: top('distanceDrawn', 'lifetime'),
+        totalStrokes: top('totalStrokes', 'lifetime'),
+        timeSpentMs: top('timeSpentMs', 'lifetime'),
+        chatMessagesSent: top('chatMessagesSent', 'lifetime')
+      },
+      week: {
+        distanceDrawn: top('distanceDrawn', 'week'),
+        totalStrokes: top('totalStrokes', 'week'),
+        timeSpentMs: top('timeSpentMs', 'week'),
+        chatMessagesSent: top('chatMessagesSent', 'week')
+      }
+    }
+  };
+}
+
 const _fallbackIpSalt = crypto.randomBytes(16).toString('hex');
 if (!process.env.IP_SALT) {
   console.warn('[SECURITY] IP_SALT not set — using random salt (IP hashes will change across restarts)');
@@ -713,11 +843,23 @@ const server = createServer(async (req, res) => {
       }))
       .sort((a, b) => b.userCount - a.userCount || a.id.localeCompare(b.id));
 
+    const achievementUsers = db ? await db.collection('users').find({}, {
+      projection: {
+        username: 1,
+        distanceDrawn: 1,
+        totalStrokes: 1,
+        timeSpentMs: 1,
+        chatMessagesSent: 1,
+        dailyMetrics: 1
+      }
+    }).toArray() : [];
+
     json(res, 200, {
       activeUsers: rooms.reduce((sum, room) => sum + room.userCount, 0),
       activeRooms: rooms.length,
-      registeredUsers: db ? await db.collection('users').countDocuments() : 0,
+      registeredUsers: db ? achievementUsers.length : 0,
       dbAvailable: !!db,
+      achievements: getLastWeekAchievementStats(achievementUsers),
       rooms
     });
     return;
@@ -801,17 +943,26 @@ const server = createServer(async (req, res) => {
 
     const url = new URL(req.url, `http://${req.headers.host}`);
     const requestedLimit = Number(url.searchParams.get('limit'));
+    const requestedSkip = Number(url.searchParams.get('skip'));
     const limit = Math.max(1, Math.min(100, Number.isFinite(requestedLimit) ? requestedLimit : 25));
+    const skip = Math.max(0, Math.min(100000, Number.isFinite(requestedSkip) ? requestedSkip : 0));
+    const requestedSortBy = String(url.searchParams.get('sortBy') || '_id');
+    const sortBy = ADMIN_SORT_FIELDS.has(requestedSortBy) ? requestedSortBy : '_id';
+    const sortDir = String(url.searchParams.get('sortDir') || 'desc').toLowerCase() === 'asc' ? 1 : -1;
 
     const collection = db.collection(collectionName);
     const [documents, total] = await Promise.all([
-      collection.find({}).sort({ _id: -1 }).limit(limit).toArray(),
+      collection.find({}).sort({ [sortBy]: sortDir, _id: sortDir }).skip(skip).limit(limit).toArray(),
       collection.countDocuments()
     ]);
 
     json(res, 200, {
       collection: collectionName,
       total,
+      limit,
+      skip,
+      sortBy,
+      sortDir: sortDir === 1 ? 'asc' : 'desc',
       documents: documents.map(sanitizeAdminDoc)
     });
     return;
