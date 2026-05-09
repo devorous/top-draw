@@ -211,6 +211,7 @@ function shouldAllowWsMessage(ws, data) {
       break;
 
     case T.IMG_PASTE:
+    case T.IMAGE_TOOL:
     case T.SEL_LIFT:
     case T.ROOM_PREVIEW:
     case T.SYNC_CANVAS:
@@ -1327,7 +1328,7 @@ function sendTo(ws, payload) {
 const INACTIVE_FILTERED_TYPES = new Set([
   T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC, T.CSP, T.CSM, T.CHD, T.CBR,
   T.CL, T.CBM, T.PAN, T.CANCEL, T.KP, T.TEXT_APPLY, T.CSDM, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP,
-  T.GPT, T.CPM, T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE,
+  T.GPT, T.IMAGE_TOOL, T.CPM, T.SEL_LIFT, T.SEL_MOVE, T.SEL_COMMIT, T.SEL_DELETE,
   T.SEL_FILL, T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_FLIP,
   T.SEL_PENDING, T.SEL_MASK, T.OBSCURE_REGION, T.IMG_PASTE, T.CLR, T.UNDO, T.REDO, T.FILL, T.CTHN,
   T.CSIM, T.GLITCH_RESULT, T.TILE_UPDATE, T.TILE_CLEAR
@@ -1398,6 +1399,56 @@ function buildSettingsPayload(room) {
     electedUploader: room._electedUploader || '',
     roomBoardSize: room.settings.boardSize || '1080p'
   };
+}
+
+function normalizeImageToolType(type) {
+  const value = String(type || '').trim();
+  if (value === 'imageBrush' || value === 'pattern' || value === 'confetti') return value;
+  return null;
+}
+
+function getImageToolDataForUser(user, type) {
+  if (!user) return null;
+  if (type === 'imageBrush') return user.imageBrush || null;
+  if (type === 'pattern') return user.patternBrush || null;
+  if (type === 'confetti') return user.confettiBrush || null;
+  return null;
+}
+
+function setImageToolDataForUser(user, type, imageData) {
+  if (!user) return;
+  if (type === 'imageBrush') user.imageBrush = imageData;
+  if (type === 'pattern') user.patternBrush = imageData;
+  if (type === 'confetti') user.confettiBrush = imageData;
+}
+
+function sendImageToolStateToClient(ws, room, users = null) {
+  if (!ws || !room) return;
+  const joinedUsers = users || room.sessionManager.getJoinedUsers();
+  for (const user of joinedUsers) {
+    if (isShadowHiddenFromViewer(user, ws)) continue;
+    for (const type of ['imageBrush', 'pattern', 'confetti']) {
+      const imageData = getImageToolDataForUser(user, type);
+      if (!imageData) continue;
+
+      // Late joiners must receive brush assets through the same live paths that
+      // drawing messages already depend on. Keep IMAGE_TOOL as the unified
+      // stored-state command, but also send the legacy loaders for compatibility
+      // with the existing remote brush/pattern loading code.
+      if (type === 'imageBrush') {
+        sendTo(ws, { t: T.GMP, u: user.sessionIndex, g: imageData });
+      } else if (type === 'pattern') {
+        sendTo(ws, { t: T.GPT, u: user.sessionIndex, g: imageData });
+      }
+
+      sendTo(ws, {
+        t: T.IMAGE_TOOL,
+        u: user.sessionIndex,
+        imageToolType: type,
+        imageToolData: imageData
+      });
+    }
+  }
 }
 
 /**
@@ -1638,6 +1689,15 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       user.patternBrush = data.g;
       break;
 
+    case T.IMAGE_TOOL: {
+      const imageToolType = normalizeImageToolType(data.imageToolType || data.image_tool_type || data.k);
+      const imageToolData = data.imageToolData || data.image_tool_data || data.g || '';
+      if (imageToolType) {
+        setImageToolDataForUser(user, imageToolType, imageToolData);
+      }
+      break;
+    }
+
     case T.CPM:
       user.patternMode = data.pm || false;
       break;
@@ -1839,7 +1899,7 @@ function flushAllOutboxes() {
 const BATCHABLE_TYPES = new Set([
   T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC,
   T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL,
-  T.KP, T.TEXT_APPLY, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP, T.GPT, T.AFK,
+  T.KP, T.TEXT_APPLY, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP, T.GPT, T.IMAGE_TOOL, T.AFK,
   T.CTHN, T.CSIM, T.FILL, T.CF
 ]);
 
@@ -2269,6 +2329,7 @@ wss.on('connection', async (ws, req) => {
           }
 
           sendTo(ws, buildSettingsPayload(room));
+          sendImageToolStateToClient(ws, room, allUsers);
           sendActiveOverlaysToClient(ws, room);
 
           if (ws.clientAppVersion) {

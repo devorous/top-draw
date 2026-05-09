@@ -2754,6 +2754,11 @@ export class DrawingApp {
     return data;
   }
 
+  _buildConfettiBrushPayload(extra = {}) {
+    const confettiTool = this.toolManager?.getTool('confetti');
+    return confettiTool?.getNetworkSettings?.(this.self, extra) || null;
+  }
+
   handlePatternBrushSelect(brush) {
     this.self.patternBrush = brush;
 
@@ -3414,6 +3419,9 @@ export class DrawingApp {
     if (this.self.imageBrush) {
       this.wsClient.broadcastBrush(this._buildImageBrushPayload());
     }
+    if (this.self.confettiBrush) {
+      this.wsClient.broadcastConfettiBrush(this._buildConfettiBrushPayload());
+    }
 
     this.moderation.setRole(this.selfRole, appState.selfGlobalRole, appState.selfRoomRole);
     this.inputBufferManager.startTickLoop();
@@ -3735,6 +3743,12 @@ export class DrawingApp {
     if (this.self.patternBrush) {
       this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
     }
+    if (this.self.imageBrush) {
+      this.wsClient.broadcastBrush(this._buildImageBrushPayload());
+    }
+    if (this.self.confettiBrush) {
+      this.wsClient.broadcastConfettiBrush(this._buildConfettiBrushPayload());
+    }
 
     this.moderation.setRole(role, appState.selfGlobalRole, appState.selfRoomRole);
     this.inputBufferManager.startTickLoop();
@@ -3854,6 +3868,12 @@ export class DrawingApp {
     this.wsClient.broadcastSimulatePressureChange(this.self.simulatePressure);
     if (this.self.patternBrush) {
       this.wsClient.broadcastPatternBrush(this._buildPatternPayload());
+    }
+    if (this.self.imageBrush) {
+      this.wsClient.broadcastBrush(this._buildImageBrushPayload());
+    }
+    if (this.self.confettiBrush) {
+      this.wsClient.broadcastConfettiBrush(this._buildConfettiBrushPayload());
     }
 
     if (this.ui.elements.selfUserEntry) {
@@ -4717,6 +4737,11 @@ export class DrawingApp {
     if (this.self.tool === 'confetti') {
       this.self.confettiBrush = brush;
       this.toolManager.getTool('confetti')?.updatePreview?.(this.self);
+      if (this.connected) {
+        this.inputBufferManager.queueBroadcast(() =>
+          this.wsClient.broadcastConfettiBrush(this._buildConfettiBrushPayload())
+        );
+      }
       return;
     }
 

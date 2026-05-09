@@ -123,7 +123,7 @@ export class WebSocketClient {
       T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL, T.CF,
       // Tool-parameter changes that affect how an in-progress stroke is rendered.
       // Must stay ordered with the drawing events above.
-      T.CTHN, T.CSIM, T.GMP, T.GPT, T.CPM, T.CSDM,
+      T.CTHN, T.CSIM, T.GMP, T.GPT, T.IMAGE_TOOL, T.CPM, T.CSDM,
       // Canvas-state operations that mutate the stroke history.
       // These MUST be queued so they execute AFTER any drawing events (MD/MM/MU)
       // that preceded them in real time.  If they bypass the queue they can
@@ -934,6 +934,14 @@ export class WebSocketClient {
 
       case T.GPT:
         this.emit('gpt', { sessionIndex: data.u, patternData: data.g });
+        break;
+
+      case T.IMAGE_TOOL:
+        this.emit('image_tool', {
+          sessionIndex: data.u,
+          imageType: data.imageToolType || data.image_tool_type || data.k || '',
+          imageData: data.imageToolData || data.image_tool_data || data.g || ''
+        });
         break;
 
       case T.CPM:
@@ -1863,11 +1871,27 @@ export class WebSocketClient {
    * @returns {void}
    */
   broadcastBrush(brushData) {
-    this.send({ t: T.GMP, g: JSON.stringify(brushData) });
+    const payload = typeof brushData === 'string' ? brushData : JSON.stringify(brushData);
+    this.send({ t: T.GMP, g: payload });
+    this.broadcastImageTool('imageBrush', payload);
   }
 
   broadcastPatternBrush(patternData) {
-    this.send({ t: T.GPT, g: JSON.stringify(patternData) });
+    const payload = typeof patternData === 'string' ? patternData : JSON.stringify(patternData);
+    this.send({ t: T.GPT, g: payload });
+    this.broadcastImageTool('pattern', payload);
+  }
+
+  broadcastConfettiBrush(confettiData) {
+    this.broadcastImageTool('confetti', confettiData);
+  }
+
+  broadcastImageTool(imageType, imageData) {
+    this.send({
+      t: T.IMAGE_TOOL,
+      imageToolType: imageType,
+      imageToolData: typeof imageData === 'string' ? imageData : JSON.stringify(imageData)
+    });
   }
 
   /**

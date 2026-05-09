@@ -12,6 +12,37 @@ export function setupDrawingHandlers(wrapHandler, app) {
   blurImageData(new ImageData(1, 1), 1, 1, 1).catch(() => {});
   const { users, ui, board, remoteUserHandler } = app;
   const pressureTools = new Set(['brush', 'flowPen', 'ink', 'erase', 'circleBlur', 'glitchBlur', 'imageBrush']);
+  const applyImageToolData = (user, data) => {
+    if (data.imageType === 'imageBrush') {
+      remoteUserHandler.handleBrushLoad(user, data.imageData);
+    } else if (data.imageType === 'pattern') {
+      remoteUserHandler.handlePatternBrushLoad(user, data.imageData);
+    } else if (data.imageType === 'confetti') {
+      const confettiTool = app.toolManager.getTool('confetti');
+      confettiTool?.applyNetworkSettings?.(user, data.imageData);
+      confettiTool?.updatePreview?.(user);
+    }
+  };
+  const queuePendingImageTool = (data) => {
+    if (data?.sessionIndex === undefined || data?.sessionIndex === null || !data.imageType || !data.imageData) return;
+    if (!app._pendingRemoteImageToolChanges) {
+      app._pendingRemoteImageToolChanges = new Map();
+    }
+    const pending = app._pendingRemoteImageToolChanges.get(data.sessionIndex) || {};
+    pending[data.imageType] = data.imageData;
+    app._pendingRemoteImageToolChanges.set(data.sessionIndex, pending);
+    setTimeout(() => {
+      const user = users.get(data.sessionIndex);
+      if (!user) return;
+      const stored = app._pendingRemoteImageToolChanges?.get(data.sessionIndex);
+      if (!stored?.[data.imageType]) return;
+      applyImageToolData(user, data);
+      delete stored[data.imageType];
+      if (Object.keys(stored).length === 0) {
+        app._pendingRemoteImageToolChanges.delete(data.sessionIndex);
+      }
+    }, 0);
+  };
 
   wrapHandler('mm', (data) => {
     const user = users.get(data.sessionIndex);
@@ -256,6 +287,16 @@ export function setupDrawingHandlers(wrapHandler, app) {
     if (user) {
       remoteUserHandler.handlePatternBrushLoad(user, data.patternData);
     }
+  });
+
+  wrapHandler('image_tool', (data) => {
+    const user = users.get(data.sessionIndex);
+    if (!user) {
+      queuePendingImageTool(data);
+      return;
+    }
+
+    applyImageToolData(user, data);
   });
 
   wrapHandler('cpm', (data) => {

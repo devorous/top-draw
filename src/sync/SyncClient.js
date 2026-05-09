@@ -519,6 +519,9 @@ export class SyncClient {
         if (groups[gi].strokeStack.length > 0) {
           totalCount += 1;
         }
+        if (this._getSyncableActiveStrokes(groups[gi]).length > 0) {
+          totalCount += 1;
+        }
       }
 
       for (const [userId, batches] of lm.redoStackByUser) {
@@ -594,6 +597,47 @@ export class SyncClient {
             this.wsClient.sendSyncStrokeBatch(strokeRecords, gi, targetUser);
           }
         }
+
+        const activeStrokes = this._getSyncableActiveStrokes(groups[gi]);
+        if (activeStrokes.length > 0) {
+          const isMainLayer = gi < 3;
+          const layerTimeoutMs = isMainLayer ? null : 5000;
+          const strokeRecords = [];
+          let skippedCount = 0;
+
+          for (const { userId, active } of activeStrokes) {
+            const sourceCanvas = ((active.filterType === 'blur' || active.filterType === 'glitchBlur') && active._cachedBlurResult)
+              ? active._cachedBlurResult
+              : active.canvas;
+            const img = await this._captureCanvasElement(sourceCanvas, layerTimeoutMs);
+            if (img === null) {
+              skippedCount++;
+              continue;
+            }
+            strokeRecords.push({
+              img,
+              userId,
+              x: 0,
+              y: 0,
+              width: sourceCanvas.width,
+              height: sourceCanvas.height,
+              blendMode: active.blendMode || 'source-over',
+              blendBakeMode: active.blendBakeMode || 'existing',
+              timestamp: active.timestamp || Date.now(),
+              eraseAll: active.eraseAll || false,
+              isRedo: false,
+              redoBatch: 0,
+              layerIdx: gi,
+              affectedTiles: active.affectedTiles ? Array.from(active.affectedTiles) : []
+            });
+          }
+          if (skippedCount > 0) {
+            console.warn(`[SyncClient] Skipped ${skippedCount}/${activeStrokes.length} active strokes for layer ${gi} (timeouts)`);
+          }
+          if (strokeRecords.length > 0) {
+            this.wsClient.sendSyncStrokeBatch(strokeRecords, gi, targetUser);
+          }
+        }
       }
 
       for (const [userId, batches] of lm.redoStackByUser) {
@@ -661,6 +705,18 @@ export class SyncClient {
     this._resizeBoardForIncomingDimensions(data.boardWidth, data.boardHeight);
     this.expectedMessages = data.totalCount || 0;
     this.updateProgress();
+  }
+
+  _getSyncableActiveStrokes(group) {
+    if (!group?.activeStrokeByUser) return [];
+    const active = [];
+    for (const [userId, stroke] of group.activeStrokeByUser.entries()) {
+      if (!stroke?.canvas) continue;
+      const dirtyRect = stroke.dirtyRect;
+      if (dirtyRect && dirtyRect.maxX === -1) continue;
+      active.push({ userId, active: stroke });
+    }
+    return active;
   }
 
   _resizeBoardForIncomingDimensions(width, height) {

@@ -125,6 +125,7 @@ message Msg {
     BW_PROBE_CHUNK = 131;          // Client→server: one probe chunk (random bytes)
     BW_REPORT = 132;               // Client→server: report a previously measured uploadBps (e.g. from _discovery)
     METRICS_UPDATE = 133;          // Client→server: batched metrics update (achievements)
+    IMAGE_TOOL = 134;              // Image data for image-based tools (image/pattern/confetti)
   }
 
   // Tool enum
@@ -451,6 +452,8 @@ message Msg {
 
   // === Instance ID (per-connection unique identifier) ===
   string iid = 153;                 // Instance ID: random per-connection token to detect index reuse
+  string image_tool_type = 159;      // IMAGE_TOOL: imageBrush|pattern|confetti
+  string image_tool_data = 160;      // IMAGE_TOOL: JSON payload containing image data/settings
 }
 
 // New message for storing snapshot layers and thumbnail bundled in R2

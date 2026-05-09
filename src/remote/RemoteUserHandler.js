@@ -1198,7 +1198,14 @@ export class RemoteUserHandler {
    * @returns {void}
    */
   handleBrushLoad(user, brushDataStr) {
-    const brushData = typeof brushDataStr === 'string' ? JSON.parse(brushDataStr) : brushDataStr;
+    let brushData;
+    try {
+      brushData = typeof brushDataStr === 'string' ? JSON.parse(brushDataStr) : brushDataStr;
+    } catch (err) {
+      console.error(`[ImageBrush] Failed to parse brush payload for remote user ${user?.id}:`, err);
+      return;
+    }
+    if (!brushData || typeof brushData !== 'object') return;
 
     // Assign immediately so that MD/stamp messages arriving before the image
     // element finishes decoding still see the correct brush identity.
@@ -1300,7 +1307,14 @@ export class RemoteUserHandler {
   }
 
   handlePatternBrushLoad(user, patternDataStr) {
-    const patternData = typeof patternDataStr === 'string' ? JSON.parse(patternDataStr) : patternDataStr;
+    let patternData;
+    try {
+      patternData = typeof patternDataStr === 'string' ? JSON.parse(patternDataStr) : patternDataStr;
+    } catch (err) {
+      console.error(`[PatternBrush] Failed to parse pattern payload for remote user ${user?.id}:`, err);
+      return;
+    }
+    if (!patternData || typeof patternData !== 'object') return;
     const brushData = patternData.brush;
     if (!brushData) return;
 
@@ -1573,8 +1587,6 @@ export class RemoteUserHandler {
     delete user.blurBounds;
     delete user.glitchStamps;
     user.lastBlurPos = null;
-    user.imageBrush = null;
-    user.patternBrush = null;
 
     const blurTool = this.toolManager.getTool('blur');
     if (blurTool) {

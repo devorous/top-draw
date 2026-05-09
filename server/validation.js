@@ -33,7 +33,7 @@ const MAX_SYNC_BATCH_STROKES = 256;
 const MAX_TILE_LIST = 4096;
 const MAX_PATH_VALUES = 1024;
 const MAX_SELECTION_POINTS = 2048;
-const MAX_BRUSH_DATA_LENGTH = 1024 * 1024;
+const MAX_BRUSH_DATA_LENGTH = 12 * 1024 * 1024;
 const MAX_MIRROR_REGION_PAYLOAD = 64 * 1024;
 const MAX_AUTH_TOKEN_LENGTH = 4096;
 const MAX_AUTH_STRING_LENGTH = 256;
@@ -88,6 +88,12 @@ const sanitizeString = (value, maxLength, { trim = true } = {}) => {
   if (typeof value !== 'string') return '';
   const output = trim ? value.trim() : value;
   return output.slice(0, maxLength);
+};
+
+const sanitizeBoundedString = (value, maxLength, { trim = true } = {}) => {
+  if (typeof value !== 'string') return '';
+  const output = trim ? value.trim() : value;
+  return output.length <= maxLength ? output : '';
 };
 
 const sanitizeBoolean = (value) => !!value;
@@ -350,8 +356,28 @@ export async function sanitizeMessage(data) {
     case T.GMP:
     case T.GPT:
     case T.SEL_TO_BRUSH:
-      sanitized.g = sanitizeString(data.g, MAX_BRUSH_DATA_LENGTH, { trim: false });
+      sanitized.g = sanitizeBoundedString(data.g, MAX_BRUSH_DATA_LENGTH, { trim: false });
       return sanitized.g ? sanitized : null;
+
+    case T.IMAGE_TOOL: {
+      const imageToolType = sanitizeString(
+        data.imageToolType ?? data.image_tool_type ?? data.k,
+        24,
+        { trim: true }
+      );
+      if (!['imageBrush', 'pattern', 'confetti'].includes(imageToolType)) return null;
+
+      const imageToolData = sanitizeBoundedString(
+        data.imageToolData ?? data.image_tool_data ?? data.g,
+        MAX_BRUSH_DATA_LENGTH,
+        { trim: false }
+      );
+      if (!imageToolData) return null;
+
+      sanitized.imageToolType = imageToolType;
+      sanitized.imageToolData = imageToolData;
+      return sanitized;
+    }
 
     case T.OBSCURE_REGION: {
       const raw = sanitizeString(data.g, MAX_BRUSH_DATA_LENGTH, { trim: false });

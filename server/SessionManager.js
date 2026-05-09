@@ -159,6 +159,8 @@ export class SessionManager {
       registeredName: '',
       text: '',
       imageBrush: null,
+      patternBrush: null,
+      confettiBrush: null,
       activeImage: null,           // { sx, sy, sw, sh, g } — active floating selection for sync replay
       activeSelectionCorners: null, // [tl.x, tl.y, tr.x, tr.y, bl.x, bl.y, br.x, br.y] — latest SEL_MOVE position
       activeSelectionSourceCrop: null, // [x, y, width, height] crop applied to activeImage source

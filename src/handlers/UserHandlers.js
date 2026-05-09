@@ -54,6 +54,41 @@ function clearRemoteTextDraft(app, user) {
   app.ui.updateRemoteText(user.id, '');
 }
 
+function applyPendingImageToolChanges(app, sessionIndex, user) {
+  const pending = app._pendingRemoteImageToolChanges?.get(sessionIndex);
+  if (!pending || !user || !app.remoteUserHandler) return;
+
+  if (pending.imageBrush) {
+    app.remoteUserHandler.handleBrushLoad(user, pending.imageBrush);
+  }
+  if (pending.pattern) {
+    app.remoteUserHandler.handlePatternBrushLoad(user, pending.pattern);
+  }
+  if (pending.confetti) {
+    const confettiTool = app.toolManager?.getTool?.('confetti');
+    confettiTool?.applyNetworkSettings?.(user, pending.confetti);
+    confettiTool?.updatePreview?.(user);
+  }
+
+  app._pendingRemoteImageToolChanges.delete(sessionIndex);
+}
+
+function applyUserImageToolState(app, user, userData) {
+  const brushData = userData.ib || userData.imageBrush;
+  if (brushData && app.remoteUserHandler && user._lastImageBrushPayload !== brushData) {
+    user._lastImageBrushPayload = brushData;
+    app.remoteUserHandler.handleBrushLoad(user, brushData);
+  }
+
+  const patternData = userData.patternBrush || userData.pb;
+  if (patternData && app.remoteUserHandler && user._lastPatternBrushPayload !== patternData) {
+    user._lastPatternBrushPayload = patternData;
+    app.remoteUserHandler.handlePatternBrushLoad(user, patternData);
+  }
+
+  applyPendingImageToolChanges(app, userData.sessionIndex, user);
+}
+
 /**
  * Sets up WebSocket event handlers for user-related actions and state changes.
  * @param {WebSocketClient} wsClient - The WebSocket client instance.
@@ -263,15 +298,7 @@ export function setupUserHandlers(wsClient, app) {
         user.setTool(userData.tool);
         users.set(userData.sessionIndex, user);
 
-        const brushData = userData.ib || userData.imageBrush;
-        if (brushData && app.remoteUserHandler) {
-          app.remoteUserHandler.handleBrushLoad(user, brushData);
-        }
-
-        const patternData = userData.patternBrush || userData.pb;
-        if (patternData && app.remoteUserHandler) {
-          app.remoteUserHandler.handlePatternBrushLoad(user, patternData);
-        }
+        applyUserImageToolState(app, user, userData);
 
         const boardData = ui.createUserBoard(userData.sessionIndex);
         user.board = boardData.board;
@@ -340,6 +367,8 @@ export function setupUserHandlers(wsClient, app) {
           user.role = userData.role;
           ui.updateRemoteUserRank(userData.sessionIndex, userData.role);
         }
+
+        applyUserImageToolState(app, user, userData);
         if (userData.globalRole !== undefined) {
           user.globalRole = userData.globalRole || 0;
         }
