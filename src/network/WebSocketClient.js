@@ -1251,6 +1251,8 @@ export class WebSocketClient {
         break;
 
       case T.AUTH_RESULT:
+        console.log('[WebSocketClient] AUTH_RESULT received full data:', data);
+        console.log('[WebSocketClient] AUTH_RESULT extracted:', { success: data.a, username: data.authUsername, hasEmail: data.authHasEmail, emailPromptDeclined: data.authEmailPromptDeclined });
         this.globalRole = data.authGlobalRole || 0;
         this.roomRole = data.authRoomRole || 0;
         this.emit('auth_result', {
@@ -1260,7 +1262,9 @@ export class WebSocketClient {
           globalRole: data.authGlobalRole || 0,
           roomRole: data.authRoomRole || 0,
           username: data.authUsername || '',
-          error: data.authError || ''
+          error: data.authError || '',
+          hasEmail: data.authHasEmail || false,
+          emailPromptDeclined: data.authEmailPromptDeclined || false
         });
         break;
 
@@ -2347,6 +2351,7 @@ export class WebSocketClient {
    * @returns {void}
    */
   sendAuthTokenLogin(token) {
+    console.log('[WebSocketClient] sendAuthTokenLogin called, connected?', this.connected);
     const identityPayload = this._getImmediateIdentityPayload();
     this.send({ t: T.AUTH_LOGIN, authToken: token, ...identityPayload });
   }

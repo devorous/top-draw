@@ -11,7 +11,7 @@ import fs from 'fs';
 import { connectDB, getDB, getMongoDatabase, updateUserMetrics, updateConsecutiveDays } from './db.js';
 import { metricsTracker } from './MetricsTracker.js';
 import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryLiked, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate, handleFloatingArtList, setFloatingArtBroadcaster } from './gallery.js';
-import { handleAuthLogin, handleAuthRegister, handleAuthMe, handlePasswordResetRequest, handlePasswordResetComplete } from './authRoutes.js';
+import { handleAuthLogin, handleAuthRegister, handleAuthMe, handlePasswordResetRequest, handlePasswordResetComplete, handleEmailSet, handleEmailVerify, handleEmailDecline } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
 import { getGalleryPreviewItem, renderGalleryPreviewHtml } from './galleryPreview.js';
 import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore, handleSnapshotJoinNotify } from './snapshots.js';
@@ -786,6 +786,24 @@ const server = createServer(async (req, res) => {
   if (path === '/api/auth/password-reset/complete' && req.method === 'POST') {
     if (rateLimited(authLimiter)) return;
     await handlePasswordResetComplete(req, res);
+    return;
+  }
+
+  if (path === '/api/auth/email/set' && req.method === 'POST') {
+    if (rateLimited(authLimiter)) return;
+    await handleEmailSet(req, res);
+    return;
+  }
+
+  if (path === '/api/auth/email/verify' && req.method === 'POST') {
+    if (rateLimited(authLimiter)) return;
+    await handleEmailVerify(req, res);
+    return;
+  }
+
+  if (path === '/api/auth/email/decline' && req.method === 'POST') {
+    if (rateLimited(authLimiter)) return;
+    await handleEmailDecline(req, res);
     return;
   }
 
@@ -4170,7 +4188,9 @@ wss.on('connection', async (ws, req) => {
               authRole: effectiveRole,
               authGlobalRole: userDoc.role,
               authRoomRole: roomRoleVal,
-              authUsername: userDoc.username
+              authUsername: userDoc.username,
+              authHasEmail: !!userDoc.email,
+              authEmailPromptDeclined: !!userDoc.emailPromptDeclined
             });
 
             await recordConnectionEvent(db, {

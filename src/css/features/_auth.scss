@@ -568,6 +568,11 @@ body.desktop-window-chrome #landingPage {
   padding-top: calc(20px + 10px);
 }
 
+#landingPage.blurred {
+  filter: blur(4px);
+  pointer-events: none;
+}
+
 .landingContainer {
   display: flex;
   position: relative;

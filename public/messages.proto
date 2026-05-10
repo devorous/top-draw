@@ -256,6 +256,8 @@ message Msg {
   string auth_email            = 63;  // Email (optional, for registration)
   string auth_secret_question  = 64;  // Secret question (for registration/recovery)
   string auth_secret_answer    = 65;  // Secret answer (hashed on server, for registration/recovery)
+  bool auth_has_email          = 129; // Whether user has a verified email (for AUTH_RESULT)
+  bool auth_email_prompt_declined = 130; // Whether user declined the email prompt (for AUTH_RESULT)
 
   // === Moderation Fields (34-42) ===
   uint32 mod_action_type  = 34;  // 0=kick, 1=mute, 2=ban, 3=unmute, 4=unban

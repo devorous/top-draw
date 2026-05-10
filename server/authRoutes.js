@@ -404,89 +404,38 @@ export async function handlePasswordResetRequest(req, res) {
   }
 
   const identifier = typeof body.identifier === 'string' ? body.identifier.trim() : '';
-  const secretAnswer = typeof body.secretAnswer === 'string' ? body.secretAnswer.trim() : '';
-  if (!identifier) {
-    return json(res, 400, { success: false, error: 'Email or username required' });
+  if (!identifier || !identifier.includes('@')) {
+    return json(res, 400, { success: false, error: 'Email address required' });
   }
 
   try {
-    const isEmail = identifier.includes('@');
-    const query = isEmail
-      ? { email: normalizeEmail(identifier) }
-      : { username: normalizeUsername(identifier) };
-    const user = await db.collection('users').findOne(query, {
-      collation: { locale: 'en', strength: 2 },
-      projection: { username: 1, email: 1, secretQuestion: 1, secretAnswerHash: 1 }
-    });
+    const user = await db.collection('users').findOne(
+      { email: normalizeEmail(identifier) },
+      {
+        collation: { locale: 'en', strength: 2 },
+        projection: { username: 1, email: 1 }
+      }
+    );
 
-    const genericMessage = 'If that account can be reset, a reset link will be sent or shown after verification.';
+    const genericMessage = 'If that account can be reset, a reset link will be sent.';
     if (!user) {
       return json(res, 200, { success: true, message: genericMessage });
     }
 
-    if (isEmail) {
-      const { token } = await createPasswordResetToken(db, user, req);
-      const resetLink = buildResetLink(req, token);
-      const emailSent = await sendPasswordResetEmail({
-        to: user.email,
-        username: user.username,
-        resetLink,
-      });
-
-      return json(res, 200, {
-        success: true,
-        message: emailSent
-          ? 'Password reset link sent. Check your email.'
-          : 'Email sending is not configured, so the reset link was written to the server log.',
-        emailSent,
-      });
-    }
-
-    if (!secretAnswer) {
-      if (user.secretQuestion && user.secretAnswerHash) {
-        return json(res, 200, {
-          success: true,
-          requiresSecretAnswer: true,
-          secretQuestion: user.secretQuestion,
-        });
-      }
-
-      if (user.email) {
-        const { token } = await createPasswordResetToken(db, user, req);
-        const resetLink = buildResetLink(req, token);
-        const emailSent = await sendPasswordResetEmail({
-          to: user.email,
-          username: user.username,
-          resetLink,
-        });
-
-        return json(res, 200, {
-          success: true,
-          message: emailSent
-            ? 'Password reset link sent. Check your email.'
-            : 'Email sending is not configured, so the reset link was written to the server log.',
-          emailSent,
-        });
-      }
-
-      return json(res, 200, { success: true, message: genericMessage });
-    }
-
-    if (!user.secretAnswerHash) {
-      return json(res, 400, { success: false, error: 'This account does not have a secret answer set.' });
-    }
-
-    const answerValid = await verifyPassword(secretAnswer.toLowerCase(), user.secretAnswerHash);
-    if (!answerValid) {
-      return json(res, 401, { success: false, error: 'Secret answer did not match' });
-    }
-
     const { token } = await createPasswordResetToken(db, user, req);
     const resetLink = buildResetLink(req, token);
-    json(res, 200, {
-      success: true,
+    const emailSent = await sendPasswordResetEmail({
+      to: user.email,
+      username: user.username,
       resetLink,
-      message: 'Secret answer accepted. Use the reset link to choose a new password.',
+    });
+
+    return json(res, 200, {
+      success: true,
+      message: emailSent
+        ? 'Password reset link sent. Check your email.'
+        : 'Email sending is not configured, so the reset link was written to the server log.',
+      emailSent,
     });
   } catch (err) {
     console.error('[AuthRoutes] Password reset request error:', err);
@@ -555,5 +504,180 @@ export async function handlePasswordResetComplete(req, res) {
   } catch (err) {
     console.error('[AuthRoutes] Password reset complete error:', err);
     json(res, 500, { success: false, error: 'Password reset failed' });
+  }
+}
+
+const EMAIL_VERIFICATION_TTL_MS = 15 * 60 * 1000;
+
+/**
+ * POST /api/auth/email/set — request email verification code
+ * Header: Authorization: Bearer <token>
+ * Body: { email }
+ * Returns: { success, message } or { success: false, error }
+ */
+export async function handleEmailSet(req, res) {
+  const db = getDB();
+  if (!db) return json(res, 503, { success: false, error: 'Database not available' });
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (err) {
+    if (err?.message === 'Payload too large') {
+      return json(res, 413, { success: false, error: 'Request body too large' });
+    }
+    return json(res, 400, { success: false, error: 'Invalid request body' });
+  }
+
+  const email = typeof body.email === 'string' ? normalizeEmail(body.email) : '';
+  if (!email || !email.includes('@')) {
+    return json(res, 400, { success: false, error: 'Valid email required' });
+  }
+
+  try {
+    const user = await getUserFromToken(getBearerToken(req), { projection: { _id: 1 } });
+    if (!user) {
+      return json(res, 401, { success: false, error: 'Unauthorized' });
+    }
+
+    const existingEmail = await db.collection('users').findOne(
+      { email: normalizeEmail(email), _id: { $ne: user._id } }
+    );
+    if (existingEmail) {
+      return json(res, 400, { success: false, error: 'Email already in use' });
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const tokenHash = hashResetToken(code);
+    const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS);
+
+    await db.collection('email_verification_tokens').insertOne({
+      userId: user._id,
+      email,
+      tokenHash,
+      createdAt: new Date(),
+      expiresAt,
+      usedAt: null,
+      requestedIp: getClientIp(req),
+      userAgent: String(req.headers['user-agent'] || '').slice(0, 512),
+    });
+
+    const subject = 'Your DDraw verification code';
+    const text = [
+      `Your verification code is: ${code}`,
+      '',
+      'This code expires in 15 minutes. If you did not request it, you can ignore this email.',
+    ].join('\n');
+
+    if (process.env.RESEND_API_KEY) {
+      const from = process.env.RESET_EMAIL_FROM || 'support@ddraw.ca';
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ from, to: email, subject, text }),
+      });
+
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        throw new Error(`Resend email failed: ${response.status} ${detail}`);
+      }
+    } else {
+      console.warn('[AuthRoutes] RESEND_API_KEY not set; email verification code:', code);
+    }
+
+    json(res, 200, { success: true, message: 'Verification code sent to your email.' });
+  } catch (err) {
+    console.error('[AuthRoutes] Email set error:', err);
+    json(res, 500, { success: false, error: 'Email verification failed' });
+  }
+}
+
+/**
+ * POST /api/auth/email/verify — verify email with code
+ * Header: Authorization: Bearer <token>
+ * Body: { code }
+ * Returns: { success } or { success: false, error }
+ */
+export async function handleEmailVerify(req, res) {
+  const db = getDB();
+  if (!db) return json(res, 503, { success: false, error: 'Database not available' });
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (err) {
+    if (err?.message === 'Payload too large') {
+      return json(res, 413, { success: false, error: 'Request body too large' });
+    }
+    return json(res, 400, { success: false, error: 'Invalid request body' });
+  }
+
+  const code = typeof body.code === 'string' ? body.code.trim() : '';
+  if (!code || code.length !== 6 || !/^\d+$/.test(code)) {
+    return json(res, 400, { success: false, error: 'Invalid code format' });
+  }
+
+  try {
+    const user = await getUserFromToken(getBearerToken(req), { projection: { _id: 1 } });
+    if (!user) {
+      return json(res, 401, { success: false, error: 'Unauthorized' });
+    }
+
+    const tokenHash = hashResetToken(code);
+    const tokenDoc = await db.collection('email_verification_tokens').findOne({
+      userId: user._id,
+      tokenHash,
+      usedAt: null,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!tokenDoc) {
+      return json(res, 400, { success: false, error: 'Invalid or expired code' });
+    }
+
+    await db.collection('email_verification_tokens').updateOne(
+      { _id: tokenDoc._id },
+      { $set: { usedAt: new Date() } }
+    );
+
+    await db.collection('users').updateOne(
+      { _id: user._id },
+      { $set: { email: tokenDoc.email, emailVerified: true } }
+    );
+
+    json(res, 200, { success: true });
+  } catch (err) {
+    console.error('[AuthRoutes] Email verify error:', err);
+    json(res, 500, { success: false, error: 'Email verification failed' });
+  }
+}
+
+/**
+ * POST /api/auth/email/decline — mark that user declined email prompt
+ * Header: Authorization: Bearer <token>
+ * Returns: { success } or { success: false, error }
+ */
+export async function handleEmailDecline(req, res) {
+  const db = getDB();
+  if (!db) return json(res, 503, { success: false, error: 'Database not available' });
+
+  try {
+    const user = await getUserFromToken(getBearerToken(req), { projection: { _id: 1 } });
+    if (!user) {
+      return json(res, 401, { success: false, error: 'Unauthorized' });
+    }
+
+    await db.collection('users').updateOne(
+      { _id: user._id },
+      { $set: { emailPromptDeclined: true } }
+    );
+
+    json(res, 200, { success: true });
+  } catch (err) {
+    console.error('[AuthRoutes] Email decline error:', err);
+    json(res, 500, { success: false, error: 'Failed to save preference' });
   }
 }

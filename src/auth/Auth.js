@@ -45,6 +45,7 @@ export class Auth {
   }
 
   init() {
+    console.log('[Auth] init() called');
     this.els = {
       // Login state elements
       authNotLoggedIn: document.getElementById('authNotLoggedIn'),
@@ -84,6 +85,18 @@ export class Auth {
       passwordResetConfirmPassword: document.getElementById('passwordResetConfirmPassword'),
       passwordResetMessage: document.getElementById('passwordResetMessage'),
       passwordResetSubmitBtn: document.getElementById('passwordResetSubmitBtn'),
+      // Add email modal
+      addEmailStep1: document.getElementById('addEmailStep1'),
+      addEmailStep2: document.getElementById('addEmailStep2'),
+      addEmailInput: document.getElementById('addEmailInput'),
+      addEmailCodeInput: document.getElementById('addEmailCodeInput'),
+      addEmailMessage: document.getElementById('addEmailMessage'),
+      addEmailCodeMessage: document.getElementById('addEmailCodeMessage'),
+      addEmailTarget: document.getElementById('addEmailTarget'),
+      addEmailSendBtn: document.getElementById('addEmailSendBtn'),
+      addEmailVerifyBtn: document.getElementById('addEmailVerifyBtn'),
+      addEmailResendBtn: document.getElementById('addEmailResendBtn'),
+      addEmailSkipBtn: document.getElementById('addEmailSkipBtn'),
       roomIdInput: document.getElementById('roomIdInput'),
       authFormWrapper: document.getElementById('authFormWrapper'),
       authLoadingState: document.getElementById('authLoadingState'),
@@ -98,6 +111,11 @@ export class Auth {
     this.setupListeners();
     this.syncAuthStateHeights();
     window.addEventListener('resize', () => this.syncAuthStateHeights());
+
+    // Listen for auth results from WebSocket (in case it fires before AuthModHandlers sets up the main listener)
+    if (this.wsClient) {
+      this.wsClient.on('auth_result', (data) => this.handleAuthResult(data));
+    }
 
     // Check if user has stored credentials for auto-login
     if (!this.openPasswordResetFromUrl()) {
@@ -164,6 +182,23 @@ export class Auth {
         }
       });
     });
+
+    // Add email modal
+    this.els.addEmailSkipBtn?.addEventListener('click', () => this.hideAddEmailModal(true));
+    this.els.addEmailSendBtn?.addEventListener('click', () => this.handleSendEmailCode());
+    this.els.addEmailVerifyBtn?.addEventListener('click', () => this.handleVerifyEmailCode());
+    this.els.addEmailResendBtn?.addEventListener('click', () => this.handleSendEmailCode());
+    [this.els.addEmailInput, this.els.addEmailCodeInput].filter(Boolean).forEach((el) => {
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (this._addEmailStep === 1) this.handleSendEmailCode();
+          else this.handleVerifyEmailCode();
+        }
+      });
+    });
+    // Close modal on backdrop click (counts as decline)
+    document.getElementById('addEmailModalBackdrop')?.addEventListener('click', () => this.hideAddEmailModal(true));
   }
 
   isJoinActionEnabled() {
@@ -189,12 +224,13 @@ export class Auth {
    * Check if user has stored login credentials
    */
   checkStoredLogin() {
-    // Show logged-in UI if we have a stored token and username
+    console.log('[Auth] checkStoredLogin() called');
+    // Attempt auto-login with stored token (don't show UI yet, wait for auth result)
     if (this.getStoredToken()) {
-      const storedUsername = this.getStoredUsername();
-      if (storedUsername) {
-        this.showLoggedInState(storedUsername);
-      }
+      console.log('[Auth] Found stored token, attempting auto-login');
+      this.attemptAutoLogin();
+    } else {
+      console.log('[Auth] No stored token found');
     }
   }
 
@@ -281,6 +317,7 @@ export class Auth {
    * Show the logged-in UI state
    */
   async showLoggedInState(username) {
+    console.log('[Auth] showLoggedInState called:', username);
     const wasLoggedIn = this.isLoggedIn;
     this.isLoggedIn = true;
     this.loggedInUsername = username;
@@ -441,10 +478,7 @@ export class Auth {
   }
 
   async showPasswordResetRequestPanel() {
-    const username = this.els.loginUsername?.value.trim() || '';
-    if (this.els.passwordResetIdentifier) this.els.passwordResetIdentifier.value = username;
-    if (this.els.passwordResetSecretAnswer) this.els.passwordResetSecretAnswer.value = '';
-    if (this.els.passwordResetSecretWrap) this.els.passwordResetSecretWrap.style.display = 'none';
+    if (this.els.passwordResetIdentifier) this.els.passwordResetIdentifier.value = '';
     this._passwordResetToken = null;
     this.setPasswordResetMode('request');
     this.setPasswordResetMessage('');
@@ -492,9 +526,8 @@ export class Auth {
 
   async requestPasswordReset() {
     const identifier = this.els.passwordResetIdentifier?.value.trim();
-    const secretAnswer = this.els.passwordResetSecretAnswer?.value.trim() || '';
-    if (!identifier) {
-      this.setPasswordResetMessage('Enter your email or username.', 'error');
+    if (!identifier || !identifier.includes('@')) {
+      this.setPasswordResetMessage('Enter your email address.', 'error');
       return;
     }
 
@@ -503,7 +536,7 @@ export class Auth {
       const res = await fetch(`${API_BASE}/api/auth/password-reset/request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier, secretAnswer }),
+        body: JSON.stringify({ identifier }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
@@ -576,6 +609,141 @@ export class Auth {
     }
   }
 
+  showAddEmailModal() {
+    console.log('[Auth] showAddEmailModal called');
+    this._addEmailStep = 1;
+    if (this.els.addEmailInput) this.els.addEmailInput.value = '';
+    if (this.els.addEmailCodeInput) this.els.addEmailCodeInput.value = '';
+    if (this.els.addEmailMessage) this.els.addEmailMessage.textContent = '';
+    if (this.els.addEmailCodeMessage) this.els.addEmailCodeMessage.textContent = '';
+    if (this.els.addEmailStep1) this.els.addEmailStep1.style.display = '';
+    if (this.els.addEmailStep2) this.els.addEmailStep2.style.display = 'none';
+
+    const backdrop = document.getElementById('addEmailModalBackdrop');
+    const modal = document.getElementById('addEmailModal');
+    const landingPage = document.getElementById('landingPage');
+    console.log('[Auth] Modal elements:', { backdrop: !!backdrop, modal: !!modal });
+    if (backdrop) backdrop.style.display = 'block';
+    if (modal) modal.style.display = 'block';
+    if (landingPage) landingPage.classList.add('blurred');
+    if (this.els.addEmailInput) this.els.addEmailInput.focus();
+  }
+
+  hideAddEmailModal(declinePrompt = false) {
+    const backdrop = document.getElementById('addEmailModalBackdrop');
+    const modal = document.getElementById('addEmailModal');
+    const landingPage = document.getElementById('landingPage');
+    if (backdrop) backdrop.style.display = 'none';
+    if (modal) modal.style.display = 'none';
+    if (landingPage) landingPage.classList.remove('blurred');
+
+    if (declinePrompt) {
+      const token = this.getStoredToken();
+      if (token) {
+        fetch(`${API_BASE}/api/auth/email/decline`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }).catch(() => {});
+      }
+    }
+  }
+
+  setAddEmailMessage(message, kind = 'neutral') {
+    if (!this.els.addEmailMessage) return;
+    this.els.addEmailMessage.textContent = message || '';
+    this.els.addEmailMessage.dataset.kind = kind;
+  }
+
+  setAddEmailCodeMessage(message, kind = 'neutral') {
+    if (!this.els.addEmailCodeMessage) return;
+    this.els.addEmailCodeMessage.textContent = message || '';
+    this.els.addEmailCodeMessage.dataset.kind = kind;
+  }
+
+  async handleSendEmailCode() {
+    if (this._loading) return;
+
+    const email = this.els.addEmailInput?.value.trim();
+    if (!email || !email.includes('@')) {
+      this.setAddEmailMessage('Please enter a valid email address.', 'error');
+      return;
+    }
+
+    this.setLoading(true);
+    try {
+      const token = this.getStoredToken();
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+
+      const res = await fetch(`${API_BASE}/api/auth/email/set`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to send verification code');
+      }
+
+      this._addEmailStep = 2;
+      this._addEmailForVerification = email;
+      if (this.els.addEmailTarget) this.els.addEmailTarget.textContent = email;
+      if (this.els.addEmailStep1) this.els.addEmailStep1.style.display = 'none';
+      if (this.els.addEmailStep2) this.els.addEmailStep2.style.display = '';
+      if (this.els.addEmailCodeInput) this.els.addEmailCodeInput.value = '';
+      this.setAddEmailCodeMessage('');
+      if (this.els.addEmailCodeInput) this.els.addEmailCodeInput.focus();
+    } catch (err) {
+      this.setAddEmailMessage(err.message || 'Failed to send verification code', 'error');
+    } finally {
+      this.setLoading(false);
+    }
+  }
+
+  async handleVerifyEmailCode() {
+    if (this._loading) return;
+
+    const code = this.els.addEmailCodeInput?.value.trim();
+    if (!code || code.length !== 6 || !/^\d+$/.test(code)) {
+      this.setAddEmailCodeMessage('Please enter a valid 6-digit code.', 'error');
+      return;
+    }
+
+    this.setLoading(true);
+    try {
+      const token = this.getStoredToken();
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+
+      const res = await fetch(`${API_BASE}/api/auth/email/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to verify email');
+      }
+
+      this.setAddEmailCodeMessage('Email verified successfully!', 'success');
+      setTimeout(() => this.hideAddEmailModal(), 1200);
+    } catch (err) {
+      this.setAddEmailCodeMessage(err.message || 'Failed to verify email', 'error');
+    } finally {
+      this.setLoading(false);
+    }
+  }
+
   async handleRegister() {
     if (this._loading) return;
 
@@ -605,17 +773,35 @@ export class Auth {
     const token = this.getStoredToken();
     if (!token) return false;
 
+    console.log('[Auth] attemptAutoLogin: token found, wsClient.connected?', this.wsClient?.connected);
+
     // Send token if we have one — covers room switches within a session,
     // "remember me" across page reloads, and page refreshes with a stored token
-    void this.wsClient.sendAuthTokenLogin(token);
+    if (this.wsClient?.connected) {
+      void this.wsClient.sendAuthTokenLogin(token);
+    } else {
+      console.log('[Auth] WS not connected yet, waiting...');
+      // Wait for connection before sending
+      const checkConnection = () => {
+        if (this.wsClient?.connected) {
+          console.log('[Auth] WS now connected, sending auth token');
+          void this.wsClient.sendAuthTokenLogin(token);
+        } else {
+          setTimeout(checkConnection, 100);
+        }
+      };
+      checkConnection();
+    }
     return true;
   }
 
   handleAuthResult(data) {
+    console.log('[Auth] handleAuthResult called:', { success: data.success, username: data.username, hasEmail: data.hasEmail, emailPromptDeclined: data.emailPromptDeclined });
     this.setLoading(false);
 
     if (data.success) {
       const username = data.username || this._pendingUsername;
+      console.log('[Auth] Username for logged-in state:', username);
       this._pendingUsername = null;
 
       if (data.token) {
@@ -639,6 +825,11 @@ export class Auth {
       // Show logged-in state on landing page
       if (username) {
         this.showLoggedInState(username);
+      }
+
+      // Prompt to add email if missing and user hasn't declined
+      if (!data.hasEmail && !data.emailPromptDeclined) {
+        setTimeout(() => this.showAddEmailModal(), 100);
       }
 
       if (this.onSuccess) {
