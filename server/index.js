@@ -42,6 +42,38 @@ function hasOwnField(message, key) {
   return !!message && Object.prototype.hasOwnProperty.call(message, key);
 }
 
+const WS_REJECT_LOG_VALUE_LIMIT = 512;
+const WS_REJECT_LOG_PAYLOAD_LIMIT = 2048;
+const WS_REJECT_REDACT_KEYS = new Set(['a', 'authToken', 'token', 'password', 'currentPassword', 'newPassword']);
+
+function summarizeRejectedMessage(data) {
+  try {
+    const seen = new WeakSet();
+    const json = JSON.stringify(data, (key, value) => {
+      if (WS_REJECT_REDACT_KEYS.has(key)) {
+        return '[redacted]';
+      }
+      if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
+        return `[binary:${value.byteLength ?? value.length} bytes]`;
+      }
+      if (typeof value === 'string' && value.length > WS_REJECT_LOG_VALUE_LIMIT) {
+        return `${value.slice(0, WS_REJECT_LOG_VALUE_LIMIT)}...[truncated:${value.length}]`;
+      }
+      if (value && typeof value === 'object') {
+        if (seen.has(value)) return '[circular]';
+        seen.add(value);
+      }
+      return value;
+    });
+    if (!json) return String(data);
+    return json.length > WS_REJECT_LOG_PAYLOAD_LIMIT
+      ? `${json.slice(0, WS_REJECT_LOG_PAYLOAD_LIMIT)}...[truncated:${json.length}]`
+      : json;
+  } catch (error) {
+    return `[unserializable:${error?.message || error}]`;
+  }
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = pathModule.dirname(__filename);
 
@@ -2358,9 +2390,14 @@ wss.on('connection', async (ws, req) => {
         }
       }
 
-      data = await sanitizeMessage(data);
+      const inboundMessage = data;
+      data = await sanitizeMessage(inboundMessage);
       if (!data) {
-        console.warn(`[WS] Rejected invalid message from session ${ws.sessionIndex ?? 'unassigned'}`);
+        console.warn(
+          `[WS] Rejected invalid message from session ${ws.sessionIndex ?? 'unassigned'} `
+          + `(room=${room?.id || 'unknown'}, type=${Number.isFinite(requestedType) ? requestedType : 'invalid'}): `
+          + summarizeRejectedMessage(inboundMessage)
+        );
         if (requestedType === T.CHAT_IMG || requestedType === T.STAFF_CHAT_IMG) {
           sendTo(ws, {
             t: T.MOD_RESULT,

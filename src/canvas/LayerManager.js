@@ -38,6 +38,11 @@ export class LayerManager {
     this.initLayerGroups(3);
   }
 
+  recycleWorkerClient() {
+    this._pixelsWorker?.destroy?.();
+    this._pixelsWorker = new PixelsWorkerClient();
+  }
+
   destroy() {
     this.clearAll();
     this._pixelsWorker?.destroy?.();
@@ -518,6 +523,32 @@ export class LayerManager {
    */
   _clearRedoStack(userId) {
     this.redoStackByUser.set(userId, []);
+  }
+
+  /**
+   * Check whether a user has any undoable stroke in live, flat, or baked history.
+   * @param {number} userId - User ID
+   * @returns {boolean}
+   */
+  hasUndoableStroke(userId) {
+    for (const group of this.layerGroups) {
+      if (group.strokeStack.some(stroke => stroke.userId === userId)) {
+        return true;
+      }
+
+      if ((group.flatStrokeRecords || []).some(stroke => stroke.userId === userId)) {
+        return true;
+      }
+
+      for (const seq of group.bakedSequences) {
+        if (!Array.isArray(seq?.strokes)) continue;
+        if (seq.strokes.some(stroke => stroke.userId === userId)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -1777,6 +1808,10 @@ export class LayerManager {
         tCtxForAsync.drawImage(ctx.canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
         const imageData = tCtxForAsync.getImageData(0, 0, cropW, cropH);
+
+        if (!this._pixelsWorker) {
+          this._pixelsWorker = new PixelsWorkerClient();
+        }
 
         // Offload blur to the pixels worker (runs stackblur off the main thread)
         this._pixelsWorker.blur(imageData.data, cropW, cropH, blurRadius, useGlitch).then(blurredData => {

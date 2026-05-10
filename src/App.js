@@ -7010,7 +7010,8 @@ export class DrawingApp {
     if (!lm || !hudUndoBtn || !hudRedoBtn) return;
 
     const userId = this.self?.id;
-    const canUndo = lm.layerGroups.some(g => g.strokeStack.some(r => r.userId === userId));
+    const canUndo = lm.hasUndoableStroke?.(userId) ??
+      lm.layerGroups.some(g => g.strokeStack.some(r => r.userId === userId));
     const canRedo = (lm.redoStackByUser.get(userId) ?? []).length > 0;
 
     hudUndoBtn.style.display = canUndo ? '' : 'none';
