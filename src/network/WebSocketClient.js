@@ -15,6 +15,14 @@ function hasOwnField(message, key) {
 // ps wire format: quantized to 0.1px, delta-encoded within each packet.
 // Keep these helpers in sync with messages.proto `repeated sint32 ps` docs.
 const PS_SCALE = 10;
+const ACTIVE_STROKE_REPLAY_TYPES = new Set([
+  T.MD, T.MM, T.CP, T.CS, T.CT, T.CC, T.CSP, T.CSM, T.CHD, T.CBR,
+  T.CTHN, T.CSIM, T.CL, T.CBM, T.GMP, T.GPT, T.IMAGE_TOOL, T.CPM, T.CF, T.CSDM
+]);
+const ACTIVE_STROKE_STATE_TYPES = new Set([
+  T.CP, T.CS, T.CT, T.CC, T.CSP, T.CSM, T.CHD, T.CBR,
+  T.CTHN, T.CSIM, T.CL, T.CBM, T.GMP, T.GPT, T.IMAGE_TOOL, T.CPM, T.CF, T.CSDM
+]);
 
 /**
  * Encode an absolute float [x0, y0, x1, y1, ...] array into quantized sint32
@@ -139,6 +147,40 @@ export class WebSocketClient {
     ]);
 
     this.clientIdentity = new ClientIdentity();
+    this._activeStrokeReplay = [];
+    this._trackingActiveStroke = false;
+    this._latestStrokeStateMessages = new Map();
+  }
+
+  _cloneReplayMessage(data) {
+    const copy = { ...data };
+    if (Array.isArray(data.ps)) copy.ps = data.ps.slice();
+    if (Array.isArray(data.rs)) copy.rs = data.rs.slice();
+    if (data.img instanceof Uint8Array) copy.img = data.img.slice();
+    return copy;
+  }
+
+  _trackActiveStrokeMessage(data) {
+    if (!data || data.tu !== undefined) return;
+    if (ACTIVE_STROKE_STATE_TYPES.has(data.t)) {
+      this._latestStrokeStateMessages.set(data.t, this._cloneReplayMessage(data));
+    }
+    if (data.t === T.MD) {
+      this._trackingActiveStroke = true;
+      this._activeStrokeReplay = [
+        ...this._latestStrokeStateMessages.values(),
+        this._cloneReplayMessage(data)
+      ];
+      return;
+    }
+    if (data.t === T.MU || data.t === T.CANCEL) {
+      this._trackingActiveStroke = false;
+      this._activeStrokeReplay = [];
+      return;
+    }
+    if (this._trackingActiveStroke && ACTIVE_STROKE_REPLAY_TYPES.has(data.t)) {
+      this._activeStrokeReplay.push(this._cloneReplayMessage(data));
+    }
   }
 
   _encodeChatImageDataUrl(imageData, maxBytes = 5 * 1024 * 1024) {
@@ -1183,6 +1225,7 @@ export class WebSocketClient {
               timestamp: stroke.timestamp ? Number(stroke.timestamp) : 0,
               eraseAll: stroke.eraseAll || false,
               isRedo: stroke.isRedo || false,
+              activeStroke: stroke.activeStroke || false,
               redoBatchIdx: stroke.redoBatch || 0,
               imageData: stroke.img,
               affectedTiles: stroke.affectedTiles || []
@@ -1407,6 +1450,8 @@ export class WebSocketClient {
    */
   send(data) {
     if (this.socket && this.socket.readyState === WebSocket.OPEN && this.Msg) {
+      this._trackActiveStrokeMessage(data);
+
       // ps is transmitted as quantized delta-encoded sint32 on the wire.
       // Encode into a cloned payload so the original (absolute floats) reaches
       // TimeMachine unchanged.
@@ -1423,6 +1468,23 @@ export class WebSocketClient {
         window.app.TimeMachine.recordAction({ ...data, u: this.sessionIndex }, 'outbound');
       }
     }
+  }
+
+  /**
+   * Sends the current in-progress stroke to one newly joined user.
+   * The server routes these packets only to `targetSessionIndex`.
+   *
+   * @param {number} targetSessionIndex
+   * @returns {boolean} True when a replay was sent.
+   */
+  sendActiveStrokeTo(targetSessionIndex) {
+    if (!Number.isFinite(Number(targetSessionIndex))) return false;
+    if (!this._trackingActiveStroke || this._activeStrokeReplay.length === 0) return false;
+
+    for (const data of this._activeStrokeReplay) {
+      this.send({ ...this._cloneReplayMessage(data), tu: Number(targetSessionIndex) });
+    }
+    return true;
   }
 
   /**
@@ -2181,6 +2243,7 @@ export class WebSocketClient {
       blendBakeMode: s.blendBakeMode || 'existing',
       timestamp: s.timestamp,
       isRedo: s.isRedo || false,
+      activeStroke: s.activeStroke || false,
       redoBatch: s.redoBatch || 0,
       layerIdx: s.layerIdx,
       affectedTiles: s.affectedTiles || [],

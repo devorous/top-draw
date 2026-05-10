@@ -303,17 +303,26 @@ export class SyncClient {
 
     this._resetSyncAttempt();
 
+    const activeRemoteUserIds = new Set();
     if (this.app?.users && this.app?.remoteUserHandler) {
       for (const [userId, user] of this.app.users.entries()) {
         if (userId === this.app.sessionIndex) continue;
+        if (user?.mousedown && !user?.panning) {
+          activeRemoteUserIds.add(user.id);
+          continue;
+        }
         this.app.remoteUserHandler._cleanupTransientUserState?.(user);
       }
-      this.app.remoteUserHandler.resetTransientState?.();
+      if (activeRemoteUserIds.size === 0) {
+        this.app.remoteUserHandler.resetTransientState?.();
+      }
     }
 
+    const preservedActiveStrokes = this._cloneActiveStrokesForUsers(activeRemoteUserIds);
     if (this.board?.layerManager) {
       console.log('[SyncClient] Clearing existing canvas before sync...');
       this.board.layerManager.clearAll();
+      this._restoreActiveStrokes(preservedActiveStrokes);
       this.board.markCompositeFull();
       this.board.compositeAllLayers();
     }
@@ -626,6 +635,7 @@ export class SyncClient {
               timestamp: active.timestamp || Date.now(),
               eraseAll: active.eraseAll || false,
               isRedo: false,
+              activeStroke: true,
               redoBatch: 0,
               layerIdx: gi,
               affectedTiles: active.affectedTiles ? Array.from(active.affectedTiles) : []
@@ -717,6 +727,45 @@ export class SyncClient {
       active.push({ userId, active: stroke });
     }
     return active;
+  }
+
+  _cloneActiveStrokesForUsers(userIds) {
+    if (!this.board?.layerManager || !userIds || userIds.size === 0) return [];
+    const clones = [];
+    const lm = this.board.layerManager;
+    for (let layerIdx = 0; layerIdx < lm.layerGroups.length; layerIdx++) {
+      const group = lm.layerGroups[layerIdx];
+      for (const [userId, active] of group.activeStrokeByUser.entries()) {
+        if (!userIds.has(userId) || !active?.canvas) continue;
+        const canvas = document.createElement('canvas');
+        canvas.width = active.canvas.width;
+        canvas.height = active.canvas.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(active.canvas, 0, 0);
+        clones.push({
+          layerIdx,
+          userId,
+          active: {
+            ...active,
+            canvas,
+            ctx,
+            dirtyRect: active.dirtyRect ? { ...active.dirtyRect } : { minX: 0, minY: 0, maxX: canvas.width - 1, maxY: canvas.height - 1 },
+            affectedTiles: new Set(active.affectedTiles ? Array.from(active.affectedTiles) : [])
+          }
+        });
+      }
+    }
+    return clones;
+  }
+
+  _restoreActiveStrokes(strokes) {
+    if (!this.board?.layerManager || !Array.isArray(strokes) || strokes.length === 0) return;
+    const lm = this.board.layerManager;
+    for (const { layerIdx, userId, active } of strokes) {
+      const group = lm.layerGroups[layerIdx];
+      if (!group || group.activeStrokeByUser.has(userId)) continue;
+      group.activeStrokeByUser.set(userId, active);
+    }
   }
 
   _resizeBoardForIncomingDimensions(width, height) {
@@ -835,7 +884,11 @@ export class SyncClient {
           if (data.eraseAll) record.eraseAll = true;
 
           if (!data.isRedo) {
-            this.board.layerManager.importStroke(data.layerIdx, record);
+            if (data.activeStroke) {
+              this._importActiveStroke(data.layerIdx, record);
+            } else {
+              this.board.layerManager.importStroke(data.layerIdx, record);
+            }
           } else {
             this.board.layerManager.importRedoStroke(data.userId, data.redoBatchIdx, data.layerIdx, record);
           }
@@ -847,6 +900,39 @@ export class SyncClient {
     } catch (error) {
       console.warn(`[SyncClient] Skipping stroke (User: ${data.userId}, Layer: ${data.layerIdx}):`, error.message || error);
     }
+  }
+
+  _importActiveStroke(layerIdx, record) {
+    const lm = this.board?.layerManager;
+    const group = lm?.layerGroups?.[layerIdx];
+    if (!group || !record?.canvas) return;
+
+    const existing = group.activeStrokeByUser.get(record.userId);
+    if (existing?.canvas) return;
+
+    group.activeStrokeByUser.set(record.userId, {
+      canvas: record.canvas,
+      ctx: record.ctx,
+      blendMode: record.blendMode || 'source-over',
+      blendBakeMode: record.blendBakeMode || 'existing',
+      dirtyRect: {
+        minX: record.x,
+        minY: record.y,
+        maxX: record.x + record.width - 1,
+        maxY: record.y + record.height - 1
+      },
+      affectedTiles: new Set(record.affectedTiles || []),
+      eraseAll: !!record.eraseAll
+    });
+
+    const user = this.app?.users?.get(record.userId);
+    if (user && user.id !== this.app?.sessionIndex) {
+      user.mousedown = true;
+      user._strokeLayer = layerIdx;
+    }
+
+    lm.needsComposite = true;
+    lm._notifyStrokeHistoryPanel?.();
   }
 
   /**

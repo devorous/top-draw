@@ -299,6 +299,7 @@ message Msg {
     repeated uint32 affectedTiles = 12;  // Tile indices affected by this stroke (for undo/redo tile tracking)
     bool eraseAll    = 13;  // true = erase-all-layers stroke
     string blendBakeMode = 14; // 'existing' or 'background'
+    bool activeStroke = 15; // true = in-progress stroke; import into activeStrokeByUser
   }
 
   // === Batched Sync Fields ===

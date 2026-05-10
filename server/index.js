@@ -1484,6 +1484,17 @@ function sendTo(ws, payload) {
   }
 }
 
+function sendToSession(room, sessionIndex, payload) {
+  if (!room || sessionIndex === undefined || sessionIndex === null) return false;
+  for (const client of room.clients) {
+    if (client.sessionIndex === sessionIndex && client.readyState === WebSocket.OPEN) {
+      sendTo(client, payload);
+      return true;
+    }
+  }
+  return false;
+}
+
 const INACTIVE_FILTERED_TYPES = new Set([
   T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC, T.CSP, T.CSM, T.CHD, T.CBR,
   T.CL, T.CBM, T.PAN, T.CANCEL, T.KP, T.TEXT_APPLY, T.CSDM, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP,
@@ -1491,6 +1502,11 @@ const INACTIVE_FILTERED_TYPES = new Set([
   T.SEL_FILL, T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_FLIP,
   T.SEL_PENDING, T.SEL_MASK, T.OBSCURE_REGION, T.IMG_PASTE, T.CLR, T.UNDO, T.REDO, T.FILL, T.CTHN,
   T.CSIM, T.GLITCH_RESULT, T.TILE_UPDATE, T.TILE_CLEAR
+]);
+
+const ACTIVE_STROKE_REPLAY_TYPES = new Set([
+  T.MM, T.MD, T.CP, T.CS, T.CT, T.CC, T.CSP, T.CSM, T.CHD, T.CBR,
+  T.CTHN, T.CSIM, T.CL, T.CBM, T.GMP, T.GPT, T.IMAGE_TOOL, T.CPM, T.CF, T.CSDM
 ]);
 
 function shouldSkipInactiveRecipient(room, client, messageType) {
@@ -1621,6 +1637,13 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
   if (!room) return;
   const user = room.sessionManager.getUser(sessionIndex);
   if (!user) return;
+
+  if (data.tu !== undefined && ACTIVE_STROKE_REPLAY_TYPES.has(data.t)) {
+    if (ws?.isShadowBanned) return;
+    if (ws?.isMuted && ws.userRole < Role.MOD) return;
+    sendToSession(room, data.tu, { ...data, u: sessionIndex });
+    return;
+  }
 
   switch (data.t) {
     case T.MM:
