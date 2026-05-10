@@ -1095,13 +1095,13 @@ export class RemoteUserHandler {
       }
     } else if (actualKey === 'Backspace') {
       if (ctrlKey) {
-        // Ctrl+Backspace: delete word backwards including preceding whitespace
+        // Ctrl+Backspace: delete word backwards
         const text = user.text;
         let i = text.length - 1;
+        // Skip trailing whitespace backwards
+        while (i >= 0 && /\s/.test(text[i])) i--;
         // Skip word characters backwards
         while (i >= 0 && /\S/.test(text[i])) i--;
-        // Skip whitespace backwards
-        while (i >= 0 && /\s/.test(text[i])) i--;
         user.text = text.slice(0, i + 1);
       } else {
         user.text = user.text.slice(0, -1);
@@ -1111,10 +1111,10 @@ export class RemoteUserHandler {
         // Ctrl+Delete: same as Ctrl+Backspace since cursor is at end
         const text = user.text;
         let i = text.length - 1;
+        // Skip trailing whitespace backwards
+        while (i >= 0 && /\s/.test(text[i])) i--;
         // Skip word characters backwards
         while (i >= 0 && /\S/.test(text[i])) i--;
-        // Skip whitespace backwards
-        while (i >= 0 && /\s/.test(text[i])) i--;
         user.text = text.slice(0, i + 1);
       }
     }
