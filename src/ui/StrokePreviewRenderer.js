@@ -3,11 +3,27 @@ export function prepareStrokePreviewCanvas(canvas, board) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
+  resetPreviewContext(ctx);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const bgColor = board?.backgroundColor || [255, 255, 255, 1];
   ctx.fillStyle = `rgba(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]}, ${bgColor[3] ?? 1})`;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   return ctx;
+}
+
+export function resetPreviewContext(ctx) {
+  if (!ctx) return;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.filter = 'none';
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0)';
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.lineDashOffset = 0;
+  ctx.setLineDash?.([]);
+  ctx.imageSmoothingEnabled = true;
 }
 
 export function buildPreviewStrokePoints(canvas, count = 50) {

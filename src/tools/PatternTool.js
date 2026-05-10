@@ -1,3 +1,5 @@
+import { resetPreviewContext } from '../ui/StrokePreviewRenderer.js';
+
 /**
  * @fileoverview Pattern tool - Reveals a grid of images through a brush stroke.
  */
@@ -409,6 +411,7 @@ export class PatternTool extends Tool {
     }
 
     const ctx = this.previewCanvas.getContext('2d');
+    resetPreviewContext(ctx);
 
     // Get user from parameter, board, or app
     if (!user) {

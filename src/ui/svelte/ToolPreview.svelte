@@ -1,14 +1,28 @@
 <script>
+  import { tick } from 'svelte';
   import { appState } from '../../state.svelte.js';
 
   let canvasEl = $state(null);
+  let previewRequestId = 0;
 
-  // When canvas mounts (or re-mounts after uncollapse), trigger a preview update
+  async function requestPreviewUpdate() {
+    const requestId = ++previewRequestId;
+    await tick();
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    if (requestId !== previewRequestId || !canvasEl || appState.toolPreviewCollapsed) return;
+
+    const toolName = appState.toolPreviewMode === 'pattern' ? 'pattern' : appState.toolPreviewMode;
+    const previewTool = window.app?.toolManager?.getTool(toolName);
+    previewTool?.updatePreview?.(window.app?.self);
+  }
+
+  // When canvas mounts, re-mounts, or switches mode, draw after the DOM has applied
+  // the canvas dimensions that each preview renderer relies on.
   $effect(() => {
-    if (canvasEl) {
-      const toolName = appState.toolPreviewMode === 'pattern' ? 'pattern' : appState.toolPreviewMode;
-      const previewTool = window.app?.toolManager?.getTool(toolName);
-      previewTool?.updatePreview?.(window.app.self);
+    if (canvasEl && appState.toolPreviewVisible && !appState.toolPreviewCollapsed) {
+      appState.toolPreviewMode;
+      requestPreviewUpdate();
     }
   });
 
