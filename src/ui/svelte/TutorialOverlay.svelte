@@ -8,7 +8,7 @@
 
   const steps = [
     {
-      section: 'Setup',
+      section: 'Basic Tutorial',
       title: 'Tweak Your Settings',
       target: '[data-tut="perf-settings"], #appSettingsBtn',
       text: 'Before you start drawing, you can open Settings to adjust performance, power use, controls, and app preferences for your device.',
@@ -16,14 +16,14 @@
       actionLabel: 'Click Settings to review your setup, or press Next'
     },
     {
-      section: 'Setup',
+      section: 'Basic Tutorial',
       title: 'Setting Settings',
       target: '[data-tut="app-settings-dialog"], .app-settings-dialog',
       text: 'Change anything you want here. When you are done, press Next',
       skipIfMissing: true
     },
     {
-      section: 'Room',
+      section: 'Basic Tutorial',
       title: 'Room Settings',
       target: '[data-tut="room-settings"], #roomSettingsBtn',
       text: 'Room settings appear for rooms you can edit, including unowned rooms created by this browser.',
@@ -32,7 +32,7 @@
       when: () => canEditRoomSettings()
     },
     {
-      section: 'Room',
+      section: 'Basic Tutorial',
       title: 'Setting Room Settings',
       target: '[data-tut="room-settings-dialog"], .room-settings-dialog',
       text: 'Set the room description, privacy, join policy, background, board size, and moderation behavior here.',
@@ -40,7 +40,7 @@
       skipIfMissing: true
     },
     {
-      section: 'Basics',
+      section: 'Basic Tutorial',
       title: 'Mirror Mode',
       target: '[data-tut="mirror"], #mirrorBtn',
       text: 'Mirror mode lets you create symmetrical drawing areas for patterns, faces, and shared layouts.',
@@ -48,7 +48,7 @@
       actionLabel: 'Click Mirror to start drawing a mirror region'
     },
     {
-      section: 'Basics',
+      section: 'Basic Tutorial',
       title: 'Draw Mirror Region',
       target: '[data-tut="mirror"], #mirrorBtn',
       text: 'Draw a region on the canvas. Mirror regions can reflect strokes horizontally, vertically, or both depending on the mode, which is useful for faces, icons, patterns, and balanced compositions.',
@@ -56,7 +56,7 @@
       actionLabel: 'The canvas is unlocked. Draw a mirror region, then press Next'
     },
     {
-      section: 'Basics',
+      section: 'Basic Tutorial',
       title: 'Edit Mirror Region',
       target: '[data-tut="mirror"], #mirrorBtn',
       text: 'To edit or remove a mirror region later, press the Mirror button again. It brings back the mirror controls so you can adjust or clear the region.',
@@ -66,7 +66,7 @@
       targetControl: true
     },
     {
-      section: 'Basics',
+      section: 'Basic Tutorial',
       title: 'Mirror Region Controls',
       target: '[data-tut="mirror-region-controls"], [data-tut="mirror-region-panel"], #mirrorRegionPanel',
       text: 'Use the region controls to edit or remove the mirror region. Click Edit to change the mirror mode and guides, or X to remove the region from the canvas.',
@@ -75,7 +75,7 @@
       skipIfMissing: true
     },
     {
-      section: 'Board View',
+      section: 'Basic Tutorial',
       title: 'Add View',
       target: '[data-tut="add-view"], .boardViewerLaunch',
       text: 'Add View opens a second viewport. Click it to see the board viewer now, or press Next to skip.',
@@ -83,20 +83,20 @@
       actionLabel: 'Click Add View to continue'
     },
     {
-      section: 'Board View',
+      section: 'Basic Tutorial',
       title: 'Board View',
       target: '[data-tut="board-view-controls"], .boardViewer',
       text: 'Board View is a separate viewport you can pan, zoom, reset, or pop out onto another monitor.',
       skipIfMissing: true
     },
     {
-      section: 'Social',
+      section: 'Basic Tutorial',
       title: 'User List',
       target: '[data-tut="user-list"], #userList',
       text: 'The user list shows who is present, their activity, and rank colors for moderation context.'
     },
     {
-      section: 'Social',
+      section: 'Basic Tutorial',
       title: 'Right-Click Menu',
       target: '[data-tut="context-menu"], #userContextMenu, #selfContextMenu',
       fallbackTarget: '[data-tut="user-list"], #userList',
@@ -105,14 +105,14 @@
       actionLabel: 'Right-click yourself or another user, then press Next'
     },
     {
-      section: 'Social',
+      section: 'Basic Tutorial',
       title: 'Ranks',
       target: '[data-tut="ranks-dialog"]',
       text: 'Room ranks and global ranks are separate. Global ranks can stack with room ranks, so a Noble can also be a room Mod or Admin.',
       beforeEnter: () => { appState.ranksDialogVisible = true; }
     },
     {
-      section: 'Tools',
+      section: 'Basic Tutorial',
       title: 'Layers & Blending',
       target: '[data-tut="layer-1"], .layer-btn[data-tut="layer-1"]',
       text: 'There are 3 layers by default. Blend modes are active only on layer 1. Select the blend mode drop down.',
@@ -120,7 +120,7 @@
       actionLabel: 'Click Layer 1, then press Next'
     },
     {
-      section: 'Tools',
+      section: 'Basic Tutorial',
       title: 'Blend Modes',
       target: '[data-tut="blend-mode"], .blend-btn',
       fallbackTarget: '[data-tut="layer-1"], .layer-btn[data-tut="layer-1"]',
@@ -129,7 +129,7 @@
       actionLabel: 'Open the blend mode dropdown'
     },
     {
-      section: 'Tools',
+      section: 'Basic Tutorial',
       title: 'BG vs Existing',
       target: '[data-tut="blend-bake-toggle"], .blend-bake-toggle',
       fallbackTarget: '.blend-dropdown, [data-tut="blend-mode"], .blend-btn',
@@ -138,7 +138,7 @@
       actionLabel: 'The canvas is unlocked for testing on this step'
     },
     {
-      section: 'Tools',
+      section: 'Basic Tutorial',
       title: 'History & Snapshots',
       target: '[data-tut="history"], .history-btn',
       text: 'History covers persistent server saves and private local snapshots you can restore or upload from.',
@@ -146,24 +146,111 @@
       actionLabel: 'Click History to review snapshots, or press Next to skip'
     },
     {
-      section: 'Tools',
+      section: 'Basic Tutorial',
       title: 'Board History',
       target: '[data-tut="history-dialog"], .snapshot-panel',
       text: 'This panel lets you preview snapshots, compare local and server saves, and restore or upload selected work.',
       skipIfMissing: true
     },
     {
-      section: 'Tools',
+      section: 'Basic Tutorial',
       title: 'Tool Locks',
       target: '[data-tut="locks"], .lockBtn, #sizeLock',
       targetAll: true,
       text: 'Tool locks save values per tool. You can shift click to lock or unlock all the settings on a tool. Blend modes also have a lock and some values are locked by default. ',
       beforeEnter: () => window.app?.selectTool?.('ink')
+    },
+    {
+      section: 'Advanced Tools',
+      title: 'Advanced Features',
+      target: '#brushBtn',
+      text: 'This section will cover Advanced Flood Fill, Glitch Blur, and Pattern Brushes. Coming soon!',
+    },
+    {
+      section: 'Selection',
+      title: 'The Selection Tool',
+      target: '#selectBtn',
+      text: 'The Selection Tool lets you isolate parts of your drawing to move, transform, or use as a mask.',
+      actionTarget: '#selectBtn',
+      actionLabel: 'Click Selection Tool to begin'
+    },
+    {
+      section: 'Selection',
+      title: 'Lasso vs Rectangle',
+      target: '#selectionModeOptions',
+      text: 'Choose between Lasso for freehand shapes or Rectangle for precise boxes. Switch between them here.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Selection',
+      title: 'Making a Selection',
+      target: '#boardContainer',
+      text: 'Click and drag on the canvas to create your selection. The moving dashed line indicates the active area.',
+      allowCanvas: true,
+      actionLabel: 'Draw a selection on the canvas'
+    },
+    {
+      section: 'Selection',
+      title: 'The Selection Menu',
+      target: '#selectionMenu',
+      text: 'Once you have a selection, this floating menu appears. It follows your selection and provides quick access to actions like Mask, Clone, Brush, and Obscure.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Selection',
+      title: 'Moving & Transforming',
+      target: '#selectionMenu',
+      text: 'Move the selection by dragging it. Use the white corner handles to resize, the top handle to rotate, and the teal handles for perspective warping.',
+      allowCanvas: true,
+      skipIfMissing: true
+    },
+    {
+      section: 'Selection',
+      title: 'Draw another selection',
+      target: '#boardContainer',
+      text: 'Draw a new selection on the canvas. Notice how the previous selection is replaced automatically. We will use this one to explore advanced actions like Clone and Obscure.',
+      allowCanvas: true,
+      actionLabel: 'Draw a new selection on the canvas'
+    },
+    {
+      section: 'Selection',
+      title: 'Clone Selection',
+      target: '#selMenuClone',
+      text: 'The Clone button creates a floating copy of your selection. You can move and stamp this copy multiple times without affecting the original pixels until you apply it.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Selection',
+      title: 'Mask Mode',
+      target: '#selMenuMask',
+      text: 'Toggle Mask mode to lock the selection in place. Your strokes will only appear inside the selected area, allowing for precise coloring.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Selection',
+      title: 'Use as Brush',
+      target: '#selMenuBrush',
+      text: 'The Brush button lets you turn your current selection into a custom image brush stamp.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Selection',
+      title: 'Obscure Content',
+      target: '#selMenuObscure',
+      text: 'The Obscure action hides the selected area behind a blur until other users click to reveal it. Useful for spoilers or hidden details.',
+      skipIfMissing: true
+    },
+    {
+      section: 'Advanced Tools',
+      title: 'Advanced Features',
+      target: '#brushBtn',
+      text: 'This section will cover Advanced Flood Fill, Glitch Blur, and Pattern Brushes. Coming soon!',
     }
   ];
 
   let active = $state(false);
   let promptVisible = $state(false);
+  let activeSection = $state(null);
   let index = $state(0);
   let rect = $state(null);
   let targetMissing = $state(false);
@@ -173,10 +260,10 @@
   let mutationObserver = null;
   let preparedStep = null;
 
-  let visibleSteps = $derived(steps.filter((step) => !step.when || step.when()));
+  let visibleSteps = $derived(steps.filter((step) => (!step.when || step.when()) && (!activeSection || step.section === activeSection)));
   let currentStep = $derived(visibleSteps[index] || visibleSteps[visibleSteps.length - 1]);
   let total = $derived(visibleSteps.length);
-  let sections = $derived([...new Set(visibleSteps.map((step) => step.section || 'Tutorial'))]);
+  let sections = $derived([...new Set(steps.filter(s => !s.when || s.when()).map((step) => step.section || 'Tutorial'))]);
 
   function canEditRoomSettings() {
     const roomData = appState.currentRoomData;
@@ -334,7 +421,7 @@
       return;
     }
     if (currentStep?.title === 'Mirror Mode' && !isMirrorTutorialOpen()) {
-      moveToIndex(firstIndexAfterSection('Basics'));
+      moveToIndex(firstIndexAfterSection('Basic Tutorial'));
       return;
     }
     moveToIndex(index + 1);
@@ -364,6 +451,11 @@
   function resetTutorial() {
     storageRemove(FINISHED_KEY);
     storageRemove(STOPPED_KEY);
+    startTutorial();
+  }
+
+  function startTutorial(section = 'Basic Tutorial') {
+    activeSection = section;
     index = 0;
     preparedStep = null;
     promptVisible = false;
@@ -372,11 +464,7 @@
   }
 
   function startFromPrompt() {
-    index = 0;
-    preparedStep = null;
-    promptVisible = false;
-    active = true;
-    scheduleSpotlight();
+    startTutorial('Basic Tutorial');
   }
 
   function skipFromPrompt() {
@@ -425,7 +513,7 @@
   function handleMirrorRegionRemoved() {
     if (!active || (currentStep?.section || 'Tutorial') !== 'Basics') return;
     cleanupStep(currentStep);
-    moveToIndex(firstIndexAfterSection('Basics'));
+    moveToIndex(firstIndexAfterSection('Basic Tutorial'));
   }
 
   function handleContextMenu() {
@@ -450,7 +538,7 @@
   function handleToastPointerMove(event) {
     if (!dragState || dragState.pointerId !== event.pointerId) return;
     const width = Math.min(440, window.innerWidth - 24);
-    const height = 170;
+    const height = 210;
     toastPosition = {
       x: Math.min(Math.max(12, event.clientX - dragState.offsetX), Math.max(12, window.innerWidth - width - 12)),
       y: Math.min(Math.max(8, event.clientY - dragState.offsetY), Math.max(8, window.innerHeight - height - 8))
@@ -485,7 +573,7 @@
   });
 
   onMount(() => {
-    window.startTopDrawTutorial = resetTutorial;
+    window.startTopDrawTutorial = startTutorial;
     const interval = setInterval(maybeStart, 1000);
     window.addEventListener('resize', scheduleSpotlight);
     window.addEventListener('scroll', scheduleSpotlight, true);
@@ -507,7 +595,7 @@
       document.removeEventListener('contextmenu', handleContextMenu, true);
       window.removeEventListener('topdraw:mirror-region-applied', handleMirrorRegionApplied);
       window.removeEventListener('topdraw:mirror-region-removed', handleMirrorRegionRemoved);
-      if (window.startTopDrawTutorial === resetTutorial) {
+      if (window.startTopDrawTutorial === startTutorial) {
         delete window.startTopDrawTutorial;
       }
     };
@@ -518,11 +606,15 @@
   <div class="tutorialLayer" role="presentation">
     <div class="tutorialToast tutorialPromptToast" role="dialog" aria-modal="true" aria-labelledby="tutorialPromptTitle">
       <div class="tutorialBody">
-        <h2 id="tutorialPromptTitle">New short tutorial</h2>
-        <p>Want a quick tour of the new drawing tools and settings?</p>
+        <h2 id="tutorialPromptTitle">Interactive Tutorials</h2>
+        <p>Choose a tour to learn about Top Draw's tools and features.</p>
+        <div class="tutorialSegmentedBar">
+          <button type="button" onclick={() => startTutorial('Basic Tutorial')}>Basic Tutorial</button>
+          <button type="button" onclick={() => startTutorial('Selection')}>Selection</button>
+          <button type="button" onclick={() => startTutorial('Advanced Tools')}>Advanced Tools</button>
+        </div>
       </div>
       <div class="tutorialActions">
-        <button type="button" class="primary" onclick={startFromPrompt}>Start Tutorial</button>
         <button type="button" onclick={skipFromPrompt}>No thanks</button>
       </div>
     </div>
@@ -555,6 +647,11 @@
       onpointerup={handleToastPointerUp}
       onpointercancel={handleToastPointerUp}
     >
+      <div class="tutorialSegmentedBar mini">
+        <button type="button" class:active={activeSection === 'Basic Tutorial'} onclick={() => startTutorial('Basic Tutorial')}>Basic Tutorial</button>
+        <button type="button" class:active={activeSection === 'Selection'} onclick={() => startTutorial('Selection')}>Selection</button>
+        <button type="button" class:active={activeSection === 'Advanced Tools'} onclick={() => startTutorial('Advanced Tools')}>Advanced Tools</button>
+      </div>
       <div class="tutorialProgress" aria-label="Tutorial progress">
         {#each visibleSteps as step, stepIndex}
           <button
@@ -601,6 +698,57 @@
     height: auto;
     cursor: default;
     z-index: 100001;
+  }
+
+  .tutorialSegmentedBar {
+    display: flex;
+    width: 100%;
+    height: 40px;
+    margin-top: 12px;
+    background: color-mix(in srgb, var(--text-primary, #fff) 5%, transparent);
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    border-radius: 8px;
+    overflow: hidden;
+    padding: 2px;
+    box-sizing: border-box;
+  }
+
+  .tutorialSegmentedBar button {
+    flex: 1;
+    height: 100%;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary, #b7c0ce);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  .tutorialSegmentedBar button:hover {
+    background: color-mix(in srgb, var(--text-primary, #fff) 5%, transparent);
+    color: var(--text-primary, #f5f7fb);
+  }
+
+  .tutorialSegmentedBar button.active {
+    background: var(--accent-primary, #00d4aa);
+    color: #06120f;
+  }
+
+  .tutorialSegmentedBar.mini {
+    height: 28px;
+    margin-top: -4px;
+    margin-bottom: 6px;
+    border-radius: 6px;
+    padding: 1px;
+    border-color: transparent;
+    background: color-mix(in srgb, var(--text-primary, #fff) 3%, transparent);
+  }
+
+  .tutorialSegmentedBar.mini button {
+    font-size: 0.68rem;
+    border-radius: 4px;
   }
 
   .tutorialScrim {
@@ -650,7 +798,7 @@
     left: 50%;
     transform: translateX(-50%);
     width: min(440px, calc(100vw - 24px));
-    height: 170px;
+    height: 210px;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
