@@ -474,6 +474,8 @@ export class RemoteUserHandler {
 
     }
 
+    this.board.maskPreviewForExistingMode?.(user.context, user);
+
     if (user.isMaskMode && user.maskSelection) {
       this.selectionHandler?.drawStaticMaskOutline(user, user.maskSelection, false);
     }

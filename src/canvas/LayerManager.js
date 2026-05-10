@@ -2085,6 +2085,19 @@ export class LayerManager {
   }
 
   /**
+   * Build a full-size canvas with the layer's existing content (flatCanvas + strokeStack,
+   * no background, no active strokes). Mirrors `_buildFlatContentCanvas` so previews can
+   * mask against the same content the commit-time mask uses.
+   * @param {number} layerIdx - Layer index
+   * @returns {HTMLCanvasElement|null} Full-size canvas, or null if the layer has no flatCanvas
+   */
+  getLayerExistingContent(layerIdx) {
+    const group = this.layerGroups[layerIdx];
+    if (!group?.flatCanvas) return null;
+    return this._buildFlatContentCanvas(group, 0, 0, this.width, this.height);
+  }
+
+  /**
    * Composite a layer group with erasers using sequential approach
    * @param {CanvasRenderingContext2D} targetCtx - Target context
    * @param {Object} group - Layer group
