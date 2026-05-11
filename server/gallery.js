@@ -390,6 +390,7 @@ export async function handleGalleryUpload(req, res) {
       Key: filename,
       Body: sanitizedBuffer,
       ContentType: mimeType,
+      CacheControl: 'public, max-age=31536000, immutable',
     }));
 
     // Upload thumbnail if generated
@@ -399,6 +400,7 @@ export async function handleGalleryUpload(req, res) {
         Key: thumbFilename,
         Body: thumbBuffer,
         ContentType: mimeType,
+        CacheControl: 'public, max-age=31536000, immutable',
       }));
     }
   } catch (err) {

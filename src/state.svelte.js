@@ -59,6 +59,8 @@ class DrawingState {
   colorPaletteVisible = $state(true);
   boardColorPickerVisible = $state(true);
   boardColorPickerForceVisible = $state(false);
+  recentPaletteVisible = $state(true);
+  floatingPalettes = $state([]);
   toolPreviewVisible = $state(false);
   toolPreviewCollapsed = $state(false);
   toolPreviewMode = $state('pattern');
@@ -156,7 +158,7 @@ export function addRecentColor(color) {
   appState.recentColors = [
     [...color],
     ...appState.recentColors.filter(c => !colorsEqual(c, color))
-  ].slice(0, 6);
+  ].slice(0, 7);
 }
 
 export function addCustomColor(color, settings = {}) {

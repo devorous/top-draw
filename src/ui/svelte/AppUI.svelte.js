@@ -17,6 +17,7 @@ import Timebar from '../../timebar/Timebar.svelte';
 import FeedbackWidget from './FeedbackWidget.svelte';
 import SnapshotMenu from './SnapshotMenu.svelte';
 import FloatingArtManager from './FloatingArtManager.svelte';
+import FloatingPalette from './FloatingPalette.svelte';
 import TutorialOverlay from './TutorialOverlay.svelte';
 import RanksDialog from './RanksDialog.svelte';
 
@@ -366,6 +367,17 @@ export function initSvelteUI(app) {
             app.handlePaletteColorSelect(colorOrCallbackOrPreset);
           }
         }
+      }
+    });
+  }
+
+  // Mount FloatingPalette
+  const floatingPaletteTarget = document.getElementById('floatingPaletteMount');
+  if (floatingPaletteTarget) {
+    components.floatingPalette = mount(FloatingPalette, {
+      target: floatingPaletteTarget,
+      props: {
+        onColorSelect: (color) => app.handlePaletteColorSelect(color)
       }
     });
   }
