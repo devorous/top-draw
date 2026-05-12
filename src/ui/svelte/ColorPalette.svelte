@@ -5,7 +5,7 @@
     addFloatingPalette,
     getCustomPresetKey,
     removeCustomColor,
-    FLOATING_PALETTE_SLOT_COUNT
+    toggleFloatingPaletteVisibility
   } from '../../state.svelte.js';
 
   let { onColorSelect = null } = $props();
@@ -147,6 +147,10 @@
     addFloatingPalette();
   }
 
+  function toggleFloatingPalette(paletteId) {
+    toggleFloatingPaletteVisibility(paletteId);
+  }
+
   function paletteMenuStyle() {
     const rect = palettesTrigger?.getBoundingClientRect?.();
     if (!rect) {
@@ -277,9 +281,16 @@
     </button>
 
     {#each appState.floatingPalettes as palette}
-      <button class="palette-menu-item" role="menuitem" title={palette.name}>
+      <button
+        class="palette-menu-item"
+        class:active={palette.visible !== false}
+        onclick={() => toggleFloatingPalette(palette.id)}
+        role="menuitemcheckbox"
+        aria-checked={palette.visible !== false}
+        title={palette.name}
+      >
         <span>{palette.name}</span>
-        <span class="palette-menu-state">{palette.colors.length}/{FLOATING_PALETTE_SLOT_COUNT}</span>
+        <span class="palette-menu-state">{palette.visible !== false ? 'On' : 'Off'}</span>
       </button>
     {/each}
 

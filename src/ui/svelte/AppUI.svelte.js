@@ -384,6 +384,7 @@ export function initSvelteUI(app) {
 
         const paletteHost = document.createElement('div');
         paletteHost.dataset.paletteKey = key;
+        paletteHost.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
         floatingPaletteTarget.appendChild(paletteHost);
 
         const instance = mount(FloatingPalette, {

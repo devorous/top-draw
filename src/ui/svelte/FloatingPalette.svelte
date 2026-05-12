@@ -1,5 +1,5 @@
 <script>
-  import { appState, addColorToFloatingPalette } from '../../state.svelte.js';
+  import { appState, addColorToFloatingPalette, setFloatingPaletteVisibility } from '../../state.svelte.js';
 
   let {
     onColorSelect = null,
@@ -45,7 +45,7 @@
   });
 
   let editable = $derived(Boolean(paletteId));
-  let visible = $derived(!paletteId || appState.recentPaletteVisible);
+  let visible = $derived(paletteId ? palette?.visible !== false : appState.recentPaletteVisible);
 
   let circles = $derived.by(() => {
     const centerX = PANEL_WIDTH / 2;
@@ -60,7 +60,11 @@
   });
 
   function hidePanel() {
-    appState.recentPaletteVisible = false;
+    if (paletteId) {
+      setFloatingPaletteVisibility(paletteId, false);
+    } else {
+      appState.recentPaletteVisible = false;
+    }
   }
 
   function selectColor(color) {
@@ -81,7 +85,7 @@
   }
 
   function getBoardLayout() {
-    const boards = panel?.parentElement || (
+    const boards = panel?.closest?.('#floatingPaletteMount') || panel?.parentElement || (
       typeof document !== 'undefined' ? document.getElementById('boards') : null
     );
     const width = boards?.clientWidth || boards?.getBoundingClientRect?.().width || PANEL_WIDTH + (PANEL_MARGIN * 2);
@@ -122,7 +126,7 @@
   }
 
   function getBoardPointerScale() {
-    const boards = panel?.parentElement;
+    const boards = panel?.closest?.('#floatingPaletteMount') || panel?.parentElement;
     const rect = boards?.getBoundingClientRect?.();
     const localWidth = boards?.clientWidth || rect?.width || 1;
     const localHeight = boards?.clientHeight || rect?.height || 1;

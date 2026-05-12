@@ -192,7 +192,8 @@ function normalizeFloatingPalette(item, index = 0) {
   return {
     id: typeof item.id === 'string' && item.id ? item.id : `floating-palette-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : `Palette ${index + 1}`,
-    colors
+    colors,
+    visible: item.visible !== false
   };
 }
 
@@ -241,7 +242,8 @@ export function addFloatingPalette(name = '') {
   const palette = {
     id: `floating-palette-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name: name && name.trim() ? name.trim() : `Palette ${nextIndex}`,
-    colors: []
+    colors: [],
+    visible: true
   };
 
   appState.floatingPalettes = [...appState.floatingPalettes, palette];
@@ -284,6 +286,54 @@ export function addColorToFloatingPalette(paletteId, color, slotIndex = null) {
   }
 
   return updatedPalette;
+}
+
+export function toggleFloatingPaletteVisibility(paletteId) {
+  if (!paletteId) {
+    return;
+  }
+
+  let didUpdate = false;
+
+  appState.floatingPalettes = appState.floatingPalettes.map((palette) => {
+    if (palette.id !== paletteId) {
+      return palette;
+    }
+
+    didUpdate = true;
+    return {
+      ...palette,
+      visible: palette.visible === false
+    };
+  });
+
+  if (didUpdate) {
+    saveFloatingPalettes();
+  }
+}
+
+export function setFloatingPaletteVisibility(paletteId, visible) {
+  if (!paletteId) {
+    return;
+  }
+
+  let didUpdate = false;
+
+  appState.floatingPalettes = appState.floatingPalettes.map((palette) => {
+    if (palette.id !== paletteId || palette.visible === visible) {
+      return palette;
+    }
+
+    didUpdate = true;
+    return {
+      ...palette,
+      visible
+    };
+  });
+
+  if (didUpdate) {
+    saveFloatingPalettes();
+  }
 }
 
 export function removeCustomColor(presetToRemove) {
