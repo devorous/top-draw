@@ -169,6 +169,13 @@ export function setupUserHandlers(wsClient, app) {
     }
   };
 
+  const sendActiveStrokeToNewUser = (sessionIndex) => {
+    if (sessionIndex === app.sessionIndex || !app.self?.mousedown || app.self?.panning) return;
+    app.inputBufferManager?.processLocalFrame?.();
+    app.inputBufferManager?.flushPendingNetwork?.();
+    app.wsClient?.sendActiveStrokeTo?.(sessionIndex);
+  };
+
   wsClient.on('users', (data) => {
     const incomingRemoteSessionIds = new Set(
       data.users
@@ -400,6 +407,7 @@ export function setupUserHandlers(wsClient, app) {
     if (hasProcessedInitialUsers && joinedSessionIds.length > 0) {
       joinedSessionIds.forEach((sessionIndex) => {
         scheduleJoinAnnouncement(sessionIndex);
+        sendActiveStrokeToNewUser(sessionIndex);
       });
     }
 

@@ -1274,6 +1274,34 @@ export class Board {
     ctx.restore();
   }
 
+  /**
+   * Mask a preview canvas to the active layer's existing pixels for "Existing"
+   * blend bake mode. Mirrors the commit-time mask in `_buildFlatContentCanvas`,
+   * so the preview only appears where the bake would actually deposit pixels.
+   * No-op for users not in Existing mode or with a trivial blend mode.
+   * @param {CanvasRenderingContext2D} ctx - Preview canvas context (topCtx or remote user.context)
+   * @param {Object} user - User whose blend settings drive the mask
+   * @param {{x:number,y:number,width:number,height:number}|null} [rect=null] - Optional clip rect
+   */
+  maskPreviewForExistingMode(ctx, user, rect = null) {
+    if (!ctx || !user) return;
+    if (user.blendBakeMode !== 'existing') return;
+    if (!user.blendMode || user.blendMode === 'source-over' || user.blendMode === 'destination-out') return;
+
+    const existingContent = this.layerManager?.getLayerExistingContent?.(user.activeLayer ?? 0);
+    if (!existingContent) return;
+
+    ctx.save();
+    if (rect) {
+      ctx.beginPath();
+      ctx.rect(rect.x, rect.y, rect.width, rect.height);
+      ctx.clip();
+    }
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.drawImage(existingContent, 0, 0);
+    ctx.restore();
+  }
+
   releaseSelectionMaskClipForStroke(layerIndex, userId) {
     const key = `${layerIndex}_${userId}`;
     if (!this._maskClippedStrokes.has(key) || !this.layerManager) return false;
@@ -2205,7 +2233,6 @@ export class Board {
    * @param {Object} [extraProps={}] - Extra properties for the stroke record (e.g., filter metadata)
    */
   endStroke(user, extraProps = {}) {
-    if (window.STROKE_DEBUG) console.log('[STROKE_DEBUG] Board.endStroke', user?.id, extraProps);
     // Blur/glitch blur tools always create their stroke on layer 0
     const isBlurFilter = extraProps.filterType === 'blur' || extraProps.filterType === 'glitchBlur';
     const activeLayer = isBlurFilter ? 0 : (user?.activeLayer ?? this.app?.self?.activeLayer ?? 0);
@@ -2993,9 +3020,6 @@ export class Board {
    * Clear the preview (top) canvas and selection overlay
    */
   clearTop(rect = null) {
-    if (window.STROKE_DEBUG) {
-      console.log(`[STROKE_DEBUG] Board.clearTop rect=${rect ? JSON.stringify(rect) : 'null'}`);
-    }
     const [height, width] = this.dimensions;
     if (rect && Number.isFinite(rect.x) && Number.isFinite(rect.y) && rect.width > 0 && rect.height > 0) {
       const x = Math.max(0, Math.floor(rect.x));

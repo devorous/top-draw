@@ -320,6 +320,7 @@ export class RemoteInkHandler {
     });
 
     user.context.globalAlpha = 1.0;
+    this.board.maskPreviewForExistingMode?.(user.context, user, previewRect);
     this.board.app?.remoteUserHandler?.selectionHandler?.drawStaticMaskOutline?.(user, user.maskSelection, false);
   }
 

@@ -185,6 +185,7 @@ export class LineTool extends Tool {
         });
       });
     });
+    this.board.maskPreviewForExistingMode(ctx, user);
   }
 
   /**
@@ -436,6 +437,7 @@ export class RectangleTool extends Tool {
         });
       });
     });
+    this.board.maskPreviewForExistingMode(ctx, user);
   }
 
   /**
@@ -685,6 +687,7 @@ export class CircleTool extends Tool {
         });
       });
     });
+    this.board.maskPreviewForExistingMode(ctx, user);
   }
 
   /**

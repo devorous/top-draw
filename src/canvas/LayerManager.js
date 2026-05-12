@@ -34,7 +34,7 @@ export class LayerManager {
     this.localUserId = null; // Set by Board/App so we can distinguish local vs remote strokes
     this._pixelsWorker = new PixelsWorkerClient();
     this._lastCommittedStrokeTimestamp = 0;
-    
+
     this.initLayerGroups(3);
   }
 
@@ -101,6 +101,7 @@ export class LayerManager {
     this.compositeLayers(ctx);
     return canvas;
   }
+
   _acquireCanvas() {
     if (this._canvasPool.length > 0) {
       const c = this._canvasPool.pop();
@@ -151,6 +152,7 @@ export class LayerManager {
         allowComplexBlendModes: i === 0,
         bakedSequences: [],
         strokeStack: [],
+        flatStrokeRecords: [],
         userStrokeCounts: new Map(),
         activeStrokeByUser: new Map(),
         activePreviewByUser: new Map(),
@@ -524,6 +526,32 @@ export class LayerManager {
   }
 
   /**
+   * Check whether a user has any undoable stroke in live, flat, or baked history.
+   * @param {number} userId - User ID
+   * @returns {boolean}
+   */
+  hasUndoableStroke(userId) {
+    for (const group of this.layerGroups) {
+      if (group.strokeStack.some(stroke => stroke.userId === userId)) {
+        return true;
+      }
+
+      if ((group.flatStrokeRecords || []).some(stroke => stroke.userId === userId)) {
+        return true;
+      }
+
+      for (const seq of group.bakedSequences) {
+        if (!Array.isArray(seq?.strokes)) continue;
+        if (seq.strokes.some(stroke => stroke.userId === userId)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Import a baked sequence from network sync
    * @param {number} groupIdx - Layer index
    * @param {string} blendMode - Blend mode
@@ -597,12 +625,22 @@ export class LayerManager {
   undoLastStrokeGlobal(userId) {
     let latestTimestamp = -1;
     for (const group of this.layerGroups) {
-      for (let i = group.strokeStack.length - 1; i >= 0; i--) {
-        if (group.strokeStack[i].userId === userId) {
-          if (group.strokeStack[i].timestamp > latestTimestamp) {
-            latestTimestamp = group.strokeStack[i].timestamp;
+      for (const stroke of group.strokeStack) {
+        if (stroke.userId === userId && stroke.timestamp > latestTimestamp) {
+          latestTimestamp = stroke.timestamp;
+        }
+      }
+      for (const stroke of group.flatStrokeRecords || []) {
+        if (stroke.userId === userId && stroke.timestamp > latestTimestamp) {
+          latestTimestamp = stroke.timestamp;
+        }
+      }
+      for (const seq of group.bakedSequences) {
+        if (!Array.isArray(seq?.strokes)) continue;
+        for (const stroke of seq.strokes) {
+          if (stroke.userId === userId && stroke.timestamp > latestTimestamp) {
+            latestTimestamp = stroke.timestamp;
           }
-          break;
         }
       }
     }
@@ -610,43 +648,76 @@ export class LayerManager {
 
     let isEraseAll = false;
     outer: for (const group of this.layerGroups) {
-      for (let i = group.strokeStack.length - 1; i >= 0; i--) {
-        const s = group.strokeStack[i];
+      for (const s of group.strokeStack) {
         if (s.userId === userId && s.timestamp === latestTimestamp) {
           isEraseAll = s.eraseAll === true;
           break outer;
         }
       }
-    }
-
-    const undoneStrokes = [];
-
-    if (isEraseAll) {
-      for (let gi = 0; gi < this.layerGroups.length; gi++) {
-        const group = this.layerGroups[gi];
-        for (let si = group.strokeStack.length - 1; si >= 0; si--) {
-          const s = group.strokeStack[si];
-          if (s.userId === userId && s.eraseAll && s.timestamp === latestTimestamp) {
-            const [removed] = group.strokeStack.splice(si, 1);
-            const cnt = group.userStrokeCounts.get(userId) || 0;
-            if (cnt > 0) group.userStrokeCounts.set(userId, cnt - 1);
-            undoneStrokes.push({ groupIdx: gi, record: removed });
-            break;
+      for (const s of group.flatStrokeRecords || []) {
+        if (s.userId === userId && s.timestamp === latestTimestamp) {
+          isEraseAll = s.eraseAll === true;
+          break outer;
+        }
+      }
+      for (const seq of group.bakedSequences) {
+        if (!Array.isArray(seq?.strokes)) continue;
+        for (const s of seq.strokes) {
+          if (s.userId === userId && s.timestamp === latestTimestamp) {
+            isEraseAll = s.eraseAll === true;
+            break outer;
           }
         }
       }
-    } else {
-      for (let gi = 0; gi < this.layerGroups.length; gi++) {
-        const group = this.layerGroups[gi];
-        for (let si = group.strokeStack.length - 1; si >= 0; si--) {
-          const s = group.strokeStack[si];
-          if (s.userId === userId && s.timestamp === latestTimestamp) {
-            const [removed] = group.strokeStack.splice(si, 1);
-            const cnt = group.userStrokeCounts.get(userId) || 0;
-            if (cnt > 0) group.userStrokeCounts.set(userId, cnt - 1);
-            undoneStrokes.push({ groupIdx: gi, record: removed });
-            break;
-          }
+    }
+
+    const undoneStrokes = [];
+    const matchesTarget = (stroke) => (
+      !!stroke &&
+      stroke.userId === userId &&
+      stroke.timestamp === latestTimestamp &&
+      (!isEraseAll || stroke.eraseAll === true)
+    );
+
+    const removeFromCollection = (collection, groupIdx, group) => {
+      if (!Array.isArray(collection) || collection.length === 0) return false;
+
+      let removed = false;
+      for (let i = collection.length - 1; i >= 0; i--) {
+        const stroke = collection[i];
+        if (!matchesTarget(stroke)) continue;
+
+        collection.splice(i, 1);
+        const count = group.userStrokeCounts.get(userId) || 0;
+        if (count > 0) group.userStrokeCounts.set(userId, count - 1);
+        undoneStrokes.push({ groupIdx, record: stroke });
+        removed = true;
+      }
+
+      return removed;
+    };
+
+    for (let gi = 0; gi < this.layerGroups.length; gi++) {
+      const group = this.layerGroups[gi];
+
+      removeFromCollection(group.strokeStack, gi, group);
+
+      if (removeFromCollection(group.flatStrokeRecords, gi, group)) {
+        this._rebuildFlatCanvas(group);
+      }
+
+      for (let si = group.bakedSequences.length - 1; si >= 0; si--) {
+        const seq = group.bakedSequences[si];
+        if (!Array.isArray(seq?.strokes)) continue;
+
+        const beforeLength = seq.strokes.length;
+        removeFromCollection(seq.strokes, gi, group);
+        if (seq.strokes.length === beforeLength) continue;
+
+        if (seq.strokes.length === 0) {
+          group.bakedSequences.splice(si, 1);
+        } else if (seq.type !== 'group') {
+          this._rebuildSequenceCanvas(seq);
         }
       }
     }
@@ -654,8 +725,6 @@ export class LayerManager {
     if (undoneStrokes.length === 0) return null;
 
     this.needsComposite = true;
-    // Undo only removes live stroke-stack entries; baked sequences are unchanged here,
-    // so scanning every full-size baked canvas for emptiness just adds readback cost.
     this._notifyHistoryPanel(true);
     return undoneStrokes;
   }
@@ -882,6 +951,10 @@ export class LayerManager {
     }
 
     if (group.flatCanvas) {
+      if (!Array.isArray(group.flatStrokeRecords)) {
+        group.flatStrokeRecords = [];
+      }
+      group.flatStrokeRecords.push(stroke);
       if (stroke.blendMode !== 'source-over' && stroke.blendMode !== 'destination-out') {
         this._bakeFlatComplexBlendStroke(group, stroke);
         return;
@@ -900,8 +973,14 @@ export class LayerManager {
     } else {
       targetBin = this._createCanvas();
       targetBin.blendMode = stroke.blendMode;
+      targetBin.strokes = [];
       group.bakedSequences.push(targetBin);
     }
+
+    if (!Array.isArray(targetBin.strokes)) {
+      targetBin.strokes = [];
+    }
+    targetBin.strokes.push(stroke);
 
     targetBin.ctx.globalCompositeOperation = (stroke.blendMode === 'destination-out')
       ? 'source-over'
@@ -1730,6 +1809,10 @@ export class LayerManager {
 
         const imageData = tCtxForAsync.getImageData(0, 0, cropW, cropH);
 
+        if (!this._pixelsWorker) {
+          this._pixelsWorker = new PixelsWorkerClient();
+        }
+
         // Offload blur to the pixels worker (runs stackblur off the main thread)
         this._pixelsWorker.blur(imageData.data, cropW, cropH, blurRadius, useGlitch).then(blurredData => {
           tCtxForAsync.putImageData(new ImageData(new Uint8ClampedArray(blurredData.buffer), cropW, cropH), 0, 0);
@@ -2082,6 +2165,19 @@ export class LayerManager {
     } finally {
       group.activeStrokeByUser.set(excludedUserId, excludedActive);
     }
+  }
+
+  /**
+   * Build a full-size canvas with the layer's existing content (flatCanvas + strokeStack,
+   * no background, no active strokes). Mirrors `_buildFlatContentCanvas` so previews can
+   * mask against the same content the commit-time mask uses.
+   * @param {number} layerIdx - Layer index
+   * @returns {HTMLCanvasElement|null} Full-size canvas, or null if the layer has no flatCanvas
+   */
+  getLayerExistingContent(layerIdx) {
+    const group = this.layerGroups[layerIdx];
+    if (!group?.flatCanvas) return null;
+    return this._buildFlatContentCanvas(group, 0, 0, this.width, this.height);
   }
 
   /**
@@ -2727,6 +2823,46 @@ export class LayerManager {
       return;
     }
     this._disposeCanvasObject(seq);
+  }
+
+  _removeUndoTargetFromCollection(collection, userId, timestamp, isEraseAll, group) {
+    if (!Array.isArray(collection) || collection.length === 0) return false;
+
+    let removed = false;
+    for (let i = collection.length - 1; i >= 0; i--) {
+      const stroke = collection[i];
+      if (!stroke || stroke.userId !== userId || stroke.timestamp !== timestamp) continue;
+      if (isEraseAll && stroke.eraseAll !== true) continue;
+
+      collection.splice(i, 1);
+      const cnt = group.userStrokeCounts.get(userId) || 0;
+      if (cnt > 0) group.userStrokeCounts.set(userId, cnt - 1);
+      removed = true;
+    }
+
+    return removed;
+  }
+
+  _rebuildFlatCanvas(group) {
+    if (!group?.flatCanvas || !group.flatCtx) return;
+
+    const { width, height } = group.flatCanvas;
+    group.flatCtx.clearRect(0, 0, width, height);
+
+    for (const stroke of group.flatStrokeRecords || []) {
+      this._compositeStroke(group.flatCtx, stroke, false);
+    }
+  }
+
+  _rebuildSequenceCanvas(seq) {
+    if (!seq?.canvas || !seq.ctx || !Array.isArray(seq.strokes)) return;
+
+    const { width, height } = seq.canvas;
+    seq.ctx.clearRect(0, 0, width, height);
+
+    for (const stroke of seq.strokes) {
+      this._compositeStroke(seq.ctx, stroke, false);
+    }
   }
 
   _rasterizeGroupedSequence(seq) {

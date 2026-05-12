@@ -319,6 +319,7 @@ export class RemotePenHandler {
 
     if (clipRect) ctx.restore();
     ctx.globalAlpha = 1.0;
+    this.board.maskPreviewForExistingMode?.(ctx, user, clipRect);
     this.board.app?.remoteUserHandler?.selectionHandler?.drawStaticMaskOutline?.(user, user.maskSelection, false);
   }
 

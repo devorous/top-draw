@@ -97,9 +97,6 @@ export class EraserTool extends Tool {
    * @param {Object} pos - The current pointer position.
    */
   onPointerDown(user, pos) {
-    if (window.STROKE_DEBUG) {
-      console.log(`[STROKE_DEBUG] EraserTool.onPointerDown user=${user?.id} pos=${JSON.stringify(pos)}`);
-    }
     this._activeUser = user;
     this._setPreviewMaskVisible(false);
     this.lastPos = { x: pos.x, y: pos.y };
@@ -109,9 +106,6 @@ export class EraserTool extends Tool {
     this._resetStrokeState(user);
     const rect = this.getPreviewDirtyRect(user);
     if (rect !== false) {
-      if (window.STROKE_DEBUG) {
-        console.log(`[STROKE_DEBUG] EraserTool.onPointerDown clearTop rect=${rect ? JSON.stringify(rect) : 'null'}`);
-      }
       this.board.clearTop(rect);
       this.drawPreview(user, rect);
     }
@@ -129,9 +123,6 @@ export class EraserTool extends Tool {
     this.appendBufferedPoint(user, pos);
     const rect = this.getPreviewDirtyRect(user);
     if (rect !== false) {
-      if (window.STROKE_DEBUG) {
-        console.log(`[STROKE_DEBUG] EraserTool.onPointerMove clearTop rect=${rect ? JSON.stringify(rect) : 'null'}`);
-      }
       this.board.clearTop(rect);
       this.drawPreview(user, rect);
     }
@@ -150,9 +141,6 @@ export class EraserTool extends Tool {
    * @param {Object} user - The user performing the action.
    */
   onPointerUp(user) {
-    if (window.STROKE_DEBUG) {
-      console.log(`[STROKE_DEBUG] EraserTool.onPointerUp user=${user?.id}`);
-    }
     if (user?.currentLine?.length === 0 && this.lastPos) {
       this.appendBufferedPoint(user, this.lastPos, user.pressure, user.size, user.opacity);
     }
@@ -195,9 +183,6 @@ export class EraserTool extends Tool {
       rect = null;
     }
 
-    if (window.STROKE_DEBUG) {
-      console.log(`[STROKE_DEBUG] EraserTool.drawPreview user=${user?.id} rect=${rect ? JSON.stringify(rect) : 'null'}`);
-    }
     if (!ctx || !user?.currentLine?.length) return;
     const state = this._getStrokeState(user);
     if (!state || !this._hasDirtyBounds(state)) return;

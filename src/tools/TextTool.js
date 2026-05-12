@@ -92,13 +92,13 @@ export class TextTool extends Tool {
       }
     } else if (key === 'Backspace') {
       if (ctrlKey) {
-        // Ctrl+Backspace: delete word backwards including preceding whitespace
+        // Ctrl+Backspace: delete word backwards
         const text = user.text;
         let i = text.length - 1;
+        // Skip trailing whitespace backwards
+        while (i >= 0 && /\s/.test(text[i])) i--;
         // Skip word characters backwards
         while (i >= 0 && /\S/.test(text[i])) i--;
-        // Skip whitespace backwards
-        while (i >= 0 && /\s/.test(text[i])) i--;
         user.text = text.slice(0, i + 1);
       } else {
         user.text = user.text.slice(0, -1);
@@ -108,10 +108,10 @@ export class TextTool extends Tool {
         // Ctrl+Delete: same as Ctrl+Backspace since cursor is at end
         const text = user.text;
         let i = text.length - 1;
+        // Skip trailing whitespace backwards
+        while (i >= 0 && /\s/.test(text[i])) i--;
         // Skip word characters backwards
         while (i >= 0 && /\S/.test(text[i])) i--;
-        // Skip whitespace backwards
-        while (i >= 0 && /\s/.test(text[i])) i--;
         user.text = text.slice(0, i + 1);
       }
     } else if (key === 'a' && ctrlKey) {

@@ -432,6 +432,12 @@ export class DrawingApp {
     this.toolManager.getTool(toolName)?.updatePreview?.(this.self);
   }
 
+  updatePatternPreviewIfVisible() {
+    if (appState.toolPreviewVisible && !appState.toolPreviewCollapsed && appState.toolPreviewMode === 'pattern') {
+      this.toolManager.getTool('pattern')?.updatePreview?.(this.self);
+    }
+  }
+
   handleCursorStyleChange(style) {
     const tool = this.self.tool;
     if (!this.supportedCursorStyleTools.includes(tool)) return;
@@ -1063,7 +1069,7 @@ export class DrawingApp {
             const patternTool = this.toolManager.getTool('pattern');
             if (patternTool) {
               patternTool._tileCache.clear();
-              patternTool.updatePreview(this.self);
+              this.updatePatternPreviewIfVisible();
             }
 
             const imageBrushTool = this.toolManager.getTool('imageBrush');
@@ -1080,6 +1086,9 @@ export class DrawingApp {
             }
 
             this._setColorPickersColor(rgba, { source: wheel, silent: true });
+            appState.currentColor = [...rgba];
+            this.updateCurrentToolPresetSettings();
+            this.updateActiveToolPreview();
 
             if (this.connected) {
               this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(rgba));
@@ -5578,7 +5587,7 @@ export class DrawingApp {
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool) {
       patternTool._tileCache.clear();
-      patternTool.updatePreview(this.self);
+      this.updatePatternPreviewIfVisible();
     }
 
     const imageBrushTool = this.toolManager.getTool('imageBrush');
@@ -5598,8 +5607,8 @@ export class DrawingApp {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(color));
     }
 
-    addRecentColor(color);
     this.updateCurrentToolPresetSettings();
+    this.updateActiveToolPreview();
   }
 
   getCurrentToolPresetSettings(toolName = this.self?.tool) {
@@ -5697,7 +5706,7 @@ export class DrawingApp {
     const patternTool = this.toolManager.getTool('pattern');
     if (patternTool) {
       patternTool._tileCache.clear();
-      patternTool.updatePreview(this.self);
+      this.updatePatternPreviewIfVisible();
     }
 
     const fillTool = this.toolManager.getTool('fill');
@@ -5715,8 +5724,6 @@ export class DrawingApp {
       this.inputBufferManager.queueBroadcast(() => this.wsClient.broadcastColorChange(rgba));
     }
 
-    // Add to recent colors (Svelte store)
-    addRecentColor(rgba);
     appState.currentColor = [...rgba];
     this.updateCurrentToolPresetSettings();
     this.updateActiveToolPreview();
@@ -6414,8 +6421,8 @@ export class DrawingApp {
         }
       }
 
-      // Add current color to recent colors when starting to draw
-      if (this.self.tool !== 'erase' && this.self.tool !== 'select') {
+      const colorlessRecentTools = new Set(['select', 'erase', 'blur', 'circleBlur', 'glitchBlur', 'pan', 'zoom', 'rotate', 'inkdropper']);
+      if (Array.isArray(this.self.color) && !colorlessRecentTools.has(this.self.tool)) {
         addRecentColor(this.self.color);
       }
 
@@ -6903,6 +6910,7 @@ export class DrawingApp {
 
   cancelCurrentStroke() {
     this.inputBufferManager.discardPendingStrokeInput();
+    this._pendingPenDown = null;
 
     // Clear brush stroke data
     this.self.clearLine();
@@ -7003,7 +7011,8 @@ export class DrawingApp {
     if (!lm || !hudUndoBtn || !hudRedoBtn) return;
 
     const userId = this.self?.id;
-    const canUndo = lm.layerGroups.some(g => g.strokeStack.some(r => r.userId === userId));
+    const canUndo = lm.hasUndoableStroke?.(userId) ??
+      lm.layerGroups.some(g => g.strokeStack.some(r => r.userId === userId));
     const canRedo = (lm.redoStackByUser.get(userId) ?? []).length > 0;
 
     hudUndoBtn.style.display = canUndo ? '' : 'none';

@@ -11,7 +11,7 @@ import fs from 'fs';
 import { connectDB, getDB, getMongoDatabase, updateUserMetrics, updateConsecutiveDays } from './db.js';
 import { metricsTracker } from './MetricsTracker.js';
 import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryLiked, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate, handleFloatingArtList, setFloatingArtBroadcaster } from './gallery.js';
-import { handleAuthLogin, handleAuthRegister, handleAuthMe, handlePasswordResetRequest, handlePasswordResetComplete } from './authRoutes.js';
+import { handleAuthLogin, handleAuthRegister, handleAuthMe, handlePasswordResetRequest, handlePasswordResetComplete, handleEmailSet, handleEmailVerify, handleEmailDecline } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
 import { getGalleryPreviewItem, renderGalleryPreviewHtml } from './galleryPreview.js';
 import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore, handleSnapshotJoinNotify } from './snapshots.js';
@@ -40,6 +40,38 @@ import { generateFloatingGalleryVoronoi, getFloatingGalleryVoronoiJson } from '.
 
 function hasOwnField(message, key) {
   return !!message && Object.prototype.hasOwnProperty.call(message, key);
+}
+
+const WS_REJECT_LOG_VALUE_LIMIT = 512;
+const WS_REJECT_LOG_PAYLOAD_LIMIT = 2048;
+const WS_REJECT_REDACT_KEYS = new Set(['a', 'authToken', 'token', 'password', 'currentPassword', 'newPassword']);
+
+function summarizeRejectedMessage(data) {
+  try {
+    const seen = new WeakSet();
+    const json = JSON.stringify(data, (key, value) => {
+      if (WS_REJECT_REDACT_KEYS.has(key)) {
+        return '[redacted]';
+      }
+      if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
+        return `[binary:${value.byteLength ?? value.length} bytes]`;
+      }
+      if (typeof value === 'string' && value.length > WS_REJECT_LOG_VALUE_LIMIT) {
+        return `${value.slice(0, WS_REJECT_LOG_VALUE_LIMIT)}...[truncated:${value.length}]`;
+      }
+      if (value && typeof value === 'object') {
+        if (seen.has(value)) return '[circular]';
+        seen.add(value);
+      }
+      return value;
+    });
+    if (!json) return String(data);
+    return json.length > WS_REJECT_LOG_PAYLOAD_LIMIT
+      ? `${json.slice(0, WS_REJECT_LOG_PAYLOAD_LIMIT)}...[truncated:${json.length}]`
+      : json;
+  } catch (error) {
+    return `[unserializable:${error?.message || error}]`;
+  }
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -754,6 +786,24 @@ const server = createServer(async (req, res) => {
   if (path === '/api/auth/password-reset/complete' && req.method === 'POST') {
     if (rateLimited(authLimiter)) return;
     await handlePasswordResetComplete(req, res);
+    return;
+  }
+
+  if (path === '/api/auth/email/set' && req.method === 'POST') {
+    if (rateLimited(authLimiter)) return;
+    await handleEmailSet(req, res);
+    return;
+  }
+
+  if (path === '/api/auth/email/verify' && req.method === 'POST') {
+    if (rateLimited(authLimiter)) return;
+    await handleEmailVerify(req, res);
+    return;
+  }
+
+  if (path === '/api/auth/email/decline' && req.method === 'POST') {
+    if (rateLimited(authLimiter)) return;
+    await handleEmailDecline(req, res);
     return;
   }
 
@@ -1484,6 +1534,17 @@ function sendTo(ws, payload) {
   }
 }
 
+function sendToSession(room, sessionIndex, payload) {
+  if (!room || sessionIndex === undefined || sessionIndex === null) return false;
+  for (const client of room.clients) {
+    if (client.sessionIndex === sessionIndex && client.readyState === WebSocket.OPEN) {
+      sendTo(client, payload);
+      return true;
+    }
+  }
+  return false;
+}
+
 const INACTIVE_FILTERED_TYPES = new Set([
   T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC, T.CSP, T.CSM, T.CHD, T.CBR,
   T.CL, T.CBM, T.PAN, T.CANCEL, T.KP, T.TEXT_APPLY, T.CSDM, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP,
@@ -1491,6 +1552,11 @@ const INACTIVE_FILTERED_TYPES = new Set([
   T.SEL_FILL, T.SEL_STAMP, T.SEL_CANCEL, T.SEL_TO_BRUSH, T.SEL_FLIP,
   T.SEL_PENDING, T.SEL_MASK, T.OBSCURE_REGION, T.IMG_PASTE, T.CLR, T.UNDO, T.REDO, T.FILL, T.CTHN,
   T.CSIM, T.GLITCH_RESULT, T.TILE_UPDATE, T.TILE_CLEAR
+]);
+
+const ACTIVE_STROKE_REPLAY_TYPES = new Set([
+  T.MM, T.MD, T.CP, T.CS, T.CT, T.CC, T.CSP, T.CSM, T.CHD, T.CBR,
+  T.CTHN, T.CSIM, T.CL, T.CBM, T.GMP, T.GPT, T.IMAGE_TOOL, T.CPM, T.CF, T.CSDM
 ]);
 
 function shouldSkipInactiveRecipient(room, client, messageType) {
@@ -1621,6 +1687,13 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
   if (!room) return;
   const user = room.sessionManager.getUser(sessionIndex);
   if (!user) return;
+
+  if (data.tu !== undefined && ACTIVE_STROKE_REPLAY_TYPES.has(data.t)) {
+    if (ws?.isShadowBanned) return;
+    if (ws?.isMuted && ws.userRole < Role.MOD) return;
+    sendToSession(room, data.tu, { ...data, u: sessionIndex });
+    return;
+  }
 
   switch (data.t) {
     case T.MM:
@@ -2335,9 +2408,14 @@ wss.on('connection', async (ws, req) => {
         }
       }
 
-      data = await sanitizeMessage(data);
+      const inboundMessage = data;
+      data = await sanitizeMessage(inboundMessage);
       if (!data) {
-        console.warn(`[WS] Rejected invalid message from session ${ws.sessionIndex ?? 'unassigned'}`);
+        console.warn(
+          `[WS] Rejected invalid message from session ${ws.sessionIndex ?? 'unassigned'} `
+          + `(room=${room?.id || 'unknown'}, type=${Number.isFinite(requestedType) ? requestedType : 'invalid'}): `
+          + summarizeRejectedMessage(inboundMessage)
+        );
         if (requestedType === T.CHAT_IMG || requestedType === T.STAFF_CHAT_IMG) {
           sendTo(ws, {
             t: T.MOD_RESULT,
@@ -4110,7 +4188,9 @@ wss.on('connection', async (ws, req) => {
               authRole: effectiveRole,
               authGlobalRole: userDoc.role,
               authRoomRole: roomRoleVal,
-              authUsername: userDoc.username
+              authUsername: userDoc.username,
+              authHasEmail: !!userDoc.email,
+              authEmailPromptDeclined: !!userDoc.emailPromptDeclined
             });
 
             await recordConnectionEvent(db, {

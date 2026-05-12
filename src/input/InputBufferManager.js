@@ -739,6 +739,7 @@ export class InputBufferManager {
 
     if (usesTopPreview && !hasNoPreviewWork && tool.drawPreview) {
       tool.drawPreview(user, previewRect);
+      app.board?.maskPreviewForExistingMode?.(app.board.topCtx, user, previewRect);
     }
 
     if (toolName === 'blur' || toolName === 'circleBlur' || toolName === 'glitchBlur' || toolName === 'imageBrush' || toolName === 'confetti') {
