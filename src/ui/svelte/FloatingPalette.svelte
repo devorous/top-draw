@@ -1,7 +1,12 @@
 <script>
-  import { appState } from '../../state.svelte.js';
+  import { appState, addColorToFloatingPalette } from '../../state.svelte.js';
 
-  let { onColorSelect = null } = $props();
+  let {
+    onColorSelect = null,
+    paletteId = null,
+    initialLeft = null,
+    initialTop = null
+  } = $props();
 
   let panel = $state(null);
   let left = $state(null);
@@ -9,10 +14,13 @@
   let userPositioned = $state(false);
   let dragging = $state(false);
 
-  const SPACING = 40;
-  const PANEL_WIDTH = 168;
-  const PANEL_HEIGHT = 180;
-  const PANEL_MARGIN = 6;
+  const PALETTE_SCALE = 0.8;
+  const SPACING = 40 * PALETTE_SCALE;
+  const PANEL_WIDTH = 168 * PALETTE_SCALE;
+  const PANEL_HEIGHT = 180 * PALETTE_SCALE;
+  const PANEL_MARGIN = 6 * PALETTE_SCALE;
+  const DOT_SIZE = 36 * PALETTE_SCALE;
+  const DOT_RING = 5 * PALETTE_SCALE;
 
   const POSITIONS = [
     { x: 0, y: 0 },
@@ -24,16 +32,30 @@
     { x: -SPACING * 0.866, y: -SPACING * 0.5 }
   ];
 
-  let visible = $derived(appState.recentPaletteVisible);
+  let palette = $derived.by(() => {
+    if (paletteId) {
+      return appState.floatingPalettes.find((item) => item.id === paletteId) || null;
+    }
+
+    return {
+      id: 'recent-colors',
+      name: 'Recent Colors',
+      colors: appState.recentColors
+    };
+  });
+
+  let editable = $derived(Boolean(paletteId));
+  let visible = $derived(!paletteId || appState.recentPaletteVisible);
 
   let circles = $derived.by(() => {
     const centerX = PANEL_WIDTH / 2;
-    const centerY = 100;
+    const centerY = 100 * PALETTE_SCALE;
+    const paletteColors = palette?.colors || [];
 
     return POSITIONS.map((pos, i) => ({
       x: centerX + pos.x,
       y: centerY + pos.y,
-      color: i < appState.recentColors.length ? appState.recentColors[i] : null
+      color: i < paletteColors.length ? paletteColors[i] : null
     }));
   });
 
@@ -44,6 +66,14 @@
   function selectColor(color) {
     appState.currentColor = [...color];
     onColorSelect?.(color);
+  }
+
+  function addCurrentColor(slotIndex) {
+    if (!paletteId) {
+      return;
+    }
+
+    addColorToFloatingPalette(paletteId, appState.currentColor, slotIndex);
   }
 
   function clampValue(value, minValue, maxValue) {
@@ -73,8 +103,8 @@
     const bounds = getBoardLayout();
 
     if (forceDock || !userPositioned || left == null || top == null) {
-      left = bounds.dockLeft;
-      top = bounds.dockTop;
+      left = initialLeft != null ? clampValue(initialLeft, bounds.safeLeft, bounds.maxLeft) : bounds.dockLeft;
+      top = initialTop != null ? clampValue(initialTop, bounds.safeTop, bounds.maxTop) : bounds.dockTop;
       return;
     }
 
@@ -163,10 +193,11 @@
 
   function panelStyle() {
     const bounds = getBoardLayout();
-    const resolvedLeft = left != null ? clampValue(left, bounds.safeLeft, bounds.maxLeft) : bounds.dockLeft;
-    const resolvedTop = top != null ? clampValue(top, bounds.safeTop, bounds.maxTop) : bounds.dockTop;
+    const resolvedLeft = left != null ? clampValue(left, bounds.safeLeft, bounds.maxLeft) : (initialLeft != null ? clampValue(initialLeft, bounds.safeLeft, bounds.maxLeft) : bounds.dockLeft);
+    const resolvedTop = top != null ? clampValue(top, bounds.safeTop, bounds.maxTop) : (initialTop != null ? clampValue(initialTop, bounds.safeTop, bounds.maxTop) : bounds.dockTop);
 
     return [
+      `--palette-scale: ${PALETTE_SCALE}`,
       `width: ${PANEL_WIDTH}px`,
       `height: ${PANEL_HEIGHT}px`,
       `left: ${resolvedLeft}px`,
@@ -200,15 +231,27 @@
       {#if circle.color}
         <button
           class="color-dot"
-          style="left: {circle.x}px; top: {circle.y}px; --dot-color: rgb({circle.color[0]}, {circle.color[1]}, {circle.color[2]})"
+          style="left: {circle.x}px; top: {circle.y}px; --dot-color: rgb({circle.color[0]}, {circle.color[1]}, {circle.color[2]}); --dot-size: {DOT_SIZE}px; --dot-ring: {DOT_RING}px"
           title="Color {i + 1}"
           onpointerup={() => selectColor(circle.color)}
         ></button>
       {:else}
-        <div
-          class="color-dot empty"
-          style="left: {circle.x}px; top: {circle.y}px"
-        ></div>
+        {#if editable}
+          <button
+            class="color-dot empty"
+            style="left: {circle.x}px; top: {circle.y}px; --dot-size: {DOT_SIZE}px; --dot-ring: {DOT_RING}px"
+            title="Add current color"
+            aria-label="Add current color"
+            onpointerup={() => addCurrentColor(i)}
+          >
+            <span class="plus-icon">+</span>
+          </button>
+        {:else}
+          <div
+            class="color-dot empty"
+            style="left: {circle.x}px; top: {circle.y}px; --dot-size: {DOT_SIZE}px; --dot-ring: {DOT_RING}px"
+          ></div>
+        {/if}
       {/if}
     {/each}
   </div>
@@ -233,7 +276,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
+    gap: calc(var(--palette-scale) * 6px);
     padding: 0;
     background: transparent;
     border: none;
@@ -244,8 +287,8 @@
 
   .palette-handle {
     position: absolute;
-    width: 32px;
-    height: 28px;
+    width: calc(var(--palette-scale) * 32px);
+    height: calc(var(--palette-scale) * 28px);
     border: 1px solid var(--bg-secondary);
     border-radius: 6px;
     background: var(--bg-secondary);
@@ -259,7 +302,7 @@
     transition: all 0.2s;
     user-select: none;
     left: 50%;
-    top: 10px;
+    top: calc(var(--palette-scale) * 10px);
     transform: translateX(-50%);
     z-index: 10;
   }
@@ -277,7 +320,7 @@
 
   .grab-dots {
     font-weight: bold;
-    font-size: 1.05rem;
+    font-size: calc(var(--palette-scale) * 1.05rem);
     letter-spacing: -1px;
     transform: rotate(90deg);
   }
@@ -290,8 +333,8 @@
 
   .color-dot {
     position: absolute;
-    width: 36px;
-    height: 36px;
+    width: var(--dot-size, 28.8px);
+    height: var(--dot-size, 28.8px);
     box-sizing: border-box;
     border-radius: 50%;
     border: none;
@@ -305,7 +348,7 @@
     transition: all 0.15s ease;
     transform: translate(-50%, -50%);
     box-shadow:
-      0 0 0 5px var(--bg-secondary),
+      0 0 0 var(--dot-ring, 4px) var(--bg-secondary),
       0 2px 6px rgba(0, 0, 0, 0.3);
     background-clip: padding-box;
   }
@@ -314,7 +357,7 @@
     z-index: 2;
     transform: translate(-50%, -50%) scale(1.12);
     box-shadow:
-      0 0 0 5px var(--bg-secondary),
+      0 0 0 var(--dot-ring, 4px) var(--bg-secondary),
       0 3px 10px rgba(0, 0, 0, 0.4);
   }
 
@@ -326,9 +369,18 @@
   .color-dot.empty {
     background: rgba(255, 255, 255, 0.08);
     box-shadow:
-      0 0 0 5px var(--bg-secondary),
+      0 0 0 var(--dot-ring, 4px) var(--bg-secondary),
       0 2px 6px rgba(0, 0, 0, 0.22);
-    cursor: default;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.68);
+    font-size: calc(var(--dot-size, 28.8px) * 0.9);
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .plus-icon {
+    display: block;
+    transform: translateY(-1px);
     pointer-events: none;
   }
 </style>

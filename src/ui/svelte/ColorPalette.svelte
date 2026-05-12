@@ -1,5 +1,12 @@
 <script>
-  import { appState, addCustomColor, getCustomPresetKey, removeCustomColor } from '../../state.svelte.js';
+  import {
+    appState,
+    addCustomColor,
+    addFloatingPalette,
+    getCustomPresetKey,
+    removeCustomColor,
+    FLOATING_PALETTE_SLOT_COUNT
+  } from '../../state.svelte.js';
 
   let { onColorSelect = null } = $props();
   let palettesOpen = $state(false);
@@ -137,15 +144,7 @@
   }
 
   function handleAddFloatingPalette() {
-    const nextIndex = appState.floatingPalettes.length + 1;
-    appState.floatingPalettes = [
-      ...appState.floatingPalettes,
-      {
-        id: `floating-palette-${Date.now()}`,
-        name: `Palette ${nextIndex}`,
-        colors: []
-      }
-    ];
+    addFloatingPalette();
   }
 
   function paletteMenuStyle() {
@@ -280,7 +279,7 @@
     {#each appState.floatingPalettes as palette}
       <button class="palette-menu-item" role="menuitem" title={palette.name}>
         <span>{palette.name}</span>
-        <span class="palette-menu-state">{palette.colors.length}</span>
+        <span class="palette-menu-state">{palette.colors.length}/{FLOATING_PALETTE_SLOT_COUNT}</span>
       </button>
     {/each}
 

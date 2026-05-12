@@ -6910,6 +6910,7 @@ export class DrawingApp {
 
   cancelCurrentStroke() {
     this.inputBufferManager.discardPendingStrokeInput();
+    this._pendingPenDown = null;
 
     // Clear brush stroke data
     this.self.clearLine();

@@ -45,6 +45,7 @@ class DrawingState {
   recentColors = $state([]);
   customColors = $state(loadCustomColors());
   activeCustomPresetKey = $state(null);
+  floatingPalettes = $state(loadFloatingPalettes());
 
   // UI
   boardMenuOpen = $state(null); // null | 'blend' | 'layers'
@@ -60,7 +61,6 @@ class DrawingState {
   boardColorPickerVisible = $state(true);
   boardColorPickerForceVisible = $state(false);
   recentPaletteVisible = $state(true);
-  floatingPalettes = $state([]);
   toolPreviewVisible = $state(false);
   toolPreviewCollapsed = $state(false);
   toolPreviewMode = $state('pattern');
@@ -97,6 +97,8 @@ class DrawingState {
 export const appState = new DrawingState();
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const FLOATING_PALETTE_STORAGE_KEY = 'topdraw_floatingPalettes';
+export const FLOATING_PALETTE_SLOT_COUNT = 7;
 
 // ============================================================================
 // Helper functions
@@ -104,6 +106,22 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 function colorsEqual(a, b) {
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+}
+
+function normalizeColor(color) {
+  if (!Array.isArray(color) || color.length < 4) {
+    return null;
+  }
+
+  const normalized = color.slice(0, 4).map((value, index) => {
+    if (index === 3) {
+      return Number.isFinite(value) ? value : 255;
+    }
+
+    return Number.isFinite(value) ? value : 0;
+  });
+
+  return normalized;
 }
 
 function normalizeCustomPreset(item) {
@@ -131,6 +149,14 @@ function saveCustomColors() {
   }
 }
 
+function saveFloatingPalettes() {
+  try {
+    localStorage.setItem(FLOATING_PALETTE_STORAGE_KEY, JSON.stringify(appState.floatingPalettes));
+  } catch (e) {
+    console.warn('Failed to save floating palettes:', e);
+  }
+}
+
 export function getCustomPresetKey(preset) {
   const normalized = normalizeCustomPreset(preset);
   if (!normalized) return null;
@@ -150,6 +176,34 @@ function loadCustomColors() {
     return JSON.parse(saved).map(normalizeCustomPreset).filter(Boolean);
   } catch (e) {
     console.warn('Failed to load custom colors:', e);
+    return [];
+  }
+}
+
+function normalizeFloatingPalette(item, index = 0) {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+
+  const colors = Array.isArray(item.colors)
+    ? item.colors.map(normalizeColor).filter(Boolean).slice(0, FLOATING_PALETTE_SLOT_COUNT)
+    : [];
+
+  return {
+    id: typeof item.id === 'string' && item.id ? item.id : `floating-palette-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : `Palette ${index + 1}`,
+    colors
+  };
+}
+
+function loadFloatingPalettes() {
+  try {
+    const saved = localStorage.getItem(FLOATING_PALETTE_STORAGE_KEY);
+    if (!saved) return [];
+
+    return JSON.parse(saved).map(normalizeFloatingPalette).filter(Boolean);
+  } catch (e) {
+    console.warn('Failed to load floating palettes:', e);
     return [];
   }
 }
@@ -180,6 +234,56 @@ export function addCustomColor(color, settings = {}) {
   if (exists || appState.customColors.length >= 12) return;
   appState.customColors = [...appState.customColors, { color: normalizedColor, tool, size, settings: toolSettings }];
   saveCustomColors();
+}
+
+export function addFloatingPalette(name = '') {
+  const nextIndex = appState.floatingPalettes.length + 1;
+  const palette = {
+    id: `floating-palette-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: name && name.trim() ? name.trim() : `Palette ${nextIndex}`,
+    colors: []
+  };
+
+  appState.floatingPalettes = [...appState.floatingPalettes, palette];
+  saveFloatingPalettes();
+  return palette;
+}
+
+export function addColorToFloatingPalette(paletteId, color, slotIndex = null) {
+  const normalizedColor = normalizeColor(color);
+  if (!paletteId || !normalizedColor) {
+    return null;
+  }
+
+  let updatedPalette = null;
+
+  appState.floatingPalettes = appState.floatingPalettes.map((palette) => {
+    if (palette.id !== paletteId) {
+      return palette;
+    }
+
+    const nextColors = palette.colors
+      .filter((existingColor) => !colorsEqual(existingColor, normalizedColor));
+
+    if (Number.isInteger(slotIndex) && slotIndex >= 0 && slotIndex < FLOATING_PALETTE_SLOT_COUNT) {
+      nextColors[slotIndex] = [...normalizedColor];
+    } else if (nextColors.length < FLOATING_PALETTE_SLOT_COUNT) {
+      nextColors.push([...normalizedColor]);
+    }
+
+    updatedPalette = {
+      ...palette,
+      colors: nextColors.slice(0, FLOATING_PALETTE_SLOT_COUNT)
+    };
+
+    return updatedPalette;
+  });
+
+  if (updatedPalette) {
+    saveFloatingPalettes();
+  }
+
+  return updatedPalette;
 }
 
 export function removeCustomColor(presetToRemove) {

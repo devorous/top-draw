@@ -374,11 +374,70 @@ export function initSvelteUI(app) {
   // Mount FloatingPalette
   const floatingPaletteTarget = document.getElementById('floatingPaletteMount');
   if (floatingPaletteTarget) {
-    components.floatingPalette = mount(FloatingPalette, {
-      target: floatingPaletteTarget,
-      props: {
-        onColorSelect: (color) => app.handlePaletteColorSelect(color)
+    const floatingPaletteInstances = new Map();
+
+    const floatingPaletteEffect = $effect.root(() => {
+      const mountPalette = (key, props) => {
+        if (floatingPaletteInstances.has(key)) {
+          return;
+        }
+
+        const paletteHost = document.createElement('div');
+        paletteHost.dataset.paletteKey = key;
+        floatingPaletteTarget.appendChild(paletteHost);
+
+        const instance = mount(FloatingPalette, {
+          target: paletteHost,
+          props
+        });
+
+        floatingPaletteInstances.set(key, { host: paletteHost, instance });
+      };
+
+      const unmountPalette = (key) => {
+        const entry = floatingPaletteInstances.get(key);
+        if (!entry) {
+          return;
+        }
+
+        unmount(entry.instance);
+        entry.host.remove();
+        floatingPaletteInstances.delete(key);
+      };
+
+      $effect(() => {
+        mountPalette('recent', {
+          onColorSelect: (color) => app.handlePaletteColorSelect(color)
+        });
+
+        const activeKeys = new Set(['recent']);
+
+        appState.floatingPalettes.forEach((palette, index) => {
+          activeKeys.add(palette.id);
+
+          mountPalette(palette.id, {
+            paletteId: palette.id,
+            initialLeft: Math.max(6, (floatingPaletteTarget.clientWidth || 0) - ((168 * 0.8) + 8) - (index * 20)),
+            initialTop: Math.max(6, (floatingPaletteTarget.clientHeight || 0) - ((180 * 0.8) + 8) - (index * 20)),
+            onColorSelect: (color) => app.handlePaletteColorSelect(color)
+          });
+        });
+
+        for (const key of floatingPaletteInstances.keys()) {
+          if (!activeKeys.has(key)) {
+            unmountPalette(key);
+          }
+        }
+      });
+    });
+
+    cleanupFns.push(() => {
+      floatingPaletteEffect();
+      for (const entry of floatingPaletteInstances.values()) {
+        unmount(entry.instance);
+        entry.host.remove();
       }
+      floatingPaletteInstances.clear();
     });
   }
 
