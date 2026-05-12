@@ -506,25 +506,57 @@ export class SyncClient {
       const lm = this.board.layerManager;
       const groups = lm.layerGroups;
 
+      // Atomically snapshot the layer state before counting/sending. The
+      // provider may keep drawing during the long async send phase, which
+      // triggers `_bakeOverflowStrokes` and pushes new entries into
+      // `bakedSequences` mid-iteration — those extra sends would land on the
+      // joiner without being counted in `SYNC_METADATA`, so the progress bar
+      // shows received > expected (e.g. 128/66).
+      const snapshot = [];
+      for (let gi = 0; gi < groups.length; gi++) {
+        const group = groups[gi];
+
+        // bakedSequences holds two shapes: pixel bins ({canvas, ctx, blendMode})
+        // and compressed-group entries ({type:'group', strokes:[…], blendMode}).
+        // The latter have no `.canvas`; capturing them as a base would throw and
+        // abort the whole provide. Send their strokes as a stroke batch instead.
+        const binSequences = [];
+        const extractedStrokes = [];
+        for (const seq of group.bakedSequences) {
+          if (seq?.type === 'group' && Array.isArray(seq.strokes)) {
+            extractedStrokes.push(...seq.strokes);
+          } else if (seq?.canvas) {
+            binSequences.push(seq);
+          }
+        }
+
+        const strokes = extractedStrokes.length > 0
+          ? [...group.strokeStack, ...extractedStrokes].sort(
+              (a, b) => (a.timestamp || 0) - (b.timestamp || 0)
+            )
+          : [...group.strokeStack];
+
+        snapshot.push({
+          flatCanvas: group.flatCanvas,
+          binSequences,
+          strokes,
+          activeStrokes: this._getSyncableActiveStrokes(group)
+        });
+      }
+
+      const redoSnapshot = [];
+      for (const [, batches] of lm.redoStackByUser) {
+        redoSnapshot.push(batches.map(batch => [...batch]));
+      }
+
       let totalCount = 0;
-
-      for (let gi = 0; gi < groups.length; gi++) {
-        if (groups[gi].flatCanvas) {
-          totalCount += 1;
-        }
-        totalCount += groups[gi].bakedSequences.length;
+      for (const snap of snapshot) {
+        if (snap.flatCanvas) totalCount += 1;
+        totalCount += snap.binSequences.length;
+        if (snap.strokes.length > 0) totalCount += 1;
+        if (snap.activeStrokes.length > 0) totalCount += 1;
       }
-
-      for (let gi = 0; gi < groups.length; gi++) {
-        if (groups[gi].strokeStack.length > 0) {
-          totalCount += 1;
-        }
-        if (this._getSyncableActiveStrokes(groups[gi]).length > 0) {
-          totalCount += 1;
-        }
-      }
-
-      for (const [userId, batches] of lm.redoStackByUser) {
+      for (const batches of redoSnapshot) {
         totalCount += batches.length;
       }
 
@@ -533,13 +565,13 @@ export class SyncClient {
 
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      for (let gi = 0; gi < groups.length; gi++) {
-        const group = groups[gi];
+      for (let gi = 0; gi < snapshot.length; gi++) {
+        const snap = snapshot[gi];
         const isMainLayer = gi < 3;
         const layerTimeoutMs = isMainLayer ? null : 5000; // Only timeout for non-main layers
 
-        if (group.flatCanvas) {
-          const img = await this._captureLayerCanvasForSync(group.flatCanvas, gi, layerTimeoutMs);
+        if (snap.flatCanvas) {
+          const img = await this._captureLayerCanvasForSync(snap.flatCanvas, gi, layerTimeoutMs);
           if (img === null) {
             console.warn(`[SyncClient] Skipping flatCanvas for layer ${gi} (timeout)`);
           } else {
@@ -547,7 +579,7 @@ export class SyncClient {
           }
         }
 
-        for (const seq of group.bakedSequences) {
+        for (const seq of snap.binSequences) {
           const img = await this._captureCanvasElement(seq.canvas, layerTimeoutMs);
           if (img === null) {
             console.warn(`[SyncClient] Skipping baked sequence for layer ${gi} (timeout)`);
@@ -557,17 +589,23 @@ export class SyncClient {
         }
       }
 
-      for (let gi = 0; gi < groups.length; gi++) {
-        if (groups[gi].strokeStack.length > 0) {
-          const isMainLayer = gi < 3;
-          const layerTimeoutMs = isMainLayer ? null : 5000;
+      for (let gi = 0; gi < snapshot.length; gi++) {
+        const snap = snapshot[gi];
+        const isMainLayer = gi < 3;
+        const layerTimeoutMs = isMainLayer ? null : 5000;
+
+        if (snap.strokes.length > 0) {
           const strokeRecords = [];
           let skippedCount = 0;
 
-          for (const stroke of groups[gi].strokeStack) {
+          for (const stroke of snap.strokes) {
             // For blur/glitchBlur strokes, send the computed result instead of the mask
             const isFilter = stroke.filterType === 'blur' || stroke.filterType === 'glitchBlur';
             const sourceCanvas = (isFilter && stroke._cachedBlurResult) ? stroke._cachedBlurResult : stroke.canvas;
+            if (!sourceCanvas) {
+              skippedCount++;
+              continue;
+            }
             const img = await this._captureCanvasElement(sourceCanvas, layerTimeoutMs);
             if (img === null) {
               skippedCount++;
@@ -591,24 +629,25 @@ export class SyncClient {
             });
           }
           if (skippedCount > 0) {
-            console.warn(`[SyncClient] Skipped ${skippedCount}/${groups[gi].strokeStack.length} strokes for layer ${gi} (timeouts)`);
+            console.warn(`[SyncClient] Skipped ${skippedCount}/${snap.strokes.length} strokes for layer ${gi} (timeouts)`);
           }
           if (strokeRecords.length > 0) {
             this.wsClient.sendSyncStrokeBatch(strokeRecords, gi, targetUser);
           }
         }
 
-        const activeStrokes = this._getSyncableActiveStrokes(groups[gi]);
-        if (activeStrokes.length > 0) {
-          const isMainLayer = gi < 3;
-          const layerTimeoutMs = isMainLayer ? null : 5000;
+        if (snap.activeStrokes.length > 0) {
           const strokeRecords = [];
           let skippedCount = 0;
 
-          for (const { userId, active } of activeStrokes) {
+          for (const { userId, active } of snap.activeStrokes) {
             const sourceCanvas = ((active.filterType === 'blur' || active.filterType === 'glitchBlur') && active._cachedBlurResult)
               ? active._cachedBlurResult
               : active.canvas;
+            if (!sourceCanvas) {
+              skippedCount++;
+              continue;
+            }
             const img = await this._captureCanvasElement(sourceCanvas, layerTimeoutMs);
             if (img === null) {
               skippedCount++;
@@ -632,7 +671,7 @@ export class SyncClient {
             });
           }
           if (skippedCount > 0) {
-            console.warn(`[SyncClient] Skipped ${skippedCount}/${activeStrokes.length} active strokes for layer ${gi} (timeouts)`);
+            console.warn(`[SyncClient] Skipped ${skippedCount}/${snap.activeStrokes.length} active strokes for layer ${gi} (timeouts)`);
           }
           if (strokeRecords.length > 0) {
             this.wsClient.sendSyncStrokeBatch(strokeRecords, gi, targetUser);
@@ -640,7 +679,7 @@ export class SyncClient {
         }
       }
 
-      for (const [userId, batches] of lm.redoStackByUser) {
+      for (const batches of redoSnapshot) {
         for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
           const strokeRecords = [];
           let skippedCount = 0;
@@ -650,6 +689,10 @@ export class SyncClient {
             const layerTimeoutMs = isMainLayer ? null : 5000;
             const isFilter = record.filterType === 'blur' || record.filterType === 'glitchBlur';
             const sourceCanvas = (isFilter && record._cachedBlurResult) ? record._cachedBlurResult : record.canvas;
+            if (!sourceCanvas) {
+              skippedCount++;
+              continue;
+            }
             const img = await this._captureCanvasElement(sourceCanvas, layerTimeoutMs);
             if (img === null) {
               skippedCount++;
@@ -688,6 +731,12 @@ export class SyncClient {
       console.log('[SyncClient] Finished sending layer state to user', targetUser);
     } catch (error) {
       console.error('[SyncClient] Failed to provide layer state', error);
+      // Send done anyway so the joiner doesn't hang on the 15s idle timeout.
+      try {
+        this.wsClient.sendSyncStrokesDone(targetUser);
+      } catch (sendErr) {
+        console.error('[SyncClient] Failed to send strokesDone after error', sendErr);
+      }
     }
   }
 
@@ -1088,8 +1137,9 @@ export class SyncClient {
       : 'Syncing...';
 
     if (this.expectedMessages > 0) {
-      percentage = Math.min(100, Math.round((this.receivedMessages / this.expectedMessages) * 100));
-      text = `${syncPrefix} ${this.receivedMessages}/${this.expectedMessages} (${percentage}%)`;
+      const displayReceived = Math.min(this.receivedMessages, this.expectedMessages);
+      percentage = Math.min(100, Math.round((displayReceived / this.expectedMessages) * 100));
+      text = `${syncPrefix} ${displayReceived}/${this.expectedMessages} (${percentage}%)`;
       if (this.progressFillEl) {
         this.progressFillEl.style.width = `${percentage}%`;
       }

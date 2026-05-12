@@ -974,7 +974,7 @@ export class RemoteSelectionHandler {
     if (!user.floatingCanvas || !user.selection) return;
 
     const lm = this.board.layerManager;
-    const layerIdx = user.activeLayer ?? 0;
+    const layerIdx = layerIndex ?? user.activeLayer ?? 0;
     const s = user.selection;
     const c = user.selectionCorners;
 

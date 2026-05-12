@@ -2790,7 +2790,7 @@ export class SelectTool extends Tool {
         if (commitTileIndices.length > 0) {
           this.board.app.wsClient.broadcastTileUpdate(commitTileIndices);
         }
-        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionCommit());
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionCommit(this.board.app?.self?.activeLayer ?? 0));
       }
 
       this.floatingCanvas = null;
@@ -2823,7 +2823,7 @@ export class SelectTool extends Tool {
       this.board.clearTop();
       // Still broadcast commit to sync with other users even if stroke creation failed
       if (this.board.app?.wsClient) {
-        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionCommit());
+        this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionCommit(activeLayer));
       }
       return;
     }
@@ -2904,7 +2904,7 @@ export class SelectTool extends Tool {
       if (tilesToBroadcast.length > 0) {
         this.board.app.wsClient.broadcastTileUpdate(tilesToBroadcast);
       }
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionCommit());
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionCommit(activeLayer));
     }
 
     this.floatingCanvas = null;
@@ -3846,7 +3846,7 @@ export class SelectTool extends Tool {
       if (stampTileIndices.length > 0) {
         this.board.app.wsClient.broadcastTileUpdate(stampTileIndices);
       }
-      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionStamp());
+      this.board.app.inputBufferManager.queueBroadcast(() => this.board.app.wsClient.broadcastSelectionStamp(app.self?.activeLayer ?? 0));
     }
 
     // Redraw the floating selection on top canvas

@@ -1014,7 +1014,7 @@ export class WebSocketClient {
         break;
 
       case T.SEL_COMMIT:
-        this.emit('sel_commit', { sessionIndex: data.u, layerIndex: data.ly ?? 0 });
+        this.emit('sel_commit', { sessionIndex: data.u, layerIndex: data.ly });
         break;
 
       case T.SEL_PENDING: {
@@ -1047,7 +1047,7 @@ export class WebSocketClient {
         break;
 
       case T.SEL_STAMP:
-        this.emit('sel_stamp', { sessionIndex: data.u, layerIndex: data.ly ?? 0 });
+        this.emit('sel_stamp', { sessionIndex: data.u, layerIndex: data.ly });
         break;
 
       case T.SEL_FLIP:
@@ -2034,8 +2034,10 @@ export class WebSocketClient {
    * Broadcasts a selection commit (baking) event.
    * @returns {void}
    */
-  broadcastSelectionCommit() {
-    this.send({ t: T.SEL_COMMIT });
+  broadcastSelectionCommit(layerIndex) {
+    const msg = { t: T.SEL_COMMIT };
+    if (layerIndex !== undefined) msg.ly = layerIndex;
+    this.send(msg);
   }
 
   /**
@@ -2065,8 +2067,10 @@ export class WebSocketClient {
    * Broadcasts a selection stamp (bake without clearing) event.
    * @returns {void}
    */
-  broadcastSelectionStamp() {
-    this.send({ t: T.SEL_STAMP });
+  broadcastSelectionStamp(layerIndex) {
+    const msg = { t: T.SEL_STAMP };
+    if (layerIndex !== undefined) msg.ly = layerIndex;
+    this.send(msg);
   }
 
   /**
