@@ -1,5 +1,10 @@
 <script>
-  import { appState, addColorToFloatingPalette, setFloatingPaletteVisibility } from '../../state.svelte.js';
+  import {
+    appState,
+    addColorToFloatingPalette,
+    FLOATING_PALETTE_SLOT_COUNT,
+    setFloatingPaletteVisibility
+  } from '../../state.svelte.js';
 
   let {
     onColorSelect = null,
@@ -11,26 +16,23 @@
   let panel = $state(null);
   let left = $state(null);
   let top = $state(null);
+  let width = $state(112);
+  let height = $state(298);
   let userPositioned = $state(false);
   let dragging = $state(false);
+  let resizing = $state(false);
 
-  const PALETTE_SCALE = 0.8;
-  const SPACING = 40 * PALETTE_SCALE;
-  const PANEL_WIDTH = 168 * PALETTE_SCALE;
-  const PANEL_HEIGHT = 180 * PALETTE_SCALE;
-  const PANEL_MARGIN = 6 * PALETTE_SCALE;
-  const DOT_SIZE = 36 * PALETTE_SCALE;
-  const DOT_RING = 5 * PALETTE_SCALE;
-
-  const POSITIONS = [
-    { x: 0, y: 0 },
-    { x: 0, y: -SPACING },
-    { x: SPACING * 0.866, y: -SPACING * 0.5 },
-    { x: SPACING * 0.866, y: SPACING * 0.5 },
-    { x: 0, y: SPACING },
-    { x: -SPACING * 0.866, y: SPACING * 0.5 },
-    { x: -SPACING * 0.866, y: -SPACING * 0.5 }
-  ];
+  const PANEL_MARGIN = 6;
+  const MIN_WIDTH = 82;
+  const MAX_WIDTH = 220;
+  const DEFAULT_WIDTH = 112;
+  const DEFAULT_HEIGHT = 298;
+  const OUTER_PADDING = 8;
+  const TITLEBAR_HEIGHT = 22;
+  const TITLEBAR_GAP = 3;
+  const GRID_GAP = 3;
+  const COLUMN_COUNT = 2;
+  const ROW_COUNT = 5;
 
   let palette = $derived.by(() => {
     if (paletteId) {
@@ -39,7 +41,7 @@
 
     return {
       id: 'recent-colors',
-      name: 'Recent Colors',
+      name: 'Recents',
       colors: appState.recentColors
     };
   });
@@ -47,15 +49,11 @@
   let editable = $derived(Boolean(paletteId));
   let visible = $derived(paletteId ? palette?.visible !== false : appState.recentPaletteVisible);
 
-  let circles = $derived.by(() => {
-    const centerX = PANEL_WIDTH / 2;
-    const centerY = 100 * PALETTE_SCALE;
+  let slots = $derived.by(() => {
     const paletteColors = palette?.colors || [];
 
-    return POSITIONS.map((pos, i) => ({
-      x: centerX + pos.x,
-      y: centerY + pos.y,
-      color: i < paletteColors.length ? paletteColors[i] : null
+    return Array.from({ length: FLOATING_PALETTE_SLOT_COUNT }, (_, i) => ({
+      color: paletteColors[i] || null
     }));
   });
 
@@ -80,22 +78,44 @@
     addColorToFloatingPalette(paletteId, appState.currentColor, slotIndex);
   }
 
+  function colorStyle(color) {
+    const alpha = color[3] > 1 ? color[3] / 255 : color[3];
+
+    return `background-color: rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`;
+  }
+
   function clampValue(value, minValue, maxValue) {
     return Math.max(minValue, Math.min(value, maxValue));
   }
 
-  function getBoardLayout() {
+  function getSquarePaletteHeight(nextWidth) {
+    const gridWidth = Math.max(0, nextWidth - OUTER_PADDING);
+    const slotSize = (gridWidth - (GRID_GAP * (COLUMN_COUNT - 1))) / COLUMN_COUNT;
+
+    return OUTER_PADDING + TITLEBAR_HEIGHT + TITLEBAR_GAP + (slotSize * ROW_COUNT) + (GRID_GAP * (ROW_COUNT - 1));
+  }
+
+  function getBoardLayout(nextWidth = width) {
     const boards = panel?.closest?.('#floatingPaletteMount') || panel?.parentElement || (
       typeof document !== 'undefined' ? document.getElementById('boards') : null
     );
-    const width = boards?.clientWidth || boards?.getBoundingClientRect?.().width || PANEL_WIDTH + (PANEL_MARGIN * 2);
-    const height = boards?.clientHeight || boards?.getBoundingClientRect?.().height || PANEL_HEIGHT + (PANEL_MARGIN * 2);
-    const maxLeft = Math.max(PANEL_MARGIN, width - PANEL_WIDTH - PANEL_MARGIN);
-    const maxTop = Math.max(PANEL_MARGIN, height - PANEL_HEIGHT - PANEL_MARGIN);
+    const boardWidth = boards?.clientWidth || boards?.getBoundingClientRect?.().width || nextWidth + (PANEL_MARGIN * 2);
+    const boardHeight = boards?.clientHeight || boards?.getBoundingClientRect?.().height || DEFAULT_HEIGHT + (PANEL_MARGIN * 2);
+    const maxWidthByHeight = (((Math.max(0, boardHeight - (PANEL_MARGIN * 2) - OUTER_PADDING - TITLEBAR_HEIGHT - TITLEBAR_GAP - (GRID_GAP * (ROW_COUNT - 1))) / ROW_COUNT) * COLUMN_COUNT) + (GRID_GAP * (COLUMN_COUNT - 1)) + OUTER_PADDING);
+    const resolvedWidth = clampValue(
+      nextWidth,
+      MIN_WIDTH,
+      Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, boardWidth - (PANEL_MARGIN * 2)), Math.max(MIN_WIDTH, maxWidthByHeight))
+    );
+    const resolvedHeight = getSquarePaletteHeight(resolvedWidth);
+    const maxLeft = Math.max(PANEL_MARGIN, boardWidth - resolvedWidth - PANEL_MARGIN);
+    const maxTop = Math.max(PANEL_MARGIN, boardHeight - resolvedHeight - PANEL_MARGIN);
 
     return {
       safeLeft: PANEL_MARGIN,
       safeTop: PANEL_MARGIN,
+      width: resolvedWidth,
+      height: resolvedHeight,
       maxLeft,
       maxTop,
       dockLeft: maxLeft,
@@ -104,7 +124,9 @@
   }
 
   function syncPanelPosition(forceDock = false) {
-    const bounds = getBoardLayout();
+    const bounds = getBoardLayout(width);
+    width = bounds.width;
+    height = bounds.height;
 
     if (forceDock || !userPositioned || left == null || top == null) {
       left = initialLeft != null ? clampValue(initialLeft, bounds.safeLeft, bounds.maxLeft) : bounds.dockLeft;
@@ -116,8 +138,8 @@
     top = clampValue(top, bounds.safeTop, bounds.maxTop);
   }
 
-  function clampPanelPosition(nextLeft, nextTop) {
-    const bounds = getBoardLayout();
+  function clampPanelPosition(nextLeft, nextTop, nextWidth = width) {
+    const bounds = getBoardLayout(nextWidth);
 
     return {
       left: clampValue(nextLeft, bounds.safeLeft, bounds.maxLeft),
@@ -177,6 +199,52 @@
     window.addEventListener('pointercancel', handleUp);
   }
 
+  function startResize(event) {
+    if (!visible || !panel) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+
+    const startWidth = width || panel.offsetWidth || DEFAULT_WIDTH;
+    const startLeft = left ?? panel.offsetLeft ?? 0;
+    const startTop = top ?? panel.offsetTop ?? 0;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const pointerScale = getBoardPointerScale();
+    resizing = true;
+    document?.body?.classList?.add?.('floating-palette-resizing');
+
+    const handleMove = (moveEvent) => {
+      const nextWidth = startWidth + ((moveEvent.clientX - startX) * pointerScale.x);
+      const bounds = getBoardLayout(nextWidth);
+      const next = clampPanelPosition(startLeft, startTop, bounds.width);
+
+      width = bounds.width;
+      height = bounds.height;
+      left = next.left;
+      top = next.top;
+      userPositioned = true;
+    };
+
+    const handleUp = () => {
+      resizing = false;
+      document?.body?.classList?.remove?.('floating-palette-resizing');
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleUp);
+    };
+
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
+  }
+
+  $effect(() => {
+    width = DEFAULT_WIDTH;
+    height = DEFAULT_HEIGHT;
+  });
+
   $effect(() => {
     if (typeof window === 'undefined' || !panel || !visible) {
       return;
@@ -196,17 +264,16 @@
   });
 
   function panelStyle() {
-    const bounds = getBoardLayout();
+    const bounds = getBoardLayout(width);
     const resolvedLeft = left != null ? clampValue(left, bounds.safeLeft, bounds.maxLeft) : (initialLeft != null ? clampValue(initialLeft, bounds.safeLeft, bounds.maxLeft) : bounds.dockLeft);
     const resolvedTop = top != null ? clampValue(top, bounds.safeTop, bounds.maxTop) : (initialTop != null ? clampValue(initialTop, bounds.safeTop, bounds.maxTop) : bounds.dockTop);
 
     return [
-      `--palette-scale: ${PALETTE_SCALE}`,
-      `width: ${PANEL_WIDTH}px`,
-      `height: ${PANEL_HEIGHT}px`,
+      `width: ${bounds.width}px`,
+      `height: ${bounds.height}px`,
       `left: ${resolvedLeft}px`,
       `top: ${resolvedTop}px`,
-      `display: ${visible ? 'block' : 'none'}`
+      `display: ${visible ? 'flex' : 'none'}`
     ].join('; ');
   }
 </script>
@@ -216,49 +283,60 @@
   id="floatingPalette"
   class="floating-palette"
   class:dragging
+  class:resizing
   style={panelStyle()}
   role="region"
-  aria-label="Recent colors palette"
+  aria-label={`${palette?.name || 'Color'} palette`}
   aria-hidden={!visible}
 >
-  <div class="palette-grid">
+  <div class="palette-titlebar" role="button" tabindex="0" onpointerdown={startDrag} title="Drag to move" aria-label="Move palette">
+    <span class="palette-title">{palette?.name || 'Palette'}</span>
     <button
-      class="palette-handle"
-      onpointerdown={startDrag}
-      ondblclick={hidePanel}
-      title="Drag to move - Double-click to hide"
+      type="button"
+      class="palette-close"
+      title="Hide palette"
+      aria-label="Hide palette"
+      onclick={hidePanel}
+      onpointerdown={(event) => event.stopPropagation()}
     >
-      <span class="grab-dots">::</span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
     </button>
+  </div>
 
-    {#each circles as circle, i}
-      {#if circle.color}
+  <div class="palette-grid">
+    {#each slots as slot, i}
+      {#if slot.color}
         <button
-          class="color-dot"
-          style="left: {circle.x}px; top: {circle.y}px; --dot-color: rgb({circle.color[0]}, {circle.color[1]}, {circle.color[2]}); --dot-size: {DOT_SIZE}px; --dot-ring: {DOT_RING}px"
-          title="Color {i + 1}"
-          onpointerup={() => selectColor(circle.color)}
+          class="color-slot"
+          style={colorStyle(slot.color)}
+          title={`Color ${i + 1}`}
+          onpointerup={() => selectColor(slot.color)}
         ></button>
+      {:else if editable}
+        <button
+          class="color-slot empty"
+          title="Add current color"
+          aria-label="Add current color"
+          onpointerup={() => addCurrentColor(i)}
+        >
+          <span class="plus-icon">+</span>
+        </button>
       {:else}
-        {#if editable}
-          <button
-            class="color-dot empty"
-            style="left: {circle.x}px; top: {circle.y}px; --dot-size: {DOT_SIZE}px; --dot-ring: {DOT_RING}px"
-            title="Add current color"
-            aria-label="Add current color"
-            onpointerup={() => addCurrentColor(i)}
-          >
-            <span class="plus-icon">+</span>
-          </button>
-        {:else}
-          <div
-            class="color-dot empty"
-            style="left: {circle.x}px; top: {circle.y}px; --dot-size: {DOT_SIZE}px; --dot-ring: {DOT_RING}px"
-          ></div>
-        {/if}
+        <div class="color-slot empty" aria-hidden="true"></div>
       {/if}
     {/each}
   </div>
+
+  <button
+    type="button"
+    class="palette-resize"
+    title="Resize palette"
+    aria-label="Resize palette"
+    onclick={(event) => event.preventDefault()}
+    onpointerdown={startResize}
+  ></button>
 </div>
 
 <style>
@@ -271,7 +349,12 @@
 
   :global(body.floating-palette-dragging),
   :global(body.floating-palette-dragging *) {
-    cursor: none !important;
+    cursor: grabbing !important;
+  }
+
+  :global(body.floating-palette-resizing),
+  :global(body.floating-palette-resizing *) {
+    cursor: nwse-resize !important;
   }
 
   .floating-palette {
@@ -279,112 +362,132 @@
     z-index: 1480;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: calc(var(--palette-scale) * 6px);
-    padding: 0;
-    background: transparent;
-    border: none;
-    overflow: visible;
-    pointer-events: none;
+    padding: 4px;
+    background: color-mix(in srgb, var(--bg-secondary) 95%, black);
+    border: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent);
+    border-radius: 7px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.34);
+    pointer-events: auto;
     touch-action: none;
+    user-select: none;
   }
 
-  .palette-handle {
-    position: absolute;
-    width: calc(var(--palette-scale) * 32px);
-    height: calc(var(--palette-scale) * 28px);
-    border: 1px solid var(--bg-secondary);
-    border-radius: 6px;
-    background: var(--bg-secondary);
-    color: rgba(255, 255, 255, 0.6);
-    cursor: grab;
-    pointer-events: auto;
-    padding: 0;
+  .palette-titlebar {
+    height: 22px;
+    min-height: 22px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    transition: all 0.2s;
-    user-select: none;
-    left: 50%;
-    top: calc(var(--palette-scale) * 10px);
-    transform: translateX(-50%);
-    z-index: 10;
+    justify-content: space-between;
+    gap: 4px;
+    padding: 0 1px 3px 6px;
+    cursor: grab;
   }
 
-  .palette-handle:hover {
-    background: var(--bg-secondary);
-    border-color: var(--bg-secondary);
-    color: rgba(255, 255, 255, 0.8);
-  }
-
-  .palette-handle:active {
+  .palette-titlebar:active {
     cursor: grabbing;
-    background: var(--bg-secondary);
   }
 
-  .grab-dots {
-    font-weight: bold;
-    font-size: calc(var(--palette-scale) * 1.05rem);
-    letter-spacing: -1px;
-    transform: rotate(90deg);
+  .palette-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+
+  .palette-close {
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: color-mix(in srgb, var(--text-secondary) 78%, transparent);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+
+  .palette-close:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
   }
 
   .palette-grid {
-    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(5, minmax(0, 1fr));
+    gap: 3px;
+  }
+
+  .color-slot {
     width: 100%;
     height: 100%;
-  }
-
-  .color-dot {
-    position: absolute;
-    width: var(--dot-size, 28.8px);
-    height: var(--dot-size, 28.8px);
+    min-width: 0;
+    min-height: 0;
     box-sizing: border-box;
-    border-radius: 50%;
-    border: none;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 3px;
     padding: 0;
     margin: 0;
-    background:
-      radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.18), transparent 34%),
-      var(--dot-color);
+    background: none;
     cursor: pointer;
-    pointer-events: auto;
-    transition: all 0.15s ease;
-    transform: translate(-50%, -50%);
-    box-shadow:
-      0 0 0 var(--dot-ring, 4px) var(--bg-secondary),
-      0 2px 6px rgba(0, 0, 0, 0.3);
-    background-clip: padding-box;
+    transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
   }
 
-  .color-dot:hover {
+  .color-slot:hover {
     z-index: 2;
-    transform: translate(-50%, -50%) scale(1.12);
-    box-shadow:
-      0 0 0 var(--dot-ring, 4px) var(--bg-secondary),
-      0 3px 10px rgba(0, 0, 0, 0.4);
+    transform: scale(1.06);
+    border-color: rgba(255, 255, 255, 0.42);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.36);
   }
 
-  .color-dot:active {
-    z-index: 3;
-    transform: translate(-50%, -50%) scale(0.95);
+  .color-slot:active {
+    transform: scale(0.96);
   }
 
-  .color-dot.empty {
-    background: rgba(255, 255, 255, 0.08);
-    box-shadow:
-      0 0 0 var(--dot-ring, 4px) var(--bg-secondary),
-      0 2px 6px rgba(0, 0, 0, 0.22);
+  .color-slot.empty {
+    display: grid;
+    place-items: center;
+    background: rgba(255, 255, 255, 0.07);
+    color: rgba(255, 255, 255, 0.62);
     cursor: pointer;
-    color: rgba(255, 255, 255, 0.68);
-    font-size: calc(var(--dot-size, 28.8px) * 0.9);
-    font-weight: 600;
-    line-height: 1;
+    font-size: 1rem;
+    font-weight: 500;
+  }
+
+  div.color-slot.empty {
+    cursor: default;
   }
 
   .plus-icon {
-    display: block;
-    transform: translateY(-1px);
     pointer-events: none;
+    line-height: 1;
+    transform: translateY(-1px);
+  }
+
+  .palette-resize {
+    position: absolute;
+    right: 1px;
+    bottom: 1px;
+    width: 16px;
+    height: 16px;
+    border: 0;
+    border-radius: 4px;
+    padding: 0;
+    background:
+      linear-gradient(135deg, transparent 46%, color-mix(in srgb, var(--text-secondary) 44%, transparent) 47%, transparent 54%),
+      linear-gradient(135deg, transparent 62%, color-mix(in srgb, var(--text-secondary) 34%, transparent) 63%, transparent 70%);
+    cursor: nwse-resize;
+  }
+
+  .palette-resize:hover {
+    background-color: rgba(255, 255, 255, 0.08);
   }
 </style>

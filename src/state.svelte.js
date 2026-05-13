@@ -98,7 +98,7 @@ export const appState = new DrawingState();
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const FLOATING_PALETTE_STORAGE_KEY = 'topdraw_floatingPalettes';
-export const FLOATING_PALETTE_SLOT_COUNT = 7;
+export const FLOATING_PALETTE_SLOT_COUNT = 10;
 
 // ============================================================================
 // Helper functions
@@ -213,7 +213,7 @@ export function addRecentColor(color) {
   appState.recentColors = [
     [...color],
     ...appState.recentColors.filter(c => !colorsEqual(c, color))
-  ].slice(0, 7);
+  ].slice(0, FLOATING_PALETTE_SLOT_COUNT);
 }
 
 export function addCustomColor(color, settings = {}) {

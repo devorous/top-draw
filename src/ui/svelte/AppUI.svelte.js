@@ -418,8 +418,8 @@ export function initSvelteUI(app) {
 
           mountPalette(palette.id, {
             paletteId: palette.id,
-            initialLeft: Math.max(6, (floatingPaletteTarget.clientWidth || 0) - ((168 * 0.8) + 8) - (index * 20)),
-            initialTop: Math.max(6, (floatingPaletteTarget.clientHeight || 0) - ((180 * 0.8) + 8) - (index * 20)),
+            initialLeft: Math.max(6, (floatingPaletteTarget.clientWidth || 0) - 120 - (index * 20)),
+            initialTop: Math.max(6, (floatingPaletteTarget.clientHeight || 0) - 306 - (index * 20)),
             onColorSelect: (color) => app.handlePaletteColorSelect(color)
           });
         });
