@@ -23,6 +23,9 @@ export class Auth {
     // Current logged in state
     this.isLoggedIn = false;
     this.loggedInUsername = null;
+    this.currentAuthSession = null;
+    this._autoLoginInFlight = false;
+    this._autoLoginToken = null;
 
   }
 
@@ -54,6 +57,7 @@ export class Auth {
       loginUsername: document.getElementById('loginUsername'),
       loginPassword: document.getElementById('loginPassword'),
       loginBtn: document.getElementById('loginBtn'),
+      guestJoinBtn: document.getElementById('guestJoinBtn'),
       loginJoinBtn: document.getElementById('loginJoinBtn'),
       rememberMe: document.getElementById('rememberMe'),
       // Logged in state
@@ -118,16 +122,24 @@ export class Auth {
     }
 
     // Check if user has stored credentials for auto-login
-    if (!this.openPasswordResetFromUrl()) {
+    const openedPasswordReset = this.openPasswordResetFromUrl();
+    if (!openedPasswordReset) {
       this.checkStoredLogin();
     }
-    this.setAuthPending(false);
+    if (openedPasswordReset || !this.getStoredToken()) {
+      this.setAuthPending(false);
+    }
   }
 
   setupListeners() {
     this.els.loginBtn?.addEventListener('click', (e) => {
       e.preventDefault();
       this.handleLogin();
+    });
+
+    this.els.guestJoinBtn?.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.triggerJoin();
     });
 
     this.els.loginJoinBtn?.addEventListener('click', (e) => {
@@ -204,7 +216,7 @@ export class Auth {
   isJoinActionEnabled() {
     const activeJoinButtons = this.isLoggedIn
       ? [this.els.authLoggedInJoinBtn, this.els.joinBtnLoggedIn]
-      : [this.els.loginJoinBtn];
+      : [this.els.loginJoinBtn, this.els.guestJoinBtn];
     return activeJoinButtons.some((button) => button && !button.disabled);
   }
 
@@ -774,6 +786,14 @@ export class Auth {
     if (!token) return false;
 
     console.log('[Auth] attemptAutoLogin: token found, wsClient.connected?', this.wsClient?.connected);
+    this.setAuthPending(true);
+
+    if (this._autoLoginInFlight && this._autoLoginToken === token) {
+      return true;
+    }
+
+    this._autoLoginInFlight = true;
+    this._autoLoginToken = token;
 
     // Send token if we have one — covers room switches within a session,
     // "remember me" across page reloads, and page refreshes with a stored token
@@ -798,6 +818,9 @@ export class Auth {
   handleAuthResult(data) {
     console.log('[Auth] handleAuthResult called:', { success: data.success, username: data.username, hasEmail: data.hasEmail, emailPromptDeclined: data.emailPromptDeclined });
     this.setLoading(false);
+    this._autoLoginInFlight = false;
+    this._autoLoginToken = null;
+    this.setAuthPending(false);
 
     if (data.success) {
       const username = data.username || this._pendingUsername;
@@ -824,6 +847,13 @@ export class Auth {
 
       // Show logged-in state on landing page
       if (username) {
+        this.currentAuthSession = {
+          token: data.token || this.getStoredToken() || '',
+          role: data.role || 0,
+          username,
+          globalRole: data.globalRole ?? data.role ?? 0,
+          roomRole: data.roomRole || 0
+        };
         this.showLoggedInState(username);
       }
 
@@ -838,6 +868,7 @@ export class Auth {
     } else {
       this._pendingUsername = null;
       this._pendingRegister = false;
+      this.currentAuthSession = null;
 
       const errorMessage = data.error || 'Authentication failed';
       const shouldClearStoredToken = this.getStoredToken() && TOKEN_INVALID_ERRORS.has(errorMessage);
@@ -854,6 +885,13 @@ export class Auth {
         this.onError(errorMessage);
       }
     }
+  }
+
+  replayAuthSession() {
+    if (!this.currentAuthSession || !this.onSuccess) return false;
+    const { token, role, username, globalRole, roomRole } = this.currentAuthSession;
+    this.onSuccess(token, role, username, globalRole, roomRole);
+    return true;
   }
 
   setLoading(loading) {
@@ -877,11 +915,21 @@ export class Auth {
       if (this._loadingTimeout) { clearTimeout(this._loadingTimeout); this._loadingTimeout = null; }
       btns.forEach(btn => {
         if (btn) {
-          btn.textContent = btn._oldText || 'Join';
+          btn.textContent = btn._oldText || this.getDefaultButtonText(btn);
+          btn._oldText = null;
           btn.classList.remove('disabled');
         }
       });
     }
+  }
+
+  getDefaultButtonText(btn) {
+    if (btn === this.els.loginBtn) return 'Login';
+    if (btn === this.els.registerSubmitBtn) return 'Create Account';
+    if (btn === this.els.passwordResetSubmitBtn) {
+      return this._passwordResetMode === 'complete' ? 'Change Password' : 'Send Link';
+    }
+    return '';
   }
 
   setAuthPending(pending) {

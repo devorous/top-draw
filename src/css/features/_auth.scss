@@ -120,6 +120,28 @@ body.desktop-window-chrome #overlay {
   min-width: 100px;
 }
 
+.authGuestJoinBtn {
+  width: 100%;
+  max-width: 220px;
+  min-height: 44px;
+  margin-top: 12px;
+  background: color-mix(in srgb, var(--accent-primary) 82%, var(--bg-tertiary));
+  border-color: var(--accent-primary);
+  color: var(--bg-primary);
+  font-weight: 700;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 35%, transparent),
+    0 8px 20px color-mix(in srgb, var(--accent-primary) 22%, transparent);
+
+  &:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+    color: var(--bg-primary);
+    transform: translateY(-1px);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-hover) 42%, transparent),
+      0 10px 24px color-mix(in srgb, var(--accent-primary) 28%, transparent);
+  }
+}
+
 .authButtonsRow {
   display: flex;
   gap: 8px;

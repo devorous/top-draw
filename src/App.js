@@ -668,6 +668,7 @@ export class DrawingApp {
     if (this.auth) {
       this.auth.onSuccess = (token, role, username, globalRole, roomRole) => this.handleAuthSuccess(token, role, username, globalRole, roomRole);
       this.auth.onError = (error) => this.handleAuthError(error);
+      this.auth.replayAuthSession?.();
     }
 
     updateStartupStatus('Loading rooms...');
@@ -2894,7 +2895,7 @@ export class DrawingApp {
 
     this.self.setUsername(name);
 
-    const pendingPassword = password ?? ((!this.auth?.isLoggedIn && this.ui.elements.loginPassword?.value) || '');
+    const pendingPassword = password || '';
     this._pendingPassword = pendingPassword || null;
     this.landingPage?.clearError();
 

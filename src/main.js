@@ -271,6 +271,7 @@ function attachDeferredLandingHandlers() {
   const loginJoinBtn = document.getElementById('loginJoinBtn');
   const joinBtnLoggedIn = document.getElementById('joinBtnLoggedIn');
   const authLoggedInJoinBtn = document.getElementById('authLoggedInJoinBtn');
+  const guestJoinBtn = document.getElementById('guestJoinBtn');
   const loginBtn = document.getElementById('loginBtn');
   const loginOfflineBtn = document.getElementById('loginOfflineBtn');
   const refreshRoomsBtn = document.getElementById('refreshRoomsBtn');
@@ -278,7 +279,7 @@ function attachDeferredLandingHandlers() {
   const roomIdInput = document.getElementById('roomIdInput');
 
   const canRunDeferredJoin = () => {
-    const joinButtons = [authLoggedInJoinBtn, joinBtnLoggedIn, loginJoinBtn]
+    const joinButtons = [authLoggedInJoinBtn, joinBtnLoggedIn, loginJoinBtn, guestJoinBtn]
       .filter((btn) => btn?.offsetParent !== null);
     return joinButtons.some((btn) => !btn.disabled);
   };
@@ -291,6 +292,13 @@ function attachDeferredLandingHandlers() {
   });
 
   loginJoinBtn?.addEventListener('click', (event) => {
+    if (app) return;
+    event.preventDefault();
+    if (!canRunDeferredJoin()) return;
+    void runDeferredAction((readyApp) => readyApp.handleJoin());
+  });
+
+  guestJoinBtn?.addEventListener('click', (event) => {
     if (app) return;
     event.preventDefault();
     if (!canRunDeferredJoin()) return;
