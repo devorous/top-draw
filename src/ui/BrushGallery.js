@@ -21,6 +21,8 @@ export class BrushGallery {
     this.onUpload = options.onUpload || null;
     this.kind = options.kind || 'imageBrush';
     this.includeGih = options.includeGih !== false;
+    this.shouldShowBrush = options.shouldShowBrush || (() => true);
+    this.includeDefaultShapes = options.includeDefaultShapes || false;
     this.assetLibrary = options.assetLibrary || assetLibrary;
     this.listElements = [];
     this.pendingRemovalId = null;
@@ -41,8 +43,49 @@ export class BrushGallery {
     }
 
     this.renderUploadTile();
+    this.initDefaultShapes();
     this.initHeaderActions();
     this.loadBrushes();
+  }
+
+  initDefaultShapes() {
+    if (!this.includeDefaultShapes) return;
+    for (const shape of ['circle', 'square']) {
+      const title = shape.charAt(0).toUpperCase() + shape.slice(1);
+      const dataUrl = this.createDefaultShapeIcon(shape);
+      this.registerBrush({
+        type: 'confetti-shape',
+        confettiShape: shape,
+        brushName: title,
+        fileName: `${shape}.confetti`,
+        gimpUrl: dataUrl,
+        previewUrl: dataUrl,
+        id: `builtin:${this.kind}:${shape}`,
+        source: 'builtin',
+        kind: this.kind
+      });
+    }
+  }
+
+  shouldIncludeDefaultShapes() {
+    return typeof this.includeDefaultShapes === 'function'
+      ? this.includeDefaultShapes()
+      : !!this.includeDefaultShapes;
+  }
+
+  createDefaultShapeIcon(shape) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 40;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#000';
+    if (shape === 'circle') {
+      ctx.beginPath();
+      ctx.arc(20, 20, 18, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillRect(2, 2, 36, 36);
+    }
+    return canvas.toDataURL();
   }
 
   /**
@@ -192,7 +235,8 @@ export class BrushGallery {
   }
 
   getBuiltinAssetCount() {
-    return BRUSH_MANIFEST.filter(entry => this.shouldIncludeManifestEntry(entry)).length;
+    const defaultShapeCount = this.shouldIncludeDefaultShapes() ? 2 : 0;
+    return BRUSH_MANIFEST.filter(entry => this.shouldIncludeManifestEntry(entry)).length + defaultShapeCount;
   }
 
   unhideAll() {
@@ -213,6 +257,7 @@ export class BrushGallery {
       const tiles = listEl.querySelectorAll('.brushItem[data-asset-id]');
       tiles.forEach(tile => tile.remove());
     });
+    this.initDefaultShapes();
     await this.loadBrushes();
     this.updateUnhideButtons();
   }
@@ -351,9 +396,21 @@ export class BrushGallery {
    * @param {Object} brush - Brush data object
    */
   addBrushToGallery(brush) {
+    if (!this.shouldShowBrush(brush)) return;
     for (const listEl of this.listElements) {
       const item = this.createGalleryItem(brush);
       listEl.appendChild(item);
+    }
+  }
+
+  refreshVisibleBrushes() {
+    this.clearPendingRemoval();
+    this.listElements.forEach(listEl => {
+      const tiles = listEl.querySelectorAll('.brushItem[data-asset-id]');
+      tiles.forEach(tile => tile.remove());
+    });
+    for (const brush of this.brushes) {
+      this.addBrushToGallery(brush);
     }
   }
 
@@ -388,7 +445,7 @@ export class BrushGallery {
     const img = document.createElement('img');
     if (brush.type === 'gih' && brush.gBrushes && brush.gBrushes.length > 0) {
       img.src = brush.gBrushes[0].gimpUrl;
-    } else if (brush.type === 'image' || brush.type === 'gbr') {
+    } else if (brush.type === 'image' || brush.type === 'gbr' || brush.type === 'confetti-shape') {
       img.src = brush.gimpUrl;
     } else {
       img.src = brush.previewUrl || brush.gimpUrl;
@@ -489,6 +546,7 @@ export class BrushGallery {
    */
   show() {
     if (this.galleryEl) {
+      this.refreshVisibleBrushes();
       this.galleryEl.style.display = 'block';
       window.app?.ui?.refreshToolOptionsLayout?.(window.app?.self?.tool);
     }

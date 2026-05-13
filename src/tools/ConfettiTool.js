@@ -52,6 +52,7 @@ export class ConfettiTool extends Tool {
     this._strokeSeed = 0;
     this._emissionIndex = 0;
     this._imageCache = new Map();
+    this._tintedImageCache = new Map();
   }
 
   deactivate() {
@@ -202,19 +203,20 @@ export class ConfettiTool extends Tool {
     const scaleMax = Math.max(scaleMin, 1 + variation);
     const baseSize = Math.max(1, Number(user.confettiParticleSize ?? user.size ?? 10));
     const size = Math.max(1, baseSize * (scaleMin + random() * (scaleMax - scaleMin)));
-    const rotationJitter = ((Number(user.confettiRotationJitter ?? 180)) * Math.PI) / 180;
-    const rotationMode = user.confettiRotationMode || 'random';
+    const rotationMode = this.getRotationMode(user);
     let rotation = random() * Math.PI * 2;
-    if (rotationMode === 'follow') rotation = pathAngle + (random() * 2 - 1) * rotationJitter;
-    if (rotationMode === 'fixed') rotation = (random() * 2 - 1) * rotationJitter;
+    if (rotationMode === 'follow') rotation = pathAngle;
+    if (rotationMode === 'fixed') rotation = 0;
 
     return {
       x: pos.x + Math.cos(theta) * radius,
       y: pos.y + Math.sin(theta) * radius,
       size,
       rotation,
-      brush: user.confettiBrush || null,
+      shape: this.getParticleShape(user),
+      brush: this.getParticleShape(user) === 'image' ? (user.confettiBrush || null) : null,
       color: this.getParticleColor(user, random),
+      colorMode: this.getColorMode(user),
       opacity: (user.opacity ?? 1) * (0.65 + random() * 0.35)
     };
   }
@@ -263,9 +265,13 @@ export class ConfettiTool extends Tool {
     const image = this.getParticleImage(particle.brush);
     if (image?.complete && image.naturalWidth > 0) {
       const half = particle.size / 2;
-      ctx.drawImage(image, -half, -half, particle.size, particle.size);
-      ctx.globalCompositeOperation = 'source-in';
+      const source = particle.colorMode === 'image'
+        ? image
+        : this.getTintedParticleImage(image, particle.brush, particle.color);
+      ctx.drawImage(source, -half, -half, particle.size, particle.size);
+    } else if (particle.shape === 'square') {
       ctx.fillStyle = colorToString(particle.color);
+      const half = particle.size / 2;
       ctx.fillRect(-half, -half, particle.size, particle.size);
     } else {
       ctx.fillStyle = colorToString(particle.color);
@@ -342,7 +348,8 @@ export class ConfettiTool extends Tool {
   }
 
   getParticleColor(user, random) {
-    const mode = user.confettiColorMode || 'active';
+    const mode = this.getColorMode(user);
+    if (mode === 'image') return user.color || [0, 0, 0];
     if (mode === 'random') {
       return [
         Math.floor(random() * 256),
@@ -383,6 +390,28 @@ export class ConfettiTool extends Tool {
     return image;
   }
 
+  getTintedParticleImage(image, brush, color) {
+    const colorKey = color.slice(0, 3).map(value => Math.round(value ?? 0)).join(',');
+    const brushKey = brush?.id || brush?.brushName || brush?.fileName || brush?.gimpUrl || brush?.previewUrl || 'brush';
+    const sourceSizeKey = `${image.naturalWidth || image.width || 0}x${image.naturalHeight || image.height || 0}`;
+    const cacheKey = `${brushKey}:${sourceSizeKey}:${colorKey}`;
+    if (this._tintedImageCache.has(cacheKey)) return this._tintedImageCache.get(cacheKey);
+
+    const width = image.naturalWidth || image.width || 1;
+    const height = image.naturalHeight || image.height || 1;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const tintCtx = canvas.getContext('2d');
+    tintCtx.drawImage(image, 0, 0, width, height);
+    tintCtx.globalCompositeOperation = 'source-in';
+    tintCtx.fillStyle = colorToString(color);
+    tintCtx.fillRect(0, 0, width, height);
+
+    this._tintedImageCache.set(cacheKey, canvas);
+    return canvas;
+  }
+
   svgContentToDataUrl(svgContent) {
     if (!svgContent) return null;
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgContent)}`;
@@ -400,7 +429,9 @@ export class ConfettiTool extends Tool {
       confettiParticleSize: Math.max(1, Number(user.confettiParticleSize ?? user.size ?? 10)),
       confettiSizeVariation: Math.max(0, Math.min(100, Number(user.confettiSizeVariation ?? 40))),
       confettiSpacing: Math.max(0, Math.min(50, Number(user.confettiSpacing ?? user.spacing ?? 30))),
-      confettiColorMode: user.confettiColorMode || 'active',
+      confettiShape: this.getParticleShape(user),
+      confettiColorMode: this.getColorMode(user),
+      confettiRotationMode: this.getRotationMode(user),
       ...payloadExtra
     };
     if (includeBrush) settings.confettiBrush = this.getNetworkBrush(user.confettiBrush);
@@ -444,7 +475,9 @@ export class ConfettiTool extends Tool {
       'confettiParticleSize',
       'confettiSizeVariation',
       'confettiSpacing',
+      'confettiShape',
       'confettiColorMode',
+      'confettiRotationMode',
       'confettiBrush'
     ]) {
       if (data[key] !== undefined) user[key] = data[key];
@@ -453,6 +486,23 @@ export class ConfettiTool extends Tool {
       user._confettiStrokeSeed = Number(data.initialSeed) & CONFETTI_SEED_MAX;
     }
     return data;
+  }
+
+  getParticleShape(user) {
+    const shape = user.confettiShape;
+    if (['image', 'circle', 'square'].includes(shape)) return shape;
+    return user.confettiBrush ? 'image' : 'circle';
+  }
+
+  getColorMode(user) {
+    const mode = user.confettiColorMode || 'image';
+    if (mode === 'image' && this.getParticleShape(user) !== 'image') return 'active';
+    return ['image', 'active', 'random'].includes(mode) ? mode : 'image';
+  }
+
+  getRotationMode(user) {
+    const mode = user.confettiRotationMode || 'random';
+    return ['random', 'fixed'].includes(mode) ? mode : 'random';
   }
 
   expandDirtyBounds(rect) {

@@ -562,6 +562,11 @@ export class DrawingApp {
     this.brushGallery = new BrushGalleryLoader({
       onSelect: (brush) => this.handleBrushSelect(brush),
       onUpload: () => this.ui.elements.brushFileInput?.click(),
+      shouldShowBrush: (brush) => {
+        if (this.self?.tool === 'confetti') return brush?.type !== 'gih';
+        return brush?.type !== 'confetti-shape';
+      },
+      includeDefaultShapes: () => this.self?.tool === 'confetti',
       assetLibrary
     });
     this.patternGallery = new PatternBrushGallery({
@@ -2421,6 +2426,16 @@ export class DrawingApp {
           updateConfettiPreview();
         });
         if (radio.checked) this.self.confettiColorMode = radio.value;
+      });
+    }
+    if (elements.confettiRotationModeRadios) {
+      elements.confettiRotationModeRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+          if (!e.target.checked) return;
+          this.self.confettiRotationMode = e.target.value;
+          updateConfettiPreview();
+        });
+        if (radio.checked) this.self.confettiRotationMode = radio.value;
       });
     }
     bindConfettiOption(elements.confettiParticlesSlider, 'confettiParticles', (value) => Number(value), (value) => {
@@ -4784,6 +4799,7 @@ export class DrawingApp {
   handleBrushSelect(brush) {
     if (this.self.tool === 'confetti') {
       this.self.confettiBrush = brush;
+      this.self.confettiShape = brush.confettiShape || 'image';
       this.toolManager.getTool('confetti')?.updatePreview?.(this.self);
       if (this.connected) {
         this.inputBufferManager.queueBroadcast(() =>
