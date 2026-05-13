@@ -449,6 +449,7 @@ export class EraserTool extends Tool {
     state.opacity = point.opacity;
 
     if (!state.lastStampPos) {
+      this._stampCircle(state, point.x, point.y, radius, user?.id);
       state.lastStampPos = { x: point.x, y: point.y, radius };
       state.maxRadius = Math.max(state.maxRadius, radius);
       return;

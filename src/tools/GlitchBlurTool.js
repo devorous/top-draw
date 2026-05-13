@@ -44,7 +44,11 @@ export class GlitchBlurTool extends Tool {
     this._activeUser = null;
   }
 
-  captureSnapshot(userId) {
+  _getTargetLayer(user) {
+    return user?.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+  }
+
+  captureSnapshot(userId, layerIdx) {
     let canvas = this.snapshotCanvases.get(userId);
     if (!canvas) {
       canvas = document.createElement('canvas');
@@ -54,8 +58,8 @@ export class GlitchBlurTool extends Tool {
     canvas.height = this.board.getHeight();
     const ctx = canvas.getContext('2d');
 
-    // Composite layers with room background color (ignore display override)
-    this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.layerGroups.length, this.board.roomBackgroundColor);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    this.board.layerManager.compositeLayerRange(ctx, layerIdx, layerIdx + 1, null);
   }
 
   clearSnapshot(userId) {
@@ -64,12 +68,12 @@ export class GlitchBlurTool extends Tool {
 
   onPointerDown(user, pos) {
     this._activeUser = user;
-    const activeLayerIdx = 0;
+    const activeLayerIdx = this._getTargetLayer(user);
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
     const rawBlurRadius = Number(user.blurRadius);
     user.blurRadius = Math.max(1, Math.min(25, Number.isFinite(rawBlurRadius) ? rawBlurRadius : 10));
 
-    this.captureSnapshot(userId);
+    this.captureSnapshot(userId, activeLayerIdx);
     this.board.beginStroke(user);
 
     const maskCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, userId);
@@ -128,7 +132,7 @@ export class GlitchBlurTool extends Tool {
     if (!user.mousedown || user.panning) return;
 
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
-    const maskCtx = this.board.layerManager?.getUserStrokeContext(0, userId);
+    const maskCtx = this.board.layerManager?.getUserStrokeContext(this._getTargetLayer(user), userId);
     if (!maskCtx) return;
 
     const prevStamp = this.lastStampPos.get(userId);
@@ -181,18 +185,11 @@ export class GlitchBlurTool extends Tool {
   _captureLocalStrokeImage(user, userId) {
     if (user !== this.board.app?.self) return null;
 
-    const active = this.board.layerManager?.getActiveStroke(0, userId);
+    const active = this.board.layerManager?.getActiveStroke(this._getTargetLayer(user), userId);
     const sourceCanvas = active?.canvas;
     if (!sourceCanvas) return null;
 
-    let bounds = null;
-    if (active.dirtyRect && active.dirtyRect.maxX !== -1) {
-      const x = Math.floor(Math.max(0, active.dirtyRect.minX));
-      const y = Math.floor(Math.max(0, active.dirtyRect.minY));
-      const width = Math.ceil(Math.min(sourceCanvas.width, active.dirtyRect.maxX + 1)) - x;
-      const height = Math.ceil(Math.min(sourceCanvas.height, active.dirtyRect.maxY + 1)) - y;
-      if (width > 0 && height > 0) bounds = { x, y, width, height };
-    }
+    let bounds = this._findStrokeContentBounds(sourceCanvas, active.dirtyRect);
     if (!bounds && user.blurBounds) {
       const x = Math.floor(Math.max(0, user.blurBounds.minX));
       const y = Math.floor(Math.max(0, user.blurBounds.minY));
@@ -212,14 +209,74 @@ export class GlitchBlurTool extends Tool {
     return { bounds, cropCanvas };
   }
 
+  _findStrokeContentBounds(canvas, dirtyRect = null) {
+    if (!canvas) return null;
+    let x = 0;
+    let y = 0;
+    let width = canvas.width;
+    let height = canvas.height;
+
+    if (dirtyRect && dirtyRect.maxX !== -1) {
+      x = Math.floor(Math.max(0, dirtyRect.minX));
+      y = Math.floor(Math.max(0, dirtyRect.minY));
+      width = Math.ceil(Math.min(canvas.width, dirtyRect.maxX + 1)) - x;
+      height = Math.ceil(Math.min(canvas.height, dirtyRect.maxY + 1)) - y;
+    }
+    if (width <= 0 || height <= 0) return null;
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const imageData = ctx.getImageData(x, y, width, height);
+    const data = imageData.data;
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+
+    for (let py = 0; py < height; py++) {
+      const row = py * width * 4;
+      for (let px = 0; px < width; px++) {
+        if (data[row + px * 4 + 3] === 0) continue;
+        if (px < minX) minX = px;
+        if (py < minY) minY = py;
+        if (px > maxX) maxX = px;
+        if (py > maxY) maxY = py;
+      }
+    }
+
+    if (maxX < 0) return null;
+    return {
+      x: x + minX,
+      y: y + minY,
+      width: maxX - minX + 1,
+      height: maxY - minY + 1
+    };
+  }
+
   _broadcastLocalStrokeImage(strokeImage) {
     if (!strokeImage || !this.board.app?.wsClient || !this.board.app?.connected) return;
     const { bounds, cropCanvas } = strokeImage;
+    const maxDataUrlLength = 3 * 1024 * 1024;
 
     // Validate bounds before broadcasting
     if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) ||
         !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height) ||
         bounds.width <= 0 || bounds.height <= 0) {
+      return;
+    }
+
+    let dataUrl = cropCanvas.toDataURL('image/png');
+    if (dataUrl.length > maxDataUrlLength) {
+      const webpDataUrl = cropCanvas.toDataURL('image/webp', 0.9);
+      if (webpDataUrl?.startsWith('data:image/webp') && webpDataUrl.length < dataUrl.length) {
+        dataUrl = webpDataUrl;
+      }
+    }
+    if (dataUrl.length > maxDataUrlLength) {
+      console.warn('[GlitchBlurTool] Skipping oversized glitch result broadcast:', {
+        width: bounds.width,
+        height: bounds.height,
+        bytes: dataUrl.length
+      });
       return;
     }
 
@@ -229,7 +286,7 @@ export class GlitchBlurTool extends Tool {
         bounds.y,
         bounds.width,
         bounds.height,
-        cropCanvas.toDataURL('image/png')
+        dataUrl
       );
     };
 
@@ -262,12 +319,6 @@ export class GlitchBlurTool extends Tool {
     stampCanvas.height = cropH;
     const stampCtx = stampCanvas.getContext('2d');
 
-    // Fill with actual room background color (never overridden)
-    const [bgR, bgG, bgB, bgA] = this.board.roomBackgroundColor;
-    stampCtx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, ${bgA})`;
-    stampCtx.fillRect(0, 0, cropW, cropH);
-
-    // Draw cropped region on top
     stampCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
     try {

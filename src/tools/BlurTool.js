@@ -1,5 +1,5 @@
 /**
- * @fileoverview Blur tool - stamps blurred pixels sampled from the composited canvas.
+ * @fileoverview Blur tool - stamps blurred pixels sampled from the active layer.
  */
 
 /**
@@ -84,7 +84,11 @@ export class BlurTool extends Tool {
     this._activeUser = null;
   }
 
-  captureSnapshot(userId) {
+  _getTargetLayer(user) {
+    return user?.activeLayer ?? this.board.app?.self?.activeLayer ?? 0;
+  }
+
+  captureSnapshot(userId, layerIdx) {
     let canvas = this.snapshotCanvases.get(userId);
     if (!canvas) {
       canvas = document.createElement('canvas');
@@ -94,8 +98,9 @@ export class BlurTool extends Tool {
     canvas.height = this.board.getHeight();
     const ctx = canvas.getContext('2d');
 
-    // Composite layers with room background color (ignore display override)
-    this.board.layerManager.compositeLayerRange(ctx, 0, this.board.layerManager.layerGroups.length, this.board.roomBackgroundColor);
+    // Snapshot only the target layer so upper-layer pixels cannot be blurred
+    // into this layer's stroke.
+    this.board.layerManager.compositeLayerRange(ctx, layerIdx, layerIdx + 1, null);
   }
 
   clearSnapshot(userId) {
@@ -110,15 +115,13 @@ export class BlurTool extends Tool {
    */
   onPointerDown(user, pos) {
     this._activeUser = user;
-    // Blur always targets layer 0 - it reads from the fully composited image
-    // which includes the white background, so it can't work on transparent layers
-    const activeLayerIdx = 0;
+    const activeLayerIdx = this._getTargetLayer(user);
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
 
     const rawBlurRadius = Number(user.blurRadius);
     user.blurRadius = Math.max(1, Math.min(10, Number.isFinite(rawBlurRadius) ? rawBlurRadius : 10));
 
-    this.captureSnapshot(userId);
+    this.captureSnapshot(userId, activeLayerIdx);
     this.board.beginStroke(user);
 
     const maskCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, userId);
@@ -169,7 +172,7 @@ export class BlurTool extends Tool {
   _moveStroke(user, pos, shouldRequestUpdate) {
     if (!user.mousedown || user.panning) return;
 
-    const activeLayerIdx = 0;
+    const activeLayerIdx = this._getTargetLayer(user);
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
     const maskCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, userId);
     if (!maskCtx) return;
@@ -261,18 +264,11 @@ export class BlurTool extends Tool {
       const cropH = Math.min(sourceCanvas.height - cropY, Math.ceil((radius + margin) * 2));
 
       if (cropW > 0 && cropH > 0) {
-        // Create intermediate canvas with room bg color so blur bleeds into correct background
         const blurCanvas = document.createElement('canvas');
         blurCanvas.width = cropW;
         blurCanvas.height = cropH;
         const blurCtx = blurCanvas.getContext('2d');
 
-        // Fill with actual room background color (never overridden)
-        const [bgR, bgG, bgB, bgA] = this.board.roomBackgroundColor;
-        blurCtx.fillStyle = `rgba(${bgR}, ${bgG}, ${bgB}, ${bgA})`;
-        blurCtx.fillRect(0, 0, cropW, cropH);
-
-        // Draw cropped region on top
         blurCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
         // Apply blur to the intermediate canvas

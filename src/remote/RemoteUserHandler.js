@@ -1004,7 +1004,7 @@ export class RemoteUserHandler {
       return;
     }
 
-    const layerIndex = 0;
+    const layerIndex = this.getStrokeLayer(user);
     const group = this.board.layerManager?.getLayerGroup(layerIndex);
     let active = group?.activeStrokeByUser?.get(user.id);
     if (!active) {
@@ -1042,20 +1042,24 @@ export class RemoteUserHandler {
   }
 
   undoLatestRemoteGlitchImage(userId) {
-    const group = this.board.layerManager?.getLayerGroup(0);
-    if (!group?.strokeStack) return false;
+    const layerCount = this.board.layerManager?.getLayerCount?.() ?? 0;
+    for (let layerIndex = layerCount - 1; layerIndex >= 0; layerIndex--) {
+      const group = this.board.layerManager?.getLayerGroup(layerIndex);
+      if (!group?.strokeStack) continue;
 
-    for (let i = group.strokeStack.length - 1; i >= 0; i--) {
-      const record = group.strokeStack[i];
-      if (record.userId === userId && record.isRemoteGlitchImage) {
-        const removed = group.strokeStack.splice(i, 1)[0];
-        const count = group.userStrokeCounts.get(userId) || 0;
-        if (count > 0) group.userStrokeCounts.set(userId, count - 1);
-        this.board.layerManager._pushToRedoStack(userId, [{ groupIdx: 0, record: removed }]);
-        this.board._markBatchDirtyRects?.([{ groupIdx: 0, record: removed }]);
-        this.board.compositeAllLayers();
-        this.board.layerManager._notifyHistoryPanel?.(true);
-        return true;
+      for (let i = group.strokeStack.length - 1; i >= 0; i--) {
+        const record = group.strokeStack[i];
+        if (record.userId === userId && record.isRemoteGlitchImage) {
+          const removed = group.strokeStack.splice(i, 1)[0];
+          const count = group.userStrokeCounts.get(userId) || 0;
+          if (count > 0) group.userStrokeCounts.set(userId, count - 1);
+          const batch = [{ groupIdx: layerIndex, record: removed }];
+          this.board.layerManager._pushToRedoStack(userId, batch);
+          this.board._markBatchDirtyRects?.(batch);
+          this.board.compositeAllLayers();
+          this.board.layerManager._notifyHistoryPanel?.(true);
+          return true;
+        }
       }
     }
 
