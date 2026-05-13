@@ -4,6 +4,7 @@
 const TOKEN_KEY = 'topDrawAuthToken';
 const REMEMBER_ME_KEY = 'topDrawRememberMe';
 const USERNAME_KEY = 'topDrawUsername';
+const USERNAME_SETUP_DISMISSED_PREFIX = 'topDrawUsernameSetupDismissed:';
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const TOKEN_INVALID_ERRORS = new Set([
   'Invalid or expired token',
@@ -23,9 +24,14 @@ export class Auth {
     // Current logged in state
     this.isLoggedIn = false;
     this.loggedInUsername = null;
+    this.hasDiscord = false;
     this.currentAuthSession = null;
     this._autoLoginInFlight = false;
     this._autoLoginToken = null;
+    this._authPendingTimeout = null;
+    this._discordPopup = null;
+    this.needsUsernameSetup = false;
+    this.suggestedUsername = '';
 
   }
 
@@ -57,6 +63,8 @@ export class Auth {
       loginUsername: document.getElementById('loginUsername'),
       loginPassword: document.getElementById('loginPassword'),
       loginBtn: document.getElementById('loginBtn'),
+      discordLoginBtn: document.getElementById('discordLoginBtn'),
+      discordInviteBtn: document.getElementById('discordInviteBtn'),
       guestJoinBtn: document.getElementById('guestJoinBtn'),
       loginJoinBtn: document.getElementById('loginJoinBtn'),
       rememberMe: document.getElementById('rememberMe'),
@@ -65,6 +73,7 @@ export class Auth {
       authUsernameDisplay: document.getElementById('authUsernameDisplay'),
       authLoggedInJoinBtn: document.getElementById('authLoggedInJoinBtn'),
       joinBtnLoggedIn: document.getElementById('joinBtnLoggedIn'),
+      discordLinkBtn: document.getElementById('discordLinkBtn'),
       // Registration
       registerBtn: document.getElementById('registerBtn'),
       registerPanel: document.getElementById('authRegisterPanel'),
@@ -101,6 +110,22 @@ export class Auth {
       addEmailVerifyBtn: document.getElementById('addEmailVerifyBtn'),
       addEmailResendBtn: document.getElementById('addEmailResendBtn'),
       addEmailSkipBtn: document.getElementById('addEmailSkipBtn'),
+      usernameSetupBackdrop: null,
+      usernameSetupModal: null,
+      usernameSetupInput: null,
+      usernameSetupMessage: null,
+      usernameSetupSaveBtn: null,
+      usernameSetupLinkBtn: null,
+      usernameSetupDismissBtn: null,
+      usernameSetupCloseBtn: null,
+      usernameSetupTitle: null,
+      usernameSetupText: null,
+      usernameSetupFields: null,
+      ddrawLinkFields: null,
+      ddrawLinkUsername: null,
+      ddrawLinkPassword: null,
+      ddrawLinkSubmitBtn: null,
+      ddrawLinkBackBtn: null,
       roomIdInput: document.getElementById('roomIdInput'),
       authFormWrapper: document.getElementById('authFormWrapper'),
       authLoadingState: document.getElementById('authLoadingState'),
@@ -113,6 +138,8 @@ export class Auth {
     }
 
     this.setupListeners();
+    this.ensureUsernameSetupModal();
+    this.loadDiscordConfig();
     this.syncAuthStateHeights();
     window.addEventListener('resize', () => this.syncAuthStateHeights());
 
@@ -120,13 +147,15 @@ export class Auth {
     if (this.wsClient) {
       this.wsClient.on('auth_result', (data) => this.handleAuthResult(data));
     }
+    window.addEventListener('message', (event) => this.handleDiscordPopupMessage(event));
 
     // Check if user has stored credentials for auto-login
-    const openedPasswordReset = this.openPasswordResetFromUrl();
-    if (!openedPasswordReset) {
+    const handledDiscordAuth = this.handleDiscordAuthFromUrl();
+    const openedPasswordReset = !handledDiscordAuth && this.openPasswordResetFromUrl();
+    if (!openedPasswordReset && !handledDiscordAuth) {
       this.checkStoredLogin();
     }
-    if (openedPasswordReset || !this.getStoredToken()) {
+    if (openedPasswordReset || handledDiscordAuth || !this.getStoredToken()) {
       this.setAuthPending(false);
     }
   }
@@ -135,6 +164,20 @@ export class Auth {
     this.els.loginBtn?.addEventListener('click', (e) => {
       e.preventDefault();
       this.handleLogin();
+    });
+
+    this.els.discordLoginBtn?.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.startDiscordOAuth('login');
+    });
+
+    this.els.discordLinkBtn?.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (this.hasDiscord) {
+        this.showDdrawAccountLinkModal();
+        return;
+      }
+      this.startDiscordOAuth('link');
     });
 
     this.els.guestJoinBtn?.addEventListener('click', (e) => {
@@ -230,6 +273,148 @@ export class Auth {
     if (form) {
       form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
     }
+  }
+
+  async loadDiscordConfig() {
+    try {
+      const res = await fetch(`${API_BASE}/api/discord/config`);
+      if (!res.ok) return;
+      const config = await res.json();
+
+      [this.els.discordLoginBtn, this.els.discordLinkBtn].filter(Boolean).forEach((button) => {
+        button.style.display = config.oauthEnabled ? '' : 'none';
+      });
+
+      [this.els.discordInviteBtn].filter(Boolean).forEach((link) => {
+        if (config.inviteUrl) {
+          link.href = config.inviteUrl;
+          link.style.display = '';
+        } else {
+          link.style.display = 'none';
+        }
+      });
+    } catch (err) {
+      console.warn('[Auth] Failed to load Discord config:', err);
+    }
+  }
+
+  async startDiscordOAuth(mode = 'login') {
+    const token = this.getStoredToken();
+    if (mode === 'link' && !token) {
+      if (this.onError) this.onError('Log in before linking Discord');
+      return;
+    }
+
+    try {
+      this.setLoading(true);
+      const res = await fetch(`${API_BASE}/api/auth/discord/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(mode === 'link' && token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ mode })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) {
+        throw new Error(data.error || 'Discord login failed to start');
+      }
+
+      const popup = window.open(
+        data.url,
+        'ddrawDiscordOAuth',
+        'popup=yes,width=520,height=720,menubar=no,toolbar=no,location=yes,status=no,scrollbars=yes,resizable=yes'
+      );
+
+      if (!popup) {
+        window.location.href = data.url;
+        return;
+      }
+
+      this._discordPopup = popup;
+      const closePoll = window.setInterval(() => {
+        if (!popup.closed) return;
+        window.clearInterval(closePoll);
+        if (this._loading) {
+          this.setLoading(false);
+        }
+      }, 500);
+    } catch (err) {
+      this.setLoading(false);
+      if (this.onError) this.onError(err.message);
+    }
+  }
+
+  handleDiscordPopupMessage(event) {
+    if (event.origin !== window.location.origin) return;
+    const payload = event.data;
+    if (!payload || payload.type !== 'ddraw:discord-auth') return;
+
+    this.setLoading(false);
+    this.applyDiscordAuthPayload(payload);
+  }
+
+  handleDiscordAuthFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('discordAuth');
+    if (!status) return false;
+
+    const cleanUrl = `${window.location.origin}${window.location.pathname}${window.location.hash || ''}`;
+    window.history.replaceState({}, document.title, cleanUrl);
+
+    const payload = {
+      type: 'ddraw:discord-auth',
+      status,
+      token: params.get('token') || '',
+      username: params.get('username') || '',
+      mode: params.get('mode') || 'login',
+      hasDiscord: params.get('hasDiscord') !== '0',
+      needsUsernameSetup: params.get('needsUsernameSetup') === '1',
+      suggestedUsername: params.get('suggestedUsername') || '',
+      error: params.get('error') || ''
+    };
+
+    if (window.opener && window.opener !== window) {
+      window.opener.postMessage(payload, window.location.origin);
+      window.close();
+      return true;
+    }
+
+    this.applyDiscordAuthPayload(payload);
+    return true;
+  }
+
+  applyDiscordAuthPayload(payload) {
+    if (payload.status !== 'success') {
+      if (this.onError) this.onError(payload.error || 'Discord login failed');
+      return;
+    }
+
+    const token = payload.token || '';
+    const username = payload.username || '';
+    const hasDiscord = payload.hasDiscord !== false;
+    const needsUsernameSetup = !!payload.needsUsernameSetup;
+    const suggestedUsername = payload.suggestedUsername || username;
+    if (!token || !username) {
+      if (this.onError) this.onError('Discord login did not return an account');
+      return;
+    }
+
+    this.storeToken(token);
+    this.storeUsername(username);
+    this.setRememberMe(true);
+    this.currentAuthSession = {
+      token,
+      role: 1,
+      username,
+      globalRole: 1,
+      roomRole: 0,
+      hasDiscord,
+      needsUsernameSetup,
+      suggestedUsername
+    };
+    this.showLoggedInState(username, { hasDiscord, needsUsernameSetup, suggestedUsername });
+    this.attemptAutoLogin();
   }
 
   /**
@@ -328,13 +513,32 @@ export class Auth {
   /**
    * Show the logged-in UI state
    */
-  async showLoggedInState(username) {
+  async showLoggedInState(username, {
+    hasDiscord = this.hasDiscord,
+    needsUsernameSetup = this.needsUsernameSetup,
+    suggestedUsername = this.suggestedUsername
+  } = {}) {
     console.log('[Auth] showLoggedInState called:', username);
     const wasLoggedIn = this.isLoggedIn;
     this.isLoggedIn = true;
     this.loggedInUsername = username;
+    this.hasDiscord = !!hasDiscord;
+    this.needsUsernameSetup = !!needsUsernameSetup;
+    this.suggestedUsername = suggestedUsername || username;
 
     if (this.els.authUsernameDisplay) this.els.authUsernameDisplay.textContent = username;
+    if (this.els.authUsernameBtn) {
+      this.els.authUsernameBtn.classList.toggle('auth-is-discord', this.hasDiscord);
+      this.els.authUsernameBtn.title = this.hasDiscord ? 'Logged in with Discord' : '';
+    }
+    if (this.els.discordLinkBtn) {
+      const shouldShowLinkButton = !this.hasDiscord || this.needsUsernameSetup;
+      this.els.discordLinkBtn.style.display = shouldShowLinkButton ? '' : 'none';
+      this.els.discordLinkBtn.textContent = this.hasDiscord ? 'Link DDraw Account' : 'Link Discord';
+      this.els.discordLinkBtn.classList.toggle('authLinkDdrawBtn', this.hasDiscord);
+      this.els.discordLinkBtn.classList.toggle('authDiscordBtn', !this.hasDiscord);
+      this.els.discordLinkBtn.classList.toggle('secondary', this.hasDiscord);
+    }
     this.els.landingAuthPanel?.classList.add('auth-is-logged-in');
     this.syncAuthStateHeights();
 
@@ -347,6 +551,10 @@ export class Auth {
     }
 
     this.scrollRoomsIntoViewOnSmallScreens();
+
+    if (this.hasDiscord && this.needsUsernameSetup && !this.isUsernameSetupDismissed()) {
+      setTimeout(() => this.showUsernameSetupModal(), 50);
+    }
   }
 
   /**
@@ -355,6 +563,20 @@ export class Auth {
   async showNotLoggedInState() {
     this.isLoggedIn = false;
     this.loggedInUsername = null;
+    this.hasDiscord = false;
+    this.needsUsernameSetup = false;
+    this.suggestedUsername = '';
+    if (this.els.authUsernameBtn) {
+      this.els.authUsernameBtn.classList.remove('auth-is-discord');
+      this.els.authUsernameBtn.title = '';
+    }
+    if (this.els.discordLinkBtn) {
+      this.els.discordLinkBtn.style.display = '';
+      this.els.discordLinkBtn.textContent = 'Link Discord';
+      this.els.discordLinkBtn.classList.remove('authLinkDdrawBtn');
+      this.els.discordLinkBtn.classList.add('authDiscordBtn');
+      this.els.discordLinkBtn.classList.remove('secondary');
+    }
     this.els.landingAuthPanel?.classList.remove('auth-is-logged-in');
     this.syncAuthStateHeights();
 
@@ -429,10 +651,10 @@ export class Auth {
 
     // Hide landing-only actions while the account panel is open.
     const divider = document.querySelector('.landingDivider');
-    const offlineBtn = document.getElementById('loginOfflineBtn');
+    const secondaryActions = document.querySelector('.landingSecondaryActions');
     
     if (divider) divider.style.display = 'none';
-    if (offlineBtn) offlineBtn.style.display = 'none';
+    if (secondaryActions) secondaryActions.style.display = 'none';
 
     await this._transitionTo(this.els.registerPanel, [this.els.authNotLoggedIn, this.els.authLoggedIn, this.els.passwordResetPanel]);
   }
@@ -442,10 +664,10 @@ export class Auth {
    */
   async hideRegisterPanel() {
     const divider = document.querySelector('.landingDivider');
-    const offlineBtn = document.getElementById('loginOfflineBtn');
+    const secondaryActions = document.querySelector('.landingSecondaryActions');
     
     if (divider) divider.style.display = '';
-    if (offlineBtn) offlineBtn.style.display = '';
+    if (secondaryActions) secondaryActions.style.display = '';
 
     await this._transitionTo(this.els.authNotLoggedIn, [this.els.registerPanel]);
   }
@@ -496,9 +718,9 @@ export class Auth {
     this.setPasswordResetMessage('');
 
     const divider = document.querySelector('.landingDivider');
-    const offlineBtn = document.getElementById('loginOfflineBtn');
+    const secondaryActions = document.querySelector('.landingSecondaryActions');
     if (divider) divider.style.display = 'none';
-    if (offlineBtn) offlineBtn.style.display = 'none';
+    if (secondaryActions) secondaryActions.style.display = 'none';
 
     await this._transitionTo(this.els.passwordResetPanel, [this.els.authNotLoggedIn, this.els.authLoggedIn, this.els.registerPanel]);
   }
@@ -510,18 +732,18 @@ export class Auth {
     this.setPasswordResetMessage('Enter a new password for this reset link.');
 
     const divider = document.querySelector('.landingDivider');
-    const offlineBtn = document.getElementById('loginOfflineBtn');
+    const secondaryActions = document.querySelector('.landingSecondaryActions');
     if (divider) divider.style.display = 'none';
-    if (offlineBtn) offlineBtn.style.display = 'none';
+    if (secondaryActions) secondaryActions.style.display = 'none';
 
     await this._transitionTo(this.els.passwordResetPanel, [this.els.authNotLoggedIn, this.els.authLoggedIn, this.els.registerPanel]);
   }
 
   async hidePasswordResetPanel() {
     const divider = document.querySelector('.landingDivider');
-    const offlineBtn = document.getElementById('loginOfflineBtn');
+    const secondaryActions = document.querySelector('.landingSecondaryActions');
     if (divider) divider.style.display = '';
-    if (offlineBtn) offlineBtn.style.display = '';
+    if (secondaryActions) secondaryActions.style.display = '';
     this._passwordResetToken = null;
     await this._transitionTo(this.els.authNotLoggedIn, [this.els.passwordResetPanel]);
   }
@@ -756,6 +978,308 @@ export class Auth {
     }
   }
 
+  ensureUsernameSetupModal() {
+    if (document.getElementById('usernameSetupModal')) {
+      this.els.usernameSetupBackdrop = document.getElementById('usernameSetupModalBackdrop');
+      this.els.usernameSetupModal = document.getElementById('usernameSetupModal');
+      this.els.usernameSetupInput = document.getElementById('usernameSetupInput');
+      this.els.usernameSetupMessage = document.getElementById('usernameSetupMessage');
+      this.els.usernameSetupSaveBtn = document.getElementById('usernameSetupSaveBtn');
+      this.els.usernameSetupLinkBtn = document.getElementById('usernameSetupLinkBtn');
+      this.els.usernameSetupDismissBtn = document.getElementById('usernameSetupDismissBtn');
+      this.els.usernameSetupCloseBtn = document.getElementById('usernameSetupCloseBtn');
+      this.els.usernameSetupTitle = document.getElementById('usernameSetupTitle');
+      this.els.usernameSetupText = document.getElementById('usernameSetupText');
+      this.els.usernameSetupFields = document.getElementById('usernameSetupFields');
+      this.els.ddrawLinkFields = document.getElementById('ddrawLinkFields');
+      this.els.ddrawLinkUsername = document.getElementById('ddrawLinkUsername');
+      this.els.ddrawLinkPassword = document.getElementById('ddrawLinkPassword');
+      this.els.ddrawLinkSubmitBtn = document.getElementById('ddrawLinkSubmitBtn');
+      this.els.ddrawLinkBackBtn = document.getElementById('ddrawLinkBackBtn');
+      return;
+    }
+
+    const backdrop = document.createElement('div');
+    backdrop.id = 'usernameSetupModalBackdrop';
+    backdrop.className = 'authModalBackdrop';
+    backdrop.style.display = 'none';
+
+    const modal = document.createElement('div');
+    modal.id = 'usernameSetupModal';
+    modal.className = 'authSetupModal';
+    modal.style.display = 'none';
+    modal.innerHTML = `
+      <button type="button" class="authSetupClose" id="usernameSetupCloseBtn" aria-label="Close">&times;</button>
+      <h3 id="usernameSetupTitle">Choose DDraw Username</h3>
+      <p class="authSetupText" id="usernameSetupText">Pick the name people will see in DDraw.</p>
+      <div id="usernameSetupFields">
+        <input autocomplete="username" class="authInput" id="usernameSetupInput" name="ddraw-username" placeholder="Username">
+      </div>
+      <div id="ddrawLinkFields" style="display: none;">
+        <input autocomplete="username" class="authInput" id="ddrawLinkUsername" name="existing-ddraw-username" placeholder="DDraw username">
+        <input autocomplete="current-password" class="authInput" id="ddrawLinkPassword" name="existing-ddraw-password" placeholder="DDraw password" type="password">
+      </div>
+      <p class="authResetMessage" id="usernameSetupMessage"></p>
+      <div class="authSetupActions">
+        <button type="button" class="btn primary large" id="usernameSetupSaveBtn">Save Username</button>
+        <button type="button" class="btn secondary large" id="usernameSetupLinkBtn">Link DDraw Account</button>
+        <button type="button" class="btn secondary large" id="usernameSetupDismissBtn">No Thanks</button>
+        <button type="button" class="btn primary large" id="ddrawLinkSubmitBtn" style="display: none;">Link Account</button>
+        <button type="button" class="btn secondary large" id="ddrawLinkBackBtn" style="display: none;">Change Username</button>
+      </div>
+    `;
+
+    document.body.appendChild(backdrop);
+    document.body.appendChild(modal);
+
+    this.els.usernameSetupBackdrop = backdrop;
+    this.els.usernameSetupModal = modal;
+    this.els.usernameSetupInput = modal.querySelector('#usernameSetupInput');
+    this.els.usernameSetupMessage = modal.querySelector('#usernameSetupMessage');
+    this.els.usernameSetupSaveBtn = modal.querySelector('#usernameSetupSaveBtn');
+    this.els.usernameSetupLinkBtn = modal.querySelector('#usernameSetupLinkBtn');
+    this.els.usernameSetupDismissBtn = modal.querySelector('#usernameSetupDismissBtn');
+    this.els.usernameSetupCloseBtn = modal.querySelector('#usernameSetupCloseBtn');
+    this.els.usernameSetupTitle = modal.querySelector('#usernameSetupTitle');
+    this.els.usernameSetupText = modal.querySelector('#usernameSetupText');
+    this.els.usernameSetupFields = modal.querySelector('#usernameSetupFields');
+    this.els.ddrawLinkFields = modal.querySelector('#ddrawLinkFields');
+    this.els.ddrawLinkUsername = modal.querySelector('#ddrawLinkUsername');
+    this.els.ddrawLinkPassword = modal.querySelector('#ddrawLinkPassword');
+    this.els.ddrawLinkSubmitBtn = modal.querySelector('#ddrawLinkSubmitBtn');
+    this.els.ddrawLinkBackBtn = modal.querySelector('#ddrawLinkBackBtn');
+
+    this.els.usernameSetupCloseBtn?.addEventListener('click', () => this.dismissUsernameSetupModal());
+    this.els.usernameSetupBackdrop?.addEventListener('click', () => this.dismissUsernameSetupModal());
+    this.els.usernameSetupSaveBtn?.addEventListener('click', () => this.handleUsernameSetupSubmit());
+    this.els.usernameSetupDismissBtn?.addEventListener('click', () => this.dismissUsernameSetupModal());
+    this.els.usernameSetupInput?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        this.handleUsernameSetupSubmit();
+      }
+    });
+    this.els.usernameSetupLinkBtn?.addEventListener('click', () => this.showDdrawAccountLinkModal());
+    this.els.ddrawLinkSubmitBtn?.addEventListener('click', () => this.handleDdrawAccountLinkSubmit());
+    [this.els.ddrawLinkUsername, this.els.ddrawLinkPassword].filter(Boolean).forEach((el) => {
+      el.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          this.handleDdrawAccountLinkSubmit();
+        }
+      });
+    });
+    this.els.ddrawLinkBackBtn?.addEventListener('click', () => this.showUsernameSetupModal({ force: true }));
+  }
+
+  showUsernameSetupModal({ force = false } = {}) {
+    this.ensureUsernameSetupModal();
+    if (!force && !this.needsUsernameSetup) return;
+    if (!force && this.isUsernameSetupDismissed()) return;
+
+    this.setUsernameSetupMode('username', { initialSetup: !force && this.needsUsernameSetup });
+    if (this.els.usernameSetupInput) {
+      this.els.usernameSetupInput.value = this.suggestedUsername || this.loggedInUsername || '';
+    }
+    this.setUsernameSetupMessage('');
+    if (this.els.usernameSetupBackdrop) this.els.usernameSetupBackdrop.style.display = 'block';
+    if (this.els.usernameSetupModal) this.els.usernameSetupModal.style.display = 'block';
+    this.els.usernameSetupInput?.focus();
+    this.els.usernameSetupInput?.select();
+  }
+
+  showDdrawAccountLinkModal() {
+    this.ensureUsernameSetupModal();
+    this.setUsernameSetupMode('link');
+    this.setUsernameSetupMessage('');
+    if (this.els.usernameSetupBackdrop) this.els.usernameSetupBackdrop.style.display = 'block';
+    if (this.els.usernameSetupModal) this.els.usernameSetupModal.style.display = 'block';
+    if (this.els.ddrawLinkUsername) this.els.ddrawLinkUsername.value = '';
+    if (this.els.ddrawLinkPassword) this.els.ddrawLinkPassword.value = '';
+    this.els.ddrawLinkUsername?.focus();
+  }
+
+  setUsernameSetupMode(mode, { initialSetup = false } = {}) {
+    const isLinkMode = mode === 'link';
+    if (this.els.usernameSetupTitle) {
+      this.els.usernameSetupTitle.textContent = isLinkMode
+        ? 'Link DDraw Account'
+        : initialSetup
+          ? 'Choose DDraw Username'
+          : 'Change DDraw Username';
+    }
+    if (this.els.usernameSetupText) {
+      this.els.usernameSetupText.textContent = isLinkMode
+        ? 'Log in to your existing DDraw account to connect it with Discord.'
+        : initialSetup
+          ? 'Pick the name people will see in DDraw.'
+          : 'You can only change your username once every 3 months.';
+    }
+    if (this.els.usernameSetupFields) this.els.usernameSetupFields.style.display = isLinkMode ? 'none' : '';
+    if (this.els.ddrawLinkFields) this.els.ddrawLinkFields.style.display = isLinkMode ? '' : 'none';
+    if (this.els.usernameSetupSaveBtn) this.els.usernameSetupSaveBtn.style.display = isLinkMode ? 'none' : '';
+    if (this.els.usernameSetupLinkBtn) this.els.usernameSetupLinkBtn.style.display = isLinkMode ? 'none' : '';
+    if (this.els.usernameSetupDismissBtn) this.els.usernameSetupDismissBtn.style.display = isLinkMode || !initialSetup ? 'none' : '';
+    if (this.els.ddrawLinkSubmitBtn) this.els.ddrawLinkSubmitBtn.style.display = isLinkMode ? '' : 'none';
+    if (this.els.ddrawLinkBackBtn) this.els.ddrawLinkBackBtn.style.display = isLinkMode ? '' : 'none';
+    if (this.els.usernameSetupSaveBtn) {
+      this.els.usernameSetupSaveBtn.textContent = initialSetup ? 'Save Username' : 'Change Username';
+    }
+  }
+
+  hideUsernameSetupModal() {
+    if (this.els.usernameSetupBackdrop) this.els.usernameSetupBackdrop.style.display = 'none';
+    if (this.els.usernameSetupModal) this.els.usernameSetupModal.style.display = 'none';
+  }
+
+  dismissUsernameSetupModal() {
+    if (this.needsUsernameSetup) {
+      this.setUsernameSetupDismissed();
+    }
+    this.hideUsernameSetupModal();
+  }
+
+  getUsernameSetupDismissedKey() {
+    return `${USERNAME_SETUP_DISMISSED_PREFIX}${this.loggedInUsername || 'unknown'}`;
+  }
+
+  isUsernameSetupDismissed() {
+    try {
+      return localStorage.getItem(this.getUsernameSetupDismissedKey()) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  setUsernameSetupDismissed() {
+    try {
+      localStorage.setItem(this.getUsernameSetupDismissedKey(), '1');
+    } catch {
+      // Ignore storage failures; the close button should still close the modal.
+    }
+  }
+
+  clearUsernameSetupDismissed(username = this.loggedInUsername) {
+    try {
+      localStorage.removeItem(`${USERNAME_SETUP_DISMISSED_PREFIX}${username || 'unknown'}`);
+    } catch {
+      // Ignore storage failures.
+    }
+  }
+
+  setUsernameSetupMessage(message, kind = 'neutral') {
+    if (!this.els.usernameSetupMessage) return;
+    this.els.usernameSetupMessage.textContent = message || '';
+    this.els.usernameSetupMessage.dataset.kind = kind;
+  }
+
+  async handleUsernameSetupSubmit() {
+    if (this._loading) return;
+
+    const username = this.els.usernameSetupInput?.value.trim() || '';
+    if (!username) {
+      this.setUsernameSetupMessage('Enter a username.', 'error');
+      return;
+    }
+
+    const token = this.getStoredToken();
+    if (!token) {
+      this.setUsernameSetupMessage('Not authenticated.', 'error');
+      return;
+    }
+
+    this.setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/username`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ username })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Username update failed');
+      }
+
+      this.storeToken(data.token);
+      this.storeUsername(data.username);
+      this.needsUsernameSetup = false;
+      this.suggestedUsername = data.username;
+      this.clearUsernameSetupDismissed(this.loggedInUsername);
+      this.currentAuthSession = {
+        ...(this.currentAuthSession || {}),
+        token: data.token,
+        username: data.username,
+        role: data.role ?? this.currentAuthSession?.role ?? 1,
+        hasDiscord: !!data.hasDiscord,
+        needsUsernameSetup: false,
+      };
+      await this.showLoggedInState(data.username, { hasDiscord: !!data.hasDiscord, needsUsernameSetup: false });
+      this.hideUsernameSetupModal();
+      this.attemptAutoLogin();
+    } catch (err) {
+      this.setUsernameSetupMessage(err.message || 'Username update failed', 'error');
+    } finally {
+      this.setLoading(false);
+    }
+  }
+
+  async handleDdrawAccountLinkSubmit() {
+    if (this._loading) return;
+
+    const username = this.els.ddrawLinkUsername?.value.trim() || '';
+    const password = this.els.ddrawLinkPassword?.value || '';
+    if (!username || !password) {
+      this.setUsernameSetupMessage('Enter your DDraw username and password.', 'error');
+      return;
+    }
+
+    const token = this.getStoredToken();
+    if (!token) {
+      this.setUsernameSetupMessage('Not authenticated.', 'error');
+      return;
+    }
+
+    this.setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/discord/link-ddraw`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Account link failed');
+      }
+
+      this.storeToken(data.token);
+      this.storeUsername(data.username);
+      this.needsUsernameSetup = false;
+      this.suggestedUsername = data.username;
+      this.clearUsernameSetupDismissed(this.loggedInUsername);
+      this.currentAuthSession = {
+        ...(this.currentAuthSession || {}),
+        token: data.token,
+        username: data.username,
+        role: data.role ?? this.currentAuthSession?.role ?? 1,
+        hasDiscord: true,
+        needsUsernameSetup: false,
+      };
+      await this.showLoggedInState(data.username, { hasDiscord: true, needsUsernameSetup: false });
+      this.hideUsernameSetupModal();
+      this.attemptAutoLogin();
+    } catch (err) {
+      this.setUsernameSetupMessage(err.message || 'Account link failed', 'error');
+    } finally {
+      this.setLoading(false);
+    }
+  }
+
   async handleRegister() {
     if (this._loading) return;
 
@@ -794,6 +1318,14 @@ export class Auth {
 
     this._autoLoginInFlight = true;
     this._autoLoginToken = token;
+    if (this._authPendingTimeout) clearTimeout(this._authPendingTimeout);
+    this._authPendingTimeout = setTimeout(() => {
+      if (!this._autoLoginInFlight || this._autoLoginToken !== token) return;
+      this._autoLoginInFlight = false;
+      this._autoLoginToken = null;
+      this.setAuthPending(false);
+      if (this.onError) this.onError('Account login is taking longer than expected. You can still join or try again.');
+    }, 10000);
 
     // Send token if we have one — covers room switches within a session,
     // "remember me" across page reloads, and page refreshes with a stored token
@@ -820,6 +1352,10 @@ export class Auth {
     this.setLoading(false);
     this._autoLoginInFlight = false;
     this._autoLoginToken = null;
+    if (this._authPendingTimeout) {
+      clearTimeout(this._authPendingTimeout);
+      this._authPendingTimeout = null;
+    }
     this.setAuthPending(false);
 
     if (data.success) {
@@ -852,13 +1388,20 @@ export class Auth {
           role: data.role || 0,
           username,
           globalRole: data.globalRole ?? data.role ?? 0,
-          roomRole: data.roomRole || 0
+          roomRole: data.roomRole || 0,
+          hasDiscord: !!data.hasDiscord,
+          needsUsernameSetup: !!data.needsUsernameSetup,
+          suggestedUsername: data.suggestedUsername || ''
         };
-        this.showLoggedInState(username);
+        this.showLoggedInState(username, {
+          hasDiscord: !!data.hasDiscord,
+          needsUsernameSetup: !!data.needsUsernameSetup,
+          suggestedUsername: data.suggestedUsername || username
+        });
       }
 
       // Prompt to add email if missing and user hasn't declined
-      if (!data.hasEmail && !data.emailPromptDeclined) {
+      if (!data.hasDiscord && !data.hasEmail && !data.emailPromptDeclined) {
         setTimeout(() => this.showAddEmailModal(), 100);
       }
 
@@ -896,7 +1439,7 @@ export class Auth {
 
   setLoading(loading) {
     this._loading = loading;
-    const btns = [this.els.loginBtn, this.els.registerSubmitBtn, this.els.passwordResetSubmitBtn];
+    const btns = [this.els.loginBtn, this.els.registerSubmitBtn, this.els.passwordResetSubmitBtn, this.els.usernameSetupSaveBtn, this.els.ddrawLinkSubmitBtn];
 
     if (loading) {
       btns.forEach(btn => {
@@ -929,10 +1472,16 @@ export class Auth {
     if (btn === this.els.passwordResetSubmitBtn) {
       return this._passwordResetMode === 'complete' ? 'Change Password' : 'Send Link';
     }
+    if (btn === this.els.usernameSetupSaveBtn) return 'Save Username';
+    if (btn === this.els.ddrawLinkSubmitBtn) return 'Link Account';
     return '';
   }
 
   setAuthPending(pending) {
+    if (!pending && this._authPendingTimeout) {
+      clearTimeout(this._authPendingTimeout);
+      this._authPendingTimeout = null;
+    }
     this.els.landingAuthPanel?.classList.toggle('auth-is-pending', pending);
     if (this.els.authLoadingState) {
       this.els.authLoadingState.style.display = pending ? 'flex' : 'none';

@@ -108,6 +108,14 @@
   flex-shrink: 0;
 }
 
+.listDiscordBadge {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  background: #5865f2;
+  mask: url('/svgs/discord.svg') center / contain no-repeat;
+}
+
 .listUser {
   flex: 1;
   color: rgba(255, 255, 255, 0.45);

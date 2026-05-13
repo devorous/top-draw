@@ -328,6 +328,15 @@ export class RemoteUserUI {
     if (userEl) userEl.classList.toggle('muted', !!muted);
   }
 
+  _createDiscordBadge(show = false) {
+    const badge = document.createElement('span');
+    badge.className = 'listDiscordBadge';
+    badge.title = 'Discord linked';
+    badge.setAttribute('aria-label', 'Discord linked');
+    badge.style.display = show ? '' : 'none';
+    return badge;
+  }
+
   setReplayModeActive(active) {
     this._replayModeActive = !!active;
 
@@ -592,12 +601,15 @@ export class RemoteUserUI {
     nameEl.textContent = displayUserData.name || displayUserData.username || displayUserId;
     this._applyMutedStateToEntry(groupHeader, nameEl, displayUserData.isMuted);
 
+    const discordBadge = this._createDiscordBadge(!!displayUserData.hasDiscord);
+
     const countBadge = document.createElement('span');
     countBadge.className = 'groupCountBadge';
     countBadge.textContent = '+1';
 
     groupHeader.appendChild(toolEl);
     groupHeader.appendChild(colorEl);
+    groupHeader.appendChild(discordBadge);
     groupHeader.appendChild(nameEl);
     groupHeader.appendChild(countBadge);
 
@@ -616,6 +628,7 @@ export class RemoteUserUI {
       displayUserId,
       headerToolEl: toolEl,
       headerColorEl: colorEl,
+      headerDiscordEl: discordBadge,
       headerNameEl: nameEl,
       headerCountEl: countBadge,
       pendingDisplayUpdate: null,
@@ -669,6 +682,11 @@ export class RemoteUserUI {
         group.element.querySelector('.groupHeader')?.classList.toggle('muted', srcName.classList.contains('muted'));
         if (srcName.classList.contains('admin')) group.headerNameEl.classList.add('admin');
         else if (srcName.classList.contains('mod')) group.headerNameEl.classList.add('mod');
+      }
+
+      const srcDiscord = group.usersContainer.querySelector(`.listDiscordBadge.${id}`);
+      if (group.headerDiscordEl) {
+        group.headerDiscordEl.style.display = srcDiscord?.style.display === 'none' ? 'none' : '';
       }
       // Rotating the display user is a header-only visual change — do NOT
       // re-sort here, or the list flickers as remote cursors move around.
@@ -783,6 +801,9 @@ export class RemoteUserUI {
     userEntry.className = `listUser ${id}`;
     userEntry.textContent = userData.name || userData.username || userId;
 
+    const discordBadge = this._createDiscordBadge(!!userData.hasDiscord);
+    discordBadge.classList.add(id);
+
     const role = userData.role;
     const roleClass = RemoteUserUI.roleToClass(role);
     if (roleClass) {
@@ -810,6 +831,7 @@ export class RemoteUserUI {
 
     entry.appendChild(toolEntry);
     entry.appendChild(colorEntry);
+    entry.appendChild(discordBadge);
     entry.appendChild(userEntry);
     entry.appendChild(activeEntry);
     entry.appendChild(syncBtn);

@@ -92,7 +92,7 @@
   .feedback-widget.in-app {
     position: static;
     width: 100%;
-    margin-top: 1rem;
+    margin-top: 0;
   }
 
   .feedback-toggle {
@@ -117,7 +117,15 @@
 
   .in-app .feedback-toggle {
     width: 100%;
-    border-radius: 8px;
+    min-height: 46px;
+    height: 46px;
+    padding: 13px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .feedback-panel {

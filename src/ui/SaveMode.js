@@ -46,6 +46,7 @@ export class SaveMode {
 
     // Options state
     this.transparent = false;
+    this.shareToDiscord = false;
     this.galleryCaption = '';
     this.preExistingCanvasFixedSelection = false;
 
@@ -120,6 +121,10 @@ export class SaveMode {
         <label class="saveModeOptionsCheckbox">
           <input type="checkbox" id="saveModeTransparent">
           <span>Transparent Background</span>
+        </label>
+        <label class="saveModeOptionsCheckbox">
+          <input type="checkbox" id="saveModeShareDiscord">
+          <span>Share to Discord</span>
         </label>
       </div>
       <div class="saveModeOptionsPanelFooter">
@@ -220,6 +225,10 @@ export class SaveMode {
       this._drawSnapshot();
     });
 
+    this.optionsPanel.querySelector('#saveModeShareDiscord').addEventListener('change', (e) => {
+      this.shareToDiscord = e.target.checked;
+    });
+
     this.captionInput = this.captionPanel.querySelector('#saveModeCaption');
     this.captionInput?.addEventListener('input', (e) => {
       this.galleryCaption = e.target.value;
@@ -254,9 +263,11 @@ export class SaveMode {
     this.preExistingCanvas = null;
     this.preExistingCanvasFixedSelection = false;
     this.transparent = false;
+    this.shareToDiscord = false;
     this.galleryCaption = '';
     this.activeTool = 'select';
     this.optionsPanel.querySelector('#saveModeTransparent').checked = false;
+    this.optionsPanel.querySelector('#saveModeShareDiscord').checked = false;
     if (this.captionInput) this.captionInput.value = '';
 
     // Size canvases to match board
@@ -804,7 +815,10 @@ export class SaveMode {
       const saved = await this.app.saveCanvasLocally(canvas, `${prefix}-${ts}.png`, 'Image saved!');
       if (!saved) return;
     } else {
-      await this.app.handleSaveToGallery(canvas, { title: this.galleryCaption.trim() });
+      await this.app.handleSaveToGallery(canvas, {
+        title: this.galleryCaption.trim(),
+        tags: this.shareToDiscord ? ['discord'] : []
+      });
     }
 
     this.close();
@@ -952,9 +966,11 @@ export class SaveMode {
     this.selection = null;
     this.lassoPoints = [];
     this.transparent = false;
+    this.shareToDiscord = false;
     this.galleryCaption = '';
     this.activeTool = fixedSelection ? 'pan' : 'select';
     this.optionsPanel.querySelector('#saveModeTransparent').checked = false;
+    this.optionsPanel.querySelector('#saveModeShareDiscord').checked = false;
     if (this.captionInput) this.captionInput.value = '';
 
     // Size canvases to match the pre-existing canvas

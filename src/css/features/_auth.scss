@@ -116,8 +116,12 @@ body.desktop-window-chrome #overlay {
 }
 
 .authButtons .btn {
+  flex: 1 1 0;
   width: auto;
-  min-width: 100px;
+  min-width: 0;
+  min-height: 38px;
+  padding-inline: 12px;
+  white-space: nowrap;
 }
 
 .authGuestJoinBtn {
@@ -155,6 +159,67 @@ body.desktop-window-chrome #overlay {
 .authButtons .btn.disabled {
   opacity: 0.5;
   pointer-events: none;
+}
+
+.authDiscordBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 220px;
+  min-height: 42px;
+  margin-top: 10px;
+  background: #5865f2;
+  border-color: #5865f2;
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 8px 20px rgba(88, 101, 242, 0.24);
+
+  &::before {
+    content: '';
+    width: 18px;
+    height: 18px;
+    background: currentColor;
+    mask: url('/svgs/discord.svg') center / contain no-repeat;
+  }
+
+  &:hover {
+    background: #4752c4;
+    border-color: #4752c4;
+    color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px rgba(88, 101, 242, 0.32);
+  }
+}
+
+.authButtons .authDiscordBtn {
+  max-width: none;
+  min-height: 38px;
+  margin-top: 0;
+  padding-inline: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #5865f2;
+  border-color: #5865f2;
+  color: #fff;
+  box-shadow: none;
+
+  &::before {
+    content: '';
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+    background: currentColor;
+    mask: url('/svgs/discord.svg') center / contain no-repeat;
+  }
+
+  &:hover {
+    background: #4752c4;
+    border-color: #4752c4;
+    color: #fff;
+  }
 }
 
 /* Auth Checkbox */
@@ -367,6 +432,15 @@ body.desktop-window-chrome #overlay {
     border-color: var(--accent-primary);
     transform: translateY(-1px);
   }
+
+  &.auth-is-discord::before {
+    content: '';
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+    background: #5865f2;
+    mask: url('/svgs/discord.svg') center / contain no-repeat;
+  }
 }
 
 .authEditIcon {
@@ -519,6 +593,78 @@ body.desktop-window-chrome #overlay {
   }
 }
 
+.authModalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.authSetupModal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 9999;
+  width: calc(100vw - 32px);
+  max-width: 420px;
+  padding: 24px;
+  transform: translate(-50%, -50%);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+
+  h3 {
+    margin: 0 0 8px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+}
+
+.authSetupClose {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 24px;
+  line-height: 1;
+
+  &:hover {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--bg-tertiary) 82%, white 18%);
+  }
+}
+
+.authSetupText {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+#ddrawLinkFields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.authSetupActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 /* Auth Error */
 .authError {
   margin-top: 10px;
@@ -544,7 +690,7 @@ body.desktop-window-chrome #overlay {
 
 #offlineBtn,
 #loginOfflineBtn {
-  margin-top: clamp(12px, 2vh, 20px);
+  margin-top: 0;
   padding: clamp(0px, 1.5vh, 12px) 24px;
   font-size: 13px;
   font-weight: 500;
@@ -689,10 +835,58 @@ body.desktop-window-chrome #landingPage {
     width: 100%;
   }
 
+  .landingSecondaryActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+  }
+
+  .landingSecondaryActions > [style*="display: none"] {
+    display: none !important;
+  }
+
+  .landingSecondaryActions > .btn,
+  .landingSecondaryActions #feedbackWidgetMount,
+  .landingSecondaryActions #feedbackWidgetMount .feedback-widget,
+  .landingSecondaryActions #feedbackWidgetMount .feedback-toggle,
+  .landingSecondaryActions #feedbackWidgetMount .feedback-success {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .landingDiscordInviteBtn {
+    max-width: none;
+    min-height: 42px;
+    margin: 0;
+    padding-inline: 10px;
+    font-size: 12px;
+    font-weight: 700;
+    box-shadow: none;
+  }
+
   #feedbackWidgetMount {
+    display: block;
     flex: 0 0 auto;
     min-height: 0;
-    margin-bottom: 1rem;
+    margin: 0;
+  }
+
+  #downloadBtn,
+  #loginOfflineBtn,
+  .landingDiscordInviteBtn,
+  #feedbackWidgetMount .feedback-toggle,
+  #feedbackWidgetMount .feedback-success {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 46px;
+    height: 46px;
+    padding: 13px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+    border-radius: var(--radius-sm);
   }
 
   #feedbackWidgetMount .feedback-toggle,
@@ -715,7 +909,7 @@ body.desktop-window-chrome #landingPage {
     #downloadBtn,
     #loginOfflineBtn,
     #feedbackWidgetMount {
-      flex: 0 1 80px;
+      flex: 0 0 auto;
       min-height: 24px;
       max-height: 60px;
       transform: translateY(0);
@@ -723,8 +917,8 @@ body.desktop-window-chrome #landingPage {
 
     #downloadBtn,
     #loginOfflineBtn {
-      padding-top: 14px;
-      padding-bottom: 14px;
+      padding-top: 9px;
+      padding-bottom: 9px;
     }
 
     #downloadBtn {

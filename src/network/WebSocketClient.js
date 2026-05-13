@@ -707,6 +707,7 @@ export class WebSocketClient {
           textPositionOffset: u.to,
           registeredName: u.rn || '',
           isMuted: !!u.mt,
+          hasDiscord: !!u.hdsc,
           visibleIp: u.vip || ''
         }));
         this.emit('users', { users });
@@ -1252,7 +1253,7 @@ export class WebSocketClient {
 
       case T.AUTH_RESULT:
         console.log('[WebSocketClient] AUTH_RESULT received full data:', data);
-        console.log('[WebSocketClient] AUTH_RESULT extracted:', { success: data.a, username: data.authUsername, hasEmail: data.authHasEmail, emailPromptDeclined: data.authEmailPromptDeclined });
+        console.log('[WebSocketClient] AUTH_RESULT extracted:', { success: data.a, username: data.authUsername, hasEmail: data.authHasEmail, emailPromptDeclined: data.authEmailPromptDeclined, hasDiscord: data.authHasDiscord, needsUsernameSetup: data.authNeedsUsernameSetup });
         this.globalRole = data.authGlobalRole || 0;
         this.roomRole = data.authRoomRole || 0;
         this.emit('auth_result', {
@@ -1264,7 +1265,10 @@ export class WebSocketClient {
           username: data.authUsername || '',
           error: data.authError || '',
           hasEmail: data.authHasEmail || false,
-          emailPromptDeclined: data.authEmailPromptDeclined || false
+          emailPromptDeclined: data.authEmailPromptDeclined || false,
+          hasDiscord: data.authHasDiscord || false,
+          needsUsernameSetup: data.authNeedsUsernameSetup || false,
+          suggestedUsername: data.authSuggestedUsername || ''
         });
         break;
 

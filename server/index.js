@@ -10,8 +10,10 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { connectDB, getDB, getMongoDatabase, updateUserMetrics, updateConsecutiveDays } from './db.js';
 import { metricsTracker } from './MetricsTracker.js';
-import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryLiked, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate, handleFloatingArtList, setFloatingArtBroadcaster } from './gallery.js';
-import { handleAuthLogin, handleAuthRegister, handleAuthMe, handlePasswordResetRequest, handlePasswordResetComplete, handleEmailSet, handleEmailVerify, handleEmailDecline } from './authRoutes.js';
+import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGalleryLike, handleGalleryFavorite, handleGalleryFavorites, handleGalleryLiked, handleGalleryFavoriteCheck, handleGalleryCommentsList, handleGalleryCommentCreate, handleGalleryCommentUpdate, handleGalleryCommentDelete, handleGalleryDelete, handleGallerySidebar, handleGalleryTagsUpdate, handleFloatingArtList, setFloatingArtBroadcaster, setGalleryDiscordPoster } from './gallery.js';
+import { initDiscordBot, postGalleryItemToDiscord, setDiscordRoomManager } from './discordBot.js';
+import { postReleaseUpdateToDiscord } from './discordBot.js';
+import { handleAuthLogin, handleAuthRegister, handleAuthMe, handleAuthUsernameUpdate, handlePasswordResetRequest, handlePasswordResetComplete, handleEmailSet, handleEmailVerify, handleEmailDecline, handleDiscordConfig, handleDiscordOAuthStart, handleDiscordOAuthCallback, handleDiscordDdrawAccountLink } from './authRoutes.js';
 import { handleUserProfile } from './userRoutes.js';
 import { getGalleryPreviewItem, renderGalleryPreviewHtml } from './galleryPreview.js';
 import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore, handleSnapshotJoinNotify } from './snapshots.js';
@@ -194,6 +196,29 @@ async function readVersionPolicy({ force = false } = {}) {
   })();
 
   return versionPolicyPromise;
+}
+
+async function postReleaseUpdateOnce() {
+  if (process.env.DISCORD_AUTO_POST_UPDATES !== 'true') return;
+
+  const db = getDB();
+  if (!db) return;
+
+  const versionPolicy = await readVersionPolicy({ force: true });
+  const version = String(versionPolicy?.latest || '').trim();
+  if (!version) return;
+
+  const existing = await db.collection('discord_release_posts').findOne({ version });
+  if (existing) return;
+
+  const posted = await postReleaseUpdateToDiscord(versionPolicy);
+  if (!posted) return;
+
+  await db.collection('discord_release_posts').insertOne({
+    version,
+    postedAt: new Date(),
+    channelId: process.env.DISCORD_UPDATES_CHANNEL_ID || '',
+  });
 }
 
 function getJoinPolicyMinRole(joinPolicy) {
@@ -759,10 +784,55 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (path === '/api/discord/release-update' && req.method === 'POST') {
+    const expectedSecret = process.env.DISCORD_UPDATE_SECRET;
+    const providedSecret = req.headers['x-discord-update-secret'];
+    if (!expectedSecret || providedSecret !== expectedSecret) {
+      json(res, 403, { error: 'Forbidden' });
+      return;
+    }
+
+    try {
+      const versionPolicy = await readVersionPolicy({ force: true });
+      if (!versionPolicy) {
+        json(res, 503, { error: 'Version policy unavailable' });
+        return;
+      }
+      const posted = await postReleaseUpdateToDiscord(versionPolicy);
+      json(res, posted ? 200 : 503, { posted });
+    } catch (error) {
+      console.error('[Discord] Failed to post release update:', error);
+      json(res, 500, { error: 'Failed to post release update' });
+    }
+    return;
+  }
+
   // Auth routes (HTTP for gallery/non-WebSocket clients)
+  if (path === '/api/discord/config' && req.method === 'GET') {
+    await handleDiscordConfig(req, res);
+    return;
+  }
+
   if (path === '/api/auth/login' && req.method === 'POST') {
     if (rateLimited(authLimiter)) return;
     await handleAuthLogin(req, res);
+    return;
+  }
+
+  if (path === '/api/auth/discord/start' && req.method === 'POST') {
+    if (rateLimited(authLimiter)) return;
+    await handleDiscordOAuthStart(req, res);
+    return;
+  }
+
+  if (path === '/api/auth/discord/callback' && req.method === 'GET') {
+    await handleDiscordOAuthCallback(req, res);
+    return;
+  }
+
+  if (path === '/api/auth/discord/link-ddraw' && req.method === 'POST') {
+    if (rateLimited(authLimiter)) return;
+    await handleDiscordDdrawAccountLink(req, res);
     return;
   }
 
@@ -774,6 +844,12 @@ const server = createServer(async (req, res) => {
 
   if (path === '/api/auth/me' && req.method === 'GET') {
     await handleAuthMe(req, res);
+    return;
+  }
+
+  if (path === '/api/auth/username' && req.method === 'POST') {
+    if (rateLimited(authLimiter)) return;
+    await handleAuthUsernameUpdate(req, res);
     return;
   }
 
@@ -1097,7 +1173,7 @@ const server = createServer(async (req, res) => {
     }
   }
 
-  res.writeHead(404);
+  res.writeHead(404, { 'Access-Control-Allow-Origin': '*' });
   res.end();
 });
 
@@ -1215,6 +1291,7 @@ function mapUsersForBroadcast(users, viewer = null, room = null) {
         sim: u.simulatePressure,
         rn: u.registeredName || '',
         mt: !!u.isMuted,
+        hdsc: !!u.hasDiscord,
         vip: room ? getVisibleIpForViewer(viewer, u, room) : '',
         fpId: u.fingerprintId || '' // Include fingerprintId for persistent user tracking
       };
@@ -1406,6 +1483,12 @@ async function init() {
 
   roomManager = new RoomManager(wss, sendTo);
   roomManager.setMsgEncoder(Msg, createRoomBroadcaster);
+  setDiscordRoomManager(roomManager);
+  await initDiscordBot({ roomManager });
+  setGalleryDiscordPoster(postGalleryItemToDiscord);
+  postReleaseUpdateOnce().catch(err => {
+    console.error('[Discord] Auto release update failed:', err);
+  });
   console.log('[Server] RoomManager initialized');
   initAsnCheck();
 
@@ -3965,6 +4048,7 @@ wss.on('connection', async (ws, req) => {
               user.role = role;
               user.name = uniqueName;
               user.registeredName = regUsername;
+              user.hasDiscord = false;
               user.isShadowBanned = !!ws.isShadowBanned;
               // ws.username remains the original registered username for AUTH_RESULT
             }
@@ -3976,7 +4060,8 @@ wss.on('connection', async (ws, req) => {
               authRole: role,
               authGlobalRole: role,
               authRoomRole: 0,
-              authUsername: regUsername
+              authUsername: regUsername,
+              authHasDiscord: false
             });
 
             await recordConnectionEvent(db, {
@@ -4171,6 +4256,7 @@ wss.on('connection', async (ws, req) => {
               user.role = effectiveRole;
               user.name = uniqueName;
               user.registeredName = userDoc.username;
+              user.hasDiscord = !!userDoc.discord?.id;
               user.isMuted = !!ws.isMuted;
               user.isShadowBanned = !!ws.isShadowBanned;
               user.isVPN = !!ws.isVPN;
@@ -4190,7 +4276,10 @@ wss.on('connection', async (ws, req) => {
               authRoomRole: roomRoleVal,
               authUsername: userDoc.username,
               authHasEmail: !!userDoc.email,
-              authEmailPromptDeclined: !!userDoc.emailPromptDeclined
+              authEmailPromptDeclined: !!userDoc.emailPromptDeclined,
+              authHasDiscord: !!userDoc.discord?.id,
+              authNeedsUsernameSetup: !!userDoc.discord?.id && !userDoc.passwordHash && !userDoc.discord?.usernameSetupCompleted,
+              authSuggestedUsername: userDoc.discord?.username || ''
             });
 
             await recordConnectionEvent(db, {

@@ -1,5 +1,6 @@
 /** @fileoverview HTTP auth endpoints for gallery and other non-WebSocket clients. */
 
+import { ObjectId } from 'mongodb';
 import { getDB } from './db.js';
 import { hashPassword, verifyPassword, generateToken } from './auth.js';
 import { getBearerToken, getUserFromToken } from './authUser.js';
@@ -21,6 +22,9 @@ const REGISTER_RATE_LIMIT = { max: 5, windowMs: 15 * 60 * 1000, blockMs: 30 * 60
 const RESET_REQUEST_RATE_LIMIT = { max: 5, windowMs: 15 * 60 * 1000, blockMs: 30 * 60 * 1000 };
 const RESET_COMPLETE_RATE_LIMIT = { max: 10, windowMs: 15 * 60 * 1000, blockMs: 30 * 60 * 1000 };
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+const DISCORD_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const DISCORD_OAUTH_SCOPE = 'identify';
+const USERNAME_CHANGE_INTERVAL_MS = 90 * 24 * 60 * 60 * 1000;
 
 function json(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json', ...CORS_HEADERS });
@@ -52,6 +56,10 @@ function hashResetToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+function hashOAuthState(state) {
+  return crypto.createHash('sha256').update(state).digest('hex');
+}
+
 function getRequestOrigin(req) {
   const host = req.headers['x-forwarded-host'] || req.headers.host;
   const proto = req.headers['x-forwarded-proto'] || (host?.includes('localhost') ? 'http' : 'https');
@@ -61,6 +69,134 @@ function getRequestOrigin(req) {
 function buildResetLink(req, token) {
   const baseUrl = (process.env.PUBLIC_APP_URL || getRequestOrigin(req)).replace(/\/+$/, '');
   return `${baseUrl}/go/?resetToken=${encodeURIComponent(token)}`;
+}
+
+function getPublicAppBase(req) {
+  return (process.env.PUBLIC_APP_URL || getRequestOrigin(req)).replace(/\/+$/, '');
+}
+
+function getDiscordRedirectUri(req) {
+  return process.env.DISCORD_REDIRECT_URI || `${getPublicAppBase(req)}/api/auth/discord/callback`;
+}
+
+function getDiscordDisplayName(user) {
+  return user.global_name || user.username || 'Discord user';
+}
+
+function getDiscordUsername(user) {
+  return user.username || user.global_name || 'Discord user';
+}
+
+function normalizeDiscordUsername(user) {
+  const base = normalizeUsername(getDiscordUsername(user));
+  const safeBase = isValidUsername(base) ? base : `discord_${String(user.id || '').slice(-6)}`;
+  return safeBase || `discord_${crypto.randomBytes(3).toString('hex')}`;
+}
+
+async function getAvailableDiscordUsername(db, discordUser) {
+  const base = normalizeDiscordUsername(discordUser).slice(0, 24) || 'discord';
+
+  for (let i = 0; i < 20; i++) {
+    const suffix = i === 0 ? '' : `_${String(discordUser.id || crypto.randomBytes(4).toString('hex')).slice(-(4 + i)).slice(0, 8)}`;
+    const candidate = `${base.slice(0, Math.max(1, 24 - suffix.length))}${suffix}`;
+    const existing = await db.collection('users').findOne(
+      { username: candidate },
+      { projection: { _id: 1 }, collation: { locale: 'en', strength: 2 } }
+    );
+    if (!existing && isValidUsername(candidate)) return candidate;
+  }
+
+  return `discord_${crypto.randomBytes(5).toString('hex')}`;
+}
+
+function buildDiscordProfile(user) {
+  const avatar = user.avatar
+    ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.${user.avatar.startsWith('a_') ? 'gif' : 'png'}`
+    : null;
+
+  return {
+    id: String(user.id),
+    username: user.username || '',
+    globalName: user.global_name || '',
+    displayName: getDiscordDisplayName(user),
+    discriminator: user.discriminator || '',
+    avatar,
+    linkedAt: new Date(),
+  };
+}
+
+async function exchangeDiscordCode(req, code) {
+  const clientId = process.env.DISCORD_CLIENT_ID;
+  const clientSecret = process.env.DISCORD_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error('Discord OAuth is not configured');
+  }
+
+  const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: getDiscordRedirectUri(req)
+    })
+  });
+
+  if (!tokenResponse.ok) {
+    const detail = await tokenResponse.text().catch(() => '');
+    throw new Error(`Discord token exchange failed: ${tokenResponse.status} ${detail}`);
+  }
+
+  const tokenData = await tokenResponse.json();
+  const userResponse = await fetch('https://discord.com/api/users/@me', {
+    headers: { Authorization: `Bearer ${tokenData.access_token}` }
+  });
+
+  if (!userResponse.ok) {
+    const detail = await userResponse.text().catch(() => '');
+    throw new Error(`Discord user fetch failed: ${userResponse.status} ${detail}`);
+  }
+
+  return await userResponse.json();
+}
+
+function redirectDiscordResult(req, res, params) {
+  const url = new URL('/go/', getPublicAppBase(req));
+  url.searchParams.set('discordAuth', params.success ? 'success' : 'error');
+  if (params.token) url.searchParams.set('token', params.token);
+  if (params.mode) url.searchParams.set('mode', params.mode);
+  if (params.username) url.searchParams.set('username', params.username);
+  if (params.hasDiscord !== undefined) url.searchParams.set('hasDiscord', params.hasDiscord ? '1' : '0');
+  if (params.needsUsernameSetup !== undefined) url.searchParams.set('needsUsernameSetup', params.needsUsernameSetup ? '1' : '0');
+  if (params.suggestedUsername) url.searchParams.set('suggestedUsername', params.suggestedUsername);
+  if (params.error) url.searchParams.set('error', params.error);
+  res.writeHead(302, { Location: url.toString() });
+  res.end();
+}
+
+function getUsernameChangeAvailability(user) {
+  const lastChanged = user.usernameChangedAt || user.createdAt || null;
+  if (!lastChanged) return { allowed: true, nextChangeAt: null };
+
+  const lastChangedAt = new Date(lastChanged);
+  if (Number.isNaN(lastChangedAt.getTime())) return { allowed: true, nextChangeAt: null };
+
+  const nextChangeAt = new Date(lastChangedAt.getTime() + USERNAME_CHANGE_INTERVAL_MS);
+  return {
+    allowed: nextChangeAt.getTime() <= Date.now(),
+    nextChangeAt,
+  };
+}
+
+async function usernameExists(db, username, excludeUserId = null) {
+  const query = { username };
+  if (excludeUserId) query._id = { $ne: excludeUserId };
+  return !!(await db.collection('users').findOne(
+    query,
+    { projection: { _id: 1 }, collation: { locale: 'en', strength: 2 } }
+  ));
 }
 
 async function createPasswordResetToken(db, user, req) {
@@ -162,7 +298,7 @@ export async function handleAuthLogin(req, res) {
       return json(res, 401, { success: false, error: 'Invalid username or password' });
     }
 
-    const valid = await verifyPassword(password, user.passwordHash);
+    const valid = user.passwordHash ? await verifyPassword(password, user.passwordHash) : false;
     if (!valid) {
       httpRateLimiter.consume(loginKey, LOGIN_RATE_LIMIT);
       return json(res, 401, { success: false, error: 'Invalid username or password' });
@@ -376,6 +512,379 @@ export async function handleAuthMe(req, res) {
     role: user.role ?? Role.USER,
     likedGalleryIds: Array.isArray(user.likedGalleryIds) ? user.likedGalleryIds : [],
   });
+}
+
+/**
+ * POST /api/auth/username — update the current user's DDraw username.
+ * Header: Authorization: Bearer <token>
+ * Body: { username }
+ */
+export async function handleAuthUsernameUpdate(req, res) {
+  const db = getDB();
+  if (!db) return json(res, 503, { success: false, error: 'Database not available' });
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (err) {
+    if (err?.message === 'Payload too large') {
+      return json(res, 413, { success: false, error: 'Request body too large' });
+    }
+    return json(res, 400, { success: false, error: 'Invalid request body' });
+  }
+
+  const user = await getUserFromToken(getBearerToken(req), { projection: { _id: 1, username: 1, role: 1, discord: 1, createdAt: 1, usernameChangedAt: 1 } });
+  if (!user) return json(res, 401, { success: false, error: 'Unauthorized' });
+
+  const username = typeof body.username === 'string' ? normalizeUsername(body.username) : '';
+  if (!isValidUsername(username)) {
+    return json(res, 400, { success: false, error: getUsernameValidationMessage() });
+  }
+
+  try {
+    const isInitialDiscordUsernameSetup = !!user.discord?.id && !user.discord?.usernameSetupCompleted;
+    if (username.toLowerCase() !== user.username.toLowerCase() && !isInitialDiscordUsernameSetup) {
+      const availability = getUsernameChangeAvailability(user);
+      if (!availability.allowed) {
+        return json(res, 429, {
+          success: false,
+          error: `You can only change your username once every 3 months. Try again on ${availability.nextChangeAt.toLocaleDateString('en-CA')}.`,
+          nextUsernameChangeAt: availability.nextChangeAt.toISOString(),
+        });
+      }
+    }
+
+    const taken = await usernameExists(db, username, user._id);
+    if (taken) {
+      return json(res, 409, { success: false, error: 'Username already taken' });
+    }
+
+    const oldUsername = user.username;
+    await db.collection('users').updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          username,
+          updatedAt: new Date(),
+          usernameChangedAt: new Date(),
+          ...(user.discord?.id ? { 'discord.usernameSetupCompleted': true } : {})
+        }
+      }
+    );
+
+    if (username !== oldUsername) {
+      const userId = user._id.toString();
+      await Promise.all([
+        db.collection('gallery').updateMany({ authorId: userId }, { $set: { author: username } }),
+        db.collection('comments').updateMany({ authorId: userId }, { $set: { author: username } }),
+        db.collection('gallery_likes').updateMany({ userId }, { $set: { username } }),
+      ]);
+    }
+
+    const token = generateToken({
+      userId: user._id.toString(),
+      username,
+      role: user.role || Role.USER,
+    });
+
+    json(res, 200, {
+      success: true,
+      token,
+      username,
+      role: user.role || Role.USER,
+      hasDiscord: !!user.discord?.id,
+      needsUsernameSetup: false,
+      nextUsernameChangeAt: new Date(Date.now() + USERNAME_CHANGE_INTERVAL_MS).toISOString(),
+    });
+  } catch (err) {
+    console.error('[AuthRoutes] Username update error:', err);
+    if (err.code === 11000) {
+      return json(res, 409, { success: false, error: 'Username already taken' });
+    }
+    json(res, 500, { success: false, error: 'Username update failed' });
+  }
+}
+
+/**
+ * POST /api/auth/discord/link-ddraw
+ * Links the current Discord-authenticated user to an existing DDraw username/password account.
+ * Header: Authorization: Bearer <token>
+ * Body: { username, password }
+ */
+export async function handleDiscordDdrawAccountLink(req, res) {
+  const db = getDB();
+  if (!db) return json(res, 503, { success: false, error: 'Database not available' });
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (err) {
+    if (err?.message === 'Payload too large') {
+      return json(res, 413, { success: false, error: 'Request body too large' });
+    }
+    return json(res, 400, { success: false, error: 'Invalid request body' });
+  }
+
+  const currentUser = await getUserFromToken(getBearerToken(req), {
+    projection: { _id: 1, username: 1, role: 1, discord: 1, passwordHash: 1 }
+  });
+  if (!currentUser) return json(res, 401, { success: false, error: 'Unauthorized' });
+  if (!currentUser.discord?.id) {
+    return json(res, 400, { success: false, error: 'Log in with Discord before linking a DDraw account' });
+  }
+
+  const username = typeof body.username === 'string' ? normalizeUsername(body.username) : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+  if (!username || !password) {
+    return json(res, 400, { success: false, error: 'Username and password required' });
+  }
+
+  try {
+    const targetUser = await db.collection('users').findOne(
+      { username },
+      { collation: { locale: 'en', strength: 2 } }
+    );
+    if (!targetUser?.passwordHash || !(await verifyPassword(password, targetUser.passwordHash))) {
+      return json(res, 401, { success: false, error: 'Invalid username or password' });
+    }
+
+    if (targetUser.discord?.id && targetUser.discord.id !== currentUser.discord.id) {
+      return json(res, 409, { success: false, error: 'That DDraw account is already linked to a different Discord account' });
+    }
+
+    const discord = {
+      ...currentUser.discord,
+      usernameSetupCompleted: true,
+      linkedAt: currentUser.discord.linkedAt || new Date(),
+    };
+
+    if (String(targetUser._id) !== String(currentUser._id)) {
+      await db.collection('users').updateOne(
+        { _id: currentUser._id, 'discord.id': currentUser.discord.id },
+        { $unset: { discord: '' }, $set: { updatedAt: new Date() } }
+      );
+    }
+
+    await db.collection('users').updateOne(
+      { _id: targetUser._id },
+      {
+        $set: {
+          discord,
+          updatedAt: new Date(),
+          lastLoginAt: new Date(),
+          lastIp: getClientIp(req),
+        }
+      }
+    );
+
+    const token = generateToken({
+      userId: targetUser._id.toString(),
+      username: targetUser.username,
+      role: targetUser.role || Role.USER,
+    });
+
+    json(res, 200, {
+      success: true,
+      token,
+      userId: targetUser._id.toString(),
+      username: targetUser.username,
+      role: targetUser.role || Role.USER,
+      hasDiscord: true,
+      needsUsernameSetup: false,
+    });
+  } catch (err) {
+    console.error('[AuthRoutes] Discord DDraw account link error:', err);
+    json(res, 500, { success: false, error: 'Account link failed' });
+  }
+}
+
+/**
+ * GET /api/discord/config
+ * Returns public Discord integration settings for the client.
+ */
+export async function handleDiscordConfig(req, res) {
+  json(res, 200, {
+    inviteUrl: process.env.DISCORD_INVITE_URL || '',
+    oauthEnabled: !!(process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET),
+  });
+}
+
+/**
+ * POST /api/auth/discord/start
+ * Body: { mode?: "login"|"link" }
+ * Header for link mode: Authorization: Bearer <token>
+ */
+export async function handleDiscordOAuthStart(req, res) {
+  const db = getDB();
+  if (!db) return json(res, 503, { success: false, error: 'Database not available' });
+  if (!process.env.DISCORD_CLIENT_ID || !process.env.DISCORD_CLIENT_SECRET) {
+    return json(res, 503, { success: false, error: 'Discord login is not configured' });
+  }
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = raw ? JSON.parse(raw) : {};
+  } catch (err) {
+    if (err?.message === 'Payload too large') {
+      return json(res, 413, { success: false, error: 'Request body too large' });
+    }
+    return json(res, 400, { success: false, error: 'Invalid request body' });
+  }
+
+  const mode = body.mode === 'link' ? 'link' : 'login';
+  let user = null;
+  if (mode === 'link') {
+    user = await getUserFromToken(getBearerToken(req), { projection: { username: 1, role: 1, discord: 1 } });
+    if (!user) return json(res, 401, { success: false, error: 'Log in before linking Discord' });
+    if (user.discord?.id) return json(res, 409, { success: false, error: 'This DDraw account is already linked to Discord' });
+  }
+
+  const state = crypto.randomBytes(32).toString('base64url');
+  await db.collection('discord_oauth_states').insertOne({
+    stateHash: hashOAuthState(state),
+    mode,
+    userId: user?._id || null,
+    username: user?.username || null,
+    createdAt: new Date(),
+    expiresAt: new Date(Date.now() + DISCORD_OAUTH_STATE_TTL_MS),
+    requestedIp: getClientIp(req),
+    userAgent: String(req.headers['user-agent'] || '').slice(0, 512),
+  });
+
+  const url = new URL('https://discord.com/oauth2/authorize');
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('client_id', process.env.DISCORD_CLIENT_ID);
+  url.searchParams.set('scope', DISCORD_OAUTH_SCOPE);
+  url.searchParams.set('state', state);
+  url.searchParams.set('redirect_uri', getDiscordRedirectUri(req));
+  url.searchParams.set('prompt', mode === 'link' ? 'consent' : 'none');
+
+  json(res, 200, { success: true, url: url.toString() });
+}
+
+/**
+ * GET /api/auth/discord/callback
+ * Handles the Discord OAuth authorization code callback.
+ */
+export async function handleDiscordOAuthCallback(req, res) {
+  const db = getDB();
+  if (!db) return redirectDiscordResult(req, res, { success: false, error: 'Database not available' });
+
+  const urlObj = new URL(req.url, getPublicAppBase(req));
+  const code = urlObj.searchParams.get('code') || '';
+  const state = urlObj.searchParams.get('state') || '';
+  if (!code || !state) {
+    return redirectDiscordResult(req, res, { success: false, error: 'Missing Discord authorization data' });
+  }
+
+  try {
+    const stateHash = hashOAuthState(state);
+    const stateDoc = await db.collection('discord_oauth_states').findOneAndDelete({
+      stateHash,
+      expiresAt: { $gt: new Date() },
+    });
+    if (!stateDoc) {
+      return redirectDiscordResult(req, res, { success: false, error: 'Discord login expired. Please try again.' });
+    }
+
+    const discordUser = await exchangeDiscordCode(req, code);
+    const discord = buildDiscordProfile(discordUser);
+    const existingLinkedUser = await db.collection('users').findOne(
+      { 'discord.id': discord.id },
+      { projection: { username: 1, role: 1, passwordHash: 1, discord: 1 } }
+    );
+
+    if (stateDoc.mode === 'link') {
+      if (existingLinkedUser && String(existingLinkedUser._id) !== String(stateDoc.userId)) {
+        return redirectDiscordResult(req, res, {
+          success: false,
+          mode: 'link',
+          error: 'That Discord account is already linked to another DDraw account.'
+        });
+      }
+
+      const result = await db.collection('users').findOneAndUpdate(
+        { _id: new ObjectId(stateDoc.userId) },
+        { $set: { discord, updatedAt: new Date() } },
+        { returnDocument: 'after', projection: { username: 1, role: 1 } }
+      );
+
+      if (!result) {
+        return redirectDiscordResult(req, res, { success: false, mode: 'link', error: 'DDraw account not found' });
+      }
+
+      const token = generateToken({
+        userId: result._id.toString(),
+        username: result.username,
+        role: result.role || Role.USER,
+      });
+      return redirectDiscordResult(req, res, {
+        success: true,
+        mode: 'link',
+        token,
+        username: result.username,
+        hasDiscord: true,
+      });
+    }
+
+    let user = existingLinkedUser;
+    let needsUsernameSetup = false;
+    if (!user) {
+      const username = await getAvailableDiscordUsername(db, discordUser);
+      needsUsernameSetup = true;
+      const doc = {
+        username,
+        passwordHash: null,
+        email: null,
+        role: Role.USER,
+        discord: {
+          ...discord,
+          usernameSetupCompleted: false,
+        },
+        createdAt: new Date(),
+        lastLoginAt: new Date(),
+        lastIp: getClientIp(req),
+        likedGalleryIds: [],
+      };
+      const insert = await db.collection('users').insertOne(doc);
+      user = { _id: insert.insertedId, username, role: Role.USER };
+    } else {
+      await db.collection('users').updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            discord: {
+              ...discord,
+              usernameSetupCompleted: user.discord?.usernameSetupCompleted ?? !!user.passwordHash,
+            },
+            lastLoginAt: new Date(),
+            lastIp: getClientIp(req)
+          }
+        }
+      );
+      needsUsernameSetup = !user.passwordHash && !user.discord?.usernameSetupCompleted;
+    }
+
+    const token = generateToken({
+      userId: user._id.toString(),
+      username: user.username,
+      role: user.role || Role.USER,
+    });
+
+    return redirectDiscordResult(req, res, {
+      success: true,
+      mode: 'login',
+      token,
+      username: user.username,
+      hasDiscord: true,
+      needsUsernameSetup,
+      suggestedUsername: normalizeUsername(getDiscordUsername(discordUser)),
+    });
+  } catch (err) {
+    console.error('[AuthRoutes] Discord OAuth error:', err);
+    return redirectDiscordResult(req, res, { success: false, error: 'Discord login failed' });
+  }
 }
 
 /**

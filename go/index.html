@@ -354,6 +354,7 @@
                     <div class="authButtons">
                       <button type="button" class="btn primary large" id="loginBtn">Login</button>
                       <button type="button" class="btn secondary large" id="registerBtn">Register</button>
+                      <button type="button" class="btn large authDiscordBtn" id="discordLoginBtn" style="display: none;">Discord</button>
                     </div>
                     <button type="button" class="btn primary large authGuestJoinBtn" id="guestJoinBtn">Join</button>
                   </div>
@@ -369,6 +370,9 @@
                         </button>
                       </div>
                       <button type="button" class="btn primary large authLoggedInJoinBtn" id="authLoggedInJoinBtn">Join Room</button>
+                    </div>
+                    <div class="authButtons">
+                      <button type="button" class="btn large authDiscordBtn" id="discordLinkBtn" style="display: none;">Link Discord</button>
                     </div>
                   </div>
                 </form>
@@ -411,9 +415,12 @@
               </div>
 
               <div class="landingDivider">or</div>
-              <button class="btn offline" id="downloadBtn" onclick="window.open('https://www.ddraw.ca/download')">Download Windows App</button>
-              <div id="feedbackWidgetMount"></div>
-              <button class="btn offline" id="loginOfflineBtn">Draw Alone</button>
+              <div class="landingSecondaryActions">
+                <a class="btn large authDiscordBtn landingDiscordInviteBtn" id="discordInviteBtn" href="#" target="_blank" rel="noopener noreferrer" style="display: none;">Join Server</a>
+                <button class="btn offline" id="downloadBtn" onclick="window.open('https://www.ddraw.ca/download')">Windows App</button>
+                <div id="feedbackWidgetMount"></div>
+                <button class="btn offline" id="loginOfflineBtn">Draw Alone</button>
+              </div>
             </div>
 
             <!-- Right Panel: Room Selection -->

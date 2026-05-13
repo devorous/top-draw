@@ -69,6 +69,10 @@ export async function connectDB() {
 
     await safeCreateIndex('users', { username: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
     await safeCreateIndex('users', { email: 1 }, { sparse: true, collation: { locale: 'en', strength: 2 } });
+    await safeCreateIndex('users', { 'discord.id': 1 }, { unique: true, sparse: true });
+    await safeCreateIndex('discord_oauth_states', { stateHash: 1 }, { unique: true });
+    await safeCreateIndex('discord_oauth_states', { expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await safeCreateIndex('discord_release_posts', { version: 1 }, { unique: true });
     await safeCreateIndex('rooms', { lastActiveAt: 1 });
     await safeCreateIndex('room_snapshots', { roomId: 1, timestamp: -1 });
     await safeCreateIndex('room_snapshots', { snapshotId: 1 }, { unique: true });

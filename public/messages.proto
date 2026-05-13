@@ -216,6 +216,7 @@ message Msg {
     string iid = 31;    // Instance ID: random per-connection token to detect index reuse
     string bbm = 32;    // Blend bake mode: 'existing' or 'background'
     bool ea = 33;       // Eraser applies to all layers
+    bool hdsc = 34;     // Whether this account is linked to Discord
   }
   repeated U us = 17;   // Users array
 
@@ -258,6 +259,9 @@ message Msg {
   string auth_secret_answer    = 65;  // Secret answer (hashed on server, for registration/recovery)
   bool auth_has_email          = 129; // Whether user has a verified email (for AUTH_RESULT)
   bool auth_email_prompt_declined = 130; // Whether user declined the email prompt (for AUTH_RESULT)
+  bool auth_has_discord        = 161; // Whether user has a linked Discord account
+  bool auth_needs_username_setup = 162; // Whether the user should pick a DDraw username
+  string auth_suggested_username = 163; // Suggested username for setup flows
 
   // === Moderation Fields (34-42) ===
   uint32 mod_action_type  = 34;  // 0=kick, 1=mute, 2=ban, 3=unmute, 4=unban

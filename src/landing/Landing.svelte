@@ -155,6 +155,7 @@
   ];
 
   const WINDOWS_DOWNLOAD_URL = 'https://www.ddraw.ca/download';
+  const DISCORD_INVITE_URL = 'https://discord.gg/aKp4Ew7V7a';
 </script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -218,6 +219,16 @@
       </div>
     </section>
   </main>
+  <section class="discord-card-section">
+    <div class="discord-card">
+      <div>
+        <h2>DDraw Discord</h2>
+        <p>Share gallery posts, catch active rooms, and hang out with other people drawing.</p>
+      </div>
+      <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer" class="discord-btn">Join the Discord</a>
+    </div>
+  </section>
+
   <section id="download" class="download-card-section">
     <div class="funky-card">
       <div class="card-content">
@@ -415,7 +426,36 @@
   canvas { width: 100%; height: 100%; }
 
   /* ── Funky Download Card ── */
-  .download-card-section { padding: 4rem 2rem; max-width: 1200px; margin: 0 auto; }
+  .discord-card-section { padding: 2rem 2rem 0; max-width: 1200px; margin: 0 auto; }
+  .discord-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    padding: 2rem;
+    background: #5865f2;
+    border: 3px solid #fff;
+    border-radius: 20px;
+    box-shadow: 0 16px 34px rgba(88,101,242,0.28);
+  }
+  .discord-card h2 { font-size: 2.2rem; margin-bottom: 0.4rem; }
+  .discord-card p { max-width: 48ch; color: rgba(255,255,255,0.82); }
+  .discord-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    padding: 0.9rem 1.4rem;
+    background: #fff;
+    color: #5865f2;
+    border-radius: 12px;
+    font-family: 'Fredoka', sans-serif;
+    font-weight: 700;
+    white-space: nowrap;
+    transition: all 0.2s;
+  }
+  .discord-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0,0,0,0.18); }
+  .download-card-section { padding: 2rem 2rem 4rem; max-width: 1200px; margin: 0 auto; }
   .funky-card {
     background: #c800c8;
     border-radius: 24px;
@@ -542,6 +582,8 @@
     .hero { grid-template-columns: 1fr; text-align: center; padding-top: 6rem; }
     .hero-text { order: 1; display: flex; flex-direction: column; align-items: center; }
     .hero-preview { order: 2; max-width: 500px; margin: 0 auto; }
+    .discord-card { flex-direction: column; align-items: flex-start; }
+    .discord-btn { width: 100%; }
     .foot-content { flex-direction: column; gap: 2rem; align-items: center; text-align: center; }
   }
 </style>

@@ -83,6 +83,7 @@ const MAX_TAG_LENGTH = 24;
 
 // Callback for broadcasting floating art updates via WebSocket
 let broadcastFloatingArtUpdate = null;
+let galleryDiscordPoster = null;
 
 /**
  * Set the callback for broadcasting floating art updates to WebSocket clients
@@ -90,6 +91,14 @@ let broadcastFloatingArtUpdate = null;
  */
 export function setFloatingArtBroadcaster(callback) {
   broadcastFloatingArtUpdate = callback;
+}
+
+/**
+ * Set the callback for posting opt-in gallery uploads to Discord.
+ * @param {Function} callback - Function to call with the saved gallery item
+ */
+export function setGalleryDiscordPoster(callback) {
+  galleryDiscordPoster = callback;
 }
 
 function json(res, status, body) {
@@ -426,7 +435,7 @@ export async function handleGalleryUpload(req, res) {
 
   try {
     const result = await db.collection('gallery').insertOne(doc);
-    json(res, 201, {
+    const item = {
       id: result.insertedId.toString(),
       url,
       thumbUrl,
@@ -436,7 +445,15 @@ export async function handleGalleryUpload(req, res) {
       likesCount: 0,
       views: 0,
       createdAt: doc.createdAt,
-    });
+    };
+
+    json(res, 201, item);
+
+    if (doc.tags.includes('discord') && galleryDiscordPoster) {
+      galleryDiscordPoster(item).catch(err => {
+        console.error('[Gallery] Discord post error:', err);
+      });
+    }
   } catch (err) {
     console.error('[Gallery] DB insert error:', err);
     json(res, 500, { error: 'Failed to save gallery item' });

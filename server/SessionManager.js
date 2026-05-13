@@ -157,6 +157,7 @@ export class SessionManager {
       simulatePressure: 2, // true with offset
       name,
       registeredName: '',
+      hasDiscord: false,
       text: '',
       imageBrush: null,
       patternBrush: null,
