@@ -374,7 +374,6 @@ export class DrawingApp {
     this._checkpointIntervalMs = 30000;
     this._memoryCompactionTimer = null;
     this._memoryCompactionDelayMs = 2500;
-    this._versionPollTimer = null;
     this._versionUpdateNoticed = false;
     this._awaitingServerRestart = false;
     this._reloadRecommended = false;
@@ -783,7 +782,6 @@ export class DrawingApp {
     }
 
     this.connectForRoomDiscovery();
-    this.startVersionPolling();
   }
 
   /**
@@ -3537,7 +3535,7 @@ export class DrawingApp {
       this._versionUpdateNoticed = false;
       // Server is shutting down for a restart. Don't offer a "Reload" yet —
       // the new version isn't live. Show a plain reconnection banner; the
-      // version poller will surface the real update prompt once the new
+      // reconnect handling will surface the real update prompt once the new
       // server is actually reachable.
       const offlineVisible = !onLandingPage;
       this.ui.showDisconnectionBanner({
@@ -3563,14 +3561,6 @@ export class DrawingApp {
       console.log('[App] Showing disconnection banner');
       this.ui.showDisconnectionBanner();
     }
-  }
-
-  startVersionPolling() {
-    if (this._versionPollTimer || typeof window === 'undefined') return;
-    this._versionPollTimer = window.setInterval(() => {
-      if (this.isOfflineMode) return;
-      void this.checkForRuntimeUpdate();
-    }, 60000);
   }
 
   async checkForRuntimeUpdate({ force = true } = {}) {

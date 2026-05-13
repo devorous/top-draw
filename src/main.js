@@ -3,7 +3,6 @@
 import { inject } from '@vercel/analytics';
 import './css/main.scss';
 import { scheduleStartupUpdateCheck } from './platform/updater.js';
-import { initializeVersionCheck } from './VersionChecker.js';
 import { installAppConfirmGlobal } from './ui/ConfirmDialog.js';
 
 inject();
@@ -396,11 +395,6 @@ async function init() {
       setTimeout(startBackgroundBoot, 0);
     });
   }
-
-  // Check for outdated client version without blocking the app/auth boot path.
-  void initializeVersionCheck().catch((err) => {
-    console.warn('[VersionChecker] Startup check failed:', err);
-  });
 
   scheduleStartupUpdateCheck();
 }

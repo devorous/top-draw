@@ -133,11 +133,6 @@ function buildVersionStatus(serverVersion, clientVersion) {
   }
 
   if (isCompatible) {
-    console.info('[VersionChecker] Client version is compatible', {
-      client: clientVersion,
-      minRequired: serverVersion.minRequired,
-      latest: serverVersion.latest
-    });
     return { allowed: true, reason: 'compatible', clientVersion, serverVersion };
   }
 
@@ -375,13 +370,3 @@ export async function ensureClientCanConnect({ showWarning = true } = {}) {
   return status;
 }
 
-/**
- * Initialize version checking and show warning if needed.
- */
-export async function initializeVersionCheck() {
-  const status = await ensureClientCanConnect({ showWarning: true });
-  if (status.reason === 'offline') {
-    console.info('[VersionChecker] Offline mode - skipping version check');
-  }
-  return status;
-}
