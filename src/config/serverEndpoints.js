@@ -10,17 +10,26 @@ function isLocalHost(hostname) {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
 }
 
+function isLocalUrl(value) {
+  try {
+    return isLocalHost(new URL(value, window.location.href).hostname);
+  } catch {
+    return false;
+  }
+}
+
 function isPackagedDesktopOrigin() {
   const protocol = window.location.protocol;
   return protocol === 'tauri:' || protocol === 'file:' || protocol === 'asset:';
 }
 
-function resolveApiBaseFromWebSocketUrl() {
+function resolveApiBaseFromWebSocketUrl({ allowLocal = true } = {}) {
   const wsServerUrl = String(import.meta.env.VITE_WS_SERVER_URL || '').trim();
   if (!wsServerUrl) return '';
 
   try {
     const parsed = new URL(wsServerUrl, window.location.href);
+    if (!allowLocal && isLocalHost(parsed.hostname)) return '';
     parsed.protocol = parsed.protocol === 'wss:' ? 'https:' : 'http:';
     parsed.pathname = '';
     parsed.search = '';
@@ -33,14 +42,17 @@ function resolveApiBaseFromWebSocketUrl() {
 }
 
 export function resolveApiBaseUrl() {
+  const packagedDesktop = isPackagedDesktopOrigin();
   const configuredApiBase = trimTrailingSlash(import.meta.env.VITE_API_BASE_URL);
-  if (configuredApiBase) return configuredApiBase;
+  if (configuredApiBase && (!packagedDesktop || !isLocalUrl(configuredApiBase))) {
+    return configuredApiBase;
+  }
 
-  const fromWs = resolveApiBaseFromWebSocketUrl();
+  const fromWs = resolveApiBaseFromWebSocketUrl({ allowLocal: !packagedDesktop });
   if (fromWs) return fromWs;
 
   const hostname = window.location.hostname;
-  if (isTauriDesktop() || isPackagedDesktopOrigin() || (!isLocalHost(hostname) && hostname.endsWith('ddraw.ca'))) {
+  if (isTauriDesktop() || packagedDesktop || (!isLocalHost(hostname) && hostname.endsWith('ddraw.ca'))) {
     return PRODUCTION_API_BASE_URL;
   }
 
