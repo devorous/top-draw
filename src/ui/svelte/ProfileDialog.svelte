@@ -124,6 +124,13 @@
     fileInputEl?.click();
   }
 
+  function handleChangeUsername() {
+    const auth = typeof window !== 'undefined' ? window.app?.auth : null;
+    if (!auth || typeof auth.showUsernameSetupModal !== 'function') return;
+    close();
+    auth.showUsernameSetupModal({ force: true });
+  }
+
   async function handleAvatarFile(e) {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -355,6 +362,15 @@
             >
               View All Art
             </a>
+            {#if isOwn}
+              <button
+                type="button"
+                class="profile-btn"
+                onclick={handleChangeUsername}
+              >
+                Change Username
+              </button>
+            {/if}
           </div>
         {/if}
       </div>

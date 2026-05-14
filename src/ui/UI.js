@@ -1728,6 +1728,7 @@ menuBtn: document.getElementById('menuBtn'),
       selfListTool.innerHTML = '';
       const afk = !!window.app?.self?.afk;
       const iconData = (afk && this.icons.afk) ? this.icons.afk : (this.icons[tool] || this.icons.brush);
+      if (!iconData) return;
 
       if (iconData.type === 'svg') {
         const svgWrapper = document.createElement('div');

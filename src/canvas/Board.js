@@ -167,14 +167,6 @@ export class Board {
   _logDesyncDiagnostics() {
     if (this._desyncDiagnosticsLogged) return;
 
-    const entries = Object.entries(this._contextDesyncSupport);
-    const detail = entries.map(([role, state]) => ({
-      role,
-      requested: state.requested,
-      effective: state.reported ? state.effective : 'unknown'
-    }));
-
-    console.info('[Board] Canvas2D desynchronized context status', detail);
     this._desyncDiagnosticsLogged = true;
   }
 

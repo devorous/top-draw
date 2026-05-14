@@ -361,7 +361,10 @@ export function toggleLayerVisibility(layerIndex) {
 export function showProfile(username) {
   appState.profileDialog = { visible: true, username, data: null, loading: true, error: null };
 
-  fetch(`${API_BASE}/api/users/${encodeURIComponent(username)}`)
+  const token = (() => { try { return localStorage.getItem('topDrawAuthToken'); } catch { return null; } })();
+  const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+
+  fetch(`${API_BASE}/api/users/${encodeURIComponent(username)}`, { headers })
     .then(async (res) => {
       const data = await res.json();
       if (!res.ok) {

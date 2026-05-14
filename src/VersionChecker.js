@@ -104,7 +104,6 @@ function compareVersions(a, b) {
 
 function buildVersionStatus(serverVersion, clientVersion) {
   if (!clientVersion || !serverVersion?.minRequired) {
-    console.warn('[VersionChecker] Missing version info');
     return { allowed: true, reason: 'missing-version-info', clientVersion, serverVersion };
   }
 

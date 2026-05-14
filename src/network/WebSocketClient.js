@@ -230,13 +230,9 @@ export class WebSocketClient {
         throw new Error(`Failed to fetch protobuf schema: ${response.status}`);
       }
       const protoSource = await response.text();
-      console.log('[PROTO DEBUG] fetched from', response.url, 'size:', protoSource.length, 'has room_board_size?', protoSource.includes('room_board_size'));
       const root = protobuf.default.parse(protoSource).root;
       this.Msg = root.lookupType('Msg');
       this.protoLoaded = true;
-      console.log('[PROTO DEBUG] room_board_size field in client Msg?',
-        Object.keys(this.Msg.fields).filter(k => k.toLowerCase().includes('board')),
-        'total fields:', Object.keys(this.Msg.fields).length);
     } catch (err) {
       console.error('Failed to load protobuf:', err);
       throw err;
@@ -1252,8 +1248,6 @@ export class WebSocketClient {
         break;
 
       case T.AUTH_RESULT:
-        console.log('[WebSocketClient] AUTH_RESULT received full data:', data);
-        console.log('[WebSocketClient] AUTH_RESULT extracted:', { success: data.a, username: data.authUsername, hasEmail: data.authHasEmail, emailPromptDeclined: data.authEmailPromptDeclined, hasDiscord: data.authHasDiscord, needsUsernameSetup: data.authNeedsUsernameSetup });
         this.globalRole = data.authGlobalRole || 0;
         this.roomRole = data.authRoomRole || 0;
         this.emit('auth_result', {
@@ -2359,7 +2353,6 @@ export class WebSocketClient {
    * @returns {void}
    */
   sendAuthTokenLogin(token) {
-    console.log('[WebSocketClient] sendAuthTokenLogin called, connected?', this.connected);
     const identityPayload = this._getImmediateIdentityPayload();
     this.send({ t: T.AUTH_LOGIN, authToken: token, ...identityPayload });
   }

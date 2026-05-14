@@ -54,7 +54,6 @@ export class Auth {
   }
 
   init() {
-    console.log('[Auth] init() called');
     this.els = {
       // Login state elements
       authNotLoggedIn: document.getElementById('authNotLoggedIn'),
@@ -295,6 +294,9 @@ export class Auth {
       });
     } catch (err) {
       console.warn('[Auth] Failed to load Discord config:', err);
+    } finally {
+      document.querySelector('.landingSecondaryActions')?.classList.add('ready');
+      document.querySelector('.landingDivider')?.classList.add('ready');
     }
   }
 
@@ -421,13 +423,8 @@ export class Auth {
    * Check if user has stored login credentials
    */
   checkStoredLogin() {
-    console.log('[Auth] checkStoredLogin() called');
-    // Attempt auto-login with stored token (don't show UI yet, wait for auth result)
     if (this.getStoredToken()) {
-      console.log('[Auth] Found stored token, attempting auto-login');
       this.attemptAutoLogin();
-    } else {
-      console.log('[Auth] No stored token found');
     }
   }
 
@@ -518,7 +515,6 @@ export class Auth {
     needsUsernameSetup = this.needsUsernameSetup,
     suggestedUsername = this.suggestedUsername
   } = {}) {
-    console.log('[Auth] showLoggedInState called:', username);
     const wasLoggedIn = this.isLoggedIn;
     this.clearLandingError();
     this.isLoggedIn = true;
@@ -850,7 +846,6 @@ export class Auth {
   }
 
   showAddEmailModal() {
-    console.log('[Auth] showAddEmailModal called');
     this._addEmailStep = 1;
     if (this.els.addEmailInput) this.els.addEmailInput.value = '';
     if (this.els.addEmailCodeInput) this.els.addEmailCodeInput.value = '';
@@ -862,7 +857,6 @@ export class Auth {
     const backdrop = document.getElementById('addEmailModalBackdrop');
     const modal = document.getElementById('addEmailModal');
     const landingPage = document.getElementById('landingPage');
-    console.log('[Auth] Modal elements:', { backdrop: !!backdrop, modal: !!modal });
     if (backdrop) backdrop.style.display = 'block';
     if (modal) modal.style.display = 'block';
     if (landingPage) landingPage.classList.add('blurred');
@@ -1112,7 +1106,7 @@ export class Auth {
         ? 'Link DDraw Account'
         : initialSetup
           ? 'Choose DDraw Username'
-          : 'Change DDraw Username';
+          : 'Change Username';
     }
     if (this.els.usernameSetupText) {
       this.els.usernameSetupText.textContent = isLinkMode
@@ -1124,7 +1118,7 @@ export class Auth {
     if (this.els.usernameSetupFields) this.els.usernameSetupFields.style.display = isLinkMode ? 'none' : '';
     if (this.els.ddrawLinkFields) this.els.ddrawLinkFields.style.display = isLinkMode ? '' : 'none';
     if (this.els.usernameSetupSaveBtn) this.els.usernameSetupSaveBtn.style.display = isLinkMode ? 'none' : '';
-    if (this.els.usernameSetupLinkBtn) this.els.usernameSetupLinkBtn.style.display = isLinkMode ? 'none' : '';
+    if (this.els.usernameSetupLinkBtn) this.els.usernameSetupLinkBtn.style.display = (isLinkMode || !initialSetup) ? 'none' : '';
     if (this.els.usernameSetupDismissBtn) this.els.usernameSetupDismissBtn.style.display = isLinkMode || !initialSetup ? 'none' : '';
     if (this.els.ddrawLinkSubmitBtn) this.els.ddrawLinkSubmitBtn.style.display = isLinkMode ? '' : 'none';
     if (this.els.ddrawLinkBackBtn) this.els.ddrawLinkBackBtn.style.display = isLinkMode ? '' : 'none';
@@ -1315,7 +1309,6 @@ export class Auth {
     const token = this.getStoredToken();
     if (!token) return false;
 
-    console.log('[Auth] attemptAutoLogin: token found, wsClient.connected?', this.wsClient?.connected);
     this.setAuthPending(true);
 
     if (this._autoLoginInFlight && this._autoLoginToken === token) {
@@ -1338,11 +1331,8 @@ export class Auth {
     if (this.wsClient?.connected) {
       void this.wsClient.sendAuthTokenLogin(token);
     } else {
-      console.log('[Auth] WS not connected yet, waiting...');
-      // Wait for connection before sending
       const checkConnection = () => {
         if (this.wsClient?.connected) {
-          console.log('[Auth] WS now connected, sending auth token');
           void this.wsClient.sendAuthTokenLogin(token);
         } else {
           setTimeout(checkConnection, 100);
@@ -1354,7 +1344,6 @@ export class Auth {
   }
 
   handleAuthResult(data) {
-    console.log('[Auth] handleAuthResult called:', { success: data.success, username: data.username, hasEmail: data.hasEmail, emailPromptDeclined: data.emailPromptDeclined });
     this.setLoading(false);
     this._autoLoginInFlight = false;
     this._autoLoginToken = null;
@@ -1366,7 +1355,6 @@ export class Auth {
 
     if (data.success) {
       const username = data.username || this._pendingUsername;
-      console.log('[Auth] Username for logged-in state:', username);
       this._pendingUsername = null;
 
       if (data.token) {

@@ -288,14 +288,19 @@ body.desktop-window-chrome #overlay {
   #loginForm {
     display: none;
   }
+}
 
-  .landingDivider,
-  #downloadBtn,
-  #loginOfflineBtn,
-  #feedbackWidgetMount {
-    opacity: 0;
-    pointer-events: none;
-  }
+.landingSecondaryActions,
+.landingDivider {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-normal);
+}
+
+.landingSecondaryActions.ready,
+.landingDivider.ready {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 @keyframes authLoadingPulse {
@@ -606,7 +611,7 @@ body.desktop-window-chrome #overlay {
   left: 50%;
   z-index: 9999;
   width: calc(100vw - 32px);
-  max-width: 420px;
+  max-width: 480px;
   padding: 24px;
   transform: translate(-50%, -50%);
   background: var(--bg-elevated);
