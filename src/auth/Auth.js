@@ -520,6 +520,7 @@ export class Auth {
   } = {}) {
     console.log('[Auth] showLoggedInState called:', username);
     const wasLoggedIn = this.isLoggedIn;
+    this.clearLandingError();
     this.isLoggedIn = true;
     this.loggedInUsername = username;
     this.hasDiscord = !!hasDiscord;
@@ -634,6 +635,7 @@ export class Auth {
    * Show the registration panel, hiding the room input
    */
   async showRegisterPanel() {
+    this.clearLandingError();
     const username = this.els.loginUsername?.value.trim() || '';
     const password = this.els.loginPassword?.value || '';
 
@@ -663,6 +665,7 @@ export class Auth {
    * Hide the registration panel, restore the login form
    */
   async hideRegisterPanel() {
+    this.clearLandingError();
     const divider = document.querySelector('.landingDivider');
     const secondaryActions = document.querySelector('.landingSecondaryActions');
     
@@ -712,6 +715,7 @@ export class Auth {
   }
 
   async showPasswordResetRequestPanel() {
+    this.clearLandingError();
     if (this.els.passwordResetIdentifier) this.els.passwordResetIdentifier.value = '';
     this._passwordResetToken = null;
     this.setPasswordResetMode('request');
@@ -726,6 +730,7 @@ export class Auth {
   }
 
   async showPasswordResetCompletePanel() {
+    this.clearLandingError();
     if (this.els.passwordResetNewPassword) this.els.passwordResetNewPassword.value = '';
     if (this.els.passwordResetConfirmPassword) this.els.passwordResetConfirmPassword.value = '';
     this.setPasswordResetMode('complete');
@@ -740,6 +745,7 @@ export class Auth {
   }
 
   async hidePasswordResetPanel() {
+    this.clearLandingError();
     const divider = document.querySelector('.landingDivider');
     const secondaryActions = document.querySelector('.landingSecondaryActions');
     if (divider) divider.style.display = '';
@@ -1561,5 +1567,15 @@ export class Auth {
     try {
       localStorage.removeItem(USERNAME_KEY);
     } catch { /* ignore */ }
+  }
+
+  clearLandingError() {
+    window.app?.landingPage?.clearError?.();
+    window.landingPage?.clearError?.();
+    const errorEl = document.getElementById('landingError');
+    if (errorEl) {
+      errorEl.textContent = '';
+      errorEl.style.display = 'none';
+    }
   }
 }

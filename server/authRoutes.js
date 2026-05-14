@@ -800,7 +800,7 @@ export async function handleDiscordOAuthCallback(req, res) {
         return redirectDiscordResult(req, res, {
           success: false,
           mode: 'link',
-          error: 'That Discord account is already linked to another DDraw account.'
+          error: 'Discord account already in use'
         });
       }
 

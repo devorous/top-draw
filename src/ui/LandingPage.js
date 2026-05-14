@@ -18,6 +18,7 @@ export class LandingPage {
     this.auth = auth;
     this.onRoomSelected = onRoomSelected;
     this.onOffline = onOffline;
+    this._errorTimeout = null;
     this.els = {};
     this.rooms = [];
     this.selectedRoom = null;
@@ -653,6 +654,8 @@ export class LandingPage {
       }
       errorEl.textContent = message;
       errorEl.style.display = 'block';
+      if (this._errorTimeout) clearTimeout(this._errorTimeout);
+      this._errorTimeout = setTimeout(() => this.clearError(), 10000);
       return;
     }
 
@@ -663,6 +666,10 @@ export class LandingPage {
    * Clears any landing-page error message.
    */
   clearError() {
+    if (this._errorTimeout) {
+      clearTimeout(this._errorTimeout);
+      this._errorTimeout = null;
+    }
     const errorEl = document.getElementById('landingError');
     if (errorEl) {
       errorEl.textContent = '';

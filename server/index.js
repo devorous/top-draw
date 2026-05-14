@@ -14,7 +14,7 @@ import { handleGalleryList, handleGalleryUpload, handleGalleryItem, handleGaller
 import { initDiscordBot, postGalleryItemToDiscord, setDiscordRoomManager } from './discordBot.js';
 import { postReleaseUpdateToDiscord } from './discordBot.js';
 import { handleAuthLogin, handleAuthRegister, handleAuthMe, handleAuthUsernameUpdate, handlePasswordResetRequest, handlePasswordResetComplete, handleEmailSet, handleEmailVerify, handleEmailDecline, handleDiscordConfig, handleDiscordOAuthStart, handleDiscordOAuthCallback, handleDiscordDdrawAccountLink } from './authRoutes.js';
-import { handleUserProfile } from './userRoutes.js';
+import { handleUserProfile, handleUpdateProfile } from './userRoutes.js';
 import { getGalleryPreviewItem, renderGalleryPreviewHtml } from './galleryPreview.js';
 import { handleSnapshotSave, handleSnapshotList, handleSnapshotRestore, handleSnapshotDelete, handleSnapshotGet, handleSnapshotRegionRestore, handleSnapshotJoinNotify } from './snapshots.js';
 import { handleCheckpointUpload, handleCheckpointList, handleCheckpointGet } from './checkpoints.js';
@@ -921,6 +921,12 @@ const server = createServer(async (req, res) => {
       console.error('[Feedback] Insert error:', err);
       json(res, 500, { error: 'Failed to save feedback' });
     }
+    return;
+  }
+
+  // User profile update (self only)
+  if (path === '/api/users/me/profile' && req.method === 'PATCH') {
+    await handleUpdateProfile(req, res);
     return;
   }
 

@@ -787,15 +787,21 @@ export class RemoteUserUI {
     entry.className = `userEntry ${id}`;
     entry.dataset.sessionIndex = userId;
 
-    const toolEntry = document.createElement('a');
-    toolEntry.className = `listTool ${id}`;
-    const iconEl = this._iconToElement(this._getUserListIcon(userData.tool, userData.afk));
-    if (iconEl) toolEntry.appendChild(iconEl);
+    const colorToolWrap = document.createElement('div');
+    colorToolWrap.className = `listColorTool ${id}`;
 
     const colorEntry = document.createElement('a');
     colorEntry.className = `listColor ${id}`;
     const color = Array.isArray(userData.color) ? userData.color : [0,0,0,1];
     colorEntry.style.backgroundColor = `rgba(${color.join(',')})`;
+
+    const toolEntry = document.createElement('a');
+    toolEntry.className = `listTool ${id}`;
+    const iconEl = this._iconToElement(this._getUserListIcon(userData.tool, userData.afk));
+    if (iconEl) toolEntry.appendChild(iconEl);
+
+    colorToolWrap.appendChild(colorEntry);
+    colorToolWrap.appendChild(toolEntry);
 
     const userEntry = document.createElement('span');
     userEntry.className = `listUser ${id}`;
@@ -813,9 +819,6 @@ export class RemoteUserUI {
     }
     this._applyMutedStateToEntry(entry, userEntry, userData.isMuted);
 
-    const activeEntry = document.createElement('span');
-    activeEntry.className = `listActive ${id}`;
-
     const syncBtn = document.createElement('a');
     syncBtn.className = `listSync ${id}`;
     syncBtn.title = 'Request canvas sync from this user';
@@ -829,11 +832,9 @@ export class RemoteUserUI {
       }
     };
 
-    entry.appendChild(toolEntry);
-    entry.appendChild(colorEntry);
+    entry.appendChild(colorToolWrap);
     entry.appendChild(discordBadge);
     entry.appendChild(userEntry);
-    entry.appendChild(activeEntry);
     entry.appendChild(syncBtn);
 
     this._setEntrySortMetadata(entry, {

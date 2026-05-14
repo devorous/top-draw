@@ -68,15 +68,21 @@
   }
 }
 
+.listColorTool {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
 .listTool {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  background: var(--bg-elevated);
-  border-radius: var(--radius-sm);
-  padding: 4px;
+  padding: 5px;
+  pointer-events: none;
 }
 
 .listTool img,
@@ -84,7 +90,7 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  filter: brightness(0) invert(0.8);
+  filter: brightness(0) invert(1) drop-shadow(0 0 1px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
 }
 
 .toolIcon {
@@ -101,11 +107,11 @@
 }
 
 .listColor {
-  width: 20px;
-  height: 20px;
-  border: 2px solid var(--border-subtle);
-  border-radius: 50%;
-  flex-shrink: 0;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  display: block;
 }
 
 .listDiscordBadge {
@@ -139,19 +145,6 @@
 
 .listUser.self:hover {
   text-decoration: underline;
-}
-
-.listActive {
-  width: 8px;
-  height: 8px;
-  background: var(--accent-primary);
-  border-radius: 50%;
-  opacity: 0;
-  transition: opacity var(--transition-normal);
-}
-
-.userEntry:hover .listActive {
-  opacity: 0.5;
 }
 
 /* Rank-based username styling */

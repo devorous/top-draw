@@ -631,7 +631,6 @@ menuBtn: document.getElementById('menuBtn'),
       selfListTool: document.querySelector('.listTool.self'),
       selfListColor: document.querySelector('.listColor.self'),
       selfListUser: document.querySelector('.listUser.self'),
-      selfListActive: document.querySelector('.listActive.self'),
 
       toast: document.getElementById('toast'),
 
