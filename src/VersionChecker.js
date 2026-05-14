@@ -2,6 +2,7 @@
 
 import { isTauriDesktop } from './platform/desktop.js';
 import { promptUpdateForVersionMismatch } from './platform/updater.js';
+import { hasExplicitServerEndpoint, resolveApiUrl } from './config/serverEndpoints.js';
 
 let cachedVersionStatus = null;
 let versionStatusPromise = null;
@@ -9,21 +10,7 @@ let shownWarningKey = null;
 const VERSION_CHECK_TIMEOUT_MS = 5000;
 
 function getVersionEndpointUrl() {
-  const configuredApiBase = String(import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
-  if (isTauriDesktop() && configuredApiBase) {
-    return `${configuredApiBase}/api/version`;
-  }
-  const wsServerUrl = String(import.meta.env.VITE_WS_SERVER_URL || '').trim();
-  if (wsServerUrl) {
-    try {
-      const parsed = new URL(wsServerUrl, window.location.href);
-      const protocol = parsed.protocol === 'wss:' ? 'https:' : 'http:';
-      return `${protocol}//${parsed.host}/api/version`;
-    } catch (error) {
-      console.warn('[VersionChecker] Failed to parse VITE_WS_SERVER_URL:', error);
-    }
-  }
-  return '/api/version';
+  return resolveApiUrl('/api/version');
 }
 
 function isLocalDevWithoutVersionEndpoint() {
@@ -31,8 +18,7 @@ function isLocalDevWithoutVersionEndpoint() {
   const isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
   if (!isLocalHost) return false;
 
-  return !String(import.meta.env.VITE_API_BASE_URL || '').trim() &&
-    !String(import.meta.env.VITE_WS_SERVER_URL || '').trim();
+  return !hasExplicitServerEndpoint();
 }
 
 function formatReleaseDate(releaseDate) {

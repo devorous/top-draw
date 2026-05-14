@@ -3673,12 +3673,19 @@ export class DrawingApp {
     }
   }
 
-  async _promptDesktopUpdateFromRuntimeNotice() {
+  async _promptDesktopUpdateFromRuntimeNotice({ force = false } = {}) {
+    if (force && this._desktopUpdatePollTimer) {
+      window.clearInterval(this._desktopUpdatePollTimer);
+      this._desktopUpdatePollTimer = null;
+    }
+    if (force) {
+      this._desktopUpdatePollActive = false;
+    }
     if (this._desktopUpdatePollActive) return;
     this._desktopUpdatePollActive = true;
 
-    const attempt = async () => {
-      const result = await checkForDesktopUpdates({ silent: true });
+    const attempt = async ({ silent = true } = {}) => {
+      const result = await checkForDesktopUpdates({ silent });
       if (!result || result.status === 'up-to-date') {
         return false;
       }
@@ -3700,7 +3707,7 @@ export class DrawingApp {
       return true;
     };
 
-    if (await attempt()) {
+    if (await attempt({ silent: !force })) {
       this._desktopUpdatePollActive = false;
       return;
     }
@@ -4026,7 +4033,7 @@ export class DrawingApp {
   async handleRetryConnection() {
     if (this._reloadRecommended) {
       if (isTauriDesktop()) {
-        await this._promptDesktopUpdateFromRuntimeNotice();
+        await this._promptDesktopUpdateFromRuntimeNotice({ force: true });
         return;
       }
 

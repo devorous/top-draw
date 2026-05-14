@@ -1,4 +1,5 @@
 import { isTauriDesktop } from './desktop.js';
+import { resolveApiUrl } from '../config/serverEndpoints.js';
 
 let startupCheckScheduled = false;
 const UPDATER_DISABLED = false;
@@ -35,23 +36,7 @@ function setAutoUpdatePreference(enabled) {
 }
 
 function getServerVersionEndpointUrl() {
-  const configuredApiBase = String(import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
-  if (configuredApiBase) {
-    return `${configuredApiBase}/api/version`;
-  }
-
-  const wsServerUrl = String(import.meta.env.VITE_WS_SERVER_URL || '').trim();
-  if (wsServerUrl) {
-    try {
-      const parsed = new URL(wsServerUrl, window.location.href);
-      const protocol = parsed.protocol === 'wss:' ? 'https:' : 'http:';
-      return `${protocol}//${parsed.host}/api/version`;
-    } catch (error) {
-      console.warn('[Updater] Failed to parse VITE_WS_SERVER_URL:', error);
-    }
-  }
-
-  return '/api/version';
+  return resolveApiUrl('/api/version');
 }
 
 async function fetchServerVersionPolicy() {
@@ -85,14 +70,16 @@ async function confirmServerVersionReady(update) {
 
   const server = await fetchServerVersionPolicy();
   if (!server.ok) {
-    return { ready: false, reason: 'server-version-unavailable', server };
+    console.warn('[Updater] Could not verify server version; allowing desktop update check to continue.', server);
+    return { ready: true, reason: 'server-version-unavailable', updateVersion, server };
   }
 
   const serverLatest = String(server.policy?.latest || '').trim();
   const serverMinRequired = String(server.policy?.minRequired || '').trim();
+  const serverVersions = [serverLatest, serverMinRequired].filter(Boolean);
   const serverVersion = serverLatest || serverMinRequired;
 
-  if (serverVersion !== updateVersion) {
+  if (serverVersions.length && !serverVersions.includes(updateVersion)) {
     return {
       ready: false,
       reason: 'server-version-not-ready',
@@ -102,7 +89,7 @@ async function confirmServerVersionReady(update) {
     };
   }
 
-  return { ready: true, updateVersion, serverPolicy: server.policy };
+  return { ready: true, updateVersion, serverVersion, serverPolicy: server.policy };
 }
 
 function getOfflineUpdateDismissal() {
@@ -447,7 +434,7 @@ async function runDesktopUpdateCheck({ silent = false } = {}) {
 
     const serverReady = await confirmServerVersionReady(update);
     if (!serverReady.ready) {
-      if (!serverUpdatingSoonPrompted) {
+      if (!silent && !serverUpdatingSoonPrompted) {
         serverUpdatingSoonPrompted = true;
         await showDesktopServerUpdatingSoon(update, serverReady);
       }
@@ -458,6 +445,7 @@ async function runDesktopUpdateCheck({ silent = false } = {}) {
         serverVersion: serverReady.serverVersion || ''
       };
     }
+    serverUpdatingSoonPrompted = false;
 
     if (getAutoUpdatePreference()) {
       const updaterProgress = showDesktopUpdaterProgress(update);

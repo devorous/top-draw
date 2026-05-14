@@ -1,4 +1,5 @@
 import { isTauriDesktop, openDiscordOAuthWindow } from '../platform/desktop.js';
+import { resolveApiUrl } from '../config/serverEndpoints.js';
 
 /**
  * Auth module — handles token storage, login/register form logic, auto-login
@@ -7,7 +8,6 @@ const TOKEN_KEY = 'topDrawAuthToken';
 const REMEMBER_ME_KEY = 'topDrawRememberMe';
 const USERNAME_KEY = 'topDrawUsername';
 const USERNAME_SETUP_DISMISSED_PREFIX = 'topDrawUsernameSetupDismissed:';
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const TOKEN_INVALID_ERRORS = new Set([
   'Invalid or expired token',
   'Account not found',
@@ -278,8 +278,11 @@ export class Auth {
 
   async loadDiscordConfig() {
     try {
-      const res = await fetch(`${API_BASE}/api/discord/config`);
-      if (!res.ok) return;
+      const res = await fetch(resolveApiUrl('/api/discord/config'), { cache: 'no-store' });
+      if (!res.ok) {
+        console.warn('[Auth] Discord config unavailable:', res.status);
+        return;
+      }
       const config = await res.json();
 
       [this.els.discordLoginBtn, this.els.discordLinkBtn].filter(Boolean).forEach((button) => {
@@ -311,7 +314,7 @@ export class Auth {
 
     try {
       this.setLoading(true);
-      const res = await fetch(`${API_BASE}/api/auth/discord/start`, {
+      const res = await fetch(resolveApiUrl('/api/auth/discord/start'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -804,7 +807,7 @@ export class Auth {
 
     this.setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/auth/password-reset/request`, {
+      const res = await fetch(resolveApiUrl('/api/auth/password-reset/request'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier }),
@@ -858,7 +861,7 @@ export class Auth {
 
     this.setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/auth/password-reset/complete`, {
+      const res = await fetch(resolveApiUrl('/api/auth/password-reset/complete'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: this._passwordResetToken, password }),
@@ -909,7 +912,7 @@ export class Auth {
     if (declinePrompt) {
       const token = this.getStoredToken();
       if (token) {
-        fetch(`${API_BASE}/api/auth/email/decline`, {
+        fetch(resolveApiUrl('/api/auth/email/decline'), {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`
@@ -947,7 +950,7 @@ export class Auth {
         throw new Error('Not authenticated');
       }
 
-      const res = await fetch(`${API_BASE}/api/auth/email/set`, {
+      const res = await fetch(resolveApiUrl('/api/auth/email/set'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -991,7 +994,7 @@ export class Auth {
         throw new Error('Not authenticated');
       }
 
-      const res = await fetch(`${API_BASE}/api/auth/email/verify`, {
+      const res = await fetch(resolveApiUrl('/api/auth/email/verify'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1225,7 +1228,7 @@ export class Auth {
 
     this.setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/auth/username`, {
+      const res = await fetch(resolveApiUrl('/api/auth/username'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1279,7 +1282,7 @@ export class Auth {
 
     this.setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/auth/discord/link-ddraw`, {
+      const res = await fetch(resolveApiUrl('/api/auth/discord/link-ddraw'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
