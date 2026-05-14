@@ -1,3 +1,7 @@
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const FLOATING_PALETTE_STORAGE_KEY = 'topdraw_floatingPalettes';
+export const FLOATING_PALETTE_SLOT_COUNT = 10;
+
 class DrawingState {
   // Tool & Drawing
   currentTool = $state('brush');
@@ -95,10 +99,6 @@ class DrawingState {
 }
 
 export const appState = new DrawingState();
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-const FLOATING_PALETTE_STORAGE_KEY = 'topdraw_floatingPalettes';
-export const FLOATING_PALETTE_SLOT_COUNT = 10;
 
 // ============================================================================
 // Helper functions

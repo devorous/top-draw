@@ -1,7 +1,7 @@
 use std::{
   fs,
   path::Path,
-  sync::Mutex,
+  sync::{Arc, Mutex},
   thread,
   time::Duration,
 };
@@ -9,25 +9,65 @@ use std::{
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use log::{info, warn};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{
   menu::MenuBuilder,
   tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-  AppHandle, Emitter, Manager, State,
+  AppHandle, Emitter, Manager, State, Url, WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 const UPDATER_ENDPOINT: Option<&str> = option_env!("TAURI_UPDATER_ENDPOINT");
 const UPDATER_PUBLIC_KEY: Option<&str> = option_env!("TAURI_UPDATER_PUBLIC_KEY");
 const DISCORD_APP_ID: &str = "1492446544882958386";
-const DISCORD_PRESENCE_OPTIONS: [&str; 4] = [
-  "is doodling",
-  "is drawing",
-  "is sketching",
-  "is scribbling"
-];
+const DISCORD_PRESENCE_VERBS: [&str; 4] = ["doodling", "sketching", "drawing", "scribbling"];
+const DISCORD_DEFAULT_URL: &str = "https://ddraw.ca/go/";
 
 struct PendingUpdate(Mutex<Option<Update>>);
+
+#[derive(Clone, Debug)]
+struct DiscordPresenceSnapshot {
+  connected: bool,
+  username: String,
+  room_id: Option<String>,
+  user_count: i32,
+  max_users: i32,
+  room_is_public: bool,
+  preset_index: usize,
+}
+
+impl Default for DiscordPresenceSnapshot {
+  fn default() -> Self {
+    let preset_index = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .map(|duration| duration.subsec_nanos() as usize % DISCORD_PRESENCE_VERBS.len())
+      .unwrap_or(0);
+
+    Self {
+      connected: false,
+      username: "Someone".to_string(),
+      room_id: None,
+      user_count: 0,
+      max_users: 20,
+      room_is_public: false,
+      preset_index,
+    }
+  }
+}
+
+#[derive(Clone)]
+struct DiscordPresenceState(Arc<Mutex<DiscordPresenceSnapshot>>);
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DiscordPresenceUpdate {
+  connected: bool,
+  username: Option<String>,
+  room_id: Option<String>,
+  user_count: Option<i32>,
+  max_users: Option<i32>,
+  room_is_public: bool,
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,6 +89,50 @@ struct UpdateMetadata {
   current_version: String,
   notes: Option<String>,
   date: Option<String>,
+}
+
+fn clamp_discord_text(value: &str, max_len: usize) -> String {
+  value.chars().take(max_len).collect()
+}
+
+fn set_discord_activity(
+  client: &mut DiscordIpcClient,
+  snapshot: &DiscordPresenceSnapshot,
+) -> Result<(), Box<dyn std::error::Error>> {
+  if !snapshot.connected {
+    return client.set_activity(activity::Activity::new()
+      .details("Chilling on DDraw")
+      .buttons(vec![activity::Button::new("Open DDraw", DISCORD_DEFAULT_URL)]));
+  }
+
+  let verb = DISCORD_PRESENCE_VERBS[snapshot.preset_index % DISCORD_PRESENCE_VERBS.len()];
+  let username = clamp_discord_text(snapshot.username.trim(), 32);
+  let username = if username.is_empty() { "Someone".to_string() } else { username };
+  let user_count = snapshot.user_count.max(1);
+  let max_users = snapshot.max_users.max(user_count).max(1);
+  let company = if user_count <= 1 { "all alone" } else { "with friends" };
+  let details = clamp_discord_text(&format!("{username} is {verb} {company} on DDraw"), 128);
+  let state = clamp_discord_text(&format!("{} out of {} users", user_count, max_users), 128);
+
+  let room_url = snapshot
+    .room_id
+    .as_ref()
+    .map(|room_id| format!("https://ddraw.ca/go/?room={}", room_id.trim()))
+    .unwrap_or_else(|| DISCORD_DEFAULT_URL.to_string());
+  let buttons = if snapshot.room_is_public && snapshot.room_id.is_some() {
+    vec![
+      activity::Button::new("Join Room", &room_url),
+      activity::Button::new("Open DDraw", DISCORD_DEFAULT_URL),
+    ]
+  } else {
+    vec![activity::Button::new("Open DDraw", DISCORD_DEFAULT_URL)]
+  };
+
+  client.set_activity(activity::Activity::new()
+    .details(&details)
+    .state(&state)
+    .party(activity::Party::new().size([user_count, max_users]))
+    .buttons(buttons))
 }
 
 fn show_open_image_dialog() -> Result<Option<String>, String> {
@@ -152,14 +236,8 @@ fn updater_configuration() -> Option<(String, String)> {
   Some((endpoint.to_string(), pubkey.to_string()))
 }
 
-fn start_discord_presence() {
-  thread::spawn(|| {
-    let random_index = std::time::SystemTime::now()
-      .duration_since(std::time::UNIX_EPOCH)
-      .map(|duration| duration.subsec_nanos() as usize % DISCORD_PRESENCE_OPTIONS.len())
-      .unwrap_or(0);
-    let activity = activity::Activity::new().state(DISCORD_PRESENCE_OPTIONS[random_index]);
-
+fn start_discord_presence(state: DiscordPresenceState) {
+  thread::spawn(move || {
     loop {
       let mut client = match DiscordIpcClient::new(DISCORD_APP_ID) {
         Ok(client) => client,
@@ -176,7 +254,8 @@ fn start_discord_presence() {
         continue;
       }
 
-      if let Err(error) = client.set_activity(activity.clone()) {
+      let snapshot = state.0.lock().map(|guard| guard.clone()).unwrap_or_default();
+      if let Err(error) = set_discord_activity(&mut client, &snapshot) {
         warn!("Failed to set Discord Rich Presence activity: {error}");
         let _ = client.close();
         thread::sleep(Duration::from_secs(30));
@@ -186,9 +265,10 @@ fn start_discord_presence() {
       info!("Discord Rich Presence connected.");
 
       loop {
-        thread::sleep(Duration::from_secs(60));
+        thread::sleep(Duration::from_secs(10));
 
-        if let Err(error) = client.set_activity(activity.clone()) {
+        let snapshot = state.0.lock().map(|guard| guard.clone()).unwrap_or_default();
+        if let Err(error) = set_discord_activity(&mut client, &snapshot) {
           warn!("Discord Rich Presence disconnected: {error}");
           let _ = client.close();
           break;
@@ -196,6 +276,81 @@ fn start_discord_presence() {
       }
     }
   });
+}
+
+fn is_discord_oauth_result_url(url: &Url) -> bool {
+  let path = url.path().trim_end_matches('/');
+  path == "/go" && url.query_pairs().any(|(key, _)| key == "discordAuth")
+}
+
+#[tauri::command]
+async fn open_discord_oauth_window(app: AppHandle, url: String) -> Result<(), String> {
+  let oauth_url = Url::parse(&url).map_err(|error| format!("Invalid Discord OAuth URL: {error}"))?;
+  if oauth_url.scheme() != "https" || oauth_url.host_str() != Some("discord.com") || oauth_url.path() != "/oauth2/authorize" {
+    return Err("Refusing to open unexpected Discord OAuth URL.".to_string());
+  }
+
+  if let Some(existing_window) = app.get_webview_window("discord-oauth") {
+    let _ = existing_window.show();
+    let _ = existing_window.unminimize();
+    let _ = existing_window.set_focus();
+    return Ok(());
+  }
+
+  let app_for_navigation = app.clone();
+  WebviewWindowBuilder::new(&app, "discord-oauth", WebviewUrl::External(oauth_url))
+    .title("Discord Login")
+    .inner_size(520.0, 720.0)
+    .min_inner_size(420.0, 560.0)
+    .resizable(true)
+    .center()
+    .focused(true)
+    .on_navigation(move |next_url| {
+      if !is_discord_oauth_result_url(next_url) {
+        return true;
+      }
+
+      let _ = app_for_navigation.emit("discord-oauth-result", next_url.as_str());
+      if let Some(window) = app_for_navigation.get_webview_window("discord-oauth") {
+        let _ = window.close();
+      }
+      false
+    })
+    .build()
+    .map_err(|error| format!("Failed to open Discord login window: {error}"))?;
+
+  Ok(())
+}
+
+#[tauri::command]
+fn update_discord_presence(
+  presence: DiscordPresenceUpdate,
+  discord_presence: State<'_, DiscordPresenceState>,
+) -> Result<(), String> {
+  let mut snapshot = discord_presence
+    .0
+    .lock()
+    .map_err(|_| "Failed to update Discord Rich Presence state.".to_string())?;
+
+  snapshot.connected = presence.connected;
+  snapshot.username = presence
+    .username
+    .as_deref()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .unwrap_or("Someone")
+    .to_string();
+  snapshot.room_id = presence
+    .room_id
+    .as_deref()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .map(|value| value.to_string());
+  snapshot.user_count = presence.user_count.unwrap_or(1).max(1);
+  snapshot.max_users = presence.max_users.unwrap_or(20).max(snapshot.user_count).max(1);
+  snapshot.room_is_public = presence.connected && presence.room_is_public;
+
+  Ok(())
 }
 
 #[tauri::command]
@@ -308,6 +463,8 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       open_image_via_dialog,
       save_png_via_dialog,
+      open_discord_oauth_window,
+      update_discord_presence,
       fetch_update,
       install_update
     ]);
@@ -319,8 +476,10 @@ pub fn run() {
   builder
     .setup(|app| {
       app.manage(PendingUpdate(Mutex::new(None)));
+      let discord_presence = DiscordPresenceState(Arc::new(Mutex::new(DiscordPresenceSnapshot::default())));
+      app.manage(discord_presence.clone());
       build_tray(app)?;
-      start_discord_presence();
+      start_discord_presence(discord_presence);
 
       #[cfg(debug_assertions)]
       {
@@ -339,6 +498,11 @@ pub fn run() {
           if let Some(board_viewer_window) = window.app_handle().get_webview_window("board-viewer-popout") {
             let _ = board_viewer_window.close();
           }
+          if let Some(discord_oauth_window) = window.app_handle().get_webview_window("discord-oauth") {
+            let _ = discord_oauth_window.close();
+          }
+        } else if window.label() == "discord-oauth" {
+          let _ = window.app_handle().emit("discord-oauth-closed", ());
         }
       }
     })

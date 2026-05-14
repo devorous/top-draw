@@ -72,3 +72,35 @@ export async function copyImageDataToSystemClipboard(imageData, width, height) {
   canvas.getContext('2d').putImageData(imageData, 0, 0);
   return copyCanvasToSystemClipboard(canvas);
 }
+
+export async function updateDiscordRichPresence(presence) {
+  if (!hasTauriGlobals()) return null;
+  return invokeDesktop('update_discord_presence', { presence });
+}
+
+export async function openDiscordOAuthWindow(url, { onResult, onClosed } = {}) {
+  if (!hasTauriGlobals()) return null;
+
+  const { listen } = await import('@tauri-apps/api/event');
+  const unlistenResult = await listen('discord-oauth-result', (event) => {
+    const resultUrl = typeof event.payload === 'string' ? event.payload : event.payload?.url;
+    if (resultUrl) onResult?.(resultUrl);
+  });
+  const unlistenClosed = await listen('discord-oauth-closed', () => {
+    onClosed?.();
+  });
+
+  const cleanup = () => {
+    unlistenResult();
+    unlistenClosed();
+  };
+
+  try {
+    await invokeDesktop('open_discord_oauth_window', { url });
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
+
+  return { cleanup };
+}

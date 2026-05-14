@@ -1,7 +1,7 @@
 {
-  "latest": "1.7.2-beta",
-  "minRequired": "1.7.2-beta",
-  "releaseDate": "2026-05-12T07:23:57.661Z",
-  "notes": "Fixed major brush flickering, added new basic tutorial, added new confetti brush, fixed sync and undo bugs",
+  "latest": "1.8.0-beta",
+  "minRequired": "1.8.0-beta",
+  "releaseDate": "2026-05-14T00:47:54.524Z",
+  "notes": "Implemented Discord login logic, Improved user profiles, Added new basic tutorial, Added confetti brush",
   "downloadUrl": "https://www.ddraw.ca/download"
 }

@@ -24,7 +24,7 @@ import RanksDialog from './RanksDialog.svelte';
 import { appState, showProfile as showProfileFromState, toggleMessenger } from '../../state.svelte.js';
 import { applyRoomBoardSize } from '../../config/BoardSizes.js';
 import { messenger } from '../../messenger/messenger.svelte.js';
-import { isTauriDesktop } from '../../platform/desktop.js';
+import { isTauriDesktop, updateDiscordRichPresence } from '../../platform/desktop.js';
 import {
   broadcastChatPopoutState,
   closeChatPopout,
@@ -40,6 +40,26 @@ function chatNameColor(color) {
   const luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
   if (luminance < 72) return 'var(--role-user)';
   return `rgb(${r}, ${g}, ${b})`;
+}
+
+function buildDiscordPresencePayload(app) {
+  const roomId = appState.currentRoomId || null;
+  const roomData = appState.currentRoomData || {};
+  const connected = !!appState.connected && !!roomId && roomId !== '_discovery' && !app.isOfflineMode;
+  const remoteUserCount = appState.users instanceof Map ? appState.users.size : 0;
+  const userCount = connected ? remoteUserCount + 1 : 1;
+  const maxUsers = Number.isFinite(Number(roomData.maxUsers)) ? Number(roomData.maxUsers) : 20;
+  const joinPolicy = String(roomData.joinPolicy || 'open');
+  const roomIsPublic = connected && !roomData.private && !roomData.locked && joinPolicy === 'open';
+
+  return {
+    connected,
+    username: appState.username || app.self?.username || app.self?.name || 'Someone',
+    roomId: connected ? roomId : null,
+    userCount,
+    maxUsers,
+    roomIsPublic
+  };
 }
 
 // Internal wrapper to handle conditional rendering of Messenger based on appState
@@ -173,6 +193,29 @@ export function initSvelteUI(app) {
     });
   });
   cleanupFns.push(chatPopoutStateEffect);
+
+  if (isTauriDesktop()) {
+    let lastDiscordPresenceKey = '';
+    const discordPresenceEffect = $effect.root(() => {
+      $effect(() => {
+        appState.connected;
+        appState.currentRoomId;
+        appState.currentRoomData;
+        appState.users;
+        appState.username;
+
+        const payload = buildDiscordPresencePayload(app);
+        const key = JSON.stringify(payload);
+        if (key === lastDiscordPresenceKey) return;
+
+        lastDiscordPresenceKey = key;
+        void updateDiscordRichPresence(payload).catch((error) => {
+          console.warn('[Discord] Failed to update Rich Presence:', error);
+        });
+      });
+    });
+    cleanupFns.push(discordPresenceEffect);
+  }
 
   const messengerConnectionEffect = $effect.root(() => {
     $effect(() => {

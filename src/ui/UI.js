@@ -1511,6 +1511,14 @@ menuBtn: document.getElementById('menuBtn'),
       button.title = sourceButton.dataset.defaultTitle || sourceButton.title || '';
     };
 
+    const restoreButton = (button) => {
+      if (!button?.dataset.defaultTool) return;
+      if (!button.dataset.tool || button.dataset.tool === button.dataset.defaultTool) return;
+      button.dataset.tool = button.dataset.defaultTool;
+      button.innerHTML = button.dataset.defaultHtml || button.innerHTML;
+      button.title = button.dataset.defaultTitle || '';
+    };
+
     for (const groupConfig of groups) {
       const group = document.getElementById(groupConfig.id);
       const primaryButton = buttons[groupConfig.primary];
@@ -1520,14 +1528,26 @@ menuBtn: document.getElementById('menuBtn'),
         storeDefault(buttons[toolName], toolName);
       }
 
-      // Check if subgroup is visible (either via is-open class or CSS hover)
       const subgroup = group.querySelector('.toolSubgroup');
-      const isGroupVisible = group.classList.contains('is-open') ||
-                            (subgroup && window.getComputedStyle(subgroup).display !== 'none');
+      const subgroupStyle = subgroup ? window.getComputedStyle(subgroup) : null;
+      const isCollapsedPopup = subgroupStyle?.position === 'absolute';
+      const isGroupVisible = isCollapsedPopup && (
+        group.classList.contains('is-open') ||
+        subgroupStyle.display !== 'none'
+      );
 
-      // Only update the group if it's currently visible
+      if (!isCollapsedPopup) {
+        delete group.dataset.activeTool;
+        for (const toolName of groupConfig.slots) {
+          restoreButton(buttons[toolName]);
+        }
+        continue;
+      }
+
       if (!isGroupVisible) {
-        primaryButton.classList.remove('selected');
+        for (const toolName of groupConfig.slots) {
+          restoreButton(buttons[toolName]);
+        }
         continue;
       }
 

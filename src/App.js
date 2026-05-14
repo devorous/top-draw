@@ -1409,15 +1409,32 @@ export class DrawingApp {
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') closeGroups();
     });
+
+    let resizeRefreshFrame = null;
+    window.addEventListener('resize', () => {
+      if (resizeRefreshFrame) return;
+      resizeRefreshFrame = requestAnimationFrame(() => {
+        resizeRefreshFrame = null;
+        this.ui.updateToolButton(this.self?.tool);
+      });
+    });
   }
 
   getToolGroupActiveTool(groupId, fallbackTool) {
     const group = document.getElementById(groupId);
+    if (!this.isToolGroupCollapsed(group)) return fallbackTool;
     return group?.dataset.activeTool || fallbackTool;
   }
 
   getRenderedTool(button, fallbackTool) {
+    const group = button?.closest?.('.toolGroup');
+    if (group && !this.isToolGroupCollapsed(group)) return fallbackTool;
     return button?.dataset.tool || fallbackTool;
+  }
+
+  isToolGroupCollapsed(group) {
+    const subgroup = group?.querySelector?.('.toolSubgroup');
+    return subgroup ? window.getComputedStyle(subgroup).position === 'absolute' : false;
   }
 
   /**

@@ -1,3 +1,5 @@
+import { isTauriDesktop, openDiscordOAuthWindow } from '../platform/desktop.js';
+
 /**
  * Auth module — handles token storage, login/register form logic, auto-login
  */
@@ -322,6 +324,26 @@ export class Auth {
         throw new Error(data.error || 'Discord login failed to start');
       }
 
+      if (isTauriDesktop()) {
+        this._discordPopup?.cleanup?.();
+        this._discordPopup = await openDiscordOAuthWindow(data.url, {
+          onResult: (resultUrl) => {
+            this.setLoading(false);
+            this._discordPopup?.cleanup?.();
+            this._discordPopup = null;
+            this.handleDiscordAuthResultUrl(resultUrl);
+          },
+          onClosed: () => {
+            this._discordPopup?.cleanup?.();
+            this._discordPopup = null;
+            if (this._loading) {
+              this.setLoading(false);
+            }
+          }
+        });
+        return;
+      }
+
       const popup = window.open(
         data.url,
         'ddrawDiscordOAuth',
@@ -357,12 +379,25 @@ export class Auth {
   }
 
   handleDiscordAuthFromUrl() {
-    const params = new URLSearchParams(window.location.search);
+    return this.handleDiscordAuthResultUrl(window.location.href, { cleanCurrentUrl: true });
+  }
+
+  handleDiscordAuthResultUrl(resultUrl, { cleanCurrentUrl = false } = {}) {
+    let url;
+    try {
+      url = new URL(resultUrl, window.location.origin);
+    } catch {
+      return false;
+    }
+
+    const params = url.searchParams;
     const status = params.get('discordAuth');
     if (!status) return false;
 
-    const cleanUrl = `${window.location.origin}${window.location.pathname}${window.location.hash || ''}`;
-    window.history.replaceState({}, document.title, cleanUrl);
+    if (cleanCurrentUrl) {
+      const cleanUrl = `${window.location.origin}${window.location.pathname}${window.location.hash || ''}`;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
 
     const payload = {
       type: 'ddraw:discord-auth',
@@ -376,7 +411,7 @@ export class Auth {
       error: params.get('error') || ''
     };
 
-    if (window.opener && window.opener !== window) {
+    if (cleanCurrentUrl && window.opener && window.opener !== window) {
       window.opener.postMessage(payload, window.location.origin);
       window.close();
       return true;
