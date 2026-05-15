@@ -50,8 +50,7 @@ export function setupWebSocketHandlers(app) {
       app.handleServerUpdateNotice?.(data);
       return;
     }
-    const prefix = data.issuer ? `${data.issuer}: ` : '';
-    app.ui?.showToast?.(`${prefix}${data.message}`, data.persistent ? 8000 : 4500);
+    app.ui?.showToast?.(data.message, data.persistent ? 8000 : 6000, 'global');
   });
 
   wsClient.on('floating_art_update', (data) => {

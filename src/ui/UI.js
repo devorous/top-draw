@@ -2203,13 +2203,26 @@ menuBtn: document.getElementById('menuBtn'),
       clearTimeout(this._toastTimeout);
     }
 
-    toast.textContent = message;
-    toast.classList.remove('error');
-    if (type === 'error') toast.classList.add('error');
+    toast.classList.remove('error', 'global');
+    if (type === 'global') {
+      toast.textContent = '';
+      const badge = document.createElement('span');
+      badge.className = 'toast__badge';
+      badge.textContent = 'GLOBAL MESSAGE';
+      const text = document.createElement('span');
+      text.className = 'toast__text';
+      text.textContent = message;
+      toast.appendChild(badge);
+      toast.appendChild(text);
+      toast.classList.add('global');
+    } else {
+      toast.textContent = message;
+      if (type === 'error') toast.classList.add('error');
+    }
     toast.classList.add('show');
 
     this._toastTimeout = setTimeout(() => {
-      toast.classList.remove('show', 'error');
+      toast.classList.remove('show', 'error', 'global');
     }, duration);
   }
 

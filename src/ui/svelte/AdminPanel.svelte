@@ -36,6 +36,7 @@
   const TAB_LIVE = 'live';
   const TAB_DB = 'db';
 
+  let backdropPointerDown = false;
   let activeTab = $state(TAB_MESSAGE);
   let statsLoading = $state(false);
   let collectionLoading = $state(false);
@@ -288,7 +289,12 @@
 {#if visible && selfRole >= 8}
   <div
     class="admin-overlay"
-    onclick={(e) => e.target === e.currentTarget && hide()}
+    onpointerdown={(e) => { backdropPointerDown = e.target === e.currentTarget; }}
+    onclick={(e) => {
+      const downOnBackdrop = backdropPointerDown;
+      backdropPointerDown = false;
+      if (downOnBackdrop && e.target === e.currentTarget) hide();
+    }}
     onkeydown={(e) => e.key === 'Escape' && hide()}
     role="button"
     tabindex="-1"
