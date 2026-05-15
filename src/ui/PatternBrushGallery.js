@@ -97,25 +97,11 @@ export class PatternBrushGallery extends BrushGallery {
    * @param {HTMLElement} itemEl - The gallery item element that was clicked
    */
   selectBrush(brush, itemEl) {
-    // Clear selection from all three galleries
-    if (this.brushListEl) {
-      const prevSelected = this.brushListEl.querySelector('.brushItem.selected');
-      if (prevSelected) prevSelected.classList.remove('selected');
-    }
-    if (this.fillBrushListEl) {
-      const prevSelected = this.fillBrushListEl.querySelector('.brushItem.selected');
-      if (prevSelected) prevSelected.classList.remove('selected');
-    }
-    if (this.selectionBrushListEl) {
-      const prevSelected = this.selectionBrushListEl.querySelector('.brushItem.selected');
-      if (prevSelected) prevSelected.classList.remove('selected');
-    }
+    this._clearSelectionInAllGalleries();
 
-    // Add selection to the clicked item
     itemEl.classList.add('selected');
     this.selectedBrush = brush;
 
-    // Call onSelect callback
     this.onSelect(brush);
   }
 }

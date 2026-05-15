@@ -253,10 +253,7 @@ export class BrushGallery {
     this.pendingRemovalId = null;
     this.brushes = [];
     this.selectedBrush = null;
-    this.listElements.forEach(listEl => {
-      const tiles = listEl.querySelectorAll('.brushItem[data-asset-id]');
-      tiles.forEach(tile => tile.remove());
-    });
+    this._clearGalleryTiles();
     this.initDefaultShapes();
     await this.loadBrushes();
     this.updateUnhideButtons();
@@ -399,16 +396,68 @@ export class BrushGallery {
     if (!this.shouldShowBrush(brush)) return;
     for (const listEl of this.listElements) {
       const item = this.createGalleryItem(brush);
-      listEl.appendChild(item);
+      if (this._isFolderBrush(brush)) {
+        const folder = this._ensureFolderForList(listEl);
+        folder.querySelector('.brushFolderContent').appendChild(item);
+        this._updateFolderCount(folder);
+      } else {
+        listEl.appendChild(item);
+      }
     }
+  }
+
+  _isFolderBrush(brush) {
+    return brush?.type === 'svg';
+  }
+
+  _getFolderForList(listEl) {
+    const next = listEl?.nextElementSibling;
+    return next?.classList?.contains('brushFolder') ? next : null;
+  }
+
+  _ensureFolderForList(listEl) {
+    const existing = this._getFolderForList(listEl);
+    if (existing) return existing;
+    const folder = document.createElement('div');
+    folder.className = 'brushFolder collapsed';
+    folder.innerHTML = `
+      <button type="button" class="brushFolderHeader">
+        <span class="brushFolderCaret">▶</span>
+        <span class="brushFolderLabel">Icons</span>
+        <span class="brushFolderCount">0</span>
+      </button>
+      <div class="brushFolderContent"></div>
+    `;
+    folder.querySelector('.brushFolderHeader').addEventListener('click', () => {
+      folder.classList.toggle('collapsed');
+    });
+    listEl.insertAdjacentElement('afterend', folder);
+    return folder;
+  }
+
+  _updateFolderCount(folder) {
+    if (!folder) return;
+    const content = folder.querySelector('.brushFolderContent');
+    const count = content ? content.children.length : 0;
+    const countEl = folder.querySelector('.brushFolderCount');
+    if (countEl) countEl.textContent = count;
+    folder.style.display = count === 0 ? 'none' : '';
+  }
+
+  _clearGalleryTiles() {
+    this.listElements.forEach(listEl => {
+      listEl.querySelectorAll('.brushItem[data-asset-id]').forEach(t => t.remove());
+      const folder = this._getFolderForList(listEl);
+      if (folder) {
+        folder.querySelectorAll('.brushItem[data-asset-id]').forEach(t => t.remove());
+        this._updateFolderCount(folder);
+      }
+    });
   }
 
   refreshVisibleBrushes() {
     this.clearPendingRemoval();
-    this.listElements.forEach(listEl => {
-      const tiles = listEl.querySelectorAll('.brushItem[data-asset-id]');
-      tiles.forEach(tile => tile.remove());
-    });
+    this._clearGalleryTiles();
     for (const brush of this.brushes) {
       this.addBrushToGallery(brush);
     }
@@ -530,15 +579,22 @@ export class BrushGallery {
    * @param {HTMLElement} itemEl - The gallery item element
    */
   selectBrush(brush, itemEl) {
-    const prevSelected = this.brushListEl.querySelector('.brushItem.selected');
-    if (prevSelected) {
-      prevSelected.classList.remove('selected');
-    }
+    this._clearSelectionInAllGalleries();
 
     itemEl.classList.add('selected');
     this.selectedBrush = brush;
 
     this.onSelect(brush);
+  }
+
+  _clearSelectionInAllGalleries() {
+    for (const listEl of this.listElements) {
+      listEl.querySelectorAll('.brushItem.selected').forEach(el => el.classList.remove('selected'));
+      const folder = this._getFolderForList(listEl);
+      if (folder) {
+        folder.querySelectorAll('.brushItem.selected').forEach(el => el.classList.remove('selected'));
+      }
+    }
   }
 
   /**

@@ -161,12 +161,6 @@
       beforeEnter: () => window.app?.selectTool?.('ink')
     },
     {
-      section: 'Advanced Tools',
-      title: 'Advanced Features',
-      target: '#brushBtn',
-      text: 'This section will cover Advanced Flood Fill, Glitch Blur, and Pattern Brushes. Coming soon!',
-    },
-    {
       section: 'Selection',
       title: 'The Selection Tool',
       target: '#selectBtn',
@@ -242,9 +236,78 @@
     },
     {
       section: 'Advanced Tools',
-      title: 'Advanced Features',
-      target: '#brushBtn',
-      text: 'This section will cover Advanced Flood Fill, Glitch Blur, and Pattern Brushes. Coming soon!',
+      title: 'Text Tool',
+      target: '#textBtn',
+      text: 'The Text tool lets you place editable text on the canvas. Click anywhere on the board to start typing. Clicking with no text entered swaps you back to your previous tool.',
+      actionTarget: '#textBtn',
+      actionLabel: 'Click the Text tool to begin'
+    },
+    {
+      section: 'Advanced Tools',
+      title: 'Text Shortcuts',
+      target: '#textBtn',
+      text: 'While typing: Enter commits the text to the board, Shift+Enter starts a new line within the same text block, and Ctrl+Backspace deletes a whole word at a time.',
+      allowCanvas: true,
+      actionLabel: 'Try placing text on the canvas, then press Next'
+    },
+    {
+      section: 'Advanced Tools',
+      title: 'Fonts',
+      target: '#font-container',
+      text: 'Pick a font from the gallery. Each one has its own personality — try a few on the canvas to see how they read.',
+      allowCanvas: true,
+      skipIfMissing: true
+    },
+    {
+      section: 'Advanced Tools',
+      title: 'Flood Fill',
+      target: '#fillBtn',
+      text: 'Flood Fill replaces a connected region of similar colour. Select it now.',
+      actionTarget: '#fillBtn',
+      actionLabel: 'Click the Fill tool to continue'
+    },
+    {
+      section: 'Advanced Tools',
+      title: 'Draw a Circle to Fill',
+      target: '#circleBtn',
+      text: 'First, let\'s give the fill something to work with. The Circle tool is now active — draw a circle on the canvas, then press Next.',
+      beforeEnter: () => window.app?.selectTool?.('circle'),
+      allowCanvas: true,
+      actionLabel: 'Draw a circle on the canvas, then press Next'
+    },
+    {
+      section: 'Advanced Tools',
+      title: 'Advanced Fill',
+      target: '#fillModeOptions',
+      text: 'Switching back to Fill. Enable Advanced, then click inside your circle and drag: up/down to increase or decrease the blur of the fill edge, and left/right to expand or contract the fill area.',
+      beforeEnter: () => window.app?.selectTool?.('fill'),
+      allowCanvas: true,
+      skipIfMissing: true
+    },
+    {
+      section: 'Advanced Tools',
+      title: 'Glitch Blur',
+      target: '#glitchBlurBtn',
+      text: 'This brush messes existing pixels up. Try it on the canvas.',
+      beforeEnter: () => window.app?.selectTool?.('glitchBlur'),
+      allowCanvas: true,
+      actionLabel: 'Drag across the canvas to try it'
+    },
+    {
+      section: 'Advanced Tools',
+      title: 'Pattern Brush',
+      target: '#patternBtn',
+      text: 'The Pattern Brush paints with a repeating image tile instead of a solid stroke. Select it to see the pattern controls.',
+      actionTarget: '#patternBtn',
+      actionLabel: 'Click the Pattern tool to continue'
+    },
+    {
+      section: 'Advanced Tools',
+      title: 'Pattern Controls',
+      target: '#patternModeOptions',
+      text: 'Upload your own images or pick from the gallery. Tune Image Scale, Grid Rotation, and Grid Spacing for textile-like results. Switch Colour Mode to tint patterns with your current colour.',
+      allowCanvas: true,
+      skipIfMissing: true
     }
   ];
 
@@ -790,6 +853,28 @@
     border-radius: 8px;
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-primary, #00d4aa) 22%, transparent), 0 12px 32px rgba(0, 0, 0, 0.28);
     pointer-events: none;
+    animation: tutorialRingPulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes tutorialRingPulse {
+    0%, 100% {
+      box-shadow:
+        0 0 0 4px color-mix(in srgb, var(--accent-primary, #00d4aa) 22%, transparent),
+        0 0 0 0 color-mix(in srgb, var(--accent-primary, #00d4aa) 0%, transparent),
+        0 12px 32px rgba(0, 0, 0, 0.28);
+    }
+    50% {
+      box-shadow:
+        0 0 0 6px color-mix(in srgb, var(--accent-primary, #00d4aa) 42%, transparent),
+        0 0 0 14px color-mix(in srgb, var(--accent-primary, #00d4aa) 18%, transparent),
+        0 12px 32px rgba(0, 0, 0, 0.28);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tutorialRing {
+      animation: none;
+    }
   }
 
   .tutorialToast {

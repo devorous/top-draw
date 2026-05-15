@@ -252,7 +252,79 @@
 .brushItemUpload small {
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
+  max-width: 100%;
+  padding: 0 2px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Collapsible folder for SVG/icon brushes */
+.brushFolder {
+  margin-top: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.brushFolderHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.brushFolderHeader:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.brushFolderCaret {
+  display: inline-block;
+  width: 10px;
+  font-size: 10px;
+  transition: transform 0.15s;
+}
+
+.brushFolder:not(.collapsed) .brushFolderCaret {
+  transform: rotate(90deg);
+}
+
+.brushFolderLabel {
+  flex: 1;
+  min-width: 0;
+}
+
+.brushFolderCount {
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  padding: 1px 7px;
+  border-radius: 999px;
+  letter-spacing: 0;
+}
+
+.brushFolderContent {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 8px;
+}
+
+.brushFolder.collapsed .brushFolderContent {
+  display: none;
 }
 
 .brushItem.pendingRemoval {

@@ -512,23 +512,26 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
   color: var(--text-secondary);
 }
 
-#patternModeOptions .pattern-colour-mode {
+.pattern-colour-mode {
   padding-left: 10px;
   padding-right: 10px;
-  
 }
 
-#patternModeOptions .pattern-colour-mode-group {
+.selection-mode-container > .radio-group.pattern-colour-mode-group,
+.radio-group.pattern-colour-mode-group {
   width: auto;
   gap: 6px;
   margin-bottom: 6px;
-  flex-wrap: nowrap;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
 }
 
-#patternModeOptions .pattern-colour-mode-group .radio-option {
-  flex: 0 0 auto;
-  min-width: 72px;
+.radio-group.pattern-colour-mode-group > .radio-option {
+  flex: 1 1 calc(50% - 3px);
+  min-width: 0;
   padding: 6px 10px;
+  white-space: nowrap;
 }
 
 /* Blend Mode Select */
