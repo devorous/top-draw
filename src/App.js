@@ -2464,7 +2464,7 @@ export class DrawingApp {
       if (elements.confettiSizeVariationValue) elements.confettiSizeVariationValue.textContent = `${value}%`;
     });
     bindConfettiOption(elements.confettiOpacityRandomnessSlider, 'confettiOpacityRandomness', (value) => Number(value), (value) => {
-      if (elements.confettiOpacityRandomnessValue) elements.confettiOpacityRandomnessValue.textContent = String(value);
+      if (elements.confettiOpacityRandomnessValue) elements.confettiOpacityRandomnessValue.textContent = `${value}%`;
     });
     bindConfettiOption(elements.confettiSpacingSlider, 'confettiSpacing', (value) => Number(value), (value) => {
       if (elements.confettiSpacingValue) elements.confettiSpacingValue.textContent = String(value);
