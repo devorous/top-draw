@@ -175,6 +175,19 @@ export class EraserTool extends Tool {
     user.addToLine(point);
     const state = this._ensureStrokeState(user);
     this._stampPoint(user, state, point);
+    this._eraseOverlayTextHits(point);
+  }
+
+  /**
+   * If this eraser stamp covers any active SVG text records, fade them out
+   * and broadcast their removal so other clients drop the SVG node too.
+   */
+  _eraseOverlayTextHits(point) {
+    const overlay = this.board?.textOverlay;
+    if (!overlay || overlay.records.size === 0) return;
+    const radius = Math.max(1, point.size / 2);
+    const hits = overlay.hitTestCircle(point.x, point.y, radius);
+    for (const r of hits) overlay.eraseRemove(r.id);
   }
 
   drawPreview(user, rect = null, ctx = this.board.topCtx) {

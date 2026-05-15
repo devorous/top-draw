@@ -4,6 +4,7 @@ import { T, ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor } from '../shared/ColorUtils.js';
 import { User } from './User.js';
 import { Board } from './canvas/Board.js';
+import { TEXT_OVERLAY_DEFAULT_LIFETIME_MS, TEXT_OVERLAY_DEFAULT_FADE_MS } from './canvas/TextOverlay.js';
 import { ToolManager, BrushTool } from './tools/Tools.js';
 import { UI } from './ui/index.js';
 import { BrushGalleryLoader } from './ui/BrushGalleryLoader.js';
@@ -592,6 +593,9 @@ export class DrawingApp {
     this.board.setUseDesynchronizedBoardContexts(this.appPreferences?.general?.useDesynchronizedBoardContexts);
     this.board.init('#boardContainer');
     this.board.setApp(this);
+    this.board.textOverlay?.setOnRemoveBroadcast((id) => {
+      this.wsClient?.broadcastTextRemove?.(id);
+    });
     this._applyLowPowerPreference();
     this.board.setShowRawPixelsAtHighZoom(this.appPreferences?.general?.showRawPixelsAtHighZoom);
     this.ui.updateZoomDisplay(this.board.getZoomPercent());
@@ -4216,11 +4220,12 @@ export class DrawingApp {
 
   canEditCurrentRoomSettings() {
     if (!this.currentRoomData || !this.wsClient?.connected || !this.currentRoomId) return false;
+    const globalish = Math.max((appState.selfGlobalRole || 0), this.selfRole || 0);
+    if (globalish >= 8) return true;
     const hasOwner = !!this.currentRoomData.ownerId;
     if (hasOwner) {
       return this.currentRoomData.ownerUsername === this.self?.username
-        || (appState.selfRoomRole || 0) >= 5
-        || (appState.selfGlobalRole || 0) >= 8;
+        || (appState.selfRoomRole || 0) >= 5;
     }
     return this.wasCurrentRoomCreatedByThisBrowser();
   }
@@ -4285,11 +4290,12 @@ export class DrawingApp {
     }
 
     const isLoggedIn = this.selfRole >= 1;
+    const isDeity = Math.max((appState.selfGlobalRole || 0), this.selfRole || 0) >= 8;
 
     // If we don't have room data yet, show register button for logged-in users
     // (assumes room is likely unregistered if data hasn't loaded)
     if (!this.currentRoomData) {
-      if (settingsBtn) settingsBtn.style.display = 'none';
+      if (settingsBtn) settingsBtn.style.display = isDeity ? 'inline-flex' : 'none';
       if (registerBtn) registerBtn.style.display = isLoggedIn ? 'inline-block' : 'none';
       appState.roomCreatedByThisBrowser = this.wasCurrentRoomCreatedByThisBrowser();
       this.scheduleTopbarCollapseUpdate();
@@ -4846,6 +4852,19 @@ export class DrawingApp {
    * Handles font selection change from the UI dropdown.
    * @param {string} font - The selected font family string.
    */
+  /**
+   * Switch the local user's text render mode between 'vector' (ephemeral SVG) and 'pixel' (rasterized stroke).
+   * Local-only setting; not synced or persisted (yet).
+   * @param {'vector'|'pixel'} mode
+   */
+  setTextRenderMode(mode) {
+    const next = mode === 'pixel' ? 'pixel' : 'vector';
+    if (!this.self) return;
+    if (this.self.textRenderMode === next) return;
+    this.self.textRenderMode = next;
+    this.ui.updateTextRenderMode?.(next);
+  }
+
   handleFontChange(font) {
     const nextFont = normalizeTextFont(font);
 
@@ -5314,6 +5333,12 @@ export class DrawingApp {
     // Update color picker to match
     this.self.setColor(currentColor);
     this._setColorPickersColor(`rgba(${currentColor.join(',')})`);
+    // Refresh the text-tool DOM preview so its alpha follows the slider live
+    // (instead of waiting for a tool swap or font/size touch to redraw it).
+    this.ui.updateSelfTextStyle(this.self.size, currentColor, this.self.font);
+    if (this.self.tool === 'text') {
+      this._updateTextPreview();
+    }
     appState.currentColor = [...currentColor];
     this.updateCurrentToolPresetSettings();
     this.updateActiveToolPreview();
@@ -6467,22 +6492,71 @@ export class DrawingApp {
   }
 
   _broadcastExplicitTextApply(position = null) {
-    if (!this.connected || !this.wsClient || !this.self?.text) return;
+    if (!this.self?.text) return;
+    const x = position?.x ?? this.self.x;
+    const y = position?.y ?? this.self.y;
+    const isPixel = this.self.textRenderMode === 'pixel';
+
+    const id = isPixel
+      ? ''
+      : `t_${this.self.id ?? 0}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const snapshot = {
+      id,
       text: this.self.text,
-      x: position?.x ?? this.self.x,
-      y: position?.y ?? this.self.y,
+      x, y,
       size: this.self.size,
-      color: [...this.self.color], // spread to clone the array
+      color: [...this.self.color],
       opacity: this.self.opacity,
       layerIndex: this.self.activeLayer ?? 0,
       blendMode: this.self.blendMode || 'source-over',
       blendBakeMode: this.self.blendBakeMode || 'background',
       font: this.self.font,
       textPositionMultiplier: this.self.textPositionMultiplier,
-      textPositionOffset: this.self.textPositionOffset
+      textPositionOffset: this.self.textPositionOffset,
+      pixel: isPixel,
+      // Send the room's current overlay lifetime so the server records a
+      // matching lifetime and remote clients fade in lockstep with the placer.
+      lifetimeMs: isPixel
+        ? 0
+        : (this.board.textOverlay?.getRoomLifetime?.() ?? TEXT_OVERLAY_DEFAULT_LIFETIME_MS),
+      fadeMs: isPixel
+        ? 0
+        : (this.board.textOverlay?.getRoomLifetime?.() ?? TEXT_OVERLAY_DEFAULT_FADE_MS)
     };
 
+    if (isPixel) {
+      // Legacy raster path: commit text as a stroke immediately (locally + via the
+      // existing stroke-sync mechanism wrapping MD/MU). The user object's x/y is
+      // updated to the placement position so drawText reads the right coords.
+      const prevX = this.self.x;
+      const prevY = this.self.y;
+      this.self.x = x;
+      this.self.y = y;
+      this.board.beginStroke(this.self);
+      const textTool = this.toolManager.getTool('text');
+      textTool?.drawText?.(this.self);
+      this.board.endStroke(this.self);
+      this.self.x = prevX;
+      this.self.y = prevY;
+    } else {
+      // Vector path: add to the local SVG overlay; expires after lifetimeMs.
+      this.board.textOverlay?.add({
+        id,
+        userId: this.self.id ?? 0,
+        text: snapshot.text,
+        font: snapshot.font,
+        size: snapshot.size,
+        color: snapshot.color,
+        opacity: snapshot.opacity,
+        x: snapshot.x,
+        y: snapshot.y,
+        textPositionMultiplier: snapshot.textPositionMultiplier,
+        textPositionOffset: snapshot.textPositionOffset,
+        layerIdx: snapshot.layerIndex
+      });
+    }
+
+    if (!this.connected || !this.wsClient) return;
     this.inputBufferManager.queueBroadcast(() => {
       this.wsClient.broadcastTextApply(snapshot);
     });

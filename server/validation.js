@@ -334,7 +334,7 @@ export async function sanitizeMessage(data) {
       return sanitized.k ? sanitized : null;
 
     case T.TEXT_APPLY:
-      sanitized.g = sanitizeString(data.g, 2000, { trim: false });
+      sanitized.g = sanitizeString(data.g, 500, { trim: false });
       sanitized.ps = sanitizeFloatArray(data.ps, {
         requireEvenLength: true,
         maxLength: 2,
@@ -351,7 +351,16 @@ export async function sanitizeMessage(data) {
       sanitized.to = Math.min(Math.max(Number(data.to), -20), 20);
       if (!Number.isFinite(sanitized.tm)) sanitized.tm = 0;
       if (!Number.isFinite(sanitized.to)) sanitized.to = 0;
+      sanitized.textId = sanitizeString(data.textId, 80, { trim: true });
+      sanitized.textLifetimeMs = clampInt(data.textLifetimeMs, 0, 30 * 60 * 1000, 0);
+      sanitized.textFadeMs = clampInt(data.textFadeMs, 0, 30 * 60 * 1000, 0);
+      sanitized.textAgeMs = clampInt(data.textAgeMs, 0, 30 * 60 * 1000, 0);
+      sanitized.textPixel = !!data.textPixel;
       return sanitized.g && sanitized.ps.length === 2 ? sanitized : null;
+
+    case T.TEXT_REMOVE:
+      sanitized.textId = sanitizeString(data.textId, 80, { trim: true });
+      return sanitized.textId ? sanitized : null;
 
     case T.GMP:
     case T.GPT:

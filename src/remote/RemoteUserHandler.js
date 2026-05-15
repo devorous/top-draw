@@ -1137,32 +1137,55 @@ export class RemoteUserHandler {
     if (!user || !data?.text) return;
 
     const layerIndex = data.layerIndex ?? user.activeLayer ?? 0;
-    const blendMode = data.blendMode || user.blendMode || 'source-over';
-    const blendBakeMode = data.blendBakeMode || user.blendBakeMode || 'background';
-    const textUser = {
-      ...user,
-      text: data.text,
-      x: data.position?.x ?? user.x,
-      y: data.position?.y ?? user.y,
-      size: data.size ?? user.size,
-      color: data.color ?? user.color,
-      opacity: data.opacity ?? user.opacity,
-      activeLayer: layerIndex,
-      blendMode,
-      blendBakeMode,
-      font: data.font ?? user.font,
-      textPositionMultiplier: data.textPositionMultiplier ?? user.textPositionMultiplier,
-      textPositionOffset: data.textPositionOffset ?? user.textPositionOffset,
-      getColorString() {
-        return `rgba(${this.color.join(',')})`;
-      }
-    };
 
-    this.board.layerManager.beginUserStroke(layerIndex, user.id, blendMode, blendBakeMode);
-    this.board.applySelectionMaskClipForStroke(layerIndex, user.id);
-    this.toolManager.getTool('text').drawText(textUser);
-    this.board.releaseSelectionMaskClipForStroke(layerIndex, user.id);
-    this.board.layerManager.commitUserStroke(layerIndex, user.id);
+    if (data.pixel) {
+      // Legacy raster path — text becomes a permanent stroke on the remote layer.
+      const blendMode = data.blendMode || user.blendMode || 'source-over';
+      const blendBakeMode = data.blendBakeMode || user.blendBakeMode || 'background';
+      const textUser = {
+        ...user,
+        text: data.text,
+        x: data.position?.x ?? user.x,
+        y: data.position?.y ?? user.y,
+        size: data.size ?? user.size,
+        color: data.color ?? user.color,
+        opacity: data.opacity ?? user.opacity,
+        activeLayer: layerIndex,
+        blendMode,
+        blendBakeMode,
+        font: data.font ?? user.font,
+        textPositionMultiplier: data.textPositionMultiplier ?? user.textPositionMultiplier,
+        textPositionOffset: data.textPositionOffset ?? user.textPositionOffset,
+        getColorString() {
+          return `rgba(${this.color.join(',')})`;
+        }
+      };
+      this.board.layerManager.beginUserStroke(layerIndex, user.id, blendMode, blendBakeMode);
+      this.board.applySelectionMaskClipForStroke(layerIndex, user.id);
+      this.toolManager.getTool('text').drawText(textUser);
+      this.board.releaseSelectionMaskClipForStroke(layerIndex, user.id);
+      this.board.layerManager.commitUserStroke(layerIndex, user.id);
+    } else {
+      // Vector path — add to ephemeral SVG overlay.
+      const id = data.id || `t_${user.id ?? 0}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      this.board.textOverlay?.add({
+        id,
+        userId: user.id ?? 0,
+        text: data.text,
+        font: data.font ?? user.font,
+        size: data.size ?? user.size,
+        color: data.color ?? user.color,
+        opacity: data.opacity ?? user.opacity,
+        x: data.position?.x ?? user.x,
+        y: data.position?.y ?? user.y,
+        textPositionMultiplier: data.textPositionMultiplier ?? user.textPositionMultiplier,
+        textPositionOffset: data.textPositionOffset ?? user.textPositionOffset,
+        layerIdx: layerIndex,
+        lifetimeMs: data.lifetimeMs,
+        fadeMs: data.fadeMs,
+        ageMs: data.ageMs ?? 0
+      });
+    }
 
     user.text = '';
     if (user.context) {

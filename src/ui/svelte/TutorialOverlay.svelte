@@ -331,7 +331,8 @@
   function canEditRoomSettings() {
     const roomData = appState.currentRoomData;
     if (!appState.connected || !appState.currentRoomId || !roomData) return false;
-    return (roomData.ownerId && ((appState.selfRoomRole || 0) >= 5 || (appState.selfGlobalRole || 0) >= 8)) || (!roomData.ownerId && appState.roomCreatedByThisBrowser);
+    if ((appState.selfGlobalRole || 0) >= 8) return true;
+    return (roomData.ownerId && (appState.selfRoomRole || 0) >= 5) || (!roomData.ownerId && appState.roomCreatedByThisBrowser);
   }
 
   function storageGet(key) {

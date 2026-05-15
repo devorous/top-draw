@@ -585,6 +585,9 @@ menuBtn: document.getElementById('menuBtn'),
       fontContainer: document.getElementById('font-container'),
       textPositionMultiplierContainer: document.getElementById('text-position-multiplier-container'),
       textPositionOffsetContainer: document.getElementById('text-position-offset-container'),
+      textRenderModeContainer: document.getElementById('text-render-mode-container'),
+      textRenderModeVectorBtn: document.getElementById('textRenderModeVectorBtn'),
+      textRenderModePixelBtn: document.getElementById('textRenderModePixelBtn'),
 
       selectionModeOptions: document.getElementById('selectionModeOptions'),
       eraserModeOptions: document.getElementById('eraserModeOptions'),
@@ -1176,8 +1179,15 @@ menuBtn: document.getElementById('menuBtn'),
       selfCircle, selfPressureCircle, selfDot, selfSquare, selfPressureSquare, selfCrosshair, selfHand, selfZoom, selfText, selfName,
       brushImage, brushFileInput, sizeContainer, pressureContainer, smoothingContainer,
       brushSpacing, brushHardness, opacityContainer, cursorStyleContainer, cursorStyleSelect, blurRadiusContainer,
-      selectionModeOptions, eraserModeOptions, inkdropperModeOptions, brushModeOptions, shapeModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions, imageBrushModeOptions, confettiModeOptions, fontContainer, textPositionMultiplierContainer, textPositionOffsetContainer
+      selectionModeOptions, eraserModeOptions, inkdropperModeOptions, brushModeOptions, shapeModeOptions, circleBlurModeOptions, fillModeOptions, patternModeOptions, imageBrushModeOptions, confettiModeOptions, fontContainer, textPositionMultiplierContainer, textPositionOffsetContainer, textRenderModeContainer
     } = this.elements;
+
+    // Toggle a flex-order class on the .sliders container so text-tool option
+    // order is size → opacity → font → mode without disturbing other tools.
+    const slidersWrap = sizeContainer?.parentElement;
+    if (slidersWrap?.classList) {
+      slidersWrap.classList.toggle('text-tool-order', tool === 'text');
+    }
 
     selfCircle.style.display = 'none';
     selfSquare.style.display = 'none';
@@ -1194,6 +1204,7 @@ menuBtn: document.getElementById('menuBtn'),
     if (fontContainer) fontContainer.style.display = 'none'; // Hide by default
     if (textPositionMultiplierContainer) textPositionMultiplierContainer.style.display = 'none';
     if (textPositionOffsetContainer) textPositionOffsetContainer.style.display = 'none';
+    if (textRenderModeContainer) textRenderModeContainer.style.display = 'none';
     if (this.elements.confettiParticlesContainer) this.elements.confettiParticlesContainer.style.display = 'none';
     if (this.elements.confettiParticleSizeContainer) this.elements.confettiParticleSizeContainer.style.display = 'none';
     if (this.elements.confettiSizeVariationContainer) this.elements.confettiSizeVariationContainer.style.display = 'none';
@@ -1286,6 +1297,7 @@ menuBtn: document.getElementById('menuBtn'),
         pressureContainer.style.display = 'none';
         smoothingContainer.style.display = 'none';
         if (fontContainer) fontContainer.style.display = 'block'; // Show font dropdown
+        if (textRenderModeContainer) textRenderModeContainer.style.display = 'block';
         // Keeping the text tuning controls dormant for now.
         // if (textPositionMultiplierContainer) textPositionMultiplierContainer.style.display = 'block';
         // if (textPositionOffsetContainer) textPositionOffsetContainer.style.display = 'block';
@@ -1293,6 +1305,7 @@ menuBtn: document.getElementById('menuBtn'),
           this.updateFontSelect(user.font);
           this.updateTextPositionMultiplierValue(user.textPositionMultiplier);
           this.updateTextPositionOffsetValue(user.textPositionOffset);
+          this.updateTextRenderMode(user.textRenderMode);
         }
         break;
 
@@ -1999,6 +2012,12 @@ menuBtn: document.getElementById('menuBtn'),
       this._applyFontSelectStyle(e.target.value);
       app.handleFontChange(e.target.value);
     });
+    this.elements.textRenderModeVectorBtn?.addEventListener('click', () => {
+      app.setTextRenderMode?.('vector');
+    });
+    this.elements.textRenderModePixelBtn?.addEventListener('click', () => {
+      app.setTextRenderMode?.('pixel');
+    });
   }
 
   /**
@@ -2014,11 +2033,11 @@ menuBtn: document.getElementById('menuBtn'),
   }
 
   updateRemoteFont(userId, font) {
-    return this.remoteUserUI.updateRemoteFont(userId, font);
+    return this.remoteUserUI?.updateRemoteFont(userId, font);
   }
 
   updateRemoteTextLayout(userId, user) {
-    return this.remoteUserUI.updateRemoteTextLayout(userId, user);
+    return this.remoteUserUI?.updateRemoteTextLayout(userId, user);
   }
 
   updateTextPositionMultiplierValue(multiplier) {
@@ -2038,6 +2057,13 @@ menuBtn: document.getElementById('menuBtn'),
     if (this.elements.textPositionOffsetSlider) {
       this.elements.textPositionOffsetSlider.value = Number(offset);
     }
+  }
+
+  updateTextRenderMode(mode) {
+    const isPixel = mode === 'pixel';
+    const { textRenderModeVectorBtn, textRenderModePixelBtn } = this.elements;
+    if (textRenderModeVectorBtn) textRenderModeVectorBtn.classList.toggle('active', !isPixel);
+    if (textRenderModePixelBtn) textRenderModePixelBtn.classList.toggle('active', isPixel);
   }
 
   _initializeFontSelect() {
@@ -2166,15 +2192,15 @@ menuBtn: document.getElementById('menuBtn'),
   }
 
   updateRemoteText(userId, textContent) {
-    return this.remoteUserUI.updateRemoteText(userId, textContent);
+    return this.remoteUserUI?.updateRemoteText(userId, textContent);
   }
 
   setRemoteTextDomVisible(userId, visible) {
-    return this.remoteUserUI.setRemoteTextDomVisible(userId, visible);
+    return this.remoteUserUI?.setRemoteTextDomVisible(userId, visible);
   }
 
   setRemoteUserAfk(userId, afk) {
-    return this.remoteUserUI.setRemoteUserAfk(userId, afk);
+    return this.remoteUserUI?.setRemoteUserAfk(userId, afk);
   }
 
   setRemoteUserMuted(userId, muted) {

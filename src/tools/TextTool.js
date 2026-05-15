@@ -2,7 +2,7 @@
  * @fileoverview Text tool for drawing text on the canvas
  */
 
-import { getAppliedTextLayout, getUserTextLineHeight } from '../utils/textLayout.js';
+import { getAppliedTextLayout, getUserTextLineHeight, paintTextRecord } from '../utils/textLayout.js';
 
 const TEXT_DIRTY_RECT_PADDING = 12;
 
@@ -46,23 +46,21 @@ export class TextTool extends Tool {
   }
 
   /**
-   * Handle pointer down: if user has text, draw it; otherwise set text position.
-   * If no text and clicking, swap back to previous tool.
+   * Handle pointer down. The actual placement (local overlay add + broadcast)
+   * is performed by App._broadcastExplicitTextApply BEFORE this fires, so all
+   * we have to do here is clear the buffer, reset the touch input, and move
+   * the placement caret. If there's no buffered text and the user clicks, swap
+   * back to the previously selected tool.
    * @param {Object} user - User object
    * @param {Object} pos - Pointer position {x, y}
    */
   onPointerDown(user, pos) {
     if (user.text) {
-      this.board.beginStroke(user);
-      this.drawText(user);
       user.text = '';
-      this.board.endStroke(user);
-
       if (this.board.app?.ui.elements.touchInput) {
         this.board.app.ui.elements.touchInput.value = ' ';
       }
     } else if (this.board.app?.previousTool) {
-      // If no text and clicking, swap back to previous tool
       this.board.app.selectTool(this.board.app.previousTool);
       return;
     }
@@ -146,47 +144,34 @@ export class TextTool extends Tool {
   }
 
   /**
-   * Draw the user's text to the active layer
-   * @param {Object} user - User object
+   * Rasterize the user's text into the user's active stroke (legacy bake path).
+   * Used by the eraser-bake handler when an SVG text record needs to become pixels.
+   * @param {Object} user - User-like object exposing color/font/size/x/y/text/etc.
    */
   drawText(user) {
     const ctx = this.board.getLayerContext(user.activeLayer, user.id);
     ctx.globalCompositeOperation = 'source-over';
-    const opacity = user.opacity !== undefined ? user.opacity : 1;
-    ctx.globalAlpha = opacity;
-    const { fontSize, drawX, baselineY, ascent, descent } = getAppliedTextLayout(user);
-    const text = user.text;
 
-    ctx.beginPath();
-    ctx.fillStyle = user.getColorString();
-    ctx.font = `${fontSize}px ${user.font}`;
-    ctx.textBaseline = 'alphabetic';
+    const record = {
+      text: user.text,
+      font: user.font,
+      size: user.size,
+      color: typeof user.getColorString === 'function' ? user.getColorString() : user.color,
+      opacity: user.opacity,
+      x: user.x,
+      y: user.y,
+      textPositionMultiplier: user.textPositionMultiplier,
+      textPositionOffset: user.textPositionOffset
+    };
 
-    const lines = text.split('\n');
-    const lineHeight = getUserTextLineHeight(user);
+    const { drawX, baselineY, ascent, descent, lineHeight, lines, maxWidth } = paintTextRecord(ctx, record);
 
-    // Measure all lines to get overall bounds
-    let maxWidth = 0;
-    lines.forEach(line => {
-      const metrics = ctx.measureText(line);
-      maxWidth = Math.max(maxWidth, metrics.width);
-    });
-
-    const left = 0;
-    const right = maxWidth;
     const totalHeight = (lineHeight * Math.max(lines.length - 1, 0)) + ascent + descent;
     const drX = Math.floor(drawX - TEXT_DIRTY_RECT_PADDING);
     const drY = Math.floor(baselineY - ascent - TEXT_DIRTY_RECT_PADDING);
-    const drW = Math.ceil(right + (TEXT_DIRTY_RECT_PADDING * 2));
+    const drW = Math.ceil(maxWidth + (TEXT_DIRTY_RECT_PADDING * 2));
     const drH = Math.ceil(totalHeight + (TEXT_DIRTY_RECT_PADDING * 2));
 
-    // Draw each line
-    lines.forEach((line, i) => {
-      ctx.fillText(line, drawX, baselineY + (i * lineHeight));
-    });
-
     this.board.expandDirtyRect(user, drX, drY, drW, drH);
-
-    ctx.globalAlpha = 1.0;
   }
 }

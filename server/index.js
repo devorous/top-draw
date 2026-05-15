@@ -263,6 +263,7 @@ function shouldAllowWsMessage(ws, data) {
     case T.KP:
     case T.FILL:
     case T.TEXT_APPLY:
+    case T.TEXT_REMOVE:
     case T.CSDM:
       suffix = 'draw';
       config = WS_DRAW_LIMIT;
@@ -1360,6 +1361,33 @@ function sendActiveOverlaysToClient(ws, room) {
   for (const region of room.obscureRegions?.values?.() || []) {
     sendTo(ws, { t: T.OBSCURE_REGION, u: ROOM_OVERLAY_SESSION_INDEX, g: JSON.stringify(region) });
   }
+
+  // Replay live ephemeral text records, sweeping any that have already expired.
+  if (Array.isArray(room.activeTexts) && room.activeTexts.length > 0) {
+    const now = Date.now();
+    room.activeTexts = room.activeTexts.filter(t => now - t.bornAt < t.lifetimeMs);
+    for (const r of room.activeTexts) {
+      sendTo(ws, {
+        t: T.TEXT_APPLY,
+        u: r.sessionIndex,
+        g: r.text,
+        ps: [r.x, r.y],
+        s: r.size,
+        c: r.color,
+        p: r.opacity,
+        ly: r.layerIndex,
+        bm: r.blendMode,
+        bbm: r.blendBakeMode,
+        fo: r.font,
+        tm: r.textPositionMultiplier,
+        to: r.textPositionOffset,
+        textId: r.id,
+        textLifetimeMs: r.lifetimeMs,
+        textFadeMs: r.fadeMs,
+        textAgeMs: now - r.bornAt
+      });
+    }
+  }
 }
 
 function isVpnAutoMuteExempt(role) {
@@ -1702,6 +1730,7 @@ function buildSettingsPayload(room) {
     roomAutoMuteGuests: room.settings.autoMuteGuests,
     roomAutoMuteVpnUsers: room.settings.autoMuteVpnUsers,
     roomHideChatNotifications: room.settings.hideChatNotifications,
+    roomTextOverlayLifetimeMs: room.settings.textOverlayLifetimeMs ?? (30 * 1000),
     roomDedicatedReplayUser: room.settings.dedicatedReplayUser,
     roomPrivate: room.settings.private,
     roomFloatingGallerySeed: room.settings.floatingGallerySeed,
@@ -1836,10 +1865,85 @@ async function handleBroadcast(data, sessionIndex, room, ws) {
       }
       break;
 
-    case T.TEXT_APPLY:
+    case T.TEXT_APPLY: {
       user.text = '';
       room.sessionManager.updateUserActivity(sessionIndex);
+
+      // Pixel mode: skip the ephemeral activeTexts ledger, just relay so receivers rasterize as a stroke.
+      if (data.textPixel) {
+        break;
+      }
+
+      // Server-authoritative active-text tracking (ephemeral SVG overlay).
+      const now = Date.now();
+      // Lazy sweep of any expired entries before adding.
+      if (Array.isArray(room.activeTexts) && room.activeTexts.length > 0) {
+        room.activeTexts = room.activeTexts.filter(t => now - t.bornAt < t.lifetimeMs);
+      } else {
+        room.activeTexts = [];
+      }
+
+      const roomDefaultLifetime = Number(room.settings?.textOverlayLifetimeMs) || (30 * 1000);
+      const lifetimeMs = Math.max(1000, Math.min(Number(data.textLifetimeMs) || roomDefaultLifetime, 30 * 60 * 1000));
+      const fadeMs = Math.max(0, Math.min(Number(data.textFadeMs) || 30 * 1000, lifetimeMs));
+      const id = String(data.textId || `t_${sessionIndex}_${now}_${Math.random().toString(36).slice(2, 8)}`);
+
+      // Per-user cap: drop oldest if user has too many active records.
+      const PER_USER_CAP = 20;
+      const userCount = room.activeTexts.filter(t => t.sessionIndex === sessionIndex).length;
+      if (userCount >= PER_USER_CAP) {
+        const idx = room.activeTexts.findIndex(t => t.sessionIndex === sessionIndex);
+        if (idx >= 0) room.activeTexts.splice(idx, 1);
+      }
+      // Per-room cap: drop oldest entry overall.
+      const ROOM_CAP = 500;
+      if (room.activeTexts.length >= ROOM_CAP) {
+        room.activeTexts.shift();
+      }
+
+      const ps = Array.isArray(data.ps) ? data.ps : [];
+      const record = {
+        id,
+        sessionIndex,
+        userId: ws.userId || null,
+        text: String(data.g || '').slice(0, 500),
+        font: data.fo,
+        size: data.s,
+        color: data.c,
+        opacity: data.p,
+        layerIndex: data.ly ?? 0,
+        blendMode: data.bm || 'source-over',
+        blendBakeMode: data.bbm === 'background' ? 'background' : 'existing',
+        textPositionMultiplier: data.tm,
+        textPositionOffset: data.to,
+        x: ps[0] ?? 0,
+        y: ps[1] ?? 0,
+        bornAt: now,
+        lifetimeMs,
+        fadeMs
+      };
+      room.activeTexts.push(record);
+
+      // Stamp the message so the relay forwards canonical id + age=0.
+      data.textId = id;
+      data.textLifetimeMs = lifetimeMs;
+      data.textFadeMs = fadeMs;
+      data.textAgeMs = 0;
       break;
+    }
+
+    case T.TEXT_REMOVE: {
+      const id = data.textId ? String(data.textId) : null;
+      if (!id || !Array.isArray(room.activeTexts)) break;
+      // Owner-or-mod check: only the original placer (or MOD+) may remove.
+      const target = room.activeTexts.find(t => t.id === id);
+      if (!target) break;
+      const isOwner = target.sessionIndex === sessionIndex;
+      const isMod = (ws.userRole || 0) >= Role.MOD;
+      if (!isOwner && !isMod) break;
+      room.activeTexts = room.activeTexts.filter(t => t.id !== id);
+      break;
+    }
 
     case T.CS:
       user.size = data.s;
@@ -2220,7 +2324,7 @@ function flushAllOutboxes() {
 const BATCHABLE_TYPES = new Set([
   T.MM, T.MD, T.MU, T.CP, T.CS, T.CT, T.CC,
   T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL,
-  T.KP, T.TEXT_APPLY, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP, T.GPT, T.IMAGE_TOOL, T.AFK,
+  T.KP, T.TEXT_APPLY, T.TEXT_REMOVE, T.HIDE_CURSOR, T.SHOW_CURSOR, T.GMP, T.GPT, T.IMAGE_TOOL, T.AFK,
   T.CTHN, T.CSIM, T.FILL, T.CF
 ]);
 
@@ -3383,6 +3487,12 @@ wss.on('connection', async (ws, req) => {
             }
             if (data.roomHideChatNotifications !== undefined) {
               room.settings.hideChatNotifications = !!data.roomHideChatNotifications;
+            }
+            if (data.roomTextOverlayLifetimeMs !== undefined) {
+              const raw = Number(data.roomTextOverlayLifetimeMs);
+              if (Number.isFinite(raw) && raw > 0) {
+                room.settings.textOverlayLifetimeMs = Math.max(5000, Math.min(30 * 60 * 1000, Math.floor(raw)));
+              }
             }
             if (data.roomDedicatedReplayUser !== undefined) {
               // null clears the dedicated user, otherwise store the username string

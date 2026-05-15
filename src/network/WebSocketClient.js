@@ -127,7 +127,7 @@ export class WebSocketClient {
       // Drawing events — must stay in receive order relative to each other.
       // KP/TEXT_APPLY must queue with MD/MU so remote text commits can't race
       // with stale or future pointer events.
-      T.MM, T.MD, T.MU, T.KP, T.TEXT_APPLY, T.CP, T.CS, T.CT, T.CC,
+      T.MM, T.MD, T.MU, T.KP, T.TEXT_APPLY, T.TEXT_REMOVE, T.CP, T.CS, T.CT, T.CC,
       T.CSP, T.CSM, T.CHD, T.CBR, T.CL, T.CBM, T.CANCEL, T.CF,
       // Tool-parameter changes that affect how an in-progress stroke is rendered.
       // Must stay ordered with the drawing events above.
@@ -730,6 +730,9 @@ export class WebSocketClient {
           autoMuteGuests: !!data.roomAutoMuteGuests,
           autoMuteVpnUsers: !!data.roomAutoMuteVpnUsers,
           hideChatNotifications: !!data.roomHideChatNotifications,
+          textOverlayLifetimeMs: Number.isFinite(Number(data.roomTextOverlayLifetimeMs)) && Number(data.roomTextOverlayLifetimeMs) > 0
+            ? Math.floor(Number(data.roomTextOverlayLifetimeMs))
+            : 30 * 1000,
           dedicatedReplayUser: data.roomDedicatedReplayUser || null,
           electedUploader: data.electedUploader || null,
           private: !!data.roomPrivate,
@@ -877,6 +880,7 @@ export class WebSocketClient {
       case T.TEXT_APPLY:
         this.emit('text_apply', {
           sessionIndex: data.u,
+          id: data.textId || null,
           text: data.g || '',
           position: {
             x: Array.isArray(data.ps) ? data.ps[0] : 0,
@@ -890,7 +894,18 @@ export class WebSocketClient {
           blendBakeMode: data.bbm === 'background' ? 'background' : 'existing',
           font: normalizeTextFont(data.fo),
           textPositionMultiplier: data.tm,
-          textPositionOffset: data.to
+          textPositionOffset: data.to,
+          lifetimeMs: data.textLifetimeMs || undefined,
+          fadeMs: data.textFadeMs || undefined,
+          ageMs: data.textAgeMs || 0,
+          pixel: !!data.textPixel
+        });
+        break;
+
+      case T.TEXT_REMOVE:
+        this.emit('text_remove', {
+          sessionIndex: data.u,
+          id: data.textId || null
         });
         break;
 
@@ -1752,8 +1767,21 @@ export class WebSocketClient {
       bbm: payload.blendBakeMode === 'background' ? 'background' : 'existing',
       fo: payload.font,
       tm: payload.textPositionMultiplier ?? 0,
-      to: payload.textPositionOffset ?? 0
+      to: payload.textPositionOffset ?? 0,
+      textId: payload.id || '',
+      textLifetimeMs: payload.lifetimeMs ?? 0,
+      textFadeMs: payload.fadeMs ?? 0,
+      textPixel: !!payload.pixel
     });
+  }
+
+  /**
+   * Broadcasts the removal of an active SVG text record.
+   * @param {string} id - The text record id.
+   */
+  broadcastTextRemove(id) {
+    if (!id) return;
+    this.send({ t: T.TEXT_REMOVE, textId: id });
   }
 
   /**

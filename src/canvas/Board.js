@@ -1,6 +1,7 @@
 import { LayerManager } from './LayerManager.js';
 import { CompositeTileGrid } from './CompositeTileGrid.js';
 import { TileTracker } from './TileTracker.js';
+import { TextOverlay } from './TextOverlay.js';
 import * as wasm from '../wasm/ddraw_wasm.js';
 import { readQoiDimensions, snapshotLayerDimensions } from '../../shared/qoi.js';
 
@@ -291,6 +292,10 @@ export class Board {
     this.boardsWrapper.appendChild(this.mirrorRegionsLayer);
 
     this.mirrorRegionsCtx = this._createBoard2DContext(this.mirrorRegionsLayer, 'mirror');
+
+    this.textOverlay = new TextOverlay(this);
+    this.textOverlay.mount(this.boardsWrapper);
+
     this._boardContextsInitialized = true;
     this._logDesyncDiagnostics();
 
@@ -396,6 +401,10 @@ export class Board {
       this.mirrorLine.setAttribute('x2', width / 2);
       this.mirrorLine.setAttribute('y2', height);
       this.mirrorLine.style.display = this.mirror ? 'block' : 'none';
+    }
+
+    if (this.textOverlay) {
+      this.textOverlay.resize(width, height);
     }
 
     this.boardsWrapper.style.transformOrigin = 'top left';
@@ -2061,6 +2070,7 @@ export class Board {
       this.mainCtx.clearRect(0, 0, width, height);
     }
 
+    this.textOverlay?.clear();
     this.compositeTileGrid?.clear?.();
 
     // Clear tile tracker when board is cleared

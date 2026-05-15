@@ -482,6 +482,10 @@ export function setupUserHandlers(wsClient, app) {
     if (data.hideChatNotifications !== undefined) {
       app.currentRoomData.hideChatNotifications = data.hideChatNotifications;
     }
+    if (data.textOverlayLifetimeMs !== undefined) {
+      app.currentRoomData.textOverlayLifetimeMs = data.textOverlayLifetimeMs;
+      board.textOverlay?.setRoomLifetime?.(data.textOverlayLifetimeMs);
+    }
     if (data.dedicatedReplayUser !== undefined) {
       app.currentRoomData.dedicatedReplayUser = data.dedicatedReplayUser;
     }
@@ -513,6 +517,7 @@ export function setupUserHandlers(wsClient, app) {
     app.currentRoomData.mirror = data.mirror;
     app.currentRoomData.mirrorRegions = data.mirrorRegions || [];
     appState.currentRoomData = app.currentRoomData;
+    app.updateRoomSettingsButtonVisibility?.();
     board.refreshObscureRegionAccess?.();
     applySelfInactiveState();
   });

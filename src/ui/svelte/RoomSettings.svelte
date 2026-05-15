@@ -54,6 +54,9 @@
   let autoMuteGuests = $state(false);
   let autoMuteVpnUsers = $state(false);
   let hideChatNotifications = $state(false);
+  let textOverlayLifetimeMs = $state(30 * 1000);
+  let textFadeMinutes = $state(0);
+  let textFadeSeconds = $state(30);
   let roomPrivate = $state(false);
   let dedicatedReplayUser = $state('');
   let boardSize = $state('1080p');
@@ -152,6 +155,13 @@
     autoMuteGuests = !!data.autoMuteGuests;
     autoMuteVpnUsers = !!data.autoMuteVpnUsers;
     hideChatNotifications = !!data.hideChatNotifications;
+    {
+      const ms = Number(data.textOverlayLifetimeMs);
+      textOverlayLifetimeMs = Number.isFinite(ms) && ms > 0 ? Math.floor(ms) : 30 * 1000;
+      const totalSeconds = Math.round(textOverlayLifetimeMs / 1000);
+      textFadeMinutes = Math.floor(totalSeconds / 60);
+      textFadeSeconds = totalSeconds % 60;
+    }
     roomPrivate = !!data.private;
     dedicatedReplayUser = data.dedicatedReplayUser || '';
     boardSize = data.boardSize || '1080p';
@@ -281,6 +291,12 @@
     const clampedMaxUsers = Math.max(2, Math.min(60, maxUsers));
     maxUsers = clampedMaxUsers;
 
+    const totalFadeSeconds = Math.max(0, Number(textFadeMinutes) || 0) * 60 + Math.max(0, Number(textFadeSeconds) || 0);
+    const clampedTextOverlayLifetimeMs = Math.max(5000, Math.min(30 * 60 * 1000, Math.round(totalFadeSeconds * 1000)));
+    textOverlayLifetimeMs = clampedTextOverlayLifetimeMs;
+    textFadeMinutes = Math.floor(clampedTextOverlayLifetimeMs / 60000);
+    textFadeSeconds = Math.round((clampedTextOverlayLifetimeMs % 60000) / 1000);
+
     saving = true;
     showMessage = false;
 
@@ -299,6 +315,7 @@
           autoMuteGuests,
           autoMuteVpnUsers,
           hideChatNotifications,
+          textOverlayLifetimeMs: clampedTextOverlayLifetimeMs,
           private: roomPrivate,
           boardSize,
           floatingGallerySeed,
@@ -330,6 +347,7 @@
       roomAutoMuteGuests: autoMuteGuests,
       roomAutoMuteVpnUsers: autoMuteVpnUsers,
       roomHideChatNotifications: hideChatNotifications,
+      roomTextOverlayLifetimeMs: clampedTextOverlayLifetimeMs,
       roomPrivate: roomPrivate,
       roomDedicatedReplayUser: dedicatedReplayUser.trim() || null,
       roomBoardSize: boardSize,
@@ -737,6 +755,33 @@
               <input type="checkbox" bind:checked={hideChatNotifications} />
               <span>Hide chat pop-up notifications in this room</span>
             </label>
+          </div>
+
+          <div class="form-group">
+            <label>Vector text fade time</label>
+            <div class="text-fade-inputs">
+              <input
+                type="number"
+                min="0"
+                max="30"
+                step="1"
+                class="room-input text-fade-num"
+                bind:value={textFadeMinutes}
+                aria-label="Minutes"
+              />
+              <span class="text-fade-unit">min</span>
+              <input
+                type="number"
+                min="0"
+                max="59"
+                step="1"
+                class="room-input text-fade-num"
+                bind:value={textFadeSeconds}
+                aria-label="Seconds"
+              />
+              <span class="text-fade-unit">sec</span>
+            </div>
+            <span class="form-hint">How long ephemeral SVG text stays visible before fully fading away. Range: 5 seconds to 30 minutes.</span>
           </div>
 
           <div class="form-group checkbox-group">
@@ -1318,6 +1363,20 @@
 
   .compact-input {
     padding: 0.5rem 0.65rem;
+    font-size: 0.92rem;
+  }
+
+  .text-fade-inputs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .text-fade-num {
+    width: 5rem;
+    text-align: center;
+  }
+  .text-fade-unit {
+    color: var(--text-secondary);
     font-size: 0.92rem;
   }
 

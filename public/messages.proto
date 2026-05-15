@@ -97,6 +97,7 @@ message Msg {
     ROOM_ROLE_LIST_RESPONSE = 88; // Response with room moderation roster
     GLOBAL_ROLE_SET = 89;          // Set a user's global role (DEITY only)
     TEXT_APPLY = 90;               // Apply text with explicit content and render state
+    TEXT_REMOVE = 95;              // Remove an active SVG text record (eraser bake or expiry)
     CSDM = 91;                     // Change shape draw mode
     GLOBAL_MESSAGE = 92;           // Holy/Deity global toast or server update notice
     SEL_MASK = 93;                 // Toggle selection mask mode
@@ -461,6 +462,14 @@ message Msg {
   string iid = 153;                 // Instance ID: random per-connection token to detect index reuse
   string image_tool_type = 159;      // IMAGE_TOOL: imageBrush|pattern|confetti
   string image_tool_data = 160;      // IMAGE_TOOL: JSON payload containing image data/settings
+
+  // === Vector Text Overlay Fields (164+) ===
+  string text_id = 164;              // TEXT_APPLY/TEXT_REMOVE: per-record identifier
+  uint32 text_lifetime_ms = 165;     // TEXT_APPLY: total ephemeral lifetime in ms
+  uint32 text_fade_ms = 166;         // TEXT_APPLY: trailing fade duration in ms
+  uint32 text_age_ms = 167;          // TEXT_APPLY: server-stamped age at send time, used for backfill on join
+  bool   text_pixel = 168;           // TEXT_APPLY: true → rasterize as a permanent stroke, skip overlay tracking
+  uint32 room_text_overlay_lifetime_ms = 169; // ROOM_UPDATE/SETTINGS: per-room ephemeral text lifetime (ms)
 }
 
 // New message for storing snapshot layers and thumbnail bundled in R2

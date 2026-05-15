@@ -67,6 +67,7 @@ export class User {
     this.font = normalizeTextFont(options.font);
     this.textPositionMultiplier = options.textPositionMultiplier ?? DEFAULT_APPLIED_TEXT_SIZE_MULTIPLIER;
     this.textPositionOffset = options.textPositionOffset ?? DEFAULT_APPLIED_TEXT_OFFSET;
+    this.textRenderMode = options.textRenderMode === 'pixel' ? 'pixel' : 'vector';
     this.currentLine = [];
     this.lineLength = 0;
     this.smoothBuffer = { x: 0, y: 0, isFirst: true };

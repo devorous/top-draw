@@ -259,6 +259,11 @@ export function setupDrawingHandlers(wrapHandler, app) {
     }
   });
 
+  wrapHandler('text_remove', (data) => {
+    if (!data?.id) return;
+    board.textOverlay?.removeRemote(data.id);
+  });
+
   wrapHandler('clr', () => {
     board.clear();
   });

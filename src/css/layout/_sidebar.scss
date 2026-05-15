@@ -777,6 +777,19 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
   /* Heights are dynamically managed by ResizableSections */
 }
 
+/* When the text tool is active, reorder the visible option containers to:
+   size → opacity → font → mode. Use flex/order on the .sliders container so
+   the DOM layout for other tools stays untouched. */
+#toolSliders .sliders.text-tool-order {
+  display: flex;
+  flex-direction: column;
+
+  #size-container       { order: 1; }
+  #brush-opacity        { order: 2; }
+  #font-container       { order: 3; }
+  #text-render-mode-container { order: 4; }
+}
+
 /* ========================================
    Resize Handles
    ======================================== */
@@ -866,6 +879,44 @@ html[data-sidebar-side='left'] .sidebarToggleBtn.active .sidebarIcon {
       min-width: 28px;
       padding: 1px 4px;
     }
+  }
+}
+
+/* ========================================
+   Text Render Mode Toggle (Vector / Pixel)
+   ======================================== */
+
+.textRenderModeToggle {
+  display: flex;
+  gap: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 2px;
+  background: var(--bg-secondary, transparent);
+}
+
+.textRenderModeBtn {
+  flex: 1;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+
+  &:hover {
+    color: var(--text-primary);
+  }
+
+  &.active {
+    background: var(--accent-primary);
+    color: var(--text-on-accent, #fff);
   }
 }
 

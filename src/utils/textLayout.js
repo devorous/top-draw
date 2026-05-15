@@ -98,3 +98,77 @@ export function getAppliedTextLayout(user, metrics = null) {
     descent
   };
 }
+
+function colorToCssString(color) {
+  if (!color) return 'rgba(0,0,0,1)';
+  if (typeof color === 'string') return color;
+  if (Array.isArray(color)) {
+    const [r, g, b, a = 1] = color;
+    return `rgba(${r},${g},${b},${a})`;
+  }
+  return 'rgba(0,0,0,1)';
+}
+
+/**
+ * Compute font/baseline + per-line layout for a self-contained text record.
+ * Used by both canvas rasterization and SVG overlay rendering so they stay in sync.
+ *
+ * @param {Object} record
+ * @param {string} record.text
+ * @param {string} record.font
+ * @param {number} record.size
+ * @param {number} record.x
+ * @param {number} record.y
+ * @param {number} [record.textPositionMultiplier]
+ * @param {number} [record.textPositionOffset]
+ * @returns {{fontSize:number, drawX:number, baselineY:number, ascent:number, descent:number, lineHeight:number, lines:string[], maxWidth:number, bbox:{x:number,y:number,width:number,height:number}}}
+ */
+export function getTextRecordGeometry(record) {
+  const lines = (record.text ?? '').split('\n');
+  const layout = getAppliedTextLayout(record);
+  const lineHeight = getTextLineHeight(layout.fontSize, record.font);
+
+  let maxWidth = 0;
+  if (typeof document !== 'undefined') {
+    const probe = document.createElement('canvas').getContext('2d');
+    probe.font = `${layout.fontSize}px ${record.font}`;
+    for (const line of lines) {
+      const w = probe.measureText(line).width;
+      if (w > maxWidth) maxWidth = w;
+    }
+  }
+
+  const totalHeight = (lineHeight * Math.max(lines.length - 1, 0)) + layout.ascent + layout.descent;
+  const bbox = {
+    x: layout.drawX,
+    y: layout.baselineY - layout.ascent,
+    width: maxWidth,
+    height: totalHeight
+  };
+
+  return { ...layout, lineHeight, lines, maxWidth, bbox };
+}
+
+/**
+ * Rasterize a text record onto a 2D canvas context using fillText.
+ * Pure painter — does not touch globalCompositeOperation, does not call beginPath/clear.
+ * Returns the same geometry as getTextRecordGeometry so callers can size dirty rects.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {Object} record - { text, font, size, color, opacity, x, y, textPositionMultiplier, textPositionOffset }
+ * @returns {ReturnType<typeof getTextRecordGeometry>}
+ */
+export function paintTextRecord(ctx, record) {
+  const geometry = getTextRecordGeometry(record);
+  const opacity = record.opacity !== undefined ? record.opacity : 1;
+  ctx.save();
+  ctx.globalAlpha = opacity;
+  ctx.fillStyle = colorToCssString(record.color);
+  ctx.font = `${geometry.fontSize}px ${record.font}`;
+  ctx.textBaseline = 'alphabetic';
+  geometry.lines.forEach((line, i) => {
+    ctx.fillText(line, geometry.drawX, geometry.baselineY + (i * geometry.lineHeight));
+  });
+  ctx.restore();
+  return geometry;
+}

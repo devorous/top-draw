@@ -52,6 +52,7 @@ export class Room {
       autoMuteVpnUsers: false,
       hideChatNotifications: false,
       dedicatedReplayUser: null,
+      textOverlayLifetimeMs: 30 * 1000,
       private: false,
       floatingGallerySeed: createFloatingGallerySeed(),
       floatingGalleryIncludeIds: [],
@@ -67,6 +68,9 @@ export class Room {
     this.lastActivity = Date.now();
     this.dbLoaded = false;
     this.obscureRegions = new Map();
+
+    /** @type {Array<Object>} Ephemeral SVG text records: { id, text, font, size, color, opacity, x, y, textPositionMultiplier, textPositionOffset, layerIndex, blendMode, blendBakeMode, userId, sessionIndex, bornAt, lifetimeMs, fadeMs }. Not persisted. */
+    this.activeTexts = [];
 
     /** @type {Buffer|null} PNG preview image at 1/4 scale */
     this.preview = null;
@@ -343,6 +347,9 @@ export class Room {
         this.settings.hideChatNotifications = !!doc.settings?.hideChatNotifications;
         this.settings.mirrorRegions = Array.isArray(doc.settings?.mirrorRegions) ? doc.settings.mirrorRegions : [];
         this.settings.dedicatedReplayUser = doc.settings?.dedicatedReplayUser || null;
+        this.settings.textOverlayLifetimeMs = Number.isFinite(doc.settings?.textOverlayLifetimeMs)
+          ? Math.max(5000, Math.min(30 * 60 * 1000, Math.floor(doc.settings.textOverlayLifetimeMs)))
+          : this.settings.textOverlayLifetimeMs;
         this.settings.private = !!doc.settings?.private;
         this.settings.floatingGallerySeed = Number.isFinite(doc.settings?.floatingGallerySeed)
           ? doc.settings.floatingGallerySeed
@@ -407,6 +414,7 @@ export class Room {
               autoMuteGuests: this.settings.autoMuteGuests,
               autoMuteVpnUsers: this.settings.autoMuteVpnUsers,
               hideChatNotifications: this.settings.hideChatNotifications,
+              textOverlayLifetimeMs: this.settings.textOverlayLifetimeMs,
               mirrorRegions: this.settings.mirrorRegions,
               dedicatedReplayUser: this.settings.dedicatedReplayUser,
               private: this.settings.private,
