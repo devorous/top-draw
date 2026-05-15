@@ -49,8 +49,8 @@
           bind:this={canvasEl}
           id="toolPreviewCanvas"
           class:stroke-preview={!isPatternPreview}
-          width={isPatternPreview ? 90 : 168}
-          height={isPatternPreview ? 90 : 64}
+          width={isPatternPreview ? 80 : 140}
+          height={isPatternPreview ? 80 : 52}
         ></canvas>
       </button>
     {/if}
@@ -131,15 +131,43 @@
     background: color-mix(in srgb, var(--bg-primary) 88%, black);
     border-radius: 3px;
     display: block;
-    width: 90px;
-    height: 90px;
-    flex: 0 0 90px;
+    width: 80px;
+    height: 80px;
+    flex: 0 0 80px;
     cursor: pointer;
   }
 
   canvas.stroke-preview {
-    width: 168px;
-    height: 64px;
-    flex-basis: 168px;
+    width: 140px;
+    height: 52px;
+    flex-basis: 140px;
+  }
+
+  @media (max-width: 768px) {
+    canvas {
+      width: 70px;
+      height: 70px;
+      flex: 0 0 70px;
+    }
+
+    canvas.stroke-preview {
+      width: 120px;
+      height: 44px;
+      flex-basis: 120px;
+    }
+  }
+
+  @media (max-width: 480px) {
+    canvas {
+      width: 60px;
+      height: 60px;
+      flex: 0 0 60px;
+    }
+
+    canvas.stroke-preview {
+      width: 100px;
+      height: 36px;
+      flex-basis: 100px;
+    }
   }
 </style>

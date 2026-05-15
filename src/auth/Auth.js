@@ -1522,6 +1522,11 @@ export class Auth {
     if (loginForm) {
       loginForm.style.display = pending ? 'none' : '';
     }
+    // Disable room list join buttons during auth pending
+    const roomListJoinBtns = [this.els.loginJoinBtn, this.els.joinBtnLoggedIn];
+    roomListJoinBtns.forEach(btn => {
+      if (btn) btn.disabled = pending;
+    });
   }
 
   scrollRoomsIntoViewOnSmallScreens() {
