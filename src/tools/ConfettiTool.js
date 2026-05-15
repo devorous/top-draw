@@ -195,8 +195,8 @@ export class ConfettiTool extends Tool {
   }
 
   createParticle(user, pos, pathAngle, random) {
-    const scatter = this.getScatter(user);
-    const radius = Math.sqrt(random()) * scatter;
+    const brushRadius = Math.max(1, Number(user.size ?? 10));
+    const radius = Math.sqrt(random()) * brushRadius;
     const theta = random() * Math.PI * 2;
     const variation = Math.max(0, Math.min(1, Number(user.confettiSizeVariation ?? 40) / 100));
     const scaleMin = Math.max(0.1, 1 - variation);
@@ -208,6 +208,10 @@ export class ConfettiTool extends Tool {
     if (rotationMode === 'follow') rotation = pathAngle;
     if (rotationMode === 'fixed') rotation = 0;
 
+    const opacityRandomness = Math.max(0, Math.min(1, Number(user.confettiOpacityRandomness ?? 20) / 100));
+    const opacityMin = Math.max(0, 1 - opacityRandomness);
+    const opacityMax = Math.min(1, 1 + opacityRandomness);
+
     return {
       x: pos.x + Math.cos(theta) * radius,
       y: pos.y + Math.sin(theta) * radius,
@@ -217,7 +221,7 @@ export class ConfettiTool extends Tool {
       brush: this.getParticleShape(user) === 'image' ? (user.confettiBrush || null) : null,
       color: this.getParticleColor(user, random),
       colorMode: this.getColorMode(user),
-      opacity: (user.opacity ?? 1) * (0.65 + random() * 0.35)
+      opacity: (user.opacity ?? 1) * (opacityMin + random() * (opacityMax - opacityMin))
     };
   }
 
@@ -264,11 +268,21 @@ export class ConfettiTool extends Tool {
     ctx.globalAlpha = particle.opacity;
     const image = this.getParticleImage(particle.brush);
     if (image?.complete && image.naturalWidth > 0) {
-      const half = particle.size / 2;
+      const imgWidth = image.naturalWidth || image.width || 1;
+      const imgHeight = image.naturalHeight || image.height || 1;
+      const aspectRatio = imgWidth / imgHeight;
+      let drawWidth, drawHeight;
+      if (aspectRatio > 1) {
+        drawWidth = particle.size;
+        drawHeight = particle.size / aspectRatio;
+      } else {
+        drawWidth = particle.size * aspectRatio;
+        drawHeight = particle.size;
+      }
       const source = particle.colorMode === 'image'
         ? image
         : this.getTintedParticleImage(image, particle.brush, particle.color);
-      ctx.drawImage(source, -half, -half, particle.size, particle.size);
+      ctx.drawImage(source, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
     } else if (particle.shape === 'square') {
       ctx.fillStyle = colorToString(particle.color);
       const half = particle.size / 2;
@@ -428,6 +442,7 @@ export class ConfettiTool extends Tool {
       confettiParticles: this.getParticlesPerStep(user),
       confettiParticleSize: Math.max(1, Number(user.confettiParticleSize ?? user.size ?? 10)),
       confettiSizeVariation: Math.max(0, Math.min(100, Number(user.confettiSizeVariation ?? 40))),
+      confettiOpacityRandomness: Math.max(0, Math.min(100, Number(user.confettiOpacityRandomness ?? 20))),
       confettiSpacing: Math.max(0, Math.min(50, Number(user.confettiSpacing ?? user.spacing ?? 30))),
       confettiShape: this.getParticleShape(user),
       confettiColorMode: this.getColorMode(user),
@@ -474,6 +489,7 @@ export class ConfettiTool extends Tool {
       'confettiParticles',
       'confettiParticleSize',
       'confettiSizeVariation',
+      'confettiOpacityRandomness',
       'confettiSpacing',
       'confettiShape',
       'confettiColorMode',

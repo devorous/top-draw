@@ -28,9 +28,9 @@ export class PatternBrushGallery extends BrushGallery {
   }
 
   _initDefaultShapes() {
-    // Circle image
+    // Circle brush
     const circleBrush = {
-      type: 'image',
+      type: 'svg',
       brushName: 'Circle',
       gimpUrl: this._createDefaultIcon('circle')
     };
@@ -44,9 +44,9 @@ export class PatternBrushGallery extends BrushGallery {
       kind: this.kind
     });
 
-    // Square image
+    // Square brush
     const squareBrush = {
-      type: 'image',
+      type: 'svg',
       brushName: 'Square',
       gimpUrl: this._createDefaultIcon('square')
     };
@@ -59,22 +59,21 @@ export class PatternBrushGallery extends BrushGallery {
       source: 'builtin',
       kind: this.kind
     });
-
   }
 
   _createDefaultIcon(shape) {
     const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 40;
+    canvas.width = canvas.height = 800;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#000';
+    ctx.fillStyle = '#000000';
     if (shape === 'circle') {
       ctx.beginPath();
-      ctx.arc(20, 20, 18, 0, Math.PI * 2);
+      ctx.arc(400, 400, 360, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      ctx.fillRect(2, 2, 36, 36);
+      ctx.fillRect(40, 40, 720, 720);
     }
-    return canvas.toDataURL();
+    return canvas.toDataURL('image/png');
   }
 
   addBrushToGallery(brush) {
@@ -89,6 +88,16 @@ export class PatternBrushGallery extends BrushGallery {
 
   getBuiltinAssetCount() {
     return super.getBuiltinAssetCount() + 2;
+  }
+
+
+
+  _isFolderBrush(brush) {
+    // Keep circle and square in the main list, not in a folder
+    if (brush?.id === 'builtin:pattern:circle' || brush?.id === 'builtin:pattern:square') {
+      return false;
+    }
+    return super._isFolderBrush(brush);
   }
 
   /**

@@ -197,6 +197,7 @@ export class UI {
       ['confettiParticlesSlider', this.elements.confettiParticlesSlider],
       ['confettiParticleSizeSlider', this.elements.confettiParticleSizeSlider],
       ['confettiSizeVariationSlider', this.elements.confettiSizeVariationSlider],
+      ['confettiOpacityRandomnessSlider', this.elements.confettiOpacityRandomnessSlider],
       ['confettiSpacingSlider', this.elements.confettiSpacingSlider],
       ['textPositionMultiplierSlider', this.elements.textPositionMultiplierSlider],
       ['textPositionOffsetSlider', this.elements.textPositionOffsetSlider]
@@ -514,10 +515,12 @@ menuBtn: document.getElementById('menuBtn'),
       confettiParticlesSlider: document.getElementById('confettiParticlesInput'),
       confettiParticleSizeSlider: document.getElementById('confettiParticleSizeInput'),
       confettiSizeVariationSlider: document.getElementById('confettiSizeVariationInput'),
+      confettiOpacityRandomnessSlider: document.getElementById('confettiOpacityRandomnessInput'),
       confettiSpacingSlider: document.getElementById('confettiSpacingInput'),
       confettiParticlesValue: document.getElementById('confettiParticlesValue'),
       confettiParticleSizeValue: document.getElementById('confettiParticleSizeValue'),
       confettiSizeVariationValue: document.getElementById('confettiSizeVariationValue'),
+      confettiOpacityRandomnessValue: document.getElementById('confettiOpacityRandomnessValue'),
       confettiSpacingValue: document.getElementById('confettiSpacingValue'),
 
       fillPatternScaleSlider: document.querySelector('.slider.fillPatternScale'),
@@ -576,6 +579,7 @@ menuBtn: document.getElementById('menuBtn'),
       confettiParticlesContainer: document.getElementById('confetti-particles'),
       confettiParticleSizeContainer: document.getElementById('confetti-particle-size'),
       confettiSizeVariationContainer: document.getElementById('confetti-size-variation'),
+      confettiOpacityRandomnessContainer: document.getElementById('confetti-opacity-randomness'),
       confettiSpacingContainer: document.getElementById('confetti-spacing'),
       inkThinningContainer: document.getElementById('ink-thinning'),
       fontContainer: document.getElementById('font-container'),
@@ -1193,6 +1197,7 @@ menuBtn: document.getElementById('menuBtn'),
     if (this.elements.confettiParticlesContainer) this.elements.confettiParticlesContainer.style.display = 'none';
     if (this.elements.confettiParticleSizeContainer) this.elements.confettiParticleSizeContainer.style.display = 'none';
     if (this.elements.confettiSizeVariationContainer) this.elements.confettiSizeVariationContainer.style.display = 'none';
+    if (this.elements.confettiOpacityRandomnessContainer) this.elements.confettiOpacityRandomnessContainer.style.display = 'none';
     if (this.elements.confettiSpacingContainer) this.elements.confettiSpacingContainer.style.display = 'none';
 
     sizeContainer.style.display = 'block';
@@ -1337,6 +1342,7 @@ menuBtn: document.getElementById('menuBtn'),
         if (this.elements.confettiParticlesContainer) this.elements.confettiParticlesContainer.style.display = 'block';
         if (this.elements.confettiParticleSizeContainer) this.elements.confettiParticleSizeContainer.style.display = 'block';
         if (this.elements.confettiSizeVariationContainer) this.elements.confettiSizeVariationContainer.style.display = 'block';
+        if (this.elements.confettiOpacityRandomnessContainer) this.elements.confettiOpacityRandomnessContainer.style.display = 'block';
         if (this.elements.confettiSpacingContainer) this.elements.confettiSpacingContainer.style.display = 'block';
         appState.toolPreviewVisible = true;
         appState.toolPreviewMode = 'confetti';

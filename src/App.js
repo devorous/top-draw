@@ -2463,6 +2463,9 @@ export class DrawingApp {
     bindConfettiOption(elements.confettiSizeVariationSlider, 'confettiSizeVariation', (value) => Number(value), (value) => {
       if (elements.confettiSizeVariationValue) elements.confettiSizeVariationValue.textContent = `${value}%`;
     });
+    bindConfettiOption(elements.confettiOpacityRandomnessSlider, 'confettiOpacityRandomness', (value) => Number(value), (value) => {
+      if (elements.confettiOpacityRandomnessValue) elements.confettiOpacityRandomnessValue.textContent = String(value);
+    });
     bindConfettiOption(elements.confettiSpacingSlider, 'confettiSpacing', (value) => Number(value), (value) => {
       if (elements.confettiSpacingValue) elements.confettiSpacingValue.textContent = String(value);
     });
@@ -2740,10 +2743,11 @@ export class DrawingApp {
     if (!brush) return null;
     // Strip non-serializable Image/HTMLImageElement references, keep data URLs
     const brushData = { type: brush.type, brushName: brush.brushName, fileName: brush.fileName, width: brush.width, height: brush.height };
-    if (brush.gimpUrl) brushData.gimpUrl = brush.gimpUrl;
     if (brush.svgContent) brushData.svgContent = brush.svgContent;
     if (brush.colorDepth !== undefined) brushData.colorDepth = brush.colorDepth;
     if (brush.gBrushes) brushData.gBrushes = brush.gBrushes.map(b => ({ gimpUrl: b.gimpUrl, width: b.width, height: b.height }));
+    // Only include gimpUrl on first selection, not on property changes to avoid rate limiting
+    // gimpUrl will be sent via the separate brush selection message
     return {
       brush: brushData,
       scale: this.self.patternScale ?? 100,

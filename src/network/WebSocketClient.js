@@ -1938,13 +1938,11 @@ export class WebSocketClient {
   broadcastBrush(brushData) {
     const payload = typeof brushData === 'string' ? brushData : JSON.stringify(brushData);
     this.send({ t: T.GMP, g: payload });
-    this.broadcastImageTool('imageBrush', payload);
   }
 
   broadcastPatternBrush(patternData) {
     const payload = typeof patternData === 'string' ? patternData : JSON.stringify(patternData);
     this.send({ t: T.GPT, g: payload });
-    this.broadcastImageTool('pattern', payload);
   }
 
   broadcastConfettiBrush(confettiData) {
