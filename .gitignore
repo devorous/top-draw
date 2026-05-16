@@ -23,3 +23,7 @@ testing/legacy
 wasm_src/target/
 testing/outputs/
 testing/diffs/
+
+# Generated sync-test output (per-run timestamped dirs)
+testing/sync_results/
+testing/puppeteer/sync_results/

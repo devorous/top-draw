@@ -1,23 +1,9 @@
 import { resetPreviewContext } from '../ui/StrokePreviewRenderer.js';
+import { Tool } from './BaseTool.js';
 
 /**
  * @fileoverview Pattern tool - Reveals a grid of images through a brush stroke.
  */
-
-/**
- * Base tool class.
- */
-class Tool {
-  constructor(name, board) {
-    this.name = name;
-    this.board = board;
-  }
-  activate() {}
-  deactivate() {}
-  onPointerDown(user, pos, e) {}
-  onPointerMove(user, pos, lastPos, e) {}
-  onPointerUp(user, pos, e) {}
-}
 
 export class PatternTool extends Tool {
   constructor(board) {

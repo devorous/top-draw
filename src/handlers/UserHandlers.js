@@ -417,21 +417,34 @@ export function setupUserHandlers(wsClient, app) {
     app.updateChatUserList();
     abortSyncIfRoomIsEmpty();
 
-    // Trigger sync on first USERS message after connecting
+    // Trigger sync once we see another user in a USERS payload. We don't burn
+    // _needsSync on the FIRST users message: it can land in a tiny window where
+    // the server has added us but hasn't yet flushed the joiner's name into
+    // getJoinedUsers() output for that broadcast. Wait for any USERS payload
+    // that actually contains another user; a short fallback timer covers the
+    // truly-alone case.
     if (app._needsSync) {
-      app._needsSync = false;
       const selfIdx = Number(app.sessionIndex);
       const otherUsers = data.users.filter(u => Number(u.sessionIndex) !== selfIdx);
-      
+
       if (otherUsers.length > 0) {
-        // Small delay to ensure we're fully joined and ready to receive
+        app._needsSync = false;
+        if (app._needsSyncFallbackTimer) {
+          clearTimeout(app._needsSyncFallbackTimer);
+          app._needsSyncFallbackTimer = null;
+        }
         setTimeout(() => {
           app.syncClient.requestSync();
         }, 500);
-      } else {
-        app.syncClient.hideOverlay();
-        app.syncClient.hasCompletedSync = true;
-        app.updateRecordingButtonState?.();
+      } else if (!app._needsSyncFallbackTimer) {
+        app._needsSyncFallbackTimer = setTimeout(() => {
+          app._needsSyncFallbackTimer = null;
+          if (!app._needsSync) return;
+          app._needsSync = false;
+          app.syncClient.hideOverlay();
+          app.syncClient.hasCompletedSync = true;
+          app.updateRecordingButtonState?.();
+        }, 2500);
       }
     }
   });

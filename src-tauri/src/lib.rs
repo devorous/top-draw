@@ -117,7 +117,7 @@ fn set_discord_activity(
   let room_url = snapshot
     .room_id
     .as_ref()
-    .map(|room_id| format!("https://ddraw.ca/go/?room={}", room_id.trim()))
+    .map(|room_id| format!("https://ddraw.ca/go/{}", room_id.trim()))
     .unwrap_or_else(|| DISCORD_DEFAULT_URL.to_string());
   let buttons = if snapshot.room_is_public && snapshot.room_id.is_some() {
     vec![

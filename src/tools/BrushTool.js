@@ -10,66 +10,7 @@ import {
   drawTaperedStroke,
   prepareStrokePreviewCanvas
 } from '../ui/StrokePreviewRenderer.js';
-
-/**
- * Base class for all interactive tools.
- * Defines the lifecycle methods for pointer interactions.
- */
-class Tool {
-  /**
-   * @param {string} name - The unique name of the tool.
-   * @param {Board} board - The board instance the tool operates on.
-   */
-  constructor(name, board) {
-    this.name = name;
-    this.board = board;
-  }
-
-  /**
-   * Called when the tool is selected.
-   * @returns {void}
-   */
-  activate() {}
-
-  /**
-   * Called when the tool is deselected.
-   * @returns {void}
-   */
-  deactivate() {
-    if (this._activeUser && this._activeUser.currentLine && this._activeUser.currentLine.length > 0) {
-      this.onPointerUp(this._activeUser);
-    }
-    this._activeUser = null;
-  }
-
-  /**
-   * Handles pointer down events.
-   * @param {User} user - The user performing the action.
-   * @param {Object} pos - The {x, y} coordinate of the event.
-   * @param {PointerEvent} e - The original pointer event.
-   * @returns {void}
-   */
-  onPointerDown(user, pos, e) {}
-
-  /**
-   * Handles pointer move events.
-   * @param {User} user - The user performing the action.
-   * @param {Object} pos - The current {x, y} coordinate.
-   * @param {Object} lastPos - The previous {x, y} coordinate.
-   * @param {PointerEvent} e - The original pointer event.
-   * @returns {void}
-   */
-  onPointerMove(user, pos, lastPos, e) {}
-
-  /**
-   * Handles pointer up events.
-   * @param {User} user - The user performing the action.
-   * @param {Object} pos - The {x, y} coordinate of the event.
-   * @param {PointerEvent} e - The original pointer event.
-   * @returns {void}
-   */
-  onPointerUp(user, pos, e) {}
-}
+import { Tool } from './BaseTool.js';
 
 /**
  * Brush tool for drawing smooth, pressure-sensitive lines.
@@ -91,6 +32,17 @@ export class BrushTool extends Tool {
    */
   activate() {
     // Sub-layers always draw source-over; blend mode is applied at composite time.
+  }
+
+  /**
+   * Finalizes any in-progress stroke when the tool is deselected.
+   * @override
+   */
+  deactivate() {
+    if (this._activeUser && this._activeUser.currentLine && this._activeUser.currentLine.length > 0) {
+      this.onPointerUp(this._activeUser);
+    }
+    this._activeUser = null;
   }
 
   /**

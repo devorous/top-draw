@@ -245,16 +245,11 @@
     };
   }
 
+  // Layout is computed in actual board coordinates. Cards distribute around
+  // the real board's perimeter at any size, instead of bunching around a
+  // hardcoded 1920x1080 silhouette.
   function getLayoutBoardMetrics() {
-    const board = getBoardMetrics();
-    return {
-      left: board.left,
-      top: board.top,
-      width: BASE_BOARD_WIDTH,
-      height: BASE_BOARD_HEIGHT,
-      right: board.left + BASE_BOARD_WIDTH,
-      bottom: board.top + BASE_BOARD_HEIGHT
-    };
+    return getBoardMetrics();
   }
 
   function getBoardScale() {
@@ -262,17 +257,18 @@
     return {
       originX: board.left,
       originY: board.top,
-      scaleX: board.width / BASE_BOARD_WIDTH,
-      scaleY: board.height / BASE_BOARD_HEIGHT
+      scaleX: 1,
+      scaleY: 1
     };
   }
 
   function projectPoint(point) {
     const { originX, originY, scaleX, scaleY } = getBoardScale();
-    const baseRight = originX + BASE_BOARD_WIDTH;
-    const baseBottom = originY + BASE_BOARD_HEIGHT;
-    const liveRight = originX + (BASE_BOARD_WIDTH * scaleX);
-    const liveBottom = originY + (BASE_BOARD_HEIGHT * scaleY);
+    const board = getBoardMetrics();
+    const baseRight = board.right;
+    const baseBottom = board.bottom;
+    const liveRight = board.right;
+    const liveBottom = board.bottom;
 
     const projectCoord = (value, baseMin, baseMax, liveMin, liveMax, scale) => {
       if (value < baseMin) return liveMin + ((value - baseMin) * OUTSIDE_OFFSET_SCALE);
@@ -288,10 +284,11 @@
 
   function projectCardPosition(slot) {
     const { originX, originY, scaleX, scaleY } = getBoardScale();
-    const baseRight = originX + BASE_BOARD_WIDTH;
-    const baseBottom = originY + BASE_BOARD_HEIGHT;
-    const liveRight = originX + (BASE_BOARD_WIDTH * scaleX);
-    const liveBottom = originY + (BASE_BOARD_HEIGHT * scaleY);
+    const board = getBoardMetrics();
+    const baseRight = board.right;
+    const baseBottom = board.bottom;
+    const liveRight = board.right;
+    const liveBottom = board.bottom;
 
     const cardRight = slot.x + CARD_WIDTH;
     const cardBottom = slot.y + CARD_HEIGHT;

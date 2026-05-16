@@ -3,29 +3,9 @@
  */
 
 import { getAppliedTextLayout, getUserTextLineHeight, paintTextRecord } from '../utils/textLayout.js';
+import { Tool } from './BaseTool.js';
 
 const TEXT_DIRTY_RECT_PADDING = 12;
-
-/**
- * Base tool class
- * @abstract
- */
-class Tool {
-  /**
-   * @param {string} name - Tool name
-   * @param {Object} board - Board instance
-   */
-  constructor(name, board) {
-    this.name = name;
-    this.board = board;
-  }
-
-  activate() {}
-  deactivate() {}
-  onPointerDown(user, pos, e) {}
-  onPointerMove(user, pos, lastPos, e) {}
-  onPointerUp(user, pos, e) {}
-}
 
 /**
  * Tool for placing and drawing text

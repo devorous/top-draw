@@ -2836,7 +2836,22 @@ wss.on('connection', async (ws, req) => {
             isVpnNetwork: !!ws.isVpnNetwork
           });
 
-          sendTo(ws, { t: T.CONNECT, u: sessionIndex, iid: createdUser.instanceId, authRole: ws.userRole, authGlobalRole: ws.globalRole || 0, authRoomRole: ws.roomRole || 0, authUsername: username });
+          sendTo(ws, {
+            t: T.CONNECT,
+            u: sessionIndex,
+            iid: createdUser.instanceId,
+            authRole: ws.userRole,
+            authGlobalRole: ws.globalRole || 0,
+            authRoomRole: ws.roomRole || 0,
+            authUsername: username,
+            roomFloatingGallerySeed: room.settings.floatingGallerySeed,
+            roomFloatingGalleryIncludeIds: room.settings.floatingGalleryIncludeIds || [],
+            roomFloatingGalleryExcludeIds: room.settings.floatingGalleryExcludeIds || [],
+            roomFloatingGalleryVoronoiJson: getFloatingGalleryVoronoiJson(
+              room.settings.floatingGalleryVoronoi || generateFloatingGalleryVoronoi(room.settings.floatingGallerySeed)
+            ),
+            roomBoardSize: room.settings.boardSize || '1080p'
+          });
 
           const allUsers = room.sessionManager.getJoinedUsers();
           const roomBroadcaster = createRoomBroadcaster(room);

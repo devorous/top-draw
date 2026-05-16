@@ -4,23 +4,11 @@ import {
   getPreviewPointAngle,
   prepareStrokePreviewCanvas
 } from '../ui/StrokePreviewRenderer.js';
+import { Tool } from './BaseTool.js';
 
 /**
  * @fileoverview Confetti brush - stamps randomized particles along a drawing path.
  */
-
-class Tool {
-  constructor(name, board) {
-    this.name = name;
-    this.board = board;
-  }
-
-  activate() {}
-  deactivate() {}
-  onPointerDown(user, pos, e) {}
-  onPointerMove(user, pos, lastPos, e) {}
-  onPointerUp(user, pos, e) {}
-}
 
 function mulberry32(seed) {
   return function nextRandom() {

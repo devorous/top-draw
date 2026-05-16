@@ -685,7 +685,11 @@ export class WebSocketClient {
         this.globalRole = data.authGlobalRole || 0;
         this.roomRole = data.authRoomRole || 0;
         if (this.onConnect) {
-          this.onConnect(this.sessionIndex, this.role, data.authUsername, data.iph);
+          const connectData = {
+            ...data,
+            floatingGalleryVoronoi: this._parseFloatingGalleryVoronoi(data.roomFloatingGalleryVoronoiJson)
+          };
+          this.onConnect(this.sessionIndex, this.role, data.authUsername, data.iph, connectData);
         }
         break;
 

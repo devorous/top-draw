@@ -2,51 +2,7 @@
  * @fileoverview Blur tool - stamps blurred pixels sampled from the active layer.
  */
 
-/**
- * Base tool class.
- */
-class Tool {
-  /**
-   * @param {string} name - The name of the tool.
-   * @param {Object} board - The drawing board instance.
-   */
-  constructor(name, board) {
-    this.name = name;
-    this.board = board;
-  }
-
-  /**
-   * Called when the tool is activated.
-   */
-  activate() {}
-
-  /**
-   * Called when the tool is deactivated.
-   */
-  deactivate() {}
-
-  /**
-   * @param {Object} user - The user performing the action.
-   * @param {Object} pos - The current pointer position.
-   * @param {Event} e - The pointer event.
-   */
-  onPointerDown(user, pos, e) {}
-
-  /**
-   * @param {Object} user - The user performing the action.
-   * @param {Object} pos - The current pointer position.
-   * @param {Object} lastPos - The previous pointer position.
-   * @param {Event} e - The pointer event.
-   */
-  onPointerMove(user, pos, lastPos, e) {}
-
-  /**
-   * @param {Object} user - The user performing the action.
-   * @param {Object} pos - The current pointer position.
-   * @param {Event} e - The pointer event.
-   */
-  onPointerUp(user, pos, e) {}
-}
+import { Tool } from './BaseTool.js';
 
 /**
  * Blur tool that behaves like an image brush: each stamp samples from a

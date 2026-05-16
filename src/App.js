@@ -1,7 +1,15 @@
 /** @fileoverview Main entry point for the drawing application, coordinating board, tools, UI, and networking. */
 
 import { T, ToolToEnum } from '../shared/MessageTypes.js';
-import { packColor } from '../shared/ColorUtils.js';
+import {
+  packColor,
+  hexToRgb as _hexToRgb,
+  rgbToHex as _rgbToHex,
+  rgbToHsl as _rgbToHsl,
+  hslToRgb as _hslToRgb,
+  shiftLightness as _shiftL,
+  blendColors as _blend
+} from '../shared/ColorUtils.js';
 import { User } from './User.js';
 import { Board } from './canvas/Board.js';
 import { TEXT_OVERLAY_DEFAULT_LIFETIME_MS, TEXT_OVERLAY_DEFAULT_FADE_MS } from './canvas/TextOverlay.js';
@@ -34,6 +42,7 @@ import { BoardViewer } from './ui/BoardViewer.js';
 import { SnapshotManager } from './remote/SnapshotManager.js';
 import { readQoiDimensions } from '../shared/qoi.js';
 import { loadAppPreferences, saveAppPreferences, THEME_BASE_COLORS } from './config/AppPreferences.js';
+import { applyRoomBoardSize } from './config/BoardSizes.js';
 import { getTextFontDefaults, loadTextFont, normalizeTextFont } from './config/textFonts.js';
 import {
   copyCanvasToSystemClipboard,
@@ -93,57 +102,6 @@ function withTimeout(promise, timeoutMs, message) {
   return Promise.race([promise, timeoutPromise]).finally(() => {
     clearTimeout(timeoutId);
   });
-}
-
-function _hexToRgb(hex) {
-  const c = hex.replace('#', '');
-  return [parseInt(c.slice(0, 2), 16), parseInt(c.slice(2, 4), 16), parseInt(c.slice(4, 6), 16)];
-}
-
-function _rgbToHex(r, g, b) {
-  return '#' + [r, g, b].map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
-}
-
-function _rgbToHsl(r, g, b) {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  if (max === min) return [0, 0, l * 100];
-  const d = max - min;
-  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-  let h;
-  if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
-  else if (max === g) h = (b - r) / d + 2;
-  else h = (r - g) / d + 4;
-  return [h / 6 * 360, s * 100, l * 100];
-}
-
-function _hslToRgb(h, s, l) {
-  h /= 360; s /= 100; l /= 100;
-  if (s === 0) { const v = l * 255; return [v, v, v]; }
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  const p = 2 * l - q;
-  const hue2 = (t) => {
-    if (t < 0) t += 1;
-    if (t > 1) t -= 1;
-    if (t < 1/6) return p + (q - p) * 6 * t;
-    if (t < 1/2) return q;
-    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-    return p;
-  };
-  return [hue2(h + 1/3) * 255, hue2(h) * 255, hue2(h - 1/3) * 255];
-}
-
-function _shiftL(hex, delta) {
-  const [r, g, b] = _hexToRgb(hex);
-  const [h, s, l] = _rgbToHsl(r, g, b);
-  return _rgbToHex(..._hslToRgb(h, s, Math.max(0, Math.min(100, l + delta))));
-}
-
-function _blend(hex1, hex2, t) {
-  const [r1, g1, b1] = _hexToRgb(hex1);
-  const [r2, g2, b2] = _hexToRgb(hex2);
-  return _rgbToHex(r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t);
 }
 
 const DERIVED_THEME_CSS_KEYS = [
@@ -587,7 +545,7 @@ export class DrawingApp {
     this.createSelf();
 
     // Wire up WebSocket callbacks now that this.self exists
-    this.wsClient.onConnect = (sessionIndex) => this.handleWSConnect(sessionIndex);
+    this.wsClient.onConnect = (sessionIndex, role, assignedUsername, ipHash, connectData) => this.handleWSConnect(sessionIndex, role, assignedUsername, ipHash, connectData);
     this.wsClient.onConnectResumed = (sessionIndex) => this.handleWSConnectResumed(sessionIndex);
     this.wsClient.onDisconnect = (code, reason) => this.handleWSDisconnect(code, reason);
     this.wsClient.onConnectionInterrupted = (code, reason) => this.handleWSInterrupted(code, reason);
@@ -3321,7 +3279,7 @@ export class DrawingApp {
    * @param {string} [assignedUsername] - Unique username assigned by server.
    * @param {string} [ipHash] - IP hash for grouping.
    */
-  handleWSConnect(sessionIndex, role, assignedUsername, ipHash) {
+  handleWSConnect(sessionIndex, role, assignedUsername, ipHash, connectData = null) {
     if (this.isOfflineMode) return;
     this.cancelMemoryCompaction();
 
@@ -3338,6 +3296,40 @@ export class DrawingApp {
 
     if (ipHash) {
       this.self.ipHash = ipHash;
+    }
+
+    const hasInitialRoomData = !!(
+      connectData?.roomBoardSize ||
+      connectData?.boardSize ||
+      connectData?.roomFloatingGallerySeed !== undefined ||
+      connectData?.roomFloatingGalleryIncludeIds !== undefined ||
+      connectData?.roomFloatingGalleryExcludeIds !== undefined ||
+      connectData?.floatingGalleryVoronoi !== undefined
+    );
+    const initialBoardSize = connectData?.roomBoardSize || connectData?.boardSize;
+    if (hasInitialRoomData) {
+      if (!this.currentRoomData) {
+        this.currentRoomData = { id: this.currentRoomId };
+      }
+      if (initialBoardSize) {
+        this.currentRoomData.boardSize = initialBoardSize;
+      }
+      if (connectData.roomFloatingGallerySeed !== undefined) {
+        this.currentRoomData.floatingGallerySeed = connectData.roomFloatingGallerySeed || 0;
+      }
+      if (connectData.roomFloatingGalleryIncludeIds !== undefined) {
+        this.currentRoomData.floatingGalleryIncludeIds = connectData.roomFloatingGalleryIncludeIds || [];
+      }
+      if (connectData.roomFloatingGalleryExcludeIds !== undefined) {
+        this.currentRoomData.floatingGalleryExcludeIds = connectData.roomFloatingGalleryExcludeIds || [];
+      }
+      if (connectData.floatingGalleryVoronoi !== undefined) {
+        this.currentRoomData.floatingGalleryVoronoi = connectData.floatingGalleryVoronoi || null;
+      }
+      appState.currentRoomData = this.currentRoomData;
+      if (initialBoardSize) {
+        applyRoomBoardSize(this, initialBoardSize, { showToast: false });
+      }
     }
 
     if (role !== undefined) {

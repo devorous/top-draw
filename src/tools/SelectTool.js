@@ -6,6 +6,7 @@
 import { Homography } from '../utils/homography.js';
 import { performHomographyTransform, imageDataToCanvas, calculateCornerBounds } from '../utils/homographyUtils.js';
 import { pointInHull, distanceBasedCulling } from '../utils/drawing.js';
+import { Tool } from './BaseTool.js';
 
 function cloneSelectionRect(rect) {
   if (!rect) return null;
@@ -15,26 +16,6 @@ function cloneSelectionRect(rect) {
 function clonePathPoints(path) {
   if (!Array.isArray(path)) return null;
   return path.map((point) => ({ x: point.x, y: point.y }));
-}
-
-/**
- * Base tool class for all interactive board tools.
- */
-class Tool {
-  /**
-   * @param {string} name - Unique identifier for the tool.
-   * @param {Board} board - The drawing board instance.
-   */
-  constructor(name, board) {
-    this.name = name;
-    this.board = board;
-  }
-
-  activate() {}
-  deactivate() {}
-  onPointerDown(user, pos, e) {}
-  onPointerMove(user, pos, lastPos, e) {}
-  onPointerUp(user, pos, e) {}
 }
 
 /**

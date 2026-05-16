@@ -18,29 +18,8 @@ import { RotateTool } from './RotateTool.js';
 import { FloodFillTool } from './FloodFillTool.js';
 
 /**
- * @fileoverview Tool management and base tool definition
+ * @fileoverview Tool management — assembles the registry of tool instances.
  */
-
-/**
- * Base tool class
- * @abstract
- */
-class Tool {
-  /**
-   * @param {string} name - Tool name
-   * @param {Object} board - Board instance
-   */
-  constructor(name, board) {
-    this.name = name;
-    this.board = board;
-  }
-
-  activate() {}
-  deactivate() {}
-  onPointerDown(user, pos, e) {}
-  onPointerMove(user, pos, lastPos, e) {}
-  onPointerUp(user, pos, e) {}
-}
 
 /**
  * Manages tool instances and switching between them

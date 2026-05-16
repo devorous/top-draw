@@ -3153,14 +3153,9 @@ export class Board {
     if (!this.layerManager || !layerDatas || layerDatas.length === 0) return;
     const [currentHeight, currentWidth] = this.dimensions;
     const snapshotDimensions = snapshotLayerDimensions(layerDatas) || { width: currentWidth, height: currentHeight };
-    if (
-      snapshotDimensions?.width > 0 &&
-      snapshotDimensions?.height > 0 &&
-      (this.dimensions[1] !== snapshotDimensions.width || this.dimensions[0] !== snapshotDimensions.height)
-    ) {
-      this.resizeBoard([snapshotDimensions.height, snapshotDimensions.width]);
-    }
-
+    // Room boardSize is authoritative — don't resize to match the snapshot's
+    // dimensions. Mismatched snapshots are clipped (or leave transparent
+    // margin) by the restoreWidth/restoreHeight math below.
     const [height, width] = this.dimensions;
     const restoreWidth = Math.min(width, snapshotDimensions.width);
     const restoreHeight = Math.min(height, snapshotDimensions.height);

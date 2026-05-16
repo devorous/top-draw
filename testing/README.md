@@ -89,18 +89,12 @@ The Puppeteer scripts now live in [testing/puppeteer](testing/puppeteer). The ro
 
 ## Test Files
 
-| File | Description | Status |
-|------|-------------|--------|
-| `puppeteer/single_stroke_pixel_test.js` | 1 user, 1 stroke, pixel stability | ✅ Passing | 0.000% |
-| `puppeteer/two_user_pixel_test.js` | 2 users, 1 stroke, sync comparison | ✅ Passing | 0.000% |
-| `puppeteer/three_user_concurrent_pixel_test.js` | 3 users concurrent, pairwise pixel comparison | ✅ Passing | 0.007-0.014% |
-| `puppeteer/basic_sync_test.js` | Simplified baseline: draw & join sync | ✅ Passing | Hash match |
-| `puppeteer/region_restore_sync_test.js` | Region restore + late-joiner sync (validates race condition fix) | ✅ Passing | Hash match |
-| `puppeteer/sequential_brush_sync_test.js` | 3 users draw sequentially (eliminates ordering issues) | Ready | N/A |
-| `puppeteer/multi_user_brush_sync_test.js` | 3 users draw concurrently with detailed diagnostics | Ready | N/A |
-| `puppeteer/diagnostic_sync_test.js` | Multi-user concurrent drawing with full state comparison | Ready | N/A |
-| `puppeteer/dual_user_sync_test.js` | Original: 2 bots, multiple strokes, all tools | ✅ Passing | Hash match |
-| `puppeteer/tool_sync_suite.js` | Multi-tool synchronization | Pending | N/A |
+| File | Description |
+|------|-------------|
+| `puppeteer/comprehensive_sync_suite.js` (via `npm run test:sync`) | Multi-user, all tools × multiple settings, concurrent draws + stroke-flood. Compares per-stroke bbox pixels. |
+| `puppeteer/visual_regression_suite.js` | Pinned-baseline regression test for tool rendering (single-user). Baselines in `testing/baselines/`. |
+| `puppeteer/region_restore_sync_test.js` | Region restore + late-joiner sync (validates async race condition fix) |
+| `puppeteer/history_region_restore_sync_test.js` | History menu snapshot apply + late-joiner sync |
 
 ## Running Tests Locally
 
@@ -110,33 +104,16 @@ The Puppeteer scripts now live in [testing/puppeteer](testing/puppeteer). The ro
 # Start dev server first (if not already running)
 npm run dev
 
-# In another terminal, run any test
-node testing/puppeteer/basic_sync_test.js         # Start here - baseline sync test
-node testing/puppeteer/region_restore_sync_test.js # Validates region restore race fix
-node testing/puppeteer/dual_user_sync_test.js      # Extended: multiple strokes, all tools
+# Comprehensive sync suite (preferred for sync regression)
+npm run test:sync
+
+# Pinned-baseline visual regression
+node testing/puppeteer/visual_regression_suite.js
+
+# Region-restore race condition tests
+node testing/puppeteer/region_restore_sync_test.js
+node testing/puppeteer/history_region_restore_sync_test.js
 ```
-
-### Test Progression
-
-**Phase 1: Baseline (✅ passing)**
-- `puppeteer/basic_sync_test.js` - User A draws 3 strokes, User B joins → validate hash match
-- `puppeteer/region_restore_sync_test.js` - Async region restore + late joiner → validate race fix
-- Validates: Core sync mechanism, async operations don't break sync
-
-**Phase 2: Multi-User Diagnostics (Ready to run)**
-- `puppeteer/sequential_brush_sync_test.js` - 3 users draw **sequentially** (eliminates ordering variance)
-- `puppeteer/multi_user_brush_sync_test.js` - 3 users draw **concurrently** with per-user stroke tracking
-- `puppeteer/diagnostic_sync_test.js` - 3 users with detailed state comparison (canvas hash + stroke counts + per-user breakdown)
-- Validates: Multi-user sync under different concurrency patterns
-- Shows: Which users diverge, where divergence occurs
-
-**Phase 3: Tool Variety (Pending)**
-- `puppeteer/tool_sync_suite.js` - Multiple users, all drawing tools (brush, pen, line, rect, etc.)
-- Validates: Tool-specific sync paths work across users
-
-**Phase 4: Server-Side Validator (Future)**
-- Puppeteer instance on server acts as "canonical canvas"
-- Periodically validates all clients match server-side render
 
 ## Diagnostic Output & Interpretation
 
@@ -181,7 +158,7 @@ Tests report:
 
 ## Adding New Tests
 
-Use the `basic_sync_test.js` as a template:
+Use `region_restore_sync_test.js` as a template for narrow scenario tests, or extend `comprehensive_sync_suite.js` if your case fits the tool × settings matrix.
 
 1. Create `new YourTest()` class with `async run()` method
 2. Use `spawnBot(i)` to create Puppeteer instances
@@ -198,7 +175,7 @@ class YourTest {
   }
 
   async spawnBot(i) {
-    // See basic_sync_test.js for full implementation
+    // See region_restore_sync_test.js for full implementation
   }
 
   async drawStroke(bot, x1, y1, x2, y2, color) {

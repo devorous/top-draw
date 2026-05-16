@@ -4,18 +4,7 @@
  */
 
 import * as wasm from '../wasm/ddraw_wasm.js';
-
-class Tool {
-  constructor(name, board) {
-    this.name = name;
-    this.board = board;
-  }
-  activate() {}
-  deactivate() {}
-  onPointerDown(user, pos, e) {}
-  onPointerMove(user, pos, lastPos, e) {}
-  onPointerUp(user, pos, e) {}
-}
+import { Tool } from './BaseTool.js';
 
 export class GlitchBlurTool extends Tool {
   constructor(board) {

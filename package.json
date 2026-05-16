@@ -11,7 +11,7 @@
     "vite": "vite",
     "preview": "vite preview",
     "server": "cross-env HOST=127.0.0.1 PORT=8030 node server/index.js",
-    "test:sync": "node testing/tool_sync_suite.js",
+    "test:sync": "node testing/run-sync.mjs",
     "server:stress": "cross-env HOST=127.0.0.1 PORT=8030 DISABLE_RATE_LIMITS=true node server/index.js",
     "snapshots:cleanup-legacy": "node server/scripts/delete-legacy-snapshots.js",
     "dev:stress": "concurrently \"npm run server:stress\" \"vite --open /go/\"",
