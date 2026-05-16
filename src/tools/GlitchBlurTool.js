@@ -17,6 +17,52 @@ export class GlitchBlurTool extends Tool {
 
   activate() {}
 
+  _getTargetLayers() {
+    const count = this.board.layerManager?.getLayerCount?.() ?? 0;
+    return Array.from({ length: Math.min(3, count) }, (_, layerIdx) => layerIdx);
+  }
+
+  _getSnapshotKey(userId, layerIdx) {
+    return `${userId}:${layerIdx}`;
+  }
+
+  _beginTargetLayerStrokes(user, userId) {
+    for (const layerIdx of this._getTargetLayers()) {
+      this.captureSnapshot(userId, layerIdx);
+      this.board.layerManager?.beginUserStroke(layerIdx, userId, user?.blendMode ?? 'source-over', user?.blendBakeMode);
+      this.board.applySelectionMaskClipForStroke?.(layerIdx, userId);
+    }
+  }
+
+  _endTargetLayerStrokes(user, userId) {
+    const timestamp = Date.now();
+    for (const layerIdx of this._getTargetLayers()) {
+      this.board.releaseSelectionMaskClipForStroke?.(layerIdx, userId);
+      this.board.layerManager?.commitUserStroke(layerIdx, userId, { timestamp });
+    }
+    this.board._compositeCommittedStrokeNow?.();
+  }
+
+  _markDirtyPathOnTargetLayers(user, points) {
+    if (!points?.length || !this.board.layerManager || !this.board.tileTracker) return;
+
+    const userId = user.id ?? this.board.app?.self?.id ?? 0;
+    const radius = user.size;
+    const collect = (layerIdx, pathPoints) => {
+      const active = this.board.layerManager.getLayerGroup(layerIdx)?.activeStrokeByUser?.get(userId);
+      if (active?.affectedTiles) {
+        this.board.tileTracker.collectTilesFromPath(pathPoints, radius, active.affectedTiles);
+      }
+    };
+
+    for (const layerIdx of this._getTargetLayers()) {
+      collect(layerIdx, points);
+      this.board.forEachMirrorRegion({ points }, (region) => {
+        collect(layerIdx, this.board.mirrorPointsToRegion(points, region));
+      });
+    }
+  }
+
   deactivate() {
     if (this._activeUser) {
       const lastPos = this.lastStampPos.get(this._activeUser.id);
@@ -38,10 +84,11 @@ export class GlitchBlurTool extends Tool {
   }
 
   captureSnapshot(userId, layerIdx) {
-    let canvas = this.snapshotCanvases.get(userId);
+    const key = this._getSnapshotKey(userId, layerIdx);
+    let canvas = this.snapshotCanvases.get(key);
     if (!canvas) {
       canvas = document.createElement('canvas');
-      this.snapshotCanvases.set(userId, canvas);
+      this.snapshotCanvases.set(key, canvas);
     }
     canvas.width = this.board.getWidth();
     canvas.height = this.board.getHeight();
@@ -52,21 +99,19 @@ export class GlitchBlurTool extends Tool {
   }
 
   clearSnapshot(userId) {
-    this.snapshotCanvases.delete(userId);
+    for (const layerIdx of this._getTargetLayers()) {
+      this.snapshotCanvases.delete(this._getSnapshotKey(userId, layerIdx));
+    }
   }
 
   onPointerDown(user, pos) {
     this._activeUser = user;
-    const activeLayerIdx = this._getTargetLayer(user);
+    const targetLayers = this._getTargetLayers();
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
     const rawBlurRadius = Number(user.blurRadius);
     user.blurRadius = Math.max(1, Math.min(25, Number.isFinite(rawBlurRadius) ? rawBlurRadius : 10));
 
-    this.captureSnapshot(userId, activeLayerIdx);
-    this.board.beginStroke(user);
-
-    const maskCtx = this.board.layerManager?.getUserStrokeContext(activeLayerIdx, userId);
-    if (!maskCtx) return;
+    this._beginTargetLayerStrokes(user, userId);
 
     user.blurBounds = {
       minX: Infinity, minY: Infinity,
@@ -86,24 +131,30 @@ export class GlitchBlurTool extends Tool {
     this.lastStampPos.set(userId, { x: pos.x, y: pos.y });
     this.strokePoints.set(userId, [{ x: pos.x, y: pos.y }]);
 
-    const stamp = this._computeGlitchStamp(pos.x, pos.y, user.size, user);
-    if (stamp) {
+    for (const layerIdx of targetLayers) {
+      const maskCtx = this.board.layerManager?.getUserStrokeContext(layerIdx, userId);
+      const stamp = this._computeGlitchStamp(pos.x, pos.y, user.size, user, layerIdx);
+      if (!maskCtx || !stamp) continue;
+
       this._applyStampToCtx(maskCtx, stamp, pos.x, pos.y, user.size, this._getStampAlpha(user));
-      this._expandBounds(user, pos.x, pos.y, user.size, user.blurRadius);
 
       // Apply to mirror regions using transforms (compute once, mirror the result)
       this.board.forEachMirrorRegion({ point: pos }, (region) => {
-        const mirrored = this.board.mirrorPointToRegion(pos, region);
-        this._expandBounds(user, mirrored.x, mirrored.y, user.size, user.blurRadius);
         this.board.withMirroredRegionTransform(maskCtx, region, () => {
           this._applyStampToCtx(maskCtx, stamp, pos.x, pos.y, user.size, this._getStampAlpha(user));
         });
       });
+    }
 
-      // Draw preview
-      if (previewCtx) {
-        this._drawStampPreview(previewCtx, pos.x, pos.y, user.size, this._getStampAlpha(user));
-      }
+    this._expandBounds(user, pos.x, pos.y, user.size, user.blurRadius);
+    this.board.forEachMirrorRegion({ point: pos }, (region) => {
+      const mirrored = this.board.mirrorPointToRegion(pos, region);
+      this._expandBounds(user, mirrored.x, mirrored.y, user.size, user.blurRadius);
+    });
+
+    // Draw preview
+    if (previewCtx) {
+      this._drawStampPreview(previewCtx, pos.x, pos.y, user.size, this._getStampAlpha(user));
     }
 
     this.board.requestUpdate();
@@ -121,8 +172,6 @@ export class GlitchBlurTool extends Tool {
     if (!user.mousedown || user.panning) return;
 
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
-    const maskCtx = this.board.layerManager?.getUserStrokeContext(this._getTargetLayer(user), userId);
-    if (!maskCtx) return;
 
     const prevStamp = this.lastStampPos.get(userId);
     if (prevStamp) {
@@ -134,7 +183,7 @@ export class GlitchBlurTool extends Tool {
 
       if (distance >= minSpacing) {
         const previewCtx = shouldRender ? (user === this.board.app?.self ? this.board.topCtx : user.context) : null;
-        this._stampAlongPath(user, prevStamp, pos, minSpacing, maskCtx, previewCtx);
+        this._stampAlongPath(user, prevStamp, pos, minSpacing, previewCtx);
         if (shouldRender) this.board.requestUpdate();
       }
     } else {
@@ -148,15 +197,12 @@ export class GlitchBlurTool extends Tool {
     // Track tile ownership
     const points = this.strokePoints.get(userId);
     if (points && points.length > 0) {
-      this.board.markDirtyPath(user, points, user.size);
-      this.board.forEachMirrorRegion({ points }, (region) => {
-        this.board.markDirtyPath(user, this.board.mirrorPointsToRegion(points, region), user.size);
-      });
+      this._markDirtyPathOnTargetLayers(user, points);
     }
     this.strokePoints.delete(userId);
 
     const strokeImage = this._captureLocalStrokeImage(user, userId);
-    this.board.endStroke(user);
+    this._endTargetLayerStrokes(user, userId);
     this._broadcastLocalStrokeImage(strokeImage);
 
     this.lastStampPos.delete(userId);
@@ -174,7 +220,7 @@ export class GlitchBlurTool extends Tool {
   _captureLocalStrokeImage(user, userId) {
     if (user !== this.board.app?.self) return null;
 
-    const active = this.board.layerManager?.getActiveStroke(this._getTargetLayer(user), userId);
+    const active = this.board.layerManager?.getActiveStroke(0, userId);
     const sourceCanvas = active?.canvas;
     if (!sourceCanvas) return null;
 
@@ -287,11 +333,11 @@ export class GlitchBlurTool extends Tool {
     }
   }
 
-  _computeGlitchStamp(x, y, size, user) {
+  _computeGlitchStamp(x, y, size, user, layerIdx = this._getTargetLayer(user)) {
     const radius = size;
     const blurRadius = user.blurRadius || 10;
     const userId = user.id ?? this.board.app?.self?.id ?? 0;
-    const sourceCanvas = this.snapshotCanvases.get(userId) || this.board.mainCanvas || this.board.mainCtx?.canvas;
+    const sourceCanvas = this.snapshotCanvases.get(this._getSnapshotKey(userId, layerIdx)) || this.board.mainCanvas || this.board.mainCtx?.canvas;
 
     if (!sourceCanvas) return null;
 
@@ -346,7 +392,7 @@ export class GlitchBlurTool extends Tool {
     const width = Math.ceil((radius + margin) * 2);
     const height = Math.ceil((radius + margin) * 2);
 
-    this.board.expandDirtyRect(user, left, top, width, height);
+    this.board.expandDirtyRectAllLayers(user, left, top, width, height);
 
     if (user.blurBounds) {
       user.blurBounds.minX = Math.min(user.blurBounds.minX, left);
@@ -356,7 +402,7 @@ export class GlitchBlurTool extends Tool {
     }
   }
 
-  _stampAlongPath(user, from, to, spacing, maskCtx, previewCtx) {
+  _stampAlongPath(user, from, to, spacing, previewCtx) {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
@@ -372,21 +418,31 @@ export class GlitchBlurTool extends Tool {
       const x = from.x + dx * t;
       const y = from.y + dy * t;
 
-      const stamp = this._computeGlitchStamp(x, y, user.size, user);
-      if (stamp) {
+      let stamped = false;
+      for (const layerIdx of this._getTargetLayers()) {
+        const userId = user.id ?? this.board.app?.self?.id ?? 0;
+        const maskCtx = this.board.layerManager?.getUserStrokeContext(layerIdx, userId);
+        const stamp = this._computeGlitchStamp(x, y, user.size, user, layerIdx);
+        if (!maskCtx || !stamp) continue;
+
         this._applyStampToCtx(maskCtx, stamp, x, y, user.size, this._getStampAlpha(user));
-        this._expandBounds(user, x, y, user.size, user.blurRadius);
+        stamped = true;
 
         // Apply to mirror regions using transforms
         this.board.forEachMirrorRegion({ point: { x, y } }, (region) => {
-          const mirrored = this.board.mirrorPointToRegion({ x, y }, region);
-          this._expandBounds(user, mirrored.x, mirrored.y, user.size, user.blurRadius);
           this.board.withMirroredRegionTransform(maskCtx, region, () => {
             this._applyStampToCtx(maskCtx, stamp, x, y, user.size, this._getStampAlpha(user));
           });
         });
+      }
 
-        // Draw preview
+      if (stamped) {
+        this._expandBounds(user, x, y, user.size, user.blurRadius);
+        this.board.forEachMirrorRegion({ point: { x, y } }, (region) => {
+          const mirrored = this.board.mirrorPointToRegion({ x, y }, region);
+          this._expandBounds(user, mirrored.x, mirrored.y, user.size, user.blurRadius);
+        });
+
         if (previewCtx) {
           this._drawStampPreview(previewCtx, x, y, user.size, this._getStampAlpha(user));
         }

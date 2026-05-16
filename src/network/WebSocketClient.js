@@ -5,11 +5,16 @@
 
 import { T, Tool, ToolNames, ToolToEnum } from '../../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../../shared/ColorUtils.js';
+import { BOARD_SIZE_PRESETS } from '../../shared/boardSizes.js';
 import { normalizeTextFont } from '../config/textFonts.js';
 import { ClientIdentity } from './ClientIdentity.js';
 
 function hasOwnField(message, key) {
   return !!message && Object.prototype.hasOwnProperty.call(message, key);
+}
+
+function normalizeRoomBoardSize(boardSize) {
+  return BOARD_SIZE_PRESETS[boardSize] ? boardSize : undefined;
 }
 
 // ps wire format: quantized to 0.1px, delta-encoded within each packet.
@@ -687,6 +692,7 @@ export class WebSocketClient {
         if (this.onConnect) {
           const connectData = {
             ...data,
+            roomBoardSize: normalizeRoomBoardSize(data.roomBoardSize),
             floatingGalleryVoronoi: this._parseFloatingGalleryVoronoi(data.roomFloatingGalleryVoronoiJson)
           };
           this.onConnect(this.sessionIndex, this.role, data.authUsername, data.iph, connectData);
@@ -806,7 +812,7 @@ export class WebSocketClient {
             ? data.roomFloatingGalleryExcludeIds
             : [],
           floatingGalleryVoronoi: this._parseFloatingGalleryVoronoi(data.roomFloatingGalleryVoronoiJson),
-          boardSize: data.roomBoardSize || '1080p'
+          boardSize: normalizeRoomBoardSize(data.roomBoardSize)
         });
         break;
 

@@ -461,74 +461,75 @@ export function setupUserHandlers(wsClient, app) {
       }
     }
 
-    // Initialize currentRoomData if it doesn't exist
-    if (!app.currentRoomData) {
-      app.currentRoomData = { id: app.currentRoomId };
-    }
-
-    // Update currentRoomData with new settings
+    const currentRoomData = app.currentRoomData || { id: app.currentRoomId };
+    const roomDataUpdates = {};
     if (data.backgroundColor) {
-      app.currentRoomData.backgroundColor = data.backgroundColor;
+      roomDataUpdates.backgroundColor = data.backgroundColor;
     }
     if (data.locked !== undefined) {
-      app.currentRoomData.locked = data.locked;
+      roomDataUpdates.locked = data.locked;
     }
     if (data.maxUsers !== undefined) {
-      app.currentRoomData.maxUsers = data.maxUsers;
+      roomDataUpdates.maxUsers = data.maxUsers;
     }
     if (data.modInactiveImmune !== undefined) {
-      app.currentRoomData.modInactiveImmune = data.modInactiveImmune;
+      roomDataUpdates.modInactiveImmune = data.modInactiveImmune;
     }
     if (data.joinPolicy !== undefined) {
-      app.currentRoomData.joinPolicy = data.joinPolicy;
+      roomDataUpdates.joinPolicy = data.joinPolicy;
     }
     if (data.obscureRequiresRegistered !== undefined) {
-      app.currentRoomData.obscureRequiresRegistered = data.obscureRequiresRegistered;
+      roomDataUpdates.obscureRequiresRegistered = data.obscureRequiresRegistered;
       board.refreshObscureRegionAccess?.();
     }
     if (data.autoMuteGuests !== undefined) {
-      app.currentRoomData.autoMuteGuests = data.autoMuteGuests;
+      roomDataUpdates.autoMuteGuests = data.autoMuteGuests;
     }
     if (data.autoMuteVpnUsers !== undefined) {
-      app.currentRoomData.autoMuteVpnUsers = data.autoMuteVpnUsers;
+      roomDataUpdates.autoMuteVpnUsers = data.autoMuteVpnUsers;
     }
     if (data.hideChatNotifications !== undefined) {
-      app.currentRoomData.hideChatNotifications = data.hideChatNotifications;
+      roomDataUpdates.hideChatNotifications = data.hideChatNotifications;
     }
     if (data.textOverlayLifetimeMs !== undefined) {
-      app.currentRoomData.textOverlayLifetimeMs = data.textOverlayLifetimeMs;
+      roomDataUpdates.textOverlayLifetimeMs = data.textOverlayLifetimeMs;
       board.textOverlay?.setRoomLifetime?.(data.textOverlayLifetimeMs);
     }
     if (data.dedicatedReplayUser !== undefined) {
-      app.currentRoomData.dedicatedReplayUser = data.dedicatedReplayUser;
+      roomDataUpdates.dedicatedReplayUser = data.dedicatedReplayUser;
     }
     if (data.electedUploader !== undefined) {
-      app.currentRoomData.electedUploader = data.electedUploader;
+      roomDataUpdates.electedUploader = data.electedUploader;
     }
     if (data.private !== undefined) {
-      app.currentRoomData.private = data.private;
+      roomDataUpdates.private = data.private;
     }
     if (data.floatingGallerySeed !== undefined) {
-      app.currentRoomData.floatingGallerySeed = data.floatingGallerySeed;
+      roomDataUpdates.floatingGallerySeed = data.floatingGallerySeed;
     }
     if (data.floatingGalleryIncludeIds !== undefined) {
-      app.currentRoomData.floatingGalleryIncludeIds = data.floatingGalleryIncludeIds || [];
+      roomDataUpdates.floatingGalleryIncludeIds = data.floatingGalleryIncludeIds || [];
     }
     if (data.floatingGalleryExcludeIds !== undefined) {
-      app.currentRoomData.floatingGalleryExcludeIds = data.floatingGalleryExcludeIds || [];
+      roomDataUpdates.floatingGalleryExcludeIds = data.floatingGalleryExcludeIds || [];
     }
     if (data.floatingGalleryVoronoi !== undefined) {
-      app.currentRoomData.floatingGalleryVoronoi = data.floatingGalleryVoronoi || null;
+      roomDataUpdates.floatingGalleryVoronoi = data.floatingGalleryVoronoi || null;
     }
     if (data.boardSize && BOARD_SIZE_PRESETS[data.boardSize]) {
-      applyRoomBoardSize(app, data.boardSize);
+      roomDataUpdates.boardSize = data.boardSize;
+      applyRoomBoardSize(app, data.boardSize, { showToast: !!app.connected });
     }
 
     // Re-evaluate on any settings change that could affect upload eligibility
     app._updatePreviewUploadEligibility();
     // Mirror is not persisted to DB, but update it locally
-    app.currentRoomData.mirror = data.mirror;
-    app.currentRoomData.mirrorRegions = data.mirrorRegions || [];
+    app.currentRoomData = {
+      ...currentRoomData,
+      ...roomDataUpdates,
+      mirror: data.mirror,
+      mirrorRegions: data.mirrorRegions || []
+    };
     appState.currentRoomData = app.currentRoomData;
     app.updateRoomSettingsButtonVisibility?.();
     board.refreshObscureRegionAccess?.();

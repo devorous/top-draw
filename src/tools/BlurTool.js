@@ -54,9 +54,12 @@ export class BlurTool extends Tool {
     canvas.height = this.board.getHeight();
     const ctx = canvas.getContext('2d');
 
-    // Snapshot only the target layer so upper-layer pixels cannot be blurred
-    // into this layer's stroke.
-    this.board.layerManager.compositeLayerRange(ctx, layerIdx, layerIdx + 1, null);
+    // Include the room background in the blur source so transparent layer
+    // pixels blur against the same color the room actually displays.
+    // Snapshot only the target layer above the room background so upper-layer
+    // pixels cannot be blurred into this layer's stroke.
+    const backgroundColor = this.board.roomBackgroundColor || this.board.backgroundColor || [255, 255, 255, 1];
+    this.board.layerManager.compositeLayerRange(ctx, layerIdx, layerIdx + 1, backgroundColor);
   }
 
   clearSnapshot(userId) {

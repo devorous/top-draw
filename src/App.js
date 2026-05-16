@@ -3308,28 +3308,29 @@ export class DrawingApp {
     );
     const initialBoardSize = connectData?.roomBoardSize || connectData?.boardSize;
     if (hasInitialRoomData) {
-      if (!this.currentRoomData) {
-        this.currentRoomData = { id: this.currentRoomId };
-      }
+      const nextRoomData = {
+        ...(this.currentRoomData || { id: this.currentRoomId })
+      };
       if (initialBoardSize) {
-        this.currentRoomData.boardSize = initialBoardSize;
+        nextRoomData.boardSize = initialBoardSize;
       }
       if (connectData.roomFloatingGallerySeed !== undefined) {
-        this.currentRoomData.floatingGallerySeed = connectData.roomFloatingGallerySeed || 0;
+        nextRoomData.floatingGallerySeed = connectData.roomFloatingGallerySeed || 0;
       }
       if (connectData.roomFloatingGalleryIncludeIds !== undefined) {
-        this.currentRoomData.floatingGalleryIncludeIds = connectData.roomFloatingGalleryIncludeIds || [];
+        nextRoomData.floatingGalleryIncludeIds = connectData.roomFloatingGalleryIncludeIds || [];
       }
       if (connectData.roomFloatingGalleryExcludeIds !== undefined) {
-        this.currentRoomData.floatingGalleryExcludeIds = connectData.roomFloatingGalleryExcludeIds || [];
+        nextRoomData.floatingGalleryExcludeIds = connectData.roomFloatingGalleryExcludeIds || [];
       }
       if (connectData.floatingGalleryVoronoi !== undefined) {
-        this.currentRoomData.floatingGalleryVoronoi = connectData.floatingGalleryVoronoi || null;
+        nextRoomData.floatingGalleryVoronoi = connectData.floatingGalleryVoronoi || null;
       }
-      appState.currentRoomData = this.currentRoomData;
+      this.currentRoomData = nextRoomData;
       if (initialBoardSize) {
         applyRoomBoardSize(this, initialBoardSize, { showToast: false });
       }
+      appState.currentRoomData = { ...this.currentRoomData };
     }
 
     if (role !== undefined) {
@@ -5052,7 +5053,9 @@ export class DrawingApp {
    * @private
    */
   _updateBlurCannotDraw() {
-    const cannotDraw = (this.self.tool === 'blur' || this.self.tool === 'glitchBlur') && this.self.activeLayer !== 0;
+    const cannotDraw =
+      (this.self.tool === 'blur' && this.self.activeLayer !== 0) ||
+      (this.self.tool === 'glitchBlur' && (this.self.activeLayer < 0 || this.self.activeLayer > 2));
     this._blurCannotDraw = cannotDraw;
     this._updateCursorDrawState();
   }

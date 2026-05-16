@@ -27,6 +27,7 @@ import { issueModAction, revokeModAction, revokeMatchingModActions, updateModAct
 import { ENABLE_SERVER_REPLAY_DB } from './replayConfig.js';
 import { T, Tool, ToolNames, ToolToEnum } from '../shared/MessageTypes.js';
 import { packColor, unpackColor } from '../shared/ColorUtils.js';
+import { BOARD_SIZE_PRESETS } from '../shared/boardSizes.js';
 import { SessionManager, Role, RoleNames } from './SessionManager.js';
 import { SyncCoordinator } from './SyncCoordinator.js';
 import { RoomManager } from './RoomManager.js';
@@ -98,6 +99,7 @@ const WS_ADMIN_LIMIT = { max: 60, windowMs: 60 * 1000, blockMs: 5 * 60 * 1000 };
 const VALID_ROOM_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 const DEFAULT_ROOM_ID = 'lobby';
 const ROOM_JOIN_POLICIES = new Set(['open', 'registered', 'trusted']);
+const VALID_ROOM_BOARD_SIZES = new Set(Object.keys(BOARD_SIZE_PRESETS));
 const ROOM_OVERLAY_SESSION_INDEX = 0xffffffff;
 const ADMIN_COLLECTIONS = new Set([
   'users',
@@ -1740,8 +1742,12 @@ function buildSettingsPayload(room) {
       room.settings.floatingGalleryVoronoi || generateFloatingGalleryVoronoi(room.settings.floatingGallerySeed)
     ),
     electedUploader: room._electedUploader || '',
-    roomBoardSize: room.settings.boardSize || '1080p'
+    roomBoardSize: room.settings.boardSize
   };
+}
+
+function hasValidRoomBoardSize(room) {
+  return VALID_ROOM_BOARD_SIZES.has(room?.settings?.boardSize);
 }
 
 function normalizeImageToolType(type) {
@@ -2700,6 +2706,14 @@ wss.on('connection', async (ws, req) => {
       switch (data.t) {
         case T.CONNECT: {
           await room.ensureLoaded();
+          if (!hasValidRoomBoardSize(room)) {
+            console.error(`[Room.CONNECT] Refusing join for room "${room.id}": invalid boardSize "${room.settings?.boardSize}" after settings load`);
+            sendTo(ws, { t: T.MOD_RESULT, a: false, authError: 'Room settings failed to load. Please try again.' });
+            ws.close(1011, 'Room settings unavailable');
+            return;
+          }
+
+          const initialSettingsPayload = buildSettingsPayload(room);
 
           // Same-session resume: if the client supplied a resumeKey matching a
           // pending-disconnect entry in this room, reattach to the original
@@ -2715,6 +2729,7 @@ wss.on('connection', async (ws, req) => {
               ws.sessionIndex = pending.sessionIndex;
               ws.resumeKey = incomingResumeKey;
               console.log(`[CONNECT] Resumed sessionIndex=${pending.sessionIndex} as "${resumedUser.name}" via resumeKey`);
+              sendTo(ws, initialSettingsPayload);
               sendTo(ws, {
                 t: T.CONNECT_RESUMED,
                 u: pending.sessionIndex,
@@ -2775,6 +2790,8 @@ wss.on('connection', async (ws, req) => {
               return;
             }
           }
+
+          sendTo(ws, initialSettingsPayload);
 
           const sessionIndex = room.sessionManager.allocateSessionIndex();
           ws.sessionIndex = sessionIndex;
@@ -2850,7 +2867,7 @@ wss.on('connection', async (ws, req) => {
             roomFloatingGalleryVoronoiJson: getFloatingGalleryVoronoiJson(
               room.settings.floatingGalleryVoronoi || generateFloatingGalleryVoronoi(room.settings.floatingGallerySeed)
             ),
-            roomBoardSize: room.settings.boardSize || '1080p'
+            roomBoardSize: room.settings.boardSize
           });
 
           const allUsers = room.sessionManager.getJoinedUsers();
@@ -2868,7 +2885,7 @@ wss.on('connection', async (ws, req) => {
             sendUsersToClient(ws, room, allUsers);
           }
 
-          sendTo(ws, buildSettingsPayload(room));
+          sendTo(ws, initialSettingsPayload);
           sendImageToolStateToClient(ws, room, allUsers);
           sendActiveOverlaysToClient(ws, room);
 
